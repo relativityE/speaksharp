@@ -25,6 +25,9 @@ jobs:
     timeout-minutes: 2
     outputs:
       release_sha: ${{ steps.served.outputs.release_sha }}
+      # Which HOLD it is (binding-missing | production-unreadable | served-mismatch), so canary-result can name it.
+      reason: ${{ steps.served.outputs.reason }}
+      observed_sha: ${{ steps.served.outputs.observed_sha }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -40,6 +43,11 @@ jobs:
 
   migration-readiness:
     needs: release-binding
+    # The database password is only ever handed to this job on protected main, inside the protected
+    # production-db environment that every other password-using job runs in. A workflow_dispatch from another
+    # branch runs that branch's copy of this file, so without both bindings a pushed branch could read it.
+    if: ${{ github.ref == 'refs/heads/main' }}
+    environment: production-db
     name: read-only runtime migration readiness
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -50,6 +58,10 @@ jobs:
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_PROJECT_ID: ${{ vars.SUPABASE_PROJECT_ID }}
+      # The selected injection path #1738 left open: the guard below refuses without it, so every canary that
+      # got past the release binding would stop here. Read-only use (`migration list`); the guard still fails
+      # closed when the secret is not visible to this job.
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -258,6 +270,9 @@ jobs:
       - name: Require truthful terminal state
         env:
           BINDING_RESULT: ${{ needs.release-binding.result }}
+          BINDING_REASON: ${{ needs.release-binding.outputs.reason }}
+          OBSERVED_SHA: ${{ needs.release-binding.outputs.observed_sha }}
+          EXPECTED_SHA: ${{ vars.PRODUCTION_RELEASE_SHA }}
           READINESS_RESULT: ${{ needs.migration-readiness.result }}
           MIGRATION_READY: ${{ needs.migration-readiness.outputs.ready }}
           PRODUCT_LANES_RESULT: ${{ needs.canary-check.result }}
@@ -268,8 +283,24 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$BINDING_RESULT" != 'success' ]; then
-            echo '## HOLD — last-served release binding missing, stale or unverified; NO product qualification ran' >> "$GITHUB_STEP_SUMMARY"
-            echo '::error::CANARY HELD — reconcile PRODUCTION_RELEASE_SHA with the verified served release.'
+            # Name WHICH hold it is. "Doesn't match" was printed for an EMPTY variable from 27 Oct to 10 Nov.
+            case "${BINDING_REASON:-}" in
+              binding-missing)
+                why='PRODUCTION_RELEASE_SHA is not set (empty or not a full 40-character SHA); production was not read'
+                todo='Owner action: set the repository variable PRODUCTION_RELEASE_SHA to the release production serves (window.__APP_RELEASE__), per RELEASE_PROCESS.md.' ;;
+              served-mismatch)
+                why="production serves ${OBSERVED_SHA:-an unknown release}, but PRODUCTION_RELEASE_SHA is ${EXPECTED_SHA:-empty}"
+                todo='Owner action: after a verified promotion, advance PRODUCTION_RELEASE_SHA to the served release; otherwise investigate the drift.' ;;
+              production-unreadable)
+                why='the release production serves could not be read'
+                todo='Check that the production site is up and carries exactly one window.__APP_RELEASE__ marker.' ;;
+              *)
+                why='the release binding job did not report a reason'
+                todo='Open the release-binding job log.' ;;
+            esac
+            echo "## HOLD — last-served release binding: $why; NO product qualification ran" >> "$GITHUB_STEP_SUMMARY"
+            echo "- $todo" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::CANARY HELD — $why. $todo"
             exit 1
           fi
           if [ "$READINESS_RESULT" != 'success' ]; then
