@@ -204,7 +204,7 @@ async function submitOpenDialog(
     // #1539 / #1491 6123627243: absent, valid and MALFORMED are distinct — a malformed stored link is never "no link".
     const diagnosticRef = readStoredDiagnosticRef(metadata);
     return { id: row ? String(row.id) : null, sessionId: storedSession, diagnosticRef, storedRows: rows.length,
-        insertKeys: keys.length, insertRequests: inserts.insertRequests, acknowledged };
+        insertKeys: keys.length, insertRequests: inserts.insertRequests, unattributedInserts: inserts.unattributedInserts, acknowledged };
 }
 
 async function finishReceipt(

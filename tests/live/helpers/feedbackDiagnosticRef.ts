@@ -67,7 +67,8 @@ export function olderTakeBindingVerdict(
  */
 export type StoredFeedbackReport = {
     id: string | null; sessionId: string | null; diagnosticRef: StoredDiagnosticRef; storedRows: number;
-    insertKeys: number; insertRequests: number;
+    /** Distinct valid keys, insert POSTs, and inserted rows (or whole bodies) that carried NO valid key (Sam, #1811 RETURN item 1). */
+    insertKeys: number; insertRequests: number; unattributedInserts: number;
 };
 /** The receipt surface the scenario rows are written to (`RwtReceipt.row`). */
 export type ReceiptRowSink = { row(step: string, verdict: 'PASS' | 'FAIL' | 'HOLD', detail: string, evidence?: Record<string, number | string | boolean | null>): void };
@@ -77,17 +78,26 @@ export const FEEDBACK_INSERT_URL = /\/rest\/v1\/user_issue_reports(?:\?|$)/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * The idempotency key(s) an insert body carries: the row's `idempotency_key` column (migration 20260904150000, a uuid),
- * read from a single-row object or each row of an array. Anything else carries no key.
+ * An insert body's attribution: the distinct `idempotency_key` values (migration 20260904150000, a uuid) its rows carry, and how
+ * many inserted rows carry NONE. A row with a missing, null, non-string or malformed key is unattributed; so is a body that is not a
+ * JSON object or a non-empty array of objects (unreadable, malformed or empty), counted once. An unattributed insert could store a
+ * report the keyed read never sees, so stored-once fails closed on it (Sam, #1811 RETURN item 1).
  */
-export function idempotencyKeysOfInsertBody(body: unknown): string[] {
+export function classifyInsertBody(body: unknown): { keys: string[]; unattributed: number } {
     const rows = Array.isArray(body) ? body : [body];
+    if (rows.length === 0) return { keys: [], unattributed: 1 };
     const keys: string[] = [];
+    let unattributed = 0;
     for (const r of rows) {
-        const key = r && typeof r === 'object' ? (r as { idempotency_key?: unknown }).idempotency_key : undefined;
-        if (typeof key === 'string' && UUID.test(key) && !keys.includes(key)) keys.push(key);
+        const key = r && typeof r === 'object' && !Array.isArray(r) ? (r as { idempotency_key?: unknown }).idempotency_key : undefined;
+        if (typeof key === 'string' && UUID.test(key)) { if (!keys.includes(key)) keys.push(key); } else unattributed += 1;
     }
-    return keys;
+    return { keys, unattributed };
+}
+
+/** The valid idempotency key(s) an insert body carries (see `classifyInsertBody`). */
+export function idempotencyKeysOfInsertBody(body: unknown): string[] {
+    return classifyInsertBody(body).keys;
 }
 
 
@@ -97,24 +107,39 @@ export function idempotencyKeysOfInsertBody(body: unknown): string[] {
  */
 export class FeedbackInsertObserver {
     insertRequests = 0;
+    /** Inserted rows (or whole unreadable bodies) that carried no valid idempotency key. */
+    unattributedInserts = 0;
     readonly keys: string[] = [];
     private readonly handler = (r: Request) => {
         if (r.method() !== 'POST' || !FEEDBACK_INSERT_URL.test(r.url())) return;
+        this.observeBody(() => r.postDataJSON());
+    };
+    /** One insert POST's body (a reader, because Playwright's parse can throw). Exposed for the unit controls. */
+    observeBody(read: () => unknown): void {
         this.insertRequests += 1;
         let body: unknown = null;
-        try { body = r.postDataJSON(); } catch { body = null; }
-        for (const k of idempotencyKeysOfInsertBody(body)) if (!this.keys.includes(k)) this.keys.push(k);
-    };
-    constructor(private readonly context: BrowserContext) { context.on('request', this.handler); }
-    stop(): void { this.context.off('request', this.handler); }
+        try { body = read(); } catch { body = null; }
+        const { keys, unattributed } = classifyInsertBody(body);
+        this.unattributedInserts += unattributed;
+        for (const k of keys) if (!this.keys.includes(k)) this.keys.push(k);
+    }
+    constructor(private readonly context: BrowserContext | null) { context?.on('request', this.handler); }
+    stop(): void { this.context?.off('request', this.handler); }
 }
 
 const UNBOUND_DETAIL = 'no feedback insert carrying an idempotency key was observed for this submit, so no stored report is bound to it';
-const insertEvidence = (stored: StoredFeedbackReport) => ({ storedRows: stored.storedRows, insertKeys: stored.insertKeys, insertRequests: stored.insertRequests });
-/** Stored-once: HOLD with no observed key; FAIL when one submit carried more than one key or the key holds other than one row. */
+const UNATTRIBUTED_DETAIL = 'a feedback insert for this submit carried no valid idempotency key, so a report it stored would be invisible to the keyed read';
+const insertEvidence = (stored: StoredFeedbackReport) => ({ storedRows: stored.storedRows, insertKeys: stored.insertKeys,
+    insertRequests: stored.insertRequests, unattributedInserts: stored.unattributedInserts });
+/**
+ * Stored-once, fail closed: FAIL on any unattributed insert (a missing, null or malformed key, or an unreadable body), even beside a
+ * keyed one; HOLD when no insert was observed at all; FAIL when one submit carried more than one key or its key holds other than one
+ * row; PASS only for exactly one key, every insert attributed to it, and exactly one stored row under it.
+ */
 function storedOnceRow(receipt: ReceiptRowSink, step: string, stored: StoredFeedbackReport, passDetail: string): void {
+    if (stored.unattributedInserts !== 0) { receipt.row(step, 'FAIL', UNATTRIBUTED_DETAIL, insertEvidence(stored)); return; }
     if (stored.insertKeys === 0) { receipt.row(step, 'HOLD', UNBOUND_DETAIL, insertEvidence(stored)); return; }
-    const once = !(stored.insertKeys > 1) && stored.storedRows === 1 && Boolean(stored.id);
+    const once = stored.insertKeys === 1 && stored.storedRows === 1 && Boolean(stored.id);
     receipt.row(step, once ? 'PASS' : 'FAIL',
         once ? passDetail : stored.insertKeys > 1 ? 'the submit\'s feedback inserts carried more than one idempotency key'
             : 'feedback was not stored exactly once under the submit\'s idempotency key', insertEvidence(stored));
@@ -130,6 +155,7 @@ function storedOnceRow(receipt: ReceiptRowSink, step: string, stored: StoredFeed
  * back exactly one stored report (an absent row must never read as "no session" or "no link").
  */
 function unjudgedDetail(stored: StoredFeedbackReport): string | null {
+    if (stored.unattributedInserts !== 0) return UNATTRIBUTED_DETAIL;
     if (stored.insertKeys === 0) return UNBOUND_DETAIL;
     if (stored.storedRows !== 1 || !stored.id) return 'the submit\'s idempotency key did not read back exactly one stored report, so its association is not judged';
     return null;
