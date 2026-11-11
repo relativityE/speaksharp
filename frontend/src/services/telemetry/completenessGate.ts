@@ -730,9 +730,15 @@ export function classifyInterruptedRepeat(
         // New evidence may establish a legitimate retained-A completion after B's accepted Start.
         // It must positively bind the visible session to A and remain strictly before B takes over.
         // Never manufacture this target from origin or timestamps in a historical/legacy receipt.
-        if (attemptOf(rendered[0]) === successor && prop(rendered[0], 'render_target_attempt_id') === takeAttempt
-            && timed(rendered[0]) >= repeatAt && endedAt < timed(successorRecording)
-            && timed(ready[0]) < timed(successorRecording)) {
+        // PO Option 1 (2026-11-10): A's review stays A's from the Repeat press until B records, so the window opens at the
+        // PRESS. The ambient take must agree with when it can exist: A from the press until B's accepted Start (which mints
+        // B), B from that Start until B records. Any other ambient take, or one out of its time, never qualifies.
+        const renderedAt = timed(rendered[0]);
+        const renderedUnderNow = attemptOf(rendered[0]);
+        const ambientConsistent = (renderedUnderNow === takeAttempt && renderedAt >= pressAt && renderedAt < repeatAt)
+            || (renderedUnderNow === successor && renderedAt >= repeatAt);
+        if (ambientConsistent && prop(rendered[0], 'render_target_attempt_id') === takeAttempt
+            && endedAt < timed(successorRecording) && timed(ready[0]) < timed(successorRecording)) {
             return result('completed_during_successor_preparation');
         }
         // The render is R's (its origin is A and this boot, checked above), and it must not have been shown while ANOTHER

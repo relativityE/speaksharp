@@ -64,6 +64,19 @@ describe('retained A review during B preparation (run42938644148)', () => {
     it('qualifies only with positive displayed-target A evidence before B records', () => {
         expect(classifyInterruptedRepeat(retained(), DECLARED)).toMatchObject({ ok: true, branch: 'completed_during_successor_preparation' });
     });
+    it('PO Option 1: A rendered on its own review between the Repeat press and the accepted Start (ambient still A) qualifies', () => {
+        const between = [...transition(), lc('ready', 9.2), lc('rendered', 9.5, { render_target_attempt_id: A }), lc('ended', 9.5, { end_reason: 'completed' })];
+        expect(classifyInterruptedRepeat(between, DECLARED)).toMatchObject({ ok: true, branch: 'completed_during_successor_preparation' });
+        // the same render with no target, or under a third take, never qualifies
+        expect(classifyInterruptedRepeat(replace(between, (r) => r.properties?.stage === 'rendered', lc('rendered', 9.5)), DECLARED).ok).toBe(false);
+        expect(classifyInterruptedRepeat(replace(between, (r) => r.properties?.stage === 'rendered', lc('rendered', 9.5, { attempt_id: C, render_target_attempt_id: A })), DECLARED).ok).toBe(false);
+        // ambient A AFTER B's accepted Start cannot exist (the Start mints B): inconsistent, never qualifying
+        const ambientAAfterStart = [...transition(), lc('ready', 9.2), lc('rendered', 10.5, { render_target_attempt_id: A }), lc('ended', 10.5, { end_reason: 'completed' })];
+        expect(classifyInterruptedRepeat(ambientAAfterStart, DECLARED).ok).toBe(false);
+        // CONTROL: the identical rows with the ambient take B (as the Start makes it) qualify — only the ambient differs
+        const ambientBAfterStart = [...transition(), lc('ready', 9.2), lc('rendered', 10.5, { attempt_id: B, render_target_attempt_id: A }), lc('ended', 10.5, { attempt_id: B, end_reason: 'completed' })];
+        expect(classifyInterruptedRepeat(ambientBAfterStart, DECLARED)).toMatchObject({ ok: true, branch: 'completed_during_successor_preparation' });
+    });
     it('old ambient-B evidence during preparation stays HOLD, not invented wrong-target proof or PASS', () => {
         const result = classifyInterruptedRepeat(retained(null), DECLARED);
         expect(result.ok).toBe(false);

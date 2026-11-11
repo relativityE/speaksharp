@@ -17,6 +17,7 @@ import { loadSavedSessionReview } from '@/services/review/savedSessionReview';
 import { deriveReviewState } from './reviewState';
 import { COACHING_ERROR_SESSION_ASSURANCE, FOCUS_POINTS_DISCLOSURE, OPEN_MIC_DISCLOSURE, UNAVAILABLE_MESSAGE } from './reviewCopy';
 import { createCoachingDiagnosticId, rememberCoachingDiagnostic } from '@/services/coachingDiagnosticLink';
+import { savedTakeAttempt } from '@/services/telemetry/savedTakeTarget';
 import {
   reportedProviderAttempts, snapshotCoachingOrigin, trackAiCoachingDiagnostic, trackAiCoachingLifecycle,
   type AiCoachingDiagnosticTelemetry, type CoachingLifecycleEndReason, type CoachingLifecycleOrigin, type CoachingLifecycleStage,
@@ -472,8 +473,10 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
       if (shown && shown.sessionId === sessionId && shown.lifecycle.sessionId === sessionId) {
         // The visible card and this lifecycle name the same saved session, checked at the callback,
         // not inferred from ambient attempt. A remains readable while accepted Start B prepares.
-        // Export only the opaque attempt bound to that session's request, never its database ID.
-        lifecycleStage(shown.lifecycle, 'rendered', { renderTargetAttemptId: shown.lifecycle.origin.attemptId });
+        // The target is the take that SAVED the visible session (its frozen recording subject, published with the
+        // session id), not the request's origin or the ambient attempt: a request made after B's Start was accepted
+        // (a manual Try again) still shows A's review. Exported as that opaque attempt id only, never the session id.
+        lifecycleStage(shown.lifecycle, 'rendered', { renderTargetAttemptId: savedTakeAttempt(sessionId) });
         endLifecycle(shown.lifecycle, 'completed');
       }
       emitPracticeLoop({

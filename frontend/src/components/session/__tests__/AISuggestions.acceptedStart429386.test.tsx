@@ -12,6 +12,8 @@ import { useSessionStore } from '@/stores/useSessionStore';
 import type { SttStatus } from '@/types/transcription';
 import { SpeechRuntimeController } from '@/services/SpeechRuntimeController';
 import { __resetRecordingIntentForTests } from '@/services/recordingIntent';
+import { captureRecordingSubject } from '@/services/telemetry/recordingSubject';
+import { __resetSavedTakesForTests, noteSavedTake, savedTakeAttempt } from '@/services/telemetry/savedTakeTarget';
 
 vi.mock('@/lib/supabaseClient');
 const invoke = vi.fn();
@@ -30,7 +32,7 @@ beforeEach(() => {
   (window.location as unknown as { pathname: string }).pathname = '/session';
   vi.mocked(getSupabaseClient).mockReturnValue({ functions: { invoke } } as unknown as ReturnType<typeof getSupabaseClient>);
   __resetPracticeLoopTelemetryForTests(); __resetJourneyIdentityForTests(); __resetCompletionStagesForTests(); beginJourney();
-  __resetRecordingIntentForTests();
+  __resetRecordingIntentForTests(); __resetSavedTakesForTests();
   useSessionStore.setState({ progressGate: null, progressGateResolvedFor: 'user-1', isTranscriptFinalizing: false, engineSelectionLocked: false, captureLive: false, startupWaitStartedAt: null, runtimeState: 'READY' });
   vi.spyOn(analyticsBuffer, 'push').mockImplementation((event, properties) => { events.push({ event, properties: properties as Record<string, unknown>, ambient: currentAttemptId() }); });
   vi.stubGlobal('IntersectionObserver', vi.fn((callback: IntersectionObserverCallback) => {
@@ -67,6 +69,8 @@ describe('run42938644148 accepted-start preparation gap', () => {
     let finish!: (value: unknown) => void;
     invoke.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
     const a = beginRecordingAttempt();
+    // The controller publishes the saved session with the take that saved it (its frozen subject).
+    noteSavedTake('saved-take-a', captureRecordingSubject());
     const view = render(<SessionOverhaulView {...base} practiceLoopReview={card} />);
     await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
     const request = events.find(e => e.event === 'ai_coaching_lifecycle' && e.properties.stage === 'requested')!;
@@ -95,5 +99,31 @@ describe('run42938644148 accepted-start preparation gap', () => {
     expect(screen.queryByText('Delayed A next.')).toBeNull();
     expect(screen.queryByTestId('ai-suggestions-card')).toBeNull();
     expect(invoke).toHaveBeenCalledTimes(1);
+  });
+
+  /** One request for `saved-take-a`, answered at once; returns the `rendered` lifecycle event once the card is seen. */
+  const renderOnce = async () => {
+    invoke.mockResolvedValueOnce({ data: { suggestions: { version: 'gemini_coaching_v1', what_worked: 'A worked.', what_to_try_next: 'A next.' } }, error: null });
+    render(<SessionOverhaulView {...base} practiceLoopReview={card} />);
+    const shown = await screen.findByTestId('ai-suggestions-card');
+    await screen.findByText('A next.');
+    act(() => revealCard?.([{ target: shown, isIntersecting: true, intersectionRatio: 1 } as unknown as IntersectionObserverEntry], {} as IntersectionObserver));
+    return events.find(e => e.event === 'ai_coaching_lifecycle' && e.properties.stage === 'rendered')!;
+  };
+
+  it('PO Option 1: the target is the take that SAVED the visible session, even for a request made after B was accepted', async () => {
+    const a = beginRecordingAttempt();
+    noteSavedTake('saved-take-a', captureRecordingSubject());
+    const b = beginRecordingAttempt();                    // B accepted BEFORE A's request (a manual Try again shape)
+    const rendered = await renderOnce();
+    expect(rendered.properties.origin_attempt_id).toBe(b);  // the request's origin is B …
+    expect(rendered.properties.render_target_attempt_id).toBe(a); // … but the visible review is A's
+  });
+
+  it('CASUALTY: a session this tab did not save (no published take) has NO target — never the origin or ambient attempt', async () => {
+    beginRecordingAttempt();
+    const rendered = await renderOnce();
+    expect(savedTakeAttempt('saved-take-a')).toBeNull();
+    expect(rendered.properties.render_target_attempt_id).toBeUndefined();
   });
 });
