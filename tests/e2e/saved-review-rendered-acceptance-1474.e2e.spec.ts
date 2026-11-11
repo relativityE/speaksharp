@@ -439,7 +439,7 @@ type Product = 'open_mic' | 'focus_points';
 type GammaState = 'full' | 'partial' | 'pending' | 'terminal';
 
 /** A saved Focus Points take on a full (7-point) brief whose speech covers five points, so the saved evidence is real. */
-async function focusSavedTake(page: Page, answers: Answer[], pair: Pair): Promise<void> {
+async function focusSavedTake(page: Page, answers: Answer[], pair: Pair): Promise<() => Promise<number>> {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/practice');
     await page.getByTestId('practice-card-objective').click();
@@ -449,13 +449,14 @@ async function focusSavedTake(page: Page, answers: Answer[], pair: Pair): Promis
     for (let i = 0; i < FOCUS_POINTS.length; i++) await page.getByTestId(`objective-point-label-${i}`).fill(FOCUS_POINTS[i]);
     await page.getByTestId('objective-setup-submit').click();
     await page.waitForURL('**/session');
-    await scriptReview(page, answers, pair);
+    const requests = await scriptReview(page, answers, pair);
     await startRecording(page);
     await simulateTranscription(page, FOCUS_SPEECH, true);
     await page.waitForTimeout(TAKE_MS);
     await stopRecording(page);
     await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 20_000 });
     await expect(page.locator('[data-testid="session-shell"][data-session-state="after"]')).toBeVisible({ timeout: 15_000 });
+    return requests;
 }
 
 type ViewportResult = {
@@ -556,13 +557,14 @@ const GAMMA_CASES: Array<{ product: Product; state: GammaState }> = (['open_mic'
     .flatMap((product) => (['full', 'partial', 'pending', 'terminal'] as const).map((state) => ({ product, state })));
 
 /** One saved take in the given review state, measured at each viewport, with every γ criterion asserted. */
-async function gammaCase(page: Page, product: Product, state: GammaState, viewports: readonly Viewport[], label: string) {
+async function gammaCase(page: Page, product: Product, state: GammaState) {
     const consoleGuard = guardConsole(page);
     const isolation = isolateFromExternalNetwork(page);
     const answers: Answer[] = state === 'terminal' ? [{ status: 429 }] : state === 'pending' ? ['held-pair'] : ['pair'];
     const pair = product === 'open_mic' ? (state === 'partial' ? PAIR : MAX_PAIR) : (state === 'partial' ? { ...PAIR, version: 'gemini_coaching_focus_v1' } : MAX_FOCUS_PAIR);
-    if (product === 'open_mic') await recordSavedTake(page, answers, pair);
-    else await focusSavedTake(page, answers, pair);
+    const requests = product === 'open_mic'
+        ? await recordSavedTake(page, answers, pair)
+        : await focusSavedTake(page, answers, pair);
     const lifecycle = state === 'terminal' ? 'terminal' : state === 'pending' ? 'pending' : 'complete';
     await expect(page.getByTestId('ai-suggestions-card')).toHaveAttribute('data-lifecycle', lifecycle, { timeout: 30_000 });
     // Sam 6240941568: what is measured must be the INTENDED content — the exact coaching (maximum length for `full`), the
@@ -581,12 +583,33 @@ async function gammaCase(page: Page, product: Product, state: GammaState, viewpo
     }
 
     const results: ViewportResult[] = [];
-    for (const vp of viewports) results.push(await measureViewport(page, product, state, vp));
-    await test.info().attach(`gamma-${label}-${product}-${state}.json`, { body: JSON.stringify(results, null, 2), contentType: 'application/json' });
-    if (state === 'pending') await page.evaluate(() => (window as unknown as { __releaseReview1474__?: () => void }).__releaseReview1474__?.());
+    try {
+        // Both former suites recorded at the default desktop size, then resized this same page. Keep that
+        // setup and all 32 product/state/viewport observations, with one isolated take per product/state.
+        for (const vp of [...DESKTOP_VIEWPORTS, ...MOBILE_VIEWPORTS]) {
+            await test.step(`${product} · ${state} · ${vp.name}`, async () => {
+                try {
+                    const result = await measureViewport(page, product, state, vp);
+                    results.push(result);
+                    await expect(page.getByTestId('ai-suggestions-card')).toHaveAttribute('data-lifecycle', lifecycle);
+                    if (lifecycle === 'complete') {
+                        await expect(page.getByTestId('review-what-went-well')).toHaveText(pair.what_worked);
+                        await expect(page.getByTestId('review-try-next')).toHaveText(pair.what_to_try_next);
+                    }
+                    expect.soft(await requests(), `${vp.name}: resizing reuses the saved review without another request`).toBe(1);
+                    expectGamma([result]);
+                } catch (error) {
+                    // A missing element or failed measurement at one size must not suppress the remaining sizes.
+                    expect.soft(false, `${vp.name}: viewport measurement failed: ${String(error)}`).toBe(true);
+                }
+            });
+        }
+    } finally {
+        await test.info().attach(`gamma-all-viewports-${product}-${state}.json`, { body: JSON.stringify(results, null, 2), contentType: 'application/json' });
+        if (state === 'pending') await page.evaluate(() => (window as unknown as { __releaseReview1474__?: () => void }).__releaseReview1474__?.());
+    }
     expect(consoleGuard.unexpected(), 'no unexpected console error').toEqual([]);
     await expectIsolated(isolation);
-    return results;
 }
 
 function expectGamma(results: ViewportResult[]) {
@@ -604,20 +627,11 @@ function expectGamma(results: ViewportResult[]) {
     }
 }
 
-test.describe('#1474 γ desktop — natural growth: useful coaching at eye level, an unobscured repeat action, reachable counts', () => {
+test.describe('#1474 γ — useful coaching at eye level, an unobscured repeat action, reachable counts at all four sizes', () => {
     for (const { product, state } of GAMMA_CASES) {
-        test(`${product} · ${state} at 1280×800, 1024×800 and 768×800`, async ({ page }) => {
+        test(`${product} · ${state} at 1280×800, 1024×800, 768×800 and 375×812`, async ({ page }) => {
             test.setTimeout(200_000);
-            expectGamma(await gammaCase(page, product, state, DESKTOP_VIEWPORTS, 'desktop'));
-        });
-    }
-});
-
-test.describe('#1474 γ mobile 375×812 — the same criteria, all asserted', () => {
-    for (const { product, state } of GAMMA_CASES) {
-        test(`${product} · ${state} at 375×812`, async ({ page }) => {
-            test.setTimeout(200_000);
-            expectGamma(await gammaCase(page, product, state, MOBILE_VIEWPORTS, 'mobile'));
+            await gammaCase(page, product, state);
         });
     }
 });
