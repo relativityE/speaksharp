@@ -9,6 +9,15 @@ const TEST_PINS=Object.freeze({
  'tests/live/helpers/rwtDocumentIdentity.ts':'25c00c2a7eccd00f0cd0fe2ab3705ba5730049d187c8902e2ddd638c681594f0',
  'tests/unit/rwtWatchdog1593.test.ts':'14fe0f998d9ef1f9b5c3bd7e8d26fc264c980687c7f7eeabf166efbd77fb2162',
  'tests/unit/rwtDocumentBinaryTransport.test.js':'e4722993a0e008cf6ead7fe1e092cdc50f3d8b75df0ff29066f35dd95d2bda80',
+ // AHT-02..15 prep (parity rows, AHT-07 key-bound stored-once, AHT-09 ready wait): exact reviewed postimages.
+ 'tests/live/helpers/feedbackDiagnosticRef.ts':'ad3648efc06cdcaed2631778731e7d4d6fa1ca094717894640007ff103c38a18',
+ 'tests/live/helpers/rwtAdverseJourney.ts':'51d4e3b804f7ed5508e0e1acc45f13cf267e11fd5db87ce9dd90e792e57236f5',
+ 'tests/live/helpers/rwtFocusPointsJourney.ts':'959f10376d3bc74021902f0e9f897702b1d876f9570958033ff0a938e2a2d7aa',
+ 'tests/live/rwt-abandon-and-two-tabs.live.spec.ts':'b421c08b0f60e8ee5c77aa6092a2badf915203d69748801fcaebb3009e6137d5',
+ 'tests/live/rwt-feedback-association-boundaries.live.spec.ts':'bb0a2c5b45a55cca30e4968949c634837a3f3c19e26dc9450b36279471638036',
+ 'tests/live/rwt-pending-start-navigation.live.spec.ts':'99b370c6dcef771abe94ec0828369b2db4c8cd16108a7409df8d1db7a604d12a',
+ 'tests/live/rwt-products-navigation.live.spec.ts':'20538eaf3199454558e9fa01c92f7c0b286769637168156092f64253918d441d',
+ 'tests/live/rwt-save-retry-recovery.live.spec.ts':'7ce4108a882ff4d1a78a03f697cea8e6ae796635840a20bb83108fb109c97cb5',
 });
 // These two non-product inputs are part of this diagnostic integration itself.
 // Pin their exact reviewed postimages rather than treating every workflow or
