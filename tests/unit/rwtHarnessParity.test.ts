@@ -152,29 +152,6 @@ describe('owned-page close timers', () => {
     });
 });
 
-describe('probeSaveIsolationRow', () => {
-    const admin = (rows: Array<{ id: string }> | null, error: unknown = null) =>
-        ({ from: () => ({ select: () => ({ eq: () => ({ eq: async () => ({ data: rows, error }) }) }) }) });
-    it('PASS only when the completed sessions are exactly the journey\'s saved takes', async () => {
-        const r = sink();
-        await probeSaveIsolationRow(r, admin([{ id: 'a' }, { id: 'b' }]) as never, 'u', ['a', 'b'], { takes: [{ control: 'mic-start' as const, ids: ['a'] }, { control: 'mic-start' as const, ids: ['b'] }], stray: [] }, 2);
-        expect(r.rows[0]).toMatchObject({ step: 'probe saves isolated', verdict: 'PASS', evidence: { completedSessions: 2, designedTakes: 2, unattributed: 0, notCompleted: 0 } });
-    });
-    it('CASUALTY: a probe-saved extra session or a missing take FAILs; an unknown take or a failed read HOLDs', async () => {
-        const cases: [Array<{ id: string }> | null, unknown, Array<string | null>, string][] = [
-            [[{ id: 'a' }, { id: 'b' }, { id: 'probe' }], null, ['a', 'b'], 'FAIL'],
-            [[{ id: 'a' }], null, ['a', 'b'], 'FAIL'],
-            [[{ id: 'a' }], null, ['a', null], 'HOLD'],
-            [null, { code: 'x' }, ['a', 'b'], 'HOLD'],
-        ];
-        for (const [rows, error, expected, verdict] of cases) {
-            const r = sink();
-            await probeSaveIsolationRow(r, admin(rows, error) as never, 'u', expected, { takes: expected.map((x) => ({ control: 'mic-start' as const, ids: typeof x === 'string' ? [x] : [] })), stray: [] }, 2);
-            expect({ expected, v: r.rows[0].verdict }).toEqual({ expected, v: verdict });
-        }
-    });
-});
-
 describe('AHT-01 wiring', () => {
     it('the Open Mic journey attaches the tap before its first navigation and writes the four rows before account cleanup', () => {
         const spec = readFileSync(resolve(__dirname, '../live/rwt-open-mic-first-session.live.spec.ts'), 'utf8');
@@ -188,7 +165,7 @@ describe('AHT-01 wiring', () => {
         expect([counts > -1, isolation > counts, close > isolation, close < spec.indexOf('const cleanup = new OwnedCleanup(')]).toEqual([true, true, true, true]);
         const block = spec.slice(counts, close);
         expect(block.split('aliveReceipt(receipt, alive)').join('')).not.toMatch(/\breceipt\b/);
-        expect(spec).toContain('probeSaveIsolationRow(aliveReceipt(receipt, alive), admin as never, capturedUid, [persistedId, repeatSessionId], parity.takeBindings(), AHT01_DESIGNED_TAKES)');
+        expect(spec).toContain('probeSaveIsolationRow(aliveReceipt(receipt, alive), admin as never, capturedUid, [persistedId, repeatSessionId], parity.takeBindings(), parity.leaseIds, AHT01_DESIGNED_TAKES)');
         expect(spec).toContain("const AHT01_START_PRESS_BUDGET = { total: 4, perControl: { 'mic-start': 3, 'mic-download': 1, 'verdict-practice-again': 1 } } as const;");
         expect(spec).toContain('const AHT01_DESIGNED_TAKES = 4;');
     });
@@ -239,39 +216,58 @@ describe('AHT-01 design budgets (review: from the journey design, not a run coun
             expect({ presses, v: r.rows[0].verdict }).toEqual({ presses, v: 'FAIL' });
         }
     });
-    it('review RETURN on 2611cce9: each take is bound to the save written in its own document after its press', async () => {
+    it('review RETURNs on 2611cce9 and d9c1711c: each take joins its saved session through its own recording lease', async () => {
         const U = (n: number) => `0b9c5e2a-1111-4222-8333-44445555666${n}`;
+        const L = (n: number) => `1b9c5e2a-1111-4222-8333-44445555666${n}`;
         const [A, B, C, D, X] = [U(1), U(2), U(3), U(4), U(5)];
-        const admin = (ids: string[]) => ({ from: () => ({ select: () => ({ eq: () => ({ eq: async () => ({ data: ids.map((id) => ({ id })), error: null }) }) }) }) });
+        const leases = [L(1), L(2), L(3), L(4)];
+        const admin = (rows: Array<[string, string | null]>) => ({ from: () => ({ select: () => ({ eq: () => ({ eq: async () => ({ data: rows.map(([id, lease_id]) => ({ id, lease_id })), error: null }) }) }) }) });
         type Step = ['press', string, string] | ['save', string, string];
-        // the designed AHT-01 shape: first take (doc1), Practice-again take and the review repeat (doc2), next Start (doc3)
         const shape = (saves: Record<string, string[]>): Step[] => [
             ['press', 'mic-download', 'doc1'], ...(saves.t1 ?? []).map((id): Step => ['save', id, 'doc1']),
             ['press', 'mic-start', 'doc2'], ...(saves.t2 ?? []).map((id): Step => ['save', id, 'doc2']),
             ['press', 'verdict-practice-again', 'doc2'], ...(saves.t3 ?? []).map((id): Step => ['save', id, 'doc2']),
             ['press', 'mic-start', 'doc3'], ...(saves.t4 ?? []).map((id): Step => ['save', id, 'doc3']),
         ];
-        const cases: [string, Step[], string[], string][] = [
-            ['run 42857325669 shape: four takes, four bound saves', shape({ t1: [A], t2: [B], t3: [C], t4: [D] }), [A, B, C, D], 'PASS'],
-            ['Sam: the review repeat saves nothing; the next-Start interval surfaces a stray X and its own D', shape({ t1: [A], t2: [B], t4: [X, D] }), [A, B, X, D], 'HOLD'],
-            ['a second save of one take never stands in for a missing take', shape({ t1: [A], t2: [B, X], t4: [D] }), [A, B, X, D], 'HOLD'],
-            ['a save before any press in its document is a stray', [['save', X, 'doc0'], ...shape({ t1: [A], t2: [B], t3: [C], t4: [D] })], [A, B, C, D, X], 'FAIL'],
-            ['a completed session bound to no take', shape({ t1: [A], t2: [B], t3: [C], t4: [D] }), [A, B, C, D, X], 'FAIL'],
-            ['a bound take not completed', shape({ t1: [A], t2: [B], t3: [C], t4: [D] }), [A, B, C], 'FAIL'],
-            ['one id bound to two takes', shape({ t1: [A], t2: [B], t3: [C], t4: [C] }), [A, B, C], 'FAIL'],
-            ['captured takes on the wrong takes', shape({ t1: [B], t2: [A], t3: [C], t4: [D] }), [A, B, C, D], 'FAIL'],
-            ['a fifth take', [...shape({ t1: [A], t2: [B], t3: [C], t4: [D] }), ['press', 'mic-start', 'doc3'], ['save', X, 'doc3']], [A, B, C, D, X], 'FAIL'],
-            ['only three takes started', shape({ t1: [A], t2: [B], t3: [C] }).slice(0, -1), [A, B, C], 'HOLD'],
+        const good: Array<[string, string | null]> = [[A, L(1)], [B, L(2)], [C, L(3)], [D, L(4)]];
+        const cases: [string, Step[], Array<[string, string | null]>, string[], string][] = [
+            ['run 42857325669 shape: four takes, four leases, four sessions', shape({ t1: [A], t2: [B], t3: [C], t4: [D] }), good, leases, 'PASS'],
+            ['Sam d9c1711c: B saves B, a delayed extra save X of take B lands after the review-repeat press, the review repeat never saves',
+                shape({ t1: [A], t2: [B], t3: [X], t4: [D] }), [[A, L(1)], [B, L(2)], [X, L(2)], [D, L(4)]], leases, 'FAIL'],
+            ['Sam 2611cce9: the review repeat saves nothing; the next interval surfaces X and D', shape({ t1: [A], t2: [B], t4: [X, D] }),
+                [[A, L(1)], [B, L(2)], [X, L(4)], [D, L(4)]], leases, 'FAIL'],
+            ['a take whose recording saved nothing', shape({ t1: [A], t2: [B], t4: [D] }), [[A, L(1)], [B, L(2)], [D, L(4)]], leases, 'FAIL'],
+            ['every take saved, but take B also saved a second session (a double save never PASSes or HOLDs)', shape({ t1: [A], t2: [B, X], t3: [C], t4: [D] }),
+                [[A, L(1)], [B, L(2)], [X, L(2)], [C, L(3)], [D, L(4)]], leases, 'FAIL'],
+            ['a session under a lease no take acquired', shape({ t1: [A], t2: [B], t3: [C], t4: [D] }), [...good, [X, L(9)]], leases, 'FAIL'],
+            ['a completed session with no recorded lease', shape({ t1: [A], t2: [B], t3: [C], t4: [D] }), [[A, L(1)], [B, L(2)], [C, null], [D, L(4)]], leases, 'HOLD'],
+            ['the recorder saw a different session than the take\'s own recording', shape({ t1: [A], t2: [B], t3: [D], t4: [C] }), good, leases, 'FAIL'],
+            ['a take observed no save in its interval (but its recording saved)', shape({ t1: [A], t2: [B], t4: [D] }), good, leases, 'HOLD'],
+            ['captured takes are not the first two recordings', shape({ t1: [B], t2: [A], t3: [C], t4: [D] }), [[B, L(1)], [A, L(2)], [C, L(3)], [D, L(4)]], leases, 'FAIL'],
+            ['a stray save before any press', [['save', X, 'doc0'], ...shape({ t1: [A], t2: [B], t3: [C], t4: [D] })], good, leases, 'FAIL'],
+            ['only three leases acquired', shape({ t1: [A], t2: [B], t3: [C], t4: [D] }), good, leases.slice(0, 3), 'HOLD'],
+            ['five leases acquired', shape({ t1: [A], t2: [B], t3: [C], t4: [D] }), good, [...leases, L(5)], 'FAIL'],
         ];
-        for (const [name, steps, completed, verdict] of cases) {
+        for (const [name, steps, rows, leaseIds, verdict] of cases) {
             const f = fakeContext();
             const tap = new HarnessParityTap();
             await tap.attach(f.ctx as never);
             for (const [kind, v, doc] of steps) { if (kind === 'press') f.press(v, doc); else f.persisted(v, doc); }
             const r = sink();
-            await probeSaveIsolationRow(r, admin(completed) as never, 'u', [A, B], tap.takeBindings(), 4);
+            await probeSaveIsolationRow(r, admin(rows) as never, 'u', [A, B], tap.takeBindings(), leaseIds, 4);
             expect({ name, v: r.rows[0].verdict }).toEqual({ name, v: verdict });
         }
+    });
+    it('the tap reads each Start\'s lease id from its acquire_recording_lease request body, once each, in order', async () => {
+        const f = fakeContext();
+        const tap = new HarnessParityTap();
+        await tap.attach(f.ctx as never);
+        const req = (lease: unknown, method = 'POST', url = 'https://x.supabase.co/rest/v1/rpc/acquire_recording_lease') =>
+            ({ url: () => url, method: () => method, postDataJSON: () => ({ p_lease_id: lease, p_holder_label: 'tab' }) });
+        const L = (n: number) => `1b9c5e2a-1111-4222-8333-44445555666${n}`;
+        for (const r of [req(L(1)), req(L(1)), req(L(2)), req(L(3), 'GET'), req(L(4), 'POST', 'https://x/rest/v1/rpc/heartbeat_recording_lease'), req('not-a-uuid'), req(L(5))]) f.emit('request', r);
+        f.emit('request', { url: () => 'https://x.supabase.co/rest/v1/rpc/acquire_recording_lease', method: () => 'POST', postDataJSON: () => { throw new Error('no body'); } });
+        expect(tap.leaseIds).toEqual([L(1), L(2), L(5)]);
     });
     it('attribution does not depend on the order the binding calls arrive (sequence numbers decide)', async () => {
         const f = fakeContext();

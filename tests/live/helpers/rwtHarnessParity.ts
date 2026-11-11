@@ -31,6 +31,11 @@ export class HarnessParityTap {
     cloudSttSockets = 0;
     readonly startPressesByControl: Record<StartControl, number> = { 'mic-start': 0, 'mic-download': 0, 'mic-retry': 0, 'verdict-practice-again': 0, 'focus-points-retry': 0 };
     leaseAcquisitions = 0;
+    /**
+     * Each take's recording identity: the client-minted lease id every Start sends to `acquire_recording_lease` (`p_lease_id`), in
+     * request order. Session creation sends the same id (`p_session_data.lease_id`), so the saved row records which take made it.
+     */
+    readonly leaseIds: string[] = [];
     /** Start presses and persisted-id writes, each with its document and that document's own sequence number. */
     private readonly pressEvents: Array<{ doc: string; seq: number; control: StartControl }> = [];
     private readonly persistEvents: Array<{ doc: string; seq: number; id: string }> = [];
@@ -68,7 +73,12 @@ export class HarnessParityTap {
         context.on('page', (p) => this.track(p));
         context.on('request', (r) => {
             if (CLOUD_STT_URL.test(r.url())) this.cloudSttRequests += 1;
-            if (r.method() === 'POST' && LEASE_ACQUIRE_URL.test(r.url())) this.leaseAcquisitions += 1;
+            if (r.method() === 'POST' && LEASE_ACQUIRE_URL.test(r.url())) {
+                this.leaseAcquisitions += 1;
+                let lease: unknown = null;
+                try { lease = (r.postDataJSON() as { p_lease_id?: unknown } | null)?.p_lease_id; } catch { lease = null; }
+                if (typeof lease === 'string' && /^[0-9a-f-]{36}$/i.test(lease) && !this.leaseIds.includes(lease)) this.leaseIds.push(lease);
+            }
         });
         const pressed = (_source: unknown, id: unknown, doc: unknown, seq: unknown) => {
             if (typeof id !== 'string' || !(START_CONTROLS as readonly string[]).includes(id) || typeof doc !== 'string' || !Number.isInteger(seq)) return;
@@ -147,49 +157,53 @@ export class HarnessParityTap {
 }
 
 type SessionsAdmin = {
-    from: (t: string) => { select: (c: string) => { eq: (k: string, v: string) => { eq: (k: string, v: string) => Promise<{ data: Array<{ id: string }> | null; error: { code?: string } | null }> } } };
+    from: (t: string) => { select: (c: string) => { eq: (k: string, v: string) => { eq: (k: string, v: string) => Promise<{ data: Array<{ id: string; lease_id?: string | null }> | null; error: { code?: string } | null }> } } };
 };
 
 /**
- * probe-save-isolation, for the original journeys (review RETURNs on 5e1fa2fd and 2611cce9): every designed take is bound to ITS
- * saved session — the persisted id written in the take's own document after its Start press and before the next press there
- * (HarnessParityTap.takeBindings). `capturedTakes` are the ids the journey captured itself (first take, Practice-again take).
- * PASS: exactly `designedTakes` takes, each bound to exactly one id, the ids distinct, the captured ones on their takes, no stray
- *   save, and the account's completed sessions EXACTLY the bound set.
- * HOLD: fewer takes than designed, a take with no bound save (missing) or with two (ambiguous — a second save never stands in
- *   for a missing take), a captured take unknown, or a failed read.
- * FAIL: a stray save no take started, more takes than designed, one id bound to two takes, a captured take on the wrong take, a
- *   completed session bound to no take, or a bound take not completed.
+ * probe-save-isolation, for the original journeys (review RETURNs on 5e1fa2fd, 2611cce9 and d9c1711c). Each designed take is joined to
+ * its saved session through the take's OWN recording identity: take k's Start acquired lease k (`leaseIds`, in request order), and
+ * the saved row records the lease it was created under (`sessions.lease_id`). The document recorder (`bindings`) must agree.
+ * PASS: exactly `designedTakes` takes and leases; every completed session carries one of those leases; each lease has exactly one
+ *   completed session; the recorder bound each take to exactly that lease's session; the captured takes are the first two; no stray.
+ * HOLD: fewer takes or leases than designed, a completed session without a recorded lease (association unavailable), a take with
+ *   no or two recorder bindings, a captured take unknown, or a failed read.
+ * FAIL: a stray save, more takes or leases than designed, a completed session under a lease no take acquired, two completed
+ *   sessions under one take's lease (a double save — never standing in for another take), a take's lease with no completed
+ *   session, or a recorder binding that is not the session of the take's own lease.
  */
 export async function probeSaveIsolationRow(receipt: RowSink, admin: SessionsAdmin, userId: string, capturedTakes: Array<string | null | undefined>,
-    bindings: TakeBindings, designedTakes: number): Promise<void> {
+    bindings: TakeBindings, leaseIds: readonly string[], designedTakes: number): Promise<void> {
     const captured = capturedTakes.filter((x): x is string => typeof x === 'string' && x.length > 0);
+    const leases = [...new Set(leaseIds)];
     const missing = bindings.takes.filter((t) => t.ids.length === 0).length;
     const ambiguous = bindings.takes.filter((t) => t.ids.length > 1).length;
-    const base = { designedTakes, takes: bindings.takes.length, missingBindings: missing, ambiguousBindings: ambiguous, straySaves: bindings.stray.length,
-        capturedTakes: captured.length };
+    const base = { designedTakes, takes: bindings.takes.length, leases: leases.length, missingBindings: missing, ambiguousBindings: ambiguous,
+        straySaves: bindings.stray.length, capturedTakes: captured.length };
     const row = (v: 'PASS' | 'FAIL' | 'HOLD', d: string, e: Record<string, string | number | boolean | null> = {}) => receipt.row('probe saves isolated', v, d, { ...base, ...e });
     if (!userId || captured.length !== capturedTakes.length || !Number.isInteger(designedTakes) || designedTakes < captured.length) {
         return row('HOLD', 'a captured take of the journey is unknown, so isolation cannot be judged');
     }
     if (bindings.stray.length > 0) return row('FAIL', 'a session was saved that no Start press began (a stray save)');
-    if (bindings.takes.length > designedTakes) return row('FAIL', 'the journey started more takes than designed');
-    if (bindings.takes.length < designedTakes) return row('HOLD', 'fewer takes were started than designed, so isolation cannot be judged');
-    if (missing > 0 || ambiguous > 0) {
-        return row('HOLD', missing > 0 ? 'a take has no saved session bound to it' : 'a take has more than one saved session (ambiguous); none stands in for another');
-    }
-    const bound = bindings.takes.map((t) => t.ids[0]);
-    if (new Set(bound).size !== bound.length) return row('FAIL', 'one saved session is bound to two takes');
-    if (captured.some((id, k) => bound[k] !== id)) return row('FAIL', 'a captured take\'s session is not the session bound to that take');
-    const { data, error } = await admin.from('sessions').select('id').eq('user_id', userId).eq('status', 'completed');
+    if (bindings.takes.length > designedTakes || leases.length > designedTakes) return row('FAIL', 'the journey started more takes than designed');
+    if (bindings.takes.length < designedTakes || leases.length < designedTakes) return row('HOLD', 'fewer takes or recording leases than designed, so isolation cannot be judged');
+    const { data, error } = await admin.from('sessions').select('id,lease_id').eq('user_id', userId).eq('status', 'completed');
     if (error || !Array.isArray(data)) return row('HOLD', 'the completed-session read failed', { readFailed: true });
-    const completed = new Set(data.map((r) => r.id));
-    const unattributed = [...completed].filter((id) => !bound.includes(id)).length;
-    const notCompleted = bound.filter((id) => !completed.has(id)).length;
-    const ok = unattributed === 0 && notCompleted === 0;
-    return row(ok ? 'PASS' : 'FAIL', ok ? 'every designed take saved exactly one bound session, and nothing else saved'
-        : unattributed > 0 ? 'a completed session is bound to no take (a double or stray save)' : 'a take\'s bound session is not completed',
-    { completedSessions: completed.size, unattributed, notCompleted });
+    if (data.some((r) => typeof r.lease_id !== 'string' || !r.lease_id)) return row('HOLD', 'a completed session has no recorded lease, so its take cannot be established');
+    const foreign = data.filter((r) => !leases.includes(r.lease_id as string)).length;
+    if (foreign > 0) return row('FAIL', 'a completed session was created under a lease no take of the journey acquired', { completedSessions: data.length, foreign });
+    const perLease = leases.map((l) => data.filter((r) => r.lease_id === l).map((r) => r.id));
+    if (perLease.some((ids) => ids.length > 1)) return row('FAIL', 'a take saved more than one session (a double save)', { completedSessions: data.length });
+    if (perLease.some((ids) => ids.length === 0)) return row('FAIL', 'a take\'s recording saved no completed session', { completedSessions: data.length });
+    const sessionOfTake = perLease.map((ids) => ids[0]);
+    if (captured.some((id, k) => sessionOfTake[k] !== id)) return row('FAIL', 'a captured take\'s session is not the session of that take\'s own recording');
+    if (missing > 0 || ambiguous > 0) {
+        return row('HOLD', missing > 0 ? 'a take has no saved session observed in its own interval' : 'a take has more than one saved session observed in its interval');
+    }
+    const disagree = bindings.takes.filter((t, k) => t.ids[0] !== sessionOfTake[k]).length;
+    return row(disagree === 0 ? 'PASS' : 'FAIL',
+        disagree === 0 ? 'every designed take saved exactly one session, under its own recording, and nothing else saved'
+            : 'a take\'s observed save is not the session of its own recording', { completedSessions: data.length, disagree });
 }
 
 /**
