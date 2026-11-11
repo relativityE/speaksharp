@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { goToPublicRoute } from '../e2e/helpers';
 import { TEST_IDS, ROUTES } from '../constants';
+import { DEFAULT_AUTH_LANDING, isExpectedAuthLanding } from '../e2e/canaryLanding';
 
 // Skip this test if running against a mock backend
 
@@ -54,10 +55,21 @@ test.describe('Real Authentication Flow', () => {
         expect(body.access_token).toBeDefined();
         expect(body.user).toBeDefined();
 
-        // 5. Verify Redirect and Session State
-        await page.waitForURL(ROUTES.SESSION);
+        // 5. Verify the ORDINARY sign-in landing and session state. The maintained landing contract
+        // (tests/e2e/canaryLanding.ts) is exactly `/practice` for an ordinary login; `/session` there would be a
+        // regression. This spec waited for `/session` and timed out on every build since that contract (run 43026108401).
+        await page.waitForURL((url) => isExpectedAuthLanding(url.pathname, DEFAULT_AUTH_LANDING), { timeout: 30_000 });
+        expect(new URL(page.url()).pathname).toBe(DEFAULT_AUTH_LANDING);
 
         // 🚨 HYDRATION GUARD 🚨
         await expect(page.getByTestId('nav-account-avatar')).toBeVisible({ timeout: 15000 });
+
+        // 6. Record the release this sign-in actually ran against (public, content-free). The caller compares it to
+        // the release being smoke-tested; it is recorded, not asserted, because the dispatch SHA may be ahead of what
+        // production serves.
+        const observedRelease = await page.evaluate(() => (window as unknown as { __APP_RELEASE__?: string }).__APP_RELEASE__ ?? null);
+        expect(observedRelease, 'the served page must name its release').toMatch(/^[0-9a-f]{40}$/);
+        test.info().annotations.push({ type: 'observed-release', description: String(observedRelease) });
+        console.log(`OBSERVED_RELEASE ${observedRelease}`);
     });
 });
