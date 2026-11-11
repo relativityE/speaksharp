@@ -135,14 +135,17 @@ const meetsExpectation = (expected: string, got: RailStatus | null): boolean => 
  * Harness parity (PO route 2026-11-10), from the journey's DESIGN (not a run's count). Each take is one Start press; the
  * first take presses `mic-download` on a cold first use (the one activation also starts the take), otherwise `mic-start`.
  * AHT-03 (partial fixture) — 4 presses:
- *   1. first take — rwtFocusPointsJourney.ts:453 cold (`mic-download`, benchmark-utils.ts:609) or :456 warm (`mic-start`);
+ *   1. first take — row 10's preparePrivateModelIfPrompted call cold (`mic-download`, benchmark-utils.ts:609) or its
+ *      startBenchmarkRecording call with `suite` warm (`mic-start`);
  *   2. Practice again's save take from Analytics — rwtJourney.ts:1657 (`mic-start`);
  *   3. the completed review's Retry this set — rwtJourney.ts:1719 (`focus-points-retry`);
  *   4. next Start without a hold — rwtJourney.ts:1390 (`mic-start`).
  * AHT-02 (PO corpus) — those 4 plus the full journey's three `mic-start` takes:
- *   5. the Open Mic take before the product switch — rwtFocusPointsJourney.ts:802;
- *   6. the Focus take right after the switch — rwtFocusPointsJourney.ts:829;
- *   7. the take on the edited set — rwtFocusPointsJourney.ts:942.
+ *   5. the Open Mic take before the product switch — the startBenchmarkRecording call with `${suite}-switch-openmic`;
+ *   6. the Focus take right after the switch — the startBenchmarkRecording call with `${suite}-switch-focus`;
+ *   7. the take on the edited set — the startBenchmarkRecording call with `${suite}-edited`.
+ * This file's presses are cited by call, not by line, so checks added around them cannot stale the citation; checks that only
+ * read the rail or the database, or open and dismiss the Edit dialog, press no Start (tests/unit/rwtFocusStartPressBudget.test.ts).
  * The `mic-start` cap counts the warm first take too (one fewer when the first take downloads), `mic-download` at most 1,
  * `focus-points-retry` exactly the one Retry; no `mic-retry` and no `verdict-practice-again` press is designed.
  */
