@@ -430,6 +430,8 @@ const OPEN_MIC_PRODUCT_ROWS = Object.freeze([
     'coaching within the character ceiling', 'coaching consistent with saved fillers', 'coaching differs between takes',
     // #1258 (Codex P2 r4274573839, PM 6175763509 §3): request provenance is mandatory evidence on every path.
     'coaching request bound to this take',
+    // Ordinary saved/reopened persistence only; this row does not qualify the separate after-B causal case.
+    'interrupted take coaching saved and shown in its saved review',
     'filler display matches saved (all words)', 'coachable filler headline', 'Products menu opened in the session',
     'Back from Progress restores the session', 'restored review', 'Back requests no coaching',
     'Analytics action', 'analytics session detail', 'reopen after reload', 'analytics detail shows both AI suggestions',
