@@ -35,7 +35,7 @@ unavailable checkout never grants access.
 ## Privacy
 
 Customer recordings use on-device Private transcription. Audio is never uploaded or saved.
-When a session is saved, its transcript is stored in your account, and AI coaching sends it to Google Gemini; today coaching starts automatically after a session is saved. Retention duration and deletion timing are still being finalized, so saved transcript text is currently kept. On-device transcription does not mean every downstream text operation is local.
+When a session is saved, its transcript is stored in your account, and AI coaching sends it to Google Gemini; today coaching starts automatically after a session is saved. Only the newest transcript-bearing saved session keeps its transcript text in your account; older transcript text is removed from those sessions while derived practice metrics and the structured next action remain. SpeakSharp keeps a server-side copy of removed text that the app does not show. On-device transcription does not mean every downstream text operation is local.
 
 ## Recording tips
 
@@ -58,5 +58,6 @@ For support, use **Share Feedback** inside SpeakSharp.
 
 - **Audio used for Private transcription is not uploaded to a transcription provider.** Transcription runs locally in your browser; downstream text processing has a separate boundary.
 - **Your transcript is saved to your account** when you save a session, so you can review it and export a report.
+  Only the newest transcript-bearing saved session keeps its transcript text.
 - **AI coaching sends transcript text to Google Gemini.** Completing a practice take automatically requests the saved Practice Loop suggestions, which sends up to 8,000 characters of the transcript plus its speaking measurements (and, for Focus Points, its topic, points and results); opening a separate coaching control is not required. On-device transcription does not make downstream text processing local.
 - **Your session measurements** (word count, filler counts, clarity, pace, pauses) are saved to your account.

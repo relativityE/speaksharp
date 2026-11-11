@@ -20,6 +20,11 @@ describe('canonical tester and customer instructions', () => {
     expect(testerGuide).toMatch(/Every customer practice session uses Private transcription on your device/i);
     expect(userGuide).toMatch(/audio is never uploaded or saved/i);
     expect(userGuide).toMatch(/transcript is stored in your account, and AI coaching sends it to Google Gemini/i);
+    // Newest-one transcript retention is active in production: the guide must not say saved text is simply kept,
+    // and must not promise deletion of the server-side recovery copy.
+    expect(userGuide).toMatch(/Only the newest transcript-bearing saved session keeps its transcript text/);
+    expect(userGuide).toMatch(/server-side copy of removed text/i);
+    expect(userGuide).not.toMatch(/currently kept|not (?:yet )?(?:active|activated)/i);
   });
 
   it('states the complete 30-day product then the same product for $10/month', () => {
