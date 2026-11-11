@@ -1,5 +1,7 @@
 # Coaching usefulness review: protocol and qualification bar (MVP outcome 3)
 
+> **HISTORICAL EVIDENCE — dated protocol fixed 2026-11-11 before any session was reviewed, NOT current release truth.** Product authority stays in the canonical root documents.
+
 **Dated 2026-11-11. Evidence protocol, not product authority.** The binding coaching contract stays in
 [`PROGRESS_AND_NEXT_ACTION.md`](../../PROGRESS_AND_NEXT_ACTION.md) §7 and §9 and the human-evidence boundary in
 [`QUALITY.md`](../../QUALITY.md). This file fixes, before any session is reviewed, how outcome 3 ("prove current

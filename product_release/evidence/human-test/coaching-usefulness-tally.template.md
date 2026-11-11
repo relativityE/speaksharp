@@ -1,5 +1,7 @@
 # Coaching usefulness review: tally (template)
 
+> **HISTORICAL EVIDENCE — template for the review fixed 2026-11-11, NOT current release truth.** A filled copy records one review run on one build.
+
 Copy to a dated file for the review run. **No transcript, advice text, names or session IDs.** Protocol and bar:
 [`coaching-usefulness-protocol-2026-11-11.md`](./coaching-usefulness-protocol-2026-11-11.md).
 
