@@ -999,10 +999,12 @@ test.describe('RWT — Open Mic first session @live', () => {
                         reopenRequests.attach(reviewPage);
                         try {
                             const pair = await readSavedReviewPair(reviewPage, id!, 'gemini_coaching_v1');
+                            const renderedSessionId = await reviewPage.getByTestId('saved-review').getAttribute('data-session-id', { timeout: 5_000 }).catch(() => null);
                             const transcript = reviewPage.getByTestId('session-detail-transcript');
                             const rendered = await transcript.waitFor({ state: 'visible', timeout: 15_000 }).then(() => true).catch(() => false);
                             return {
                                 pathname: new URL(reviewPage.url()).pathname,
+                                renderedSessionId: renderedSessionId || null,
                                 transcriptDigest: rendered ? sha256Hex(await transcript.innerText()) : null,
                                 pair,
                                 coachingRequests: reopenRequests.sentCount,

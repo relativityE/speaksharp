@@ -20,7 +20,7 @@ const sink = () => {
     const forbidden: string[] = [];
     return { rows, forbidden, row: (step: string, verdict: 'PASS' | 'FAIL' | 'HOLD', detail: string, evidence?: Record<string, string | number | boolean | null>) => { rows.push({ step, verdict, detail, evidence }); }, forbid: (...v: string[]) => { forbidden.push(...v); } };
 };
-const reopened = (over: Partial<ReopenedReview> = {}): ReopenedReview => ({ pathname: `/analytics/${A}`, transcriptDigest: A_DIGEST, pair: PAIR, coachingRequests: 0, ...over });
+const reopened = (over: Partial<ReopenedReview> = {}): ReopenedReview => ({ pathname: `/analytics/${A}`, renderedSessionId: A, transcriptDigest: A_DIGEST, pair: PAIR, coachingRequests: 0, ...over });
 /** A fake clock: each sleep advances time; reads return absent until `savedAfter`. */
 const deps = (o: { savedAfter?: number; saved?: unknown; readFails?: boolean; review?: ReopenedReview | 'throw' } = {}): LateCoachingDeps & { reads: () => number } => {
     let t = 0, reads = 0;
@@ -64,9 +64,16 @@ describe('interrupted take coaching saved and shown in its saved review (ordinar
         const wrongRoute = await verdictOf(deps({ review: reopened({ pathname: '/analytics/someone-else' }) }));
         expect(wrongRoute.verdict).toBe('FAIL');
         expect(wrongRoute.evidence?.reason).toBe('wrong-route');
-        const staleCard = await verdictOf(deps({ review: reopened({ transcriptDigest: sha256Hex('another take') }) }));
-        expect(staleCard.verdict).toBe('FAIL');
-        expect(staleCard.evidence?.reason).toBe('wrong-session-rendered');
+        // RETURN on 7a4d8f4e: a DISTINCT take B with the SAME script and SAME pair on A's URL — only positive identity catches it
+        const sameScriptB = await verdictOf(deps({ review: reopened({ renderedSessionId: 'session-B' }) }));
+        expect(sameScriptB.verdict).toBe('FAIL');
+        expect(sameScriptB.evidence?.reason).toBe('wrong-session-rendered');
+        // no identity on the card → HOLD (never inferred from URL or text), even when everything else matches
+        const noIdentity = await verdictOf(deps({ review: reopened({ renderedSessionId: null }) }));
+        expect(noIdentity.verdict).toBe('HOLD');
+        expect(noIdentity.evidence?.reason).toBe('identity-unread');
+        // content verification stays: A's identity but another transcript FAILs; an unrendered transcript HOLDs
+        expect((await verdictOf(deps({ review: reopened({ transcriptDigest: sha256Hex('another take') }) }))).evidence?.reason).toBe('transcript-differs');
         expect((await verdictOf(deps({ review: reopened({ transcriptDigest: null }) }))).verdict).toBe('HOLD');
     });
     it('CASUALTY: a reopen coaching request, nothing shown, or a different pair FAIL', async () => {

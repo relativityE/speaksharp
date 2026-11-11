@@ -6,8 +6,9 @@
  * the natural journey (an A pair saved before B recorded must not pass as the after-B case). It proves:
  *   - A's own session row, read AS THE SIGNED-IN ACCOUNT (never the admin client), holds a complete coaching pair within a
  *     bounded wait; the row read is the expected session of the expected owner;
- *   - reopening A's saved review lands on A's route AND renders A's session (its saved transcript digest), so a wrong route or
- *     a stale card with matching text never passes; it shows exactly the saved pair; and the reopened page sends no coaching
+ *   - reopening A's saved review lands on A's route AND the saved-review card names A as the session its review was read from
+ *     (`data-session-id`, set by the product only with positive proof), so a wrong route or a stale card with matching script
+ *     and pair never passes; its transcript is A's saved transcript (content check); it shows exactly the saved pair; and the reopened page sends no coaching
  *     request (a browser-level check — it does not by itself prove zero provider/quota operations).
  * Unreadable evidence HOLDs (fail closed); not saved within the bound, malformed, wrong route, wrong rendered session, a
  * reopen coaching request, not shown, or a different pair FAIL. Closed codes only; text and digests stay in memory.
@@ -28,7 +29,12 @@ export type SavedRead = { ok: true; value: unknown; transcriptDigest: string } |
 export interface ReopenedReview {
     /** The reopened page's path, after navigation settled. */
     pathname: string;
-    /** sha256 of the rendered `session-detail-transcript` text; null when it was not rendered. */
+    /**
+     * The saved-review card's own `data-session-id`: the session its review was ACTUALLY read from (the product sets it only
+     * with positive proof). Null when absent. This, not the URL or text, is the rendered identity.
+     */
+    renderedSessionId: string | null;
+    /** sha256 of the rendered `session-detail-transcript` text (content verification); null when it was not rendered. */
     transcriptDigest: string | null;
     pair: { what_worked: string; what_to_try_next: string } | null;
     /** Coaching generation requests the reopened page sent. */
@@ -98,12 +104,22 @@ export async function lateCoachingSavedRow(
         sink.row(LATE_COACHING_ROW, 'FAIL', 'reopening the interrupted take\'s review landed on another route', { reason: 'wrong-route' });
         return;
     }
+    // Positive identity (review RETURN on 7a4d8f4e): the card names the session its review was read from.
+    if (reopened.renderedSessionId === null) {
+        sink.row(LATE_COACHING_ROW, 'HOLD', 'the reopened saved review names no session, so whose review it shows is unproven', { reason: 'identity-unread' });
+        return;
+    }
+    if (reopened.renderedSessionId !== sessionId) {
+        sink.row(LATE_COACHING_ROW, 'FAIL', 'the reopened saved review is another session\'s', { reason: 'wrong-session-rendered' });
+        return;
+    }
+    // Content verification (not identity): the rendered transcript is the take's saved transcript.
     if (reopened.transcriptDigest === null) {
-        sink.row(LATE_COACHING_ROW, 'HOLD', 'the reopened review rendered no session transcript, so its session identity is unproven', { reason: 'identity-unread' });
+        sink.row(LATE_COACHING_ROW, 'HOLD', 'the reopened review rendered no session transcript to verify', { reason: 'transcript-unread' });
         return;
     }
     if (reopened.transcriptDigest !== saved.transcriptDigest) {
-        sink.row(LATE_COACHING_ROW, 'FAIL', 'the reopened review rendered a different session than the interrupted take', { reason: 'wrong-session-rendered' });
+        sink.row(LATE_COACHING_ROW, 'FAIL', 'the reopened review shows a transcript other than the take\'s saved one', { reason: 'transcript-differs' });
         return;
     }
     if (reopened.coachingRequests !== 0) {
