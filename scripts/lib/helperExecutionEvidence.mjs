@@ -49,6 +49,34 @@ export const HELPER_CONTRACTS = Object.freeze([{
   helperFile:'tests/billing/user-journey/contract.ts',testFile:'tests/billing/user-journey/contract.test.ts',
   callables:['requireFact','safeFailureReason','receipt','assertTestPrice','assertInvoice',
     'isCorrelatedDelivery','assertSandboxConfiguration'],
+}, {
+  // #1760 model comparison harness and evaluator helpers, each through its own unit consumer.
+  helperFile:'tests/model-dropin/comparisonBounds.ts',testFile:'tests/model-dropin/comparisonBounds.test.ts',
+  callables:['validateApproval','requireCompatibleBackend','elapsedMs','privateTimingMetrics','canonicalCaseReceipts','canonicalPopulation','caseMs','registerPackageCaseLimits',
+    'ComparisonBudget#beginTake','ComparisonBudget#bindSession','ComparisonBudget#finishTake','ComparisonBudget#sessionSha256',
+    'ComparisonBudget#assertExistingSessions','ComparisonBudget#finishRun'],
+}, {
+  helperFile:'tests/model-dropin/switchDiagnostics.ts',testFile:'tests/model-dropin/switchDiagnostics.test.ts',
+  callables:['sanitizeSwitchOutcome','sanitizeSelectionFailure'],
+}, {
+  helperFile:'tests/model-dropin/completionObservation.ts',testFile:'tests/model-dropin/completionObservation.test.ts',
+  callables:['observeCompletedSave'],
+}, {
+  helperFile:'tests/model-dropin/cachedModelAssets.ts',testFile:'tests/model-dropin/cachedModelAssets.test.ts',
+  callables:['indexCachedAssets','startVerifiedAssetHttpServer','registeredAssetPins','closeVerifiedAssetIndex'],
+}, {
+  helperFile:'tests/model-dropin/qualification.mjs',testFile:'tests/model-dropin/qualification.test.ts',
+  callables:['qualifyComparison','timingMetric','validatePromotionPolicy'],
+}, {
+  helperFile:'tests/evidence/modelEvaluator.ts',testFile:'tests/evidence/__tests__/modelEvaluator.test.ts',
+  callables:['compareModelArms'],
+}, {
+  helperFile:'tests/evidence/fixtures/model-evaluator/offline-control-adapter.ts',testFile:'tests/evidence/__tests__/offlineControlAdapter.test.ts',
+  callables:['createAdapter'],
+}, {
+  // Work point 2: the frozen real-speech reliability scorer (stt_reliability_v1) and its controls.
+  helperFile:'tests/evidence/sttReliabilityScore.ts',testFile:'tests/evidence/__tests__/sttReliabilityScore.test.ts',
+  callables:['alignTokens','alignTokensPreferringEarlyMatches','findRepetitionLoops','scoreReliabilityCorpus'],
 }]);
 export const HELPER_CONFIG = 'scripts/efficacy-helper-vitest.config.mjs';
 
@@ -221,7 +249,7 @@ export function helperCoverageOptions(root, binding) {
     || !binding.coverageDirectory.startsWith(`${root}${path.sep}`)) throw new Error('Missing helper phase coverage directory');
   return {enabled: true, provider: 'custom',
     customProviderModule: path.join(root, 'scripts/lib/helperExecutionEvidence.mjs'),
-    include: [binding.helper.helperFile], exclude: [], extension: ['.ts', '.js'],
+    include: [binding.helper.helperFile], exclude: [], extension: ['.ts', '.js', '.mjs'],
     reporter: ['json'], reportsDirectory: binding.coverageDirectory,
     reportOnFailure: true, clean: true, cleanOnRerun: true, all: false,
     allowExternal: false, excludeAfterRemap: true, ignoreEmptyLines: false,
@@ -449,7 +477,10 @@ export function validateHelperCoverage(raw, binding, root) {
     const typedArrow=ts.isArrowFunction(declaration) && (declaration.type || declaration.parameters.some(parameter=>parameter.type));
     const parameterStart=typedArrow && declaration.parameters[0]
       ? parsed.getLineAndCharacterOfPosition(declaration.parameters[0].getStart(parsed)):null;
-    const statement=typedArrow && declaration.parent?.parent?.parent;
+    // The pinned converter can end any arrow initializer at its statement's terminal ';' (typed or not, e.g. a
+    // variable-annotated `const f:Factory=a=>{...};`). Only that single exact character is admitted, and the span must
+    // still equal the replayed raw V8 range (expectedLocation) below.
+    const statement=ts.isArrowFunction(declaration) && declaration.parent?.parent?.parent;
     const statementEnd=statement && ts.isVariableStatement(statement)
       && source.slice(declaration.end,statement.end)===';'
       ? parsed.getLineAndCharacterOfPosition(statement.end):null;

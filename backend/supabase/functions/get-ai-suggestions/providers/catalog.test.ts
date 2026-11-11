@@ -5,7 +5,7 @@ import { descriptorUrl, InvalidProviderDescriptorError, parseProviderDescriptor,
 const valid = {
   id: 'google_gemini',
   family: 'gemini-generate-content',
-  model: 'gemini-3.8-flash',
+  model: 'gemini-3.6-flash',
   endpoint: 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',
   keyVariable: 'GEMINI_API_KEY',
 };

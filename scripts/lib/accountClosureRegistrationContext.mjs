@@ -164,9 +164,10 @@ export function assembleAccountClosureRegistrationContext(expectedJson, observat
             if (closed(account.coaching, ['providerOutcome', 'closureDisposition', 'fenceEvidenceDigest'], 'observations.accountEvidence.coaching')) {
                 const c = account.coaching;
                 field(c.providerOutcome, (v) => ['success', 'failed', 'unknown'].includes(v), 'observations.accountEvidence.coaching.providerOutcome');
-                field(c.closureDisposition, (v) => ['settled', 'fenced_unknown', 'unresolved'].includes(v), 'observations.accountEvidence.coaching.closureDisposition');
+                field(c.closureDisposition, (v) => ['settled', 'fenced_unknown', 'fenced_expired', 'fenced_local', 'unresolved'].includes(v), 'observations.accountEvidence.coaching.closureDisposition');
                 field(c.fenceEvidenceDigest, (v) => v === null || sha(v), 'observations.accountEvidence.coaching.fenceEvidenceDigest');
-                if ((c.closureDisposition === 'fenced_unknown' && (c.providerOutcome !== 'unknown' || !sha(c.fenceEvidenceDigest)))
+                if ((['fenced_unknown', 'fenced_expired', 'fenced_local'].includes(c.closureDisposition)
+                    && (c.providerOutcome !== 'unknown' || !sha(c.fenceEvidenceDigest)))
                     || (c.closureDisposition === 'settled' && c.providerOutcome === 'unknown')
                     || (account.settled?.coaching === true && c.closureDisposition === 'unresolved')) add('observations.accountEvidence.coaching', 'MISMATCH');
             }

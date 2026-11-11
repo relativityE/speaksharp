@@ -26,7 +26,79 @@ export const SOURCE_CONTRACTS=Object.freeze([
   BILLING_SPEC,
   BILLING_TARGET,
   BILLING_README,
+  // #1760 model comparison: operator-run harness and evaluator inputs with no unit execution of their own. Wiring, text and
+  // data contracts only; the live in-app comparison, the standalone evaluator, browsers and models are NOT RUN.
+  'tests/model-dropin/inAppComparison.live.spec.ts',
+  'tests/model-dropin/playwright.in-app.config.ts',
+  'tests/model-dropin/run-bounded-comparison.mjs',
+  'tests/model-dropin/run-bounded-comparison.d.mts',
+  'tests/model-dropin/qualification.d.mts',
+  'tests/model-dropin/transportBoundary.ts',
+  'tests/model-dropin/EXECUTION.md',
+  'tests/evidence/fixtures/model-evaluator/baseline-shared-v2.json',
+  'tests/evidence/fixtures/model-evaluator/candidate-parakeet-tdt-v3.json',
+  'tests/evidence/fixtures/model-evaluator/candidate-granite-turboctc.json',
+  'tests/evidence/fixtures/model-evaluator/device-local-registered.json',
+  'tests/evidence/fixtures/model-evaluator/corpus-synthetic-degraded.json',
+  'tests/evidence/fixtures/model-evaluator/corpus-fixture-001-paired.json',
+  'tests/evidence/fixtures/model-evaluator/product-campaign.json',
+  'tests/evidence/fixtures/model-evaluator/product-campaign.parakeet-fixture-001.json',
 ]);
+const MODEL_ADAPTER='./scripts/model-evaluator/adapters/candidate-browser.ts';
+const arm=(candidateId,engine,modelId,assetDigest,runtime,backend)=>Object.freeze({kind:'json',pins:[
+  [['version'],1],[['adapterModule'],MODEL_ADAPTER],[['adapterOptions','candidateId'],candidateId],
+  [['adapterOptions','consentToDownload'],false],[['identity','engine'],engine],[['identity','modelId'],modelId],
+  [['identity','assetDigest'],assetDigest],[['identity','runtime'],runtime],[['identity','backend'],backend]]});
+const WAV={'fixture-001':'500dc7ab81937cab98f6b3ef4da9b29ee1093b583e1a677840ea8458b92ef247'};
+// Pinned evaluator inputs: every pin must hold exactly, and a corpus consumes each referenced WAV by digest (as the evaluator does).
+const DATA_CONTRACTS=Object.freeze({
+  'tests/evidence/fixtures/model-evaluator/baseline-shared-v2.json':arm('v2:base.en','private-v2','Xenova/whisper-base.en',
+    'c7eaa6a9f8ccacbdafce2092d8e03752e2540acf0d4d87b01aebb05f6ba1d110','@xenova/transformers@2.17.2','wasm'),
+  'tests/evidence/fixtures/model-evaluator/candidate-parakeet-tdt-v3.json':arm('parakeet:tdt-v3:int8','parakeet-tdt','nvidia/parakeet-tdt-0.6b-v3',
+    'a4646f1dac9191a8b65634526bda1c6619e148d1e1b58e2c60b1522fba7536fe','parakeet.js@1.4.4','wasm'),
+  'tests/evidence/fixtures/model-evaluator/candidate-granite-turboctc.json':arm('granite:turboctc-q4f16','granite-ctc',
+    'ibm-granite/granite-speech-5.0-470m-turboctc','3d20c877a2764c504ed79c38598579f47cdb1f57b004af4b76ee0b4af3944d62','onnxruntime-web@1.26.0','webgpu'),
+  'tests/evidence/fixtures/model-evaluator/device-local-registered.json':Object.freeze({kind:'json',pins:[[['version'],1],
+    [['baseUrl'],'http://127.0.0.1:5173'],[['backend'],'registered'],[['headless'],false],[['expectedGpuVendor'],'apple']]}),
+  'tests/evidence/fixtures/model-evaluator/corpus-synthetic-degraded.json':Object.freeze({kind:'json',corpus:true,pins:[[['version'],1],[['trials'],2],
+    [['clips','length'],3],[['clips',0,'id'],'fixture-001-mute'],[['clips',0,'control','kind'],'mute'],
+    [['clips',1,'id'],'fixture-002-prefix-250ms'],[['clips',1,'control','kind'],'prefix-250ms'],
+    [['clips',2,'id'],'fixture-003-mute'],[['clips',2,'control','kind'],'mute']]}),
+  'tests/evidence/fixtures/model-evaluator/corpus-fixture-001-paired.json':Object.freeze({kind:'json',corpus:true,pins:[[['version'],1],[['trials'],3],
+    [['clips','length'],1],[['clips',0,'id'],'fixture-001'],[['clips',0,'wavSha256'],WAV['fixture-001']]]}),
+  'tests/evidence/fixtures/model-evaluator/product-campaign.json':Object.freeze({kind:'json',pins:[[['schemaVersion'],1],[['mode'],'product-lifecycle'],
+    [['candidates'],['v2:base.en','parakeet:tdt-v3:int8','granite:turboctc-q4f16']],
+    [['corpus'],'tests/evidence/fixtures/model-evaluator/corpus-synthetic-smoke.json'],[['maximumTakes'],18]]}),
+  'tests/evidence/fixtures/model-evaluator/product-campaign.parakeet-fixture-001.json':Object.freeze({kind:'json',pins:[[['schemaVersion'],1],
+    [['mode'],'product-lifecycle'],[['candidates'],['v2:base.en','parakeet:tdt-v3:int8']],
+    [['corpus'],'tests/evidence/fixtures/model-evaluator/corpus-fixture-001-paired.json'],[['maximumTakes'],6]]}),
+});
+// Operator documentation: each required statement must appear exactly once (a raw-text wiring contract).
+const TEXT_CONTRACTS=Object.freeze({
+  'tests/model-dropin/EXECUTION.md':Object.freeze([
+    'No account/session deletion or cleanup command is implemented.',
+    'Evaluator binding: the collector binds take, capture and candidate identity from the',
+    "CDP-installed comparison authorization; a public Production page never defines it.",
+    'Approve this normal server retention effect explicitly for the 18 synthetic takes.',
+  ]),
+});
+const pinValue=(doc,keys)=>keys.reduce((value,key)=>value==null?undefined:key==='length'&&Array.isArray(value)?value.length:value[key],doc);
+function dataProblems(root,file,source) {
+  const contract=DATA_CONTRACTS[file];let doc;
+  try{doc=JSON.parse(source);}catch{return ['invalid JSON'];}
+  const problems=contract.pins.filter(([keys,expected])=>JSON.stringify(pinValue(doc,keys))!==JSON.stringify(expected))
+    .map(([keys])=>`pin ${keys.join('.')}`);
+  if(contract.corpus) {
+    for(const clip of Array.isArray(doc.clips)?doc.clips:[]) {
+      const wav=typeof clip?.path==='string'?path.posix.normalize(path.posix.join(path.posix.dirname(file),clip.path)):null;
+      if(!wav || wav.startsWith('../') || !/^[a-f0-9]{64}$/.test(clip.wavSha256 || '')) {problems.push(`clip ${clip?.id}`);continue;}
+      try{if(createHash('sha256').update(fs.readFileSync(path.join(root,wav))).digest('hex')!==clip.wavSha256)problems.push(`wav digest ${clip.id}`);}
+      catch{problems.push(`wav missing ${clip.id}`);}
+    }
+  }
+  return problems;
+}
+const corpusAudio=(root,file)=>{try{return (JSON.parse(read(root,file)).clips || []).map(clip=>path.posix.normalize(path.posix.join(path.posix.dirname(file),clip.path)));}catch{return [];}};
 const CASE07_SQL=Object.freeze({
   [CASE07_APPLY]:Object.freeze({
     operation:'grant',
@@ -95,6 +167,10 @@ export function sourceContractApplicability(root,file) {
       inspectBillingInput(file,source);
     } else if(CASE07_SQL[file]) {
       inspectCase07Sql(file,source);
+    } else if(DATA_CONTRACTS[file]) {
+      if(dataProblems(root,file,source).length) return {supported:false,reason:'receiving evaluator input pins unavailable'};
+    } else if(TEXT_CONTRACTS[file]) {
+      if(TEXT_CONTRACTS[file].some(fragment=>source.split(fragment).length!==2)) return {supported:false,reason:'receiving operator statements unavailable'};
     } else if(file===SOURCE_CONTRACTS[2]) {
       const entry=JSON.parse(source).fixtures?.open_mic_tts;
       if(!entry?.fillerAnnotations || !Array.isArray(entry.fillerAnnotations.items)
@@ -164,6 +240,39 @@ function tokens(root,source) {
   return result.join('\u0000');
 }
 
+const MODEL_WIRING=Object.freeze({
+  'tests/model-dropin/inAppComparison.live.spec.ts':[
+    'test.setTimeout(caseMs(candidate));',
+    'budget.beginTake(candidate);',
+    "expect(switched.ok, 'shared product candidate switch succeeds without fallback').toBe(true);",
+    "expect(product.productProof.verdict, 'existing collector must PASS with persisted verified identity').toBe('PASS');",
+    'receipt.sessionSha256 = budget.sessionSha256();',
+    "if (driverDigest() !== approval.driverSha256) throw Error('bounded_driver_changed_during_run');",
+  ],
+  'tests/model-dropin/playwright.in-app.config.ts':[
+    "throw Error('bounded_loopback_app_required');",
+    "if (process.env.PLAYWRIGHT_NO_COPY_PROMPT !== '1') throw Error('bounded_error_context_privacy_required');",
+    'workers: 1, fullyParallel: false, retries: 0, maxFailures: 1,',
+    "trace: 'off', screenshot: 'off', video: 'off',",
+  ],
+  'tests/model-dropin/run-bounded-comparison.mjs':[
+    "if (process.version !== 'v22.12.0') throw Error('bounded_requires_frozen_node_22_12_0');",
+    'validateApproval(approval, Date.now());',
+    'const resumed=canonicalPopulation(priorRows,canonicalCaseReceipts(canonical),approval.resume?.retryCaseKeys??[]);',
+    'browserServer=await launchOwned(ownership,()=>chromium.launchServer(',
+    'await awaitOwnedCleanup(workloads,cleanupBarrier,{ownershipComplete:()=>ownership.complete});',
+  ],
+  'tests/model-dropin/run-bounded-comparison.d.mts':['export {};'],
+  'tests/model-dropin/qualification.d.mts':[
+    'export declare function validatePromotionPolicy(policy: unknown): PromotionPolicy;',
+    'export declare function qualifyComparison(input: {',
+  ],
+  'tests/model-dropin/transportBoundary.ts':[
+    "let options: Parameters<Route['fetch']>[0] = {maxRedirects:0,maxRetries:0,timeout:30_000};",
+    "if(!cache?.permits(cached))return budget.rejectTransport('bounded_transport_error');",
+    "if(response.status()>=300&&response.status()<400){await response.dispose();return budget.rejectTransport('bounded_redirect_refused');}",
+  ],
+});
 const wiring={
   [BILLING_SPEC]:[
     'readonly targets = assertSandboxConfiguration(env, sandboxTarget);',
@@ -183,6 +292,7 @@ const wiring={
     'for (const journey of BILLING_JOURNEYS)',
     "requireFact(!failed && !cleanupFailed && result.result === 'PASSED', 'journey_incomplete_see_sanitized_receipt');",
   ],
+  ...MODEL_WIRING,
   [SOURCE_CONTRACTS[0]]:[
     'const savedId = startOutcome.sessionId;',
     'const outcome = await collectCanaryStopSave(page, {',
@@ -293,6 +403,28 @@ export function inspectSourceContract(root,file,source=read(root,file)) {
   if(!registeredSourceContract(file)) throw new Error('Unregistered source contract');
   if(file===BILLING_TARGET || file===BILLING_README) return inspectBillingInput(file,source);
   if(CASE07_SQL[file]) return inspectCase07Sql(file,source);
+  if(DATA_CONTRACTS[file]) {
+    const problems=dataProblems(root,file,source);
+    if(problems.length) throw new Error(`Data contract failed: ${file}; ${problems.join(', ')}`);
+    // Negative control per pin, against the consumed bytes: each pinned value, changed, must be refused.
+    const doc=JSON.parse(source);
+    const escaped=DATA_CONTRACTS[file].pins.filter(([keys])=>{
+      const mutant=structuredClone(doc);const parent=keys.slice(0,-1).reduce((value,key)=>value[key],mutant);const last=keys.at(-1);
+      if(last==='length'&&Array.isArray(parent)) parent.push(null); else parent[last]=null;
+      return !dataProblems(root,file,JSON.stringify(mutant)).length;
+    });
+    if(escaped.length) throw new Error('Data contract fault escaped');
+    return {file,sha256:hash(source),kind:'data-contract',checks:DATA_CONTRACTS[file].pins.length,
+      detectedFaults:DATA_CONTRACTS[file].pins.length,...(DATA_CONTRACTS[file].corpus?{audioDigestsChecked:doc.clips.length}:{}),
+      evaluatorExecution:'NOT RUN',liveExecution:'NOT RUN'};
+  }
+  if(TEXT_CONTRACTS[file]) {
+    const required=TEXT_CONTRACTS[file];
+    if(required.some(fragment=>source.split(fragment).length!==2)) throw new Error(`Text contract failed: ${file}`);
+    const controls=required.map(fragment=>source.replace(fragment,'BROKEN_STATEMENT'));
+    if(controls.some(mutant=>required.every(fragment=>mutant.split(fragment).length===2))) throw new Error('Text contract fault escaped');
+    return {file,sha256:hash(source),kind:'text-contract',checks:required.length,detectedFaults:controls.length,liveExecution:'NOT RUN'};
+  }
   if(wiring[file]) {
     const ts=createRequire(path.join(root,'package.json'))('typescript');
     const parsed=ts.createSourceFile(file,source,ts.ScriptTarget.Latest,true);
@@ -348,6 +480,7 @@ export function sourceContractBinding(root,files) {
   if(files.some(file=>!sourceContractApplicability(root,file).supported)) throw new Error('Unsupported source contract input or consumer');
   const dependencies=[...files,SOURCE_CONSUMER,'scripts/lib/sourceContractEvidence.mjs'];
   if(files.includes(SOURCE_CONTRACTS[2])) dependencies.push('tests/fixtures/rwt/generate-rwt-tts-fixtures.sh');
+  for(const file of files) if(DATA_CONTRACTS[file]?.corpus) dependencies.push(...corpusAudio(root,file));
   return dependencies.map(file=>({file,sha256:hash(read(root,file))}));
 }
 

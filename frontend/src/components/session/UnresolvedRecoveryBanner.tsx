@@ -79,7 +79,10 @@ export const UnresolvedRecoveryBanner: React.FC<UnresolvedRecoveryBannerProps> =
     const recoverableSuffix = hasTranscriptText
         ? ' Your words are still here.'
         : hasMeasurementsOnly
-            ? ' Your measurements from this session are still on this device.'
+            // Work point 2, D5: the recovery draft is content-free (#1306), so no transcript is on this device and a
+            // retry can save measurements only. "Its transcript was not kept" is true whether or not an earlier save
+            // reached the server (a saved transcript stays saved; it just is not here).
+            ? ' Your measurements from this session are still on this device. Its transcript was not kept on this device.'
             : '';
     const discardCopy = hasTranscriptText
         ? DISCARD_CONFIRMATION_COPY

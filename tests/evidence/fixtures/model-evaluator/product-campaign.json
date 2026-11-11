@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "mode": "product-lifecycle",
+  "candidates": ["v2:base.en", "parakeet:tdt-v3:int8", "granite:turboctc-q4f16"],
+  "corpus": "tests/evidence/fixtures/model-evaluator/corpus-synthetic-smoke.json",
+  "maximumTakes": 18
+}
