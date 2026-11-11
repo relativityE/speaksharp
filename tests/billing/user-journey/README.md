@@ -141,3 +141,14 @@ lifecycle qualified. A source-only draft, mocked test, old commercial-runner res
 or old hosted-runtime result with a synthetic fallback cannot close this gap.
 Record the active source/execution blocker in the owning PR and current release
 status authority, not as a new practice journey or a silently closed requirement.
+
+## Local disposable stack (draft, not yet run)
+
+`.github/workflows/billing-local-stack-journey.yml` runs this spec against a disposable local Supabase stack
+instead of a hosted sandbox project. It selects the committed loopback target `sandbox-target.local.json`
+with `BILLING_SANDBOX_TARGET=local-disposable-stack`; the hosted `sandbox-target.json` is unchanged.
+Plain `http` is admitted only for that loopback target. Checkout opens in test mode only through
+`stripe-checkout/localSandbox.ts`, whose allowlist names the local stack's own API and app origins, so no
+hosted project can match it. The webhook signing secret is issued per run by `stripe listen` to the local
+`stripe-webhook` function; the spec itself still receives none. A PASS is sandbox-qualified only: it does not
+prove the deployed webhook endpoint, production configuration, or a real charge.

@@ -74,3 +74,25 @@ test('failure receipts preserve safe codes, not raw provider/credential-bearing 
     assert.equal(safeFailureReason(value), 'unclassified_step_failure');
   }
 });
+test('local disposable stack admits loopback http only, and only under its own committed target', async () => {
+  const localTarget = (await import('./sandbox-target.local.json', { with: { type: 'json' } })).default;
+  const local = { ...env, BILLING_SANDBOX_APP_URL: 'http://localhost:5173',
+    BILLING_SANDBOX_SUPABASE_URL: 'http://127.0.0.1:54321',
+    BILLING_PRODUCTION_SUPABASE_URL: 'https://yxlapjuovrsvjswkwnrk.supabase.co' };
+  assert.deepEqual(assertSandboxConfiguration(local, localTarget),
+    { app: 'http://localhost:5173', api: 'http://127.0.0.1:54321' });
+  // The reviewed hosted-sandbox status never admits plain http, even for loopback.
+  assert.throws(() => assertSandboxConfiguration(local, { ...localTarget, status: 'REVIEWED_ISOLATED_SANDBOX' }));
+  for (const delta of [{ BILLING_SANDBOX_SUPABASE_URL: 'http://sandbox.example.com' },
+    { BILLING_SANDBOX_APP_URL: 'http://192.168.1.5:5173' },
+    { BILLING_SANDBOX_SUPABASE_URL: 'https://127.0.0.1:54321' },
+    { BILLING_SANDBOX_SUPABASE_URL: 'http://127.0.0.1:54322' },
+    { BILLING_SANDBOX_APP_URL: 'http://user:password@localhost:5173' },
+    { BILLING_PRODUCTION_SUPABASE_URL: 'http://127.0.0.1:54321' },
+    { BILLING_SANDBOX_STRIPE_KEY: 'sk_live_synthetic_control' }]) {
+    assert.throws(() => assertSandboxConfiguration({ ...local, ...delta }, localTarget), JSON.stringify(delta));
+  }
+  // A loopback target can never point at a hosted project's API.
+  assert.throws(() => assertSandboxConfiguration({ ...local, BILLING_SANDBOX_SUPABASE_URL: 'https://sandbox.supabase.co' },
+    { ...localTarget, apiOrigin: 'https://sandbox.supabase.co' }));
+});

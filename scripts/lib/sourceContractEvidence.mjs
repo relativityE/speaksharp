@@ -275,7 +275,8 @@ const MODEL_WIRING=Object.freeze({
 });
 const wiring={
   [BILLING_SPEC]:[
-    'readonly targets = assertSandboxConfiguration(env, sandboxTarget);',
+    'readonly targets = assertSandboxConfiguration(env, committedTarget);',
+    "const useLocalStack = env.BILLING_SANDBOX_TARGET === 'local-disposable-stack';",
     "requireFact(balance.livemode === false, 'stripe_account_not_test');",
     "const event = await this.stripe(`events/${encodeURIComponent(candidate.id)}`) as unknown as BillingEvent;",
     ".select('event_id,event_type,processed_at').eq('event_id', event.id).maybeSingle();",

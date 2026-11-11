@@ -2,6 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
 import sandboxTarget from './sandbox-target.json' with { type: 'json' };
+import localStackTarget from './sandbox-target.local.json' with { type: 'json' };
 import { BILLING_JOURNEYS, receipt, requireFact, assertSandboxConfiguration,
   assertTestPrice, assertInvoice, isCorrelatedDelivery, safeFailureReason, type BillingJourney, type BillingEvent } from './contract';
 import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
@@ -21,6 +22,10 @@ type Obj = {
   subscription_status: string; can_start: boolean; is_pro: boolean; trial_active: boolean;
 };
 const env = process.env;
+// The disposable local stack (billing-local-stack-journey.yml) selects its own committed loopback target.
+// Anything other than the exact value keeps the reviewed hosted-sandbox target.
+const useLocalStack = env.BILLING_SANDBOX_TARGET === 'local-disposable-stack';
+const committedTarget = useLocalStack ? localStackTarget : sandboxTarget;
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const id = (value: unknown): string => typeof value === 'string' ? value
   : value && typeof value === 'object' && 'id' in value ? String(value.id) : '';
@@ -31,7 +36,7 @@ class SandboxJourney {
   readonly marker = `rwt-journey-billing-${randomUUID()}`;
   readonly email = `${this.marker}@example.com`;
   readonly password = `Test-${randomUUID()}!`;
-  readonly targets = assertSandboxConfiguration(env, sandboxTarget);
+  readonly targets = assertSandboxConfiguration(env, committedTarget);
   readonly admin: SupabaseClient = createClient(this.targets.api, env.BILLING_SANDBOX_SERVICE_ROLE_KEY!,
     { auth: { autoRefreshToken: false, persistSession: false } });
   readonly member: SupabaseClient = createClient(this.targets.api, env.BILLING_SANDBOX_ANON_KEY!,
@@ -133,9 +138,12 @@ class SandboxJourney {
     await expect(this.page.getByTestId('auth-form')).toBeVisible();
     const runtime = await this.page.evaluate(() => ({ release: window.__APP_RELEASE__,
       api: window.__APP_RUNTIME_CONFIG__?.supabaseUrl, mockAuth: window.__APP_RUNTIME_CONFIG__?.mockAuth,
-      stripeKeyClass: window.__APP_RUNTIME_CONFIG__?.stripeKeyClass }));
+      authMode: window.__APP_RUNTIME_CONFIG__?.authMode, stripeKeyClass: window.__APP_RUNTIME_CONFIG__?.stripeKeyClass }));
+    // The app reports mockAuth for any non-*.supabase.co URL, so on the loopback stack the check is the
+    // explicit real auth mode instead; the real sign-in below still has to succeed against local Auth.
+    const realAuth = useLocalStack ? runtime.authMode === 'real' : runtime.mockAuth === false;
     requireFact(runtime.release === env.BILLING_SANDBOX_RELEASE_SHA && runtime.api === this.targets.api
-      && runtime.mockAuth === false && runtime.stripeKeyClass === 'test', 'served_identity_or_backend_mismatch');
+      && realAuth && runtime.stripeKeyClass === 'test', 'served_identity_or_backend_mismatch');
 
     this.signupAttempted = true;
     const { data, error } = await this.admin.auth.admin.createUser({ email: this.email,

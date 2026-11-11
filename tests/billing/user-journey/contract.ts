@@ -64,12 +64,17 @@ export function isCorrelatedDelivery(input: unknown, expected: {
     && typeof ledger?.processed_at === 'string' && Number.isFinite(Date.parse(ledger.processed_at));
 }
 
+/** The disposable stack started inside the approval-gated workflow: loopback only, never a hosted project. */
+export const LOCAL_STACK_STATUS = 'LOCAL_DISPOSABLE_STACK';
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost']);
+
 export function assertSandboxConfiguration(env: Record<string, string | undefined>, target: {
   status: string; appOrigin: string | null; apiOrigin: string | null; productionApiOrigin: string | null;
 }) {
   // A caller cannot admit an arbitrary app/database by naming two different URLs in its environment.
   // Changing this committed target requires code/security review before any fixture may be created.
-  requireFact(target.status === 'REVIEWED_ISOLATED_SANDBOX' && target.appOrigin && target.apiOrigin
+  const local = target.status === LOCAL_STACK_STATUS;
+  requireFact((target.status === 'REVIEWED_ISOLATED_SANDBOX' || local) && target.appOrigin && target.apiOrigin
     && target.productionApiOrigin, 'sandbox_target_not_reviewed');
   const names = ['BILLING_SANDBOX_APP_URL', 'BILLING_SANDBOX_SUPABASE_URL', 'BILLING_SANDBOX_ANON_KEY',
     'BILLING_SANDBOX_SERVICE_ROLE_KEY', 'BILLING_SANDBOX_STRIPE_KEY', 'BILLING_SANDBOX_PRICE_ID',
@@ -78,15 +83,17 @@ export function assertSandboxConfiguration(env: Record<string, string | undefine
   requireFact(env.BILLING_JOURNEY_APPROVAL === 'ISOLATED-TEST-MODE-ONLY', 'missing_sandbox_acknowledgment');
   requireFact(env.BILLING_SANDBOX_STRIPE_KEY?.startsWith('sk_test_'), 'test_key_required');
   requireFact(/^[0-9a-f]{40}$/i.test(env.BILLING_SANDBOX_RELEASE_SHA!), 'release_sha_required');
-  const origin = (raw: string) => {
+  const origin = (raw: string, loopback = false) => {
     let url: URL;
     try { url = new URL(raw); } catch { throw new Error('BILLING_JOURNEY:invalid_origin'); }
-    requireFact(url.protocol === 'https:' && !url.username && !url.password && !url.search && !url.hash
-      && url.pathname === '/', 'https_origin_required');
+    requireFact(!url.username && !url.password && !url.search && !url.hash && url.pathname === '/', 'https_origin_required');
+    // Plain http is admitted ONLY for the local stack's loopback app/API; everything else stays https.
+    if (loopback) requireFact(url.protocol === 'http:' && LOOPBACK_HOSTS.has(url.hostname), 'loopback_origin_required');
+    else requireFact(url.protocol === 'https:', 'https_origin_required');
     return url.origin;
   };
-  const app = origin(env.BILLING_SANDBOX_APP_URL!);
-  const api = origin(env.BILLING_SANDBOX_SUPABASE_URL!);
+  const app = origin(env.BILLING_SANDBOX_APP_URL!, local);
+  const api = origin(env.BILLING_SANDBOX_SUPABASE_URL!, local);
   const productionApi = origin(env.BILLING_PRODUCTION_SUPABASE_URL!);
   requireFact(app === target.appOrigin && api === target.apiOrigin && productionApi === target.productionApiOrigin,
     'sandbox_target_binding_mismatch');
