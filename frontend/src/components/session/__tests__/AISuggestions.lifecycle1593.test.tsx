@@ -342,6 +342,16 @@ describe('ai_coaching_lifecycle — one observable chain per request (#1593)', (
 });
 
 describe('origin fields accept the identity formats journeyIdentity actually mints (#1593, Sam #1657 review)', () => {
+    it('render target carries only the same bounded opaque identity formats', () => {
+        for (const id of ['11111111-1111-4111-8111-111111111111', 'j-lz3k9q2a-4f9xk2m1qz']) {
+            const { props, dropped } = projectEventProps('ai_coaching_lifecycle', { stage: 'rendered', render_target_attempt_id: id });
+            expect(dropped).toEqual([]);
+            expect(props.render_target_attempt_id).toBe(id);
+        }
+        for (const bad of ['has space', 'x?y=1', 'a'.repeat(49)]) {
+            expect(projectEventProps('ai_coaching_lifecycle', { stage: 'rendered', render_target_attempt_id: bad }).dropped).toContain('render_target_attempt_id');
+        }
+    });
     it('a UUID and the no-crypto fallback `j-<base36>-<base36>` both survive the allowlist; prose and queries do not', () => {
         for (const id of ['11111111-1111-4111-8111-111111111111', 'j-lz3k9q2a-4f9xk2m1qz']) {
             const { props, dropped } = projectEventProps('ai_coaching_lifecycle', { stage: 'requested', elapsed_ms: 0, product: 'open_mic', origin_journey_id: id, origin_boot_id: id, origin_attempt_id: id });
@@ -351,6 +361,37 @@ describe('origin fields accept the identity formats journeyIdentity actually min
         for (const bad of ['has space', 'x?y=1', 'a'.repeat(49)]) {
             expect(projectEventProps('ai_coaching_lifecycle', { stage: 'requested', origin_attempt_id: bad }).dropped).toContain('origin_attempt_id');
         }
+    });
+});
+
+describe('render target comes from the current visible card, not a queued old observer', () => {
+    it('a callback queued for A cannot claim a render after the same component displays B', async () => {
+        beginRecordingAttempt();
+        invoke.mockResolvedValueOnce({ data: { suggestions: VALID_A }, error: null });
+        const view = render(<AISuggestions canReview sessionId="take-a" />);
+        await screen.findByText('Take A next.');
+        const oldCard = screen.getByTestId('ai-suggestions-card');
+        const queued = intersectionCallback;
+        const [requestA] = requestIds();
+        beginRecordingAttempt();
+        view.rerender(<AISuggestions canReview={false} sessionId="take-b" initialSuggestions={VALID_B} />);
+        await screen.findByText('Take B next.');
+        act(() => queued?.([{ target: oldCard, isIntersecting: true, intersectionRatio: 1 } as unknown as IntersectionObserverEntry], {} as IntersectionObserver));
+        expect(stagesOf(requestA)).not.toContain('rendered');
+        expect(pushSpy.mock.calls.filter(c => c[0] === 'practice_loop_review_rendered')).toHaveLength(0);
+    });
+    it('a callback queued for a previous value cannot claim visibility after that same-session value is removed', async () => {
+        invoke.mockResolvedValueOnce({ data: { suggestions: VALID_A }, error: null });
+        const view = render(<AISuggestions canReview sessionId="take-a" />);
+        await screen.findByText('Take A next.');
+        const oldCard = screen.getByTestId('ai-suggestions-card');
+        const queued = intersectionCallback;
+        const [requestA] = requestIds();
+        view.rerender(<AISuggestions canReview={false} sessionId="take-a" product="focus_points" />);
+        await waitFor(() => expect(screen.queryByText('Take A next.')).toBeNull());
+        act(() => queued?.([{ target: oldCard, isIntersecting: true, intersectionRatio: 1 } as unknown as IntersectionObserverEntry], {} as IntersectionObserver));
+        expect(stagesOf(requestA)).not.toContain('rendered');
+        expect(pushSpy.mock.calls.filter(c => c[0] === 'practice_loop_review_rendered')).toHaveLength(0);
     });
 });
 

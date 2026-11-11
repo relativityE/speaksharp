@@ -108,7 +108,7 @@ const ORACLE_COLUMNS = {
         'comparison_evidence_document_id', 'review_surface', 'phase', 'suggestions_present', 'action', 'action_seq',
         'intended_route', 'route_class', 'link_state', 'submit_seq', 'error_category', 'producer_ts', 'persisted',
         'diagnostic_request_id', 'origin_attempt_id', 'end_reason', 'origin_boot_id', 'intent_kind', 'intent_outcome',
-        'step', 'option_selected'],
+        'step', 'option_selected', 'render_target_attempt_id'],
     acquisition: ['model_identity', 'acquired_candidate_id', 'cache_result', 'measurement_completeness',
         'measurement_reason_code', 'network_used', 'download_ms', 'init_ms', 'total_ms', 'network_bytes', 'partial_download_ms'],
 } as const;
@@ -232,6 +232,36 @@ const parse = (status: number | null, out: string) => {
 };
 
 describe('the real qualifier, end to end against recorded HogQL rows', () => {
+    it.each([
+        ['attempt-1', 'QUALIFIED', 0],
+        [null, 'HOLD', 1],
+        ['attempt-2', 'FAIL', 3],
+    ] as const)('retained-review target %s yields %s through the actual query/decoder/CLI', async (target, verdict, status) => {
+        const at = (event: string, ms: number, properties: Record<string, unknown>): Row => ({ event, producer_ts: 1_800_000_000_000 + ms, ...properties });
+        const origin = { diagnostic_request_id: 'request-1', origin_attempt_id: 'attempt-1', origin_boot_id: BOOT };
+        const replaced = new Set(['session_saved', 'session_started', 'recording_state', 'recording_intent', 'stage_latency', 'journey_step']);
+        answer = { acquisition: [], readback: [
+            ...recordingJourney().filter(r => !replaced.has(r.event)),
+            at('model_attribution_receipt', 3.5, { subject_boot_id: BOOT, subject_journey_id: JOURNEY, subject_attempt_id: 'attempt-1', subject_attempt_seq: 1, attribution_status: 'verified' }),
+            at('session_started', 0, { attempt_id: 'attempt-1', attempt_seq: 1, candidate_id: MODEL, engine: 'private', runtime_version: 'r1' }),
+            at('stage_latency', 1, { stage: 'recording_terminated', attempt_id: 'attempt-1' }),
+            at('stage_latency', 2, { stage: 'final_transcript', attempt_id: 'attempt-1' }),
+            at('stage_latency', 3, { stage: 'session_saved', attempt_id: 'attempt-1' }),
+            at('session_saved', 3, { attempt_id: 'attempt-1', attempt_seq: 1, candidate_id: MODEL, engine: 'private', runtime_version: 'r1' }),
+            at('ai_coaching_lifecycle', 4, { ...origin, stage: 'requested', attempt_id: 'attempt-1' }),
+            at('journey_step', 9, { step: 'option_selected', option_selected: 'practice_next', attempt_id: 'attempt-1' }),
+            at('recording_intent', 10, { intent_kind: 'start', intent_outcome: 'accepted', attempt_id: 'attempt-2' }),
+            at('ai_coaching_lifecycle', 10.5, { ...origin, stage: 'ready', attempt_id: 'attempt-2' }),
+            at('ai_coaching_lifecycle', 11, { ...origin, stage: 'rendered', attempt_id: 'attempt-2', render_target_attempt_id: target }),
+            at('ai_coaching_lifecycle', 11, { ...origin, stage: 'ended', attempt_id: 'attempt-2', end_reason: 'completed' }),
+            at('recording_state', 12, { to_state: 'RECORDING', attempt_id: 'attempt-2' }),
+            at('session_started', 13, { attempt_id: 'attempt-2' }),
+        ] };
+        const result = await qualify('session_interrupted_repeat', { attempts: 'attempt-1' });
+        expect(result.evidence?.verdict).toBe(verdict);
+        expect(result.status).toBe(status);
+    });
+
     it('QUALIFIED: a complete recording journey with a measured cold first download', async () => {
         answer = { readback: recordingJourney(), acquisition: [coldDownload()] };
         const r = await qualify('session_during', { acquisition: true });
