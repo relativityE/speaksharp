@@ -33,6 +33,8 @@ if (process.env.GITHUB_ACTIONS === 'true' || process.env.TEST_USER_HARM_REAL_RUN
   test('INSTALLED Vitest: all three named user-harm controls pass, fail their intended assertion, then pass restored', { timeout: 240_000 }, async () => {
     // runTestEfficacy blocks on synchronous child runs for minutes. Run it in its own Node process so this
     // worker's event loop stays free; a multi-minute block makes Vitest's worker RPC time out and fail the shard.
+    // No kill timeout on that process: each phase it runs is already bounded, and only it can drain its detached
+    // Vitest groups and temporary copies. If it runs long, the test timeout fails the test and it still cleans up.
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'user-harm-controls-'));
     const out = path.join(dir, 'receipt.json');
     const script = `import fs from 'node:fs'; import { runTestEfficacy } from ${JSON.stringify(pathToFileURL(path.join(root, 'scripts/run-test-efficacy.mjs')).href)};
@@ -40,7 +42,7 @@ fs.writeFileSync(${JSON.stringify(out)}, JSON.stringify(runTestEfficacy({ root: 
     let receipt;
     try {
       await promisify(execFile)(process.execPath, ['--input-type=module', '-e', script],
-        { cwd: root, env: process.env, timeout: 235_000, maxBuffer: 64 * 1024 * 1024 });
+        { cwd: root, env: process.env, maxBuffer: 64 * 1024 * 1024 });
       receipt = JSON.parse(fs.readFileSync(out, 'utf8'));
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
     assert.equal(receipt.status, 'executed');
