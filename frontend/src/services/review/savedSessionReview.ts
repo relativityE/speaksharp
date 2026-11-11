@@ -44,6 +44,8 @@ export interface SavedSessionReview {
     /** The saved point set (brief + labels in order), for the practice action on a Focus Points session. */
     focusBrief: SavedFocusBrief | null;
     focusPoints: string[];
+    /** The session row this review was actually read from (equal to the requested id); absent when that is unproven. */
+    loadedSessionId?: string;
     /** A marked Focus Points take whose saved results couldn't be read: its point set is unknown until a re-read. */
     focusReadFailed?: true;
     /**
@@ -55,7 +57,18 @@ export interface SavedSessionReview {
     reviewReadFailed?: true;
 }
 
+/**
+ * AHT-01 Option 1 (review RETURN on 7a4d8f4e): the saved review names the session it was ACTUALLY read from. The row's own
+ * `id` is selected, and `loadedSessionId` is set only when that id equals the requested session and the read succeeded, so a
+ * rendered card can positively prove whose saved review it is (absent = unproven, never inferred from the request).
+ */
 export async function loadSavedSessionReview(sessionId: string): Promise<SavedSessionReview> {
+    const seen: { rowId?: unknown } = {};
+    const value = await readSavedSessionReview(sessionId, seen);
+    return !value.reviewReadFailed && seen.rowId === sessionId ? { ...value, loadedSessionId: sessionId } : value;
+}
+
+async function readSavedSessionReview(sessionId: string, seen: { rowId?: unknown }): Promise<SavedSessionReview> {
     const failed: SavedSessionReview = {
         coaching: { kind: 'error' }, product: 'unknown', evidence: [], focusBrief: null, focusPoints: [], reviewReadFailed: true,
     };
@@ -63,23 +76,24 @@ export async function loadSavedSessionReview(sessionId: string): Promise<SavedSe
         const supabase = getSupabaseClient();
         const readRow = (columns: string) => supabase.from('sessions').select(columns).eq('id', sessionId).maybeSingle();
         const [first, focus] = await Promise.all([
-            readRow('ai_suggestions, transcript_state, next_action_signal, duration, product'),
+            readRow('id, ai_suggestions, transcript_state, next_action_signal, duration, product'),
             loadSavedFocusPointsCoverage(sessionId),
         ]);
         // Before the marker migration is applied the column does not exist: read the row without it (legacy NULL).
         const missingColumn = (e: { code?: string; message?: string } | null) =>
             Boolean(e && (e.code === '42703' || e.code === 'PGRST204' || /product/.test(e.message ?? '')));
         const { data, error } = first.error && missingColumn(first.error as { code?: string; message?: string })
-            ? await readRow('ai_suggestions, transcript_state, next_action_signal, duration')
+            ? await readRow('id, ai_suggestions, transcript_state, next_action_signal, duration')
             : first;
         if (error) {
             logger.warn({ error }, '[savedSessionReview] session read failed');
             return failed;
         }
         const row = data as {
-            ai_suggestions?: unknown; transcript_state?: unknown; next_action_signal?: unknown; duration?: unknown; product?: unknown;
+            id?: unknown; ai_suggestions?: unknown; transcript_state?: unknown; next_action_signal?: unknown; duration?: unknown; product?: unknown;
         } | null;
         if (!row) return failed;
+        seen.rowId = row.id;
 
         const review = readSavedReview(row.ai_suggestions);
         const coaching: SavedCoaching = review
