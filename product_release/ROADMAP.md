@@ -308,6 +308,13 @@ STT decision without duplicating the existing MVP qualification work.
     these observations as background unless independently reproduced as a current
     blocker. A suggested real-money checkout is outside this test-mode intake.
 
-Completion of this documentation increment means all ten dispositions and their
+11. **F11 — Gemini tier and provider data-handling terms.** Verify the actual
+    production account/service tier and applicable provider retention, training-use
+    and regional-processing terms through authorized metadata and current official
+    documentation. Do not infer terms from the model name or use of a test key.
+    Reconcile those verified terms with F03's consent copy and F02's retention
+    promise before release; disclose relevant limits without exposing credentials.
+
+Completion of this documentation increment means all eleven dispositions and their
 acceptance boundaries are recorded. It does not close the implementation,
 production-verification or release-acceptance obligations.
