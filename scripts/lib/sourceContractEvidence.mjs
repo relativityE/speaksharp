@@ -150,6 +150,50 @@ const importsMissing=(ts,parsed,file)=>{
 };
 export const registeredSourceContract=file=>SOURCE_CONTRACTS.includes(file);
 
+const FILLER_REFERENCE='tests/live/helpers/rwtFillerReference.ts';
+// #1720 keeps annotations in reviewed executable code, not the manifest. Parse literals only;
+// never import/execute a live helper, and bind its exact bytes into the source witness.
+function fixtureReference(root,entry) {
+  const source=read(root,FILLER_REFERENCE);
+  const ts=createRequire(path.join(root,'package.json'))('typescript');
+  const parsed=ts.createSourceFile(FILLER_REFERENCE,source,ts.ScriptTarget.Latest,true);
+  if(parsed.parseDiagnostics.length) throw new Error('Invalid fixture reference source');
+  const declarations=parsed.statements.filter(ts.isVariableStatement).flatMap(s=>[...s.declarationList.declarations]);
+  const initializer=name=>{
+    const matches=declarations.filter(d=>ts.isIdentifier(d.name)&&d.name.text===name);
+    if(matches.length!==1) throw new Error('Missing/duplicate fixture reference declaration');
+    return matches[0].initializer;
+  };
+  const frozen=n=>{
+    if(!n||!ts.isCallExpression(n)||n.expression.getText(parsed)!=='Object.freeze'||n.arguments.length!==1) throw new Error('Unreviewed fixture reference expression');
+    return n.arguments[0];
+  };
+  const object=(n,keys)=>{
+    if(!ts.isObjectLiteralExpression(n)||n.properties.length!==keys.length) throw new Error('Invalid fixture reference literal');
+    const result={};
+    for(const p of n.properties) {
+      if(!ts.isPropertyAssignment(p)||!ts.isIdentifier(p.name)||!keys.includes(p.name.text)||Object.hasOwn(result,p.name.text)||!ts.isStringLiteral(p.initializer)) throw new Error('Invalid fixture reference property');
+      result[p.name.text]=p.initializer.text;
+    }
+    return result;
+  };
+  const identity=object(frozen(initializer('OPEN_MIC_TTS_IDENTITY')),['file','sha256','kind']);
+  if(!entry||Object.hasOwn(entry,'fillerAnnotations')||identity.kind!=='synthetic'||identity.file!=='open_mic_tts.wav'
+    || !/^[a-f0-9]{64}$/.test(identity.sha256)||Object.entries(identity).some(([k,v])=>entry[k]!==v)) throw new Error('Fixture reference identity mismatch');
+  const mapped=frozen(initializer('OPEN_MIC_TTS_ANNOTATIONS'));
+  if(!ts.isCallExpression(mapped)||!ts.isPropertyAccessExpression(mapped.expression)||mapped.expression.name.text!=='map'
+    ||!ts.isArrayLiteralExpression(mapped.expression.expression)||mapped.arguments.length!==1
+    ||tokens(root,mapped.arguments[0].getText(parsed))!==tokens(root,'(a) => Object.freeze(a)')) throw new Error('Invalid fixture annotation table');
+  const resolver=initializer('fillerAnnotationsOf');
+  const expected=`(entry: unknown): FillerAnnotation[] => {
+    const e = entry as { file?: unknown; sha256?: unknown; kind?: unknown } | null;
+    if (!e || e.file !== OPEN_MIC_TTS_IDENTITY.file || e.sha256 !== OPEN_MIC_TTS_IDENTITY.sha256 || e.kind !== OPEN_MIC_TTS_IDENTITY.kind) return [];
+    return OPEN_MIC_TTS_ANNOTATIONS.map((a) => ({ ...a }));
+  }`;
+  if(tokens(root,resolver.getText(parsed))!==tokens(root,expected)) throw new Error('Fixture reference resolver wiring changed');
+  return {items:mapped.expression.expression.elements.map(n=>object(n,['word','anchor'])),sourceSha256:hash(source)};
+}
+
 export function sourceContractApplicability(root,file) {
   if(!registeredSourceContract(file)) return {supported:false,reason:'unregistered source contract'};
   try {read(root,SOURCE_CONSUMER);} catch {return {supported:false,reason:'source contract consumer unavailable or aliased'};}
@@ -163,8 +207,7 @@ export function sourceContractApplicability(root,file) {
       if(TEXT_CONTRACTS[file].some(fragment=>source.split(fragment).length!==2)) return {supported:false,reason:'receiving operator statements unavailable'};
     } else if(file===SOURCE_CONTRACTS[2]) {
       const entry=JSON.parse(source).fixtures?.open_mic_tts;
-      if(!entry?.fillerAnnotations || !Array.isArray(entry.fillerAnnotations.items)
-        || typeof entry.fillerAnnotations.source!=='string') return {supported:false,reason:'receiving fixture annotations unavailable'};
+      fixtureReference(root,entry);
       read(root,'tests/fixtures/rwt/generate-rwt-tts-fixtures.sh');
     } else {
       const ts=createRequire(path.join(root,'package.json'))('typescript');
@@ -395,9 +438,8 @@ export function inspectSourceContract(root,file,source=read(root,file)) {
   const entry=manifest.fixtures?.open_mic_tts;
   const script=read(root,'tests/fixtures/rwt/generate-rwt-tts-fixtures.sh').match(/^OPEN_MIC="([^"\n]+)"$/m)?.[1];
   if(!script || entry?.kind!=='synthetic' || !/^[a-f0-9]{64}$/.test(entry.sha256 || '')
-    || !entry.fillerAnnotations?.source?.includes('not audio-bound')
     || !entry.knownFixtureLimits?.some(value=>/human recording/i.test(value))) throw new Error('Missing fixture scope/identity');
-  const items=entry.fillerAnnotations.items;
+  const {items,sourceSha256:referenceSha256}=fixtureReference(root,entry);
   if(!Array.isArray(items) || items.length!==8) throw new Error('Missing fixture annotations');
   const counts={};let cursor=0;
   for(const {word,anchor} of items) {
@@ -409,14 +451,14 @@ export function inspectSourceContract(root,file,source=read(root,file)) {
   }
   if(JSON.stringify(Object.entries(counts).sort())!==JSON.stringify(Object.entries(entry.groundTruthFillers || {}).sort())) throw new Error('Fixture count/reference disagreement');
   return {file,sha256:hash(source),generatorSha256:hash(read(root,'tests/fixtures/rwt/generate-rwt-tts-fixtures.sh')),
-    kind:'fixture-consumption',annotationCount:items.length,counts,liveExecution:'NOT RUN',audioExecution:'NOT RUN'};
+    referenceSha256,kind:'fixture-consumption',annotationSource:'reviewed code; script-derived, not audio-bound',annotationCount:items.length,counts,liveExecution:'NOT RUN',audioExecution:'NOT RUN'};
 }
 
 export function sourceContractBinding(root,files) {
   if(!Array.isArray(files) || !files.length || new Set(files).size!==files.length || files.some(file=>!registeredSourceContract(file))) throw new Error('Unknown/duplicate source contract input');
   if(files.some(file=>!sourceContractApplicability(root,file).supported)) throw new Error('Unsupported source contract input or consumer');
   const dependencies=[...files,SOURCE_CONSUMER,'scripts/lib/sourceContractEvidence.mjs'];
-  if(files.includes(SOURCE_CONTRACTS[2])) dependencies.push('tests/fixtures/rwt/generate-rwt-tts-fixtures.sh');
+  if(files.includes(SOURCE_CONTRACTS[2])) dependencies.push('tests/fixtures/rwt/generate-rwt-tts-fixtures.sh',FILLER_REFERENCE);
   for(const file of files) if(DATA_CONTRACTS[file]?.corpus) dependencies.push(...corpusAudio(root,file));
   return dependencies.map(file=>({file,sha256:hash(read(root,file))}));
 }

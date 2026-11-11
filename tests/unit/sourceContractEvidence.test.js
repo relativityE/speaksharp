@@ -244,24 +244,48 @@ test('source witness refuses stale bytes, missing consumer, wrong phase and fake
   assert.throws(()=>sourceContractBinding(dir,['tests/fixtures/unconsumed.json']),/Unknown/);
 }));
 
-test('fixture contract consumes all annotations against the pinned generator, without audio credit',()=>fixture(({dir,write})=>{
-  const words=['um','uh','um','you know','uh','um','uh','um'];
-  const items=words.map((word,i)=>({word,anchor:`anchor ${i}`}));
-  const manifest={fixtures:{open_mic_tts:{kind:'synthetic',sha256:'a'.repeat(64),groundTruthFillers:{um:4,uh:3,'you know':1},
-    fillerAnnotations:{source:'script, not audio-bound',items},knownFixtureLimits:['needs human recording']}}};
-  write('tests/fixtures/rwt/generate-rwt-tts-fixtures.sh',`OPEN_MIC="${items.map(({word,anchor})=>`${word}, ${anchor}`).join('. ')}"\n`);
-  const source=JSON.stringify(manifest);
-  write(SOURCE_CONTRACTS[2],source);assert.equal(executionRoute(SOURCE_CONTRACTS[2],dir).applicable,true);
-  const absent=structuredClone(manifest);delete absent.fixtures.open_mic_tts.fillerAnnotations;
-  write(SOURCE_CONTRACTS[2],JSON.stringify(absent));assert.equal(executionRoute(SOURCE_CONTRACTS[2],dir).applicable,false);
-  write(SOURCE_CONTRACTS[2],source);
+test('real manifest consumes reviewed code annotations against the generator, without audio credit',()=>fixture(({dir,write})=>{
+  const helper='tests/live/helpers/rwtFillerReference.ts';
+  const generator='tests/fixtures/rwt/generate-rwt-tts-fixtures.sh';
+  const helperSource=fs.readFileSync(path.join(root,helper),'utf8');
+  const source=fs.readFileSync(path.join(root,SOURCE_CONTRACTS[2]),'utf8');
+  const manifest=JSON.parse(source);
+  assert.equal(Object.hasOwn(manifest.fixtures.open_mic_tts,'fillerAnnotations'),false);
+  for(const file of [helper,generator,SOURCE_CONTRACTS[2]]) write(file,fs.readFileSync(path.join(root,file),'utf8'));
+  assert.equal(executionRoute(SOURCE_CONTRACTS[2],dir).applicable,true);
   const proof=inspectSourceContract(dir,SOURCE_CONTRACTS[2],source);
   assert.equal(proof.annotationCount,8);assert.equal(proof.audioExecution,'NOT RUN');
+  assert.equal(proof.liveExecution,'NOT RUN');assert.equal(proof.annotationSource,'reviewed code; script-derived, not audio-bound');
+  assert.deepEqual(proof.counts,{um:4,uh:3,'you know':1});
+  const binding=sourceContractBinding(dir,[SOURCE_CONTRACTS[2]]);
+  assert.ok(binding.some(b=>b.file===helper&&b.sha256===proof.referenceSha256));
   const wrong=structuredClone(manifest);wrong.fixtures.open_mic_tts.groundTruthFillers.uh=2;
   assert.throws(()=>inspectSourceContract(dir,SOURCE_CONTRACTS[2],JSON.stringify(wrong)),/disagreement/);
-  const unconsumed=structuredClone(manifest);unconsumed.fixtures.open_mic_tts.fillerAnnotations.items[1].anchor='not in generator';
-  assert.throws(()=>inspectSourceContract(dir,SOURCE_CONTRACTS[2],JSON.stringify(unconsumed)),/not consumed/);
+  for(const [key,value] of [['sha256','0'.repeat(64)],['file','foreign.wav'],['kind','human']]) {
+    const other=structuredClone(manifest);other.fixtures.open_mic_tts[key]=value;
+    write(SOURCE_CONTRACTS[2],JSON.stringify(other));
+    assert.equal(executionRoute(SOURCE_CONTRACTS[2],dir).applicable,false);
+    assert.throws(()=>inspectSourceContract(dir,SOURCE_CONTRACTS[2]),/identity|scope/);
+  }
+  write(SOURCE_CONTRACTS[2],source);
+  for(const [from,to,error] of [
+    ["anchor: 'I propose'","anchor: 'not in generator'",/not consumed/],
+    ["{ word: 'um', anchor: 'deadlines live' },",'',/Missing fixture annotations/],
+    ['e.sha256 !== OPEN_MIC_TTS_IDENTITY.sha256','false',/resolver wiring/],
+    ["word: 'uh'","word: computedWord()",/reference property/],
+  ]) {
+    assert.ok(helperSource.includes(from));write(helper,helperSource.replace(from,to));
+    assert.throws(()=>inspectSourceContract(dir,SOURCE_CONTRACTS[2]),error);
+  }
+  write(helper,helperSource+'\n// changed reference bytes');
+  assert.notDeepEqual(sourceContractBinding(dir,[SOURCE_CONTRACTS[2]]),binding);
+  write(helper,helperSource);
+  const duplicate=structuredClone(manifest);duplicate.fixtures.open_mic_tts.fillerAnnotations={source:'legacy',items:[]};
+  assert.throws(()=>inspectSourceContract(dir,SOURCE_CONTRACTS[2],JSON.stringify(duplicate)),/identity/);
+  fs.unlinkSync(path.join(dir,helper));
+  assert.equal(executionRoute(SOURCE_CONTRACTS[2],dir).applicable,false);
 }));
+
 
 const MODEL='tests/evidence/fixtures/model-evaluator/';
 test('#1760 model comparison inputs: every registered harness, document and data input is consumed from this checkout without live or evaluator credit',()=>{
