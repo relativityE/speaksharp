@@ -86,7 +86,7 @@ export function landingDisclosureChips(
 ): readonly [string, string, string] | readonly [string, string] {
     const factual: readonly [string, string] = [
         'Private transcription keeps audio local',
-        'AI coaching sends saved transcripts to Google Gemini',
+        'Saved transcripts are sent to an AI service for coaching',
     ];
     return paymentsEnabled ? [...factual, 'Pro continues only after Stripe confirmation'] : factual;
 }

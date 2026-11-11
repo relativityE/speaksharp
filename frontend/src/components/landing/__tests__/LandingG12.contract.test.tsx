@@ -287,7 +287,7 @@ describe('#1475 G12 Rev 2 — pricing (both payment states)', () => {
         expect(viewedSources()).toContain('pricing_pro_card');
     });
 
-    const FACTUAL_CHIPS = ['Private transcription keeps audio local', 'AI coaching sends saved transcripts to Google Gemini'];
+    const FACTUAL_CHIPS = ['Private transcription keeps audio local', 'Saved transcripts are sent to an AI service for coaching'];
 
     it.each([
         [false, FACTUAL_CHIPS],

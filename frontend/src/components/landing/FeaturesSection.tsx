@@ -52,7 +52,7 @@ const features = [
   {
     icon: <ShieldCheck className="size-8" />,
     title: "Private by design",
-    description: "Every customer recording uses on-device Private transcription, and the audio is never uploaded. Saved transcripts are stored in your account, and AI coaching sends them to Google Gemini. Trial and paid access provide the same complete product.",
+    description: "Every customer recording uses on-device Private transcription, and the audio is never uploaded. Saved transcripts are stored in your account and sent to an AI service for coaching. Trial and paid access provide the same complete product.",
     iconBgColor: "bg-primary/20",
     iconTextColor: "text-signature-text",
   }

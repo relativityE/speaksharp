@@ -83,16 +83,24 @@ describe('Private-only public product copy contract (#1254)', () => {
 
   // Privacy copy must match the code: audio is transcribed on-device and never uploaded, but a saved transcript is
   // stored in the user's account (Supabase) and AI coaching sends it to Google Gemini (get-ai-suggestions,
-  // MAX_TRANSCRIPT_CHARS = 8000), automatically after a take is saved.
+  // MAX_TRANSCRIPT_CHARS = 8000), automatically after a take is saved. Akin 2026-11-11: product copy says "an AI
+  // service" so it survives a provider change; the Privacy Policy's Service Providers section names the provider.
   it('states where a saved transcript goes instead of implying it never leaves the device', () => {
     expect(surfaces.legal).toContain('The audio is never uploaded or saved.');
     expect(surfaces.legal).toContain('its transcript text, measurements, and coaching results are stored with the session in your account');
     expect(surfaces.legal).toContain('to Google Gemini to write your review');
     expect(surfaces.legal).toContain('up to 8,000 characters');
     expect(surfaces.legal).toContain('Coaching currently starts automatically after a session is saved.');
-    expect(surfaces.faq).toContain('AI coaching sends it to Google Gemini');
+    expect(surfaces.faq).toContain('sent to an AI service to write your review');
     const landingPrivate = read('frontend/src/components/landing/PrivateRepeatSection.tsx');
-    expect(landingPrivate).toContain('Saved transcripts are stored in your account, and AI coaching sends them to Google Gemini.');
+    expect(landingPrivate).toContain('Saved transcripts are stored in your account and sent to an AI service for coaching.');
+    // Only the Privacy Policy names the provider.
+    const productCopyOutsidePolicy = customerSourceFiles
+      .filter((path) => !path.endsWith('LegalPage.tsx'))
+      .flatMap((path) => stringLiterals(readFileSync(path, 'utf8')))
+      .join('\n');
+    expect(productCopyOutsidePolicy).not.toMatch(/Gemini/);
+    expect(landingPrivate).not.toMatch(/Gemini/);
     expect(landingPrivate).not.toMatch(/>\s*Never uploaded\s*</);
     expect(customerCopy).not.toMatch(/minimum text required|may be stored with saved session|no recording to leak|stays? Private on this device|private transcript on this device/i);
     expect(customerCopy).not.toMatch(/practice privately/i);

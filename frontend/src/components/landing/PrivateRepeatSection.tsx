@@ -23,7 +23,7 @@ export const PrivateRepeatSection = () => (
                     Audio never uploaded
                 </h3>
                 <p className="text-[17px] font-medium leading-[1.6] text-neutral-body">
-                    Your speech is transcribed on your device, and the audio is never uploaded or saved. Saved transcripts are stored in your account, and AI coaching sends them to Google Gemini.
+                    Your speech is transcribed on your device, and the audio is never uploaded or saved. Saved transcripts are stored in your account and sent to an AI service for coaching.
                 </p>
             </div>
             <div
