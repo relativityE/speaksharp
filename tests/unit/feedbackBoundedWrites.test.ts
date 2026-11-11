@@ -5,7 +5,8 @@
  * PASS / FAIL / HOLD controls for the pre-send cap, the three fault legs, the final-boundary ledger, the final submit's isolation
  * and the race-safe report cleanup; then source-order checks of the spec's wiring, and that AHT-08's path is untouched.
  */
-import { readFileSync, readdirSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,6 +23,10 @@ import {
     writeUncertainty, zeroResidueNotRun,
     zeroResidueVerdict,
 } from '../live/helpers/feedbackReportCleanup';
+import {
+    FeedbackRecoveryInventory, RECOVERY_DIR_ENV, RECOVERY_QUIET_MS, RECOVERY_SCHEMA, readRecoveryInventory, recordDurably, recoverFromInventory,
+    recoveryDir, settleRecoveryInventory,
+} from '../live/helpers/feedbackRecoveryInventory';
 import { FEEDBACK_NO_SESSION_SUITE, FEEDBACK_OLDER_TAKE_SUITE, type ReadbackActionBinding, requiredAutomatedRows } from '../live/helpers/rwtAcceptance';
 import { bindReadbackJourneys } from '../live/helpers/rwtOracles';
 
@@ -360,11 +365,14 @@ interface FakeState {
     reports: ReportRow[]; sessions: number; profiles: number; authUser: boolean;
     deleteError?: boolean; deleteCount?: number | null; readError?: boolean; residueReadError?: boolean;
     deletes: Array<{ column: string; values: string[] }>; reads: number;
+    /** Every read, as `table.column` (the recovery control proves no broad read or delete). */
+    queries?: string[];
 }
 function fakeAdmin(state: FakeState): ReportCleanupAdmin {
     const reportsWhere = (column: string, values: readonly string[]) => state.reports.filter((r) => values.includes(String((r as Record<string, unknown>)[column])));
     const answer = (table: string, column: string, values: readonly string[]) => {
         state.reads += 1;
+        state.queries?.push(`${table}.${column}`);
         if (table === 'user_issue_reports') {
             if (state.readError || (state.residueReadError && state.deletes.length > 0)) return Promise.resolve({ data: null, error: { code: 'XX000' } });
             return Promise.resolve({ data: reportsWhere(column, values).map((r) => ({ ...r })), error: null });
@@ -541,7 +549,9 @@ describe('acceptance: every new always-written row is required of the older-take
 describe('the AHT-07 spec wiring (source order)', () => {
     it('the route is installed after the canary claim and before the first take; one context route sees every page', () => {
         const ready = at('if (!ready) return;', olderStart);
-        const install = at('await installFeedbackWriteRoute(page, ledger);', olderStart);
+        const install = at('await installFeedbackWriteRoute(page, ledger, inventory);', olderStart);
+        // The recovery inventory is opened before the route: no feedback write without its durable binding.
+        expect(at('inventory = FeedbackRecoveryInventory.open({', olderStart)).toBeLessThan(install);
         expect(ready).toBeLessThan(install);
         expect(install).toBeLessThan(at('createSavedOpenMicTake(page, 1, true)', olderStart));
         expect(spec).toContain('await page.context().route(FEEDBACK_INSERT_URL, async (route: Route) => {');
@@ -592,7 +602,8 @@ describe('the AHT-07 spec wiring (source order)', () => {
             'writeFeedbackAttemptRows(sink, ledger.attempts, observedLedger);', 'sink.row(FEEDBACK_ISOLATION_ROW,', "await steps.step('feedback report capture'",
             'finalizeOwnedCleanup(steps, receipt, cleanup, report', 'feedbackRetentionAfterDeletionRow(', "await steps.step('feedback report cleanup'",
             'pendingAfterDrain = await ledger.drain(5_000);', 'const uncertainty = writeUncertainty(ledger.attempts, pendingAfterDrain);',
-            'cleanupRunReports(admin as never, owner.uid, ledger.seenKeys, capturedReports, uncertainty)', 'if (written !== true) writeZeroResidueRow(receipt, zeroResidueNotRun(capturedReports));',
+            'cleanupRunReports(admin as never, owner.uid, ledger.seenKeys, capturedReports, uncertainty)', 'writeZeroResidueRow(receipt, settleRecoveryInventory(verdict, inventory));',
+            'if (written !== true) writeZeroResidueRow(receipt, settleRecoveryInventory(zeroResidueNotRun(capturedReports), inventory));',
             'await finishReceipt(receipt, testInfo, tap, claimed, steps, legJourneys);'];
         const idx = order.map((needle) => fin.indexOf(needle));
         expect(Object.fromEntries(order.map((n, i) => [n, idx[i] >= 0]))).toEqual(Object.fromEntries(order.map((n) => [n, true])));
@@ -634,6 +645,160 @@ describe('AHT-08 (no session) is untouched, and the new helpers stay case-only',
             .filter((f) => f.endsWith('.ts'));
         const importers = files.filter((f) => /from '\.\/(helpers\/)?(feedbackAttemptLedger|feedbackReportCleanup)'/.test(readFileSync(f, 'utf8')))
             .map((f) => path.relative(live, f)).sort();
-        expect(importers).toEqual(['helpers/feedbackReportCleanup.ts', 'rwt-feedback-association-boundaries.live.spec.ts']);
+        expect(importers).toEqual(['helpers/feedbackRecoveryInventory.ts', 'helpers/feedbackReportCleanup.ts', 'rwt-feedback-association-boundaries.live.spec.ts']);
+        const inventoryImporters = files.filter((f) => /from '\.\/(helpers\/)?feedbackRecoveryInventory'/.test(readFileSync(f, 'utf8'))).map((f) => path.relative(live, f));
+        expect(inventoryImporters).toEqual(['rwt-feedback-association-boundaries.live.spec.ts']);
+    });
+});
+
+// ── Durable recovery inventory (Sam, #1811 791b3780 RETURN) ─────────────────────────────────────────────────────────────────
+const OWNER = '11111111-1111-4111-8111-111111111111';
+const BINDING = { runId: '43048630848', runAttempt: '1', testId: 'f00d-1a2b3c', ownerUid: OWNER };
+const tmpDir = () => mkdtempSync(path.join(os.tmpdir(), 'aht07-recovery-'));
+const att = (ordinal: number, key: string, action: FeedbackAttempt['action'] = 'forward') => ({ ordinal, action, keys: [key] });
+const age = (file: string, ms: number) => { const t = (Date.now() - ms) / 1000; utimesSync(file, t, t); };
+
+describe('the recovery inventory is restricted, content-free and durable before forwarding', () => {
+    it('opens a 0700 directory and a 0600 file with the run binding; each attempt line is on disk when recordAttempt returns', () => {
+        const dir = path.join(tmpDir(), 'inv');
+        const inv = FeedbackRecoveryInventory.open(BINDING, dir);
+        expect(statSync(dir).mode & 0o777).toBe(0o700);
+        expect(statSync(inv.file).mode & 0o777).toBe(0o600);
+        inv.recordAttempt(att(1, K[0], 'fault-synthetic-42501'));
+        // No close or flush step after the call: the line is already readable by another process.
+        expect(readRecoveryInventory(inv.file)).toMatchObject({ binding: BINDING, keys: [K[0]], attempts: 1, settled: 0, malformed: 0 });
+        inv.recordSettle({ ordinal: 1, status: 403, forwarded: false });
+        const lines = readFileSync(inv.file, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+        expect(lines[0]).toMatchObject({ schema: RECOVERY_SCHEMA, type: 'run', ...BINDING });
+        // Content-free: only these fields, never a body, description, email, token or credential.
+        expect(lines.map((l) => Object.keys(l).sort().join(','))).toEqual([
+            'createdAt,ownerUid,runAttempt,runId,schema,testId,type', 'action,at,keys,ordinal,type', 'at,forwarded,ordinal,status,type']);
+    });
+    it('refuses a binding that is not plain identifiers (no file is created)', () => {
+        const dir = tmpDir();
+        expect(() => FeedbackRecoveryInventory.open({ ...BINDING, ownerUid: 'not-a-uuid' }, dir)).toThrow(/owner uid/);
+        expect(() => FeedbackRecoveryInventory.open({ ...BINDING, testId: '../x' }, dir)).toThrow(/testId/);
+        expect(readdirSync(dir)).toEqual([]);
+    });
+    it('lives outside the repository and every uploaded test output unless RWT_RECOVERY_DIR names a persistent place', () => {
+        expect(recoveryDir({})).toBe(path.join(os.homedir(), '.speaksharp-rwt-recovery'));
+        expect(recoveryDir({ [RECOVERY_DIR_ENV]: '/srv/rwt-recovery' })).toBe('/srv/rwt-recovery');
+        expect(recoveryDir({}).startsWith(path.resolve(here, '../..'))).toBe(false);
+    });
+    it('a write that cannot be recorded is reported as not recorded (the route then aborts it, never sends it)', () => {
+        const inv = FeedbackRecoveryInventory.open(BINDING, tmpDir());
+        rmSync(path.dirname(inv.file), { recursive: true, force: true });
+        expect(recordDurably(inv, att(1, K[0]))).toBe(false);
+        expect(inv.failures).toBe(1);
+        expect(recordDurably(null, att(1, K[0]))).toBe(false);
+    });
+    it('the route records before any abort, fulfil or fetch, and aborts what it could not record', () => {
+        const fn = spec.slice(at('async function installFeedbackWriteRoute('), at('async function runFeedbackFaultLeg('));
+        const admit = fn.indexOf('const attempt = ledger.admit(request.method(), () => request.postDataJSON());');
+        const record = fn.indexOf('if (!recordDurably(inventory, attempt)) {');
+        expect(record).toBeGreaterThan(admit);
+        for (const act of ["route.abort('failed')", 'route.fulfill(syntheticRejection(', 'route.fetch()', 'route.fulfill({ response })']) {
+            expect({ act, afterRecord: fn.indexOf(act) > record }).toEqual({ act, afterRecord: true });
+        }
+        expect(fn.slice(record).replace(/\s+/g, ' ')).toMatch(/^if \(!recordDurably\(inventory, attempt\)\) \{ ledger\.settle\(attempt, \{ status: null, forwarded: false \}\); return await route\.abort\('failed'\); \}/);
+    });
+});
+
+describe('the inventory is kept until settlement plus zero readback', () => {
+    const pass: RowVerdict = { verdict: 'PASS', detail: 'ok', evidence: { deleted: 4 } };
+    it('PASS retires the file; HOLD or FAIL keeps it and names it by file name, never a key', () => {
+        const inv = FeedbackRecoveryInventory.open(BINDING, tmpDir());
+        inv.recordAttempt(att(1, K[0]));
+        for (const v of [{ verdict: 'HOLD', detail: 'unknown write' }, { verdict: 'FAIL', detail: 'survivor' }] as RowVerdict[]) {
+            const out = settleRecoveryInventory(v, inv);
+            expect(out.verdict).toBe(v.verdict);
+            expect(out.evidence).toMatchObject({ recoveryInventory: `kept:${path.basename(inv.file)}`, recoveryDirEnv: RECOVERY_DIR_ENV });
+            expect(JSON.stringify(out)).not.toContain(K[0]);
+            expect(readRecoveryInventory(inv.file)).not.toBeNull();
+        }
+        expect(settleRecoveryInventory(pass, inv).evidence).toMatchObject({ recoveryInventory: 'retired', deleted: 4 });
+        expect(readRecoveryInventory(inv.file)).toBeNull();
+    });
+});
+
+describe('restart / late-commit control: the surviving report is located without broad deletion', () => {
+    it('Sam\'s reproduction: an uncertain write with nothing captured HOLDs with no key in the receipt; after exit the inventory alone locates and removes it', async () => {
+        // ── The run. Attempt 7 (the final submit) is forwarded and its answer never comes: nothing is stored YET.
+        const dir = tmpDir();
+        const s = fresh({ reports: [
+            { id: 'other', idempotency_key: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', user_id: 'someone-else' },
+            { id: 'foreign-unrelated', idempotency_key: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', user_id: null },
+        ] });
+        const run = (() => {
+            const ledger = new FeedbackAttemptLedger();
+            const inv = FeedbackRecoveryInventory.open({ ...BINDING, ownerUid: USER }, dir);
+            ledger.beginFinal();
+            const a = ledger.admit('POST', () => ({ idempotency_key: K[3], description: 'never on disk', session_id: 's' }));
+            expect(recordDurably(inv, a)).toBe(true);
+            ledger.settle(a, { status: null, forwarded: null });
+            return { ledger, inv };
+        })();
+        const admin = fakeAdmin(s);
+        const captured = await captureRunReports(admin, USER, [], null);
+        expect(captured.ids).toEqual([]);
+        deleteAccount(s);
+        const held = settleRecoveryInventory(
+            await cleanupRunReports(admin, USER, [], captured, writeUncertainty(run.ledger.attempts, 0)), run.inv);
+        expect(held).toMatchObject({ verdict: 'HOLD', evidence: { capturedIds: '', uncertainAttempts: '1' } });
+        // The receipt carries no lookup key and no body; the inventory is the only binding left.
+        expect(JSON.stringify(held)).not.toContain(K[3]);
+        expect(readFileSync(run.inv.file, 'utf8')).toContain(K[3]);
+        expect(readFileSync(run.inv.file, 'utf8')).not.toContain('never on disk');
+        const file = run.inv.file;
+
+        // ── The process exits (nothing in memory survives). The server commits the write late, after the account deletion.
+        s.reports.push({ id: 'late', idempotency_key: K[3], user_id: null });
+        s.deletes = []; s.queries = [];
+
+        // ── A later process: too soon after the last write, recovery deletes nothing.
+        expect((await recoverFromInventory(admin, file)).verdict).toMatchObject({ verdict: 'HOLD', detail: expect.stringMatching(/too recently/) });
+        expect(s.deletes).toEqual([]);
+
+        // ── After the quiet window, the recorded key locates the report; exactly that id is deleted.
+        age(file, RECOVERY_QUIET_MS + 1_000);
+        const recovered = await recoverFromInventory(admin, file);
+        expect(recovered.verdict).toMatchObject({ verdict: 'PASS', evidence: { deleted: 1, runKeys: 1, recordedAttempts: 1, recoveryInventory: 'retired' } });
+        expect(recovered.retired).toBe(true);
+        expect(s.deletes).toEqual([{ column: 'id', values: ['late'] }]);
+        // Located only by the owner uid and the recorded key: no owner-less sweep, no time window, no delete by key.
+        expect([...new Set(s.queries!.filter((q) => q.startsWith('user_issue_reports.')))].sort())
+            .toEqual(['user_issue_reports.id', 'user_issue_reports.idempotency_key', 'user_issue_reports.user_id']);
+        expect(s.reports.map((r) => r.id).sort()).toEqual(['foreign-unrelated', 'other']);
+        expect(readRecoveryInventory(file)).toBeNull();
+    });
+    it('a run key under another account is never deleted by recovery (FAIL), and the file is kept', async () => {
+        const dir = tmpDir();
+        const inv = FeedbackRecoveryInventory.open({ ...BINDING, ownerUid: USER }, dir);
+        inv.recordAttempt(att(1, K[0]));
+        const s = fresh({ reports: [{ id: 'theirs', idempotency_key: K[0], user_id: 'someone-else' }], authUser: false, sessions: 0, profiles: 0 });
+        age(inv.file, RECOVERY_QUIET_MS + 1_000);
+        const out = await recoverFromInventory(fakeAdmin(s), inv.file);
+        expect(out.verdict).toMatchObject({ verdict: 'FAIL', evidence: { foreignIds: 'theirs' } });
+        expect(s.deletes).toEqual([]);
+        expect(readRecoveryInventory(inv.file)).not.toBeNull();
+    });
+    it('a missing, foreign-schema or malformed inventory, or an unreadable capture, deletes nothing (HOLD)', async () => {
+        const dir = tmpDir();
+        const s = fresh();
+        const admin = fakeAdmin(s);
+        expect((await recoverFromInventory(admin, path.join(dir, 'missing.jsonl'), Date.now() + RECOVERY_QUIET_MS * 2)).verdict.verdict).toBe('HOLD');
+        const foreign = path.join(dir, 'foreign.jsonl');
+        writeFileSync(foreign, `${JSON.stringify({ schema: 'other', type: 'run', ...BINDING })}\n`);
+        expect((await recoverFromInventory(admin, foreign, Date.now() + RECOVERY_QUIET_MS * 2)).verdict.verdict).toBe('HOLD');
+        const inv = FeedbackRecoveryInventory.open({ ...BINDING, ownerUid: USER }, dir);
+        inv.recordAttempt(att(1, K[0]));
+        writeFileSync(inv.file, `${readFileSync(inv.file, 'utf8')}{"type":"attempt","keys":["not-a-key"]}\n`);
+        expect((await recoverFromInventory(admin, inv.file, Date.now() + RECOVERY_QUIET_MS * 2)).verdict).toMatchObject({ verdict: 'HOLD', evidence: { malformed: 1 } });
+        const good = FeedbackRecoveryInventory.open({ ...BINDING, runId: 'other-run', ownerUid: USER }, dir);
+        good.recordAttempt(att(1, K[0]));
+        const unreadable = fresh({ readError: true });
+        expect((await recoverFromInventory(fakeAdmin(unreadable), good.file, Date.now() + RECOVERY_QUIET_MS * 2)).verdict.verdict).toBe('HOLD');
+        expect(s.deletes).toEqual([]);
+        expect(unreadable.deletes).toEqual([]);
     });
 });

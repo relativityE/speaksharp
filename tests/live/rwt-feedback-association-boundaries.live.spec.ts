@@ -34,6 +34,7 @@ import {
 import {
     type CapturedReports, captureRunReports, cleanupRunReports, writeUncertainty, writeZeroResidueRow, zeroResidueNotRun,
 } from './helpers/feedbackReportCleanup';
+import { FeedbackRecoveryInventory, recordDurably, recoveryDir, settleRecoveryInventory } from './helpers/feedbackRecoveryInventory';
 import { HarnessParityTap, START_CONTROLS } from './helpers/rwtHarnessParity';
 import { coachingContract } from './helpers/rwtCoachingEvidence';
 import { openProductsItem } from './helpers/productsMenu';
@@ -243,7 +244,7 @@ async function submitOpenDialog(
  * server through `route.fetch()` so the ledger keeps its answer, and the page gets that same answer. The precedent is AHT-06's
  * lost completion (rwt-save-retry-recovery.live.spec.ts: `route.fetch()` then `route.abort('failed')`).
  */
-async function installFeedbackWriteRoute(page: Page, ledger: FeedbackAttemptLedger): Promise<void> {
+async function installFeedbackWriteRoute(page: Page, ledger: FeedbackAttemptLedger, inventory: FeedbackRecoveryInventory): Promise<void> {
     await page.context().route(FEEDBACK_INSERT_URL, async (route: Route) => {
         const request = route.request();
         if (['GET', 'HEAD', 'OPTIONS'].includes(request.method())) return route.fallback();
@@ -251,6 +252,12 @@ async function installFeedbackWriteRoute(page: Page, ledger: FeedbackAttemptLedg
         // Recorded and decided here, before anything is sent.
         const attempt = ledger.admit(request.method(), () => request.postDataJSON());
         try {
+            // Sam, #1811 791b3780 RETURN: the attempt's keys are durable on disk before anything can leave the browser, so a late
+            // commit stays locatable after this process exits. A write that cannot be recorded is aborted, never sent.
+            if (!recordDurably(inventory, attempt)) {
+                ledger.settle(attempt, { status: null, forwarded: false });
+                return await route.abort('failed');
+            }
             if (attempt.action === 'cap-abort' || attempt.action === 'fault-request-lost') {
                 ledger.settle(attempt, { status: null, forwarded: false });
                 return await route.abort('failed');
@@ -268,6 +275,7 @@ async function installFeedbackWriteRoute(page: Page, ledger: FeedbackAttemptLedg
             const key = attempt.keys.length === 1 ? attempt.keys[0] : null;
             const replayNamed = status === 409 ? isNamedIdempotencyReplay(await response.text().catch(() => null), key) : null;
             ledger.settle(attempt, { status, forwarded: true, replayNamed });
+            inventory.recordSettle(attempt);
             // stored-response-lost: the server stored the row (201); only its answer is dropped.
             if (attempt.action === 'fault-stored-response-lost') return await route.abort('failed');
             return await route.fulfill({ response });
@@ -440,6 +448,8 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
         let routeInstalled = false;
         const legJourneys: string[] = [];
         let observedLedger: RowVerdict | null = null;
+        // Sam, #1811 791b3780 RETURN: the run-owned recovery inventory (keys on disk, never in a receipt), kept until zero residue.
+        let inventory: FeedbackRecoveryInventory | null = null;
         // #1593 (Sam, #1662 RETURN control 1): ONE owned finalization — the body's finally and the suite's afterEach
         // (which Playwright runs after a timeout) run this same memoized closure exactly once.
         const finish = finalizer.once(async () => {
@@ -504,10 +514,11 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
                     const uncertainty = writeUncertainty(ledger.attempts, pendingAfterDrain);
                     const verdict = await cleanupRunReports(admin as never, owner.uid, ledger.seenKeys, capturedReports, uncertainty);
                     if (!alive()) return false;
-                    writeZeroResidueRow(receipt, verdict);
+                    // Retired only on PASS (settlement plus zero readback); any other verdict keeps it and names the file.
+                    writeZeroResidueRow(receipt, settleRecoveryInventory(verdict, inventory));
                     return true;
                 }, FINALIZE_CLEANUP_MS);
-                if (written !== true) writeZeroResidueRow(receipt, zeroResidueNotRun(capturedReports));
+                if (written !== true) writeZeroResidueRow(receipt, settleRecoveryInventory(zeroResidueNotRun(capturedReports), inventory));
             }
             await finishReceipt(receipt, testInfo, tap, claimed, steps, legJourneys);
         });
@@ -519,7 +530,11 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             claimed = ready;
             if (!ready) return;
             // AHT-07 bounded writes: the pre-send cap, installed only after the canary claim is visible (no write before preflight).
-            await installFeedbackWriteRoute(page, ledger);
+            // The recovery inventory is opened first: no route (and so no feedback write) without its durable binding.
+            inventory = FeedbackRecoveryInventory.open({
+                runId: process.env.GITHUB_RUN_ID || 'local', runAttempt: process.env.GITHUB_RUN_ATTEMPT || '1', testId: testInfo.testId, ownerUid: owner.uid,
+            }, recoveryDir());
+            await installFeedbackWriteRoute(page, ledger, inventory);
             routeInstalled = true;
             await page.goto('/practice');
             await openProductsItem(page, 'open-mic');

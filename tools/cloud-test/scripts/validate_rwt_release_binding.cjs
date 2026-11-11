@@ -9,7 +9,8 @@ const TEST_PINS=Object.freeze({
  // AHT-07 bounded writes (pre-send caps, three fault legs, race-safe report cleanup): exact reviewed postimages.
  'tests/live/helpers/feedbackAttemptLedger.ts':'106f421cc75c5e793a613b7a89eb453392409dce14c4e8663275643b32a8b751',
  'tests/live/helpers/feedbackReportCleanup.ts':'c1c3cbe22affac9c6b0ca754d0d13626d63024ec1e4d61e880bb4cb70679b4af',
- 'tests/unit/feedbackBoundedWrites.test.ts':'6765f04db1eed1bd69325659fc1a91e6c7948e1014c553b48e6c5c034bded0b5',
+ 'tests/live/helpers/feedbackRecoveryInventory.ts':'e30127c32d86332716345d3991d804e9aa3bbf1cf69724506b2d9d041aaa991c',
+ 'tests/unit/feedbackBoundedWrites.test.ts':'8d0beecbad25beb4f67392f05aa5b07017c361a04010127a6e983bdf3209ac16',
  'tests/unit/rwtSupplementalAcceptance1594.test.ts':'3d3c20a76c7c47bfaf52a56d458a5ff0052388e72e77f50a373721c0b7031685',
  'tests/live/helpers/rwtDocumentIdentity.ts':'25c00c2a7eccd00f0cd0fe2ab3705ba5730049d187c8902e2ddd638c681594f0',
  'tests/unit/rwtWatchdog1593.test.ts':'14fe0f998d9ef1f9b5c3bd7e8d26fc264c980687c7f7eeabf166efbd77fb2162',
@@ -23,7 +24,7 @@ const TEST_PINS=Object.freeze({
  'tests/live/helpers/rwtSaveRetryAttempts.ts':'cfa37a628a18e1c4347bb40eed73b33b303245a6930efaca0aeb24ee39ec0be2',
  'tests/live/helpers/rwtLeaveDestinationReady.ts':'5df6c2b0533098c9a9c019b2d491783b060be2cc6d5f52614d4a8053092542db',
  'tests/live/rwt-abandon-and-two-tabs.live.spec.ts':'1dd31a69e18fae124630a19dbfc6ea1071a5d9a3954b7605ba534ff9e4e963ce',
- 'tests/live/rwt-feedback-association-boundaries.live.spec.ts':'98e06bc46e5003f6689b0a370fe39747ba86e2e519ab29b38b8f478dd132acb2',
+ 'tests/live/rwt-feedback-association-boundaries.live.spec.ts':'ac1ce18b4bcd5843ddb6f0f69ff5958fe4006dc6c50485431212f99c71844420',
  'tests/live/rwt-pending-start-navigation.live.spec.ts':'92f1ec5199de8de1563c81da693731078776e8ed10cc9f1e5b350c9b3a1aa803',
  'tests/live/rwt-products-navigation.live.spec.ts':'bedab954eb78a034395639a29bcf34ff97ed9c47897f3e10a66f668ce43e4343',
  'tests/live/rwt-save-retry-recovery.live.spec.ts':'fdc50db1ead0c097e9f1318cb0cfc4e054d32f36fb4989571f0fae3f7fea5620',
