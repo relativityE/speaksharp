@@ -110,7 +110,8 @@ import { productFillerCount } from './helpers/rwtFillerOracle';
 import { corpusRows, crossCheckCounts, fillerAnnotationsOf, hesitationTotals } from './helpers/rwtFillerReference';
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { feedbackDiagnosticChainRow } from './helpers/coachingFeedbackAdapter';
-import { capturedTakesDifferVerdict, coachingPromptBindingRow, coachingRequestBudgetRow, createCoachingTakeCapture } from './helpers/rwtCoachingCollector';
+import { capturedTakesDifferVerdict, coachingPromptBindingRow, coachingRequestBudgetRow, createCoachingTakeCapture, readSavedReviewPair } from './helpers/rwtCoachingCollector';
+import { lateCoachingSavedRow } from './helpers/rwtLateCoaching';
 import { coachingContract } from './helpers/rwtCoachingEvidence';
 import { openProductsItem } from './helpers/productsMenu';
 import {
@@ -979,6 +980,28 @@ test.describe('RWT — Open Mic first session @live', () => {
             await test.step('next Start without a hold', async () => {
                 const next = await nextStartEvidence(page, `${SUITE}-next`);
                 nextStartRows(receipt, next);
+            });
+
+            // ── PO Option 1, item 2 (2026-11-10): the interrupted take's late coaching is never lost ─────────────────────
+            // The repeat take is interrupted by the next take, which has now recorded. Its coaching must be saved to its own
+            // session and shown by its own saved review (Analytics detail, separate page; the journey page is untouched).
+            await test.step('interrupted take coaching saved and shown in its saved review', async () => {
+                const id = repeatSessionId;
+                await lateCoachingSavedRow(receipt, Boolean(id && capturedUid && admin), {
+                    readSaved: async () => {
+                        const { data, error } = await admin!.from('sessions').select('ai_suggestions').eq('id', id!).eq('user_id', capturedUid!).maybeSingle();
+                        return error || !data ? { ok: false } : { ok: true, value: (data as { ai_suggestions?: unknown }).ai_suggestions ?? null };
+                    },
+                    openSavedReview: async () => {
+                        const reviewPage = await page.context().newPage();
+                        try {
+                            return await readSavedReviewPair(reviewPage, id!, 'gemini_coaching_v1');
+                        } finally {
+                            await reviewPage.close().catch(() => undefined);
+                        }
+                    },
+                    same: samePhrase,
+                });
             });
 
             // ── Real coaching provenance: the restricted synthetic artifact (PM 6114451615 / 6114547673) ──────────────
