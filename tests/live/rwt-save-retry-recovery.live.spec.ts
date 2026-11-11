@@ -32,6 +32,10 @@ import {
     CompletionObserver, SAVE_RETRY_SUITE, type SaveRetryVariant, type SessionRowFacts, completionDropDisposition,
     nextTakeIdArrived, nextTakeRetentionVerdict, recoveryBannerVerdict, savedTakeReadbackVerdict,
 } from './helpers/rwtSaveRetry';
+import {
+    type CompletionAttempt, SAVED_ROW_COLUMNS, type SavedRow, attemptEvidence, completionAttemptsVerdict, exactRetrySaveVerdict,
+    parseCompletionAttempt, reviewReopenVerdict, transcriptDigest,
+} from './helpers/rwtSaveRetryAttempts';
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
 const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
@@ -73,6 +77,33 @@ async function transcriptOnPageLength(page: Page): Promise<number> {
     return 0;
 }
 
+/** The account's session rows with the durable-save columns, by id order; kept in memory only (never in a receipt). */
+async function readSavedRows(uid: string, onlyActive = false): Promise<SavedRow[] | null> {
+    let query = admin!.from('sessions').select(SAVED_ROW_COLUMNS).eq('user_id', uid);
+    if (onlyActive) query = query.eq('status', 'active');
+    const { data, error } = await query.order('created_at');
+    return error || !Array.isArray(data) ? null : data as SavedRow[];
+}
+
+/**
+ * Harness `reopen` (browser-actions.cjs:155-158): open the saved take from Analytics, fingerprint the detail transcript
+ * (sha256 of innerText.trim()), reload, fingerprint again. Digests only leave the page.
+ */
+async function reopenFromAnalytics(page: Page, id: string): Promise<{ opened: boolean; before: string | null; after: string | null }> {
+    const fingerprint = async () => {
+        const detail = page.getByTestId('session-detail-transcript');
+        if (!(await detail.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false))) return null;
+        return transcriptDigest(await detail.innerText());
+    };
+    await page.goto('/analytics', { waitUntil: 'domcontentloaded', timeout: 45_000 });
+    const open = page.getByTestId(`open-session-detail-${id}`).or(page.getByTestId(`open-session-detail-mobile-${id}`)).first();
+    const opened = await open.click({ timeout: 45_000 }).then(() => true).catch(() => false);
+    if (!opened) return { opened, before: null, after: null };
+    const before = await fingerprint();
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 45_000 });
+    return { opened, before, after: await fingerprint() };
+}
+
 const persistedId = (page: Page) => page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
 
 /**
@@ -109,9 +140,16 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
     let accountDeleted = false;
     // The ONE altered request. Every other completion request, including Retry Save's replay, reaches the server untouched.
     const drop = { completionPosts: 0, droppedStatus: null as number | null, dropped: false };
+    // AHT-05/06 `completion-attempts` (harness completion-attempts.cjs): every completion POST's session, body sha and phase.
+    // `retryMarked` is set immediately before the explicit Retry Save click. Bodies stay in memory.
+    const attempts: CompletionAttempt[] = [];
+    const attemptByRequest = new Map<Request, CompletionAttempt>();
+    let retryMarked = false;
     // #1258 C — every non-dropped completion call's answer, read from the browser's own events by request identity.
     const completions = new CompletionObserver<Request>();
     page.on('response', (response) => {
+        const attempt = attemptByRequest.get(response.request());
+        if (attempt) attempt.httpStatus = response.status();
         if (completions.isObserved(response.request())) completions.onResponse(response.request(), response.status(), response.text().catch(() => null));
     });
     page.on('requestfailed', (request) => completions.onFailed(request, request.failure()?.errorText));
@@ -161,6 +199,9 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
             if (route.request().method() !== 'POST') return route.fallback();
             drop.completionPosts += 1;
             completions.track(route.request(), drop.completionPosts);
+            const attempt = parseCompletionAttempt(drop.completionPosts, route.request().postDataBuffer(), retryMarked, !drop.dropped);
+            attempts.push(attempt);
+            attemptByRequest.set(route.request(), attempt);
             if (drop.dropped) return route.fallback();
             drop.dropped = true;
             completions.markDropped(route.request());
@@ -178,6 +219,10 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
             await startBenchmarkRecording(page, `save-retry-${variant}-1`);
         }
         await page.waitForTimeout(Math.round((fixture.entry.speechSeconds + 4) * 1000));
+        // The Start session, read while it is still active (durable-save-oracle `validateBaseline`): its id, key and lease bind
+        // the exact retry-saved-once check. A fresh account has exactly one active row here; anything else leaves it unknown.
+        const activeRows = await readSavedRows(owner.uid, true);
+        const takeRowBefore = activeRows?.length === 1 ? activeRows[0] : null;
         await stopBenchmarkRecording(page, `save-retry-${variant}-1`, 180_000);
 
         // The truthful recovery state, read before any retry.
@@ -204,6 +249,7 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         // Codex P2 on f527a033: the injected failure was the FIRST save; Retry Save and everything after it are strict, so a
         // retry that fails again trips the watchdog instead of being excused as the injection.
         watch.setFaultPhase(false);
+        retryMarked = true;
         await page.getByTestId('session-retry-save').click();
         const resolved = await banner.waitFor({ state: 'detached', timeout: 120_000 }).then(() => true).catch(() => false);
         await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 60_000 }).catch(() => undefined);
@@ -220,6 +266,10 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         receipt.row('Retry Save leaves one saved session', saved.status, saved.detail,
             { rows: rowsAfterRetry.length, completed: rowsAfterRetry.filter((r) => r.status === 'completed').length,
                 persistedIdBound: savedId !== null, completionPosts: drop.completionPosts, completionOutcomes: await completions.evidence() });
+        // Harness `retry-saved-once` (durable-save-oracle compareSavedRows): the one row is the Start session with the exact payload.
+        const exact = exactRetrySaveVerdict(attempts.find((a) => a.dropped)?.body ?? null, takeRowBefore, (await readSavedRows(owner.uid)) ?? [], savedId);
+        receipt.row('Retry Save saved the exact payload once', exact.status, exact.detail,
+            { startRowRead: takeRowBefore !== null, persistedIdBound: savedId !== null });
 
         // The next Start, from the completed review's own repeat action, saves only itself.
         const again = page.getByTestId('verdict-practice-again');
@@ -238,6 +288,21 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         receipt.row('next take saves only itself', next.status, next.detail,
             { rows: rowsAfterNext.length, completed: rowsAfterNext.filter((r) => r.status === 'completed').length,
                 completionOutcomes: await completions.evidence() });
+
+        // Harness `review-reopen` (runner L370 → saveReopen): the next take reopened from Analytics shows its saved transcript.
+        const nextRows = nextId ? await readSavedRows(owner.uid) : null;
+        const nextTranscript = nextRows?.find((r) => r.id === nextId)?.transcript;
+        const savedDigest = typeof nextTranscript === 'string' ? transcriptDigest(nextTranscript) : null;
+        const reopened = nextId && savedDigest ? await reopenFromAnalytics(page, nextId) : { opened: false, before: null, after: null };
+        const reopen = reviewReopenVerdict(savedDigest, reopened.opened, reopened.before, reopened.after);
+        receipt.row('review reopens the saved take', reopen.status, reopen.detail,
+            { opened: reopened.opened, beforeMatches: reopened.before === savedDigest, afterMatches: reopened.after === savedDigest });
+
+        // Harness `completion-attempts`, judged in the final window (after the next take and the reopen).
+        const attemptsVerdict = completionAttemptsVerdict(attempts);
+        const takeSession = attempts.find((a) => a.dropped)?.sessionId ?? null;
+        receipt.row('completion attempts are the fault and one Retry', attemptsVerdict.status, attemptsVerdict.detail,
+            { attempts: attemptEvidence(attempts, takeSession) });
     } catch (error) {
         receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
         throw error;
