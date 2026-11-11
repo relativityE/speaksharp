@@ -40,6 +40,24 @@ const SIGNAL = { reasonCode: 'HIGH_FILLER_RATE', actionCode: 'REDUCE_FILLERS', m
 beforeEach(() => { calls.length = 0; focus = { kind: 'none' }; sessionsQueue = []; source = { data: null, error: null }; });
 const tablesRead = () => calls.filter((c) => c.op === 'from').map((c) => c.args[0]);
 
+describe('loadSavedSessionReview — the session it was ACTUALLY read from (AHT-01 identity)', () => {
+    const base = { ai_suggestions: PAIR, transcript_state: 'available', next_action_signal: SIGNAL, duration: 60, product: 'open_mic' };
+    it('names loadedSessionId only when the row read is exactly the requested session', async () => {
+        row = { data: { id: 's1', ...base }, error: null };
+        expect((await loadSavedSessionReview('s1')).loadedSessionId).toBe('s1');
+    });
+    it('CASUALTY: a row of another session, a row with no id, or a failed read carries NO identity (unproven, never inferred)', async () => {
+        row = { data: { id: 's2', ...base }, error: null };
+        expect((await loadSavedSessionReview('s1')).loadedSessionId).toBeUndefined();
+        row = { data: { ...base }, error: null };
+        expect((await loadSavedSessionReview('s1')).loadedSessionId).toBeUndefined();
+        row = { data: null, error: { code: 'XX000', message: 'boom' } };
+        const failed = await loadSavedSessionReview('s1');
+        expect(failed.reviewReadFailed).toBe(true);
+        expect(failed.loadedSessionId).toBeUndefined();
+    });
+});
+
 describe('loadSavedSessionReview', () => {
     it('Open Mic (durable marker): the saved pair, and evidence from the stored measured signal', async () => {
         row = { data: { ai_suggestions: PAIR, transcript_state: 'available', next_action_signal: SIGNAL, duration: 60, product: 'open_mic' }, error: null };
@@ -49,7 +67,7 @@ describe('loadSavedSessionReview', () => {
         expect(r.evidence).toEqual(['6.2 filler words a minute, above your target.']);
         expect(calls.slice(0, 3)).toEqual([
             { op: 'from', args: ['sessions'] },
-            { op: 'select', args: ['ai_suggestions, transcript_state, next_action_signal, duration, product'] },
+            { op: 'select', args: ['id, ai_suggestions, transcript_state, next_action_signal, duration, product'] },
             { op: 'eq', args: ['id', 's1'] },
         ]);
         expect(tablesRead(), 'a marked session needs no legacy source read').not.toContain('objective_source_recording');
@@ -116,8 +134,8 @@ describe('loadSavedSessionReview', () => {
         expect(r.coaching).toEqual({ kind: 'review', review: { whatWorked: PAIR.what_worked, whatToTryNext: PAIR.what_to_try_next } });
         expect(r.product).toBe('unknown');
         expect(calls.filter((c) => c.op === 'select' && c.args[0] !== 'session_id').map((c) => c.args[0])).toEqual([
-            'ai_suggestions, transcript_state, next_action_signal, duration, product',
-            'ai_suggestions, transcript_state, next_action_signal, duration',
+            'id, ai_suggestions, transcript_state, next_action_signal, duration, product',
+            'id, ai_suggestions, transcript_state, next_action_signal, duration',
         ]);
     });
 
