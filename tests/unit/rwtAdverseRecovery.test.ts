@@ -6,8 +6,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
-    RECOVERY_CONTROLS, type RecoveryAttempt, type ReopenObservation, isRecoveryControl, recoverySavedVerdict, retrySetupOutcome,
-    reviewReopenVerdict, savedTranscriptDigest,
+    RECOVERY_CONTROLS, type RecoveryAttempt, type ReopenObservation, isRecoveryControl, midDownloadFailureVerdict, modelBytesSeen,
+    recoverySavedVerdict, retrySetupOutcome, reviewReopenVerdict, savedTranscriptDigest,
 } from '../live/helpers/rwtAdverseRecovery';
 import type { SessionRowFacts } from '../live/helpers/rwtSaveRetry';
 
@@ -240,5 +240,52 @@ describe('rwtAdverseJourney.ts — review-reopen, in source order', () => {
         expect(src).not.toContain('analyticsThroughActions(');
         const journeyImport = src.slice(src.lastIndexOf('import {', src.indexOf("} from './rwtJourney';")), src.indexOf("} from './rwtJourney';"));
         expect(journeyImport).not.toContain('analyticsThroughActions');
+    });
+});
+
+describe('AHT-14 — offline only after model bytes were received, mid-transfer', () => {
+    it('modelBytesSeen: 1–99 % while loading is bytes received mid-transfer; anything else is not', () => {
+        expect(modelBytesSeen({ pct: 1, status: 'loading' })).toBe(true);
+        expect(modelBytesSeen({ pct: 99, status: 'loading' })).toBe(true);
+        expect(modelBytesSeen({ pct: 0, status: 'loading' })).toBe(false); // request issued, no byte yet
+        expect(modelBytesSeen({ pct: 100, status: 'loading' })).toBe(false); // transfer finished: engine init, not mid-download
+        expect(modelBytesSeen({ pct: null, status: 'loading' })).toBe(false); // unreadable
+        expect(modelBytesSeen({ pct: 40, status: 'ready' })).toBe(false);
+        expect(modelBytesSeen(null)).toBe(false);
+    });
+    const ok = { exercised: true, observed: true, statuses: ['download-required', 'loading', 'error'], finalStatus: 'error', retryOffered: true, mode: 'private' };
+    it('PASS only with bytes seen before offline, the fault observed, and the AHT-13 rule passing', () => {
+        expect(midDownloadFailureVerdict({ ...ok, bytesSeenBeforeOffline: true }).status).toBe('PASS');
+    });
+    it('HOLD, never PASS: offline before any byte arrived (offline-before-download)', () => {
+        const v = midDownloadFailureVerdict({ ...ok, bytesSeenBeforeOffline: false });
+        expect(v).toEqual({ status: 'HOLD', detail: expect.stringMatching(/no model bytes were seen before going offline/) });
+    });
+    it('HOLD, never PASS: bytes seen but no failed model request observed (worker fetches unobservable, or finished first)', () => {
+        const v = midDownloadFailureVerdict({ ...ok, exercised: false, bytesSeenBeforeOffline: true });
+        expect(v.status).toBe('HOLD');
+        expect(v.detail).toMatch(/worker fetches may not reach Playwright/);
+    });
+    it('an incomplete status history stays HOLD; a contradiction still FAILs once exercised', () => {
+        expect(midDownloadFailureVerdict({ ...ok, observed: false, bytesSeenBeforeOffline: true }).status).toBe('HOLD');
+        expect(midDownloadFailureVerdict({ ...ok, statuses: ['loading', 'ready', 'error'], bytesSeenBeforeOffline: true }).status).toBe('FAIL');
+        expect(midDownloadFailureVerdict({ ...ok, retryOffered: false, bytesSeenBeforeOffline: true }).status).toBe('FAIL');
+    });
+    it('the journey gates going offline on received bytes, after the press and before the fault is armed', () => {
+        const src = aj();
+        const press = src.indexOf("await page.getByTestId('mic-download').click();", src.indexOf('let modelResponses = 0;'));
+        const gate = src.indexOf('atOffline = await waitForModelBytes(page);', press);
+        const arm = src.indexOf('fault.armFault();', gate);
+        const offline = src.indexOf('injected = await context.setOffline(true)', gate);
+        expect(press).toBeGreaterThan(-1);
+        expect(gate).toBeGreaterThan(press);
+        expect(arm).toBeGreaterThan(gate);
+        expect(offline).toBeGreaterThan(arm);
+        // The old gate fired when a model request was merely ISSUED.
+        expect(src).not.toContain('modelRequests');
+        expect(src).toContain('midDownloadFailureVerdict({ ...failureFacts, bytesSeenBeforeOffline })');
+        const wait = src.slice(src.indexOf('async function waitForModelBytes('), src.indexOf('\n}\n', src.indexOf('async function waitForModelBytes(')));
+        expect(wait).toContain('[data-testid="mic-progress"]');
+        expect(wait).toContain('polling: 50');
     });
 });

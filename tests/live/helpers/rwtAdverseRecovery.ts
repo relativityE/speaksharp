@@ -123,7 +123,8 @@ export function reviewReopenVerdict(o: ReopenObservation & { savedId: string | n
  * the model worker; the store keeps it as a percent), so a rendered 1–99 % while `loading` is bytes seen, mid-transfer — and it
  * is read in the page, whether or not the worker's fetches reach Playwright's network events. 100 % is a finished transfer.
  */
-export function modelBytesSeen(read: { pct: number | null; status: string | null } | null): boolean {
+export type ModelBytesRead = { pct: number | null; status: string | null };
+export function modelBytesSeen(read: ModelBytesRead | null): boolean {
     return read !== null && read.status === 'loading' && typeof read.pct === 'number' && read.pct >= 1 && read.pct < 100;
 }
 
