@@ -25,8 +25,13 @@ import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, fina
 import { HarnessParityTap, type StartPressBudget } from './rwtHarnessParity';
 import {
     ADVERSE_SUITE, type AdverseVariant, MIC_BLOCKED_COPY, MODEL_ASSETS, MODEL_FAILED_STATES, downloadFailureVerdict, armModelStatusLog, readModelStatusLog, AttemptFaultCounter,
-    deniedAfterPress, micDeniedVerdict, recoveredTakeVerdict,
+    deniedAfterPress, micDeniedVerdict,
 } from './rwtAdverse';
+import type { SessionRowFacts } from './rwtSaveRetry';
+import {
+    type RecoveryAttempt, type RecoveryControl, RECOVERY_CONTROLS, isRecoveryControl, recoverySavedVerdict, retrySetupOutcome,
+    savedTranscriptDigest,
+} from './rwtAdverseRecovery';
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
 const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
@@ -35,7 +40,14 @@ const admin = SUPABASE_URL && SERVICE_ROLE
     : null;
 export const fixture = loadRwtFixture('open_mic_tts');
 const MODEL_PATH = /\/models\//;
-const PRIMARY_CONTROLS = ['mic-start', 'mic-retry', 'mic-download'] as const;
+/** The page's offered control settles within this bound once its model status is known (the harness's `primary` bound). */
+const RECOVERY_OFFER_MS = 120_000;
+/** Retry re-runs the Private setup, including the model download: the bound for that setup to publish `ready`. */
+const RETRY_READY_MS = 600_000;
+/** After `ready`, the rendered Start becomes enabled within this bound. */
+const START_ENABLED_MS = 60_000;
+/** A press that records (cold Download & start, or Start) reaches RECORDING within this bound (unchanged from before). */
+const RECORDING_MS = 600_000;
 
 /** The site's microphone permission, set the way a person's site setting sets it (Blocked / Allowed). */
 async function setSiteMicrophone(page: Page, browser: Browser, setting: 'denied' | 'granted'): Promise<void> {
@@ -72,52 +84,143 @@ const failedState = (page: Page, timeout: number) => page.waitForFunction(
     (states: string[]) => states.includes(document.documentElement.getAttribute('data-model-status') ?? ''),
     [...MODEL_FAILED_STATES] as string[], { timeout }).then(() => true).catch(() => false);
 
-/** The person presses whichever primary control the page offers, until a take records (at most twice). */
-async function pressUntilRecording(page: Page): Promise<boolean> {
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-        const control = page.getByTestId(PRIMARY_CONTROLS[0]).or(page.getByTestId(PRIMARY_CONTROLS[1])).or(page.getByTestId(PRIMARY_CONTROLS[2]))
-            .filter({ visible: true }).first();
-        const ready = await expect(control).toBeEnabled({ timeout: 600_000 }).then(() => true).catch(() => false);
-        if (!ready) return false;
-        await control.click();
-        if (await isRecording(page, 600_000)) return true;
-    }
-    return false;
+/**
+ * The control the page offers once its model status is settled (MicCard.tsx's own mapping: `download-required` → mic-download,
+ * a failed setup → mic-retry, `ready`/`idle` → mic-start), visible. Read from the status, never by racing three locators, so a
+ * control that is re-rendered under another id while the status resolves is never pressed. Null when none settles in time.
+ */
+async function offeredRecoveryControl(page: Page): Promise<RecoveryControl | null> {
+    const handle = await page.waitForFunction(() => {
+        const s = document.documentElement.getAttribute('data-model-status') ?? '';
+        const id = s === 'download-required' ? 'mic-download' : (s === 'error' || s === 'init-failed') ? 'mic-retry'
+            : (s === 'ready' || s === 'idle') ? 'mic-start' : null;
+        const el = id ? document.querySelector(`[data-testid="${id}"]`) : null;
+        return el && el.getClientRects().length > 0 ? id : false;
+    }, undefined, { timeout: RECOVERY_OFFER_MS }).catch(() => null);
+    if (!handle) return null;
+    const id = await handle.jsonValue().catch(() => null);
+    await handle.dispose().catch(() => undefined);
+    return isRecoveryControl(id) ? id : null;
 }
 
-async function saveRecoveredTake(page: Page, uid: string, label: string, takes: string[]) {
-    const recorded = await pressUntilRecording(page);
+/**
+ * Retry's setup outcome from the complete model-status history published after the Retry press (`retrySetupOutcome`), polled
+ * until it is decided or the bound ends. `statusesBefore` is the history's length at the press (null: not observed).
+ */
+async function waitForRetrySetup(page: Page, statusesBefore: number | null): Promise<RecoveryAttempt['retry']> {
+    if (statusesBefore === null) return 'unobserved';
+    const deadline = Date.now() + RETRY_READY_MS;
+    for (;;) {
+        const log = await modelStatuses(page);
+        const outcome = retrySetupOutcome(log.observed ? log.statuses.slice(statusesBefore) : null);
+        if (outcome !== 'pending' || Date.now() >= deadline) return outcome;
+        await page.waitForTimeout(500);
+    }
+}
+
+/**
+ * The recovery's Start presses, by design (each one is counted in START_PRESS_BUDGET below). The page's offered control must be
+ * the variant's designed one (`RECOVERY_CONTROLS`); otherwise nothing is pressed and the verdict decides.
+ *  - AHT-12 (fresh allowing browser): ONE press of the offered cold `mic-download` (download, then recording) or `mic-start`.
+ *  - AHT-13/14 (the failed page): `mic-retry`, then WAIT for the model to publish `ready` (Retry only re-runs setup and never
+ *    records — MicCard.tsx), then ONE press of `mic-start`. A Retry that fails again, or never reaches ready, presses nothing more.
+ */
+async function pressRecovery(page: Page, variant: AdverseVariant): Promise<RecoveryAttempt> {
+    const attempt: RecoveryAttempt = { offered: await offeredRecoveryControl(page), retry: 'not-pressed', startEnabled: null, recorded: false };
+    if (attempt.offered === null || !RECOVERY_CONTROLS[variant].includes(attempt.offered)) return attempt;
+    if (attempt.offered === 'mic-retry') {
+        const before = await modelStatuses(page);
+        await page.getByTestId('mic-retry').click();
+        attempt.retry = await waitForRetrySetup(page, before.observed ? before.statuses.length : null);
+        if (attempt.retry !== 'ready') return attempt;
+        const start = page.getByTestId('mic-start');
+        attempt.startEnabled = await expect(start).toBeEnabled({ timeout: START_ENABLED_MS }).then(() => true, () => false);
+        if (!attempt.startEnabled) return attempt;
+        await start.click();
+        attempt.recorded = await isRecording(page, RECORDING_MS);
+        return attempt;
+    }
+    const control = page.getByTestId(attempt.offered);
+    if (!(await expect(control).toBeEnabled({ timeout: RECORDING_MS }).then(() => true, () => false))) return attempt;
+    await control.click();
+    attempt.recorded = await isRecording(page, RECORDING_MS);
+    return attempt;
+}
+
+/** The run-owned account's session ids before the journey's first press (the harness's per-case baseline). */
+async function readSessionIds(uid: string): Promise<string[]> {
+    const { data, error } = await admin!.from('sessions').select('id').eq('user_id', uid);
+    if (error || !Array.isArray(data)) throw new Error(`session baseline read failed (fail closed): ${error?.code ?? 'unreadable'}`);
+    return data.map((row) => String(row.id));
+}
+
+/**
+ * The account's rows written since the baseline, as content-free facts, and the saved transcript's trimmed SHA-256 per row. The
+ * transcript text is read here and digested at once; only states, lengths and digests leave this function.
+ */
+async function readNewTakeRows(uid: string, baseline: readonly string[]): Promise<{ rows: SessionRowFacts[]; digests: Map<string, string | null> }> {
+    const { data, error } = await admin!.from('sessions')
+        .select('id,status,idempotency_key,transcript_state,transcript,created_at').eq('user_id', uid).order('created_at');
+    if (error || !Array.isArray(data)) throw new Error(`session row read failed (fail closed): ${error?.code ?? 'unreadable'}`);
+    const fresh = data.filter((row) => !baseline.includes(String(row.id)));
+    const digests = new Map(fresh.map((row) => [String(row.id), savedTranscriptDigest(row)] as const));
+    const rows = fresh.map((row) => ({
+        id: String(row.id),
+        status: typeof row.status === 'string' ? row.status : null,
+        hasIdempotencyKey: typeof row.idempotency_key === 'string' && row.idempotency_key.length > 0,
+        transcriptState: typeof row.transcript_state === 'string' ? row.transcript_state : null,
+        transcriptLength: typeof row.transcript === 'string' ? row.transcript.length : 0,
+    }));
+    return { rows, digests };
+}
+
+/**
+ * The recovery take, judged at the harness's `ownSaved` bar (`recoverySavedVerdict`): the designed presses, a recording, and
+ * exactly one new row for the take — the page-bound id, completed, idempotency key, transcript available and non-empty.
+ */
+async function saveRecoveredTake(page: Page, variant: AdverseVariant, preconditionEstablished: boolean,
+    owner: { uid: string; baseline: readonly string[] }, label: string, takes: string[]) {
+    const attempt = await pressRecovery(page, variant);
     let savedId: string | null = null;
-    let savedStatus: string | null = null;
-    if (recorded) {
+    let read: Awaited<ReturnType<typeof readNewTakeRows>> = { rows: [], digests: new Map() };
+    if (attempt.recorded) {
         await page.waitForTimeout(Math.round((fixture.entry.speechSeconds + 4) * 1000));
         await stopBenchmarkRecording(page, label, 180_000);
         await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 180_000 }).catch(() => undefined);
         savedId = await persistedId(page);
-        if (savedId) {
-            takes.push(savedId);
-            const { data, error } = await admin!.from('sessions').select('status').eq('id', savedId).eq('user_id', uid).maybeSingle();
-            if (error) throw new Error(`session row read failed (fail closed): ${error.code ?? 'unknown'}`);
-            savedStatus = typeof data?.status === 'string' ? data.status : null;
-        }
+        if (savedId) takes.push(savedId);
+        read = await readNewTakeRows(owner.uid, owner.baseline);
     }
-    return recoveredTakeVerdict({ recorded, savedId, savedStatus });
+    const verdict = recoverySavedVerdict({ variant, preconditionEstablished, attempt, savedId, rows: read.rows });
+    const evidence = {
+        recoveryControl: attempt.offered, retrySetup: attempt.retry, startEnabled: attempt.startEnabled, recorded: attempt.recorded,
+        newSessionRows: read.rows.length,
+    };
+    return { verdict, evidence, savedId, savedDigest: savedId ? read.digests.get(savedId) ?? null : null };
 }
 
 /**
- * Harness parity (PO route 2026-11-10), from the journey's DESIGN (not a run's count). Every variant presses Start once to meet
- * its adverse state, then `saveRecoveredTake` → `pressUntilRecording` presses whichever of mic-start / mic-retry / mic-download
- * the page offers, at most twice (its own loop bound), until a take records. So 3 presses in all, as the catalog's minimum.
- * The recovery's control depends on what the page offers (not bounded by the code), so each control's cap is the presses
- * that could land on it.
- *  AHT-12 mic denied: the denied press, `mic-download` or `mic-start` (rwtAdverseJourney.ts:209) + up to 2 recovery presses
- *   in the allowing browser (rwtAdverseJourney.ts:82, loop bound :77).
- *  AHT-13 download fails: `mic-download` (rwtAdverseJourney.ts:260) + up to 2 recovery presses (rwtAdverseJourney.ts:82).
- *  AHT-14 offline mid-download: `mic-download` (rwtAdverseJourney.ts:265) + up to 2 recovery presses (rwtAdverseJourney.ts:82).
+ * Harness parity (PO route 2026-11-10), from the journey's DESIGN (not a run's count). Start presses are counted by control
+ * test id (mic-start, mic-download, mic-retry, verdict-practice-again). Every variant presses once to meet its adverse state;
+ * the recovery (`pressRecovery`) then presses only its variant's designed control (`RECOVERY_CONTROLS`), never in a loop, and
+ * presses nothing when the page offers anything else. Each press, by its line:
+ *  AHT-12 mic denied — at most 2:
+ *   1. the denied press, `mic-download` or `mic-start` (whichever is offered): `await control.click()` (rwtAdverseJourney.ts:314);
+ *   2. the allowing browser's ONE recovery press of its offered `mic-download` (cold: download, then recording) or `mic-start`:
+ *      `await control.click()` (rwtAdverseJourney.ts:145). No Retry: a `mic-retry` offer there is a FAIL, not pressed.
+ *   So `mic-download` and `mic-start` may each take both presses; `mic-retry` none. The catalog's minimumStarts 3 assumes
+ *   the harness's same-context Allow → Start route, which this two-browser design does not take (a `=deny` browser never
+ *   grants; see the mic-denied branch).
+ *  AHT-13 download fails — exactly 3:
+ *   1. `mic-download` with the model route aborted (rwtAdverseJourney.ts:366);
+ *   2. `mic-retry` once the cause is removed (rwtAdverseJourney.ts:133);
+ *   3. `mic-start` only after Retry's setup published `ready` (rwtAdverseJourney.ts:139).
+ *  AHT-14 offline mid-download — exactly 3: `mic-download` (rwtAdverseJourney.ts:371), then the same `mic-retry` and
+ *   `mic-start` as AHT-13 (rwtAdverseJourney.ts:133, :139).
  */
-const AHT12_START_PRESS_BUDGET: StartPressBudget = { total: 3, perControl: { 'mic-download': 3, 'mic-start': 3, 'mic-retry': 2 } };
-const AHT13_START_PRESS_BUDGET: StartPressBudget = { total: 3, perControl: { 'mic-download': 3, 'mic-start': 2, 'mic-retry': 2 } };
-const AHT14_START_PRESS_BUDGET: StartPressBudget = { total: 3, perControl: { 'mic-download': 3, 'mic-start': 2, 'mic-retry': 2 } };
+const AHT12_START_PRESS_BUDGET: StartPressBudget = { total: 2, perControl: { 'mic-download': 2, 'mic-start': 2 } };
+const AHT13_START_PRESS_BUDGET: StartPressBudget = { total: 3, perControl: { 'mic-download': 1, 'mic-retry': 1, 'mic-start': 1 } };
+const AHT14_START_PRESS_BUDGET: StartPressBudget = { total: 3, perControl: { 'mic-download': 1, 'mic-retry': 1, 'mic-start': 1 } };
 const START_PRESS_BUDGET: Record<AdverseVariant, StartPressBudget> = {
     'mic-denied': AHT12_START_PRESS_BUDGET, 'download-fails': AHT13_START_PRESS_BUDGET, 'offline-mid-download': AHT14_START_PRESS_BUDGET,
 };
@@ -185,6 +288,8 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
         await suppressPageSnapshot(testInfo);
         claimed = await prepareRunOwnedAccount(page, receipt, owner, `adverse-${variant}`, admin, SERVICE_ROLE);
         if (!claimed) return;
+        // The harness's per-case baseline: rows already on the account before the first press are never the recovery take's.
+        const accountRows = { uid: owner.uid, baseline: await readSessionIds(owner.uid) };
         // The acquisition boundary's own outcomes (grants and NotAllowedError) are observed from the first page load.
         await installMicAcquisitionCounter(page);
         await page.goto('/practice');
@@ -237,12 +342,13 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
             await openProductsItem(allowedPage, 'open-mic');
             await allowedPage.waitForURL(/\/session/, { timeout: 45_000 });
             await selectBenchmarkMode(allowedPage, 'private');
-            const recovered = await saveRecoveredTake(allowedPage, owner.uid, `adverse-${variant}`, takes);
+            // The recovery runs whatever the denial row read: the allowing browser's own cold Start is the case either way.
+            const recovered = await saveRecoveredTake(allowedPage, variant, true, accountRows, `adverse-${variant}`, takes);
             // Sam, #1662 RETURN: this proves recovery for the SAME ACCOUNT in a FRESH, allowing browser — not Allow→Retry in
             // the originally denied page, which a `=deny` browser cannot grant.
-            receipt.row('after allowing the microphone a take saves', recovered.status,
-                `${recovered.detail} (same account, fresh allowing browser; not Allow→Retry in the denied page)`,
-                { recoveryScope: 'same_account_fresh_browser' });
+            receipt.row('after allowing the microphone a take saves', recovered.verdict.status,
+                `${recovered.verdict.detail} (same account, fresh allowing browser; not Allow→Retry in the denied page)`,
+                { recoveryScope: 'same_account_fresh_browser', ...recovered.evidence });
         } else {
             // Sam's ACCEPT of PM 731eb5c0: only this download attempt's model-WEIGHT failures while the fault is armed count,
             // and the fault is armed BEFORE it is induced (a failure delivered during the awaited injection still counts).
@@ -286,10 +392,12 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
             else await context.setOffline(false);
             fault.disarm();
             watch.setFaultPhase(false);
-            const recovered = await saveRecoveredTake(page, owner.uid, `adverse-${variant}`, takes);
+            // Retry is judged only after a failed download was stated with Retry; otherwise there is nothing to recover from.
+            const recovered = await saveRecoveredTake(page, variant, failure.status === 'PASS', accountRows, `adverse-${variant}`, takes);
             const after = await modelStatuses(page);
-            receipt.row('Retry downloads the model and a take saves', recovered.status, recovered.detail,
-                { sawReadyAfterRetry: after.observed && after.statuses.includes('ready'), statusesObserved: after.observed, mode: await sttMode(page) });
+            receipt.row('Retry downloads the model and a take saves', recovered.verdict.status, recovered.verdict.detail,
+                { ...recovered.evidence, sawReadyAfterRetry: after.observed && after.statuses.includes('ready'), statusesObserved: after.observed,
+                    mode: await sttMode(page) });
         }
     } catch (error) {
         receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
