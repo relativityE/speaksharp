@@ -85,6 +85,7 @@ import {
     markerTimingStatus, type MarkerObserverSnapshot,
 } from './rwtMarkerObserver';
 import { ABSENT_ROW, MarkerTimeline, nextPointMarkedVerdict, sampleFocusRail } from './rwtFocusNextMarker';
+import { FOCUS_TAKES_DIFFER_ROW, focusTakesDifferRow } from './rwtFocusTakesDiffer';
 
 const JOURNEY = 'focus_points';
 export const WEBGPU = process.env.RWT_WEBGPU === '1';
@@ -781,6 +782,11 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 firstRendered: null, releaseSha: expectedReleaseSha(), outputDirs: [testInfo.outputDir, testInfo.project.outputDir],
                 captured: coachingCapture ?? undefined,
             });
+            // AHT-02/03 grounded-coaching (review fix 5): the first take and the Practice-again take, whose saved evidence differs,
+            // must not get the identical coaching pair — the shared `capturedTakesDifferVerdict` over the same witnesses.
+            const differ = focusTakesDifferRow({ rows: receipt.rows, firstSessionId: persistedId, repeatSessionId,
+                captured: coachingCapture, releaseSha: expectedReleaseSha() });
+            receipt.row(FOCUS_TAKES_DIFFER_ROW, differ.verdict, differ.detail, differ.evidence);
         });
 
         // ── #1258 Focus-only: the product-switch take, then New Set / Edit from that take's completed review ──
