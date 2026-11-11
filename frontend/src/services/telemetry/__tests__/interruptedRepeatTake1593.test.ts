@@ -6,6 +6,8 @@
  * producer time `$ts` as `producer_ts`), exactly as the readback hands them to the stage.
  */
 import { describe, expect, it } from 'vitest';
+import { READBACK_COLUMNS, readbackRowsByName } from '../readbackColumns';
+import { buildReadbackQuery } from '../bootScopedReceipts';
 import {
     QUALIFICATION_STAGES, classifyInterruptedRepeat, evaluateQualificationStage, interruptedRepeatTake, isObservedFailureReason,
     readbackVerdict, type DecodedTelemetryRow,
@@ -47,11 +49,77 @@ const transition = (): DecodedTelemetryRow[] => [
 /** R still open at the invalidation: its own lifecycle reports `superseded_session` at the session change (t=11). */
 const openAtInvalidation = () => [...transition(), lc('ended', 11, { end_reason: 'superseded_session' })];
 /** R completed — rendered and ended `completed` in the same tick — BEFORE the repeat Start. */
-const completedBeforeRepeat = () => [...transition(), lc('response_received', 5), lc('persisted', 6), lc('ready', 7), lc('rendered', 8), lc('ended', 8, { end_reason: 'completed' })];
+const completedBeforeRepeat = () => [...transition(), lc('response_received', 5), lc('persisted', 6), lc('ready', 7), lc('rendered', 8, { render_target_attempt_id: A }), lc('ended', 8, { end_reason: 'completed' })];
 const without = (rows: DecodedTelemetryRow[], pred: (r: DecodedTelemetryRow) => boolean) => rows.filter((r) => !pred(r));
 const replace = (rows: DecodedTelemetryRow[], pred: (r: DecodedTelemetryRow) => boolean, next: DecodedTelemetryRow) => rows.map((r) => (pred(r) ? next : r));
 const isEnd = (r: DecodedTelemetryRow) => r.event === 'ai_coaching_lifecycle' && r.properties?.stage === 'ended';
 const check = (rows: DecodedTelemetryRow[]) => interruptedRepeatTake(rows, DECLARED);
+
+describe('retained A review during B preparation (run42938644148)', () => {
+    const retained = (target: string | null = A, renderedAt = 11) => [
+        ...transition(), lc('ready', 10.5, { attempt_id: B }),
+        lc('rendered', renderedAt, { attempt_id: B, ...(target === null ? {} : { render_target_attempt_id: target }) }),
+        lc('ended', renderedAt, { attempt_id: B, end_reason: 'completed' }),
+    ];
+    it('qualifies only with positive displayed-target A evidence before B records', () => {
+        expect(classifyInterruptedRepeat(retained(), DECLARED)).toMatchObject({ ok: true, branch: 'completed_during_successor_preparation' });
+    });
+    it('PO Option 1: A rendered on its own review between the Repeat press and the accepted Start (ambient still A) qualifies', () => {
+        const between = [...transition(), lc('ready', 9.2), lc('rendered', 9.5, { render_target_attempt_id: A }), lc('ended', 9.5, { end_reason: 'completed' })];
+        expect(classifyInterruptedRepeat(between, DECLARED)).toMatchObject({ ok: true, branch: 'completed_during_successor_preparation' });
+        // the same render with no target, or under a third take, never qualifies
+        expect(classifyInterruptedRepeat(replace(between, (r) => r.properties?.stage === 'rendered', lc('rendered', 9.5)), DECLARED).ok).toBe(false);
+        expect(classifyInterruptedRepeat(replace(between, (r) => r.properties?.stage === 'rendered', lc('rendered', 9.5, { attempt_id: C, render_target_attempt_id: A })), DECLARED).ok).toBe(false);
+        // ambient A AFTER B's accepted Start cannot exist (the Start mints B): inconsistent, never qualifying
+        const ambientAAfterStart = [...transition(), lc('ready', 9.2), lc('rendered', 10.5, { render_target_attempt_id: A }), lc('ended', 10.5, { end_reason: 'completed' })];
+        expect(classifyInterruptedRepeat(ambientAAfterStart, DECLARED).ok).toBe(false);
+        // CONTROL: the identical rows with the ambient take B (as the Start makes it) qualify — only the ambient differs
+        const ambientBAfterStart = [...transition(), lc('ready', 9.2), lc('rendered', 10.5, { attempt_id: B, render_target_attempt_id: A }), lc('ended', 10.5, { attempt_id: B, end_reason: 'completed' })];
+        expect(classifyInterruptedRepeat(ambientBAfterStart, DECLARED)).toMatchObject({ ok: true, branch: 'completed_during_successor_preparation' });
+    });
+    it('old ambient-B evidence during preparation stays HOLD, not invented wrong-target proof or PASS', () => {
+        const result = classifyInterruptedRepeat(retained(null), DECLARED);
+        expect(result.ok).toBe(false);
+        expect(check(retained(null))).not.toMatch(/^FAIL:/);
+    });
+    it.each([B, C])('explicit wrong target %s is FAIL even before B records', (target) => {
+        expect(check(retained(target))).toMatch(/^FAIL:/);
+    });
+    it.each([12, 12.5, 15])('A visible at or after B recording (%s) remains FAIL despite an A target claim', (at) => {
+        expect(check(retained(A, at))).toMatch(/^FAIL:/);
+    });
+    it('legacy ambient-B rendering after B recording remains FAIL', () => {
+        expect(check(retained(null, 15))).toMatch(/^FAIL:/);
+    });
+    it('positive A target after B recording cannot be concealed by a missing or stale ambient attempt', () => {
+        for (const ambient of [null, A]) {
+            const rows = replace(retained(A, 15), r => r.properties?.stage === 'rendered', lc('rendered', 15, { attempt_id: ambient, render_target_attempt_id: A }));
+            expect(check(rows)).toMatch(/^FAIL:/);
+        }
+    });
+    it('the production query and name-based decoder carry target evidence into the real qualifier', () => {
+        const query = buildReadbackQuery({ windowHours: 1, releaseSha: 'r', trafficType: 'canary', qualifyingIdentity: 'i', governedEvents: ['ai_coaching_lifecycle'], quote: v => `'${v}'` });
+        expect(query).toContain('properties.render_target_attempt_id AS render_target_attempt_id');
+        const columns = [...READBACK_COLUMNS].reverse();
+        const values = retained().map(r => ({ ...r.properties, event: r.event, timestamp: r.timestamp, journey_id: r.journeyId, boot_id: r.bootId } as Record<string, unknown>));
+        const decoded = readbackRowsByName(columns, values.map(r => columns.map(c => r[c] ?? null)));
+        expect(decoded.ok).toBe(true);
+        if (!decoded.ok) throw new Error(decoded.reason);
+        expect(classifyInterruptedRepeat(decoded.rows, DECLARED)).toMatchObject({ ok: true, branch: 'completed_during_successor_preparation' });
+    });
+    it('does not qualify a missing ready, render, terminal, target, or post-stop chain', () => {
+        for (const stageName of ['ready', 'rendered', 'ended', 'final_transcript']) {
+            expect(classifyInterruptedRepeat(without(retained(), r => r.properties?.stage === stageName), DECLARED).ok).toBe(false);
+        }
+        expect(classifyInterruptedRepeat(retained(''), DECLARED).ok).toBe(false);
+    });
+    it('does not qualify time outside preparation, completion after recording, unrelated ambient or conflicting origin', () => {
+        expect(classifyInterruptedRepeat(retained(A, 9.5), DECLARED).ok).toBe(false);
+        expect(classifyInterruptedRepeat(replace(retained(), isEnd, lc('ended', 13, { attempt_id: B, end_reason: 'completed' })), DECLARED).ok).toBe(false);
+        expect(classifyInterruptedRepeat(replace(retained(), r => r.properties?.stage === 'rendered', lc('rendered', 11, { attempt_id: C, render_target_attempt_id: A })), DECLARED).ok).toBe(false);
+        expect(classifyInterruptedRepeat(replace(retained(), r => r.properties?.stage === 'rendered', lc('rendered', 11, { attempt_id: B, origin_attempt_id: C, render_target_attempt_id: A })), DECLARED).ok).toBe(false);
+    });
+});
 
 describe('interrupted repeat take — R\'s observed state at the invalidation, never inferred (#1593, Sam gap 1)', () => {
     it('BRANCH open_at_invalidation qualifies: R\'s own superseded end at the session change', () => {
@@ -254,7 +322,7 @@ describe('Sam source RETURN on bbc58543 — four false-qualification probes, now
             .toMatch(/readiness was reported only after the Repeat press/);
         // POSITIVE: a synchronous render publishes rendered+completed in the effect declared FIRST, so ready legitimately
         // follows completed in the same commit — not a second render, and not a failure.
-        const readyAfterCompletion = [...transition(), lc('rendered', 8), lc('ended', 8, { end_reason: 'completed' }), lc('ready', 8.001)];
+        const readyAfterCompletion = [...transition(), lc('rendered', 8, { render_target_attempt_id: A }), lc('ended', 8, { end_reason: 'completed' }), lc('ready', 8.001)];
         expect(classifyInterruptedRepeat(readyAfterCompletion, DECLARED)).toMatchObject({ ok: true, branch: 'completed_before_repeat' });
         // Readiness before the request is not legitimate in the open branch either.
         expect(check([...transition(), lc('ready', 3.5), lc('ended', 11, { end_reason: 'superseded_session' })])).toMatch(/before it was requested/);
@@ -275,12 +343,28 @@ describe('Sam source RETURN on bbc58543 — four false-qualification probes, now
     });
 });
 
+describe('PO Option 1 — a completed render needs the positive displayed target on EVERY completed branch (RETURN on 89298a93)', () => {
+    it('completed before the repeat with NO target HOLDs (was a false PASS); explicit A qualifies; explicit B FAILs', () => {
+        const untargeted = replace(completedBeforeRepeat(), (r) => r.properties?.stage === 'rendered', lc('rendered', 8));
+        const r = classifyInterruptedRepeat(untargeted, DECLARED);
+        expect(r.ok).toBe(false);
+        expect(check(untargeted)).toMatch(/names no displayed-review target/);
+        expect(check(untargeted)).not.toMatch(/^FAIL:/);
+        expect(classifyInterruptedRepeat(completedBeforeRepeat(), DECLARED)).toMatchObject({ ok: true, branch: 'completed_before_repeat' });
+        expect(check(replace(completedBeforeRepeat(), (r) => r.properties?.stage === 'rendered', lc('rendered', 8, { render_target_attempt_id: B })))).toMatch(/^FAIL:/);
+    });
+    it('the no-render superseded branch needs no target and is never given one', () => {
+        expect(classifyInterruptedRepeat(openAtInvalidation(), DECLARED)).toMatchObject({ ok: true, branch: 'open_at_invalidation' });
+        expect(openAtInvalidation().some((r) => r.properties?.render_target_attempt_id !== undefined)).toBe(false);
+    });
+});
+
 describe('Codex review on 580bd93e (#1593)', () => {
     it('P1 r4308033814: a completed render shown while ANOTHER take was current is unattributable — HOLD', () => {
         const underC = [...completedBeforeRepeat().filter((r) => r.properties?.stage !== 'rendered'), lc('rendered', 8, { attempt_id: C })];
         expect(check(underC)).toMatch(/rendered while another take was current — unattributable/);
         // POSITIVE (Sam): no ambient attempt reported, beside every positive binding, qualifies; under A itself is the default.
-        const noAmbient = [...completedBeforeRepeat().filter((r) => r.properties?.stage !== 'rendered'), lc('rendered', 8, { attempt_id: null })];
+        const noAmbient = [...completedBeforeRepeat().filter((r) => r.properties?.stage !== 'rendered'), lc('rendered', 8, { attempt_id: null, render_target_attempt_id: A })];
         expect(classifyInterruptedRepeat(noAmbient, DECLARED)).toMatchObject({ ok: true, branch: 'completed_before_repeat' });
         expect(classifyInterruptedRepeat(completedBeforeRepeat(), DECLARED)).toMatchObject({ ok: true });
         // PAIRED CONTROLS (Sam): no ambient attempt is not a wildcard — a missing or conflicting R origin still HOLDs.
