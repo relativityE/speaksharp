@@ -193,6 +193,9 @@ describe('same-target-numeric (the harness\'s own check)', () => {
         const step = spec.indexOf("await test.step('saved and displayed comparison numbers match'");
         expect(step).toBeGreaterThan(spec.indexOf("await test.step('the repeat result names the measured metric'"));
         expect(spec).toContain("'../../tools/cloud-test/harness/draft-adapters/progress-numeric.cjs'");
+        // run 42938644148: the live specs are ES modules, so __filename/__dirname throw (the numeric row was HOLD 'not-observed')
+        expect(spec).toContain('createRequire(import.meta.url)');
+        expect(spec).not.toMatch(/\b__filename\b|\b__dirname\b/);
         expect(spec).toContain('page, db: admin, sourceSessionId: persistedId, repeatSessionId,');
         expect(spec).toContain('caseConfig: { sourceSha: expectedReleaseSha(), servedSha: served, account: { id: capturedUid } },');
     });
@@ -285,4 +288,16 @@ describe('AHT-01 design budgets (review: from the journey design, not a run coun
     });
 
 
+});
+
+describe('coaching contract binding (run 42938644148)', () => {
+    it('the coaching helpers expect the DEPLOYED backend contract (gemini-3.6-flash), pinned in the test tree, not this checkout\'s', () => {
+        for (const helper of ['rwtCoachingEvidence.ts', 'rwtCoachingConsistency.ts']) {
+            const src = readFileSync(resolve(__dirname, '../live/helpers', helper), 'utf8');
+            expect({ helper, deployed: src.includes("'./deployedCoachingContract.json'"), checkout: src.includes('backend/supabase/functions/get-ai-suggestions/contract.json\'') })
+                .toEqual({ helper, deployed: true, checkout: false });
+        }
+        const deployed = JSON.parse(readFileSync(resolve(__dirname, '../live/helpers/deployedCoachingContract.json'), 'utf8')) as { model: string };
+        expect(deployed.model).toBe('gemini-3.6-flash');
+    });
 });

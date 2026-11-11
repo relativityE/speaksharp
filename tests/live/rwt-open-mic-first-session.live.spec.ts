@@ -42,7 +42,7 @@ import {
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
 import { HarnessParityTap, numericComparisonRow, probeSaveIsolationRow, type NumericResult } from './helpers/rwtHarnessParity';
 import { createRequire } from 'node:module';
-import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
 import { characterCeilingVerdict, fillerAdviceVerdict } from './helpers/rwtCoachingConsistency';
 import { transientPrivateDir } from './helpers/rwtTransientFile';
@@ -1117,7 +1117,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                 try {
                     if (persistedId && repeatSessionId && capturedUid && admin) {
                         const served = await page.evaluate(() => (window as unknown as { __APP_RELEASE__?: string }).__APP_RELEASE__ ?? null).catch(() => null);
-                        const numeric = createRequire(__filename)(resolve(__dirname, '../../tools/cloud-test/harness/draft-adapters/progress-numeric.cjs')) as {
+                        const numeric = createRequire(import.meta.url)(fileURLToPath(new URL('../../tools/cloud-test/harness/draft-adapters/progress-numeric.cjs', import.meta.url))) as {
                             observe: (a: Record<string, unknown>) => Promise<NumericResult>;
                         };
                         result = await numeric.observe({
