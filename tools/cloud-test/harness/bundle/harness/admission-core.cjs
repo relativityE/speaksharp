@@ -8,6 +8,8 @@ const runtimeSelection=require('./runtime-selection.cjs');
 const QUALIFICATION_CHECKS=['sandboxProcesses','defaultDenyAllBrowserMechanisms','independentFixtureReconciliation','redirectChains','nativeNodeScopeReview','durableOperationFaults','errorStatusNegativeControl','privateMediaLifecycle','deadlinesCancellationAndCleanup','modelDownloadFaults','cumulativeCapsLedgerAndLocks','environmentProxyDns','feedbackOperationFaults'];
 const PAIRS={throwaway:['THROWAWAY_TEST_EMAIL','THROWAWAY_TEST_PASSWORD'],free:['FREE_TEST_EMAIL','FREE_TEST_PASSWORD'],pro:['PRO_TEST_EMAIL','PRO_TEST_PASSWORD']};
 const STAGES=['A0.config','A1.bundle','A2.source','A3.tools','A4.credentials','A5.browser','A6.guard-selftest','A7.identity'];
+const BASE_POLICY_HOSTS=['speaksharp-public.vercel.app','yxlapjuovrsvjswkwnrk.supabase.co'];
+const TELEMETRY_POLICY_HOSTS=['us-assets.i.posthog.com','us.i.posthog.com'];
 const nonempty=s=>typeof s==='string'&&s.trim().length>0;
 function utc(s){if(typeof s!=='string'||!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3})?Z$/.test(s))return NaN;const n=Date.parse(s),v=s.includes('.')?s:s.replace(/Z$/,'.000Z');return Number.isFinite(n)&&new Date(n).toISOString()===v?n:NaN;}
 function validateConfig(c,now){
@@ -60,6 +62,22 @@ function validateBrowserIdentity(r){
   if(!r||!['speaksharp.cloud-test.existing-browser.v1','speaksharp.cloud-test.installed-browser.v1'].includes(r.schema)||!nonempty(r.path)||!path.isAbsolute(r.path)||!SHA64.test(r.observedBinarySha256||''))throw new Error('bound existing-browser identity is invalid');
   return {path:r.path,sha256:r.observedBinarySha256};
 }
+function validateCampaignPolicy(policy,c){
+  if(policy.deadlineAt!==c.approvedDeadlineAt)throw new Error('policy deadline/hosts differ from campaign');
+  const hosts=Object.keys(policy.hosts||{}).sort(),base=[...BASE_POLICY_HOSTS].sort(),withTelemetry=[...BASE_POLICY_HOSTS,...TELEMETRY_POLICY_HOSTS].sort();
+  const same=(a,b)=>a.length===b.length&&a.every((value,index)=>value===b[index]);
+  if(same(hosts,base)){
+    if(policy.caps?.telemetry!==0)throw new Error('policy telemetry cap must be zero when delivery hosts are absent');
+    return {telemetryDelivery:false};
+  }
+  if(!same(hosts,withTelemetry))throw new Error('policy deadline/hosts differ from campaign');
+  const asset=policy.hosts['us-assets.i.posthog.com'],ingest=policy.hosts['us.i.posthog.com'];
+  const assetRule=asset?.rules?.[0],ingestRule=ingest?.rules?.[0];
+  if(asset?.port!==443||!Array.isArray(asset.rules)||asset.rules.length!==1||assetRule.id!=='posthog-sdk-array'||assetRule.cap!=='telemetry'||assetRule.methods?.join(',')!=='GET'||assetRule.path!=='^/static/array\\.js$'
+    ||ingest?.port!==443||!Array.isArray(ingest.rules)||ingest.rules.length!==1||ingestRule.id!=='posthog-event-ingest'||ingestRule.cap!=='telemetry'||ingestRule.methods?.join(',')!=='POST'||ingestRule.path!=='^/(e|i/v0/e)/$'
+    ||policy.caps?.telemetry!==20)throw new Error('policy telemetry delivery scope differs from reviewed routes');
+  return {telemetryDelivery:true};
+}
 function verifyQualification(receipt,{codeManifestSha256,startedAt,endedBy,evidence,expectedRuntime,expectedRuntimeName=RUNTIME,expectedSelection,ownerApprovalReference,requiredCapability='browser-guard'}){
   if(!expectedRuntime||!['node','playwright','chromiumRevision'].every(k=>nonempty(expectedRuntime[k])))throw new Error('actual admitted runtime tuple required for qualification comparison');
   if(!runtimeSelection.supported(expectedRuntimeName)||!receipt||receipt.result!=='PASS'||receipt.runtime!==expectedRuntimeName||['node','playwright','chromiumRevision'].some(k=>receipt[k]!==expectedRuntime[k])||receipt.codeManifestSha256!==codeManifestSha256)throw new Error('qualifier result/actual-runtime/current-code binding mismatch');
@@ -87,14 +105,14 @@ async function runAdmission(options,io){
       validateConfig(c,now());io.validateOperatorPaths(c,B,OUT);hashBound(c.runtimeAttestationFile,c.runtimeAttestationSha256,'Claude selection receipt');receipt.runtimeSelection=validateRuntimeSelection(io.readJson(c.runtimeAttestationFile),c,now());
       hashBound(c.browserIdentityFile,c.browserIdentitySha256,'existing-browser identity receipt');browserIdentity=validateBrowserIdentity(io.readJson(c.browserIdentityFile));
       hashBound(c.policyFile,c.policySha256,'policy');policy=io.readJson(c.policyFile);io.validatePolicy(policy);if(policy.testOnly!==undefined&&policy.testOnly!==false)throw new Error('testOnly policy is forbidden for production admission');
-      if(policy.deadlineAt!==c.approvedDeadlineAt||Object.keys(policy.hosts).sort().join(',')!=='speaksharp-public.vercel.app,yxlapjuovrsvjswkwnrk.supabase.co')throw new Error('policy deadline/hosts differ from campaign');
+      const policyScope=validateCampaignPolicy(policy,c);
       for(const h of Object.values(policy.hosts))for(const rule of h.rules)if(rule.review===true||rule.reviewedSourceSha!==c.sourceSha)throw new Error('policy rule not reviewed against selected source');
       if(policy.caps['account-closure']!==0)throw new Error('account closure must remain capped at zero');
       hashBound(c.securityApprovalFile,c.securityApprovalSha256,'security approval');approval=io.readJson(c.securityApprovalFile);if(approval.ownerApprovalReference!==c.ownerApprovalReference)throw new Error('owner approval reference mismatch');validateSelectionApproval(c.lighthouseSelection,approval);
       hashBound(c.reviewedStepManifest,c.reviewedStepManifestSha256,'reviewed step manifest');hashBound(c.qualificationStepManifest,c.qualificationStepManifestSha256,'qualification step manifest');io.verifyStepManifest(c.reviewedStepManifest,c.reviewedStepManifestSha256,c.reviewedStepRoot);
       hashBound(c.providerAttemptContractEvidence.file,c.providerAttemptContractEvidence.sha256,'provider attempt/$0 contract evidence');
       receipt.binding={lighthouseSelection:c.lighthouseSelection,lighthouseOwnerApprovalReference:c.ownerApprovalReference,campaignId:c.campaignId,campaignLedger:path.resolve(c.campaignLedger),identityLedger:path.resolve(c.identityLedger),identityCap:c.identityCap,runtimePolicy:c.runtimePolicy,sourceSha:c.sourceSha,servedSha:c.expectedServedSha,policySha256:c.policySha256,securityApprovalSha256:c.securityApprovalSha256,approvedStartAt:c.approvedStartAt,approvedDeadlineAt:c.approvedDeadlineAt};
-      return {runtimeSelection:receipt.runtimeSelection,window:{start:c.approvedStartAt,deadline:c.approvedDeadlineAt,cleanupReserveMs:c.cleanupReserveMs},costCeilingUsd:0,policySha256:c.policySha256,accountSelection:c.accountSelection};
+      return {runtimeSelection:receipt.runtimeSelection,window:{start:c.approvedStartAt,deadline:c.approvedDeadlineAt,cleanupReserveMs:c.cleanupReserveMs},costCeilingUsd:0,policySha256:c.policySha256,accountSelection:c.accountSelection,...policyScope};
     });
     await step('A1.bundle',async()=>{const r=io.verifyCode(B);if(r.result!=='PASS')throw new Error('actual CODE manifest/file verification failed');codeHash=io.hashFile(path.join(B,'CODE.sha256'));io.validateApproval(approval,{runtime:c.runtime,codeManifestSha256:codeHash,hosts:[...Object.keys(policy.hosts),'a.test','c.test','d.test']},now());if(!Number.isFinite(utc(approval.notBefore))||!Number.isFinite(utc(approval.expiresAt))||utc(c.approvedStartAt)<utc(approval.notBefore)||utc(c.approvedDeadlineAt)>utc(approval.expiresAt))throw new Error('campaign window extends outside owner approval');receipt.binding.codeManifestSha256=codeHash;return {files:r.files,codeManifestSha256:codeHash};});
     await step('A2.source',async()=>{const git=async args=>{const r=await command('git',['-C',c.checkoutDir,...args]);if(r.status!==0)throw new Error('git source inspection failed');return String(r.stdout||'').trim();};const head=await git(['rev-parse','--verify','HEAD']),tree=await git(['rev-parse','--verify','HEAD^{tree}']),dirty=await git(['status','--porcelain']),lock=io.hashFile(path.join(c.checkoutDir,'pnpm-lock.yaml'));if(head!==c.sourceSha||tree!==c.sourceTree||dirty||lock!==c.lockSha256)throw new Error('source HEAD/tree/clean-worktree/lock mismatch');return {head,tree,clean:true,lockSha256:lock};});
@@ -118,4 +136,4 @@ async function runAdmission(options,io){
     receipt.result='ADMISSION PASS';receipt.endedAt=new Date(now()).toISOString();receipt.productAcceptance='NOT_TESTED; admission is not product GO';await save();return {exitCode:0,receipt};
   }catch(e){receipt.result='BLOCKED_SETUP';if(!receipt.stage){receipt.stage='receipt-write';receipt.reason=String(e.message);}receipt.endedAt=new Date(now()).toISOString();return {exitCode:78,receipt};}
 }
-module.exports={runAdmission,validateConfig,validateRuntimeSelection,checkCredentials,validateBrowserIdentity,verifyQualification,usableRuntime,QUALIFICATION_CHECKS,STAGES};
+module.exports={runAdmission,validateConfig,validateRuntimeSelection,checkCredentials,validateBrowserIdentity,validateCampaignPolicy,verifyQualification,usableRuntime,QUALIFICATION_CHECKS,STAGES};

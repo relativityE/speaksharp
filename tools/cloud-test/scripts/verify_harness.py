@@ -6,11 +6,47 @@
     vendored subset is byte-identical to the reviewed packet.
 Usage: verify_harness.py --config config/test-config.v1.json [--root DIR]   Exit 0 only when everything matches; 78 (BLOCKED_SETUP) otherwise."""
 import argparse
+import hashlib
+import json
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _common import ROOT, load, sha256_file  # noqa: E402
+
+
+def check_reviewed_graph(packet):
+    """Validate every declared step/dependency byte in the inner reviewed graph."""
+    manifest = os.path.join(packet, "bundle", "config", "reviewed-steps.EXAMPLE.json")
+    try:
+        with open(manifest, encoding="utf-8") as source:
+            value = json.load(source)
+    except (OSError, ValueError) as exc:
+        return ["reviewed dependency graph is unreadable: %s" % exc]
+    if not isinstance(value.get("steps"), list) or not value["steps"]:
+        return ["reviewed dependency graph is empty"]
+    errs = []
+    for step in value["steps"]:
+        files = [step] + (step.get("dependencies") if isinstance(step.get("dependencies"), list) else [])
+        paths = [item.get("path") for item in files if isinstance(item, dict)]
+        if len(paths) != len(files) or len(set(paths)) != len(paths):
+            errs.append("reviewed dependency graph has an invalid or duplicate path")
+            continue
+        for item in files:
+            rel, expected = item.get("path"), item.get("sha256")
+            if (not isinstance(rel, str) or not rel or os.path.isabs(rel) or "\\" in rel
+                    or any(part in ("", ".", "..") for part in rel.split("/"))):
+                errs.append("reviewed dependency graph has a non-canonical path: %r" % rel)
+                continue
+            full = os.path.join(packet, *rel.split("/"))
+            if not os.path.isfile(full) or os.path.islink(full):
+                errs.append("reviewed dependency graph file is missing or not regular: " + rel)
+                continue
+            with open(full, "rb") as source:
+                actual = hashlib.sha256(source.read()).hexdigest()
+            if not isinstance(expected, str) or len(expected) != 64 or actual != expected:
+                errs.append("reviewed dependency graph bytes differ: " + rel)
+    return errs
 
 
 def check(cfg, root):
@@ -25,6 +61,7 @@ def check(cfg, root):
         errs.append("CODE.sha256 is %s, the approved hash is %s" % (sha256_file(code), h["expectedCodeManifestSha256"]))
     if sha256_file(pm) != h["expectedPacketManifestSha256"]:
         errs.append("PACKET-MANIFEST.sha256 differs from the pinned hash")
+    errs.extend(check_reviewed_graph(packet))
     n = 0
     for line in open(code, encoding="utf-8"):
         line = line.rstrip("\n")

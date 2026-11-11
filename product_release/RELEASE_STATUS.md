@@ -1,15 +1,100 @@
 # Release Status
 
-**Status:** Authoritative for the bounded 28 October 2026 component snapshot below; earlier dated snapshots remain history. Release acceptance HOLD.
+**Status:** Authoritative for the bounded 5 November 2026 source reconciliation below; earlier dated component snapshots remain history. Release acceptance HOLD.
 **Owner:** Product Owner (relativityE)
 **Last Reviewed:** 2026-10-28 — specialist source review and current-main receiving; exact-head qualification remains a separate gate.
-**Last Verified:** 2026-10-28 — GitHub main `8a79eafa23bd3beeee6d087270acd9ed5a16eb1e` read during receiving; frontend and Edge `4c85` remain bound to Sam's retained release receipts below. No new Production query or end-to-end acceptance is claimed by this documentation change.
+**Last Verified:** 2026-11-05 — source interval through main `8f9f9451`; no fresh Production read, hosted recovery success or end-to-end acceptance is claimed.
 **Applies To:** Current production deployment + RWT/Alpha and MVP/Beta release tracks.
 **Class:** Runtime fact.
 **Authority:** The only source for changing release/deployment status, baselines, run IDs, blockers, and go/no-go.
 **Not Authoritative For:** stable product contracts (→ `PRODUCT_REQUIREMENTS.md`), architecture (→ `ARCHITECTURE.md`), STT contracts (→ `STT.md`), or documentation structure (→ `README.md`).
 **Supersedes:** the September current-status narrative and October baseline-only banner here. Historical evidence and archives remain unchanged.
 **Evidence Sources:** the exact GitHub PR, issue-comment and workflow receipts linked below.
+
+## 5 November 2026 source reconciliation and R10 hold
+
+**HOLD.** This bounded source review supersedes the earlier current-source and active-run
+statements below. It does not supersede dated deployment receipts, rewrite historical
+test outcomes, or establish customer acceptance. The [verified comparison](https://github.com/relativityE/speaksharp/compare/4c85b006ac05e180521fd6e7d807f736987cafe8...8f9f9451bb6bf37ba2bca524acd92d933e2b826c)
+contains 26 commits after the previous currency baseline. The unchanged currency guard
+allows at most 25; advancing the paired baseline is the result of this reconciliation,
+not a waiver of the guard.
+
+| Identity | Recorded value | Evidence boundary |
+|---|---|---|
+| Repository `main` reconciled source baseline (5 November 2026) | `8f9f9451bb6bf37ba2bca524acd92d933e2b826c` | Exact source through #1785, read from GitHub. Source ancestry does not establish deployment or acceptance. Re-read moving main before operational action. |
+
+### Merged source in the reconciled interval
+
+Each entry below is a merged-source checkpoint, not a declaration that its broader
+parent issue, deployment or live acceptance is complete.
+
+- [8a79eafa](https://github.com/relativityE/speaksharp/commit/8a79eafa23bd3beeee6d087270acd9ed5a16eb1e): test(#1610): prove edited-take retention on the current native chain (#1752).
+- [1f9f2232](https://github.com/relativityE/speaksharp/commit/1f9f2232d90334fefbc5107c520ba797e00ab215): fix(review): bind documentation evidence scope to reviewed postimages (#1753).
+- [b80657dd](https://github.com/relativityE/speaksharp/commit/b80657dd40d87895d61a8aaf52bb9f63bb784443): docs: reconcile canonical release contracts and retained evidence (#1674).
+- [30caac31](https://github.com/relativityE/speaksharp/commit/30caac31a2b447d8bb55dd8e92fd7b4064f8eb96): ci(retention): prove the current owner contract on PostgreSQL 15–17 (#1755).
+- [2ea69d8e](https://github.com/relativityE/speaksharp/commit/2ea69d8e4b7521d24b75febd65c5020ab22d60ed): fix(review): qualify the reviewed financial artifact receiver (#1754).
+- [a71cb1d1](https://github.com/relativityE/speaksharp/commit/a71cb1d17bb2259e1fcbf643f1db5df6d99a9b66): fix(qualification): pin portable finance archive provenance (#1756).
+- [556bd636](https://github.com/relativityE/speaksharp/commit/556bd6368596427e57c19f1da6e4041062e6f55f): docs(finance): include coding subscriptions and explain pricing scenarios (#1318) (#1599).
+- [a297ce3a](https://github.com/relativityE/speaksharp/commit/a297ce3a8f411c45c741d721bec177b41b2bd311): fix(diagnostics): fail closed on incomplete worker evidence (#1757).
+- [2c661f7f](https://github.com/relativityE/speaksharp/commit/2c661f7f0c528092883bc7a2901672277f4c6b75): fix(ci): preserve unit failures and bound full-suite runtime (#1758).
+- [66328703](https://github.com/relativityE/speaksharp/commit/66328703bf47e865b730e229005411e78481d34c): fix(telemetry): bind setup failures to the accepted recording attempt (#1759).
+- [2cd8c3ca](https://github.com/relativityE/speaksharp/commit/2cd8c3ca28f6d8db52c9c1f1b262238e13fe6cb3): ci(cloud-test): register the Cloud test control-plane workflow (dispatch-only, secret-free) (#1764).
+- [749b76f3](https://github.com/relativityE/speaksharp/commit/749b76f399ee190084b9c611f49fea2b7bc77c25): ci(evidence): bounded batched execution + cloud-test package routing (#1762).
+- [50ae485c](https://github.com/relativityE/speaksharp/commit/50ae485ca7ab9c422e6793c63e807b39503f6a7e): fix(test-accounts): read the throwaway email from its repository Variable (#1766).
+- [ac5272dc](https://github.com/relativityE/speaksharp/commit/ac5272dc23a4ed4fa134973016523f67a6f82e8b): fix(goals): update the existing owner row on repeat save (#1767).
+- [cadf4dfb](https://github.com/relativityE/speaksharp/commit/cadf4dfb6db5b614551d50d17e09a71aa826cfa7): feat(testing): report bound stack receipts without false-green readiness (#1761).
+- [188aa034](https://github.com/relativityE/speaksharp/commit/188aa0346e69b476870eb4e95293b3ce557dc5e2): fix(ci): admit reviewed 1763 workflow transition (#1769).
+- [8969998d](https://github.com/relativityE/speaksharp/commit/8969998d27b4dd891c84243b35869be726639900): fix(transcription): retain PCM boundary receipts for R5 diagnosis (#1771).
+- [9e42700a](https://github.com/relativityE/speaksharp/commit/9e42700a7f06e9f41b19749d7a09eb920a0ae18f): feat(cloud-test): receive the 15-journey runner and explicit offline inputs (#1763).
+- [c32319f9](https://github.com/relativityE/speaksharp/commit/c32319f9121d4fef64dc48bb40fae5464dc6b65a): Draft: LLM updater — drop-in coaching provider/model (descriptors + adapter families) (#1773).
+- [5a7bf6a1](https://github.com/relativityE/speaksharp/commit/5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2): fix(cloud-test): consolidate R5 live-case remediations (#1772).
+- [c6badcef](https://github.com/relativityE/speaksharp/commit/c6badcef6545a5461fc1a90255c880868aeff0e7): fix(cloud-test): bind R10 release lineage (#1779).
+- [3b040043](https://github.com/relativityE/speaksharp/commit/3b040043372f47f720fcd382bdc30b90bdf67e47): test(edge): pin diagnostic IDs in leak assertion (#1780).
+- [c1cc791a](https://github.com/relativityE/speaksharp/commit/c1cc791a731162879e5f7955408e7ac397d9f42c): test(cloud): bind R10 all-15 live request (#1781).
+- [b9d4bc05](https://github.com/relativityE/speaksharp/commit/b9d4bc05eb3c69447fdd96acc1f0eaeb5f14f64d): test(cloud): renew one-off R10 authority window (#1783).
+- [af1781ba](https://github.com/relativityE/speaksharp/commit/af1781ba6e07524c82dea3a66a1b7cb772c14e51): fix(cloud-test): R10 record-job PR permission and a deadline-bound first-use prerequisite preflight (#1784).
+- [8f9f9451](https://github.com/relativityE/speaksharp/commit/8f9f9451bb6bf37ba2bca524acd92d933e2b826c): fix(cloud-test): R10 token compatibility and exact failed-run recovery (short-lived) (#1785).
+
+The interval includes frontend goal-save, recording-failure and PCM-diagnostic changes,
+coaching provider/adapter source, current-contract retention tests, documentation/finance
+receiving, and CI/evidence qualification changes. It also introduces the Cloud Test
+control plane and R10 runner, then corrects release binding, occurrence authority,
+record permissions, first-use prerequisites and token/never-reserved recovery.
+These are different evidence classes: source instrumentation is not a measured live result,
+synthetic qualification is not product acceptance, and a retained finance model is not
+validated pricing or authorization to spend.
+
+### R10 outcome and remaining work
+
+[Run 41960376782](https://github.com/relativityE/speaksharp/actions/runs/41960376782)
+on this source passed record recovery and reservation, then failed at the offline-check
+step before the credential-bearing preflight and journeys. The [retained result](https://github.com/relativityE/speaksharp/pull/1783#issuecomment-6648866365)
+is **0 PASS / 0 FAIL / 15 NOT RUN**, not a successful baseline. Its reservation remains
+open and counted at `0909b53ff6dc767105633ddc14db520c762dff64`; a green settle job
+did not establish settlement because no settle input existed. Reserved caps are not
+measured usage. The reported live-job time is six runner minutes; zero product usage
+is the setup-failure evidence claim to validate in the recovery, not permission to
+erase the reservation or history.
+
+[#1778](https://github.com/relativityE/speaksharp/pull/1778) is the existing integration
+vehicle for the namespace/setup and recovery corrections, with unpublished work and
+exact-head review tracked in its owning thread. Its source changes do not yet establish
+a hosted fix, settlement or a new R10 result. No additional run, namespace-setting
+change taking effect, merge, deployment or nightly activation is authorized by this
+documentation update. The existing grant endpoint is 2026-11-05T18:00:00Z; it is not
+a grant of another attempt.
+
+The committed R10 request selects frontend `5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2`
+and backend source `c32319f9121d4fef64dc48bb40fae5464dc6b65a`, with its recorded
+source-equivalence receipt. These are request bindings, not fresh served readbacks.
+The older `deployed-release` / `verified-on` machine fields and dated frontend/Edge
+receipts below remain historical observations; this source-only reconciliation does
+not promote a request target into observed Production identity. Obtain fresh
+occurrence-bound identities before any separately authorized live action.
+All unexecuted journey, human/device, customer-exit and other retained acceptance
+gaps remain open. The fixed #1650 integration baseline and all lane/blocker fields
+are unchanged.
 
 ## 28 October 2026 post-R5 receiving addendum
 
@@ -289,7 +374,7 @@ The following addenda are later owner-reported history, outside the 17 October 2
 **Subsequent frontend disposition — 18 October 2026, 09:20–09:23 UTC:** [App Dev's #1652 landing/canary/served receipt6248196339](https://github.com/relativityE/speaksharp/pull/1652#issuecomment-6248196339) reports squash merge `3540103e8d86b5a284265443312c61e643bf5304` at 09:20:24 UTC after full-lane PR CI [39111739476](https://github.com/relativityE/speaksharp/actions/runs/39111739476) SUCCESS and clean exact-head Code/Security qualification. Canary [39114943038](https://github.com/relativityE/speaksharp/actions/runs/39114943038) is reported SUCCESS, including read-only migration readiness and active-trial checks. At 09:22:46 UTC App Dev observed `VITE_VERCEL_GIT_COMMIT_SHA = 3540103e8d86b5a284265443312c61e643bf5304` in the served bundle. This records delivered #1652 source/deployment and supersedes its earlier repair/deployment assignment; do not repeat that repair or deployment. It is a dated owner receipt, not a new Production read by Browser PM or a guarantee of the moving served identity. Final campaign release binding, specifically authorized full useful Open Mic/full and partial Focus RWT, received evidence/cleanup and human/device acceptance remain open. The Products-menu/dialog race remains open with CLI Dev. No live campaign or customer-exit acceptance follows.
 
 <!-- CURRENCY-BLOCK
-baseline: 4c85b006ac05e180521fd6e7d807f736987cafe8
+baseline: 8f9f9451bb6bf37ba2bca524acd92d933e2b826c
 deployed-release: 4c85b006ac05e180521fd6e7d807f736987cafe8
 verified-on: 2026-10-28
 release-blocker: production-journey-recovery

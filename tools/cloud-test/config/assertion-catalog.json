@@ -2,9 +2,9 @@
  "schema": "speaksharp.cloud-test.assertion-catalog.v1",
  "derived": true,
  "source": "harness/draft-adapters/contracts.json (hash-verified by verify_harness.py), cross-checked against the sealed receipts of every compared run",
- "contractsSha256": "2b5724191d1448281c53f7c0792bf9af9de791e10ca9c863df0fd42165cb71a2",
+ "contractsSha256": "b7bddd5cad8ff3fc05b3273772c11f8c8c35f256ad07e4c1bdb6118030850a95",
  "totalAssertions": 204,
- "minimumStarts": 40,
+ "minimumStarts": 42,
  "minimumTakes": 31,
  "cases": {
   "AHT-01": {
@@ -265,7 +265,7 @@
     "owned-pages-closed"
    ],
    "minimumTakes": 1,
-   "minimumStarts": 2
+   "minimumStarts": 3
   },
   "AHT-14": {
    "requiredAssertions": [
@@ -279,7 +279,7 @@
     "owned-pages-closed"
    ],
    "minimumTakes": 1,
-   "minimumStarts": 2
+   "minimumStarts": 3
   },
   "AHT-15": {
    "requiredAssertions": [

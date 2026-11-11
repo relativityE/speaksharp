@@ -1,0 +1,24 @@
+{
+  "schema": "speaksharp.cloud-test.aggregate-receiver.v2-occurrence",
+  "workflowVersion": "1.5.0",
+  "codeManifestSha256": "2f80bcfb4ba05996238ae848a510be8ea13f1d99fcc2fd50866f6ea09fdb9ab9",
+  "components": {
+    "case-costs": {
+      "file": "case-costs.json",
+      "sha256": "c881b514a73cd3ae4ed298ff8a7bf166f572164e3ae3495a1b3d8fdb7bad37ca"
+    },
+    "comparison-prior": {
+      "file": "comparison-prior.json",
+      "sha256": "6e252cd170eb1d4919ccf7fdafc50d75be1cbd4e8c9f9ef25a2d9554903c43f8"
+    },
+    "gap-ledger": {
+      "file": "gap-ledger.json",
+      "sha256": "945fcd38d0d21e39c6c9417b12bd4d29e710f518782f324332935c8b69cd4bfa"
+    },
+    "prior-run-verification": {
+      "file": "prior-run-verification.json",
+      "sha256": "992fa2debcd1d19dd5ade872e4c77ca6eb965156c2c64fc61c2ed87cdac6a74e"
+    }
+  },
+  "bundleRootSha256": "f6b59edbfcc20593cd13a87f362a6c68f5a37cfe424da87c0671881584afed19"
+}

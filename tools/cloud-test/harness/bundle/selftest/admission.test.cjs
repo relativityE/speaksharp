@@ -1,14 +1,14 @@
 'use strict';
 // All stage effects are injected fakes. No real subprocess/browser/credential/network access.
 const test=require('node:test'),assert=require('node:assert/strict');
-const {runAdmission,validateConfig,checkCredentials,validateRuntimeSelection,verifyQualification,QUALIFICATION_CHECKS,STAGES}=require('../harness/admission-core.cjs');
+const {runAdmission,validateConfig,checkCredentials,validateRuntimeSelection,validateCampaignPolicy,verifyQualification,QUALIFICATION_CHECKS,STAGES}=require('../harness/admission-core.cjs');
 const {args,supervisedCommand}=require('../harness/admission.cjs');
 const H='a'.repeat(64),CODE='b'.repeat(64),LOCK='c'.repeat(64),SOURCE='d'.repeat(40),TREE='e'.repeat(40);
 const NOW=Date.parse('2026-10-27T12:00:00.000Z');
 function fixture(){
   const c={lighthouseSelection:'required',campaignId:'OFFLINE-FIXTURE-CAMPAIGN',campaignLedger:'/fixture/out/campaign-ledger.json',runtimePolicy:'record-and-qualify-current',runtime:'Claude SpeakSharp R4',sourceSha:SOURCE,sourceTree:TREE,lockSha256:LOCK,checkoutDir:'/fixture/checkout',nodeVersion:'22.12.0',pnpmVersion:'10.29.1',playwrightVersion:'1.57.0',chromiumRevision:'chromium-1200',lighthouseCli:'/fixture/lighthouse/cli/index.js',lighthouseVersion:'12.6.1',requiredCredentialVars:['THROWAWAY_TEST_EMAIL','THROWAWAY_TEST_PASSWORD','VITE_SUPABASE_URL','VITE_SUPABASE_ANON_KEY'],forbiddenVars:['SUPABASE_SERVICE_ROLE_KEY'],publishableKeyVar:'VITE_SUPABASE_ANON_KEY',supabaseUrlVar:'VITE_SUPABASE_URL',expectedSupabaseHost:'yxlapjuovrsvjswkwnrk.supabase.co',identityUrl:'https://speaksharp-public.vercel.app/',expectedServedSha:SOURCE,identityCap:3,identityLedger:'/fixture/out/identity.json',securityApprovalFile:'/fixture/security.json',securityApprovalSha256:H,reviewedStepManifest:'/fixture/steps.json',reviewedStepManifestSha256:H,reviewedStepRoot:'/fixture/steps',qualificationStepManifest:'/fixture/qualification-steps.json',qualificationStepManifestSha256:H,approvedStartAt:'2026-10-27T11:59:00.000Z',approvedDeadlineAt:'2026-10-27T13:00:00.000Z',policyFile:'/fixture/policy.json',policySha256:H,costCeilingUsd:0,accountSelection:'prefer-throwaway',providerAttemptContractEvidence:{file:'/fixture/provider-contract.json',sha256:H},qualificationMaxMs:1200000,cleanupReserveMs:60000,privateMediaParent:'/fixture/private-media',runtimeAttestationFile:'/fixture/claude-task.json',runtimeAttestationSha256:H,browserIdentityFile:'/fixture/browser-identity.json',browserIdentitySha256:H,ownerApprovalReference:'offline-fixture-only-not-actual-approval'};
   const selection={kind:'authoritative-claude-task-environment-receipt',platformUrl:'https://claude.ai/code',environmentSelector:'SpeakSharp R4',runtime:c.runtime,taskId:'FAKE-OFFLINE-TASK',sourceReference:'https://claude.ai/code/fixture-not-real',observedAt:'2026-10-27T11:59:59.000Z',immutableEnvironmentId:null};
-  const policy={deadlineAt:c.approvedDeadlineAt,hosts:{'speaksharp-public.vercel.app':{rules:[{reviewedSourceSha:SOURCE}]},'yxlapjuovrsvjswkwnrk.supabase.co':{rules:[{reviewedSourceSha:SOURCE}]}},caps:{'account-closure':0}};
+  const policy={deadlineAt:c.approvedDeadlineAt,hosts:{'speaksharp-public.vercel.app':{rules:[{reviewedSourceSha:SOURCE}]},'yxlapjuovrsvjswkwnrk.supabase.co':{rules:[{reviewedSourceSha:SOURCE}]}},caps:{'account-closure':0,telemetry:0}};
   const qualification={lighthouseCliSha256:H,result:'PASS',qualifiedScope:'browser-guard-and-lighthouse',browserGuardResult:'PASS',fullLighthouseQualification:true,capabilities:{lighthouse:{selection:'required',selected:true,result:'PASS',ownerApprovalReference:c.ownerApprovalReference,evidencePath:'control-lighthouse.json',evidenceSha256:H}},runtime:c.runtime,node:c.nodeVersion,playwright:c.playwrightVersion,chromiumRevision:c.chromiumRevision,codeManifestSha256:CODE,startedAt:new Date(NOW).toISOString(),endedAt:new Date(NOW).toISOString(),checks:Object.fromEntries(QUALIFICATION_CHECKS.map(k=>[k,{result:'PASS',evidencePath:k+'.json',evidenceSha256:H}]))};
   const env={THROWAWAY_TEST_EMAIL:'fixture@example.invalid',THROWAWAY_TEST_PASSWORD:'FIXTURE-ONLY-NOT-A-CREDENTIAL',VITE_SUPABASE_URL:'https://yxlapjuovrsvjswkwnrk.supabase.co',VITE_SUPABASE_ANON_KEY:'sb_publishable_FIXTURE_ONLY'};
   const calls=[],writes=[];let credentialReads=0;let clock=NOW;
@@ -23,6 +23,27 @@ test('default offline admission touches no config, credentials, commands or runt
 test('all injected stages run A0-A7 in order; one opted-in identity GET is last',async()=>{
   const f=fixture(),r=await runAdmission(f.options,f.io);assert.equal(r.exitCode,0);assert.equal(r.receipt.result,'ADMISSION PASS');assert.deepEqual(r.receipt.steps.map(s=>s.id),STAGES);assert(r.receipt.steps.every(s=>s.result==='PASS'));assert.equal(identityCalls(f).length,1);assert.equal(f.calls.at(-1).argv[0],'/fixture/bundle/harness/identity-check.cjs');assert(f.calls.at(-1).argv.includes('--authorize-identity-read'));assert.equal(f.credentialReads(),1);assert.equal(r.receipt.accountAccess,'NOT_PROVEN');assert.match(r.receipt.productAcceptance,/not product GO/);
   assert(!JSON.stringify(r).includes(f.env.THROWAWAY_TEST_PASSWORD));assert(!JSON.stringify(r).includes(f.env.THROWAWAY_TEST_EMAIL));
+});
+test('campaign policy accepts only the finite reviewed PostHog delivery routes and cap',()=>{
+  const f=fixture();
+  f.policy.caps.telemetry=20;
+  f.policy.hosts['us-assets.i.posthog.com']={port:443,rules:[{id:'posthog-sdk-array',methods:['GET'],path:'^/static/array\\.js$',cap:'telemetry',reviewedSourceSha:SOURCE}]};
+  f.policy.hosts['us.i.posthog.com']={port:443,rules:[{id:'posthog-event-ingest',methods:['POST'],path:'^/(e|i/v0/e)/$',cap:'telemetry',reviewedSourceSha:SOURCE}]};
+  assert.deepEqual(validateCampaignPolicy(f.policy,f.c),{telemetryDelivery:true});
+  for(const mutate of [
+    p=>{p.hosts['us.i.posthog.com'].rules[0].methods=['GET'];},
+    p=>{p.hosts['us.i.posthog.com'].rules[0].path='^/.*$';},
+    p=>{p.hosts['us-assets.i.posthog.com'].rules[0].path='^/static/.*$';},
+    p=>{p.caps.telemetry=21;},
+    p=>{p.hosts['other.posthog.com']=p.hosts['us.i.posthog.com'];},
+  ]){
+    const p=structuredClone(f.policy);mutate(p);
+    assert.throws(()=>validateCampaignPolicy(p,f.c),/policy/);
+  }
+});
+test('campaign policy keeps telemetry unavailable when its hosts are absent',()=>{
+  const f=fixture();assert.deepEqual(validateCampaignPolicy(f.policy,f.c),{telemetryDelivery:false});
+  f.policy.caps.telemetry=1;assert.throws(()=>validateCampaignPolicy(f.policy,f.c),/zero/);
 });
 test('unknown R0 provenance blocks at A0 before command or credential inspection',async()=>{const f=fixture();f.selection.kind='operator-label-only';const r=await runAdmission(f.options,f.io);assert.equal(r.receipt.stage,'A0.config');assert.equal(f.calls.length,0);assert.equal(f.credentialReads(),0);assert.match(r.receipt.steps[0].reason,/authoritative Claude/);});
 test('similarly named Codex environment is rejected',()=>{const f=fixture();assert.throws(()=>validateRuntimeSelection({...f.selection,platformUrl:'https://chatgpt.com/codex',environmentSelector:'SpeakSharp'},f.c,NOW),/authoritative Claude/);});

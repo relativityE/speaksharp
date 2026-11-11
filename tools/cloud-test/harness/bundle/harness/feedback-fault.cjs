@@ -4,7 +4,9 @@
 const crypto=require('node:crypto');const {isDeepStrictEqual}=require('node:util');
 const {immutableJsonCopy}=require('./fault-contract.cjs');
 const FIXTURE_SOURCE_SHA='0000000000000000000000000000000000000003';
-const SOURCE_SHA='66328703bf47e865b730e229005411e78481d34c',HOST='yxlapjuovrsvjswkwnrk.supabase.co',PATH='/rest/v1/user_issue_reports';
+// Re-pinned to the authorized served 5a7 release after byte verification of issueReportService.ts,
+// IssueReportDialog.tsx and feedbackTelemetry.ts against the originally inspected 66328703 source.
+const SOURCE_SHA='5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2',HOST='yxlapjuovrsvjswkwnrk.supabase.co',PATH='/rest/v1/user_issue_reports';
 const MODES=Object.freeze(['transport-before-send','synthetic-42501','stored-response-lost']);
 const FIELDS=Object.freeze(['user_id','session_id','category','severity','title','description','page_url','metadata','include_audio','audio_attachment_note','idempotency_key']);
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,SHA=/^[0-9a-f]{64}$/;

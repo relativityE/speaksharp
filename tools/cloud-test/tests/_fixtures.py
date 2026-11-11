@@ -89,7 +89,9 @@ def approved(req, ledger):
     r = copy.deepcopy(req)
     l = copy.deepcopy(ledger)
     r["ownerInputs"]["prDocsCloseout"] = {"status": "closed", "evidence": "owner decision record"}
-    r["approvedLimits"] = {"cumulativeCeilingRequests": 6700, "identityCap": 98, "runCapRequests": 180, "approvalRef": "owner-approval-1", "approvedBy": "owner"}
+    r["approvedLimits"] = {"cumulativeCeilingRequests": 6700, "identityCap": 98, "runCapRequests": 180,
+                           "startPressCaps": copy.deepcopy((r.get("proposedLimits") or {}).get("startPressCaps")),
+                           "approvalRef": "owner-approval-1", "approvedBy": "owner"}
     r["window"] = {"startUtc": "2099-01-01T10:00:00Z", "endUtc": "2099-01-01T12:00:00Z", "approvalRef": "owner-window-1"}
     r["harness"]["ownerApprovalRef"] = "owner-harness-1"
     r["selectionApprovalRef"] = "owner-selection-1"

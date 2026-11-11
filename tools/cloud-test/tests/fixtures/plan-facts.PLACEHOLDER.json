@@ -1,5 +1,6 @@
 {
   "_status": "PLACEHOLDER facts for the offline plan-builder proof. NOT A RUN: none of these values is an owner approval or a probe receipt.",
+  "_actionApprovalContract": "Offline callers must generate actionApproval with schema speaksharp.case-start-approval.v1, raw requestSha256/reconciliationSha256 and matching approvalRef/approvedBy/selectionApprovalRef. This template alone authorizes nothing.",
   "ownerApprovalReference": "PLACEHOLDER-NOT-A-RUN-owner-approval",
   "approvedBy": "PLACEHOLDER-NOT-A-RUN",
   "reviewer": "PLACEHOLDER-NOT-A-RUN reviewer",

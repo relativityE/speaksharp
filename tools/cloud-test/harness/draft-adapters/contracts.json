@@ -2766,8 +2766,8 @@
       ],
       "requiredUnimplemented": [],
       "unimplementedRequiredAssertions": [],
-      "requiredStartPressCap": 2,
-      "minimumAuthorizedStartPresses": 2,
+      "requiredStartPressCap": 3,
+      "minimumAuthorizedStartPresses": 3,
       "additionalSourceRequirements": {}
     },
     {
@@ -2902,8 +2902,8 @@
       ],
       "requiredUnimplemented": [],
       "unimplementedRequiredAssertions": [],
-      "requiredStartPressCap": 2,
-      "minimumAuthorizedStartPresses": 2,
+      "requiredStartPressCap": 3,
+      "minimumAuthorizedStartPresses": 3,
       "additionalSourceRequirements": {}
     },
     {

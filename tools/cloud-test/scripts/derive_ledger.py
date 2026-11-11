@@ -4,6 +4,9 @@ typed by hand: prior verdicts, evidence references (file and sha256), signal cou
 
 Usage: derive_ledger.py --ledger L.json --config C.json --release-verification RV.json [--latest-label LABEL] [--latest-comparison C.json]
                         [--baselines baselines.json --comparisons-dir DIR] [--receipts-root DIR] --out ledger-derived.json
+       derive_ledger.py --ledger L.json --config C.json --release-verification RV.json --accepted-comparison C.json --out ledger-derived.json
+Receipt-free mode (the accepted-input route, which carries no raw history): the baseline runs' historical verdicts come from the verified
+accepted comparison; evidence refs are empty, signals are UNOBSERVABLE, there is no latest run, so no gap can be CLOSED.
 Comparability is judged ROW BY ROW against the right baseline: with --baselines (select_baselines.py) every required row is compared with the most recent
 earlier run that has a verdict for THAT row (DIR/<label>/comparison.json), so a defect that FAILED in R4C and was NOT RUN in R5 is compared with R4C. A row that no
 earlier run ever tested is a first observation (recorded as such). Without --baselines the single run named in --latest-comparison is the baseline, and a row it
@@ -87,10 +90,44 @@ def observe(root, label, base, cases, ob):
     return {"case": ob["case"], "assertion": ob["assertion"], "verdict": a["result"], "evidence": ev}
 
 
+UNOBSERVABLE = "UNOBSERVABLE"
+
+
+def accepted_history(cmp, labels):
+    """Receipt-free mode (option A, Sam 1793616419.679859 / 1793616663.425479): the per-row verdicts of the two configured baseline runs, read
+    only from the verified accepted comparison (the receiver already checked its bytes). No raw evidence is carried, so no evidence ref exists."""
+    prev, cur = ((cmp.get(k) or {}).get("label") for k in ("previous", "current")) if isinstance(cmp, dict) else (None, None)
+    rows = cmp.get("rows") if isinstance(cmp, dict) else None
+    if [prev, cur] != list(labels) or not isinstance(rows, list):
+        sys.exit("receipt-free mode: the accepted comparison is not the configured baseline pair %s" % ", ".join(labels))
+    verdicts = {prev: {}, cur: {}}
+    for r in rows:
+        if not isinstance(r, dict) or not isinstance(r.get("key"), str) or r["key"] in verdicts[prev]:
+            sys.exit("receipt-free mode: the accepted comparison rows are malformed or duplicated")
+        verdicts[prev][r["key"]], verdicts[cur][r["key"]] = r.get("prev"), r.get("cur")
+    return verdicts
+
+
+def observe_accepted(verdicts, ob):
+    """One observation from a historical run's accepted verdicts. A signal needs the raw guard log: UNOBSERVABLE, never PASS and never a
+    count. A row without a PASS/FAIL verdict is NOT RUN. A verdict is the run's historical verdict; its raw evidence stays unobservable."""
+    if "signal" in ob:
+        s = ob["signal"]
+        return {"unobservable": s.get("label", s["rule"]), "verdict": UNOBSERVABLE, "evidence": [],
+                "note": "the raw guard log is not carried on the accepted route"}
+    v = verdicts.get("%s/%s" % (ob["case"], ob["assertion"]))
+    if v not in ("PASS", "FAIL"):
+        return {"case": ob["case"], "assertion": ob["assertion"], "verdict": "NOT RUN", "evidence": [], "note": "no verdict for this row in the accepted comparison"}
+    return {"case": ob["case"], "assertion": ob["assertion"], "verdict": v, "evidence": [],
+            "note": "historical verdict from the verified accepted comparison; raw evidence unobservable"}
+
+
 def rollup(obs):
     v = [o["verdict"] for o in obs]
     if "FAIL" in v:
         return "FAIL"
+    if UNOBSERVABLE in v:
+        return UNOBSERVABLE
     return "PASS" if v and all(x == "PASS" for x in v) else "NOT RUN"
 
 
@@ -104,8 +141,11 @@ def main():
     a.add_argument("--baselines")
     a.add_argument("--comparisons-dir")
     a.add_argument("--receipts-root", default=os.path.join(ROOT, "config", "history", "receipts"))
+    a.add_argument("--accepted-comparison", help="receipt-free mode: historical verdicts from the verified accepted comparison only; no latest run")
     a.add_argument("--out", required=True)
     x = a.parse_args()
+    if x.accepted_comparison and (x.latest_label or x.latest_comparison or x.baselines or x.comparisons_dir):
+        sys.exit("receipt-free mode derives no latest run: --latest-label, --latest-comparison, --baselines and --comparisons-dir are refused")
     led, cfg, rv = load(x.ledger), load(x.config), load(x.release_verification)
     cmp_latest = load(x.latest_comparison) if x.latest_comparison else None
     bl = load(x.baselines) if x.baselines else None
@@ -121,7 +161,8 @@ def main():
                 cmp_cache[label] = None
         return cmp_cache[label]
     labels = list(cfg["history"]["comparisonBaselines"])
-    runs = {l: load_run(x.receipts_root, l) for l in labels}
+    accepted = accepted_history(load(x.accepted_comparison), labels) if x.accepted_comparison else None
+    runs = {l: (None, None) for l in labels} if accepted else {l: load_run(x.receipts_root, l) for l in labels}
     if x.latest_label:
         # the whole retained history up to and including the latest run is shown, so an older FAIL stays visible when a middle run did not test it
         comparable = [r["label"] for r in cfg["history"]["runs"] if not r.get("ledgersOnly")]
@@ -134,7 +175,7 @@ def main():
     for g in led["gaps"]:
         hist = {}
         for lab, (base, cases) in runs.items():
-            obs = [observe(x.receipts_root, lab, base, cases, ob) for ob in g["observations"]]
+            obs = [observe_accepted(accepted[lab], ob) if accepted else observe(x.receipts_root, lab, base, cases, ob) for ob in g["observations"]]
             hist[lab] = {"observations": obs, "rollup": rollup(obs)}
         first = next(((l, h) for l, h in hist.items() if h["rollup"] == "FAIL"), None)
         fixrec = dict(g["fix"])
@@ -206,7 +247,10 @@ def main():
         d["latest"] = latest
         d["status"], d["statusReason"] = ledger_status(d)
         out_gaps.append(d)
-    dump({"schema": "speaksharp.cloud-test.gap-ledger-derived.v1", "derivedUtc": now_utc().strftime("%Y-%m-%dT%H:%M:%SZ"), "baselines": labels, "latestLabel": x.latest_label, "gaps": out_gaps}, x.out)
+    doc = {"schema": "speaksharp.cloud-test.gap-ledger-derived.v1", "derivedUtc": now_utc().strftime("%Y-%m-%dT%H:%M:%SZ"), "baselines": labels, "latestLabel": x.latest_label, "gaps": out_gaps}
+    if accepted:
+        doc["evidenceBasis"] = "receipt-free: historical verdicts from the verified accepted comparison; raw evidence and signals unobservable; latest PENDING"
+    dump(doc, x.out)
     print("derived %d gaps; statuses: %s" % (len(out_gaps), ", ".join("%s=%s" % (g["id"], g["status"]) for g in out_gaps)))
 
 

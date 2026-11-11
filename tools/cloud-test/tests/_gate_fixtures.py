@@ -17,7 +17,8 @@ class GateInputs(UsageHistory):
         self.request["harness"]["codeManifestSha256"] = self.cfg["harness"]["expectedCodeManifestSha256"]
         self.request["harness"]["packetManifestSha256"] = self.cfg["harness"]["expectedPacketManifestSha256"]
         self.request["harness"]["offlineProofFile"] = "unit-proof.json"
-        (self.root / "unit-proof.json").write_text(json.dumps({
+        self.proof = self.root / "unit-proof.json"
+        self.proof.write_text(json.dumps({
             "synthetic": True, "scope": "UNIT INPUT ONLY; NOT AUTHOR EXECUTION EVIDENCE",
             "codeManifestSha256": self.request["harness"]["codeManifestSha256"],
             "corrections": [{"id": "SYNTHETIC-validator-positive", "result": "PASS"}],

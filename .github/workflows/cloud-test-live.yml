@@ -1,0 +1,922 @@
+name: Cloud Test live journeys (manual, GitHub-hosted)
+
+# Manually dispatched ONLY. The live run of the selected Cloud test journeys on a GitHub-hosted runner, through the existing stage runner
+# tools/cloud-test/scripts/execute_run.sh (route github-producer / github-direct). No browser is installed or downloaded: the preinstalled
+# native Chrome is discovered against the REVIEWED baseline (config/browser-baselines.v1.json) for CT_CHROME. The one install is B4: the
+# pinned Playwright and PDF parser from tools/cloud-test/runner/package-lock.json (a clean lockfile install with lifecycle scripts disabled,
+# ephemeral runner only), which execute_run's existing-only setup re-verifies under CT_EXISTING_DEPENDENCY_ROOT.
+# init_run_inputs.py prepare selects the committed request and binds approval, window, ceilings, account and facts; it refuses until the
+# verified continuity checkpoint contract exists (Sam 1793538322.008999). PASS needs verify_run_binding AND every selected required row PASS.
+#
+# Selected design (Sam 1793471205.454429 / 1793471318.770139 / 1793471406.529969):
+#  - one active run (concurrency below); a re-run attempt is refused, because an earlier attempt's consumed state cannot be carried and is never reset;
+#  - the ONE latest record is a bot-owned issue comment updated in place by the isolated record-* jobs, which hold no live credential and only
+#    `issues: write`; the previous completed record stays until a terminal replacement is written, and an interrupted attempt blocks the next run;
+#  - passwords, tokens and keys come only from the `secrets` context. Account emails and ids come only from the private
+#    CLOUD_TEST_LIVE_ACCOUNTS Secret (Sam 1793544453.003099): init_run_inputs.py masks the whole bundle and every extracted value before
+#    any output, then exports each selected role's email under that role's own name (AHT-01..14 THROWAWAY_TEST_EMAIL, AHT-15
+#    FREE_TEST_EMAIL) through a safe env-file writer, so later step headers show it masked; it is never written to the record or artifacts.
+#    Each role's password comes only from its own Secret; the runner gives every case child only its own role's pair (14+1);
+#  - no evidence payload, transcript, account identifier or row content leaves the live job; only the closed latest record does.
+#
+# NIGHTLY (Sam 1793553158.013909 / 1793553275.772209): source only. No `schedule:` trigger is registered here; the proposed cron lives in
+# tools/cloud-test/config/nightly/schedule.proposed.yml. A scheduled run would first pass the credential-free nightly-gate job (switch,
+# attempt 1, activated state-ref writer, valid standing approval); record-begin, and through it every later job including the always()
+# record job, runs only when that gate admitted it, so an inactive nightly holds no secret, makes no live effect or reservation write and
+# never overwrites the latest record. Manual and nightly share the ONE serialized concurrency group below (cancel-in-progress: false).
+#
+# The selected record container is PR #1763's conversation (Sam
+# 1793472499.701439); before every update the record jobs verify the comment's
+# issue, author, marker and id.
+on:
+  workflow_dispatch:
+    inputs:
+      request:
+        description: Repository path of the COMMITTED, reviewed R10 request template
+        required: true
+        type: string
+      facts:
+        description: Bounded JSON of approval/review/receipt references, relative occurrence authority and account binding (references and digests only; never values)
+        required: true
+        type: string
+      confirm:
+        description: Type LIVE to confirm a live run of exactly the request's selected cases
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: cloud-test-live
+  cancel-in-progress: false
+
+env:
+  TRACKING_ISSUE: '1763'
+
+jobs:
+  nightly-gate:
+    name: Nightly gate (switch, attempt, activated writer, standing approval; no credentials)
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      admitted: ${{ steps.gate.outputs.admitted }}
+      request_sha256: ${{ steps.gate.outputs.request_sha256 }}
+      request_b64: ${{ steps.gate.outputs.request_b64 }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          # The admission reads this workflow's own job timeouts for the runner-minute need.
+          sparse-checkout: |
+            tools/cloud-test
+            .github/workflows
+      - name: Evaluate the nightly gate (quiet when switched off; a visible failure for any other refusal)
+        id: gate
+        env:
+          NIGHTLY_SWITCH: ${{ vars.CLOUD_TEST_NIGHTLY_ENABLED }}
+          SCHEDULE_CRON: ${{ github.event.schedule }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TRIGGER_UTC=''
+          # The occurrence is bound to the run's ORIGINAL trigger time (its creation), read only when the switch is on.
+          if [ "$NIGHTLY_SWITCH" = true ]; then TRIGGER_UTC="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .created_at)"; fi
+          # The WHOLE admission happens here, before any record mutation or credential-bearing job: gate, anchored template and budget,
+          # replay from the verified state-ref chain, the derivation and the fit from now.
+          python3 -I tools/cloud-test/scripts/nightly_request.py gate --switch "$NIGHTLY_SWITCH" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --cron "$SCHEDULE_CRON" --trigger-utc "$TRIGGER_UTC" --run-id "$GITHUB_RUN_ID" --tested-sha "$GITHUB_SHA" --outputs "$GITHUB_OUTPUT"
+
+  record-begin:
+    name: Record the attempt (latest-record comment; no live credentials)
+    needs: nightly-gate
+    # Privileged issue writes and every downstream credential-bearing job are admitted only from the server-reported protected main ref.
+    # A dispatch skips the nightly gate; a scheduled run proceeds only when that gate admitted it. Every later job needs this one to succeed.
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && github.ref_protected == true && (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && needs.nightly-gate.result == 'success' && needs.nightly-gate.outputs.admitted == 'true')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      # The latest-record comment lives on tracking PR #1763: GitHub requires the pull-requests permission for a PR's comments (run
+      # 41906815122: issues alone returned HTTP 403), and this job lists, creates or updates that comment.
+      issues: write
+      pull-requests: write
+      actions: read
+    outputs:
+      comment_id: ${{ steps.begin.outputs.comment_id }}
+      prior_state: ${{ steps.begin.outputs.prior_state }}
+      # The gate's admitted nightly request (bytes and digest from its one step), passed through unchanged; empty for a dispatch.
+      nightly_request_sha256: ${{ needs.nightly-gate.outputs.request_sha256 }}
+      nightly_request_b64: ${{ needs.nightly-gate.outputs.request_b64 }}
+      # For a manual dispatch, these are the exact occurrence bytes validated
+      # before this job mutates the latest record. Empty for a schedule.
+      manual_occurrence_sha256: ${{ steps.manual-occurrence.outputs.occurrence_sha256 }}
+      manual_occurrence_b64: ${{ steps.manual-occurrence.outputs.occurrence_b64 }}
+      manual_workflow_start_utc: ${{ steps.manual-occurrence.outputs.workflow_start_utc }}
+      # The closed evidence of a reserved attempt that did not execute, retired in this job (empty when none was); journal-reserve settles its
+      # reservation from exactly these bytes, bound by the digest.
+      unexecuted_evidence_sha256: ${{ steps.begin.outputs.unexecuted_evidence_sha256 }}
+      unexecuted_evidence_b64: ${{ steps.begin.outputs.unexecuted_evidence_b64 }}
+    steps:
+      - name: Refuse a re-run attempt and an unconfirmed or inactive dispatch
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          ADMITTED: ${{ needs.nightly-gate.outputs.admitted }}
+          GATE_RESULT: ${{ needs.nightly-gate.result }}
+        run: |
+          [ "$GITHUB_RUN_ATTEMPT" = 1 ] || { echo "BLOCKED_SETUP: rerun-attempt-refused"; exit 78; }
+          # A dispatch is confirmed by its operator; a scheduled run only by the nightly gate's admission.
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            [ "$CONFIRM" = LIVE ] || { echo "BLOCKED_SETUP: live-run-not-confirmed"; exit 78; }
+          else
+            [ "$GITHUB_EVENT_NAME" = schedule ] && [ "$GATE_RESULT" = success ] && [ "$ADMITTED" = true ] || { echo "BLOCKED_SETUP: nightly-not-admitted"; exit 78; }
+          fi
+          [ -n "$TRACKING_ISSUE" ] || { echo "BLOCKED_SETUP: tracking-issue-not-bound"; exit 78; }
+      - uses: actions/checkout@v6
+        with:
+          # Control code is the immutable SHA already admitted by the protected-main job condition, never a request-selected release.
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            tools/cloud-test/scripts
+            tools/cloud-test/config/aggregate
+            tools/cloud-test/config/runs
+            tools/cloud-test/config/test-config.v1.json
+            tools/cloud-test/templates/run-request.template.json
+      - name: Materialize the exact manual occurrence from the authoritative workflow start before any record mutation
+        id: manual-occurrence
+        env:
+          MANUAL_REQUEST: ${{ inputs.request }}
+          MANUAL_FACTS: ${{ inputs.facts }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = schedule ]; then
+            echo 'occurrence_sha256=' >> "$GITHUB_OUTPUT"
+            echo 'occurrence_b64=' >> "$GITHUB_OUTPUT"
+            echo 'workflow_start_utc=' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          case "$MANUAL_REQUEST" in tools/cloud-test/config/runs/*.json) ;; *) echo 'BLOCKED_SETUP: request-not-in-the-reviewed-request-location'; exit 78 ;; esac
+          case "$MANUAL_REQUEST" in *..*|*//*) echo 'BLOCKED_SETUP: request-path'; exit 78 ;; esac
+          workflow_start_utc="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .run_started_at)"
+          [[ "$workflow_start_utc" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || { echo 'BLOCKED_SETUP: workflow-start-unavailable'; exit 78; }
+          python3 -I tools/cloud-test/scripts/init_run_inputs.py occurrence-materialize --repo "$GITHUB_WORKSPACE" \
+            --request "$MANUAL_REQUEST" --facts "$MANUAL_FACTS" --workflow-start-utc "$workflow_start_utc" \
+            --source-sha "$GITHUB_SHA" --out "$RUNNER_TEMP/manual-occurrence.json"
+          MANUAL_OCCURRENCE_SHA256="$(sha256sum "$RUNNER_TEMP/manual-occurrence.json" | cut -d' ' -f1)"
+          python3 -I tools/cloud-test/scripts/init_run_inputs.py occurrence-check --repo "$GITHUB_WORKSPACE" \
+            --config tools/cloud-test/config/test-config.v1.json --request "$MANUAL_REQUEST" \
+            --manual-occurrence-file "$RUNNER_TEMP/manual-occurrence.json" --manual-occurrence-sha256 "$MANUAL_OCCURRENCE_SHA256" \
+            --facts "$MANUAL_FACTS" --workflow-start-utc "$workflow_start_utc" \
+            --source-sha "$GITHUB_SHA" --job-timeout-minutes 65
+          echo "occurrence_sha256=$MANUAL_OCCURRENCE_SHA256" >> "$GITHUB_OUTPUT"
+          echo "occurrence_b64=$(base64 < "$RUNNER_TEMP/manual-occurrence.json" | tr -d '\n')" >> "$GITHUB_OUTPUT"
+          echo "workflow_start_utc=$workflow_start_utc" >> "$GITHUB_OUTPUT"
+      - name: Begin the attempt in the latest record
+        id: begin
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORKFLOW_START_UTC: ${{ steps.manual-occurrence.outputs.workflow_start_utc }}
+        run: |
+          set -euo pipefail
+          P=tools/cloud-test/scripts/publish_latest_record.py
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/issues/$TRACKING_ISSUE/comments" | python3 -I -c 'import json,sys; print(json.dumps([c for page in json.load(sys.stdin) for c in page]))' > "$RUNNER_TEMP/comments.json"
+          python3 -I "$P" select --comments "$RUNNER_TEMP/comments.json" --issue-url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$TRACKING_ISSUE" > "$RUNNER_TEMP/selected.json"
+          python3 -I -c 'import json,sys; s=json.load(open(sys.argv[1])); open(sys.argv[2],"w").write(s["body"]); open(sys.argv[3],"w").write(s["updatedAt"] or ""); print(s["commentId"] or "")' "$RUNNER_TEMP/selected.json" "$RUNNER_TEMP/previous.md" "$RUNNER_TEMP/previous-updated-at" > "$RUNNER_TEMP/comment-id"
+          # A prior run's one public PATCH contains only a durable, non-terminal
+          # candidate. It is not completion authority by itself. Reconcile only
+          # from the prior run's immutable completion artifact, which contains
+          # the separate attestation and the exact settlement/occurrence bytes.
+          if python3 -I -c 'import json,re,sys; b=open(sys.argv[1],encoding="utf-8").read(); m=re.findall(r"```json\n(.*?)\n```",b,re.S); raise SystemExit(0 if m and json.loads(m[0]).get("pendingCompletion") else 1)' "$RUNNER_TEMP/previous.md"; then
+            pending_run_id="$(python3 -I -c 'import json,re,sys; b=open(sys.argv[1],encoding="utf-8").read(); m=re.findall(r"```json\n(.*?)\n```",b,re.S); print(json.loads(m[0])["pendingCompletion"]["record"]["runId"])' "$RUNNER_TEMP/previous.md")"
+            gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$pending_run_id/artifacts" > "$RUNNER_TEMP/prior-artifact-pages.json"
+            python3 -I -c 'import json,sys; pages=json.load(open(sys.argv[1])); pages=pages if isinstance(pages,list) else [pages]; rows=[a for p in pages for a in p.get("artifacts",[]) if a.get("name")=="cloud-test-completion-attestation" and not a.get("expired")]; assert len(rows)==1,"completion-artifact-missing-or-ambiguous"; open(sys.argv[2],"w").write(json.dumps({"id":rows[0]["id"],"created_at":rows[0]["created_at"]}))' "$RUNNER_TEMP/prior-artifact-pages.json" "$RUNNER_TEMP/prior-artifact.json"
+            artifact_id="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "$RUNNER_TEMP/prior-artifact.json")"
+            artifact_created_at="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["created_at"])' "$RUNNER_TEMP/prior-artifact.json")"
+            mkdir -p "$RUNNER_TEMP/prior-completion"
+            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" > "$RUNNER_TEMP/prior-completion.zip"
+            python3 -I -c 'import sys,zipfile; z=zipfile.ZipFile(sys.argv[1]); expected={"completion-attestation.json","settle-receipt.json","occurrence.json","terminal-candidate.md"}; assert set(z.namelist())==expected,"completion-artifact-files"; z.extractall(sys.argv[2])' "$RUNNER_TEMP/prior-completion.zip" "$RUNNER_TEMP/prior-completion"
+            python3 -I "$P" reconcile --previous "$RUNNER_TEMP/previous.md" --published-at "$(cat "$RUNNER_TEMP/previous-updated-at")" \
+              --artifact-created-at "$artifact_created_at" \
+              --attestation "$RUNNER_TEMP/prior-completion/completion-attestation.json" \
+              --settle-receipt "$RUNNER_TEMP/prior-completion/settle-receipt.json" \
+              --occurrence "$RUNNER_TEMP/prior-completion/occurrence.json" --out "$RUNNER_TEMP/reconciled.md"
+            mv "$RUNNER_TEMP/reconciled.md" "$RUNNER_TEMP/previous.md"
+          fi
+          # Sam 1793881260.206739 / 1793881491.714239: a reserved attempt that stopped in setup is settled from evidence keyed on the JOURNAL, not
+          # the record. Whenever the freshly validated chain ends with an open reserve, that run's closed evidence is collected here (GitHub's run
+          # and jobs with steps, and its own workflow at its head, fetched by commit SHA from the public origin, no credential) and handed to journal-reserve,
+          # which settles it before any new reserve, whatever the record shows. If that run did execute, the evidence refuses and nothing
+          # continues. A dispatch interrupted anywhere between this retirement and that settle is therefore recovered by the next one.
+          unexecuted_sha256=''
+          unexecuted_b64=''
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            open_run="$(python3 -I tools/cloud-test/scripts/unexecuted_attempt_evidence.py pending)"
+            if [ -n "$open_run" ]; then
+              gh api "repos/$GITHUB_REPOSITORY/actions/runs/$open_run" > "$RUNNER_TEMP/unexecuted-run.json"
+              gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$open_run/jobs?per_page=100" > "$RUNNER_TEMP/unexecuted-jobs.json"
+              open_head="$(python3 -I -c 'import json,re,sys; h=json.load(open(sys.argv[1])).get("head_sha"); assert re.fullmatch(r"[0-9a-f]{40}", str(h)); print(h)' "$RUNNER_TEMP/unexecuted-run.json")"
+              git fetch --quiet --no-tags --depth=1 origin "$open_head"
+              git show "$open_head:.github/workflows/cloud-test-live.yml" > "$RUNNER_TEMP/unexecuted-workflow.yml"
+              python3 -I tools/cloud-test/scripts/unexecuted_attempt_evidence.py collect --run "$RUNNER_TEMP/unexecuted-run.json" \
+                --jobs "$RUNNER_TEMP/unexecuted-jobs.json" --workflow "$RUNNER_TEMP/unexecuted-workflow.yml" --out "$RUNNER_TEMP/unexecuted-evidence.json"
+              unexecuted_sha256="$(python3 -I tools/cloud-test/scripts/unexecuted_attempt_evidence.py check --evidence "$RUNNER_TEMP/unexecuted-evidence.json" | cut -d' ' -f1)"
+              unexecuted_b64="$(base64 < "$RUNNER_TEMP/unexecuted-evidence.json" | tr -d '\n')"
+            fi
+          fi
+          # That reserved attempt, while it is still the `incomplete` one, is retired as `reserved-not-executed` from exactly that evidence. It is
+          # kept as retired history, never a completed run; journal-reserve settles the reservation from the same digest.
+          if [ -n "$unexecuted_sha256" ] && unexecuted_run="$(python3 -I "$P" unexecuted-candidate --previous "$RUNNER_TEMP/previous.md" --evidence "$RUNNER_TEMP/unexecuted-evidence.json")"; then
+            python3 -I "$P" retire-unexecuted --previous "$RUNNER_TEMP/previous.md" --evidence "$RUNNER_TEMP/unexecuted-evidence.json" \
+              --out "$RUNNER_TEMP/retired-unexecuted.md"
+            mv "$RUNNER_TEMP/retired-unexecuted.md" "$RUNNER_TEMP/previous.md"
+            retired_unreserved=1
+          fi
+          # Any manual attempt that stopped before reserving (41933223835; or a later run interrupted before its own reserve, after or before the
+          # settle above) has an `incomplete` record with no completion artifact, and `begin` would refuse every later run. It is retired only on
+          # evidence that it never reserved: GitHub reports the run failed with its reserve job failed or skipped and its live and settle jobs
+          # skipped, and the freshly validated state-ref journal (pinned reviewed root, any head) names no event for it. It is kept in the record as
+          # retired history, never as a completed run; usage, attempt and reservation records are not touched. Anything else still refuses.
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && unreserved_run="$(python3 -I "$P" unreserved-candidate --previous "$RUNNER_TEMP/previous.md")"; then
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$unreserved_run" > "$RUNNER_TEMP/unreserved-run.json"
+            gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$unreserved_run/jobs?per_page=100" > "$RUNNER_TEMP/unreserved-jobs.json"
+            python3 -I tools/cloud-test/scripts/unreserved_attempt_evidence.py --run "$RUNNER_TEMP/unreserved-run.json" \
+              --jobs "$RUNNER_TEMP/unreserved-jobs.json" --out "$RUNNER_TEMP/unreserved-evidence.json"
+            python3 -I "$P" retire-unreserved --previous "$RUNNER_TEMP/previous.md" --evidence "$RUNNER_TEMP/unreserved-evidence.json" \
+              --out "$RUNNER_TEMP/retired-unreserved.md"
+            mv "$RUNNER_TEMP/retired-unreserved.md" "$RUNNER_TEMP/previous.md"
+            retired_unreserved=1
+          fi
+          # The state BEFORE this attempt, for the run-scoped initializer: sanitized record fields only.
+          python3 -I -c 'import json,sys; sys.path.insert(0,sys.argv[2]); import publish_latest_record as P; print("prior_state="+json.dumps(P.parse_body(open(sys.argv[1]).read()),sort_keys=True))' "$RUNNER_TEMP/previous.md" tools/cloud-test/scripts >> "$GITHUB_OUTPUT"
+          started_utc="${WORKFLOW_START_UTC:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+          python3 -I "$P" begin --previous "$RUNNER_TEMP/previous.md" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --source-sha "$GITHUB_SHA" --started-utc "$started_utc" --out "$RUNNER_TEMP/body.md"
+          id="$(cat "$RUNNER_TEMP/comment-id")"
+          if [ "${retired_unreserved:-}" = 1 ]; then
+            # Re-read the stored comment immediately before publishing and bind it to the exact record the retirement consumed: a record that
+            # changed since it was selected is never overwritten.
+            gh api "repos/$GITHUB_REPOSITORY/issues/comments/$id" > "$RUNNER_TEMP/predecessor-current.json"
+            python3 -I "$P" verify-predecessor --selected "$RUNNER_TEMP/selected.json" --current "$RUNNER_TEMP/predecessor-current.json"
+          fi
+          if [ -n "$id" ]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F "body=@$RUNNER_TEMP/body.md" > /dev/null
+          else
+            id="$(gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$TRACKING_ISSUE/comments" -F "body=@$RUNNER_TEMP/body.md" --jq .id)"
+          fi
+          echo "comment_id=$id" >> "$GITHUB_OUTPUT"
+          echo "unexecuted_evidence_sha256=$unexecuted_sha256" >> "$GITHUB_OUTPUT"
+          echo "unexecuted_evidence_b64=$unexecuted_b64" >> "$GITHUB_OUTPUT"
+
+  journal-reserve:
+    name: Reserve the run on the state-ref journal (the one push before the run)
+    needs: record-begin
+    # J1 (PO approval recorded 1793578273.517019, scope 1793578116.842849): only this reviewed workflow on protected main, never a PR or fork.
+    # #1772 review 4446137323: a manual dispatch reserves here too, so the credentialed live job stays contents: read and never sees the token.
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && github.ref_protected == true && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && needs.record-begin.result == 'success' }}
+    runs-on: ubuntu-latest
+    # one leased push; keeps the nightly runner-minute need (359) within the approved 360 per run
+    timeout-minutes: 3
+    # contents: write is a repository-wide capability; this job uses it only for the one leased push to refs/heads/cloud-test-state.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Append the reserve (expected-head lease, persisted readback; refuses before any read until the writer is activated)
+        env:
+          NIGHTLY_REQUEST_SHA256: ${{ needs.record-begin.outputs.nightly_request_sha256 }}
+          NIGHTLY_REQUEST_B64: ${{ needs.record-begin.outputs.nightly_request_b64 }}
+          MANUAL_REQUEST: ${{ inputs.request }}
+          MANUAL_FACTS: ${{ inputs.facts }}
+          MANUAL_OCCURRENCE_SHA256: ${{ needs.record-begin.outputs.manual_occurrence_sha256 }}
+          MANUAL_OCCURRENCE_B64: ${{ needs.record-begin.outputs.manual_occurrence_b64 }}
+          MANUAL_WORKFLOW_START_UTC: ${{ needs.record-begin.outputs.manual_workflow_start_utc }}
+          UNEXECUTED_EVIDENCE_SHA256: ${{ needs.record-begin.outputs.unexecuted_evidence_sha256 }}
+          UNEXECUTED_EVIDENCE_B64: ${{ needs.record-begin.outputs.unexecuted_evidence_b64 }}
+          CT_STATE_PUSH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" != schedule ]; then
+            # An attempt retired as reserved-not-executed by record-begin still holds its caps on the journal. Close it FIRST, from its closed
+            # evidence alone: zero product usage and the live job's measured runner minutes, provenance `evidence-sha256:<digest>`, atUtc the
+            # evidence's terminal time. The writer re-validates the evidence, recomputes its digest and appends only when the freshly read journal
+            # is exactly the evidence's head (genesis plus that one reserve); an identical settle already on the chain is a no-op. The reserve
+            # below then runs at the new head. Without retired evidence nothing is settled.
+            if [ -n "$UNEXECUTED_EVIDENCE_SHA256" ]; then
+              (umask 077; printf '%s' "$UNEXECUTED_EVIDENCE_B64" | base64 -d > "$RUNNER_TEMP/unexecuted-evidence.json")
+              python3 -I tools/cloud-test/scripts/manual_reservation.py settle-unexecuted --journal "$RUNNER_TEMP/unexecuted-settle-journal" \
+                --out "$RUNNER_TEMP/unexecuted-settle-receipt.json" --unexecuted-evidence "$RUNNER_TEMP/unexecuted-evidence.json" \
+                --unexecuted-sha256 "$UNEXECUTED_EVIDENCE_SHA256" --scope tools/cloud-test/config/aggregate/period-scope.json
+            fi
+            # Manual dispatch: the committed request at this protected-main commit, reserved under its admitted digest before the live job
+            # prepares; prepare then admits the approver's checkpoint immediately before this reserve (init_run_inputs.manual_approval_chain).
+            # The writer admits that same action approval against the append's checkpoint FIRST and appends nothing otherwise; it writes
+            # through its own fresh `git init` transport repository, never this checkout. The continuity bootstrap and scope are the inputs
+            # init_run_inputs.CONTINUITY_DIR names; until activation supplies them the writer refuses (not activated) before reading any.
+            case "$MANUAL_REQUEST" in tools/cloud-test/config/runs/*.json) ;; *) echo "BLOCKED_SETUP: request-not-in-the-reviewed-request-location"; exit 78 ;; esac
+            case "$MANUAL_REQUEST" in *..*|*//*) echo "BLOCKED_SETUP: request-path"; exit 78 ;; esac
+            git cat-file -e "$GITHUB_SHA:$MANUAL_REQUEST" || { echo "BLOCKED_SETUP: request-not-committed-at-source"; exit 78; }
+            (umask 077; printf '%s' "$MANUAL_OCCURRENCE_B64" | base64 -d > "$RUNNER_TEMP/manual-occurrence.json")
+            [ "$(sha256sum "$RUNNER_TEMP/manual-occurrence.json" | cut -d' ' -f1)" = "$MANUAL_OCCURRENCE_SHA256" ] || { echo "BLOCKED_SETUP: manual-occurrence-not-the-selected-bytes"; exit 78; }
+            python3 -I tools/cloud-test/scripts/init_run_inputs.py occurrence-check --repo "$GITHUB_WORKSPACE" \
+              --config tools/cloud-test/config/test-config.v1.json --request "$MANUAL_REQUEST" \
+              --manual-occurrence-file "$RUNNER_TEMP/manual-occurrence.json" --manual-occurrence-sha256 "$MANUAL_OCCURRENCE_SHA256" \
+              --facts "$MANUAL_FACTS" --workflow-start-utc "$MANUAL_WORKFLOW_START_UTC" \
+              --source-sha "$GITHUB_SHA" --job-timeout-minutes 65
+            (umask 077; printf '%s' "$MANUAL_FACTS" > "$RUNNER_TEMP/manual-facts.json")
+            python3 -I tools/cloud-test/scripts/manual_reservation.py reserve --journal "$RUNNER_TEMP/reserve-journal" \
+              --out "$RUNNER_TEMP/reserve-receipt.json" --request "$RUNNER_TEMP/manual-occurrence.json" --admitted-sha256 "$MANUAL_OCCURRENCE_SHA256" \
+              --run-id "$GITHUB_RUN_ID" --facts "$RUNNER_TEMP/manual-facts.json" --bootstrap tools/cloud-test/config/aggregate/accounting-bootstrap.json \
+              --scope tools/cloud-test/config/aggregate/period-scope.json --source-repo "$GITHUB_WORKSPACE"
+            exit 0
+          fi
+          (umask 077; printf '%s' "$NIGHTLY_REQUEST_B64" | base64 -d > "$RUNNER_TEMP/nightly-request.json")
+          python3 -I tools/cloud-test/scripts/reservations.py journal-reserve --request "$RUNNER_TEMP/nightly-request.json" \
+            --request-sha256 "$NIGHTLY_REQUEST_SHA256" --execution-run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --approval tools/cloud-test/config/recurring-approval.json --repo "$GITHUB_WORKSPACE" \
+            --journal "$RUNNER_TEMP/reserve-journal" --out "$RUNNER_TEMP/reserve-receipt.json"
+          # Case 10 design A: the observation's own read budget is reserved here, never in the read-only live job (Sam 1793580806.654369).
+          # Nothing when the request pins no observation contract; refuses until a trusted reader and the activated writer exist.
+          python3 -I tools/cloud-test/scripts/case10_observation.py reserve --request "$RUNNER_TEMP/nightly-request.json" \
+            --request-sha256 "$NIGHTLY_REQUEST_SHA256" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --repo "$GITHUB_WORKSPACE"
+  live:
+    name: Selected live journeys (existing stage runner; preinstalled browser)
+    needs: [record-begin, journal-reserve]
+    # Every run, scheduled or dispatched, starts only after its journal reserve landed (#1772 review 4446137323). Protected main only.
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && github.ref_protected == true && needs.record-begin.result == 'success' && needs.journal-reserve.result == 'success' }}
+    # This is the only credentialed job that needs the preinstalled browser.
+    # Keep it on the supported image family whose rolling releases satisfy the
+    # reviewed Chrome >=156 baseline without a download or install.
+    runs-on: ubuntu-26.04
+    environment: trusted-main-credentials
+    # PO decision (Sam 1793647229.528719): the existing repository Secrets are the single stored source, read by reference here; nothing is
+    # duplicated, regenerated or copied. Protected main, the protected environment's rules, this job's read-only permission and the
+    # isolated writer jobs are unchanged.
+    # Manual R10 smoke watchdog: 15 minutes setup + 40 minutes live ceiling + 10 minutes collection/settlement. These are admission bounds,
+    # not measured runtime. The separately owned scheduled lane retains its existing outer watchdog until measured full-depth timings replace it.
+    timeout-minutes: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '65' || '340') }}
+    permissions:
+      contents: read
+    env:
+      CT_SETUP_MODE: existing-only
+      CT_CONFIG: tools/cloud-test/config/test-config.v1.json
+      CT_SOURCE_SHA: ${{ github.sha }}
+      CT_EXECUTION_RUN_ID: ${{ github.run_id }}.${{ github.run_attempt }}
+      # B4 (Akin's direct approval via Sam 1793543299.974409): the pinned runner dependencies come from the reviewed lockfile on this
+      # ephemeral runner only; execute_run's existing-only setup then re-verifies the Playwright version and the pdf.mjs/package pins.
+      CT_EXISTING_DEPENDENCY_ROOT: ${{ github.workspace }}/tools/cloud-test/runner
+      # Source-only receiver wiring. The manifest and accepted digests are intentionally absent/unaccepted; the receiver refuses before
+      # reading inputs until a separately reviewed custodian handoff activates exact bytes.
+      CT_RETAINED_GATE_MANIFEST: ${{ github.workspace }}/tools/cloud-test/config/aggregate/manifest.json
+      CT_ACCOUNTING_BOOTSTRAP: ${{ github.workspace }}/tools/cloud-test/config/aggregate/accounting-bootstrap.json
+      CT_PERIOD_SCOPE: ${{ github.workspace }}/tools/cloud-test/config/aggregate/period-scope.json
+      # The retained-input route must still receive the recurring gate's independently reviewed usage inputs. They intentionally remain
+      # missing until activation; execute_run refuses before evaluation rather than falling back to repository defaults.
+      CT_HISTORY_INDEX: ${{ github.workspace }}/tools/cloud-test/config/history/index.json
+      CT_RESERVATIONS: ${{ github.workspace }}/tools/cloud-test/config/history/reservations.json
+      CT_APPROVAL: ${{ github.workspace }}/tools/cloud-test/config/recurring-approval.json
+      CT_RECEIPTS_ROOT: ${{ github.workspace }}/tools/cloud-test/config/history/receipts
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # Trusted runner/control code stays pinned to protected main. Admission later creates a separate checkout at TESTED_SHA.
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind private runner paths and initialize the inactive accounting workspace
+        run: |
+          set -euo pipefail
+          state="$RUNNER_TEMP/cloud-test-state"
+          mkdir -m 700 "$state"
+          git -C "$state" init -b private-run-state
+          git -C "$state" -c user.name=speaksharp-cloud-test -c user.email=cloud-test@invalid commit --allow-empty -m 'private manual accounting workspace'
+          [ -z "$(git -C "$state" remote)" ] || { echo 'BLOCKED_SETUP: private state workspace unexpectedly has a remote'; exit 78; }
+          head="$(git -C "$state" rev-parse HEAD)"
+          printf '{"schema":"speaksharp.cloud-test.manual-state-workspace.v1","head":"%s","transport":"UNBOUND","activated":false}\n' "$head" > "$RUNNER_TEMP/manual-state-workspace.json"
+          {
+            echo "CT_OUT=$RUNNER_TEMP/out"
+            echo "CT_STATE_REPO=$state"
+            echo "CT_STATE_JOURNAL_RESERVE=$RUNNER_TEMP/cloud-test-state-reserve.json"
+            echo "CT_STATE_JOURNAL_SETTLE=$RUNNER_TEMP/cloud-test-state-settle.json"
+            echo "CT_STATE_WORKSPACE_RECEIPT=$RUNNER_TEMP/manual-state-workspace.json"
+          } >> "$GITHUB_ENV"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22.23.4'
+      - name: Install the pinned Python execution-evidence dependency
+        timeout-minutes: 2
+        run: python3 -m pip install --quiet pyyaml==6.0.2
+      # All setup steps are bounded inside init_run_inputs.py's 15-minute SETUP_RESERVE_MINUTES (policy-asserted).
+      - name: Pinned runner dependencies from the reviewed lockfile (ephemeral runner only; no lifecycle scripts, no browser)
+        timeout-minutes: 6
+        run: npm --prefix tools/cloud-test/runner ci --ignore-scripts --no-audit --no-fund
+      - name: Discover the preinstalled browser against the reviewed baseline
+        run: |
+          set -euo pipefail
+          cd tools/cloud-test
+          python3 -I scripts/install_browser.py --config config/test-config.v1.json --installed --environment github-hosted \
+            --baselines config/browser-baselines.v1.json --source-sha "$GITHUB_SHA" --run-id "$CT_EXECUTION_RUN_ID" \
+            --receipt "$RUNNER_TEMP/browser-receipt.json" > "$RUNNER_TEMP/chrome-path.txt"
+          echo "CT_CHROME=$(cat "$RUNNER_TEMP/chrome-path.txt")" >> "$GITHUB_ENV"
+          echo "CT_BROWSER_RECEIPT=$RUNNER_TEMP/browser-receipt.json" >> "$GITHUB_ENV"
+      # R10 run 41960376782 failed here (FAIL package-unit-tests) on ubuntu-26.04 with CT_REQUIRE_INTEGRATION=1: the package's strict no-route
+      # clean-room test needs unshare -rn, which AppArmor blocks for unprivileged users. The same suite passed with this exact step in
+      # cloud-test.yml (diagnostic run 41988007600: 1179 tests, 0 failures). Re-enable it on this ephemeral runner only, then prove it works.
+      - name: Allow the clean-room network namespace on this ephemeral runner
+        timeout-minutes: 1
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          unshare -rn true
+      - name: Generate the exact-head browser-bound proof and offline checks
+        env:
+          CT_REQUIRE_INTEGRATION: '1'
+          CT_EXISTING_PDFJS_DIR: ${{ github.workspace }}/tools/cloud-test/runner/node_modules/pdfjs-dist
+        run: |
+          set -euo pipefail
+          cd tools/cloud-test
+          python3 -I scripts/generate_offline_proof.py --work "$RUNNER_TEMP/offline-proof-work" \
+            --proof-out "$RUNNER_TEMP/offline-proof.json" --chrome "$CT_CHROME" \
+            --browser-receipt "$CT_BROWSER_RECEIPT" --playwright-cwd "$CT_EXISTING_DEPENDENCY_ROOT"
+          CT_PROOF_FILE="$RUNNER_TEMP/offline-proof.json" python3 -I scripts/run_offline_checks.py --out "$RUNNER_TEMP/offline-checks.json"
+          echo "CT_OFFLINE_PROOF=$RUNNER_TEMP/offline-proof.json" >> "$GITHUB_ENV"
+          echo "CT_OFFLINE_CHECKS=$RUNNER_TEMP/offline-checks.json" >> "$GITHUB_ENV"
+      - name: Prove the selected accounts' bounded first-use prerequisites
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          FACTS: ${{ inputs.facts }}
+          MANUAL_OCCURRENCE_SHA256: ${{ needs.record-begin.outputs.manual_occurrence_sha256 }}
+          MANUAL_OCCURRENCE_B64: ${{ needs.record-begin.outputs.manual_occurrence_b64 }}
+          CLOUD_TEST_LIVE_ACCOUNTS: ${{ secrets.CLOUD_TEST_LIVE_ACCOUNTS }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          THROWAWAY_TEST_PASSWORD: ${{ secrets.THROWAWAY_TEST_PASSWORD }}
+          FREE_TEST_PASSWORD: ${{ secrets.FREE_TEST_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ ! -d "$CT_OUT" ]; then mkdir -m 700 "$CT_OUT"; fi
+          [ ! -L "$CT_OUT" ] && [ "$(stat -c '%a' "$CT_OUT")" = 700 ] || { echo 'BLOCKED_SETUP: private-output-root'; exit 78; }
+          preflight="$CT_OUT/prerequisite-preflight"
+          mkdir -m 700 "$preflight"
+          (umask 077; printf '%s' "$FACTS" > "$preflight/input-facts.json")
+          # The authorized occurrence (record-begin's selected bytes, checked by digest) bounds every request by its deadline.
+          (umask 077; printf '%s' "$MANUAL_OCCURRENCE_B64" | base64 -d > "$preflight/occurrence.json")
+          node tools/cloud-test/scripts/prerequisite_preflight.cjs prepare --facts "$preflight/input-facts.json" \
+            --out-dir "$preflight" --run-id R10-3b040043-smoke15 --source-sha "$GITHUB_SHA" \
+            --occurrence-file "$preflight/occurrence.json" --occurrence-sha256 "$MANUAL_OCCURRENCE_SHA256"
+          {
+            echo "CT_PREREQUISITE_FACTS=$preflight/facts.json"
+            echo "CT_PREREQUISITE_RECEIPT=$preflight/receipt.json"
+          } >> "$GITHUB_ENV"
+      - name: Select the committed request and bind this run's inputs
+        id: init
+        env:
+          REQUEST: ${{ inputs.request }}
+          FACTS: ${{ inputs.facts }}
+          PRIOR_STATE: ${{ needs.record-begin.outputs.prior_state }}
+          NIGHTLY_REQUEST_SHA256: ${{ needs.record-begin.outputs.nightly_request_sha256 }}
+          NIGHTLY_REQUEST_B64: ${{ needs.record-begin.outputs.nightly_request_b64 }}
+          MANUAL_OCCURRENCE_SHA256: ${{ needs.record-begin.outputs.manual_occurrence_sha256 }}
+          MANUAL_OCCURRENCE_B64: ${{ needs.record-begin.outputs.manual_occurrence_b64 }}
+          MANUAL_WORKFLOW_START_UTC: ${{ needs.record-begin.outputs.manual_workflow_start_utc }}
+          CLOUD_TEST_LIVE_ACCOUNTS: ${{ secrets.CLOUD_TEST_LIVE_ACCOUNTS }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          # Case 10 observation (Sam 1793582780.014609): the AHT-10 role's password and the project's anon key, scheduled runs only. The
+          # observe step hands them, with the bundle's account id and email, to case10_reader's own subprocess and to nothing else.
+          CT_CASE10_PASSWORD: ${{ github.event_name == 'schedule' && secrets.THROWAWAY_TEST_PASSWORD || '' }}
+          CT_CASE10_ANON_KEY: ${{ github.event_name == 'schedule' && secrets.SUPABASE_ANON_KEY || '' }}
+          JOB_TIMEOUT_MINUTES: ${{ github.event_name == 'workflow_dispatch' && '65' || '340' }}
+        run: |
+          set -euo pipefail
+          # Sam 1793584373.385389: the Case 10 reader's credentials reach ONLY the observe child. They move into unexported shell variables at
+          # once, so no other child of this step (base64, prepare) inherits them, and are discarded right after the observation.
+          C10_PASSWORD="${CT_CASE10_PASSWORD-}"; C10_ANON_KEY="${CT_CASE10_ANON_KEY-}"; unset CT_CASE10_PASSWORD CT_CASE10_ANON_KEY
+          printf '%s' "$PRIOR_STATE" > "$RUNNER_TEMP/prior-state.json"
+          # A dispatch names its committed request and facts; a scheduled run admits exactly the gate's derived bytes (prepare checks their
+          # digest) and reads its facts only from the pinned committed file (prepare refuses a facts input there).
+          if [ "$GITHUB_EVENT_NAME" = schedule ]; then
+            (umask 077; printf '%s' "$NIGHTLY_REQUEST_B64" | base64 -d > "$RUNNER_TEMP/nightly-request.json")
+            SRC=(--nightly-request-file "$RUNNER_TEMP/nightly-request.json" --nightly-request-sha256 "$NIGHTLY_REQUEST_SHA256")
+            # Case 10 design A (Sam 1793570217.800529): a fresh current-state observation for the gate's request. Read-only: it reads only
+            # when the verified journal already holds the open reserve journal-reserve appended, and never pushes. Inactive: the step refuses
+            # until a trusted reader and the activated writer exist, and writes nothing when the request pins no observation contract; prepare
+            # and the builder then re-admit the record it placed.
+            CT_CASE10_PASSWORD="$C10_PASSWORD" CT_CASE10_ANON_KEY="$C10_ANON_KEY" \
+              python3 -I tools/cloud-test/scripts/case10_observation.py observe --request "$RUNNER_TEMP/nightly-request.json" \
+              --request-sha256 "$NIGHTLY_REQUEST_SHA256" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+              --repo "$GITHUB_WORKSPACE" --out "$RUNNER_TEMP/case10-observation.json"
+            if [ -f "$RUNNER_TEMP/case10-observation.json" ]; then SRC+=(--case10-observation "$RUNNER_TEMP/case10-observation.json"); fi
+          else
+            (umask 077; printf '%s' "$MANUAL_OCCURRENCE_B64" | base64 -d > "$RUNNER_TEMP/manual-occurrence.json")
+            [ -f "${CT_PREREQUISITE_FACTS:-}" ] && [ ! -L "${CT_PREREQUISITE_FACTS:-}" ] || { echo 'BLOCKED_SETUP: prerequisite-facts-missing'; exit 78; }
+            FACTS="$(cat "$CT_PREREQUISITE_FACTS")"
+            SRC=(--request "$REQUEST" --manual-occurrence-file "$RUNNER_TEMP/manual-occurrence.json" \
+              --manual-occurrence-sha256 "$MANUAL_OCCURRENCE_SHA256" --workflow-start-utc "${MANUAL_WORKFLOW_START_UTC-}" --facts "$FACTS")
+          fi
+          unset C10_PASSWORD C10_ANON_KEY
+          python3 -I tools/cloud-test/scripts/init_run_inputs.py prepare --repo "$GITHUB_WORKSPACE" --config "$CT_CONFIG" "${SRC[@]}" \
+            --checkpoint "$RUNNER_TEMP/prior-state.json" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --source-sha "$GITHUB_SHA" --job-timeout-minutes "$JOB_TIMEOUT_MINUTES" --out "$RUNNER_TEMP/run-inputs" --env-file "$GITHUB_ENV" --outputs "$GITHUB_OUTPUT"
+      - name: Bind a clean detached checkout of the admitted tested release
+        timeout-minutes: 2
+        env:
+          TESTED_SHA: ${{ steps.init.outputs.tested_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$TESTED_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo 'BLOCKED_SETUP: admitted tested SHA is invalid'; exit 78; }
+          tested="$RUNNER_TEMP/tested-release"
+          [ ! -e "$tested" ] || { echo 'BLOCKED_SETUP: tested-release checkout already exists'; exit 78; }
+          git -C "$GITHUB_WORKSPACE" cat-file -e "$TESTED_SHA^{commit}"
+          git -C "$GITHUB_WORKSPACE" worktree add --detach "$tested" "$TESTED_SHA"
+          [ "$(git -C "$tested" rev-parse HEAD)" = "$TESTED_SHA" ]
+          [ -z "$(git -C "$tested" status --porcelain)" ]
+          # The privileged telemetry reader deliberately comes from the reviewed control tree rather than the
+          # possibly older tested release. Bind the same lockfile-installed, version-checked runtime packages
+          # into that control tree as well so its frontend imports resolve without a second install or download.
+          python3 -I "$GITHUB_WORKSPACE/tools/cloud-test/scripts/install_pdfjs.py" \
+            --config "$GITHUB_WORKSPACE/$CT_CONFIG" --checkout "$GITHUB_WORKSPACE" --runner-dir "$CT_EXISTING_DEPENDENCY_ROOT" --bind-playwright
+          python3 -I "$GITHUB_WORKSPACE/tools/cloud-test/scripts/install_pdfjs.py" \
+            --config "$GITHUB_WORKSPACE/$CT_CONFIG" --checkout "$tested" --runner-dir "$CT_EXISTING_DEPENDENCY_ROOT" --bind-playwright
+          [ -z "$(git -C "$tested" status --porcelain --untracked-files=no)" ]
+          {
+            echo "CT_CHECKOUT=$tested"
+            echo "CT_EXISTING_PDFJS_DIR=$tested/node_modules/pdfjs-dist"
+          } >> "$GITHUB_ENV"
+      # Increment I (Sam 1793566031.065709): the continuity checkpoint prepare admitted becomes the stage runner's reconciliation.json, the
+      # exact bytes plan construction consumes (run_env --reconciliation). Copied once, never overwritten, and refused unless both the
+      # private source and the placed copy hash to init's reconciliation_sha256 step output.
+      - name: Place the admitted continuity checkpoint as the runner's reconciliation
+        env:
+          RECONCILIATION_SHA256: ${{ steps.init.outputs.reconciliation_sha256 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          SRC="$RUNNER_TEMP/run-inputs/reconciliation.json"
+          DST="$CT_OUT/reconciliation.json"
+          [ -n "$RECONCILIATION_SHA256" ] && [ -f "$SRC" ] && [ ! -L "$SRC" ] || { echo "BLOCKED_SETUP: reconciliation-not-admitted"; exit 78; }
+          [ "$(sha256sum < "$SRC" | cut -d' ' -f1)" = "$RECONCILIATION_SHA256" ] || { echo "BLOCKED_SETUP: reconciliation-not-the-admitted-bytes"; exit 78; }
+          mkdir -p -- "$CT_OUT"
+          [ ! -e "$DST" ] && [ ! -L "$DST" ] || { echo "BLOCKED_SETUP: reconciliation-already-present"; exit 78; }
+          cp -- "$SRC" "$DST"
+          [ "$(sha256sum < "$DST" | cut -d' ' -f1)" = "$RECONCILIATION_SHA256" ] || { echo "BLOCKED_SETUP: reconciliation-copy-differs"; exit 78; }
+      - name: Stage runner (install-tools, plans, stimulus preflight, gates)
+        env:
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          # the verified prior latest-record state (record-begin parsed it): G7's carried-forward history from the third night
+          CT_PRIOR_STATE: ${{ runner.temp }}/prior-state.json
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          # Admission digests for the runner's own one-buffer checks: init step outputs only, never $GITHUB_ENV.
+          CT_REQUEST_SHA256: ${{ steps.init.outputs.request_sha256 }}
+          CT_LIVE_ACCOUNTS_SHA256: ${{ steps.init.outputs.live_accounts_sha256 }}
+        run: |
+          set -euo pipefail
+          for stage in install-tools build-plan stimulus-preflight build-plan-with-receipt gate-and-validate; do
+            bash tools/cloud-test/scripts/execute_run.sh "$stage"
+          done
+          # A scheduled run reserves on the state-ref journal BEFORE it spends anything (the run stage then requires exactly that reserve).
+          # A scheduled run's reserve is appended by the separate journal-reserve job (the only contents: write before the run); this job
+          # stays contents: read and only snapshots the verified journal for execution provenance (the run stage requires the reserve).
+          if [ "$GITHUB_EVENT_NAME" = schedule ]; then python3 -I tools/cloud-test/scripts/reservations.py journal-snapshot --out "$CT_OUT/journal-reserved.json"; fi
+      # Immediately before admission: the approved window must still hold the live minutes plus the collect reserve (never reset), read from
+      # exactly the request bytes prepare admitted (init's request_sha256 output; no later step can rewrite another step's outputs).
+      - name: Approved window still fits the live run
+        env:
+          LIVE_MINUTES: ${{ steps.init.outputs.live_minutes }}
+          REQUEST_SHA256: ${{ steps.init.outputs.request_sha256 }}
+        run: python3 -I tools/cloud-test/scripts/init_run_inputs.py window-check --request "$CT_REQUEST" --live-minutes "$LIVE_MINUTES" --request-sha256 "$REQUEST_SHA256"
+      - name: Stage runner (run), bounded to the selected cases' live minutes
+        timeout-minutes: ${{ fromJSON(steps.init.outputs.live_minutes) }}
+        env:
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          # Admission digests for the runner's own one-buffer checks: init step outputs only, never $GITHUB_ENV.
+          CT_REQUEST_SHA256: ${{ steps.init.outputs.request_sha256 }}
+          CT_LIVE_ACCOUNTS_SHA256: ${{ steps.init.outputs.live_accounts_sha256 }}
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          THROWAWAY_TEST_PASSWORD: ${{ secrets.THROWAWAY_TEST_PASSWORD }}
+          # AHT-15 (maintained-read-only) only; the runner passes it to that case's child alone.
+          FREE_TEST_PASSWORD: ${{ secrets.FREE_TEST_PASSWORD }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          # Producer keys only for the same-job producer route; execute_run.sh refuses them on any other route.
+          SUPABASE_SERVICE_ROLE_KEY: ${{ steps.init.outputs.route == 'github-producer' && secrets.SUPABASE_SERVICE_ROLE_KEY || '' }}
+          POSTHOG_PERSONAL_API_KEY: ${{ steps.init.outputs.route == 'github-producer' && secrets.POSTHOG_PERSONAL_API_KEY || '' }}
+          # The producer's non-secret project identifier (Sam 1793567412.564949), stored as a repository Secret; producer route only, and
+          # the producer still refuses TELEMETRY_CAPABILITY_UNAVAILABLE without it.
+          POSTHOG_PROJECT_ID: ${{ steps.init.outputs.route == 'github-producer' && secrets.POSTHOG_PROJECT_ID || '' }}
+          POSTHOG_API_HOST: ${{ vars.POSTHOG_API_HOST }}
+        run: bash tools/cloud-test/scripts/execute_run.sh run
+      - name: Collect, verify the binding, qualify every selected row, and project the closed record
+        if: always() && steps.init.outcome == 'success'
+        env:
+          CASES: ${{ steps.init.outputs.cases }}
+          TESTED_SHA: ${{ steps.init.outputs.tested_sha }}
+          COVERAGE_MODE: ${{ steps.init.outputs.coverage_mode }}
+          REQUEST_SHA256: ${{ steps.init.outputs.request_sha256 }}
+          # Admission digests for the runner's own one-buffer checks: init step outputs only, never $GITHUB_ENV.
+          CT_REQUEST_SHA256: ${{ steps.init.outputs.request_sha256 }}
+          CT_LIVE_ACCOUNTS_SHA256: ${{ steps.init.outputs.live_accounts_sha256 }}
+        run: |
+          set -euo pipefail
+          bash tools/cloud-test/scripts/execute_run.sh collect
+          HP="$(python3 -I tools/cloud-test/scripts/cfg_get.py "$CT_CONFIG" harness.packetDir)"
+          Q=()
+          # qualify freezes every verifier input into a new private snapshot, runs the REAL verify_run_binding.py on that snapshot only (exit 0,
+          # fresh output), then requires every selected required row PASS from the same bytes; only its bound output can make the record `passed`.
+          if python3 -I tools/cloud-test/scripts/init_run_inputs.py qualify --plan "$CT_OUT/plan/cfg/campaign-plan.json" \
+               --case-results "$CT_OUT/plan/run/case-results.json" --cases-dir "$CT_OUT/plan/run/cases" --cases "$CASES" \
+               --approval "$CT_OUT/plan/cfg/security-approval.json" --code-manifest "$HP/bundle/CODE.sha256" \
+               --snapshot-dir "$CT_OUT/qualification-snapshot" --coverage-mode "$COVERAGE_MODE" --request "$CT_REQUEST" --config "$CT_CONFIG" \
+               --request-sha256 "$REQUEST_SHA256" --out "$CT_OUT/qualification.json"; then
+            Q=(--qualification "$CT_OUT/qualification.json")
+          fi
+          # Execution provenance (I4'): every request reader's own record, checked against the admitted digest; no verdict, no qualified record.
+          # A scheduled run's reservation record is the journal's own reserve event, from the snapshot the reserve stage wrote.
+          RES_RECORD="${CT_RESERVATIONS:-}"
+          if [ "$GITHUB_EVENT_NAME" = schedule ]; then RES_RECORD="$CT_OUT/journal-reserved.json"; fi
+          P=()
+          if python3 -I tools/cloud-test/scripts/init_run_inputs.py provenance --request "$CT_REQUEST" --request-sha256 "$REQUEST_SHA256" \
+               --run-id "$GITHUB_RUN_ID" --plan "$CT_OUT/plan/cfg/campaign-plan.json" --build-receipt "$CT_OUT/plan/cfg/build-plan-consumption.json" \
+               --reservations "$RES_RECORD" --case-results "$CT_OUT/plan/run/case-results.json" --cases-dir "$CT_OUT/plan/run/cases" \
+               --run-record "$CT_OUT/run-record.json" --cases "$CASES" --out "$CT_OUT/provenance.json"; then
+            P=(--provenance "$CT_OUT/provenance.json")
+          fi
+          python3 -I tools/cloud-test/scripts/init_run_inputs.py project --run-record "$CT_OUT/run-record.json" --run-id "$GITHUB_RUN_ID" \
+            --case-results "$CT_OUT/plan/run/case-results.json" --request "$CT_REQUEST" --repo "$GITHUB_WORKSPACE" \
+            --attempt "$GITHUB_RUN_ATTEMPT" --source-sha "$GITHUB_SHA" --tested-sha "$TESTED_SHA" --request-sha256 "$REQUEST_SHA256" "${Q[@]}" "${P[@]}" \
+            --out "$RUNNER_TEMP/latest-record.json"
+      - name: Project the linked content-safe first observations
+        if: always() && steps.init.outcome == 'success'
+        env:
+          CASES: ${{ steps.init.outputs.cases }}
+        run: |
+          set -euo pipefail
+          python3 -I tools/cloud-test/scripts/init_run_inputs.py first-observations \
+            --cases-dir "$CT_OUT/plan/run/cases" --cases "$CASES" --out "$RUNNER_TEMP/first-observations.json"
+      - name: Retain the linked first observations for the next run
+        if: always() && steps.init.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloud-test-first-observations
+          path: ${{ runner.temp }}/first-observations.json
+          retention-days: 90
+          if-no-files-found: error
+      - name: Project content-free per-case timing telemetry
+        if: always() && steps.init.outcome == 'success'
+        env:
+          CASES: ${{ steps.init.outputs.cases }}
+        run: |
+          set -euo pipefail
+          python3 -I tools/cloud-test/scripts/init_run_inputs.py case-timings \
+            --cases-dir "$CT_OUT/plan/run/cases" --case-results "$CT_OUT/plan/run/case-results.json" \
+            --cases "$CASES" --out "$RUNNER_TEMP/case-timings.json"
+      - name: Retain content-free per-case timing telemetry
+        if: always() && steps.init.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloud-test-case-timings
+          path: ${{ runner.temp }}/case-timings.json
+          retention-days: 90
+          if-no-files-found: error
+      - name: Project the closed settle input (ids, digests and counts only; without a run record, none)
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ ! -f "$CT_OUT/run-record.json" ]; then echo "no run record: the reservation stays open and counted"; exit 0; fi
+          mkdir -p "$CT_OUT/settle"
+          python3 -I tools/cloud-test/scripts/settle_input.py project --record "$CT_OUT/run-record.json" \
+            --case10-observation "$RUNNER_TEMP/case10-observation.json" --out "$CT_OUT/settle/settle-input.json"
+      # The repository is public: this artifact holds only the closed settle input (settle_input.py), never the run record.
+      - name: Hand the closed settle input to the journal-settle job (1 day)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloud-test-settle-input
+          path: ${{ env.CT_OUT }}/settle/settle-input.json
+          retention-days: 1
+          if-no-files-found: ignore
+      - name: Hand the closed record to the record job (short-lived; not the authoritative record)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloud-test-live-record
+          path: ${{ runner.temp }}/latest-record.json
+          retention-days: 1
+          if-no-files-found: ignore
+      # Last step: the private run inputs (admitted request copy, account id, the canonical live-accounts bundle) never outlive the job and
+      # are never uploaded; no artifact path covers this directory.
+      - name: Remove the private run inputs
+        if: always()
+        run: rm -rf -- "$RUNNER_TEMP/run-inputs"
+
+  journal-settle:
+    name: Settle the run's reservation on the state-ref journal (the one push after the run)
+    needs: [record-begin, journal-reserve, live]
+    # Runs whenever the run was reserved; with no run record (cancelled or missing collection) it appends nothing and the reservation stays
+    # open, so the period keeps counting it at its caps.
+    if: ${{ always() && github.ref == 'refs/heads/main' && github.ref_protected == true && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && needs.journal-reserve.result == 'success' }}
+    runs-on: ubuntu-latest
+    # one leased push; keeps the nightly runner-minute need (359) within the approved 360 per run
+    timeout-minutes: 3
+    permissions:
+      contents: write
+    outputs:
+      settled: ${{ steps.settle.outputs.settled }}
+      receipt_sha256: ${{ steps.settle.outputs.receipt_sha256 }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: cloud-test-settle-input
+          path: ${{ runner.temp }}/settle
+        continue-on-error: true
+      - name: Append the settles from the closed settle input (without one, each reservation stays open and counted)
+        id: settle
+        env:
+          NIGHTLY_REQUEST_SHA256: ${{ needs.record-begin.outputs.nightly_request_sha256 }}
+          NIGHTLY_REQUEST_B64: ${{ needs.record-begin.outputs.nightly_request_b64 }}
+          MANUAL_REQUEST: ${{ inputs.request }}
+          MANUAL_OCCURRENCE_SHA256: ${{ needs.record-begin.outputs.manual_occurrence_sha256 }}
+          MANUAL_OCCURRENCE_B64: ${{ needs.record-begin.outputs.manual_occurrence_b64 }}
+          CT_STATE_PUSH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          SETTLE="$RUNNER_TEMP/settle/settle-input.json"
+          if [ ! -f "$SETTLE" ]; then echo "no settle input: each reservation stays open and counted"; exit 0; fi
+          python3 -I tools/cloud-test/scripts/settle_input.py validate --input "$SETTLE"
+          if [ "$GITHUB_EVENT_NAME" != schedule ]; then
+            # Manual dispatch (#1772 review 4446137323): its reservation settles here from the same closed settle input, never the run record.
+            case "$MANUAL_REQUEST" in tools/cloud-test/config/runs/*.json) ;; *) echo "BLOCKED_SETUP: request-not-in-the-reviewed-request-location"; exit 78 ;; esac
+            case "$MANUAL_REQUEST" in *..*|*//*) echo "BLOCKED_SETUP: request-path"; exit 78 ;; esac
+            git cat-file -e "$GITHUB_SHA:$MANUAL_REQUEST" || { echo "BLOCKED_SETUP: request-not-committed-at-source"; exit 78; }
+            (umask 077; printf '%s' "$MANUAL_OCCURRENCE_B64" | base64 -d > "$RUNNER_TEMP/manual-occurrence.json")
+            [ "$(sha256sum "$RUNNER_TEMP/manual-occurrence.json" | cut -d' ' -f1)" = "$MANUAL_OCCURRENCE_SHA256" ] || { echo "BLOCKED_SETUP: manual-occurrence-not-the-selected-bytes"; exit 78; }
+            python3 -I tools/cloud-test/scripts/manual_reservation.py settle --journal "$RUNNER_TEMP/settle-journal" \
+              --out "$RUNNER_TEMP/settle-receipt.json" --campaign-id "$(python3 -I tools/cloud-test/scripts/cfg_get.py "$RUNNER_TEMP/manual-occurrence.json" runId)" \
+              --run-id "$GITHUB_RUN_ID" --settle-input "$SETTLE" --scope tools/cloud-test/config/aggregate/period-scope.json
+            echo "settled=true" >> "$GITHUB_OUTPUT"
+            echo "receipt_sha256=$(sha256sum "$RUNNER_TEMP/settle-receipt.json" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          (umask 077; printf '%s' "$NIGHTLY_REQUEST_B64" | base64 -d > "$RUNNER_TEMP/nightly-request.json")
+          python3 -I tools/cloud-test/scripts/reservations.py journal-settle --request "$RUNNER_TEMP/nightly-request.json" \
+            --request-sha256 "$NIGHTLY_REQUEST_SHA256" --execution-run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --approval tools/cloud-test/config/recurring-approval.json --repo "$GITHUB_WORKSPACE" --record "$SETTLE" \
+            --journal "$RUNNER_TEMP/settle-journal" --out "$RUNNER_TEMP/settle-receipt.json"
+          python3 -I tools/cloud-test/scripts/case10_observation.py settle --request "$RUNNER_TEMP/nightly-request.json" \
+            --request-sha256 "$NIGHTLY_REQUEST_SHA256" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --repo "$GITHUB_WORKSPACE" \
+            --settle-input "$SETTLE"
+          echo "settled=true" >> "$GITHUB_OUTPUT"
+          echo "receipt_sha256=$(sha256sum "$RUNNER_TEMP/settle-receipt.json" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Hand the settlement receipt to the record job
+        if: steps.settle.outputs.settled == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloud-test-settle-receipt
+          path: ${{ runner.temp }}/settle-receipt.json
+          retention-days: 1
+          if-no-files-found: error
+  record-complete:
+    name: Complete or interrupt the attempt in the latest record (no live credentials)
+    needs: [record-begin, live, journal-settle]
+    if: always() && needs.record-begin.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      # Updates and reads back the same latest-record comment on tracking PR #1763 (see record-begin).
+      issues: write
+      pull-requests: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          sparse-checkout: tools/cloud-test/scripts
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: cloud-test-live-record
+          path: ${{ runner.temp }}/record
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: cloud-test-settle-receipt
+          path: ${{ runner.temp }}/settlement
+      - name: Write the terminal record, or mark the attempt interrupted
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMENT_ID: ${{ needs.record-begin.outputs.comment_id }}
+          LIVE_RESULT: ${{ needs.live.result }}
+          SETTLE_RESULT: ${{ needs.journal-settle.result }}
+          SETTLED: ${{ needs.journal-settle.outputs.settled }}
+          SETTLE_RECEIPT_SHA256: ${{ needs.journal-settle.outputs.receipt_sha256 }}
+          MANUAL_OCCURRENCE_B64: ${{ needs.record-begin.outputs.manual_occurrence_b64 }}
+          MANUAL_OCCURRENCE_SHA256: ${{ needs.record-begin.outputs.manual_occurrence_sha256 }}
+          NIGHTLY_REQUEST_B64: ${{ needs.record-begin.outputs.nightly_request_b64 }}
+          NIGHTLY_REQUEST_SHA256: ${{ needs.record-begin.outputs.nightly_request_sha256 }}
+        run: |
+          set -euo pipefail
+          P=tools/cloud-test/scripts/publish_latest_record.py
+          gh api "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" --jq '[.]' > "$RUNNER_TEMP/comments.json"
+          python3 -I "$P" select --comments "$RUNNER_TEMP/comments.json" --issue-url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$TRACKING_ISSUE" --comment-id "$COMMENT_ID" | python3 -I -c 'import json,sys; open(sys.argv[1],"w").write(json.load(sys.stdin)["body"])' "$RUNNER_TEMP/previous.md"
+          within_envelope=true
+          receipt="$RUNNER_TEMP/settlement/settle-receipt.json"
+          if [ "$SETTLE_RESULT" != success ] || [ "$SETTLED" != true ] || [ ! -f "$receipt" ] || \
+             [ "$(sha256sum "$receipt" | cut -d' ' -f1)" != "$SETTLE_RECEIPT_SHA256" ]; then
+            echo "BLOCKED_SETUP: settlement-not-verified"
+            within_envelope=false
+          fi
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            (umask 077; printf '%s' "$MANUAL_OCCURRENCE_B64" | base64 -d > "$RUNNER_TEMP/manual-occurrence.json")
+            completion_deadline_utc="$(python3 -I tools/cloud-test/scripts/cfg_get.py "$RUNNER_TEMP/manual-occurrence.json" window.endUtc)"
+            occurrence_sha256="$MANUAL_OCCURRENCE_SHA256"
+            set +e
+            python3 -I tools/cloud-test/scripts/init_run_inputs.py completion-deadline \
+              --manual-occurrence-file "$RUNNER_TEMP/manual-occurrence.json"
+            deadline_status=$?
+            set -e
+            if [ "$deadline_status" -eq 79 ]; then
+              within_envelope=false
+            elif [ "$deadline_status" -ne 0 ]; then
+              echo "BLOCKED_SETUP: completion-occurrence-unreadable"
+              within_envelope=false
+            fi
+          else
+            (umask 077; printf '%s' "$NIGHTLY_REQUEST_B64" | base64 -d > "$RUNNER_TEMP/nightly-request.json")
+            completion_deadline_utc="$(python3 -I tools/cloud-test/scripts/cfg_get.py "$RUNNER_TEMP/nightly-request.json" window.endUtc)"
+            occurrence_sha256="$NIGHTLY_REQUEST_SHA256"
+            [[ "$completion_deadline_utc" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || { echo 'BLOCKED_SETUP: completion-occurrence-unreadable'; exit 78; }
+            [[ "$occurrence_sha256" =~ ^[0-9a-f]{64}$ ]] || { echo 'BLOCKED_SETUP: completion-occurrence-unreadable'; exit 78; }
+          fi
+          attestable=false
+          if [ -f "$RUNNER_TEMP/record/latest-record.json" ] && [ "$LIVE_RESULT" != cancelled ] && [ "$within_envelope" = true ]; then
+            # A terminal candidate is retained as an artifact only.  It is never
+            # PATCHed into the public comment before GitHub's server time is
+            # validated; an interrupted publisher therefore cannot strand a
+            # false completed record.
+            python3 -I "$P" complete --previous "$RUNNER_TEMP/previous.md" --record "$RUNNER_TEMP/record/latest-record.json" --out "$RUNNER_TEMP/candidate.md"
+            attestable=true
+          fi
+          if [ "$attestable" = true ]; then
+            # The one public mutation carries the closed result as a durable
+            # pending candidate, but does not fold it into completed history.
+            # The next admitted record-begin is its authorized consumer.
+            python3 -I "$P" pending --previous "$RUNNER_TEMP/previous.md" --record "$RUNNER_TEMP/record/latest-record.json" \
+              --completion-deadline-utc "$completion_deadline_utc" --settle-receipt-sha256 "$SETTLE_RECEIPT_SHA256" \
+              --occurrence-sha256 "$occurrence_sha256" --out "$RUNNER_TEMP/body.md"
+          else
+            python3 -I "$P" interrupt --previous "$RUNNER_TEMP/previous.md" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+              --status "$([ "$LIVE_RESULT" = cancelled ] && echo cancelled || echo incomplete)" --out "$RUNNER_TEMP/body.md"
+          fi
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" -F "body=@$RUNNER_TEMP/body.md" > "$RUNNER_TEMP/published.json"
+          # GitHub's response timestamp, not this runner's post-request clock,
+          # decides whether the completed record was actually published inside
+          # the reviewed envelope. A late publication is replaced by the
+          # retained incomplete state; settlement remains safely recorded.
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            published_at="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["updated_at"])' "$RUNNER_TEMP/published.json")"
+            set +e
+            python3 -I tools/cloud-test/scripts/init_run_inputs.py completion-deadline \
+              --manual-occurrence-file "$RUNNER_TEMP/manual-occurrence.json" --now "$published_at"
+            publication_status=$?
+            set -e
+            if [ "$publication_status" -ne 0 ]; then attestable=false; fi
+          fi
+          # readback: the stored record must be exactly what was rendered (the PATCH is not compare-and-swap; this job is the sole publisher)
+          gh api "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" --jq '[.]' > "$RUNNER_TEMP/readback.json"
+          python3 -I "$P" verify --previous "$RUNNER_TEMP/body.md" --comments "$RUNNER_TEMP/readback.json" \
+            --issue-url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$TRACKING_ISSUE" --comment-id "$COMMENT_ID"
+          if [ "$attestable" = true ]; then
+            mkdir -p "$RUNNER_TEMP/completion"
+            cp "$RUNNER_TEMP/candidate.md" "$RUNNER_TEMP/completion/terminal-candidate.md"
+            cp "$receipt" "$RUNNER_TEMP/completion/settle-receipt.json"
+            if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+              cp "$RUNNER_TEMP/manual-occurrence.json" "$RUNNER_TEMP/completion/occurrence.json"
+            else
+              cp "$RUNNER_TEMP/nightly-request.json" "$RUNNER_TEMP/completion/occurrence.json"
+            fi
+            python3 -I "$P" attest --candidate "$RUNNER_TEMP/candidate.md" --public-body "$RUNNER_TEMP/body.md" \
+              --published "$RUNNER_TEMP/published.json" --settle-receipt-sha256 "$SETTLE_RECEIPT_SHA256" \
+              --occurrence-sha256 "$occurrence_sha256" \
+              --out "$RUNNER_TEMP/completion/completion-attestation.json"
+          fi
+      - name: Retain the fail-closed completion evidence for the next admitted run (2 days)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloud-test-completion-attestation
+          path: ${{ runner.temp }}/completion
+          # This artifact is the immutable counterpart of the durable pending
+          # record.  Keep it across missed nightly/manual runs; the next
+          # admitted run must still reconcile the exact bytes or refuse.
+          retention-days: 90
+          if-no-files-found: ignore

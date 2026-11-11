@@ -74,8 +74,14 @@ def compute(cfg, costs, catalog, rc, cap_override=None):
     coaching_cap = ceil10(math.ceil(takes_min * (100 + bm["coachingRetryAllowancePct"]) / 100))
     adm = m["window"]
     expected_min = adm["admissionExpectedMinutes"] + sum(r["expectedWallSeconds"] for r in rows) / 60 + adm["interCaseAndReportMinutes"]
-    worst_min = adm["admissionMaxMinutes"] + sum(r["maxWallSeconds"] for r in rows) / 60 + adm["cleanupReserveMinutes"]
-    window = int(math.ceil(worst_min / 30.0) * 30)
+    # The approved window covers the complete hosted live job, not only the
+    # per-case runner.  init_run_inputs.py enforces the same three layers:
+    # setup before admission, the full live allowance (including inter-case
+    # reporting), and collection after the runner exits.
+    worst_min = (adm["admissionMaxMinutes"] + sum(r["maxWallSeconds"] for r in rows) / 60
+                 + adm["interCaseAndReportMinutes"] + adm["cleanupReserveMinutes"])
+    complete_job_min = 15 + worst_min + 10
+    window = int(math.ceil(complete_job_min / 30.0) * 30)
     dollars = cfg["costModel"]
     cb = dollars["githubActions"]
     gh_max = cb["dispatches"] * cb["maxRunnerMinutesPerDispatch"]
@@ -106,7 +112,7 @@ def compute(cfg, costs, catalog, rc, cap_override=None):
                      "measuredCoachingRequests": {"R4C": costs["runs"]["R4C"]["totals"]["byCategory"]["coaching"], "R5": costs["runs"]["R5"]["totals"]["byCategory"]["coaching"]}},
         "window": {"expectedMinutes": round(expected_min), "worstCaseMinutes": round(worst_min), "proposedWindowMinutes": window,
                    "expectedBasis": "admission %d + observed case wall time scaled by the same uplift (capped at each case's limit) + %d between cases and for the report" % (adm["admissionExpectedMinutes"], adm["interCaseAndReportMinutes"]),
-                   "worstCaseBasis": "admission qualification limit %d + the sum of the %d per-case time limits (%d min) + %d cleanup reserve" % (adm["admissionMaxMinutes"], len(rows), sum(r["maxWallSeconds"] for r in rows) // 60, adm["cleanupReserveMinutes"]),
+                   "worstCaseBasis": "live allowance: admission qualification limit %d + the sum of the %d per-case time limits (%d min) + %d inter-case/report + %d cleanup; proposed window also reserves 15 setup + 10 collect" % (adm["admissionMaxMinutes"], len(rows), sum(r["maxWallSeconds"] for r in rows) // 60, adm["interCaseAndReportMinutes"], adm["cleanupReserveMinutes"]),
                    "measured": {"R4C": round(costs["runs"]["R4C"]["totals"]["runWallSeconds"] / 60, 1), "R5": round(costs["runs"]["R5"]["totals"]["runWallSeconds"] / 60, 1)},
                    "rule": "a case that reaches the window end is NOT RUN and the run is no longer full coverage, so the proposed window covers the worst case, not the expected case",
                    "structuralMax": m["limits"]["maxWindowMinutes"]},

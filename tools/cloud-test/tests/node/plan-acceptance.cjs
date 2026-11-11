@@ -14,7 +14,11 @@ if(process.argv.length>6 || (process.argv[5] && !selectedFull) || (selectedFull 
 const bundle = path.join(harness, 'bundle');
 const runner = require(path.join(bundle, 'harness/campaign-runner.cjs'));
 const core = require(path.join(bundle, 'harness/campaign-core.cjs'));
-const plan = JSON.parse(fs.readFileSync(planFile, 'utf8'));
+const planBytes = fs.readFileSync(planFile);
+const plan = JSON.parse(planBytes);
+// The real runner binds the bytes it consumed before it performs any runtime
+// identity check. This offline validator must exercise the same boundary.
+plan.consumedPlanSha256 = require('crypto').createHash('sha256').update(planBytes).digest('hex');
 const out = {};
 (async () => {
   const io = runner.createAdapter(plan, bundle, { executeR0: false });

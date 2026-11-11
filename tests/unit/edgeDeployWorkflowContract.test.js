@@ -16,17 +16,22 @@ describe('deploy-supabase-migrations Edge deploy/readback job conditions', () =>
     const prerequisite = jobs['verify-t2-database-prerequisites'];
     expect(prerequisite.needs).toBe('validate-edge-configuration');
     expect(prerequisite.if).toContain('inputs.deploy_production == true');
-    expect(prerequisite.steps.some(step => step.run?.includes('node scripts/t2-migration-postflight.mjs verify release'))).toBe(true);
+    const preflight = prerequisite.steps.find(step => step.run?.includes('t2-migration-postflight'));
+    expect(preflight.env.DEPLOY_EDGE).toBe('${{ needs.validate-edge-configuration.outputs.deploy_edge_functions }}');
+    expect(preflight.run).toContain('true) node scripts/t2-migration-postflight.mjs verify edge-release');
+    expect(preflight.run).toContain('false) node scripts/t2-migration-postflight.mjs verify release');
+    expect(preflight.run).toContain("*) echo '::error::resolved Edge deployment intent unavailable'; exit 1");
     for (const name of ['invalidate-account-closure-authority', 'deploy-edge-functions']) {
       expect(jobs[name].needs).toContain('verify-t2-database-prerequisites');
       expect(jobs[name].if).toContain("needs.verify-t2-database-prerequisites.result == 'success'");
       expect(jobs[name].if).not.toContain("needs.verify-t2-database-prerequisites.result == 'skipped'");
     }
     const steps = jobs['deploy-edge-functions'].steps;
-    const check = steps.findIndex(step => step.run?.includes('node scripts/t2-migration-postflight.mjs verify release'));
+    const check = steps.findIndex(step => step.run?.includes('node scripts/t2-migration-postflight.mjs verify edge-release'));
     const mutation = steps.findIndex(step => step.name === 'Deploy Edge Functions');
     expect(check).toBeGreaterThan(-1);
     expect(check).toBeLessThan(mutation);
+    expect(steps[check].run).not.toContain('verify release');
     expect(prerequisite.steps.find(step => step.run?.includes('t2-migration-postflight')).run).toContain('assert-db-connectivity-tls.sh');
   });
   it('rechecks current qualified main before both drain invalidation and Edge mutation', () => {

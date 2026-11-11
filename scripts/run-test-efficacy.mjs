@@ -8,7 +8,8 @@ import { fileURLToPath } from 'node:url';
 import { TEST_EFFICACY_CONTRACTS, qualifyEfficacyPhase } from './lib/softwareQualityEvidenceQualification.mjs';
 import { canonicalPath, runtimeIdentity } from './efficacy-reporter.mjs';
 import { executionContext, testEnvironment, pilotAffectedByPaths,
-  executionRequiredFiles,unavailableExecutionInputs,fixtureSourceBinding, validateFixtureWitness, selectExecutionContracts } from './lib/testExecutionEvidence.mjs';
+  executionRequiredFiles,unavailableExecutionInputs,fixtureSourceBinding, validateFixtureWitness, selectExecutionContracts,
+  vitestExecutionTimeoutMs } from './lib/testExecutionEvidence.mjs';
 import {HELPER_CONFIG, helperSourceBinding, validateHelperCoverage} from './lib/helperExecutionEvidence.mjs';
 import {sourceContractBinding,validateSourceContractWitness} from './lib/sourceContractEvidence.mjs';
 import {selectNativeContracts,produceNativePhase,nativeChildTracker,sqlSourceBinding,validateSqlWitness,
@@ -237,6 +238,7 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
         provenance, sourceCopyCommit,
         command, cwd: temporary, testFile: canonicalPath(path.join(temporary, contract.testFile)),
         inputSha256: hash(JSON.stringify(inputHashes)), repoLockSha256, runtime,
+        ...(executionOnly ? {timeoutMs: vitestExecutionTimeoutMs(contract.testFile)} : {}),
         ...(contract.helper ? {coverageDirectory, helper: {helperFile: contract.helperFile, testFile: contract.testFile,
           sourceBinding: helperSourceBinding(temporary, contract)}} : {})};
       if(contract.fixtureFile) binding.fixture={fixtureFile:contract.fixtureFile,testFile:contract.testFile,
@@ -245,13 +247,13 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
       if(contract.sourceFiles) binding.sourceContract={files:contract.sourceFiles,
         sourceBinding:sourceContractBinding(temporary,contract.sourceFiles),
         witnessFile:path.join(temporary,`.source-contract-${binding.phaseId}.json`)};
-      if(contract.sqlFiles)binding.sql={files:contract.sqlFiles,sourceBinding:sqlSourceBinding(temporary),
+      if(contract.sqlFiles)binding.sql={files:contract.sqlFiles,sourceBinding:sqlSourceBinding(temporary,contract.testFile),
         witnessFile:path.join(temporary,`.sql-${binding.phaseId}.json`)};
       const environment=testEnvironment(temporary,binding,envelopeFile);
       if(contract.fixtureFile) environment.TEST_EFFICACY_SERVICE_CALLER_FIXTURE='1';
       ownedGroupsDrained=false;
       const result = spawnSync(command[0], command.slice(1),
-      { cwd: temporary, timeout: 60000, killSignal: 'SIGKILL', detached: process.platform !== 'win32',
+      { cwd: temporary, timeout: binding.timeoutMs ?? 60_000, killSignal: 'SIGKILL', detached: process.platform !== 'win32',
         maxBuffer: 8 * 1024 * 1024,
         env: environment });
       diagnostics={status:result.status,signal:result.signal,error:result.error?.code || null,

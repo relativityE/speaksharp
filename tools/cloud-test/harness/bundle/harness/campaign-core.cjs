@@ -31,8 +31,9 @@ function validateRunIdentity(r){
  if(!/^[a-f0-9]{40}$/.test(r.frontend?.sourceSha||'')||r.frontend?.servedSha!==r.frontend?.sourceSha)e.push('runIdentity.frontend');
  if(!/^[a-f0-9]{64}$/.test(r.runner?.codeManifestSha256||'')||!/^[a-f0-9]{64}$/.test(r.runner?.packetManifestSha256||''))e.push('runIdentity.runner');
  const b=r.backend;
- if(!b||typeof b.manifestRef!=='string'||!b.manifestRef||!['owner-stated','cloud-verified'].includes(b.source)||!Number.isSafeInteger(b.generation)||!['ON','OFF'].includes(b.completion)||!Array.isArray(b.facts)||b.facts.some(x=>!/^[a-z0-9-]{1,40}$/.test(x?.name||'')||!['absent','applied','unknown'].includes(x?.state)))e.push('runIdentity.backend');
+ if(!b||typeof b.manifestRef!=='string'||!b.manifestRef||!['owner-stated','cloud-verified','cloud-verified-source-equivalent'].includes(b.source)||!Number.isSafeInteger(b.generation)||!['ON','OFF'].includes(b.completion)||!Array.isArray(b.facts)||b.facts.some(x=>!/^[a-z0-9-]{1,40}$/.test(x?.name||'')||!['absent','applied','unknown'].includes(x?.state)))e.push('runIdentity.backend');
  else if(b.source==='cloud-verified'&&!Number.isFinite(Date.parse(b.verifiedAtUtc||'')))e.push('runIdentity.backend.verifiedAtUtc required when cloud-verified');
+ else if(b.source==='cloud-verified-source-equivalent'&&(!/^[a-f0-9]{40}$/.test(b.sha||'')||b.sourceEquivalentToSha!==r.frontend.sourceSha||!/^[a-f0-9]{40}$/.test(b.functionsTreeSha||'')||typeof b.evidenceRef!=='string'||!b.evidenceRef||!Number.isFinite(Date.parse(b.verifiedAtUtc||''))))e.push('runIdentity.backend source-equivalent provenance');
  else if(b.source==='owner-stated'&&b.verifiedAtUtc!==null&&b.verifiedAtUtc!==undefined)e.push('runIdentity.backend.verifiedAtUtc must be null when owner-stated');
  return e;
 }

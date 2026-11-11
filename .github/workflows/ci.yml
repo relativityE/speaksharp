@@ -568,7 +568,10 @@ jobs:
     name: full-evidence
     needs: [scope, unit-coverage-merge, edge-tests, build, health-check, e2e, lighthouse-advisory]
     if: always() && !cancelled() && needs.scope.outputs.full_required == 'true'
-    runs-on: ubuntu-latest
+    # The cloud-test browser baseline is Chrome >=156 with no download/install.
+    # ubuntu-24.04's rolling pool can still assign image 20261018.96.1 (Chrome 155),
+    # while the supported ubuntu-26.04 images established for this lane ship 156+.
+    runs-on: ubuntu-26.04
     steps:
       # Fail BEFORE expensive setup/aggregation when required upstream work already failed.
       - name: Require Upstream Success

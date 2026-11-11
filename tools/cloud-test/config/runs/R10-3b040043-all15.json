@@ -1,0 +1,339 @@
+{
+  "schema": "speaksharp.cloud-test.run-request.v2",
+  "runId": "R10-3b040043-smoke15",
+  "proposal": false,
+  "coverageMode": "smoke",
+  "sampleMode": "smoke",
+  "workflowVersion": "1.5.0",
+  "configVersion": "1.4.0",
+  "createdUtc": "2026-11-03T11:03:22Z",
+  "purpose": "Execute the bounded smoke assertion set for all 15 SpeakSharp live journeys against the deployed consolidated RCA release, retaining case-level PASS, FAIL, HOLD, transition timing and cleanup evidence without claiming full acceptance.",
+  "priority": "journey-smoke",
+  "targetedGaps": [
+    "GAP-01",
+    "GAP-02",
+    "GAP-03",
+    "GAP-04",
+    "GAP-05",
+    "GAP-06"
+  ],
+  "notTargeted": [],
+  "selection": [
+    {
+      "order": 1,
+      "case": "AHT-01",
+      "gaps": [
+        "GAP-01"
+      ],
+      "role": "target",
+      "needsCaptureDevice": true,
+      "plannedRequests": 100,
+      "startPressCap": 2,
+      "gate": null,
+      "reason": "smoke coverage: 15 bounded rows; diagnoses GAP-01 without claiming full acceptance"
+    },
+    {
+      "order": 2,
+      "case": "AHT-02",
+      "gaps": [
+        "GAP-02"
+      ],
+      "role": "target",
+      "needsCaptureDevice": true,
+      "plannedRequests": 100,
+      "startPressCap": 1,
+      "gate": null,
+      "reason": "smoke coverage: 13 bounded rows; diagnoses GAP-02; the two-take coaching comparison remains required by full-depth acceptance"
+    },
+    {
+      "order": 3,
+      "case": "AHT-03",
+      "gaps": [
+        "GAP-02"
+      ],
+      "role": "target",
+      "needsCaptureDevice": true,
+      "plannedRequests": 100,
+      "startPressCap": 1,
+      "gate": null,
+      "reason": "smoke coverage: 13 bounded rows; diagnoses GAP-02; the two-take coaching comparison remains required by full-depth acceptance"
+    },
+    {
+      "order": 4,
+      "case": "AHT-04",
+      "gaps": [
+        "GAP-06"
+      ],
+      "role": "target",
+      "needsCaptureDevice": true,
+      "plannedRequests": 100,
+      "startPressCap": 1,
+      "gate": null,
+      "reason": "smoke coverage: 8 bounded rows; diagnoses GAP-06 without claiming full acceptance"
+    },
+    {
+      "order": 5,
+      "case": "AHT-05",
+      "gaps": [],
+      "role": "coverage",
+      "needsCaptureDevice": true,
+      "plannedRequests": 100,
+      "startPressCap": 1,
+      "gate": null,
+      "reason": "smoke coverage: 8 bounded rows; regression signal only"
+    },
+    {
+      "order": 6,
+      "case": "AHT-06",
+      "gaps": [],
+      "role": "coverage",
+      "needsCaptureDevice": true,
+      "plannedRequests": 100,
+      "startPressCap": 1,
+      "gate": null,
+      "reason": "smoke coverage: 8 bounded rows; regression signal only"
+    },
+    {
+      "order": 7,
+      "case": "AHT-07",
+      "gaps": [],
+      "role": "coverage",
+      "needsCaptureDevice": true,
+      "plannedRequests": 100,
+      "startPressCap": 1,
+      "gate": null,
+      "reason": "smoke coverage: 8 bounded rows; regression signal only"
+    },
+    {
+      "order": 8,
+      "case": "AHT-08",
+      "gaps": [],
+      "role": "coverage",
+      "needsCaptureDevice": false,
+      "plannedRequests": 100,
+      "startPressCap": 0,
+      "gate": null,
+      "reason": "smoke coverage: 10 bounded rows; regression signal only"
+    },
+    {
+      "order": 9,
+      "case": "AHT-09",
+      "gaps": [],
+      "role": "coverage",
+      "needsCaptureDevice": true,
+      "plannedRequests": 100,
+      "startPressCap": 1,
+      "gate": null,
+      "reason": "smoke coverage: 10 bounded rows; regression signal only"
+    },
+    {
+      "order": 10,
+      "case": "AHT-10",
+      "gaps": [
+        "GAP-05"
+      ],
+      "role": "target",
+      "needsCaptureDevice": true,
+      "plannedRequests": 100,
+      "startPressCap": 1,
+      "gate": null,
+      "reason": "smoke coverage: 8 bounded rows; diagnoses GAP-05 without claiming full acceptance"
+    },
+    {
+      "order": 11,
+      "case": "AHT-11",
+      "gaps": [],
+      "role": "coverage",
+      "needsCaptureDevice": true,
+      "plannedRequests": 100,
+      "startPressCap": 3,
+      "gate": null,
+      "reason": "smoke coverage: 6 bounded rows; regression signal only"
+    },
+    {
+      "order": 12,
+      "case": "AHT-12",
+      "gaps": [
+        "GAP-03"
+      ],
+      "role": "target",
+      "needsCaptureDevice": true,
+      "plannedRequests": 100,
+      "startPressCap": 1,
+      "gate": null,
+      "reason": "smoke coverage: 6 bounded rows; diagnoses GAP-03 without claiming full acceptance"
+    },
+    {
+      "order": 13,
+      "case": "AHT-13",
+      "gaps": [
+        "GAP-06"
+      ],
+      "role": "target",
+      "needsCaptureDevice": true,
+      "plannedRequests": 100,
+      "startPressCap": 1,
+      "gate": null,
+      "reason": "smoke coverage: 6 bounded rows; diagnoses GAP-06 without claiming full acceptance"
+    },
+    {
+      "order": 14,
+      "case": "AHT-14",
+      "gaps": [
+        "GAP-06"
+      ],
+      "role": "target",
+      "needsCaptureDevice": true,
+      "plannedRequests": 100,
+      "startPressCap": 1,
+      "gate": null,
+      "reason": "smoke coverage: 6 bounded rows; diagnoses GAP-06 without claiming full acceptance"
+    },
+    {
+      "order": 15,
+      "case": "AHT-15",
+      "gaps": [
+        "GAP-04"
+      ],
+      "role": "target",
+      "needsCaptureDevice": false,
+      "plannedRequests": 100,
+      "startPressCap": 0,
+      "gate": null,
+      "reason": "smoke coverage: 14 bounded rows; diagnoses GAP-04 without claiming full acceptance"
+    }
+  ],
+  "evidenceScope": {
+    "maxDeliveries": 8,
+    "maxSupabaseRequests": 10,
+    "maxTelemetryReads": 2
+  },
+  "estimate": {
+    "requests": {
+      "planned": 1500,
+      "cleanupReserve": 150,
+      "pooledSlack": 350,
+      "runCap": 2000
+    },
+    "identityReads": 32,
+    "starts": 16,
+    "takes": 16,
+    "paidActionsAuthorizedUsd": 0,
+    "providerBillableRequests": {
+      "coachingCap": 20,
+      "basis": "16 smoke takes x 125% retry allowance; the guard denies a coaching request beyond the cap"
+    },
+    "githubRunnerMinutesMax": 40
+  },
+  "proposedLimits": {
+    "cumulativeCeilingRequests": 4342,
+    "ceilingIncreaseJustification": "The approved no-carryover period ceiling remains 4342. This one attempt reserves only its 2000 smoke run cap plus 32 identity reads = 2032; historical unknowns remain unresolved outside this period.",
+    "identityCap": 32,
+    "identityIncreaseJustification": "Fresh period exact one-run identity allowance; historical unknowns remain unresolved outside this period.",
+    "startsCap": 42,
+    "startsIncreaseJustification": "The approved period ceiling remains 42. This one attempt reserves only the 16-Start sum of its per-case caps, with no retry reserve.",
+    "takesCap": 31,
+    "takesIncreaseJustification": "The approved period ceiling remains 31. This one attempt reserves only its 16-take allowance, with no retry reserve.",
+    "runCapRequests": 2000,
+    "paidActionsUsd": 0,
+    "guardCaps": {
+      "coaching": 20
+    },
+    "startPressCaps": {
+      "AHT-01": 2,
+      "AHT-02": 1,
+      "AHT-03": 1,
+      "AHT-04": 1,
+      "AHT-05": 1,
+      "AHT-06": 1,
+      "AHT-07": 1,
+      "AHT-08": 0,
+      "AHT-09": 1,
+      "AHT-10": 1,
+      "AHT-11": 3,
+      "AHT-12": 1,
+      "AHT-13": 1,
+      "AHT-14": 1,
+      "AHT-15": 0
+    }
+  },
+  "approvedLimits": {
+    "cumulativeCeilingRequests": 4342,
+    "identityCap": 32,
+    "startsCap": 42,
+    "takesCap": 31,
+    "runCapRequests": 2000,
+    "approvalRef": "slack:1793652215.171339",
+    "approvedBy": "Akin",
+    "startPressCaps": {
+      "AHT-01": 2,
+      "AHT-02": 1,
+      "AHT-03": 1,
+      "AHT-04": 1,
+      "AHT-05": 1,
+      "AHT-06": 1,
+      "AHT-07": 1,
+      "AHT-08": 0,
+      "AHT-09": 1,
+      "AHT-10": 1,
+      "AHT-11": 3,
+      "AHT-12": 1,
+      "AHT-13": 1,
+      "AHT-14": 1,
+      "AHT-15": 0
+    }
+  },
+  "window": {
+    "startUtc": "2026-11-03T11:30:00Z",
+    "endUtc": "2026-11-03T12:19:00Z",
+    "approvalRef": "slack:1793652215.171339"
+  },
+  "release": {
+    "testedSha": "5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2",
+    "lastRunTestedSha": "5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2",
+    "backend": {
+      "sha": "c32319f9121d4fef64dc48bb40fae5464dc6b65a",
+      "source": "cloud-verified-source-equivalent",
+      "verifiedAtUtc": "2026-11-02T20:32:12Z",
+      "evidenceRef": "https://github.com/relativityE/speaksharp/actions/runs/41519075645",
+      "sourceEquivalentToSha": "5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2",
+      "functionsTreeSha": "09291193cdb63331cb9f3bd0d10e59aec35cbe1e"
+    }
+  },
+  "harness": {
+    "codeManifestSha256": "2f80bcfb4ba05996238ae848a510be8ea13f1d99fcc2fd50866f6ea09fdb9ab9",
+    "packetManifestSha256": "a84c032743e00f44368504a086010dd6315464fb49ed321390592360ff84f9b1",
+    "ownerApprovalRef": "slack:1793652215.171339",
+    "offlineProofFile": "config/proofs/offline-proof-74d26870.json"
+  },
+  "priorRuns": [
+    {
+      "label": "R4C",
+      "bindingFile": "config/history/binding-R4C.json"
+    },
+    {
+      "label": "R5",
+      "bindingFile": "config/history/binding-R5.json"
+    }
+  ],
+  "selectionApprovalRef": "slack:1793652215.171339",
+  "ownerInputs": {
+    "prDocsCloseout": {
+      "status": "closed",
+      "evidence": "github:relativityE/speaksharp#1772@5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2"
+    },
+    "r10Binding": {
+      "status": "closed",
+      "evidence": "slack:1793652215.171339"
+    },
+    "retainedInputs": {
+      "status": "closed",
+      "evidence": "github:relativityE/speaksharp#1772"
+    }
+  },
+  "deviations": [],
+  "cleanupConditions": "every owned page, process and fixture closed and verified; guard ledgers reconciled; no marked orphan",
+  "approvedOmissions": [],
+  "synthetic": false,
+  "executionRuntime": "GitHub Actions SpeakSharp"
+}

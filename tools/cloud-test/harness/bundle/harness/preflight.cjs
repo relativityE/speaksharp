@@ -22,7 +22,13 @@ function preflight(root=path.resolve(__dirname,'..')) {
   const aht=[...new Set(prompt.match(/AHT-\d{2}/g)||[])].sort();
   const hum=[...new Set(humans.match(/HUM-\d{2}/g)||[])].sort();
   const integrity=verifyManifest(root,'CODE.sha256');
-  const scopeOk=aht.length===15 && hum.length===6 && Object.keys(policy.hosts).sort().join(',')==='speaksharp-public.vercel.app,yxlapjuovrsvjswkwnrk.supabase.co';
+  const expectedHosts=['speaksharp-public.vercel.app','us-assets.i.posthog.com','us.i.posthog.com','yxlapjuovrsvjswkwnrk.supabase.co'];
+  const asset=policy.hosts?.['us-assets.i.posthog.com']?.rules;
+  const ingest=policy.hosts?.['us.i.posthog.com']?.rules;
+  const telemetryTemplateOk=policy.caps?.telemetry===null
+    && Array.isArray(asset) && asset.length===1 && asset[0].methods?.join(',')==='GET' && asset[0].path==='^/static/array\\.js$' && asset[0].cap==='telemetry'
+    && Array.isArray(ingest) && ingest.length===1 && ingest[0].methods?.join(',')==='POST' && ingest[0].path==='^/(e|i/v0/e)/$' && ingest[0].cap==='telemetry';
+  const scopeOk=aht.length===15 && hum.length===6 && Object.keys(policy.hosts).sort().join(',')===expectedHosts.join(',') && telemetryTemplateOk;
   const missing=Object.entries(cfg).filter(([k,v])=>!k.startsWith('_')&&v===null).map(([k])=>k);
   return {schemaVersion:1,generatedAt:new Date().toISOString(),result:integrity.result==='PASS'&&scopeOk?'OFFLINE_PREFLIGHT_PASS':'OFFLINE_PREFLIGHT_FAIL',liveAdmission:'BLOCKED_SETUP',productionTrafficSent:0,networkCalls:0,browserLaunched:false,credentials:'NOT_INSPECTED: R0 only',codeManifestSha256:sha(fs.readFileSync(path.join(root,'CODE.sha256'))),integrity,acceptance:{ahtCount:aht.length,aht,humanCount:hum.length,human:hum,originalPacketPreserved:true},observedOfflineNode:process.version,selectedRuntime:{name:'Claude SpeakSharp R4',versionPolicy:cfg.runtimePolicy,observedR0Versions:'NOT_OBSERVED',qualification:'NOT_RUN'},unboundAdmissionFields:missing,remainingBlockers:[
     'Owner approved one R0 campaign plus preflight (Sentinel_4f104c59788481918f3678505a6c019d); exact reviewed-byte/window/host binding and R0 admission remain pending. No substitute execution.',

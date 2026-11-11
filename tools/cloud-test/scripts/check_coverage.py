@@ -79,7 +79,7 @@ def assess(req, catalog, results):
     if not binding["ok"]:
         reasons.append("the results are not bound to the deployed version that was tested (%s)" % binding["problems"][0])
     if mode != "full":
-        reasons.append("a partial run does not claim full coverage")
+        reasons.append("a smoke run does not claim full coverage" if mode == "smoke" else "a partial run does not claim full coverage")
     if len(rows) < len(cases):
         reasons.append("%d of %d journeys have no result" % (len(cases) - len(rows), len(cases)))
     if missing:
@@ -89,7 +89,7 @@ def assess(req, catalog, results):
     if executed_total != total and not reasons:
         reasons.append("%d of %d required rows executed" % (executed_total, total))
     full = not reasons and executed_total == total
-    out.update({"kind": "FULL" if full else ("FULL-INCOMPLETE (approved omissions)" if mode == "full" and applied and not missing else ("FULL-INCOMPLETE" if mode == "full" else "PARTIAL")), "fullLiveRun": full, "deployedVersionBinding": binding,
+    out.update({"kind": "FULL" if full else ("FULL-INCOMPLETE (approved omissions)" if mode == "full" and applied and not missing else ("FULL-INCOMPLETE" if mode == "full" else "SMOKE" if mode == "smoke" else "PARTIAL")), "fullLiveRun": full, "deployedVersionBinding": binding,
                 "coverageComplete": executed_total == total and not applied and not missing,
                 "rowsExecuted": executed_total, "reasons": reasons, "cases": per, "missing": missing, "approvedOmissionsApplied": applied, "unexpectedRows": unexpected,
                 "statement": "%d of %d required rows executed%s" % (executed_total, total, "; %d approved omission(s) remain visible as incomplete coverage" % len(applied) if applied else "")})

@@ -1,5 +1,152 @@
 {
   "schema": "speaksharp.cloud-test.feature-ledger.v1",
   "note": "Reviewed features: feature -> expected behaviour -> test coverage. Definitions only; status, evidence and deployed inclusion are DERIVED (derive_features.py, verify_release.py). A customer-facing change that is not a verified fix for a gap is allowed through THIS route when its feature has an approved review by a named reviewer with a reference, a stated expected behaviour, and test coverage (required rows in the assertion catalog, or new rows for a catalog version that exists). No feature is invented: the list is empty until the owner and reviewer add entries (see templates/feature-entry.template.json).",
-  "features": []
+  "features": [
+    {
+      "id": "FEAT-R5-OBJECTIVE-PUBLICATION",
+      "title": "Content-free Focus objective publication witness",
+      "area": "PG01",
+      "pr": "#1772",
+      "commit": null,
+      "review": {
+        "outcome": "approved",
+        "reviewedBy": "Sam (independent Codex source review)",
+        "reviewRef": "codex-source-review:0d1047f31d5ddde09a90081c613a92307df83682:FEAT-R5-OBJECTIVE-PUBLICATION",
+        "reviewedAtUtc": "2026-11-03T00:12:29Z"
+      },
+      "expectedBehaviour": {
+        "summary": "An explicitly enabled private test session can bind the owned terminal Focus status chain to its session without retaining transcript or objective text.",
+        "userVisible": false,
+        "criteria": "For AHT-02 and AHT-03, the enabled diagnostic exposes only ordered hashes and status counts from the owned successful Focus publication; normal sessions expose nothing, invalid or capacity-exhausted work publishes nothing, and the witness never delays save or finalization.",
+        "definedAtUtc": "2026-10-31T13:18:19Z",
+        "confirmedByOwner": true
+      },
+      "coverage": {
+        "route": "existing-rows",
+        "requirements": [
+          {"case": "AHT-02", "assertions": ["owner-bound", "focus-final", "focus-coverage-count"]},
+          {"case": "AHT-03", "assertions": ["owner-bound", "focus-final", "focus-coverage-count"]}
+        ],
+        "newRows": []
+      },
+      "rollout": {"flag": "__PRIVATE_OBJECTIVE_PUBLICATIONS_ENABLED__"}
+    },
+    {
+      "id": "FEAT-ACCEPTED-ATTEMPT-FAILURE-TELEMETRY",
+      "title": "Bind recording setup failures to the accepted attempt",
+      "area": "PG04",
+      "pr": "#1759",
+      "commit": "66328703bf47e865b730e229005411e78481d34c",
+      "review": {
+        "outcome": "approved",
+        "reviewedBy": "Combined Codex Code and Security reviews",
+        "reviewRef": "https://github.com/relativityE/speaksharp/pull/1759#issuecomment-6512806082",
+        "reviewedAtUtc": "2026-10-30T01:58:57.511087Z"
+      },
+      "expectedBehaviour": {
+        "summary": "A recording setup failure is diagnosed against the accepted journey and attempt rather than ambient later state.",
+        "userVisible": false,
+        "criteria": "Source controls bind an emitted setup diagnostic to the accepted attempt and refuse invalid or pre-acceptance identities. AHT-12 owner/press rows cover the normal journey boundary only; they do not independently prove server telemetry delivery.",
+        "definedAtUtc": "2026-10-30T01:32:25Z",
+        "confirmedByOwner": true
+      },
+      "coverage": {
+        "route": "existing-rows",
+        "verificationScope": "source-controls-plus-normal-journey-regression",
+        "diagnosticLimit": "Accepted-attempt telemetry delivery is not independently observed by these rows.",
+        "requirements": [
+          {"case": "AHT-12", "assertions": ["owner-bound", "press-bound-denial"]}
+        ],
+        "newRows": []
+      }
+    },
+    {
+      "id": "FEAT-OWNER-GOAL-UPDATE",
+      "title": "Update an existing owner's goal instead of inserting a duplicate",
+      "area": "PG02",
+      "pr": "#1767",
+      "commit": "ac5272dc23a4ed4fa134973016523f67a6f82e8b",
+      "review": {
+        "outcome": "approved",
+        "reviewedBy": "Combined Codex Code and Security reviews",
+        "reviewRef": "https://github.com/relativityE/speaksharp/pull/1767#issuecomment-6548021909",
+        "reviewedAtUtc": "2026-10-31T20:04:19.841314Z"
+      },
+      "expectedBehaviour": {
+        "summary": "Saving an edited goal updates the existing owner-scoped row without creating a second current goal.",
+        "userVisible": true,
+        "criteria": "A second save for the same authenticated owner's existing goal performs the owner-scoped update, preserves permission failures, and leaves one current goal for the next Focus session.",
+        "definedAtUtc": "2026-10-31T19:50:32Z",
+        "confirmedByOwner": true
+      },
+      "coverage": {
+        "route": "existing-rows",
+        "requirements": [
+          {"case": "AHT-02", "assertions": ["owner-bound", "focus-final", "saved-once"]}
+        ],
+        "newRows": [],
+        "verificationScope": "source-controls-plus-normal-journey-regression",
+        "diagnosticLimit": "The selected all-15 campaign proves the owner-bound Focus journey remains healthy; the two-save same-row goal update is source-tested but is not independently exercised by this approved live campaign."
+      }
+    },
+    {
+      "id": "FEAT-PCM-BOUNDARY-RECEIPTS",
+      "title": "Retain content-free PCM boundary receipts for transcription diagnosis",
+      "area": "PG01",
+      "pr": "#1771",
+      "commit": "8969998d27b4dd891c84243b35869be726639900",
+      "review": {
+        "outcome": "approved",
+        "reviewedBy": "Combined Codex Code and Security reviews",
+        "reviewRef": "https://github.com/relativityE/speaksharp/pull/1771#issuecomment-6561811698",
+        "reviewedAtUtc": "2026-11-01T18:07:57.181680Z"
+      },
+      "expectedBehaviour": {
+        "summary": "The private transcription path retains bounded PCM frame-boundary evidence without retaining speech content.",
+        "userVisible": false,
+        "criteria": "Reviewed source controls order content-free PCM boundary receipts and refuse post-closure overwrite. The AHT-02/03 Focus and no-cloud-STT rows cover normal transcription regression only; missing PCM diagnostics remain unverified rather than inheriting those PASS results.",
+        "definedAtUtc": "2026-11-01T18:06:20Z",
+        "confirmedByOwner": true
+      },
+      "coverage": {
+        "route": "existing-rows",
+        "verificationScope": "source-controls-plus-normal-journey-regression",
+        "diagnosticLimit": "PCM diagnostic receipt presence and integrity are not independently observed by these rows.",
+        "requirements": [
+          {"case": "AHT-02", "assertions": ["focus-live-durable", "no-cloud-stt"]},
+          {"case": "AHT-03", "assertions": ["focus-live-durable", "no-cloud-stt"]}
+        ],
+        "newRows": []
+      }
+    },
+    {
+      "id": "FEAT-REPLACEABLE-COACHING-ADAPTER",
+      "title": "Preserve Gemini coaching behind a replaceable provider adapter",
+      "area": "PG02",
+      "pr": "#1773",
+      "commit": "c32319f9121d4fef64dc48bb40fae5464dc6b65a",
+      "review": {
+        "outcome": "approved",
+        "reviewedBy": "Combined Codex Code and Security reviews",
+        "reviewRef": "https://github.com/relativityE/speaksharp/pull/1773#issuecomment-6586126300",
+        "reviewedAtUtc": "2026-11-02T20:00:36.148441Z"
+      },
+      "expectedBehaviour": {
+        "summary": "The coaching function resolves the incumbent Gemini implementation through a typed provider registry without changing the selected default.",
+        "userVisible": true,
+        "criteria": "With the existing configuration, saved Open Mic and Focus takes still request Gemini coaching through the registered adapter and return the same grounded two-part coaching contract; unselected model families are not activated.",
+        "definedAtUtc": "2026-11-02T19:37:02Z",
+        "confirmedByOwner": true
+      },
+      "coverage": {
+        "route": "existing-rows",
+        "requirements": [
+          {"case": "AHT-01", "assertions": ["grounded-coaching"]},
+          {"case": "AHT-02", "assertions": ["grounded-coaching"]},
+          {"case": "AHT-03", "assertions": ["grounded-coaching"]}
+        ],
+        "newRows": []
+      }
+    }
+  ]
 }

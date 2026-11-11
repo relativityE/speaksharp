@@ -96,6 +96,115 @@ class Pipeline(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0)
 
 
+class NightlyHistoryThroughTheRealPipeline(unittest.TestCase):
+    """G7 (Sam 1793576632.959179): the verified carried-forward history drives the REAL pipeline's derived summary and rendered report. A
+    row whose last comparable verdict is FAIL is reported as carried; once a later night PASSES it, the real outputs change."""
+    @classmethod
+    def setUpClass(cls):
+        prerequisite(os.system("git -C %s cat-file -e %s 2>/dev/null" % (REPO, TESTED)) == 0, "git history of the repository")
+
+    def all_pass_state(self, d):
+        """One retained night with every one of the 204 catalog rows PASS, under the current identities."""
+        import publish_latest_record as P
+        import select_baselines as SB
+        req = json.load(open(synthetic_history().request(REQ)))
+        catalog = J("config", "assertion-catalog.json")
+        widths = {cid: len(c["requiredAssertions"]) for cid, c in catalog["cases"].items()}
+        day = "2026-11-01T08:00:00Z"
+        rec = {"runId": "800", "attempt": 1, "sourceSha": "a" * 40, "testedSha": "b" * 40, "servedSha": "b" * 40, "campaignId": "nightly-all",
+               "coverage": "full", "coverageMode": "full", "assertionDepth": "full", "requestSha256": "1" * 64, "catalogSha256": "2" * 64, "startedUtc": "2026-11-01T03:00:00Z", "endedUtc": day,
+               "outcome": "passed", "cases": [{"caseId": cid, "result": "PASS", "rows": {"pass": w, "fail": 0, "notRun": 0}, "codes": []}
+                                              for cid, w in widths.items()], "codes": [],
+               "rowVerdicts": {cid: "P" * w for cid, w in widths.items()}, "comparability": SB.current_identities(req),
+               "evidence": {"planSha256": "7" * 64, "caseResultsSha256": "8" * 64}}
+        state = P.complete(P.begin(P.parse_body(""), "800", 1, "a" * 40, "2026-11-01T03:00:00Z"), rec)
+        path = os.path.join(d, "prior-state.json")
+        wjson(path, state)
+        return path
+
+    def prior_state(self, d, nights):
+        import publish_latest_record as P
+        import select_baselines as SB
+        h = synthetic_history()
+        req = json.load(open(h.request(REQ)))
+        current = SB.current_identities(req)
+        self.assertIsNotNone(current)
+        width = len(J("config", "assertion-catalog.json")["cases"]["AHT-05"]["requiredAssertions"])
+        state = P.parse_body("")
+        for i, first in enumerate(nights):
+            v = first + "P" * (width - 1)
+            ok = first == "P"
+            day = "2026-11-%02dT08:00:00Z" % (i + 1)
+            rec = {"runId": str(700 + i), "attempt": 1, "sourceSha": "a" * 40, "testedSha": "b" * 40, "servedSha": "b" * 40,
+                   "campaignId": "nightly-%d" % i, "coverage": "batch" if ok else "incomplete", "coverageMode": "partial", "assertionDepth": "full", "requestSha256": "1" * 64,
+                   "catalogSha256": "2" * 64, "startedUtc": day.replace("08:", "03:"), "endedUtc": day, "outcome": "passed" if ok else "failed",
+                   "cases": [{"caseId": "AHT-05", "result": "PASS" if ok else "FAIL",
+                              "rows": {"pass": v.count("P"), "fail": v.count("F"), "notRun": 0}, "codes": []}], "codes": [],
+                   "rowVerdicts": {"AHT-05": v}, "comparability": current,
+                   "evidence": {"planSha256": "7" * 64, "caseResultsSha256": "8" * 64}}
+            state = P.complete(P.begin(state, str(700 + i), 1, "a" * 40, day.replace("08:", "03:")), rec)
+        path = os.path.join(d, "prior-state.json")
+        wjson(path, state)
+        return path
+
+    def outputs(self, nights):
+        d = tempfile.mkdtemp(prefix="ct-nh-")
+        r, out = pipeline(["--prior-state", self.prior_state(d, nights)])
+        self.assertEqual(r.returncode, 0, r.stdout[-1500:] + r.stderr[-1500:])
+        summary = json.load(open(os.path.join(out, "summary.json")))["fields"]
+        html = open(os.path.join(out, "report", "REPORT.html"), encoding="utf-8").read()
+        return summary, html, json.load(open(os.path.join(out, "nightly-baselines.json")))
+
+    def test_a_retained_fail_is_carried_and_a_later_pass_changes_the_real_summary_and_report(self):
+        failing, html_f, baselines = self.outputs(["P", "F"])      # night 2 failed row 0 (a regression from night 1)
+        self.assertEqual(len(baselines["rows"]), 204)
+        self.assertEqual((failing["nightlyHistory"]["carriedFailRows"], failing["nightlyHistory"]["carriedFailCases"]), (1, ["AHT-05"]))
+        self.assertIn("1 comparable row(s) still FAIL", html_f)
+        fixed, html_p, _ = self.outputs(["P", "F", "P"])             # night 3 passed it: the FAIL is no longer carried
+        self.assertEqual((fixed["nightlyHistory"]["carriedFailRows"], fixed["nightlyHistory"]["carriedFailCases"]), (0, []))
+        self.assertIn("0 comparable row(s) still FAIL", html_p)
+        self.assertNotIn("Cases carrying a comparable FAIL", html_p)
+
+    def test_all_retained_rows_passing_without_a_fresh_full_run_is_limited_never_ready(self):
+        # RETURN 1793578066.007679: carried history never grants READY / PROCEED by itself; the real pipeline completes and the report validates.
+        d = tempfile.mkdtemp(prefix="ct-nh-all-")
+        r, out = pipeline(["--prior-state", self.all_pass_state(d)])
+        self.assertEqual(r.returncode, 0, r.stdout[-1500:] + r.stderr[-1500:])
+        summary = json.load(open(os.path.join(out, "summary.json")))["fields"]
+        gates = json.load(open(os.path.join(out, "gate-status.json")))
+        self.assertEqual(summary["nightlyHistory"]["comparableRows"], 204)
+        # the synthetic sealed history's gates are NO-GO (G1/G3/G5/G6 open): 204 passing retained rows lift nothing
+        self.assertEqual(gates["decision"], "NO-GO")
+        self.assertEqual((summary["status"], summary["recommendation"]), ("BLOCKED", "HOLD"))
+
+    def test_with_gates_go_and_no_fresh_full_run_the_headline_stays_limited(self):
+        # the GO case on the real derivation: the fresh-run LIMITED / PROCEED stands; carried history never promotes it to READY
+        import derive_summary as DS
+        f = {"status": "LIMITED", "recommendation": "PROCEED", "readiness": "Not a fresh full run.", "customerImpact": "x", "deployedSinceLastRun": "x",
+             "good": ["x"], "bad": ["x"], "unknown": ["none"], "blockers": ["none"], "spend": "x", "provenGapsClosed": [], "purpose": "x"}
+        nh = {"occurrences": 1, "sequence": 1, "comparableRows": 204, "rowsTotal": 204, "carriedFailRows": 0, "carriedFailCases": [],
+              "journeysWithoutLastKnownGood": []}
+        out = DS.nightly_headline(f, nh, {"decision": "GO"})
+        self.assertEqual((out["status"], out["recommendation"], out["readiness"]), ("LIMITED", "PROCEED", "Not a fresh full run."))
+        held = DS.nightly_headline(dict(f, status="BLOCKED", recommendation="HOLD", readiness="safety HOLD"), nh, {"decision": "GO"})
+        self.assertEqual((held["status"], held["recommendation"]), ("BLOCKED", "HOLD"))  # a safety HOLD is never overridden
+
+    def test_the_headline_never_contradicts_the_carried_nightly_outcome(self):
+        # RETURN 1793577431.476549: the headline is derived from the retained nightly evidence; the bootstrap is labelled historical.
+        failing, _, _ = self.outputs(["P", "F"])
+        self.assertEqual((failing["status"], failing["recommendation"]), ("BLOCKED", "FIX AND RETEST"))  # a retest stays the recommendation
+        self.assertIn("still FAIL", failing["customerImpact"])
+        self.assertIn("AHT-05", failing["customerImpact"] + " ".join(failing["bad"]))
+        self.assertIn("historical", failing["comparisonBasis"])
+        self.assertIn("customerImpact", failing["bootstrapHistorical"])
+        fixed, _, _ = self.outputs(["P", "F", "P"])
+        self.assertNotIn("still FAIL", fixed["customerImpact"])
+        self.assertNotIn("AHT-05", " ".join(fixed["bad"]))
+        self.assertNotEqual(fixed["recommendation"], "FIX AND RETEST")
+        for f in (failing, fixed):  # the headline and the carried-history outcome agree, whatever the bootstrap pair said
+            self.assertEqual(bool(f["nightlyHistory"]["carriedFailRows"]), "still FAIL" in f["customerImpact"])
+
+
 class ReportRefusals(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

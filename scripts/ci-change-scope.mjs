@@ -17,6 +17,10 @@ export const FULL_LANE_PATTERNS = [
     // CI / orchestration / tooling
     /^\.github\//,
     /^scripts\//,
+    // Executable Cloud-test harness code. Keep configuration, fixtures, seals and
+    // test sources outside this pattern; those artifacts cannot establish that a
+    // candidate contains substantive implementation by themselves.
+    /^tools\/cloud-test\/(?:harness-adapter|harness\/bundle\/harness|report|scripts)\/(?!fixtures?\/)(?!.*\/fixtures?\/).*\.(?:cjs|mjs|js|ts|py|sh)$/,
     // dependency + workspace manifests (root AND package-level)
     /(^|\/)package\.json$/,
     /(^|\/)pnpm-lock\.yaml$/,

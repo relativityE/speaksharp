@@ -1,0 +1,33 @@
+{
+  "schema": "speaksharp.cloud-test.prior-run-verification.v1",
+  "producers": [
+    "verify_receipts.py",
+    "verify_run_binding.py"
+  ],
+  "runs": [
+    {
+      "label": "R4C",
+      "receiptsManifestSha256": "b25e8a2f9d67d592e6dd3951970ff4e7732746d158660ddb161cf0846df7b6b6",
+      "receiptsVerificationSha256": "bcbca42a00f5c3ddb16ebcf8934e3307db20b0074be0c6e6f970f1b9bcbab20f",
+      "receiptCount": 289,
+      "errors": [],
+      "binding": {
+        "sha256": "d19818c1a05770f5e941a81b0f679f3dd601709556c8b578f878ed5ccf47484e",
+        "passed": 77,
+        "failed": 0
+      }
+    },
+    {
+      "label": "R5",
+      "receiptsManifestSha256": "b322b2d3170b1be8e6de90c2082e5c95057add420bc1606a0cfeb9fec7cdecf6",
+      "receiptsVerificationSha256": "ec94422ce5ce72f8ba63a5bf599e42c7e29a923f1a49d019cdae92a254829abc",
+      "receiptCount": 290,
+      "errors": [],
+      "binding": {
+        "sha256": "95300c85e53c6519fb618ab82318e016feb9a19f4b969634b1c9d53ff21246d0",
+        "passed": 72,
+        "failed": 0
+      }
+    }
+  ]
+}

@@ -97,6 +97,8 @@ declare global {
         __NATIVE_BROWSER_TRACE__?: Array<Record<string, unknown>>;
         __SS_TRANSCRIPT_TRACE__?: Array<Record<string, unknown>>;
         __SS_TRANSCRIPT_TRACE_SEQ__?: number;
+        __PRIVATE_OBJECTIVE_PUBLICATIONS_ENABLED__?: boolean;
+        __PRIVATE_OBJECTIVE_PUBLICATIONS__?: { read: () => Promise<Array<Record<string, unknown>>> };
     }
 }
 
@@ -132,6 +134,93 @@ const pushTranscriptLifecycleTrace = (stage: string, payload: Record<string, unk
     if (window.__SS_TRANSCRIPT_TRACE__.length > 1000) {
         window.__SS_TRANSCRIPT_TRACE__.shift();
     }
+};
+
+type ObjectivePublicationStatus = 'covered' | 'partial' | 'missing';
+type ObjectivePublicationWitness = {
+    schema: 'speaksharp.objective-publication.v1';
+    sequence: number;
+    createdAtMs: number;
+    sessionSha256: string;
+    statusChainSha256: string;
+    pointCount: number;
+    coveredCount: number;
+    partialCount: number;
+    missingCount: number;
+};
+const objectivePublicationWitnesses: ObjectivePublicationWitness[] = [];
+type PendingObjectivePublicationWitness = { sequence: number; active: boolean; job: Promise<void> };
+const pendingObjectivePublicationWitnesses = new Map<number, PendingObjectivePublicationWitness>();
+const OBJECTIVE_PUBLICATION_PENDING_LIMIT = 2;
+const OBJECTIVE_PUBLICATION_READ_DEADLINE_MS = 100;
+let objectivePublicationSequence = 0;
+const objectiveWitnessSha256 = async (value: string): Promise<string> => {
+    const bytes = new TextEncoder().encode(value);
+    const digest = await crypto.subtle.digest('SHA-256', bytes);
+    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+};
+const recordObjectivePublicationWitness = (
+    sessionId: string,
+    coverage: Array<{ status: ObjectivePublicationStatus }>,
+): void => {
+    if (typeof window === 'undefined' || window.__PRIVATE_OBJECTIVE_PUBLICATIONS_ENABLED__ !== true) return;
+    const statuses = coverage.map((row) => row.status);
+    if (!sessionId || !statuses.length || statuses.some((status) => !['covered', 'partial', 'missing'].includes(status))) return;
+    window.__PRIVATE_OBJECTIVE_PUBLICATIONS__ = {
+        read: async () => {
+            await Promise.race([
+                Promise.all([...pendingObjectivePublicationWitnesses.values()].map((entry) => entry.job)),
+                new Promise<void>((resolve) => setTimeout(resolve, OBJECTIVE_PUBLICATION_READ_DEADLINE_MS)),
+            ]);
+            return objectivePublicationWitnesses
+                .slice()
+                .sort((a, b) => a.sequence - b.sequence)
+                .map((row) => ({ ...row }));
+        },
+    };
+    // Promise metadata is not cancellation. Count every unresolved digest until it actually settles;
+    // when the bound is full, invalidate the oldest result but start NO additional hash work.
+    if (pendingObjectivePublicationWitnesses.size >= OBJECTIVE_PUBLICATION_PENDING_LIMIT) {
+        const oldestActive = [...pendingObjectivePublicationWitnesses.values()]
+            .filter((entry) => entry.active)
+            .sort((a, b) => a.sequence - b.sequence)[0];
+        if (oldestActive) oldestActive.active = false;
+        pushNativeRuntimeTrace('controller_objective_publication_witness_unavailable', { reason: 'hash_capacity' });
+        return;
+    }
+    // Publication identity is assigned synchronously at the owned store write. Hash completion may
+    // arrive out of order; it must never redefine publication order or the observed publication time.
+    const sequence = ++objectivePublicationSequence;
+    const createdAtMs = performance.now();
+    const entry: PendingObjectivePublicationWitness = { sequence, active: true, job: Promise.resolve() };
+    const job = Promise.all([
+        objectiveWitnessSha256(sessionId),
+        objectiveWitnessSha256(JSON.stringify(['speaksharp.objective-publication.statuses.v1', statuses])),
+    ]).then(([sessionSha256, statusChainSha256]) => {
+        if (!entry.active) return;
+        const witness: ObjectivePublicationWitness = {
+            schema: 'speaksharp.objective-publication.v1',
+            sequence,
+            createdAtMs,
+            sessionSha256,
+            statusChainSha256,
+            pointCount: statuses.length,
+            coveredCount: statuses.filter((status) => status === 'covered').length,
+            partialCount: statuses.filter((status) => status === 'partial').length,
+            missingCount: statuses.filter((status) => status === 'missing').length,
+        };
+        objectivePublicationWitnesses.push(witness);
+        objectivePublicationWitnesses.sort((a, b) => a.sequence - b.sequence);
+        while (objectivePublicationWitnesses.length > 2) objectivePublicationWitnesses.shift();
+    }).catch(() => {
+        pushNativeRuntimeTrace('controller_objective_publication_witness_unavailable');
+    }).finally(() => {
+        if (pendingObjectivePublicationWitnesses.get(sequence) === entry) {
+            pendingObjectivePublicationWitnesses.delete(sequence);
+        }
+    });
+    entry.job = job;
+    pendingObjectivePublicationWitnesses.set(sequence, entry);
 };
 
 const getVisibleTranscriptText = (transcript: { transcript: string; partial: string }): string =>
@@ -4595,7 +4684,10 @@ export class SpeechRuntimeController {
                             body: {
                                 op: 'register',
                                 recordingKey: recordingId,
-                                expectedModel: mode === 'private' ? resolvePrivateModel() : null,
+                                // Bind this take to the service already warmed and captured above. The
+                                // config default can differ from an internal comparison selection.
+                                // Missing metadata stays unattributed; never substitute the Whisper default.
+                                expectedModel: service.getMetadata?.()?.modelName?.trim() || null,
                             },
                         });
                         if (reg?.error) logger.warn({ err: reg.error, recordingId }, '[controller] pre-recording attribution intent failed — session will be unattributed');
@@ -5400,11 +5492,13 @@ export class SpeechRuntimeController {
                 this.releaseFinalizingIfOwner('superseded_before_stop', stopAuthority.lifecycleVersion, stopAuthority);
                 return null;
             }
+            // Work point 2, D5: declared outside the try so the catch knows the save already succeeded (a failure
+            // after it, such as the owner's destroy() rejecting, must not report the transcript as not saved).
+            let sessionCompleted = false;
             try {
                 this.stopHeartbeat();
                 this.stopWatchdog();
                 const service = this.service;
-                let sessionCompleted = false;
                 if (!service) {
                     await this.transition('READY', undefined, token);
                     this.releaseFinalizingIfOwner('no_service', stopAuthority.lifecycleVersion, stopAuthority);
@@ -6505,22 +6599,42 @@ export class SpeechRuntimeController {
                  */
                 await this.transition('FAILED', err as Error, terminalTuple !== null ? undefined : token);
                 this.releaseFinalizingIfOwner('stop_failed', stopAuthority.lifecycleVersion, stopAuthority);
-                if (err instanceof FinalizationTimeoutError) {
+                if (sessionCompleted) {
+                    // Work point 2, D5: the session row was already completed with its transcript; only the teardown
+                    // after it failed. The server refuses to re-complete a completed row with a different status, so
+                    // the `failed` mark above cannot undo the save.
+                    useSessionStore.getState().setSTTStatus({
+                        type: 'warning',
+                        message: 'Your session was saved.',
+                        detail: 'The recorder did not shut down cleanly afterwards.',
+                    });
+                } else if (err instanceof FinalizationTimeoutError) {
                     // #1089: name the real failure instead of hanging on Finalizing… forever. The control
-                    // is usable again (FAILED clears the finalizing latch), and the transcript captured up
-                    // to this point is kept as a recovery draft when there is one.
+                    // is usable again (FAILED clears the finalizing latch).
+                    // Work point 2, D1: say only what is true. The transcript working memory is purged below
+                    // (#1306) and the recovery draft is content-free, so no transcript text is kept here.
                     useSessionStore.getState().setSTTStatus({
                         type: 'error',
                         message: 'We could not finish processing this recording.',
                         detail: hasRecoveryDraftSignal
-                            ? 'What we transcribed so far was kept in this browser. You can record again.'
+                            ? 'The transcript from this recording was not saved. You can record again.'
                             : 'You can record again.',
                     });
-                } else if (hasRecoveryDraftSignal) {
+                } else if (hasRecoveryDraftSignal && this.holdsRecoverableSave(this.sessionId)) {
+                    // A save really failed: a finalized draft and Retry Save exist for this session.
                     useSessionStore.getState().setSTTStatus({
                         type: 'warning',
                         message: 'Session was not saved yet.',
                         detail: 'A local recovery draft was kept in this browser after a save issue.',
+                    });
+                } else if (hasRecoveryDraftSignal) {
+                    // Work point 2, D5: the stop itself failed (for example, the final decode threw). No save was
+                    // attempted and none will follow, the recording is unlocked, and the transcript is purged below.
+                    // Saying "not saved yet … after a save issue" promised a save that will never come.
+                    useSessionStore.getState().setSTTStatus({
+                        type: 'error',
+                        message: 'We could not finish processing this recording.',
+                        detail: 'The transcript from this recording was not saved. You can record again.',
                     });
                 }
                 // #1306 P1: the FAILED terminal is also a terminal stop — transcript-derived processing is done
@@ -6780,6 +6894,9 @@ export class SpeechRuntimeController {
                     useSessionStore.getState().setObjectiveCoverageResult(
                         objResult.coverage.map((c) => ({ id: c.briefPointId, label: c.point, status: c.status })),
                     );
+                    // R5 diagnostic: content-free proof that this owned take published this exact
+                    // terminal status chain. Disabled in normal sessions and never delays save/finalization.
+                    recordObjectivePublicationWitness(sessionId, objResult.coverage);
                     // #1258 item 5 (PM 6216341052) — `evaluation_complete` is produced HERE: the take's successful, settled
                     // Focus evaluation, still owned by this take (`canPublishShared`). Stop awaits this before it resolves,
                     // and the hook marks `session_saved` only after Stop resolves, so the chain order holds without

@@ -3,8 +3,8 @@
 const fs=require('fs'),path=require('path'),crypto=require('crypto');
 // Packet under test: the vendored harness, or a temp copy named by CT_PROOF_PACKET. The harness bytes are never written.
 const bundle=(process.env.CT_PROOF_PACKET||path.resolve(__dirname,'..','..','..','harness'))+'/bundle';const runner=require(bundle+'/harness/campaign-runner.cjs');
-const planFile=process.argv[2];const plan=JSON.parse(fs.readFileSync(planFile,'utf8'));
 const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
+const planFile=process.argv[2],planBytes=fs.readFileSync(planFile),plan={...JSON.parse(planBytes),consumedPlanSha256:sha(planBytes)};
 const out={};
 (async()=>{
  const io=runner.createAdapter(plan,bundle,{executeR0:false});

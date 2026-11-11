@@ -8,7 +8,7 @@ import { canonicalPath, runtimeIdentity } from '../efficacy-reporter.mjs';
 import {HELPER_CONTRACTS,registeredHelper,helperApplicability, HELPER_CONFIG, validateHelperCoverage} from './helperExecutionEvidence.mjs';
 import {registeredSourceContract,sourceContractApplicability,SOURCE_CONSUMER,validateSourceContractWitness} from './sourceContractEvidence.mjs';
 import {validatePlaywrightExecution} from './playwrightExecutionEvidence.mjs';
-import {nativeTestRoute,validateNativeReceipt,SQL_CONSUMER,SQL_INPUTS,sqlSourceBinding,validateSqlWitness,
+import {nativeTestRoute,nativeHelper,validateNativeReceipt,SQL_CONTRACTS,sqlContract,sqlSourceBinding,validateSqlWitness,
   NATIVE_BATCH_SIZE,NATIVE_MAX_BATCHES,reconcileExecutionBatches} from './nativeTestExecutionEvidence.mjs';
 import {pythonTestRoute,validatePythonReceipt} from './pythonTestExecutionEvidence.mjs';
 
@@ -262,8 +262,10 @@ export function changedEvidencePaths(root, base) {
   // Deletions still affect raw change/pilot applicability, but cannot be executed.
   // lstat retains malformed existing entries (including dangling links) for refusal.
   // Python unittest modules are named test_*.py; outside tests/ they were silently omitted, not reported UNCOVERED.
-  return changedPaths(root,base).filter(file=>/^(tests\/|frontend\/tests\/|backend\/supabase\/functions\/.*(?:test|fixture))|\/(?:__tests__|__mocks__|fixtures|mocks)\/|\.(?:test|spec)\.|\.sql$|(?:^|\/)test_[^/]+\.py$/.test(file)
-    && fs.lstatSync(path.join(root,file),{throwIfNoEntry:false})!==undefined);
+  // A registered native helper is evidence input by registration, wherever it lives: without this a change to
+  // tools/cloud-test/scripts/prerequisite_preflight.cjs alone never reached its node:test consumer (#1787).
+  return changedPaths(root,base).filter(file=>(/^(tests\/|frontend\/tests\/|backend\/supabase\/functions\/.*(?:test|fixture))|\/(?:__tests__|__mocks__|fixtures|mocks)\/|\.(?:test|spec)\.|\.sql$|(?:^|\/)test_[^/]+\.py$/.test(file)
+    || nativeHelper(file)!==undefined) && fs.lstatSync(path.join(root,file),{throwIfNoEntry:false})!==undefined);
 }
 
 export function executionRequiredFiles(root,base,kind='changed-evidence') {
@@ -279,6 +281,15 @@ export function unavailableExecutionInputs(root,files) {
     return route?.applicable===false?[{file,reason:route.unavailableReason}]:[];
   });
 }
+
+// The default remains a hard 60 s fail-closed ceiling. This one registered contract contains
+// 87 end-to-end child-process controls and took 82,685 ms on hosted run 41725470948; give only
+// that exact file a measured, bounded ceiling instead of weakening the lane globally.
+const VITEST_EXECUTION_TIMEOUT_OVERRIDES = Object.freeze({
+  'tests/unit/telemetryReadbackQualifierHarness1539.test.ts': 100_000,
+});
+export const vitestExecutionTimeoutMs = testFile => VITEST_EXECUTION_TIMEOUT_OVERRIDES[testFile] ?? 60_000;
+
 export function selectExecutionContracts(root,evidenceFiles,{helpersOnly=false}={}) {
   const selected=(helpersOnly?[]:evidenceFiles
     .filter(file=>['vitest','vitest-fixture'].includes(executionRoute(file,root)?.runner) && !TEST_EFFICACY_CONTRACTS.some(c=>c.testFile===file))
@@ -287,11 +298,12 @@ export function selectExecutionContracts(root,evidenceFiles,{helpersOnly=false}=
     .concat(HELPER_CONTRACTS.filter(contract=>evidenceFiles.includes(contract.helperFile)
       && helperApplicability(root,contract.helperFile).supported)
       .map(contract=>({...contract,helper:true})));
-  const sqlFiles=helpersOnly?[]:evidenceFiles.filter(file=>SQL_INPUTS.includes(file));
-  if(sqlFiles.length) {
-    const ordinary=selected.find(item=>item.testFile===SQL_CONSUMER&&!item.helper);
+  for(const contract of SQL_CONTRACTS) {
+    const sqlFiles=helpersOnly?[]:evidenceFiles.filter(file=>contract.files.includes(file));
+    if(!sqlFiles.length)continue;
+    const ordinary=selected.find(item=>item.testFile===contract.consumer&&!item.helper);
     if(ordinary)ordinary.sqlFiles=sqlFiles;
-    else selected.push({testFile:SQL_CONSUMER,sqlFiles});
+    else selected.push({testFile:contract.consumer,sqlFiles});
   }
   const sourceFiles=helpersOnly?[]:evidenceFiles.filter(file=>{
     const route=executionRoute(file,root);return route?.runner==='vitest-source-contract' && route.applicable;
@@ -403,6 +415,7 @@ export function validateVitestExecution(receipt, expected, root) {
       || binding.testFile!==path.join(binding.cwd,testFile)
       || binding.inputSha256!==inputSha256 || phase.inputSha256!==inputSha256
       || binding.repoLockSha256!==hash(fs.readFileSync(path.join(root,'pnpm-lock.yaml')))
+      || binding.timeoutMs!==vitestExecutionTimeoutMs(testFile)
       || result.testSha256!==hash(fs.readFileSync(path.join(root,testFile)))
       || JSON.stringify(binding.runtime)!==JSON.stringify(runtime)) throw new Error('Wrong execution phase/source/runtime identity');
     assertProvenance(binding.provenance,expected);
@@ -426,10 +439,10 @@ export function validateVitestExecution(receipt, expected, root) {
       for(const file of sourceFiles) files.add(file);
     } else if(binding.sourceContract || phase.sourceContractWitness) throw new Error('Unexpected source contract phase');
     if(sqlFiles) {
-      if(helper||fixture||sourceFiles||testFile!==SQL_CONSUMER||!Array.isArray(sqlFiles)||!sqlFiles.length
-        ||new Set(sqlFiles).size!==sqlFiles.length||sqlFiles.some(file=>!SQL_INPUTS.includes(file)||!changedEvidencePaths(root,receipt.base).includes(file))
+      if(helper||fixture||sourceFiles||!Array.isArray(sqlFiles)||!sqlFiles.length
+        ||new Set(sqlFiles).size!==sqlFiles.length||sqlFiles.some(file=>sqlContract(file)?.consumer!==testFile||!changedEvidencePaths(root,receipt.base).includes(file))
         ||JSON.stringify(binding.sql?.files)!==JSON.stringify(sqlFiles)
-        ||JSON.stringify(binding.sql?.sourceBinding)!==JSON.stringify(sqlSourceBinding(root))
+        ||JSON.stringify(binding.sql?.sourceBinding)!==JSON.stringify(sqlSourceBinding(root,testFile))
         ||binding.sql?.witnessFile!==path.join(binding.cwd,`.sql-${binding.phaseId}.json`))throw new Error('Wrong SQL fixture source/phase binding');
       validateSqlWitness(phase.sqlWitness,binding,root);
       for(const file of sqlFiles)files.add(file);
@@ -498,7 +511,7 @@ export function executionCoverage(files, {root,expected,pilot,execution,native,p
       claim:file===proven?'registered analytics-truth faults only':pythonFiles.has(file)?'actual Python unittest collection and execution only; not browser/database/live acceptance':nativeFiles.has(file)?route.claim??'actual native test collection and execution only; not database/live acceptance':browser.has(file)?'ordinary CI shard collection and execution only; not live acceptance':executed.has(file)
         ?registeredSourceContract(file)?'fault-sensitive wiring/fixture contract only; live test body not executed'
           :registeredHelper(file)?'registered source-mapped helper callables executed; not journey acceptance'
-          :SQL_INPUTS.includes(file)?'actual SQL consumed in PGlite fixture; native database NOT RUN':registeredFixture(file)?'pinned fixture consumed by its executed workflow control; not journey acceptance':'collection and execution only':null};
+          :sqlContract(file)?'actual SQL consumed in PGlite fixture; native database NOT RUN':registeredFixture(file)?'pinned fixture consumed by its executed workflow control; not journey acceptance':'collection and execution only':null};
   });
   return {scope:'changed tests and fixtures; not a product requirement inventory',
     pilot:{required,status:proven?'EXECUTED':required?'NOT RUN':'NOT APPLICABLE'},

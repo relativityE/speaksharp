@@ -20,11 +20,17 @@ concurrency:
 
 jobs:
   release-binding:
-    name: verify last released production identity
+    name: read the release production serves
     runs-on: ubuntu-latest
     timeout-minutes: 2
+    # Read-only: the compare call below needs only repository contents.
+    permissions:
+      contents: read
     outputs:
       release_sha: ${{ steps.served.outputs.release_sha }}
+      # Which HOLD it is (production-unreadable | served-sha-invalid | served-not-on-main), so canary-result can name it.
+      reason: ${{ steps.served.outputs.reason }}
+      observed_sha: ${{ steps.served.outputs.observed_sha }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -32,14 +38,22 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
+      # The canary tests whatever production serves at run time, read from window.__APP_RELEASE__ on the live page.
+      # No hand-maintained variable is involved. The page is public, so the SHA is accepted only when GitHub
+      # confirms it is a commit on main; the password-using jobs below check out nothing else.
       - id: served
-        name: Require the separately controlled last-served SHA to match production
+        name: Read the served release from production and require it to be a commit on main
         env:
-          EXPECTED_RELEASE_SHA: ${{ vars.PRODUCTION_RELEASE_SHA }}
-        run: node scripts/production-release-policy.mjs served
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/production-release-policy.mjs discover
 
   migration-readiness:
     needs: release-binding
+    # The database password is only ever handed to this job on protected main, inside the protected
+    # production-db environment that every other password-using job runs in. A workflow_dispatch from another
+    # branch runs that branch's copy of this file, so without both bindings a pushed branch could read it.
+    if: ${{ github.ref == 'refs/heads/main' }}
+    environment: production-db
     name: read-only runtime migration readiness
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -50,6 +64,10 @@ jobs:
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_PROJECT_ID: ${{ vars.SUPABASE_PROJECT_ID }}
+      # The selected injection path #1738 left open: the guard below refuses without it, so every canary that
+      # got past the release binding would stop here. Read-only use (`migration list`); the guard still fails
+      # closed when the secret is not visible to this job.
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -259,6 +277,8 @@ jobs:
       - name: Require truthful terminal state
         env:
           BINDING_RESULT: ${{ needs.release-binding.result }}
+          BINDING_REASON: ${{ needs.release-binding.outputs.reason }}
+          OBSERVED_SHA: ${{ needs.release-binding.outputs.observed_sha }}
           READINESS_RESULT: ${{ needs.migration-readiness.result }}
           MIGRATION_READY: ${{ needs.migration-readiness.outputs.ready }}
           PRODUCT_LANES_RESULT: ${{ needs.canary-check.result }}
@@ -269,8 +289,24 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$BINDING_RESULT" != 'success' ]; then
-            echo '## HOLD — last-served release binding missing, stale or unverified; NO product qualification ran' >> "$GITHUB_STEP_SUMMARY"
-            echo '::error::CANARY HELD — reconcile PRODUCTION_RELEASE_SHA with the verified served release.'
+            # Name WHICH hold it is, so a hold is never misread as a product failure.
+            case "${BINDING_REASON:-}" in
+              production-unreadable)
+                why='the release production serves could not be read'
+                todo='Check that the production site is up and carries exactly one window.__APP_RELEASE__ marker.' ;;
+              served-sha-invalid)
+                why='production carries a window.__APP_RELEASE__ value that is not a full 40-character SHA'
+                todo='Check the production build: it must stamp the full lowercase commit SHA it was built from.' ;;
+              served-not-on-main)
+                why="production serves ${OBSERVED_SHA:-an unknown release}, which GitHub could not confirm is a commit on main"
+                todo='Investigate what production serves: only a release of a commit on main may be canaried.' ;;
+              *)
+                why='the release binding job did not report a reason'
+                todo='Open the release-binding job log.' ;;
+            esac
+            echo "## HOLD — served release binding: $why; NO product qualification ran" >> "$GITHUB_STEP_SUMMARY"
+            echo "- $todo" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::CANARY HELD — $why. $todo"
             exit 1
           fi
           if [ "$READINESS_RESULT" != 'success' ]; then

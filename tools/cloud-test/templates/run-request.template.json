@@ -45,7 +45,8 @@
       "needsCaptureDevice": true,
       "plannedRequests": 96,
       "gate": null,
-      "reason": "the microphone-denial path with the capture device bound; measured 96 requests in both R4C and R5"
+      "reason": "the microphone-denial path with the capture device bound; measured 96 requests in both R4C and R5",
+      "startPressCap": 1
     }
   ],
   "estimate": {
@@ -72,6 +73,9 @@
     "paidActionsUsd": 0,
     "guardCaps": {
       "coaching": 0
+    },
+    "startPressCaps": {
+      "AHT-12": 1
     }
   },
   "approvedLimits": {
@@ -79,7 +83,8 @@
     "identityCap": null,
     "runCapRequests": null,
     "approvalRef": null,
-    "approvedBy": null
+    "approvedBy": null,
+    "startPressCaps": null
   },
   "window": {
     "startUtc": null,
@@ -97,10 +102,10 @@
     }
   },
   "harness": {
-    "codeManifestSha256": "7dae348f5edd30aba633b0e68627cb4de3a164558602586f3883bfabda3e48d8",
-    "packetManifestSha256": "d636cc261a59832abfc5d81dce9c155867355542973b064086eccea45c9a8d6d",
+    "codeManifestSha256": "7701a6e8046ed28839734764a9b41e9f2dbcbf6c857bb1c6f2abd725f5b73a6f",
+    "packetManifestSha256": "383d2f48ec60cceb2c8b91517d04d48011d26dfb5ba4c8df859bac960276b09d",
     "ownerApprovalRef": null,
-    "offlineProofFile": "config/proofs/offline-proof-7dae348f.json"
+    "offlineProofFile": "config/proofs/offline-proof-7701a6e8.json"
   },
   "priorRuns": [
     {

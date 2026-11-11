@@ -1,6 +1,7 @@
 'use strict';
 // SOURCE-DERIVED, TARGET-UNBOUND. No live claim. See README.md and contracts.json.
 // Never import native Playwright test fixtures or the repository's admin-bearing RWT helpers.
+const crypto=require('node:crypto');
 const ui=require('./browser-actions.cjs');
 const readback=require('./browser-readback.cjs');
 const observer=require('./browser-observers.cjs');
@@ -16,8 +17,10 @@ const navigation=require('./navigation-controls.cjs');
 const saveFault=require('./save-fault-binding.cjs');
 const progressNumeric=require('./progress-numeric.cjs');
 const oracleSource=require('./oracles/index.cjs');
+const {createOwnerDb,rows:ownerRows}=require('./oracles/owner-query.cjs');
 const finiteDenominator=require('./finite-aht-denominator.json');
-const SOURCE_SHA='66328703bf47e865b730e229005411e78481d34c';
+const smokeTiming=require('./oracles/pure/smokeTiming.cjs');
+const SOURCE_SHA='5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2';
 const SHA=/^[0-9a-f]{64}$/;
 const CONTRACTS={
  'AHT-01':{rows:['fresh-first-session','saved-once','grounded-coaching','review-reopen','pdf-owner-take','same-target-repeat'],oracles:['coaching','pdfOwnerTake','sameTarget'],takes:2},
@@ -49,7 +52,7 @@ CONTRACTS['AHT-01'].rows.push(...presentation.OPEN_ROWS);
 for(const id of ['AHT-02','AHT-03'])CONTRACTS[id].rows.push(...presentation.FOCUS_ROWS);
 // Full AHT12 cold recovery: denied Start, explicit setup Retry, then a separate recording Start.
 // This strengthens preflight refusal for an insufficient approved cap; it never raises that cap.
-const START_PRESS_MINIMUM=[4,7,4,2,2,2,2,0,3,3,4,3,2,2,0];
+const START_PRESS_MINIMUM=[4,7,4,2,2,2,2,0,3,3,4,3,3,3,0];
 for(const [i,c]of Object.values(CONTRACTS).entries()){c.startPresses=START_PRESS_MINIMUM[i];c.rows=['owner-bound',...c.rows,'start-press-budget','no-cloud-stt','owned-pages-closed'];}
 CONTRACTS['AHT-09'].rows.push('navigation-ready');
 CONTRACTS['AHT-15'].rows.push('return-entry-mic-off','deep-link-exact-return','deep-link-rendered-own-detail','deep-link-mic-off','return-signed-out');
@@ -59,15 +62,113 @@ const BREADTH_NEEDS=Object.freeze({'AHT-02':{takes:1,startPresses:1},'AHT-03':{t
 // Minimal sample (owner direction, fixed budget): every case still runs, each as a small signal. Retained rows keep their original oracles; everything beyond the cut is recorded
 // NOT RUN (omittedBy:'minimal-sample'), so a cut case is incomplete and can never be PASS. AHT-01 keeps ONE small paired comparison (first take + same-target repeat).
 const MINIMAL_NEEDS=Object.freeze({'AHT-01':{takes:2,startPresses:2},'AHT-02':{takes:1,startPresses:1},'AHT-03':{takes:1,startPresses:1},'AHT-04':{takes:0,startPresses:1},'AHT-05':{takes:1,startPresses:1},'AHT-06':{takes:1,startPresses:1},'AHT-07':{takes:1,startPresses:1},'AHT-08':{takes:0,startPresses:0},'AHT-09':{takes:1,startPresses:1},'AHT-10':{takes:1,startPresses:1},'AHT-11':{takes:1,startPresses:3},'AHT-12':{takes:0,startPresses:1},'AHT-13':{takes:0,startPresses:1},'AHT-14':{takes:0,startPresses:1},'AHT-15':{takes:0,startPresses:0}});
+const SMOKE_COMMON=['owner-bound','start-press-budget','no-cloud-stt','owned-pages-closed'];
+const SMOKE_ROWS=Object.freeze({
+ 'AHT-01':['fresh-first-session','saved-once','open-mic-coaching-length','open-mic-coaching-distinct','open-mic-review-presentation','grounded-coaching','review-reopen','pdf-owner-take','analytics-repeat-opens-product','same-target-repeat',progressNumeric.ROW],
+ // The one-take smoke diagnoses the live focus rail and save/reopen path. The
+ // grounded two-take comparison remains mandatory in full-depth acceptance;
+ // it is deliberately absent from this distinct smoke denominator.
+ 'AHT-02':['focus-pace-guide','focus-rail-before','focus-rail-legend','focus-pending-labelled','focus-next-point-marked','focus-no-red-before-stop','smoke-focus-window','saved-once','review-reopen'],
+ 'AHT-03':['focus-pace-guide','focus-rail-before','focus-rail-legend','focus-pending-labelled','focus-next-point-marked','focus-no-red-before-stop','smoke-focus-window','saved-once','review-reopen'],
+ 'AHT-04':['cold-pending-observed','pending-leave-no-mic','pending-leave-no-session','return-no-resume'],
+ 'AHT-05':['fault-exercised','recovery-truthful','retry-saved-once','completion-attempts'],
+ 'AHT-06':['fault-exercised','recovery-truthful','retry-saved-once','completion-attempts'],
+ 'AHT-07':['feedback-readback-preflight','fresh-acknowledgment','feedback-stored-once','received-feedback-proof'],
+ 'AHT-08':['feedback-readback-preflight','fresh-acknowledgment','feedback-stored-once','no-session-association','no-coaching-association','received-feedback-proof'],
+ 'AHT-09':['recording-before-leave','leave-released','navigation-ready','return-no-resume','recovery-truthful','left-take-saved-once'],
+ 'AHT-10':['recording-before-leave','leave-released','return-no-resume','recovery-truthful'],
+ 'AHT-11':['same-browser-refused','independent-context-refused'],
+ 'AHT-12':['press-bound-denial','denial-truthful-no-mic'],
+ 'AHT-13':['download-fault-exercised','download-failure-truthful'],
+ 'AHT-14':['download-fault-exercised','download-failure-truthful'],
+ 'AHT-15':CONTRACTS['AHT-15'].rows.filter(id=>!SMOKE_COMMON.includes(id))
+});
+const SMOKE_CONTRACTS=Object.freeze(Object.fromEntries(Object.entries(CONTRACTS).map(([id,contract])=>[id,{...contract,rows:[SMOKE_COMMON[0],...SMOKE_ROWS[id],...SMOKE_COMMON.slice(1)],takes:MINIMAL_NEEDS[id].takes,startPresses:MINIMAL_NEEDS[id].startPresses,unimplementedRequiredAssertions:[]}])));
 // r14: a case that presses Start needs a capture device. R5 launched AHT-04/12/13/14 with no fake capture device (media-less launch: takes 0), so the Private
 // engine setup ended in an error before any model request and AHT-12 could never obtain a NotAllowedError. Pressing Start therefore binds media even when no take is recorded.
 const requiresCaptureDevice=(caseId,c)=>needs(caseId,c).startPresses>0;
-const needs=(caseId,c)=>c?.sampleMode==='minimal'&&MINIMAL_NEEDS[caseId]?MINIMAL_NEEDS[caseId]:c?.sampleMode==='breadth'&&BREADTH_NEEDS[caseId]?BREADTH_NEEDS[caseId]:{takes:CONTRACTS[caseId].takes,startPresses:CONTRACTS[caseId].startPresses};
+const needs=(caseId,c)=>['minimal','smoke'].includes(c?.sampleMode)&&MINIMAL_NEEDS[caseId]?MINIMAL_NEEDS[caseId]:c?.sampleMode==='breadth'&&BREADTH_NEEDS[caseId]?BREADTH_NEEDS[caseId]:{takes:CONTRACTS[caseId].takes,startPresses:CONTRACTS[caseId].startPresses};
 function notRun(message){const e=new Error(message);e.code='NOT_RUN';e.trustedBlocker=message;throw e;}
 function requireThat(value,message){if(!value)notRun(message);}
 function safeRef(x){return typeof x==='string'&&x.length<512&&!x.startsWith('/')&&!x.split('/').includes('..')&&!/[\r\n]/.test(x);}
+function armModelFailureObservation(page,c){
+ const deadlineMs=smokeTiming.modelFailureDeadlineMs(c),startedAtEpochMs=Date.now();
+ const browserObservation=page.evaluate(({deadlineMs})=>new Promise(resolve=>{
+  const root=document.documentElement,startedAt=performance.now(),startedAtEpochMs=Date.now();let observer,timer,done=false;
+  const finish=state=>{if(done)return;done=true;if(observer)observer.disconnect();if(timer)clearTimeout(timer);resolve({state,startedAtEpochMs,observedAtEpochMs:Date.now(),elapsedMs:Math.round(performance.now()-startedAt)});};
+  const read=()=>root.getAttribute('data-model-status'),isTerminal=state=>['error','init-failed'].includes(state);
+  // A terminal state that predates the armed fault is not evidence that this
+  // fault caused a truthful failure. Require a post-arm non-terminal state
+  // before accepting a terminal transition.
+  let sawNonTerminal=!isTerminal(read());
+  const terminal=()=>{const state=read();if(!isTerminal(state)){sawNonTerminal=true;return false;}if(sawNonTerminal){finish(state);return true;}return false;};
+  observer=new MutationObserver(terminal);observer.observe(root,{attributes:true,attributeFilter:['data-model-status']});
+  timer=setTimeout(()=>finish(null),deadlineMs);
+ }),{deadlineMs});
+ return async()=>{
+  const observed=await browserObservation;
+  if(observed&&['error','init-failed',null].includes(observed.state)&&Number.isInteger(observed.elapsedMs))return observed;
+  // Scripted offline pages predate browser-evaluated promises. Resolve their
+  // compatibility path only after the caller has performed the Start press;
+  // real browsers arm the MutationObserver before that press.
+  const handle=await page.waitForFunction(()=>['error','init-failed'].includes(document.documentElement.getAttribute('data-model-status')),undefined,{timeout:deadlineMs});
+  if(handle?.dispose)await handle.dispose();
+  const observedAtEpochMs=Date.now();
+  return {state:await page.locator('html').getAttribute('data-model-status'),startedAtEpochMs,observedAtEpochMs,elapsedMs:Math.max(0,observedAtEpochMs-startedAtEpochMs)};
+ };
+}
+async function measureEpochBridge(page){
+ const nodeBeforeEpochMs=Date.now(),browserEpochMs=await page.evaluate(()=>Date.now()),nodeAfterEpochMs=Date.now();
+ return smokeTiming.epochBridge({nodeBeforeEpochMs,browserEpochMs,nodeAfterEpochMs});
+}
+async function waitForModelFailure(page,c){return armModelFailureObservation(page,c)();}
+async function waitForModelSettlement(page,c){
+ const deadlineMs=smokeTiming.modelSettlementDeadlineMs(c);
+ const observed=await page.evaluate(({deadlineMs})=>new Promise(resolve=>{
+  const root=document.documentElement,startedAt=performance.now();let observer,timer,done=false;
+  const finish=state=>{if(done)return;done=true;if(observer)observer.disconnect();if(timer)clearTimeout(timer);resolve({state,settled:state!==null&&state!=='loading',elapsedMs:Math.round(performance.now()-startedAt)});};
+  const read=()=>root.getAttribute('data-model-status');
+  const terminal=()=>{const state=read();if(state!==null&&state!=='loading'){finish(state);return true;}return false;};
+  if(terminal())return;observer=new MutationObserver(terminal);observer.observe(root,{attributes:true,attributeFilter:['data-model-status']});timer=setTimeout(()=>finish(read()),deadlineMs);
+ }),{deadlineMs});
+ return observed&&typeof observed.settled==='boolean'?observed:{state:null,settled:false,elapsedMs:deadlineMs};
+}
+async function smokeLeaseBoundary(page,c,{createDb=createOwnerDb,read=ownerRows,readMic=observer.mic,wait=ms=>page.waitForTimeout(ms),deadlineWait=ms=>page.waitForTimeout(ms),now=()=>Date.now(),deadlineMs=smokeTiming.LEASE_WAIT_DEADLINE_MS,pollMs=smokeTiming.LEASE_POLL_MS}={}){
+ const startedAt=now();let reads=0,db=null,readyStreak=0,lastObservedCode='LEASE_WAIT_DEADLINE';
+ try{db=createDb(page,c);}catch{return {ready:false,code:'LEASE_READ_UNAVAILABLE',reads,elapsedMs:0};}
+ for(;;){
+  const elapsed=()=>Math.max(0,now()-startedAt);
+  const expired=lastCode=>({ready:false,code:'LEASE_WAIT_TIMEOUT',lastCode,reads,elapsedMs:elapsed()});
+  const bounded=async(operation,lastCode)=>{
+   const remaining=deadlineMs-elapsed();if(remaining<=0)return {timeout:expired(lastCode)};
+   // Both branches install fulfilment and rejection handlers before racing. A
+   // late query settlement therefore cannot become an unhandled rejection or
+   // re-enter this completed lease decision after the deadline wins.
+   const value=Promise.resolve().then(operation).then(result=>({kind:'value',result}),()=>({kind:'unavailable'}));
+   const timer=Promise.resolve().then(()=>deadlineWait(remaining)).then(()=>({kind:'deadline'}),()=>({kind:'deadline'}));
+   const outcome=await Promise.race([value,timer]);
+   if(outcome.kind==='deadline'||elapsed()>=deadlineMs)return {timeout:expired(lastCode)};
+   return outcome.kind==='value'?{value:outcome.result}:{value:null};
+  };
+  if(elapsed()>=deadlineMs)return expired(lastObservedCode);
+  const owner=await bounded(()=>read(db,'active_recording_lease','user_id,lease_id,state'),'LEASE_READ_DEADLINE');
+  if(owner.timeout)return owner.timeout;const leaseRows=owner.value;
+  const local=await bounded(()=>readMic(page),'MIC_READ_DEADLINE');
+  if(local.timeout)return local.timeout;const mic=local.value;
+  reads++;const state=smokeTiming.leaseBoundary({leaseRows,mic});lastObservedCode=state.code;const elapsedMs=elapsed();
+  if(state.ready){
+   // One empty owner-table read is only a snapshot. Require a second empty
+   // authenticated read after the poll interval so a late lease heartbeat is
+   // observed instead of being misclassified as stale/safe.
+   readyStreak++;if(readyStreak>=2)return {...state,code:'LEASE_ABSENT_ENGINE_IDLE_CONFIRMED',reads,elapsedMs};
+  }else readyStreak=0;
+  if(['LEASE_READ_UNAVAILABLE','MIC_STATE_UNAVAILABLE'].includes(state.code))return {...state,reads,elapsedMs};
+  if(elapsedMs>=deadlineMs)return {ready:false,code:'LEASE_WAIT_TIMEOUT',lastCode:state.code,reads,elapsedMs};
+  await wait(Math.min(pollMs,deadlineMs-elapsedMs));
+ }
+}
 function preflight(caseId,c,cap,guard,configurationOnly=false){
- const contract=CONTRACTS[caseId];requireThat(contract,'unknown case');requireThat(contract.unimplementedRequiredAssertions.length===0,'required harness implementation missing: '+contract.unimplementedRequiredAssertions.join(', '));
+ const contract=(c?.sampleMode==='smoke'?SMOKE_CONTRACTS:CONTRACTS)[caseId];requireThat(contract,'unknown case');requireThat(contract.unimplementedRequiredAssertions.length===0,'required harness implementation missing: '+contract.unimplementedRequiredAssertions.join(', '));
  requireThat(c&&c.caseId===caseId&&c.sourceSha===SOURCE_SHA,'exact inspected source not bound; revalidation required for changed release');
  requireThat(/^[0-9a-f]{40}$/.test(c.servedSha||'')&&c.sourceSha===c.servedSha,'selected source/served binding missing or different');
  let url;try{url=new URL(c.targetUrl);}catch{notRun('target URL missing');}
@@ -79,7 +180,7 @@ function preflight(caseId,c,cap,guard,configurationOnly=false){
  for(const name of ['preprovisionReceipt','analyticsExclusionReceipt','dispositionReceipt'])requireThat(safeRef(c.account[name]),'account '+name+' missing');
  requireThat(c.account.effectiveFeatureAccessApproved===true,'effective feature access unverified; Free label is not a verdict');
  requireThat(c.observerSourceReviewed===true&&safeRef(c.observerQualificationReceipt),'passive browser observer source/runtime qualification missing');
- requireThat(c.sampleMode===undefined||['full','breadth','minimal'].includes(c.sampleMode),'unknown sample mode');requireThat(c.sampleMode!=='breadth'||BREADTH_NEEDS[caseId],'breadth sample is not defined for this case; it runs in full');const need=needs(caseId,c);requireThat(Number.isInteger(c.takeCap)&&c.takeCap>=need.takes,'approved take cap insufficient');
+ requireThat(c.sampleMode===undefined||['full','breadth','minimal','smoke'].includes(c.sampleMode),'unknown sample mode');requireThat(c.sampleMode!=='breadth'||BREADTH_NEEDS[caseId],'breadth sample is not defined for this case; it runs in full');const need=needs(caseId,c);requireThat(Number.isInteger(c.takeCap)&&c.takeCap>=need.takes,'approved take cap insufficient');
  requireThat(Number.isInteger(c.startPressCap)&&c.startPressCap>=need.startPresses,'approved per-Start press cap insufficient');
  if(!configurationOnly&&need.startPresses>0)requireThat(typeof cap?.recordStartPress==='function','required per-Start press journal unavailable before login');
  if(need.takes>0||need.startPresses>0){requireThat(SHA.test(c.fixture?.sha256||'')&&Number.isInteger(c.fixture.speechDurationMs)&&c.fixture.speechDurationMs>=5000&&c.fixture.speechDurationMs<=300000,'reviewed WAV/duration missing');requireThat(c.fixture.launchSha256===c.fixture.sha256,'browser media bytes not bound to fixture');}
@@ -99,6 +200,25 @@ function preflight(caseId,c,cap,guard,configurationOnly=false){
 const coachingPolicy=require('./coaching-failure-policy.cjs');
 const continuesAfterUnavailableReader=r=>!!r&&r.result==='NOT RUN'&&r.observed===false&&r.evidenceReaderUnavailable===true;
 function ownSaved(rows,id){return !!id&&rows.length===1&&rows[0].id===id&&rows[0].status==='completed'&&rows[0].hasIdempotencyKey&&rows[0].transcriptState==='available'&&rows[0].transcriptLength>0;}
+function firstObservation(rows,c,observedAtUtc){
+ requireThat(Array.isArray(rows)&&rows.length<=100,'first observation rows unavailable');
+ requireThat(c?.account&&['existing-disposable','maintained-read-only'].includes(c.account.mode)&&typeof c.account.id==='string','first observation role unavailable');
+ requireThat(/^[0-9a-f]{40}$/.test(c.sourceSha||'')&&c.servedSha===c.sourceSha&&SHA.test(c.account.bindingReceiptSha256||''),'first observation source binding unavailable');
+ requireThat(typeof observedAtUtc==='string'&&!Number.isNaN(Date.parse(observedAtUtc)),'first observation time unavailable');
+ const completed=rows.filter(r=>r?.status==='completed');
+ const readable=completed.filter(r=>r.transcriptState==='available'&&Number.isInteger(r.transcriptLength)&&r.transcriptLength>0);
+ return {contentSafe:true,kind:'first-account-observation',inventoryStatus:'OBSERVED',role:c.account.mode,
+   accountSubjectSha256:crypto.createHash('sha256').update(c.account.id).digest('hex'),sourceBindingSha256:c.account.bindingReceiptSha256,
+   sourceSha:c.sourceSha,servedSha:c.servedSha,observedAtUtc,rowCount:rows.length,completedCount:completed.length,
+   readableCompletedCount:readable.length,readableHistoryAvailable:readable.length>0,inventoryComplete:true,readLimit:100};
+}
+function unknownFirstObservation(c,observedAtUtc){
+ requireThat(c?.account&&['existing-disposable','maintained-read-only'].includes(c.account.mode)&&typeof c.account.id==='string','first observation role unavailable');
+ return {contentSafe:true,kind:'first-account-observation',inventoryStatus:'UNKNOWN',role:c.account.mode,
+   accountSubjectSha256:crypto.createHash('sha256').update(c.account.id).digest('hex'),sourceBindingSha256:c.account.bindingReceiptSha256,
+   sourceSha:c.sourceSha,servedSha:c.servedSha,observedAtUtc,rowCount:null,completedCount:null,readableCompletedCount:null,
+   readableHistoryAvailable:null,inventoryComplete:false,readLimit:100};
+}
 function newestOnly(rows,oldId,newId){const old=rows.find(r=>r.id===oldId),next=rows.find(r=>r.id===newId);return !!old&&!!next&&oldId!==newId&&rows.length===2&&old.status==='completed'&&next.status==='completed'&&next.transcriptState==='available'&&next.transcriptLength>0&&old.transcriptState==='expired'&&old.transcriptLength===0;}
 async function retainInterruptionEvidence({caseId,diag,assertions,writeEvidence}){
  const ref=await writeEvidence(caseId.toLowerCase()+'-interruption.json',{contentSafe:true,caseId,kind:'interruption-diagnostic',diagnosticOnly:true,...diag,afterRecordedAssertion:assertions.some(row=>row.id===diag.step)});
@@ -107,10 +227,18 @@ async function retainInterruptionEvidence({caseId,diag,assertions,writeEvidence}
  // The later cleanup assertion links this diagnostic even when the previous row already passed.
  return ref;
 }
+// Install the exact response handler used by the live adapter. The body read is bounded;
+// after the deadline no late fulfillment or rejection may mutate retained attempt evidence.
+function installCoachingResponseHandler(page,coachingByRequest,{deadlineMs=3000}={}){
+ const response=r=>{try{const a=coachingByRequest.get(r.request());if(!a)return;const h=typeof r.headers==='function'?r.headers():{};if(h&&h['x-ss-harness-deny'])coachingPolicy.deny(a);else{const status=r.status();coachingPolicy.finish(a,status);a.respondedAt=Date.now();a.diagExpired=false;let timer=null;const work=Promise.resolve().then(async()=>{let body='';try{body=await r.text();}catch{/* body unavailable */}if(a.diagExpired)return;a.correlation=coachingPolicy.classifyResponseCorrelation(a,{contentType:h['content-type'],body,status});if(coachingPolicy.isFailureStatus(status)){let timing=null;try{timing=r.request().timing();}catch{/* no timing */}a.diag=coachingPolicy.classifyFailureResponse({contentType:h['content-type'],body,startedAt:a.startedAt,respondedAt:a.respondedAt,browserTimingMs:timing&&Number.isFinite(timing.responseEnd)?timing.responseEnd:null,retryAfter:h['retry-after']});}});const deadline=new Promise(res=>{timer=setTimeout(()=>{a.diagExpired=true;res();},deadlineMs);});a.diagPromise=Promise.race([work,deadline]).catch(()=>{}).finally(()=>{if(timer!==null)clearTimeout(timer);});}}catch{/* page closing */}};
+ const failed=q=>{const a=coachingByRequest.get(q);if(a)coachingPolicy.abort(a);};
+ page.on('response',response);page.on('requestfailed',failed);
+ return {dispose(){page.off?.('response',response);page.off?.('requestfailed',failed);}};
+}
 async function run(caseId,args){
  const {context,browser,guard,caseConfig:c,capabilities:cap}=args;
- const contract=preflight(caseId,c,cap,guard);const minimal=c.sampleMode==='minimal';const breadth=(c.sampleMode==='breadth'||minimal)&&['AHT-02','AHT-03'].includes(caseId);const assertions=[];let evidenceIndex=0,current='owner-bound',page=null,blocker=null,interruptionDiag=null;let cloudCount=0,sessionWriteRequests=0,startPresses=0;const coachingAttempts=[],coachingByRequest=new WeakMap();let lastPressAcquisitions=null;const executionSignals={authenticationRejected:false,startPressCapExceeded:false};
- const pages=[],contexts=[];const coachingTakeIds={first:null,second:null};let baselineIds=null,coachingCaptureController=null,coachingCapturePromise=null,focusPresentationWindow=null,interruptionRef=null,coachingCaptureFailure=null;
+ const contract=preflight(caseId,c,cap,guard);const smoke=c.sampleMode==='smoke';const minimal=['minimal','smoke'].includes(c.sampleMode);const breadth=(c.sampleMode==='breadth'||minimal)&&['AHT-02','AHT-03'].includes(caseId);const assertions=[];let evidenceIndex=0,current='owner-bound',page=null,blocker=null,interruptionDiag=null;let cloudCount=0,sessionWriteRequests=0,startPresses=0;const coachingAttempts=[],coachingByRequest=new WeakMap();let lastPressAcquisitions=null;const executionSignals={authenticationRejected:false,startPressCapExceeded:false};
+ const pages=[],contexts=[];const coachingTakeIds={first:null,second:null};let baseline=null,firstObservationRef=null,baselineIds=null,coachingCaptureController=null,coachingCapturePromise=null,focusPresentationWindow=null,interruptionRef=null,coachingCaptureFailure=null,pcmDiagnosticRefs=[];
  async function assertion(id,result,facts={},externalRefs=[]){
    // Evidence is booleans/counts/closed statuses only; never pass raw DOM, IDs, errors, URLs, or text here.
    const ref=await cap.writeEvidence(caseId.toLowerCase()+'-'+(++evidenceIndex)+'.json',{contentSafe:true,caseId,assertion:id,result,facts});
@@ -146,36 +274,50 @@ async function run(caseId,args){
  async function setupOutcome(before){let mic=null;try{mic=await observer.mic(page);}catch{}const after=modelRequestCount();return {modelRequestsAfterPress:after!==null&&before.modelRequestsBeforePress!==null?after-before.modelRequestsBeforePress:null,acquisitionOutcomes:Array.isArray(mic?.log)?mic.log.slice(0,8).map(x=>closedOutcome(x.outcome)):null,liveTracks:Number.isInteger(mic?.liveTracks)?mic.liveTracks:null};}
  // r14 diagnostics (never requirement rows): recognition progress, and where the fixture was when RECORDING began. Evidence only; failures to collect never change a verdict.
  async function liveDiagnostics(observed){try{const f=fixtureManifest.fixtures[c.fixture?.name];const windows=f?.pointAudioWindows;if(!f||!Array.isArray(windows))return [];const timing=await observer.audioTiming(page);const ref=fixtureActivity.fixtures[c.fixture?.name],reference=ref&&ref.wavSha256===c.fixture?.sha256?ref.bits:undefined;const at=audioTiming.analyze({timing,windows,loopSec:f.speechSeconds+f.trailingSilenceSeconds,reference});const rp=focusOracle.recognitionProgress(observed,windows);const rec=timing?.states?.find(s=>s[1]==='r'&&s[2]==='RECORDING');const aligned=audioTiming.alignRecognition({recognition:rp.facts,audio:at.facts,observerStartMs:observed?.perfT0,recordingMs:rec?rec[0]:null,windows});const refs=[];refs.push(await cap.writeEvidence(caseId.toLowerCase()+'-audio-timing.json',{contentSafe:true,caseId,kind:'audio-timing-diagnostic',...at.facts}));refs.push(await cap.writeEvidence(caseId.toLowerCase()+'-focus-recognition.json',{contentSafe:true,caseId,kind:'focus-recognition-diagnostic',...rp.facts,...aligned}));return refs.filter(safeRef);}catch{return [];}}
- async function newPage(ctx=context){const p=await ctx.newPage();pages.push(p);ui.bindStartPressRecorder(p,async control=>{requireThat(typeof cap.recordStartPress==='function','per-Start press journal missing');try{const m=await observer.mic(p);if(m&&Number.isInteger(m.acquisitions))lastPressAcquisitions=m.acquisitions;}catch{/* observer not installed yet */}await cap.recordStartPress({caseId,control});startPresses++;});await observer.install(p);p.on('request',r=>{if(/assemblyai/i.test(r.url()))cloudCount++;if(r.method()==='POST'&&/\/rest\/v1\/rpc\/(create_session_and_update_usage|complete_session_v2)(?:[?]|$)/.test(r.url()))sessionWriteRequests++;});p.on('websocket',w=>{if(/assemblyai/i.test(w.url()))cloudCount++;});const isCoaching=q=>{try{return q.method()==='POST'&&/\/functions\/v1\/get-ai-suggestions(?:[?]|$)/.test(q.url());}catch{return false;}};p.on('request',q=>{if(!isCoaching(q))return;let body=null;try{body=q.postDataJSON();}catch{body=null;}const a=coachingPolicy.newAttempt(coachingAttempts.length+1,body);a.startedAt=Date.now();coachingAttempts.push(a);coachingByRequest.set(q,a);});p.on('response',r=>{try{const a=coachingByRequest.get(r.request());if(!a)return;const h=typeof r.headers==='function'?r.headers():{};if(h&&h['x-ss-harness-deny'])coachingPolicy.deny(a);else{coachingPolicy.finish(a,r.status());a.respondedAt=Date.now();if(coachingPolicy.isFailureStatus(r.status())){a.diagPromise=Promise.race([Promise.resolve().then(async()=>{let body='';try{body=await r.text();}catch{/* body unavailable */}let timing=null;try{timing=r.request().timing();}catch{/* no timing */}a.diag=coachingPolicy.classifyFailureResponse({contentType:h['content-type'],body,startedAt:a.startedAt,respondedAt:a.respondedAt,browserTimingMs:timing&&Number.isFinite(timing.responseEnd)?timing.responseEnd:null,retryAfter:h['retry-after']});}),new Promise(res=>setTimeout(res,3000))]).catch(()=>{});}}}catch{/* page closing */}});p.on('requestfailed',q=>{const a=coachingByRequest.get(q);if(a)coachingPolicy.abort(a);});return p;}
+ async function pcmDiagnostics(baseline){try{const diagnostic=await observer.pcmBoundaries(page,baseline);if(!diagnostic)return [];const ref=await cap.writeEvidence(caseId.toLowerCase()+'-pcm-boundaries.json',{contentSafe:true,caseId,kind:'pcm-boundary-diagnostic',...diagnostic});return safeRef(ref)?[ref]:[];}catch{return [];}}
+ async function objectivePublicationDiagnostics(baseline,sessionId,expectedStatuses,domStatuses){try{const diagnostic=await observer.objectivePublication(page,baseline,sessionId,expectedStatuses,domStatuses);if(!diagnostic)return{validated:false,refs:[]};const ref=await cap.writeEvidence(caseId.toLowerCase()+'-objective-publication.json',{contentSafe:true,caseId,kind:'objective-publication-diagnostic',...diagnostic});return{validated:diagnostic.validated===true,refs:safeRef(ref)?[ref]:[]};}catch{return{validated:false,refs:[]};}}
+ async function newPage(ctx=context){const p=await ctx.newPage();pages.push(p);ui.bindStartPressRecorder(p,async control=>{requireThat(typeof cap.recordStartPress==='function','per-Start press journal missing');try{const m=await observer.mic(p);if(m&&Number.isInteger(m.acquisitions))lastPressAcquisitions=m.acquisitions;}catch{/* observer not installed yet */}await cap.recordStartPress({caseId,control});startPresses++;});await observer.install(p,{pcmBoundaries:['AHT-02','AHT-03'].includes(caseId),objectivePublications:['AHT-02','AHT-03'].includes(caseId)});p.on('request',r=>{if(/assemblyai/i.test(r.url()))cloudCount++;if(r.method()==='POST'&&/\/rest\/v1\/rpc\/(create_session_and_update_usage|complete_session_v2)(?:[?]|$)/.test(r.url()))sessionWriteRequests++;});p.on('websocket',w=>{if(/assemblyai/i.test(w.url()))cloudCount++;});const isCoaching=q=>{try{return q.method()==='POST'&&/\/functions\/v1\/get-ai-suggestions(?:[?]|$)/.test(q.url());}catch{return false;}};p.on('request',q=>{if(!isCoaching(q))return;let body=null;try{body=q.postDataJSON();}catch{body=null;}const a=coachingPolicy.newAttempt(coachingAttempts.length+1,body);a.startedAt=Date.now();coachingAttempts.push(a);coachingByRequest.set(q,a);});installCoachingResponseHandler(p,coachingByRequest);return p;}
  async function saveReopen(p,id){current='review-reopen';const own=(await rows(p)).find(r=>r.id===id);requireThat(own&&own.transcriptState==='available'&&own.transcriptSha256,'saved transcript readback unavailable for exact reopen comparison');const fingerprints=await ui.reopen(p,c,id);await check('review-reopen',fingerprints.before===own.transcriptSha256&&fingerprints.after===own.transcriptSha256,{reopenedMatchesSaved:fingerprints.before===own.transcriptSha256,reloadedMatchesSaved:fingerprints.after===own.transcriptSha256});}
  async function rows(p=page){const all=await readback.sessions(p,c);return baselineIds&&caseId!=='AHT-15'?all.filter(r=>!baselineIds.has(r.id)):all;}
  async function stopAndSave(p,old=null){await ui.speak(p,c);await ui.stop(p);return ui.saved(p,old);}
  async function noResume(p,id='return-no-resume'){const m=await observer.mic(p);requireThat(m,'microphone observation missing');await check(id,!m.recording&&!m.recorderVisible&&m.liveTracks===0,{liveTracks:m.liveTracks,recording:m.recording});}
  try{
   page=await newPage();page.setDefaultTimeout(30000);page.setDefaultNavigationTimeout(45000);
-  await check('owner-bound',await ui.login(page,c,cap.credentials),{ownerMatches:true});
-  // #1476 lease: a previous case's unreleased lease expires 15 s after its last heartbeat; settle before the first Start so back-to-back cases on the shared account cannot collide.
-  if(!['AHT-08','AHT-15'].includes(caseId))await page.waitForTimeout(20000);
-  if(caseId==='AHT-07'){current='feedback-readback-preflight';const readProbe=await hook('feedbackAssociation','capability');await check('feedback-readback-preflight',readProbe.observed===true,{existingAuthenticatedReceiverBound:true,browserSelectNotRequired:true,actualDeliveryNotYetProven:true});}
+  const ownerMatches=await ui.login(page,c,cap.credentials);let leaseFacts={notApplicable:true,reads:0};
+  if(!['AHT-08','AHT-15'].includes(caseId)&&c.sampleMode==='smoke'){
+   leaseFacts=await smokeLeaseBoundary(page,c);
+   requireThat(leaseFacts.ready,'pre-case lease boundary is unreadable or live; no expiry inferred and no forced release');
+  }else if(!['AHT-08','AHT-15'].includes(caseId))await page.waitForTimeout(20000);
+  await check('owner-bound',ownerMatches,{ownerMatches:true,leaseBoundary:leaseFacts.code||'not-applicable',leaseReadCount:leaseFacts.reads});
+  if(['AHT-07','AHT-08'].includes(caseId)){current='feedback-readback-preflight';const readProbe=await hook('feedbackAssociation','capability');await check('feedback-readback-preflight',readProbe.observed===true,{existingAuthenticatedReceiverBound:true,browserSelectNotRequired:true,actualDeliveryNotYetProven:true});}
   if(caseId!=='AHT-12'&&caseId!=='AHT-15')await context.grantPermissions(['microphone'],{origin:c.targetUrl});
-  const baseline=await rows();
-  if(caseId==='AHT-01'){if(baseline.length===0)await check('fresh-first-session',true,{existingSessions:0});else{current='fresh-first-session';await assertion('fresh-first-session','NOT RUN',{existingSessions:baseline.length,preconditionNotMet:true});notRun('fresh account precondition not met');}}
+  try{
+   baseline=await rows();
+   if(['AHT-01','AHT-15'].includes(caseId))firstObservationRef=await cap.writeEvidence(caseId.toLowerCase()+'-first-observation.json',firstObservation(baseline,c,new Date().toISOString()));
+  }catch(error){
+   if(['AHT-01','AHT-15'].includes(caseId)){firstObservationRef=await cap.writeEvidence(caseId.toLowerCase()+'-first-observation.json',unknownFirstObservation(c,new Date().toISOString()));requireThat(safeRef(firstObservationRef),'first observation evidence reference invalid');await assertion('first-observation-inventory','NOT RUN',{inventoryStatus:'UNKNOWN'},[firstObservationRef]);}
+   throw error;
+  }
+  if(firstObservationRef)requireThat(safeRef(firstObservationRef),'first observation evidence reference invalid');
+  if(caseId==='AHT-10'&&!minimal&&baseline.length>98){current='recording-before-leave';notRun('Case10 full-path history exceeds existing 100-row readback capacity');}
+  if(caseId==='AHT-01'){if(baseline.length===0)await check('fresh-first-session',true,{existingSessions:0},firstObservationRef?[firstObservationRef]:[]);else{current='fresh-first-session';await assertion('fresh-first-session','NOT RUN',{existingSessions:baseline.length,preconditionNotMet:true},firstObservationRef?[firstObservationRef]:[]);notRun('fresh account precondition not met');}}
   baselineIds=new Set(baseline.map(r=>r.id));
   if(['AHT-01','AHT-02','AHT-03'].includes(caseId)){
    const focus=caseId!=='AHT-01',timing=focusControls.plan(c),firstPresentation=[];
    const emitPresentation=async(rs,refsById)=>{firstPresentation.push(...rs);await presentationRows(rs,refsById);};
    if(focus){await ui.products(page,'focus-points');current='focus-pace-guide';await ui.setupFocus(page,c,undefined,async()=>emitPresentation([await presentation.paceGuide(page)]));current='focus-rail-before';await emitPresentation(await presentation.beforeFocus(page,c.focus.points.length));await hook('focusEvidence','begin');}else await ui.openMic(page,c);
-   await hook('coaching','begin');current=focus?'focus-final':'saved-once';await ui.start(page);const firstStartedAt=Date.now();if(focus)focusPresentationWindow=await presentation.beginFocusLive(page,c.focus.points.length);await page.waitForTimeout(timing.fullMs);if(focus)await hook('focusEvidence','freeze');const liveFrozen=focus?await presentation.freezeFocusLiveDetailed(page,focusPresentationWindow):{rows:[],observed:null};const livePresentation=liveFrozen.rows;focusPresentationWindow=null;const liveDiagRefs=focus?await liveDiagnostics(liveFrozen.observed):[];
+   const requiresGroundedCoaching=contract.rows.includes('grounded-coaching');if(requiresGroundedCoaching)await hook('coaching','begin');current=focus?'focus-final':'saved-once';const pcmBaseline=focus?await observer.pcmBoundaryBaseline(page):null,objectiveBaseline=focus?await observer.objectivePublicationBaseline(page):null;await ui.start(page);const firstStartedAt=Date.now();if(focus)focusPresentationWindow=await presentation.beginFocusLive(page,c.focus.points.length);await page.waitForTimeout(timing.fullMs);if(focus)await hook('focusEvidence','freeze');const liveFrozen=focus?await presentation.freezeFocusLiveDetailed(page,focusPresentationWindow):{rows:[],observed:null};const livePresentation=liveFrozen.rows;focusPresentationWindow=null;const liveDiagRefs=focus?await liveDiagnostics(liveFrozen.observed):[];
    // r15 evidence-first: the frozen live rows and their diagnostics are written NOW, before Stop and Save. If Stop, Save or anything later fails, the live observation is already on disk and is never lost with the in-memory window.
-   if(focus)await emitPresentation(livePresentation,{'focus-next-point-marked':liveDiagRefs});const firstStoppedAt=Date.now();await ui.stop(page);const first=await ui.saved(page);coachingTakeIds.first=first;
+   if(focus)await emitPresentation(livePresentation,{'focus-next-point-marked':liveDiagRefs});const firstStoppedAt=Date.now();try{await ui.stop(page);}finally{if(focus)pcmDiagnosticRefs=await pcmDiagnostics(pcmBaseline);}const first=await ui.saved(page);coachingTakeIds.first=first;
    // Save and final Focus checks are independent of coaching. Retain them before
    // a missing pair, failed service response or unavailable authority can interrupt capture.
    const firstSavedRows=await rows();await check('saved-once',ownSaved(firstSavedRows,first),{savedRows:firstSavedRows.length});
-   if(focus){current='focus-final';await page.waitForFunction(n=>Array.from({length:n},(_,i)=>document.querySelector('[data-testid="focus-point-'+i+'"]')?.getAttribute('data-status')).every(x=>x&&x!=='pending'),c.focus.points.length,{timeout:60000});const states=await Promise.all(c.focus.points.map((_,i)=>page.getByTestId('focus-point-'+i).getAttribute('data-status')));await check('focus-final',states.every((value,i)=>value===c.focus.expectedFinal[i]),{points:states.length,matching:states.filter((value,i)=>value===c.focus.expectedFinal[i]).length});await emitPresentation(await presentation.afterFocus(page,c.focus.expectedFinal,firstStoppedAt-firstStartedAt));await presentationRows([presentation.group('focus-presentation-contract',presentation.FOCUS_ROWS,firstPresentation)]);await oracleAssertion('focus-live-durable','focusEvidence',{sessionId:first});}
+   if(focus&&smoke){current='smoke-focus-window';await page.waitForFunction(({windows,windowMs})=>windows.every((range,i)=>!Array.isArray(range)||Math.ceil(range[1]*1000)>windowMs||(()=>{const status=document.querySelector('[data-testid="focus-point-'+i+'"]')?.getAttribute('data-status');return !!status&&status!=='pending';})()),{windows:c.focus.speechWindows,windowMs:c.recordingWindowMs},{timeout:60000});const states=await Promise.all(c.focus.points.map((_,i)=>page.getByTestId('focus-point-'+i).getAttribute('data-status')));const verdict=smokeTiming.focusWindowVerdict({windows:c.focus.speechWindows,expected:c.focus.expectedFinal,statuses:states,recordingWindowMs:c.recordingWindowMs});await assertion('smoke-focus-window',verdict.result,verdict.facts,[...pcmDiagnosticRefs]);if(verdict.result!=='PASS'){const error=new Error('smoke focus window did not pass');error.code=verdict.result==='FAIL'?'PRODUCT_FAIL':'NOT_RUN';throw error;}}
+   else if(focus){current='focus-final';await page.waitForFunction(n=>Array.from({length:n},(_,i)=>document.querySelector('[data-testid="focus-point-'+i+'"]')?.getAttribute('data-status')).every(x=>x&&x!=='pending'),c.focus.points.length,{timeout:60000});const states=await Promise.all(c.focus.points.map((_,i)=>page.getByTestId('focus-point-'+i).getAttribute('data-status')));const publication=await objectivePublicationDiagnostics(objectiveBaseline,first,c.focus.expectedFinal,states);const statesMatch=states.every((value,i)=>value===c.focus.expectedFinal[i]);await check('focus-final',statesMatch&&publication.validated,{points:states.length,matching:states.filter((value,i)=>value===c.focus.expectedFinal[i]).length,publicationValidated:publication.validated},[...pcmDiagnosticRefs,...publication.refs]);await emitPresentation(await presentation.afterFocus(page,c.focus.expectedFinal,firstStoppedAt-firstStartedAt));await presentationRows([presentation.group('focus-presentation-contract',presentation.FOCUS_ROWS,firstPresentation)]);await oracleAssertion('focus-live-durable','focusEvidence',{sessionId:first});}
    else{current='open-mic-review-presentation';await presentationRows(await presentation.openMicReview(page));}
-   let firstCaptureError=null;current='grounded-coaching';
-   try{await hook('coaching','capture',{sessionId:first});}catch(error){firstCaptureError=error;blocker=blocker||'coaching-capture-incomplete';const capture=oracleSource.captureDiagnostic(error);const ref=await cap.writeEvidence(caseId.toLowerCase()+'-coaching-capture.json',{contentSafe:true,caseId,kind:'coaching-capture-interruption',capture,error:ui.safeErrorSummary(error)});requireThat(safeRef(ref),'capture evidence reference invalid');coachingCaptureFailure={error,capture,ref};}
-   if(focus&&!firstCaptureError){current='focus-back-reload';await sourceRows(await focusControls.backReload({page,caseConfig:c,sessionId:first}));}
+   let firstCaptureError=null;
+   if(requiresGroundedCoaching){current='grounded-coaching';try{await hook('coaching','capture',{sessionId:first});}catch(error){firstCaptureError=error;blocker=blocker||'coaching-capture-incomplete';const capture=oracleSource.captureDiagnostic(error);const ref=await cap.writeEvidence(caseId.toLowerCase()+'-coaching-capture.json',{contentSafe:true,caseId,kind:'coaching-capture-interruption',capture,error:ui.safeErrorSummary(error)});requireThat(safeRef(ref),'capture evidence reference invalid');coachingCaptureFailure={error,capture,ref};}}
+   if(focus&&!smoke&&!firstCaptureError){current='focus-back-reload';await sourceRows(await focusControls.backReload({page,caseConfig:c,sessionId:first}));}
    await saveReopen(page,first);
    if(!focus)await oracleAssertion('pdf-owner-take','pdfOwnerTake',{sessionId:first});
    let skipRepeat=!!firstCaptureError;if(breadth)skipRepeat='breadth';else if(!skipRepeat)try{await hook('sameTarget','begin',{baselineId:first});}catch(e){if(e?.code==='NOT_RUN'&&coachingPolicy.failedFor(coachingAttempts,first))skipRepeat=true;else throw e;}
@@ -185,15 +327,17 @@ async function run(caseId,args){
     const omitted=skipRepeat==='breadth';const omitFacts=omitted?{omittedBy:'breadth-sample',needs:'second-take',notAttempted:true}:{prerequisite:firstCaptureError?'coaching-capture-unavailable':'coaching-output-unavailable',notAttempted:true};
     for(const id of contract.rows)if(!['grounded-coaching','owned-pages-closed','no-cloud-stt','start-press-budget'].includes(id)&&!assertions.some(a=>a.id===id)){current=id;await assertion(id,'NOT RUN',omitFacts);}
     // Breadth: the first take's coaching attempt may still be in flight; wait (bounded) so a real HTTP failure is preserved as FAIL rather than missed.
-    if(omitted){const ref=coachingPolicy.sessionRef(first);for(let w=0;w<240&&!coachingAttempts.some(a=>a.ref===ref&&a.outcome!=='pending');w++)await page.waitForTimeout(250);}
-    await settleDiag();const skipped=coachingPolicy.decideGrounded({attempts:coachingAttempts,ids:{first,second:null},oracleResult:null});
-    if(coachingCaptureFailure)await recordCoachingFailure();
-    if(!assertions.some(a=>a.id==='grounded-coaching')){if(skipped)await recordGroundedFailure(skipped,[]);
-    else{current='grounded-coaching';const ref=coachingPolicy.sessionRef(first);await assertion('grounded-coaching','NOT RUN',{omittedBy:'breadth-sample',needs:'second-take',firstTakeAttempts:coachingAttempts.filter(a=>a.ref===ref).slice(0,4).map(a=>coachingPolicy.closed(a,{first,second:null}))});}}
-    if(omitted)blocker=blocker||'breadth-sample-omitted-assertions';
+    if(requiresGroundedCoaching){
+     if(omitted){const ref=coachingPolicy.sessionRef(first);for(let w=0;w<240&&!coachingAttempts.some(a=>a.ref===ref&&a.outcome!=='pending');w++)await page.waitForTimeout(250);}
+     await settleDiag();const skipped=coachingPolicy.decideGrounded({attempts:coachingAttempts,ids:{first,second:null},oracleResult:null});
+     if(coachingCaptureFailure)await recordCoachingFailure();
+     if(!assertions.some(a=>a.id==='grounded-coaching')){if(skipped)await recordGroundedFailure(skipped,[]);
+     else{current='grounded-coaching';const ref=coachingPolicy.sessionRef(first);await assertion('grounded-coaching','NOT RUN',{omittedBy:'breadth-sample',needs:'second-take',firstTakeAttempts:coachingAttempts.filter(a=>a.ref===ref).slice(0,4).map(a=>coachingPolicy.closed(a,{first,second:null}))});}}
+     if(omitted)blocker=blocker||'breadth-sample-omitted-assertions';
+    }
    }else{
    current='analytics-repeat-opens-product';await page.goto(c.targetUrl+'/analytics/'+first,{waitUntil:'domcontentloaded'});await page.getByTestId('saved-review-practice').waitFor({state:'visible',timeout:30000});await page.getByTestId('saved-review-practice').click();await page.waitForURL('**/session',{timeout:30000});const samePending=focus?await repeatProbes.pendingSameSet(page,c.focus.points):await page.getByTestId('focus-points-rail').count()===0;await check('analytics-repeat-opens-product',samePending,{openedSession:true,sameProductAndPendingSet:samePending});
-   current='same-target-repeat';await ui.start(page);await hook('sameTarget','recording');await page.waitForTimeout(timing.savedRepeatMs);let repeatStopClickedAt=null;await ui.stop(page,()=>{repeatStopClickedAt=Date.now();});const second=await ui.saved(page,first),repeatSavedAt=Date.now();coachingTakeIds.second=second;
+   current='same-target-repeat';await ui.start(page);await hook('sameTarget','recording');await page.waitForTimeout(smokeTiming.repeatRecordingWindowMs(caseId,{sampleMode:c.sampleMode,recordingWindowMs:c.recordingWindowMs,fullRepeatMs:timing.fullMs,savedRepeatMs:timing.savedRepeatMs}));let repeatStopClickedAt=null;await ui.stop(page,()=>{repeatStopClickedAt=Date.now();});const second=await ui.saved(page,first),repeatSavedAt=Date.now();coachingTakeIds.second=second;
    // Rapid probes run immediately from the saved review BEFORE waiting for late coaching/producers.
    current='rapid-repeat-gate';const rapidWindow=repeatProbes.beginRapidRepeat(page,focus,{stopClickedAt:repeatStopClickedAt,savedAt:repeatSavedAt});coachingCaptureController=new AbortController();const bCapture=hook('coaching','capture',{sessionId:second,inputsOnly:true,signal:coachingCaptureController.signal}).then(()=>({ok:true}),error=>({error}));coachingCapturePromise=bCapture;if(minimal){await repeatProbes.cancelRapidWindow(rapidWindow);}else{try{await sourceRows(await repeatProbes.rapidRepeat(page,focus,rapidWindow));}finally{await repeatProbes.cancelRapidWindow(rapidWindow);}current='next-start';await sourceRows(await repeatProbes.nextStart(page,c));current='probe-save-isolation';const afterProbes=await rows();const unexpectedSaved=afterProbes.filter(r=>r.status==='completed'&&r.id!==first&&r.id!==second).length;await check('probe-save-isolation',unexpectedSaved===0,{unexpectedCompletedTakes:unexpectedSaved});}current='grounded-coaching';const captureResult=await bCapture;if(captureResult.error)throw captureResult.error;
    await oracleAssertion('grounded-coaching','coaching',{sessionId:first,repeatId:second});await oracleAssertion('same-target-repeat','sameTarget',{baselineId:first,repeatId:second});await oracleAssertion(progressNumeric.ROW,'sameTarget',{phase:'numeric',baselineId:first,repeatId:second});
@@ -205,10 +349,11 @@ async function run(caseId,args){
    await ui.pressStart(page,'mic-download');const pending=await page.waitForFunction(()=>document.documentElement.getAttribute('data-model-status')==='loading',undefined,{timeout:15000}).then(()=>true,()=>false);
    if(!pending){const out=await setupOutcome(setupBefore);const modelStates=(await observer.states(page,token04))||[];const setupBlocked=out.modelRequestsAfterPress===0||!setupBefore.captureDeviceBound;await assertion('cold-pending-observed','NOT RUN',{pendingObserved:false,setupBlocked,setupReason:!setupBefore.captureDeviceBound?'capture-device-not-bound':out.modelRequestsAfterPress===0?'no-model-request-after-press':'pending-state-not-seen',...setupBefore,...out,modelStates:modelStates.slice(0,12).map(s=>/^[a-z-]{1,24}$/.test(String(s))?String(s):'other')});blocker=setupBlocked?'setup-blocked-stimulus-not-established':blocker;notRun('pending phase not observed');}await check('cold-pending-observed',true,{pendingObserved:true});
    const atLeave=await observer.mic(page);await ui.products(page,'focus-points');await ui.closeFocus(page,{expected:true});
-   await page.waitForFunction(()=>{const s=document.documentElement.getAttribute('data-model-status');return s!==null&&s!=='loading';},undefined,{timeout:600000});
+   const settlement=await waitForModelSettlement(page,c);
    const after=await observer.mic(page);requireThat(atLeave&&after&&atLeave.documentToken===after.documentToken,'pending-start observer continuity missing');
    await check('pending-leave-no-mic',!after.recording&&after.liveTracks===0&&after.acquisitions===atLeave.acquisitions,{liveTracks:after.liveTracks,newAcquisitions:after.acquisitions-atLeave.acquisitions});
    await check('pending-leave-no-session',(await rows()).length===0,{rows:(await rows()).length});await ui.products(page,'open-mic');await noResume(page);
+   if(!settlement.settled){executionSignals.aht04ModelSettlement={settled:false,waitedMs:settlement.elapsedMs};notRun('model settlement not observed inside AHT-04 case deadline');}
    if(!minimal){current='deliberate-recovery-saved';const id=await ui.take(page,c);await check('deliberate-recovery-saved',ownSaved(await rows(),id),{saved:true});}
   }else if(['AHT-05','AHT-06'].includes(caseId)){
    await ui.openMic(page,c);const capture=saveFault.begin({page,caseConfig:c});try{await ui.start(page);const armed=await saveFault.bindAndArm({capture,page,caseId,caseConfig:c,guard,baselineSessionIds:[...baselineIds]});const faultId=armed.faultId;await ui.speak(page,c);current='fault-exercised';await ui.stop(page);
@@ -258,7 +403,7 @@ async function run(caseId,args){
    await check('next-take-isolated',!!next&&!beforeNext.some(r=>r.id===next)&&afterNext.filter(r=>r.id===next&&r.status==='completed').length===1,{newIdentity:!beforeNext.some(r=>r.id===next)});
    }
   }else if(caseId==='AHT-11'){
-   await ui.openMic(page,c);await ui.start(page);const a=page;const b=await newPage();await ui.openMic(b,c);await ui.primary(b);
+   await ui.openMic(page,c);await hook('takeoverLease','before-first');await ui.start(page);const a=page;const b=await newPage();await ui.openMic(b,c);await ui.primary(b);
    await b.getByText('Active session in another tab. Switch to that tab to continue.',{exact:true}).waitFor({state:'visible',timeout:30000});
    const [am,bm]=[await observer.mic(a),await observer.mic(b)];await check('same-browser-refused',!!am&&!!bm&&am.recording&&am.liveTracks>0&&!bm.recording&&bm.liveTracks===0,{aRecording:!!am?.recording,bRecording:!!bm?.recording});await b.close();
    const other=await browser.newContext({baseURL:c.targetUrl,serviceWorkers:'block',permissions:['microphone']});contexts.push(other);const d=await newPage(other);requireThat(await ui.login(d,c,cap.credentials),'independent context did not bind same account');await ui.openMic(d,c);
@@ -282,30 +427,45 @@ async function run(caseId,args){
    if(!minimal){await context.grantPermissions(['microphone'],{origin:c.targetUrl});current='allowed-recovery-saved';const id=await ui.take(page,c);await check('allowed-recovery-saved',ownSaved(await rows(),id),{sameGuardedContext:true});await saveReopen(page,id);}
   }else if(['AHT-13','AHT-14'].includes(caseId)){
    await ui.openMic(page,c);await page.waitForFunction(()=>document.documentElement.getAttribute('data-model-status')==='download-required',undefined,{timeout:60000});
-   const token=caseId+'-model';await observer.armStates(page,token);const setupBefore13=await setupSnapshot();const id=guard.armDownloadFault(c.downloadFault);current='download-fault-exercised';await ui.pressStart(page,'mic-download');
-   const failureState=await page.waitForFunction(()=>['error','init-failed'].includes(document.documentElement.getAttribute('data-model-status')),undefined,{timeout:300000}).then(()=>true,()=>false);
+   const token=caseId+'-model';await observer.armStates(page,token);const setupBefore13=await setupSnapshot();const beforeBridge=await measureEpochBridge(page);const id=guard.armDownloadFault(c.downloadFault);current='download-fault-exercised';const observeFailure=armModelFailureObservation(page,c);await ui.pressStart(page,'mic-download');
+   const failureTransition=await observeFailure();const failureState=!!failureTransition.state;
    const fault=guard.summary().downloadFaults.find(x=>x.id===id);if(!fault?.fired){const out=await setupOutcome(setupBefore13);const modelStates=(await observer.states(page,token))||[];const reason=!setupBefore13.captureDeviceBound?'capture-device-not-bound':out.modelRequestsAfterPress===0?'no-model-request-after-press':'no-request-matched-fault-asset';await assertion('download-fault-exercised','NOT RUN',{fired:false,setupBlocked:true,setupReason:reason,...setupBefore13,...out,modelStates:modelStates.slice(0,12).map(s=>/^[a-z-]{1,24}$/.test(String(s))?String(s):'other')});blocker='setup-blocked-stimulus-not-established';notRun('download fault not fired at reviewed asset boundary');}
-   if(caseId==='AHT-14')requireThat(fault.browserOfflineApplied===true&&fault.bytesForwarded>0,'browser offline after actual received prefix not established');await check('download-fault-exercised',true,{fired:true,bytesForwarded:fault.bytesForwarded||0,browserOfflineApplied:fault.browserOfflineApplied===true});const states=await observer.states(page,token);requireThat(states,'complete model-state history missing');
-   const retry=await page.getByTestId('mic-retry').isVisible();const mode=await ui.attr(page,'data-stt-mode');await check('download-failure-truthful',failureState&&!states.includes('ready')&&retry&&mode==='private',{failureState,claimedReady:states.includes('ready'),retryOffered:retry,stayedPrivate:mode==='private'});
+   if(caseId==='AHT-14'){
+    requireThat(fault.browserOfflineApplied===true&&fault.bytesForwarded>0,'proxy prefix write and browser offline control not established');
+    const prefix=fault.browserPrefixReceipt;
+    if(!prefix||prefix.observed!==true||prefix.requestCorrelated!==true||prefix.beforeOffline!==true||!Number.isSafeInteger(prefix.bytes)||prefix.bytes<=0){
+     await assertion('download-fault-exercised','NOT RUN',{fired:true,browserPrefixReceipt:'NOT_ESTABLISHED',modelConsumption:'NOT_ESTABLISHED'});
+     notRun('browser-prefix-receipt-not-established');
+    }
+   }
+   await check('download-fault-exercised',true,{fired:true,firedAtEpochMs:fault.firedAtEpochMs,bytesForwarded:fault.bytesForwarded||0,browserOfflineApplied:fault.browserOfflineApplied===true,...(caseId==='AHT-14'?{prefixEvidence:'correlated-browser-network-event',browserPrefixReceipt:'ESTABLISHED',browserPrefixBytes:fault.browserPrefixReceipt.bytes,modelConsumption:'NOT_ESTABLISHED'}:{})});const states=await observer.states(page,token);requireThat(states,'complete model-state history missing');
+   if(!failureState){await assertion('download-failure-truthful','NOT RUN',{fired:true,firedAtEpochMs:fault.firedAtEpochMs,transitionObserved:false,diagnosticDeadlineMs:smokeTiming.modelFailureDeadlineMs(c)});notRun('fault fired but no truthful model failure transition was observed');}
+   const retryDeadlineMs=Math.max(1,smokeTiming.modelFailureDeadlineMs(c)-failureTransition.elapsedMs);const retry=await page.getByTestId('mic-retry').waitFor({state:'visible',timeout:retryDeadlineMs}).then(()=>true,()=>false);const retryVisibilityObservedByEpochMs=retry?await page.evaluate(()=>Date.now()):null;const afterBridge=await measureEpochBridge(page);const mode=await ui.attr(page,'data-stt-mode');const contradiction=states.includes('ready')||mode!=='private';
+   const timingEvidence=smokeTiming.comparableFaultTimeline({beforeBridge,afterBridge,faultNodeEpochMs:fault.firedAtEpochMs,faultNodeMinEpochMs:fault.offlineInvokedAtEpochMs??fault.firedAtEpochMs,faultNodeMaxEpochMs:fault.offlineAppliedAtEpochMs??fault.firedAtEpochMs,errorBrowserEpochMs:failureTransition.observedAtEpochMs,retryBrowserEpochMs:retryVisibilityObservedByEpochMs});
+   const timingFacts={failureState:true,failureModelState:failureTransition.state,errorStateObservedAtEpochMs:failureTransition.observedAtEpochMs,errorSurface:'mic-retry',firedAtEpochMs:fault.firedAtEpochMs,...(Number.isSafeInteger(fault.offlineInvokedAtEpochMs)?{offlineInvokedAtEpochMs:fault.offlineInvokedAtEpochMs}:{}),...(Number.isSafeInteger(fault.offlineAppliedAtEpochMs)?{offlineAppliedAtEpochMs:fault.offlineAppliedAtEpochMs}:{}),retryOffered:retry,retryVisibilityObservedByEpochMs,claimedReady:states.includes('ready'),stayedPrivate:mode==='private',timeline:timingEvidence};
+   if(contradiction){await check('download-failure-truthful',false,timingFacts);}
+   else if(!retry){await assertion('download-failure-truthful','NOT RUN',{...timingFacts,diagnosticDeadlineMs:smokeTiming.modelFailureDeadlineMs(c),reason:'retry-not-observed-before-provisional-diagnostic-deadline'});notRun('Retry was not observed before the provisional diagnostic deadline');}
+   else if(!timingEvidence.comparable){await assertion('download-failure-truthful','NOT RUN',{...timingFacts,reason:'fault-error-retry-timeline-not-comparable'});notRun('fault, error and Retry were not established on a comparable timeline');}
+   else await check('download-failure-truthful',true,timingFacts);
    if(caseId==='AHT-14')await guard.resumeDownloadNetwork(id);if(!minimal){current='deliberate-recovery-saved';const saved=await ui.take(page,c);await check('deliberate-recovery-saved',ownSaved(await rows(),saved),{saved:true});await saveReopen(page,saved);}
   }else if(caseId==='AHT-15'){
-   const entryMic=await observer.mic(page);await check('return-entry-mic-off',navigation.micOff(entryMic),{observed:!!entryMic,micOff:navigation.micOff(entryMic)});const target=navigation.existingTarget(baseline);
+   const entryMic=await observer.mic(page);await check('return-entry-mic-off',navigation.micOff(entryMic),{observed:!!entryMic,micOff:navigation.micOff(entryMic)},firstObservationRef?[firstObservationRef]:[]);const target=navigation.existingTarget(baseline);
    await context.clearPermissions();await page.getByTestId('nav-analytics-link').first().click();await navigation.ready(page,{pathname:'/progress'});const before=await rows();await page.getByTestId('open-session-detail-'+target.id).or(page.getByTestId('open-session-detail-mobile-'+target.id)).first().waitFor({state:'visible',timeout:45000});
-   await check('history-preserved',navigation.unchanged(baseline,before),{historyRows:before.length,completedRows:before.filter(r=>r.status==='completed').length,ownedTargetListed:true});
+   await check('history-preserved',navigation.unchanged(baseline,before),{historyRows:before.length,completedRows:before.filter(r=>r.status==='completed').length,ownedTargetListed:true},firstObservationRef?[firstObservationRef]:[]);
    await ui.products(page,'open-mic');await navigation.ready(page,{pathname:'/session'});const openMic=await observer.mic(page);await ui.products(page,'focus-points');await ui.visible(page,'objective-setup-dialog');await ui.closeFocus(page);await ui.products(page,'open-mic');await navigation.ready(page,{pathname:'/session'});
    const switchMic=await observer.mic(page);requireThat(openMic&&switchMic,'product switching observer missing');await check('switches-mic-off',navigation.micOff(openMic)&&navigation.micOff(switchMic),{acquisitions:openMic.acquisitions+switchMic.acquisitions,liveTracks:switchMic.liveTracks});
    current='signed-out';await ui.signout(page);const signedOut=await ui.sessionCleared(page,c);await check('signed-out',signedOut,{sessionCleared:signedOut});
    current='return-owner-preserved';await navigation.returnToOwnDetail({page,caseConfig:c,credentials:cap.credentials,target,onRows:sourceRows});
    const after=await rows();await check('no-recording-or-session-write',sessionWriteRequests===0&&navigation.unchanged(baseline,after),{before:baseline.length,after:after.length,writeRequests:sessionWriteRequests});await ui.signout(page);const cleared=await ui.sessionCleared(page,c);await check('return-signed-out',cleared,{secondSessionCleared:cleared});
   }
-  if(minimal){for(const id of contract.rows)if(!['owned-pages-closed','no-cloud-stt','start-press-budget'].includes(id)&&!assertions.some(a=>a.id===id)){current=id;await assertion(id,'NOT RUN',{omittedBy:'minimal-sample',notAttempted:true});}blocker=blocker||'minimal-sample-omitted-assertions';}
+  if(minimal){let omitted=0;for(const id of contract.rows)if(!['owned-pages-closed','no-cloud-stt','start-press-budget'].includes(id)&&!assertions.some(a=>a.id===id)){current=id;omitted++;await assertion(id,'NOT RUN',{omittedBy:smoke?'smoke-route':'minimal-sample',notAttempted:true});}if(omitted)blocker=blocker||(smoke?'smoke-route-omitted-assertions':'minimal-sample-omitted-assertions');}
   for(const missing of finiteDenominator.requiredUnimplemented.filter(x=>x.caseIds.includes(caseId))){await assertion(missing.assertionId,'NOT RUN',{requiredTechnicalImplementationMissing:true});blocker=blocker||'required-technical-assertion-not-implemented';}
   await check('no-cloud-stt',cloudCount===0,{cloudRequests:cloudCount});
  }catch(error){
   // Preserve every earlier assertion, especially FAIL; missing later evidence can never overwrite it.
   if(error?.code==='AUTH_REJECTED')executionSignals.authenticationRejected=true;if(error?.code==='START_PRESS_CAP')executionSignals.startPressCapExceeded=true;
   blocker=error?.trustedBlocker|| (error?.code==='PRODUCT_FAIL'?'observed-product-contradiction':'browser-or-oracle-step-interrupted');
-  {const failedPage=ui.failurePage(error,page);const trace=failedPage?await ui.controlTrace(failedPage):null;const leaseNotice=failedPage?await failedPage.getByText(/A recording is active on .+\. Stop it there/).first().isVisible().catch(()=>null):null;const diag={stage:ui.failureStage(error,page),step:current,capture:oracleSource.captureDiagnostic(error),leaseHeldNoticeVisible:leaseNotice,controlTrace:Array.isArray(trace)?trace:null,error:ui.safeErrorSummary(error)};interruptionDiag=diag;interruptionRef=await retainInterruptionEvidence({caseId,diag,assertions,writeEvidence:(name,value)=>cap.writeEvidence(name,value)});if(current==='grounded-coaching')await recordCoachingFailure([interruptionRef]);if(!assertions.some(a=>a.id===current))await assertion(current,['NOT_RUN','AUTH_REJECTED','START_PRESS_CAP'].includes(error?.code)?'NOT RUN':'FAIL',{interrupted:true,diag},[interruptionRef]);}
+  {const failedPage=ui.failurePage(error,page);const trace=failedPage?await ui.controlTrace(failedPage):null;const leaseNotice=failedPage?await failedPage.getByText(/A recording is active on .+\. Stop it there/).first().isVisible().catch(()=>null):null;const diag={stage:ui.failureStage(error,page),step:current,capture:oracleSource.captureDiagnostic(error),leaseHeldNoticeVisible:leaseNotice,controlTrace:Array.isArray(trace)?trace:null,products:ui.productsDiagnostic(error),error:ui.safeErrorSummary(error)};interruptionDiag=diag;interruptionRef=await retainInterruptionEvidence({caseId,diag,assertions,writeEvidence:(name,value)=>cap.writeEvidence(name,value)});const interruptionRefs=[interruptionRef,...(safeRef(firstObservationRef)?[firstObservationRef]:[]),...pcmDiagnosticRefs];if(current==='grounded-coaching')await recordCoachingFailure(interruptionRefs);if(!assertions.some(a=>a.id===current))await assertion(current,['NOT_RUN','AUTH_REJECTED','START_PRESS_CAP'].includes(error?.code)?'NOT RUN':'FAIL',{interrupted:true,diag},interruptionRefs);}
   await recordCoachingFailure();
   for(const id of contract.rows)if(!['owned-pages-closed','no-cloud-stt','start-press-budget'].includes(id)&&!assertions.some(a=>a.id===id))await assertion(id,'NOT RUN',{notReached:true});
  }finally{
@@ -321,4 +481,4 @@ async function run(caseId,args){
  }
  return {caseId,contentSafe:true,assertions,blocker,executionSignals};
 }
-module.exports={requiresCaptureDevice,continuesAfterUnavailableReader,retainInterruptionEvidence,run,preflight,configurationPreflight:(caseId,c)=>{preflight(caseId,c,null,null,true);return {ready:true,caseId,requiredAssertions:CONTRACTS[caseId].rows,requiredOracles:CONTRACTS[caseId].oracles};},CONTRACTS,SOURCE_SHA};
+module.exports={requiresCaptureDevice,continuesAfterUnavailableReader,retainInterruptionEvidence,firstObservation,unknownFirstObservation,installCoachingResponseHandler,armModelFailureObservation,measureEpochBridge,waitForModelFailure,waitForModelSettlement,smokeLeaseBoundary,run,preflight,configurationPreflight:(caseId,c)=>{preflight(caseId,c,null,null,true);const contract=(c?.sampleMode==='smoke'?SMOKE_CONTRACTS:CONTRACTS)[caseId];return {ready:true,caseId,requiredAssertions:contract.rows,requiredOracles:contract.oracles};},CONTRACTS,SMOKE_CONTRACTS,SOURCE_SHA};

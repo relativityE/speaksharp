@@ -6,12 +6,14 @@ import path from 'node:path';
 import {createHash,randomUUID} from 'node:crypto';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {createRequire} from 'node:module';
-import {NATIVE_REPORTER,NATIVE_HELPERS,SQL_INPUTS,SQL_CONSUMER,nativeTestRoute,selectNativeContracts,executionBatchIdentity,reconcileExecutionBatches,
+import {runInNewContext} from 'node:vm';
+import {NATIVE_REPORTER,NATIVE_HELPERS,SQL_INPUTS,SQL_CONSUMER,SQL_CONTRACTS,nativeTestRoute,selectNativeContracts,executionBatchIdentity,reconcileExecutionBatches,
   nativeCommand,nativeWarmupCommand,nativeRuntime,validateWarmup,nativeChildTracker,produceNativePhase,validateNativePhase,validateNativeReceipt,
   parseDenoJunit,validateNativeCallables,nativeDenoPolicy,nativeEnvironment,validateSyntheticSource,sqlSourceBinding,validateSqlWitness,
   PROOF_CASES_TEST,REAL_BROWSER_TEST,nativeBrowserBinding,proofCasesBinding,phaseProofCasesBinding,validatePhaseProofCases,generatedProofCases} from '../../scripts/lib/nativeTestExecutionEvidence.mjs';
 import {drainOwnedPhase,dependencyPaths,initializeCopyRepository,cleanupOwnedCopy,selectExecutionContracts} from '../../scripts/run-test-efficacy.mjs';
-import {testEnvironment,executionContext,sourceIdentity,executionRoute} from '../../scripts/lib/testExecutionEvidence.mjs';
+import {testEnvironment,executionContext,sourceIdentity,executionRoute,changedEvidencePaths} from '../../scripts/lib/testExecutionEvidence.mjs';
+import {execFileSync} from 'node:child_process';
 const {test}=process.env.NODE_TEST_CONTEXT?await import('node:test'):await import('vitest');
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 const hash=value=>createHash('sha256').update(value).digest('hex');
@@ -19,12 +21,39 @@ const provenance={schemaVersion:1,invocation:randomUUID(),source:'github-actions
   commit:'a'.repeat(40),tree:'b'.repeat(40),snapshotSha256:'c'.repeat(64)};
 const inputSha256='d'.repeat(64),runId=randomUUID();
 
+test('local coaching PostgreSQL resolver supports the Ubuntu26 installed toolchain without widening PATH',()=>{
+  const source=fs.readFileSync(path.join(root,'tests/db/account-coaching-local-fence.realpg.mjs'),'utf8');
+  const start=source.indexOf("  const names = ['initdb', 'pg_ctl', 'psql'];");
+  const end=source.indexOf("  const root = mkdtempSync",start);
+  assert.ok(start>0&&end>start);
+  // Execute the actual resolver, with filesystem observations only replaced. No SQL/process runs.
+  const code=source.slice(start,end)+'\nJSON.stringify(binaries);';
+  const names=['initdb','pg_ctl','psql'],pg=major=>`/usr/lib/postgresql/${major}/bin`;
+  const complete=directory=>names.map(name=>path.join(directory,name));
+  const resolve=(files,PATH='/usr/bin:/bin')=>JSON.parse(runInNewContext(code,{
+    process:{env:{PATH}},delimiter:path.delimiter,isAbsolute:path.isAbsolute,join:path.join,assert,
+    constants:fs.constants,realpathSync:file=>{assert.ok(files.includes(file));return file;},
+    accessSync:(file,mode)=>{assert.equal(mode,fs.constants.X_OK);assert.ok(files.includes(file));},
+  }));
+  for(const major of [18,17,16]) assert.deepEqual(resolve(complete(pg(major))),
+    Object.fromEntries(names.map(name=>[name,path.join(pg(major),name)])));
+  const all=[...complete('/local/pg/bin'),...complete(pg(17)),...complete(pg(18))];
+  assert.equal(resolve(all,'/local/pg/bin:/usr/bin:/bin').initdb,'/local/pg/bin/initdb');
+  assert.equal(resolve(all).initdb,path.join(pg(17),'initdb'));
+  assert.equal(resolve([...complete(pg(18)),path.join(pg(17),'initdb')]).initdb,path.join(pg(18),'initdb'));
+  for(const files of [[],[path.join(pg(18),'initdb'),path.join(pg(17),'pg_ctl'),path.join(pg(16),'psql')],complete('relative')]) {
+    assert.throws(()=>resolve(files,'relative:/usr/bin:/bin'),/installed local PostgreSQL.*unavailable/);
+  }
+});
+
 test('bounded native routes retain explicit planner/protocol and fixture-only claims',()=>{
   const paths=[...NATIVE_HELPERS.map(item=>item.file),...NATIVE_HELPERS.map(item=>item.consumer),
     'backend/supabase/functions/account-closure/completion-execution.test.ts'];
   const contracts=selectNativeContracts(root,paths);
-  assert.equal(contracts.length,6);
-  assert.equal(contracts.filter(item=>item.runner==='node-test').length,5);
+  // One node:test consumer per registered helper, plus the one Deno test; the inventory sets the count, not a constant.
+  assert.equal(new Set(NATIVE_HELPERS.map(item=>item.consumer)).size,NATIVE_HELPERS.length);
+  assert.equal(contracts.length,NATIVE_HELPERS.length+1);
+  assert.equal(contracts.filter(item=>item.runner==='node-test').length,NATIVE_HELPERS.length);
   for(const item of NATIVE_HELPERS) {
     assert.equal(nativeTestRoute(item.file,root).consumer,item.consumer);
     assert.match(nativeTestRoute(item.file,root).claim,/NOT RUN/);
@@ -312,7 +341,23 @@ test('frozen source refuses global, aliased and imported setters even while all 
     assert.equal(validateSyntheticSource(f.dir,entry).files[entry],hash(fs.readFileSync(path.join(root,entry))));
   }finally{f.clean();}
 });
-test('reviewed coaching error source admits exactly its ten pinned inputs and refuses drift in every input',()=>{
+test('historical coaching profiles do not authorize the local retirement source',async()=>{
+  const f=fixture();
+  try {
+    const source=fs.readFileSync(path.join(root,NATIVE_REPORTER),'utf8');
+    const marker='  // #1643: reviewed local retirement handler and tests; all other import/config pins remain unchanged.';
+    const start=source.indexOf(marker),end=source.indexOf('\n]);',start);
+    assert.ok(start>0 && end>start);
+    const historical=source.slice(0,start)+source.slice(end);
+    assert.ok(historical.includes("id:'coaching-llm-evaluator-parity-model-scripts-1760'"));
+    assert.ok(!historical.includes("id:'coaching-local-retirement-1643'"));
+    f.write('historical-profile.mjs',historical);
+    const prior=await import(pathToFileURL(path.join(f.dir,'historical-profile.mjs')).href);
+    assert.throws(()=>prior.validateSyntheticSource(root,'backend/supabase/functions/get-ai-suggestions/index.test.ts'),
+      /Synthetic-key test\/import profile is not admitted/);
+  }finally{f.clean();}
+});
+test('reviewed coaching source admits exactly its pinned inputs (handler, providers, evaluator prompt and set) and refuses drift in every input',()=>{
   const f=fixture(),entry='backend/supabase/functions/get-ai-suggestions/index.test.ts';
   const files=[...new Set([...dependencyPaths(root,entry),'package.json','pnpm-lock.yaml',
     'backend/supabase/functions/deno.json','backend/supabase/functions/deno.lock'])];
@@ -320,8 +365,10 @@ test('reviewed coaching error source admits exactly its ten pinned inputs and re
   fs.symlinkSync(path.join(root,'node_modules'),path.join(f.dir,'node_modules'),'dir');
   try {
     const admitted=validateSyntheticSource(f.dir,entry);
-    assert.equal(admitted.id,'coaching-errors-cors-compatible');
-    assert.equal(Object.keys(admitted.files).length,10);
+    assert.equal(admitted.id,'coaching-model-gemini-3-6-flash');
+    assert.equal(Object.keys(admitted.files).length,16);
+    for(const added of ['evaluation/prompt.ts','evaluation/transcripts.json'])
+      assert.ok(files.includes(`backend/supabase/functions/get-ai-suggestions/${added}`),added);
     assert.deepEqual(Object.keys(admitted.files).sort(),files.sort());
     for(const file of files) {
       const original=fs.readFileSync(path.join(root,file));
@@ -330,7 +377,7 @@ test('reviewed coaching error source admits exactly its ten pinned inputs and re
       assert.throws(()=>validateSyntheticSource(f.dir,entry),/Synthetic-key test\/import profile/,file);
       f.write(file,original);
     }
-    assert.equal(validateSyntheticSource(f.dir,entry).id,'coaching-errors-cors-compatible');
+    assert.equal(validateSyntheticSource(f.dir,entry).id,'coaching-model-gemini-3-6-flash');
   }finally{f.clean();}
 });
 test('owned frozen import warmup is separate and cannot disappear, fail, drift or grant test permissions',()=>{
@@ -384,9 +431,33 @@ test('SQL execution witness binds both actual consumed sources and both sides of
   }
   assert.throws(()=>validateSqlWitness(null,binding,root),/SQL consumption witness/);
 });
+test('coaching SQL selects its actual consumer and cannot borrow billing consumption evidence',()=>{
+  const coaching=SQL_CONTRACTS.find(item=>item.consumer.includes('account-coaching-expiry'));
+  assert.equal(nativeTestRoute(coaching.files[0],root).consumer,coaching.consumer);
+  const selected=selectExecutionContracts(root,[...SQL_INPUTS,...coaching.files,SQL_CONSUMER,coaching.consumer]);
+  assert.equal(selected.length,2);
+  assert.deepEqual(selected.find(item=>item.testFile===SQL_CONSUMER).sqlFiles,SQL_INPUTS);
+  assert.deepEqual(selected.find(item=>item.testFile===coaching.consumer).sqlFiles,coaching.files);
+  assert.deepEqual(selectExecutionContracts(root,coaching.files).map(item=>item.testFile),[coaching.consumer]);
+  const binding={phaseId:randomUUID(),cwd:root,testFile:path.join(root,coaching.consumer)};
+  const raw={schemaVersion:1,phaseId:binding.phaseId,bindingSha256:hash(JSON.stringify(binding)),consumer:coaching.consumer,
+    consumed:sqlSourceBinding(root,coaching.consumer).map(item=>({...item,beforeSha256:item.sha256,afterSha256:item.sha256}))};
+  assert.deepEqual(validateSqlWitness(raw,binding,root),coaching.files);
+  for(const change of [r=>{r.consumer=SQL_CONSUMER;},r=>{r.consumed=sqlSourceBinding(root);},
+    r=>{r.consumed[0].afterSha256='0'.repeat(64);},r=>{r.consumed=[];},r=>{r.phaseId=randomUUID();}]) {
+    const changed=structuredClone(raw);change(changed);
+    assert.throws(()=>validateSqlWitness(changed,binding,root),/SQL consumption witness/);
+  }
+  assert.throws(()=>sqlSourceBinding(root,'tests/unregistered.test.ts'),/Unregistered SQL consumer/);
+  const native='tests/db/account-coaching-local-fence.realpg.mjs';
+  assert.deepEqual(nativeTestRoute(native,root),{runner:'node-test',consumer:native});
+  assert.equal(nativeTestRoute(native.replace('local-fence','unregistered-fence'),root),null);
+  assert.deepEqual(selectNativeContracts(root,[native]).map(item=>item.testFile),[native]);
+});
 test('full-evidence provisions Deno on its own runner; the Edge job is not its runtime',()=>{
   const require=createRequire(path.join(root,'package.json')),yaml=require('yaml');
   const workflow=yaml.parse(fs.readFileSync(path.join(root,'.github/workflows/ci.yml'),'utf8'));
+  assert.equal(workflow.jobs['full-evidence']['runs-on'],'ubuntu-26.04');
   const steps=workflow.jobs['full-evidence'].steps;
   assert.equal(steps.filter(step=>step.uses==='denoland/setup-deno@v2'&&step.with?.['deno-version']==='v2.x').length,1);
   assert.ok(steps.findIndex(step=>step.uses==='denoland/setup-deno@v2')<steps.findIndex(step=>step.name==='Generate qualified software quality evidence'));
@@ -692,7 +763,50 @@ test('default proof generation owns both children and deletes inputs only after 
   const result=generatedProofCases(root,{CT_EXISTING_PDFJS_DIR:root},{children});
   assert.equal(result.files.length,15);assert.equal(calls.length,2);
   assert.ok(calls.every(call=>call.options.detached===true&&call.options.killSignal==='SIGKILL'));
+  assert.ok(calls.every(call=>call.command.includes('-B')));
+  assert.ok(result.command.includes('-B'));
   assert.ok(!fs.existsSync(retained),'verified proof-generation inputs are removed after both drains');
+});
+
+test('proof generation ignores Python bytecode churn but binds reviewed source changes',()=>{
+  const copy=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'proof-generation-sources-')));
+  const write=(file,bytes='reviewed source')=>{const target=path.join(copy,file);fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,bytes);};
+  for(const file of ['tools/cloud-test/scripts/proof_prep_cases.py','tools/cloud-test/scripts/install_pdfjs.py',
+    'tools/cloud-test/scripts/_netguard.py','tools/cloud-test/scripts/run_env.py','tools/cloud-test/config/test-config.v1.json',
+    'tools/cloud-test/tests/fixtures/full-request.json','tools/cloud-test/tests/fixtures/plan-facts.PLACEHOLDER.json',
+    'tools/cloud-test/harness/reviewed.py','tools/cloud-test/harness-adapter/reviewed.py'])write(file);
+  const generate=()=>{
+    let call=0;
+    const children={
+      run(command) {
+        if(call++===0)return {result:{status:0,signal:null,error:null,stderr:'',stdout:JSON.stringify({
+          path:command[0],version:'3.12.0',sha256:hash(fs.readFileSync(command[0]))})}};
+        const output=command[command.indexOf('--out')+1],cases=path.join(output,'cases');fs.mkdirSync(cases,{recursive:true});
+        for(let n=1;n<=15;n++)fs.writeFileSync(path.join(cases,`AHT-${String(n).padStart(2,'0')}.json`),JSON.stringify({caseId:n}));
+        return {result:{status:0,signal:null,error:null,stdout:'',stderr:''}};
+      },
+      assertDrained(){},
+    };
+    return generatedProofCases(copy,{CT_EXISTING_PDFJS_DIR:copy},{children});
+  };
+  try {
+    write('tools/cloud-test/harness-adapter/__pycache__/reviewed.py','bound source inside cache directory');
+    const initial=generate();
+    write('tools/cloud-test/harness-adapter/__pycache__/reviewed.cpython-312.pyc','first cache bytes');
+    const cached=generate();
+    assert.deepEqual(cached.sources,initial.sources);
+    assert.equal(cached.sources.some(item=>item.file.endsWith('/__pycache__/reviewed.py')),true);
+    assert.equal(cached.sources.some(item=>item.file.endsWith('.pyc')),false);
+    write('tools/cloud-test/harness-adapter/__pycache__/reviewed.cpython-312.pyc','changed cache bytes');
+    assert.deepEqual(generate().sources,initial.sources);
+    write('tools/cloud-test/harness-adapter/__pycache__/reviewed.py','changed bound source inside cache directory');
+    assert.notDeepEqual(generate().sources,initial.sources);
+    write('tools/cloud-test/harness-adapter/__pycache__/reviewed.py','bound source inside cache directory');
+    write('tools/cloud-test/harness-adapter/reviewed.py','changed reviewed source');
+    assert.notDeepEqual(generate().sources,initial.sources);
+    write('tools/cloud-test/harness/new-reviewed.py','added reviewed source');
+    assert.notDeepEqual(generate().sources,initial.sources);
+  } finally {fs.rmSync(copy,{recursive:true,force:true});}
 });
 
 test('proof-generation timeout with an undrained descendant retains its owned inputs',()=>{
@@ -705,4 +819,25 @@ test('proof-generation timeout with an undrained descendant retains its owned in
     });
     assert.ok(retained&&fs.existsSync(retained),'unverified descendant ownership must retain the generated-input directory');
   } finally {if(retained)fs.rmSync(retained,{recursive:true,force:true});}
+});
+
+test('a script-only change to a registered native helper outside tests/ selects its consumer through the real changed-evidence filter',()=>{
+  // #1787: the route was registered, but changedEvidencePaths dropped tools/cloud-test/scripts/*.cjs before routing, so CI never saw it.
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'native-helper-diff-'));
+  try {
+    const git=(...args)=>execFileSync('git',['-C',dir,'-c','user.name=t','-c','user.email=t@example.invalid',...args],{encoding:'utf8'}).trim();
+    const helper='tools/cloud-test/scripts/prerequisite_preflight.cjs',plain='tools/cloud-test/scripts/other_script.cjs';
+    git('init','-q');
+    for(const file of [helper,plain]){fs.mkdirSync(path.join(dir,path.dirname(file)),{recursive:true});fs.writeFileSync(path.join(dir,file),'one\n');}
+    git('add','-A');git('commit','-q','-m','base');const base=git('rev-parse','HEAD');
+    for(const file of [helper,plain])fs.writeFileSync(path.join(dir,file),'two\n');
+    git('commit','-q','-am','script-only change');
+    const files=changedEvidencePaths(dir,base);
+    assert.deepEqual(files,[helper],'only the registered helper becomes evidence input');
+    const [contract,...rest]=selectNativeContracts(root,files);
+    assert.equal(rest.length,0);
+    assert.equal(contract.testFile,'tools/cloud-test/tests/prerequisite-preflight.test.cjs');
+    assert.deepEqual(contract.helpers,[helper]);
+    assert.equal(executionRoute(helper,root).runner,'node-test-helper');
+  } finally {fs.rmSync(dir,{recursive:true,force:true});}
 });

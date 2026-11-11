@@ -14,13 +14,30 @@ import unittest
 import hashlib
 
 from _fixtures import REPO, ROOT, TESTED, J, prerequisite, wjson
+from test_case_start_caps import SyntheticBuilder
 from test_runnable_package import chrome_path, node_ok, playwright_cwd
 import install_pdfjs
+import proof_prep_cases
 
 PIN = J("config", "test-config.v1.json")["tools"]["pdfjs"]
 CATALOG = J("config", "assertion-catalog.json")
 RUNNER_PDF = os.path.join(ROOT, "runner", "node_modules", "pdfjs-dist")
 RECEIVING_SOURCE = J("harness", "draft-adapters", "SOURCE.sha256.json")["sourceSha"]
+PROJECT_REF = "yxlapjuovrsvjswkwnrk"
+
+
+def write_account_bindings(path, campaign_id):
+    wjson(path, {"schema": "speaksharp.cloud-test.live-account-bindings.v1",
+                 "projectRef": PROJECT_REF,
+                 "projectOrigin": "https://%s.supabase.co" % PROJECT_REF,
+                 "sourceBundleSha256": "a" * 64,
+                 "campaignId": campaign_id,
+                 "roles": {
+                     "existing-disposable": {"accountId": "00000000-0000-4000-8000-000000000001",
+                                               "credentialVars": {"email": "THROWAWAY_TEST_EMAIL", "password": "THROWAWAY_TEST_PASSWORD"}},
+                     "maintained-read-only": {"accountId": "00000000-0000-4000-8000-000000000002",
+                                               "credentialVars": {"email": "FREE_TEST_EMAIL", "password": "FREE_TEST_PASSWORD"}}}})
+    os.chmod(path, 0o600)
 
 
 def selected_pdf_source():
@@ -57,6 +74,11 @@ class PinnedPdfParser(unittest.TestCase):
         (self.pdf / "legacy/build").mkdir(parents=True)
         (self.pdf / "package.json").write_text('{"version":"4.10.38","synthetic":true}')
         (self.pdf / "legacy/build/pdf.mjs").write_text("// inert test fixture\n")
+        for package, version in install_pdfjs.BOUND_PACKAGE_VERSIONS.items():
+            root = self.runner / "node_modules" / package
+            root.mkdir(parents=True)
+            (root / "package.json").write_text(json.dumps({"name": package, "version": version, "main": "index.js"}))
+            (root / "index.js").write_text("module.exports = { synthetic: true };\n")
         self.pin = dict(PIN)
         self.pin["packageJsonSha256"] = hashlib.sha256((self.pdf / "package.json").read_bytes()).hexdigest()
         self.pin["pdfMjsSha256"] = hashlib.sha256((self.pdf / "legacy/build/pdf.mjs").read_bytes()).hexdigest()
@@ -110,6 +132,87 @@ class PinnedPdfParser(unittest.TestCase):
         self.assertIn("modes.full.assertionCatalog.file", sh)
         self.assertEqual(J("config", "test-config.v1.json")["modes"]["full"]["assertionCatalog"]["file"], "config/assertion-catalog.json")
 
+    def test_verified_playwright_pair_is_bound_into_the_tested_checkout(self):
+        with tempfile.TemporaryDirectory() as d:
+            result = self.call("--checkout", d, "--bind-playwright")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for package in install_pdfjs.PLAYWRIGHT_PACKAGES:
+                binding = Path(d) / "node_modules" / package
+                self.assertTrue(binding.is_symlink())
+                self.assertEqual(binding.resolve(), (self.runner / "node_modules" / package).resolve())
+            resolved = subprocess.run(["node", "-e", """
+const path=require('node:path');
+for(const name of ['@sentry/react','playwright','playwright-core','posthog-js','react','pino','tsx','esbuild','get-tsconfig','resolve-pkg-maps']){
+  const p=require.resolve(name+'/package.json',{paths:[process.argv[1]]});
+  const j=require(p); const expected={'@sentry/react':'10.27.0',playwright:'1.57.0','playwright-core':'1.57.0','posthog-js':'1.298.1',react:'18.3.1',pino:'9.14.0',tsx:'4.20.6',esbuild:'0.25.12','get-tsconfig':'4.13.0','resolve-pkg-maps':'1.0.0'};
+  if(j.name!==name||j.version!==expected[name])process.exit(2);
+}
+""", d], capture_output=True, text=True)
+            self.assertEqual(resolved.returncode, 0, resolved.stderr)
+            self.assertEqual(self.call("--checkout", d, "--check-only", "--bind-playwright").returncode, 0)
+
+    def test_missing_or_conflicting_playwright_pair_refuses_before_binding(self):
+        with tempfile.TemporaryDirectory() as d:
+            core = self.runner / "node_modules/playwright-core"
+            held = self.root / "held-playwright-core"
+            core.rename(held)
+            try:
+                result = self.call("--checkout", d, "--bind-playwright")
+                self.assertEqual(result.returncode, 78)
+                self.assertFalse((Path(d) / "node_modules/playwright").exists())
+            finally:
+                held.rename(core)
+        with tempfile.TemporaryDirectory() as d:
+            conflict = Path(d) / "node_modules/playwright"
+            conflict.mkdir(parents=True)
+            (conflict / "package.json").write_text('{"name":"playwright","version":"wrong"}')
+            result = self.call("--checkout", d, "--bind-playwright")
+            self.assertEqual(result.returncode, 78)
+            self.assertIn("not overwritten", result.stderr)
+            self.assertFalse((Path(d) / "node_modules/playwright-core").exists())
+        with tempfile.TemporaryDirectory() as d:
+            manifest = self.runner / "node_modules/tsx/package.json"
+            original = manifest.read_text()
+            manifest.write_text(json.dumps({"name": "tsx", "version": "4.20.5"}))
+            try:
+                result = self.call("--checkout", d, "--bind-playwright")
+                self.assertEqual(result.returncode, 78)
+                self.assertIn("tsx package is not version 4.20.6", result.stderr)
+                self.assertFalse((Path(d) / "node_modules/playwright").exists())
+            finally:
+                manifest.write_text(original)
+
+    def test_governed_telemetry_reader_reaches_closed_missing_credentials_hold(self):
+        runner = Path(ROOT) / "runner"
+        for package in install_pdfjs.PLAYWRIGHT_PACKAGES:
+            prerequisite((runner / "node_modules" / package / "package.json").is_file(), "npm ci in tools/cloud-test/runner")
+        with tempfile.TemporaryDirectory(prefix="ct-reader-binding-") as d:
+            checkout = Path(d) / "checkout"
+            checkout.mkdir()
+            (checkout / "scripts").mkdir()
+            shutil.copy2(Path(REPO) / "scripts/telemetry-readback-qualification.mts",
+                         checkout / "scripts/telemetry-readback-qualification.mts")
+            shutil.copytree(Path(REPO) / "frontend/src", checkout / "frontend/src")
+            shutil.copy2(Path(REPO) / "frontend/package.json", checkout / "frontend/package.json")
+            command = ["node", "--import", "tsx", str(checkout / "scripts/telemetry-readback-qualification.mts"),
+                       "--release-sha", "a" * 40, "--journey-id", "binding-control", "--traffic-type", "canary"]
+            clean_env = {"PATH": os.environ["PATH"], "HOME": d}
+            before = subprocess.run(command, cwd=checkout, env=clean_env, capture_output=True, text=True)
+            self.assertNotEqual(before.returncode, 0)
+            self.assertIn("ERR_MODULE_NOT_FOUND", before.stderr)
+            self.assertNotIn("TELEMETRY_READBACK_QUALIFICATION_EVIDENCE", before.stdout)
+
+            bound = run_py("scripts/install_pdfjs.py", "--checkout", str(checkout), "--runner-dir", str(runner), "--bind-playwright")
+            self.assertEqual(bound.returncode, 0, bound.stderr)
+            after = subprocess.run(command, cwd=checkout, env=clean_env, capture_output=True, text=True)
+            self.assertEqual(after.returncode, 1, after.stderr)
+            evidence_lines = [line for line in after.stdout.splitlines()
+                              if line.startswith("TELEMETRY_READBACK_QUALIFICATION_EVIDENCE ")]
+            self.assertEqual(len(evidence_lines), 1, after.stdout + after.stderr)
+            evidence = json.loads(evidence_lines[0].split(" ", 1)[1])
+            self.assertEqual(evidence["verdict"], "HOLD")
+            self.assertIn("POSTHOG_PROJECT_ID is not set", evidence["reasons"][0])
+
 
 class FullPlanProof(unittest.TestCase):
     """Builds the complete full-coverage plan from the R7 request (placeholder owner inputs, clearly NOT A RUN) and has the real runner validate it."""
@@ -123,19 +226,34 @@ class FullPlanProof(unittest.TestCase):
         prerequisite(cls.chrome, "the pinned browser installed and hash-verified (CT_CHROME)")
         cls.cwd = playwright_cwd()
         prerequisite(cls.cwd, "playwright installed from the lockfile")
-        cls.work = tempfile.mkdtemp(prefix="ct-fullplan-")
+        cls.work = os.path.realpath(tempfile.mkdtemp(prefix="ct-fullplan-"))
         cls.browser_identity = os.path.join(cls.work, "browser-identity.json")
         wjson(cls.browser_identity, {"schema": "speaksharp.cloud-test.existing-browser.v1", "path": os.path.realpath(cls.chrome),
                                     "observedBinarySha256": hashlib.sha256(Path(cls.chrome).read_bytes()).hexdigest()})
-        req = J("config", "runs", "R7-full-coverage-proposal.json")
-        req["release"]["testedSha"] = RECEIVING_SOURCE
-        req["approvedLimits"] = {"cumulativeCeilingRequests": 10535, "identityCap": 126, "startsCap": 85, "takesCap": 55, "runCapRequests": req["estimate"]["requests"]["runCap"], "approvalRef": "PLACEHOLDER-NOT-A-RUN", "approvedBy": "PLACEHOLDER"}
-        req["window"] = {"startUtc": "2026-01-01T00:00:00Z", "endUtc": "2099-01-01T00:00:00Z", "approvalRef": "PLACEHOLDER-NOT-A-RUN"}
-        req["selectionApprovalRef"] = "PLACEHOLDER-NOT-A-RUN-selection"
+        # Use the same reviewed synthetic request/Case10 projection helpers as
+        # the proof producer. The old hand-built R7 fixture omitted both the
+        # admitted reconciliation and the action-approval binding.
+        req = proof_prep_cases.placeholder_request(os.path.join(ROOT, "harness"))
         cls.req = req
-        cls.reqp = os.path.join(cls.work, "req.json"); wjson(cls.reqp, req)
-        cls.acct = os.path.join(cls.work, "acct.txt"); open(cls.acct, "w").write("00000000-0000-4000-8000-000000000001\n"); os.chmod(cls.acct, 0o600)
-        r = run_py("scripts/run_env.py", "--request", cls.reqp, "--out", os.path.join(cls.work, "env.txt"))
+        cls.reqp = os.path.join(cls.work, "req.json"); wjson(cls.reqp, req); os.chmod(cls.reqp, 0o600)
+        cls.bindings = os.path.join(cls.work, "account-bindings.json")
+        write_account_bindings(cls.bindings, req["runId"])
+        facts = J("tests", "fixtures", "plan-facts.PLACEHOLDER.json")
+        proof_prep_cases.bind_synthetic_case10(req, facts)
+        wjson(cls.reqp, req)
+        request_sha = hashlib.sha256(Path(cls.reqp).read_bytes()).hexdigest()
+        cls.reconciliation = os.path.join(cls.work, "reconciliation.json")
+        wjson(cls.reconciliation, {"synthetic": "PLACEHOLDER-NOT-A-RUN", "starts": {"ownerCounted": 0},
+              "ceilings": {"starts": 85, "requests": 20000, "identityReads": 200, "takes": 100,
+                           "protectedReserveRequests": 50}, "requests": {"conservativeUsed": 0},
+              "identityReads": {"conservativeUsed": 0}, "takes": {"ownerCounted": 0}})
+        reconciliation_sha = hashlib.sha256(Path(cls.reconciliation).read_bytes()).hexdigest()
+        facts["actionApproval"] = {"schema": "speaksharp.case-start-approval.v1", "requestSha256": request_sha,
+              "reconciliationSha256": reconciliation_sha, "approvalRef": req["approvedLimits"]["approvalRef"],
+              "approvedBy": req["approvedLimits"]["approvedBy"], "selectionApprovalRef": req["selectionApprovalRef"]}
+        cls.factp = os.path.join(cls.work, "facts.json"); wjson(cls.factp, facts)
+        r = run_py("scripts/run_env.py", "--request", cls.reqp, "--request-sha256", hashlib.sha256(Path(cls.reqp).read_bytes()).hexdigest(),
+                   "--reconciliation", cls.reconciliation, "--out", os.path.join(cls.work, "env.txt"))
         assert r.returncode == 0, r.stdout + r.stderr
         cls.p0, out = cls.build("plan0")
         assert [o.returncode for o in out] == [0, 0], [o.stderr for o in out]
@@ -153,11 +271,15 @@ class FullPlanProof(unittest.TestCase):
         script = "set -euo pipefail; set -a; . %s; set +a; " % os.path.join(cls.work, "env.txt")
         import shlex
         # overrides are exported AFTER the request-derived environment is sourced, otherwise the request's own values would win
+        script += "export BP_SYNTHETIC_OFFLINE_PROOF=1; "
         script += "".join("export %s=%s; " % (k, shlex.quote(v)) for k, v in (extra or {}).items())
         env = {"PATH": os.environ["PATH"], "HOME": cls.work, "BP_PACKET": os.path.join(ROOT, "harness"), "BP_CHECKOUT": REPO, "BP_PRIVATE": private,
-               "BP_FACTS": os.path.join(ROOT, "tests", "fixtures", "plan-facts.PLACEHOLDER.json"), "BP_ACCOUNT_ID_FILE": cls.acct, "BP_LEASE_RPCS": "1", "BP_LEASE_READ": "1",
+               "BP_FACTS": cls.factp, "BP_ACCOUNT_BINDINGS_FILE": cls.bindings,
+               "BP_LIVE_ACCOUNTS_SHA256": "a" * 64,
+               "BP_REQUEST_FILE": cls.reqp, "BP_REQUEST_SHA256": hashlib.sha256(Path(cls.reqp).read_bytes()).hexdigest(), "BP_LEASE_RPCS": "1", "BP_LEASE_READ": "1",
                "BP_TASK_ID": "PLACEHOLDER-task", "BP_SOURCE_REFERENCE": "https://claude.ai/code/PLACEHOLDER", "BP_ENV_ID": "env_PLACEHOLDER", "BP_MEDIA_PARENT": os.path.join(cls.work, "media"),
                "BP_BROWSER_IDENTITY": cls.browser_identity,
+               "VITE_SUPABASE_URL": "https://%s.supabase.co" % PROJECT_REF,
                "VITE_SUPABASE_ANON_KEY": "placeholder-publishable-key", "BP_PDFJS_DIR": cls.pdf_source}
         for k in drop:
             env.pop(k, None)
@@ -301,17 +423,32 @@ class FullPlanProof(unittest.TestCase):
         self.assertIn("REFUSED", out["assertion catalog and failure caps"] + out["campaign plan structure"])
 
     def test_a_partial_plan_is_not_accepted_as_the_full_plan(self):
-        private, built = self.build("plan-minimal", extra={"BP_MODE": "minimal", "BP_STIM": self.receipt})
+        # A mode override is not a partial-plan fixture: it contradicts the
+        # request/facts/reconciliation binding and must fail before outputs.
+        mismatch, built = self.build("plan-mode-mismatch", extra={"BP_MODE": "minimal", "BP_STIM": self.receipt})
+        self.assertEqual(built[0].returncode, 78)
+        self.assertEqual(built[0].stderr.strip(), "BLOCKED_SETUP: INVALID_BINDING_INPUT")
+        self.assertFalse(os.path.exists(mismatch))
+
+        # Build a genuinely bound minimal request, approval and reconciliation,
+        # then prove the full-catalog acceptance still rejects that valid
+        # partial plan rather than confusing it with a binding failure.
+        minimal_root = os.path.join(self.work, "plan-minimal-bound")
+        os.makedirs(minimal_root)
+        fixture = SyntheticBuilder(minimal_root, cases=(12,), minimal=True)
+        built = [fixture.run("phase1"), fixture.run("phase2")]
         self.assertEqual([b.returncode for b in built], [0, 0], [b.stderr for b in built])
+        private = fixture.env["BP_PRIVATE"]
         r, out = self.accept(os.path.join(private, "cfg", "campaign-plan.json"))
         self.assertNotEqual(r.returncode, 0)
         self.assertTrue(out["assertion catalog and failure caps"].startswith("REFUSED"), out)
         self.assertIn("sampleMode", out["assertion catalog and failure caps"])
 
     def test_the_builder_refuses_a_parser_that_is_not_the_pinned_one(self):
-        _, built = self.build("plan-badpdf", extra={"BP_PDFJS_SHA": "0" * 64})
+        private, built = self.build("plan-badpdf", extra={"BP_PDFJS_SHA": "0" * 64})
         self.assertEqual(built[0].returncode, 78)
-        self.assertIn("differs from the pinned sha256", built[0].stderr)
+        self.assertEqual(built[0].stderr.strip(), "BLOCKED_SETUP: INVALID_BINDING_INPUT")
+        self.assertFalse(os.path.exists(private))
 
     def test_the_builder_refuses_a_full_plan_with_a_missing_estimate(self):
         env = open(os.path.join(self.work, "env.txt")).read().splitlines()

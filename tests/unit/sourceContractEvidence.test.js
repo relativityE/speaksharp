@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {SOURCE_CONTRACTS,SOURCE_CONSUMER,SOURCE_ASSERTION,inspectSourceContract,sourceContractBinding,
+import {CASE07_APPLY,CASE07_ROLLBACK,SOURCE_CONTRACTS,SOURCE_CONSUMER,SOURCE_ASSERTION,inspectSourceContract,sourceContractBinding,
   consumeSourceContracts,validateSourceContractWitness} from '../../scripts/lib/sourceContractEvidence.mjs';
 import {executionRoute} from '../../scripts/lib/testExecutionEvidence.mjs';
 const {test}=process.env.NODE_TEST_CONTEXT?await import('node:test'):await import('vitest');
@@ -136,6 +136,46 @@ test('#1712 actual entry spec settles the default post-auth route before Account
   }
 });
 
+test('Case 07 grant and rollback candidates retain the exact bounded ACL contract without database credit',()=>{
+  const apply=fs.readFileSync(path.join(root,CASE07_APPLY),'utf8');
+  const rollback=fs.readFileSync(path.join(root,CASE07_ROLLBACK),'utf8');
+  for(const [file,source,operation] of [[CASE07_APPLY,apply,'grant'],[CASE07_ROLLBACK,rollback,'revoke']]) {
+    const proof=inspectSourceContract(root,file,source);
+    assert.equal(proof.operation,operation);assert.equal(proof.databaseExecution,'NOT RUN');
+    assert.equal(proof.productionExecution,'NOT AUTHORIZED');
+    assert.equal(proof.sha256,file===CASE07_APPLY
+      ?'153c3140f6b5da3f80b315fe00d5f41f566f9552603de586de5df3e6d5358ab7'
+      :'0e217dcde39415b41eb947595fb2dda3a0c448c87d7f86ca7bd7d43f06344a2a');
+    assert.equal('detectedFaults' in proof,false);
+    const route=executionRoute(file,root);
+    assert.equal(route.runner,'vitest-source-contract');assert.equal(route.applicable,true);
+  }
+  for(const [from,to] of [
+    ["SET LOCAL lock_timeout='3s';","SET LOCAL lock_timeout='30s';"],
+    ["SET LOCAL statement_timeout='10s';","SET LOCAL statement_timeout='60s';"],
+    ['LOCK TABLE public.user_goals IN SHARE ROW EXCLUSIVE MODE;','LOCK TABLE public.user_goals IN ACCESS EXCLUSIVE MODE;'],
+    ["relkind='r' AND relrowsecurity AND NOT relforcerowsecurity","relkind='r'"],
+    ["rolname='authenticated' AND (rolsuper OR rolbypassrls)","rolname='authenticated' AND rolsuper"],
+    ['TO authenticated;','TO service_role;'],
+  ]) assert.throws(()=>inspectSourceContract(root,CASE07_APPLY,apply.replace(from,to)),/Case 07/);
+  for(const widened of [
+    apply.replace("THEN RAISE EXCEPTION 'CASE07_STOP_POLICY_DRIFT';",'THEN NULL;'),
+    apply.replace('IF NOT EXISTS(SELECT 1 FROM pg_class','IF EXISTS(SELECT 1 FROM pg_class'),
+    apply.replace('TO authenticated;','TO authenticated WITH GRANT OPTION;'),
+    apply.replace('COMMIT;','ALTER TABLE public.user_goals DISABLE ROW LEVEL SECURITY;\nCOMMIT;'),
+    apply.replace('COMMIT;','DELETE FROM public.user_goals;\nCOMMIT;'),
+    apply.replace('COMMIT;','UPDATE user_goals SET weekly_goal=0;\nCOMMIT;'),
+    apply.replace('GRANT SELECT (id,user_id,weekly_goal,clarity_goal,created_at,updated_at) ON public.user_goals TO authenticated;',
+      '/* GRANT SELECT (id,user_id,weekly_goal,clarity_goal,created_at,updated_at) ON public.user_goals TO authenticated; */'),
+  ]) assert.throws(()=>inspectSourceContract(root,CASE07_APPLY,widened),/Case 07/);
+  for(const [from,to] of [
+    ['CROSS JOIN LATERAL aclexplode(a.attacl) x','LEFT JOIN LATERAL aclexplode(a.attacl) x ON true'],
+    [')<>12',')<>11'],
+    ['FROM authenticated;','FROM service_role;'],
+    ['REVOKE SELECT','GRANT SELECT'],
+  ]) assert.throws(()=>inspectSourceContract(root,CASE07_ROLLBACK,rollback.replace(from,to)),/Case 07/);
+});
+
 test('route specs without their wires are not applicable; with them, applicability still grants no credit',()=>fixture(({dir,write})=>{
   for(const [file,source] of ROUTES) {
     write(file,'import {test} from "@playwright/test"; test("baseline",async()=>{});\n');
@@ -221,6 +261,40 @@ test('fixture contract consumes all annotations against the pinned generator, wi
   assert.throws(()=>inspectSourceContract(dir,SOURCE_CONTRACTS[2],JSON.stringify(wrong)),/disagreement/);
   const unconsumed=structuredClone(manifest);unconsumed.fixtures.open_mic_tts.fillerAnnotations.items[1].anchor='not in generator';
   assert.throws(()=>inspectSourceContract(dir,SOURCE_CONTRACTS[2],JSON.stringify(unconsumed)),/not consumed/);
+}));
+
+const MODEL='tests/evidence/fixtures/model-evaluator/';
+test('#1760 model comparison inputs: every registered harness, document and data input is consumed from this checkout without live or evaluator credit',()=>{
+  const files=SOURCE_CONTRACTS.filter(file=>file.startsWith('tests/model-dropin/')||file.startsWith(MODEL));
+  assert.equal(files.length,15);
+  for(const file of files) {
+    const route=executionRoute(file,root);
+    assert.equal(route.runner,'vitest-source-contract');assert.equal(route.applicable,true,file);
+    const proof=inspectSourceContract(root,file);
+    assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.checks>0 && proof.detectedFaults===proof.checks,file);
+    if(proof.kind==='data-contract') assert.equal(proof.evaluatorExecution,'NOT RUN');
+  }
+  const binding=sourceContractBinding(root,[MODEL+'corpus-fixture-001-paired.json']);
+  assert.ok(binding.some(entry=>entry.file==='tests/evidence/fixtures/corpus/fixture-001.wav'),'the corpus binds the WAV it consumes');
+});
+test('#1760 data contracts refuse a changed pin and a WAV that no longer matches its digest',()=>fixture(({dir,write})=>{
+  const arm=MODEL+'candidate-parakeet-tdt-v3.json',corpus=MODEL+'corpus-fixture-001-paired.json';
+  const armSource=fs.readFileSync(path.join(root,arm),'utf8'),corpusSource=fs.readFileSync(path.join(root,corpus),'utf8');
+  write(arm,armSource);assert.equal(inspectSourceContract(dir,arm).kind,'data-contract');
+  const changed=JSON.parse(armSource);changed.identity.backend='webgpu';
+  assert.throws(()=>inspectSourceContract(dir,arm,JSON.stringify(changed)),/Data contract failed: .*identity\.backend/);
+  write(arm,JSON.stringify(changed));assert.equal(executionRoute(arm,dir).applicable,false);
+  write(corpus,corpusSource);write('tests/evidence/fixtures/corpus/fixture-001.wav',fs.readFileSync(path.join(root,'tests/evidence/fixtures/corpus/fixture-001.wav')));
+  assert.equal(inspectSourceContract(dir,corpus).audioDigestsChecked,1);
+  write('tests/evidence/fixtures/corpus/fixture-001.wav','not the pinned audio');
+  assert.throws(()=>inspectSourceContract(dir,corpus),/wav digest fixture-001/);
+}));
+test('#1760 operator document contract refuses a removed statement',()=>fixture(({dir,write})=>{
+  const file='tests/model-dropin/EXECUTION.md',source=fs.readFileSync(path.join(root,file),'utf8');
+  write(file,source);assert.equal(inspectSourceContract(dir,file).kind,'text-contract');
+  const removed=source.replace('No account/session deletion or cleanup command is implemented.','Cleanup may delete sessions.');
+  assert.throws(()=>inspectSourceContract(dir,file,removed),/Text contract failed/);
+  write(file,removed);assert.equal(executionRoute(file,dir).applicable,false);
 }));
 
 test(SOURCE_ASSERTION,()=>{
