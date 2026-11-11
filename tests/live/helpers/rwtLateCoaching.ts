@@ -3,8 +3,9 @@
  *
  * The interrupted take's coaching may still be in flight when the next take starts recording; the review then unmounts
  * without aborting it, and the server saves the answer to the interrupted take's own session. This row proves that end to
- * end: the session row holds a complete coaching pair within a bounded wait, AND that take's saved review (its own Analytics
- * detail, opened in a separate page) shows exactly that pair. Never inferred from a missing read: an unreadable row HOLDs;
+ * end: the session row holds a complete coaching pair within a bounded wait, no OTHER session of the account holds that pair
+ * (wrong destination), and that take's saved review (its own Analytics detail, opened in a separate page) shows exactly that
+ * pair without sending any coaching generation request (no second provider operation). Never inferred from a missing read: an unreadable row HOLDs;
  * an absent pair after the bound, a malformed pair, a review that does not show it, or a different pair FAIL.
  *
  * The receipt carries closed codes and timings only; the coaching text is compared in memory and forbidden in the receipt.
@@ -21,8 +22,13 @@ export interface LateCoachingSink {
 export interface LateCoachingDeps {
     /** The interrupted take's own `sessions.ai_suggestions` (owner- and id-scoped read). `ok: false` = the read failed. */
     readSaved: () => Promise<{ ok: true; value: unknown } | { ok: false }>;
-    /** The pair that take's saved review renders, read in a separate page; null when it shows no complete pair. */
-    openSavedReview: () => Promise<{ what_worked: string; what_to_try_next: string } | null>;
+    /**
+     * The pair that take's saved review renders, read in a separate page (null when it shows no complete pair), and how
+     * many coaching generation requests that page sent while reopening (a saved review must never generate again).
+     */
+    openSavedReview: () => Promise<{ pair: { what_worked: string; what_to_try_next: string } | null; generationRequests: number }>;
+    /** Every OTHER session of this account's saved coaching value (wrong-destination check). `ok: false` = read failed. */
+    readOtherSessions: () => Promise<{ ok: true; values: unknown[] } | { ok: false }>;
     same: (a: string, b: string) => boolean;
     now?: () => number;
     sleep?: (ms: number) => Promise<void>;
@@ -68,14 +74,34 @@ export async function lateCoachingSavedRow(
     }
     sink.forbid(saved.well, saved.next);
     const savedAfterMs = now() - startedAt;
-    let shown: { what_worked: string; what_to_try_next: string } | null;
+    // Wrong destination: the take's coaching must not ALSO have been written to another session (e.g. the next take's).
+    const others = await deps.readOtherSessions().catch(() => ({ ok: false as const }));
+    if (!others.ok) {
+        sink.row(LATE_COACHING_ROW, 'HOLD', 'the account\'s other sessions could not be read, so a wrong destination is unproven', { reason: 'others-unread', savedAfterMs });
+        return;
+    }
+    const elsewhere = others.values.filter((v) => {
+        const c = classifySavedCoaching(v);
+        return c.state === 'pair' && deps.same(c.well, saved!.well) && deps.same(c.next, saved!.next);
+    }).length;
+    if (elsewhere > 0) {
+        sink.row(LATE_COACHING_ROW, 'FAIL', 'the interrupted take\'s coaching was also saved to another session', { reason: 'wrong-destination', savedAfterMs, elsewhere });
+        return;
+    }
+    let reopened: { pair: { what_worked: string; what_to_try_next: string } | null; generationRequests: number };
     try {
-        shown = await deps.openSavedReview();
+        reopened = await deps.openSavedReview();
     } catch {
         sink.row(LATE_COACHING_ROW, 'HOLD', 'the interrupted take\'s saved review could not be opened', { reason: 'review-unopened', savedAfterMs });
         return;
     }
+    const shown = reopened.pair;
     if (shown) sink.forbid(shown.what_worked, shown.what_to_try_next);
+    if (reopened.generationRequests !== 0) {
+        sink.row(LATE_COACHING_ROW, 'FAIL', 'reopening the saved review requested coaching again (a second provider operation)',
+            { reason: 'reopen-generated', savedAfterMs, generationRequests: reopened.generationRequests });
+        return;
+    }
     if (!shown) {
         sink.row(LATE_COACHING_ROW, 'FAIL', 'the interrupted take\'s saved review does not show its saved coaching', { reason: 'not-shown', savedAfterMs });
         return;

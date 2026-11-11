@@ -992,10 +992,18 @@ test.describe('RWT — Open Mic first session @live', () => {
                         const { data, error } = await admin!.from('sessions').select('ai_suggestions').eq('id', id!).eq('user_id', capturedUid!).maybeSingle();
                         return error || !data ? { ok: false } : { ok: true, value: (data as { ai_suggestions?: unknown }).ai_suggestions ?? null };
                     },
+                    readOtherSessions: async () => {
+                        const { data, error } = await admin!.from('sessions').select('id, ai_suggestions').eq('user_id', capturedUid!);
+                        return error || !Array.isArray(data) ? { ok: false }
+                            : { ok: true, values: (data as { id: string; ai_suggestions?: unknown }[]).filter((r) => r.id !== id).map((r) => r.ai_suggestions ?? null) };
+                    },
                     openSavedReview: async () => {
                         const reviewPage = await page.context().newPage();
+                        const reopenGenerations = new CoachingGenerationTap();
+                        reopenGenerations.attach(reviewPage);
                         try {
-                            return await readSavedReviewPair(reviewPage, id!, 'gemini_coaching_v1');
+                            const pair = await readSavedReviewPair(reviewPage, id!, 'gemini_coaching_v1');
+                            return { pair, generationRequests: reopenGenerations.sentCount };
                         } finally {
                             await reviewPage.close().catch(() => undefined);
                         }

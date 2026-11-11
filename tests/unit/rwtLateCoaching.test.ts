@@ -14,14 +14,15 @@ const sink = () => {
     return { rows, forbidden, row: (step: string, verdict: 'PASS' | 'FAIL' | 'HOLD', detail: string, evidence?: Record<string, string | number | boolean | null>) => { rows.push({ step, verdict, detail, evidence }); }, forbid: (...v: string[]) => { forbidden.push(...v); } };
 };
 /** A fake clock: each sleep advances time; `savedAfter` reads return absent before the pair appears. */
-const deps = (o: { savedAfter?: number; saved?: unknown; shown?: typeof PAIR | null; readFails?: boolean; reviewThrows?: boolean } = {}): LateCoachingDeps & { reads: () => number } => {
+const deps = (o: { savedAfter?: number; saved?: unknown; shown?: typeof PAIR | null; readFails?: boolean; reviewThrows?: boolean; others?: unknown[] | null; generations?: number } = {}): LateCoachingDeps & { reads: () => number } => {
     let t = 0, reads = 0;
     return {
         reads: () => reads,
         now: () => t,
         sleep: async (ms) => { t += ms; },
         readSaved: async () => { reads += 1; if (o.readFails) return { ok: false }; return { ok: true, value: t >= (o.savedAfter ?? 0) ? (o.saved === undefined ? PAIR : o.saved) : null }; },
-        openSavedReview: async () => { if (o.reviewThrows) throw new Error('page closed'); return o.shown === undefined ? PAIR : o.shown; },
+        openSavedReview: async () => { if (o.reviewThrows) throw new Error('page closed'); return { pair: o.shown === undefined ? PAIR : o.shown, generationRequests: o.generations ?? 0 }; },
+        readOtherSessions: async () => (o.others === null ? { ok: false } : { ok: true, values: o.others ?? [null, { what_worked: 'Different first take.', what_to_try_next: 'Other advice.' }] }),
         same,
     };
 };
@@ -57,10 +58,26 @@ describe('interrupted take coaching saved and shown in its saved review', () => 
         expect(other.verdict).toBe('FAIL');
         expect(other.evidence?.reason).toBe('shown-differs');
     });
+    it('CASUALTY (wrong destination): the same pair ALSO saved to another session (e.g. the next take) FAILs', async () => {
+        const r = await verdictOf(deps({ others: [null, { ...PAIR }] }));
+        expect(r.verdict).toBe('FAIL');
+        expect(r.evidence?.reason).toBe('wrong-destination');
+    });
+    it('CASUALTY (dropped write): the pair saved only to ANOTHER session, never to the take, FAILs as not saved', async () => {
+        const r = await verdictOf(deps({ saved: null, others: [{ ...PAIR }] }));
+        expect(r.verdict).toBe('FAIL');
+        expect(r.evidence?.reason).toBe('not-saved');
+    });
+    it('CASUALTY: reopening the saved review that sends a coaching request (second provider operation) FAILs', async () => {
+        const r = await verdictOf(deps({ generations: 1 }));
+        expect(r.verdict).toBe('FAIL');
+        expect(r.evidence?.reason).toBe('reopen-generated');
+    });
     it('an unreadable row, an unopenable review or an unknown session HOLDs — never PASS, never a false FAIL', async () => {
         expect((await verdictOf(deps({ readFails: true }))).verdict).toBe('HOLD');
         expect((await verdictOf({ ...deps(), readSaved: async () => { throw new Error('network'); } })).verdict).toBe('HOLD');
         expect((await verdictOf(deps({ reviewThrows: true }))).verdict).toBe('HOLD');
         expect((await verdictOf(deps(), false)).verdict).toBe('HOLD');
+        expect((await verdictOf(deps({ others: null }))).evidence?.reason).toBe('others-unread');
     });
 });
