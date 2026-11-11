@@ -84,6 +84,7 @@ import {
     LIVE_MARKER_MAX_AFTER_SECONDS, armMarkerObserver, bindTakeAcquisition, classifyMarkerTiming, disposeMarkerObserver, freezeMarkerObserver,
     markerTimingStatus, type MarkerObserverSnapshot,
 } from './rwtMarkerObserver';
+import { ABSENT_ROW, MarkerTimeline, nextPointMarkedVerdict, sampleFocusRail } from './rwtFocusNextMarker';
 
 const JOURNEY = 'focus_points';
 export const WEBGPU = process.env.RWT_WEBGPU === '1';
@@ -435,7 +436,8 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         let startedAt = 0;
         let stoppedAt = 0;
         const firstChange: Array<{ status: RailStatus; atSec: number; atMs: number } | null> = points.map(() => null);
-        const nextSequence: number[] = [];
+        // AHT-02/03 `next point marked` (owner decision, Akin 2026-11-11): the live window as [ms, marked point, statuses] samples.
+        const markerWindow = new MarkerTimeline();
         firstTakeFrom = tap.events.length;
         await test.step('row 10 — markers change while each point is spoken', async () => {
             await expect(page.getByTestId('focus-points-rail')).toBeVisible({ timeout: 45_000 });
@@ -460,13 +462,19 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
 
             const until = startedAt + Math.round((fixture.entry.speechSeconds + 4) * 1000);
             while (Date.now() < until) {
-                const now = await readRail(page, points.length);
-                now.statuses.forEach((status, i) => {
-                    if (!firstChange[i] && status && status !== 'pending') firstChange[i] = { status, atSec: Math.round((Date.now() - startedAt) / 1000), atMs: Date.now() };
+                // One atomic read per sample: the statuses and the "Still to cover" marker come from the same evaluation.
+                const now = await sampleFocusRail(page, points.length);
+                const atMs = Date.now();
+                markerWindow.record(atMs - startedAt, now);
+                (now?.statuses ?? []).forEach((status, i) => {
+                    if (!firstChange[i] && status !== 'pending' && status !== 'none' && status !== ABSENT_ROW) {
+                        firstChange[i] = { status: status as RailStatus, atSec: Math.round((atMs - startedAt) / 1000), atMs };
+                    }
                 });
-                if (now.next !== null && nextSequence[nextSequence.length - 1] !== now.next) nextSequence.push(now.next);
                 await page.waitForTimeout(500);
             }
+            // Closed before any verdict or Stop: the marker row judges only what the rail showed while the fixture was speaking.
+            const nextMarker = nextPointMarkedVerdict(markerWindow.freeze());
             // #1593 case 3: drain and freeze the live window before any verdict or Stop; later callbacks cannot change it.
             const sealed: MarkerObserverSnapshot | null = armed.ok ? await freezeMarkerObserver(page, armed.token) : null;
             // #1532 r4127572206: every point expected covered OR partial must change live (per point, not by count).
@@ -477,9 +485,10 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             receipt.row('live marker changes', notLive.length === 0 && ordered ? 'PASS' : 'FAIL',
                 notLive.length === 0 ? 'every spoken point expected to be detected changed during speech, in speaking order' : 'a point expected to be detected did not change during speech (Stop-time-only detection fails this row)',
                 { changedDuringSpeech: liveChanged, expected: expectedLive, notLive: notLive.map((i) => i + 1).join(','), firstChangeSec: firstChange.map((c) => (c ? `${c.status}@${c.atSec}` : 'none')).join(',') });
-            receipt.row('next point marked', nextSequence.length > 1 ? 'PASS' : 'FAIL',
-                nextSequence.length > 1 ? 'the "Still to cover" marker advanced as points were detected' : 'the next point was not visibly advanced',
-                { nextSequence: nextSequence.join('>') });
+            // Owner decision (Akin, 2026-11-11): the marker must always be on the FIRST pending point; it is NOT required to move
+            // (movement is judged by `live marker changes` and `marker timing vs audio`). Mirrors the harness `markerVerdict`
+            // (tools/cloud-test/harness/draft-adapters/focus-oracle.cjs); a window with no usable sample is HOLD, never PASS.
+            receipt.row('next point marked', nextMarker.verdict, nextMarker.detail, nextMarker.evidence);
             // Time-anchored oracle (#1593 case 3): each point's first non-pending PAGE-SIDE OBSERVATION from the take-bound
             // observer, measured from the take's one fresh granted getUserMedia INVOCATION. Nothing is backdated; any binding
             // gap is a HOLD, never a PASS. The polled first-seen times are kept beside it to separate observer from product.
