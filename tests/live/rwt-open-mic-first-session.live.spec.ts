@@ -111,7 +111,7 @@ import { corpusRows, crossCheckCounts, fillerAnnotationsOf, hesitationTotals } f
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { feedbackDiagnosticChainRow } from './helpers/coachingFeedbackAdapter';
 import { capturedTakesDifferVerdict, coachingPromptBindingRow, coachingRequestBudgetRow, createCoachingTakeCapture, readSavedReviewPair } from './helpers/rwtCoachingCollector';
-import { lateCoachingSavedRow } from './helpers/rwtLateCoaching';
+import { lateCoachingSavedRow, ownerSessionReader } from './helpers/rwtLateCoaching';
 import { coachingContract } from './helpers/rwtCoachingEvidence';
 import { openProductsItem } from './helpers/productsMenu';
 import {
@@ -986,24 +986,27 @@ test.describe('RWT — Open Mic first session @live', () => {
             // The repeat take is interrupted by the next take, which has now recorded. Its coaching must be saved to its own
             // session and shown by its own saved review (Analytics detail, separate page; the journey page is untouched).
             await test.step('interrupted take coaching saved and shown in its saved review', async () => {
-                const id = repeatSessionId;
-                await lateCoachingSavedRow(receipt, Boolean(id && capturedUid && admin), {
-                    readSaved: async () => {
-                        const { data, error } = await admin!.from('sessions').select('ai_suggestions').eq('id', id!).eq('user_id', capturedUid!).maybeSingle();
-                        return error || !data ? { ok: false } : { ok: true, value: (data as { ai_suggestions?: unknown }).ai_suggestions ?? null };
-                    },
-                    readOtherSessions: async () => {
-                        const { data, error } = await admin!.from('sessions').select('id, ai_suggestions').eq('user_id', capturedUid!);
-                        return error || !Array.isArray(data) ? { ok: false }
-                            : { ok: true, values: (data as { id: string; ai_suggestions?: unknown }[]).filter((r) => r.id !== id).map((r) => r.ai_suggestions ?? null) };
-                    },
+                const id = repeatSessionId && capturedUid ? repeatSessionId : null;
+                await lateCoachingSavedRow(receipt, id, {
+                    // Product evidence is read AS THE SIGNED-IN ACCOUNT (its own session token + the public anon key), never admin.
+                    readSaved: ownerSessionReader(page, {
+                        url: SUPABASE_URL, anonKey: process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY ?? '',
+                        expectedUid: capturedUid ?? '', sessionId: id ?? '',
+                    }),
                     openSavedReview: async () => {
                         const reviewPage = await page.context().newPage();
-                        const reopenGenerations = new CoachingGenerationTap();
-                        reopenGenerations.attach(reviewPage);
+                        const reopenRequests = new CoachingGenerationTap();
+                        reopenRequests.attach(reviewPage);
                         try {
                             const pair = await readSavedReviewPair(reviewPage, id!, 'gemini_coaching_v1');
-                            return { pair, generationRequests: reopenGenerations.sentCount };
+                            const transcript = reviewPage.getByTestId('session-detail-transcript');
+                            const rendered = await transcript.waitFor({ state: 'visible', timeout: 15_000 }).then(() => true).catch(() => false);
+                            return {
+                                pathname: new URL(reviewPage.url()).pathname,
+                                transcriptDigest: rendered ? sha256Hex(await transcript.innerText()) : null,
+                                pair,
+                                coachingRequests: reopenRequests.sentCount,
+                            };
                         } finally {
                             await reviewPage.close().catch(() => undefined);
                         }
