@@ -43,7 +43,11 @@ import { RWT_BROWSER_IDENTITY_ARGS } from './helpers/rwtBrowserIdentity';
 import { openProductsItem, type ProductsMenuItem } from './helpers/productsMenu';
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
-import { knownSessionCount, navigationWritesVerdict } from './helpers/rwtNavigationCounts';
+import { knownSessionCount } from './helpers/rwtNavigationCounts';
+import {
+    SESSION_FACT_COLUMNS, deepLinkTarget, historyPreservedVerdict, listedOwnTarget, readMicState, readRenderedDetail,
+    renderedOwnDetailRow, returnEntryMicVerdict, sessionFactsFromRows, sessionWritesVerdict, type SessionRowFacts,
+} from './helpers/rwtNavigationRows';
 import {
     armPasswordSignInObserver, pageAttemptEvents, returningSignInVerdict, runDeepLinkReturn, type MicRead, type SignInAttemptOutcome,
 } from './helpers/returningSignInAttempt';
@@ -72,6 +76,20 @@ const products = (page: Page, item: ProductsMenuItem): Promise<boolean> =>
 const readUid = async (page: Page) => extractUidFromAuthStorage(await page.evaluate(
     () => Object.keys(localStorage).map((k) => ({ key: k, value: localStorage.getItem(k) ?? '' })),
 ));
+
+/**
+ * AHT-15: the account's session rows as content-free facts (ids, status, transcript_state, lengths, a digest of the trimmed
+ * transcript), in created_at order, or null when the read fails or is malformed. Transcript text is hashed here and never kept.
+ */
+const readSessionFacts = async (uid: string): Promise<SessionRowFacts[] | null> => {
+    try {
+        const { data, error } = await admin!.from('sessions').select(SESSION_FACT_COLUMNS).eq('user_id', uid)
+            .order('created_at', { ascending: true }).order('id', { ascending: true });
+        return error ? null : sessionFactsFromRows(data);
+    } catch {
+        return null;
+    }
+};
 
 /** G04: the current document's microphone acquisitions and that document's identity, or null when the counter is absent. */
 const readMicCounter = (page: Page): Promise<MicRead | null> => page.evaluate(() => {
@@ -223,11 +241,19 @@ test.describe('RWT — returning user and Products navigation @live', () => {
                 if (!verdict.proceed) throw new Error(`${verdict.verdict} returning-user sign-in: ${verdict.detail}`);
             });
 
+            // ── AHT-15 return-entry-mic-off: an explicit read the moment the returning user lands on Practice ─────────
+            // Not inferred from the end-of-journey count: the counter, live tracks, recorder controls and runtime state, now.
+            const entryMic = await readMicState(page);
+            const entry = returnEntryMicVerdict(entryMic);
+            receipt.row('no mic on return entry', entry.verdict, entry.detail, entry.evidence);
+
             // ── State verification (read-only): the intended account, with a profile and its history ─────
             let uid = '';
             let sessionsBefore: number | null = null;
             let completedBefore: number | null = null;
             let accountVerified = false;
+            // AHT-15: the history the user signed in with, by row identity and content-free facts (null when unread: HOLD rows).
+            let baselineRows: SessionRowFacts[] | null = null;
             await test.step('the existing account is state-verified (read-only)', async () => {
                 uid = (await readUid(page)) ?? '';
                 const { data: user, error } = await admin!.auth.admin.getUserById(uid);
@@ -244,6 +270,7 @@ test.describe('RWT — returning user and Products navigation @live', () => {
                 }
                 sessionsBefore = all;
                 completedBefore = done;
+                baselineRows = await readSessionFacts(uid);
                 accountVerified = sameAccount && Boolean(profile);
                 receipt.row('returning account state', sameAccount && profile ? 'PASS' : 'FAIL',
                     sameAccount ? (profile ? 'the signed-in account is the intended existing account, with a profile' : 'the existing account has no profile') : 'the session is not the intended account',
@@ -271,13 +298,27 @@ test.describe('RWT — returning user and Products navigation @live', () => {
                 const clicked = await page.getByTestId('nav-analytics-link').first().click({ timeout: 20_000 }).then(() => true).catch(() => false);
                 // #1548: the Progress control lands on exactly the canonical /progress list (the /analytics alias only redirects).
                 const arrived = clicked && await page.waitForURL((url) => url.pathname === '/progress', { timeout: 30_000 }).then(() => true).catch(() => false);
-                if (!arrived) { receipt.row('returning history', 'FAIL', 'the Analytics control did not open Analytics'); return; }
-                if (completedBefore === null || completedBefore === 0) { receipt.row('returning history', 'HOLD', 'this account has no verified completed sessions to show'); return; }
-                const listed = await page.locator('[data-testid^="open-session-detail-"]').first()
-                    .waitFor({ state: 'visible', timeout: 45_000 }).then(() => page.locator('[data-testid^="open-session-detail-"]').count()).catch(() => 0);
-                receipt.row('returning history', listed > 0 ? 'PASS' : 'FAIL',
-                    listed > 0 ? 'Analytics lists the returning user\'s saved sessions' : 'the account has saved sessions but Analytics lists none',
-                    { listed, priorCompletedSessions: completedBefore });
+                if (!arrived) {
+                    receipt.row('returning history', 'FAIL', 'the Analytics control did not open Analytics');
+                    receipt.row('history preserved', 'HOLD', 'Progress did not open, so the history it shows is unverified');
+                    return;
+                }
+                if (completedBefore === null || completedBefore === 0) { receipt.row('returning history', 'HOLD', 'this account has no verified completed sessions to show'); }
+                else {
+                    const listed = await page.locator('[data-testid^="open-session-detail-"]').first()
+                        .waitFor({ state: 'visible', timeout: 45_000 }).then(() => page.locator('[data-testid^="open-session-detail-"]').count()).catch(() => 0);
+                    receipt.row('returning history', listed > 0 ? 'PASS' : 'FAIL',
+                        listed > 0 ? 'Analytics lists the returning user\'s saved sessions' : 'the account has saved sessions but Analytics lists none',
+                        { listed, priorCompletedSessions: completedBefore });
+                }
+                // AHT-15 history-preserved: the rows are the SAME rows (ids and content-free facts) as at sign-in, not just as
+                // many, and the own target session is listed when Progress's recent list is expected to hold it.
+                const progressRows = await readSessionFacts(uid);
+                const ownListedId = baselineRows ? listedOwnTarget(baselineRows) : null;
+                const ownTargetListed = ownListedId === null ? null : await page.getByTestId(`open-session-detail-${ownListedId}`).first()
+                    .waitFor({ state: 'visible', timeout: 15_000 }).then(() => true, () => false);
+                const preserved = historyPreservedVerdict(baselineRows, progressRows, ownTargetListed);
+                receipt.row('history preserved', preserved.verdict, preserved.detail, preserved.evidence);
             });
 
             // ── Release-level real-phone check (PM plan decision 5849354099) ────────────────────────────────
@@ -304,10 +345,11 @@ test.describe('RWT — returning user and Products navigation @live', () => {
             // G04 binds the deep-link microphone span to this judged count and its document.
             const micBaselineRead = await readMicCounter(page);
             receipt.row('no mic on navigation', mic === 0 ? 'PASS' : 'FAIL', mic === 0 ? 'no step opened the microphone' : 'navigation opened the microphone', { acquisitions: mic });
-            const { count: after, error } = await admin!.from('sessions').select('id', { count: 'exact', head: true }).eq('user_id', uid);
-            if (error) throw new Error(`session count failed (fail closed): ${error.code ?? 'unknown'}`);
-            const writes = navigationWritesVerdict(sessionsBefore, after);
-            receipt.row('navigation writes nothing', writes.status, writes.detail, { sessionsBefore, sessionsAfter: after });
+            // AHT-15 no-recording-or-session-write: the rows after navigation are the baseline's rows (ids and content-free
+            // facts), so a status flip, or a write then a delete, FAILs where an equal count would not.
+            const writes = sessionWritesVerdict(baselineRows, await readSessionFacts(uid));
+            receipt.row('navigation writes nothing', writes.verdict, writes.detail, { sessionsBefore, ...writes.evidence,
+                entryDocumentIsJudgedDocument: entryMic !== null && micBaselineRead !== null && entryMic.document === micBaselineRead.document });
 
             // #1258 R9 (run 38312345563): the journey takes seconds; wait (bounded) until its navigation telemetry is
             // observed leaving the page before signing out, or the queued events are lost when the page goes.
@@ -324,16 +366,19 @@ test.describe('RWT — returning user and Products navigation @live', () => {
                 { path: signOutPath ?? 'none', sessionCleared });
 
             // ── G04 (#1548 / #1718): a signed-out deep link returns, after sign-in, to its exact Progress session ─────────
-            // Routing only; the rendered detail is not claimed. Gated on the verified account and its cleared first session, and
-            // the second sign-in must be that same account. The session is read by id only and forbidden in the receipt.
+            // The routing row is routing only; AHT-15's own `signed-in deep-link rendered own detail` row judges the rendered detail
+            // (the target is the newest completed session with an available transcript, compared by digest only). Gated on the
+            // verified account and its cleared first session, and the second sign-in must be that same account. The session is
+            // read by id only and forbidden in the receipt.
             await test.step('a signed-out deep link returns to its exact Progress session after sign-in', async () => {
                 if (!accountVerified || !sessionCleared) {
                     receipt.row('signed-in deep-link return', 'HOLD', 'routing unproven: needs the verified returning account and its cleared first session');
                     return;
                 }
-                const { data: newest, error: newestErr } = await admin!.from('sessions').select('id')
-                    .eq('user_id', uid).eq('status', 'completed').order('created_at', { ascending: false }).limit(1).maybeSingle();
-                const targetId = !newestErr && typeof newest?.id === 'string' && newest.id.length > 0 ? newest.id : null;
+                const chosen = await readSessionFacts(uid).then((rows) => (rows ? deepLinkTarget(rows) : null));
+                const targetId = chosen?.id ?? null;
+                // Only this digest of the saved transcript is kept; with none (no available transcript), the rendered row HOLDs.
+                const expectedDigest = chosen?.expectedDigest ?? null;
                 if (!targetId) {
                     receipt.row('signed-in deep-link return', 'HOLD', 'routing unproven: no completed session to link to, or the read failed');
                     return;
@@ -366,10 +411,10 @@ test.describe('RWT — returning user and Products navigation @live', () => {
                     signOut: () => signOutThroughProduct(page as never),
                     awaitSessionCleared: () => expect.poll(() => readUid(page), { timeout: 30_000 }).toBeFalsy().then(() => true, () => false),
                     recordWrites: async () => {
-                        const { count: afterDeepLink, error: countErr } = await admin!.from('sessions').select('id', { count: 'exact', head: true }).eq('user_id', uid);
-                        const writes = countErr ? { status: 'HOLD' as const, detail: 'the session count could not be read back' } : navigationWritesVerdict(sessionsBefore, afterDeepLink);
-                        receipt.row('deep-link return writes nothing', writes.status, writes.detail, { sessionsBefore, sessionsAfter: countErr ? null : afterDeepLink });
+                        const writes = sessionWritesVerdict(baselineRows, await readSessionFacts(uid));
+                        receipt.row('deep-link return writes nothing', writes.verdict, writes.detail, { sessionsBefore, ...writes.evidence });
                     },
+                    renderedDetail: (routing) => renderedOwnDetailRow(expectedDigest, routing, () => readRenderedDetail(page)),
                     row: (name, verdict, detail, data) => receipt.row(name, verdict, detail, data),
                 });
             });
