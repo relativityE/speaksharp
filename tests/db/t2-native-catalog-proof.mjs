@@ -13,7 +13,7 @@ export function createNativeT2CatalogProof({ sql, sources, identity, retain }) {
   assert.equal(typeof sql, 'function');
   assert.equal(typeof retain, 'function');
   // Successors are observed over the same historical stage0..6; never relabel their actual run as 126/127.
-  assert.ok(['main-t2-account-126', 'main-t2-fence-127', 'main-t2-retention-128', 'main-completion-billing-129'].includes(identity.profile), 'unreviewed native T2 observer profile');
+  assert.ok(['main-t2-account-126', 'main-t2-fence-127', 'main-t2-retention-128', 'main-completion-billing-129', 'main-coaching-retirement-129'].includes(identity.profile), 'unreviewed native T2 observer profile');
   assert.equal(identity.environment, 'disposable');
   assert.match(identity.testedCommit, /^[a-f0-9]{40}$/);
   assert.equal(identity.testedCommit, identity.requestedHead);
@@ -28,7 +28,7 @@ export function createNativeT2CatalogProof({ sql, sources, identity, retain }) {
     scope: 'disposable native stage0..6 catalog; not Production/activation/customer evidence', stages: [] };
   let failed = false;
   let finished = false;
-  const report = () => structuredClone(receipt);
+  const report = () => globalThis.structuredClone(receipt);
   const save = () => retain(report());
 
   return {

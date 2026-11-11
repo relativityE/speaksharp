@@ -12,6 +12,15 @@ const DEFAULT_CONFIG = Object.freeze({
 
 const APPLIED_WEBHOOK_PREREQUISITE = '20260812002000';
 
+// Reviewed absence prerequisite, NOT an apply target. Retirement ships without
+// the independently held completion-billing successor; never hide an applied row.
+const RETIREMENT_WITHHELD_BILLING = Object.freeze({
+    version: '20261027192550',
+    file: '20261027192550_account_completion_billing_settlement.sql',
+    sha256: '398aa50b8db168acc0cee68a11a433b40bd3101af03e3051dcdc2c87b2bef45d',
+    mustRemainPending: true,
+});
+
 export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
     Object.freeze({
         version: '20260811143000',
@@ -257,6 +266,14 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
         classification: 'staged',
     }),
     Object.freeze({
+        // Schema must precede the matching account-closure/coaching Edge release.
+        // Source registration is not authorization; exact apply and catalog proof remain mandatory.
+        version: '20261110173548',
+        file: '20261110173548_account_coaching_local_retirement.sql',
+        sha256: 'cc3ee4369dec74d2926557128a06265fb3019077b018cdc5dc848f055a6f8e04',
+        classification: 'staged',
+    }),
+    Object.freeze({
         version: '20260812042000',
         file: '20260812042000_trial_activation_stamp_1282.sql',
         sha256: '41f10614d396769f49236cb355205e80122a969d1784f803d5b127ab8e5cb181',
@@ -328,8 +345,11 @@ export function resolveExactMigrationConfig(env = process.env) {
                 APPLIED_WEBHOOK_PREREQUISITE,
                 ...EXACT_MIGRATION_ALLOWLIST.slice(0, targetIndex).map(({ version }) => version),
             ],
-            excludedMigrations: EXACT_MIGRATION_ALLOWLIST.slice(targetIndex + 1)
-                .map(({ version, file }) => ({ version, file })),
+            excludedMigrations: [
+                ...EXACT_MIGRATION_ALLOWLIST.slice(targetIndex + 1)
+                    .map(({ version, file }) => ({ version, file })),
+                ...(target.version === '20261110173548' ? [RETIREMENT_WITHHELD_BILLING] : []),
+            ],
             allowlisted: true,
         };
     }
@@ -380,7 +400,7 @@ function fileHash(path) {
 export function verifyMigrationSourceIdentity(sourceSupabaseDir, config = CONFIG) {
     const migrations = join(resolve(sourceSupabaseDir), 'migrations');
     const entries = config.allowlisted
-        ? EXACT_MIGRATION_ALLOWLIST
+        ? [...EXACT_MIGRATION_ALLOWLIST, ...config.excludedMigrations.filter(entry => entry.mustRemainPending)]
         : [{ version: config.targetVersion, file: config.targetFile, sha256: config.targetSha256 }];
     for (const { version, file, sha256 } of entries) {
         if (!file.startsWith(`${version}_`)) throw new Error(`migration filename/version mismatch: ${file}`);
@@ -478,8 +498,11 @@ export function prepareExactMigrationWorkspace(sourceSupabaseDir, tempRoot, conf
     assertRegularFile(join(source, 'config.toml'), 'source supabase/config.toml');
     assertDirectory(join(source, 'migrations'), 'source supabase/migrations directory');
     assertRegularFile(join(source, 'migrations', config.targetFile), 'source target migration');
-    for (const { file } of config.excludedMigrations) {
+    for (const { file, sha256, mustRemainPending } of config.excludedMigrations) {
         assertRegularFile(join(source, 'migrations', file), `source excluded migration ${file}`);
+        if (mustRemainPending && fileHash(join(source, 'migrations', file)) !== sha256) {
+            throw new Error(`withheld migration hash mismatch: ${file}`);
+        }
     }
     const sourceInventory = snapshotFileInventory(source);
     const excludedSourceEntries = new Map(config.excludedMigrations.map(({ file }) => {
@@ -557,6 +580,9 @@ export function ledgerAwareConfig(output, config = CONFIG) {
         const row = history.get(excluded.version);
         if (!row || row.local !== excluded.version) {
             throw new Error(`later allowlisted migration ${excluded.version} is absent from the migration list`);
+        }
+        if (excluded.mustRemainPending && row.remote !== null) {
+            throw new Error(`withheld migration ${excluded.version} must remain pending`);
         }
         if (row.remote === null) stillPending.push(excluded);
         else if (row.remote !== excluded.version) throw new Error(`later allowlisted migration ${excluded.version} has a mismatched history row`);
@@ -698,6 +724,7 @@ export const TARGET_POSTFLIGHT_GATES = Object.freeze([
     Object.freeze({ id: 'postflight_20261020230653', targetFile: '20261020230653_account_pending_completion_journal_1643' }),
     Object.freeze({ id: 'postflight_20261024083000', targetFile: '20261024083000_account_coaching_unknown_fence_1643' }),
     Object.freeze({ id: 'postflight_20261025021046', targetFile: '20261025021046_content_free_retention_evidence' }),
+    Object.freeze({ id: 'postflight_20261110173548', targetFile: '20261110173548_account_coaching_local_retirement' }),
 ]);
 
 /**

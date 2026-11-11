@@ -306,7 +306,7 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
       if(contract.sourceFiles) binding.sourceContract={files:contract.sourceFiles,
         sourceBinding:sourceContractBinding(temporary,contract.sourceFiles),
         witnessFile:path.join(temporary,`.source-contract-${binding.phaseId}.json`)};
-      if(contract.sqlFiles)binding.sql={files:contract.sqlFiles,sourceBinding:sqlSourceBinding(temporary),
+      if(contract.sqlFiles)binding.sql={files:contract.sqlFiles,sourceBinding:sqlSourceBinding(temporary,contract.testFile),
         witnessFile:path.join(temporary,`.sql-${binding.phaseId}.json`)};
       const environment=testEnvironment(temporary,binding,envelopeFile);
       if(contract.fixtureFile) environment.TEST_EFFICACY_SERVICE_CALLER_FIXTURE='1';

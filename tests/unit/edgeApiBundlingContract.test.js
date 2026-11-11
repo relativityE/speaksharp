@@ -85,7 +85,7 @@ describe('reviewed Edge deployment uses server-side bundling without changing pu
     expect(publication.needs).toContain('invalidate-account-closure-authority');
     expect(publication.if).toContain("needs.invalidate-account-closure-authority.result == 'success'");
     const policy = deploySteps.findIndex(step => step.run === 'node scripts/production-release-policy.mjs authorize');
-    const t2 = deploySteps.findIndex(step => step.run?.includes('t2-migration-postflight.mjs verify release'));
+    const t2 = deploySteps.findIndex(step => step.run?.includes('t2-migration-postflight.mjs verify edge-release'));
     const publish = deploySteps.indexOf(deploy);
     expect(policy).toBeGreaterThan(-1);
     expect(policy).toBeLessThan(t2);

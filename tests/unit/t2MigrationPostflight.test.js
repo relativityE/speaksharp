@@ -9,8 +9,9 @@ import { spawnSync } from 'node:child_process';
 import { assertT2Sources, assertT2Catalog, t2CatalogQuery, T2_VERSIONS, T2_INVENTORY,
   t2ExpectedCatalog, t2DisabledQuery, assertT2Disabled, t2AdmissionQuery, t2LedgerQuery,
   t2ReleaseLedgerQuery, t2ReleaseContract, t2ReleaseSnapshotQuery, assertT2ReleaseSnapshot,
-  t2KnownAbsentQuery } from '../../scripts/lib/t2MigrationPostflight.mjs';
+  t2KnownAbsentQuery, t2EdgeReleaseContract } from '../../scripts/lib/t2MigrationPostflight.mjs';
 import { EXACT_MIGRATION_ALLOWLIST } from '../../scripts/lib/exactMigrationGate.mjs';
+import { retirementContract, retirementSnapshotQuery, assertRetirementSnapshot } from '../../scripts/lib/retirementMigrationPostflight.mjs';
 
 const read = name => readFileSync(name, 'utf8');
 const source = name => read('backend/supabase/migrations/' + name);
@@ -115,6 +116,101 @@ async function fixture({ historicalTableDefaults = true, platformFunctionDefault
 // END BOUNDED FIXTURE.
 
 describe('T2 catalog gate rejects missing or changed evidence', () => {
+  it('attests the installed retirement successor and rejects partial state, stale receipts and weakened audit contracts', async () => {
+    const version = '20261110173548';
+    const migration = source('20261110173548_account_coaching_local_retirement.sql');
+    for (const platformFunctionDefaults of [false, true]) {
+      const context = platformFunctionDefaults ? 'native-replay' : 'retained-production';
+      const db = await fixture({ platformFunctionDefaults });
+      const rows = async query => (await db.exec(query)).filter(value => value.rows?.length)
+        .map(value => String(Object.values(value.rows[0])[0]));
+      try {
+        await db.exec('CREATE SCHEMA supabase_migrations; CREATE TABLE supabase_migrations.schema_migrations(version text PRIMARY KEY)');
+        for (const v of [...T2_VERSIONS, ...c1Versions]) await db.exec(`SET ROLE closure_owner;
+          ${source(EXACT_MIGRATION_ALLOWLIST.find(row => row.version === v).file)} RESET ROLE;
+          INSERT INTO supabase_migrations.schema_migrations VALUES('${v}')`);
+        const before = retirementContract(process.cwd(), 'before', version, context);
+        const after = retirementContract(process.cwd(), 'after', version, context);
+        const prior = { version, targetSha256: before.targetSha256, catalogContext: context,
+          rows: await rows(retirementSnapshotQuery(before)) };
+        expect(assertRetirementSnapshot(before, prior.rows).passed).toBe(true);
+        await db.exec(`SET ROLE closure_owner; ${migration} RESET ROLE`);
+        expect(() => assertRetirementSnapshot(before, [])).toThrow();
+        const partial = await rows(retirementSnapshotQuery(before));
+        expect(() => assertRetirementSnapshot(before, partial)).toThrow();
+        expect(() => assertRetirementSnapshot(after, partial, prior)).toThrow();
+        await db.exec(`INSERT INTO supabase_migrations.schema_migrations VALUES('${version}')`);
+        const installed = await rows(retirementSnapshotQuery(after));
+        expect(assertRetirementSnapshot(after, installed, prior).profile).toBe('post-128-retirement');
+        function verifyEdgeCli() {
+          expect(assertT2ReleaseSnapshot(t2EdgeReleaseContract(process.cwd(), installed[0]), installed).passed).toBe(true);
+          // Execute the actual CLI with real database readbacks. Only transport
+          // is substituted; no remote connection or mutating query is permitted.
+          const dir = mkdtempSync(join(process.cwd(), '.retirement-edge-cli-'));
+          try {
+            writeFileSync(join(dir, 'psql'), `#!/usr/bin/env node\nimport('node:fs').then(fs=>{
+const rows=JSON.parse(fs.readFileSync(process.env.T2_TEST_ROWS,'utf8'));
+const query=process.argv.at(-1);
+if(!query.includes('READ ONLY')||!process.env.PGOPTIONS.includes('default_transaction_read_only=on'))process.exit(9);
+console.log(query.includes('objects AS')?rows.join('\\n'):rows[0]);});\n`);
+            chmodSync(join(dir, 'psql'), 0o700);
+            const invoke = (readbacks, mode = 'edge-release') => {
+              writeFileSync(join(dir, 'rows.json'), JSON.stringify(readbacks));
+              return spawnSync(process.execPath, ['scripts/t2-migration-postflight.mjs', 'verify', mode], {
+                encoding: 'utf8', timeout: 10_000,
+                env: { ...process.env, PATH: dir + ':' + process.env.PATH, T2_TEST_ROWS: join(dir, 'rows.json') },
+              });
+            };
+            expect(invoke(installed).status).toBe(0);
+            expect(invoke(prior.rows, 'release').status).toBe(0);
+            const denied = invoke(prior.rows);
+            expect(denied.status).toBe(1);
+            expect(denied.stderr).toContain('requires installed coaching retirement successor');
+            for (const broken of [
+              [JSON.stringify([...T2_VERSIONS, ...c1Versions, '20261027192550']), ...installed.slice(1)],
+              [installed[0], '{}', ...installed.slice(2)],
+              [installed[0], installed[1], JSON.stringify({ billing_disabled: false, completion_disabled: true }), ...installed.slice(3)],
+            ]) expect(invoke(broken).status).toBe(1);
+          } finally { rmSync(dir, { recursive: true, force: true }); }
+        }
+        if (!platformFunctionDefaults) verifyEdgeCli();
+        expect(() => assertRetirementSnapshot(after, installed)).toThrow('prior receipt');
+        expect(() => assertRetirementSnapshot(after, installed, { ...prior, targetSha256: '0'.repeat(64) })).toThrow();
+        const brokenPrior = structuredClone(prior); brokenPrior.rows[1] = '{}';
+        expect(() => assertRetirementSnapshot(after, installed, brokenPrior)).toThrow();
+        const snapshot = retirementSnapshotQuery(after).replace(/^BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;/, '').replace(/COMMIT;\s*$/, '');
+        for (const mutation of [
+          'GRANT SELECT ON public.account_coaching_local_fences TO service_role',
+          'ALTER TABLE public.account_coaching_expiry_fences DISABLE ROW LEVEL SECURITY',
+          'ALTER TABLE public.account_coaching_operations DROP CONSTRAINT account_coaching_operations_phase_check',
+          'GRANT EXECUTE ON FUNCTION public.finish_account_coaching_local_v1(uuid,uuid,uuid) TO authenticated',
+          'UPDATE public.transcript_retention_activation SET activated_at=clock_timestamp()',
+          "CREATE OR REPLACE FUNCTION public.guard_unsettled_account_coaching_delete_v1() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN OLD; END $$",
+          "CREATE FUNCTION public.settle_account_completion_billing_v1(text) RETURNS boolean LANGUAGE sql AS $$ SELECT true $$",
+        ]) {
+          const changed = await rows(`BEGIN; ${mutation}; ${snapshot} ROLLBACK;`);
+          expect(() => assertRetirementSnapshot(after, changed, prior)).toThrow();
+        }
+        expect(await rows(retirementSnapshotQuery(after))).toEqual(installed);
+      } finally { await db.close(); }
+    }
+  }, 30_000);
+  it('selects only the exact retirement successor without admitting billing129 or unknown successors', () => {
+    const ledger = [...T2_VERSIONS, ...c1Versions, '20261110173548'];
+    const contract = t2ReleaseContract(process.cwd(), ledger);
+    expect(contract.profile).toBe('post-128-retirement');
+    expect(contract.pins).toHaveLength(9);
+    expect(contract.knownAbsent.families).toEqual(['settle_account_completion_billing_v1']);
+    expect(t2EdgeReleaseContract(process.cwd(), ledger).profile).toBe('post-128-retirement');
+    for (const count of [6, 7, 8]) expect(() => t2EdgeReleaseContract(process.cwd(), ledger.slice(0, count)))
+      .toThrow('requires installed coaching retirement successor');
+    for (const bad of [ledger.slice(1), [...ledger.slice(0, -1), '20261027192550', ledger.at(-1)],
+      [...ledger, '20261111111111'], [...ledger.slice(0, -2), ledger.at(-1)]]) {
+      expect(() => t2ReleaseContract(process.cwd(), bad)).toThrow('ledger');
+    }
+    for (const mode of ['', 'verify', 'apply']) expect(() => retirementContract(process.cwd(), mode, ledger.at(-1))).toThrow();
+    expect(() => retirementContract(process.cwd(), 'before', '20261027192550')).toThrow();
+  });
   it('binds retained-Production ACLs to an explicit context and refuses native, mixed and unknown catalogs there', async () => {
     const ledger = [...T2_VERSIONS, ...c1Versions];
     const native = t2ReleaseContract(process.cwd(), ledger);

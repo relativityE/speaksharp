@@ -67,6 +67,8 @@ describe("#1259 the engine's real handler accepts exactly one, and only its own"
         acquisitionReceipt: AcquisitionReceipt | null;
         getAcquisitionReceipt: () => AcquisitionReceipt | null;
         /** The REAL handler the live worker's onmessage delegates to. */
+        activeLoadRequestId: number | null;
+        pendingWorkerRequests: Map<number, unknown>;
         handleWorkerMessage: (response: unknown, options: unknown) => void;
     };
 
@@ -78,6 +80,8 @@ describe("#1259 the engine's real handler accepts exactly one, and only its own"
         vi.resetModules();
         const { TransformersJSEngine } = await import('../engines/TransformersJSEngine');
         engine = new TransformersJSEngine({} as never) as unknown as EnginePrivate;
+        engine.activeLoadRequestId = 1;
+        engine.pendingWorkerRequests = new Map([[1, {}]]);
     });
 
     const loaded = (receipt: AcquisitionReceipt | null) => ({

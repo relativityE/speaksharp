@@ -20,13 +20,13 @@ const valid = (): FeedbackDiagnosticLookup => ({
     },
     requests: [{
         requestId: CURRENT, attemptId: 'att-1', sessionId: 'ses-current', outcome: 'provider_error', failureCategory: 'unavailable',
-        serverReason: 'provider_http_5xx', statusClass: '5xx', providerStatusClass: '5xx', retryCount: 1, totalMs: 4200, providerMs: 3900, configuredModel: 'gemini-3.8-flash',
+        serverReason: 'provider_http_5xx', statusClass: '5xx', providerStatusClass: '5xx', retryCount: 1, totalMs: 4200, providerMs: 3900, configuredModel: 'gemini-3.6-flash',
         observedModel: null, source: 'fresh',
     }],
 });
 const expectCurrent: DiagnosticExpectation = {
     reportId: 'rep-1', association: 'current_take', sessionId: 'ses-current', requestId: CURRENT, outcome: 'provider_error',
-    attemptId: 'att-1', failureCategory: 'unavailable', serverReason: 'provider_http_5xx', configuredModel: 'gemini-3.8-flash', currentRequestId: CURRENT,
+    attemptId: 'att-1', failureCategory: 'unavailable', serverReason: 'provider_http_5xx', configuredModel: 'gemini-3.6-flash', currentRequestId: CURRENT,
 };
 
 describe('#1258 feedback diagnostic contract — fail closed', () => {
@@ -39,7 +39,7 @@ describe('#1258 feedback diagnostic contract — fail closed', () => {
         Object.assign(lookup.requests[0], { outcome: 'success', failureCategory: null, serverReason: 'none', statusClass: '2xx', providerStatusClass: '2xx', observedModel: null });
         const success = { ...expectCurrent, outcome: 'success' as const, failureCategory: null, serverReason: 'none' };
         expect(validateFeedbackDiagnostics(lookup, success)).toEqual({ verdict: 'HOLD', reasons: ['observed_model_missing'] });
-        lookup.requests[0].observedModel = 'gemini-3.8-flash-001';
+        lookup.requests[0].observedModel = 'gemini-3.6-flash-001';
         expect(validateFeedbackDiagnostics(lookup, success).verdict).toBe('PASS');
     });
 
@@ -69,7 +69,7 @@ describe('#1258 feedback diagnostic contract — fail closed', () => {
         ['another attempt', (l: FeedbackDiagnosticLookup) => { l.requests[0].attemptId = 'att-9'; }, 'attempt_mismatch'],
         ['another failure category', (l: FeedbackDiagnosticLookup) => { l.requests[0].failureCategory = 'network'; }, 'failure_category_mismatch'],
         ['an unknown failure category', (l: FeedbackDiagnosticLookup) => { l.requests[0].failureCategory = 'zzz'; }, 'request_field_invalid'],
-        ['configured model not the contract target', (l: FeedbackDiagnosticLookup) => { l.requests[0].configuredModel = 'gemini-3.6-flash'; }, 'configured_model_mismatch'],
+        ['configured model not the contract target', (l: FeedbackDiagnosticLookup) => { l.requests[0].configuredModel = 'gemini-3.8-flash'; }, 'configured_model_mismatch'],
     ])('MISMATCHED evidence is FAIL: %s', (_label, mutate, reason) => {
         const lookup = valid();
         mutate(lookup);
@@ -160,7 +160,7 @@ describe('#1258 feedback diagnostic contract — fail closed', () => {
                 { outcome: 'success', failureCategory: null, serverReason: 'none' }).reasons).toContain('request_field_invalid');
         });
         it('a cache success made no provider call; a fresh success must show the provider 2xx', () => {
-            const ok = { outcome: 'success', failureCategory: null, serverReason: 'none', statusClass: '2xx', observedModel: 'gemini-3.8-flash-001' };
+            const ok = { outcome: 'success', failureCategory: null, serverReason: 'none', statusClass: '2xx', observedModel: 'gemini-3.6-flash-001' };
             const exp = { outcome: 'success' as const, failureCategory: null, serverReason: 'none' };
             expect(as({ ...ok, source: 'cache', providerStatusClass: 'none', providerMs: null }, exp).verdict).toBe('PASS');
             expect(as({ ...ok, source: 'cache', providerStatusClass: '2xx' }, exp).reasons).toContain('request_field_invalid');
@@ -210,7 +210,7 @@ describe('#1258 feedback diagnostic contract — fail closed', () => {
 
     it('legitimate free-form values stay valid: a provider model string and opaque ids', () => {
         const lookup = valid();
-        Object.assign(lookup.requests[0], { outcome: 'success', failureCategory: null, serverReason: 'none', statusClass: '2xx', providerStatusClass: '2xx', observedModel: 'models/gemini-3.8-flash-preview-0925 (rev 7)' });
+        Object.assign(lookup.requests[0], { outcome: 'success', failureCategory: null, serverReason: 'none', statusClass: '2xx', providerStatusClass: '2xx', observedModel: 'models/gemini-3.6-flash-preview-0925 (rev 7)' });
         expect(validateFeedbackDiagnostics(lookup, { ...expectCurrent, outcome: 'success', failureCategory: null, serverReason: 'none' }).verdict).toBe('PASS');
     });
 
