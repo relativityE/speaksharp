@@ -34,7 +34,9 @@ import {
 import {
     type CapturedReports, captureRunReports, cleanupRunReports, writeUncertainty, writeZeroResidueRow, zeroResidueNotRun,
 } from './helpers/feedbackReportCleanup';
-import { FeedbackRecoveryInventory, recordDurably, recoveryDir, settleRecoveryInventory } from './helpers/feedbackRecoveryInventory';
+import {
+    FeedbackRecoveryInventory, RECOVERY_STORE_STEP, recordDurably, settleRecoveryInventory, verifyRecoveryStore,
+} from './helpers/feedbackRecoveryInventory';
 import { HarnessParityTap, START_CONTROLS } from './helpers/rwtHarnessParity';
 import { coachingContract } from './helpers/rwtCoachingEvidence';
 import { openProductsItem } from './helpers/productsMenu';
@@ -254,21 +256,27 @@ async function installFeedbackWriteRoute(page: Page, ledger: FeedbackAttemptLedg
         try {
             // Sam, #1811 791b3780 RETURN: the attempt's keys are durable on disk before anything can leave the browser, so a late
             // commit stays locatable after this process exits. A write that cannot be recorded is aborted, never sent.
+            // After the writer stopped, nothing can be recorded, so nothing new is sent.
             if (!recordDurably(inventory, attempt)) {
                 ledger.settle(attempt, { status: null, forwarded: false });
                 return await route.abort('failed');
             }
+            // Every settle is recorded too (ff3922e9 RETURN): recovery resolves an attempt only by its settle record or its
+            // observed commit, never by age.
             if (attempt.action === 'cap-abort' || attempt.action === 'fault-request-lost') {
                 ledger.settle(attempt, { status: null, forwarded: false });
+                inventory.recordSettle(attempt);
                 return await route.abort('failed');
             }
             if (attempt.action === 'fault-synthetic-42501') {
                 ledger.settle(attempt, { status: 403, forwarded: false });
+                inventory.recordSettle(attempt);
                 return await route.fulfill(syntheticRejection(request.headers().origin));
             }
             let response: APIResponse;
             try { response = await route.fetch(); } catch {
                 ledger.settle(attempt, { status: null, forwarded: null });
+                inventory.recordSettle(attempt);
                 return await route.abort('failed');
             }
             const status = response.status();
@@ -477,7 +485,11 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             let pendingAfterDrain: number | null = null;
             if (routeInstalled) {
                 await steps.step('feedback attempt ledger', async (alive) => {
+                    // ff3922e9 RETURN: close the route's door first (every later write is aborted unsent), then drain; only a
+                    // drain that found nothing in flight writes the writer's stopped record that recovery requires.
+                    inventory?.stop();
                     pendingAfterDrain = await ledger.drain(15_000);
+                    inventory?.recordWriterStopped(pendingAfterDrain);
                     const sink = aliveReceipt(receipt, alive);
                     writeFeedbackAttemptRows(sink, ledger.attempts, observedLedger);
                     const isolation = finalIsolationVerdict({
@@ -526,6 +538,13 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             // BEFORE the first navigation (the click recorder is an init script).
             await parity.attach(page.context());
             await suppressPageSnapshot(testInfo);
+            // Sam, #1811 ff3922e9 RETURN: a verified recovery store that survives runner loss, before the first Production
+            // write (the account), or HOLD. Never created here: provisioning it is the store owner's act.
+            const storeCheck = verifyRecoveryStore(process.env);
+            if (!storeCheck.ok) {
+                receipt.halt(RECOVERY_STORE_STEP, `HOLD before Production writes: no verified recovery store (${storeCheck.reason})`);
+                return;
+            }
             const ready = await prepareDisposable(page, receipt, owner);
             claimed = ready;
             if (!ready) return;
@@ -533,7 +552,7 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             // The recovery inventory is opened first: no route (and so no feedback write) without its durable binding.
             inventory = FeedbackRecoveryInventory.open({
                 runId: process.env.GITHUB_RUN_ID || 'local', runAttempt: process.env.GITHUB_RUN_ATTEMPT || '1', testId: testInfo.testId, ownerUid: owner.uid,
-            }, recoveryDir());
+            }, storeCheck.store);
             await installFeedbackWriteRoute(page, ledger, inventory);
             routeInstalled = true;
             await page.goto('/practice');
