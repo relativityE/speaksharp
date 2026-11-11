@@ -66,11 +66,18 @@ describe('interrupted take coaching saved and shown in its saved review (ordinar
             expect(fail.evidence?.answerOrder).toBe(order);
         }
         expect(answerOrder(2_000, 1_000)).toBe('answer-after-successor-recording');
-        expect(answerOrder(1_000, 1_000)).toBe('answer-before-successor-recording');
+        expect(answerOrder(1_000, 1_000)).toBe('unknown');            // equal millisecond: no order established
+        expect(answerOrder(999, 1_000)).toBe('answer-before-successor-recording');
         expect(answerOrder(null, 1_000)).toBe('unknown');
         expect(answerOrder(1_000, null)).toBe('unknown');
         expect(answerOrder(Number.NaN, 1_000)).toBe('unknown');
-        expect(latestAnsweredAt([{ outcome: 'answered', at: 5 }, { outcome: 'failed', at: 9 }, { outcome: 'answered', at: 7 }])).toBe(7);
+        const ok = { outcome: 'answered', status: 200, suggestions: { what_worked: 'w', what_to_try_next: 'n' } };
+        expect(latestAnsweredAt([{ ...ok, at: 7 }, { outcome: 'failed', at: 9 }])).toBe(7);
+        // an HTTP error or a body-parse failure is "answered" but is not a coaching answer
+        expect(latestAnsweredAt([{ outcome: 'answered', status: 503, suggestions: null, at: 7 }])).toBeNull();
+        expect(latestAnsweredAt([{ outcome: 'answered', status: 200, suggestions: null, at: 7 }])).toBeNull();
+        // two successes: which one is "the" answer is ambiguous → unknown, never the later one by assumption
+        expect(latestAnsweredAt([{ ...ok, at: 5 }, { ...ok, at: 7 }])).toBeNull();
         expect(latestAnsweredAt([{ outcome: 'failed', at: 9 }])).toBeNull();
     });
     it('RETURN on 9f5f8711: the app\'s own /progress/<A> route is A\'s route; any other id or route still FAILs', async () => {

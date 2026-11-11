@@ -66,13 +66,21 @@ export function answerOrder(answeredAt: number | null | undefined, successorReco
     if (typeof answeredAt !== 'number' || typeof successorRecordingAt !== 'number' || !Number.isFinite(answeredAt) || !Number.isFinite(successorRecordingAt)) {
         return 'unknown';
     }
+    // An equal-millisecond observation establishes no order (review on f0f6b943): unknown, never "before".
+    if (answeredAt === successorRecordingAt) return 'unknown';
     return answeredAt > successorRecordingAt ? 'answer-after-successor-recording' : 'answer-before-successor-recording';
 }
 
-/** When the browser received the take's last ANSWERED coaching exchange (epoch ms); null when none was answered. */
-export function latestAnsweredAt(exchanges: ReadonlyArray<{ outcome?: string; at: number }>): number | null {
-    const times = exchanges.filter((e) => e.outcome === 'answered' && Number.isFinite(e.at)).map((e) => e.at);
-    return times.length ? Math.max(...times) : null;
+/**
+ * When the browser received the take's SUCCESSFUL coaching answer (epoch ms): an answered exchange with HTTP 200 AND a
+ * returned suggestion pair. An error status or an unreadable body is not a coaching answer (review on f0f6b943). Null when
+ * there is none, or when more than one success makes "the" answer ambiguous.
+ */
+export function latestAnsweredAt(exchanges: ReadonlyArray<{ outcome?: string; at: number; status?: number | null; suggestions?: unknown }>): number | null {
+    const times = exchanges
+        .filter((e) => e.outcome === 'answered' && e.status === 200 && e.suggestions !== null && e.suggestions !== undefined && Number.isFinite(e.at))
+        .map((e) => e.at);
+    return times.length === 1 ? times[0] : null;
 }
 
 export async function lateCoachingSavedRow(
