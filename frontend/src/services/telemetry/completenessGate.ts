@@ -754,6 +754,11 @@ export function classifyInterruptedRepeat(
         // `ended` is the terminal REPORT, emitted after the render: a completion after the press is not certified from silence.
         if (endedAt >= pressAt) return hold('the interrupted take\'s coaching completed only after the Repeat press, so its target is ambiguous');
         if (timed(ready[0]) >= pressAt) return hold('the interrupted take\'s coaching readiness was reported only after the Repeat press — ambiguous target');
+        // PO Option 1 (2026-11-10): a completed render qualifies ONLY with the positive displayed target A — here as in the
+        // preparation branch above. No target recorded is HOLD (an explicit other target already FAILed, with precedence).
+        if (prop(rendered[0], 'render_target_attempt_id') !== takeAttempt) {
+            return hold('the interrupted take\'s coaching render names no displayed-review target, so whose review showed it is unproven');
+        }
         return result('completed_before_repeat');
     }
     if (SUPERSEDED_END_REASONS.has(reason)) {

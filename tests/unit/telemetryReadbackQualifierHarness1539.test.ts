@@ -262,6 +262,35 @@ describe('the real qualifier, end to end against recorded HogQL rows', () => {
         expect(result.status).toBe(status);
     });
 
+    it.each([
+        ['attempt-1', 'QUALIFIED', 0],
+        [null, 'HOLD', 1],
+    ] as const)('completed-before-repeat target %s yields %s through the actual query/decoder/CLI (RETURN on 89298a93)', async (target, verdict, status) => {
+        const at = (event: string, ms: number, properties: Record<string, unknown>): Row => ({ event, producer_ts: 1_800_000_000_000 + ms, ...properties });
+        const origin = { diagnostic_request_id: 'request-1', origin_attempt_id: 'attempt-1', origin_boot_id: BOOT };
+        const replaced = new Set(['session_saved', 'session_started', 'recording_state', 'recording_intent', 'stage_latency', 'journey_step']);
+        answer = { acquisition: [], readback: [
+            ...recordingJourney().filter(r => !replaced.has(r.event)),
+            at('model_attribution_receipt', 3.5, { subject_boot_id: BOOT, subject_journey_id: JOURNEY, subject_attempt_id: 'attempt-1', subject_attempt_seq: 1, attribution_status: 'verified' }),
+            at('session_started', 0, { attempt_id: 'attempt-1', attempt_seq: 1, candidate_id: MODEL, engine: 'private', runtime_version: 'r1' }),
+            at('stage_latency', 1, { stage: 'recording_terminated', attempt_id: 'attempt-1' }),
+            at('stage_latency', 2, { stage: 'final_transcript', attempt_id: 'attempt-1' }),
+            at('stage_latency', 3, { stage: 'session_saved', attempt_id: 'attempt-1' }),
+            at('session_saved', 3, { attempt_id: 'attempt-1', attempt_seq: 1, candidate_id: MODEL, engine: 'private', runtime_version: 'r1' }),
+            at('ai_coaching_lifecycle', 4, { ...origin, stage: 'requested', attempt_id: 'attempt-1' }),
+            at('ai_coaching_lifecycle', 7, { ...origin, stage: 'ready', attempt_id: 'attempt-1' }),
+            at('ai_coaching_lifecycle', 8, { ...origin, stage: 'rendered', attempt_id: 'attempt-1', ...(target === null ? {} : { render_target_attempt_id: target }) }),
+            at('ai_coaching_lifecycle', 8, { ...origin, stage: 'ended', attempt_id: 'attempt-1', end_reason: 'completed' }),
+            at('journey_step', 9, { step: 'option_selected', option_selected: 'practice_next', attempt_id: 'attempt-1' }),
+            at('recording_intent', 10, { intent_kind: 'start', intent_outcome: 'accepted', attempt_id: 'attempt-2' }),
+            at('recording_state', 12, { to_state: 'RECORDING', attempt_id: 'attempt-2' }),
+            at('session_started', 13, { attempt_id: 'attempt-2' }),
+        ] };
+        const result = await qualify('session_interrupted_repeat', { attempts: 'attempt-1' });
+        expect(result.evidence?.verdict).toBe(verdict);
+        expect(result.status).toBe(status);
+    });
+
     it('QUALIFIED: a complete recording journey with a measured cold first download', async () => {
         answer = { readback: recordingJourney(), acquisition: [coldDownload()] };
         const r = await qualify('session_during', { acquisition: true });

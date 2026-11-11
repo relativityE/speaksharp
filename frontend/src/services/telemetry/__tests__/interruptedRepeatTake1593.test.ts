@@ -49,7 +49,7 @@ const transition = (): DecodedTelemetryRow[] => [
 /** R still open at the invalidation: its own lifecycle reports `superseded_session` at the session change (t=11). */
 const openAtInvalidation = () => [...transition(), lc('ended', 11, { end_reason: 'superseded_session' })];
 /** R completed — rendered and ended `completed` in the same tick — BEFORE the repeat Start. */
-const completedBeforeRepeat = () => [...transition(), lc('response_received', 5), lc('persisted', 6), lc('ready', 7), lc('rendered', 8), lc('ended', 8, { end_reason: 'completed' })];
+const completedBeforeRepeat = () => [...transition(), lc('response_received', 5), lc('persisted', 6), lc('ready', 7), lc('rendered', 8, { render_target_attempt_id: A }), lc('ended', 8, { end_reason: 'completed' })];
 const without = (rows: DecodedTelemetryRow[], pred: (r: DecodedTelemetryRow) => boolean) => rows.filter((r) => !pred(r));
 const replace = (rows: DecodedTelemetryRow[], pred: (r: DecodedTelemetryRow) => boolean, next: DecodedTelemetryRow) => rows.map((r) => (pred(r) ? next : r));
 const isEnd = (r: DecodedTelemetryRow) => r.event === 'ai_coaching_lifecycle' && r.properties?.stage === 'ended';
@@ -322,7 +322,7 @@ describe('Sam source RETURN on bbc58543 — four false-qualification probes, now
             .toMatch(/readiness was reported only after the Repeat press/);
         // POSITIVE: a synchronous render publishes rendered+completed in the effect declared FIRST, so ready legitimately
         // follows completed in the same commit — not a second render, and not a failure.
-        const readyAfterCompletion = [...transition(), lc('rendered', 8), lc('ended', 8, { end_reason: 'completed' }), lc('ready', 8.001)];
+        const readyAfterCompletion = [...transition(), lc('rendered', 8, { render_target_attempt_id: A }), lc('ended', 8, { end_reason: 'completed' }), lc('ready', 8.001)];
         expect(classifyInterruptedRepeat(readyAfterCompletion, DECLARED)).toMatchObject({ ok: true, branch: 'completed_before_repeat' });
         // Readiness before the request is not legitimate in the open branch either.
         expect(check([...transition(), lc('ready', 3.5), lc('ended', 11, { end_reason: 'superseded_session' })])).toMatch(/before it was requested/);
@@ -343,12 +343,28 @@ describe('Sam source RETURN on bbc58543 — four false-qualification probes, now
     });
 });
 
+describe('PO Option 1 — a completed render needs the positive displayed target on EVERY completed branch (RETURN on 89298a93)', () => {
+    it('completed before the repeat with NO target HOLDs (was a false PASS); explicit A qualifies; explicit B FAILs', () => {
+        const untargeted = replace(completedBeforeRepeat(), (r) => r.properties?.stage === 'rendered', lc('rendered', 8));
+        const r = classifyInterruptedRepeat(untargeted, DECLARED);
+        expect(r.ok).toBe(false);
+        expect(check(untargeted)).toMatch(/names no displayed-review target/);
+        expect(check(untargeted)).not.toMatch(/^FAIL:/);
+        expect(classifyInterruptedRepeat(completedBeforeRepeat(), DECLARED)).toMatchObject({ ok: true, branch: 'completed_before_repeat' });
+        expect(check(replace(completedBeforeRepeat(), (r) => r.properties?.stage === 'rendered', lc('rendered', 8, { render_target_attempt_id: B })))).toMatch(/^FAIL:/);
+    });
+    it('the no-render superseded branch needs no target and is never given one', () => {
+        expect(classifyInterruptedRepeat(openAtInvalidation(), DECLARED)).toMatchObject({ ok: true, branch: 'open_at_invalidation' });
+        expect(openAtInvalidation().some((r) => r.properties?.render_target_attempt_id !== undefined)).toBe(false);
+    });
+});
+
 describe('Codex review on 580bd93e (#1593)', () => {
     it('P1 r4308033814: a completed render shown while ANOTHER take was current is unattributable — HOLD', () => {
         const underC = [...completedBeforeRepeat().filter((r) => r.properties?.stage !== 'rendered'), lc('rendered', 8, { attempt_id: C })];
         expect(check(underC)).toMatch(/rendered while another take was current — unattributable/);
         // POSITIVE (Sam): no ambient attempt reported, beside every positive binding, qualifies; under A itself is the default.
-        const noAmbient = [...completedBeforeRepeat().filter((r) => r.properties?.stage !== 'rendered'), lc('rendered', 8, { attempt_id: null })];
+        const noAmbient = [...completedBeforeRepeat().filter((r) => r.properties?.stage !== 'rendered'), lc('rendered', 8, { attempt_id: null, render_target_attempt_id: A })];
         expect(classifyInterruptedRepeat(noAmbient, DECLARED)).toMatchObject({ ok: true, branch: 'completed_before_repeat' });
         expect(classifyInterruptedRepeat(completedBeforeRepeat(), DECLARED)).toMatchObject({ ok: true });
         // PAIRED CONTROLS (Sam): no ambient attempt is not a wildcard — a missing or conflicting R origin still HOLDs.
