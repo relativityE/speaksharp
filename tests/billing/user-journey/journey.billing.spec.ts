@@ -257,6 +257,12 @@ class SandboxJourney {
       .eq('id', this.savedSession).eq('user_id', this.uid).single();
     requireFact(!row.error && row.data?.status === 'completed' && row.data.engine === 'private'
       && row.data.transcript?.trim(), 'paid_recording_not_proven');
+    // data-session-persisted and sessions.engine are advisory; only the server-recorded attrib_v1 authority
+    // row proves the saved recording is Private (same check as private-recording-proof.live.spec.ts).
+    const authority = await this.admin.from('session_attribution_authority').select('engine_class,authority_version')
+      .eq('session_id', this.savedSession).eq('user_id', this.uid).single();
+    requireFact(!authority.error && authority.data?.authority_version === 'attrib_v1'
+      && authority.data.engine_class === 'private', 'paid_recording_attribution_not_verified');
   }
 
   async advance(seconds: number): Promise<void> {
