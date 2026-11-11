@@ -30,6 +30,9 @@ describe('TrialEndedPanel', () => {
         expect(text).not.toMatch(/\ball (of )?your\b/i);
         expect(text).not.toMatch(/\breviews\b/i);
         expect(text).not.toMatch(/\bany saved session\b/i);
+        // The PDF carries a transcript page only for a session whose transcript is still stored.
+        expect(text).toMatch(/transcript for the newest one only/i);
+        expect(text).not.toMatch(/PDF export of your saved sessions/i);
     });
 
     it('uses neutral paid-access wording, never a tier name', () => {

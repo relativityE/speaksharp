@@ -72,7 +72,7 @@ export const TRIAL_ENDED_COPY = Object.freeze({
     keeps: [
         { key: 'history' as const, label: 'Your session history, measurements and next steps, in Progress' },
         { key: 'transcript' as const, label: 'Your most recent saved transcript and its coaching. SpeakSharp keeps only the newest one.' },
-        { key: 'export' as const, label: 'PDF export of your saved sessions, from Progress' },
+        { key: 'export' as const, label: 'PDF export from Progress, with measurements for every session and the transcript for the newest one only' },
         { key: 'account' as const, label: 'Your account settings, including deleting your account' },
     ],
     /** Payments open: Pricing shows checkout. */
