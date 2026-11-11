@@ -249,19 +249,17 @@ STT decision without duplicating the existing MVP qualification work.
    filename. Specify retention/deletion timing, remaining logs/backups and provider
    handling before replacing unfinished privacy copy. Any discrepancy requires a
    bounded correction, not a silent change of promise.
-3. **F03 — Separate transcript-storage and AI-coaching choices.** Capture the
-   requested two unchecked controls: “Save my transcript to my SpeakSharp account”
-   and “Send my transcript to Google Gemini for AI coaching.” Explain Supabase
-   storage and provider purpose without implying model training. With storage
-   disabled, coaching is disabled and visibly unavailable; never silently enable
-   storage. Neither selected means no transcript upload or provider request;
-   storage-only permits saving without a provider call. Enforce this on the server,
-   bind consent to the user/session and version, and test old clients, wrong-session
-   requests, retries and revocation. Define storage-off behavior for existing data
-   without implying prior transmissions can be recalled. A future coaching-only
-   transient path or training/product-research use needs its own explicit decision
-   and consent. Fix any inaccurate transcript-local-only claim while preserving
-   the distinct on-device-audio guarantee.
+3. **F03 — Privacy issue and proposed separate choices (design open).** Record
+   Akin's preference for two distinct choices: saving the transcript to Supabase
+   and sending it to an AI provider for coaching. His current first-version
+   proposal disables AI coaching unless saving is enabled. This is feedback intake,
+   not an approved implementation design or build specification. Decide the exact
+   controls, defaults, wording, persistence, consent/revocation behavior and
+   enforcement during a separately scoped design review. That review must distinguish
+   on-device audio from cloud transcript storage and provider processing, avoid
+   implying training consent, and address existing saved data and provider terms.
+   Identify and correct inaccurate transcript-local-only claims through the
+   appropriate reviewed change. Do not implement the proposal through this PR.
 4. **F04 — Effective application security headers.** Inspect deployed responses,
    not just `vercel.json`, on app and protected routes. Establish appropriate CSP,
    framing protection and referrer policy, retain effective HSTS where present, and
