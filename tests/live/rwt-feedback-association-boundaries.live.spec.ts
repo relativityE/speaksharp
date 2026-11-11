@@ -31,7 +31,9 @@ import {
     feedbackLedgerVerdict, feedbackLegDescription, feedbackLegRecovered, finalIsolationVerdict, isNamedIdempotencyReplay, syntheticRejection,
     withoutFaultLegSubmits, writeFeedbackAttemptRows, writeFeedbackLegRows,
 } from './helpers/feedbackAttemptLedger';
-import { type CapturedReports, captureRunReports, cleanupRunReports, writeZeroResidueRow, zeroResidueNotRun } from './helpers/feedbackReportCleanup';
+import {
+    type CapturedReports, captureRunReports, cleanupRunReports, writeUncertainty, writeZeroResidueRow, zeroResidueNotRun,
+} from './helpers/feedbackReportCleanup';
 import { HarnessParityTap, START_CONTROLS } from './helpers/rwtHarnessParity';
 import { coachingContract } from './helpers/rwtCoachingEvidence';
 import { openProductsItem } from './helpers/productsMenu';
@@ -461,9 +463,11 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             // page; route handlers still in flight are drained (their writes are already recorded). A write after the body's end
             // falls outside every window and FAILs the ledger; a FAIL the body observed stays FAIL.
             ledger.endWindow();
+            // Sam, #1811 b319d42b RETURN: the drain's result is kept, never ignored; a handler still in flight is an unknown write.
+            let pendingAfterDrain: number | null = null;
             if (routeInstalled) {
                 await steps.step('feedback attempt ledger', async (alive) => {
-                    await ledger.drain(15_000);
+                    pendingAfterDrain = await ledger.drain(15_000);
                     const sink = aliveReceipt(receipt, alive);
                     writeFeedbackAttemptRows(sink, ledger.attempts, observedLedger);
                     const isolation = finalIsolationVerdict({
@@ -494,7 +498,11 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             // id only with an exact count, then the independent zero-residue reads. A step that could not finish HOLDs, naming ids.
             if (routeInstalled && owner.uid) {
                 const written = await steps.step('feedback report cleanup', async (alive) => {
-                    const verdict = await cleanupRunReports(admin as never, owner.uid, ledger.seenKeys, capturedReports);
+                    // Drained again right before the delete; what is still in flight, or was forwarded with no answer, keeps the
+                    // row from PASS (an uncertain commit is never zero activity).
+                    if (pendingAfterDrain !== null) pendingAfterDrain = await ledger.drain(5_000);
+                    const uncertainty = writeUncertainty(ledger.attempts, pendingAfterDrain);
+                    const verdict = await cleanupRunReports(admin as never, owner.uid, ledger.seenKeys, capturedReports, uncertainty);
                     if (!alive()) return false;
                     writeZeroResidueRow(receipt, verdict);
                     return true;

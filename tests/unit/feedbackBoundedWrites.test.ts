@@ -18,7 +18,8 @@ import {
     writeFeedbackAttemptRows,
 } from '../live/helpers/feedbackAttemptLedger';
 import {
-    type CapturedReports, type ReportCleanupAdmin, ZERO_RESIDUE_ROW, captureRunReports, cleanupRunReports, mergeCapture, zeroResidueNotRun,
+    type CapturedReports, type ReportCleanupAdmin, type WriteUncertainty, ZERO_RESIDUE_ROW, captureRunReports, cleanupRunReports, mergeCapture,
+    writeUncertainty, zeroResidueNotRun,
     zeroResidueVerdict,
 } from '../live/helpers/feedbackReportCleanup';
 import { FEEDBACK_NO_SESSION_SUITE, FEEDBACK_OLDER_TAKE_SUITE, type ReadbackActionBinding, requiredAutomatedRows } from '../live/helpers/rwtAcceptance';
@@ -400,14 +401,43 @@ const deleteAccount = (s: FakeState) => {
     s.reports = s.reports.map((r) => (r.user_id === USER ? { ...r, user_id: null } : r));
 };
 
+const CERTAIN: WriteUncertainty = { pending: 0, uncertain: [] };
+
 describe('zero residue — capture, account deletion, re-capture, delete by id, residue reads', () => {
+    it('Sam, #1811 b319d42b: a write still in flight after the drain, or an uncertain commit, is never a zero/PASS', async () => {
+        for (const uncertainty of [{ pending: 1, uncertain: [] }, { pending: null, uncertain: [] }, { pending: 0, uncertain: [3] }] as WriteUncertainty[]) {
+            const s = fresh();
+            const admin = fakeAdmin(s);
+            const captured = await captureRunReports(admin, USER, K.slice(0, 4), null);
+            deleteAccount(s);
+            const v = await cleanupRunReports(admin, USER, K.slice(0, 4), captured, uncertainty);
+            // Everything reads zero right now, yet the verdict HOLDs and keeps the whole inventory.
+            expect(v).toMatchObject({ verdict: 'HOLD', detail: expect.stringMatching(/server outcome is unknown/),
+                evidence: { capturedIds: 'r1,r2,r3,r4', runKeys: 4, pending: uncertainty.pending, uncertainAttempts: uncertainty.uncertain.join(',') } });
+        }
+    });
+    it('an uncertain write never hides a proven survivor or a foreign key (FAIL wins)', async () => {
+        const s = fresh();
+        const admin = fakeAdmin(s);
+        const captured = await captureRunReports(admin, USER, K.slice(0, 4), null);
+        deleteAccount(s);
+        s.authUser = true;
+        expect((await cleanupRunReports(admin, USER, K.slice(0, 4), captured, { pending: 2, uncertain: [5] })).verdict).toBe('FAIL');
+    });
+    it('writeUncertainty: unsettled attempts and forwarded-unknown attempts are uncertain; capped, faulted and answered ones are not', () => {
+        const a = (ordinal: number, settled: boolean, forwarded: boolean | null, action: string) => ({ ordinal, settled, forwarded, action }) as never;
+        expect(writeUncertainty([a(1, true, false, 'fault-request-lost'), a(2, true, true, 'forward'), a(3, true, null, 'forward'), a(4, false, null, 'forward'),
+            a(5, true, false, 'cap-abort'), a(6, true, null, 'cap-abort')], 0)).toEqual({ pending: 0, uncertain: [3, 4] });
+        expect(writeUncertainty([], null)).toEqual({ pending: null, uncertain: [] });
+    });
+
     it('the designed run: 4 reports captured by owner and key, deleted by id with an exact count, everything reads zero → PASS', async () => {
         const s = fresh();
         const admin = fakeAdmin(s);
         const captured = await captureRunReports(admin, USER, K.slice(0, 4), null);
         expect(captured.ids).toEqual(['r1', 'r2', 'r3', 'r4']);
         deleteAccount(s);
-        const v = await cleanupRunReports(admin, USER, K.slice(0, 4), captured);
+        const v = await cleanupRunReports(admin, USER, K.slice(0, 4), captured, CERTAIN);
         expect(v).toMatchObject({ verdict: 'PASS', evidence: { capturedReports: 4, deleted: 4, recapturedReports: 0 } });
         expect(s.deletes).toEqual([{ column: 'id', values: ['r1', 'r2', 'r3', 'r4'] }]);
         expect(s.reports.map((r) => r.id)).toEqual(['other']);
@@ -419,7 +449,7 @@ describe('zero residue — capture, account deletion, re-capture, delete by id, 
         expect(captured.ids).toHaveLength(3);
         s.reports.push(R(4));
         deleteAccount(s);
-        const v = await cleanupRunReports(admin, USER, K.slice(0, 4), captured);
+        const v = await cleanupRunReports(admin, USER, K.slice(0, 4), captured, CERTAIN);
         expect(v).toMatchObject({ verdict: 'PASS', evidence: { capturedReports: 4, recapturedReports: 1, deleted: 4 } });
         expect(s.reports.filter((r) => r.id !== 'other')).toEqual([]);
     });
@@ -429,16 +459,16 @@ describe('zero residue — capture, account deletion, re-capture, delete by id, 
         const captured = await captureRunReports(admin, USER, K.slice(0, 4), null);
         deleteAccount(s);
         s.authUser = true;
-        const survivor = await cleanupRunReports(admin, USER, K.slice(0, 4), captured);
+        const survivor = await cleanupRunReports(admin, USER, K.slice(0, 4), captured, CERTAIN);
         expect(survivor).toMatchObject({ verdict: 'FAIL', detail: expect.stringMatching(/auth user/) });
         const s2 = fresh({ deleteCount: 3 });
         const a2 = fakeAdmin(s2);
         const c2 = await captureRunReports(a2, USER, K.slice(0, 4), null);
         deleteAccount(s2);
-        expect(await cleanupRunReports(a2, USER, K.slice(0, 4), c2)).toMatchObject({ verdict: 'FAIL', detail: expect.stringMatching(/removed 3 of 4/) });
+        expect(await cleanupRunReports(a2, USER, K.slice(0, 4), c2, CERTAIN)).toMatchObject({ verdict: 'FAIL', detail: expect.stringMatching(/removed 3 of 4/) });
         // A row the delete missed is named by id, and only the survivors are named.
         const v = zeroResidueVerdict({ captured: { ids: ['r1', 'r2'], keys: [], foreignIds: [] }, deletion: { ran: true, count: 2 },
-            residue: { reportIds: ['r2'], sessions: 0, profiles: 0, authUser: 'gone' }, recaptured: 0 });
+            residue: { reportIds: ['r2'], sessions: 0, profiles: 0, authUser: 'gone' }, recaptured: 0, uncertainty: CERTAIN });
         expect(v).toMatchObject({ verdict: 'FAIL', evidence: { survivingReportIds: 'r2' } });
         expect(JSON.stringify(v.evidence)).not.toMatch(/r1/);
     });
@@ -447,9 +477,9 @@ describe('zero residue — capture, account deletion, re-capture, delete by id, 
         const admin = fakeAdmin(s);
         const captured = await captureRunReports(admin, USER, K.slice(0, 4), null);
         deleteAccount(s);
-        expect(await cleanupRunReports(admin, USER, K.slice(0, 4), captured))
+        expect(await cleanupRunReports(admin, USER, K.slice(0, 4), captured, CERTAIN))
             .toMatchObject({ verdict: 'HOLD', evidence: { capturedIds: 'r1,r2,r3,r4' } });
-        expect(await cleanupRunReports(null, USER, K.slice(0, 4), captured)).toMatchObject({ verdict: 'HOLD', evidence: { capturedIds: 'r1,r2,r3,r4' } });
+        expect(await cleanupRunReports(null, USER, K.slice(0, 4), captured, CERTAIN)).toMatchObject({ verdict: 'HOLD', evidence: { capturedIds: 'r1,r2,r3,r4' } });
         expect(s.deletes.every((d) => d.column === 'id')).toBe(true);
         expect(zeroResidueNotRun(captured)).toMatchObject({ verdict: 'HOLD', evidence: { capturedIds: 'r1,r2,r3,r4' } });
         expect(zeroResidueNotRun(null).verdict).toBe('HOLD');
@@ -459,12 +489,12 @@ describe('zero residue — capture, account deletion, re-capture, delete by id, 
         const admin = fakeAdmin(s);
         const captured = await captureRunReports(admin, USER, K.slice(0, 4), null);
         deleteAccount(s);
-        expect((await cleanupRunReports(admin, USER, K.slice(0, 4), captured)).verdict).toBe('HOLD');
+        expect((await cleanupRunReports(admin, USER, K.slice(0, 4), captured, CERTAIN)).verdict).toBe('HOLD');
         const unreadable = fakeAdmin(fresh({ readError: true }));
         await expect(captureRunReports(unreadable, USER, K.slice(0, 4), null)).rejects.toThrow(/fail closed/);
-        expect((await cleanupRunReports(unreadable, USER, K.slice(0, 4), null)).verdict).toBe('HOLD');
+        expect((await cleanupRunReports(unreadable, USER, K.slice(0, 4), null, CERTAIN)).verdict).toBe('HOLD');
         expect(zeroResidueVerdict({ captured: { ids: [], keys: [], foreignIds: [] }, deletion: { ran: true, count: null },
-            residue: { reportIds: [], sessions: 0, profiles: 0, authUser: 'gone' }, recaptured: 0 }).verdict).toBe('HOLD');
+            residue: { reportIds: [], sessions: 0, profiles: 0, authUser: 'gone' }, recaptured: 0, uncertainty: CERTAIN }).verdict).toBe('HOLD');
     });
     it('a run key naming another account\'s report → FAIL, and that report is never deleted', async () => {
         const s = fresh();
@@ -473,7 +503,7 @@ describe('zero residue — capture, account deletion, re-capture, delete by id, 
         const captured = await captureRunReports(admin, USER, K, null);
         expect(captured.foreignIds).toEqual(['foreign']);
         deleteAccount(s);
-        expect(await cleanupRunReports(admin, USER, K, captured)).toMatchObject({ verdict: 'FAIL', evidence: { foreignIds: 'foreign' } });
+        expect(await cleanupRunReports(admin, USER, K, captured, CERTAIN)).toMatchObject({ verdict: 'FAIL', evidence: { foreignIds: 'foreign' } });
         expect(s.reports.map((r) => r.id)).toEqual(['other', 'foreign']);
     });
     it('mergeCapture: an ownerless row is the run\'s only under a run key', () => {
@@ -558,10 +588,11 @@ describe('the AHT-07 spec wiring (source order)', () => {
     });
     it('the finalizer judges the ledger after the owned pages close, captures before the account deletion, cleans up after the retention read', () => {
         const fin = older.slice(older.indexOf('const finish = finalizer.once('), older.indexOf('        try {'));
-        const order = ["await steps.step('owned pages closed'", 'ledger.endWindow();', "await steps.step('feedback attempt ledger'", 'await ledger.drain(15_000);',
+        const order = ["await steps.step('owned pages closed'", 'ledger.endWindow();', "await steps.step('feedback attempt ledger'", 'pendingAfterDrain = await ledger.drain(15_000);',
             'writeFeedbackAttemptRows(sink, ledger.attempts, observedLedger);', 'sink.row(FEEDBACK_ISOLATION_ROW,', "await steps.step('feedback report capture'",
             'finalizeOwnedCleanup(steps, receipt, cleanup, report', 'feedbackRetentionAfterDeletionRow(', "await steps.step('feedback report cleanup'",
-            'cleanupRunReports(admin as never, owner.uid, ledger.seenKeys, capturedReports)', 'if (written !== true) writeZeroResidueRow(receipt, zeroResidueNotRun(capturedReports));',
+            'pendingAfterDrain = await ledger.drain(5_000);', 'const uncertainty = writeUncertainty(ledger.attempts, pendingAfterDrain);',
+            'cleanupRunReports(admin as never, owner.uid, ledger.seenKeys, capturedReports, uncertainty)', 'if (written !== true) writeZeroResidueRow(receipt, zeroResidueNotRun(capturedReports));',
             'await finishReceipt(receipt, testInfo, tap, claimed, steps, legJourneys);'];
         const idx = order.map((needle) => fin.indexOf(needle));
         expect(Object.fromEntries(order.map((n, i) => [n, idx[i] >= 0]))).toEqual(Object.fromEntries(order.map((n) => [n, true])));

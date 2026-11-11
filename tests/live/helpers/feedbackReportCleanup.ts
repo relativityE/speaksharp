@@ -16,7 +16,7 @@
  * Case-only helper: nothing AHT-01 loads imports it.
  */
 import { isNotFoundError } from './proofAuthority';
-import type { RowSink, RowVerdict, Evidence } from './feedbackAttemptLedger';
+import type { RowSink, RowVerdict, Evidence, FeedbackAttempt } from './feedbackAttemptLedger';
 
 export const ZERO_RESIDUE_ROW = 'zero residue';
 const REPORTS = 'user_issue_reports';
@@ -77,6 +77,23 @@ export async function captureRunReports(admin: ReportCleanupAdmin, uid: string, 
     return mergeCapture(prev, rows, uid, keys);
 }
 
+/**
+ * Writes whose server outcome is unknown at cleanup time (Sam, #1811 b319d42b RETURN). `pending`: route handlers still in
+ * flight after the last drain (null when no drain result exists). `uncertain`: ordinals of attempts that never settled, or
+ * whose forwarding failed (`route.fetch` rejected, so the server may or may not have committed). Any of these means a zero
+ * read now does not prove the write never landed: the run is never PASS on it.
+ */
+export interface WriteUncertainty { pending: number | null; uncertain: number[] }
+
+export function writeUncertainty(attempts: readonly Pick<FeedbackAttempt, 'ordinal' | 'settled' | 'forwarded' | 'action'>[], pendingAfterDrain: number | null): WriteUncertainty {
+    const uncertain = attempts
+        .filter((a) => !a.settled || (a.forwarded === null && a.action !== 'cap-abort'))
+        .map((a) => a.ordinal);
+    return { pending: pendingAfterDrain, uncertain };
+}
+
+const isCertain = (u: WriteUncertainty): boolean => u.pending === 0 && u.uncertain.length === 0;
+
 export type DeletionOutcome = { ran: true; count: number | null } | { ran: false; reason: 'no_admin' | 'error' | 'not_reached' };
 
 /** Delete exactly the captured ids by id (service role). Nothing to delete is a run with count 0. */
@@ -124,10 +141,13 @@ export async function readResidue(admin: ReportCleanupAdmin, uid: string, captur
 /**
  * `zero residue`, pure. Order: an uncaptured run HOLDs; a run key owned by another account FAILs; a delete that could not run
  * HOLDs naming the captured ids; an unreadable residue read HOLDs; any survivor FAILs naming the surviving report ids; a deleted
- * count other than the captured ids FAILs; an uncounted delete HOLDs; else PASS.
+ * count other than the captured ids FAILs; a write whose server outcome is unknown (pending after the drain, or an uncertain
+ * commit) HOLDs with the full inventory; an uncounted delete HOLDs; else PASS.
  */
-export function zeroResidueVerdict(input: { captured: CapturedReports | null; deletion: DeletionOutcome; residue: ResidueRead | null; recaptured: number }): RowVerdict {
-    const { captured, deletion, residue } = input;
+export function zeroResidueVerdict(input: {
+    captured: CapturedReports | null; deletion: DeletionOutcome; residue: ResidueRead | null; recaptured: number; uncertainty: WriteUncertainty;
+}): RowVerdict {
+    const { captured, deletion, residue, uncertainty } = input;
     if (!captured) return { verdict: 'HOLD', detail: 'the run\'s feedback reports could not be captured, so they were not deleted' };
     const base: Evidence = { capturedReports: captured.ids.length, recapturedReports: input.recaptured };
     if (captured.foreignIds.length > 0) {
@@ -147,6 +167,19 @@ export function zeroResidueVerdict(input: { captured: CapturedReports | null; de
     if (survivors.length > 0) {
         return { verdict: 'FAIL', detail: `run residue survived cleanup: ${survivors.join(', ')}`, evidence: { ...base, survivingReportIds: residue.reportIds.join(',') } };
     }
+    // A write whose server outcome is unknown (still in flight, or forwarded with no answer) may commit after these reads:
+    // zero now is not zero activity. HOLD, keeping the whole inventory (captured ids and the affected attempts) for a re-read.
+    if (!isCertain(uncertainty)) {
+        return {
+            verdict: 'HOLD',
+            detail: `a feedback write's server outcome is unknown (${uncertainty.pending === null ? 'drain not observed' : `${uncertainty.pending} still in flight`}, `
+                + `${uncertainty.uncertain.length} uncertain), so zero residue is unproven; re-read the run's keys before removal is declared complete`,
+            evidence: {
+                ...base, capturedIds: captured.ids.join(','), runKeys: captured.keys.length,
+                pending: uncertainty.pending, uncertainAttempts: uncertainty.uncertain.join(','),
+            },
+        };
+    }
     if (deletion.count === null) return { verdict: 'HOLD', detail: 'the report delete returned no count, so it is not shown to be exact', evidence: base };
     if (deletion.count !== captured.ids.length) {
         return { verdict: 'FAIL', detail: `the report delete removed ${deletion.count} of ${captured.ids.length} captured reports`, evidence: { ...base, deleted: deletion.count } };
@@ -158,18 +191,20 @@ export function zeroResidueVerdict(input: { captured: CapturedReports | null; de
  * Steps 3–5 after the account deletion: re-capture by the keys (and the uid, should deletion have failed), delete by id, read
  * residue, and return the `zero residue` verdict. A delete that fails is a delete that could not run (HOLD).
  */
-export async function cleanupRunReports(admin: ReportCleanupAdmin | null, uid: string, routeKeys: readonly string[], captured: CapturedReports | null): Promise<RowVerdict> {
-    if (!admin) return zeroResidueVerdict({ captured, deletion: { ran: false, reason: 'no_admin' }, residue: null, recaptured: 0 });
+export async function cleanupRunReports(
+    admin: ReportCleanupAdmin | null, uid: string, routeKeys: readonly string[], captured: CapturedReports | null, uncertainty: WriteUncertainty,
+): Promise<RowVerdict> {
+    if (!admin) return zeroResidueVerdict({ captured, deletion: { ran: false, reason: 'no_admin' }, residue: null, recaptured: 0, uncertainty });
     // A failed re-capture still deletes what was captured; the residue reads by key then catch any report it would have found.
     // With no first capture (its read failed), this read is the capture; if it fails too, nothing is deleted (HOLD).
     const final = await captureRunReports(admin, uid, routeKeys, captured).catch(() => captured);
-    if (!final) return zeroResidueVerdict({ captured: null, deletion: { ran: false, reason: 'not_reached' }, residue: null, recaptured: 0 });
+    if (!final) return zeroResidueVerdict({ captured: null, deletion: { ran: false, reason: 'not_reached' }, residue: null, recaptured: 0, uncertainty });
     const recaptured = final.ids.length - (captured?.ids.length ?? 0);
     // A row set aside as foreign is never in `final.ids`, so it is never deleted; the verdict FAILs it.
     let deletion: DeletionOutcome;
     try { deletion = await deleteRunReports(admin, final.ids); } catch { deletion = { ran: false, reason: 'error' }; }
     const residue = deletion.ran ? await readResidue(admin, uid, final) : null;
-    return zeroResidueVerdict({ captured: final, deletion, residue, recaptured });
+    return zeroResidueVerdict({ captured: final, deletion, residue, recaptured, uncertainty });
 }
 
 /** The row when the cleanup step itself did not complete (timeout or error): HOLD naming whatever was captured. */

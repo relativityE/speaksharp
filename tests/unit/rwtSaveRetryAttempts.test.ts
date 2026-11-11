@@ -144,6 +144,17 @@ describe('the AHT-05/06 spec wiring', () => {
         expect(exact).toBeLessThan(nextRow);
         expect(nextRow).toBeLessThan(reopen);
     });
+    it('Sam, #1811 b319d42b: the completion observer is never removed before the page closes', () => {
+        // The route is the observer: an unroute anywhere would blind it to a late attempt (after coaching settles, before close).
+        expect(spec).not.toMatch(/unroute\(\s*COMPLETION_RPC/);
+        expect(spec).not.toContain("steps.step('completion route restore'");
+        expect(spec).toContain('await page.route(COMPLETION_RPC, async (route: Route) => {');
+    });
+    it('negative control: a late third attempt for the take, after the Retry was answered, FAILs the row', () => {
+        const late = [attempt(1, body(), false, true, null), attempt(2, body(), true, false, 200), attempt(3, body(), true, false, null)];
+        expect(completionAttemptsVerdict(late)).toMatchObject({ status: 'FAIL' });
+        expect(attemptEvidence(late, TAKE)).toMatch(/,3:take:retry:[0-9a-f]{12}:none$/);
+    });
     it('judges the completion attempts once, at the final boundary after every owned page closed (no late attempt is missed)', () => {
         const row = "row('completion attempts are the fault and one Retry'";
         expect(spec.split(row)).toHaveLength(2);

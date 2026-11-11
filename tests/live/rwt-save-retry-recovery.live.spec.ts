@@ -162,7 +162,8 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         // (bounded; page-independent, since a finalizer may run after its tabs closed).
         await steps.step('telemetry settle', () => tap.settleEveryPage((ms) => new Promise((resolve) => setTimeout(resolve, ms))));
         await steps.step('watchdog', () => watch.record(receipt));
-        await steps.step('completion route restore', () => page.unroute(COMPLETION_RPC));
+        // Sam, #1811 b319d42b RETURN: the completion route is the attempts observer, so it is never removed before the page
+        // closes. It stays through coaching settle and the page close; a late attempt at any point before close is recorded.
         await steps.step('coaching settle', () => generations.settle(), FINALIZE_SETTLE_MS);
         // Two saved takes: at most one coaching request each.
         await steps.step('coaching budget', () => coachingRequestBudgetRow(receipt, generations, { maximum: 2, oneRequestPerSession: takes }));
