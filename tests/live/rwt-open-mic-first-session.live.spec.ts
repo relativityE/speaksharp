@@ -111,7 +111,7 @@ import { corpusRows, crossCheckCounts, fillerAnnotationsOf, hesitationTotals } f
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { feedbackDiagnosticChainRow } from './helpers/coachingFeedbackAdapter';
 import { capturedTakesDifferVerdict, coachingPromptBindingRow, coachingRequestBudgetRow, createCoachingTakeCapture, readSavedReviewPair } from './helpers/rwtCoachingCollector';
-import { lateCoachingSavedRow, ownerSessionReader } from './helpers/rwtLateCoaching';
+import { answerOrder, latestAnsweredAt, lateCoachingSavedRow, ownerSessionReader } from './helpers/rwtLateCoaching';
 import { coachingContract } from './helpers/rwtCoachingEvidence';
 import { openProductsItem } from './helpers/productsMenu';
 import {
@@ -305,6 +305,7 @@ test.describe('RWT — Open Mic first session @live', () => {
         let savedNext = '';
         // The Practice-again pass's saved take: the coaching evidence's repeat take.
         let repeatSessionId: string | null = null;
+        let repeatRecordingAt: number | null = null;
         let coachingCapture: ReturnType<typeof createCoachingTakeCapture> | null = null;
         const finish = finalizer.once(async () => {
             // Sam, #1662 RETURN: every step is bounded and isolated, so the account cleanup and the receipt always run.
@@ -959,6 +960,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                 repeatWindow = [repeatFrom, saveTakeEnd >= 0 ? saveTakeEnd : tap.events.length];
                 practiceAgainRows(receipt, 'open_mic', again);
                 repeatSessionId = again.savedSessionId;
+                repeatRecordingAt = again.repeatRecordingAt ?? null;
                 // #1258 R4: not generic — the two takes (different saved evidence) must not get the identical pair.
                 await generations.settle();
                 await coachingCapture.stop();
@@ -1014,6 +1016,12 @@ test.describe('RWT — Open Mic first session @live', () => {
                         }
                     },
                     same: samePhrase,
+                }, {
+                    // Recorded, not judged: browser-observed A answer time vs B observed RECORDING (PO 2026-11-11).
+                    order: answerOrder(
+                        latestAnsweredAt(id ? generations.forSession(id) : []),
+                        repeatRecordingAt,
+                    ),
                 });
             });
 

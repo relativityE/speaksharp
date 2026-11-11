@@ -56,12 +56,34 @@ export const LATE_COACHING_WAIT_MS = 75_000;
 
 export const sha256Hex = (value: unknown): string => createHash('sha256').update(String(value ?? '')).digest('hex');
 
+/**
+ * PO 2026-11-11: the order is RECORDED, never judged here. Browser-observed: when the browser received A's coaching answer
+ * versus when B was observed recording. The after-B causal case is proved by the separate controlled test; this evidence
+ * only says which order this natural run happened to take.
+ */
+export type AnswerOrder = 'answer-after-successor-recording' | 'answer-before-successor-recording' | 'unknown';
+export function answerOrder(answeredAt: number | null | undefined, successorRecordingAt: number | null | undefined): AnswerOrder {
+    if (typeof answeredAt !== 'number' || typeof successorRecordingAt !== 'number' || !Number.isFinite(answeredAt) || !Number.isFinite(successorRecordingAt)) {
+        return 'unknown';
+    }
+    return answeredAt > successorRecordingAt ? 'answer-after-successor-recording' : 'answer-before-successor-recording';
+}
+
+/** When the browser received the take's last ANSWERED coaching exchange (epoch ms); null when none was answered. */
+export function latestAnsweredAt(exchanges: ReadonlyArray<{ outcome?: string; at: number }>): number | null {
+    const times = exchanges.filter((e) => e.outcome === 'answered' && Number.isFinite(e.at)).map((e) => e.at);
+    return times.length ? Math.max(...times) : null;
+}
+
 export async function lateCoachingSavedRow(
     sink: LateCoachingSink,
     sessionId: string | null,
     deps: LateCoachingDeps,
-    o: { waitMs?: number; pollMs?: number } = {},
+    o: { waitMs?: number; pollMs?: number; order?: AnswerOrder } = {},
 ): Promise<void> {
+    const order = o.order ?? 'unknown';
+    const inner = sink;
+    sink = { forbid: (...v) => inner.forbid(...v), row: (step, verdict, detail, evidence) => inner.row(step, verdict, detail, { ...evidence, answerOrder: order }) };
     if (!sessionId) {
         sink.row(LATE_COACHING_ROW, 'HOLD', 'the interrupted take has no saved session to check', { reason: 'no-session' });
         return;
@@ -100,7 +122,9 @@ export async function lateCoachingSavedRow(
         return;
     }
     if (reopened.pair) sink.forbid(reopened.pair.what_worked, reopened.pair.what_to_try_next);
-    if (reopened.pathname.replace(/\/$/, '') !== `/analytics/${sessionId}`) {
+    // The saved session's detail lives at /analytics/<id>, which the app may present as /progress/<id> (review on 9f5f8711).
+    const path = reopened.pathname.replace(/\/$/, '');
+    if (path !== `/analytics/${sessionId}` && path !== `/progress/${sessionId}`) {
         sink.row(LATE_COACHING_ROW, 'FAIL', 'reopening the interrupted take\'s review landed on another route', { reason: 'wrong-route' });
         return;
     }

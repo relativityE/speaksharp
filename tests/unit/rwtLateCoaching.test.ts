@@ -6,8 +6,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-    LATE_COACHING_ROW, accessTokenFromAuthStorage, lateCoachingSavedRow, ownerSessionReader, sha256Hex, tokenSubject,
-    type LateCoachingDeps, type ReopenedReview,
+    LATE_COACHING_ROW, accessTokenFromAuthStorage, answerOrder, latestAnsweredAt, lateCoachingSavedRow, ownerSessionReader, sha256Hex, tokenSubject,
+    type AnswerOrder, type LateCoachingDeps, type ReopenedReview,
 } from '../live/helpers/rwtLateCoaching';
 
 const A = '0b9c5e2a-1111-4222-8333-444455556666';
@@ -33,9 +33,9 @@ const deps = (o: { savedAfter?: number; saved?: unknown; readFails?: boolean; re
         same,
     };
 };
-const verdictOf = async (d: LateCoachingDeps, id: string | null = A) => {
+const verdictOf = async (d: LateCoachingDeps, id: string | null = A, order?: AnswerOrder) => {
     const s = sink();
-    await lateCoachingSavedRow(s, id, d, { waitMs: 10_000, pollMs: 1_000 });
+    await lateCoachingSavedRow(s, id, d, { waitMs: 10_000, pollMs: 1_000, ...(order ? { order } : {}) });
     expect(s.rows).toHaveLength(1);
     expect(s.rows[0].step).toBe(LATE_COACHING_ROW);
     return { ...s.rows[0], forbidden: s.forbidden };
@@ -47,14 +47,37 @@ describe('interrupted take coaching saved and shown in its saved review (ordinar
         const r = await verdictOf(d);
         expect(r.verdict).toBe('PASS');
         expect(d.reads()).toBe(5);
-        expect(r.evidence).toEqual({ reason: 'saved-and-shown' });
+        expect(r.evidence).toEqual({ reason: 'saved-and-shown', answerOrder: 'unknown' });
         expect(r.forbidden).toEqual(expect.arrayContaining([PAIR.what_worked, PAIR.what_to_try_next]));
     });
     it('RETURN (timing): an answer already saved before B recorded is an ordinary PASS that makes NO order claim', async () => {
         const r = await verdictOf(deps({ savedAfter: 0 }));
         expect(r.verdict).toBe('PASS');
-        expect(Object.keys(r.evidence ?? {})).toEqual(['reason']);         // no savedAfterMs / order field
+        expect(Object.keys(r.evidence ?? {}).sort()).toEqual(['answerOrder', 'reason']);   // no savedAfterMs; order is recorded, not judged
         expect(r.detail).not.toMatch(/after|late|record/i);
+    });
+    it('PO 11-11: the observed order is RECORDED on every verdict and never changes it', async () => {
+        for (const order of ['answer-after-successor-recording', 'answer-before-successor-recording', 'unknown'] as const) {
+            const pass = await verdictOf(deps(), A, order);
+            expect(pass.verdict).toBe('PASS');
+            expect(pass.evidence?.answerOrder).toBe(order);
+            const fail = await verdictOf(deps({ review: reopened({ renderedSessionId: 'session-B' }) }), A, order);
+            expect(fail.verdict).toBe('FAIL');
+            expect(fail.evidence?.answerOrder).toBe(order);
+        }
+        expect(answerOrder(2_000, 1_000)).toBe('answer-after-successor-recording');
+        expect(answerOrder(1_000, 1_000)).toBe('answer-before-successor-recording');
+        expect(answerOrder(null, 1_000)).toBe('unknown');
+        expect(answerOrder(1_000, null)).toBe('unknown');
+        expect(answerOrder(Number.NaN, 1_000)).toBe('unknown');
+        expect(latestAnsweredAt([{ outcome: 'answered', at: 5 }, { outcome: 'failed', at: 9 }, { outcome: 'answered', at: 7 }])).toBe(7);
+        expect(latestAnsweredAt([{ outcome: 'failed', at: 9 }])).toBeNull();
+    });
+    it('RETURN on 9f5f8711: the app\'s own /progress/<A> route is A\'s route; any other id or route still FAILs', async () => {
+        expect((await verdictOf(deps({ review: reopened({ pathname: `/progress/${A}` }) }))).verdict).toBe('PASS');
+        expect((await verdictOf(deps({ review: reopened({ pathname: `/progress/${A}/` }) }))).verdict).toBe('PASS');
+        expect((await verdictOf(deps({ review: reopened({ pathname: '/progress/someone-else' }) }))).evidence?.reason).toBe('wrong-route');
+        expect((await verdictOf(deps({ review: reopened({ pathname: `/session` }) }))).evidence?.reason).toBe('wrong-route');
     });
     it('CASUALTY: never saved within the bound, or malformed, FAILs', async () => {
         expect((await verdictOf(deps({ savedAfter: 60_000 }))).evidence?.reason).toBe('not-saved');

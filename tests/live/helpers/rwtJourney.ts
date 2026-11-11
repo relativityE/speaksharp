@@ -1583,6 +1583,8 @@ export interface PracticeAgainEvidence {
     stopToSaveMs: number | null; saveToGateClearMs: number | null; pressToWarmupDoneMs: number | null; pressToRecordingMs: number | null;
     /** Content-free page state when the review's repeat Start did not begin recording; null when it began or was not tried. */
     startFailure: StartFailureState | null;
+    /** AHT-01 Option 1: epoch ms when the review's repeat take (B) was observed RECORDING; null when not reached. */
+    repeatRecordingAt?: number | null;
     /**
      * #1258 smoke run 38654466793 (PM 6181247850): the closed sub-step at which the SAVE take stopped progressing — the step
      * being attempted when it failed. Null when the review was reached or the save take was never tried.
@@ -1719,6 +1721,7 @@ export async function practiceAgainEvidence(
         await again.click();
         await expectBenchmarkRecordingStarted(page, `${label}-again`);
         ev.afterStartMs = Date.now() - pressedAt;
+        ev.repeatRecordingAt = Date.now();
         ev.pressToRecordingMs = ev.afterStartMs;
         ev.pressToWarmupDoneMs = pressPerf === null ? null : await Promise.resolve().then(() => page.evaluate((from) => {
             const trace = (window as unknown as { __NATIVE_BROWSER_TRACE__?: Array<{ t: number; event: string }> }).__NATIVE_BROWSER_TRACE__ ?? [];
