@@ -5,7 +5,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {CASE07_APPLY,CASE07_ROLLBACK,SOURCE_CONTRACTS,SOURCE_CONSUMER,SOURCE_ASSERTION,inspectSourceContract,sourceContractBinding,
   consumeSourceContracts,validateSourceContractWitness} from '../../scripts/lib/sourceContractEvidence.mjs';
-import {executionRoute} from '../../scripts/lib/testExecutionEvidence.mjs';
+import {executionRoute,selectExecutionContracts} from '../../scripts/lib/testExecutionEvidence.mjs';
 const {test}=process.env.NODE_TEST_CONTEXT?await import('node:test'):await import('vitest');
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 const canary=`import {collectCanaryStopSave,isOwnedStopSettledInPage,startOwnerId} from './canaryStopSaveOracle';
@@ -286,6 +286,48 @@ test('real manifest consumes reviewed code annotations against the generator, wi
   assert.equal(executionRoute(SOURCE_CONTRACTS[2],dir).applicable,false);
 }));
 
+
+test('exact fixture generator has a bounded source-only route, including generator-only deltas',()=>fixture(({dir,write})=>{
+  const generator='tests/fixtures/rwt/generate-rwt-tts-fixtures.sh';
+  const helper='tests/live/helpers/rwtFillerReference.ts';
+  for(const file of [generator,helper,SOURCE_CONTRACTS[2]]) write(file,fs.readFileSync(path.join(root,file),'utf8'));
+  const source=fs.readFileSync(path.join(dir,generator),'utf8');
+  const route=executionRoute(generator,dir);
+  assert.equal(route.runner,'vitest-source-contract');assert.equal(route.applicable,true);assert.equal(route.liveExecution,'NOT RUN');
+  assert.equal(executionRoute('tests/fixtures/rwt/unregistered-generator.sh',dir),null);
+  const selected=selectExecutionContracts(dir,[generator]);
+  assert.equal(selected.length,1);assert.deepEqual(selected[0].sourceFiles,[generator]);
+  const proof=inspectSourceContract(dir,generator);
+  assert.equal(proof.kind,'generator-source-consumption');assert.equal(proof.scriptExecution,'NOT RUN');
+  assert.equal(proof.audioExecution,'NOT RUN');assert.equal(proof.annotationCount,8);
+  const binding=sourceContractBinding(dir,[generator]);
+  for(const file of [generator,helper,SOURCE_CONTRACTS[2]]) assert.ok(binding.some(b=>b.file===file));
+  assert.equal(new Set(binding.map(b=>b.file)).size,binding.length);
+  for(const [from,to] of [
+    ['RATE=150','RATE=151'],['VOICE=Samantha','VOICE=Other'],
+    ['TRAILING_SILENCE_S=15','TRAILING_SILENCE_S=0'],
+    ['say -v','echo -v'],['-ar 16000','-ar 8000'],
+    ['make open_mic_tts','make wrong_target'],
+    ['Uh, I propose','Uh, unrelated anchor'],
+    ['OPEN_MIC="','OPEN_MIC="$(malicious)'],
+  ]) {
+    assert.ok(source.includes(from));assert.throws(()=>inspectSourceContract(dir,generator,source.replace(from,to)));
+  }
+  for(const name of ['OPEN_MIC','FOCUS_POINTS','FOCUS_POINTS_PARTIAL']) {
+    const changed=source.replace(new RegExp(`^${name}="[^"\\n]+"$`,'m'),`${name}="garbage"`);
+    assert.notEqual(changed,source);assert.throws(()=>inspectSourceContract(dir,generator,changed),/script text differs/);
+  }
+  assert.throws(()=>inspectSourceContract(dir,generator,source+'\necho extra-command\n'),/command/);
+  assert.throws(()=>inspectSourceContract(dir,generator,source.split('\n').map(l=>'# '+l).join('\n')),/command/);
+  write(generator,source+'\n# source-only comment correction\n');
+  assert.notDeepEqual(sourceContractBinding(dir,[generator]),binding);
+  assert.equal(inspectSourceContract(dir,generator).scriptExecution,'NOT RUN');
+  write(generator,source);
+  const manifest=JSON.parse(fs.readFileSync(path.join(dir,SOURCE_CONTRACTS[2]),'utf8'));
+  manifest.fixtures.focus_points_tts.file='foreign.wav';write(SOURCE_CONTRACTS[2],JSON.stringify(manifest));
+  assert.equal(executionRoute(generator,dir).applicable,false);
+  assert.throws(()=>inspectSourceContract(dir,generator),/target mismatch/);
+}));
 
 const MODEL='tests/evidence/fixtures/model-evaluator/';
 test('#1760 model comparison inputs: every registered harness, document and data input is consumed from this checkout without live or evaluator credit',()=>{
