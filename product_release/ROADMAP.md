@@ -315,6 +315,21 @@ STT decision without duplicating the existing MVP qualification work.
     Reconcile those verified terms with F03's consent copy and F02's retention
     promise before release; disclose relevant limits without exposing credentials.
 
-Completion of this documentation increment means all eleven dispositions and their
+12. **F12 — Stop-to-final transcript latency.** Measure the user-visible interval
+    from Stop to the final usable transcript separately from model inference time,
+    using exact build/model/device identity and representative short and long takes.
+    Trace buffering, finalization, rendering and save boundaries without assuming
+    which dominates. Report distributions and failure cases in the existing STT
+    evidence lane; do not claim an optimization worked without a controlled rerun.
+13. **F13 — v2 application-path quality diagnosis.** Reproduce the corrected
+    small-fixture observation through the real application path, then compare it
+    with the representative corpus using identical audio preprocessing, chunking,
+    decoding and scoring. The reported 51.7% on an 87-word fixture is not a general
+    v2 accuracy estimate; the later 6.9% corpus result does not explain the app-path
+    discrepancy by itself. Identify the causal boundary before a product change,
+    preserve negative examples, and link any F06 experiment rather than open a
+    parallel model-selection effort.
+
+Completion of this documentation increment means all thirteen dispositions and their
 acceptance boundaries are recorded. It does not close the implementation,
 production-verification or release-acceptance obligations.
