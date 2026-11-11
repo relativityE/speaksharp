@@ -40,6 +40,9 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './helpers/benchmark-utils';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
+import { HarnessParityTap, numericComparisonRow, probeSaveIsolationRow, type NumericResult } from './helpers/rwtHarnessParity';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
 import { characterCeilingVerdict, fillerAdviceVerdict } from './helpers/rwtCoachingConsistency';
 import { transientPrivateDir } from './helpers/rwtTransientFile';
@@ -107,7 +110,8 @@ import { productFillerCount } from './helpers/rwtFillerOracle';
 import { corpusRows, crossCheckCounts, fillerAnnotationsOf, hesitationTotals } from './helpers/rwtFillerReference';
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { feedbackDiagnosticChainRow } from './helpers/coachingFeedbackAdapter';
-import { capturedTakesDifferVerdict, coachingPromptBindingRow, coachingRequestBudgetRow, createCoachingTakeCapture } from './helpers/rwtCoachingCollector';
+import { capturedTakesDifferVerdict, coachingPromptBindingRow, coachingRequestBudgetRow, createCoachingTakeCapture, readSavedReviewPair } from './helpers/rwtCoachingCollector';
+import { answerOrder, latestAnsweredAt, lateCoachingSavedRow, ownerSessionReader } from './helpers/rwtLateCoaching';
 import { coachingContract } from './helpers/rwtCoachingEvidence';
 import { openProductsItem } from './helpers/productsMenu';
 import {
@@ -181,6 +185,19 @@ test.use({
     launchOptions: { args: rwtLaunchArgs(fixture, { webgpu: WEBGPU }) },
 });
 
+/**
+ * Harness parity, from the journey's DESIGN (not a run's count). AHT-01 records four takes, each with one Start press:
+ *   1. the first take — `mic-download` on a cold first use ("Download to start speaking"), otherwise `mic-start`;
+ *   2. the Practice-again pass from Analytics — `mic-start`;
+ *   3. the completed review's Practice again — `verdict-practice-again`;
+ *   4. the next Start — `mic-start`.
+ * So: 4 presses in all; `mic-start` at most 3 (2 when the first take downloads), `mic-download` at most 1, `verdict-practice-again`
+ * at most 1, and no Retry press. One completed session per take: 4.
+ */
+const AHT01_START_PRESS_BUDGET = { total: 4, perControl: { 'mic-start': 3, 'mic-download': 1, 'verdict-practice-again': 1 } } as const;
+const AHT01_DESIGNED_TAKES = 4;
+/** The page-close step's own bound: each page close is itself bounded at 15 s inside it. */
+const PARITY_CLOSE_STEP_MS = 60_000;
 /** #1593 (live case 12): the journey's finalization must survive a test timeout — see `JourneyFinalizer`. */
 const finalizer = new JourneyFinalizer();
 
@@ -245,6 +262,9 @@ test.describe('RWT — Open Mic first session @live', () => {
         const generations = new CoachingGenerationTap();
         generations.attach(page);
         await installMicAcquisitionCounter(page);
+        // Harness parity (PO route 2026-11-10): Cloud STT requests and Start presses on every page of this journey's context.
+        const parity = new HarnessParityTap();
+        await parity.attach(page.context());
         await armCandidateSwitch(page, run, MODEL_COMPARISON_AUTH_KEY);
         const coaching: { status: number | null; requests: number; reason: string | null; reasonRead: Promise<void> | null } = { status: null, requests: 0, reason: null, reasonRead: null };
         page.on('response', (response: Response) => {
@@ -285,6 +305,7 @@ test.describe('RWT — Open Mic first session @live', () => {
         let savedNext = '';
         // The Practice-again pass's saved take: the coaching evidence's repeat take.
         let repeatSessionId: string | null = null;
+        let repeatRecordingAt: number | null = null;
         let coachingCapture: ReturnType<typeof createCoachingTakeCapture> | null = null;
         const finish = finalizer.once(async () => {
             // Sam, #1662 RETURN: every step is bounded and isolated, so the account cleanup and the receipt always run.
@@ -387,6 +408,19 @@ test.describe('RWT — Open Mic first session @live', () => {
             });
             // Idempotent: capture also closes when a row above threw before the rows' own detach.
             tap.detachTransport();
+            // Harness parity rows (catalog AHT-01: no-cloud-stt, start-press-budget, probe-save-isolation, owned-pages-closed), before the
+            // account is deleted (the isolation read needs it). Budget: the catalog's AHT-01 minimum of 4 Starts plus 2 presses of headroom.
+            // Separate bounded steps, rows only while each step is alive (no row after its bound or the seal), and the page close in
+            // its own step so a slow or failed read can never skip it.
+            await steps.step('harness parity counts', (alive) => {
+                parity.noCloudSttRow(aliveReceipt(receipt, alive));
+                parity.startPressRow(aliveReceipt(receipt, alive), AHT01_START_PRESS_BUDGET);
+            });
+            await steps.step('probe saves isolated', async (alive) => {
+                if (admin) await probeSaveIsolationRow(aliveReceipt(receipt, alive), admin as never, capturedUid, [persistedId, repeatSessionId], parity.takeBindings(), parity.leaseIds, AHT01_DESIGNED_TAKES);
+                else aliveReceipt(receipt, alive).row('probe saves isolated', 'HOLD', 'no server read is available in this run');
+            });
+            await steps.step('owned pages closed', (alive) => parity.ownedPagesClosedRow(aliveReceipt(receipt, alive)), PARITY_CLOSE_STEP_MS);
             // Only the run-owned account is deleted (PM contract #1258 §3). The feedback report is retained by product policy
             // (user_issue_reports.user_id is SET NULL on account deletion), so retention is proven only after the account is
             // deleted (#1532 Codex P1 r4105978630).
@@ -926,6 +960,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                 repeatWindow = [repeatFrom, saveTakeEnd >= 0 ? saveTakeEnd : tap.events.length];
                 practiceAgainRows(receipt, 'open_mic', again);
                 repeatSessionId = again.savedSessionId;
+                repeatRecordingAt = again.repeatRecordingAt ?? null;
                 // #1258 R4: not generic — the two takes (different saved evidence) must not get the identical pair.
                 await generations.settle();
                 await coachingCapture.stop();
@@ -947,6 +982,47 @@ test.describe('RWT — Open Mic first session @live', () => {
             await test.step('next Start without a hold', async () => {
                 const next = await nextStartEvidence(page, `${SUITE}-next`);
                 nextStartRows(receipt, next);
+            });
+
+            // ── PO Option 1, item 2 (2026-11-10): the interrupted take's late coaching is never lost ─────────────────────
+            // The repeat take is interrupted by the next take, which has now recorded. Its coaching must be saved to its own
+            // session and shown by its own saved review (Analytics detail, separate page; the journey page is untouched).
+            await test.step('interrupted take coaching saved and shown in its saved review', async () => {
+                const id = repeatSessionId && capturedUid ? repeatSessionId : null;
+                await lateCoachingSavedRow(receipt, id, {
+                    // Product evidence is read AS THE SIGNED-IN ACCOUNT (its own session token + the public anon key), never admin.
+                    readSaved: ownerSessionReader(page, {
+                        url: SUPABASE_URL, anonKey: process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY ?? '',
+                        expectedUid: capturedUid ?? '', sessionId: id ?? '',
+                    }),
+                    openSavedReview: async () => {
+                        const reviewPage = await page.context().newPage();
+                        const reopenRequests = new CoachingGenerationTap();
+                        reopenRequests.attach(reviewPage);
+                        try {
+                            const pair = await readSavedReviewPair(reviewPage, id!, 'gemini_coaching_v1');
+                            const renderedSessionId = await reviewPage.getByTestId('saved-review').getAttribute('data-session-id', { timeout: 5_000 }).catch(() => null);
+                            const transcript = reviewPage.getByTestId('session-detail-transcript');
+                            const rendered = await transcript.waitFor({ state: 'visible', timeout: 15_000 }).then(() => true).catch(() => false);
+                            return {
+                                pathname: new URL(reviewPage.url()).pathname,
+                                renderedSessionId: renderedSessionId || null,
+                                transcriptDigest: rendered ? sha256Hex(await transcript.innerText()) : null,
+                                pair,
+                                coachingRequests: reopenRequests.sentCount,
+                            };
+                        } finally {
+                            await reviewPage.close().catch(() => undefined);
+                        }
+                    },
+                    same: samePhrase,
+                }, {
+                    // Recorded, not judged: browser-observed A answer time vs B observed RECORDING (PO 2026-11-11).
+                    order: answerOrder(
+                        latestAnsweredAt(id ? generations.forSession(id) : []),
+                        repeatRecordingAt,
+                    ),
+                });
             });
 
             // ── Real coaching provenance: the restricted synthetic artifact (PM 6114451615 / 6114547673) ──────────────
@@ -1051,6 +1127,29 @@ test.describe('RWT — Open Mic first session @live', () => {
                     const name = error instanceof Error && /^[A-Za-z]{1,40}Error$/.test(error.name) ? error.name : 'Error';
                     receipt.row(REPEAT_METRIC_ROW, 'HOLD', `the repeat-metric observation failed (${name})`);
                 }
+            });
+
+            // ── same-target-numeric (catalog AHT-01): the harness's own numeric check, run on this journey's saved takes ──────────
+            // Reuses tools/cloud-test/harness/draft-adapters/progress-numeric.cjs (no copy). It is pinned to the served release it was
+            // revalidated against; any other served release makes it NOT RUN (HOLD here), never a pass. No navigation of its own: it reads
+            // the panel the repeat-result step opened (that step navigates only once its server bindings hold); otherwise NOT RUN.
+            await test.step('saved and displayed comparison numbers match', async () => {
+                let result: NumericResult | null = null;
+                try {
+                    if (persistedId && repeatSessionId && capturedUid && admin) {
+                        const served = await page.evaluate(() => (window as unknown as { __APP_RELEASE__?: string }).__APP_RELEASE__ ?? null).catch(() => null);
+                        const numeric = createRequire(import.meta.url)(fileURLToPath(new URL('../../tools/cloud-test/harness/draft-adapters/progress-numeric.cjs', import.meta.url))) as {
+                            observe: (a: Record<string, unknown>) => Promise<NumericResult>;
+                        };
+                        result = await numeric.observe({
+                            page, db: admin, sourceSessionId: persistedId, repeatSessionId,
+                            caseConfig: { sourceSha: expectedReleaseSha(), servedSha: served, account: { id: capturedUid } },
+                        });
+                    }
+                } catch (e) {
+                    result = (e as { code?: string })?.code === 'NOT_RUN' ? { result: 'NOT RUN', facts: { reason: 'numeric-source-not-run' } } : null;
+                }
+                numericComparisonRow(receipt, result);
             });
         } finally {
             await finish();

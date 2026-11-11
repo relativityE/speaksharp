@@ -48,8 +48,14 @@ const worksheetDone = () => {
 
 describe('non-gating rows (PO 2026-09-28): exactly two, HOLD only', () => {
     it('the allowlist is exactly the two PO-named rows, each with a reason', () => {
-        expect(Object.keys(NON_GATING_ROWS).sort()).toEqual(['base_q4 primary', 'signup-stage telemetry received']);
-        for (const reason of Object.values(NON_GATING_ROWS)) expect(reason).toMatch(/PO 2026-09-28/);
+        expect(Object.keys(NON_GATING_ROWS).sort()).toEqual(['base_q4 primary', 'filler "ah" vs corpus', 'signup-stage telemetry received']);
+        for (const reason of Object.values(NON_GATING_ROWS)) expect(reason).toMatch(/PO 2026-(09-28|11-10)/);
+        // PO 2026-11-10: the fixture-limited "ah" HOLD no longer gates the automated verdict; a FAIL on it still does
+        const pass = (step: string): ReceiptRow => ({ step, verdict: 'PASS', detail: 'ok' } as ReceiptRow);
+        const ahHold = receiptAcceptance([pass('session saved'), { step: 'filler "ah" vs corpus', verdict: 'HOLD', detail: 'fixture-limited' } as ReceiptRow]);
+        expect([ahHold.acceptance, ahHold.automatedRowsAllPass]).toEqual(['PASS', true]);
+        const ahFail = receiptAcceptance([pass('session saved'), { step: 'filler "ah" vs corpus', verdict: 'FAIL', detail: 'missed' } as ReceiptRow]);
+        expect([ahFail.acceptance, ahFail.automatedRowsAllPass]).toEqual(['FAIL', false]);
     });
     it('CASUALTY: those two HOLDs alone no longer make a run INCOMPLETE; any other HOLD still does', () => {
         expect(receiptAcceptance([pass('a'), hold('signup-stage telemetry received'), hold('base_q4 primary')]).acceptance).toBe('PASS');

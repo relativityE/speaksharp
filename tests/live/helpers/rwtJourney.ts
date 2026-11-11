@@ -25,7 +25,7 @@ import { RWT_BROWSER_IDENTITY_ARGS } from './rwtBrowserIdentity';
 import { documentTrackerOf } from './rwtDocumentIdentity';
 import {
     coachingFailureReason, coachingParentVerdict, coachingRequestBindingRow, focusExternalDependentRows, providerStatusFrom, takeExchangeEvidence,
-    UNAVAILABLE_HEADLINE,
+    isCoachingUnavailableHeadline,
 } from './coachingExternal';
 import type { CoachingGenerationTap } from './coachingGenerationTap';
 import type { ActionCaptureAttempt, ActionCaptureOutcome } from './rwtOracles';
@@ -46,6 +46,7 @@ import { readFeedbackUiState, readPracticeActionState, type PracticeActionState 
 import { activeHumanReflexMs } from './rwtHumanReflex';
 import { resolveProductsTrigger } from './productsMenu';
 import { WATCHED_FIELDS } from './rwtWatchdog';
+import { runBindingState, sameRunBinding } from './runBinding';
 
 export const APPROVED_ORIGIN = 'https://speaksharp-public.vercel.app';
 /** The disposable-account prefix these suites own; `runOwnedCleanup` refuses any other. */
@@ -363,9 +364,19 @@ export function telemetryClassRows(receipt: RwtReceipt, tap: AnalyticsTap, claim
  * captured UID must belong to exactly the address this run minted, and the signup must have produced its profile.
  * Returns failures, content-free; the caller turns any failure into a hard stop before the journey writes anything else.
  */
+export { currentRunBinding, runBindingState, sameRunBinding, type RunBinding } from './runBinding';
+
+/**
+ * Identity of the freshly signed-up account (UID ↔ email, run-owned prefix, profile), then — in GitHub Actions — its run binding:
+ * app_metadata.ct_run is written once and read back. A run-owned account is never re-bound: one already carrying another run's
+ * binding is a failure.
+ */
 export async function runOwnedIdentityFailures(
     admin: {
-        auth: { admin: { getUserById: (id: string) => Promise<{ data: { user: { email?: string | null } | null }; error: { code?: string } | null }> } };
+        auth: { admin: {
+            getUserById: (id: string) => Promise<{ data: { user: { email?: string | null; app_metadata?: Record<string, unknown> } | null }; error: { code?: string } | null }>;
+            updateUserById?: (id: string, attrs: { app_metadata: Record<string, unknown> }) => Promise<{ error: { code?: string } | null }>;
+        } };
         from: (table: string) => { select: (cols: string) => { eq: (c: string, v: string) => { maybeSingle: () => Promise<{ data: unknown; error: { code?: string } | null }> } } };
     },
     uid: string,
@@ -379,6 +390,24 @@ export async function runOwnedIdentityFailures(
     const { data: profile, error: pErr } = await admin.from('user_profiles').select('id').eq('id', uid).maybeSingle();
     if (pErr) failures.push(`profile lookup failed (${pErr.code ?? 'unknown'})`);
     else if (!profile) failures.push('signup produced no user profile');
+    const state = runBindingState();
+    if ('error' in state) failures.push(`run binding unavailable in GitHub Actions (${state.error})`);
+    const binding = 'binding' in state ? state.binding : null;
+    if (failures.length === 0 && binding) {
+        const existing = (data?.user?.app_metadata as { ct_run?: unknown } | undefined)?.ct_run;
+        if (existing !== undefined && !sameRunBinding(data?.user?.app_metadata, binding)) {
+            failures.push('the account already carries another run binding');
+        } else if (existing === undefined) {
+            const { error: wErr } = admin.auth.admin.updateUserById
+                ? await admin.auth.admin.updateUserById(uid, { app_metadata: { ct_run: { ...binding } } })
+                : { error: { code: 'no_update' } };
+            if (wErr) failures.push(`run binding could not be written (${wErr.code ?? 'unknown'})`);
+            else {
+                const { data: back, error: rErr } = await admin.auth.admin.getUserById(uid);
+                if (rErr || !sameRunBinding(back?.user?.app_metadata, binding)) failures.push('run binding did not read back');
+            }
+        }
+    }
     return failures;
 }
 
@@ -1554,6 +1583,8 @@ export interface PracticeAgainEvidence {
     stopToSaveMs: number | null; saveToGateClearMs: number | null; pressToWarmupDoneMs: number | null; pressToRecordingMs: number | null;
     /** Content-free page state when the review's repeat Start did not begin recording; null when it began or was not tried. */
     startFailure: StartFailureState | null;
+    /** AHT-01 Option 1: epoch ms when the review's repeat take (B) was observed RECORDING; null when not reached. */
+    repeatRecordingAt?: number | null;
     /**
      * #1258 smoke run 38654466793 (PM 6181247850): the closed sub-step at which the SAVE take stopped progressing — the step
      * being attempted when it failed. Null when the review was reached or the save take was never tried.
@@ -1690,6 +1721,7 @@ export async function practiceAgainEvidence(
         await again.click();
         await expectBenchmarkRecordingStarted(page, `${label}-again`);
         ev.afterStartMs = Date.now() - pressedAt;
+        ev.repeatRecordingAt = Date.now();
         ev.pressToRecordingMs = ev.afterStartMs;
         ev.pressToWarmupDoneMs = pressPerf === null ? null : await Promise.resolve().then(() => page.evaluate((from) => {
             const trace = (window as unknown as { __NATIVE_BROWSER_TRACE__?: Array<{ t: number; event: string }> }).__NATIVE_BROWSER_TRACE__ ?? [];
@@ -2253,12 +2285,13 @@ export function visibleCoachingAbsence(well: PhraseObservation, next: PhraseObse
  */
 export async function readCoachingFailureUi(card: Locator): Promise<{ unavailableShown: boolean; retryEnabled: boolean }> {
     const headline = card.getByTestId('ai-suggestions-headline');
-    const shown = (await headline.innerText({ timeout: 5_000 }).catch(() => '')).trim();
+    const headlineVisible = await headline.isVisible().catch(() => false);
+    const shown = headlineVisible ? (await headline.innerText({ timeout: 5_000 }).catch(() => '')).trim() : '';
     const retry = card.getByTestId('ai-suggestions-retry');
     const visible = await retry.isVisible().catch(() => false);
     const enabled = visible && await retry.isEnabled({ timeout: 5_000 }).catch(() => false);
     const label = visible ? (await retry.innerText({ timeout: 5_000 }).catch(() => '')).trim() : '';
-    return { unavailableShown: shown === UNAVAILABLE_HEADLINE, retryEnabled: enabled && label === 'Try again' };
+    return { unavailableShown: headlineVisible && isCoachingUnavailableHeadline(shown), retryEnabled: enabled && label === 'Try again' };
 }
 
 /**
