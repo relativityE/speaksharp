@@ -363,6 +363,21 @@ const endLifecycle = (lc: CoachingLifecycle | null, reason: CoachingLifecycleEnd
   lifecycleStage(lc, 'ended', { endReason: reason });
 };
 
+/**
+ * AHT-01 (run 42938644148) — A NEW TAKE SUPERSEDES THE REVIEW'S IN-FLIGHT COACHING.
+ *
+ * Practice again keeps this review mounted, on the same session, until the next take reaches RECORDING; that took ~6 s
+ * live. The take itself opens at the accepted Start (`useSessionLifecycle` retires the previous attempt and mints the next
+ * BEFORE reporting the intent), so the ambient attempt moving off the request's origin is the exact moment the user moved
+ * on. Before this check, A's late answer still counted as current, rendered over A's review while B was starting, and was
+ * reported `rendered` under B — the stale application the interrupted-repeat gate FAILs. A closed attempt (null, a torn-down
+ * engine) is not a new take and supersedes nothing.
+ */
+const newTakeStartedSince = (lc: CoachingLifecycle): boolean => {
+  const now = snapshotCoachingOrigin().attemptId;
+  return now !== null && now !== lc.origin.attemptId;
+};
+
 const AISuggestions: React.FC<AISuggestionsProps> = ({
   transcript = '', canReview, sessionId, initialSuggestions, retryBackoffMs = AI_REVIEW_AUTO_RETRY_BACKOFF_MS,
   sessionLabel, product, blockedReason,
@@ -464,8 +479,13 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
       trackPracticeLoopReviewRendered();
       const shown = shownLifecycleRef.current;
       if (shown && shown.sessionId === sessionId) {
-        lifecycleStage(shown.lifecycle, 'rendered');
-        endLifecycle(shown.lifecycle, 'completed');
+        // A review first seen after the next take opened is not this take's render: it ends superseded, unclaimed.
+        if (newTakeStartedSince(shown.lifecycle)) {
+          endLifecycle(shown.lifecycle, 'superseded_session');
+        } else {
+          lifecycleStage(shown.lifecycle, 'rendered');
+          endLifecycle(shown.lifecycle, 'completed');
+        }
       }
       emitPracticeLoop({
         // The validated card has intersected the viewport. This is the only phase that can claim that.
@@ -521,7 +541,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
     readyMarkedRef.current = sessionId;
     markCompletionStage('practice_loop_ready');
     const shown = shownLifecycleRef.current;
-    if (shown && shown.sessionId === sessionId) lifecycleStage(shown.lifecycle, 'ready');
+    if (shown && shown.sessionId === sessionId && !newTakeStartedSince(shown.lifecycle)) lifecycleStage(shown.lifecycle, 'ready');
   }, [sessionId, suggestions]);
 
   // #1466 — no forced scroll. The review is visible because `SessionOverhaulView` places it first, above the
@@ -628,11 +648,6 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
     const requestGeneration = requestGenerationRef.current + 1;
     requestGenerationRef.current = requestGeneration;
     if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
-    const isCurrentRequest = () =>
-      mountedRef.current
-      && activeSessionRef.current === requestSessionId
-      && requestGenerationRef.current === requestGeneration;
-
     const diagnosticRequestId = createCoachingDiagnosticId();
     if (diagnosticRequestId) rememberCoachingDiagnostic(requestSessionId, diagnosticRequestId);
 
@@ -650,8 +665,26 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
       ended: false, waitingRetry: false, watchdog: null, abort: null, clientAborted: false, retiredAs: null,
     };
     lifecycleRef.current = lifecycle;
+    const isCurrentRequest = () =>
+      mountedRef.current
+      && activeSessionRef.current === requestSessionId
+      && requestGenerationRef.current === requestGeneration
+      && !newTakeStartedSince(lifecycle);
     const notCurrentReason = (): CoachingLifecycleEndReason => (!mountedRef.current ? (lifecycle.retiredAs ?? 'unmounted')
-      : activeSessionRef.current !== requestSessionId ? 'superseded_session' : 'superseded_request');
+      : activeSessionRef.current !== requestSessionId || newTakeStartedSince(lifecycle) ? 'superseded_session' : 'superseded_request');
+    /**
+     * Ends a request that is no longer current. When the reason is a new take opened over this still-mounted review, the
+     * card also leaves the in-flight state (no RETRYING chip for a request nobody is waiting on). It does NOT re-request:
+     * a request made now would carry the new take's origin and its answer would be applied under that take — the very
+     * stale application this guard exists to stop. The answer was persisted server-side, so the saved review shows it.
+     */
+    const retireNotCurrent = () => {
+      endLifecycle(lifecycle, notCurrentReason());
+      if (mountedRef.current && activeSessionRef.current === requestSessionId && requestGenerationRef.current === requestGeneration
+        && newTakeStartedSince(lifecycle)) {
+        setView({ sessionId: requestSessionId, suggestions: null, isLoading: false, error: null, retrying: false });
+      }
+    };
 
     /**
      * #1473 — ONE BOUNDED LIFECYCLE PER REQUEST (the automatic first request, or one manual press).
@@ -740,7 +773,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
             shownLifecycleRef.current = { sessionId: requestSessionId, lifecycle };
             setView({ sessionId: requestSessionId, suggestions: persistedSuggestions, isLoading: false, error: null, retrying: false });
           } else {
-            endLifecycle(lifecycle, notCurrentReason());
+            retireNotCurrent();
           }
           return;
         }
@@ -759,7 +792,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
             totalMs: performance.now() - attemptStartedAt, product,
           }));
           pendingWaits += 1;
-          if (!isCurrentRequest()) { endLifecycle(lifecycle, notCurrentReason()); return; }
+          if (!isCurrentRequest()) { retireNotCurrent(); return; }
           lifecycle.waitingRetry = true;
           const proceed = await new Promise<boolean>((resolve) => {
             retryTimerRef.current = setTimeout(() => {
@@ -767,7 +800,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
               resolve(isCurrentRequest());
             }, retryBackoffMs);
           });
-          if (!proceed) { endLifecycle(lifecycle, notCurrentReason()); return; }
+          if (!proceed) { retireNotCurrent(); return; }
           attempt -= 1;
           continue;
         }
@@ -781,7 +814,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
           requestId: diagnosticRequestId, attemptId: diagnosticAttemptId, clientAttempt: attempt,
           outcome: 'superseded', reason: 'unavailable', totalMs: performance.now() - attemptStartedAt, product,
         }));
-        endLifecycle(lifecycle, notCurrentReason());
+        retireNotCurrent();
         return;
       }
 
@@ -801,7 +834,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
             resolve(isCurrentRequest());
           }, retryBackoffMs);
         });
-        if (!proceed) { endLifecycle(lifecycle, notCurrentReason()); return; }
+        if (!proceed) { retireNotCurrent(); return; }
         continue;
       }
 

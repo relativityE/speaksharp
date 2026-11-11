@@ -13,7 +13,7 @@ import AISuggestions from '@/components/session/AISuggestions';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import { __resetPracticeLoopTelemetryForTests } from '@/services/telemetry/practiceLoopTelemetry';
-import { __resetJourneyIdentityForTests, beginJourney, beginRecordingAttempt } from '@/services/telemetry/journeyIdentity';
+import { __resetJourneyIdentityForTests, beginJourney, beginRecordingAttempt, endRecordingAttempt } from '@/services/telemetry/journeyIdentity';
 import { __resetCompletionStagesForTests } from '@/services/telemetry/completionStages';
 import { projectEventProps } from '@/services/telemetryAllowlist';
 
@@ -467,5 +467,74 @@ describe('#1593 RETURN — the route is read at the teardown boundary, not at th
         await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
         expect(signal!.aborted).toBe(false);
         expect(stagesOf(id).filter((s) => s.startsWith('ended:'))).toEqual([]);
+    });
+});
+
+describe('AHT-01 (run 42938644148) — Practice again opens the next take while the review is still mounted', () => {
+    // Live shape: A saved and requested coaching; Practice again was accepted (B's attempt opened) 0.8 s later, but the review
+    // stayed mounted on A's session for ~6 s until B reached RECORDING. A answered 1.3 s after B's Start and was rendered and
+    // reported `rendered` under B — the interrupted-repeat gate's stale-application FAIL.
+    it('A\'s late answer is discarded: no ready, no rendered, ended superseded_session, no A text, card out of in-flight', async () => {
+        const answerA = deferred<unknown>();
+        const attemptA = beginRecordingAttempt();
+        invoke.mockImplementationOnce(() => answerA.promise);
+        render(<AISuggestions transcript="take a" canReview sessionId="take-a" />);
+        await waitFor(() => expect(lifecycle().some((e) => e.stage === 'requested')).toBe(true));
+        const [idA] = requestIds();
+
+        // The accepted Start retires A and opens B; nothing re-renders the review with another session.
+        endRecordingAttempt();
+        const attemptB = beginRecordingAttempt();
+        expect(attemptB).not.toBe(attemptA);
+        await act(async () => { answerA.resolve({ data: { suggestions: VALID_A }, error: null }); await Promise.resolve(); });
+        await waitFor(() => expect(stagesOf(idA).some((s) => s.startsWith('ended:'))).toBe(true));
+        reveal();
+
+        expect(stagesOf(idA)).toEqual(['requested', 'response_received', 'response_parsed', 'ended:superseded_session']);
+        for (const e of forRequest(idA)) expect(e.origin_attempt_id).toBe(attemptA);
+        expect(screen.queryByText('Take A next.')).toBeNull();
+        const card = screen.getByTestId('ai-suggestions-card');
+        expect(card.getAttribute('data-lifecycle')).toBe('idle');
+        expect(screen.queryByTestId('ai-suggestions-retrying')).toBeNull();
+        // No second request is made under B's origin (that request's answer would be the same stale application).
+        await new Promise((r) => setTimeout(r, 20));
+        expect(invoke).toHaveBeenCalledTimes(1);
+        expect(requestIds()).toEqual([idA]);
+    });
+
+    it('a review that became ready under A but is first SEEN after B opened ends superseded with no rendered claim', async () => {
+        beginRecordingAttempt();
+        invoke.mockResolvedValueOnce({ data: { suggestions: VALID_A }, error: null });
+        render(<AISuggestions transcript="take a" canReview sessionId="take-a" />);
+        await screen.findByText('Take A next.');
+        const [idA] = requestIds();
+        expect(stagesOf(idA)).toContain('ready');
+        beginRecordingAttempt();
+        reveal();
+        expect(stagesOf(idA)).toEqual(['requested', 'response_received', 'response_parsed', 'persisted', 'ready', 'ended:superseded_session']);
+    });
+
+    it('CONTROL: an answer and render before the next Start complete normally; a CLOSED attempt (no new take) supersedes nothing', async () => {
+        beginRecordingAttempt();
+        invoke.mockResolvedValueOnce({ data: { suggestions: VALID_A }, error: null });
+        const view = render(<AISuggestions transcript="take a" canReview sessionId="take-a" />);
+        await screen.findByText('Take A next.');
+        reveal();
+        const [idA] = requestIds();
+        expect(stagesOf(idA)).toEqual(['requested', 'response_received', 'response_parsed', 'persisted', 'ready', 'rendered', 'ended:completed']);
+        beginRecordingAttempt();                          // B opening AFTER A completed changes nothing about A
+        expect(stagesOf(idA).filter((s) => s.startsWith('ended:'))).toEqual(['ended:completed']);
+        view.unmount();
+
+        const answerC = deferred<unknown>();
+        invoke.mockImplementationOnce(() => answerC.promise);
+        render(<AISuggestions transcript="take c" canReview sessionId="take-c" />);
+        await waitFor(() => expect(requestIds()).toHaveLength(2));
+        const idC = requestIds().find((id) => id !== idA);
+        endRecordingAttempt();                            // a torn-down engine closes the attempt: not a new take
+        await act(async () => { answerC.resolve({ data: { suggestions: VALID_B }, error: null }); await Promise.resolve(); });
+        await screen.findByText('Take B next.');
+        reveal();
+        expect(stagesOf(idC)).toEqual(['requested', 'response_received', 'response_parsed', 'persisted', 'ready', 'rendered', 'ended:completed']);
     });
 });
