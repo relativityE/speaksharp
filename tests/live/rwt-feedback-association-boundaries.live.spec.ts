@@ -21,8 +21,10 @@ import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { feedbackDiagnosticChainRow } from './helpers/coachingFeedbackAdapter';
 import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
 import {
-    readStoredDiagnosticRef, writeNoSessionReportRows, writeOlderTakeBindingRow, writeOlderTakeReportRows, type StoredDiagnosticRef,
+    FeedbackInsertObserver, readStoredDiagnosticRef, writeNoSessionReportRows, writeOlderTakeBindingRow, writeOlderTakeReportRows,
+    type ReceiptRowSink, type StoredFeedbackReport,
 } from './helpers/feedbackDiagnosticRef';
+import { HarnessParityTap, START_CONTROLS } from './helpers/rwtHarnessParity';
 import { coachingContract } from './helpers/rwtCoachingEvidence';
 import { openProductsItem } from './helpers/productsMenu';
 import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
@@ -131,11 +133,31 @@ async function submitFeedback(
     association: 'selected_older_session' | 'no_session',
     sessionId: string | null,
     newerSessionId?: string,
-): Promise<{ id: string | null; sessionId: string | null; diagnosticRef: StoredDiagnosticRef; storedRows: number; acknowledged: boolean }> {
+): Promise<StoredFeedbackReport & { acknowledged: boolean }> {
     await page.goto('/analytics');
     await expect(page.getByTestId('nav-report-issue-button').first()).toBeVisible({ timeout: 45_000 });
     await page.getByTestId('nav-report-issue-button').first().click();
     await expect(page.getByTestId('issue-report-dialog')).toBeVisible({ timeout: 20_000 });
+    // The stored-report read is bound to THIS submit: the idempotency key the page's own feedback insert carries
+    // (`issueReportService.submit` → POST /rest/v1/user_issue_reports, column `idempotency_key`). Observed on the whole
+    // context from the open dialog until the read, so every Send of this draft is seen; one draft's Sends share one key.
+    const inserts = new FeedbackInsertObserver(page.context());
+    try {
+        return await submitOpenDialog(page, tap, uid, association, sessionId, inserts, newerSessionId);
+    } finally {
+        inserts.stop();
+    }
+}
+
+async function submitOpenDialog(
+    page: Page,
+    tap: AnalyticsTap,
+    uid: string,
+    association: 'selected_older_session' | 'no_session',
+    sessionId: string | null,
+    inserts: FeedbackInsertObserver,
+    newerSessionId?: string,
+): Promise<StoredFeedbackReport & { acknowledged: boolean }> {
     const selector = page.getByTestId('feedback-session-select');
     if (association === 'selected_older_session') {
         if (!sessionId) throw new Error('older-session case requires a saved older session id');
@@ -155,7 +177,6 @@ async function submitFeedback(
     await page.getByTestId('issue-report-description').fill('Automated RWT feedback-association boundary check.');
     await tap.captureActionBindingSettled(page, 'share_feedback', expectedReleaseSha(), process.env.GITHUB_RUN_ID ?? '',
         process.env.GITHUB_RUN_ATTEMPT ?? '');
-    const since = new Date(Date.now() - 60_000).toISOString();
     // A missing action-time binding is retained as HOLD by bindReadbackJourneys; it must never be
     // guessed from a same-number or unrelated journey.
     const feedbackBefore = tap.sent('feedback_submit').length;
@@ -167,16 +188,23 @@ async function submitFeedback(
     // page, wait (bounded) until this submission's feedback_submit events — `attempted` plus its outcome — have actually
     // LEFT the page (the main journeys' R8 settle), so the readback can receive them instead of losing them at unload.
     await tap.awaitObserved(page, { feedback_submit: feedbackBefore + 2 });
-    const { data, error } = await admin!.from('user_issue_reports')
-        .select('id,session_id,metadata').eq('user_id', uid).gte('created_at', since);
-    if (error) throw new Error(`feedback row read failed (fail closed): ${error.code ?? 'unknown'}`);
-    const rows = data ?? [];
+    // Stored rows = the owner's rows under the submit's observed key(s). With no observed key nothing is read: the
+    // stored-once row HOLDs (never a PASS or FAIL from an unbound read by time window).
+    const keys = [...inserts.keys];
+    let rows: Array<{ id: unknown; session_id: unknown; metadata: unknown }> = [];
+    if (keys.length > 0) {
+        const { data, error } = await admin!.from('user_issue_reports')
+            .select('id,session_id,metadata').eq('user_id', uid).in('idempotency_key', keys);
+        if (error) throw new Error(`feedback row read failed (fail closed): ${error.code ?? 'unknown'}`);
+        rows = data ?? [];
+    }
     const row = rows.length === 1 ? rows[0] : null;
     const metadata = row?.metadata && typeof row.metadata === 'object' ? row.metadata as Record<string, unknown> : {};
     const storedSession = typeof row?.session_id === 'string' ? row.session_id : null;
     // #1539 / #1491 6123627243: absent, valid and MALFORMED are distinct — a malformed stored link is never "no link".
     const diagnosticRef = readStoredDiagnosticRef(metadata);
-    return { id: row ? String(row.id) : null, sessionId: storedSession, diagnosticRef, storedRows: rows.length, acknowledged };
+    return { id: row ? String(row.id) : null, sessionId: storedSession, diagnosticRef, storedRows: rows.length,
+        insertKeys: keys.length, insertRequests: inserts.insertRequests, acknowledged };
 }
 
 async function finishReceipt(
@@ -198,6 +226,32 @@ async function finishReceipt(
 /** #1593 (live case 12): the journey's finalization must survive a test timeout — see `JourneyFinalizer`. */
 const finalizer = new JourneyFinalizer();
 
+/**
+ * Harness parity (PO route 2026-11-10), AHT-07 (older take), from the journey's design: two takes, one Start press each —
+ *   1. the first take (`createSavedOpenMicTake(..., true)`): `mic-download` on a cold first use (benchmark-utils.ts:609,
+ *      the one cold press that downloads AND starts the take), otherwise `mic-start` (benchmark-utils.ts:862 via
+ *      `startBenchmarkRecording`, which presses nothing when setup already started the take);
+ *   2. the second take: the completed review's `verdict-practice-again` (this file:111, `again.click()` in createSavedOpenMicTake).
+ * Feedback, navigation and sign-in press no Start control. So 2 in all (the catalog minimum), at most one each of
+ * `mic-start`, `mic-download` and `verdict-practice-again`, and no Retry.
+ */
+const AHT07_START_PRESS_BUDGET = { total: 2, perControl: { 'mic-start': 1, 'mic-download': 1, 'verdict-practice-again': 1 } } as const;
+/** The page-close step's own bound: each page close is itself bounded at 15 s inside it. */
+const PARITY_CLOSE_STEP_MS = 60_000;
+
+/**
+ * AHT-08 (No session) is designed to press no Start control at all (catalog minimum 0), so `startPressRow` — which FAILs
+ * at zero presses — does not apply. Same row name: PASS iff no Start press was observed.
+ */
+function zeroStartPressRow(receipt: ReceiptRowSink, parity: HarnessParityTap): void {
+    const evidence = { startPresses: parity.startPresses,
+        ...Object.fromEntries(START_CONTROLS.map((c) => [`presses:${c}`, parity.startPressesByControl[c]])),
+        leaseAcquisitionsDiagnostic: parity.leaseAcquisitions, cap: 0 };
+    const ok = parity.startPresses === 0;
+    receipt.row('Start presses within budget', ok ? 'PASS' : 'FAIL',
+        ok ? 'no Start control was pressed, as the journey is designed' : 'a Start control was pressed in a journey designed to press none', evidence);
+}
+
 test.describe('RWT — Share Feedback association boundaries @live', () => {
     test.afterEach(async () => {
         await finalizer.drain();
@@ -210,6 +264,8 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
         const tap = new AnalyticsTap();
         const generations = new CoachingGenerationTap();
         tap.attach(page); generations.attach(page);
+        // Harness parity: Cloud STT requests and Start presses on every page of this journey's one context.
+        const parity = new HarnessParityTap();
         // #1593 fail early: an unexpected failure, refusal or stall ends the journey in seconds, not at the timeout.
         const watch = armWatchdog({ page, tap, profile: watchProfileFor(`${SUITE}-older-take`), label: `${SUITE}-older-take` });
         let claimed = false;
@@ -229,6 +285,13 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             await steps.step('coaching settle', () => generations.settle(), FINALIZE_SETTLE_MS);
             // The WHOLE scenario, after feedback and navigation: at most one request per saved take (two in all).
             await steps.step('coaching budget', () => coachingRequestBudgetRow(receipt, generations, { maximum: 2, oneRequestPerSession: takes }));
+            // Harness parity rows (catalog AHT-07: no-cloud-stt, start-press-budget, owned-pages-closed), before the account is
+            // deleted; the page close in its own bounded step so a slow count can never skip it.
+            await steps.step('harness parity counts', (alive) => {
+                parity.noCloudSttRow(aliveReceipt(receipt, alive));
+                parity.startPressRow(aliveReceipt(receipt, alive), AHT07_START_PRESS_BUDGET);
+            });
+            await steps.step('owned pages closed', (alive) => parity.ownedPagesClosedRow(aliveReceipt(receipt, alive)), PARITY_CLOSE_STEP_MS);
             // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion. With a report, the retention proof deletes through it;
             // the deletion's own settlement then decides the row — a stalled readback never deletes again.
             if ((owner.uid || owner.email) && !accountDeleted) {
@@ -241,6 +304,8 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             await finishReceipt(receipt, testInfo, tap, claimed, steps);
         });
         try {
+            // BEFORE the first navigation (the click recorder is an init script).
+            await parity.attach(page.context());
             await suppressPageSnapshot(testInfo);
             const ready = await prepareDisposable(page, receipt, owner);
             claimed = ready;
@@ -286,6 +351,8 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
         const tap = new AnalyticsTap();
         const generations = new CoachingGenerationTap();
         tap.attach(page); generations.attach(page);
+        // Harness parity: Cloud STT requests and Start presses on every page of this journey's one context.
+        const parity = new HarnessParityTap();
         // #1593 fail early: an unexpected failure, refusal or stall ends the journey in seconds, not at the timeout.
         const watch = armWatchdog({ page, tap, profile: watchProfileFor(`${SUITE}-no-session`), label: `${SUITE}-no-session` });
         let claimed = false;
@@ -303,6 +370,13 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             await steps.step('coaching settle', () => generations.settle(), FINALIZE_SETTLE_MS);
             // No session links no take, so the whole scenario must send no coaching request at all.
             await steps.step('coaching budget', () => coachingRequestBudgetRow(receipt, generations, { maximum: 0 }));
+            // Harness parity rows (catalog AHT-08: no-cloud-stt, start-press-budget at a cap of 0, owned-pages-closed), before
+            // the account is deleted; the page close in its own bounded step.
+            await steps.step('harness parity counts', (alive) => {
+                parity.noCloudSttRow(aliveReceipt(receipt, alive));
+                zeroStartPressRow(aliveReceipt(receipt, alive), parity);
+            });
+            await steps.step('owned pages closed', (alive) => parity.ownedPagesClosedRow(aliveReceipt(receipt, alive)), PARITY_CLOSE_STEP_MS);
             // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion. With a report, the retention proof deletes through it;
             // the deletion's own settlement then decides the row — a stalled readback never deletes again.
             if ((owner.uid || owner.email) && !accountDeleted) {
@@ -315,6 +389,8 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             await finishReceipt(receipt, testInfo, tap, claimed, steps);
         });
         try {
+            // BEFORE the first navigation (the click recorder is an init script).
+            await parity.attach(page.context());
             await suppressPageSnapshot(testInfo);
             const ready = await prepareDisposable(page, receipt, owner);
             claimed = ready;
