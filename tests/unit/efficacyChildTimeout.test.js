@@ -4,11 +4,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const { test } = process.env.NODE_TEST_CONTEXT ? await import('node:test') : await import('vitest');
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const fixture = path.join(root, 'tests/fixtures/efficacy/child-timeout');
+const moduleUrl = file => JSON.stringify(pathToFileURL(path.join(root, file)).href);
+
 // Processes that can still run. A zombie has exited and cannot write (same rule as drainOwnedPhase); where PID 1
 // does not reap orphans, an exited coordinator or phase member can stay a zombie indefinitely.
 const liveProcesses = () => execFileSync('ps', ['-axo', 'pid=,pgid=,stat='], { encoding: 'utf8' }).trim().split('\n')
@@ -17,19 +18,62 @@ const liveProcesses = () => execFileSync('ps', ['-axo', 'pid=,pgid=,stat='], { e
 const liveMembers = group => liveProcesses().filter(([, pgid]) => pgid === group);
 const running = pid => liveProcesses().some(([candidate]) => candidate === pid);
 
-// Negative control for runEfficacyChild (tests/unit/userHarmControls.test.js). A real Vitest run, on the
-// unit suite's forks pool, times its test out while the coordinator's detached phase is still writing.
-// The coordinator must survive that timeout, drain the whole phase group, see no write after the drain
-// and remove its temporary copy. No receipt file or directory is involved, because the receipt is stdout.
+// Scaled stand-in for scripts/run-test-efficacy.mjs: one bounded detached phase whose leader starts a same-group
+// member, both writing until killed, then drained and cleaned up with the real coordinator helpers.
+const coordinatorSource = `import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { cleanupOwnedCopy, drainOwnedPhase } from ${moduleUrl('scripts/run-test-efficacy.mjs')};
+const witness = process.env.EFFICACY_TIMEOUT_WITNESS;
+const record = facts => fs.writeFileSync(witness, JSON.stringify({ ...JSON.parse(fs.readFileSync(witness, 'utf8')), ...facts }));
+const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'speaksharp-efficacy-timeout-fixture-'));
+const log = path.join(temporary, 'phase-writes.log');
+fs.writeFileSync(witness, JSON.stringify({ coordinatorPid: process.pid, temporary }));
+const writer = \`const fs=require('node:fs');setInterval(()=>fs.appendFileSync(\${JSON.stringify(log)},Date.now()+'\\\\n'),20);\`;
+const leader = \`require('node:child_process').spawn(process.execPath,['-e',\${JSON.stringify(writer)}],{stdio:'ignore'});\${writer}\`;
+record({ phaseStartedAt: Date.now() });
+const result = spawnSync(process.execPath, ['-e', leader], { timeout: Number(process.env.EFFICACY_TIMEOUT_PHASE_MS),
+  killSignal: 'SIGKILL', detached: true, stdio: 'ignore' });
+const phaseEndedAt = Date.now();
+const drain = drainOwnedPhase(result);
+const count = () => fs.readFileSync(log, 'utf8').split('\\n').filter(Boolean).length;
+const writesAtDrain = count();
+await new Promise(resolve => setTimeout(resolve, 300));
+const writesAfterDrain = count();
+cleanupOwnedCopy(temporary);
+record({ group: result.pid, phaseEndedAt, drain, writesAtDrain, writesAfterDrain, done: true });
+console.log(JSON.stringify({ status: 'drained' }));
+`;
+// The fixture test calls the same runEfficacyChild the user-harm controls test uses.
+const fixtureTestSource = `import { test } from 'vitest';
+import { runEfficacyChild } from ${moduleUrl('scripts/lib/efficacyChild.mjs')};
+test('times out while the coordinator phase is active', async () => {
+  await runEfficacyChild(new URL('./coordinator.mjs', import.meta.url).pathname, [], { cwd: process.cwd(), env: process.env });
+}, Number(process.env.EFFICACY_TIMEOUT_TEST_MS));
+`;
+// Same pool as the unit suite (forks), so the timeout and worker teardown are the real lifecycle.
+const configSource = `export default { test: { include: ['timeout.fixture.mjs'], environment: 'node', pool: 'forks',
+  poolOptions: { forks: { isolate: true, maxForks: 1 } }, watch: false } };
+`;
+
+// Negative control for runEfficacyChild (tests/unit/userHarmControls.test.js). A real Vitest run times its test
+// out while the coordinator's detached phase is still writing. The coordinator must survive that timeout, drain
+// the whole phase group, see no write after the drain, remove its temporary copy and exit. No receipt file or
+// directory is involved, because the receipt travels on stdout.
 test('a Vitest test timeout mid-phase leaves the coordinator to drain its phase and clean up', { timeout: 60_000 }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'efficacy-child-timeout-'));
   const witnessFile = path.join(dir, 'witness.json');
   const testMs = 1000;
   const phaseMs = 3000;
   try {
+    fs.writeFileSync(path.join(dir, 'coordinator.mjs'), coordinatorSource);
+    fs.writeFileSync(path.join(dir, 'timeout.fixture.mjs'), fixtureTestSource);
+    fs.writeFileSync(path.join(dir, 'vitest.config.mjs'), configSource);
+    fs.symlinkSync(path.join(root, 'node_modules'), path.join(dir, 'node_modules'), 'dir');
     const run = await promisify(execFile)(process.execPath, [path.join(root, 'node_modules/vitest/vitest.mjs'), 'run',
-      '--config', path.join(fixture, 'vitest.config.mjs')], {
-      cwd: root, timeout: 45_000, maxBuffer: 16 * 1024 * 1024,
+      '--config', path.join(dir, 'vitest.config.mjs'), '--root', dir], {
+      cwd: dir, timeout: 45_000, maxBuffer: 16 * 1024 * 1024,
       env: { ...process.env, EFFICACY_TIMEOUT_WITNESS: witnessFile, EFFICACY_TIMEOUT_TEST_MS: String(testMs),
         EFFICACY_TIMEOUT_PHASE_MS: String(phaseMs) },
     }).then(() => assert.fail('the fixture test must time out'), error => error);
