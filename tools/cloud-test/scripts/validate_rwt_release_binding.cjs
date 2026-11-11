@@ -6,19 +6,24 @@
 const {spawnSync}=require('node:child_process'),{createHash}=require('node:crypto');
 // Exact diagnostic postimages; never a broad live-test exception.
 const TEST_PINS=Object.freeze({
+ // AHT-07 bounded writes (pre-send caps, three fault legs, race-safe report cleanup): exact reviewed postimages.
+ 'tests/live/helpers/feedbackAttemptLedger.ts':'106f421cc75c5e793a613b7a89eb453392409dce14c4e8663275643b32a8b751',
+ 'tests/live/helpers/feedbackReportCleanup.ts':'27236a1a20019e1606b552111271349e34685d049d803593982ee3395c8e42be',
+ 'tests/unit/feedbackBoundedWrites.test.ts':'c603d699d73a123222919ffa68c29f6e84efa68f2b3ad66cbec26a40f99e4a0c',
+ 'tests/unit/rwtSupplementalAcceptance1594.test.ts':'3d3c20a76c7c47bfaf52a56d458a5ff0052388e72e77f50a373721c0b7031685',
  'tests/live/helpers/rwtDocumentIdentity.ts':'25c00c2a7eccd00f0cd0fe2ab3705ba5730049d187c8902e2ddd638c681594f0',
  'tests/unit/rwtWatchdog1593.test.ts':'14fe0f998d9ef1f9b5c3bd7e8d26fc264c980687c7f7eeabf166efbd77fb2162',
  'tests/unit/rwtDocumentBinaryTransport.test.js':'e4722993a0e008cf6ead7fe1e092cdc50f3d8b75df0ff29066f35dd95d2bda80',
  // AHT-02..15 prep (parity rows, AHT-07 key-bound fail-closed stored-once, AHT-09 navigation-bound ready wait, AHT-04 recovery take, AHT-05/06 attempts/exact save/reopen, AHT-02/03 Focus marker and rows, AHT-08/11/12-15 checks): exact reviewed postimages.
  'tests/live/helpers/feedbackDiagnosticRef.ts':'aeccd8dbd54dd5172da83f08b87d948f1d32028090e846c50f2e5eaf55be27fe',
- 'tests/live/helpers/rwtAcceptance.ts':'bf232249ba3dc9263a59da39f52303e923aebd3ddff7e2c00c5d4bb1aebfe57a',
+ 'tests/live/helpers/rwtAcceptance.ts':'20ab4e11d55b33caa8c0f233845e7e579ed3945e243a41e58707a077cb5ef0c1',
  'tests/live/helpers/rwtAdverseJourney.ts':'43b481b686f04ad4632fc5c05a503b012dc4ab1914201905b302c95492158e3a',
  'tests/live/helpers/rwtFocusPointsJourney.ts':'3888d276270cb66cac17e6e0029868a8e75aba4585a56d9a53f51c32d7c94fdd',
  'tests/live/helpers/rwtPendingStartRecovery.ts':'41ad72641a30753e8a173ff79390b33305d25d8c7b1eafed7a57bd2d010118c5',
  'tests/live/helpers/rwtSaveRetryAttempts.ts':'cfa37a628a18e1c4347bb40eed73b33b303245a6930efaca0aeb24ee39ec0be2',
  'tests/live/helpers/rwtLeaveDestinationReady.ts':'5df6c2b0533098c9a9c019b2d491783b060be2cc6d5f52614d4a8053092542db',
  'tests/live/rwt-abandon-and-two-tabs.live.spec.ts':'1dd31a69e18fae124630a19dbfc6ea1071a5d9a3954b7605ba534ff9e4e963ce',
- 'tests/live/rwt-feedback-association-boundaries.live.spec.ts':'5ace9cb71d66dec7f37fb4edff52ed1ce6c5621979143f6e34b0554b096fda90',
+ 'tests/live/rwt-feedback-association-boundaries.live.spec.ts':'c13ebcf325b955c9283bd6b7a8d6019419e674bb8ba2e2753f5868325f30d21d',
  'tests/live/rwt-pending-start-navigation.live.spec.ts':'92f1ec5199de8de1563c81da693731078776e8ed10cc9f1e5b350c9b3a1aa803',
  'tests/live/rwt-products-navigation.live.spec.ts':'bedab954eb78a034395639a29bcf34ff97ed9c47897f3e10a66f668ce43e4343',
  'tests/live/rwt-save-retry-recovery.live.spec.ts':'b3ae8b50b12332e40e6a5237fb1baead705d7f899018eb9a8eb628a2dec56772',
