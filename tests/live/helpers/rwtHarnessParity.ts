@@ -213,12 +213,67 @@ export async function probeSaveIsolationRow(receipt: RowSink, admin: SessionsAdm
  * PASS/FAIL/HOLD; only its closed reason code and booleans reach the row.
  */
 export type NumericResult = { result: 'PASS' | 'FAIL' | 'NOT RUN'; facts?: Record<string, unknown> };
-export function numericComparisonRow(receipt: RowSink, r: NumericResult | null): void {
+/**
+ * The progress exclusion reasons, closed (buildProgressEvaluation.ts `ExclusionReason`; drift is caught by a unit control).
+ * Only these codes may reach a receipt.
+ */
+export const PROGRESS_EXCLUSION_REASONS: readonly string[] = Object.freeze([
+    'not_completed', 'too_short', 'too_few_words', 'no_transcript', 'no_clarity_evidence', 'unverified_attribution', 'engine_not_comparable', 'unknown',
+]);
+/**
+ * The repeat take's own stored progress evaluation, as read for the adapter's formula version. `absent` = no row (missing or
+ * pending evidence); `unread` = the read failed or timed out; `contradictory` = a row came back that is not the requested
+ * session/owner/formula or is internally inconsistent. Diagnostic only: it never sets the numeric verdict.
+ */
+export type RepeatEligibility =
+    | { state: 'observed'; eligible: boolean; exclusionReasons: readonly unknown[] }
+    | { state: 'absent' } | { state: 'unread' } | { state: 'contradictory' };
+type EvalRow = { session_id?: unknown; user_id?: unknown; formula_version?: unknown; eligible?: unknown; exclusion_reasons?: unknown };
+type EvalQuery = { eq(k: string, v: string): EvalQuery; maybeSingle(): PromiseLike<{ data: EvalRow | null; error: unknown }> };
+export interface EvalReader { from(table: 'session_progress_evaluations'): { select(cols: string): EvalQuery } }
+export const REPEAT_ELIGIBILITY_READ_MS = 10_000;
+
+/** Bounded, fail-closed read of the repeat's evaluation bound to (session, owner, formula version). Never throws. */
+export async function readRepeatEligibility(
+    db: EvalReader, o: { sessionId: string; userId: string; formulaVersion: string; timeoutMs?: number },
+): Promise<RepeatEligibility> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const read = (async (): Promise<RepeatEligibility> => {
+        const { data, error } = await db.from('session_progress_evaluations')
+            .select('session_id, user_id, formula_version, eligible, exclusion_reasons')
+            .eq('session_id', o.sessionId).eq('user_id', o.userId).eq('formula_version', o.formulaVersion).maybeSingle();
+        if (error) return { state: 'unread' };
+        if (!data) return { state: 'absent' };
+        if (data.session_id !== o.sessionId || data.user_id !== o.userId || data.formula_version !== o.formulaVersion
+            || typeof data.eligible !== 'boolean' || !Array.isArray(data.exclusion_reasons)) return { state: 'contradictory' };
+        return { state: 'observed', eligible: data.eligible, exclusionReasons: data.exclusion_reasons };
+    })().catch((): RepeatEligibility => ({ state: 'unread' }));
+    const timeout = new Promise<RepeatEligibility>((resolve) => { timer = setTimeout(() => resolve({ state: 'unread' }), o.timeoutMs ?? REPEAT_ELIGIBILITY_READ_MS); });
+    try { return await Promise.race([read, timeout]); } finally { clearTimeout(timer); }
+}
+
+/** Receipt evidence for the repeat's eligibility: closed codes only; anything unknown or inconsistent is `contradictory`. */
+export function repeatEligibilityEvidence(e: RepeatEligibility | undefined): Record<string, string | null> {
+    if (e === undefined) return {};
+    if (e.state !== 'observed') return { repeatEligibility: e.state, repeatExclusions: null };
+    const codes = e.exclusionReasons;
+    const closed = codes.every((c) => typeof c === 'string' && PROGRESS_EXCLUSION_REASONS.includes(c)) && new Set(codes).size === codes.length;
+    const consistent = e.eligible ? codes.length === 0 : codes.length > 0;
+    if (!closed || !consistent) return { repeatEligibility: 'contradictory', repeatExclusions: null };
+    return { repeatEligibility: e.eligible ? 'eligible' : 'ineligible', repeatExclusions: [...(codes as string[])].sort().join(',') };
+}
+export function numericComparisonRow(receipt: RowSink, r: NumericResult | null, repeat?: RepeatEligibility, saveTakeMs?: number): void {
     const facts = r?.facts ?? {};
     const reason = typeof facts.reason === 'string' && /^[a-z0-9-]{1,80}$/.test(facts.reason) ? facts.reason : 'unknown';
+    // Diagnostic keys are written LAST so an adapter fact can never overwrite them.
+    const diagnostic: Record<string, string | number | null> = {
+        ...repeatEligibilityEvidence(repeat),
+        ...(saveTakeMs === undefined ? {} : { saveTakeSeconds: Number.isInteger(saveTakeMs) ? saveTakeMs / 1000 : null }),
+    };
     const evidence: Record<string, string | number | boolean | null> = { reason };
-    for (const [k, v] of Object.entries(facts)) if (k !== 'reason' && typeof v === 'boolean') evidence[k] = v;
-    if (!r) { receipt.row('saved and displayed comparison numbers match', 'HOLD', 'the numeric comparison could not be observed', { reason: 'not-observed' }); return; }
+    for (const [k, v] of Object.entries(facts)) if (k !== 'reason' && typeof v === 'boolean' && !(k in diagnostic)) evidence[k] = v;
+    Object.assign(evidence, diagnostic);
+    if (!r) { receipt.row('saved and displayed comparison numbers match', 'HOLD', 'the numeric comparison could not be observed', { reason: 'not-observed', ...diagnostic }); return; }
     const verdict = r.result === 'PASS' ? 'PASS' : r.result === 'FAIL' ? 'FAIL' : 'HOLD';
     receipt.row('saved and displayed comparison numbers match', verdict,
         verdict === 'PASS' ? 'the displayed before → after values equal the saved values exactly (metric, order, units, precision)'

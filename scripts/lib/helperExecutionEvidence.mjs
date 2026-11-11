@@ -92,11 +92,11 @@ export const HELPER_CONTRACTS = Object.freeze([{
   helperFile:'tests/live/helpers/rwtCoachingEvidence.ts',testFile:'tests/unit/rwtCoachingEvidence.test.ts',
   callables:['canonicalSuggestionSha256','coachingSessionBindingSha256','recomputeCoachingPromptSha256','buildRwtCoachingEvidenceArtifact','writeRwtCoachingEvidenceArtifact'],
 }, {
-  helperFile:'tests/live/helpers/rwtHarnessParity.ts',testFile:'tests/unit/rwtHarnessParity.test.ts',
-  callables:['HarnessParityTap#takeBindings','HarnessParityTap#attach','HarnessParityTap#noCloudSttRow','HarnessParityTap#startPressRow','HarnessParityTap#ownedPagesClosedRow','probeSaveIsolationRow','numericComparisonRow'],
+  helperFile:'tests/live/helpers/rwtHarnessParity.ts',testFile:'tests/unit/rwtHarnessParityExecution1812.test.ts',
+  callables:['HarnessParityTap#takeBindings','HarnessParityTap#attach','HarnessParityTap#noCloudSttRow','HarnessParityTap#startPressRow','HarnessParityTap#ownedPagesClosedRow','probeSaveIsolationRow','numericComparisonRow','readRepeatEligibility','repeatEligibilityEvidence'],
 }, {
   helperFile:'tests/live/helpers/rwtLateCoaching.ts',testFile:'tests/unit/rwtLateCoaching.test.ts',
-  callables:['sha256Hex','answerOrder','latestAnsweredAt','lateCoachingSavedRow','accessTokenFromAuthStorage','tokenSubject','ownerSessionReader'],
+  callables:['sha256Hex','answerOrder','latestAnsweredAt','lateCoachingSavedRow','accessTokenFromAuthStorage','tokenSubject','ownerSessionReader','nonblankParity','classifyTarget','ownerNewerCompletedCounter'],
 }, {
   helperFile:'tests/live/helpers/rwtWatchdog.ts',testFile:'tests/unit/rwtCleanupExecution1812.test.ts',
   callables:['OwnedCleanup#run','OwnedCleanup#settle','finalizeOwnedCleanup'],
