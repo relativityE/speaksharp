@@ -26,7 +26,7 @@ on:
         required: true
         type: choice
         default: conversion
-        options: [conversion, renewal_recovery, portal_expiry]
+        options: [conversion, renewal_recovery, portal_expiry, paid_value_loop]
 
 permissions:
   contents: read
@@ -43,7 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     # Protected environment: required reviewers must approve each run before any secret is exposed.
     environment: billing-local-stack
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       SUPABASE_WORKDIR: backend
       LOCAL_API_URL: http://127.0.0.1:54321
@@ -210,8 +210,11 @@ jobs:
           PLAYWRIGHT_JSON_OUTPUT_NAME: ${{ runner.temp }}/playwright-report.json
         run: |
           set -euo pipefail
+          # The outcome 8 paid value loop has its own config (longer audio and timeout); the three billing journeys share one.
+          config=playwright.billing-journey.config.ts
+          [ "$JOURNEY" = 'paid_value_loop' ] && config=playwright.paid-value-loop.config.ts
           BILLING_SANDBOX_ANON_KEY="$LOCAL_ANON_KEY" BILLING_SANDBOX_SERVICE_ROLE_KEY="$LOCAL_SERVICE_ROLE_KEY" \
-            pnpm exec playwright test -c playwright.billing-journey.config.ts --reporter=list,json -g "billing ${JOURNEY}:"
+            pnpm exec playwright test -c "$config" --reporter=list,json -g "billing ${JOURNEY}:"
 
       - name: Extract the content-free receipt only
         if: always()
