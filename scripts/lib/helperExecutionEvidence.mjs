@@ -25,6 +25,11 @@ export const HELPER_CONTRACTS = Object.freeze([{
   helperFile:'tests/live/helpers/rwtStepDiagnostics.ts', testFile:'tests/unit/rwtStepDiagnostics1258.test.ts',
   callables:['routeClass'],
 }, {
+  // AHT-01 / #1812 Gate 3 budget: the interrupted-run recovery helper (its age floor is now coupled to the job limit).
+  helperFile:'tests/live/helpers/rwtInterruptedRunRecovery.ts', testFile:'tests/unit/rwtInterruptedRunRecovery1258.test.ts',
+  callables:['recoveryDeleteAck','deletionDomain','runOwnedDomain','ownedPrefixOf','selectInterruptedRunAccounts','recoveryAuthority',
+    'listAuthUsersBounded','recoverInterruptedRuns','recoveryReportLine'],
+}, {
   helperFile:'tests/live/helpers/rwtFillerReference.ts', testFile:'tests/unit/rwtFillerReference1258.test.ts',
   callables:['fillerAnnotationsOf','referenceKeyFor','referenceCount','alignFillers','corpusWordVerdict',
     'corpusVerdicts','corpusRows','hesitationTotals','integrityVerdict','crossCheckCounts'],

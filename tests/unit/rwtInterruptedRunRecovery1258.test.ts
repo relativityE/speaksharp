@@ -233,8 +233,8 @@ describe('selection', () => {
         // Control: the same old account beside an unrelated row stays eligible.
         expect(selectInterruptedRunAccounts([oldA, user(9, journey(9), fresh)], NOW, D).eligible.map((c) => c.id)).toEqual([uuid(1)]);
     });
-    it('the age floor is the gate-3 timeout plus a safety margin (75 min)', () => {
-        expect(MIN_AGE_MS).toBe(75 * 60_000);
+    it('the age floor is the gate-3 job timeout plus a safety margin (105 + 30 = 135 min; coupled to rc-gates.yml)', () => {
+        expect(MIN_AGE_MS).toBe(135 * 60_000);
         const justYoung = new Date(NOW - MIN_AGE_MS + 1_000).toISOString();
         expect(selectInterruptedRunAccounts([user(1, journey(1), justYoung)], NOW, D).counts.fresh).toBe(1);
     });

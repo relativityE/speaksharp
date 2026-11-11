@@ -1,7 +1,7 @@
 /**
  * #1258 B1 (Browser PM 6097765962) — governed recovery for run-owned Production accounts left behind by an INTERRUPTED
- * rehearsal. Every normal journey deletes its account in Playwright teardown; a cancelled job, a lost runner or the 45-minute
- * `gate-3-dast` timeout can skip that teardown and leave the account and its cascaded rows.
+ * rehearsal. Every normal journey deletes its account in Playwright teardown; a cancelled job, a lost runner or the
+ * `gate-3-dast` job timeout can skip that teardown and leave the account and its cascaded rows.
  *
  * Detect-and-HOLD by default. Deletion happens only from protected default-branch bytes, with a delete acknowledgement bound
  * to the exact commit this run executes AND separate PO Production authority for that run, and only through the existing
@@ -15,8 +15,12 @@ import { RUN_OWNED_PREFIX_RE, cleanupRunOwnedAccount } from './runOwnedCleanup';
 /** The delete acknowledgement, bound to one exact commit: `RWT-INTERRUPTED-RUN-RECOVERY-DELETE@<40-hex sha>`. */
 export const RECOVERY_DELETE_ACK_PREFIX = 'RWT-INTERRUPTED-RUN-RECOVERY-DELETE';
 export const recoveryDeleteAck = (sha: string): string => `${RECOVERY_DELETE_ACK_PREFIX}@${sha}`;
-/** `gate-3-dast` job timeout plus a safety margin: a younger account may still belong to a live run. */
-export const GATE3_JOB_TIMEOUT_MS = 45 * 60_000;
+/**
+ * `gate-3-dast` job timeout plus a safety margin: a younger account may still belong to a live run. COUPLED to
+ * rc-gates.yml `jobs.gate-3-dast.timeout-minutes` (tests/unit/rcGatesTimeBudget.test.ts asserts equality), so raising the job
+ * limit can never silently spend the safety margin.
+ */
+export const GATE3_JOB_TIMEOUT_MS = 105 * 60_000;
 export const SAFETY_MARGIN_MS = 30 * 60_000;
 export const MIN_AGE_MS = GATE3_JOB_TIMEOUT_MS + SAFETY_MARGIN_MS;
 
