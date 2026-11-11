@@ -87,6 +87,7 @@ import {
 import { ABSENT_ROW, MarkerTimeline, nextPointMarkedVerdict, sampleFocusRail } from './rwtFocusNextMarker';
 import { FOCUS_TAKES_DIFFER_ROW, focusTakesDifferRow } from './rwtFocusTakesDiffer';
 import { FOCUS_EDIT_CANCEL_ROW, editCancelVerdict, type BriefSnapshot, type EditCancelObservation } from './rwtFocusEditCancel';
+import { OPEN_MIC_ISOLATION_ROW, openMicIsolationVerdict, type FocusEvidenceSnapshot } from './rwtFocusOpenMicIsolation';
 
 const JOURNEY = 'focus_points';
 export const WEBGPU = process.env.RWT_WEBGPU === '1';
@@ -811,6 +812,31 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 };
                 const lastSaved = () => page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
                 const openProduct = (item: 'open-mic' | 'focus-points') => openProductsItem(page, item);
+                // AHT-02 open-mic-isolation (review fix 7; harness focus-controls.cjs `extendedFocus`): the Open Mic take gets no
+                // objective_session, and the FIRST Focus take's saved evidence is unchanged across it. Read in Node, never thrown:
+                // a failed read is 'error' / null and holds the row.
+                const objectiveRowsFor = async (id: string): Promise<number | null> => {
+                    const { data, error } = await admin!.from('objective_session').select('id').eq('source_session_id', id).eq('user_id', owner.uid);
+                    return error ? null : (data ?? []).length; // fail closed: an unreadable count holds the row, never 0.
+                };
+                const firstFocusEvidence = async (): Promise<FocusEvidenceSnapshot> => {
+                    if (!persistedId) return null;
+                    const { data: os, error: osErr } = await admin!.from('objective_session').select('id,brief_id').eq('source_session_id', persistedId).eq('user_id', owner.uid).maybeSingle();
+                    if (osErr) return 'error'; // fail closed: holds the row.
+                    if (!os) return null;
+                    const { data: ev, error: evErr } = await admin!.from('objective_evidence').select('brief_point_id,verdict').eq('session_id', os.id).eq('user_id', owner.uid);
+                    if (evErr) return 'error'; // fail closed: holds the row.
+                    const { data: bp, error: bpErr } = await admin!.from('objective_brief_point').select('id,label,sort_order').eq('brief_id', os.brief_id).eq('user_id', owner.uid);
+                    if (bpErr) return 'error'; // fail closed: holds the row.
+                    const verdictOf = new Map((ev ?? []).map((r) => [r.brief_point_id as string, r.verdict as string]));
+                    return {
+                        brief: os.brief_id as string,
+                        verdicts: (ev ?? []).map((r) => `${r.brief_point_id}:${r.verdict}`).sort(),
+                        ordered: [...(bp ?? [])].sort((a, b) => (a.sort_order as number) - (b.sort_order as number))
+                            .map((p) => `${p.sort_order}:${p.label}:${verdictOf.get(p.id as string) ?? 'missing'}`),
+                    };
+                };
+                const firstFocusBefore = await firstFocusEvidence();
                 // 1. A full Open Mic take: the replayed Focus fixture speaks all four points into it.
                 const before = await lastSaved();
                 await openProduct('open-mic');
@@ -821,6 +847,9 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 await waitForBenchmarkSaveCandidate(page, `${suite}-switch-openmic`, 180_000);
                 const openMicId = await waitForNewPersistedSession(page, before);
                 const openMicBefore = openMicId && openMicId !== before ? await sessionRow(openMicId) : unavailable('missing');
+                const savedOpenMicId = openMicId && openMicId !== before ? openMicId : null;
+                const openMicObjectiveRowReads: Array<number | null> = savedOpenMicId ? [await objectiveRowsFor(savedOpenMicId)] : [];
+                const firstFocusAfter = await firstFocusEvidence();
                 // A point is a carry-over marker only if the Open Mic take actually recognised it (6090552875).
                 const markerSupport = points.slice(1).map((label) => labelHeardIn(label, openMicBefore.transcript));
 
@@ -865,6 +894,13 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     openMicRetentionState: openMicAfter.state ?? 'unknown',
                     openMicExpiredAfterWitness: iso.verdict === 'PASS' && openMicAfter.state === 'expired',
                 });
+                // Read again at the end of the step, so an objective row written late for the Open Mic take is still seen.
+                if (savedOpenMicId) openMicObjectiveRowReads.push(await objectiveRowsFor(savedOpenMicId));
+                const kept = openMicIsolationVerdict({
+                    openMicId: savedOpenMicId, openMicProduct: openMicBefore.product, objectiveRowReads: openMicObjectiveRowReads,
+                    firstBefore: firstFocusBefore, firstAfter: firstFocusAfter,
+                });
+                receipt.row(OPEN_MIC_ISOLATION_ROW, kept.verdict, kept.detail, kept.evidence);
             });
 
             // ── #1258 (Browser PM 6087216991, option B) — Start a new set, Edit it, and the next take is scored on the edit ──
