@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "label": "installed-chrome-registered-model-backends-apple-gpu",
+  "baseUrl": "http://127.0.0.1:5173",
+  "backend": "registered",
+  "headless": false,
+  "expectedGpuVendor": "apple"
+}

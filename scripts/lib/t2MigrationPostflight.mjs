@@ -6,6 +6,11 @@ import { readFileSync, lstatSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { EXACT_MIGRATION_ALLOWLIST } from './exactMigrationGate.mjs';
 import { C1_VERSIONS, c1Contract, c1CatalogQuery, functionDefinitions } from './c1MigrationPostflight.mjs';
+import { RETIREMENT_CATALOG_DELTA } from './retirementCatalogPins.mjs';
+
+export const RETIREMENT_VERSION = '20261110173548';
+export const RETIREMENT_FUNCTIONS = Object.freeze(['fence_account_coaching_expired_v1', 'finish_account_coaching_local_v1']);
+export const RETIREMENT_TABLES = Object.freeze(['account_coaching_expiry_fences', 'account_coaching_local_fences']);
 
 export const T2_VERSIONS = Object.freeze([
   '20261018090000', '20261018170000', '20261019010000',
@@ -447,8 +452,8 @@ export function t2ReleaseContract(root, installed, options = {}) {
     throw new Error('T2 release catalog context unknown');
   }
   const ledger = typeof installed === 'string' ? JSON.parse(installed) : installed;
-  const versions = [...T2_VERSIONS, ...C1_VERSIONS];
-  if (!Array.isArray(ledger) || ![6, 7, 8].includes(ledger.length)
+  const versions = [...T2_VERSIONS, ...C1_VERSIONS, ...(ledger?.length === 9 ? [RETIREMENT_VERSION] : [])];
+  if (!Array.isArray(ledger) || ![6, 7, 8, 9].includes(ledger.length)
     || ledger.some((version, index) => version !== versions[index])) {
     throw new Error('T2 release ledger unknown, mixed or incomplete');
   }
@@ -467,22 +472,29 @@ export function t2ReleaseContract(root, installed, options = {}) {
     }
     return { version, sha256: pin.sha256 };
   });
-  const c1Sources = C1_VERSIONS.slice(0, stage).map(version => sources[version]);
+  const c1Sources = [...C1_VERSIONS.slice(0, stage), ...(stage === 3 ? [RETIREMENT_VERSION] : [])].map(version => sources[version]);
   const inventory = {
     functions: [...new Set([...T2_INVENTORY.functions, ...c1Sources.flatMap(source =>
       functionDefinitions(source).map(fn => fn.signature.split('(')[0].slice(7)))])].sort(),
     tables: [...new Set([...T2_INVENTORY.tables, ...c1Sources.flatMap(source =>
       [...source.matchAll(/CREATE TABLE public\.([a-z_0-9]+)/g)].map(match => match[1])),
-      ...(stage === 2 ? ['transcript_retention_expiry_grants'] : [])])].sort(),
+      ...(stage >= 2 ? ['transcript_retention_expiry_grants'] : [])])].sort(),
     triggers: [...new Set([...T2_INVENTORY.triggers, ...c1Sources.flatMap(source =>
       [...source.matchAll(/CREATE TRIGGER ([a-z_0-9]+)/g)].map(match => match[1]))])].sort(),
   };
   const expected = Object.assign({}, T2_CATALOG_STATES.at(-1), ...T2_C1_RELEASE_DELTAS.slice(0, stage),
-    stage === 2 && catalogContext === 'retained-production' ? RETAINED_PRODUCTION_POST128 : {});
+    stage >= 2 && catalogContext === 'retained-production' ? RETAINED_PRODUCTION_POST128 : {},
+    stage === 3 ? RETIREMENT_CATALOG_DELTA : {});
   // The independent source-derived C1 checker also refuses future/partial
   // objects and old body/ACL/trigger shapes, even before their ledger entry.
-  const c1 = stage === 2 ? c1Contract(root, 'after', C1_VERSIONS[1])
+  const c1 = stage >= 2 ? c1Contract(root, 'after', C1_VERSIONS[1])
     : c1Contract(root, 'before', C1_VERSIONS[stage]);
+  if (stage === 3) {
+    const replacement = new Map(functionDefinitions(sources[RETIREMENT_VERSION]).map(fn => [fn.signature, fn]));
+    if (replacement.size !== 6) throw new Error('T2 retirement function source shape unavailable');
+    c1.functions = c1.functions.map(fn => replacement.has(fn.signature)
+      ? { signature: fn.signature, expected: replacement.get(fn.signature) } : fn);
+  }
   const futureFile = join(root, 'backend/supabase/migrations', NEXT_RELEASE_SOURCE.file);
   if (!lstatSync(futureFile).isFile() || realpathSync(futureFile) !== futureFile) throw new Error('T2 release source alias');
   const futureSource = readFileSync(futureFile, 'utf8');
@@ -495,13 +507,27 @@ export function t2ReleaseContract(root, installed, options = {}) {
     throw new Error('T2 release future function shape unavailable');
   }
   const absentFamilies = futureFunctions.map(fn => fn.signature.split('(')[0].slice(7));
-  return { profile: `post-${126 + stage}`, catalogContext, stage, ledger: [...ledger], pins, inventory, expected, c1,
-    knownAbsent: { ...NEXT_RELEASE_SOURCE, families: absentFamilies } };
+  return { profile: stage === 3 ? 'post-128-retirement' : `post-${126 + stage}`, catalogContext, stage, ledger: [...ledger], pins, inventory, expected, c1,
+    knownAbsent: { ...NEXT_RELEASE_SOURCE, families: [...absentFamilies, ...(stage < 3 ? RETIREMENT_FUNCTIONS : [])],
+      tables: stage < 3 ? [...RETIREMENT_TABLES] : [] } };
 }
 
 export function t2KnownAbsentQuery(contract) {
   return `SELECT (NOT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-    WHERE n.nspname='public' AND p.proname IN (${contract.knownAbsent.families.map(literal).join(',')})))::text;`;
+    WHERE n.nspname='public' AND p.proname IN (${contract.knownAbsent.families.map(literal).join(',')}))
+    AND NOT EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+      WHERE n.nspname='public' AND c.relname IN (${(contract.knownAbsent.tables || []).map(literal).join(',') || "''"})))::text;`;
+}
+
+// This checked-out Edge release calls finish_account_coaching_local_v1. Its
+// schema requirement is explicit, never inferred from whichever old catalog is
+// installed. Keep verify/release available for historical read-only diagnostics.
+export function t2EdgeReleaseContract(root, installed) {
+  const contract = t2ReleaseContract(root, installed, { catalogContext: 'retained-production' });
+  if (contract.profile !== 'post-128-retirement') {
+    throw new Error('T2 Edge release requires installed coaching retirement successor');
+  }
+  return contract;
 }
 
 export function assertT2ReleaseSnapshot(contract, rows) {

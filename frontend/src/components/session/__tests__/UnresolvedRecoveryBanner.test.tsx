@@ -230,6 +230,15 @@ describe('#1360 metrics-only: no transcript claim without transcript text', () =
             .toMatch(/measurements from this session are still on this device/i);
     });
 
+    // Work point 2, D5 (PO: a truthful "incomplete" label, no persisted text): when only measurements survived, the
+    // transcript is not on this device (#1306), so a retry can save measurements only. Say so, rather than leave the
+    // user to expect the transcript back.
+    it('D5: says the transcript was not kept on this device, so a retry cannot bring it back', () => {
+        renderMetricsOnly();
+        expect(screen.getByTestId('session-unresolved-message').textContent ?? '')
+            .toMatch(/transcript was not kept on this device/i);
+    });
+
     it('the discard confirmation does not promise to remove a transcript', async () => {
         const user = userEvent.setup();
         renderMetricsOnly();

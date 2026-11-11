@@ -2,8 +2,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import posthog from 'posthog-js';
 
-const { mockPipeline } = vi.hoisted(() => ({
+const { mockPipeline, mockXenovaPipeline } = vi.hoisted(() => ({
     mockPipeline: vi.fn(),
+    // The v2 (Xenova) main-thread engine, for the late-pipeline fence shared with v4 (review of 38253831).
+    mockXenovaPipeline: vi.fn(),
 }));
 
 vi.mock('@/config/TestFlags', () => ({
@@ -31,6 +33,11 @@ vi.mock('@huggingface/transformers', () => ({
         INFO: 'info',
     },
 }));
+vi.mock('@xenova/transformers', () => ({
+    pipeline: mockXenovaPipeline,
+    env: { backends: { onnx: { wasm: {} } } },
+}));
+vi.mock('../../capabilitySnapshot', () => ({ captureCapabilities: vi.fn(async () => Object.freeze({ webgpuAvailable: true, capturedAt: '2026-10-30T00:00:00Z', reason: 'detected' })) }));
 vi.mock('posthog-js', () => ({ default: { isFeatureEnabled: vi.fn() } }));
 
 type FakeWorkerMode = 'ready' | 'silent' | 'transcribe-result' | 'transcribe-error';
@@ -38,13 +45,14 @@ type FakeWorkerMode = 'ready' | 'silent' | 'transcribe-result' | 'transcribe-err
 let fakeWorkerMode: FakeWorkerMode = 'ready';
 // When set, the fake worker emits a 'loaded' message (carrying this resolved device) before 'ready',
 // exactly like the real worker — so we can assert the engine publishes window.__PRIVATE_V4_RUNTIME__.
-let fakeLoadedDevice: string | null = null;
+let fakeLoadedDevice: string | null = 'requested';
+let fakeLoadedModel: string | null = null;
 const fakeWorkerInstances: FakeWorker[] = [];
 
 class FakeWorker {
     onmessage: ((event: MessageEvent) => void) | null = null;
     onerror: ((event: ErrorEvent) => void) | null = null;
-    postMessage = vi.fn((message: { id: number; type: string }) => {
+    postMessage = vi.fn((message: { id: number; type: string; model?: string; device?: string; decodeOptions?: unknown }) => {
         if (fakeWorkerMode === 'silent') return;
 
         queueMicrotask(() => {
@@ -83,7 +91,7 @@ class FakeWorker {
 
             if (message.type === 'init' && fakeLoadedDevice) {
                 this.onmessage?.({
-                    data: { id: message.id, type: 'loaded', loadTimeMs: 5, model: 'onnx-community/whisper-base.en', device: fakeLoadedDevice },
+                    data: { id: message.id, type: 'loaded', loadTimeMs: 5, model: fakeLoadedModel ?? message.model, device: fakeLoadedDevice === 'requested' ? message.device ?? 'wasm-default' : fakeLoadedDevice },
                 } as MessageEvent);
             }
 
@@ -113,7 +121,8 @@ describe('TransformersJSV4Engine worker message contract', () => {
         mockPipeline.mockReset();
         window.localStorage.clear();
         fakeWorkerMode = 'ready';
-        fakeLoadedDevice = null;
+        fakeLoadedDevice = 'requested';
+        fakeLoadedModel = null;
         delete (window as typeof window & { __PRIVATE_V4_RUNTIME__?: unknown }).__PRIVATE_V4_RUNTIME__;
         fakeWorkerInstances.length = 0;
         vi.stubGlobal('Worker', FakeWorker);
@@ -190,7 +199,8 @@ describe('TransformersJSV4Engine worker message contract', () => {
         vi.resetModules();
         await import('../../../../benchmark/model-evaluator-local');
         try {
-            await window.__MODEL_EVALUATOR__!.initialize(candidateId, backend);
+            // This positive backend-propagation scenario explicitly permits cold acquisition.
+            await window.__MODEL_EVALUATOR__!.initialize(candidateId, backend, true);
             expect(fakeWorkerInstances[0]?.postMessage).toHaveBeenCalledWith(
                 expect.objectContaining({ type: 'init', device: backend }), [],
             );
@@ -341,14 +351,19 @@ describe('TransformersJSV4Engine worker message contract', () => {
         expect(fakeWorkerInstances[0]?.postMessage).toHaveBeenCalledWith(
             expect.objectContaining({
                 type: 'transcribe',
-                decodeOptions: {
+                decodeOptions: expect.objectContaining({
+                    chunk_length_s: expect.any(Number),
+                    stride_length_s: expect.any(Number),
+                    return_timestamps: true,
                     condition_on_previous_text: false,
                     compression_ratio_threshold: 2.4,
-                },
+                }),
             }),
             expect.any(Array),
         );
 
+        const sent = fakeWorkerInstances[0]?.postMessage.mock.calls.find(([request]) => request.type === 'transcribe')?.[0];
+        expect(sent?.decodeOptions).not.toHaveProperty('unsafe_option');
         await engine.destroy();
     });
 
@@ -388,6 +403,418 @@ describe('TransformersJSV4Engine worker message contract', () => {
         expect(transcribeOptions).not.toHaveProperty('unsafe_option');
 
         await engine.destroy();
+    });
+
+    // Release and app-developer reviews of 38253831 (P2): the main-thread pipeline() cannot be aborted, so a destroy during the load let it
+    // publish itself afterwards, undisposed, possibly over the transcriber of the lifetime that followed.
+    it('a main-thread pipeline completing after teardown is disposed and never replaces the successor', async () => {
+        (globalThis as { Worker?: unknown }).Worker = undefined;
+        let resolveFirst!: (value: unknown) => void;
+        mockPipeline.mockImplementationOnce(() => new Promise(resolve => { resolveFirst = resolve; }));
+        const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+        const engine = new TransformersJSV4Engine({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() });
+        const stale = engine.init();
+        await vi.waitFor(() => expect(mockPipeline).toHaveBeenCalledTimes(1));
+        await engine.destroy();
+        const successor = Object.assign(vi.fn(async () => ({ text: '' })), { dispose: vi.fn(async () => undefined) });
+        mockPipeline.mockResolvedValueOnce(successor);
+        expect((await engine.init()).isOk).toBe(true);
+        const late = Object.assign(vi.fn(async () => ({ text: '' })), { dispose: vi.fn(async () => undefined) });
+        resolveFirst(late);
+        expect((await stale).isOk).toBe(false);
+        await vi.waitFor(() => expect(late.dispose).toHaveBeenCalledTimes(1));
+        expect((engine as unknown as { transcriber: unknown }).transcriber).toBe(successor);
+        expect(successor.dispose).not.toHaveBeenCalled();
+        await engine.destroy();
+    });
+
+    // The same fence on the v2 (Xenova) main-thread engine, which happy-dom always runs on the main thread.
+    describe('v2 main-thread pipeline completing after teardown', () => {
+        const latePipeline = () => Object.assign(vi.fn(async () => ({ text: '' })), { dispose: vi.fn(async () => undefined) });
+        // Reach the main-thread branch through the real condition (no Worker support), as the v4 cases above do.
+        beforeEach(() => { mockXenovaPipeline.mockReset(); (globalThis as { Worker?: unknown }).Worker = undefined; });
+
+        it('is disposed and never published when the engine was destroyed during the load', async () => {
+            let resolveLoad!: (value: unknown) => void;
+            mockXenovaPipeline.mockImplementationOnce(() => new Promise(resolve => { resolveLoad = resolve; }));
+            const { TransformersJSEngine } = await import('../TransformersJSEngine');
+            const engine = new TransformersJSEngine({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() });
+            const init = engine.init();
+            await vi.waitFor(() => expect(mockXenovaPipeline).toHaveBeenCalledTimes(1));
+            await engine.destroy();
+            const late = latePipeline();
+            resolveLoad(late);
+            expect((await init).isOk).toBe(false);
+            await vi.waitFor(() => expect(late.dispose).toHaveBeenCalledTimes(1));
+            expect((engine as unknown as { transcriber: unknown }).transcriber).toBeNull();
+        });
+
+        it('cannot replace the transcriber of the lifetime that followed the teardown', async () => {
+            let resolveFirst!: (value: unknown) => void;
+            mockXenovaPipeline.mockImplementationOnce(() => new Promise(resolve => { resolveFirst = resolve; }));
+            const { TransformersJSEngine } = await import('../TransformersJSEngine');
+            const engine = new TransformersJSEngine({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() });
+            const stale = engine.init();
+            await vi.waitFor(() => expect(mockXenovaPipeline).toHaveBeenCalledTimes(1));
+            await engine.destroy();
+            const successor = latePipeline();
+            mockXenovaPipeline.mockResolvedValueOnce(successor);
+            expect((await engine.init()).isOk).toBe(true);
+            const late = latePipeline();
+            resolveFirst(late);
+            expect((await stale).isOk).toBe(false);
+            await vi.waitFor(() => expect(late.dispose).toHaveBeenCalledTimes(1));
+            expect((engine as unknown as { transcriber: unknown }).transcriber).toBe(successor);
+            expect(successor.dispose).not.toHaveBeenCalled();
+            await engine.destroy();
+        });
+    });
+
+    // Independent review of 12552563 (P3): v4's progress floor survived teardown, so a re-init of the same engine reported no
+    // worker progress until it passed the previous run's highest value (none at all after a run that reached 100).
+    it('v4: a re-init reports worker progress from the start again', async () => {
+        (globalThis as { Worker?: unknown }).Worker = undefined;
+        const onModelLoadProgress = vi.fn();
+        const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+        const engine = new TransformersJSV4Engine({ onReady: vi.fn(), onModelLoadProgress, onTranscriptUpdate: vi.fn() });
+        const report = (value: number) => (engine as unknown as { reportModelProgress(p: number): void }).reportModelProgress(value);
+        report(100);
+        expect(onModelLoadProgress).toHaveBeenCalledWith(100);
+        await engine.destroy();
+        mockPipeline.mockResolvedValueOnce(Object.assign(vi.fn(async () => ({ text: '' })), { dispose: vi.fn(async () => undefined) }));
+        expect((await engine.init()).isOk).toBe(true);
+        onModelLoadProgress.mockClear();
+        report(40);
+        expect(onModelLoadProgress).toHaveBeenCalledWith(40);
+        await engine.destroy();
+    });
+
+    // Release review of 12552563 (P2): onInit called onReady after `await loadModel()` without a lifetime check, so a teardown queued
+    // from the 100% progress callback let a terminated engine report ready. Every engine, path and teardown kind, with the teardown
+    // both queued (as reproduced) and synchronous inside the callback.
+    describe('no ready after a teardown started from the 100% progress callback', () => {
+        beforeEach(() => { mockXenovaPipeline.mockReset(); (globalThis as { Worker?: unknown }).Worker = undefined; });
+        const combos: Array<[string, string, 'destroy' | 'terminate', 'queued' | 'synchronous']> = [];
+        for (const engineName of ['v2', 'v4']) for (const path of ['main-thread', 'worker']) for (const kind of ['destroy', 'terminate'] as const)
+            for (const timing of ['queued', 'synchronous'] as const) combos.push([engineName, path, kind, timing]);
+        for (const [engineName, path, kind, timing] of combos) {
+            it(`${engineName} ${path} ${kind} (${timing}): a terminated engine never reports ready and init does not succeed`, async () => {
+                const { TransformersJSEngine } = await import('../TransformersJSEngine');
+                const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+                const Ctor = (engineName === 'v2' ? TransformersJSEngine : TransformersJSV4Engine) as unknown as
+                    new (o: unknown) => { init(): Promise<{ isOk: boolean }>; destroy(): Promise<void>; terminate(): Promise<void> };
+                const readyWhileTerminated: boolean[] = [];
+                let teardown: Promise<void> | null = null;
+                const holder: { engine?: InstanceType<typeof Ctor> } = {};
+                const start = () => { teardown = holder.engine![kind](); };
+                const engine = new Ctor({
+                    onTranscriptUpdate: vi.fn(),
+                    onReady: () => { readyWhileTerminated.push((holder.engine as unknown as { isTerminated: boolean }).isTerminated); },
+                    onModelLoadProgress: (value: number) => {
+                        if (value !== 100 || teardown) return;
+                        if (timing === 'queued') queueMicrotask(start); else start();
+                    },
+                });
+                holder.engine = engine;
+                if (path === 'worker') {
+                    const seam = engine as unknown as { shouldUseWorker: () => boolean; initWorker: () => Promise<void> };
+                    vi.spyOn(seam, 'shouldUseWorker').mockReturnValue(true);
+                    vi.spyOn(seam, 'initWorker').mockResolvedValue(undefined);
+                } else {
+                    const loaded = Object.assign(vi.fn(async () => ({ text: '' })), { dispose: vi.fn(async () => undefined) });
+                    (engineName === 'v2' ? mockXenovaPipeline : mockPipeline).mockResolvedValueOnce(loaded);
+                }
+                const result = await engine.init();
+                await teardown;
+                expect(teardown).not.toBeNull();
+                expect(result.isOk).toBe(false);
+                expect(readyWhileTerminated).not.toContain(true);
+            });
+        }
+    });
+
+    // Release review of c1585147: two races the post-pipeline fence alone missed, on both engines.
+    // (1) A teardown inside the earlier `import(...)` await let the stale attempt capture the NEW generation, pass the
+    //     fence and publish over the successor. (2) A stale load failing late ran the shared failure cleanup, tearing
+    //     down state the successor owned. The attempt's generation is now captured at loadModel entry.
+    describe('a stale main-thread attempt never touches its successor (both engines)', () => {
+        type Engine = { init(): Promise<{ isOk: boolean }>; destroy(): Promise<void> };
+        const engines: Array<{ name: string; mock: typeof mockPipeline; make: () => Promise<Engine> }> = [
+            { name: 'v2', mock: mockXenovaPipeline, make: async () => {
+                const { TransformersJSEngine } = await import('../TransformersJSEngine');
+                return new TransformersJSEngine({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() }) as unknown as Engine;
+            } },
+            { name: 'v4', mock: mockPipeline, make: async () => {
+                const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+                return new TransformersJSV4Engine({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() }) as unknown as Engine;
+            } },
+        ];
+        const pipe = () => Object.assign(vi.fn(async () => ({ text: '' })), { dispose: vi.fn(async () => undefined) });
+        beforeEach(() => { mockXenovaPipeline.mockReset(); (globalThis as { Worker?: unknown }).Worker = undefined; });
+
+        for (const { name, mock, make } of engines) {
+            it(`${name}: a teardown during the module import cannot let the stale load publish over the successor`, async () => {
+                const pending: Array<(value: unknown) => void> = [];
+                mock.mockImplementation(() => new Promise(resolve => { pending.push(resolve); }));
+                const engine = await make();
+                const stale = engine.init();          // suspends inside `await import(...)`
+                await engine.destroy();               // teardown before the stale attempt reaches pipeline()
+                const successorInit = engine.init();
+                await vi.waitFor(() => expect(pending.length).toBeGreaterThan(0));
+                await new Promise(resolve => setTimeout(resolve, 25)); // let a stale attempt reach pipeline() too, if it can
+                const pipes = pending.map(() => pipe());
+                for (let i = pending.length - 1; i >= 0; i--) pending[i](pipes[i]); // the successor's load settles first
+                expect((await successorInit).isOk).toBe(true);
+                expect((await stale).isOk).toBe(false);
+                const successor = pipes[pipes.length - 1];
+                await vi.waitFor(() => expect((engine as unknown as { transcriber: unknown }).transcriber).toBe(successor));
+                await new Promise(resolve => setTimeout(resolve, 25));
+                expect((engine as unknown as { transcriber: unknown }).transcriber).toBe(successor);
+                expect(successor.dispose).not.toHaveBeenCalled();
+                for (const other of pipes.slice(0, -1)) expect(other.dispose).toHaveBeenCalledTimes(1);
+                // Review of 29c088e4: the stale attempt stops right after the import, so it never starts a download.
+                expect(mock).toHaveBeenCalledTimes(1);
+                await engine.destroy();
+            });
+
+            it(`${name}: a stale load that fails late leaves the successor's state alone`, async () => {
+                let rejectStale!: (error: unknown) => void;
+                mock.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectStale = reject; }));
+                const engine = await make();
+                const stale = engine.init();
+                await vi.waitFor(() => expect(mock).toHaveBeenCalledTimes(1));
+                await engine.destroy();
+                const successor = pipe();
+                mock.mockResolvedValueOnce(successor);
+                expect((await engine.init()).isOk).toBe(true);
+                // Successor-owned state the shared failure cleanup would clear.
+                const state = engine as unknown as { transcriber: unknown; runtimeEvidence: unknown; activeLoadRequestId: unknown; pendingWorkerRequests: Map<number, unknown> } & Record<string, unknown>;
+                const evidence = { marker: 'successor' };
+                state.runtimeEvidence = evidence;
+                // App-developer review of c1585147: the successor's verified-fetch hook (v2 restorePackageFetch, v4 restoreAssetFetch).
+                const hookField = name === 'v2' ? 'restorePackageFetch' : 'restoreAssetFetch';
+                const successorHook = vi.fn();
+                state[hookField] = successorHook;
+                state.activeLoadRequestId = 7;
+                const request = { resolve: vi.fn(), reject: vi.fn(), timeoutId: setTimeout(() => undefined, 60_000) };
+                state.pendingWorkerRequests.set(7, request);
+                rejectStale(new Error('stale load failed late'));
+                expect((await stale).isOk).toBe(false);
+                expect(state.transcriber).toBe(successor);
+                expect(state.runtimeEvidence).toBe(evidence);
+                expect(state.activeLoadRequestId).toBe(7);
+                expect(state.pendingWorkerRequests.get(7)).toBe(request);
+                expect(request.reject).not.toHaveBeenCalled();
+                expect(state[hookField]).toBe(successorHook);
+                expect(successorHook).not.toHaveBeenCalled();
+                state[hookField] = null;
+                clearTimeout(request.timeoutId);
+                state.pendingWorkerRequests.clear();
+                await engine.destroy();
+            });
+
+            // App-developer review of c1585147: a worker attempt superseded while its worker started must not report ready.
+            it(`${name}: a worker start-up that completes after teardown reports nothing ready`, async () => {
+                const onReady = vi.fn();
+                const onModelLoadProgress = vi.fn();
+                const { TransformersJSEngine } = await import('../TransformersJSEngine');
+                const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+                const Ctor = (name === 'v2' ? TransformersJSEngine : TransformersJSV4Engine) as unknown as new (o: unknown) => Engine;
+                const engine = new Ctor({ onReady, onModelLoadProgress, onTranscriptUpdate: vi.fn() });
+                const seam = engine as unknown as { shouldUseWorker: () => boolean; initWorker: () => Promise<void> };
+                vi.spyOn(seam, 'shouldUseWorker').mockReturnValue(true);
+                let finishStale!: () => void;
+                vi.spyOn(seam, 'initWorker')
+                    .mockImplementationOnce(() => new Promise<void>(resolve => { finishStale = resolve; }))
+                    .mockResolvedValueOnce(undefined);
+                const stale = engine.init();
+                await vi.waitFor(() => expect(seam.initWorker).toHaveBeenCalledTimes(1));
+                await engine.destroy();
+                expect((await engine.init()).isOk).toBe(true);
+                const readyCalls = onReady.mock.calls.length;
+                const progressCalls = onModelLoadProgress.mock.calls.length;
+                finishStale();
+                expect((await stale).isOk).toBe(false);
+                expect(onReady).toHaveBeenCalledTimes(readyCalls);
+                expect(onModelLoadProgress).toHaveBeenCalledTimes(progressCalls);
+                await engine.destroy();
+            });
+
+            // Review of 29c088e4: the un-abortable download's progress callback keeps firing after teardown.
+            it(`${name}: a stale download reports no progress after teardown, even once the successor is ready`, async () => {
+                let report!: (data: unknown) => void;
+                let finishStale!: (value: unknown) => void;
+                mock.mockImplementationOnce((_task: unknown, _model: unknown, options: { progress_callback: (data: unknown) => void }) => {
+                    report = options.progress_callback;
+                    return new Promise(resolve => { finishStale = resolve; });
+                });
+                const onModelLoadProgress = vi.fn();
+                const { TransformersJSEngine } = await import('../TransformersJSEngine');
+                const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+                const Ctor = (name === 'v2' ? TransformersJSEngine : TransformersJSV4Engine) as unknown as new (o: unknown) => Engine;
+                const engine = new Ctor({ onReady: vi.fn(), onModelLoadProgress, onTranscriptUpdate: vi.fn() });
+                const stale = engine.init();
+                await vi.waitFor(() => expect(mock).toHaveBeenCalledTimes(1));
+                await engine.destroy();
+                mock.mockResolvedValueOnce(pipe());
+                expect((await engine.init()).isOk).toBe(true);
+                onModelLoadProgress.mockClear();
+                report({ progress: 42 });
+                expect(onModelLoadProgress).not.toHaveBeenCalled();
+                finishStale(pipe());
+                expect((await stale).isOk).toBe(false);
+                await engine.destroy();
+            });
+
+            // Review of 29c088e4: the worker's progress during the teardown round trip belongs to no live attempt.
+            it(`${name}: worker progress arriving while teardown awaits the worker is not reported`, async () => {
+                (globalThis as { Worker?: unknown }).Worker = FakeWorker as unknown as typeof Worker;
+                fakeWorkerMode = 'silent';
+                const onModelLoadProgress = vi.fn();
+                const onReady = vi.fn();
+                const { TransformersJSEngine } = await import('../TransformersJSEngine');
+                const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+                const Ctor = (name === 'v2' ? TransformersJSEngine : TransformersJSV4Engine) as unknown as new (o: unknown) => Engine;
+                const engine = new Ctor({ onReady, onModelLoadProgress, onTranscriptUpdate: vi.fn() });
+                vi.spyOn(engine as unknown as { shouldUseWorker: () => boolean }, 'shouldUseWorker').mockReturnValue(true);
+                const stale = engine.init();
+                await vi.waitFor(() => expect(fakeWorkerInstances[0]?.postMessage).toHaveBeenCalledTimes(1));
+                const worker = fakeWorkerInstances[0];
+                const destroying = engine.destroy();
+                await vi.waitFor(() => expect(worker.postMessage).toHaveBeenCalledTimes(2)); // the destroy request is out
+                const initId = worker.postMessage.mock.calls[0][0].id;
+                const destroyId = worker.postMessage.mock.calls[1][0].id;
+                const progressBefore = onModelLoadProgress.mock.calls.length;
+                worker.onmessage?.({ data: { id: initId, type: 'progress', progress: 55 } } as MessageEvent);
+                expect(onModelLoadProgress).toHaveBeenCalledTimes(progressBefore);
+                worker.onmessage?.({ data: { id: initId, type: 'ready' } } as MessageEvent);
+                worker.onmessage?.({ data: { id: destroyId, type: 'destroyed' } } as MessageEvent);
+                await destroying;
+                expect((await stale).isOk).toBe(false);
+                expect(onReady).not.toHaveBeenCalled();
+            });
+
+            // App-developer review of 12552563 (P3): teardown released the published main-thread pipeline by dropping the reference only.
+            it(`${name}: teardown disposes the published main-thread pipeline, and a failing dispose does not fail teardown`, async () => {
+                const { TransformersJSEngine } = await import('../TransformersJSEngine');
+                const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+                const Ctor = (name === 'v2' ? TransformersJSEngine : TransformersJSV4Engine) as unknown as new (o: unknown) => Engine;
+                const engine = new Ctor({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() });
+                const published = pipe();
+                mock.mockResolvedValueOnce(published);
+                expect((await engine.init()).isOk).toBe(true);
+                await engine.destroy();
+                expect(published.dispose).toHaveBeenCalledTimes(1);
+                expect((engine as unknown as { transcriber: unknown }).transcriber).toBeNull();
+                const failing = Object.assign(vi.fn(async () => ({ text: '' })), { dispose: vi.fn(async () => { throw new Error('dispose failed'); }) });
+                mock.mockResolvedValueOnce(failing);
+                expect((await engine.init()).isOk).toBe(true);
+                await expect(engine.destroy()).resolves.toBeUndefined();
+                expect(failing.dispose).toHaveBeenCalledTimes(1);
+                mock.mockResolvedValueOnce(pipe());
+                expect((await engine.init()).isOk).toBe(true); // a failed dispose leaves no sticky teardown failure
+                await engine.destroy();
+            });
+
+            // Independent review of c8b04e5f: disposing at teardown must not release the session under a run still using it.
+            it(`${name}: teardown defers the dispose until a decode still running on the pipeline has settled`, async () => {
+                const { TransformersJSEngine } = await import('../TransformersJSEngine');
+                const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+                const Ctor = (name === 'v2' ? TransformersJSEngine : TransformersJSV4Engine) as unknown as new (o: unknown) => Engine & { transcribe(a: Float32Array): Promise<{ isOk: boolean }> };
+                const engine = new Ctor({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() });
+                let finishDecode!: (value: unknown) => void;
+                const decoding = Object.assign(vi.fn()
+                    .mockResolvedValueOnce({ text: '' })                                     // warm-up
+                    .mockImplementationOnce(() => new Promise(resolve => { finishDecode = resolve; })), // the decode in flight
+                { dispose: vi.fn(async () => undefined) });
+                mock.mockResolvedValueOnce(decoding);
+                expect((await engine.init()).isOk).toBe(true);
+                const transcribing = engine.transcribe(new Float32Array(16000));
+                await vi.waitFor(() => expect(decoding).toHaveBeenCalledTimes(2));
+                await engine.destroy();                    // teardown completes without waiting for the decode
+                expect(decoding.dispose).not.toHaveBeenCalled();
+                finishDecode({ text: 'late words' });
+                await transcribing;
+                await vi.waitFor(() => expect(decoding.dispose).toHaveBeenCalledTimes(1));
+            });
+
+            // Release review of 403e2cda (P3): the in-flight set outlived the teardown that captured it, so a later lifetime's
+            // dispose also waited for the earlier lifetime's still-running decode.
+            it(`${name}: a hung decode from an earlier lifetime never delays a later lifetime's dispose`, async () => {
+                const { TransformersJSEngine } = await import('../TransformersJSEngine');
+                const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+                const Ctor = (name === 'v2' ? TransformersJSEngine : TransformersJSV4Engine) as unknown as new (o: unknown) => Engine & { transcribe(a: Float32Array): Promise<{ isOk: boolean }> };
+                const engine = new Ctor({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() });
+                const hung = Object.assign(vi.fn()
+                    .mockResolvedValueOnce({ text: '' })            // warm-up
+                    .mockImplementationOnce(() => new Promise(() => undefined)), // a decode that never settles
+                { dispose: vi.fn(async () => undefined) });
+                mock.mockResolvedValueOnce(hung);
+                expect((await engine.init()).isOk).toBe(true);
+                void engine.transcribe(new Float32Array(16000));
+                await vi.waitFor(() => expect(hung).toHaveBeenCalledTimes(2));
+                await engine.destroy();                             // A's dispose waits for its hung decode (by design)
+                const idle = pipe();
+                mock.mockResolvedValueOnce(idle);
+                expect((await engine.init()).isOk).toBe(true);
+                await engine.destroy();                             // B is idle: disposed during its own teardown
+                expect(idle.dispose).toHaveBeenCalledTimes(1);
+                expect(hung.dispose).not.toHaveBeenCalled();
+            });
+
+            it(`${name}: teardown during warm-up disposes the pipeline only after the warm-up settles`, async () => {
+                const { TransformersJSEngine } = await import('../TransformersJSEngine');
+                const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+                const Ctor = (name === 'v2' ? TransformersJSEngine : TransformersJSV4Engine) as unknown as new (o: unknown) => Engine;
+                const engine = new Ctor({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() });
+                let finishWarmUp!: (value: unknown) => void;
+                const warming = Object.assign(vi.fn(() => new Promise(resolve => { finishWarmUp = resolve; })), { dispose: vi.fn(async () => undefined) });
+                mock.mockResolvedValueOnce(warming);
+                const init = engine.init();
+                await vi.waitFor(() => expect(warming).toHaveBeenCalledTimes(1));
+                await engine.destroy();
+                expect(warming.dispose).not.toHaveBeenCalled();
+                finishWarmUp({ text: '' });
+                expect((await init).isOk).toBe(false);
+                await vi.waitFor(() => expect(warming.dispose).toHaveBeenCalledTimes(1));
+            });
+
+            // App-developer review of c1585147: a teardown during the post-publish warm-up.
+            it(`${name}: a teardown during warm-up leaves nothing ready for the attempt that follows`, async () => {
+                const onReady = vi.fn();
+                const { TransformersJSEngine } = await import('../TransformersJSEngine');
+                const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+                const Ctor = (name === 'v2' ? TransformersJSEngine : TransformersJSV4Engine) as unknown as new (o: unknown) => Engine;
+                const engine = new Ctor({ onReady, onTranscriptUpdate: vi.fn() });
+                let finishWarmUp!: (value: unknown) => void;
+                const warming = Object.assign(vi.fn(() => new Promise(resolve => { finishWarmUp = resolve; })), { dispose: vi.fn(async () => undefined) });
+                mock.mockResolvedValueOnce(warming);
+                const stale = engine.init();
+                await vi.waitFor(() => expect(warming).toHaveBeenCalledTimes(1)); // warm-up is running
+                await engine.destroy();
+                const successor = pipe();
+                mock.mockResolvedValueOnce(successor);
+                expect((await engine.init()).isOk).toBe(true);
+                const readyCalls = onReady.mock.calls.length;
+                finishWarmUp({ text: '' });
+                expect((await stale).isOk).toBe(false);
+                expect(onReady).toHaveBeenCalledTimes(readyCalls);
+                expect((engine as unknown as { transcriber: unknown }).transcriber).toBe(successor);
+                await engine.destroy();
+            });
+        }
+    });
+
+    it.each(['missing', 'wrong-model', 'wrong-backend'] as const)('refuses ready with %s runtime evidence', async (mode) => {
+        vi.stubEnv('VITE_INTERNAL_BUILD', 'true');
+        if (mode === 'missing') fakeLoadedDevice = null;
+        if (mode === 'wrong-model') fakeLoadedModel = 'unrequested/model';
+        if (mode === 'wrong-backend') fakeLoadedDevice = 'webgpu';
+        const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+        const engine = new TransformersJSV4Engine({ evaluatorCandidateId: 'v4:base:q4', v4Variant: 'base_q4', evaluatorBackend: 'wasm' } as never);
+        try {
+            expect((await engine.init()).isOk).toBe(false);
+        } finally { await engine.destroy(); }
     });
 
     it('publishes window.__PRIVATE_V4_RUNTIME__ with the resolved WASM device/backend on worker load', async () => {

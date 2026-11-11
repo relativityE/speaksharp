@@ -159,10 +159,10 @@ const ATT2 = '55555555-5555-4555-8555-555555555555';
 const U1 = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const U2 = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const RELEASE = 'c'.repeat(40);
-const expected = { requestSha256: sha(REQ), attemptSha256: sha(ATT), product: 'open_mic' as const, configuredModel: 'gemini-3.8-flash', outcome: 'success' as const };
+const expected = { requestSha256: sha(REQ), attemptSha256: sha(ATT), product: 'open_mic' as const, configuredModel: 'gemini-3.6-flash', outcome: 'success' as const };
 const diag = (over: Record<string, unknown> = {}) => ({
-    event: 'ai_coaching_diagnostic', requestId: REQ, attemptId: ATT, outcome: 'success', product: 'open_mic', configuredModel: 'gemini-3.8-flash',
-    observedModel: 'gemini-3.8-flash-001', status: 200, providerStatus: 200, source: 'fresh', providerAttempts: 1, clientReleaseId: RELEASE,
+    event: 'ai_coaching_diagnostic', requestId: REQ, attemptId: ATT, outcome: 'success', product: 'open_mic', configuredModel: 'gemini-3.6-flash',
+    observedModel: 'gemini-3.6-flash-001', status: 200, providerStatus: 200, source: 'fresh', providerAttempts: 1, clientReleaseId: RELEASE,
     coachingDiagnosticId: null, uuid: U1, clientAttempt: 1, ...over,
 });
 const feedback = { event: 'feedback_submit', requestId: null, attemptId: null, outcome: 'storage_ok', product: null, configuredModel: null, observedModel: null,

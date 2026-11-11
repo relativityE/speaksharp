@@ -9,7 +9,7 @@
  * what `Transcriber.load` actually receives.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { pinnedAssetsFor as realPins } from '../../moonshineAssetPins';
+import { moonshineAssetsFor as realPins } from '../../moonshineAssetPins';
 
 /**
  * A SMALL pin set whose digests this test computes for real, so verification can SUCCEED and the
@@ -25,8 +25,8 @@ vi.mock('../../moonshineAssetPins', async (orig) => {
     const actual = await orig() as Record<string, unknown>;
     return {
         ...actual,
-        pinnedAssetsFor: (id: string) => (id === 'medium-streaming-en' ? TINY : (actual.pinnedAssetsFor as typeof realPins)(id)),
-        pinnedTotalBytes: () => TINY.reduce((s, a) => s + a.bytes, 0),
+        // The engine takes its components from the candidate's own data; only the medium candidate's table is substituted.
+        moonshineAssetsFor: (c: Parameters<typeof realPins>[0]) => (c.id === 'moonshine:streaming-medium' ? TINY : (actual.moonshineAssetsFor as typeof realPins)(c)),
     };
 });
 
@@ -134,6 +134,26 @@ describe('a pin mismatch stops before READY and leaves nothing behind', () => {
         expect(result.isOk).toBe(false);
         expect(loadSpy).not.toHaveBeenCalled();
         expect(e.getMetadata().failure?.message).toMatch(/bytes, pin commits/);
+    });
+
+    it('CASUALTY: a runtime arch the installed runtime does not declare refuses before a single asset is fetched', async () => {
+        // Release review: the arch was resolved only after fetchVerifiedAssets, so an admitted but unsupported name downloaded every
+        // weight before failing. Remove the medium member from the installed enum: init must fail with ZERO fetches.
+        const lib = await import('@moonshine-ai/moonshine-wasm') as unknown as { ModelArch: Record<string, unknown> };
+        const saved = lib.ModelArch.MediumStreaming;
+        delete lib.ModelArch.MediumStreaming;
+        const fetchImpl = serveBytes();
+        vi.stubGlobal('fetch', fetchImpl);
+        try {
+            const e = await newEngine();
+            const result = await e.init();
+            expect(result.isOk).toBe(false);
+            expect(e.getMetadata().failure?.message).toMatch(/does not declare ModelArch\.MediumStreaming/);
+            expect(fetchImpl, 'no weight may be downloaded for an arch the runtime cannot run').not.toHaveBeenCalled();
+            expect(loadSpy).not.toHaveBeenCalled();
+        } finally {
+            lib.ModelArch.MediumStreaming = saved;
+        }
     });
 
     it('CASUALTY: a served 404 fails init rather than loading an empty model', async () => {
