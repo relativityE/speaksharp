@@ -22,7 +22,7 @@ export const READBACK_COLUMNS = Object.freeze([
     'phase', 'suggestions_present',
     'action', 'action_seq', 'intended_route', 'route_class', 'link_state', 'submit_seq', 'error_category',
     'producer_ts', 'persisted', 'diagnostic_request_id', 'origin_attempt_id', 'end_reason', 'origin_boot_id',
-    'intent_kind', 'intent_outcome', 'step', 'option_selected',
+    'intent_kind', 'intent_outcome', 'step', 'option_selected', 'render_target_attempt_id',
 ] as const);
 
 /** The four row-identity columns; every other readback column is a property the stage evaluation reads. */
