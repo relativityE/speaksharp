@@ -40,8 +40,9 @@ import {
 import {
     ABANDON_SUITE, type AbandonVariant, BLOCKED_COPY, DISPLACED_COPY, type RowFacts, SAME_BROWSER_TAB_COPY,
     TWO_TAB_SUITE, answerLeaveDialog, classifyRecoveryClaim, leavePromptVerdict, leftTakeSavedOnce, leftTakeSavedVerdict, newLeaveDialogs, newRowsSince, priorTakeSaved, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict,
-    addCompletedTakeIds, installModelStatusHistory, leaseRefusalWindowVerdict, openObservationWindow, closeObservationWindow, armTakeoverGesture, measureRealmClock, crossRealmBoundary, type ObservationClose, refreshCompletedTakeIds, returnStartVerdict, secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict, pressPrivateStartForLease,
+    addCompletedTakeIds, installModelStatusHistory, leaseRefusalWindowVerdict, openObservationWindow, closeObservationWindow, armTakeoverGesture, measureRealmClock, crossRealmBoundary, type ObservationClose, refreshCompletedTakeIds, returnStartVerdict, takeOverRowsVerdict, takeOverVerdict, pressPrivateStartForLease,
 } from './helpers/rwtAbandonTakeover';
+import { DISPLACED_FENCE_COLUMNS, type FenceRowRead, LOCAL_TAB_LOCK_COPY, displacedFenceVerdict, sameBrowserRefusedVerdict } from './helpers/rwtTwoPlaces';
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
 const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
@@ -60,6 +61,39 @@ test.describe.configure({ mode: 'serial' });
 
 const refusalShown = (page: Page) => page.getByText(BLOCKED_COPY).or(page.getByText(SAME_BROWSER_TAB_COPY)).first()
     .waitFor({ timeout: 15_000 }).then(() => true).catch(() => false);
+/**
+ * AHT-11 same-browser-refused (front-run F3): which copy the refused same-browser tab shows — this browser's own tab-lock
+ * wording (whole text), or the account lease's. Looked for together, then each read on its own; a failed look is `null`.
+ */
+async function sameBrowserRefusalCopy(page: Page): Promise<{ localCopyShown: boolean | null; leaseCopyShown: boolean | null }> {
+    const local = page.getByText(LOCAL_TAB_LOCK_COPY);
+    const lease = page.getByText(BLOCKED_COPY);
+    await local.or(lease).first().waitFor({ timeout: 15_000 }).catch(() => undefined);
+    const localCopyShown = await local.first().isVisible().catch(() => null);
+    const leaseCopyShown = await lease.first().isVisible().catch(() => null);
+    return { localCopyShown, leaseCopyShown };
+}
+/**
+ * AHT-11 takeover-fences-old-owner (front-run F4): the displaced take's own session row, read by the service role after both
+ * takes saved. Bounded at 30 s; no client, no id, an error or a timeout is `unreadable` (the verdict holds), never a pass.
+ */
+async function readDisplacedFence(id: string | null): Promise<FenceRowRead> {
+    if (!admin) return { state: 'unreadable', reason: 'no service-role client' };
+    if (!id) return { state: 'unreadable', reason: 'no displaced take bound' };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<'timeout'>((resolve) => { timer = setTimeout(() => resolve('timeout'), 30_000); });
+    try {
+        const read = Promise.resolve(admin.from('sessions').select(DISPLACED_FENCE_COLUMNS).eq('id', id));
+        const settled = await Promise.race([read, timedOut]);
+        if (settled === 'timeout') return { state: 'unreadable', reason: 'fence read timed out' };
+        if (settled.error || !Array.isArray(settled.data)) return { state: 'unreadable', reason: `fence read failed: ${settled.error?.code ?? 'unreadable'}` };
+        return { state: 'observed', rows: settled.data };
+    } catch {
+        return { state: 'unreadable', reason: 'fence read threw' };
+    } finally {
+        if (timer) clearTimeout(timer);
+    }
+}
 async function readRows(uid: string): Promise<RowFacts[]> {
     const { data, error } = await admin!.from('sessions').select('id,status').eq('user_id', uid).order('created_at');
     if (error || !Array.isArray(data)) throw new Error(`session row read failed (fail closed): ${error?.code ?? 'unreadable'}`);
@@ -431,12 +465,13 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             await openOpenMic(sameBrowserTab);
             await waitForPrivateEngineReady(sameBrowserTab, 600_000);
             await sameBrowserTab.getByTestId('mic-start').click();
-            const localRefusal = await refusalShown(sameBrowserTab);
+            // Front-run F3: only this browser's own tab-lock copy refuses here; the account lease's copy on this tab is a FAIL.
+            const localRefusal = await sameBrowserRefusalCopy(sameBrowserTab);
             await sameBrowserTab.waitForTimeout(2_000);
             const [refusedLocal, stillA] = [await tabState(sameBrowserTab), await tabState(tabA)];
-            const local = secondTabBlockedVerdict({ refusalCopyShown: localRefusal, tabB: refusedLocal, tabA: stillA });
+            const local = sameBrowserRefusedVerdict({ ...localRefusal, tabB: refusedLocal, tabA: stillA });
             receipt.row('same-browser tab is refused', local.status, local.detail,
-                { refusalCopyShown: localRefusal, ...flatTabState('tabB', refusedLocal), ...flatTabState('tabA', stillA) });
+                { ...localRefusal, ...flatTabState('tabB', refusedLocal), ...flatTabState('tabA', stillA) });
             watch.setPage(tabA);
             await sameBrowserTab.close();
             sameBrowserTab = null;
@@ -548,6 +583,10 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             const closed = takeOverRowsVerdict(rows, displacedId, takeOverId);
             receipt.row('both takes saved, none left active', closed.status, closed.detail,
                 { rows: rows.length, activeAfter: rows.filter((r) => r.status === 'active').length, distinctTakes: displacedId !== takeOverId });
+            // Front-run F4 (harness takeover-fences-old-owner): the old owner's take is fenced by the SERVER, permanently, as
+            // displaced — read by the service role, after both takes saved (the stamp is never cleared). No ids in the receipt.
+            const oldOwnerFence = displacedFenceVerdict({ read: await readDisplacedFence(displacedId), displacedId, takeOverId, ownerId: owner.uid });
+            receipt.row('displaced take is permanently fenced', oldOwnerFence.status, oldOwnerFence.detail, { ...oldOwnerFence.evidence });
         } catch (error) {
             receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
             throw error;
