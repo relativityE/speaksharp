@@ -489,6 +489,24 @@ const SUPPLEMENTAL_ACCOUNT_ROWS = Object.freeze(['run-owned signup', 'canary cla
 const FEEDBACK_OLDER_TAKE_PRODUCT_ROWS = Object.freeze([
     ...SUPPLEMENTAL_ACCOUNT_ROWS, 'two saved takes', 'older take coaching request observed', 'older-take report stored once',
     'older-take association', 'older-take diagnostic binding', 'feedback diagnostic chain', 'coaching request budget', 'feedback retention',
+    // AHT-07 bounded writes (Sam, 2026-11-11): the three fault legs (one failed attempt, one explicit same-key Retry each), the
+    // final submit's isolation, the pre-send cap and the exact attempt ledger, and the race-safe report cleanup's zero residue.
+    // Literal names (this module is loaded by AHT-01, so it imports no case-only helper); tests/unit/feedbackBoundedWrites.test.ts
+    // requires them to equal feedbackAttemptLedger.ts's FEEDBACK_BOUNDED_WRITE_ROWS plus feedbackReportCleanup.ts's ZERO_RESIDUE_ROW.
+    'feedback leg synthetic 42501: fault exercised', 'feedback leg synthetic 42501: alert copy truthful',
+    'feedback leg synthetic 42501: dialog kept open', 'feedback leg synthetic 42501: same key on Retry',
+    'feedback leg synthetic 42501: no fresh acknowledgement before the Retry', 'feedback leg synthetic 42501: Retry treated as stored',
+    'feedback leg synthetic 42501: exactly one stored row for the leg key',
+    'feedback leg request lost: fault exercised', 'feedback leg request lost: alert copy truthful',
+    'feedback leg request lost: dialog kept open', 'feedback leg request lost: same key on Retry',
+    'feedback leg request lost: no fresh acknowledgement before the Retry', 'feedback leg request lost: Retry treated as stored',
+    'feedback leg request lost: exactly one stored row for the leg key',
+    'feedback leg stored response lost: fault exercised', 'feedback leg stored response lost: alert copy truthful',
+    'feedback leg stored response lost: dialog kept open', 'feedback leg stored response lost: same key on Retry',
+    'feedback leg stored response lost: no fresh acknowledgement before the Retry', 'feedback leg stored response lost: Retry treated as stored',
+    'feedback leg stored response lost: exactly one stored row for the leg key',
+    'final submit isolated from the fault legs', 'feedback attempts within the cap',
+    'feedback attempts are three faults, three Retries and one final submit', 'zero residue',
 ]);
 const FEEDBACK_NO_SESSION_PRODUCT_ROWS = Object.freeze([
     ...SUPPLEMENTAL_ACCOUNT_ROWS, 'no-session report stored once', 'no-session association', 'no-session diagnostic binding',

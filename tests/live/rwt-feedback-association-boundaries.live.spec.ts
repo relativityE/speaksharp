@@ -6,7 +6,7 @@
  * It is preparation only: do not dispatch without a fresh release-bound RWT authorization.
  */
 import { createClient } from '@supabase/supabase-js';
-import type { Page, TestInfo } from '@playwright/test';
+import type { APIResponse, ConsoleMessage, Page, Route, TestInfo } from '@playwright/test';
 import { test, expect } from './helpers/rwtProductionTest';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
 import {
@@ -21,14 +21,21 @@ import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { feedbackDiagnosticChainRow } from './helpers/coachingFeedbackAdapter';
 import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
 import {
-    FeedbackInsertObserver, markEarlierAcknowledgments, observeFreshAcknowledgment, readStoredDiagnosticRef, writeFreshAcknowledgmentRow,
+    ACK_COPY, ACK_TOAST, FEEDBACK_INSERT_URL, FeedbackInsertObserver, PREVIOUS_ACK_ATTR, markEarlierAcknowledgments, observeFreshAcknowledgment,
+    readStoredDiagnosticRef, writeFreshAcknowledgmentRow,
     writeNoSessionReportRows, writeOlderTakeBindingRow, writeOlderTakeReportRows, writeReceivedFeedbackRow,
     type FreshAcknowledgmentObservation, type ReceiptRowSink, type StoredFeedbackReport,
 } from './helpers/feedbackDiagnosticRef';
+import {
+    FEEDBACK_FAULT_LEGS, FEEDBACK_ISOLATION_ROW, FeedbackAttemptLedger, type FeedbackFaultLeg, type LegObservation, type RowVerdict,
+    feedbackLedgerVerdict, feedbackLegDescription, feedbackLegRecovered, finalIsolationVerdict, isNamedIdempotencyReplay, syntheticRejection,
+    withoutFaultLegSubmits, writeFeedbackAttemptRows, writeFeedbackLegRows,
+} from './helpers/feedbackAttemptLedger';
+import { type CapturedReports, captureRunReports, cleanupRunReports, writeZeroResidueRow, zeroResidueNotRun } from './helpers/feedbackReportCleanup';
 import { HarnessParityTap, START_CONTROLS } from './helpers/rwtHarnessParity';
 import { coachingContract } from './helpers/rwtCoachingEvidence';
 import { openProductsItem } from './helpers/productsMenu';
-import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
+import { FINALIZE_CLEANUP_MS, FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
 import {
     expectBenchmarkRecordingStarted, preparePrivateModelIfPrompted, selectBenchmarkMode, startBenchmarkRecording,
     stopBenchmarkRecording, waitForBenchmarkSaveCandidate, waitForPrivateEngineReady,
@@ -47,7 +54,8 @@ test.use({
     permissions: ['microphone'], trace: 'off', video: 'off', screenshot: 'off',
     launchOptions: { args: rwtLaunchArgs(fixture, { webgpu: false }) },
 });
-test.describe.configure({ mode: 'serial' });
+// AHT-07's one-run write limit (Sam, 2026-11-11): a failed run is never re-driven inside the same authorization.
+test.describe.configure({ mode: 'serial', retries: 0 });
 
 type Owner = { email: string; uid: string };
 
@@ -225,16 +233,148 @@ async function submitOpenDialog(
         insertKeys: keys.length, insertRequests: inserts.insertRequests, unattributedInserts: inserts.unattributedInserts, acknowledged };
 }
 
+/**
+ * AHT-07 bounded writes (Sam's one-run limit, 2026-11-11): ONE route on the journey's browser context sees every write to
+ * `user_issue_reports`, so a write from any page of the journey is counted. Each is recorded and decided by the ledger at entry,
+ * BEFORE it can leave the browser: the pre-send cap aborts the 8th attempt and later, an unkeyed insert, a fifth distinct key and
+ * any non-insert write (`route.abort()`, never sent); an armed leg's first insert gets its fault; everything else reaches the real
+ * server through `route.fetch()` so the ledger keeps its answer, and the page gets that same answer. The precedent is AHT-06's
+ * lost completion (rwt-save-retry-recovery.live.spec.ts: `route.fetch()` then `route.abort('failed')`).
+ */
+async function installFeedbackWriteRoute(page: Page, ledger: FeedbackAttemptLedger): Promise<void> {
+    await page.context().route(FEEDBACK_INSERT_URL, async (route: Route) => {
+        const request = route.request();
+        if (['GET', 'HEAD', 'OPTIONS'].includes(request.method())) return route.fallback();
+        ledger.begin();
+        // Recorded and decided here, before anything is sent.
+        const attempt = ledger.admit(request.method(), () => request.postDataJSON());
+        try {
+            if (attempt.action === 'cap-abort' || attempt.action === 'fault-request-lost') {
+                ledger.settle(attempt, { status: null, forwarded: false });
+                return await route.abort('failed');
+            }
+            if (attempt.action === 'fault-synthetic-42501') {
+                ledger.settle(attempt, { status: 403, forwarded: false });
+                return await route.fulfill(syntheticRejection(request.headers().origin));
+            }
+            let response: APIResponse;
+            try { response = await route.fetch(); } catch {
+                ledger.settle(attempt, { status: null, forwarded: null });
+                return await route.abort('failed');
+            }
+            const status = response.status();
+            const key = attempt.keys.length === 1 ? attempt.keys[0] : null;
+            const replayNamed = status === 409 ? isNamedIdempotencyReplay(await response.text().catch(() => null), key) : null;
+            ledger.settle(attempt, { status, forwarded: true, replayNamed });
+            // stored-response-lost: the server stored the row (201); only its answer is dropped.
+            if (attempt.action === 'fault-stored-response-lost') return await route.abort('failed');
+            return await route.fulfill({ response });
+        } catch {
+            // The page closed under the route: the attempt is already in the ledger.
+            return undefined;
+        } finally {
+            ledger.end();
+        }
+    });
+}
+
+/**
+ * One fault leg on a fresh document (its own boot and journey; the tab's sessionStorage keeps this login's saved takes, so the
+ * older take stays selectable): one Submit that the route faults, the form read as the person sees it, then ONE explicit Retry
+ * of the unchanged draft (marked immediately before its click), the dialog's close and acknowledgement, the leg's telemetry
+ * settled before the next document, and the owner's rows under the leg's key. No `share_feedback` action is bound here, so no leg
+ * reaches the readback journey. Content-free: booleans and counts only.
+ */
+async function runFeedbackFaultLeg(
+    page: Page, tap: AnalyticsTap, ledger: FeedbackAttemptLedger, leg: FeedbackFaultLeg, olderId: string, uid: string, legJourneys: string[],
+): Promise<LegObservation> {
+    const feedbackBefore = tap.sent('feedback_submit').length;
+    await page.goto('/analytics');
+    await expect(page.getByTestId('nav-report-issue-button').first()).toBeVisible({ timeout: 45_000 });
+    await page.getByTestId('nav-report-issue-button').first().click();
+    const dialog = page.getByTestId('issue-report-dialog');
+    await expect(dialog).toBeVisible({ timeout: 20_000 });
+    const description = feedbackLegDescription(leg);
+    await page.getByTestId('feedback-session-select').selectOption(olderId);
+    await page.getByTestId('feedback-type-broke').click();
+    await page.getByTestId('issue-report-description').fill(description);
+    const earlier = await markEarlierAcknowledgments(page);
+    const fresh = page.locator(`${ACK_TOAST}:not([${PREVIOUS_ACK_ATTR}])`).filter({ hasText: ACK_COPY });
+    const read = <T>(value: Promise<T>): Promise<T | null> => value.catch(() => null);
+    let serviceErrors = 0;
+    const onConsole = (message: ConsoleMessage) => {
+        if (message.type() === 'error' && message.text().includes('[issueReportService.submit]')) serviceErrors += 1;
+    };
+    page.on('console', onConsole);
+    let observation: Omit<LegObservation, 'storedRows' | 'storedSessionMatches' | 'serviceErrors' | 'telemetry'>;
+    try {
+        ledger.armLeg(leg);
+        await page.getByTestId('issue-report-submit').click();
+        const alert = dialog.getByRole('alert');
+        const alertShown = await alert.waitFor({ state: 'visible', timeout: 30_000 }).then(() => true, () => false);
+        const descriptionValue = await read(page.getByTestId('issue-report-description').inputValue({ timeout: 5_000 }));
+        const typeChecked = await read(page.getByTestId('feedback-type-broke').getAttribute('aria-checked', { timeout: 5_000 }));
+        const sessionValue = await read(page.getByTestId('feedback-session-select').inputValue({ timeout: 5_000 }));
+        const dialogVisible = await read(dialog.isVisible());
+        const before = {
+            alertShown,
+            alertText: alertShown ? await read(alert.innerText({ timeout: 5_000 })) : null,
+            dialogVisible,
+            descriptionKept: descriptionValue === null ? null : descriptionValue === description,
+            typeKept: typeChecked === null ? null : typeChecked === 'true',
+            sessionKept: sessionValue === null ? null : sessionValue === olderId,
+            submitEnabled: await read(page.getByTestId('issue-report-submit').isEnabled({ timeout: 5_000 })),
+            freshBeforeRetry: await read(fresh.count()),
+        };
+        let retried = false;
+        let dialogDetachedAfterRetry: boolean | null = null;
+        let freshAfterRetry: number | null = null;
+        // Only a failure the person can see is retried; otherwise the leg stops here (and the scenario after its rows).
+        if (alertShown && dialogVisible === true) {
+            ledger.markRetry();
+            await page.getByTestId('issue-report-submit').click();
+            retried = true;
+            const after = await observeFreshAcknowledgment(page, earlier);
+            dialogDetachedAfterRetry = after.dialogDetached;
+            freshAfterRetry = await read(fresh.count());
+        }
+        observation = { ...before, retried, dialogDetachedAfterRetry, freshAfterRetry };
+        // The leg's attempted/storage_failed/attempted/storage_ok leave THIS document before the next one starts.
+        await tap.awaitObserved(page, { feedback_submit: feedbackBefore + 4 });
+    } finally {
+        page.off('console', onConsole);
+        ledger.endWindow();
+    }
+    const events = tap.sent('feedback_submit').slice(feedbackBefore);
+    for (const e of events) if (e.journeyId && !legJourneys.includes(e.journeyId)) legJourneys.push(e.journeyId);
+    const outcome = (o: string) => events.filter((e) => e.fields?.outcome === o).length;
+    const first = ledger.legAttempts(leg)[0];
+    const key = first && first.keys.length === 1 ? first.keys[0] : null;
+    let storedRows: number | null = null;
+    let storedSessionMatches: boolean | null = null;
+    if (key) {
+        const { data, error } = await admin!.from('user_issue_reports').select('id,session_id').eq('user_id', uid).eq('idempotency_key', key);
+        if (!error && Array.isArray(data)) {
+            storedRows = data.length;
+            storedSessionMatches = data.length === 1 ? data[0].session_id === olderId : null;
+        }
+    }
+    return { ...observation, storedRows, storedSessionMatches, serviceErrors,
+        telemetry: { attempted: outcome('attempted'), storageFailed: outcome('storage_failed'), storageOk: outcome('storage_ok') } };
+}
+
 async function finishReceipt(
     receipt: RwtReceipt,
     testInfo: TestInfo,
     tap: AnalyticsTap,
     claimed: boolean,
     steps: FinalizationSteps,
+    faultLegJourneys: readonly string[] = [],
 ): Promise<void> {
     await steps.step('telemetry rows', () => telemetryClassRows(receipt, tap, claimed, true));
     steps.report(receipt);
-    receipt.write(testInfo, bindReadbackJourneys(tap.events, {
+    // AHT-07: the fault legs' `feedback_submit` events are not the share_feedback anchor (see `withoutFaultLegSubmits`).
+    receipt.write(testInfo, bindReadbackJourneys(withoutFaultLegSubmits(tap.events, faultLegJourneys), {
         recording: [], feedback: true, actionBindings: tap.actionBindings,
         expectedReleaseSha: expectedReleaseSha(), expectedRunId: process.env.GITHUB_RUN_ID,
         expectedRunAttempt: process.env.GITHUB_RUN_ATTEMPT,
@@ -249,9 +389,11 @@ const finalizer = new JourneyFinalizer();
  *   1. the first take (`createSavedOpenMicTake(..., true)`): `mic-download` on a cold first use (benchmark-utils.ts:609,
  *      the one cold press that downloads AND starts the take), otherwise `mic-start` (benchmark-utils.ts:862 via
  *      `startBenchmarkRecording`, which presses nothing when setup already started the take);
- *   2. the second take: the completed review's `verdict-practice-again` (this file:111, `again.click()` in createSavedOpenMicTake).
- * Feedback, navigation and sign-in press no Start control. So 2 in all (the catalog minimum), at most one each of
- * `mic-start`, `mic-download` and `verdict-practice-again`, and no Retry.
+ *   2. the second take: the completed review's `verdict-practice-again` (`again.click()` in createSavedOpenMicTake, this file).
+ * Feedback, navigation and sign-in press no Start control. The three fault legs (`runFeedbackFaultLeg`) press only
+ * `nav-report-issue-button`, `feedback-type-broke` and `issue-report-submit` (twice: the failed Send and its Retry) and select
+ * the older take; the feedback Retry is the dialog's Submit, not `mic-retry`. So 2 in all (the catalog minimum), at most one each
+ * of `mic-start`, `mic-download` and `verdict-practice-again`, and no Start Retry.
  */
 const AHT07_START_PRESS_BUDGET = { total: 2, perControl: { 'mic-start': 1, 'mic-download': 1, 'verdict-practice-again': 1 } } as const;
 /** The page-close step's own bound: each page close is itself bounded at 15 s inside it. */
@@ -291,6 +433,11 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
         let reportId: string | null = null;
         // #1594: the takes this scenario saved, for the end-of-scenario one-request-per-take budget.
         const takes: string[] = [];
+        // AHT-07 bounded writes: every feedback write of this journey, the legs' journeys, and the ledger as the body last saw it.
+        const ledger = new FeedbackAttemptLedger();
+        let routeInstalled = false;
+        const legJourneys: string[] = [];
+        let observedLedger: RowVerdict | null = null;
         // #1593 (Sam, #1662 RETURN control 1): ONE owned finalization — the body's finally and the suite's afterEach
         // (which Playwright runs after a timeout) run this same memoized closure exactly once.
         const finish = finalizer.once(async () => {
@@ -310,6 +457,30 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
                 parity.startPressRow(aliveReceipt(receipt, alive), AHT07_START_PRESS_BUDGET);
             });
             await steps.step('owned pages closed', (alive) => parity.ownedPagesClosedRow(aliveReceipt(receipt, alive)), PARITY_CLOSE_STEP_MS);
+            // AHT-07 bounded writes, at the FINAL boundary: every owned page is closed, so no feedback write can still come from a
+            // page; route handlers still in flight are drained (their writes are already recorded). A write after the body's end
+            // falls outside every window and FAILs the ledger; a FAIL the body observed stays FAIL.
+            ledger.endWindow();
+            if (routeInstalled) {
+                await steps.step('feedback attempt ledger', async (alive) => {
+                    await ledger.drain(15_000);
+                    const sink = aliveReceipt(receipt, alive);
+                    writeFeedbackAttemptRows(sink, ledger.attempts, observedLedger);
+                    const isolation = finalIsolationVerdict({
+                        boundJourneys: tap.actionBindings.filter((b) => b.stage === 'share_feedback').map((b) => b.journeyId),
+                        legJourneys, events: tap.sent('feedback_submit'),
+                        legKeys: FEEDBACK_FAULT_LEGS.flatMap((leg) => ledger.legAttempts(leg).flatMap((a) => a.keys)),
+                        finalKeys: [...new Set(ledger.finalAttempts().flatMap((a) => a.keys))],
+                    });
+                    sink.row(FEEDBACK_ISOLATION_ROW, isolation.verdict, isolation.detail, isolation.evidence);
+                });
+            }
+            // Race-safe report cleanup (plan §3), step 1: capture the run's reports BEFORE the account deletion — the owner's rows
+            // UNION the rows under every key the route saw.
+            let capturedReports: CapturedReports | null = null;
+            if (routeInstalled && owner.uid) {
+                capturedReports = await steps.step('feedback report capture', () => captureRunReports(admin as never, owner.uid, ledger.seenKeys, null)) ?? null;
+            }
             // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion. With a report, the retention proof deletes through it;
             // the deletion's own settlement then decides the row — a stalled readback never deletes again.
             if ((owner.uid || owner.email) && !accountDeleted) {
@@ -319,7 +490,18 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
                     ? (alive) => feedbackRetentionAfterDeletionRow(aliveReceipt(receipt, alive), admin as never, report, () => cleanup.run())
                     : undefined)) === 'deleted';
             }
-            await finishReceipt(receipt, testInfo, tap, claimed, steps);
+            // Steps 3–5, after the retention read (a product contract): re-capture right before the delete (the race), delete by
+            // id only with an exact count, then the independent zero-residue reads. A step that could not finish HOLDs, naming ids.
+            if (routeInstalled && owner.uid) {
+                const written = await steps.step('feedback report cleanup', async (alive) => {
+                    const verdict = await cleanupRunReports(admin as never, owner.uid, ledger.seenKeys, capturedReports);
+                    if (!alive()) return false;
+                    writeZeroResidueRow(receipt, verdict);
+                    return true;
+                }, FINALIZE_CLEANUP_MS);
+                if (written !== true) writeZeroResidueRow(receipt, zeroResidueNotRun(capturedReports));
+            }
+            await finishReceipt(receipt, testInfo, tap, claimed, steps, legJourneys);
         });
         try {
             // BEFORE the first navigation (the click recorder is an init script).
@@ -328,6 +510,9 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             const ready = await prepareDisposable(page, receipt, owner);
             claimed = ready;
             if (!ready) return;
+            // AHT-07 bounded writes: the pre-send cap, installed only after the canary claim is visible (no write before preflight).
+            await installFeedbackWriteRoute(page, ledger);
+            routeInstalled = true;
             await page.goto('/practice');
             await openProductsItem(page, 'open-mic');
             await page.waitForURL(/\/session/, { timeout: 45_000 });
@@ -341,7 +526,19 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             const newerRequests = generations.forSession(newerId).map((e) => e.sent.requestId).filter((id): id is string => Boolean(id));
             receipt.row('older take coaching request observed', olderRequests.length > 0 ? 'PASS' : 'HOLD',
                 olderRequests.length > 0 ? 'the browser sent a coaching request bound to the older saved take' : 'no older-take coaching request was captured');
+            // AHT-07 fault legs: each one failed attempt and one explicit same-key Retry. A leg that did not recover stops the
+            // scenario after its rows, so no further feedback is sent and no kept draft can leak into the final submit.
+            for (const leg of FEEDBACK_FAULT_LEGS) {
+                const observation = await runFeedbackFaultLeg(page, tap, ledger, leg, olderId, owner.uid, legJourneys);
+                writeFeedbackLegRows(receipt, leg, observation, ledger.legAttempts(leg));
+                if (!feedbackLegRecovered(observation)) throw new Error(`the ${leg} feedback leg did not recover`);
+            }
+            // The one clean final submit, in a NEW document (`submitFeedback` navigates): a new boot and journey, a fresh dialog
+            // and key, and the only `share_feedback` binding, so no leg event reaches the bound journey.
+            ledger.beginFinal();
             const stored = await submitFeedback(page, tap, owner.uid, 'selected_older_session', olderId, newerId);
+            ledger.endWindow();
+            observedLedger = feedbackLedgerVerdict(ledger.attempts);
             // Captured FIRST: whatever the stored reference holds, cleanup and retention bookkeeping keep this report id.
             reportId = stored.id;
             writeOlderTakeReportRows(receipt, stored, olderId);
