@@ -106,6 +106,8 @@ export interface CoachingLifecycleEvent {
   product: 'open_mic' | 'focus_points' | 'unknown';
   endReason?: CoachingLifecycleEndReason;
   parseValid?: boolean;
+  /** Render-only: the actual visible card matched this lifecycle's saved session at observation. */
+  renderTargetAttemptId?: string | null;
   /** `ended: unmounted` only — whether the browser's wait was aborted on route exit (server settlement stays unknown). */
   clientAborted?: boolean;
 }
@@ -119,6 +121,7 @@ export const trackAiCoachingLifecycle = (event: CoachingLifecycleEvent): void =>
     ...(event.clientAttempt ? { client_attempt: event.clientAttempt } : {}),
     ...(event.endReason ? { end_reason: event.endReason } : {}),
     ...(event.parseValid === undefined ? {} : { parse_valid: event.parseValid }),
+    ...(event.stage === 'rendered' && event.renderTargetAttemptId ? { render_target_attempt_id: event.renderTargetAttemptId } : {}),
     ...(event.clientAborted === undefined ? {} : { client_aborted: event.clientAborted }),
     elapsed_ms: Math.max(0, Math.min(600_000, Math.round(event.elapsedMs))),
     ...(event.origin.journeyId ? { origin_journey_id: event.origin.journeyId } : {}),

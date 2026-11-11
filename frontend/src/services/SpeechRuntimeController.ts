@@ -4,6 +4,7 @@ import { currentLogin, recordSavedSessionFor, type LoginIdentity } from './login
 import { confirmTakeLease } from './recordingLease';
 import { analyticsBuffer } from './AnalyticsBuffer';
 import { captureRecordingSubject, sanitizeRecordingSubject, type RecordingSubject } from './telemetry/recordingSubject';
+import { noteSavedTake } from './telemetry/savedTakeTarget';
 import logger from '@/lib/logger';
 import { syncSTTReady, syncSTTIdentity, syncForensicAnchors as syncRuntimeState, syncEngineReady, syncSessionPersisted, syncNegotiatorDecision, syncProfileReady } from '@/lib/forensicAnchors';
 import {
@@ -1629,6 +1630,8 @@ export class SpeechRuntimeController {
                          * the marker is: if the slot moved to another session while the completion was in flight, this identity
                          * is stale and must not overwrite that newer take's.
                          */
+                        // AHT-01 Option 1: the review card names the take that saved this session, not the ambient one.
+                        noteSavedTake(targetSessionId, fullSave.subject);
                         useSessionStore.getState().setCompletedSessionId(targetSessionId);
                         /**
                          * #1258 RWT round 2 C — AND THE PAGE ENTERS THAT REVIEW. Only a successful Stop enters the
@@ -6167,6 +6170,8 @@ export class SpeechRuntimeController {
                                 // fact being reported — but only while this stop still owns the shared surfaces. Everything below is
                                 // optional analysis whose failure is non-fatal, and the review reader used to depend on it: a
                                 // reconciliation failure meant no id, a disabled query, and a saved session stuck on "Loading…".
+                                // AHT-01 Option 1: the review card names the take that saved this session, not the ambient one.
+                                noteSavedTake(sessionId, takeSubject);
                                 useSessionStore.getState().setCompletedSessionId(sessionId ?? null);
                             });
 

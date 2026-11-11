@@ -43,6 +43,24 @@ const base: SavedSessionReview = { coaching: PAIR, product: 'open_mic', evidence
 
 beforeEach(() => { load.mockReset(); navigate.mockReset(); accept.mockClear(); setActiveObjectiveBrief.mockReset(); revisited.mockReset(); practiceSelected.mockReset(); practiceAction.mockReset(); practiceState.mockReset(); recommendationId = null; cachedView = undefined; queryIsError = false; });
 
+describe('SavedPracticeLoopReview — the card names the session its review was read from (AHT-01 identity)', () => {
+    it('exposes data-session-id only from the loader\'s positive loadedSessionId', async () => {
+        load.mockResolvedValue({ ...base, loadedSessionId: 's1' });
+        render(<SavedPracticeLoopReview sessionId="s1" />);
+        await waitFor(() => expect(screen.getByTestId('saved-review')).toHaveAttribute('data-review-state', 'review'));
+        expect(screen.getByTestId('saved-review')).toHaveAttribute('data-session-id', 's1');
+    });
+    it('CASUALTY: no proven identity → no attribute (never the requested id); while loading → no attribute', async () => {
+        let resolve!: (v: SavedSessionReview) => void;
+        load.mockReturnValue(new Promise((r) => { resolve = r; }));
+        render(<SavedPracticeLoopReview sessionId="s1" />);
+        expect(screen.getByTestId('saved-review')).not.toHaveAttribute('data-session-id');
+        resolve(base);
+        await waitFor(() => expect(screen.getByTestId('saved-review')).toHaveAttribute('data-review-state', 'review'));
+        expect(screen.getByTestId('saved-review')).not.toHaveAttribute('data-session-id');
+    });
+});
+
 describe('SavedPracticeLoopReview (Analytics detail, #1258 G20)', () => {
     // #1538 (Codex P1 r4117321439, PM 5860714332): an old generic pair on a Focus take is never shown as its Focus review.
     it('#1538 CASUALTY: an UNVERIFIED Focus coaching state shows the truthful notice, no pair, a non-qualifying revisit, and the practice action', async () => {

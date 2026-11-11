@@ -17,6 +17,7 @@ import { loadSavedSessionReview } from '@/services/review/savedSessionReview';
 import { deriveReviewState } from './reviewState';
 import { COACHING_ERROR_SESSION_ASSURANCE, FOCUS_POINTS_DISCLOSURE, OPEN_MIC_DISCLOSURE, UNAVAILABLE_MESSAGE } from './reviewCopy';
 import { createCoachingDiagnosticId, rememberCoachingDiagnostic } from '@/services/coachingDiagnosticLink';
+import { savedTakeAttempt } from '@/services/telemetry/savedTakeTarget';
 import {
   reportedProviderAttempts, snapshotCoachingOrigin, trackAiCoachingDiagnostic, trackAiCoachingLifecycle,
   type AiCoachingDiagnosticTelemetry, type CoachingLifecycleEndReason, type CoachingLifecycleOrigin, type CoachingLifecycleStage,
@@ -349,7 +350,7 @@ interface CoachingLifecycle {
   retiredAs: 'unmounted' | 'superseded_session' | null;
 }
 const lifecycleStage = (
-  lc: CoachingLifecycle, stage: CoachingLifecycleStage, extra: { endReason?: CoachingLifecycleEndReason; parseValid?: boolean } = {},
+  lc: CoachingLifecycle, stage: CoachingLifecycleStage, extra: { endReason?: CoachingLifecycleEndReason; parseValid?: boolean; renderTargetAttemptId?: string | null } = {},
 ): void => trackAiCoachingLifecycle({
   stage, requestId: lc.requestId, attemptId: lc.attemptId, clientAttempt: lc.clientAttempt, origin: lc.origin,
   elapsedMs: performance.now() - lc.startedAt, product: lc.product, ...extra,
@@ -390,6 +391,10 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
     ? view
     : { sessionId, suggestions: parseAISuggestions(initialSuggestions, product), isLoading: false, error: null, retrying: false };
   const { suggestions, isLoading, error, retrying } = currentView;
+  // An observer callback may already be queued when its effect disconnects. Its captured review must
+  // still be the mounted card's current value before it can report visibility or displayed ownership.
+  const visibleReviewRef = useRef({ sessionId, suggestions });
+  visibleReviewRef.current = { sessionId, suggestions };
   const reviewReady = Boolean(sessionId && (canReview ?? Boolean(transcript.trim())));
   const reviewCardRef = useRef<HTMLDivElement>(null);
   const renderedReceiptRef = useRef<string | null>(null);
@@ -459,12 +464,19 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
 
     let observer: IntersectionObserver | null = null;
     const publishVisibleReview = () => {
-      if (renderedReceiptRef.current === sessionId) return;
+      if (!mountedRef.current || activeSessionRef.current !== sessionId || reviewCardRef.current !== card
+        || !card.isConnected || visibleReviewRef.current.sessionId !== sessionId
+        || visibleReviewRef.current.suggestions !== suggestions || renderedReceiptRef.current === sessionId) return;
       renderedReceiptRef.current = sessionId;
       trackPracticeLoopReviewRendered();
       const shown = shownLifecycleRef.current;
-      if (shown && shown.sessionId === sessionId) {
-        lifecycleStage(shown.lifecycle, 'rendered');
+      if (shown && shown.sessionId === sessionId && shown.lifecycle.sessionId === sessionId) {
+        // The visible card and this lifecycle name the same saved session, checked at the callback,
+        // not inferred from ambient attempt. A remains readable while accepted Start B prepares.
+        // The target is the take that SAVED the visible session (its frozen recording subject, published with the
+        // session id), not the request's origin or the ambient attempt: a request made after B's Start was accepted
+        // (a manual Try again) still shows A's review. Exported as that opaque attempt id only, never the session id.
+        lifecycleStage(shown.lifecycle, 'rendered', { renderTargetAttemptId: savedTakeAttempt(sessionId) });
         endLifecycle(shown.lifecycle, 'completed');
       }
       emitPracticeLoop({
