@@ -63,6 +63,7 @@ jobs:
           [ "$REQUESTED_SHA" = "$DISPATCHED_SHA" ] || { echo '::error::commit_sha does not match the dispatched ref head.'; exit 1; }
 
       - name: Stripe account check (before anything is created)
+        id: stripe_account
         env:
           STRIPE_TEST_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
           STRIPE_TEST_PRO_PRICE_ID: ${{ secrets.STRIPE_TEST_PRO_PRICE_ID }}
@@ -89,6 +90,20 @@ jobs:
             and .recurring.interval == "month" and .recurring.interval_count == 1' <<<"$price" >/dev/null \
             || { echo '::error::The test price is not the active $10 monthly test price. Stopping.'; exit 1; }
           echo 'Stripe account check passed: approved test account, test mode, expected price.'
+          # The test account is reused across runs, so the end-of-run check is account-wide. Refuse to start
+          # on an account that already holds fixtures, so that check judges only what this run created.
+          # Every subscription state that is still live or can still bill counts as a leftover fixture.
+          dirty=0
+          clocks="$(stripe_get 'test_helpers/test_clocks?limit=1' | jq '.data | length')"
+          echo "Test clocks before the run: $clocks"
+          [ "$clocks" = '0' ] || dirty=1
+          for state in active trialing past_due unpaid incomplete; do
+            count="$(stripe_get "subscriptions?status=${state}&limit=1" | jq '.data | length')"
+            echo "Subscriptions in ${state} before the run: $count"
+            [ "$count" = '0' ] || dirty=1
+          done
+          [ "$dirty" = '0' ] \
+            || { echo '::error::The test account already holds test clocks or live subscriptions (active, trialing, past_due, unpaid or incomplete) from an earlier run. This run refuses and deletes nothing. Before anyone deletes them, confirm the run that created them has stopped; age alone is not proof it was abandoned.'; exit 1; }
 
       - uses: actions/checkout@v6
         with:
@@ -226,17 +241,23 @@ jobs:
           fi
 
       - name: Verify no Stripe test fixture remains
-        if: always()
+        # Only meaningful once the account was seen clean before the run; a refused start creates nothing.
+        if: always() && steps.stripe_account.outcome == 'success'
         env:
           STRIPE_TEST_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
         run: |
           set -euo pipefail
           stripe_get() { curl -fsS --max-time 30 -u "${STRIPE_TEST_SECRET_KEY}:" "https://api.stripe.com/v1/$1"; }
+          dirty=0
           clocks="$(stripe_get 'test_helpers/test_clocks?limit=1' | jq '.data | length')"
-          active="$(stripe_get 'subscriptions?status=active&limit=1' | jq '.data | length')"
-          trialing="$(stripe_get 'subscriptions?status=trialing&limit=1' | jq '.data | length')"
-          echo "Remaining test clocks: $clocks; active subscriptions: $active; trialing subscriptions: $trialing"
-          [ "$clocks" = '0' ] && [ "$active" = '0' ] && [ "$trialing" = '0' ] \
+          echo "Remaining test clocks: $clocks"
+          [ "$clocks" = '0' ] || dirty=1
+          for state in active trialing past_due unpaid incomplete; do
+            count="$(stripe_get "subscriptions?status=${state}&limit=1" | jq '.data | length')"
+            echo "Remaining subscriptions in ${state}: $count"
+            [ "$count" = '0' ] || dirty=1
+          done
+          [ "$dirty" = '0' ] \
             || { echo '::error::Stripe test fixtures remain after the run. Invoices and events are immutable audit records and are not counted.'; exit 1; }
 
       - name: Tear down the local stack and listeners
