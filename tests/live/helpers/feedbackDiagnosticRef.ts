@@ -8,7 +8,7 @@
  * Absent, valid and malformed are now distinct, and malformed FAILS both rows. Details stay content-free: the shape of a
  * malformed value is reported, never the value.
  */
-import type { BrowserContext, Request } from '@playwright/test';
+import type { BrowserContext, Page, Request } from '@playwright/test';
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -194,4 +194,98 @@ export function writeOlderTakeBindingRow(
         : olderTakeBindingVerdict(stored.diagnosticRef, olderRequests, newerRequests);
     receipt.row('older-take diagnostic binding', binding.verdict, binding.detail,
         { olderRequests: olderRequests.length, newerRequests: newerRequests.length });
+}
+
+/**
+ * AHT-08 (fifteen-case front-run review, 2026-11-10) — the submit's own `fresh acknowledgment` row. Earlier toasts are marked
+ * BEFORE the submit, so only a toast this submit produced counts; the dialog must also detach (the product closes it on success,
+ * `IssueReportDialog`). This is the harness definition (AHT-07/08 case body: mark, submit, dialog detached, unmarked toast).
+ */
+export const ACK_TOAST = 'li[data-sonner-toast]';
+export const ACK_COPY = 'Thanks — we’ve got it.';
+export const PREVIOUS_ACK_ATTR = 'data-rwt-previous-ack';
+
+export interface EarlierAcknowledgments { marked: boolean; earlier: number }
+export interface FreshAcknowledgmentObservation extends EarlierAcknowledgments { dialogDetached: boolean; freshToastVisible: boolean }
+
+/** Marks every toast already on the page; `marked` is false when the page could not be marked (freshness then unproven). */
+export async function markEarlierAcknowledgments(page: Page): Promise<EarlierAcknowledgments> {
+    return page.locator(ACK_TOAST).evaluateAll((els, attr) => { els.forEach((el) => el.setAttribute(attr, 'true')); return els.length; }, PREVIOUS_ACK_ATTR)
+        .then((earlier) => ({ marked: true, earlier }), () => ({ marked: false, earlier: 0 }));
+}
+
+/** After the submit: the dialog detaches and an UNMARKED acknowledgment toast is visible, both awaited (bounded) at once. */
+export async function observeFreshAcknowledgment(page: Page, earlier: EarlierAcknowledgments, timeoutMs = 30_000): Promise<FreshAcknowledgmentObservation> {
+    const [dialogDetached, freshToastVisible] = await Promise.all([
+        page.getByTestId('issue-report-dialog').waitFor({ state: 'detached', timeout: timeoutMs }).then(() => true, () => false),
+        page.locator(`${ACK_TOAST}:not([${PREVIOUS_ACK_ATTR}])`).filter({ hasText: ACK_COPY }).first()
+            .waitFor({ state: 'visible', timeout: timeoutMs }).then(() => true, () => false),
+    ]);
+    return { ...earlier, dialogDetached, freshToastVisible };
+}
+
+/** PASS only for a marked page, a detached dialog and a fresh toast; an unmarked page (freshness unproven) is HOLD. */
+export function freshAcknowledgmentVerdict(o: FreshAcknowledgmentObservation | null): BindingVerdict & { evidence: Record<string, number | boolean> } {
+    if (!o || !o.marked) {
+        return { verdict: 'HOLD', detail: 'the toasts on the page before the submit could not be marked, so a fresh acknowledgment is unproven',
+            evidence: { marked: false } };
+    }
+    const evidence = { marked: true, earlierToasts: o.earlier, dialogDetached: o.dialogDetached, freshToastVisible: o.freshToastVisible };
+    if (!o.dialogDetached) return { verdict: 'FAIL', detail: 'the feedback dialog did not close after the submit', evidence };
+    if (!o.freshToastVisible) return { verdict: 'FAIL', detail: 'no acknowledgment appeared that was not already on the page before the submit', evidence };
+    return { verdict: 'PASS', detail: 'the dialog closed and a new acknowledgment appeared for this submit', evidence };
+}
+
+export function writeFreshAcknowledgmentRow(receipt: ReceiptRowSink, o: FreshAcknowledgmentObservation | null): void {
+    const v = freshAcknowledgmentVerdict(o);
+    receipt.row('fresh acknowledgment', v.verdict, v.detail, v.evidence);
+}
+
+/** A `feedback_submit` event as the AnalyticsTap keeps it (closed fields only; see `SentEvent`). */
+export interface FeedbackSubmitEvent {
+    event: string; bootId?: string; journeyId?: string; releaseSha?: string; trafficType?: string;
+    fields?: Readonly<Record<string, string | number | boolean>>;
+}
+
+/**
+ * AHT-08 — the in-spec `received feedback` row: the submit's own `feedback_submit` events (those sent since the submit) are
+ * EXACTLY one `attempted` and one `storage_ok` with the same `submit_seq`, one boot/journey/release/traffic identity, the run's
+ * expected release and canary traffic. This is the harness's local sent verdict (oracles/feedback-sequence.cjs
+ * `feedbackSentVerdict`) without its capture-order check. An observed `storage_failed`, an extra event, a second attempt, or a
+ * mismatched sequence or identity FAILS; an undecodable PostHog beacon since the submit, a missing event or a missing identity
+ * field is HOLD. Receipt by PostHog itself stays the rc-gates readback's to settle: this row proves what left the page.
+ */
+export function receivedFeedbackVerdict(
+    sinceSubmit: readonly FeedbackSubmitEvent[], { blindSinceSubmit, expectedReleaseSha }: { blindSinceSubmit: number; expectedReleaseSha: string },
+): BindingVerdict & { evidence: Record<string, number> } {
+    const events = sinceSubmit.filter((e) => e.event === 'feedback_submit');
+    const outcome = (o: string) => events.filter((e) => e.fields?.outcome === o).length;
+    const evidence = { events: events.length, attempted: outcome('attempted'), storageOk: outcome('storage_ok'),
+        storageFailed: outcome('storage_failed'), blindSinceSubmit };
+    if (evidence.storageFailed > 0) return { verdict: 'FAIL', detail: 'the submit reported storage_failed', evidence };
+    if (events.length > 2) return { verdict: 'FAIL', detail: 'the submit sent more than one attempted/outcome pair', evidence };
+    if (blindSinceSubmit !== 0) return { verdict: 'HOLD', detail: 'a PostHog beacon since the submit was not decodable, so duplicates cannot be excluded', evidence };
+    if (events.length < 2) return { verdict: 'HOLD', detail: 'the submit\'s attempted/storage_ok pair was not observed whole', evidence };
+    if (evidence.attempted !== 1 || evidence.storageOk !== 1) return { verdict: 'FAIL', detail: 'the submit did not send exactly one attempted and one storage_ok', evidence };
+    const [a, b] = events;
+    const seq = a.fields?.submit_seq;
+    if (typeof seq !== 'number' || !Number.isSafeInteger(seq) || seq < 1 || b.fields?.submit_seq !== seq) {
+        return { verdict: 'FAIL', detail: 'the attempted and storage_ok events do not share one valid submit_seq', evidence };
+    }
+    const identity = ['bootId', 'journeyId', 'releaseSha', 'trafficType'] as const;
+    if (!expectedReleaseSha || identity.some((k) => typeof a[k] !== 'string' || !a[k])) {
+        return { verdict: 'HOLD', detail: 'the sent identity (boot, journey, release, traffic class) or the expected release is unknown', evidence };
+    }
+    if (identity.some((k) => b[k] !== a[k])) return { verdict: 'FAIL', detail: 'the attempted and storage_ok events carry different identities', evidence };
+    if (a.releaseSha !== expectedReleaseSha || a.trafficType !== 'canary') {
+        return { verdict: 'FAIL', detail: 'the feedback events are not bound to the run\'s release as canary traffic', evidence };
+    }
+    return { verdict: 'PASS', detail: 'exactly one attempted and one storage_ok with the same submit_seq left the page (receipt is the readback\'s)', evidence };
+}
+
+export function writeReceivedFeedbackRow(
+    receipt: ReceiptRowSink, sinceSubmit: readonly FeedbackSubmitEvent[], opts: { blindSinceSubmit: number; expectedReleaseSha: string },
+): void {
+    const v = receivedFeedbackVerdict(sinceSubmit, opts);
+    receipt.row('received feedback', v.verdict, v.detail, v.evidence);
 }

@@ -21,8 +21,9 @@ import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { feedbackDiagnosticChainRow } from './helpers/coachingFeedbackAdapter';
 import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
 import {
-    FeedbackInsertObserver, readStoredDiagnosticRef, writeNoSessionReportRows, writeOlderTakeBindingRow, writeOlderTakeReportRows,
-    type ReceiptRowSink, type StoredFeedbackReport,
+    FeedbackInsertObserver, markEarlierAcknowledgments, observeFreshAcknowledgment, readStoredDiagnosticRef, writeFreshAcknowledgmentRow,
+    writeNoSessionReportRows, writeOlderTakeBindingRow, writeOlderTakeReportRows, writeReceivedFeedbackRow,
+    type FreshAcknowledgmentObservation, type ReceiptRowSink, type StoredFeedbackReport,
 } from './helpers/feedbackDiagnosticRef';
 import { HarnessParityTap, START_CONTROLS } from './helpers/rwtHarnessParity';
 import { coachingContract } from './helpers/rwtCoachingEvidence';
@@ -126,6 +127,17 @@ async function createSavedOpenMicTake(
     return sessionId;
 }
 
+/**
+ * AHT-08's own observations of the submit. Absent (AHT-07), the submit runs exactly as before. Both are called before the
+ * acknowledgement can throw, so their rows are written whatever the submit's outcome.
+ */
+interface SubmitObservers {
+    /** The submit's telemetry window: the `feedback_submit` count and the time just before the Submit click. */
+    onSubmitted(submitted: { feedbackBefore: number; submitAt: number }): void;
+    /** Earlier toasts are marked before the click; then the dialog's detach and an unmarked acknowledgment are observed. */
+    onFreshAcknowledgment(observation: FreshAcknowledgmentObservation): void;
+}
+
 async function submitFeedback(
     page: Page,
     tap: AnalyticsTap,
@@ -133,6 +145,7 @@ async function submitFeedback(
     association: 'selected_older_session' | 'no_session',
     sessionId: string | null,
     newerSessionId?: string,
+    observers?: SubmitObservers,
 ): Promise<StoredFeedbackReport & { acknowledged: boolean }> {
     await page.goto('/analytics');
     await expect(page.getByTestId('nav-report-issue-button').first()).toBeVisible({ timeout: 45_000 });
@@ -143,7 +156,7 @@ async function submitFeedback(
     // context from the open dialog until the read, so every Send of this draft is seen; one draft's Sends share one key.
     const inserts = new FeedbackInsertObserver(page.context());
     try {
-        return await submitOpenDialog(page, tap, uid, association, sessionId, inserts, newerSessionId);
+        return await submitOpenDialog(page, tap, uid, association, sessionId, inserts, newerSessionId, observers);
     } finally {
         inserts.stop();
     }
@@ -157,6 +170,7 @@ async function submitOpenDialog(
     sessionId: string | null,
     inserts: FeedbackInsertObserver,
     newerSessionId?: string,
+    observers?: SubmitObservers,
 ): Promise<StoredFeedbackReport & { acknowledged: boolean }> {
     const selector = page.getByTestId('feedback-session-select');
     if (association === 'selected_older_session') {
@@ -180,7 +194,11 @@ async function submitOpenDialog(
     // A missing action-time binding is retained as HOLD by bindReadbackJourneys; it must never be
     // guessed from a same-number or unrelated journey.
     const feedbackBefore = tap.sent('feedback_submit').length;
+    // AHT-08 fresh acknowledgment: every toast already on the page is marked BEFORE the click, so only this submit's counts.
+    const earlierAcks = observers ? await markEarlierAcknowledgments(page) : null;
+    observers?.onSubmitted({ feedbackBefore, submitAt: Date.now() });
     await page.getByTestId('issue-report-submit').click();
+    if (observers && earlierAcks) observers.onFreshAcknowledgment(await observeFreshAcknowledgment(page, earlierAcks));
     const acknowledged = await page.getByText('Thanks — we’ve got it.').first()
         .waitFor({ state: 'visible', timeout: 30_000 }).then(() => true).catch(() => false);
     if (!acknowledged) throw new Error('the feedback acknowledgement was not shown');
@@ -358,6 +376,8 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
         let claimed = false;
         let accountDeleted = false;
         let reportId: string | null = null;
+        // AHT-08 received feedback: the submit's telemetry window, set just before the Submit click (null: never submitted).
+        let submitWindow: { feedbackBefore: number; submitAt: number } | null = null;
         // #1593 (Sam, #1662 RETURN control 1): ONE owned finalization — the body's finally and the suite's afterEach
         // (which Playwright runs after a timeout) run this same memoized closure exactly once.
         const finish = finalizer.once(async () => {
@@ -367,6 +387,14 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             // (bounded; page-independent, since a finalizer may run after its tabs closed).
             await steps.step('telemetry settle', () => tap.settleEveryPage((ms) => new Promise((resolve) => setTimeout(resolve, ms))));
             await steps.step('watchdog', () => watch.record(receipt));
+            // AHT-08 received feedback, after the settle: exactly one attempted + one storage_ok, same submit_seq, since the submit.
+            await steps.step('received feedback', (alive) => {
+                const submitted = submitWindow;
+                if (!submitted) return;
+                writeReceivedFeedbackRow(aliveReceipt(receipt, alive), tap.sent('feedback_submit').slice(submitted.feedbackBefore), {
+                    blindSinceSubmit: tap.blindAt.filter((t) => t >= submitted.submitAt).length, expectedReleaseSha: expectedReleaseSha(),
+                });
+            });
             await steps.step('coaching settle', () => generations.settle(), FINALIZE_SETTLE_MS);
             // No session links no take, so the whole scenario must send no coaching request at all.
             await steps.step('coaching budget', () => coachingRequestBudgetRow(receipt, generations, { maximum: 0 }));
@@ -395,7 +423,10 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             const ready = await prepareDisposable(page, receipt, owner);
             claimed = ready;
             if (!ready) return;
-            const stored = await submitFeedback(page, tap, owner.uid, 'no_session', null);
+            const stored = await submitFeedback(page, tap, owner.uid, 'no_session', null, undefined, {
+                onSubmitted: (submitted) => { submitWindow = submitted; },
+                onFreshAcknowledgment: (observation) => writeFreshAcknowledgmentRow(receipt, observation),
+            });
             // Captured FIRST: whatever the stored reference holds, cleanup and retention bookkeeping keep this report id.
             reportId = stored.id;
             writeNoSessionReportRows(receipt, stored);
