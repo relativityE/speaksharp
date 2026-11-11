@@ -21,6 +21,7 @@ import {
     suppressPageSnapshot, telemetryClassRows,
 } from './helpers/rwtJourney';
 import { flatTabState, isRecording, observeCloudStt, persistedId, tabState } from './helpers/rwtPageState';
+import { markBeforeLeave, waitForLeaveDestinationReady } from './helpers/rwtLeaveDestinationReady';
 import { RECORDER_BAR } from '../helpers/micControls';
 import { type RunOwner, prepareRunOwnedAccount } from './helpers/rwtDisposableAccount';
 import { bindReadbackJourneys } from './helpers/rwtOracles';
@@ -224,16 +225,19 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
             page.on('dialog', answerLeave);
             let arrived = false;
             try {
+                // Sam #1811 RETURN item 2: record this navigation's readiness writes from here, so a stale `true` from /session
+                // can never stand in for the destination's.
+                await markBeforeLeave(page);
                 await openProductsItem(page, 'focus-points');
                 arrived = await page.waitForURL(/\/practice\?product=focus-points/, { timeout: 45_000 }).then(() => true, () => false);
             } finally { page.off('dialog', answerLeave); }
             const asked = leavePromptVerdict({ ...dialogs, arrived });
             receipt.row('leave prompt answered Leave', asked.status, asked.detail, { ...dialogs, arrived });
             if (asked.status !== 'PASS') return;
-            // The leave destination's route shell must have committed visible content (the product's own
-            // `data-app-visible-ready`, App.tsx route effect) before its microphone state is read. Bounded; never a silent pass.
-            const leaveReady = await page.locator('html[data-app-visible-ready="true"]').waitFor({ state: 'attached', timeout: 30_000 }).then(() => true, () => false);
-            if (!leaveReady) throw new Error('the Focus Points page never became visibly ready (data-app-visible-ready) within 30 s after leaving');
+            // The leave destination must be ready FOR THIS NAVIGATION before its microphone state is read: the route readiness
+            // App.tsx reset on the destination and set again there, and the Focus Points destination's own UI mounted
+            // (helpers/rwtLeaveDestinationReady.ts). Bounded at 30 s; throws with its reason, never a silent pass.
+            await waitForLeaveDestinationReady(page, 30_000);
             await page.waitForTimeout(3_000);
             const afterLeaving = await tabState(page);
             const left = releasedVerdict(afterLeaving, 'after leaving');
