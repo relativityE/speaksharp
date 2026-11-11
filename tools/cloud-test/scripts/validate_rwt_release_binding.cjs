@@ -18,7 +18,7 @@ const TEST_PINS=Object.freeze({
  'tests/live/helpers/rwtJourney.ts':'fab2ec35f8d93700e7cfcd36b9fee9b3ab7abb123914b1f9c3ac561c6fa51e29',
  'tests/live/helpers/rwtLateCoaching.ts':'b0a32817c2327d65860cf2a8c2f2919c8dd1ac5b7b09ff486fe2c2507a43bc78',
  'tests/live/helpers/rwtWatchdog.ts':'94f8918412e98d8b1f6535a06c6ee96d24eda2f2da0b35a592816e3e607e7082',
- 'tests/live/rwt-open-mic-first-session.live.spec.ts':'b90f09b14835cf9e7b60380f356e5700bc725a36588090b6333fca927792f6f4',
+ 'tests/live/rwt-open-mic-first-session.live.spec.ts':'4eaea3e486a6c83d452dff87ee441b41e0e0ec3d3c81b28a7e35b8cf2fc3af69',
  'tests/unit/rwtCoachingExternal1258.test.ts':'fc2433029dc15dec55e815eab3ba61c3f4f56169ec99ac8724e028c627a2c57a',
  'tests/unit/rwtFinalization1532.test.ts':'83056c871a2980d7058541852f03006d19d3234dbab709aa4a1698c4c4082100',
  'tests/unit/rwtHarnessParity.test.ts':'9f6c162ebaa3dba70c23b2200108611cb6c3260cbe41aa57b755b5aa7462bd65',
