@@ -9,6 +9,7 @@ import { HarnessParityTap, probeSaveIsolationRow } from '../live/helpers/rwtHarn
 
 const page = (buttons: string[]) => `<!doctype html><html><body>${buttons.map((b) => `<button data-testid="${b}">${b}</button>`).join('')}</body></html>`;
 const U = (n: number) => `0b9c5e2a-1111-4222-8333-44445555666${n}`;
+const L = (n: number) => `1b9c5e2a-1111-4222-8333-44445555666${n}`;
 const save = () => (args: { id: string; clear: boolean }) => {
     const root = document.documentElement;
     root.setAttribute('data-session-persisted', 'true');
@@ -48,8 +49,8 @@ test.describe('take recorder in a real browser', () => {
         expect(b).toEqual({ takes: [{ control: 'mic-download', ids: [U(1)] }, { control: 'mic-start', ids: [U(2)] },
             { control: 'verdict-practice-again', ids: [U(3)] }, { control: 'mic-start', ids: [U(4)] }], stray: [] });
         const rows: Array<{ verdict: string }> = [];
-        const admin = { from: () => ({ select: () => ({ eq: () => ({ eq: async () => ({ data: [1, 2, 3, 4].map((n) => ({ id: U(n) })), error: null }) }) }) }) };
-        await probeSaveIsolationRow({ row: (_s, verdict) => rows.push({ verdict }) }, admin as never, 'u', [U(1), U(2)], b, 4);
+        const admin = { from: () => ({ select: () => ({ eq: () => ({ eq: async () => ({ data: [1, 2, 3, 4].map((n) => ({ id: U(n), lease_id: L(n) })), error: null }) }) }) }) };
+        await probeSaveIsolationRow({ row: (_s, verdict) => rows.push({ verdict }) }, admin as never, 'u', [U(1), U(2)], b, [1, 2, 3, 4].map(L), 4);
         expect(rows).toEqual([{ verdict: 'PASS' }]);
         await context.close();
     });
@@ -79,11 +80,11 @@ test.describe('take recorder in a real browser', () => {
         expect(b.stray).toEqual([U(9)]);
         expect(b.takes.map((t) => t.ids.length)).toEqual([1, 1, 0, 2]);
         const rows: Array<{ verdict: string }> = [];
-        const admin = { from: () => ({ select: () => ({ eq: () => ({ eq: async () => ({ data: [1, 2, 5, 4].map((n) => ({ id: U(n) })), error: null }) }) }) }) };
-        await probeSaveIsolationRow({ row: (_s, verdict) => rows.push({ verdict }) }, admin as never, 'u', [U(1), U(2)], b, 4);
+        const admin = { from: () => ({ select: () => ({ eq: () => ({ eq: async () => ({ data: [[1, 1], [2, 2], [5, 4], [4, 4]].map(([n, l]) => ({ id: U(n), lease_id: L(l) })), error: null }) }) }) }) };
+        await probeSaveIsolationRow({ row: (_s, verdict) => rows.push({ verdict }) }, admin as never, 'u', [U(1), U(2)], b, [1, 2, 3, 4].map(L), 4);
         expect(rows).toEqual([{ verdict: 'FAIL' }]);                          // the stray decides first
-        await probeSaveIsolationRow({ row: (_s, verdict) => rows.push({ verdict }) }, admin as never, 'u', [U(1), U(2)], { ...b, stray: [] }, 4);
-        expect(rows[1]).toEqual({ verdict: 'HOLD' });                         // without it, the missing third binding HOLDs
+        await probeSaveIsolationRow({ row: (_s, verdict) => rows.push({ verdict }) }, admin as never, 'u', [U(1), U(2)], { ...b, stray: [] }, [1, 2, 3, 4].map(L), 4);
+        expect(rows[1]).toEqual({ verdict: 'FAIL' });                         // without it, the review repeat's recording saved nothing
         await context.close();
     });
 });
