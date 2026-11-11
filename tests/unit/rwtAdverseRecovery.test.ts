@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
+    AHT12_CATALOG_CASE_OPEN, AHT12_STAND_IN_LABEL,
     RECOVERY_CONTROLS, type RecoveryAttempt, type ReopenObservation, isRecoveryControl, midDownloadFailureVerdict, modelBytesSeen,
     recoverySavedVerdict, retrySetupOutcome, reviewReopenVerdict, savedTranscriptDigest,
 } from '../live/helpers/rwtAdverseRecovery';
@@ -287,5 +288,34 @@ describe('AHT-14 — offline only after model bytes were received, mid-transfer'
         const wait = src.slice(src.indexOf('async function waitForModelBytes('), src.indexOf('\n}\n', src.indexOf('async function waitForModelBytes(')));
         expect(wait).toContain('[data-testid="mic-progress"]');
         expect(wait).toContain('polling: 50');
+    });
+});
+
+describe('AHT-12 is labelled a fresh-browser stand-in; the catalog case stays open (Sam, 2026-11-11)', () => {
+    const src = readFileSync(AJ_PATH, 'utf8');
+    const catalog = JSON.parse(readFileSync(path.resolve(here, '../../tools/cloud-test/config/assertion-catalog.json'), 'utf8')) as
+        Record<string, unknown>;
+    const findCase = (o: unknown): { minimumStarts?: number } | null => {
+        if (!o || typeof o !== 'object') return null;
+        const rec = o as Record<string, unknown>;
+        if (rec['AHT-12'] && typeof rec['AHT-12'] === 'object') return rec['AHT-12'] as { minimumStarts?: number };
+        for (const v of Object.values(rec)) { const f = findCase(v); if (f) return f; }
+        return null;
+    };
+    it('the label says what the test does not prove', () => {
+        expect(AHT12_STAND_IN_LABEL).toMatch(/fresh-browser stand-in/);
+        expect(AHT12_STAND_IN_LABEL).toMatch(/does not prove Allow → Retry on the original denied page/);
+        expect(AHT12_CATALOG_CASE_OPEN).toMatch(/separate requirement this test does not meet/);
+    });
+    it('the recovery row carries the label and the open catalog case in its detail and evidence', () => {
+        const row = src.slice(src.indexOf("receipt.row('after allowing the microphone a take saves'"));
+        const call = row.slice(0, row.indexOf(');') + 2);
+        expect(call).toContain('${AHT12_STAND_IN_LABEL}');
+        expect(call).toContain('standIn: true');
+        expect(call).toContain('catalogCaseOpen: AHT12_CATALOG_CASE_OPEN');
+    });
+    it('the catalog still asks three Starts for AHT-12 (not silently changed to two); the stand-in is designed for two', () => {
+        expect(findCase(catalog)?.minimumStarts).toBe(3);
+        expect(src).toContain("const AHT12_START_PRESS_BUDGET: StartPressBudget = { total: 2,");
     });
 });

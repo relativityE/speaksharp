@@ -25,6 +25,18 @@ export const RECOVERY_CONTROLS: Readonly<Record<AdverseVariant, readonly Recover
     'offline-mid-download': Object.freeze(['mic-retry'] as const),
 });
 
+/**
+ * AHT-12 scope (Sam, 2026-11-11): the existing test is a FRESH-BROWSER STAND-IN. Two Starts: one denied Start in the first
+ * browser, then one download-and-record activation in a fresh allowing browser (a third dummy press would contradict the app's
+ * one-activation behaviour). It does not prove Allow → Retry on the original denied page. The catalog's full AHT-12 case
+ * (assertion-catalog.json minimumStarts 3, same-context denial → grant → Retry) stays a SEPARATE, OPEN requirement: the catalog
+ * is not changed to two, and no row here claims it.
+ */
+export const AHT12_STAND_IN_LABEL =
+    'fresh-browser stand-in: same account, a fresh allowing browser; it does not prove Allow → Retry on the original denied page';
+export const AHT12_CATALOG_CASE_OPEN =
+    "the catalog's full AHT-12 case (three presses, same-context denial → grant → Retry) is a separate requirement this test does not meet";
+
 const FAILED = new Set(['error', 'init-failed']);
 export type RetrySetup = 'not-pressed' | 'ready' | 'failed-again' | 'pending' | 'unobserved';
 

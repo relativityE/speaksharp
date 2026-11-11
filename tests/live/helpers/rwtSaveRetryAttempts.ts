@@ -67,13 +67,16 @@ export function attemptEvidence(attempts: readonly CompletionAttempt[], takeSess
 }
 
 /**
- * `completion-attempts`. The take's session is the one the first (faulted) attempt names. FAIL on any extra, late or changed attempt
- * for that session (the harness's VIOLATION), and on an incomplete pair (no Retry attempt, or a non-2xx answer); HOLD only when
- * the instrument could not read the faulted request's identity, so the scope itself is unknown.
+ * `completion-attempts`. The take's session is the one the first (faulted) attempt names. Judged at the FINAL boundary (after every
+ * owned page closed), as final-attempts.cjs `classifyAttempt(record, 2)` does, so an attempt that arrives after the in-journey
+ * checks still counts. FAIL on a proven violation: an extra or late attempt for the take, a changed body, a second attempt before
+ * the explicit Retry, a non-completed status, a non-canonical id, or an unreadable body beside the take's. HOLD when the sequence
+ * is incomplete (no fault, no Retry attempt, a Retry not answered 2xx) or the faulted request's scope is unreadable: the harness
+ * reports those NOT RUN, never an invented resend.
  */
 export function completionAttemptsVerdict(attempts: readonly CompletionAttempt[]): Verdict {
     const first = attempts.find((a) => a.dropped);
-    if (!first) return { status: 'FAIL', detail: 'no completion attempt was altered, so the faulted save never happened' };
+    if (!first) return { status: 'HOLD', detail: 'no completion attempt was altered, so the faulted save never happened (incomplete)' };
     if (first.sessionId === null) return { status: 'HOLD', detail: 'the faulted completion request had no readable session id, so its scope is unknown' };
     if (!UUID.test(first.sessionId)) return { status: 'FAIL', detail: 'the faulted completion named a non-canonical session id' };
     const own = attempts.filter((a) => a.sessionId === first.sessionId);
@@ -83,12 +86,12 @@ export function completionAttemptsVerdict(attempts: readonly CompletionAttempt[]
     if (own.some((a) => a.status !== 'completed')) return { status: 'FAIL', detail: 'a completion attempt for the take did not ask for status completed' };
     if (own[0] !== first || first.afterRetry) return { status: 'FAIL', detail: 'the take\'s first completion attempt was not the injected fault before Retry' };
     if (own.length > 2) return { status: 'FAIL', detail: `${own.length} completion attempts for the take; exactly 2 (the fault and one Retry) are allowed` };
-    if (own.length < 2) return { status: 'FAIL', detail: 'Retry Save sent no completion attempt for the take' };
+    if (own.length < 2) return { status: 'HOLD', detail: 'no Retry Save attempt for the take was observed (incomplete)' };
     const retry = own[1];
     if (!retry.afterRetry) return { status: 'FAIL', detail: 'the take\'s second completion attempt came before the explicit Retry Save' };
     if (retry.bodySha !== first.bodySha) return { status: 'FAIL', detail: 'the Retry Save attempt changed the completion payload' };
     if (retry.httpStatus === null || retry.httpStatus < 200 || retry.httpStatus >= 300) {
-        return { status: 'FAIL', detail: `the Retry Save attempt was not answered 2xx (${retry.httpStatus ?? 'no answer'})` };
+        return { status: 'HOLD', detail: `the Retry Save attempt was not answered 2xx (${retry.httpStatus ?? 'no answer'}), so the pair is incomplete` };
     }
     return { status: 'PASS', detail: 'exactly two completion attempts for the take: the injected fault, then one Retry Save with the same payload, answered 2xx' };
 }

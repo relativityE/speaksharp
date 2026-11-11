@@ -173,6 +173,13 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
             parity.startPressRow(aliveReceipt(receipt, alive), SAVE_RETRY_START_PRESS_BUDGET);
         });
         await steps.step('owned pages closed', (alive) => parity.ownedPagesClosedRow(aliveReceipt(receipt, alive)), PARITY_CLOSE_STEP_MS);
+        // Harness `completion-attempts` at the FINAL boundary (final-attempts.cjs): every owned page is closed, so no completion
+        // request can still arrive; a late attempt after the in-journey checks is counted here, never missed.
+        await steps.step('completion attempts', (alive) => {
+            const attemptsVerdict = completionAttemptsVerdict(attempts);
+            aliveReceipt(receipt, alive).row('completion attempts are the fault and one Retry', attemptsVerdict.status, attemptsVerdict.detail,
+                { attempts: attemptEvidence(attempts, attempts.find((a) => a.dropped)?.sessionId ?? null), retryMarked });
+        });
         // A signup that died before its uid was read is still found by its created email.
         if ((owner.uid || owner.email) && !accountDeleted) {
             // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion; its own settlement decides the row.
@@ -298,11 +305,6 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         receipt.row('review reopens the saved take', reopen.status, reopen.detail,
             { opened: reopened.opened, beforeMatches: reopened.before === savedDigest, afterMatches: reopened.after === savedDigest });
 
-        // Harness `completion-attempts`, judged in the final window (after the next take and the reopen).
-        const attemptsVerdict = completionAttemptsVerdict(attempts);
-        const takeSession = attempts.find((a) => a.dropped)?.sessionId ?? null;
-        receipt.row('completion attempts are the fault and one Retry', attemptsVerdict.status, attemptsVerdict.detail,
-            { attempts: attemptEvidence(attempts, takeSession) });
     } catch (error) {
         receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
         throw error;

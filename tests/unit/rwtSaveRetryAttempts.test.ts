@@ -34,20 +34,22 @@ describe('completionAttemptsVerdict', () => {
         const a = [attempt(1, body(), false, true, null), attempt(2, body(), true, false, 200), attempt(3, body({ p_session_id: NEXT }), true, false, 200)];
         expect(completionAttemptsVerdict(a).status).toBe('PASS');
     });
-    it('a third attempt for the take, a changed body, a non-2xx answer or no Retry attempt → FAIL', () => {
+    it('a third (late) attempt for the take or a changed body → FAIL (violation, as final-attempts.cjs)', () => {
         expect(completionAttemptsVerdict([attempt(1, body(), false, true, null), attempt(2, body(), true, false, 200), attempt(3, body(), true, false, 200)]).status).toBe('FAIL');
         expect(completionAttemptsVerdict([attempt(1, body(), false, true, null), attempt(2, body({ p_wpm: 129 }), true, false, 200)]))
             .toMatchObject({ status: 'FAIL', detail: expect.stringMatching(/changed the completion payload/) });
-        expect(completionAttemptsVerdict([attempt(1, body(), false, true, null), attempt(2, body(), true, false, 409)]).status).toBe('FAIL');
-        expect(completionAttemptsVerdict([attempt(1, body(), false, true, null), attempt(2, body(), true, false, null)]).status).toBe('FAIL');
-        expect(completionAttemptsVerdict([attempt(1, body(), false, true, null)]).status).toBe('FAIL');
+    });
+    it('a non-2xx or unanswered Retry, or no Retry attempt at all → HOLD (incomplete, the harness says NOT RUN)', () => {
+        expect(completionAttemptsVerdict([attempt(1, body(), false, true, null), attempt(2, body(), true, false, 409)]).status).toBe('HOLD');
+        expect(completionAttemptsVerdict([attempt(1, body(), false, true, null), attempt(2, body(), true, false, null)]).status).toBe('HOLD');
+        expect(completionAttemptsVerdict([attempt(1, body(), false, true, null)]).status).toBe('HOLD');
     });
     it('a second attempt before the explicit Retry, or a non-completed status → FAIL', () => {
         expect(completionAttemptsVerdict([attempt(1, body(), false, true, null), attempt(2, body(), false, false, 200)]).status).toBe('FAIL');
         expect(completionAttemptsVerdict([attempt(1, body(), false, true, null), attempt(2, body({ p_status: 'abandoned' }), true, false, 200)]).status).toBe('FAIL');
     });
-    it('no fault → FAIL; an unreadable fault body → HOLD; any other unreadable body → FAIL', () => {
-        expect(completionAttemptsVerdict([attempt(1, body(), false, false, 200)]).status).toBe('FAIL');
+    it('no fault or an unreadable fault body → HOLD; any other unreadable body or a non-canonical id → FAIL', () => {
+        expect(completionAttemptsVerdict([attempt(1, body(), false, false, 200)]).status).toBe('HOLD');
         expect(completionAttemptsVerdict([attempt(1, 'not json', false, true, null)]).status).toBe('HOLD');
         expect(completionAttemptsVerdict([attempt(1, body(), false, true, null), attempt(2, 'not json', true, false, 200), attempt(3, body(), true, false, 200)]).status).toBe('FAIL');
         expect(completionAttemptsVerdict([attempt(1, body({ p_session_id: 'not-a-uuid' }), false, true, null)]).status).toBe('FAIL');
@@ -134,16 +136,24 @@ describe('the AHT-05/06 spec wiring', () => {
         expect(mark).toBeLessThan(click);
         expect(spec.slice(mark, click).replace(/\s+/g, ' ')).toBe('retryMarked = true; await ');
     });
-    it('judges the exact save after Retry, then the reopen and the attempts after the next take', () => {
+    it('judges the exact save after Retry, then the reopen after the next take', () => {
         const exact = spec.indexOf("receipt.row('Retry Save saved the exact payload once'");
         const nextRow = spec.indexOf("receipt.row('next take saves only itself'");
         const reopen = spec.indexOf("receipt.row('review reopens the saved take'");
-        const attempts = spec.indexOf("receipt.row('completion attempts are the fault and one Retry'");
         expect(exact).toBeGreaterThan(spec.indexOf("receipt.row('Retry Save leaves one saved session'"));
         expect(exact).toBeLessThan(nextRow);
         expect(nextRow).toBeLessThan(reopen);
-        expect(reopen).toBeLessThan(attempts);
-        expect(attempts).toBeLessThan(spec.indexOf('} catch (error) {'));
+    });
+    it('judges the completion attempts once, at the final boundary after every owned page closed (no late attempt is missed)', () => {
+        const row = "row('completion attempts are the fault and one Retry'";
+        expect(spec.split(row)).toHaveLength(2);
+        expect(spec).not.toContain(`receipt.${row}`);
+        const closed = spec.indexOf("steps.step('owned pages closed'");
+        const step = spec.indexOf("steps.step('completion attempts'");
+        expect(closed).toBeGreaterThan(spec.indexOf('new FinalizationSteps()'));
+        expect(step).toBeGreaterThan(closed);
+        expect(spec.indexOf(row)).toBeGreaterThan(step);
+        expect(spec.indexOf(row)).toBeLessThan(spec.indexOf('finalizeOwnedCleanup(steps'));
     });
     it('keeps the Start budget at the two designed presses (the reopen presses no Start)', () => {
         expect(spec).toContain("{ total: 2, perControl: { 'mic-download': 1, 'mic-start': 1, 'verdict-practice-again': 1 } }");

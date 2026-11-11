@@ -29,7 +29,7 @@ import {
 } from './rwtAdverse';
 import type { SessionRowFacts } from './rwtSaveRetry';
 import {
-    type ModelBytesRead, type RecoveryAttempt, type RecoveryControl, type ReopenObservation, RECOVERY_CONTROLS, isRecoveryControl,
+    AHT12_CATALOG_CASE_OPEN, AHT12_STAND_IN_LABEL, type ModelBytesRead, type RecoveryAttempt, type RecoveryControl, type ReopenObservation, RECOVERY_CONTROLS, isRecoveryControl,
     midDownloadFailureVerdict, modelBytesSeen, recoverySavedVerdict, retrySetupOutcome, reviewReopenVerdict, savedTranscriptDigest,
 } from './rwtAdverseRecovery';
 
@@ -279,10 +279,10 @@ async function reopenRow(receipt: RwtReceipt, page: Page, recovered: { savedId: 
  *   the harness's same-context Allow → Start route, which this two-browser design does not take (a `=deny` browser never
  *   grants; see the mic-denied branch).
  *  AHT-13 download fails — exactly 3:
- *   1. `mic-download` with the model route aborted (rwtAdverseJourney.ts:438);
+ *   1. `mic-download` with the model route aborted (rwtAdverseJourney.ts:439);
  *   2. `mic-retry` once the cause is removed (rwtAdverseJourney.ts:157);
  *   3. `mic-start` only after Retry's setup published `ready` (rwtAdverseJourney.ts:163).
- *  AHT-14 offline mid-download — exactly 3: `mic-download` (rwtAdverseJourney.ts:443), then the same `mic-retry` and
+ *  AHT-14 offline mid-download — exactly 3: `mic-download` (rwtAdverseJourney.ts:444), then the same `mic-retry` and
  *   `mic-start` as AHT-13 (rwtAdverseJourney.ts:157, :163).
  */
 const AHT12_START_PRESS_BUDGET: StartPressBudget = { total: 2, perControl: { 'mic-download': 2, 'mic-start': 2 } };
@@ -411,11 +411,12 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
             await selectBenchmarkMode(allowedPage, 'private');
             // The recovery runs whatever the denial row read: the allowing browser's own cold Start is the case either way.
             const recovered = await saveRecoveredTake(allowedPage, variant, true, accountRows, `adverse-${variant}`, takes);
-            // Sam, #1662 RETURN: this proves recovery for the SAME ACCOUNT in a FRESH, allowing browser — not Allow→Retry in
-            // the originally denied page, which a `=deny` browser cannot grant.
+            // Sam, #1662 RETURN and 2026-11-11: a FRESH-BROWSER STAND-IN. It proves recovery for the SAME ACCOUNT in a fresh,
+            // allowing browser, not Allow→Retry in the originally denied page (a `=deny` browser cannot grant). The catalog's
+            // full three-press, same-context case stays open as a separate requirement (AHT12_CATALOG_CASE_OPEN).
             receipt.row('after allowing the microphone a take saves', recovered.verdict.status,
-                `${recovered.verdict.detail} (same account, fresh allowing browser; not Allow→Retry in the denied page)`,
-                { recoveryScope: 'same_account_fresh_browser', ...recovered.evidence });
+                `${recovered.verdict.detail} (${AHT12_STAND_IN_LABEL})`,
+                { recoveryScope: 'same_account_fresh_browser', standIn: true, catalogCaseOpen: AHT12_CATALOG_CASE_OPEN, ...recovered.evidence });
             await reopenRow(receipt, allowedPage, recovered);
         } else {
             // Sam's ACCEPT of PM 731eb5c0: only this download attempt's model-WEIGHT failures while the fault is armed count,
