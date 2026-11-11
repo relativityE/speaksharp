@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useEffect, useRef, useSyncExternalStore } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { loadRepeatOrigin } from '@/services/progress/loadRepeatOrigin';
+import { openAttemptSnapshot, subscribeOpenAttempt } from '@/services/progress/openAttempt';
 import { formatOriginalSessionLabel, formatRepeatValues, reviewOwnedOutcome, TARGET_METRIC_LABELS } from './repeatOutcomeCopy';
 
 /**
@@ -11,8 +12,9 @@ import { formatOriginalSessionLabel, formatRepeatValues, reviewOwnedOutcome, TAR
  * comparison found, in the same words Progress uses on the original session. It states stored values and the server's
  * derived outcome only — never that the tip was followed, a target reached, or that anything improved because of it.
  *
- * Renders nothing while loading and for any session that is not a linked repeat. A failed read is never presented as
- * "not a repeat": it says the link could not be checked and offers a retry.
+ * Renders nothing while loading and for any session that is not a linked repeat (including a repeat whose attempt is
+ * still resolving; it appears once resolution clears the handoff). A failed read is never presented as "not a repeat":
+ * it says the link could not be checked and offers a retry.
  */
 export const RepeatOriginSection: React.FC<{ sessionId: string }> = ({ sessionId }) => {
     const { user } = useAuthProvider();
@@ -23,6 +25,19 @@ export const RepeatOriginSection: React.FC<{ sessionId: string }> = ({ sessionId
         enabled: !!sessionId && !!userId,
         staleTime: 60 * 1000,
     });
+    // The attempt that makes this session a repeat is resolved after save without blocking it (`resolveOpenAttemptWith`),
+    // so a page opened first can read `none` while it is still pending. Resolving clears the open-attempt handoff, which
+    // notifies here (this tab, or another tab through the storage event): read again whenever the handoff changes and
+    // this page does not already show a repeat, so the block appears without a reload.
+    const handoff = useSyncExternalStore(subscribeOpenAttempt, openAttemptSnapshot, () => null);
+    const lastHandoff = useRef(handoff);
+    const { refetch } = query;
+    const showsRepeat = query.data?.status === 'repeat';
+    useEffect(() => {
+        if (lastHandoff.current === handoff) return;
+        lastHandoff.current = handoff;
+        if (userId && !showsRepeat) void refetch();
+    }, [handoff, userId, showsRepeat, refetch]);
 
     if (!userId || query.isPending) return null;
     const view = query.data;

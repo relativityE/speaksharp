@@ -9,6 +9,7 @@ vi.mock('@/contexts/AuthProvider', () => ({ useAuthProvider: () => ({ user: auth
 const loadRepeatOrigin = vi.fn();
 vi.mock('@/services/progress/loadRepeatOrigin', () => ({ loadRepeatOrigin: (...a: unknown[]) => loadRepeatOrigin(...a) }));
 import { RepeatOriginSection } from '../RepeatOriginSection';
+import { clearOpenAttemptIfMatches, setOpenAttempt } from '@/services/progress/openAttempt';
 import { formatOriginalSessionLabel } from '../repeatOutcomeCopy';
 
 const ORIGINAL_AT = '2025-01-17T14:00:00.000Z';
@@ -34,6 +35,7 @@ const FORBIDDEN = /improv|reached|caused|because of|met the/i;
 beforeEach(() => {
     authUserId = 'user-1';
     loadRepeatOrigin.mockReset();
+    localStorage.clear();
 });
 
 describe('outcome 4 RepeatOriginSection', () => {
@@ -124,5 +126,27 @@ describe('outcome 4 RepeatOriginSection', () => {
         const { container } = renderSection();
         expect(container).toBeEmptyDOMElement();
         expect(loadRepeatOrigin).not.toHaveBeenCalled();
+    });
+
+    it('a repeat still resolving when the page opened appears once its attempt resolves, without a reload', async () => {
+        // The save bound this take to the open attempt; the non-blocking advance has not finished yet.
+        expect(setOpenAttempt({ attemptId: 'att-1', userId: 'user-1', sourceSessionId: 'A', resolutionSessionId: 'B' })).toBe(true);
+        loadRepeatOrigin.mockResolvedValueOnce({ status: 'none', sessionId: 'B' }).mockResolvedValue(repeat());
+        renderSection();
+        await waitFor(() => expect(loadRepeatOrigin).toHaveBeenCalledTimes(1));
+        expect(screen.queryByTestId('repeat-origin')).toBeNull();
+        // The advance succeeded: `advanceBoundAttempt` clears exactly this handoff.
+        expect(clearOpenAttemptIfMatches('user-1', 'att-1')).toBe(true);
+        expect(await screen.findByTestId('repeat-origin-link')).toHaveAttribute('href', '/progress/A');
+        expect(loadRepeatOrigin).toHaveBeenCalledTimes(2);
+    });
+
+    it('a handoff change on a page already showing its repeat does not read again', async () => {
+        loadRepeatOrigin.mockResolvedValue(repeat());
+        renderSection();
+        await screen.findByTestId('repeat-origin-link');
+        expect(setOpenAttempt({ attemptId: 'att-9', userId: 'user-1', sourceSessionId: 'B' })).toBe(true);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(loadRepeatOrigin).toHaveBeenCalledTimes(1);
     });
 });

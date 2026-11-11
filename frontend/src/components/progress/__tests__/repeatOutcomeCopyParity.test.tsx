@@ -20,7 +20,10 @@ vi.mock('@/services/progress/recordProgress', () => ({
     recordRecommendationAttempt: vi.fn(), abandonRecommendationAttempt: vi.fn(),
     readPendingRecommendationAttempt: vi.fn(async () => ({ status: 'none' })),
 }));
-vi.mock('@/services/progress/openAttempt', () => ({ setOpenAttempt: vi.fn(), clearOpenAttemptIfMatches: vi.fn() }));
+vi.mock('@/services/progress/openAttempt', () => ({
+    setOpenAttempt: vi.fn(), clearOpenAttemptIfMatches: vi.fn(),
+    subscribeOpenAttempt: () => () => undefined, openAttemptSnapshot: () => null,
+}));
 vi.mock('@/lib/logger', () => ({ default: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn(), trace: vi.fn() } }));
 import { ProgressPanel } from '../ProgressPanel';
 import { RepeatOriginSection } from '../RepeatOriginSection';
