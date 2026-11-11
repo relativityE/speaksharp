@@ -27,7 +27,7 @@ function fixture({ main = SHA, finalMain = main, conclusion = 'success', status 
 }
 
 describe('actual production gate: default off and exact completed qualification', () => {
-    it.each([undefined, '', false, 'false'])('missing/false %s does not even invoke the GitHub reader', async (deployProduction) => {
+    it.each([undefined, '', false, 'false'])('missing/false %j does not even invoke the GitHub reader', async (deployProduction) => {
         const reader = vi.fn();
         expect(await authorizeProductionRelease({ ...intent, deployProduction }, reader)).toEqual({ allowed: false, state: 'OFF' });
         expect(reader).not.toHaveBeenCalled();
