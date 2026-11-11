@@ -86,6 +86,7 @@ import {
 } from './rwtMarkerObserver';
 import { ABSENT_ROW, MarkerTimeline, nextPointMarkedVerdict, sampleFocusRail } from './rwtFocusNextMarker';
 import { FOCUS_TAKES_DIFFER_ROW, focusTakesDifferRow } from './rwtFocusTakesDiffer';
+import { FOCUS_EDIT_CANCEL_ROW, editCancelVerdict, type BriefSnapshot, type EditCancelObservation } from './rwtFocusEditCancel';
 
 const JOURNEY = 'focus_points';
 export const WEBGPU = process.env.RWT_WEBGPU === '1';
@@ -874,6 +875,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                         : 'no saved Focus take after the product switch, so no completed review offers Start a new set';
                     receipt.row('Focus New Set', 'HOLD', why);
                     receipt.row('Focus Edit', 'HOLD', why);
+                    receipt.row(FOCUS_EDIT_CANCEL_ROW, 'HOLD', why);
                     return;
                 }
                 // Browser PM 6089313104: an infrastructure read failure is never turned into a product verdict.
@@ -929,6 +931,19 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 let railLabelsMatchEdit = false;
                 let takeBId: string | null = null;
                 let railOrdered: Array<{ label: string; status: RailStatus | null }> = [];
+                // AHT-02 focus-edit-cancel-save (review fix 6): the cancel half of Edit. Nothing here presses Start or requests coaching.
+                const cancel: EditCancelObservation = { editOpened: false, editSeeded: false, changeTyped: false, focusedInDialog: false,
+                    closed: false, railKept: null, reopened: false, preserved: false, briefBefore: null, briefAfter: null };
+                // The newest saved brief and its point labels, compared in Node only; a failed read is 'error', never a verdict.
+                const newestBrief = async (): Promise<BriefSnapshot> => {
+                    const { data: b, error: bErr } = await admin!.from('objective_brief').select('id').eq('user_id', owner.uid)
+                        .order('created_at', { ascending: false }).limit(1).maybeSingle();
+                    if (bErr) return 'error';
+                    if (!b) return null;
+                    const { data: bp, error: bpErr } = await admin!.from('objective_brief_point').select('label,sort_order').eq('brief_id', b.id).eq('user_id', owner.uid);
+                    if (bpErr) return 'error';
+                    return { id: b.id as string, labels: [...(bp ?? [])].sort((x, y) => (x.sort_order as number) - (y.sort_order as number)).map((p) => p.label as string) };
+                };
                 if (newSetBlank) {
                     await page.getByTestId('objective-goal-select').selectOption('other');
                     await page.getByTestId('objective-goal-input').fill(topic);
@@ -941,15 +956,45 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
 
                     // Edit before the take opens the setup seeded with the new set; replace the unspoken point.
                     const edit = page.getByTestId('focus-points-edit');
+                    const dialog = page.getByTestId('objective-setup-dialog');
+                    const label2 = page.getByTestId('objective-point-label-2');
                     if (await edit.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false)) {
                         await edit.click();
-                        await page.getByTestId('objective-setup-dialog').waitFor({ state: 'visible', timeout: 30_000 }).catch(() => undefined);
-                        editSeeded = (await page.getByTestId('objective-point-label-2').inputValue().catch(() => '')) === unspoken;
-                        await page.getByTestId('objective-point-label-2').fill(edited[2]);
-                        await page.getByTestId('objective-setup-submit').click();
-                        await page.getByTestId('objective-setup-dialog').waitFor({ state: 'hidden', timeout: 30_000 }).catch(() => undefined);
-                        const labels = await Promise.all(edited.map((_, i) => page.getByTestId(`focus-point-${i}`).innerText().catch(() => '')));
-                        railLabelsMatchEdit = labels.every((text, i) => text.includes(edited[i])) && !(await page.getByTestId('focus-points-rail').innerText()).includes(unspoken);
+                        cancel.editOpened = await dialog.waitFor({ state: 'visible', timeout: 30_000 }).then(() => true).catch(() => false);
+                        editSeeded = (await label2.inputValue().catch(() => '')) === unspoken;
+                        cancel.editSeeded = editSeeded;
+                        // Cancel probe (harness focus-controls.cjs `cancelPreserved`): type the change, Escape, reopen Edit.
+                        if (cancel.editOpened && editSeeded) {
+                            cancel.briefBefore = await newestBrief();
+                            await label2.fill(edited[2]).catch(() => undefined);
+                            cancel.changeTyped = (await label2.inputValue().catch(() => '')) === edited[2];
+                            // Same delivery as the harness closeFocus: Escape only once focus is inside the dialog.
+                            cancel.focusedInDialog = await page.waitForFunction(
+                                () => document.querySelector('[data-testid="objective-setup-dialog"]')?.contains(document.activeElement) ?? false,
+                                undefined, { timeout: 15_000 }).then(() => true).catch(() => false);
+                            if (cancel.changeTyped && cancel.focusedInDialog) {
+                                await page.keyboard.press('Escape');
+                                cancel.closed = await dialog.waitFor({ state: 'hidden', timeout: 10_000 }).then(() => true).catch(() => false);
+                            }
+                            if (cancel.closed) {
+                                const railPoint = await page.getByTestId('focus-point-2').innerText().catch(() => null);
+                                cancel.railKept = railPoint === null ? null : railPoint.includes(unspoken) && !railPoint.includes(edited[2]);
+                                cancel.briefAfter = await newestBrief();
+                                if (await edit.waitFor({ state: 'visible', timeout: 15_000 }).then(() => true).catch(() => false)) {
+                                    await edit.click();
+                                    cancel.reopened = await dialog.waitFor({ state: 'visible', timeout: 30_000 }).then(() => true).catch(() => false);
+                                    cancel.preserved = cancel.reopened && (await label2.inputValue().catch(() => '')) === unspoken;
+                                }
+                            }
+                        }
+                        // The Save half, unchanged: only from an open Edit dialog (an unopened one leaves railLabelsMatchEdit false).
+                        if (await dialog.isVisible().catch(() => false)) {
+                            await label2.fill(edited[2]);
+                            await page.getByTestId('objective-setup-submit').click();
+                            await dialog.waitFor({ state: 'hidden', timeout: 30_000 }).catch(() => undefined);
+                            const labels = await Promise.all(edited.map((_, i) => page.getByTestId(`focus-point-${i}`).innerText().catch(() => '')));
+                            railLabelsMatchEdit = labels.every((text, i) => text.includes(edited[i])) && !(await page.getByTestId('focus-points-rail').innerText()).includes(unspoken);
+                        }
                     }
 
                     // The next take, on the deployed engine with the same spoken fixture, is scored on the EDITED set.
@@ -978,6 +1023,8 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 const evidence = { onPredecessorReview, offered, newSetBlank, editSeeded, railLabelsMatchEdit, takeBSaved: takeBId !== null && takeBId !== predecessor && takeBId !== persistedId, final: railOrdered.map((r) => r.status).join(','), savedVerdicts: takeB.ordered.map((r) => r.verdict).join(',') };
                 receipt.row('Focus New Set', v.newSet.verdict, v.newSet.detail, evidence);
                 receipt.row('Focus Edit', v.edit.verdict, v.edit.detail, evidence);
+                const cancelRow = editCancelVerdict(cancel);
+                receipt.row(FOCUS_EDIT_CANCEL_ROW, cancelRow.verdict, cancelRow.detail, cancelRow.evidence);
             });
         }
     } finally {
