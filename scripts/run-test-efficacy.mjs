@@ -15,6 +15,61 @@ import {sourceContractBinding,validateSourceContractWitness} from './lib/sourceC
 import {selectNativeContracts,produceNativePhase,nativeChildTracker,sqlSourceBinding,validateSqlWitness,
   NATIVE_BATCH_SIZE,executionBatchIdentity} from './lib/nativeTestExecutionEvidence.mjs';
 import {producePythonReceipt} from './lib/pythonTestExecutionEvidence.mjs';
+// Three bounded semantic faults at existing product boundaries. These controls supplement the
+// coverage floor; they make no claim about unregistered journeys or a mutation percentage.
+export const USER_HARM_CONTROLS = Object.freeze([
+  {
+    id: 'wrong-account-saved-review',
+    harm: 'A cached transcript from another account is shown after an account switch.',
+    sourceFile: 'frontend/src/components/session/restorableSession.ts',
+    testFile: 'frontend/src/components/session/__tests__/restorableSession1258.test.ts',
+    control: [{
+      anchor: 'return row.id === restoreId && row.user_id === ownerId ? row : null;',
+      replacement: 'return restoreId === row.id && ownerId === row.user_id ? row : null;',
+    }],
+    mutants: [{
+      id: 'ignore-saved-review-owner',
+      anchor: 'return row.id === restoreId && row.user_id === ownerId ? row : null;',
+      replacement: 'return row.id === restoreId ? row : null;',
+      assertion: 'restorableSession CASUALTY: a cached row of ANOTHER account is never shown, even when the id matches',
+      assertionAnchor: "expect(restorableSession(row({ user_id: 'owner-a' }), 's1', 'owner-b')).toBeNull();",
+    }],
+  },
+  {
+    id: 'lost-detected-focus-point',
+    harm: 'A saved partially detected point becomes a false negative in the terminal Focus result.',
+    sourceFile: 'frontend/src/utils/focusCoverage.ts',
+    testFile: 'frontend/src/utils/__tests__/focusCoverage.test.ts',
+    control: [{
+      anchor: "const covered = status === 'covered' || status === 'partial';",
+      replacement: "const covered = (status === 'covered' || status === 'partial');",
+    }],
+    mutants: [{
+      id: 'drop-partial-terminal-detection',
+      anchor: "const covered = status === 'covered' || status === 'partial';",
+      replacement: "const covered = status === 'covered';",
+      assertion: 'focusCoverage.applyFinalizedCoverageAuthority — terminal truth counts a partial terminal match as detected while preserving the partial status',
+      assertionAnchor: "expect(terminal?.coveredCount).toBe(1);\n        expect(terminal?.rows[0]).toMatchObject({ status: 'partial', covered: true });",
+    }],
+  },
+  {
+    id: 'discarded-feedback-correction',
+    harm: 'A corrected report reuses a possibly committed delivery identity and is silently deduplicated.',
+    sourceFile: 'frontend/src/components/IssueReportDialog.tsx',
+    testFile: 'frontend/src/components/__tests__/IssueReportDialog.component.test.tsx',
+    control: [{
+      anchor: 'if (attempted.signature === draftSignature) return;',
+      replacement: 'if (draftSignature === attempted.signature) return;',
+    }],
+    mutants: [{
+      id: 'reuse-feedback-delivery-identity-after-edit',
+      anchor: 'if (attempted.signature === draftSignature) return;',
+      replacement: 'if (attempted !== null) return;',
+      assertion: '#1404 Share feedback redesign #1416 editing after a failed attempt sends under a new delivery identity',
+      assertionAnchor: 'expect(secondCall.idempotencyKey).not.toBe(firstKey);',
+    }],
+  },
+]);
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const git = (root, args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }).trim();
@@ -154,7 +209,8 @@ export function runPythonExecution({root=process.cwd(),base=process.env.TEST_EFF
 // Moved beside its independent validator; re-exported so existing callers keep one selection.
 export {selectExecutionContracts};
 
-export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_EFFICACY_BASE, provenance, executionOnly = false, helpersOnly = false, nativeOnly = false, batch } = {}) {
+export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_EFFICACY_BASE, provenance, executionOnly = false, helpersOnly = false, nativeOnly = false, batch, userHarmControls = false } = {}) {
+  if (userHarmControls && (executionOnly || helpersOnly || nativeOnly)) throw new Error('User-harm controls require semantic mutation phases');
   root = canonicalPath(root);
   const commit = git(root, ['rev-parse', 'HEAD']);
   const tree = git(root, ['rev-parse', 'HEAD^{tree}']);
@@ -170,8 +226,11 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
   const executionKind=helpersOnly?'registered-helpers':'changed-evidence';
   const evidenceFiles=executionOnly?executionRequiredFiles(root,base,executionKind):[];
   const unavailable=executionOnly?unavailableExecutionInputs(root,evidenceFiles):[];
-  const selected=nativeOnly?selectNativeContracts(root,evidenceFiles):executionOnly?selectExecutionContracts(root,evidenceFiles,{helpersOnly}):selectContracts(root,changed);
-  if (!executionOnly && (selected.length > 1 || selected.some(contract => contract.mutants.length !== 2 || contract.control?.length !== 2))) {
+  const selected=userHarmControls?USER_HARM_CONTROLS:nativeOnly?selectNativeContracts(root,evidenceFiles):executionOnly?selectExecutionContracts(root,evidenceFiles,{helpersOnly}):selectContracts(root,changed);
+  if (userHarmControls && (selected.length !== 3 || selected.some(contract => contract.mutants.length !== 1 || contract.control?.length !== 1))) {
+    throw new Error('User-harm control budget: three named boundaries, one mutant and one semantic control each');
+  }
+  if (!executionOnly && !userHarmControls && (selected.length > 1 || selected.some(contract => contract.mutants.length !== 2 || contract.control?.length !== 2))) {
     throw new Error('Efficacy pilot budget: one contract, two mutants, one two-seam semantic control');
   }
   // One invocation executes exactly one batch of at most eight contracts; the caller runs every batch.
@@ -187,9 +246,9 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
   if (provenance.commit!==commit || provenance.tree!==tree || provenance.snapshotSha256!==before.digest) {
     throw new Error('Producer context differs from tested source');
   }
-  const receipt = { schemaVersion: 2, runId: randomUUID(), scope: nativeOnly?'changed Deno/Node execution; bounded planner/observer callable evidence only':executionOnly ? 'changed Vitest collection and execution only' : 'registered analytics-truth faults only',
+  const receipt = { schemaVersion: 2, runId: randomUUID(), scope: userHarmControls?'three named user-harming faults only; no journey-wide or mutation-percentage claim':nativeOnly?'changed Deno/Node execution; bounded planner/observer callable evidence only':executionOnly ? 'changed Vitest collection and execution only' : 'registered analytics-truth faults only',
     provenance,commit, tree, snapshotSha256: before.digest, base: base || null,
-    selection: changed === null ? 'all-registered-no-base' : 'affected', changedPaths: changed,
+    selection: userHarmControls ? 'all-three-named-user-harm-controls' : changed === null ? 'all-registered-no-base' : 'affected', changedPaths: changed,
     status: unavailable.length?'incomplete':running.length?'executed':'not-applicable', contracts: [], tests: [],
     ...(executionOnly?{executionKind,unavailable,batch:executionBatchIdentity(selected,batch)}:{}) };
   if (!running.length) return receipt;
@@ -247,7 +306,7 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
       if(contract.sourceFiles) binding.sourceContract={files:contract.sourceFiles,
         sourceBinding:sourceContractBinding(temporary,contract.sourceFiles),
         witnessFile:path.join(temporary,`.source-contract-${binding.phaseId}.json`)};
-      if(contract.sqlFiles)binding.sql={files:contract.sqlFiles,sourceBinding:sqlSourceBinding(temporary),
+      if(contract.sqlFiles)binding.sql={files:contract.sqlFiles,sourceBinding:sqlSourceBinding(temporary,contract.testFile),
         witnessFile:path.join(temporary,`.sql-${binding.phaseId}.json`)};
       const environment=testEnvironment(temporary,binding,envelopeFile);
       if(contract.fixtureFile) environment.TEST_EFFICACY_SERVICE_CALLER_FIXTURE='1';
@@ -402,7 +461,7 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    console.log(JSON.stringify(runTestEfficacy(), null, 2));
+    console.log(JSON.stringify(runTestEfficacy({ userHarmControls: process.argv.includes('--user-harm-controls') }), null, 2));
   } catch (error) {
     console.error(`[test-efficacy] ${error.message}`);
     process.exitCode = 1;

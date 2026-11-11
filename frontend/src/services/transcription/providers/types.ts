@@ -21,7 +21,9 @@ export type NativeSttProvider =
 export type PrivateSttProvider =
   | 'transformers-js'
   | 'transformers-js-v4'
-  | 'moonshine-streaming';
+  | 'moonshine-streaming'
+  | 'granite-ctc'
+  | 'parakeet-tdt';
 
 export type SttProvider = NativeSttProvider | PrivateSttProvider;
 

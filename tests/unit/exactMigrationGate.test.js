@@ -51,7 +51,7 @@ describe('C1 ordered exact-operation enforcement', () => {
         expect(index).toBeLessThan(job.steps.findIndex(step => step.uses?.startsWith('supabase/setup-cli@')));
         expect(index).toBeLessThan(job.steps.findIndex(step => /\bsupabase\s/.test(step.run ?? '')));
         const guard = job.steps[index];
-        expect(guard.if).toBe("${{ inputs.target_version == '20261024083000' || inputs.target_version == '20261025021046' }}");
+        expect(guard.if).toBe("${{ inputs.target_version == '20261024083000' || inputs.target_version == '20261025021046' || inputs.target_version == '20261110173548' }}");
         expect(guard['continue-on-error']).toBeUndefined();
         expect(guard.env).toBeUndefined();
         expect(job.env.SUPABASE_DB_PASSWORD).toBe('${{ secrets.SUPABASE_DB_PASSWORD }}');
@@ -484,13 +484,17 @@ describe('exact migration gate', () => {
         const dependencyViolations = [];
         for (const [targetIndex, target] of EXACT_MIGRATION_ALLOWLIST.entries()) {
             const config = resolveExactMigrationConfig({ SELECTED_TARGET_VERSION: target.version });
+            const withheld = target.version === '20261110173548' ? [{
+                version: '20261027192550', file: '20261027192550_account_completion_billing_settlement.sql',
+                sha256: '398aa50b8db168acc0cee68a11a433b40bd3101af03e3051dcdc2c87b2bef45d', mustRemainPending: true,
+            }] : [];
             expect(config.requiresIncludeAll).toBe(targetIndex === 0);
             expect(config.requiredAppliedVersions).toEqual([
                 '20260812002000',
                 ...EXACT_MIGRATION_ALLOWLIST.slice(0, targetIndex).map(({ version }) => version),
             ]);
             expect(config.excludedMigrations).toEqual(
-                EXACT_MIGRATION_ALLOWLIST.slice(targetIndex + 1).map(({ version, file }) => ({ version, file })),
+                [...EXACT_MIGRATION_ALLOWLIST.slice(targetIndex + 1).map(({ version, file }) => ({ version, file })), ...withheld],
             );
 
             const fixture = mkdtempSync(join(tmpdir(), `allowlisted-${target.version}-`));
@@ -505,6 +509,9 @@ describe('exact migration gate', () => {
                 for (const entry of EXACT_MIGRATION_ALLOWLIST) {
                     writeFileSync(join(migrations, entry.file), `-- ${entry.version}\n`);
                 }
+                for (const entry of withheld) {
+                    writeFileSync(join(migrations, entry.file), readFileSync(join('backend/supabase/migrations', entry.file)));
+                }
 
                 const result = prepareExactMigrationWorkspace(source, isolatedRoot, config);
                 const visible = EXACT_MIGRATION_ALLOWLIST
@@ -515,6 +522,10 @@ describe('exact migration gate', () => {
                     .map(({ version }) => version);
                 expect(visible).toEqual(EXACT_MIGRATION_ALLOWLIST.slice(0, targetIndex + 1).map(({ version }) => version));
                 expect(held).toEqual(EXACT_MIGRATION_ALLOWLIST.slice(targetIndex + 1).map(({ version }) => version));
+                for (const entry of withheld) {
+                    expect(existsSync(join(result.heldDir, entry.file))).toBe(true);
+                    expect(existsSync(join(result.supabaseDir, 'migrations', entry.file))).toBe(false);
+                }
 
                 const beforeRows = [matched, appliedWebhook];
                 const afterRows = [matched, appliedWebhook];
@@ -527,15 +538,19 @@ describe('exact migration gate', () => {
                         ? ` ${entry.version} | ${entry.version} | applied`
                         : ` ${entry.version} |                | pending`);
                 }
+                for (const entry of withheld) {
+                    beforeRows.push(` ${entry.version} | | pending`);
+                    afterRows.push(` ${entry.version} | | pending`);
+                }
                 const before = beforeRows.join('\n');
                 const after = afterRows.join('\n');
                 expect(assertBeforeApply(before, config).pending).toEqual(
-                    EXACT_MIGRATION_ALLOWLIST.slice(targetIndex).map(({ version }) => version),
+                    [...EXACT_MIGRATION_ALLOWLIST.slice(targetIndex).map(({ version }) => version), ...withheld.map(row => row.version)],
                 );
                 expect(assertExactDryRun(`Would push these migrations:\n • ${target.file}`, config))
                     .toEqual({ files: [target.file] });
                 expect(assertAfterApply(before, after, config)).toEqual({
-                    pending: EXACT_MIGRATION_ALLOWLIST.slice(targetIndex + 1).map(({ version }) => version),
+                    pending: [...EXACT_MIGRATION_ALLOWLIST.slice(targetIndex + 1).map(({ version }) => version), ...withheld.map(row => row.version)],
                     appliedDelta: `${target.version}:pending->applied`,
                 });
 

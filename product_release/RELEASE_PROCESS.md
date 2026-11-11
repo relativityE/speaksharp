@@ -177,15 +177,15 @@ does not itself control Vercel's separate Git integration. Identify the exact se
 bootstrap operation, its operator, authority and readback; missing evidence keeps landing
 **HOLD**. This procedure grants no settings or production permission.
 
-The scheduled-monitor binding is the non-secret repository Actions Variable
-`PRODUCTION_RELEASE_SHA`, catalogued in
-[OPERATIONS_AND_SECURITY.md §2.3](./OPERATIONS_AND_SECURITY.md#23-github-actions-env-home-d--secrets-vs-variables).
-Bootstrap requires a fresh observation of production's `window.__APP_RELEASE__`, reconciled
-with the last successful authorized release and its required qualification/readback evidence.
-Use the full 40-character SHA; do not infer it from repository `main`, a merge receipt or a
-successful build alone. Verify the selected workflow consumes this variable and obtain
-separate authority for its initial write. If identity or release evidence cannot be reconciled,
-leave bootstrap unverified and **HOLD** rather than inventing a value.
+The scheduled-monitor binding is read at run time, not maintained by hand. Each canary run reads
+production's `window.__APP_RELEASE__` from the canonical production page and requires exactly one
+marker carrying a full lowercase 40-character SHA. Because the page is public and the canary checks
+that SHA out in the job that holds the database password, the value is accepted only when GitHub
+confirms it is a commit already on `main` (equal to or an ancestor of `main`). Anything else is
+**HOLD** with a named reason: `production-unreadable` (page down, no marker or more than one),
+`served-sha-invalid` (the marker is not a full SHA) or `served-not-on-main` (another branch or a
+fork, or GitHub could not confirm it). No repository variable is involved; the former
+`PRODUCTION_RELEASE_SHA` variable is retired and nothing reads it.
 
 **Promotion and advancement.** App is the selected production release operator. For an
 explicitly authorized promotion, select one exact qualified, independently reviewed,
@@ -202,20 +202,17 @@ existing confirmations, drain invalidation or mandatory operation readbacks.
    SHA alone does not prove Edge generation/configuration, database state or account outcomes.
    A backend-only operation requires its own exact-source/runtime readbacks and does not advance
    the frontend binding to an unserved commit.
-4. Only after all required promotion/readback checks succeed, have the operator with separately
-   authorized repository-variable access advance `PRODUCTION_RELEASE_SHA` to that verified
-   served SHA and read the variable back. Retain its previous value until this point.
-5. Record the UTC observations, intended/observed SHA, variable readback and linked run/receipts
-   in `RELEASE_STATUS.md`. Scheduled monitoring binds to the verified served release; unserved
-   later main commits retain their own CI evidence and cannot replace this binding.
+4. No binding needs advancing: the next scheduled canary reads the newly served release itself.
+5. Record the UTC observations, intended/observed SHA and linked run/receipts in
+   `RELEASE_STATUS.md`. Scheduled monitoring binds to the release production actually serves;
+   unserved later main commits retain their own CI evidence and are never canaried in its place.
 
 **Failure and recovery.** Failed, cancelled, partial or uncertain promotion, or a failed/mismatched
-served readback, retains the prior variable and yields **HOLD**. This does not prove that a
-partially changed production environment still matches the old value. If deployment succeeds
-but the variable update/readback fails, keep the discrepancy visible as **HOLD**; do not claim
-monitoring is bound to the new release. Preserve failure history and request the precise
-authorized recovery step; no automatic retry, rollback or permission bypass is implied.
-Missing/malformed binding or served-identity drift must never silently use latest main or
+served readback, yields **HOLD** for the release. The canary keeps testing whatever production
+actually serves, so a partial promotion is visible as the old (or unexpected) served SHA rather
+than hidden behind a stale variable. Preserve failure history and request the precise authorized
+recovery step; no automatic retry, rollback or permission bypass is implied.
+An unreadable, malformed or off-main served identity must never silently use latest main or
 produce green qualification. Preserve daily/weekly health visibility and mark unavailable
 product evidence unexecuted. Serving the expected SHA does not close live/human acceptance.
 

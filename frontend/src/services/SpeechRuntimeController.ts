@@ -4,6 +4,7 @@ import { currentLogin, recordSavedSessionFor, type LoginIdentity } from './login
 import { confirmTakeLease } from './recordingLease';
 import { analyticsBuffer } from './AnalyticsBuffer';
 import { captureRecordingSubject, sanitizeRecordingSubject, type RecordingSubject } from './telemetry/recordingSubject';
+import { noteSavedTake } from './telemetry/savedTakeTarget';
 import logger from '@/lib/logger';
 import { syncSTTReady, syncSTTIdentity, syncForensicAnchors as syncRuntimeState, syncEngineReady, syncSessionPersisted, syncNegotiatorDecision, syncProfileReady } from '@/lib/forensicAnchors';
 import {
@@ -1629,6 +1630,8 @@ export class SpeechRuntimeController {
                          * the marker is: if the slot moved to another session while the completion was in flight, this identity
                          * is stale and must not overwrite that newer take's.
                          */
+                        // AHT-01 Option 1: the review card names the take that saved this session, not the ambient one.
+                        noteSavedTake(targetSessionId, fullSave.subject);
                         useSessionStore.getState().setCompletedSessionId(targetSessionId);
                         /**
                          * #1258 RWT round 2 C — AND THE PAGE ENTERS THAT REVIEW. Only a successful Stop enters the
@@ -4684,7 +4687,10 @@ export class SpeechRuntimeController {
                             body: {
                                 op: 'register',
                                 recordingKey: recordingId,
-                                expectedModel: mode === 'private' ? resolvePrivateModel() : null,
+                                // Bind this take to the service already warmed and captured above. The
+                                // config default can differ from an internal comparison selection.
+                                // Missing metadata stays unattributed; never substitute the Whisper default.
+                                expectedModel: service.getMetadata?.()?.modelName?.trim() || null,
                             },
                         });
                         if (reg?.error) logger.warn({ err: reg.error, recordingId }, '[controller] pre-recording attribution intent failed — session will be unattributed');
@@ -5489,11 +5495,13 @@ export class SpeechRuntimeController {
                 this.releaseFinalizingIfOwner('superseded_before_stop', stopAuthority.lifecycleVersion, stopAuthority);
                 return null;
             }
+            // Work point 2, D5: declared outside the try so the catch knows the save already succeeded (a failure
+            // after it, such as the owner's destroy() rejecting, must not report the transcript as not saved).
+            let sessionCompleted = false;
             try {
                 this.stopHeartbeat();
                 this.stopWatchdog();
                 const service = this.service;
-                let sessionCompleted = false;
                 if (!service) {
                     await this.transition('READY', undefined, token);
                     this.releaseFinalizingIfOwner('no_service', stopAuthority.lifecycleVersion, stopAuthority);
@@ -6162,6 +6170,8 @@ export class SpeechRuntimeController {
                                 // fact being reported — but only while this stop still owns the shared surfaces. Everything below is
                                 // optional analysis whose failure is non-fatal, and the review reader used to depend on it: a
                                 // reconciliation failure meant no id, a disabled query, and a saved session stuck on "Loading…".
+                                // AHT-01 Option 1: the review card names the take that saved this session, not the ambient one.
+                                noteSavedTake(sessionId, takeSubject);
                                 useSessionStore.getState().setCompletedSessionId(sessionId ?? null);
                             });
 
@@ -6594,22 +6604,42 @@ export class SpeechRuntimeController {
                  */
                 await this.transition('FAILED', err as Error, terminalTuple !== null ? undefined : token);
                 this.releaseFinalizingIfOwner('stop_failed', stopAuthority.lifecycleVersion, stopAuthority);
-                if (err instanceof FinalizationTimeoutError) {
+                if (sessionCompleted) {
+                    // Work point 2, D5: the session row was already completed with its transcript; only the teardown
+                    // after it failed. The server refuses to re-complete a completed row with a different status, so
+                    // the `failed` mark above cannot undo the save.
+                    useSessionStore.getState().setSTTStatus({
+                        type: 'warning',
+                        message: 'Your session was saved.',
+                        detail: 'The recorder did not shut down cleanly afterwards.',
+                    });
+                } else if (err instanceof FinalizationTimeoutError) {
                     // #1089: name the real failure instead of hanging on Finalizing… forever. The control
-                    // is usable again (FAILED clears the finalizing latch), and the transcript captured up
-                    // to this point is kept as a recovery draft when there is one.
+                    // is usable again (FAILED clears the finalizing latch).
+                    // Work point 2, D1: say only what is true. The transcript working memory is purged below
+                    // (#1306) and the recovery draft is content-free, so no transcript text is kept here.
                     useSessionStore.getState().setSTTStatus({
                         type: 'error',
                         message: 'We could not finish processing this recording.',
                         detail: hasRecoveryDraftSignal
-                            ? 'What we transcribed so far was kept in this browser. You can record again.'
+                            ? 'The transcript from this recording was not saved. You can record again.'
                             : 'You can record again.',
                     });
-                } else if (hasRecoveryDraftSignal) {
+                } else if (hasRecoveryDraftSignal && this.holdsRecoverableSave(this.sessionId)) {
+                    // A save really failed: a finalized draft and Retry Save exist for this session.
                     useSessionStore.getState().setSTTStatus({
                         type: 'warning',
                         message: 'Session was not saved yet.',
                         detail: 'A local recovery draft was kept in this browser after a save issue.',
+                    });
+                } else if (hasRecoveryDraftSignal) {
+                    // Work point 2, D5: the stop itself failed (for example, the final decode threw). No save was
+                    // attempted and none will follow, the recording is unlocked, and the transcript is purged below.
+                    // Saying "not saved yet … after a save issue" promised a save that will never come.
+                    useSessionStore.getState().setSTTStatus({
+                        type: 'error',
+                        message: 'We could not finish processing this recording.',
+                        detail: 'The transcript from this recording was not saved. You can record again.',
                     });
                 }
                 // #1306 P1: the FAILED terminal is also a terminal stop — transcript-derived processing is done

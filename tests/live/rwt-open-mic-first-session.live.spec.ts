@@ -989,6 +989,8 @@ test.describe('RWT — Open Mic first session @live', () => {
             // session and shown by its own saved review (Analytics detail, separate page; the journey page is untouched).
             await test.step('interrupted take coaching saved and shown in its saved review', async () => {
                 const id = repeatSessionId && capturedUid ? repeatSessionId : null;
+                // Read through the bounded settle (#1474 contract): an in-flight answer is waited for, never missed.
+                const aExchanges = id ? await generations.settledForSession(id) : [];
                 await lateCoachingSavedRow(receipt, id, {
                     // Product evidence is read AS THE SIGNED-IN ACCOUNT (its own session token + the public anon key), never admin.
                     readSaved: ownerSessionReader(page, {
@@ -1019,7 +1021,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                 }, {
                     // Recorded, not judged: browser-observed A answer time vs B observed RECORDING (PO 2026-11-11).
                     order: answerOrder(
-                        latestAnsweredAt(id ? generations.forSession(id) : []),
+                        latestAnsweredAt(aExchanges),
                         repeatRecordingAt,
                     ),
                 });

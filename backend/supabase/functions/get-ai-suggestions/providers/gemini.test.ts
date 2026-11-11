@@ -27,7 +27,7 @@ function attempt(events: Array<[number, string | null | undefined]>, signal = ne
 }
 
 Deno.test('the Gemini request is byte-identical to the pre-adapter handler request', async () => {
-  await withFetch(() => json({ candidates: [], modelVersion: 'gemini-3.8-flash-001' }), async (seen) => {
+  await withFetch(() => json({ candidates: [], modelVersion: 'gemini-3.6-flash-001' }), async (seen) => {
     const signal = new AbortController().signal;
     await attempt([], signal);
     assertEquals(seen.length, 1);
@@ -45,7 +45,7 @@ Deno.test('the Gemini request is byte-identical to the pre-adapter handler reque
 Deno.test('a readable answer is normalized: candidate text, a safe model id only, closed answer codes', async () => {
   const body = {
     candidates: [{ content: { parts: [{ text: '{"x":1}' }] }, finishReason: 'STOP' }],
-    modelVersion: 'gemini-3.8-flash-001',
+    modelVersion: 'gemini-3.6-flash-001',
     usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 7, totalTokenCount: 12 },
   };
   await withFetch(() => json(body), async () => {
@@ -53,7 +53,7 @@ Deno.test('a readable answer is normalized: candidate text, a safe model id only
     const result = await attempt(events);
     assertEquals(events, [[200, undefined]]);
     assertEquals([result.status, result.ok, result.bodyUnreadable, result.errorCodes], [200, true, false, null]);
-    assertEquals([result.answer?.text, result.answer?.modelVersion], ['{"x":1}', 'gemini-3.8-flash-001']);
+    assertEquals([result.answer?.text, result.answer?.modelVersion], ['{"x":1}', 'gemini-3.6-flash-001']);
     assertEquals(result.answer?.codes.finish_reason, 'STOP');
   });
   for (const modelVersion of ['has space', 'a'.repeat(129), 42, null, '']) {

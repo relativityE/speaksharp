@@ -105,7 +105,7 @@ let fetchStatusQueue: number[] = [];
 let geminiText = JSON.stringify(suggestionA);
 let adaptiveGemini = false;
 /** #1258: the provider's reported model version (null = absent) and a transport failure, per call. */
-let geminiModelVersion: string | null = 'gemini-3.8-flash';
+let geminiModelVersion: string | null = 'gemini-3.6-flash';
 let fetchThrows = false;
 let fetchFailuresRemaining = 0;
 let abortAfterBody: AbortController | null = null;
@@ -221,6 +221,7 @@ function mockSupabase(options: MockOptions = {}) {
     quotaCount: 0,
     admissionArgs: null as Record<string, unknown> | null,
     settlementArgs: null as Record<string, unknown> | null,
+    localRetirementArgs: null as Record<string, unknown> | null,
     legacyUpdateCount: 0,
     sessionColumns: [] as string[],
   };
@@ -239,6 +240,10 @@ function mockSupabase(options: MockOptions = {}) {
       if (name === 'begin_account_coaching_v1') {
         state.admissionArgs = args ?? null;
         return Promise.resolve({ data: options.admission ?? { admitted: true, operationId: args?.p_operation_id }, error: options.admissionError ?? null });
+      }
+      if (name === 'finish_account_coaching_local_v1') {
+        state.localRetirementArgs = args ?? null;
+        return Promise.resolve({ data: !options.settlementError, error: options.settlementError ?? null });
       }
       if (name === 'finish_account_coaching_failure_v1') {
         state.settlementArgs = args ?? null;
@@ -363,7 +368,7 @@ function resetProvider() {
   capturedProviderRequests.length = 0;
   geminiText = JSON.stringify(suggestionA);
   adaptiveGemini = false;
-  geminiModelVersion = 'gemini-3.8-flash';
+  geminiModelVersion = 'gemini-3.6-flash';
   fetchThrows = false;
   fetchFailuresRemaining = 0;
   abortAfterBody = null;
@@ -439,7 +444,8 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     fetchThrows = true;
     const mock = mockSupabase();
     assertEquals((await handler(request(), mock.create)).status, 502);
-    assertEquals(mock.state.settlementArgs?.p_outcome, 'unknown');
+    assertEquals(mock.state.localRetirementArgs, mock.state.admissionArgs);
+    assertEquals(mock.state.settlementArgs, null);
     assertEquals(mock.state.legacyUpdateCount, 0);
   });
 
@@ -447,7 +453,8 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     resetProvider();
     const mock = mockSupabase({ updateError: { code: 'PGRST202' } });
     assertEquals((await handler(request(), mock.create)).status, 503);
-    assertEquals(mock.state.settlementArgs?.p_outcome, 'unknown');
+    assertEquals(mock.state.localRetirementArgs, mock.state.admissionArgs);
+    assertEquals(mock.state.settlementArgs, null);
     assertEquals(mock.state.legacyUpdateCount, 0);
   });
 
@@ -459,6 +466,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(typeof mock.state.authorityArgs?.p_operation_id, 'string');
     assertEquals(mock.state.authorityArgs?.p_provider_settled, true);
     assertEquals(mock.state.settlementArgs, null);
+    assertEquals(mock.state.localRetirementArgs, null);
     assertEquals(mock.state.legacyUpdateCount, 0);
   });
 
@@ -469,7 +477,8 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals((await handler(request(), mock.create)).status, 200);
     assertEquals(fetchCount, 2);
     assertEquals(mock.state.authorityArgs?.p_provider_settled, false);
-    assertEquals(mock.state.settlementArgs, null, 'the atomic persistence RPC retains unknown');
+    assertEquals(mock.state.settlementArgs, null, 'remote uncertainty is never relabelled refused');
+    assertEquals(mock.state.localRetirementArgs, mock.state.admissionArgs, 'the completed handler retires only local write authority');
   });
 
   await t.step('#1643 an admitted valid answer completes after caller navigation', async () => {
@@ -489,7 +498,8 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     abortDuringFetch = caller;
     const mock = mockSupabase();
     assertEquals((await handler(request({ sessionId: 'session-a' }, caller.signal), mock.create)).status, 499);
-    assertEquals(mock.state.settlementArgs?.p_outcome, 'unknown');
+    assertEquals(mock.state.localRetirementArgs, mock.state.admissionArgs);
+    assertEquals(mock.state.settlementArgs, null);
     assertEquals(mock.state.updated, null);
     assertEquals(fetchCount, 1);
   });
@@ -799,7 +809,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     // Asserted on the exported constant rather than by reading the file: the edge suite runs without
     // `--allow-read`, and widening the sandbox for every edge test to satisfy one assertion trades a
     // real safety property for a convenience.
-    assertStringIncludes(GEMINI_API_URL, 'gemini-3.8-flash');
+    assertStringIncludes(GEMINI_API_URL, 'gemini-3.6-flash');
     assertEquals(GEMINI_API_URL.includes('-preview'), false);
   });
 
@@ -889,7 +899,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
       p_user_id: 'pro-user',
       p_suggestions: suggestionA,
       p_provider: 'google_gemini',
-      p_model: 'gemini-3.8-flash',
+      p_model: 'gemini-3.6-flash',
       p_quota_scope: 'user_utc_day',
       p_quota_utc_date: expectedUtcDate,
       p_quota_limit: 20,
@@ -906,7 +916,8 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(skewed.state.authorityRpcCount, 1);
     assertEquals(skewed.state.filters, []);
     assertEquals(skewed.state.legacyUpdateCount, 0);
-    assertEquals(skewed.state.settlementArgs?.p_outcome, 'unknown');
+    assertEquals(skewed.state.localRetirementArgs, skewed.state.admissionArgs);
+    assertEquals(skewed.state.settlementArgs, null);
 
     resetProvider();
     const realFailure = mockSupabase({ updateError: { code: '23514', message: 'receipt rejected' } });
@@ -931,7 +942,8 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals((await handler(request(), recovered.create)).status, 503);
     assertEquals(fetchCount, 2);
     assertEquals(recovered.state.authorityArgs?.p_provider_settled, false);
-    assertEquals(recovered.state.settlementArgs?.p_outcome, 'unknown', 'earlier provider uncertainty survives the rejection');
+    assertEquals(recovered.state.localRetirementArgs, recovered.state.admissionArgs, 'earlier provider uncertainty survives in the local-retirement audit');
+    assertEquals(recovered.state.settlementArgs, null);
   });
 
   await t.step('#1643 every other persistence failure stays unknown and never succeeds', async () => {
@@ -951,7 +963,8 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
       const mock = mockSupabase(options);
       const status = (await handler(request(), mock.create)).status;
       assertEquals(status >= 500, true, `${label}: never reported as success`);
-      assertEquals(mock.state.settlementArgs?.p_outcome, 'unknown', label);
+      assertEquals(mock.state.localRetirementArgs, mock.state.admissionArgs, label);
+      assertEquals(mock.state.settlementArgs, null, label);
     }
 
     resetProvider();
@@ -1060,7 +1073,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
       for (const sent of capturedProviderRequests) {
         const url = new URL(sent.url);
         assertEquals(url.origin, APPROVED_GEMINI_ORIGIN);
-        assertEquals(url.pathname, '/v1beta/models/gemini-3.8-flash:generateContent');
+        assertEquals(url.pathname, '/v1beta/models/gemini-3.6-flash:generateContent');
         const config = sent.body.generationConfig as Record<string, unknown>;
         // Literal wire expectation: changing the contract and sender together cannot hide a regression.
         assertEquals(config.thinkingConfig, { thinkingLevel: 'low' });
@@ -1897,7 +1910,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
      * down-selection is exposed to, rather than passing them the way substring and body-search checks did.
      */
     // A lookalike host: a substring check for the approved host SUCCEEDS on it; the origin check refuses.
-    const lookalike = 'https://generativelanguage.googleapis.com.evil.test/v1beta/models/gemini-3.8-flash:generateContent';
+    const lookalike = 'https://generativelanguage.googleapis.com.evil.test/v1beta/models/gemini-3.6-flash:generateContent';
     assertEquals(lookalike.includes('generativelanguage.googleapis.com'), true);
     assertNotEquals(new URL(lookalike).origin, APPROVED_GEMINI_ORIGIN);
 

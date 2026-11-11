@@ -265,6 +265,8 @@ export const SavedPracticeLoopReview: React.FC<SavedPracticeLoopReviewProps> = (
         <section
             className="rounded-2xl bg-ink p-6"
             data-testid="saved-review"
+            // The session this card's review was actually read from — present only with positive proof (AHT-01 identity).
+            data-session-id={review?.loadedSessionId}
             data-review-state={coaching?.kind ?? 'loading'}
             data-product={review?.product ?? 'loading'}
             aria-label={eyebrow}
