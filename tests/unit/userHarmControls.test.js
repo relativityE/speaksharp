@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { USER_HARM_CONTROLS, mutateBytes, runTestEfficacy } from '../../scripts/run-test-efficacy.mjs';
 
 const { test } = process.env.NODE_TEST_CONTEXT ? await import('node:test') : await import('vitest');
@@ -27,8 +30,19 @@ test('named user-harm controls bind distinct real source edits and unique assert
 // Ordinary hosted unit CI exercises real product tests. A local registration check does not qualify
 // a missing runtime or substitute a synthetic PASS for baseline → semantic fault → restoration.
 if (process.env.GITHUB_ACTIONS === 'true' || process.env.TEST_USER_HARM_REAL_RUNTIME === '1') {
-  test('INSTALLED Vitest: all three named user-harm controls pass, fail their intended assertion, then pass restored', { timeout: 240_000 }, () => {
-    const receipt = runTestEfficacy({ root, base: null, userHarmControls: true });
+  test('INSTALLED Vitest: all three named user-harm controls pass, fail their intended assertion, then pass restored', { timeout: 240_000 }, async () => {
+    // runTestEfficacy blocks on synchronous child runs for minutes. Run it in its own Node process so this
+    // worker's event loop stays free; a multi-minute block makes Vitest's worker RPC time out and fail the shard.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'user-harm-controls-'));
+    const out = path.join(dir, 'receipt.json');
+    const script = `import fs from 'node:fs'; import { runTestEfficacy } from ${JSON.stringify(pathToFileURL(path.join(root, 'scripts/run-test-efficacy.mjs')).href)};
+fs.writeFileSync(${JSON.stringify(out)}, JSON.stringify(runTestEfficacy({ root: ${JSON.stringify(root)}, base: null, userHarmControls: true })));`;
+    let receipt;
+    try {
+      await promisify(execFile)(process.execPath, ['--input-type=module', '-e', script],
+        { cwd: root, env: process.env, timeout: 235_000, maxBuffer: 64 * 1024 * 1024 });
+      receipt = JSON.parse(fs.readFileSync(out, 'utf8'));
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
     assert.equal(receipt.status, 'executed');
     assert.deepEqual(receipt.contracts.map(control => control.id), USER_HARM_CONTROLS.map(control => control.id));
     for (const control of receipt.contracts) {
