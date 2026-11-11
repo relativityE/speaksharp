@@ -11,6 +11,7 @@ const TEST_PINS=Object.freeze({
  'tests/unit/rwtDocumentBinaryTransport.test.js':'e4722993a0e008cf6ead7fe1e092cdc50f3d8b75df0ff29066f35dd95d2bda80',
  // AHT-02..15 prep (parity rows, AHT-07 key-bound fail-closed stored-once, AHT-09 navigation-bound ready wait, AHT-04 recovery take, AHT-05/06 attempts/exact save/reopen, AHT-02/03 Focus marker and rows, AHT-08/11/12-15 checks): exact reviewed postimages.
  'tests/live/helpers/feedbackDiagnosticRef.ts':'aeccd8dbd54dd5172da83f08b87d948f1d32028090e846c50f2e5eaf55be27fe',
+ 'tests/live/helpers/rwtAcceptance.ts':'bf232249ba3dc9263a59da39f52303e923aebd3ddff7e2c00c5d4bb1aebfe57a',
  'tests/live/helpers/rwtAdverseJourney.ts':'5d9a39e1edc3661024627004f2b100a39bed1af11639e9a677e50d9b153c1f61',
  'tests/live/helpers/rwtFocusPointsJourney.ts':'3888d276270cb66cac17e6e0029868a8e75aba4585a56d9a53f51c32d7c94fdd',
  'tests/live/helpers/rwtPendingStartRecovery.ts':'41ad72641a30753e8a173ff79390b33305d25d8c7b1eafed7a57bd2d010118c5',
@@ -37,6 +38,7 @@ const TEST_PINS=Object.freeze({
  'tests/live/rwt-adverse-mic-model.live.spec.ts':'6d61b609d70264a579436af1a2480178fe44bb08741d9b343c1930c847f542ca',
  'tests/unit/feedbackAckReceivedAht08.test.ts':'a645fff8f8de3d0a5d1bab51be845484481b2779d055513eaa5ee51c05aad91f',
  'tests/unit/rwtAdverseRecovery.test.ts':'b3a11f4a7bae93cde1a280841b88e36463d44d108c77fb7b6ff5ce51769985f8',
+ 'tests/unit/rwtFinalization1532.test.ts':'7fd5568f0ae24d3ea6346e5965c72a1263f949ab692fff515ffaa7f932fe2442',
  'tests/unit/rwtFocusEditCancel.test.ts':'5bc38f81042b773f1d7fd7254677a4d812f0e206d2095e8b7c5b0abe6f61914f',
  'tests/unit/rwtFocusNextMarker.test.ts':'84a78df21e117a0565c26bf847ab7da5b486660e02c7b96f11cda2c9072b2310',
  'tests/unit/rwtFocusOpenMicIsolation.test.ts':'96e07c9481583085704084d28ff062adad89f9f4850dcad2a71c4c36b0d2a489',
