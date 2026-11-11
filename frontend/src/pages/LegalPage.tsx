@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { arePaymentsEnabled } from '@/config/appRuntimeConfig';
+import { legalSectionId } from './legalSectionId';
 
 type LegalPageProps = {
   title: string;
@@ -25,7 +26,7 @@ const LegalPage = ({ title, updated, sections }: LegalPageProps) => {
         </header>
         <div className="space-y-7 text-sm leading-7 text-foreground/90">
           {sections.map((section) => (
-            <section key={section.heading} className="space-y-2">
+            <section key={section.heading} id={legalSectionId(section.heading)} className="space-y-2 scroll-mt-28">
               <h2 className="text-lg font-semibold text-foreground">{section.heading}</h2>
               <p>{section.body}</p>
             </section>
