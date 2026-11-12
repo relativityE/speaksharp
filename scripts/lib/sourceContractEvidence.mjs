@@ -37,6 +37,7 @@ export const SOURCE_CONTRACTS=Object.freeze([
   'tests/evidence/fixtures/model-evaluator/corpus-fixture-001-paired.json',
   'tests/evidence/fixtures/model-evaluator/product-campaign.json',
   'tests/evidence/fixtures/model-evaluator/product-campaign.parakeet-fixture-001.json',
+  'tests/live/auth.live.spec.ts',
 ]);
 const MODEL_ADAPTER='./scripts/model-evaluator/adapters/candidate-browser.ts';
 const arm=(candidateId,engine,modelId,assetDigest,runtime,backend)=>Object.freeze({kind:'json',pins:[
@@ -136,6 +137,7 @@ const CASE07_SQL=Object.freeze({
 });
 // Real (non-type, unrenamed) imports a wiring contract requires; route contracts require none.
 const REQUIRED_IMPORTS=Object.freeze({
+  "tests/live/auth.live.spec.ts":{module:"./helpers/servedReleaseBinding",names:["requiresReleaseBinding","servedReleaseVerdict"]},
   [SOURCE_CONTRACTS[0]]:{module:'./canaryStopSaveOracle',names:['collectCanaryStopSave','isOwnedStopSettledInPage','startOwnerId']},
   [SOURCE_CONTRACTS[1]]:{module:'./helpers/rwtFillerReference',names:['corpusRows','crossCheckCounts','fillerAnnotationsOf','hesitationTotals']},
 });
@@ -264,6 +266,19 @@ const MODEL_WIRING=Object.freeze({
   ],
 });
 const wiring={
+  // Offline sign-in wiring only. This does not execute credentials or certify a served release.
+  "tests/live/auth.live.spec.ts":[
+    "test.use({ trace: 'off', video: 'off', screenshot: 'off' });",
+    "const expectRelease = (process.env.EXPECT_RELEASE_SHA ?? '').trim();",
+    "const bindRelease = requiresReleaseBinding(process.env.BASE_URL);",
+    "if (bindRelease) { const preflight = servedReleaseVerdict(expectRelease, expectRelease);",
+    "expect(preflight, 'EXPECT_RELEASE_SHA must name the full served release under test').toEqual({ ok: true, release: expectRelease });",
+    "await page.waitForURL((url) => isExpectedAuthLanding(url.pathname, DEFAULT_AUTH_LANDING), { timeout: 30_000 });",
+    "expect(new URL(page.url()).pathname).toBe(DEFAULT_AUTH_LANDING);",
+    "await expect(page.getByTestId('nav-account-avatar')).toBeVisible({ timeout: 15000 });",
+    "const observedRelease = await page.evaluate(() => (window as unknown as { __APP_RELEASE__?: string }).__APP_RELEASE__ ?? null);",
+    "if (bindRelease) { expect(servedReleaseVerdict(expectRelease, observedRelease), 'the signed-in page must serve the release under test').toEqual({ ok: true, release: expectRelease }); }",
+  ],
   ...MODEL_WIRING,
   [SOURCE_CONTRACTS[0]]:[
     'const savedId = startOutcome.sessionId;',

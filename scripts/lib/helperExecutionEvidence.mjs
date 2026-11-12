@@ -73,6 +73,9 @@ export const HELPER_CONTRACTS = Object.freeze([{
   // Work point 2: the frozen real-speech reliability scorer (stt_reliability_v1) and its controls.
   helperFile:'tests/evidence/sttReliabilityScore.ts',testFile:'tests/evidence/__tests__/sttReliabilityScore.test.ts',
   callables:['alignTokens','alignTokensPreferringEarlyMatches','findRepetitionLoops','scoreReliabilityCorpus'],
+}, {
+  helperFile:'tests/live/helpers/servedReleaseBinding.ts', testFile:'tests/unit/servedReleaseBinding.test.ts',
+  callables:['servedReleaseVerdict','requiresReleaseBinding'],
 }]);
 export const HELPER_CONFIG = 'scripts/efficacy-helper-vitest.config.mjs';
 
