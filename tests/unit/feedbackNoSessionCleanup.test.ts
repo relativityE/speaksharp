@@ -154,3 +154,30 @@ describe('AHT-08 spec wiring', () => {
         expect(test08.indexOf("steps.step('feedback report capture'")).toBeGreaterThan(test08.indexOf("steps.step('owned pages closed'"));
     });
 });
+
+// Sam, #1811 RETURN on d1487bdb, item 2: AHT-08's cleanup is in-run source behavior only. Its key and report id live in memory;
+// it has no durable inventory and no verified-store gate. These controls keep the claim honest and show why a lost runner's report
+// is not recoverable today: after the account deletion nulls `user_id`, only the submit's key finds the report.
+describe('AHT-08 recovery scope (in-run only)', () => {
+    const helper = readFileSync(path.join(here, '../live/helpers/feedbackNoSessionCleanup.ts'), 'utf8');
+    const test08 = spec.slice(spec.indexOf("test('No session feedback stores no take or coaching link'"));
+    it('the helper and the spec say in-run only and memory-only, and claim no recovery', () => {
+        expect(helper).toMatch(/IN-RUN cleanup only/);
+        expect(helper).toMatch(/in memory only; it has no durable inventory and no verified-store gate/);
+        expect(test08).toMatch(/In-run only: the key and report id are held in memory, with no durable record and no verified store/);
+        expect(helper).not.toMatch(/waits on the same recovery store/);
+        expect(test08).not.toMatch(/waits on the same recovery store/);
+    });
+    it('the no-session test has no store gate, inventory or recovery path (so it must not claim one)', () => {
+        for (const name of ['verifyRecoveryStore', 'FeedbackRecoveryInventory', 'recoverFromInventory', 'settleRecoveryInventory', 'RECOVERY_STORE_STEP', 'RWT_RECOVERY_DIR']) {
+            expect({ name, present: test08.includes(name) }).toEqual({ name, present: false });
+        }
+    });
+    it('after the account deletion a second executor with only the uid finds nothing; only the lost key finds the report', async () => {
+        const s: State = { reports: [{ id: 'r1', idempotency_key: KEY, user_id: null }], sessions: 0, profiles: 0, authUser: false, deletes: [] };
+        const byUidOnly = await captureRunReports(fakeAdmin(s), USER, [], null);
+        expect(byUidOnly.ids).toEqual([]);
+        const byKey = await captureRunReports(fakeAdmin(s), USER, [KEY], null);
+        expect(byKey.ids).toEqual(['r1']);
+    });
+});

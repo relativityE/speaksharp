@@ -10,6 +10,10 @@
  *  - submitted, and the stored read bound exactly one row to exactly one observed key with every insert attributed: certain;
  *  - anything else after a Submit (no key seen, more than one key, an unattributed insert, no stored row read, or the submit
  *    threw before its read): the one write's outcome is unknown, so `zero residue` HOLDs instead of PASSing on a zero read.
+ * Scope (Sam, #1811 RETURN on d1487bdb, item 2): this is IN-RUN cleanup only. The no-session branch keeps the submit's key and
+ * the report id in memory only; it has no durable inventory and no verified-store gate, so a runner lost before this cleanup
+ * leaves its report behind, and provisioning AHT-07's recovery store does not change that. Surviving runner loss is a separate,
+ * proposed change (the #1811 description), not something this helper claims.
  * Case-only helper: nothing AHT-01 loads imports it.
  */
 import type { WriteUncertainty } from './feedbackReportCleanup';

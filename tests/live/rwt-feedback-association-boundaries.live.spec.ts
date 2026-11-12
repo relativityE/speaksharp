@@ -655,6 +655,8 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             // the deletion's own settlement then decides the row — a stalled readback never deletes again.
             // AHT-08 report cleanup (feedbackNoSessionCleanup.ts), AHT-07's race-safe steps unchanged. Step 1, after every owned page
             // closed and BEFORE the account deletion: capture the owner's reports UNION those under the submit's observed key.
+            // In-run only: the key and report id are held in memory, with no durable record and no verified store, so a lost runner
+            // leaves the report behind (Sam, #1811 RETURN on d1487bdb, item 2).
             const runKeys = insertSnapshot?.keys ?? [];
             let capturedReports: CapturedReports | null = null;
             if (owner.uid) {
