@@ -20,6 +20,9 @@ export const SQL_CONTRACTS=Object.freeze([
   Object.freeze({consumer:SQL_CONSUMER,files:SQL_INPUTS}),
   Object.freeze({consumer:'tests/db/account-coaching-expiry-proposal.integration.test.ts',
     files:Object.freeze(['backend/supabase/migrations/20261110173548_account_coaching_local_retirement.sql'])}),
+  // #1829 refund follow-up signal: the migration runs in PGlite with Supabase's API roles mirrored.
+  Object.freeze({consumer:'tests/unit/stripeRefundFollowups.test.ts',
+    files:Object.freeze(['backend/supabase/migrations/20261112130000_stripe_refund_followups.sql'])}),
 ]);
 export const sqlContract=file=>SQL_CONTRACTS.find(item=>item.files.includes(file));
 export const NATIVE_HELPERS=Object.freeze([

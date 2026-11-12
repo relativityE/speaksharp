@@ -50,6 +50,15 @@ describe('non-gating rows (PO 2026-09-28): exactly two, HOLD only', () => {
     it('the allowlist is exactly the two PO-named rows, each with a reason', () => {
         expect(Object.keys(NON_GATING_ROWS).sort()).toEqual(['base_q4 primary', 'signup-stage telemetry received']);
         for (const reason of Object.values(NON_GATING_ROWS)) expect(reason).toMatch(/PO 2026-09-28/);
+        // PO 2026-11-11: no exemptions for um, uh or ah. An "ah" (or "uh") corpus HOLD gates like any other HOLD; a FAIL gates.
+        const pass = (step: string): ReceiptRow => ({ step, verdict: 'PASS', detail: 'ok' } as ReceiptRow);
+        for (const word of ['um', 'uh', 'ah']) {
+            const held = receiptAcceptance([pass('session saved'), { step: `filler "${word}" vs corpus`, verdict: 'HOLD', detail: 'an anchor is missing' } as ReceiptRow]);
+            expect([held.acceptance, held.automatedRowsAllPass]).toEqual(['INCOMPLETE', false]);
+            expect(held.nonGating).toEqual([]);
+        }
+        const ahFail = receiptAcceptance([pass('session saved'), { step: 'filler "ah" vs corpus', verdict: 'FAIL', detail: 'missed' } as ReceiptRow]);
+        expect([ahFail.acceptance, ahFail.automatedRowsAllPass]).toEqual(['FAIL', false]);
     });
     it('CASUALTY: those two HOLDs alone no longer make a run INCOMPLETE; any other HOLD still does', () => {
         expect(receiptAcceptance([pass('a'), hold('signup-stage telemetry received'), hold('base_q4 primary')]).acceptance).toBe('PASS');
@@ -383,7 +392,9 @@ describe('product-row inventory: a receipt missing any product outcome can never
         const src = (f: string) => readFileSync(path.resolve(__dirname, '..', f), 'utf8');
         // #1258 (PM 6114590729): the coaching diagnostic chain and prompt-binding rows are written by their shared helpers.
         const writers = ['live/helpers/rwtJourney.ts', 'live/rwt-open-mic-first-session.live.spec.ts', 'live/helpers/rwtFocusPointsJourney.ts',
-            'live/rwt-products-navigation.live.spec.ts', 'live/helpers/coachingFeedbackAdapter.ts', 'live/helpers/rwtCoachingCollector.ts'].map(src).join('\n');
+            'live/rwt-products-navigation.live.spec.ts', 'live/helpers/coachingFeedbackAdapter.ts', 'live/helpers/rwtCoachingCollector.ts',
+            // AHT-02/03 (#1811): the Focus case rows are written by their own case-only helpers.
+            'live/helpers/rwtFocusTakesDiffer.ts', 'live/helpers/rwtFocusEditCancel.ts', 'live/helpers/rwtFocusOpenMicIsolation.ts', 'live/helpers/rwtFocusSameTarget.ts', 'live/helpers/repeatMetricWording.ts'].map(src).join('\n');
         for (const s of SUITES) for (const step of requiredAutomatedRows(s.suite)!.product) {
             expect({ step, written: writers.includes(`'${step}'`) }).toEqual({ step, written: true });
         }

@@ -127,12 +127,18 @@ jobs:
     name: Gate 3 - DAST / Running App
     if: ${{ github.event.inputs.gate == 'all' || github.event.inputs.gate == 'gate-3-dast' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Bounded time budget (AHT-01 / #1812): every step on the single-spec RWT path has its own limit and the job limit is at
+    # least their sum plus a 4 min post-action allowance, so the job limit does not cut the spec step (whose finalizer and
+    # run-owned cleanup run inside it). Configured envelope only: Playwright start/teardown and runner loss/cancellation are
+    # not bounded here. Coupled to rwtInterruptedRunRecovery GATE3_JOB_TIMEOUT_MS. Guarded by tests/unit/rcGatesTimeBudget.test.ts.
+    timeout-minutes: 105
     steps:
       - uses: actions/checkout@v6
+        timeout-minutes: 3
         with:
           fetch-depth: 0
       - name: Validate bounded RWT release selection
+        timeout-minutes: 2
         env:
           DIAGNOSTIC_SPEC: ${{ github.event.inputs.diagnostic_dast_spec }}
           DIAGNOSTIC_RELEASE: ${{ github.event.inputs.diagnostic_release_sha }}
@@ -142,9 +148,11 @@ jobs:
           PAID_LAUNCH: ${{ github.event.inputs.paid_launch }}
         run: node tools/cloud-test/scripts/validate_rwt_release_binding.cjs
       - uses: ./.github/actions/setup-environment
+        timeout-minutes: 8
         with:
           install-playwright: 'true'
       - name: Classify Gate 3 evidence target
+        timeout-minutes: 2
         env:
           BASE_URL: ${{ github.event.inputs.base_url }}
           EXPECTED_RELEASE_SHA: ${{ github.event.inputs.diagnostic_release_sha || github.sha }}
@@ -276,6 +284,7 @@ jobs:
       # owner dispatched and triggered (reruns included) this definition at the exact release the run executes. No key,
       # secret, variable or second workflow; no wall-clock expiry. Any refusal fails this step, so no product step runs.
       - name: Authorize the model-comparison cell in this run (DIAGNOSTIC comparison only)
+        timeout-minutes: 2
         if: ${{ github.event.inputs.diagnostic_dast_spec != '' && github.event.inputs.comparison_cell != 'none' }}
         env:
           COMPARISON_CELL: ${{ github.event.inputs.comparison_cell }}
@@ -293,6 +302,7 @@ jobs:
       # credential and runs before the credential-bearing step below: a feature-ref dispatch, a checkout that is not the
       # dispatched commit, or a recovery delete acknowledgement bound to any other commit fails HERE, before listing or cleanup.
       - name: Interrupted-run recovery authority (default branch, exact SHA; credential-free)
+        timeout-minutes: 3
         if: ${{ github.event.inputs.diagnostic_dast_spec == 'tests/live/interrupted-run-recovery.live.spec.ts' }}
         env:
           RECOVERY_ACK: ${{ github.event.inputs.rwt_writes_ack }}
@@ -318,6 +328,7 @@ jobs:
           esac
           echo "interrupted-run recovery authority: default branch, HEAD = dispatched commit"
       - name: Run DAST Live Gate (DIAGNOSTIC single spec — NOT a Gate 3 pass)
+        timeout-minutes: 45
         if: ${{ github.event.inputs.diagnostic_dast_spec != '' }}
         env:
           BASE_URL: ${{ github.event.inputs.base_url }}
@@ -380,6 +391,7 @@ jobs:
       # the stages that suite declares. Pre-claim signup events are user traffic, listed separately and never read back
       # as canary. Bounded wait for ingestion; any HOLD fails this step and names the journey.
       - name: RWT telemetry readback (PostHog, per journey)
+        timeout-minutes: 25
         if: ${{ always() && startsWith(github.event.inputs.diagnostic_dast_spec, 'tests/live/rwt-') }}
         env:
           POSTHOG_API_HOST: ${{ vars.POSTHOG_API_HOST }}
@@ -468,6 +480,7 @@ jobs:
       # The broad diagnostic uploader explicitly excludes RWT: no PDF, trace or page report upload.
       # A crash before writing any receipt deliberately fails this upload too; absence is not PASS.
       - name: Upload RWT receipts (content-free)
+        timeout-minutes: 3
         if: ${{ always() && startsWith(github.event.inputs.diagnostic_dast_spec, 'tests/live/rwt-') }}
         uses: actions/upload-artifact@v4
         with:
@@ -481,6 +494,7 @@ jobs:
           if-no-files-found: error
       # Content-free: repository, run, actor, release, origin, cell, document and nonce. Never a credential or content.
       - name: Upload model-comparison authorization (content-free)
+        timeout-minutes: 3
         if: ${{ always() && github.event.inputs.diagnostic_dast_spec != '' && github.event.inputs.comparison_cell != 'none' }}
         uses: actions/upload-artifact@v4
         with:
@@ -489,6 +503,7 @@ jobs:
           retention-days: 30
           if-no-files-found: ignore
       - name: Diagnostic single-spec notice (NOT a Gate 3 pass)
+        timeout-minutes: 1
         if: ${{ always() && github.event.inputs.diagnostic_dast_spec != '' }}
         run: |
           {
@@ -500,6 +515,7 @@ jobs:
             echo "Root-cause classification only. The release gate stays **FAIL** until a FULL Gate 3 (no diagnostic input) passes."
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Reject diagnostic run as release qualification
+        timeout-minutes: 1
         if: ${{ always() && github.event.inputs.diagnostic_dast_spec != '' }}
         run: |
           echo "::error::Diagnostic DAST completed as ineligible evidence; Gate 3 remains failed closed."
@@ -529,6 +545,7 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
       - name: Upload ineligible diagnostic Gate 3 artifacts
+        timeout-minutes: 3
         if: ${{ always() && github.event.inputs.diagnostic_dast_spec != '' && !startsWith(github.event.inputs.diagnostic_dast_spec, 'tests/live/rwt-') }}
         uses: actions/upload-artifact@v4
         with:
