@@ -16,17 +16,17 @@ describe('decide — delete only with positive proof', () => {
         expect(d(acct(), run())).toMatchObject({ action: 'delete', binding: { runId: '43000000001', runAttempt: '1' } });
     });
     it.each([
-        ['not-run-owned-prefix', acct({ email: 'canary-trial@example.test' })],
-        ['unbound', acct({ app_metadata: {} })],
-        ['malformed-or-foreign-binding', acct({ app_metadata: binding({ repository: 'someone/else' }) })],
-        ['malformed-or-foreign-binding', acct({ app_metadata: binding({ workflow: 'relativityE/speaksharp/.github/workflows/rc-gates.yml@refs/heads/main' }) })],
-        ['malformed-or-foreign-binding', acct({ app_metadata: binding({ role: 'rwt-journey' }) })],
-        ['malformed-or-foreign-binding', acct({ app_metadata: binding({ runId: '0' }) })],
-        ['malformed-or-foreign-binding', acct({ app_metadata: { canary_run: { ...binding().canary_run, extra: 1 } } })],
-        ['malformed-or-foreign-binding', acct({ app_metadata: { canary_run: { runId: '43000000001' } } })],
-        ['too-young', acct({ created_at: new Date(NOW - 1 * H).toISOString() })],
-        ['too-young', acct({ created_at: 'garbage' })],
-    ])('leaves %s', (reason, a) => { expect(d(a, run())).toEqual({ action: 'leave', reason }); });
+        ['not-run-owned-prefix', 'an existing canary identity', acct({ email: 'canary-trial@example.test' })],
+        ['unbound', 'no binding at all', acct({ app_metadata: {} })],
+        ['malformed-or-foreign-binding', 'a foreign repository', acct({ app_metadata: binding({ repository: 'someone/else' }) })],
+        ['malformed-or-foreign-binding', 'a foreign workflow', acct({ app_metadata: binding({ workflow: 'relativityE/speaksharp/.github/workflows/rc-gates.yml@refs/heads/main' }) })],
+        ['malformed-or-foreign-binding', 'a foreign role', acct({ app_metadata: binding({ role: 'rwt-journey' }) })],
+        ['malformed-or-foreign-binding', 'an invalid run id', acct({ app_metadata: binding({ runId: '0' }) })],
+        ['malformed-or-foreign-binding', 'an extra binding key', acct({ app_metadata: { canary_run: { ...binding().canary_run, extra: 1 } } })],
+        ['malformed-or-foreign-binding', 'a partial binding', acct({ app_metadata: { canary_run: { runId: '43000000001' } } })],
+        ['too-young', 'an account one hour old', acct({ created_at: new Date(NOW - 1 * H).toISOString() })],
+        ['too-young', 'an unreadable creation time', acct({ created_at: 'garbage' })],
+    ])('leaves %s for %s', (reason, _case, a) => { expect(d(a, run())).toEqual({ action: 'leave', reason }); });
     it('leaves on run lookup failure, attempt mismatch (rerun), in-progress, unknown state, or a just-completed run', () => {
         expect(d(acct(), { error: true }).reason).toBe('run-lookup-failed');
         expect(d(acct(), run({ run_attempt: 2 })).reason).toBe('attempt-mismatch');
