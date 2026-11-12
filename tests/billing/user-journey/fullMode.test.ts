@@ -601,6 +601,46 @@ test('mode result negative controls: a bare or summary-only PASSED, or evidence 
   assert.throws(() => finaliseModeReceipt('all', local, { release: RELEASE }), /mode_unknown/);
 });
 
+test('a dispatched journey whose spec is not in the commit is refused before anything is provisioned', () => {
+  const doc = parse(readFileSync(WORKFLOW, 'utf8'));
+  const steps: { name?: string; uses?: string; run?: string; env?: Record<string, string> }[] = doc.jobs.journey.steps;
+  const name = 'Refuse a journey whose spec is not in this commit (before anything is provisioned)';
+  const at = steps.findIndex(step => step.name === name);
+  const checkout = steps.findIndex(step => step.uses?.startsWith('actions/checkout@'));
+  assert.equal(at, checkout + 1, 'right after checkout');
+  for (const later of ['Install dependencies', 'Start the disposable local Supabase stack (migrations from this commit)',
+    'Forward genuine test-mode Stripe events to the LOCAL webhook', "Build and serve this commit's app on the local origin"]) {
+    assert.ok(steps.findIndex(step => step.name === later) > at, later);
+  }
+  assert.equal(steps[at].env?.JOURNEY, '${{ inputs.journey }}');
+  assert.doesNotMatch(steps[at].run!, /\$\{\{/);
+  // Run the step's own script against fixture trees: the real billing config and spec, then a paid loop that is
+  // missing, half there, or complete.
+  const dir = mkdtempSync(join(tmpdir(), 'billing-journey-presence-'));
+  try {
+    const put = (path: string, text: string) => {
+      spawnSync('mkdir', ['-p', join(dir, path, '..')]);
+      writeFileSync(join(dir, path), text);
+    };
+    const check = (journey: string) => spawnSync('bash', ['-c', steps[at].run!], { cwd: dir, encoding: 'utf8',
+      env: { PATH: process.env.PATH, JOURNEY: journey } });
+    put('playwright.billing-journey.config.ts', readFileSync('playwright.billing-journey.config.ts', 'utf8'));
+    put('tests/billing/user-journey/journey.billing.spec.ts', SPEC);
+    for (const journey of RUNNER_JOURNEYS) assert.equal(check(journey).status, 0, journey);
+    const paid = () => check('paid_value_loop');
+    assert.match(paid().stdout, /BLOCKED PREREQUISITE.*playwright\.paid-value-loop\.config\.ts, which is not in this commit/);
+    assert.notEqual(paid().status, 0);
+    put('playwright.paid-value-loop.config.ts', "export default { testDir: './tests/billing/user-journey', testMatch: 'paid-value-loop.billing.spec.ts' };\n");
+    assert.match(paid().stdout, /collects paid-value-loop\.billing\.spec\.ts, which is not in this commit/);
+    put('tests/billing/user-journey/paid-value-loop.billing.spec.ts', "test('billing conversion: not this one', () => {});\n");
+    assert.match(paid().stdout, /has no test titled for paid_value_loop/);
+    put('tests/billing/user-journey/paid-value-loop.billing.spec.ts', "test('billing paid_value_loop: the loop', () => {});\n");
+    assert.equal(paid().status, 0, paid().stdout);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('the workflow can dispatch every local-stack journey, the paid loop with its own config', () => {
   const doc = parse(readFileSync(WORKFLOW, 'utf8'));
   assert.deepEqual(doc.on.workflow_dispatch.inputs.journey.options, [...LOCAL_STACK_JOURNEYS]);
