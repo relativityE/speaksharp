@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { test } from 'vitest';
-import { BILLING_JOURNEYS, REQUIRED_STEPS, receipt, assertTestPrice, assertInvoice,
+import { RUNNER_JOURNEYS, POLICY_PENDING_STEPS, REQUIRED_STEPS, receipt, assertTestPrice, assertInvoice,
   isCorrelatedDelivery, assertSandboxConfiguration, safeFailureReason, testClockCreateFields, localStackStatus } from './contract';
 import { finaliseLocalStackReceipt, RECEIPT_KEYS } from './localStackReceipt.mjs';
 
@@ -21,13 +21,20 @@ const env = { BILLING_SANDBOX_APP_URL: 'https://billing-sandbox.example.com',
 const target = { status: 'REVIEWED_ISOLATED_SANDBOX', appOrigin: env.BILLING_SANDBOX_APP_URL,
   apiOrigin: env.BILLING_SANDBOX_SUPABASE_URL, productionApiOrigin: env.BILLING_PRODUCTION_SUPABASE_URL };
 
-for (const journey of BILLING_JOURNEYS) {
+for (const journey of RUNNER_JOURNEYS) {
   test(`${journey}: every individual missing step blocks PASS`, () => {
-    assert.equal(receipt(journey, new Set(REQUIRED_STEPS[journey])).result, 'PASSED');
-    for (const omitted of REQUIRED_STEPS[journey]) {
-      const result = receipt(journey, new Set(REQUIRED_STEPS[journey].filter(step => step !== omitted)));
+    const pending: readonly string[] = POLICY_PENDING_STEPS[journey] ?? [];
+    const provable = REQUIRED_STEPS[journey].filter(step => !pending.includes(step));
+    // With access after end on hold, a complete run says PENDING_POLICY, never PASSED.
+    assert.equal(receipt(journey, new Set(provable)).result, pending.length ? 'PENDING_POLICY' : 'PASSED');
+    for (const omitted of provable) {
+      const result = receipt(journey, new Set(provable.filter(step => step !== omitted)));
       assert.equal(result.result, 'INCOMPLETE', omitted);
       assert.equal(result.steps.find(row => row.step === omitted)?.result, 'NOT_PROVEN');
+    }
+    for (const held of pending) {
+      assert.throws(() => receipt(journey, new Set([...provable, held])), /policy_pending_step_asserted/, held);
+      assert.equal(receipt(journey, new Set(provable)).steps.find(row => row.step === held)?.result, 'PENDING_POLICY');
     }
     assert.equal(receipt(journey, new Set()).result, 'INCOMPLETE');
     assert.throws(() => receipt(journey, new Set(['invented-step'])));

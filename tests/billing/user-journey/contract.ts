@@ -1,6 +1,19 @@
 /** Billing acceptance is separate from the fixed 15 practice journeys. No network or secrets here. */
-import { BILLING_JOURNEYS, REQUIRED_STEPS, type BillingJourney } from './journeySteps.mjs';
-export { BILLING_JOURNEYS, REQUIRED_STEPS, type BillingJourney };
+import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, RUNNER_JOURNEYS, RUNNER_MODES, REQUIRED_STEPS, PENDING_POLICY,
+  POLICY_PENDING_STEPS, type BillingJourney, type RunnerJourney, type RunnerMode } from './journeySteps.mjs';
+export { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, RUNNER_JOURNEYS, RUNNER_MODES, REQUIRED_STEPS, PENDING_POLICY,
+  POLICY_PENDING_STEPS, type BillingJourney, type RunnerJourney, type RunnerMode };
+
+/**
+ * Which branches a run collects. No mode keeps today's three lifecycle branches unchanged. Anything other
+ * than an exact mode name is refused at load, so a typo can never quietly run fewer branches.
+ */
+export function selectRunnerJourneys(raw: string | undefined): { mode: RunnerMode | null; journeys: readonly RunnerJourney[] } {
+  if (raw === undefined || raw === '') return { mode: null, journeys: BILLING_JOURNEYS };
+  requireFact((RUNNER_MODES as readonly string[]).includes(raw), 'runner_mode_unknown');
+  const mode = raw as RunnerMode;
+  return { mode, journeys: mode === 'smoke' ? ['conversion'] : RUNNER_JOURNEYS };
+}
 
 export function requireFact(value: unknown, code: string): asserts value {
   if (!value) throw new Error(`BILLING_JOURNEY:${code}`);
@@ -12,14 +25,18 @@ export function safeFailureReason(error: unknown): string {
 }
 
 /** All output is a closed, content-free list. Never serialize provider responses or credentials. */
-export function receipt(journey: BillingJourney, steps: ReadonlySet<string>) {
+export function receipt(journey: RunnerJourney, steps: ReadonlySet<string>) {
   const required = REQUIRED_STEPS[journey];
+  const pending: readonly string[] = POLICY_PENDING_STEPS[journey] ?? [];
   requireFact([...steps].every(step => required.includes(step)), 'unknown_step');
-  const missing = required.filter(step => !steps.has(step));
+  // Access after a membership ends is on hold: such a step can never be recorded as proven.
+  requireFact([...steps].every(step => !pending.includes(step)), 'policy_pending_step_asserted');
+  const missing = required.filter(step => !pending.includes(step) && !steps.has(step));
   return {
     schema: 'billing-user-journey/v1', journey, stripeMode: 'test',
-    result: missing.length ? 'INCOMPLETE' : 'PASSED',
-    steps: required.map(step => ({ step, result: steps.has(step) ? 'PASSED' : 'NOT_PROVEN' })),
+    result: missing.length ? 'INCOMPLETE' : pending.length ? PENDING_POLICY : 'PASSED',
+    steps: required.map(step => ({ step,
+      result: pending.includes(step) ? PENDING_POLICY : steps.has(step) ? 'PASSED' : 'NOT_PROVEN' })),
   };
 }
 
@@ -67,7 +84,39 @@ export function assertInvoice(input: unknown, customer: string, subscription: st
 
 /** A real provider event plus the deployed processing ledger, never an unchanged tier alone. */
 export type BillingEvent = { id: string; livemode: boolean; type: string; api_version: string;
-  data: { object: { id: string; customer: string; cancel_at_period_end?: boolean } } };
+  request?: { id?: string | null; idempotency_key?: string | null } | null;
+  data: { object: { id: string; customer: string; cancel_at_period_end?: boolean; status?: string } } };
+
+/** The webhook's per-refund-event idempotency key (stripe-webhook/refund.ts). */
+export const REFUND_CANCEL_KEY_PREFIX = 'refund-cancel-at-period-end-';
+
+/**
+ * The refund branch's cancellation must be the webhook's own follow-up to THIS refund event: the
+ * subscription.updated event carries the request's idempotency key, which names the refund event. A
+ * cancellation made any other way (portal, dashboard, test code) does not count.
+ */
+export function isRefundCancellation(input: unknown, expected: { subscription: string; customer: string; refundEventId: string }): boolean {
+  const event = (input ?? {}) as Partial<BillingEvent>;
+  return /^evt_[A-Za-z0-9]+$/.test(expected.refundEventId) && event.type === 'customer.subscription.updated'
+    && event.livemode === false && event.data?.object?.id === expected.subscription
+    && event.data?.object?.customer === expected.customer && event.data?.object?.cancel_at_period_end === true
+    && event.data?.object?.status === 'active'
+    && event.request?.idempotency_key === `${REFUND_CANCEL_KEY_PREFIX}${expected.refundEventId}`;
+}
+
+/** The operator refund is the whole first payment, in test mode, on this run's own charge. */
+export function assertFullRefund(input: unknown, charge: string): void {
+  const refund = (input ?? {}) as { object?: unknown; status?: unknown; amount?: unknown; currency?: unknown; charge?: unknown };
+  requireFact(refund.object === 'refund' && refund.status === 'succeeded' && refund.amount === 1000
+    && refund.currency === 'usd' && refund.charge === charge, 'refund_not_full_contract');
+}
+
+/** A declined or abandoned Checkout grants nothing: no subscription, no payment, the session not complete. */
+export function assertCheckoutGrantedNothing(input: unknown, expectedStatus: 'open' | 'expired'): void {
+  const session = (input ?? {}) as { livemode?: unknown; status?: unknown; payment_status?: unknown; subscription?: unknown };
+  requireFact(session.livemode === false && session.status === expectedStatus && session.payment_status === 'unpaid'
+    && (session.subscription === null || session.subscription === undefined), 'failed_checkout_granted_something');
+}
 
 export function isCorrelatedDelivery(input: unknown, expected: {
   type: string; objectId: string; customer: string;

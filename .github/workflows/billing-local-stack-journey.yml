@@ -26,7 +26,7 @@ on:
         required: true
         type: choice
         default: conversion
-        options: [conversion, renewal_recovery, portal_expiry]
+        options: [conversion, renewal_recovery, portal_expiry, failed_checkout, portal_recovery, refund_period_end]
 
 permissions:
   contents: read
@@ -264,6 +264,8 @@ jobs:
           BILLING_SANDBOX_PRICE_ID: ${{ secrets.STRIPE_TEST_PRO_PRICE_ID }}
           BILLING_SANDBOX_RELEASE_SHA: ${{ inputs.commit_sha }}
           JOURNEY: ${{ inputs.journey }}
+          # Collects all six branches; -g below runs only the dispatched one.
+          BILLING_RUNNER_MODE: full
           PLAYWRIGHT_JSON_OUTPUT_NAME: ${{ runner.temp }}/playwright-report.json
         run: |
           set -euo pipefail

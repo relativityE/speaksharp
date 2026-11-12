@@ -184,3 +184,18 @@ Plain `http` is admitted only for that loopback target. Checkout opens in test m
 hosted project can match it. The webhook signing secret is issued per run by `stripe listen` to the local
 `stripe-webhook` function; the spec itself still receives none. A PASS is sandbox-qualified only: it does not
 prove the deployed webhook endpoint, production configuration, or a real charge.
+
+### Runner modes (draft, offline only)
+
+`BILLING_RUNNER_MODE` picks which branches the spec collects. Unset keeps the three lifecycle branches above;
+`smoke` is conversion only (repeated click, cancel and retry before it pays); `full` adds `failed_checkout`
+(declined card, expired session, one paid retry), `portal_recovery` (failed renewal repaired by the member in
+Manage billing, never by an API payment) and `refund_period_end` (a whole refund, Pro to the end of the paid
+month, no second charge). Any other value is refused. `runnerPlan.mjs --dry-run --mode smoke|full` prints the
+plan and what still blocks it; it reads committed files only and never authorizes a run.
+
+Access after a membership ends is on hold until the end-of-access policy is confirmed. `access_expired` and
+`history_retained` in `portal_expiry` and `refund_period_end` read `PENDING_POLICY`: they are never asserted,
+the spec fails with `access_after_end_policy_pending`, the combined receipt keeps the `policy_pending` defect,
+and full mode can say `PENDING_POLICY` at best, never `PASSED`. The run still proves the account and saved
+data are kept, from the database only.

@@ -4,9 +4,10 @@ import { randomUUID } from 'node:crypto';
 import sandboxTarget from './sandbox-target.json' with { type: 'json' };
 import localStackTarget from './sandbox-target.local.json' with { type: 'json' };
 import { runnerPreflight } from './runnerPreflight.mjs';
-import { BILLING_JOURNEYS, receipt, requireFact, assertSandboxConfiguration,
+import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, requireFact, assertSandboxConfiguration, PENDING_POLICY,
   assertTestPrice, assertInvoice, isCorrelatedDelivery, safeFailureReason, testClockCreateFields, localStackStatus,
-  type BillingJourney, type BillingEvent } from './contract';
+  assertFullRefund, isRefundCancellation, assertCheckoutGrantedNothing,
+  type RunnerJourney, type BillingEvent } from './contract';
 import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { selectBenchmarkMode, preparePrivateModelIfPrompted, startBenchmarkRecording,
   expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput, stopBenchmarkRecording,
@@ -22,6 +23,7 @@ type Obj = {
   trial_started_at: string; trial_expires_at: string; commercial_trial_granted_at: string;
   stripe_customer_id: string; stripe_subscription_id: string; subscription_id: string;
   subscription_status: string; can_start: boolean; is_pro: boolean; trial_active: boolean;
+  charge: string | { id: string } | null; amount_paid: number; card: { last4?: string } | null;
 };
 const env = process.env;
 // The disposable local stack (billing-local-stack-journey.yml) selects its own committed loopback target.
@@ -49,7 +51,7 @@ class SandboxJourney {
   uncertainStripeCreate = false;
   stage = 'preflight';
   startedAt = Math.floor(Date.now() / 1000) - 5;
-  constructor(readonly journey: BillingJourney, readonly page: Page) {}
+  constructor(readonly journey: RunnerJourney, readonly page: Page) {}
 
   async stripe(path: string, method = 'GET', fields: Record<string, string> = {}): Promise<Obj> {
     // Paths are private in-memory identifiers. No provider error body is ever emitted.
@@ -168,7 +170,7 @@ class SandboxJourney {
     requireFact(after.commercial_trial_granted_at === initial.commercial_trial_granted_at, 'trial_grant_changed');
     const usage = await this.usage();
     requireFact(usage.trial_active === false && usage.can_start === false && usage.is_pro === false, 'expired_access_not_blocked');
-    if (this.journey === 'conversion') this.steps.add('trial_expired');
+    if (this.journey === 'conversion' || this.journey === 'failed_checkout') this.steps.add('trial_expired');
 
     // Clock-backed customers keep each branch independent; unsupported sandbox capabilities fail closed.
     this.uncertainStripeCreate = true;
@@ -185,6 +187,45 @@ class SandboxJourney {
     const seeded = await this.admin.from('user_profiles').update({ stripe_customer_id: this.customer }).eq('id', this.uid);
     requireFact(!seeded.error, 'fixture_customer_binding_failed');
     await this.login();
+  }
+
+  /** Fills Stripe's hosted card form (Checkout or the portal) and submits. Never reads or reports its content. */
+  async fillCard(card: string, withEmail: boolean): Promise<void> {
+    const fill = async (selector: string, value: string) => {
+      for (let attempt = 0; attempt < 40; attempt++) {
+        for (const frame of this.page.frames()) {
+          const field = frame.locator(selector).first();
+          if (await field.isVisible()) { await field.fill(value); return; }
+        }
+        await sleep(500);
+      }
+      throw new Error('BILLING_JOURNEY:hosted_field_unavailable');
+    };
+    if (withEmail) await fill('input[type="email"]', this.email);
+    await fill('input[autocomplete="cc-number"],input[name="cardNumber"]', card);
+    await fill('input[autocomplete="cc-exp"],input[name="cardExpiry"]', '1234');
+    await fill('input[autocomplete="cc-csc"],input[name="cardCvc"]', '123');
+    for (const frame of this.page.frames()) {
+      for (const [selector, value] of [['input[autocomplete="cc-name"]', 'SpeakSharp Test'],
+        ['input[autocomplete="postal-code"]', '94105']] as const) {
+        const field = frame.locator(selector).first();
+        if (await field.isVisible()) await field.fill(value);
+      }
+    }
+  }
+
+  async payOnHostedPage(card: string): Promise<void> {
+    await this.fillCard(card, true);
+    await this.page.locator('button[type="submit"]').click();
+  }
+
+  /** Nothing paid: no subscription of any status for this customer, no paid access, no Pro profile. */
+  async noPaidAccess(): Promise<void> {
+    const subscriptions = await this.stripe(`subscriptions?${new URLSearchParams({ customer: this.customer, status: 'all', limit: '10' })}`);
+    requireFact(Array.isArray(subscriptions.data) && subscriptions.has_more === false && subscriptions.data.length === 0,
+      'failed_checkout_subscribed');
+    requireFact((await this.usage()).can_start === false, 'failed_checkout_granted_access');
+    requireFact((await this.profile()).subscription_status !== 'pro', 'failed_checkout_granted_access');
   }
 
   async checkout(): Promise<void> {
@@ -234,6 +275,30 @@ class SandboxJourney {
       requireFact(checkoutUrl && sessionOf(checkoutUrl) === only, 'retry_did_not_reuse_session');
       requireFact((await customerSessions()).join(',') === only, 'retry_created_second_session');
       this.steps.add('checkout_retried');
+    } else if (this.journey === 'failed_checkout') {
+      // A declined card: Stripe shows the decline on its own page, nothing is paid, nothing is granted.
+      const first = await invoke();
+      requireFact(first, 'checkout_unavailable');
+      const declined = sessionOf(first);
+      requireFact(declined, 'test_checkout_required');
+      await this.page.goto(first);
+      await this.payOnHostedPage('4000000000000002');
+      await expect(this.page.getByText(/declined/i).first()).toBeVisible({ timeout: 60_000 })
+        .catch(() => { throw new Error('BILLING_JOURNEY:decline_not_shown'); });
+      requireFact(new URL(this.page.url()).origin === 'https://checkout.stripe.com', 'decline_left_checkout');
+      assertCheckoutGrantedNothing(await this.stripe(`checkout/sessions/${declined}`), 'open');
+      this.steps.add('declined_checkout');
+      await this.noPaidAccess();
+      this.steps.add('no_access_after_decline');
+      // Abandoned: the customer walks away and the session expires (expired here instead of waiting 24 hours).
+      await this.stripe(`checkout/sessions/${declined}/expire`, 'POST');
+      assertCheckoutGrantedNothing(await this.stripe(`checkout/sessions/${declined}`), 'expired');
+      this.steps.add('abandoned_checkout');
+      await this.noPaidAccess();
+      this.steps.add('no_access_after_abandon');
+      // Retry: the server reconciles the expired session and issues a new one.
+      checkoutUrl = await invoke();
+      requireFact(checkoutUrl && sessionOf(checkoutUrl) && sessionOf(checkoutUrl) !== declined, 'retry_checkout_refused');
     } else {
       checkoutUrl = await invoke();
     }
@@ -249,28 +314,7 @@ class SandboxJourney {
     requireFact(new URL(pending.success_url).origin === this.targets.app, 'checkout_return_origin');
     requireFact((await this.usage()).can_start === false, 'checkout_granted_before_payment');
     await this.page.goto(data.checkoutUrl);
-    const fill = async (selector: string, value: string) => {
-      for (let attempt = 0; attempt < 40; attempt++) {
-        for (const frame of this.page.frames()) {
-          const field = frame.locator(selector).first();
-          if (await field.isVisible()) { await field.fill(value); return; }
-        }
-        await sleep(500);
-      }
-      throw new Error('BILLING_JOURNEY:hosted_field_unavailable');
-    };
-    await fill('input[type="email"]', this.email);
-    await fill('input[autocomplete="cc-number"],input[name="cardNumber"]', '4242424242424242');
-    await fill('input[autocomplete="cc-exp"],input[name="cardExpiry"]', '1234');
-    await fill('input[autocomplete="cc-csc"],input[name="cardCvc"]', '123');
-    for (const frame of this.page.frames()) {
-      for (const [selector, value] of [['input[autocomplete="cc-name"]', 'SpeakSharp Test'],
-        ['input[autocomplete="postal-code"]', '94105']] as const) {
-        const field = frame.locator(selector).first();
-        if (await field.isVisible()) await field.fill(value);
-      }
-    }
-    await this.page.locator('button[type="submit"]').click();
+    await this.payOnHostedPage('4242424242424242');
     await this.page.waitForURL(url => url.origin === this.targets.app && url.searchParams.get('checkout') === 'success', { timeout: 90_000 });
     const complete = await this.stripe(`checkout/sessions/${this.session}`);
     requireFact(complete.livemode === false && complete.status === 'complete' && complete.payment_status === 'paid'
@@ -364,23 +408,45 @@ class SandboxJourney {
       this.steps.add('renewal_paid');
       await this.delivery('invoice.payment_succeeded', renewal.id);
       await this.entitlement(true); this.steps.add('renewal_delivery');
-      const bad = await this.stripe('payment_methods/pm_card_chargeCustomerFail/attach', 'POST', { customer: this.customer });
-      await this.stripe(`subscriptions/${this.subscription}`, 'POST', { default_payment_method: bad.id });
-      await this.advance(sub.current_period_end + 3600);
-      sub = await this.poll(() => this.stripe(`subscriptions/${this.subscription}`), s => s.status === 'past_due', 'failure_not_observed');
-      const failedInvoice = id(sub.latest_invoice);
-      requireFact(failedInvoice !== renewal.id, 'failure_invoice_not_new');
-      this.steps.add('failure_observed');
-      await this.delivery('invoice.payment_failed', failedInvoice); this.steps.add('failure_delivery');
-      await this.entitlement(false); this.steps.add('access_revoked');
+      const { failedInvoice } = await this.failRenewal();
       const good = await this.stripe('payment_methods/pm_card_visa/attach', 'POST', { customer: this.customer });
       await this.stripe(`subscriptions/${this.subscription}`, 'POST', { default_payment_method: good.id });
-      const recovered = await this.stripe(`invoices/${failedInvoice}/pay`, 'POST', { payment_method: good.id });
-      assertInvoice(recovered, this.customer, this.subscription, 'subscription_cycle');
-      this.steps.add('recovery_paid');
-      await this.delivery('invoice.payment_succeeded', failedInvoice); this.steps.add('recovery_delivery');
-      await this.entitlement(true); await this.account(/Pro · Active/); this.steps.add('access_restored');
-    } else {
+      // API recovery here; portal_recovery proves the member's own path through Manage billing.
+      await this.recovered(await this.stripe(`invoices/${failedInvoice}/pay`, 'POST', { payment_method: good.id }), failedInvoice);
+    } else if (this.journey === 'failed_checkout') {
+      // A declined then abandoned Checkout and a paid retry leave exactly one subscription.
+      const all = await this.stripe(`subscriptions?${new URLSearchParams({ customer: this.customer, status: 'all', limit: '10' })}`);
+      requireFact(Array.isArray(all.data) && all.has_more === false && all.data.length === 1
+        && all.data[0].id === this.subscription, 'more_than_one_subscription');
+      this.steps.add('single_subscription');
+    } else if (this.journey === 'portal_recovery') {
+      const { failedInvoice, badCard } = await this.failRenewal();
+      // The member repairs billing themselves in Manage billing (the Stripe portal). No API payment here:
+      // if the portal cannot pay the past-due invoice, the branch fails closed.
+      await this.page.goto(`${this.targets.app}/account`);
+      const manage = this.page.getByRole('button', { name: 'Manage billing', exact: true });
+      await expect(manage).toBeVisible({ timeout: 30_000 }).catch(() => { throw new Error('BILLING_JOURNEY:manage_billing_unavailable'); });
+      await manage.click();
+      await this.page.waitForURL(url => url.origin === 'https://billing.stripe.com');
+      this.steps.add('portal_opened');
+      const add = this.page.getByRole('link', { name: /Add payment method/i }).or(this.page.getByRole('button', { name: /Add payment method/i })).first();
+      await expect(add).toBeVisible({ timeout: 30_000 }).catch(() => { throw new Error('BILLING_JOURNEY:portal_add_card_unavailable'); });
+      await add.click();
+      await this.fillCard('4242424242424242', false);
+      await this.page.getByRole('button', { name: /^(Add|Save)/i }).last().click();
+      const added = await this.poll(() => this.stripe(`payment_methods?${new URLSearchParams({ customer: this.customer, type: 'card', limit: '10' })}`),
+        listed => Array.isArray(listed.data) && (listed.data as Obj[]).some(pm => pm.id !== badCard && pm.card?.last4 === '4242'),
+        'portal_card_not_added');
+      requireFact(added.has_more === false, 'payment_method_page_incomplete');
+      this.steps.add('portal_payment_method_updated');
+      const pay = this.page.getByRole('button', { name: /^Pay\b/i }).or(this.page.getByRole('link', { name: /^Pay\b/i })).first();
+      await expect(pay).toBeVisible({ timeout: 30_000 }).catch(() => { throw new Error('BILLING_JOURNEY:portal_recovery_pay_unavailable'); });
+      await pay.click();
+      const confirm = this.page.getByRole('button', { name: /^Pay\b/i }).last();
+      if (await confirm.isVisible()) await confirm.click();
+      await this.recovered(await this.poll(() => this.stripe(`invoices/${failedInvoice}`), i => i.status === 'paid',
+        'portal_recovery_not_paid'), failedInvoice);
+    } else if (this.journey === 'portal_expiry') {
       await this.record();
       await this.account(/Pro · Active/);
       await this.page.getByRole('button', { name: 'Cancel membership', exact: true }).click();
@@ -391,23 +457,89 @@ class SandboxJourney {
       const ending = await this.poll(() => this.stripe(`subscriptions/${this.subscription}`),
         s => s.cancel_at_period_end === true && s.status === 'active', 'portal_did_not_schedule_cancellation');
       this.steps.add('portal_cancelled');
-      await this.delivery('customer.subscription.updated', this.subscription, e => e.data.object.cancel_at_period_end === true);
-      this.steps.add('cancellation_delivery');
-      await this.entitlement(true); await this.account(/Pro · Ending/); this.steps.add('paid_until_period_end');
-      await this.advance(ending.current_period_end + 3600);
-      const cancelled = await this.poll(() => this.stripe(`subscriptions/${this.subscription}`), s => s.status === 'canceled', 'subscription_not_expired');
-      requireFact(cancelled.cancel_at_period_end === true || cancelled.canceled_at != null, 'cancellation_unconfirmed');
-      await this.delivery('customer.subscription.deleted', this.subscription); this.steps.add('expiry_delivery');
-      await this.entitlement(false); await this.account(/Free · Free/); this.steps.add('access_expired');
-      const user = await this.admin.auth.admin.getUserById(this.uid);
-      requireFact(!user.error && user.data.user?.id === this.uid, 'account_deleted_by_cancellation');
-      this.steps.add('account_retained');
-      await this.page.goto(`${this.targets.app}/analytics/${this.savedSession}`);
-      await expect(this.page.getByTestId('session-detail-transcript')).toBeVisible();
+      await this.paidUntilPeriodEnd(ending);
+    } else {
+      // refund_period_end (Akin, 2026-11-12): a full refund; the customer keeps Pro for the rest of the
+      // month and is never charged again.
+      const first = await this.stripe(`subscriptions/${this.subscription}`);
+      const firstInvoice = id(first.latest_invoice);
+      const charge = id((await this.stripe(`invoices/${firstInvoice}`)).charge);
+      requireFact(charge.startsWith('ch_'), 'first_charge_missing');
+      // No amount: a refund is always the whole charge.
+      const refund = await this.stripe('refunds', 'POST', { charge, 'metadata[speaksharp_test]': this.marker });
+      assertFullRefund(refund, charge);
+      this.steps.add('refund_issued');
+      const refundEventId = await this.poll(async () => {
+        const listed = await this.stripe(`events?${new URLSearchParams({ type: 'charge.refunded', 'created[gte]': String(this.startedAt), limit: '100' })}`);
+        requireFact(Array.isArray(listed.data) && listed.has_more === false, 'event_page_incomplete');
+        return String((listed.data as BillingEvent[]).find(e => e.livemode === false && e.data?.object?.id === charge)?.id ?? '');
+      }, Boolean, 'refund_event_missing');
+      // The cancellation must be the webhook's own follow-up to THIS refund event, not any other change.
+      await this.poll(async () => {
+        const listed = await this.stripe(`events?${new URLSearchParams({ type: 'customer.subscription.updated', 'created[gte]': String(this.startedAt), limit: '100' })}`);
+        requireFact(Array.isArray(listed.data) && listed.has_more === false, 'event_page_incomplete');
+        return (listed.data as unknown[]).some(e => isRefundCancellation(e, { subscription: this.subscription, customer: this.customer, refundEventId }));
+      }, Boolean, 'refund_did_not_schedule_cancellation');
+      const ending = await this.poll(() => this.stripe(`subscriptions/${this.subscription}`),
+        s => s.cancel_at_period_end === true && s.status === 'active', 'refund_did_not_schedule_cancellation');
+      this.steps.add('refund_cancellation_scheduled');
+      await this.paidUntilPeriodEnd(ending);
+      const invoices = await this.stripe(`invoices?${new URLSearchParams({ subscription: this.subscription, limit: '10' })}`);
+      requireFact(Array.isArray(invoices.data) && invoices.has_more === false
+        && (invoices.data as Obj[]).every(i => i.id === firstInvoice || i.amount_paid === 0), 'second_charge_after_refund');
+      this.steps.add('no_second_charge');
+    }
+  }
+
+  /** A renewal on a card that declines: the invoice is past due and paid access is withdrawn. */
+  async failRenewal(): Promise<{ failedInvoice: string; badCard: string }> {
+    const before = await this.stripe(`subscriptions/${this.subscription}`);
+    const previous = id(before.latest_invoice);
+    const bad = await this.stripe('payment_methods/pm_card_chargeCustomerFail/attach', 'POST', { customer: this.customer });
+    await this.stripe(`subscriptions/${this.subscription}`, 'POST', { default_payment_method: bad.id });
+    await this.advance(before.current_period_end + 3600);
+    const sub = await this.poll(() => this.stripe(`subscriptions/${this.subscription}`), s => s.status === 'past_due', 'failure_not_observed');
+    const failedInvoice = id(sub.latest_invoice);
+    requireFact(failedInvoice !== previous, 'failure_invoice_not_new');
+    this.steps.add('failure_observed');
+    await this.delivery('invoice.payment_failed', failedInvoice); this.steps.add('failure_delivery');
+    await this.entitlement(false); this.steps.add('access_revoked');
+    return { failedInvoice, badCard: bad.id };
+  }
+
+  /** The past-due invoice is paid, Stripe tells the app, and paid access returns. */
+  async recovered(invoice: Obj, failedInvoice: string): Promise<void> {
+    assertInvoice(invoice, this.customer, this.subscription, 'subscription_cycle');
+    this.steps.add('recovery_paid');
+    await this.delivery('invoice.payment_succeeded', failedInvoice); this.steps.add('recovery_delivery');
+    await this.entitlement(true); await this.account(/Pro · Active/); this.steps.add('access_restored');
+  }
+
+  /** A scheduled cancellation: Pro to the end of the paid period, then the period ends. */
+  async paidUntilPeriodEnd(ending: Obj): Promise<void> {
+    await this.delivery('customer.subscription.updated', this.subscription, e => e.data.object.cancel_at_period_end === true);
+    this.steps.add('cancellation_delivery');
+    await this.entitlement(true); await this.account(/Pro · Ending/); this.steps.add('paid_until_period_end');
+    await this.periodEnd(ending);
+  }
+
+  /**
+   * The period ends at Stripe. Data is kept whatever the end-of-access policy, so it is read from the database
+   * only. What the member can do afterwards (access_expired, history_retained) stays PENDING_POLICY until Akin
+   * confirms the end-of-access policy with Sam: nothing here signs in or reads access after the end.
+   */
+  async periodEnd(ending: Obj): Promise<void> {
+    await this.advance(ending.current_period_end + 3600);
+    const cancelled = await this.poll(() => this.stripe(`subscriptions/${this.subscription}`), s => s.status === 'canceled', 'subscription_not_expired');
+    requireFact(cancelled.cancel_at_period_end === true || cancelled.canceled_at != null, 'cancellation_unconfirmed');
+    await this.delivery('customer.subscription.deleted', this.subscription); this.steps.add('expiry_delivery');
+    const user = await this.admin.auth.admin.getUserById(this.uid);
+    requireFact(!user.error && user.data.user?.id === this.uid, 'account_deleted_by_cancellation');
+    if (this.savedSession) {
       const saved = await this.admin.from('sessions').select('id').eq('id', this.savedSession).eq('user_id', this.uid).single();
       requireFact(!saved.error && saved.data, 'history_deleted_by_cancellation');
-      this.steps.add('history_retained');
     }
+    this.steps.add('account_retained');
   }
 
   async cleanup(): Promise<void> {
@@ -450,7 +582,9 @@ class SandboxJourney {
 }
 
 // Not serial: one failed branch cannot suppress collection/execution of the others. No skips or retries.
-for (const journey of BILLING_JOURNEYS) {
+// No mode keeps today's three journeys; BILLING_RUNNER_MODE=smoke or full selects the runner's branches.
+const { journeys: RUN_JOURNEYS } = selectRunnerJourneys(env.BILLING_RUNNER_MODE);
+function journeyTest(journey: RunnerJourney): void {
   test(`billing ${journey}: genuine Stripe sandbox delivery`, async ({ page }, info) => {
     let run: SandboxJourney | undefined;
     let failed = false;
@@ -476,7 +610,11 @@ for (const journey of BILLING_JOURNEYS) {
         // Binds this receipt to this run's disposable stack; the finalizer refuses any other run's receipt.
         stackRun: useLocalStack ? env.LOCAL_STACK_PROJECT?.match(/^billing-local-stack-[0-9]{1,20}-[0-9]{1,6}$/)?.[0] ?? null : null,
       }), contentType: 'application/json' });
+      requireFact(failed || cleanupFailed || result.result !== PENDING_POLICY, 'access_after_end_policy_pending');
       requireFact(!failed && !cleanupFailed && result.result === 'PASSED', 'journey_incomplete_see_sanitized_receipt');
     }
   });
 }
+// The three lifecycle branches first, then the full-mode branches, each only when the mode selects it.
+for (const journey of BILLING_JOURNEYS) if (RUN_JOURNEYS.includes(journey)) journeyTest(journey);
+for (const journey of FULL_MODE_JOURNEYS) if (RUN_JOURNEYS.includes(journey)) journeyTest(journey);
