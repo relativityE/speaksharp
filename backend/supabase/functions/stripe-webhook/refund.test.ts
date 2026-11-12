@@ -29,7 +29,10 @@ function fakeStripe(opts: {
     invoices: {
       retrieve: (id: string) => { calls.push(["invoices.retrieve", id]);
         if (opts.invoiceErr) return Promise.reject(new Error("down"));
-        if (opts.invoices && id in opts.invoices) return Promise.resolve(opts.invoices[id]);
+        // An Error in the map fails that one retrieval only, so a later invoice can fail while the refunded one reads.
+        if (opts.invoices && id in opts.invoices) {
+          return opts.invoices[id] instanceof Error ? Promise.reject(opts.invoices[id]) : Promise.resolve(opts.invoices[id]);
+        }
         return Promise.resolve("invoice" in opts ? opts.invoice : invoiceFor({ id })); },
     },
     subscriptions: {
@@ -587,6 +590,46 @@ Deno.test("refund follow-up → durable operator signal (Sam's 2026-11-12 decisi
     assertEquals(await (await handler(refundEvent(), stripe, quiet.supabase, "secret", env)).json(), { received: true, refund: "already_ended" });
     assertEquals(quiet.rpcs, []);
     assertEquals(updates(calls), []);
+  });
+
+  await t.step("an ended subscription whose later invoice cannot be verified is never acknowledged (Sam's 866ee807 hold)", async () => {
+    const endedWith = (latest_invoice: unknown, in_2?: unknown) =>
+      fakeStripe({ sub: proSub({ status: "canceled", latest_invoice }), ...(in_2 === undefined ? {} : { invoices: { in_2 } }) });
+    const cases: [string, ReturnType<typeof endedWith>, string][] = [
+      ["later invoice read fails", endedWith("in_2", new Error("down")), "stripe_read_failed"],
+      ["latest invoice reference malformed", endedWith(42), "subscription_state_unverified"],
+      ["later invoice is another customer's", endedWith("in_2", invoiceFor({ id: "in_2", customer: "cus_other" })), "ownership_mismatch"],
+      ["later renewal still outstanding", endedWith("in_2", invoiceFor({ id: "in_2", status: "open" })), "renewal_outstanding"],
+      ["later invoice state unknown", endedWith("in_2", invoiceFor({ id: "in_2", status: "mystery" })), "subscription_state_unverified"],
+    ];
+    for (const [name, { stripe, calls }, reason] of cases) {
+      const database = db();
+      const res = await handler(refundEvent(), stripe, database.supabase, "secret", env);
+      assertEquals(res.status >= 500, true, name);
+      assertEquals(database.followups.get("charge:ch_1")?.reason, reason, name);
+      assertEquals(database.followups.get("charge:ch_1")?.status, "unresolved", name);
+      assertEquals(updates(calls), [], name);
+      assertEquals(calls.filter(([method]) => !method.endsWith(".retrieve")), [], name);
+    }
+    // The loss case: the first delivery saw the collected renewal but its signal write failed; the subscription
+    // then ended and the redelivery cannot read the renewal. Still non-2xx, so Stripe keeps redelivering, and the
+    // signal is attempted every time until it is durable; a later readable delivery names the collected renewal.
+    const collected = () => endedWith("in_2", invoiceFor({ id: "in_2", status: "paid", status_transitions: { paid_at: PAID_AFTER_REFUND } }));
+    const firstWrite = db("false");
+    assertEquals((await handler(refundEvent(), collected().stripe, firstWrite.supabase, "secret", env)).status >= 500, true);
+    assertEquals(firstWrite.args.length, 1);
+    const store = db();
+    for (const writer of [db("throw"), store, store]) {
+      const res = await handler(refundEvent(), endedWith("in_2", new Error("down")).stripe, writer.supabase, "secret", env);
+      assertEquals(res.status >= 500, true);
+      assertEquals(writer.args.length >= 1, true);
+    }
+    assertEquals(store.followups.get("charge:ch_1")?.reason, "stripe_read_failed");
+    assertEquals(store.followups.get("charge:ch_1")?.deliveries, 2);
+    const recovered = await handler(refundEvent(), collected().stripe, store.supabase, "secret", env);
+    assertEquals(await recovered.json(), { received: true, refund: "already_ended", followup: "unresolved" });
+    assertEquals(store.followups.get("charge:ch_1")?.reason, "renewal_collected_after_refund");
+    assertEquals(store.followups.get("charge:ch_1")?.status, "unresolved");
   });
 
   await t.step("an unreadable payment or refund time is never passed over", async () => {

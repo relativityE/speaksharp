@@ -254,9 +254,13 @@ export async function scheduleCancellationAfterRefund(
   const boundaryExpected = { invoiceId, subscriptionId, customer, livemode: charge.livemode, refundedAt };
   if (ENDED_STATES.includes(status)) {
     // Nothing to schedule, but a renewal collected after the refund still needs an operator, even when the
-    // subscription ended before this delivery (second security review of 06e63a11). A boundary that cannot be
-    // read here stays "already_ended", as before; an unreadable payment time is not passed over.
+    // subscription ended before this delivery (second security review of 06e63a11). Ended means no cancellation
+    // is needed, not that the renewal outcome was verified: a boundary that cannot be read (a failed or foreign
+    // latest invoice read, or a renewal still outstanding) is unverified with its closed code, exactly as for a
+    // live subscription, so the signal is recorded and the delivery is never acknowledged (Sam's 866ee807 hold).
+    // Detection only: nothing is written to Stripe here.
     const ended = await renewalBoundary(stripe, subscription.latest_invoice, boundaryExpected);
+    if (ended.problem) return unverified(boundaryCode(ended.problem, false), ended.problem);
     if (ended.collectedAfterRefund === "unknown") {
       return unverified("subscription_state_unverified", "latest invoice payment time unknown");
     }
