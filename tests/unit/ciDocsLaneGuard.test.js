@@ -9,6 +9,7 @@ import {
   DOCS_LANE_JOBS, NOT_TEST_SURFACES, REVIEWED_MARKDOWN_MENTIONS, RUNNER_ROOTS, GUARD_HOLD,
   evaluateDocsLaneGuard, runGuard, scanSkippedSurfaces, skippedSurfaces,
 } from '../../scripts/ci-docs-lane-guard.mjs';
+import { isDocsLaneChange } from '../../scripts/ci-change-scope.mjs';
 
 const workflow = yaml.load(readFileSync('.github/workflows/ci.yml', 'utf8'));
 
@@ -186,6 +187,37 @@ describe('docs-lane workflow wiring', () => {
     expect(steps.some((s) => String(s.run).startsWith('git diff --check'))).toBe(true);
     expect(steps.find((s) => s.name === 'Upload Docs Lane Evidence').with['if-no-files-found']).toBe('error');
     expect(steps.every((s) => s['continue-on-error'] === undefined)).toBe(true);
+  });
+
+  it('lists both sides of a rename in every diff the docs lane is derived from (real git)', () => {
+    // Codex P1 on e302468: with rename detection, code renamed to Markdown listed only the Markdown destination.
+    const diffLine = (job, name) => jobs[job].steps.find((s) => s.name === name).run.split('\n')
+      .map((l) => l.trim()).find((l) => l.startsWith('git diff') && l.includes('changed.txt'));
+    const lines = [diffLine('scope', 'Resolve Changed Files'), diffLine('docs-evidence', 'Re-derive The Docs Lane On This Checkout')];
+    const repo = mkdtempSync(join(tmpdir(), 'docs-lane-rename-'));
+    const git = (...args) => spawnSync('git', args, { cwd: repo, encoding: 'utf8',
+      env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } });
+    try {
+      git('init', '-q');
+      git('config', 'diff.renames', 'copies');
+      mkdirSync(join(repo, 'tests/e2e'), { recursive: true });
+      writeFileSync(join(repo, 'tests/e2e/flow.e2e.spec.ts'), 'export const steps = ["sign in", "delete account", "remount"];\n'.repeat(20));
+      git('add', '-A'); git('commit', '-qm', 'base');
+      const base = git('rev-parse', 'HEAD').stdout.trim();
+      mkdirSync(join(repo, 'docs'), { recursive: true });
+      git('mv', 'tests/e2e/flow.e2e.spec.ts', 'docs/retired.md'); git('commit', '-qm', 'rename');
+      for (const line of lines) {
+        expect(line).toContain('--no-renames');
+        const out = spawnSync('bash', ['-c', `set -euo pipefail; ${line}; cat "$RUNNER_TEMP/changed.txt"`],
+          { cwd: repo, encoding: 'utf8', env: { ...process.env, BASE_SHA: base, RUNNER_TEMP: repo } });
+        expect(out.status).toBe(0);
+        const changed = out.stdout.split('\n').filter((l) => l && l !== 'changed.txt');
+        expect(changed.sort()).toEqual(['docs/retired.md', 'tests/e2e/flow.e2e.spec.ts']);
+        expect(isDocsLaneChange(changed)).toBe(false);
+      }
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 
   it('report requires both the unit gate and docs-evidence on the docs lane (real shell)', () => {

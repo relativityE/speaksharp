@@ -59,6 +59,8 @@ jobs:
         with:
           fetch-depth: 0
 
+      # #1837: --no-renames lists BOTH sides of a rename or copy. With rename detection on, a file moved from
+      # code to Markdown would list only its Markdown destination and could pass for a docs-only change.
       - name: Resolve Changed Files
         shell: bash
         env:
@@ -66,7 +68,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -n "${BASE_SHA:-}" ]] && ! [[ "$BASE_SHA" =~ ^0+$ ]]; then
-            git diff --name-only "$BASE_SHA"...HEAD > "$RUNNER_TEMP/changed.txt" || : > "$RUNNER_TEMP/changed.txt"
+            git diff --no-renames --name-only "$BASE_SHA"...HEAD > "$RUNNER_TEMP/changed.txt" || : > "$RUNNER_TEMP/changed.txt"
           else
             : > "$RUNNER_TEMP/changed.txt"
           fi
@@ -480,7 +482,7 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::no pull request base; refusing docs-lane evidence"; exit 1; }
-          git diff --name-only "$BASE_SHA"...HEAD > "$RUNNER_TEMP/changed.txt"
+          git diff --no-renames --name-only "$BASE_SHA"...HEAD > "$RUNNER_TEMP/changed.txt"
           node scripts/ci-change-scope.mjs "$RUNNER_TEMP/changed.txt"
           node scripts/ci-docs-lane-guard.mjs "$RUNNER_TEMP/changed.txt"
 

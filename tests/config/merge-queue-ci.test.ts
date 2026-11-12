@@ -26,7 +26,7 @@ describe('#1501 — merge-queue CI support', () => {
         // see the queue candidate: the diff resolves against merge_group.base_sha, the classifier sees the event.
         const resolve = ci.jobs.scope.steps?.find((step) => step.env && 'BASE_SHA' in step.env);
         expect(resolve?.env?.BASE_SHA).toBe('${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}');
-        expect(resolve?.run).toContain('git diff --name-only "$BASE_SHA"...HEAD > "$RUNNER_TEMP/changed.txt"');
+        expect(resolve?.run).toContain('git diff --no-renames --name-only "$BASE_SHA"...HEAD > "$RUNNER_TEMP/changed.txt"');
         const classify = ci.jobs.scope.steps?.find((step) => step.id === 'classify');
         expect(classify?.env?.EVENT_NAME).toBe('${{ github.event_name }}');
         expect(classify?.run).toContain('node scripts/ci-change-scope.mjs "$RUNNER_TEMP/changed.txt"');
