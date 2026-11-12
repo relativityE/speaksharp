@@ -122,9 +122,10 @@ export async function handler(
         break;
       }
       case "charge.refunded": {
-        // Refund policy: keep access until the period ends, never charge again. This only schedules
+        // Refund policy: keep access until the period ends, no further charge. This only schedules
         // cancel_at_period_end in Stripe; entitlement changes solely through the subscription events Stripe
-        // then sends. No database write here.
+        // then sends. No database write here. "unverified" (for example, a renewal invoice already issued) is
+        // logged and returned non-2xx for an operator; it does not undo the schedule or stop that invoice.
         const refund = await scheduleCancellationAfterRefund(stripe, event.data.object, event.id,
           getEnv("STRIPE_PRO_PRICE_ID"));
         if (refund.outcome === "unverified") {

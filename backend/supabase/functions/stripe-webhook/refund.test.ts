@@ -346,6 +346,10 @@ Deno.test("refund → cancel at period end", async (t) => {
       const res = await handler(refundEvent(), stripe, db().supabase, "secret", env);
       assertEquals(res.status >= 500, true, String(status));
       assertEquals(updates(calls).length, 1, String(status));
+      // Detection and escalation only (Sam's adbec69d review): the one update stays applied (never reverted to
+      // false) and nothing else is written, so the issued renewal is not stopped by this handler.
+      assertEquals(updates(calls).map(call => call[2]), [{ cancel_at_period_end: true }], String(status));
+      assertEquals(calls.filter(call => !String(call[0]).endsWith(".retrieve") && call[0] !== "subscriptions.update"), [], String(status));
     }
     const named = fakeStripe({ invoices: { in_2: invoiceFor({ id: "in_2", status: "open" }) },
       updated: proSub({ cancel_at_period_end: true, latest_invoice: "in_2" }) });

@@ -1,6 +1,7 @@
 // Refund policy (Akin, 2026-11-12): a refunded customer keeps paid access until the current period ends and
 // is not charged again ("the customer uses the balance days/time of the monthly subscription"). A refund of a
-// SpeakSharp Pro subscription invoice therefore schedules the subscription to cancel at period end. Nothing
+// SpeakSharp Pro subscription invoice therefore schedules the subscription to cancel at period end. That stops
+// the next renewal; it is not by itself a guarantee of no further charge (see Renewal boundary below). Nothing
 // here changes entitlement: Stripe then sends customer.subscription.updated (cancel_at_period_end), which the
 // canonical snapshot path applies, and customer.subscription.deleted when the period ends.
 //
@@ -19,6 +20,13 @@
 // still outstanding (draft, open or uncollectible) is unverified: cancel_at_period_end does not stop Stripe
 // from collecting an invoice it has already issued, so an operator must decide. The same rule is applied again
 // to Stripe's update answer, in case a renewal was issued between the read and the update.
+//
+// "unverified" is detection and escalation, not prevention (Sam's adbec69d review). It returns non-2xx, so the
+// failure is logged and Stripe redelivers the event (each redelivery fails closed the same way until Stripe
+// stops retrying); it changes nothing in Stripe. In particular, when it is found only on the update answer,
+// cancel_at_period_end has already been set and is left set, and the outstanding renewal invoice is neither
+// voided nor otherwise stopped, so Stripe may still collect it. Whether to void or refund that invoice is an
+// operator's decision; this handler never makes it.
 //
 // Fails closed (Sam's review of 34dab357): nothing is changed unless the charge, its invoice and the
 // subscription all belong to the same customer and mode, and the subscription is the configured Pro price.
@@ -179,6 +187,7 @@ export async function scheduleCancellationAfterRefund(
   // The update answer is a newer reading of the subscription. If its latest invoice is no longer the one checked
   // above (a renewal was issued in between), check the boundary again on that answer: an outstanding renewal is
   // not something cancel at period end can stop, so it is unverified, never "scheduled" (Sam's c381f853 return).
+  // This only detects and escalates: the update above stays applied and the renewal invoice is not touched.
   const after = await renewalBoundaryProblem(stripe, updated.latest_invoice,
     { invoiceId, subscriptionId, customer, livemode: charge.livemode });
   if (after) return unverified(`after update: ${after}`);
