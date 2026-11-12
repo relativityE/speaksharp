@@ -55,10 +55,11 @@ test('billing source contract consumes genuine-delivery and cleanup wires withou
   const source=fs.readFileSync(path.join(root,BILLING_SPEC),'utf8');
   const proof=inspectSourceContract(root,BILLING_SPEC,source);
   assert.equal(proof.liveExecution,'NOT RUN');
-  assert.equal(proof.checks,16);assert.equal(proof.detectedFaults,16);
+  assert.equal(proof.checks,17);assert.equal(proof.detectedFaults,17);
   assert.equal(executionRoute(BILLING_SPEC,root).runner,'vitest-source-contract');
   for(const [from,to] of [
-    ['assertSandboxConfiguration(env, sandboxTarget)','assertSandboxConfiguration(env, arbitraryTarget)'],
+    ['assertSandboxConfiguration(env, committedTarget)','assertSandboxConfiguration(env, arbitraryTarget)'],
+    ["env.BILLING_SANDBOX_TARGET === 'local-disposable-stack'","env.BILLING_SANDBOX_TARGET !== undefined"],
     ["balance.livemode === false","balance.livemode === true"],
     ['isCorrelatedDelivery(event, { type, objectId, customer: this.customer }, data) && extra(event)','true'],
     [".eq('event_id', event.id)",".eq('event_id', unrelated.id)"],
