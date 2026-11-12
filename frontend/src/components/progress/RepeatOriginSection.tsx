@@ -66,7 +66,7 @@ export const RepeatOriginSection: React.FC<{ sessionId: string }> = ({ sessionId
             {view.tip.status === 'saved' && (
                 <>
                     <p data-testid="repeat-origin-tip" className="text-sm text-foreground/80">
-                        Tip you chose for this repeat: “{view.tip.text}”
+                        Coaching tip from the original session: “{view.tip.text}”
                     </p>
                     <p data-testid="repeat-origin-tip-retention" className="text-xs text-foreground/60">
                         {TIP_RETENTION_COPY}

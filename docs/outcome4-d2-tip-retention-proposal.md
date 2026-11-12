@@ -1,4 +1,4 @@
-# Outcome 4 D2: keeping the chosen tip with its repeat (proposal, revision 3)
+# Outcome 4 D2: keeping the carried-over coaching tip with its repeat (proposal, revision 3)
 
 Status: proposal for Sam's review, in draft PR #1827. Nothing here is applied to any database, merged or released,
 and none of it is authorised by this document.
@@ -7,7 +7,7 @@ and none of it is authorised by this document.
 
 On a repeat's Progress page, under the stored comparison:
 
-- `Tip you chose for this repeat: “<tip>”`
+- `Coaching tip from the original session: “<tip>”`
 - `This tip is kept with this repeat until you save another session.`
 
 When no tip is kept: `No coaching tip is kept for this repeat.` On a database without the migration: no tip line.
@@ -32,7 +32,7 @@ because retention is off, copies nothing. That copy:
    session other than the bound repeat, when a newer session that cannot be the repeat is saved, and when the
    account is deleted. Deleting the original deletes its recommendation and attempt.
 
-Net effect: per attempt, at most one session's worth of chosen-tip text exists, and only while that session is the
+Net effect: per attempt, at most one session's worth of carried-over tip text exists, and only while that session is the
 user's newest saved session, which is the lifetime newest-one retention already gives that session's transcript.
 The rule does not depend on retention being activated: with retention off, the copy lives shorter than its source.
 
@@ -44,7 +44,7 @@ so a new copy cannot be taken from an original that a concurrent save or expiry 
 - Inline, beside the tip (implemented on the local branch): "This tip is kept with this repeat until you save
   another session."
 - Privacy or data page, if one lists what is kept per session: "When you press Practice again, SpeakSharp keeps a
-  copy of that session's coaching tip with your next saved session, so the repeat can show which tip you chose. The
+  copy of that session's coaching tip with your next saved session, so the repeat can show the tip it was practising. The
   copy is deleted when you save another session, delete or abandon the repeat, or delete your account. SpeakSharp
   never measures or scores the tip."
 
