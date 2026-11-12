@@ -25,8 +25,8 @@ const TEST_PINS=Object.freeze({
  // AHT-07 bounded writes (pre-send caps, three fault legs, race-safe report cleanup): exact reviewed postimages.
  'tests/live/helpers/feedbackAttemptLedger.ts':'106f421cc75c5e793a613b7a89eb453392409dce14c4e8663275643b32a8b751',
  'tests/live/helpers/feedbackReportCleanup.ts':'c1c3cbe22affac9c6b0ca754d0d13626d63024ec1e4d61e880bb4cb70679b4af',
- 'tests/live/helpers/feedbackRecoveryInventory.ts':'1327d8cf15867817ec5fcc5219942b53a7bd2e8e047141efba8312424a683679',
- 'tests/unit/feedbackBoundedWrites.test.ts':'b130d4a55397a5722c2f7e4cb48356432b0ed1a891e07ef1d8c1de4db976c243',
+ 'tests/live/helpers/feedbackRecoveryInventory.ts':'966dff1e70fb16dd04b40bd2b09c449bb5fe775f9959066d684b8883e3972d49',
+ 'tests/unit/feedbackBoundedWrites.test.ts':'3e4942cb9abbf6758c265ea3687c15830801750fac45eb9483e12388e51b3192',
  'tests/unit/rwtSupplementalAcceptance1594.test.ts':'3926cc8aef7eca22cc8009cbbf62ae408a0624dae8621426f957def17008cca7',
  'tests/live/helpers/rwtDocumentIdentity.ts':'25c00c2a7eccd00f0cd0fe2ab3705ba5730049d187c8902e2ddd638c681594f0',
  'tests/unit/rwtWatchdog1593.test.ts':'2182dee01df81d24027902093086d9b02da9e02bfb45c9b5bf5968e5050608f8',
@@ -40,7 +40,7 @@ const TEST_PINS=Object.freeze({
  'tests/live/helpers/rwtSaveRetryAttempts.ts':'cfa37a628a18e1c4347bb40eed73b33b303245a6930efaca0aeb24ee39ec0be2',
  'tests/live/helpers/rwtLeaveDestinationReady.ts':'5df6c2b0533098c9a9c019b2d491783b060be2cc6d5f52614d4a8053092542db',
  'tests/live/rwt-abandon-and-two-tabs.live.spec.ts':'f8391ed96b6ba8d2c88c3873b2ee74be9821b73b2b024b0b65d1afb6bfc1b399',
- 'tests/live/rwt-feedback-association-boundaries.live.spec.ts':'0168beda80853c699690defec2c9f7d0882e7e173417a35a797e458d6cf8e9a3',
+ 'tests/live/rwt-feedback-association-boundaries.live.spec.ts':'226c42c579f15f9754f90706da73d893cee1443f7d378101d39b54cfd26a5b74',
  'tests/live/rwt-pending-start-navigation.live.spec.ts':'2d6ab35237f77a5980878a5b5fd7ea106094e10a8e64f4fdbca2c9df0300bf51',
  'tests/live/rwt-products-navigation.live.spec.ts':'bedab954eb78a034395639a29bcf34ff97ed9c47897f3e10a66f668ce43e4343',
  'tests/live/rwt-save-retry-recovery.live.spec.ts':'a41c3f7a74167cd912065c1d3edfea690cde699ca95d1e4e734c91b28425d2c5',
@@ -71,12 +71,16 @@ const TEST_PINS=Object.freeze({
  // AHT-02/03 sign-in, Focus presentation group and same-target repeat; AHT-08 no-session report cleanup.
  'tests/live/helpers/rwtFocusPresentation.ts':'273c1f55de34c403a59d88793d6ab08c9b8569c615ef265a565fb8a2a501ba41',
  'tests/live/helpers/rwtFocusSameTarget.ts':'7cf49770fd9d2e4dcd239ae010ce425c9422ce0e92a2599779a5355f2281f800',
- 'tests/live/helpers/feedbackNoSessionCleanup.ts':'ef27d95a9f5928421a5e13d635daf139579b69c098431aa57cb07f4f2de7632b',
+ 'tests/live/helpers/feedbackNoSessionCleanup.ts':'98dae6cb29f7de052cc767c9992617e29a921de6089961b2d0d037a071406041',
  'tests/unit/rwtFocusPresentation.test.ts':'619317a034774fbab4b27424aafc7e7952e02a79f5902c1fec8070156a983055',
  'tests/unit/rwtFocusSameTarget.test.ts':'6416b44baf04692ea1c328deeca902fc90483c18458e631efee5a67cdeddee2d',
- 'tests/unit/feedbackNoSessionCleanup.test.ts':'7643a2506eadd22f7ee40efa468497123b845bd1afdad2506454d67755506223',
+ 'tests/unit/feedbackNoSessionCleanup.test.ts':'2de55818d71392a359cfce60c2103c90564af7e0fd51be6c83600a4b30f6958e',
  'tests/live/helpers/rwtFocusSaveIsolation.ts':'08b562963051141d88bec185682bf89aaf8d829e65e124c1f089629dc1063dca',
  'tests/unit/rwtFocusSaveIsolation.test.ts':'60e59c932e09a8b61d5dca85e21c9f13eadeabab2012b21806da1368de2d6367',
+ // AHT-07/08 recovery store code (2026-11-12): recovery executor, its governed entry point and its controls.
+ 'tests/live/helpers/feedbackRecoveryExecutor.ts':'9b486156d34b4abc3ce2773060d36658a07cc07bda57e8138287747a0cca07b9',
+ 'tests/live/feedback-recovery-executor.live.spec.ts':'2d8e33406b8a1745602df77ffece0708c312386747c8a008cf20f6cafb2ebf65',
+ 'tests/unit/feedbackRecoveryExecutor.test.ts':'54d2bce72f4c017c56392e473dfb3d869caf7be1748608a50be8242722ce21af',
 });
 // These two non-product inputs are part of this diagnostic integration itself.
 // Pin their exact reviewed postimages rather than treating every workflow or
