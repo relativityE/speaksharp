@@ -2,7 +2,7 @@
 import { strict as assert } from 'node:assert';
 import { spawnSync } from 'node:child_process';
 import { test } from 'vitest';
-import { captureStackIdentity, verifyStackDestroyed, type DockerAnswer, type StackIdentity } from './localStackResources.mjs';
+import { captureStackIdentity, stackIdentitySha256, verifyStackDestroyed, type DockerAnswer, type StackIdentity } from './localStackResources.mjs';
 
 const PROJECT = 'billing-local-stack-123456-1';
 const LABEL = `label=com.supabase.cli.project=${PROJECT}`;
@@ -80,6 +80,10 @@ test('(b) a stack whose every captured identity is gone after a checked stop is 
   const proof = verifyStackDestroyed(captured(), PROJECT, docker.run);
   assert.equal(proof.destroyed, true);
   assert.equal(proof.databaseSystemIdentifier, '7300000000000000001');
+  // The proof names the exact captured list it was checked against (Sam's 6cd45e76 review).
+  assert.equal(proof.schema, 'billing-local-stack-destroyed/v2');
+  assert.equal(proof.identitySha256, stackIdentitySha256(captured(), PROJECT));
+  assert.match(proof.identitySha256, /^[0-9a-f]{64}$/);
   // Each exact identity was inspected, not just the selectors.
   for (const id of ['c_db', 'c_auth', 'n_net', `supabase_db_${PROJECT}`]) assert.ok(docker.calls.some(c => c.endsWith(` inspect ${id}`)), id);
 });
@@ -142,4 +146,18 @@ test('(b) negative control: a missing, foreign or malformed identity cannot be v
   }
   assert.throws(() => verifyStackDestroyed(identity, 'billing-local-stack-999-1', docker()), /identity_not_this_run/);
   assert.throws(() => captureStackIdentity('backend', daemon(true).run), /project_invalid/);
+});
+
+test('the identity digest is canonical: order and formatting do not change it, any id or the database does', () => {
+  const identity = captured();
+  const digest = stackIdentitySha256(identity, PROJECT);
+  assert.equal(stackIdentitySha256(JSON.parse(JSON.stringify({ ...identity, containers: [...identity.containers].reverse(),
+    volumes: [...identity.volumes].reverse() }, null, 3)), PROJECT), digest);
+  for (const changed of [{ ...identity, containers: [...identity.containers, 'c_extra'] }, { ...identity, networks: ['n_other'] },
+    { ...identity, volumes: identity.volumes.filter(v => v !== `supabase_config_${PROJECT}`) },
+    { ...identity, database: { ...identity.database, systemIdentifier: '1' } }]) {
+    assert.notEqual(stackIdentitySha256(changed, PROJECT), digest, JSON.stringify(changed));
+  }
+  assert.throws(() => stackIdentitySha256(identity, 'billing-local-stack-999-1'), /identity_not_this_run/);
+  assert.throws(() => stackIdentitySha256({ ...identity, extra: 1 }, PROJECT), /identity_shape/);
 });

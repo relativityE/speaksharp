@@ -169,7 +169,7 @@ export function planRun(mode, read = readRepoFile) {
 }
 
 const COMBINED_KEYS = ['billingRowResidue', 'defects', 'journey', 'journeyReceipt', 'rawReceiptSha256', 'release', 'result',
-  'schema', 'stackDestroyed', 'stackRun', 'stackStopped', 'stripeFixturesRemoved'].join(',');
+  'schema', 'stackDestroyed', 'stackIdentitySha256', 'stackRun', 'stackStopped', 'stripeFixturesRemoved'].join(',');
 const SHA = /^[0-9a-f]{40}$/;
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const sameList = (a, b) => Array.isArray(a) && a.length === b.length && a.every((value, i) => value === b[i]);
@@ -183,24 +183,26 @@ export const EXTERNAL_REQUIRED_STEPS = Object.freeze({});
 /**
  * One local-stack phase, re-validated from its evidence rather than trusted from a summary (Sam's fa7e7180
  * return: a bare {journey, result: 'PASSED'} must not pass). The run must hand over the combined receipt, the
- * raw journey receipt exactly as written, and the stack's destruction proof. The raw receipt is re-hashed and
+ * raw journey receipt exactly as written, the stack's destruction proof and the identity list it was checked
+ * against. The raw receipt is re-hashed and
  * re-checked step by step for this phase, this release and this stack; the combined receipt must have exactly
  * its schema's fields and agree; the destruction proof must be for the same stack. Returns the phase's result
  * and why it is not PASSED.
  */
 function localPhaseResult(id, held, item, release) {
   if (!isObject(item) || !isObject(item.combined) || typeof item.rawReceipt !== 'string') return { result: 'NOT_PROVEN', why: ['evidence_missing'] };
-  const { combined, rawReceipt, destruction } = item;
+  const { combined, rawReceipt, destruction, identity } = item;
   const why = [];
   if (Object.keys(combined).sort().join(',') !== COMBINED_KEYS) why.push('combined_shape');
-  if (combined.schema !== 'billing-local-stack-combined/v2') why.push('combined_schema');
+  if (combined.schema !== 'billing-local-stack-combined/v3') why.push('combined_schema');
   if (combined.journey !== id) why.push('combined_journey');
   if (combined.release !== release) why.push('combined_release');
   if (!PROJECT_PATTERN.test(`${combined.stackRun ?? ''}`)) why.push('combined_stack_run');
   if (createHash('sha256').update(rawReceipt).digest('hex') !== combined.rawReceiptSha256) why.push('raw_receipt_hash');
   for (const part of ['stackStopped', 'stackDestroyed', 'stripeFixturesRemoved']) if (combined[part] !== 'PASSED') why.push(`combined_${part}`);
   if (combined.billingRowResidue !== 'NOT_READ_DATABASE_DESTROYED') why.push('combined_residue');
-  why.push(...destructionDefects(destruction, combined.stackRun));
+  why.push(...destructionDefects(destruction, combined.stackRun, identity));
+  if (typeof combined.stackIdentitySha256 !== 'string' || combined.stackIdentitySha256 !== destruction?.identitySha256) why.push('combined_identity');
   let raw = null;
   try { raw = JSON.parse(rawReceipt); } catch { why.push('raw_receipt_unreadable'); }
   const journey = raw === null ? ['raw_receipt_unreadable'] : journeyReceiptDefects(raw, { journey: id, release, stackRun: combined.stackRun });
@@ -231,8 +233,9 @@ function externalPhaseResult(id, item, release) {
 }
 
 /**
- * One mode's result from its phases' evidence. Each entry is { phase, combined?, rawReceipt, destruction? }:
- * for a local-stack phase the combined receipt, the raw journey receipt text and the destruction proof; for an
+ * One mode's result from its phases' evidence. Each entry is { phase, combined?, rawReceipt, destruction?, identity? }:
+ * for a local-stack phase the combined receipt, the raw journey receipt text, the destruction proof and the
+ * captured stack identity; for an
  * external phase the raw hosted receipt text. Every phase is re-validated for this release (`expected.release`)
  * on its own stack. PASSED only when every phase of the mode has exactly one entry and each re-validates. A phase
  * held only by the end-of-access policy is PENDING_POLICY, and the mode is then PENDING_POLICY, never PASSED. A

@@ -165,10 +165,12 @@ jobs:
         id: stack_identity
         run: |
           set -euo pipefail
+          # Kept in the workspace and uploaded with the receipts: the baseline the destruction proof is checked
+          # against (Docker ids only, no secrets). The proof and the combined receipt carry its sha256.
           node tests/billing/user-journey/localStackResources.mjs capture "$LOCAL_STACK_PROJECT" \
-            > "$RUNNER_TEMP/stack-identity.json"
+            > billing-local-stack-identity.json
           jq -c '{project, containers: (.containers | length), volumes: (.volumes | length), networks: (.networks | length)}' \
-            "$RUNNER_TEMP/stack-identity.json"
+            billing-local-stack-identity.json
 
       - name: Install the Stripe CLI (pinned, checksum-verified)
         run: |
@@ -337,7 +339,7 @@ jobs:
           # Each identity recorded after creation must now be absent (Docker's own "no such" answer); any
           # other inspect error is unverified, and the selectors are re-read, each checked on its own.
           node tests/billing/user-journey/localStackResources.mjs verify "$LOCAL_STACK_PROJECT" \
-            "$RUNNER_TEMP/stack-identity.json" > billing-local-stack-destroyed.json \
+            billing-local-stack-identity.json > billing-local-stack-destroyed.json \
             || { echo '::error::The disposable stack was not proven destroyed; its billing rows were never read, so this run cannot pass.'; exit 1; }
           cat billing-local-stack-destroyed.json
 
@@ -357,6 +359,7 @@ jobs:
           # combined result carries the raw receipt's sha256, so the two stay bound to this run.
           node tests/billing/user-journey/localStackReceipt.mjs \
             --receipt billing-local-stack-receipt.json --destruction billing-local-stack-destroyed.json \
+            --identity billing-local-stack-identity.json \
             --journey "$JOURNEY" --release "$RELEASE" --run "$LOCAL_STACK_PROJECT" \
             --stack-stopped '${{ steps.stack_stop.outcome }}' --stack-destroyed '${{ steps.stack_destroyed.outcome }}' \
             --stripe-clean '${{ steps.stripe_residue.outcome }}' \
@@ -385,6 +388,7 @@ jobs:
             echo "- Stack stopped: ${{ steps.stack_stop.outcome }}; destroyed: ${{ steps.stack_destroyed.outcome }}; Stripe residue check: ${{ steps.stripe_residue.outcome }}"
             if [ -f billing-local-stack-combined.json ]; then
               echo "- Combined result: $(jq -r '.result' billing-local-stack-combined.json)"
+              echo "- Stack identity SHA-256: \`$(jq -r '.stackIdentitySha256 // "not proven"' billing-local-stack-combined.json)\`"
             else
               echo '- Combined result: not produced'
             fi
@@ -397,6 +401,7 @@ jobs:
           path: |
             billing-local-stack-receipt.json
             billing-local-stack-receipt.sha256
+            billing-local-stack-identity.json
             billing-local-stack-destroyed.json
             billing-local-stack-combined.json
             billing-local-stack-combined.sha256

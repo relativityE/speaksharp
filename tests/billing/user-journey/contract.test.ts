@@ -4,6 +4,7 @@ import { test } from 'vitest';
 import { RUNNER_JOURNEYS, POLICY_PENDING_STEPS, REQUIRED_STEPS, receipt, assertTestPrice, assertInvoice,
   isCorrelatedDelivery, assertSandboxConfiguration, safeFailureReason, testClockCreateFields, localStackStatus } from './contract';
 import { finaliseLocalStackReceipt, RECEIPT_KEYS } from './localStackReceipt.mjs';
+import { stackIdentitySha256 } from './localStackResources.mjs';
 
 const price = { livemode: false, active: true, unit_amount: 1000, currency: 'usd',
   recurring: { interval: 'month', interval_count: 1 } };
@@ -136,9 +137,15 @@ const pendingReceipt = { schema: 'billing-user-journey/v1', journey: 'conversion
   failureStage: null, reason: null, cleanup: 'PENDING_STACK_DESTRUCTION',
   billingRowResidue: 'NOT_READ_REQUIRES_STACK_DESTRUCTION_PROOF', testedRelease: RELEASE, stackRun: STACK_RUN };
 const allChecks = { stackStopped: 'success', stackDestroyed: 'success', stripeClean: 'success' };
-const destruction = { schema: 'billing-local-stack-destroyed/v1', project: STACK_RUN, databaseSystemIdentifier: '7300000000000000001',
-  containers: 9, volumes: 3, networks: 1, destroyed: true };
-const finaliserExpected = { journey: 'conversion', release: RELEASE, stackRun: STACK_RUN, receiptSha256: 'b'.repeat(64), destruction };
+const identityFor = (stackRun: string) => ({ schema: 'billing-local-stack-identity/v1', project: stackRun,
+  database: { container: 'c_db', volume: `supabase_db_${stackRun}`, systemIdentifier: '7300000000000000001' },
+  containers: ['c_auth', 'c_db'], volumes: [`supabase_config_${stackRun}`, `supabase_db_${stackRun}`], networks: ['n_net'] });
+const destroyedFor = (stackRun: string) => ({ schema: 'billing-local-stack-destroyed/v2', project: stackRun,
+  databaseSystemIdentifier: '7300000000000000001', identitySha256: stackIdentitySha256(identityFor(stackRun), stackRun),
+  containers: 2, volumes: 2, networks: 1, destroyed: true });
+const destruction = destroyedFor(STACK_RUN);
+const identity = identityFor(STACK_RUN);
+const finaliserExpected = { journey: 'conversion', release: RELEASE, stackRun: STACK_RUN, receiptSha256: 'b'.repeat(64), destruction, identity };
 
 test('combined local receipt is PASSED only after checked teardown, destruction proof and Stripe cleanup', () => {
   const combined = finaliseLocalStackReceipt([pendingReceipt], allChecks, finaliserExpected);
@@ -147,6 +154,9 @@ test('combined local receipt is PASSED only after checked teardown, destruction 
   // Bound to this dispatch: journey, release, stack and the raw receipt's hash.
   assert.deepEqual([combined.journey, combined.release, combined.stackRun, combined.rawReceiptSha256],
     ['conversion', RELEASE, STACK_RUN, 'b'.repeat(64)]);
+  // And to the identity list captured after creation, which the destruction proof names by sha256.
+  assert.equal(combined.stackIdentitySha256, stackIdentitySha256(identity, STACK_RUN));
+  assert.equal(combined.stackIdentitySha256, destruction.identitySha256);
 });
 
 test('the receipt the spec writes has exactly the shape the finalizer requires', () => {
@@ -225,6 +235,32 @@ test('(c) negative control: a destruction proof missing, failed or for another r
     assert.equal(combined.result, 'NOT_PROVEN', JSON.stringify(bad));
     assert.equal(combined.stackDestroyed, 'NOT_PROVEN');
   }
+});
+
+test('(c) negative control: the destruction proof must name the kept identity list, unchanged (Sam, 6cd45e76)', () => {
+  const run = (change: Record<string, unknown>) => finaliseLocalStackReceipt([pendingReceipt], allChecks, { ...finaliserExpected, ...change });
+  const cases: [string, Record<string, unknown>, string][] = [
+    ['identity list not kept', { identity: undefined }, 'stack_identity_invalid'],
+    ['identity list for another run', { identity: identityFor('billing-local-stack-999-1') }, 'stack_identity_invalid'],
+    ['identity list malformed', { identity: { ...identity, networks: [] } }, 'stack_identity_invalid'],
+    ['a container dropped from the list after the run', { identity: { ...identity, containers: ['c_db'] } }, 'destruction_identity_mismatch'],
+    ['a container swapped in the list', { identity: { ...identity, containers: ['c_db', 'c_other'] } }, 'destruction_identity_mismatch'],
+    ['another database in the list', { identity: { ...identity, database: { ...identity.database, systemIdentifier: '1' } } }, 'destruction_identity_mismatch'],
+    ['proof without the digest (v1)', { destruction: { ...destruction, schema: 'billing-local-stack-destroyed/v1', identitySha256: undefined } }, 'destruction_proof_shape'],
+    ['proof naming another list', { destruction: { ...destruction, identitySha256: 'c'.repeat(64) } }, 'destruction_identity_mismatch'],
+    ['proof counts disagree with the list', { destruction: { ...destruction, containers: 9 } }, 'destruction_counts_mismatch'],
+    ['proof for another database', { destruction: { ...destruction, databaseSystemIdentifier: '42' } }, 'destruction_database'],
+  ];
+  for (const [name, change, defect] of cases) {
+    const combined = run(change);
+    assert.equal(combined.result, 'NOT_PROVEN', name);
+    assert.ok(combined.defects.includes(defect), `${name}: ${combined.defects}`);
+  }
+  // Formatting or list order does not change the digest; content does.
+  const reordered = { networks: identity.networks, volumes: [...identity.volumes].reverse(), containers: [...identity.containers].reverse(),
+    database: identity.database, project: identity.project, schema: identity.schema };
+  assert.equal(stackIdentitySha256(reordered, STACK_RUN), destruction.identitySha256);
+  assert.equal(run({ identity: JSON.parse(JSON.stringify(reordered, null, 4)) }).result, 'PASSED');
 });
 
 test('smoke (Sam): conversion proves repeated click, cancel and retry before it pays, in that order', () => {

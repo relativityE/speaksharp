@@ -14,7 +14,7 @@ import process from 'node:process';
 import { parseArgs } from 'node:util';
 import { pathToFileURL } from 'node:url';
 import { PENDING_POLICY, POLICY_PENDING_STEPS, REQUIRED_STEPS, RUNNER_JOURNEYS } from './journeySteps.mjs';
-import { PROJECT_PATTERN } from './localStackResources.mjs';
+import { DESTROYED_SCHEMA, PROJECT_PATTERN, stackIdentitySha256 } from './localStackResources.mjs';
 
 export const PENDING = 'PENDING_STACK_DESTRUCTION';
 export const RECEIPT_KEYS = Object.freeze(['billingRowResidue', 'cleanup', 'failureStage', 'journey', 'reason', 'result',
@@ -55,23 +55,38 @@ export function journeyReceiptDefects(receipt, expected) {
   return defects;
 }
 
-/** Every reason a destruction proof is not this stack's. Empty = proven. */
-export function destructionDefects(destruction, stackRun) {
+/** The captured identity's digest for this stack, or null when the identity is missing, foreign or malformed. */
+function identityDigest(identity, stackRun) {
+  try { return stackIdentitySha256(identity, stackRun); } catch { return null; }
+}
+
+/**
+ * Every reason a destruction proof is not this stack's. Empty = proven. The proof must name, by sha256, the
+ * exact identity list captured after creation (kept as evidence beside it), and agree with that list on the
+ * database and on how many of each resource were checked.
+ */
+export function destructionDefects(destruction, stackRun, identity) {
   if (!isObject(destruction)) return ['destruction_proof_missing'];
   const defects = [];
-  if (destruction.schema !== 'billing-local-stack-destroyed/v1' || destruction.destroyed !== true) defects.push('destruction_proof_shape');
+  if (destruction.schema !== DESTROYED_SCHEMA || destruction.destroyed !== true) defects.push('destruction_proof_shape');
   if (destruction.project !== stackRun) defects.push('destruction_not_this_run');
   for (const field of ['containers', 'volumes', 'networks']) {
     if (!Number.isSafeInteger(destruction[field]) || destruction[field] < 1) defects.push(`destruction_${field}`);
   }
   if (!/^[0-9]{1,20}$/.test(`${destruction.databaseSystemIdentifier ?? ''}`)) defects.push('destruction_database');
-  return defects;
+  const digest = identityDigest(identity, stackRun);
+  if (!digest) return [...defects, 'stack_identity_invalid'];
+  if (destruction.identitySha256 !== digest) defects.push('destruction_identity_mismatch');
+  if (destruction.databaseSystemIdentifier !== identity.database.systemIdentifier) defects.push('destruction_database');
+  if (destruction.containers !== identity.containers.length || destruction.volumes !== identity.volumes.length
+    || destruction.networks !== identity.networks.length) defects.push('destruction_counts_mismatch');
+  return [...new Set(defects)];
 }
 
 /**
  * @param {unknown} journeyReceipts the spec's receipt attachments (array; exactly one)
  * @param {{ stackStopped?: string, stackDestroyed?: string, stripeClean?: string }} checks GitHub step outcomes
- * @param {{ journey?: string, release?: string, stackRun?: string, receiptSha256?: string, destruction?: unknown }} expected
+ * @param {{ journey?: string, release?: string, stackRun?: string, receiptSha256?: string, destruction?: unknown, identity?: unknown }} expected
  */
 export function finaliseLocalStackReceipt(journeyReceipts, checks, expected = {}) {
   const outcome = (value) => (value === 'success' ? 'PASSED' : 'NOT_PROVEN');
@@ -83,17 +98,19 @@ export function finaliseLocalStackReceipt(journeyReceipts, checks, expected = {}
   const receipts = Array.isArray(journeyReceipts) ? journeyReceipts : [];
   const defects = receipts.length === 1 ? journeyReceiptDefects(receipts[0], expected) : ['receipt_count'];
   if (!SHA256.test(`${expected.receiptSha256 ?? ''}`)) defects.push('raw_receipt_unhashed');
-  const destruction = destructionDefects(expected.destruction, expected.stackRun);
+  const destruction = destructionDefects(expected.destruction, expected.stackRun, expected.identity);
   if (parts.stackDestroyed === 'PASSED' && destruction.length) parts.stackDestroyed = 'NOT_PROVEN';
   const all = [...defects, ...destruction];
   const passed = all.length === 0 && Object.values(parts).every((value) => value === 'PASSED');
   return {
-    schema: 'billing-local-stack-combined/v2',
+    schema: 'billing-local-stack-combined/v3',
     // What this run was dispatched for, never read from the receipt.
     journey: RUNNER_JOURNEYS.includes(expected.journey) ? expected.journey : null,
     release: SHA.test(`${expected.release ?? ''}`) ? expected.release : null,
     stackRun: PROJECT_PATTERN.test(`${expected.stackRun ?? ''}`) ? expected.stackRun : null,
     rawReceiptSha256: SHA256.test(`${expected.receiptSha256 ?? ''}`) ? expected.receiptSha256 : null,
+    // The captured stack-identity list the destruction proof was checked against, kept beside it as evidence.
+    stackIdentitySha256: identityDigest(expected.identity, expected.stackRun),
     journeyReceipt: defects.length === 0 ? PENDING : 'NOT_PROVEN',
     ...parts,
     // The rows were never read; they are covered only because the whole database was destroyed.
@@ -106,10 +123,10 @@ export function finaliseLocalStackReceipt(journeyReceipts, checks, expected = {}
 const readJson = (file) => { try { return JSON.parse(readFileSync(file, 'utf8')); } catch { return null; } };
 const sha256Of = (file) => { try { return createHash('sha256').update(readFileSync(file)).digest('hex'); } catch { return null; } };
 
-// CLI: node localStackReceipt.mjs --receipt <f> --destruction <f> --journey <j> --release <sha> --run <project>
+// CLI: node localStackReceipt.mjs --receipt <f> --destruction <f> --identity <f> --journey <j> --release <sha> --run <project>
 //        --stack-stopped <outcome> --stack-destroyed <outcome> --stripe-clean <outcome>
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
-  const names = ['receipt', 'destruction', 'journey', 'release', 'run', 'stack-stopped', 'stack-destroyed', 'stripe-clean'];
+  const names = ['receipt', 'destruction', 'identity', 'journey', 'release', 'run', 'stack-stopped', 'stack-destroyed', 'stripe-clean'];
   let values = {};
   try {
     ({ values } = parseArgs({ options: Object.fromEntries(names.map(n => [n, { type: 'string' }])), strict: true }));
@@ -117,7 +134,8 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const combined = finaliseLocalStackReceipt(readJson(values.receipt ?? ''),
     { stackStopped: values['stack-stopped'], stackDestroyed: values['stack-destroyed'], stripeClean: values['stripe-clean'] },
     { journey: values.journey, release: values.release, stackRun: values.run,
-      receiptSha256: sha256Of(values.receipt ?? '') ?? undefined, destruction: readJson(values.destruction ?? '') });
+      receiptSha256: sha256Of(values.receipt ?? '') ?? undefined, destruction: readJson(values.destruction ?? ''),
+      identity: readJson(values.identity ?? '') });
   process.stdout.write(`${JSON.stringify(combined, null, 2)}\n`);
   process.exitCode = combined.result === 'PASSED' ? 0 : 1;
 }

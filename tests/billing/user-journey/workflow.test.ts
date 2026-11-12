@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { test } from 'vitest';
 import { parse } from 'yaml';
 import { REQUIRED_STEPS } from './journeySteps.mjs';
+import { stackIdentitySha256 } from './localStackResources.mjs';
 
 type Step = { name?: string; id?: string; if?: string; run?: string; env?: Record<string, string> };
 const workflowText = readFileSync('.github/workflows/billing-local-stack-journey.yml', 'utf8');
@@ -143,14 +144,25 @@ test('(b) this run\'s identities are recorded right after creation, before any S
   const ids = job.steps.map(s => s.id ?? s.name);
   const at = ids.indexOf('stack_identity');
   assert.equal(at, ids.indexOf('stack_start') + 1);
-  assert.match(step('stack_identity').run ?? '', /localStackResources\.mjs capture "\$LOCAL_STACK_PROJECT"\s*\\\s*\n\s*> "\$RUNNER_TEMP\/stack-identity\.json"/);
+  assert.match(step('stack_identity').run ?? '', /localStackResources\.mjs capture "\$LOCAL_STACK_PROJECT"\s*\\\s*\n\s*> billing-local-stack-identity\.json/);
   assert.match(step('stack_identity').run ?? '', /set -euo pipefail/);
 });
 
 test('(b) destruction is proven against those identities, and only after a checked stop', () => {
   const destroyed = step('stack_destroyed');
   assert.match(destroyed.if ?? '', /steps\.stack_stop\.outcome == 'success'/);
-  assert.match(destroyed.run ?? '', /localStackResources\.mjs verify "\$LOCAL_STACK_PROJECT" \\\s*\n\s*"\$RUNNER_TEMP\/stack-identity\.json" > billing-local-stack-destroyed\.json/);
+  assert.match(destroyed.run ?? '', /localStackResources\.mjs verify "\$LOCAL_STACK_PROJECT" \\\s*\n\s*billing-local-stack-identity\.json > billing-local-stack-destroyed\.json/);
+});
+
+test('(Sam, 6cd45e76) the captured identity list is kept as evidence and the finalizer checks the proof against it', () => {
+  // One file, written at capture, read by the destruction proof and the finalizer, and uploaded with the receipts.
+  assert.equal(workflowText.match(/billing-local-stack-identity\.json/g)?.length, 5);
+  assert.doesNotMatch(workflowText, /RUNNER_TEMP\/stack-identity\.json/);
+  assert.ok((step('combined').run ?? '').includes('--identity billing-local-stack-identity.json'));
+  const upload = (job.steps as unknown as { uses?: string; with?: { path?: string } }[])
+    .find(entry => entry.uses === 'actions/upload-artifact@v4');
+  assert.match(`${upload?.with?.path ?? ''}`, /^\s*billing-local-stack-identity\.json$/m);
+  assert.match(workflowText, /Stack identity SHA-256: .*\.stackIdentitySha256/);
 });
 
 test('(c) the finalizer is told this dispatch\'s journey, release and stack, and reads the destruction proof', () => {
@@ -171,13 +183,17 @@ test('(c) the finalizer CLI binds the combined result to the raw receipt file, a
       steps: REQUIRED_STEPS.conversion.map(s => ({ step: s, result: 'PASSED' })), failureStage: null, reason: null,
       cleanup: 'PENDING_STACK_DESTRUCTION', billingRowResidue: 'NOT_READ_REQUIRES_STACK_DESTRUCTION_PROOF',
       testedRelease: release, stackRun: project };
-    const destroyed = { schema: 'billing-local-stack-destroyed/v1', project, databaseSystemIdentifier: '1', containers: 1,
-      volumes: 1, networks: 1, destroyed: true };
+    const identity = { schema: 'billing-local-stack-identity/v1', project,
+      database: { container: 'c_db', volume: `supabase_db_${project}`, systemIdentifier: '1' },
+      containers: ['c_db'], volumes: [`supabase_db_${project}`], networks: ['n_net'] };
+    const destroyed = { schema: 'billing-local-stack-destroyed/v2', project, databaseSystemIdentifier: '1',
+      identitySha256: stackIdentitySha256(identity, project), containers: 1, volumes: 1, networks: 1, destroyed: true };
     writeFileSync(join(dir, 'destroyed.json'), JSON.stringify(destroyed));
+    writeFileSync(join(dir, 'identity.json'), JSON.stringify(identity, null, 2));
     const finalise = (receipts: unknown) => {
       writeFileSync(join(dir, 'receipt.json'), JSON.stringify(receipts));
       return spawnSync('node', ['tests/billing/user-journey/localStackReceipt.mjs', '--receipt', join(dir, 'receipt.json'),
-        '--destruction', join(dir, 'destroyed.json'), '--journey', 'conversion', '--release', release, '--run', project,
+        '--destruction', join(dir, 'destroyed.json'), '--identity', join(dir, 'identity.json'), '--journey', 'conversion', '--release', release, '--run', project,
         '--stack-stopped', 'success', '--stack-destroyed', 'success', '--stripe-clean', 'success'], { encoding: 'utf8' });
     };
     const good = finalise([full]);
@@ -190,5 +206,11 @@ test('(c) the finalizer CLI binds the combined result to the raw receipt file, a
     assert.equal(JSON.parse(bare.stdout).result, 'NOT_PROVEN');
     const otherRun = finalise([{ ...full, stackRun: 'billing-local-stack-999-1' }]);
     assert.equal(otherRun.status, 1);
+    assert.equal(JSON.parse(good.stdout).stackIdentitySha256, destroyed.identitySha256);
+    // The kept identity list edited after the run no longer matches the proof.
+    writeFileSync(join(dir, 'identity.json'), JSON.stringify({ ...identity, networks: ['n_other'] }));
+    const edited = finalise([full]);
+    assert.equal(edited.status, 1);
+    assert.ok(JSON.parse(edited.stdout).defects.includes('destruction_identity_mismatch'));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

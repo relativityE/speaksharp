@@ -220,3 +220,8 @@ What each branch must prove before it may say so (Sam's fa7e7180 return):
   and the destruction proof, re-hashes the raw receipt and re-checks its steps, release, stack and cleanup. A bare or
   summary-only `PASSED` is `NOT_PROVEN`. Two phases on one stack are `NOT_PROVEN`. The paid loop stays `NOT_PROVEN`
   until #1822 commits its step list in `EXTERNAL_REQUIRED_STEPS`, so full mode cannot pass before then.
+- The stack-identity list captured right after `supabase start` is kept as `billing-local-stack-identity.json` and
+  uploaded with the receipts (Sam's 6cd45e76 review). The destruction proof (`billing-local-stack-destroyed/v2`)
+  names it by a canonical sha256, and the combined receipt (`billing-local-stack-combined/v3`) carries the same
+  digest. A missing, foreign or edited list, or a proof whose digest, database or counts disagree with it, is
+  `NOT_PROVEN`.

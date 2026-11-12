@@ -24,7 +24,7 @@ export function planRun(mode: string, read?: Reader): {
   result: 'READY' | 'READY_WITH_PENDING_POLICY' | 'BLOCKED_PREREQUISITE'; phases: PlannedPhase[]; openQuestions: string[];
 };
 export const EXTERNAL_REQUIRED_STEPS: Readonly<Record<string, readonly string[]>>;
-export type ModeEvidence = { phase: string; combined?: unknown; rawReceipt?: string; destruction?: unknown };
+export type ModeEvidence = { phase: string; combined?: unknown; rawReceipt?: string; destruction?: unknown; identity?: unknown };
 export function finaliseModeReceipt(mode: string, entries: unknown, expected?: { release?: string }): {
   schema: 'billing-runner-mode/v2'; mode: RunnerPlanMode; release: string | null; problems: string[];
   phases: { phase: string; result: 'PASSED' | 'PENDING_POLICY' | 'NOT_PROVEN'; why: string[] }[];

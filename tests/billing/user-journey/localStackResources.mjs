@@ -7,11 +7,13 @@
 //  (b) an empty selector after stop is not proof. The identities are captured after creation and each one
 //      must be absent after a checked stop; a selector that matched the wrong thing (or nothing) fails.
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
 
 export const IDENTITY_SCHEMA = 'billing-local-stack-identity/v1';
+export const DESTROYED_SCHEMA = 'billing-local-stack-destroyed/v2';
 export const PROJECT_PATTERN = /^billing-local-stack-[0-9]{1,20}-[0-9]{1,6}$/;
 const LABEL = 'com.supabase.cli.project';
 const KINDS = /** @type {const} */ (['container', 'volume', 'network']);
@@ -111,6 +113,22 @@ export function assertIdentityShape(identity, project) {
 }
 
 /**
+ * The sha256 of this run's captured identity list, in a canonical form (fixed key order, sorted id lists), so
+ * the same capture always gives the same digest however the file was formatted (Sam's 6cd45e76 cleanup review:
+ * keep the captured baseline as evidence and hash it). The identity must be this project's, well formed.
+ */
+export function stackIdentitySha256(identity, project) {
+  assertIdentityShape(identity, project);
+  const canonical = {
+    schema: identity.schema, project: identity.project,
+    database: { container: identity.database.container, volume: identity.database.volume,
+      systemIdentifier: `${identity.database.systemIdentifier}` },
+    containers: [...identity.containers].sort(), volumes: [...identity.volumes].sort(), networks: [...identity.networks].sort(),
+  };
+  return createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
+}
+
+/**
  * After a CHECKED `supabase stop`: each captured identity must be gone. Absence is only accepted as Docker's
  * own "no such ..." answer; an inspect that succeeds means it remains, any other error means unverified.
  * The selectors are also re-read, each checked on its own, and must be empty.
@@ -129,7 +147,9 @@ export function verifyStackDestroyed(identity, project, docker = runDocker) {
       if (list(docker, kind, filter).length > 0) fail(`${kind}_remains`);
     }
   }
-  return { schema: 'billing-local-stack-destroyed/v1', project, databaseSystemIdentifier: identity.database.systemIdentifier,
+  // The proof names the exact baseline it was checked against, so it cannot be paired with another list.
+  return { schema: DESTROYED_SCHEMA, project, databaseSystemIdentifier: identity.database.systemIdentifier,
+    identitySha256: stackIdentitySha256(identity, project),
     containers: identity.containers.length, volumes: identity.volumes.length, networks: identity.networks.length, destroyed: true };
 }
 

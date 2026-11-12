@@ -9,6 +9,7 @@ import { selectRunnerJourneys, receipt, isRefundCancellation, assertFullRefund, 
   checkoutSessionFromUrl, assertCheckoutIdentity, newlyAddedCard, assertNoSecondCharge,
   BILLING_JOURNEYS, FULL_MODE_JOURNEYS, RUNNER_JOURNEYS, REQUIRED_STEPS, POLICY_PENDING_STEPS, PENDING_POLICY } from './contract';
 import { finaliseLocalStackReceipt } from './localStackReceipt.mjs';
+import { stackIdentitySha256 } from './localStackResources.mjs';
 import { MODES, PHASES, PREREQUISITES, STRIPE_WRITE_ALLOWLIST, planRun, finaliseModeReceipt, readRepoFile, EXTERNAL_REQUIRED_STEPS } from './runnerPlan.mjs';
 
 const SPEC = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
@@ -172,9 +173,15 @@ const pendingFor = (journey: keyof typeof REQUIRED_STEPS) => {
     billingRowResidue: 'NOT_READ_REQUIRES_STACK_DESTRUCTION_PROOF', testedRelease: RELEASE, stackRun: STACK_RUN };
 };
 const checks = { stackStopped: 'success', stackDestroyed: 'success', stripeClean: 'success' };
-const destruction = { schema: 'billing-local-stack-destroyed/v1', project: STACK_RUN, databaseSystemIdentifier: '7300000000000000001',
-  containers: 9, volumes: 3, networks: 1, destroyed: true };
-const expectedFor = (journey: string) => ({ journey, release: RELEASE, stackRun: STACK_RUN, receiptSha256: 'b'.repeat(64), destruction });
+const identityFor = (stackRun: string) => ({ schema: 'billing-local-stack-identity/v1', project: stackRun,
+  database: { container: 'c_db', volume: `supabase_db_${stackRun}`, systemIdentifier: '7300000000000000001' },
+  containers: ['c_auth', 'c_db'], volumes: [`supabase_config_${stackRun}`, `supabase_db_${stackRun}`], networks: ['n_net'] });
+const destroyedFor = (stackRun: string) => ({ schema: 'billing-local-stack-destroyed/v2', project: stackRun,
+  databaseSystemIdentifier: '7300000000000000001', identitySha256: stackIdentitySha256(identityFor(stackRun), stackRun),
+  containers: 2, volumes: 2, networks: 1, destroyed: true });
+const destruction = destroyedFor(STACK_RUN);
+const expectedFor = (journey: string) => ({ journey, release: RELEASE, stackRun: STACK_RUN, receiptSha256: 'b'.repeat(64), destruction,
+  identity: identityFor(STACK_RUN) });
 const combine = (journey: keyof typeof REQUIRED_STEPS, override: Record<string, unknown> = {}) =>
   finaliseLocalStackReceipt([{ ...pendingFor(journey), ...override }], checks, expectedFor(journey));
 
@@ -367,14 +374,15 @@ test('every Stripe write in the runner is on the allowlist, and every phase\'s w
   assert.doesNotMatch(SPEC, /this\.stripe\(`subscriptions\/[^`]*`, 'DELETE'/);
 });
 
-/** What a real run hands the mode finaliser for one local phase: combined receipt, raw receipt text, destruction proof. */
+/** What a real run hands the mode finaliser for one local phase: combined receipt, raw receipt, destruction proof, identity. */
 const evidenceFor = (journey: keyof typeof REQUIRED_STEPS, stack = 1, rawOverride: Record<string, unknown> = {}) => {
   const stackRun = `billing-local-stack-123456-${stack}`;
   const rawReceipt = JSON.stringify({ ...pendingFor(journey), stackRun, ...rawOverride });
-  const proof = { ...destruction, project: stackRun };
+  const proof = destroyedFor(stackRun);
+  const identity = identityFor(stackRun);
   const combined = finaliseLocalStackReceipt([JSON.parse(rawReceipt)], checks, { journey, release: RELEASE, stackRun,
-    receiptSha256: createHash('sha256').update(rawReceipt).digest('hex'), destruction: proof });
-  return { phase: journey, combined, rawReceipt, destruction: proof };
+    receiptSha256: createHash('sha256').update(rawReceipt).digest('hex'), destruction: proof, identity });
+  return { phase: journey, combined, rawReceipt, destruction: proof, identity };
 };
 
 test('mode result: each phase is re-validated from its evidence; held phases are PENDING_POLICY, never PASSED', () => {
@@ -418,6 +426,9 @@ test('mode result negative controls: a bare or summary-only PASSED, or evidence 
     ['teardown not proven', { ...good, combined: { ...good.combined, stackDestroyed: 'NOT_PROVEN' } }, 'combined_stackDestroyed'],
     ['destruction proof missing', { ...good, destruction: undefined }, 'destruction_proof_missing'],
     ['destruction proof for another stack', { ...good, destruction: { ...destruction, project: 'billing-local-stack-1-1' } }, 'destruction_not_this_run'],
+    ['identity list not handed over', { ...good, identity: undefined }, 'stack_identity_invalid'],
+    ['identity list edited after the run', { ...good, identity: { ...good.identity, containers: ['c_db'] } }, 'destruction_identity_mismatch'],
+    ['combined summary naming another list', { ...good, combined: { ...good.combined, stackIdentitySha256: 'c'.repeat(64) } }, 'combined_identity'],
     ['raw receipt unreadable', { ...good, rawReceipt: 'not json' }, 'raw_receipt_unreadable'],
   ];
   for (const [name, entry, expected] of cases) {
