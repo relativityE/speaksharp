@@ -185,7 +185,8 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         if ((owner.uid || owner.email) && !accountDeleted) {
             // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion; its own settlement decides the row.
             accountDeleted = (await finalizeOwnedCleanup(steps, receipt, new OwnedCleanup(
-                () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX })))) === 'deleted';
+                () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX,
+                    stoppedTakes: { writersClosedAt: () => parity.ownedPagesClosedAt, unsettledSaves: () => parity.unsettledSaves } })))) === 'deleted';
         }
         await steps.step('telemetry rows', () => telemetryClassRows(receipt, tap, claimed, false));
         steps.report(receipt);

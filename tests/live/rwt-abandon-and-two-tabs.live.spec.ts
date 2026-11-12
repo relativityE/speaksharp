@@ -150,7 +150,7 @@ const PARITY_CLOSE_STEP_MS = 60_000;
 
 async function finishJourney(receipt: RwtReceipt, testInfo: TestInfo, tap: AnalyticsTap, generations: CoachingGenerationTap,
     owner: RunOwner, claimed: boolean, cloud: { requests: number }, takes: string[], takeBaseline: readonly RowFacts[] | null,
-    parity: { tap: HarnessParityTap; budget: StartPressBudget }, steps: FinalizationSteps, beforeReport?: () => Promise<void>): Promise<void> {
+    parity: { tap: HarnessParityTap; budget: StartPressBudget; oneContext?: true }, steps: FinalizationSteps, beforeReport?: () => Promise<void>): Promise<void> {
     await steps.step('no cloud row', () => {
         const cloudVerdict = noCloudVerdict(cloud.requests);
         receipt.row('no Cloud STT request', cloudVerdict.status, cloudVerdict.detail, { cloudRequests: cloud.requests });
@@ -173,7 +173,9 @@ async function finishJourney(receipt: RwtReceipt, testInfo: TestInfo, tap: Analy
     if (owner.uid || owner.email) {
         // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion; its own settlement decides the row.
         await finalizeOwnedCleanup(steps, receipt, new OwnedCleanup(
-            () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX })));
+            () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX,
+                // AHT-09/10 only: their one context is every writer. AHT-11's other devices close after this, so it never closes a take.
+                stoppedTakes: parity.oneContext ? { writersClosedAt: () => parity.tap.ownedPagesClosedAt, unsettledSaves: () => parity.tap.unsettledSaves } : undefined })));
     }
     await steps.step('telemetry rows', () => telemetryClassRows(receipt, tap, claimed, false));
     // Codex P2 on 76a0bf6e: work that must be reported (closing extra devices) runs before the report seals the steps.
@@ -218,7 +220,7 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
         // (bounded; page-independent, since a finalizer may run after its tabs closed).
         await steps.step('telemetry settle', () => tap.settleEveryPage((ms) => new Promise((resolve) => setTimeout(resolve, ms))));
         await steps.step('watchdog', () => watch.record(receipt));
-        await finishJourney(receipt, testInfo, tap, generations, owner, claimed, cloud, takes, rowsBeforeFirst, { tap: parity, budget: parityBudget }, steps);
+        await finishJourney(receipt, testInfo, tap, generations, owner, claimed, cloud, takes, rowsBeforeFirst, { tap: parity, budget: parityBudget, oneContext: true }, steps);
     });
     try {
         await parity.attach(page.context());

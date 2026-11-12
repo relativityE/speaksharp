@@ -341,9 +341,9 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
         await steps.step('owned pages closed', (alive) => parity.ownedPagesClosedRow(aliveReceipt(receipt, alive)), PARITY_CLOSE_STEP_MS);
         // A signup that died before its uid was read is still found by its created email.
         if (owner.uid || owner.email) {
-            // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion; its own settlement decides the row.
+            // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion; its own settlement decides the row. Writers: the pages and the recovery browser.
             await finalizeOwnedCleanup(steps, receipt, new OwnedCleanup(
-                () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX })));
+                () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX, stoppedTakes: { writersClosedAt: () => (recoveryBrowser?.isConnected() ? null : parity.ownedPagesClosedAt), unsettledSaves: () => parity.unsettledSaves } })));
         }
         await steps.step('telemetry rows', () => telemetryClassRows(receipt, tap, claimed, false));
         steps.report(receipt);

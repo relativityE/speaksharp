@@ -383,7 +383,8 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         // cleanup verdict (#1532 Codex P1 r4126745141) both delete through it; the deletion's own settlement then decides —
         // a stalled readback never deletes again, and a body that ended early still has its account deleted, here only.
         if (owner.uid || owner.email) {
-            const cleanup = new OwnedCleanup(() => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
+            const cleanup = new OwnedCleanup(() => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX,
+                stoppedTakes: { writersClosedAt: () => parity.ownedPagesClosedAt, unsettledSaves: () => parity.unsettledSaves } }));
             const report = feedbackReportId;
             const proof = fixtureKey === 'focus_points_tts' && report
                 ? (alive: () => boolean) => feedbackRetentionAfterDeletionRow(aliveReceipt(receipt, alive), admin as never, report, () => cleanup.run())

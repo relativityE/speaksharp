@@ -148,7 +148,8 @@ test('leaving during a cold Start does not leave a recording or session behind @
         if ((uid || email) && !accountDeleted) {
             // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion; its own settlement decides the row.
             accountDeleted = (await finalizeOwnedCleanup(steps, receipt, new OwnedCleanup(
-                () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: uid, createdEmail: email, runOwnedPrefix: RWT_ACCOUNT_PREFIX })))) === 'deleted';
+                () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: uid, createdEmail: email, runOwnedPrefix: RWT_ACCOUNT_PREFIX,
+                    stoppedTakes: { writersClosedAt: () => parity.ownedPagesClosedAt, unsettledSaves: () => parity.unsettledSaves } })))) === 'deleted';
         }
         await steps.step('telemetry rows', () => telemetryClassRows(receipt, tap, claimed, false));
         steps.report(receipt);
@@ -220,6 +221,8 @@ test('leaving during a cold Start does not leave a recording or session behind @
             ? 'the user-triggered Start left the cold waiting state before navigation'
             : 'the pending Start transition was too brief or could not be observed; cancellation is not qualified');
         const micAtLeave = await readMicEvidence(page);
+        // AHT-04: leaving now abandons the pending acquisition; its one `aborted` acquisition failure is this leave's own.
+        watch.markNavigationIntent(page);
         await openProductsItem(page, 'focus-points');
         await page.waitForURL(/\/practice\?product=focus-points/, { timeout: 45_000 });
         // #1258 (live round 1, run 38847635290): Focus Points opens its setup as a MODAL over the header. A person closes it
@@ -240,6 +243,8 @@ test('leaving during a cold Start does not leave a recording or session behind @
             ? 'the pending model/start operation reached a terminal state after navigation'
             : 'the operation did not reach a readable terminal state; delayed Start remains unproven');
         if (startSettledAfterLeave) await page.waitForTimeout(2_000);
+        // The leave's own abort was captured while the abandoned Start settled; none after this point is excused.
+        watch.closeNavigationIntent();
         const recorderStillVisible = await page.getByTestId('recorder-stop').count().then((n) => n > 0);
         const micAfterLeave = await readMicEvidence(page);
         const noLateAcquisition = micAfterLeave.acquisitions === micAtLeave.acquisitions;
