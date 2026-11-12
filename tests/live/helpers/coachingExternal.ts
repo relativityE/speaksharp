@@ -7,7 +7,8 @@
  *
  * Proof is narrow and request-bound:
  *   • PROVIDER OUTCOME — the Edge response for the coaching request names `reason: provider_http_5xx` with an integer
- *     `diagnostics.provider_status` in 500–599, or `reason: provider_timeout`. An Edge 502 alone, a missing/malformed/
+ *     `diagnostics.provider_status` in 500–599, or `reason: provider_timeout` with an observed provider 5xx/429.
+ *     A local timeout without that upstream status is NOT external. An Edge 502 alone, a missing/malformed/
  *     unknown reason, `provider_transport`, or a browser/harness timeout is NOT proof.
  *   • GRACEFUL APP — independently: the exact take is saved exactly once, the review card settles on `error` with the
  *     unavailable message, and Try again is present and enabled (it is not pressed: a press would be another provider
@@ -57,8 +58,12 @@ export function providerStatusFrom(body: unknown): number | null {
 /** The external outcome the request-bound evidence PROVES, or null when it proves nothing. */
 export function provenExternalOutcome(e: CoachingFailureEvidence): ExternalProviderOutcome | null {
     if (e.httpStatus !== 502) return null; // the Edge function answers a provider failure with 502, and only then
-    if (e.reason === 'provider_http_5xx' && e.providerStatus !== null && e.providerStatus >= 500 && e.providerStatus <= 599) return 'provider_5xx';
-    if (e.reason === 'provider_timeout') return 'provider_timeout';
+    const status = e.providerStatus;
+    const provider5xx = typeof status === 'number' && Number.isInteger(status) && status >= 500 && status <= 599;
+    if (e.reason === 'provider_http_5xx' && provider5xx) return 'provider_5xx';
+    // The local deadline can fire without an upstream outage, including after received 200 headers.
+    // Only the provider's observed integer status can support this exception, never our outward 502.
+    if (e.reason === 'provider_timeout' && (provider5xx || status === 429)) return 'provider_timeout';
     return null;
 }
 
@@ -77,6 +82,36 @@ export interface GracefulDegradation {
 }
 
 export const UNAVAILABLE_HEADLINE = "The review didn't load. Your session is saved.";
+
+// Independent acceptance catalog for #1742's fixed display strings. Do not treat an arbitrary
+// provider message with an appended assurance as proof, or copy its text into a receipt.
+const UNAVAILABLE_PREFIXES = [
+    "The review didn't load.",
+    'CANCELLED: The operation was cancelled.',
+    'UNKNOWN: Unknown error.',
+    'INVALID_ARGUMENT: The request contains an invalid argument.',
+    'DEADLINE_EXCEEDED: The service deadline was exceeded.',
+    'NOT_FOUND: The requested resource was not found.',
+    'ALREADY_EXISTS: The requested resource already exists.',
+    'PERMISSION_DENIED: The service denied permission for this request.',
+    'RESOURCE_EXHAUSTED: A service resource limit was reached.',
+    'RESOURCE_EXHAUSTED: The service credit balance is depleted.',
+    'RESOURCE_EXHAUSTED: The service rate limit was exceeded.',
+    'FAILED_PRECONDITION: A required service precondition was not met.',
+    'ABORTED: The operation was aborted.',
+    'OUT_OF_RANGE: A request value is outside its allowed range.',
+    'UNIMPLEMENTED: The requested operation is not supported.',
+    'INTERNAL: The service reported an internal error.',
+    'UNAVAILABLE: The service is temporarily unavailable.',
+    'DATA_LOSS: The service reported unrecoverable data loss.',
+    'UNAUTHENTICATED: The service could not authenticate the request.',
+    'UNKNOWN (local normalization): Unknown error.',
+    'provider_timeout: The local coaching deadline was exceeded.',
+] as const;
+const UNAVAILABLE_HEADLINES = new Set(UNAVAILABLE_PREFIXES.map((prefix) => `${prefix} Your session is saved.`));
+export function isCoachingUnavailableHeadline(text: unknown): boolean {
+    return typeof text === 'string' && UNAVAILABLE_HEADLINES.has(text.trim());
+}
 
 /** Which graceful-degradation checks failed, by name (empty = all held). */
 export function gracefulFailures(g: GracefulDegradation): string[] {
@@ -109,7 +144,7 @@ export function coachingParentVerdict(args: {
     if (failed.length > 0) return { verdict: 'FAIL', detail: `${base}; the provider was unavailable but the app did not degrade gracefully: ${failed.join('; ')}`, external: null };
     return {
         verdict: 'EXTERNAL',
-        detail: `external provider unavailable (${outcome === 'provider_5xx' ? `provider ${String(args.evidence.providerStatus)}` : 'provider timeout'}) — non-blocking per PO; the take stayed saved, the unavailable message and an enabled Try again were shown. Successful coaching was not exercised.`,
+        detail: `external provider unavailable (${outcome === 'provider_5xx' ? `provider ${String(args.evidence.providerStatus)}` : `provider timeout with observed provider ${String(args.evidence.providerStatus)}`}) — non-blocking per PO; the take stayed saved, the unavailable message and an enabled Try again were shown. Successful coaching was not exercised.`,
         external: outcome,
     };
 }

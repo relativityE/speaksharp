@@ -21,7 +21,8 @@ import { type RunOwner, prepareRunOwnedAccount } from './helpers/rwtDisposableAc
 import { bindReadbackJourneys } from './helpers/rwtOracles';
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
-import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
+import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
+import { HarnessParityTap, type StartPressBudget } from './helpers/rwtHarnessParity';
 import { openProductsItem } from './helpers/productsMenu';
 import {
     expectBenchmarkRecordingStarted, preparePrivateModelIfPrompted, selectBenchmarkMode, startBenchmarkRecording,
@@ -31,6 +32,10 @@ import {
     CompletionObserver, SAVE_RETRY_SUITE, type SaveRetryVariant, type SessionRowFacts, completionDropDisposition,
     nextTakeIdArrived, nextTakeRetentionVerdict, recoveryBannerVerdict, savedTakeReadbackVerdict,
 } from './helpers/rwtSaveRetry';
+import {
+    type CompletionAttempt, SAVED_ROW_COLUMNS, type SavedRow, attemptEvidence, completionAttemptsVerdict, exactRetrySaveVerdict,
+    parseCompletionAttempt, reviewReopenVerdict, transcriptDigest,
+} from './helpers/rwtSaveRetryAttempts';
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
 const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
@@ -72,7 +77,48 @@ async function transcriptOnPageLength(page: Page): Promise<number> {
     return 0;
 }
 
+/** The account's session rows with the durable-save columns, by id order; kept in memory only (never in a receipt). */
+async function readSavedRows(uid: string, onlyActive = false): Promise<SavedRow[] | null> {
+    let query = admin!.from('sessions').select(SAVED_ROW_COLUMNS).eq('user_id', uid);
+    if (onlyActive) query = query.eq('status', 'active');
+    const { data, error } = await query.order('created_at');
+    return error || !Array.isArray(data) ? null : data as SavedRow[];
+}
+
+/**
+ * Harness `reopen` (browser-actions.cjs:155-158): open the saved take from Analytics, fingerprint the detail transcript
+ * (sha256 of innerText.trim()), reload, fingerprint again. Digests only leave the page.
+ */
+async function reopenFromAnalytics(page: Page, id: string): Promise<{ opened: boolean; before: string | null; after: string | null }> {
+    const fingerprint = async () => {
+        const detail = page.getByTestId('session-detail-transcript');
+        if (!(await detail.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false))) return null;
+        return transcriptDigest(await detail.innerText());
+    };
+    await page.goto('/analytics', { waitUntil: 'domcontentloaded', timeout: 45_000 });
+    const open = page.getByTestId(`open-session-detail-${id}`).or(page.getByTestId(`open-session-detail-mobile-${id}`)).first();
+    const opened = await open.click({ timeout: 45_000 }).then(() => true).catch(() => false);
+    if (!opened) return { opened, before: null, after: null };
+    const before = await fingerprint();
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 45_000 });
+    return { opened, before, after: await fingerprint() };
+}
+
 const persistedId = (page: Page) => page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
+
+/**
+ * Harness parity (catalog AHT-05 = `request-lost`, AHT-06 = `response-lost`: draft-adapters/save-fault-binding.cjs:66), from the
+ * journey's DESIGN (not a run's count). Each variant records two takes, each with one Start press:
+ *   1. the faulted take — on a cold model `mic-download` (`preparePrivateModelIfPrompted`, helpers/benchmark-utils.ts:609, whose one
+ *      press downloads AND starts the take), otherwise `mic-start` (`startBenchmarkRecording` at ready, helpers/benchmark-utils.ts:862);
+ *      exactly one of the two, since the start helper is skipped when setup already started the take;
+ *   2. the next take — the completed review's `verdict-practice-again` (`again.click()`, rwt-save-retry-recovery.live.spec.ts:227).
+ * Retry Save (`session-retry-save`) is not a Start control. So: 2 presses in all; `mic-download` at most 1, `mic-start` at most 1,
+ * `verdict-practice-again` at most 1, and no Retry press. Same for both variants.
+ */
+const SAVE_RETRY_START_PRESS_BUDGET: StartPressBudget = { total: 2, perControl: { 'mic-download': 1, 'mic-start': 1, 'verdict-practice-again': 1 } };
+/** The page-close step's own bound: each page close is itself bounded at 15 s inside it. */
+const PARITY_CLOSE_STEP_MS = 60_000;
 
 /** #1593 (live case 12): the journey's finalization must survive a test timeout — see `JourneyFinalizer`. */
 const finalizer = new JourneyFinalizer();
@@ -83,6 +129,9 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
     const tap = new AnalyticsTap();
     const generations = new CoachingGenerationTap();
     tap.attach(page); generations.attach(page);
+    // Harness parity (PO route 2026-11-10): Cloud STT requests and Start presses on every page of this variant's context;
+    // attached in the body below, before the first navigation.
+    const parity = new HarnessParityTap();
     const owner: RunOwner = { email: '', uid: '' };
     // #1593 fail early: an unexpected failure, refusal or stall ends the journey in seconds, not at the 30-minute timeout.
     const watch = armWatchdog({ page, tap, profile: watchProfileFor(suite), label: suite });
@@ -91,9 +140,16 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
     let accountDeleted = false;
     // The ONE altered request. Every other completion request, including Retry Save's replay, reaches the server untouched.
     const drop = { completionPosts: 0, droppedStatus: null as number | null, dropped: false };
+    // AHT-05/06 `completion-attempts` (harness completion-attempts.cjs): every completion POST's session, body sha and phase.
+    // `retryMarked` is set immediately before the explicit Retry Save click. Bodies stay in memory.
+    const attempts: CompletionAttempt[] = [];
+    const attemptByRequest = new Map<Request, CompletionAttempt>();
+    let retryMarked = false;
     // #1258 C — every non-dropped completion call's answer, read from the browser's own events by request identity.
     const completions = new CompletionObserver<Request>();
     page.on('response', (response) => {
+        const attempt = attemptByRequest.get(response.request());
+        if (attempt) attempt.httpStatus = response.status();
         if (completions.isObserved(response.request())) completions.onResponse(response.request(), response.status(), response.text().catch(() => null));
     });
     page.on('requestfailed', (request) => completions.onFailed(request, request.failure()?.errorText));
@@ -106,10 +162,25 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         // (bounded; page-independent, since a finalizer may run after its tabs closed).
         await steps.step('telemetry settle', () => tap.settleEveryPage((ms) => new Promise((resolve) => setTimeout(resolve, ms))));
         await steps.step('watchdog', () => watch.record(receipt));
-        await steps.step('completion route restore', () => page.unroute(COMPLETION_RPC));
+        // Sam, #1811 b319d42b RETURN: the completion route is the attempts observer, so it is never removed before the page
+        // closes. It stays through coaching settle and the page close; a late attempt at any point before close is recorded.
         await steps.step('coaching settle', () => generations.settle(), FINALIZE_SETTLE_MS);
         // Two saved takes: at most one coaching request each.
         await steps.step('coaching budget', () => coachingRequestBudgetRow(receipt, generations, { maximum: 2, oneRequestPerSession: takes }));
+        // Harness parity rows (catalog AHT-05/AHT-06: no-cloud-stt, start-press-budget, owned-pages-closed), before the account is
+        // deleted. Bounded steps, rows only while each step is alive, and the page close in its own step, last before cleanup.
+        await steps.step('harness parity counts', (alive) => {
+            parity.noCloudSttRow(aliveReceipt(receipt, alive));
+            parity.startPressRow(aliveReceipt(receipt, alive), SAVE_RETRY_START_PRESS_BUDGET);
+        });
+        await steps.step('owned pages closed', (alive) => parity.ownedPagesClosedRow(aliveReceipt(receipt, alive)), PARITY_CLOSE_STEP_MS);
+        // Harness `completion-attempts` at the FINAL boundary (final-attempts.cjs): every owned page is closed, so no completion
+        // request can still arrive; a late attempt after the in-journey checks is counted here, never missed.
+        await steps.step('completion attempts', (alive) => {
+            const attemptsVerdict = completionAttemptsVerdict(attempts);
+            aliveReceipt(receipt, alive).row('completion attempts are the fault and one Retry', attemptsVerdict.status, attemptsVerdict.detail,
+                { attempts: attemptEvidence(attempts, attempts.find((a) => a.dropped)?.sessionId ?? null), retryMarked });
+        });
         // A signup that died before its uid was read is still found by its created email.
         if ((owner.uid || owner.email) && !accountDeleted) {
             // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion; its own settlement decides the row.
@@ -122,6 +193,8 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
     });
     try {
         await suppressPageSnapshot(testInfo);
+        // Before the first navigation (the signup below): the click recorder is an init script.
+        await parity.attach(page.context());
         claimed = await prepareRunOwnedAccount(page, receipt, owner, `save-retry-${variant}`, admin, SERVICE_ROLE);
         if (!claimed) return;
         await page.goto('/practice');
@@ -134,6 +207,9 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
             if (route.request().method() !== 'POST') return route.fallback();
             drop.completionPosts += 1;
             completions.track(route.request(), drop.completionPosts);
+            const attempt = parseCompletionAttempt(drop.completionPosts, route.request().postDataBuffer(), retryMarked, !drop.dropped);
+            attempts.push(attempt);
+            attemptByRequest.set(route.request(), attempt);
             if (drop.dropped) return route.fallback();
             drop.dropped = true;
             completions.markDropped(route.request());
@@ -151,6 +227,10 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
             await startBenchmarkRecording(page, `save-retry-${variant}-1`);
         }
         await page.waitForTimeout(Math.round((fixture.entry.speechSeconds + 4) * 1000));
+        // The Start session, read while it is still active (durable-save-oracle `validateBaseline`): its id, key and lease bind
+        // the exact retry-saved-once check. A fresh account has exactly one active row here; anything else leaves it unknown.
+        const activeRows = await readSavedRows(owner.uid, true);
+        const takeRowBefore = activeRows?.length === 1 ? activeRows[0] : null;
         await stopBenchmarkRecording(page, `save-retry-${variant}-1`, 180_000);
 
         // The truthful recovery state, read before any retry.
@@ -177,6 +257,7 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         // Codex P2 on f527a033: the injected failure was the FIRST save; Retry Save and everything after it are strict, so a
         // retry that fails again trips the watchdog instead of being excused as the injection.
         watch.setFaultPhase(false);
+        retryMarked = true;
         await page.getByTestId('session-retry-save').click();
         const resolved = await banner.waitFor({ state: 'detached', timeout: 120_000 }).then(() => true).catch(() => false);
         await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 60_000 }).catch(() => undefined);
@@ -193,6 +274,10 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         receipt.row('Retry Save leaves one saved session', saved.status, saved.detail,
             { rows: rowsAfterRetry.length, completed: rowsAfterRetry.filter((r) => r.status === 'completed').length,
                 persistedIdBound: savedId !== null, completionPosts: drop.completionPosts, completionOutcomes: await completions.evidence() });
+        // Harness `retry-saved-once` (durable-save-oracle compareSavedRows): the one row is the Start session with the exact payload.
+        const exact = exactRetrySaveVerdict(attempts.find((a) => a.dropped)?.body ?? null, takeRowBefore, (await readSavedRows(owner.uid)) ?? [], savedId);
+        receipt.row('Retry Save saved the exact payload once', exact.status, exact.detail,
+            { startRowRead: takeRowBefore !== null, persistedIdBound: savedId !== null });
 
         // The next Start, from the completed review's own repeat action, saves only itself.
         const again = page.getByTestId('verdict-practice-again');
@@ -211,6 +296,16 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         receipt.row('next take saves only itself', next.status, next.detail,
             { rows: rowsAfterNext.length, completed: rowsAfterNext.filter((r) => r.status === 'completed').length,
                 completionOutcomes: await completions.evidence() });
+
+        // Harness `review-reopen` (runner L370 → saveReopen): the next take reopened from Analytics shows its saved transcript.
+        const nextRows = nextId ? await readSavedRows(owner.uid) : null;
+        const nextTranscript = nextRows?.find((r) => r.id === nextId)?.transcript;
+        const savedDigest = typeof nextTranscript === 'string' ? transcriptDigest(nextTranscript) : null;
+        const reopened = nextId && savedDigest ? await reopenFromAnalytics(page, nextId) : { opened: false, before: null, after: null };
+        const reopen = reviewReopenVerdict(savedDigest, reopened.opened, reopened.before, reopened.after);
+        receipt.row('review reopens the saved take', reopen.status, reopen.detail,
+            { opened: reopened.opened, beforeMatches: reopened.before === savedDigest, afterMatches: reopened.after === savedDigest });
+
     } catch (error) {
         receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
         throw error;

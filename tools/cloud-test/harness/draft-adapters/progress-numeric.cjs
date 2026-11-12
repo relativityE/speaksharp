@@ -45,7 +45,7 @@ async function readExpected({db,caseConfig:c,sourceSessionId,repeatSessionId,exp
  // Exact source derivation requests the persisted next-comparable evaluation. Add owner/formula identity
  // checks around that GET; do not fall back to session history, rounded metrics, target_value or zero.
  let nextIntegrity=null;
- const boundDb={from(table){if(table!=='session_progress_evaluations')notRun('G03 unexpected source read');const q=db.from(table);return {select(){q.select(SELECT.evaluation);return this;},eq(k,v){q.eq(k,v);return this;},async maybeSingle(){const r=await q.maybeSingle();if(r.error)notRun('G03 linked evaluation owner GET unavailable');if(r.data&&(r.data.user_id!==c.account.id||r.data.formula_version!==pure.PROGRESS_FORMULA_VERSION||r.data.session_id!==repeatSessionId)){nextIntegrity='persisted-linked-evaluation-identity-mismatch';return {data:null,error:null};}return r;}};}};
+ const boundDb={from(table){if(table!=='session_progress_evaluations')notRun('G03 unexpected source read');let q=db.from(table);return {select(){q=q.select(SELECT.evaluation);return this;},eq(k,v){q=q.eq(k,v);return this;},async maybeSingle(){const r=await q.maybeSingle();if(r.error)notRun('G03 linked evaluation owner GET unavailable');if(r.data&&(r.data.user_id!==c.account.id||r.data.formula_version!==pure.PROGRESS_FORMULA_VERSION||r.data.session_id!==repeatSessionId)){nextIntegrity='persisted-linked-evaluation-identity-mismatch';return {data:null,error:null};}return r;}};}};
  const value=await pure.loadRepeatResult(boundDb,sourceSessionId,source,rec,attempt);
  if(nextIntegrity)return answer('FAIL',nextIntegrity);
  return {value};

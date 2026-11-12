@@ -82,7 +82,7 @@
     "port-presentation-pure.cjs": "c1ee9f4f768df6e7b6f1d959813aaf6800a6d783f835a7d8058dc3d0d5a83517",
     "port-progress-numeric-pure.cjs": "c552a568edef956a49b5c18a8acb85dc552b86d21d5d14852d3bb18c5b48b95a",
     "presentation-controls.cjs": "b5b998de4a339a822323b19887e07882039b133a4d9f4a01c1b45ccea28b0790",
-    "progress-numeric.cjs": "b3b71c207411c3e7ca19207ae89370fd2eb7f7b1ff4b5c078caa85387ce33c50",
+    "progress-numeric.cjs": "86875ae4e4433ea0f1fa1dc3aa982acce18b3a187a4d5cd9fc41d5f4f8891bd3",
     "repeat-probes.cjs": "b486fbc59dc2ff3b92fc9584d018f87435b91e568445954bc17897c5e76b684b",
     "save-fault-binding.cjs": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d",
     "source/AnalyticsDashboard.tsx": "6b011922e95eefd52316138362438b83c44dc03b30c779eb5dcf2a1ef03cbbdc",
