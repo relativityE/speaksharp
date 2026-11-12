@@ -9,9 +9,11 @@ const jwt = (payload: Record<string, unknown>) =>
   `${Buffer.from('{"alg":"HS256","typ":"JWT"}').toString('base64url')}.${Buffer.from(JSON.stringify(payload)).toString('base64url')}.sig`;
 const SECRET = `sk_test_${'A1'.repeat(20)}`;
 const PRICE = 'price_ProMonthly1282';
+const PUBLISHABLE = `pk_test_${'B2'.repeat(20)}`;
 const good = (): Record<string, string | undefined> => ({
   BILLING_SANDBOX_STRIPE_KEY: SECRET,
-  BILLING_SANDBOX_PUBLISHABLE_KEY: `pk_test_${'B2'.repeat(20)}`,
+  BILLING_SANDBOX_PUBLISHABLE_KEY: PUBLISHABLE,
+  BILLING_LOCAL_APP_PUBLISHABLE_KEY_SHA256: fingerprint(PUBLISHABLE),
   BILLING_SANDBOX_PRICE_ID: PRICE,
   BILLING_LOCAL_FUNCTIONS_STRIPE_KEY_SHA256: fingerprint(SECRET),
   BILLING_LOCAL_FUNCTIONS_PRICE_SHA256: fingerprint(PRICE),
@@ -67,6 +69,11 @@ test('negative control: a key or price that is not the stack\'s is refused befor
     ['price_mismatch_with_stack', { BILLING_SANDBOX_PRICE_ID: 'price_SomeOtherPrice' }],
     ['stack_key_fingerprint_missing', { BILLING_LOCAL_FUNCTIONS_STRIPE_KEY_SHA256: undefined }],
     ['stack_key_fingerprint_missing', { BILLING_LOCAL_FUNCTIONS_PRICE_SHA256: 'not-a-hash' }],
+    // Sam's v5 smoke return: a different pk_test used to pass. It must be the one the app was built with.
+    ['publishable_key_mismatch_with_app', { BILLING_SANDBOX_PUBLISHABLE_KEY: `pk_test_${'D4'.repeat(20)}` }],
+    ['publishable_key_mismatch_with_app', { BILLING_LOCAL_APP_PUBLISHABLE_KEY_SHA256: fingerprint(`pk_test_${'D4'.repeat(20)}`) }],
+    ['app_publishable_key_fingerprint_missing', { BILLING_LOCAL_APP_PUBLISHABLE_KEY_SHA256: undefined }],
+    ['app_publishable_key_fingerprint_missing', { BILLING_LOCAL_APP_PUBLISHABLE_KEY_SHA256: 'not-a-hash' }],
   ];
   for (const [code, change] of cases) {
     const net = network();
@@ -120,4 +127,10 @@ test('the workflow gives the runner the stack\'s key and price fingerprints and 
   assert.match(workflow, /BILLING_LOCAL_FUNCTIONS_STRIPE_KEY_SHA256=\$\(printf '%s' "\$STRIPE_TEST_SECRET_KEY" \| sha256sum \| cut -d' ' -f1\)/);
   assert.match(workflow, /BILLING_LOCAL_FUNCTIONS_PRICE_SHA256=\$\(printf '%s' "\$STRIPE_TEST_PRO_PRICE_ID" \| sha256sum \| cut -d' ' -f1\)/);
   assert.match(workflow, /BILLING_SANDBOX_PUBLISHABLE_KEY: \$\{\{ vars\.STRIPE_TEST_PUBLISHABLE_KEY \}\}/);
+  // The app's publishable key fingerprint is written in the step that builds the app, from the key it used.
+  const build = workflow.slice(workflow.indexOf("- name: Build and serve this commit's app on the local origin"),
+    workflow.indexOf('- name: Install Chromium'));
+  assert.match(build, /VITE_STRIPE_PUBLISHABLE_KEY: \$\{\{ vars\.STRIPE_TEST_PUBLISHABLE_KEY \}\}/);
+  assert.match(build, /BILLING_LOCAL_APP_PUBLISHABLE_KEY_SHA256=\$\(printf '%s' "\$VITE_STRIPE_PUBLISHABLE_KEY" \| sha256sum \| cut -d' ' -f1\)" >> "\$GITHUB_ENV"/);
+  assert.ok(build.indexOf('vite build') < build.indexOf('BILLING_LOCAL_APP_PUBLISHABLE_KEY_SHA256'));
 });

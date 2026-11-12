@@ -6,10 +6,15 @@
 //    is refused.
 // 2. Keys match the stack: the runner's secret key and Pro price are the ones this run's local Edge functions
 //    were served with (sha256 fingerprints the workflow wrote when it wrote the functions env), so the
-//    runner cannot drive one Stripe account while the backend talks to another.
+//    runner cannot drive one Stripe account while the backend talks to another. The runner's publishable key
+//    is bound the same way to the one the local app was built with (Sam's v5 smoke return: a different
+//    pk_test used to pass). Whether that publishable key and the secret key belong to the same Stripe
+//    account is NOT proven here: Stripe offers no read of a publishable key's account, and no call is made.
 // 3. Isolated backend: the Supabase URL is the loopback CLI stack, the anon and service keys are the local
 //    CLI's own (issuer supabase-demo, the right roles, no hosted project ref), and the local Auth health and
-//    Edge function gateway answer from loopback.
+//    Edge function gateway answer from loopback. These are necessary checks, not proof of isolation: a loopback
+//    health answer and decoded (unverified) JWT claims do not prove which backend serves them. Isolation rests
+//    on the workflow starting the disposable stack itself.
 import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import { URL } from 'node:url';
@@ -42,13 +47,16 @@ export function assertTestKeys(env) {
   need(PRICE.test(env.BILLING_SANDBOX_PRICE_ID ?? ''), 'price_id_malformed');
 }
 
-/** 2. The runner's key and price are exactly the ones the local Edge functions were served with. */
+/** 2. The runner's key and price are the local Edge functions', and its publishable key is the built app's. */
 export function assertKeysMatchStack(env) {
   const keyPrint = env.BILLING_LOCAL_FUNCTIONS_STRIPE_KEY_SHA256 ?? '';
   const pricePrint = env.BILLING_LOCAL_FUNCTIONS_PRICE_SHA256 ?? '';
+  const appKeyPrint = env.BILLING_LOCAL_APP_PUBLISHABLE_KEY_SHA256 ?? '';
   need(SHA256.test(keyPrint) && SHA256.test(pricePrint), 'stack_key_fingerprint_missing');
+  need(SHA256.test(appKeyPrint), 'app_publishable_key_fingerprint_missing');
   need(fingerprint(env.BILLING_SANDBOX_STRIPE_KEY) === keyPrint, 'stripe_key_mismatch_with_stack');
   need(fingerprint(env.BILLING_SANDBOX_PRICE_ID) === pricePrint, 'price_mismatch_with_stack');
+  need(fingerprint(env.BILLING_SANDBOX_PUBLISHABLE_KEY) === appKeyPrint, 'publishable_key_mismatch_with_app');
 }
 
 function jwtPayload(token, code) {

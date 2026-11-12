@@ -81,7 +81,14 @@ project can match relies on staying on hosted Supabase, where `SUPABASE_URL` is
 `https://<ref>.supabase.co`.
 
 The suite exercises the real checkout API followed by the real hosted UI. It does
-not claim to prove the public upgrade button. Duplicate/out-of-order webhook
+not claim to prove the public upgrade button: conversion invokes the `stripe-checkout`
+function directly, so it is not yet the real Upgrade-button smoke, and its repeated
+click is two concurrent SDK requests, not two UI clicks. The runner preflight binds
+the secret key and price to the local Edge functions and the publishable key to the
+built app, by fingerprint; it does not prove that the publishable and secret keys
+belong to the same Stripe account. Its loopback health checks and decoded, unverified
+JWT claims are necessary checks, not proof of backend isolation, which rests on the
+workflow starting the disposable stack itself. Duplicate/out-of-order webhook
 controls remain separate handler/DB evidence. Account deletion, actual microphone
 hardware, live activation and rollback remain separate acceptance obligations.
 

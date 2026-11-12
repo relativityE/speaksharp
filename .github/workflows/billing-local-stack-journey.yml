@@ -244,6 +244,8 @@ jobs:
           set -euo pipefail
           # Release id is GITHUB_SHA (vite release-inject), which the first step bound to commit_sha.
           VITE_SUPABASE_ANON_KEY="$LOCAL_ANON_KEY" pnpm --dir frontend exec vite build --mode production
+          # Fingerprint only: the runner refuses a publishable key other than the one this app was built with.
+          echo "BILLING_LOCAL_APP_PUBLISHABLE_KEY_SHA256=$(printf '%s' "$VITE_STRIPE_PUBLISHABLE_KEY" | sha256sum | cut -d' ' -f1)" >> "$GITHUB_ENV"
           nohup pnpm --dir frontend exec vite preview --host localhost --port 5173 --strictPort \
             > "$RUNNER_TEMP/app.log" 2>&1 &
           for _ in $(seq 1 30); do curl -fsS -o /dev/null "$LOCAL_APP_URL/" && break; sleep 2; done
