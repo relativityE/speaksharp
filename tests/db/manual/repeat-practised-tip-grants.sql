@@ -37,12 +37,15 @@ SELECT pg_temp.check((SELECT relrowsecurity FROM pg_class WHERE oid = 'public.pr
               WHERE polrelid = 'public.progress_recommendation_attempts'::regclass) = ARRAY['prec_att_select_own:r'],
     'RLS stays on, with only the existing owner-only SELECT policy');
 
--- Informational, not pass/fail: which server roles keep EXECUTE.
-SELECT 'INFO  service_role keeps EXECUTE on: ' || coalesce(string_agg(sig, ', ' ORDER BY sig), 'none')
-  FROM d2_fns WHERE has_function_privilege('service_role', oid, 'EXECUTE');
-SELECT 'INFO  other internal SECURITY DEFINER helpers in public (name starts with _) that service_role can execute: '
-       || coalesce(string_agg(p.proname, ', ' ORDER BY p.proname), 'none')
+SELECT pg_temp.check(NOT EXISTS (SELECT 1 FROM d2_fns WHERE has_function_privilege('service_role', oid, 'EXECUTE')),
+    'service_role cannot execute any of them either (owner-only, like the other internal helpers)');
+SELECT pg_temp.check(NOT EXISTS (SELECT 1 FROM d2_fns WHERE proacl IS NULL)
+                     AND NOT EXISTS (SELECT 1 FROM d2_fns, aclexplode(proacl) a WHERE pg_get_userbyid(a.grantee) <> 'postgres'),
+    'their ACLs grant EXECUTE to postgres (the owner) only');
+-- Informational, not pass/fail: the existing internal helpers that are not owner-only. Recorded as they are.
+SELECT 'INFO  existing internal SECURITY DEFINER helpers in public (name starts with _) that are not owner-only: '
+       || coalesce(string_agg(p.proname || ' ' || p.proacl::text, ', ' ORDER BY p.proname), 'none')
   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
  WHERE n.nspname = 'public' AND p.prosecdef AND p.proname LIKE '\_%' AND p.proname NOT LIKE '\_prec\_att\_%'
-   AND has_function_privilege('service_role', p.oid, 'EXECUTE');
+   AND EXISTS (SELECT 1 FROM aclexplode(p.proacl) a WHERE pg_get_userbyid(a.grantee) <> 'postgres');
 SELECT 'D2 GRANT CHECKS PASSED';

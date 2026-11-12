@@ -38,7 +38,8 @@ SELECT (public.complete_session_v2(p_session_id => :'a'::uuid, p_status => 'comp
 SELECT public.release_recording_lease(:'lease_a'::uuid) \g /dev/null
 RESET ROLE;
 
--- Coaching and the engine attestation, written as the service side does.
+-- Coaching and the engine attestation, written directly as the database owner (the Edge functions' own path is outside
+-- this check; a direct service_role write of ai_suggestions is refused by the coaching-authority guard).
 UPDATE public.sessions SET ai_suggestions = '{"version":"gemini_coaching_v1","what_worked":"The opening was concrete.","what_to_try_next":"Pause before you name the price."}'::jsonb,
        engine = 'private', engine_version = 'v4', model_name = 'synthetic-model' WHERE id = :'a';
 INSERT INTO public.session_attribution_authority (session_id, user_id, engine_class, engine, engine_version, model_id, provider)
@@ -124,6 +125,19 @@ SELECT pg_temp.check(:owner_writes = 0, 'the owner cannot write a tip (no update
 SELECT pg_temp.check(:insert_denied = 1, 'the owner cannot insert an attempt directly (no insert policy)');
 SELECT pg_temp.check(:other_rows = 0, 'another account reads nothing');
 SELECT pg_temp.check(:'anon_rows' IN ('0', 'denied'), 'anon reads nothing (result: ' || :'anon_rows' || ')');
+
+-- ── service_role writes still fire the owner-only helpers through the triggers ──
+SET ROLE service_role;
+UPDATE public.progress_recommendation_attempts SET resolved_at = resolved_at WHERE id = :'attempt';
+\echo '(the next statement is expected to be refused)'
+\set ON_ERROR_STOP 0
+\set direct_call denied
+SELECT 'allowed' AS direct_call FROM (SELECT public._prec_att_lock_owner(:'uid'::uuid)) x \gset
+\set ON_ERROR_STOP 1
+RESET ROLE;
+SELECT pg_temp.check((SELECT practised_tip = 'Pause before you name the price.' AND tip_session_id = :'b'::uuid
+    FROM public.progress_recommendation_attempts WHERE id = :'attempt'), 'a service_role update runs the guard trigger and keeps the bound tip');
+SELECT pg_temp.check(:'direct_call' = 'denied', 'service_role cannot call a helper directly');
 
 -- ── take C: the next real save expires the repeat and deletes the copy ──
 SELECT set_config('request.jwt.claim.sub', :'uid', false) \g /dev/null

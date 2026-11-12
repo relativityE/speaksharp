@@ -1,9 +1,9 @@
 # Captured output of tests/db/manual/repeat-practised-tip-concurrency-proof.sh
-# Author's run, 2026-11-12T03:01Z, migration as in commit d42aeab (unchanged since), throwaway local cluster. Exit status 0.
+# Author's run, 2026-11-12T03:18Z, migration with owner-only helpers (sha256 6bdf06c1…), throwaway local cluster. Exit status 0.
 # Scenario 4 has two checks and there is no scenario 5, so the 9 checks are scenarios 1-4 (5 checks) and 6-9 (the 4 race checks).
 #
 PostgreSQL: 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)  (throwaway cluster, Unix socket only)
-Migration:  20261112010000_repeat_practised_tip.sql  sha256 a0c8465157bc10e0210852a98dfe4f3219807515a4e073d72ba98affc8f7ec78
+Migration:  20261112010000_repeat_practised_tip.sql  sha256 6bdf06c1556a753f0919dc4a3c3605bec0df3a3a0959fa71ece54b0feb086f8c
 
 == Run 1: migration as committed (expect 9 PASS)
 1. Two saves overlap: B's save (binds B) is still open when the newer C saves.

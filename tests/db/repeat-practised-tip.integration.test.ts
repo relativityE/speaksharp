@@ -404,11 +404,13 @@ describe('outcome 4 D2 rev 3: the tip chosen for a repeat is bound to it by the 
         expect(await tipOf(await accept(await recommendOnA()))).toBe(TIP);
     });
 
-    it('the helper functions are not callable by clients', async () => {
+    it('the helper functions are owner-only: no client role and not service_role, like the other internal helpers', async () => {
         for (const fn of ['_prec_att_review_tip(jsonb)', '_prec_att_lock_owner(uuid)', '_prec_att_snapshot_tip()', '_prec_att_can_hold_tip(public.progress_recommendation_attempts, uuid)',
             '_prec_att_guard_tip()', '_prec_att_on_session_completed()', '_prec_att_purge_tip_on_expire()']) {
-            const grants = await db.query<{ allowed: boolean }>(`SELECT has_function_privilege('authenticated', '${fn}'::regprocedure, 'EXECUTE') AS allowed`);
-            expect({ fn, allowed: grants.rows[0].allowed }).toEqual({ fn, allowed: false });
+            for (const role of ['authenticated', 'anon', 'service_role']) {
+                const grants = await db.query<{ allowed: boolean }>(`SELECT has_function_privilege('${role}', '${fn}'::regprocedure, 'EXECUTE') AS allowed`);
+                expect({ fn, role, allowed: grants.rows[0].allowed }).toEqual({ fn, role, allowed: false });
+            }
         }
     });
 });

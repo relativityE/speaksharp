@@ -53,8 +53,12 @@
 --     decided on the latest committed rows, never on a stale snapshot.
 --
 -- NOT APPLIED TO ANY DATABASE BY THIS CHANGE. Requires separate Product Owner authorization.
--- ROLLBACK: drop the four triggers and their functions (and `_prec_att_lock_owner`), then drop the columns
--- `tip_session_id` and `practised_tip`.
+-- ROLLBACK (tests/db/manual/repeat-practised-tip-rollback.sql, proved on the Supabase image): drop the four triggers
+-- (trg_prec_att_snapshot_tip, trg_prec_att_guard_tip, trg_sessions_prec_tip_on_completed,
+-- trg_sessions_purge_practised_tip_on_expire); drop all seven functions (_prec_att_snapshot_tip, _prec_att_guard_tip,
+-- _prec_att_on_session_completed, _prec_att_purge_tip_on_expire, _prec_att_can_hold_tip, _prec_att_review_tip,
+-- _prec_att_lock_owner); drop the index idx_prec_att_tip_session and the check constraint prec_att_practised_tip_shape;
+-- then drop the columns `tip_session_id` and `practised_tip`.
 
 ALTER TABLE public.progress_recommendation_attempts
     ADD COLUMN IF NOT EXISTS practised_tip text,
@@ -295,10 +299,10 @@ CREATE TRIGGER trg_sessions_purge_practised_tip_on_expire
     WHEN (NEW.transcript_state = 'expired' AND OLD.transcript_state IS DISTINCT FROM 'expired')
     EXECUTE FUNCTION public._prec_att_purge_tip_on_expire();
 
-REVOKE ALL ON FUNCTION public._prec_att_review_tip(jsonb) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public._prec_att_lock_owner(uuid) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public._prec_att_snapshot_tip() FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public._prec_att_can_hold_tip(public.progress_recommendation_attempts, uuid) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public._prec_att_guard_tip() FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public._prec_att_on_session_completed() FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public._prec_att_purge_tip_on_expire() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public._prec_att_review_tip(jsonb) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public._prec_att_lock_owner(uuid) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public._prec_att_snapshot_tip() FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public._prec_att_can_hold_tip(public.progress_recommendation_attempts, uuid) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public._prec_att_guard_tip() FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public._prec_att_on_session_completed() FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public._prec_att_purge_tip_on_expire() FROM PUBLIC, anon, authenticated, service_role;

@@ -1,10 +1,10 @@
 # Captured output of tests/db/manual/repeat-practised-tip-supabase-replay.sh
-# Author's run, 2026-11-12T03:12Z, migration as in commit d42aeab (unchanged since), one throwaway container with no network. Exit status 0.
-# The two 'refused as expected' lines are the client writes and reads the smoke expects the database to refuse.
+# Author's run, 2026-11-12T03:18Z, migration with owner-only helpers (sha256 6bdf06c1…), one throwaway container with no network. Exit status 0.
+# The 'refused as expected' lines are the client and service_role calls the smoke expects the database to refuse.
 #
 Image:      supabase/postgres:17.6.1.155  sha256:3866d94d8426927e8db3f1c5d790752292bfbe27b5f1f46e199ae1b7d3c1710b  (pinned sha256:3866d94d8426927e8db3f1c5d790752292bfbe27b5f1f46e199ae1b7d3c1710b)
 PostgreSQL: 17.6  role postgres superuser=f
-Migration:  20261112010000_repeat_practised_tip.sql  sha256 a0c8465157bc10e0210852a98dfe4f3219807515a4e073d72ba98affc8f7ec78
+Migration:  20261112010000_repeat_practised_tip.sql  sha256 6bdf06c1556a753f0919dc4a3c3605bec0df3a3a0959fa71ece54b0feb086f8c
 
 == 1. Replay every migration before D2
 PASS  130 migrations applied in filename order with psql --single-transaction and ON_ERROR_STOP
@@ -13,7 +13,7 @@ PASS  130 migrations applied in filename order with psql --single-transaction an
 PASS  D2 has no transaction control and no non-transactional statement
 PASS  a copy of D2 that fails on its last statement leaves the schema byte-identical to the baseline (all or nothing)
 PASS  20261112010000_repeat_practised_tip.sql applied in one transaction
-PASS  D2 only adds to the public schema (269 dump lines added; every existing line, grant and policy kept)
+PASS  D2 only adds to the public schema (262 dump lines added; every existing line, grant and policy kept)
 PASS  no new SECURITY DEFINER function is executable by anon or authenticated (39 such functions before and after)
 
 == 3. Grants
@@ -24,8 +24,9 @@ PASS  every SECURITY DEFINER helper pins search_path = public, pg_temp
 PASS  all are owned by postgres
 PASS  the new columns carry no column-level grants of their own
 PASS  RLS stays on, with only the existing owner-only SELECT policy
-INFO  service_role keeps EXECUTE on: _prec_att_can_hold_tip(progress_recommendation_attempts,uuid), _prec_att_guard_tip(), _prec_att_lock_owner(uuid), _prec_att_on_session_completed(), _prec_att_purge_tip_on_expire(), _prec_att_review_tip(jsonb), _prec_att_snapshot_tip()
-INFO  other internal SECURITY DEFINER helpers in public (name starts with _) that service_role can execute: _ss_fence_session_writes_1476
+PASS  service_role cannot execute any of them either (owner-only, like the other internal helpers)
+PASS  their ACLs grant EXECUTE to postgres (the owner) only
+INFO  existing internal SECURITY DEFINER helpers in public (name starts with _) that are not owner-only: _ss_fence_session_writes_1476 {postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}
 D2 GRANT CHECKS PASSED
 
 == 4. Behaviour on the real save path
@@ -45,6 +46,10 @@ PASS  the owner cannot write a tip (no update policy)
 PASS  the owner cannot insert an attempt directly (no insert policy)
 PASS  another account reads nothing
 PASS  anon reads nothing (result: denied)
+(the next statement is expected to be refused)
+refused as expected: permission denied for function _prec_att_lock_owner
+PASS  a service_role update runs the guard trigger and keeps the bound tip
+PASS  service_role cannot call a helper directly
 PASS  the next real save expired the repeat
 PASS  and the copy is deleted
 D2 SUPABASE SMOKE PASSED
