@@ -143,7 +143,10 @@ export function readTargetInPage(): { kind: 'ready' | 'pending' | 'unavailable' 
     const target = document.querySelector('[data-testid="repeat-practice-target"]');
     if (!target) return { kind: 'absent', instruction: null, openAttempt };
     if (target.querySelector('button')) return { kind: 'unavailable', instruction: null, openAttempt };
-    const text = (target.querySelector('p')?.textContent ?? '').trim();
+    // CoachingCard's first paragraph is a labelled eyebrow, not the target.
+    // Only one direct non-eyebrow paragraph is an unambiguous instruction/status.
+    const paragraphs = target.querySelectorAll(':scope > p:not([data-testid="coaching-eyebrow"])');
+    const text = (paragraphs.length === 1 ? paragraphs[0].textContent ?? '' : '').trim();
     if (text === '' || text === 'Checking this review’s practice target…') return { kind: 'pending', instruction: null, openAttempt };
     return { kind: 'ready', instruction: text, openAttempt };
 }

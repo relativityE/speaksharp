@@ -165,18 +165,27 @@ describe('readTargetInPage (jsdom)', () => {
         localStorage.setItem(OPEN_ATTEMPT_KEY, JSON.stringify(attempt()));
         recording(null);
         expect(readTargetInPage()).toEqual({ kind: 'absent', instruction: null, openAttempt: attempt() });
-        recording(`<div data-testid="repeat-practice-target"><p>${PENDING_TARGET_TEXT}</p></div>`);
+        recording(`<div data-testid="repeat-practice-target"><p data-testid="coaching-eyebrow" class="text-xs uppercase">Your practice target</p><p class="mt-2">${PENDING_TARGET_TEXT}</p></div>`);
         expect(readTargetInPage()?.kind).toBe('pending');
-        recording('<div data-testid="repeat-practice-target"><p>  </p></div>');
+        recording('<div data-testid="repeat-practice-target"><p data-testid="coaching-eyebrow" class="text-xs uppercase">Your practice target</p><p class="mt-2">  </p></div>');
         expect(readTargetInPage()?.kind).toBe('pending');
         recording('<div data-testid="repeat-practice-target"><button>Try again</button></div>');
         expect(readTargetInPage()?.kind).toBe('unavailable');
-        recording(`<div data-testid="repeat-practice-target"><p> ${NEXT} </p></div>`);
+        recording(`<div data-testid="repeat-practice-target"><p data-testid="coaching-eyebrow" class="text-xs uppercase">Your practice target</p><p class="mt-2"> ${NEXT} </p></div>`);
         expect(readTargetInPage()).toEqual({ kind: 'ready', instruction: NEXT, openAttempt: attempt() });
+        expect(displayedTargetMatches(readTargetInPage()!, OWNER, source, focus)).toBe(true);
+    });
+    it('an eyebrow without an instruction is pending, never a ready target', () => {
+        recording('<div data-testid="repeat-practice-target"><p data-testid="coaching-eyebrow">Your practice target</p></div>');
+        expect(readTargetInPage()?.kind).toBe('pending');
+    });
+    it('ambiguous instruction paragraphs remain pending', () => {
+        recording('<div data-testid="repeat-practice-target"><p data-testid="coaching-eyebrow">Your practice target</p><p>One</p><p>Two</p></div>');
+        expect(readTargetInPage()?.kind).toBe('pending');
     });
     it('an unparseable open attempt reads as null, never thrown', () => {
         localStorage.setItem(OPEN_ATTEMPT_KEY, '{');
-        recording(`<div data-testid="repeat-practice-target"><p>${NEXT}</p></div>`);
+        recording(`<div data-testid="repeat-practice-target"><p data-testid="coaching-eyebrow" class="text-xs uppercase">Your practice target</p><p class="mt-2">${NEXT}</p></div>`);
         expect(readTargetInPage()?.openAttempt).toBeNull();
     });
     it('is self-contained for page.evaluate: no module value inside its body', () => {

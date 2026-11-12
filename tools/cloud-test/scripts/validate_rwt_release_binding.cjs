@@ -68,10 +68,10 @@ const TEST_PINS=Object.freeze({
  'tests/unit/rwtTwoPlaces.test.ts':'08e12ae2829ad874ee73395adf773d1014afc44891071a55d8cfdb5f38882515',
  // AHT-02/03 sign-in, Focus presentation group and same-target repeat; AHT-08 no-session report cleanup.
  'tests/live/helpers/rwtFocusPresentation.ts':'273c1f55de34c403a59d88793d6ab08c9b8569c615ef265a565fb8a2a501ba41',
- 'tests/live/helpers/rwtFocusSameTarget.ts':'14683946e8fb150e43007983ecd76a16ceb24f22fc8a153061f5e97f66252d24',
+ 'tests/live/helpers/rwtFocusSameTarget.ts':'7cf49770fd9d2e4dcd239ae010ce425c9422ce0e92a2599779a5355f2281f800',
  'tests/live/helpers/feedbackNoSessionCleanup.ts':'ef27d95a9f5928421a5e13d635daf139579b69c098431aa57cb07f4f2de7632b',
  'tests/unit/rwtFocusPresentation.test.ts':'619317a034774fbab4b27424aafc7e7952e02a79f5902c1fec8070156a983055',
- 'tests/unit/rwtFocusSameTarget.test.ts':'54b7ef453e46f49df0b86e7e05867ee1096b2157b7b429286c6ff20f6b9ec41f',
+ 'tests/unit/rwtFocusSameTarget.test.ts':'6416b44baf04692ea1c328deeca902fc90483c18458e631efee5a67cdeddee2d',
  'tests/unit/feedbackNoSessionCleanup.test.ts':'7643a2506eadd22f7ee40efa468497123b845bd1afdad2506454d67755506223',
  'tests/live/helpers/rwtFocusSaveIsolation.ts':'08b562963051141d88bec185682bf89aaf8d829e65e124c1f089629dc1063dca',
  'tests/unit/rwtFocusSaveIsolation.test.ts':'8022f31ab901579e2fe4631737b143b75438701e889654fb8f5027875efda40b',
