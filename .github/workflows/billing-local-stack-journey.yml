@@ -217,6 +217,12 @@ jobs:
               echo "SITE_URL=$LOCAL_APP_URL"
               echo "GEMINI_API_KEY=${GEMINI_API_KEY:-}"
             } > "$env_file" )
+          # Fingerprints only (never the values): the runner refuses a key or price other than these before
+          # any Stripe call (runnerPreflight.mjs).
+          {
+            echo "BILLING_LOCAL_FUNCTIONS_STRIPE_KEY_SHA256=$(printf '%s' "$STRIPE_TEST_SECRET_KEY" | sha256sum | cut -d' ' -f1)"
+            echo "BILLING_LOCAL_FUNCTIONS_PRICE_SHA256=$(printf '%s' "$STRIPE_TEST_PRO_PRICE_ID" | sha256sum | cut -d' ' -f1)"
+          } >> "$GITHUB_ENV"
           # --no-verify-jwt matches how production publishes every function.
           nohup supabase functions serve --workdir "$SUPABASE_WORKDIR" --no-verify-jwt --env-file "$env_file" \
             > "$RUNNER_TEMP/functions.log" 2>&1 &
@@ -254,6 +260,7 @@ jobs:
           BILLING_SANDBOX_SUPABASE_URL: ${{ env.LOCAL_API_URL }}
           BILLING_PRODUCTION_SUPABASE_URL: ${{ env.PRODUCTION_SUPABASE_URL }}
           BILLING_SANDBOX_STRIPE_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+          BILLING_SANDBOX_PUBLISHABLE_KEY: ${{ vars.STRIPE_TEST_PUBLISHABLE_KEY }}
           BILLING_SANDBOX_PRICE_ID: ${{ secrets.STRIPE_TEST_PRO_PRICE_ID }}
           BILLING_SANDBOX_RELEASE_SHA: ${{ inputs.commit_sha }}
           JOURNEY: ${{ inputs.journey }}

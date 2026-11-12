@@ -219,3 +219,22 @@ test('(c) negative control: a destruction proof missing, failed or for another r
     assert.equal(combined.stackDestroyed, 'NOT_PROVEN');
   }
 });
+
+test('smoke (Sam): conversion proves repeated click, cancel and retry before it pays, in that order', () => {
+  const steps = REQUIRED_STEPS.conversion;
+  const at = (step: string) => steps.indexOf(step);
+  assert.ok(at('trial_expired') < at('repeated_click_one_session') && at('repeated_click_one_session') < at('checkout_cancelled')
+    && at('checkout_cancelled') < at('checkout_retried') && at('checkout_retried') < at('hosted_checkout'));
+  const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
+  const checkout = spec.slice(spec.indexOf('async checkout(): Promise<void> {'), spec.indexOf('async record(): Promise<void> {'));
+  // Two requests at the same moment, and Stripe's own list must hold exactly one session for the customer.
+  assert.match(checkout, /await Promise\.all\(\[invoke\(\), invoke\(\)\]\)/);
+  assert.match(checkout, /requireFact\(\(await customerSessions\(\)\)\.join\(','\) === only, 'repeated_click_two_sessions'\)/);
+  // Cancel is a click on Stripe's back link, not a navigation to the cancel URL.
+  assert.match(checkout, /a\[href\^="\$\{this\.targets\.app\}\/pricing\?checkout=cancelled"\]/);
+  assert.doesNotMatch(checkout, /page\.goto\([^)]*checkout=cancelled/);
+  for (const code of ['cancelled_checkout_subscribed', 'cancelled_checkout_granted_access', 'retry_did_not_reuse_session',
+    'retry_created_second_session']) assert.ok(checkout.includes(`'${code}'`), code);
+  // Payment happens only after all three were recorded.
+  assert.ok(checkout.indexOf("this.steps.add('checkout_retried')") < checkout.indexOf('await this.page.goto(data.checkoutUrl)'));
+});

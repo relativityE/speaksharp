@@ -3,6 +3,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
 import sandboxTarget from './sandbox-target.json' with { type: 'json' };
 import localStackTarget from './sandbox-target.local.json' with { type: 'json' };
+import { runnerPreflight } from './runnerPreflight.mjs';
 import { BILLING_JOURNEYS, receipt, requireFact, assertSandboxConfiguration,
   assertTestPrice, assertInvoice, isCorrelatedDelivery, safeFailureReason, testClockCreateFields, localStackStatus,
   type BillingJourney, type BillingEvent } from './contract';
@@ -189,10 +190,55 @@ class SandboxJourney {
   async checkout(): Promise<void> {
     this.stage = 'hosted_checkout';
     // Use the real server checkout route; hosted payment and return are browser-driven.
-    const { data, error } = await this.member.functions.invoke('stripe-checkout', { body: {
-      plan: 'pro', conversionSource: 'billing_user_journey',
-    } });
-    requireFact(!error && typeof data?.checkoutUrl === 'string', 'checkout_unavailable');
+    const invoke = async (): Promise<string | null> => {
+      const { data, error } = await this.member.functions.invoke('stripe-checkout', { body: {
+        plan: 'pro', conversionSource: 'billing_user_journey',
+      } });
+      return !error && typeof data?.checkoutUrl === 'string' ? data.checkoutUrl : null;
+    };
+    const sessionOf = (raw: string) => new URL(raw).pathname.match(/cs_test_[A-Za-z0-9]+/)?.[0] ?? '';
+    const customerSessions = async (): Promise<string[]> => {
+      const listed = await this.stripe(`checkout/sessions?${new URLSearchParams({ customer: this.customer, limit: '10' })}`);
+      requireFact(Array.isArray(listed.data) && listed.has_more === false, 'checkout_session_list_unreadable');
+      return (listed.data as Obj[]).map(session => String(session.id));
+    };
+    let checkoutUrl: string | null;
+    if (this.journey === 'conversion') {
+      // Repeated click: two requests at the same moment lead to ONE Checkout session. A request refused while
+      // the other holds the reservation is allowed; a second session is not.
+      const answers = (await Promise.all([invoke(), invoke()])).filter((answer): answer is string => Boolean(answer));
+      requireFact(answers.length >= 1, 'checkout_unavailable');
+      const once = new Set(answers.map(sessionOf));
+      requireFact(once.size === 1 && !once.has(''), 'repeated_click_two_sessions');
+      const [only] = once;
+      requireFact((await customerSessions()).join(',') === only, 'repeated_click_two_sessions');
+      this.steps.add('repeated_click_one_session');
+
+      // Cancel on the hosted Checkout page with Stripe's own back link: back in the app, nothing charged,
+      // no subscription, still no paid access.
+      await this.page.goto(answers[0]);
+      const back = this.page.locator(`a[href^="${this.targets.app}/pricing?checkout=cancelled"]`).first();
+      await expect(back).toBeVisible({ timeout: 30_000 }).catch(() => { throw new Error('BILLING_JOURNEY:hosted_cancel_link_unavailable'); });
+      await back.click();
+      await this.page.waitForURL(url => url.origin === this.targets.app && url.searchParams.get('checkout') === 'cancelled', { timeout: 60_000 });
+      const subscriptions = await this.stripe(`subscriptions?${new URLSearchParams({ customer: this.customer, status: 'all', limit: '10' })}`);
+      requireFact(Array.isArray(subscriptions.data) && subscriptions.data.length === 0, 'cancelled_checkout_subscribed');
+      const stillOpen = await this.stripe(`checkout/sessions/${only}`);
+      requireFact(stillOpen.status === 'open' && stillOpen.payment_status === 'unpaid', 'cancelled_checkout_not_open');
+      requireFact((await this.usage()).can_start === false, 'cancelled_checkout_granted_access');
+      requireFact((await this.profile()).subscription_status !== 'pro', 'cancelled_checkout_granted_access');
+      this.steps.add('checkout_cancelled');
+
+      // Retry after cancel: the still-open session is reused, never a second one.
+      checkoutUrl = await invoke();
+      requireFact(checkoutUrl && sessionOf(checkoutUrl) === only, 'retry_did_not_reuse_session');
+      requireFact((await customerSessions()).join(',') === only, 'retry_created_second_session');
+      this.steps.add('checkout_retried');
+    } else {
+      checkoutUrl = await invoke();
+    }
+    requireFact(checkoutUrl, 'checkout_unavailable');
+    const data = { checkoutUrl };
     const url = new URL(data.checkoutUrl);
     requireFact(url.origin === 'https://checkout.stripe.com', 'checkout_origin');
     this.session = url.pathname.match(/cs_test_[A-Za-z0-9]+/)?.[0] ?? '';
@@ -280,6 +326,9 @@ class SandboxJourney {
   }
 
   async run(): Promise<void> {
+    // Before ANY Stripe call, and independently of the app's payment gate: test keys only, the same key and
+    // price the local Edge functions were served with, and a loopback stack that answers (runnerPreflight.mjs).
+    if (useLocalStack) await runnerPreflight(env);
     await this.setup();
     await this.checkout();
     this.stage = this.journey;
