@@ -1,0 +1,65 @@
+# Captured output of tests/db/manual/repeat-practised-tip-supabase-replay.sh
+# Author's run, 2026-11-12T03:18Z, migration with owner-only helpers (sha256 6bdf06c1…), one throwaway container with no network. Exit status 0.
+# The 'refused as expected' lines are the client and service_role calls the smoke expects the database to refuse.
+#
+Image:      supabase/postgres:17.6.1.155  sha256:3866d94d8426927e8db3f1c5d790752292bfbe27b5f1f46e199ae1b7d3c1710b  (pinned sha256:3866d94d8426927e8db3f1c5d790752292bfbe27b5f1f46e199ae1b7d3c1710b)
+PostgreSQL: 17.6  role postgres superuser=f
+Migration:  20261112010000_repeat_practised_tip.sql  sha256 6bdf06c1556a753f0919dc4a3c3605bec0df3a3a0959fa71ece54b0feb086f8c
+
+== 1. Replay every migration before D2
+PASS  130 migrations applied in filename order with psql --single-transaction and ON_ERROR_STOP
+
+== 2. Apply D2
+PASS  D2 has no transaction control and no non-transactional statement
+PASS  a copy of D2 that fails on its last statement leaves the schema byte-identical to the baseline (all or nothing)
+PASS  20261112010000_repeat_practised_tip.sql applied in one transaction
+PASS  D2 only adds to the public schema (262 dump lines added; every existing line, grant and policy kept)
+PASS  no new SECURITY DEFINER function is executable by anon or authenticated (39 such functions before and after)
+
+== 3. Grants
+PASS  the migration adds exactly seven helper functions
+PASS  anon and authenticated cannot execute any of them
+PASS  PUBLIC has no EXECUTE on any of them
+PASS  every SECURITY DEFINER helper pins search_path = public, pg_temp
+PASS  all are owned by postgres
+PASS  the new columns carry no column-level grants of their own
+PASS  RLS stays on, with only the existing owner-only SELECT policy
+PASS  service_role cannot execute any of them either (owner-only, like the other internal helpers)
+PASS  their ACLs grant EXECUTE to postgres (the owner) only
+INFO  existing internal SECURITY DEFINER helpers in public (name starts with _) that are not owner-only: _ss_fence_session_writes_1476 {postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}
+D2 GRANT CHECKS PASSED
+
+== 4. Behaviour on the real save path
+PASS  take A saved through complete_session_v2 and its evaluation is eligible
+PASS  Practice again on the newest coached session copies its tip
+PASS  the repeat's real save expired A and purged its review
+PASS  inside that save, B was bound before A expired
+PASS  the tip survives the save, bound to the repeat
+PASS  the advance keeps the bound tip
+(the next statement is expected to be refused)
+refused as expected: new row violates row-level security policy for table "progress_recommendation_attempts"
+(the next statement is expected to be refused)
+refused as expected: permission denied for table progress_recommendation_attempts
+HINT:  Grant the required privileges to the current role with: GRANT SELECT ON public.progress_recommendation_attempts TO anon;
+PASS  the owner reads the tip (existing owner-only RLS select)
+PASS  the owner cannot write a tip (no update policy)
+PASS  the owner cannot insert an attempt directly (no insert policy)
+PASS  another account reads nothing
+PASS  anon reads nothing (result: denied)
+(the next statement is expected to be refused)
+refused as expected: permission denied for function _prec_att_lock_owner
+PASS  a service_role update runs the guard trigger and keeps the bound tip
+PASS  service_role cannot call a helper directly
+PASS  the next real save expired the repeat
+PASS  and the copy is deleted
+D2 SUPABASE SMOKE PASSED
+
+== 5. Rollback
+PASS  rollback ran in one transaction
+PASS  after rollback the public schema dump is byte-identical to the baseline
+PASS  the app's fallback read (its seven attempt columns, as the owner) still returns the owner's attempt
+PASS  the read with practised_tip fails with 42703 naming the column, which the app's fallback handles
+PASS  D2 applies again cleanly after the rollback
+PASS  and the schema matches the first application exactly
+
+REPLAY: OK

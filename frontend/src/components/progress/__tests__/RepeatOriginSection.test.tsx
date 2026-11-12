@@ -18,6 +18,7 @@ const repeat = (over: Record<string, unknown> = {}) => ({
     status: 'repeat', sessionId: 'B', originalSessionId: 'A', originalCreatedAt: ORIGINAL_AT, target: TARGET,
     lifecycle: 'completed', outcome: 'moved',
     repeatResult: { status: 'available', metric: 'filler_rate', direction: 'decrease', units: 'percent of words', before: (4 / 245) * 100, after: 0.8 },
+    tip: { status: 'unavailable' },
     ...over,
 });
 
@@ -148,5 +149,52 @@ describe('outcome 4 RepeatOriginSection', () => {
         expect(setOpenAttempt({ attemptId: 'att-9', userId: 'user-1', sourceSessionId: 'B' })).toBe(true);
         await new Promise((resolve) => setTimeout(resolve, 20));
         expect(loadRepeatOrigin).toHaveBeenCalledTimes(1);
+    });
+
+    it('the tip it practised is shown as practised, in its own line, with the measured lines unchanged', async () => {
+        const tipText = 'Pause and breathe instead of saying um.';
+        loadRepeatOrigin.mockResolvedValue(repeat({ tip: { status: 'saved', text: tipText } }));
+        renderSection();
+        expect(await screen.findByTestId('repeat-origin-tip')).toHaveTextContent(`Tip you chose for this repeat: “${tipText}”`);
+        expect(screen.getByTestId('repeat-origin-tip-retention'))
+            .toHaveTextContent('This tip is kept with this repeat until you save another session.');
+        expect(screen.getByTestId('repeat-origin-values'))
+            .toHaveTextContent('Filler rate: 1.6 → 0.8 percent of words (original session → this repeat).');
+        expect(screen.getByTestId('repeat-origin-outcome'))
+            .toHaveTextContent('Filler rate was lower on the repeat than in the original session.');
+        expect(screen.getByTestId('repeat-origin-scope'))
+            .toHaveTextContent('This comparison measures delivery, not whether the coaching tip was followed.');
+        // Never a verdict about the tip; the tip's own words are the user's coaching and are not checked.
+        const ownCopy = (screen.getByTestId('repeat-origin').textContent ?? '').replace(tipText, '');
+        expect(ownCopy).not.toMatch(FORBIDDEN);
+        expect(screen.queryByTestId('progress-practice-next')).toBeNull();
+    });
+
+    it('a tip that would read as a verdict is still only quoted', async () => {
+        loadRepeatOrigin.mockResolvedValue(repeat({ tip: { status: 'saved', text: 'You improved, keep it up.' } }));
+        renderSection();
+        expect(await screen.findByTestId('repeat-origin-tip')).toHaveTextContent('Tip you chose for this repeat: “You improved, keep it up.”');
+        expect((screen.getByTestId('repeat-origin').textContent ?? '').replace('You improved, keep it up.', '')).not.toMatch(FORBIDDEN);
+    });
+
+    it('a not-comparable repeat shows its tip too', async () => {
+        loadRepeatOrigin.mockResolvedValue(repeat({ lifecycle: 'not_comparable', outcome: 'not_comparable', repeatResult: null, tip: { status: 'saved', text: 'Slow down.' } }));
+        renderSection();
+        expect(await screen.findByTestId('repeat-origin-tip')).toHaveTextContent('Tip you chose for this repeat: “Slow down.”');
+    });
+
+    it('no saved tip says so plainly', async () => {
+        loadRepeatOrigin.mockResolvedValue(repeat({ tip: { status: 'not_saved' } }));
+        renderSection();
+        expect(await screen.findByTestId('repeat-origin-tip')).toHaveTextContent('No coaching tip is kept for this repeat.');
+        expect(screen.queryByTestId('repeat-origin-tip-retention')).toBeNull();
+    });
+
+    it('before the migration (column unavailable): no tip line at all', async () => {
+        loadRepeatOrigin.mockResolvedValue(repeat());
+        renderSection();
+        await screen.findByTestId('repeat-origin-link');
+        expect(screen.queryByTestId('repeat-origin-tip')).toBeNull();
+        expect(screen.queryByTestId('repeat-origin-tip-retention')).toBeNull();
     });
 });

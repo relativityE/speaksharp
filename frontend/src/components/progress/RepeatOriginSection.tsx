@@ -16,6 +16,10 @@ import { formatOriginalSessionLabel, formatRepeatValues, reviewOwnedOutcome, TAR
  * still resolving; it appears once resolution clears the handoff). A failed read is never presented as "not a repeat":
  * it says the link could not be checked and offers a retry.
  */
+/** Outcome 4 D2 (proposed with the retention rule in 20261112010000): the tip is quoted, never measured. */
+const TIP_RETENTION_COPY = 'This tip is kept with this repeat until you save another session.';
+const NO_TIP_COPY = 'No coaching tip is kept for this repeat.';
+
 export const RepeatOriginSection: React.FC<{ sessionId: string }> = ({ sessionId }) => {
     const { user } = useAuthProvider();
     const userId = user?.id ?? null;
@@ -59,6 +63,21 @@ export const RepeatOriginSection: React.FC<{ sessionId: string }> = ({ sessionId
                     {label ? `Repeat of your ${label} session` : 'Repeat of your earlier session'}
                 </Link>
             </p>
+            {view.tip.status === 'saved' && (
+                <>
+                    <p data-testid="repeat-origin-tip" className="text-sm text-foreground/80">
+                        Tip you chose for this repeat: “{view.tip.text}”
+                    </p>
+                    <p data-testid="repeat-origin-tip-retention" className="text-xs text-foreground/60">
+                        {TIP_RETENTION_COPY}
+                    </p>
+                </>
+            )}
+            {view.tip.status === 'not_saved' && (
+                <p data-testid="repeat-origin-tip" className="text-sm text-foreground/70">
+                    {NO_TIP_COPY}
+                </p>
+            )}
             {view.lifecycle === 'not_comparable' && (
                 <p data-testid="repeat-origin-outcome" className="text-sm text-foreground/80">
                     {reviewOwnedOutcome(view.target, view.lifecycle, view.outcome)}
