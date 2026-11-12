@@ -589,8 +589,8 @@ test('missing-Start is pinned and excluded from every historical replay, includi
 });
 test('missing-Start native proof runs on the exact head and retains its separate receipts',()=>{
   const workflow=read('.github/workflows/account-closure-full-chain-proof.yml');
-  for(const file of ['recording-start-abandonment-realpg.mjs','recording-start-abandonment.integration.test.ts'])
+  for(const file of ['recording-start-abandonment-realpg.test.mjs','recording-start-abandonment.integration.test.ts'])
     assert.ok(workflow.includes("- 'tests/db/"+file+"'"));
-  assert.ok(workflow.indexOf('node tests/db/recording-start-abandonment-realpg.mjs')>workflow.indexOf('[ "$actual_head" = "$PROOF_HEAD_SHA" ]'));
+  assert.ok(workflow.indexOf('node tests/db/recording-start-abandonment-realpg.test.mjs')>workflow.indexOf('[ "$actual_head" = "$PROOF_HEAD_SHA" ]'));
   assert.ok(workflow.includes('artifacts/recording-start-abandonment/receipts.json'));
 });

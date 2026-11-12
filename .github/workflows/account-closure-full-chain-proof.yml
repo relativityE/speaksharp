@@ -18,7 +18,7 @@ on:
       - 'scripts/retirement-migration-postflight.mjs'
       - 'scripts/t2-migration-postflight.mjs'
       - 'scripts/lib/exactMigrationGate.mjs'
-      - 'tests/db/recording-start-abandonment-realpg.mjs'
+      - 'tests/db/recording-start-abandonment-realpg.test.mjs'
       - 'tests/db/recording-start-abandonment.integration.test.ts'
       - 'tests/db/account-closure-concurrency-realpg.mjs'
       - 'tests/db/account-closure-attestation-realpg.mjs'
@@ -113,7 +113,7 @@ jobs:
           # Separate native retirement fixture proof; historical replay below stops at 129.
           node tests/db/account-coaching-local-fence.realpg.mjs
           # Separate missing-Start fixture proof, not an extension of either historical catalog.
-          node tests/db/recording-start-abandonment-realpg.mjs
+          node tests/db/recording-start-abandonment-realpg.test.mjs
       - name: Replay actual baseline and closure migration; prove invariants
         run: node tests/db/account-closure-full-chain.mjs --profile=${{ matrix.profile }}
       - name: Recover owned disposable resources after interruption
