@@ -25,7 +25,7 @@
 import { appendFileSync } from 'node:fs';
 import { expect } from '@playwright/test';
 import { isNotFoundError, pollForRecoveryUid } from './proofAuthority';
-import { currentRunBinding, sameRunBinding } from './runBinding';
+import { currentRunBinding, sameRunBinding, type RunBinding } from './runBinding';
 
 /**
  * Write a MACHINE-READABLE cleanup verdict for the workflow's final `if: always()` step.
@@ -166,6 +166,8 @@ export async function cleanupRunOwnedAccount(params: {
     createdEmail: string;
     /** Email prefix this proof owns, e.g. 'retention-proof-'. Anything else is refused. */
     runOwnedPrefix: string;
+    /** Only the separately SHA-acknowledged recovery path supplies the original, validated binding. */
+    recovery?: { originalBinding: RunBinding; dispatchSha: string; deleteAck: string };
 }): Promise<string> {
     const { admin, createdEmail, runOwnedPrefix } = params;
     let capturedUid = params.capturedUid;
@@ -213,7 +215,26 @@ export async function cleanupRunOwnedAccount(params: {
     // binding never written) keeps the UID/email identity above as its only proof.
     const ctRun = (got?.user as { app_metadata?: { ct_run?: Record<string, unknown> } } | null | undefined)?.app_metadata?.ct_run;
     const mine = currentRunBinding();
-    if (ctRun !== undefined && (!mine || !sameRunBinding({ ct_run: ctRun }, mine))) throw new Error('cleanup_run_binding_mismatch (fail closed)');
+    if (params.recovery) {
+        const { originalBinding: original, dispatchSha, deleteAck } = params.recovery;
+        const parsed = currentRunBinding({ GITHUB_ACTIONS: 'true', GITHUB_REPOSITORY: original.repository,
+            GITHUB_WORKFLOW_REF: original.workflow, GITHUB_RUN_ID: original.runId, GITHUB_RUN_ATTEMPT: original.runAttempt });
+        // Recovery is a different authorized run, never a blanket foreign-run bypass. Revalidate the original
+        // service-role binding against the fresh user read immediately before deletion. Ordinary teardown is unchanged.
+        if (!mine || !parsed || !sameRunBinding({ ct_run: original }, parsed)
+            || original.repository !== mine.repository
+            || !original.workflow.startsWith(`${mine.repository}/.github/workflows/rc-gates.yml@refs/`)
+            || !createdEmail.toLowerCase().split('@')[0].endsWith(`-${original.runId}`)
+            || original.runId === mine.runId
+            || !/^[a-f0-9]{40}$/.test(dispatchSha) || process.env.GITHUB_SHA !== dispatchSha
+            || process.env.GITHUB_REF !== 'refs/heads/main' || mine.runAttempt !== '1'
+            || deleteAck !== `RWT-INTERRUPTED-RUN-RECOVERY-DELETE@${dispatchSha}`
+            || !sameRunBinding({ ct_run: ctRun }, original)) {
+            throw new Error('cleanup_run_binding_mismatch (fail closed)');
+        }
+    } else if (ctRun !== undefined && (!mine || !sameRunBinding({ ct_run: ctRun }, mine))) {
+        throw new Error('cleanup_run_binding_mismatch (fail closed)');
+    }
 
     for (const table of PRE_DELETE_TABLES) {
         const { error: preErr } = await admin.from(table).delete().eq('user_id', capturedUid);

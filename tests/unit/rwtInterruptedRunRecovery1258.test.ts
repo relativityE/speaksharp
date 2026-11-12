@@ -8,7 +8,7 @@
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
     MIN_AGE_MS, PROTECTED_DEFAULT_BRANCH, RECOVERY_DELETE_ACK_PREFIX, RWT_JOURNEY_LABELS, deletionDomain, listAuthUsersBounded, ownedPrefixOf, recoverInterruptedRuns,
     recoveryAuthority, recoveryDeleteAck, recoveryReportLine, runOwnedDomain, selectInterruptedRunAccounts,
@@ -322,5 +322,34 @@ describe('recovery', () => {
     it('the recovery spec is not an rwt-* journey spec (no RWT fixture, identity or per-journey telemetry readback)', () => {
         expect(existsSync(resolve(__dirname, '../live/rwt-interrupted-run-recovery.live.spec.ts'))).toBe(false);
         expect(existsSync(resolve(__dirname, '../live/interrupted-run-recovery.live.spec.ts'))).toBe(true);
+    });
+});
+
+
+afterEach(() => vi.unstubAllEnvs());
+describe('bound interrupted account recovery', () => {
+    it('carries the validated original binding to cleanup, refusing malformed/foreign/current-run identities', async () => {
+        const repository = 'relativityE/speaksharp';
+        const workflow = `${repository}/.github/workflows/rc-gates.yml@refs/heads/main`;
+        for (const [k, v] of Object.entries({ GITHUB_ACTIONS: 'true', GITHUB_REPOSITORY: repository,
+            GITHUB_WORKFLOW_REF: workflow, GITHUB_RUN_ID: '39000000001', GITHUB_RUN_ATTEMPT: '1' })) vi.stubEnv(k, v);
+        const binding = { repository, workflow, runId: '38000000001', runAttempt: '1', role: 'rwt-journey' as const };
+        const account = { ...user(1, journey(1), old), app_metadata: { ct_run: binding } };
+        const f = fakeAdmin([account]);
+        expect((await recover(f)).status).toBe('RECOVERED');
+        expect(f.cleanup).toHaveBeenCalledWith(expect.objectContaining({ recovery: {
+            originalBinding: binding, dispatchSha: SHA, deleteAck: ACK,
+        } }));
+        for (const ct_run of [null, {}, { ...binding, extra: 1 }, { ...binding, repository: 'foreign/repo' },
+            { ...binding, workflow: workflow.replace('rc-gates', 'unrelated') }, { ...binding, runId: '38000000002' },
+            { ...binding, runAttempt: '0' }, { ...binding, role: 'other' }, { ...binding, runId: '39000000001' }]) {
+            const bad = fakeAdmin([{ ...account, app_metadata: { ct_run } }]);
+            const result = await recover(bad);
+            expect(result.ownershipUnproven).toBe(1);
+            expect(bad.cleanup).not.toHaveBeenCalled();
+        }
+        const noAck = fakeAdmin([account]);
+        expect((await recover({ ...noAck, ack: '' })).status).toBe('HOLD_NO_ACK');
+        expect(noAck.cleanup).not.toHaveBeenCalled();
     });
 });

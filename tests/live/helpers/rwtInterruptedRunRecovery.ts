@@ -10,6 +10,7 @@
  * malformed or ambiguous (judged over the whole listing); the listing is bounded, requires a real users array on every page and
  * fails closed. Idempotent: a second run finds nothing to recover. The report is content-safe — counts and a status only.
  */
+import { currentRunBinding, sameRunBinding, type RunBinding } from './runBinding';
 import { RUN_OWNED_PREFIX_RE, cleanupRunOwnedAccount } from './runOwnedCleanup';
 
 /** The delete acknowledgement, bound to one exact commit: `RWT-INTERRUPTED-RUN-RECOVERY-DELETE@<40-hex sha>`. */
@@ -76,8 +77,8 @@ export function ownedPrefixOf(email: string, domain: string): string | null {
     return owned ? owned[0] : null;
 }
 
-export interface AuthUserLike { id?: unknown; email?: unknown; created_at?: unknown }
-export interface RecoveryCandidate { id: string; email: string; prefix: string }
+export interface AuthUserLike { id?: unknown; email?: unknown; created_at?: unknown; app_metadata?: { ct_run?: unknown } }
+export interface RecoveryCandidate { id: string; email: string; prefix: string; binding?: RunBinding }
 export interface SelectionCounts {
     scanned: number; nonOwned: number; ownershipUnproven: number; legacyUnqualified: number; runOwned: number; fresh: number; malformed: number; ambiguous: number; eligible: number;
 }
@@ -112,7 +113,23 @@ export function selectInterruptedRunAccounts(users: readonly AuthUserLike[], now
         if (nowMs - created < minAgeMs) { counts.fresh += 1; continue; }
         // The same id or email anywhere else in the listing is ambiguous: refuse rather than guess.
         if ((idCounts.get(id.toLowerCase()) ?? 0) > 1 || (emailCounts.get(email) ?? 0) > 1) { counts.ambiguous += 1; continue; }
-        eligible.push({ id, email, prefix });
+        const raw = user.app_metadata?.ct_run;
+        let binding: RunBinding | undefined;
+        if (raw !== undefined) {
+            const b = raw as Partial<RunBinding> | null;
+            const parsed = b && currentRunBinding({ GITHUB_ACTIONS: 'true', GITHUB_REPOSITORY: b.repository,
+                GITHUB_WORKFLOW_REF: b.workflow, GITHUB_RUN_ID: b.runId, GITHUB_RUN_ATTEMPT: b.runAttempt });
+            const mine = currentRunBinding();
+            if (!parsed || !mine || !sameRunBinding({ ct_run: raw }, parsed)
+                || parsed.repository !== mine.repository
+                || !parsed.workflow.startsWith(`${mine.repository}/.github/workflows/rc-gates.yml@refs/`)
+                || !email.split('@')[0].endsWith(`-${parsed.runId}`) || parsed.runId === mine.runId) {
+                counts.ownershipUnproven += 1;
+                continue;
+            }
+            binding = parsed;
+        }
+        eligible.push({ id, email, prefix, ...(binding ? { binding } : {}) });
     }
     counts.eligible = eligible.length;
     return { eligible, counts };
@@ -190,7 +207,8 @@ export async function recoverInterruptedRuns(params: {
     let deleted = 0;
     for (const account of eligible) {
         try {
-            await cleanup({ admin: params.admin as never, capturedUid: account.id, createdEmail: account.email, runOwnedPrefix: account.prefix });
+            await cleanup({ admin: params.admin as never, capturedUid: account.id, createdEmail: account.email, runOwnedPrefix: account.prefix,
+                ...(account.binding ? { recovery: { originalBinding: account.binding, dispatchSha: params.sha, deleteAck: params.ack } } : {}) });
         } catch {
             return report('FAILED', counts, deleted);
         }
