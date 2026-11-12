@@ -51,6 +51,9 @@ jobs:
       LOCAL_APP_URL: http://localhost:5173
       PRODUCTION_SUPABASE_URL: https://yxlapjuovrsvjswkwnrk.supabase.co
       STRIPE_CLI_VERSION: '1.21.8'
+      # Count only a genuine Stripe list. `.data | length` alone reads {} and {"data":null} as 0 (clean);
+      # anything that is not {"object":"list","data":[...]} is an error, never zero.
+      STRIPE_LIST_COUNT: 'if type == "object" and .object == "list" and (.data | type) == "array" then (.data | length) else error("not a Stripe list") end'
     steps:
       - name: Refuse an unacknowledged or inexact dispatch
         env:
@@ -94,17 +97,26 @@ jobs:
           # The test account is reused across runs, so the end-of-run check is account-wide. Refuse to start
           # on an account that already holds fixtures, so that check judges only what this run created.
           # Every subscription state that is still live or can still bill counts as a leftover fixture.
+          stripe_count() {
+            local body
+            body="$(stripe_get "$1")" || { echo "::error::BLOCKED PREREQUISITE: could not read $2 from Stripe. Nothing was created." >&2; exit 1; }
+            jq -e "$STRIPE_LIST_COUNT" <<<"$body" 2>/dev/null \
+              || { echo "::error::BLOCKED PREREQUISITE: Stripe's answer for $2 was not a list, so it cannot be read as zero. Nothing was created." >&2; exit 1; }
+          }
           dirty=0
-          clocks="$(stripe_get 'test_helpers/test_clocks?limit=1' | jq '.data | length')"
+          clocks="$(stripe_count 'test_helpers/test_clocks?limit=1' 'test clocks')"
           echo "Test clocks before the run: $clocks"
           [ "$clocks" = '0' ] || dirty=1
           for state in active trialing past_due unpaid incomplete; do
-            count="$(stripe_get "subscriptions?status=${state}&limit=1" | jq '.data | length')"
+            count="$(stripe_count "subscriptions?status=${state}&limit=1" "${state} subscriptions")"
             echo "Subscriptions in ${state} before the run: $count"
             [ "$count" = '0' ] || dirty=1
           done
-          [ "$dirty" = '0' ] \
-            || { echo '::error::The test account already holds test clocks or live subscriptions (active, trialing, past_due, unpaid or incomplete) from an earlier run. This run refuses and deletes nothing. Before anyone deletes them, confirm the run that created them has stopped; age alone is not proof it was abandoned.'; exit 1; }
+          if [ "$dirty" != '0' ]; then
+            echo 'blocked=dirty_test_account' >> "$GITHUB_OUTPUT"
+            echo '::error::BLOCKED PREREQUISITE, not a billing failure: the test account already holds test clocks or live subscriptions (active, trialing, past_due, unpaid or incomplete) from an earlier run. This run refuses and deletes nothing, and it never cleans up objects another run created. Before anyone deletes them, confirm the run that created them has stopped; age alone is not proof it was abandoned.'
+            exit 1
+          fi
 
       - uses: actions/checkout@v6
         with:
@@ -252,19 +264,27 @@ jobs:
           fi
 
       - name: Verify no Stripe test fixture remains
-        # Only meaningful once the account was seen clean before the run; a refused start creates nothing.
+        id: stripe_residue
+        # Only after the dispatch check AND the approved test-account check succeeded: a rejected ACK, SHA or
+        # account makes zero provider calls here. Still runs after a later journey failure.
         if: always() && steps.stripe_account.outcome == 'success'
         env:
           STRIPE_TEST_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
         run: |
           set -euo pipefail
           stripe_get() { curl -fsS --max-time 30 -u "${STRIPE_TEST_SECRET_KEY}:" "https://api.stripe.com/v1/$1"; }
+          stripe_count() {
+            local body
+            body="$(stripe_get "$1")" || { echo "::error::Could not read $2 from Stripe, so no residue can be claimed absent." >&2; exit 1; }
+            jq -e "$STRIPE_LIST_COUNT" <<<"$body" 2>/dev/null \
+              || { echo "::error::Stripe's answer for $2 was not a list, so it cannot be read as zero." >&2; exit 1; }
+          }
           dirty=0
-          clocks="$(stripe_get 'test_helpers/test_clocks?limit=1' | jq '.data | length')"
+          clocks="$(stripe_count 'test_helpers/test_clocks?limit=1' 'test clocks')"
           echo "Remaining test clocks: $clocks"
           [ "$clocks" = '0' ] || dirty=1
           for state in active trialing past_due unpaid incomplete; do
-            count="$(stripe_get "subscriptions?status=${state}&limit=1" | jq '.data | length')"
+            count="$(stripe_count "subscriptions?status=${state}&limit=1" "${state} subscriptions")"
             echo "Remaining subscriptions in ${state}: $count"
             [ "$count" = '0' ] || dirty=1
           done
@@ -272,13 +292,16 @@ jobs:
             || { echo '::error::Stripe test fixtures remain after the run. Invoices and events are immutable audit records and are not counted.'; exit 1; }
 
       - name: Tear down the local stack and listeners
-        if: always()
+        id: stack_stop
+        # Checked: a failed stop fails this step, and the combined receipt below cannot pass.
+        if: always() && steps.stack_start.outcome != 'skipped'
         run: |
+          set -euo pipefail
           for pid_file in stripe-listen.pid functions.pid; do
             [ -f "$RUNNER_TEMP/$pid_file" ] && kill "$(cat "$RUNNER_TEMP/$pid_file")" 2>/dev/null || true
           done
           rm -f "$RUNNER_TEMP/functions.env"
-          supabase stop --workdir "$SUPABASE_WORKDIR" --no-backup || true
+          supabase stop --workdir "$SUPABASE_WORKDIR" --no-backup
 
       # The journey cannot read three billing tables (service_role has no access), so it never claims they
       # are empty. What makes their rows harmless is that the whole database is gone: prove it.
@@ -296,6 +319,21 @@ jobs:
             || { echo '::error::The disposable stack was not fully destroyed; its billing rows were never read, so this run cannot pass.'; exit 1; }
           echo 'Disposable stack destroyed: no container, volume or network with this run'"'"'s project id remains.'
 
+      # The journey's own receipt can only say PENDING_STACK_DESTRUCTION on this stack. It becomes PASSED only
+      # here, after the checked teardown, the destruction proof and the Stripe residue check all succeeded.
+      - name: Finalise the combined receipt
+        id: combined
+        if: always() && steps.stack_start.outcome != 'skipped'
+        run: |
+          set -euo pipefail
+          [ -f billing-local-stack-receipt.json ] || echo 'null' > billing-local-stack-receipt.json
+          node tests/billing/user-journey/localStackReceipt.mjs billing-local-stack-receipt.json \
+            '${{ steps.stack_stop.outcome }}' '${{ steps.stack_destroyed.outcome }}' '${{ steps.stripe_residue.outcome }}' \
+            > billing-local-stack-combined.json && status=0 || status=$?
+          cat billing-local-stack-combined.json
+          sha256sum billing-local-stack-combined.json | tee billing-local-stack-combined.sha256
+          [ "$status" = '0' ] || { echo '::error::Combined receipt is NOT_PROVEN: the journey, teardown, destruction proof or Stripe residue check did not all pass.'; exit 1; }
+
       - name: Summarize
         if: always()
         run: |
@@ -309,8 +347,16 @@ jobs:
             else
               echo '- No receipt: the run stopped before the journey wrote one.'
             fi
+            if [ '${{ steps.stripe_account.outputs.blocked }}' = 'dirty_test_account' ]; then
+              echo '- BLOCKED PREREQUISITE: the test account held fixtures from an earlier run. Not a billing failure; nothing was created or deleted.'
+            fi
             echo '- Billing rows (fences, checkout operations, save obligations): not read; service_role has no access.'
-            echo "- Disposable stack destroyed: ${{ steps.stack_destroyed.outcome }}"
+            echo "- Stack stopped: ${{ steps.stack_stop.outcome }}; destroyed: ${{ steps.stack_destroyed.outcome }}; Stripe residue check: ${{ steps.stripe_residue.outcome }}"
+            if [ -f billing-local-stack-combined.json ]; then
+              echo "- Combined result: $(jq -r '.result' billing-local-stack-combined.json)"
+            else
+              echo '- Combined result: not produced'
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
@@ -320,4 +366,6 @@ jobs:
           path: |
             billing-local-stack-receipt.json
             billing-local-stack-receipt.sha256
+            billing-local-stack-combined.json
+            billing-local-stack-combined.sha256
           if-no-files-found: warn

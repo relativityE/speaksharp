@@ -50,11 +50,27 @@ implement that privileged cleanup path.
 
 The disposable local stack (`BILLING_SANDBOX_TARGET=local-disposable-stack`) does
 not count those three tables, because migrations revoke all access to them from
-`service_role` and permissions are not widened for a test. Its receipt says so
-(`billingRowResidue: NOT_READ_REQUIRES_STACK_DESTRUCTION_PROOF`). The workflow then
-proves the stack was destroyed: no container, volume or network with the run's own
-Supabase project id may remain, or the run fails. Stripe-side and auth/profile
-cleanup are still required. The hosted-sandbox target keeps the fail-closed counts.
+`service_role` and permissions are not widened for a test. On that stack the
+journey's own receipt therefore never says PASSED or VERIFIED: it says
+`PENDING_STACK_DESTRUCTION`, with `billingRowResidue:
+NOT_READ_REQUIRES_STACK_DESTRUCTION_PROOF`. The rows are not claimed destroyed
+because disposal is intended. The workflow first stops the stack as a checked
+step (a failed stop fails the run), then checks that no container, volume or
+network with the run's own Supabase project id remains, then checks Stripe for
+leftovers. Only then does `localStackReceipt.mjs` write the combined receipt, and
+it says PASSED only if all of those succeeded; anything else is NOT_PROVEN.
+Stripe-side and auth/profile cleanup are still required. The hosted-sandbox target
+keeps the fail-closed counts unchanged.
+
+Every test clock is created with this run's marker as its `name`, in the create
+request itself, so a clock whose create response was lost can still be attributed
+to its run. The marker does not authorize deleting anything: a dirty test account
+is a blocked prerequisite, and the run deletes nothing it did not create.
+
+The local checkout exception's allowlist includes `http://kong:8000`, which is also
+the gateway address of a self-hosted Supabase. The guarantee that no deployed
+project can match relies on staying on hosted Supabase, where `SUPABASE_URL` is
+`https://<ref>.supabase.co`.
 
 The suite exercises the real checkout API followed by the real hosted UI. It does
 not claim to prove the public upgrade button. Duplicate/out-of-order webhook

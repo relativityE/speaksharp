@@ -1,3 +1,3 @@
 import { defineConfig } from 'vitest/config';
 export default defineConfig({ test: { environment: 'node',
-  include: ['tests/billing/user-journey/contract.test.ts'], coverage: { enabled: false } } });
+  include: ['tests/billing/user-journey/contract.test.ts', 'tests/billing/user-journey/workflow.test.ts'], coverage: { enabled: false } } });

@@ -4,7 +4,8 @@ import { randomUUID } from 'node:crypto';
 import sandboxTarget from './sandbox-target.json' with { type: 'json' };
 import localStackTarget from './sandbox-target.local.json' with { type: 'json' };
 import { BILLING_JOURNEYS, receipt, requireFact, assertSandboxConfiguration,
-  assertTestPrice, assertInvoice, isCorrelatedDelivery, safeFailureReason, type BillingJourney, type BillingEvent } from './contract';
+  assertTestPrice, assertInvoice, isCorrelatedDelivery, safeFailureReason, testClockCreateFields, localStackStatus,
+  type BillingJourney, type BillingEvent } from './contract';
 import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { selectBenchmarkMode, preparePrivateModelIfPrompted, startBenchmarkRecording,
   expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput, stopBenchmarkRecording,
@@ -170,7 +171,7 @@ class SandboxJourney {
 
     // Clock-backed customers keep each branch independent; unsupported sandbox capabilities fail closed.
     this.uncertainStripeCreate = true;
-    const clock = await this.stripe('test_helpers/test_clocks', 'POST', { frozen_time: String(Math.floor(Date.now() / 1000)) });
+    const clock = await this.stripe('test_helpers/test_clocks', 'POST', testClockCreateFields(this.marker, Math.floor(Date.now() / 1000)));
     requireFact(typeof clock.id === 'string' && clock.id.startsWith('clock_'), 'clock_identity_missing');
     this.clock = clock.id;
     this.uncertainStripeCreate = false;
@@ -411,11 +412,15 @@ for (const journey of BILLING_JOURNEYS) {
     finally {
       if (run) { try { await run.cleanup(); } catch { cleanupFailed = true; } }
       const result = receipt(journey, run?.steps ?? new Set());
+      // On the local stack the receipt never says PASSED/VERIFIED by itself; the workflow finalises it only
+      // after the checked teardown and destruction proof (localStackReceipt.mjs).
+      const status = localStackStatus(failed || cleanupFailed ? 'INCOMPLETE' : result.result,
+        cleanupFailed ? 'UNPROVEN' : run?.steps.has('cleanup') ? 'VERIFIED' : 'NOT_RUN', useLocalStack);
       await info.attach('billing-user-journey.json', { body: JSON.stringify({ ...result,
-        result: failed || cleanupFailed ? 'INCOMPLETE' : result.result,
+        result: status.result,
         failureStage: failed ? run?.stage ?? 'preflight' : null,
         reason,
-        cleanup: cleanupFailed ? 'UNPROVEN' : run?.steps.has('cleanup') ? 'VERIFIED' : 'NOT_RUN',
+        cleanup: status.cleanup,
         // Never reported as checked on the local stack; only the workflow's destruction proof covers them.
         billingRowResidue: useLocalStack ? 'NOT_READ_REQUIRES_STACK_DESTRUCTION_PROOF' : 'COUNTED_ZERO_OR_FAILED',
         testedRelease: env.BILLING_SANDBOX_RELEASE_SHA?.match(/^[a-f0-9]{40}$/i)?.[0] ?? null,

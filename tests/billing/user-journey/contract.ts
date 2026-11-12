@@ -33,6 +33,32 @@ export function receipt(journey: BillingJourney, steps: ReadonlySet<string>) {
   };
 }
 
+/** The run marker every fixture carries. A fixed shape, so a foreign or empty marker is refused. */
+export const RUN_MARKER = /^rwt-journey-billing-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * Fields for the one test-clock create. The run marker goes in `name` IN THE CREATE REQUEST, before the
+ * uncertain-create boundary: if the response is lost, the clock can still be attributed to this run by name
+ * instead of being an unowned leftover. Refuses to build the request without a valid marker.
+ */
+export function testClockCreateFields(marker: string, nowSeconds: number): Record<string, string> {
+  requireFact(RUN_MARKER.test(marker), 'run_marker_invalid');
+  requireFact(Number.isSafeInteger(nowSeconds) && nowSeconds > 0, 'clock_time_invalid');
+  return { frozen_time: String(nowSeconds), name: marker };
+}
+
+/**
+ * The journey's own receipt status. On the local stack it can never say PASSED or VERIFIED by itself: the
+ * billing rows were not read, so it waits for the workflow's checked teardown and destruction proof.
+ */
+export function localStackStatus(result: string, cleanup: string, localStack: boolean): { result: string; cleanup: string } {
+  if (!localStack) return { result, cleanup };
+  return {
+    result: result === 'PASSED' ? 'PENDING_STACK_DESTRUCTION' : result,
+    cleanup: cleanup === 'VERIFIED' ? 'PENDING_STACK_DESTRUCTION' : cleanup,
+  };
+}
+
 export function assertTestPrice(input: unknown): void {
   const price = (input ?? {}) as { livemode?: unknown; active?: unknown; unit_amount?: unknown;
     currency?: unknown; recurring?: { interval?: unknown; interval_count?: unknown } };

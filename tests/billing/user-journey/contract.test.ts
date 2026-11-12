@@ -1,7 +1,8 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'vitest';
 import { BILLING_JOURNEYS, REQUIRED_STEPS, receipt, assertTestPrice, assertInvoice,
-  isCorrelatedDelivery, assertSandboxConfiguration, safeFailureReason } from './contract';
+  isCorrelatedDelivery, assertSandboxConfiguration, safeFailureReason, testClockCreateFields, localStackStatus } from './contract';
+import { finaliseLocalStackReceipt } from './localStackReceipt.mjs';
 
 const price = { livemode: false, active: true, unit_amount: 1000, currency: 'usd',
   recurring: { interval: 'month', interval_count: 1 } };
@@ -95,4 +96,55 @@ test('local disposable stack admits loopback http only, and only under its own c
   // A loopback target can never point at a hosted project's API.
   assert.throws(() => assertSandboxConfiguration({ ...local, BILLING_SANDBOX_SUPABASE_URL: 'https://sandbox.supabase.co' },
     { ...localTarget, apiOrigin: 'https://sandbox.supabase.co' }));
+});
+
+const MARKER = 'rwt-journey-billing-0f1e2d3c-4b5a-4968-8778-695a4b3c2d1e';
+
+test('D1: the test clock is created with the run marker in name, in the create request itself', () => {
+  assert.deepEqual(testClockCreateFields(MARKER, 1_800_000_000), { frozen_time: '1800000000', name: MARKER });
+});
+
+test('D1 negative control: no clock request is built without this run\'s marker', () => {
+  for (const marker of ['', 'rwt-journey-billing-', 'someone-else-0f1e2d3c-4b5a-4968-8778-695a4b3c2d1e',
+    `${MARKER}-extra`, MARKER.toUpperCase(), ' ' + MARKER]) {
+    assert.throws(() => testClockCreateFields(marker, 1_800_000_000), /run_marker_invalid/, marker);
+  }
+  for (const now of [0, -1, 1.5, Number.NaN]) {
+    assert.throws(() => testClockCreateFields(MARKER, now), /clock_time_invalid/, String(now));
+  }
+});
+
+test('local stack: the journey receipt never says PASSED or VERIFIED by itself', () => {
+  assert.deepEqual(localStackStatus('PASSED', 'VERIFIED', true), { result: 'PENDING_STACK_DESTRUCTION', cleanup: 'PENDING_STACK_DESTRUCTION' });
+  assert.deepEqual(localStackStatus('INCOMPLETE', 'UNPROVEN', true), { result: 'INCOMPLETE', cleanup: 'UNPROVEN' });
+  // The hosted target is unchanged.
+  assert.deepEqual(localStackStatus('PASSED', 'VERIFIED', false), { result: 'PASSED', cleanup: 'VERIFIED' });
+});
+
+const pendingReceipt = { journey: 'conversion', result: 'PENDING_STACK_DESTRUCTION', cleanup: 'PENDING_STACK_DESTRUCTION',
+  billingRowResidue: 'NOT_READ_REQUIRES_STACK_DESTRUCTION_PROOF' };
+const allChecks = { stackStopped: 'success', stackDestroyed: 'success', stripeClean: 'success' };
+
+test('combined local receipt is PASSED only after checked teardown, destruction proof and Stripe cleanup', () => {
+  const combined = finaliseLocalStackReceipt([pendingReceipt], allChecks);
+  assert.equal(combined.result, 'PASSED');
+  assert.equal(combined.billingRowResidue, 'NOT_READ_DATABASE_DESTROYED');
+});
+
+test('combined local receipt negative controls: any failed, skipped or unknown check is NOT_PROVEN', () => {
+  for (const key of Object.keys(allChecks) as (keyof typeof allChecks)[]) {
+    for (const value of ['failure', 'skipped', 'cancelled', '', undefined]) {
+      const combined = finaliseLocalStackReceipt([pendingReceipt], { ...allChecks, [key]: value as string });
+      assert.equal(combined.result, 'NOT_PROVEN', `${key}=${String(value)}`);
+    }
+  }
+  assert.equal(finaliseLocalStackReceipt([pendingReceipt], { ...allChecks, stackDestroyed: 'failure' }).billingRowResidue, 'NOT_READ_NOT_PROVEN');
+});
+
+test('combined local receipt negative controls: a missing, extra, failed or self-PASSED journey receipt is NOT_PROVEN', () => {
+  for (const receipts of [null, [], [pendingReceipt, pendingReceipt], [{ ...pendingReceipt, result: 'INCOMPLETE' }],
+    [{ ...pendingReceipt, result: 'PASSED', cleanup: 'VERIFIED' }], [{ ...pendingReceipt, cleanup: 'UNPROVEN' }],
+    [{ ...pendingReceipt, billingRowResidue: 'COUNTED_ZERO_OR_FAILED' }], [null], 'not json']) {
+    assert.equal(finaliseLocalStackReceipt(receipts, allChecks).result, 'NOT_PROVEN', JSON.stringify(receipts));
+  }
 });
