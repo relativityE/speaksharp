@@ -861,6 +861,8 @@ const MAIN_RECOVERY = '20261017200000_checkout_rejection_recovery.sql';
 export const REVIEWED_WITHHELD_MIGRATIONS=Object.freeze([
   Object.freeze({name:'20261110173548_account_coaching_local_retirement.sql',version:'20261110173548',
     sha256:'cc3ee4369dec74d2926557128a06265fb3019077b018cdc5dc848f055a6f8e04'}),
+  Object.freeze({name:'20261112010000_repeat_practised_tip.sql',version:'20261112010000',
+    sha256:'6bdf06c1556a753f0919dc4a3c3605bec0df3a3a0959fa71ece54b0feb086f8c'}),
 ]);
 
 export function parseMainProofArguments(args) {
@@ -888,7 +890,9 @@ export function buildMainU1ReplayPlan(rows, profile = 'main-120') {
   assert.equal(new Set(actual.map(row => row.name)).size, actual.length, 'duplicate migration name');
   const repositoryVersioned = actual.filter(row => row.version !== null);
   assert.equal(new Set(repositoryVersioned.map(row => row.version)).size, repositoryVersioned.length, 'duplicate migration version');
-  const withheldPins=profile===RETIREMENT_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION]:REVIEWED_WITHHELD_MIGRATIONS;
+  const withheldPins=profile===RETIREMENT_PROFILE
+    ? [MAIN_COMPLETION_BILLING_MIGRATION,...REVIEWED_WITHHELD_MIGRATIONS.filter(row=>row.name!==RETIREMENT_MIGRATION.name)]
+    : REVIEWED_WITHHELD_MIGRATIONS;
   const withheld=actual.filter(row=>withheldPins.some(pin=>pin.name===row.name));
   for(const row of withheld) assert.equal(row.sha256,withheldPins.find(pin=>pin.name===row.name).sha256,
     'reviewed withheld migration digest changed: '+row.name);

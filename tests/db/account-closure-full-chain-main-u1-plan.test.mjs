@@ -125,7 +125,9 @@ const repositoryPhysical = readdirSync(join(root, 'backend/supabase/migrations')
   name, version: name.match(/^(\d{8}|\d{14})_.+\.sql$/)?.[1] ?? null,
   sha256: hash(readFileSync(join(root, 'backend/supabase/migrations', name))),
 }));
-const physical=repositoryPhysical.filter(row=>row.name!==WITHHELD.name);
+const TIP=Object.freeze({name:'20261112010000_repeat_practised_tip.sql',version:'20261112010000',
+  sha256:'6bdf06c1556a753f0919dc4a3c3605bec0df3a3a0959fa71ece54b0feb086f8c'});
+const physical=repositoryPhysical.filter(row=>![WITHHELD.name,TIP.name].includes(row.name));
 const main = physical.filter(row => ![U1.name, ANALYTICS.name, ...ACCOUNT.map(row=>row.name), FENCE.name, RETENTION.name, BILLING.name].includes(row.name));
 const receiving = [...main, U1].sort((a, b) => a.name.localeCompare(b.name, 'en'));
 const analyticsReceiving=[...receiving,ANALYTICS].sort((a,b)=>a.name.localeCompare(b.name,'en'));
@@ -154,7 +156,26 @@ test('reviewed withheld retirement is repository inventory, never historical rep
   // Adding the exact withheld pin does not let an old profile accept later applied members.
   assert.throws(()=>buildMainU1ReplayPlan(repositoryPhysical,'main-t2-retention-128'),/unreviewed migration/);
   const plan=buildMainU1ReplayPlan(repositoryPhysical,'main-completion-billing-129');
-  assert.equal(plan.migrations,129);assert.equal(plan.repositoryMigrations,130);
+  assert.equal(plan.migrations,129);assert.equal(plan.repositoryMigrations,131);
+});
+test('D2 admission is exact repository presence, never historical execution authority',()=>{
+  assert.deepEqual(repositoryPhysical.find(row=>row.name===TIP.name),TIP);
+  for(const profile of ['main-completion-billing-129','main-coaching-retirement-129']) {
+    const before=repositoryPhysical.filter(row=>row.name!==TIP.name);
+    const prior=buildMainU1ReplayPlan(before,profile),plan=buildMainU1ReplayPlan(repositoryPhysical,profile);
+    assert.deepEqual(plan.stages,prior.stages);
+    assert.deepEqual(plan.replayFiles,prior.replayFiles);
+    assert.equal(plan.migrations,129);
+    assert.equal(plan.executed,false);
+    assert.ok(plan.withheld.some(row=>row.name===TIP.name && row.status==='NOT REPLAYED'));
+    assert.ok(!plan.replayFiles.includes(TIP.name));
+    assert.ok(plan.stages.every(stage=>!stage.versions.includes(TIP.version)));
+    assert.throws(()=>buildMainU1ReplayPlan([...before,{...TIP,sha256:'0'.repeat(64)}],profile),/withheld migration digest changed/);
+    assert.throws(()=>buildMainU1ReplayPlan([...repositoryPhysical,TIP],profile),/duplicate migration name/);
+    assert.throws(()=>buildMainU1ReplayPlan([...repositoryPhysical,{...TIP,name:TIP.version+'_alias.sql'}],profile),/duplicate migration version/);
+    assert.throws(()=>buildMainU1ReplayPlan([...before,{...TIP,name:TIP.version+'_alias.sql'}],profile),/unreviewed migration/);
+    assert.throws(()=>buildMainU1ReplayPlan(repositoryPhysical.filter(row=>row.name!==U1.name),profile),/reviewed migration missing/);
+  }
 });
 test('runtime stages only replay members and checks withheld ledger/catalog absence',()=>{
   const driver=read('tests/db/account-closure-full-chain.mjs');
