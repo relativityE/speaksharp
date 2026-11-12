@@ -315,4 +315,62 @@ Deno.test("refund → cancel at period end", async (t) => {
       assertEquals(updates(calls), [], JSON.stringify(opts));
     }
   });
+  await t.step("Sam's c381f853 return: a missing or invalid currency never matches, so nothing is scheduled", async () => {
+    const cases: [Record<string, unknown>, Record<string, unknown>][] = [
+      [{ currency: undefined }, { currency: undefined }],
+      [{ currency: null }, { currency: null }],
+      [{ currency: "" }, { currency: "" }],
+      [{ currency: "USD" }, { currency: "USD" }],
+      [{ currency: "us" }, { currency: "us" }],
+      [{ currency: 840 }, { currency: 840 }],
+      [{ currency: "usd" }, { currency: undefined }],
+      [{ currency: undefined }, { currency: "usd" }],
+    ];
+    for (const [chargeOver, invoiceOver] of cases) {
+      const { stripe, calls } = fakeStripe({ invoice: invoiceFor(invoiceOver) });
+      const res = await handler(refundEvent(fullCharge(chargeOver)), stripe, db().supabase, "secret", env);
+      assertEquals(res.status >= 500, true, JSON.stringify([chargeOver, invoiceOver]));
+      assertEquals(updates(calls), [], JSON.stringify([chargeOver, invoiceOver]));
+    }
+    const out = await scheduleCancellationAfterRefund(fakeStripe({ invoice: invoiceFor({ currency: undefined }) }).stripe,
+      fullCharge({ currency: undefined }), "evt", PRO);
+    assertEquals(out, { outcome: "unverified", reason: "charge currency unreadable" });
+  });
+
+  await t.step("Sam's c381f853 return: an update answer that moved to an outstanding renewal is never 'scheduled'", async () => {
+    // Read: latest is the refunded invoice. Update answer: a new renewal invoice was issued in between.
+    for (const status of ["draft", "open", "uncollectible", undefined, "something_new"]) {
+      const renewal = invoiceFor({ id: "in_2", status });
+      const { stripe, calls } = fakeStripe({ invoices: { in_2: renewal },
+        updated: proSub({ cancel_at_period_end: true, latest_invoice: "in_2" }) });
+      const res = await handler(refundEvent(), stripe, db().supabase, "secret", env);
+      assertEquals(res.status >= 500, true, String(status));
+      assertEquals(updates(calls).length, 1, String(status));
+    }
+    const named = fakeStripe({ invoices: { in_2: invoiceFor({ id: "in_2", status: "open" }) },
+      updated: proSub({ cancel_at_period_end: true, latest_invoice: "in_2" }) });
+    assertEquals(await scheduleCancellationAfterRefund(named.stripe, fullCharge(), "evt", PRO),
+      { outcome: "unverified", reason: "after update: a later renewal invoice is still outstanding" });
+    // An update answer whose latest invoice is missing, unreadable or another subscription's is unverified too.
+    for (const latest_invoice of [undefined, null, 42, { id: "" }]) {
+      const { stripe } = fakeStripe({ updated: proSub({ cancel_at_period_end: true, latest_invoice }) });
+      const res = await handler(refundEvent(), stripe, db().supabase, "secret", env);
+      assertEquals(res.status >= 500, true, JSON.stringify(latest_invoice));
+    }
+    const foreign = fakeStripe({ invoices: { in_2: invoiceFor({ id: "in_2", subscription: "sub_other" }) },
+      updated: proSub({ cancel_at_period_end: true, latest_invoice: "in_2" }) });
+    assertEquals((await handler(refundEvent(), foreign.stripe, db().supabase, "secret", env)).status >= 500, true);
+    // A renewal that is already paid (or the same refunded invoice) after the update is still scheduled.
+    for (const updated of [proSub({ cancel_at_period_end: true }),
+      proSub({ cancel_at_period_end: true, latest_invoice: invoiceFor({ id: "in_2", status: "paid" }) })]) {
+      const { stripe } = fakeStripe({ updated });
+      assertEquals((await (await handler(refundEvent(), stripe, db().supabase, "secret", env)).json()).refund, "scheduled");
+    }
+    // A redelivery after such a failure still fails closed at the boundary, before "already_scheduled".
+    const redelivered = fakeStripe({ sub: proSub({ cancel_at_period_end: true, latest_invoice: "in_2" }),
+      invoices: { in_2: invoiceFor({ id: "in_2", status: "open" }) } });
+    const again = await handler(refundEvent(), redelivered.stripe, db().supabase, "secret", env);
+    assertEquals(again.status >= 500, true);
+    assertEquals(updates(redelivered.calls), []);
+  });
 });
