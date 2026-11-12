@@ -125,7 +125,10 @@ const repositoryPhysical = readdirSync(join(root, 'backend/supabase/migrations')
   name, version: name.match(/^(\d{8}|\d{14})_.+\.sql$/)?.[1] ?? null,
   sha256: hash(readFileSync(join(root, 'backend/supabase/migrations', name))),
 }));
-const physical=repositoryPhysical.filter(row=>row.name!==WITHHELD.name);
+// #1829's refund follow-up table: outside the account-closure chain, pinned here independently of the planner.
+const REFUND=Object.freeze({name:'20261112130000_stripe_refund_followups.sql',version:'20261112130000',
+  sha256:'47fce28446a1e8f56c27dd10a6bb92e803a5907db0fd9d7fa67cbf11f9701fe8'});
+const physical=repositoryPhysical.filter(row=>![WITHHELD.name,REFUND.name].includes(row.name));
 const main = physical.filter(row => ![U1.name, ANALYTICS.name, ...ACCOUNT.map(row=>row.name), FENCE.name, RETENTION.name, BILLING.name].includes(row.name));
 const receiving = [...main, U1].sort((a, b) => a.name.localeCompare(b.name, 'en'));
 const analyticsReceiving=[...receiving,ANALYTICS].sort((a,b)=>a.name.localeCompare(b.name,'en'));
@@ -154,7 +157,27 @@ test('reviewed withheld retirement is repository inventory, never historical rep
   // Adding the exact withheld pin does not let an old profile accept later applied members.
   assert.throws(()=>buildMainU1ReplayPlan(repositoryPhysical,'main-t2-retention-128'),/unreviewed migration/);
   const plan=buildMainU1ReplayPlan(repositoryPhysical,'main-completion-billing-129');
-  assert.equal(plan.migrations,129);assert.equal(plan.repositoryMigrations,130);
+  assert.equal(plan.migrations,129);assert.equal(plan.repositoryMigrations,131);
+  assert.deepEqual(plan.withheld.map(row=>row.name),[WITHHELD.name,REFUND.name]);
+});
+test('the refund follow-up migration is pinned inventory that no profile replays',()=>{
+  assert.deepEqual(repositoryPhysical.find(row=>row.name===REFUND.name),REFUND);
+  const retirement=[...billingReceiving.filter(row=>row.name!==BILLING.name),WITHHELD,BILLING];
+  for(const [profile,rows] of [['main-120',main],['main-u1-121',receiving],['main-analytics-u1-122',analyticsReceiving],
+    ['main-t2-account-126',fullReceiving],['main-t2-fence-127',fenceReceiving],['main-t2-retention-128',retentionReceiving],
+    ['main-completion-billing-129',billingReceiving],['main-coaching-retirement-129',retirement]]) {
+    const prior=buildMainU1ReplayPlan(rows,profile),withheld=buildMainU1ReplayPlan([...rows,REFUND],profile);
+    assert.deepEqual(withheld.stages,prior.stages,profile);
+    assert.deepEqual(withheld.replayFiles,prior.replayFiles,profile);
+    assert.equal(withheld.migrations,prior.migrations,profile);
+    assert.equal(withheld.repositoryMigrations,prior.repositoryMigrations+1,profile);
+    assert.deepEqual(withheld.withheld.filter(row=>row.name===REFUND.name),[{...REFUND,status:'NOT REPLAYED'}],profile);
+    assert.ok(withheld.stages.every(stage=>!stage.versions.includes(REFUND.version)),profile);
+    assert.throws(()=>buildMainU1ReplayPlan([...rows,{...REFUND,sha256:'0'.repeat(64)}],profile),/withheld migration digest changed/);
+  }
+  const plan=buildMainU1ReplayPlan(repositoryPhysical,'main-coaching-retirement-129');
+  assert.equal(plan.migrations,129);assert.equal(plan.repositoryMigrations,131);
+  assert.deepEqual(plan.withheld.map(row=>row.name),[BILLING.name,REFUND.name]);
 });
 test('runtime stages only replay members and checks withheld ledger/catalog absence',()=>{
   const driver=read('tests/db/account-closure-full-chain.mjs');

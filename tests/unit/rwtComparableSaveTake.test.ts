@@ -34,10 +34,37 @@ describe('save-take duration is behavioural: default, fallback and time budget',
         for (const v of [undefined, null, 3_000, 6_999, 1.5, Number.NaN, Infinity, '42000', 120_001]) expect(saveTakeDuration(v)).toBe(7_000);
         for (const v of [7_000, 42_000, 120_000]) expect(saveTakeDuration(v)).toBe(v);
     });
-    it('Focus Points and every other caller keep the default (only the Open Mic spec passes a duration)', () => {
+    it('Focus passes fixture-specific comparable durations while Open Mic retains its own duration', () => {
         const callers = ['tests/live/helpers/rwtFocusPointsJourney.ts', 'tests/live/rwt-open-mic-first-session.live.spec.ts']
             .map((f) => readFileSync(path.join(ROOT, f), 'utf8'));
-        expect(callers[0]).not.toMatch(/saveTakeMs/);
+        const sizing = /const saveTakeMs = fixtureKey === 'focus_points_partial_tts' \? ([\d_]+) : ([\d_]+);/.exec(callers[0]);
+        expect(sizing).not.toBeNull();
+        const partial = Number(sizing![1].replaceAll('_', ''));
+        const full = Number(sizing![2].replaceAll('_', ''));
+        expect([partial, full]).toEqual([60_000, 42_000]);
+        expect(callers[0]).toMatch(/practiceAgainEvidence\([\s\S]*?\{ saveTakeMs \}\)/);
+        expect(callers[0]).toContain('numericComparisonRow(receipt, result, repeatEligibility, saveTakeMs)');
+        expect(callers[0]).toContain("const sourceTakeMs = fixtureKey === 'focus_points_partial_tts' ? 60_000 : Math.round((fixture.entry.speechSeconds + 4) * 1000);");
+        const frozen = callers[0].indexOf('await freezeMarkerObserver(page, armed.token)');
+        const extended = callers[0].indexOf('await page.waitForTimeout(Math.max(0, startedAt + sourceTakeMs - Date.now()))');
+        const stopped = callers[0].indexOf('await stopBenchmarkRecording(page, suite, 180_000)', extended);
+        expect(frozen).toBeGreaterThan(0);
+        expect(extended).toBeGreaterThan(frozen);
+        expect(stopped).toBeGreaterThan(extended);
+        expect(callers[0].slice(extended, stopped)).not.toMatch(/sampleFocusRail|markerWindow.record|armMarkerObserver/);
+        // Minimum speech in an arbitrary-phase looping window, uniform-rate sizing only.
+        // Partial needs a second loop: a 42 s window cannot provide 75 scripted words.
+        const minWords = (ms: number, loop: number, speech: number, words: number) => {
+            const seconds = ms / 1000;
+            const heard = Math.floor(seconds / loop) * speech + Math.max(0, seconds % loop - (loop - speech));
+            return Math.floor(heard * words / speech);
+        };
+        expect(minWords(42_000, 37.01, 21.96, 60)).toBeLessThan(PROGRESS_ELIGIBILITY.MIN_WORD_COUNT);
+        for (const [ms, loop, speech, words] of [[partial, 37.01, 21.96, 60], [60_000, 37.01, 21.96, 60], [full, 61.21, 46.17, 129], [50_200, 61.21, 46.17, 129]]) {
+            expect(saveTakeDuration(ms)).toBe(ms);
+            expect(ms / 1000).toBeGreaterThanOrEqual(PROGRESS_ELIGIBILITY.MIN_DURATION_SECONDS);
+            expect(minWords(ms, loop, speech, words)).toBeGreaterThanOrEqual(PROGRESS_ELIGIBILITY.MIN_WORD_COUNT);
+        }
         expect(callers[1]).toMatch(/saveTakeMs = OPEN_MIC_COMPARABLE_SAVE_TAKE_MS;/);
         // the budget is stated as unproven, not claimed
         expect(readFileSync(path.join(ROOT, 'tests/live/helpers/rwtJourney.ts'), 'utf8')).toMatch(/Time budget: NOT proven here/);

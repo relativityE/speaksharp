@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
-    noSessionBindingVerdict, olderTakeBindingVerdict, readStoredDiagnosticRef,
+    FeedbackInsertObserver, classifyInsertBody, noSessionBindingVerdict, olderTakeBindingVerdict, readStoredDiagnosticRef,
     writeNoSessionReportRows, writeOlderTakeBindingRow, writeOlderTakeReportRows, type StoredFeedbackReport,
 } from '../live/helpers/feedbackDiagnosticRef';
 
@@ -77,6 +77,8 @@ function sink() {
 const verdicts = (rows: Array<{ step: string; verdict: string }>) => Object.fromEntries(rows.map((r) => [r.step, r.verdict]));
 const report = (diagnosticRef: unknown, sessionId: string | null): StoredFeedbackReport => ({
     id: 'report-1', sessionId, storedRows: 1, diagnosticRef: read(diagnosticRef),
+    // The binding the live spec actually establishes: one observed key, one insert, every insert attributed (Sam, #1811 RETURN).
+    insertKeys: 1, insertRequests: 1, unattributedInserts: 0,
 });
 
 describe('scenario: No session feedback — the rows the live spec writes', () => {
@@ -145,5 +147,79 @@ describe('wiring — both live scenarios capture the report id FIRST, then write
         for (const step of ['no-session diagnostic binding', 'older-take diagnostic binding', 'no-session report stored once', 'older-take report stored once']) {
             expect(spec).not.toContain(`receipt.row('${step}'`);
         }
+    });
+});
+
+// Sam, #1811 RETURN item 1: stored-once is bound to the observed idempotency key and fails CLOSED on any insert that carries no
+// valid key, because a report stored by an unattributed insert is invisible to the keyed read and could hide a duplicate.
+describe('stored-once binding — observed inserts drive the verdict, unattributed inserts fail closed', () => {
+    const KEY = '33333333-3333-4333-8333-333333333333';
+    const OTHER_KEY = '44444444-4444-4444-8444-444444444444';
+    const observe = (...bodies: Array<() => unknown>) => {
+        const o = new FeedbackInsertObserver(null);
+        for (const b of bodies) o.observeBody(b);
+        return o;
+    };
+    const stored = (o: FeedbackInsertObserver, storedRows = 1): StoredFeedbackReport => ({
+        id: storedRows === 1 ? 'report-1' : null, sessionId: null, storedRows, diagnosticRef: read(undefined),
+        insertKeys: o.keys.length, insertRequests: o.insertRequests, unattributedInserts: o.unattributedInserts,
+    });
+    const noSession = (s: StoredFeedbackReport) => { const r = sink(); writeNoSessionReportRows(r, s); return verdicts(r.rows); };
+    const olderTake = (s: StoredFeedbackReport) => { const r = sink(); writeOlderTakeReportRows(r, s, 'older'); return verdicts(r.rows); };
+
+    it('classifies bodies: keyed rows, missing/null/malformed keys, arrays, empty and non-object bodies', () => {
+        expect(classifyInsertBody({ idempotency_key: KEY })).toEqual({ keys: [KEY], unattributed: 0 });
+        expect(classifyInsertBody({ idempotency_key: null })).toEqual({ keys: [], unattributed: 1 });
+        expect(classifyInsertBody({})).toEqual({ keys: [], unattributed: 1 });
+        expect(classifyInsertBody({ idempotency_key: 'not-a-uuid' })).toEqual({ keys: [], unattributed: 1 });
+        expect(classifyInsertBody({ idempotency_key: 42 })).toEqual({ keys: [], unattributed: 1 });
+        expect(classifyInsertBody([{ idempotency_key: KEY }, { idempotency_key: null }])).toEqual({ keys: [KEY], unattributed: 1 });
+        expect(classifyInsertBody([])).toEqual({ keys: [], unattributed: 1 });
+        expect(classifyInsertBody(null)).toEqual({ keys: [], unattributed: 1 });
+        expect(classifyInsertBody('text')).toEqual({ keys: [], unattributed: 1 });
+        expect(classifyInsertBody([[{ idempotency_key: KEY }]])).toEqual({ keys: [], unattributed: 1 });
+    });
+    it('one keyed insert and one stored row → PASS', () => {
+        expect(noSession(stored(observe(() => ({ idempotency_key: KEY })))))
+            .toEqual({ 'no-session report stored once': 'PASS', 'no-session association': 'PASS', 'no-session diagnostic binding': 'PASS' });
+    });
+    it('a retry resending the SAME key is still one key → PASS', () => {
+        const o = observe(() => ({ idempotency_key: KEY }), () => ({ idempotency_key: KEY }));
+        expect(o.insertRequests).toBe(2);
+        expect(noSession(stored(o))['no-session report stored once']).toBe('PASS');
+    });
+    it('mixed: a valid-key insert plus a second NULL-key insert → FAIL (was a false PASS), association rows HOLD', () => {
+        const o = observe(() => ({ idempotency_key: KEY }), () => ({ idempotency_key: null }));
+        expect(noSession(stored(o))).toEqual({ 'no-session report stored once': 'FAIL', 'no-session association': 'HOLD', 'no-session diagnostic binding': 'HOLD' });
+        expect(olderTake(stored(o))).toEqual({ 'older-take report stored once': 'FAIL', 'older-take association': 'HOLD' });
+    });
+    it('mixed: a valid-key insert plus a second insert with NO key field → FAIL', () => {
+        expect(noSession(stored(observe(() => ({ idempotency_key: KEY }), () => ({ description: 'x' }))))['no-session report stored once']).toBe('FAIL');
+    });
+    it('a malformed body (unparseable) beside a keyed insert → FAIL', () => {
+        const o = observe(() => ({ idempotency_key: KEY }), () => { throw new SyntaxError('bad json'); });
+        expect(o.unattributedInserts).toBe(1);
+        expect(noSession(stored(o))['no-session report stored once']).toBe('FAIL');
+    });
+    it('a malformed key string → FAIL, even alone', () => {
+        expect(noSession(stored(observe(() => ({ idempotency_key: 'abc' }))))['no-session report stored once']).toBe('FAIL');
+    });
+    it('only NULL-key inserts → FAIL, not HOLD (an insert was seen and is unattributable)', () => {
+        expect(noSession(stored(observe(() => ({ idempotency_key: null }))))['no-session report stored once']).toBe('FAIL');
+    });
+    it('no insert observed at all → HOLD, association rows HOLD', () => {
+        expect(noSession(stored(observe(), 0))).toEqual({ 'no-session report stored once': 'HOLD', 'no-session association': 'HOLD', 'no-session diagnostic binding': 'HOLD' });
+    });
+    it('two distinct keys → FAIL', () => {
+        expect(noSession(stored(observe(() => ({ idempotency_key: KEY }), () => ({ idempotency_key: OTHER_KEY })), 2))['no-session report stored once']).toBe('FAIL');
+    });
+    it('one key but zero or two stored rows → FAIL, association rows HOLD (an unread report is never "no session")', () => {
+        expect(noSession(stored(observe(() => ({ idempotency_key: KEY })), 0)))
+            .toEqual({ 'no-session report stored once': 'FAIL', 'no-session association': 'HOLD', 'no-session diagnostic binding': 'HOLD' });
+        expect(noSession(stored(observe(() => ({ idempotency_key: KEY })), 2))['no-session report stored once']).toBe('FAIL');
+    });
+    it('the live spec passes the observer\'s unattributed count into the stored report', () => {
+        const spec = readFileSync(path.resolve(here, '../live/rwt-feedback-association-boundaries.live.spec.ts'), 'utf8');
+        expect(spec).toContain('unattributedInserts: inserts.unattributedInserts');
     });
 });
