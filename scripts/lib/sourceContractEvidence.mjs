@@ -366,7 +366,7 @@ const wiring={
     'await probeSaveIsolationRow(aliveReceipt(receipt, alive), admin as never, owner.uid, captured, parity.takeBindings(), parity.leaseIds, designed.length, designed)',
     '...(boundAttemptId ? { expectedAttemptId: boundAttemptId } : {})',
     'caseConfig: { sourceSha: expectedReleaseSha(), servedSha: served, account: { id: owner.uid } }',
-    'numericComparisonRow(receipt, result, repeatEligibility);',
+    'numericComparisonRow(receipt, result, repeatEligibility, saveTakeMs);',
     'receipt.row(FOCUS_SAME_TARGET_ROW, sameTarget.verdict, sameTarget.detail, sameTarget.evidence);',
   ],
   'tests/live/helpers/rwtAdverseJourney.ts':[

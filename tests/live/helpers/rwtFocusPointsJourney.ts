@@ -172,6 +172,11 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     if (preconditions.length > 0) throw new Error(`HOLD preconditions: ${preconditions.join('; ')}`);
     const run: RunTarget = await resolveRunTarget(JOURNEY);
     const fixture = loadRwtFixture(fixtureKey);
+    // Comparable repeat candidate, not eligibility proof: full fixture 129 words/61.21 s loop;
+    // partial fixture only 60 words/37.01 s loop, so it needs a second loop (42 s is insufficient).
+    // Adds 35/53 s within unchanged 2100/1500 s case budgets; live completion/cleanup reserve remains unproven.
+    // Stored eligibility and the numeric adapter still decide PASS/FAIL/HOLD, never the timer.
+    const saveTakeMs = fixtureKey === 'focus_points_partial_tts' ? 60_000 : 42_000;
     const topic = fixture.entry.topic ?? '';
     const points = fixture.entry.points ?? [];
     const expectedFinal = fixture.entry.expectedFinal ?? [];
@@ -842,7 +847,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             })();
             let again: Awaited<ReturnType<typeof practiceAgainEvidence>>;
             try {
-                again = await practiceAgainEvidence(page, `${suite}-again`, persistedId, 'focus_points', points, () => { saveTakeEnd = tap.events.length; targetWatch = false; });
+                again = await practiceAgainEvidence(page, `${suite}-again`, persistedId, 'focus_points', points, () => { saveTakeEnd = tap.events.length; targetWatch = false; }, { saveTakeMs });
             } finally {
                 targetWatch = false;
                 await targetWatcher;
@@ -1012,7 +1017,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 await progressPanelTab?.close().catch(() => undefined);
                 progressPanelTab = null;
             }
-            numericComparisonRow(receipt, result, repeatEligibility);
+            numericComparisonRow(receipt, result, repeatEligibility, saveTakeMs);
         });
 
         // ── #1258 Focus-only: the product-switch take, then New Set / Edit from that take's completed review ──

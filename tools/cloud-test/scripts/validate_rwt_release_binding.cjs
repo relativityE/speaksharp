@@ -6,9 +6,10 @@
 const {spawnSync}=require('node:child_process'),{createHash}=require('node:crypto');
 // Exact diagnostic postimages; never a broad live-test exception.
 const TEST_PINS=Object.freeze({
+ 'tests/unit/rwtComparableSaveTake.test.ts':'9e3957b2bb0660002be6680a9cbd45cb9102f622edb0c44b15b93918f2da6e3c',
  // Reviewed #1811 v3 cleanup/watchdog and evidence-registry postimages.
  'scripts/lib/helperExecutionEvidence.mjs':'308866ee91665a4e867c745518bf2aac40be1c75a63bff565ffae4d7fa4d4723',
- 'scripts/lib/sourceContractEvidence.mjs':'f4bc5e4a464997522df18de40c09e4e7fac0c52f9e3138935a7c7a6bacc75585',
+ 'scripts/lib/sourceContractEvidence.mjs':'523d7b10fcecc10b20c601a8a9e49761f181e5eaf1e39868d01240a1b9d9a948',
  'tests/live/helpers/runOwnedCleanup.ts':'f52a848832000addbe93a164f57bccbfd0fbbf4185b9943bc4cf8c3e89f36211',
  'tests/live/helpers/rwtHarnessParity.ts':'c3715f6327955dd077596156e340072be554c7d160858a0a6bf321b0c8fdbd25',
  'tests/live/helpers/rwtWatchdog.ts':'fd360afaa23d2bf396765eb6622dbcefaffb38dacd289219ffad4f68d7a1f102',
@@ -33,7 +34,7 @@ const TEST_PINS=Object.freeze({
  'tests/live/helpers/feedbackDiagnosticRef.ts':'aeccd8dbd54dd5172da83f08b87d948f1d32028090e846c50f2e5eaf55be27fe',
  'tests/live/helpers/rwtAcceptance.ts':'76f1c3b92aa530ae40cc08ef426efded3a0088853d2efb7ee76fc3b286b76c5b',
  'tests/live/helpers/rwtAdverseJourney.ts':'3e22be61570789f3cee98d14fb94255b5715f6c7b7025c101a29995da920f11a',
- 'tests/live/helpers/rwtFocusPointsJourney.ts':'16dec9bb1e2f4b87aa9555a873e245080beeddecded051906f9396c14dd8eb52',
+ 'tests/live/helpers/rwtFocusPointsJourney.ts':'732595327656a68361d9f35145d8b92509ac9470150b4a9f4097f5da5e91ff35',
  'tests/live/helpers/rwtPendingStartRecovery.ts':'41ad72641a30753e8a173ff79390b33305d25d8c7b1eafed7a57bd2d010118c5',
  'tests/live/helpers/rwtSaveRetryAttempts.ts':'cfa37a628a18e1c4347bb40eed73b33b303245a6930efaca0aeb24ee39ec0be2',
  'tests/live/helpers/rwtLeaveDestinationReady.ts':'5df6c2b0533098c9a9c019b2d491783b060be2cc6d5f52614d4a8053092542db',
@@ -74,7 +75,7 @@ const TEST_PINS=Object.freeze({
  'tests/unit/rwtFocusSameTarget.test.ts':'6416b44baf04692ea1c328deeca902fc90483c18458e631efee5a67cdeddee2d',
  'tests/unit/feedbackNoSessionCleanup.test.ts':'7643a2506eadd22f7ee40efa468497123b845bd1afdad2506454d67755506223',
  'tests/live/helpers/rwtFocusSaveIsolation.ts':'08b562963051141d88bec185682bf89aaf8d829e65e124c1f089629dc1063dca',
- 'tests/unit/rwtFocusSaveIsolation.test.ts':'8022f31ab901579e2fe4631737b143b75438701e889654fb8f5027875efda40b',
+ 'tests/unit/rwtFocusSaveIsolation.test.ts':'60e59c932e09a8b61d5dca85e21c9f13eadeabab2012b21806da1368de2d6367',
 });
 // These two non-product inputs are part of this diagnostic integration itself.
 // Pin their exact reviewed postimages rather than treating every workflow or

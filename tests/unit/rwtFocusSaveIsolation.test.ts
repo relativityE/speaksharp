@@ -150,7 +150,7 @@ describe('Focus journey wiring', () => {
         expect(step).toContain("draft-adapters/progress-numeric.cjs");
         expect(step).toMatch(/expectedAttemptId: boundAttemptId/);
         expect(step).toMatch(/page: panelPage, db: admin, sourceSessionId: persistedId, repeatSessionId/);
-        expect(step).toMatch(/numericComparisonRow\(receipt, result, repeatEligibility\)/);
+        expect(step).toMatch(/numericComparisonRow\(receipt, result, repeatEligibility, saveTakeMs\)/);
         expect(step).toMatch(/finally \{\s*await progressPanelTab\?\.close\(\)/);
         expect(step).not.toMatch(/goto\(/);
         expect(at("test.step('saved and displayed comparison numbers match'")).toBeGreaterThan(at("test.step('the repeat result names the measured metric'"));
