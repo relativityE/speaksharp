@@ -18,6 +18,8 @@ on:
       - 'scripts/retirement-migration-postflight.mjs'
       - 'scripts/t2-migration-postflight.mjs'
       - 'scripts/lib/exactMigrationGate.mjs'
+      - 'tests/db/recording-start-abandonment-realpg.mjs'
+      - 'tests/db/recording-start-abandonment.integration.test.ts'
       - 'tests/db/account-closure-concurrency-realpg.mjs'
       - 'tests/db/account-closure-attestation-realpg.mjs'
       - 'tests/db/account-closure-tokens.integration.test.ts'
@@ -110,6 +112,8 @@ jobs:
           node tests/db/account-coaching-fence.realpg.mjs
           # Separate native retirement fixture proof; historical replay below stops at 129.
           node tests/db/account-coaching-local-fence.realpg.mjs
+          # Separate missing-Start fixture proof, not an extension of either historical catalog.
+          node tests/db/recording-start-abandonment-realpg.mjs
       - name: Replay actual baseline and closure migration; prove invariants
         run: node tests/db/account-closure-full-chain.mjs --profile=${{ matrix.profile }}
       - name: Recover owned disposable resources after interruption
@@ -124,5 +128,6 @@ jobs:
             artifacts/account-closure-full-chain/*.json
             artifacts/account-coaching-fence/*.json
             artifacts/account-coaching-local-fence/receipts.json
+            artifacts/recording-start-abandonment/receipts.json
           if-no-files-found: error
           retention-days: 1
