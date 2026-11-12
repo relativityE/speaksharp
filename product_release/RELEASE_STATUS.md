@@ -24,6 +24,7 @@ not a waiver of the guard.
 |---|---|---|
 | Repository `main` reconciled source baseline (12 November 2026) | `b9907d625e6d5b9810050f556d62904baa62982c` | Exact source through #1830, read from GitHub. Source ancestry does not establish deployment or acceptance. Re-read moving main before operational action. |
 | Repository `main` reconciled source baseline (dated 5 November 2026) | `8f9f9451bb6bf37ba2bca524acd92d933e2b826c` | History: exact source through #1785. |
+| Production served frontend `__APP_RELEASE__ =` (observed 12 November 2026) | `d401349bca036be1f5413fa50faba536fba3ed51` | Read directly from Production on 2026-11-12 after Edge release run 43157953329 and frontend release run 43158275628 (both success). A served marker, not end-to-end acceptance. Unrelated to R5, which ran on `4c85b006` (28 October receipt below). |
 
 ### Merged source in the reconciled interval
 
@@ -107,8 +108,7 @@ older current-tense deployment and queue statements below. GitHub source was rea
 |---|---|---|
 | Repository `main` currency-comparison baseline (fixed) | `4c85b006ac05e180521fd6e7d807f736987cafe8` | Matches the currency block below; a fixed comparison base, not an assertion that the moving branch still points here. |
 | Latest observed GitHub main during receiving | `8a79eafa23bd3beeee6d087270acd9ed5a16eb1e` | Source-only #1752 landing; no product deployment or customer acceptance inferred. Re-read before the next operational action. |
-| Latest retained frontend `__APP_RELEASE__ =` | `d401349bca036be1f5413fa50faba536fba3ed51` | Read directly from Production on 2026-11-12 after Edge release run 43157953329 and frontend release run 43158275628 (both success). A served marker, not end-to-end acceptance. Older deployed rows remain dated history. |
-| Earlier retained frontend release (dated) | `4c85b006ac05e180521fd6e7d807f736987cafe8` | History: Sam's frontend release/readback receipt below. |
+| R5 served frontend release (28 October receipt; R5 ran on this) | `4c85b006ac05e180521fd6e7d807f736987cafe8` | Sam's frontend release/readback receipt below, before R5; no fresh Production read by this documentation task. Later observations (12 November `d401349b`) are recorded separately above and do not change this R5 binding. |
 
 Sam's release handoff reports frontend and backend on that source, from backend
 [40674315502](https://github.com/relativityE/speaksharp/actions/runs/40674315502) and frontend
@@ -120,7 +120,7 @@ not a new production read or proof of account completion by this documentation t
 ### R5 results and reviewed interpretation
 
 The Library `R5-REPORT.html` and `R5-SUMMARY.txt` retain the original results on the
-served baseline above. Their denominators must not be added together:
+R5 served baseline `4c85b006ac05e180521fd6e7d807f736987cafe8` (the 28 October receipt above, not the 12 November observation). Their denominators must not be added together:
 
 | Inventory | PASS | FAIL | NOT RUN | Total |
 |---|---:|---:|---:|---:|
