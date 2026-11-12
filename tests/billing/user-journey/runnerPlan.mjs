@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
+import { TextDecoder } from 'node:util';
 import { parse } from 'yaml';
 import { PENDING_POLICY, POLICY_PENDING_STEPS, REQUIRED_STEPS } from './journeySteps.mjs';
 import { PENDING, destructionDefects, journeyReceiptDefects } from './localStackReceipt.mjs';
@@ -172,6 +173,14 @@ const COMBINED_KEYS = ['billingRowResidue', 'defects', 'journey', 'journeyReceip
   'schema', 'stackDestroyed', 'stackIdentitySha256', 'stackRun', 'stackStopped', 'stripeFixturesRemoved'].join(',');
 const SHA = /^[0-9a-f]{40}$/;
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+/** The raw receipt as handed over: the file's text, or better its exact bytes (readFileSync without an encoding). */
+const isRawBytes = (value) => typeof value === 'string' || value instanceof Uint8Array;
+const parseRaw = (value) => {
+  try {
+    const text = typeof value === 'string' ? value : new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(value);
+    return JSON.parse(text);
+  } catch { return undefined; }
+};
 const sameList = (a, b) => Array.isArray(a) && a.length === b.length && a.every((value, i) => value === b[i]);
 
 /**
@@ -190,7 +199,7 @@ export const EXTERNAL_REQUIRED_STEPS = Object.freeze({});
  * and why it is not PASSED.
  */
 function localPhaseResult(id, held, item, release) {
-  if (!isObject(item) || !isObject(item.combined) || typeof item.rawReceipt !== 'string') return { result: 'NOT_PROVEN', why: ['evidence_missing'] };
+  if (!isObject(item) || !isObject(item.combined) || !isRawBytes(item.rawReceipt)) return { result: 'NOT_PROVEN', why: ['evidence_missing'] };
   const { combined, rawReceipt, destruction, identity } = item;
   const why = [];
   if (Object.keys(combined).sort().join(',') !== COMBINED_KEYS) why.push('combined_shape');
@@ -203,9 +212,14 @@ function localPhaseResult(id, held, item, release) {
   if (combined.billingRowResidue !== 'NOT_READ_DATABASE_DESTROYED') why.push('combined_residue');
   why.push(...destructionDefects(destruction, combined.stackRun, identity));
   if (typeof combined.stackIdentitySha256 !== 'string' || combined.stackIdentitySha256 !== destruction?.identitySha256) why.push('combined_identity');
-  let raw = null;
-  try { raw = JSON.parse(rawReceipt); } catch { why.push('raw_receipt_unreadable'); }
-  const journey = raw === null ? ['raw_receipt_unreadable'] : journeyReceiptDefects(raw, { journey: id, release, stackRun: combined.stackRun });
+  // The workflow writes the receipt file as a JSON array of the spec's receipt attachments (jq '[...]'), and the
+  // combined receipt hashes that file's exact bytes (Sam's ac08d973 review). So the bytes hashed here are the
+  // array's, the array must hold exactly one receipt, and that one element is what gets validated.
+  const raw = parseRaw(rawReceipt);
+  const journey = raw === undefined ? ['raw_receipt_unreadable']
+    : !Array.isArray(raw) ? ['raw_receipt_not_workflow_array']
+      : raw.length !== 1 ? ['raw_receipt_count']
+        : journeyReceiptDefects(raw[0], { journey: id, release, stackRun: combined.stackRun });
   // A held phase's only allowed defect is the held policy, in the raw receipt and the combined one alike.
   const allowed = held ? ['policy_pending'] : [];
   if (!sameList(journey, allowed)) why.push(...journey.filter(defect => !allowed.includes(defect)), ...(held && !journey.includes('policy_pending') ? ['held_steps_not_pending'] : []));
@@ -219,7 +233,7 @@ function localPhaseResult(id, held, item, release) {
 function externalPhaseResult(id, item, release) {
   const steps = EXTERNAL_REQUIRED_STEPS[id];
   if (!Array.isArray(steps) || steps.length === 0) return { result: 'NOT_PROVEN', why: ['external_contract_undefined'] };
-  const receipt = isObject(item) && typeof item.rawReceipt === 'string' ? (() => { try { return JSON.parse(item.rawReceipt); } catch { return null; } })() : null;
+  const receipt = isObject(item) && isRawBytes(item.rawReceipt) ? parseRaw(item.rawReceipt) ?? null : null;
   const why = [];
   if (!isObject(receipt)) return { result: 'NOT_PROVEN', why: ['evidence_missing'] };
   if (receipt.schema !== 'billing-user-journey/v1' || receipt.journey !== id) why.push('receipt_schema');
@@ -234,7 +248,8 @@ function externalPhaseResult(id, item, release) {
 
 /**
  * One mode's result from its phases' evidence. Each entry is { phase, combined?, rawReceipt, destruction?, identity? }:
- * for a local-stack phase the combined receipt, the raw journey receipt text, the destruction proof and the
+ * for a local-stack phase the combined receipt, the raw receipt file exactly as the workflow wrote it (a JSON array
+ * holding the one journey receipt, as text or, better, as its bytes), the destruction proof and the
  * captured stack identity; for an
  * external phase the raw hosted receipt text. Every phase is re-validated for this release (`expected.release`)
  * on its own stack. PASSED only when every phase of the mode has exactly one entry and each re-validates. A phase

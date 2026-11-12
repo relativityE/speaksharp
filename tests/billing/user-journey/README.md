@@ -216,8 +216,11 @@ What each branch must prove before it may say so (Sam's fa7e7180 return):
 - `no_second_charge` needs a complete invoice read for this customer and subscription that holds the original paid
   invoice. An empty or partial list proves nothing.
 - `refund_period_end` records first, so `account_retained` always checks a saved recording as well as the account.
-- `finaliseModeReceipt(mode, entries, { release })` takes each phase's combined receipt, the raw journey receipt text
-  and the destruction proof, re-hashes the raw receipt and re-checks its steps, release, stack and cleanup. A bare or
+- `finaliseModeReceipt(mode, entries, { release })` takes each phase's combined receipt, the raw receipt file
+  (`billing-local-stack-receipt.json`, exactly as the workflow's jq step wrote it: a JSON array of the spec's receipt
+  attachments, best passed as its bytes) and the destruction proof. It re-hashes those bytes, requires the array to
+  hold exactly one receipt, and re-checks that receipt's steps, release, stack and cleanup (Sam's ac08d973 review).
+  A test runs the workflow's own jq extraction and the combined finaliser's CLI and hands the files to it. A bare or
   summary-only `PASSED` is `NOT_PROVEN`. Two phases on one stack are `NOT_PROVEN`. The paid loop stays `NOT_PROVEN`
   until #1822 commits its step list in `EXTERNAL_REQUIRED_STEPS`, so full mode cannot pass before then.
 - The stack-identity list captured right after `supabase start` is kept as `billing-local-stack-identity.json` and

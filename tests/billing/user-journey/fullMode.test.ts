@@ -2,13 +2,16 @@
 // fetch is replaced by a trap for the whole file, and every check reads committed source or pure functions.
 import { strict as assert } from 'node:assert';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterAll, beforeAll, test } from 'vitest';
 import { parse } from 'yaml';
 import { selectRunnerJourneys, receipt, isRefundCancellation, assertFullRefund, assertCheckoutGrantedNothing,
   checkoutSessionFromUrl, assertCheckoutIdentity, newlyAddedCard, assertNoSecondCharge,
   BILLING_JOURNEYS, FULL_MODE_JOURNEYS, RUNNER_JOURNEYS, REQUIRED_STEPS, POLICY_PENDING_STEPS, PENDING_POLICY } from './contract';
-import { finaliseLocalStackReceipt } from './localStackReceipt.mjs';
+import { finaliseLocalStackReceipt, journeyReceiptDefects } from './localStackReceipt.mjs';
 import { stackIdentitySha256 } from './localStackResources.mjs';
 import { MODES, PHASES, PREREQUISITES, STRIPE_WRITE_ALLOWLIST, planRun, finaliseModeReceipt, readRepoFile, EXTERNAL_REQUIRED_STEPS } from './runnerPlan.mjs';
 
@@ -377,10 +380,11 @@ test('every Stripe write in the runner is on the allowlist, and every phase\'s w
 /** What a real run hands the mode finaliser for one local phase: combined receipt, raw receipt, destruction proof, identity. */
 const evidenceFor = (journey: keyof typeof REQUIRED_STEPS, stack = 1, rawOverride: Record<string, unknown> = {}) => {
   const stackRun = `billing-local-stack-123456-${stack}`;
-  const rawReceipt = JSON.stringify({ ...pendingFor(journey), stackRun, ...rawOverride });
+  // As the workflow writes it: jq's array of the spec's receipt attachments, holding exactly one.
+  const rawReceipt = `${JSON.stringify([{ ...pendingFor(journey), stackRun, ...rawOverride }], null, 2)}\n`;
   const proof = destroyedFor(stackRun);
   const identity = identityFor(stackRun);
-  const combined = finaliseLocalStackReceipt([JSON.parse(rawReceipt)], checks, { journey, release: RELEASE, stackRun,
+  const combined = finaliseLocalStackReceipt(JSON.parse(rawReceipt), checks, { journey, release: RELEASE, stackRun,
     receiptSha256: createHash('sha256').update(rawReceipt).digest('hex'), destruction: proof, identity });
   return { phase: journey, combined, rawReceipt, destruction: proof, identity };
 };
@@ -402,6 +406,86 @@ test('mode result: each phase is re-validated from its evidence; held phases are
   assert.deepEqual(byPhase.paid_value_loop.why, ['external_contract_undefined']);
   assert.equal(full.result, 'NOT_PROVEN');
   assert.equal(finaliseModeReceipt('smoke', [evidenceFor('conversion')], { release: RELEASE }).result, 'PASSED');
+});
+
+test('mode result reads the raw receipt as the workflow writes it: one receipt inside a JSON array, hashed as bytes', () => {
+  const smoke = (entry: unknown) => finaliseModeReceipt('smoke', [entry], { release: RELEASE });
+  const good = evidenceFor('conversion');
+  assert.ok(good.rawReceipt.startsWith('[\n'), 'the fixture is the workflow array');
+  assert.equal(smoke(good).result, 'PASSED');
+  assert.equal(smoke({ ...good, rawReceipt: Buffer.from(good.rawReceipt) }).result, 'PASSED', 'the file bytes as read');
+  // Each shape is hashed into its own combined receipt, so only the shape can fail it.
+  const withRaw = (text: string) => ({ ...good, rawReceipt: text,
+    combined: { ...good.combined, rawReceiptSha256: createHash('sha256').update(text).digest('hex') } });
+  const element = JSON.parse(good.rawReceipt)[0];
+  const shapes: [string, string, string][] = [
+    ['the bare receipt object, not the workflow array', JSON.stringify(element), 'raw_receipt_not_workflow_array'],
+    ['an empty array (no receipt attached)', '[]', 'raw_receipt_count'],
+    ['two receipts (a retried test attaches twice)', JSON.stringify([element, element]), 'raw_receipt_count'],
+    ['the workflow placeholder when no receipt was written', 'null', 'raw_receipt_not_workflow_array'],
+  ];
+  for (const [name, text, defect] of shapes) {
+    const result = smoke(withRaw(text));
+    assert.equal(result.result, 'NOT_PROVEN', name);
+    assert.deepEqual(result.phases[0].why, [defect], name);
+  }
+});
+
+test('workflow artifacts to mode result: the files a run uploads re-validate to PASSED, end to end, offline', () => {
+  // Sam's ac08d973 review reproduced a valid combined receipt becoming NOT_PROVEN (receipt_not_an_object) once the
+  // mode finaliser read the real artifact. This runs the workflow's own jq extraction and the combined
+  // finaliser's CLI on a Playwright report shaped like a real run, then hands the files to the mode finaliser.
+  // No Docker, no Stripe, no network: jq and node only, in a temporary directory.
+  const workflow = readFileSync(WORKFLOW, 'utf8');
+  const extract = workflow.match(/jq '([^']+)' \\\n\s+"\$report" > billing-local-stack-receipt\.json/);
+  assert.ok(extract, 'the workflow extracts the receipt with jq into billing-local-stack-receipt.json');
+  assert.match(workflow, /--receipt billing-local-stack-receipt\.json --destruction billing-local-stack-destroyed\.json \\\n\s+--identity billing-local-stack-identity\.json/);
+  const dir = mkdtempSync(join(tmpdir(), 'billing-mode-artifacts-'));
+  const run = (attachments: number) => {
+    const receiptBody = Buffer.from(JSON.stringify(pendingFor('conversion'))).toString('base64');
+    const attachment = { name: 'billing-user-journey.json', contentType: 'application/json', body: receiptBody };
+    const report = { suites: [{ title: 'journey.billing.spec.ts', specs: [{ title: 'billing conversion: x', tests: [{ results: [
+      { attachments: [...Array.from({ length: attachments }, () => attachment), { name: 'trace', contentType: 'application/zip', path: 'trace.zip' }] },
+    ] }] }] }] };
+    const file = (name: string) => join(dir, name);
+    writeFileSync(file('playwright-report.json'), JSON.stringify(report));
+    const jq = spawnSync('jq', [extract![1], file('playwright-report.json')], { encoding: 'utf8' });
+    assert.equal(jq.status, 0, jq.stderr);
+    writeFileSync(file('billing-local-stack-receipt.json'), jq.stdout);
+    writeFileSync(file('billing-local-stack-identity.json'), JSON.stringify(identityFor(STACK_RUN)));
+    writeFileSync(file('billing-local-stack-destroyed.json'), JSON.stringify(destroyedFor(STACK_RUN)));
+    const cli = spawnSync(process.execPath, ['tests/billing/user-journey/localStackReceipt.mjs',
+      '--receipt', file('billing-local-stack-receipt.json'), '--destruction', file('billing-local-stack-destroyed.json'),
+      '--identity', file('billing-local-stack-identity.json'), '--journey', 'conversion', '--release', RELEASE, '--run', STACK_RUN,
+      '--stack-stopped', 'success', '--stack-destroyed', 'success', '--stripe-clean', 'success'], { encoding: 'utf8', env: {} });
+    const combined = JSON.parse(cli.stdout);
+    const bytes = readFileSync(file('billing-local-stack-receipt.json'));
+    const entry = { phase: 'conversion', combined, rawReceipt: bytes,
+      destruction: JSON.parse(readFileSync(file('billing-local-stack-destroyed.json'), 'utf8')),
+      identity: JSON.parse(readFileSync(file('billing-local-stack-identity.json'), 'utf8')) };
+    return { cli, combined, bytes, entry };
+  };
+  try {
+    const one = run(1);
+    assert.equal(one.cli.status, 0, one.cli.stdout);
+    assert.equal(one.combined.result, 'PASSED');
+    assert.equal(one.combined.rawReceiptSha256, createHash('sha256').update(one.bytes).digest('hex'), 'the combined receipt binds the array bytes');
+    // The defect Sam reproduced: the artifact is an array, so reading it as one receipt object fails.
+    assert.deepEqual(journeyReceiptDefects(JSON.parse(one.bytes.toString('utf8')), { journey: 'conversion', release: RELEASE, stackRun: STACK_RUN }), ['receipt_not_an_object']);
+    assert.equal(finaliseModeReceipt('smoke', [one.entry], { release: RELEASE }).result, 'PASSED');
+    assert.equal(finaliseModeReceipt('smoke', [{ ...one.entry, rawReceipt: one.bytes.toString('utf8') }], { release: RELEASE }).result, 'PASSED');
+    const edited = Buffer.concat([one.bytes, Buffer.from(' ')]);
+    assert.deepEqual(finaliseModeReceipt('smoke', [{ ...one.entry, rawReceipt: edited }], { release: RELEASE }).phases[0].why, ['raw_receipt_hash']);
+    // A receipt attached twice is refused by both finalisers.
+    const two = run(2);
+    assert.equal(two.combined.result, 'NOT_PROVEN');
+    assert.ok(two.combined.defects.includes('receipt_count'), two.combined.defects.join(','));
+    const twice = finaliseModeReceipt('smoke', [two.entry], { release: RELEASE });
+    assert.equal(twice.result, 'NOT_PROVEN');
+    assert.ok(twice.phases[0].why.includes('raw_receipt_count'), twice.phases[0].why.join(','));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('mode result negative controls: a bare or summary-only PASSED, or evidence from another run, never passes', () => {
@@ -430,6 +514,7 @@ test('mode result negative controls: a bare or summary-only PASSED, or evidence 
     ['identity list edited after the run', { ...good, identity: { ...good.identity, containers: ['c_db'] } }, 'destruction_identity_mismatch'],
     ['combined summary naming another list', { ...good, combined: { ...good.combined, stackIdentitySha256: 'c'.repeat(64) } }, 'combined_identity'],
     ['raw receipt unreadable', { ...good, rawReceipt: 'not json' }, 'raw_receipt_unreadable'],
+    ['raw receipt bytes not UTF-8', { ...good, rawReceipt: Uint8Array.from([0x5b, 0xff, 0x5d]) }, 'raw_receipt_unreadable'],
   ];
   for (const [name, entry, expected] of cases) {
     const result = smoke([entry]);
@@ -442,7 +527,7 @@ test('mode result negative controls: a bare or summary-only PASSED, or evidence 
   const local = RUNNER_JOURNEYS.map((journey, i) => evidenceFor(journey, i + 1));
   const full = (entries: unknown) => finaliseModeReceipt('full', entries, { release: RELEASE });
   const held = local.find(item => item.phase === 'portal_expiry')!;
-  const asserted = JSON.parse(held.rawReceipt);
+  const asserted = JSON.parse(held.rawReceipt)[0];
   asserted.result = 'PENDING_STACK_DESTRUCTION';
   asserted.steps = asserted.steps.map((row: { step: string; result: string }) => ({ ...row, result: 'PASSED' }));
   const fullCases: [string, unknown][] = [
