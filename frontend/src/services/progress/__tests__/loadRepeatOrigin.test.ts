@@ -10,6 +10,9 @@ let tables: Record<string, Row[]> = {};
 let errors: Record<string, unknown> = {};
 /** Serve every row of a table, ignoring the filters (a wider read than RLS + filters allow). */
 let ignoreFilters: Record<string, boolean> = {};
+/** Simulate a database the D2 migration has not reached: selecting `practised_tip` fails as PostgREST does. */
+let tipColumnMissing = false;
+const selects: string[] = [];
 
 function query(table: string) {
     const filters: Array<{ column: string; value: unknown; op: 'eq' | 'in' }> = [];
@@ -17,7 +20,16 @@ function query(table: string) {
         ? (filter.value as unknown[]).includes(row[filter.column])
         : row[filter.column] === filter.value));
     const chain: Record<string, unknown> = {};
-    chain.select = () => chain;
+    let columnError: unknown = null;
+    chain.select = (fields?: string) => {
+        if (table === 'progress_recommendation_attempts' && typeof fields === 'string') {
+            selects.push(fields);
+            if (tipColumnMissing && fields.includes('practised_tip')) {
+                columnError = { code: '42703', message: 'column progress_recommendation_attempts.practised_tip does not exist' };
+            }
+        }
+        return chain;
+    };
     chain.eq = (column: string, value: unknown) => { filters.push({ column, value, op: 'eq' }); return chain; };
     chain.in = (column: string, value: unknown[]) => { filters.push({ column, value, op: 'in' }); return chain; };
     // Used only by `loadSessionProgress` (parity tests): ordering and the cross-cohort history probe are not modelled.
@@ -30,7 +42,10 @@ function query(table: string) {
         const found = rows();
         return found.length > 1 ? { data: null, error: { code: 'PGRST116' } } : { data: found[0] ?? null, error: null };
     };
-    chain.then = (resolve: (value: unknown) => void) => resolve(errors[table] ? { data: null, error: errors[table] } : { data: rows(), error: null });
+    chain.then = (resolve: (value: unknown) => void) => {
+        const error = columnError ?? errors[table];
+        return resolve(error ? { data: null, error } : { data: rows(), error: null });
+    };
     return chain;
 }
 const from = vi.fn((table: string) => query(table));
@@ -51,7 +66,7 @@ const attempt = (over: Row = {}): Row => ({
 });
 
 beforeEach(() => {
-    errors = {}; ignoreFilters = {}; from.mockClear();
+    errors = {}; ignoreFilters = {}; tipColumnMissing = false; selects.length = 0; from.mockClear();
     tables = {
         progress_recommendation_attempts: [attempt()],
         progress_recommendations: [{
@@ -79,6 +94,7 @@ describe('outcome 4 loadRepeatOrigin', () => {
             target: { metric: 'filler_rate', direction: 'decrease', targetValue: 2, units: 'percent of words' },
             lifecycle: 'completed', outcome: 'moved',
             repeatResult: { status: 'available', metric: 'filler_rate', direction: 'decrease', units: 'percent of words', before: (4 / 245) * 100, after: 0.8 },
+            tip: { status: 'not_saved' },
         });
     });
 
@@ -247,3 +263,42 @@ function beforeEachReset(): void {
     tables.progress_recommendations[0].source_metric_value = (4 / 245) * 100;
     tables.session_progress_evaluations = [ev('A'), ev('B', { filler_count: 2, word_count: 250 }), ev('C', { filler_count: 0, word_count: 300 })];
 }
+
+describe('outcome 4 D2: the tip the repeat practised', () => {
+    it('reads the server-snapshotted tip from the attempt, trimmed, beside the stored result', async () => {
+        tables.progress_recommendation_attempts = [attempt({ practised_tip: '  Pause instead of saying um.  ' })];
+        const view = await loadRepeatOrigin('B', USER);
+        expect(view).toMatchObject({ status: 'repeat', tip: { status: 'saved', text: 'Pause instead of saying um.' } });
+        expect(selects[0]).toContain('practised_tip');
+        // The tip changes nothing measured.
+        expect(view).toMatchObject({ outcome: 'moved', repeatResult: { status: 'available', after: 0.8 } });
+    });
+
+    it('a not-comparable repeat still shows the tip it practised', async () => {
+        tables.progress_recommendation_attempts = [attempt({
+            lifecycle: 'not_comparable', outcome: 'not_comparable', next_comparable_session_id: null, practised_tip: 'Slow down.',
+        })];
+        expect(await loadRepeatOrigin('B', USER)).toMatchObject({ lifecycle: 'not_comparable', tip: { status: 'saved', text: 'Slow down.' } });
+    });
+
+    it('no tip, a blank, a non-string or an over-long value is "not saved", never shown', async () => {
+        for (const practised_tip of [null, undefined, '', '   ', 42, { text: 'x' }, 'x'.repeat(4001)]) {
+            tables.progress_recommendation_attempts = [attempt({ practised_tip })];
+            expect(await loadRepeatOrigin('B', USER)).toMatchObject({ status: 'repeat', tip: { status: 'not_saved' } });
+        }
+    });
+
+    it('before the migration: the missing column falls back to the old read and says nothing about a tip', async () => {
+        tipColumnMissing = true;
+        const view = await loadRepeatOrigin('B', USER);
+        expect(view).toMatchObject({ status: 'repeat', originalSessionId: 'A', outcome: 'moved', tip: { status: 'unavailable' } });
+        expect(selects).toHaveLength(2);
+        expect(selects[1]).not.toContain('practised_tip');
+    });
+
+    it('any other attempt read error is still an error, not a fallback', async () => {
+        errors.progress_recommendation_attempts = { code: '42703', message: 'column foo does not exist' };
+        expect(await loadRepeatOrigin('B', USER)).toEqual({ status: 'error', sessionId: 'B' });
+        expect(selects).toHaveLength(1);
+    });
+});

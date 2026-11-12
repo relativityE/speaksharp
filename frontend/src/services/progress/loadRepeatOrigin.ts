@@ -36,7 +36,19 @@ export type RepeatOriginView =
         outcome: ProgressAttemptView['outcome'];
         /** Present only for a `completed` attempt. */
         repeatResult: RepeatResultView | null;
+        /** The original's coaching tip as it stood when Practice again was pressed (outcome 4 D2). Never measured. */
+        tip: PractisedTipView;
     };
+
+/**
+ * `saved`: the server snapshotted the tip onto the attempt. `not_saved`: the attempt carries none (no valid review,
+ * recorded before the snapshot existed, or cleared by retention). `unavailable`: this database has no snapshot column
+ * yet, so nothing is said about a tip.
+ */
+export type PractisedTipView =
+    | { status: 'saved'; text: string }
+    | { status: 'not_saved' }
+    | { status: 'unavailable' };
 
 interface OriginAttemptRow {
     id: string;
@@ -46,6 +58,7 @@ interface OriginAttemptRow {
     outcome: ProgressAttemptView['outcome'];
     practice_session_id: string | null;
     next_comparable_session_id: string | null;
+    practised_tip?: unknown;
 }
 
 interface OriginRecommendationRow {
@@ -75,6 +88,9 @@ interface OriginEvalRow {
 const EVAL_FIELDS = 'session_id, eligible, clarity_raw, filler_count, error_marker_count, wpm, word_count, cohort_key';
 const RECOMMENDATION_FIELDS = 'id, user_id, source_session_id, target_metric, target_direction, target_value, target_units, shown_text, source_metric_value';
 
+const ATTEMPT_FIELDS = 'id, user_id, recommendation_id, lifecycle, outcome, practice_session_id, next_comparable_session_id';
+/** Mirrors the server's `prec_att_practised_tip_shape` bound. */
+const MAX_TIP_CHARS = 4000;
 const RESOLVED_LIFECYCLES = ['completed', 'not_comparable'] as const;
 const METRICS: ReadonlyArray<StructuredTarget['metric']> = ['filler_rate', 'pace', 'clear_delivery'];
 const DIRECTIONS: ReadonlyArray<StructuredTarget['direction']> = ['decrease', 'increase', 'maintain'];
@@ -86,15 +102,22 @@ export async function loadRepeatOrigin(sessionId: string, userId: string): Promi
     if (!sessionId || !userId) return none;
     const supabase = getSupabaseClient();
 
-    const { data: attemptData, error: attemptError } = await supabase
+    const readAttempts = (fields: string) => supabase
         .from('progress_recommendation_attempts')
-        .select('id, user_id, recommendation_id, lifecycle, outcome, practice_session_id, next_comparable_session_id')
+        .select(fields)
         .eq('practice_session_id', sessionId)
         .eq('user_id', userId)
         .in('lifecycle', [...RESOLVED_LIFECYCLES]);
+    // Until the D2 migration is applied the column does not exist; read without it rather than failing the block.
+    let tipColumn = true;
+    let { data: attemptData, error: attemptError } = await readAttempts(`${ATTEMPT_FIELDS}, practised_tip`);
+    if (attemptError && isMissingTipColumn(attemptError)) {
+        tipColumn = false;
+        ({ data: attemptData, error: attemptError } = await readAttempts(ATTEMPT_FIELDS));
+    }
     if (attemptError || !Array.isArray(attemptData)) return failed;
     // RLS already limits reads to the owner; the row checks repeat every filter so a wider read can never match.
-    const attempts = (attemptData as OriginAttemptRow[]).filter((row) => row.user_id === userId
+    const attempts = (attemptData as unknown as OriginAttemptRow[]).filter((row) => row.user_id === userId
         && row.practice_session_id === sessionId
         && (RESOLVED_LIFECYCLES as readonly string[]).includes(row.lifecycle));
     // One take resolves one attempt. Two attempts naming the same take cannot say which original it repeated.
@@ -144,10 +167,22 @@ export async function loadRepeatOrigin(sessionId: string, userId: string): Promi
     const base = {
         status: 'repeat' as const, sessionId, originalSessionId, originalCreatedAt, target,
         outcome: attempt.outcome,
+        tip: tipColumn ? practisedTip(attempt.practised_tip) : { status: 'unavailable' as const },
     };
     if (attempt.lifecycle === 'not_comparable') return { ...base, lifecycle: 'not_comparable', repeatResult: null };
 
     return { ...base, lifecycle: 'completed', repeatResult: await completedRepeatResult(supabase, sessionId, originalSessionId, recommendation, attempt) };
+}
+
+function isMissingTipColumn(error: unknown): boolean {
+    const { code, message } = (error ?? {}) as { code?: unknown; message?: unknown };
+    return (code === '42703' || code === 'PGRST204') && typeof message === 'string' && message.includes('practised_tip');
+}
+
+function practisedTip(value: unknown): PractisedTipView {
+    if (typeof value !== 'string') return { status: 'not_saved' };
+    const text = value.trim();
+    return text.length > 0 && text.length <= MAX_TIP_CHARS ? { status: 'saved', text } : { status: 'not_saved' };
 }
 
 /** The server's derivation of a session's value for the recommendation metric (`advance_recommendation_attempt`). */

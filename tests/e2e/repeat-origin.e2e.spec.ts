@@ -53,7 +53,7 @@ async function settled(page: Page): Promise<void> {
 
 test.describe('outcome 4: the repeat shows what it repeated', () => {
   test('the repeat links to its original with the stored before → after, after reload, on a fresh browser and on return; the original shows the same target and result; a newer unrelated session shows none', async ({ page }) => {
-    await seed(page, { lifecycle: 'completed', outcome: 'moved', next_comparable_session_id: REPEAT_ID });
+    await seed(page, { lifecycle: 'completed', outcome: 'moved', next_comparable_session_id: REPEAT_ID, practised_tip: 'Pause instead of saying um.' });
     await navigateToRoute(page, `/progress/${REPEAT_ID}`);
     // A fresh browser: nothing here pressed Practice again, so no browser-local handoff exists. Everything below comes
     // from the stored attempt and recommendation, as it would on another device.
@@ -74,6 +74,7 @@ test.describe('outcome 4: the repeat shows what it repeated', () => {
         .toHaveText('Filler rate was lower on the repeat than in the original session.');
       await expect(page.getByTestId('repeat-origin-scope'))
         .toHaveText('This comparison measures delivery, not whether the coaching tip was followed.');
+      await expect(page.getByTestId('repeat-origin-tip')).toHaveText('Tip you practised: “Pause instead of saying um.”');
       await expect(block).not.toContainText(/improv|reached|caused|because of/i);
       await expect(page.getByTestId('repeat-origin-error')).toHaveCount(0);
     }

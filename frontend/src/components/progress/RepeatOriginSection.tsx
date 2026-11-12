@@ -59,6 +59,16 @@ export const RepeatOriginSection: React.FC<{ sessionId: string }> = ({ sessionId
                     {label ? `Repeat of your ${label} session` : 'Repeat of your earlier session'}
                 </Link>
             </p>
+            {view.tip.status === 'saved' && (
+                <p data-testid="repeat-origin-tip" className="text-sm text-foreground/80">
+                    Tip you practised: “{view.tip.text}”
+                </p>
+            )}
+            {view.tip.status === 'not_saved' && (
+                <p data-testid="repeat-origin-tip" className="text-sm text-foreground/70">
+                    No coaching tip was saved for this repeat.
+                </p>
+            )}
             {view.lifecycle === 'not_comparable' && (
                 <p data-testid="repeat-origin-outcome" className="text-sm text-foreground/80">
                     {reviewOwnedOutcome(view.target, view.lifecycle, view.outcome)}
