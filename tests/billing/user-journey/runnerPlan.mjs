@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
-import { TextDecoder } from 'node:util';
+import { TextDecoder, types } from 'node:util';
 import { parse } from 'yaml';
 import { PENDING_POLICY, POLICY_PENDING_STEPS, REQUIRED_STEPS } from './journeySteps.mjs';
 import { PENDING, destructionDefects, journeyReceiptDefects } from './localStackReceipt.mjs';
@@ -180,7 +180,7 @@ const COMBINED_KEYS = ['billingRowResidue', 'defects', 'journey', 'journeyReceip
 const SHA = /^[0-9a-f]{40}$/;
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 /** The raw receipt as handed over: the file's text, or better its exact bytes (readFileSync without an encoding). */
-const isRawBytes = (value) => typeof value === 'string' || value instanceof Uint8Array;
+const isRawBytes = (value) => typeof value === 'string' || types.isUint8Array(value);
 const parseRaw = (value) => {
   try {
     const text = typeof value === 'string' ? value : new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(value);

@@ -6,6 +6,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { runInNewContext } from 'node:vm';
 import { afterAll, beforeAll, test } from 'vitest';
 import { parse } from 'yaml';
 import { selectRunnerJourneys, receipt, isRefundCancellation, assertFullRefund, assertCheckoutGrantedNothing,
@@ -455,6 +456,12 @@ test('mode result reads the raw receipt as the workflow writes it: one receipt i
   assert.ok(good.rawReceipt.startsWith('[\n'), 'the fixture is the workflow array');
   assert.equal(smoke(good).result, 'PASSED');
   assert.equal(smoke({ ...good, rawReceipt: Buffer.from(good.rawReceipt) }).result, 'PASSED', 'the file bytes as read');
+  // Typed-array identity must survive a different VM/jsdom realm, without accepting lookalikes.
+  const foreignBytes = runInNewContext('new Uint8Array(bytes)', { bytes: [...Buffer.from(good.rawReceipt)] });
+  assert.equal(smoke({ ...good, rawReceipt: foreignBytes }).result, 'PASSED', 'genuine cross-realm bytes');
+  for (const impostor of [{ ...foreignBytes }, { [Symbol.toStringTag]: 'Uint8Array' }, new Uint16Array(2), new DataView(new ArrayBuffer(2))]) {
+    assert.equal(smoke({ ...good, rawReceipt: impostor }).result, 'NOT_PROVEN', 'not a genuine Uint8Array');
+  }
   // Each shape is hashed into its own combined receipt, so only the shape can fail it.
   const withRaw = (text: string) => ({ ...good, rawReceipt: text,
     combined: { ...good.combined, rawReceiptSha256: createHash('sha256').update(text).digest('hex') } });
