@@ -10,7 +10,7 @@ const TEST_PINS=Object.freeze({
  'tests/live/helpers/feedbackAttemptLedger.ts':'106f421cc75c5e793a613b7a89eb453392409dce14c4e8663275643b32a8b751',
  'tests/live/helpers/feedbackReportCleanup.ts':'c1c3cbe22affac9c6b0ca754d0d13626d63024ec1e4d61e880bb4cb70679b4af',
  'tests/live/helpers/feedbackRecoveryInventory.ts':'1327d8cf15867817ec5fcc5219942b53a7bd2e8e047141efba8312424a683679',
- 'tests/unit/feedbackBoundedWrites.test.ts':'ce0ce6b04323ad2a8f72f37e444955ae0ea7665d88a7ed829537fef48fe5658f',
+ 'tests/unit/feedbackBoundedWrites.test.ts':'e65f255bcb40320fbf93f1ace83fe64eb7fec0abf5cec17b3816bcacf9035404',
  'tests/unit/rwtSupplementalAcceptance1594.test.ts':'3d3c20a76c7c47bfaf52a56d458a5ff0052388e72e77f50a373721c0b7031685',
  'tests/live/helpers/rwtDocumentIdentity.ts':'25c00c2a7eccd00f0cd0fe2ab3705ba5730049d187c8902e2ddd638c681594f0',
  'tests/unit/rwtWatchdog1593.test.ts':'14fe0f998d9ef1f9b5c3bd7e8d26fc264c980687c7f7eeabf166efbd77fb2162',
@@ -19,12 +19,12 @@ const TEST_PINS=Object.freeze({
  'tests/live/helpers/feedbackDiagnosticRef.ts':'aeccd8dbd54dd5172da83f08b87d948f1d32028090e846c50f2e5eaf55be27fe',
  'tests/live/helpers/rwtAcceptance.ts':'20ab4e11d55b33caa8c0f233845e7e579ed3945e243a41e58707a077cb5ef0c1',
  'tests/live/helpers/rwtAdverseJourney.ts':'43b481b686f04ad4632fc5c05a503b012dc4ab1914201905b302c95492158e3a',
- 'tests/live/helpers/rwtFocusPointsJourney.ts':'3888d276270cb66cac17e6e0029868a8e75aba4585a56d9a53f51c32d7c94fdd',
+ 'tests/live/helpers/rwtFocusPointsJourney.ts':'b9454f4db0620601bf00528388dbb0d1208385df643225e6853d031209adb3a6',
  'tests/live/helpers/rwtPendingStartRecovery.ts':'41ad72641a30753e8a173ff79390b33305d25d8c7b1eafed7a57bd2d010118c5',
  'tests/live/helpers/rwtSaveRetryAttempts.ts':'cfa37a628a18e1c4347bb40eed73b33b303245a6930efaca0aeb24ee39ec0be2',
  'tests/live/helpers/rwtLeaveDestinationReady.ts':'5df6c2b0533098c9a9c019b2d491783b060be2cc6d5f52614d4a8053092542db',
  'tests/live/rwt-abandon-and-two-tabs.live.spec.ts':'1dd31a69e18fae124630a19dbfc6ea1071a5d9a3954b7605ba534ff9e4e963ce',
- 'tests/live/rwt-feedback-association-boundaries.live.spec.ts':'d08baf43a4d4cd1bfc9ab93b654adef2e85a4dc1f9887eaaaeb35c85dce7b326',
+ 'tests/live/rwt-feedback-association-boundaries.live.spec.ts':'c3843cea77ae84bfd849ce7e6e41a0eeb4829ff40253ceb0832971febb5e1568',
  'tests/live/rwt-pending-start-navigation.live.spec.ts':'92f1ec5199de8de1563c81da693731078776e8ed10cc9f1e5b350c9b3a1aa803',
  'tests/live/rwt-products-navigation.live.spec.ts':'bedab954eb78a034395639a29bcf34ff97ed9c47897f3e10a66f668ce43e4343',
  'tests/live/rwt-save-retry-recovery.live.spec.ts':'fdc50db1ead0c097e9f1318cb0cfc4e054d32f36fb4989571f0fae3f7fea5620',
@@ -52,6 +52,13 @@ const TEST_PINS=Object.freeze({
  'tests/unit/rwtFocusTakesDiffer.test.ts':'078a93b07eac4d9af625bd047fb5fe74af45a0628e48c7b8c53379ab49a31eb0',
  'tests/unit/rwtNavigationRows.test.ts':'cc35217fbe2d48ba211a17fa52bb7adf04dac0f5f1b039ef0b9066f05082d357',
  'tests/unit/rwtTwoPlaces.test.ts':'08e12ae2829ad874ee73395adf773d1014afc44891071a55d8cfdb5f38882515',
+ // AHT-02/03 sign-in, Focus presentation group and same-target repeat; AHT-08 no-session report cleanup.
+ 'tests/live/helpers/rwtFocusPresentation.ts':'273c1f55de34c403a59d88793d6ab08c9b8569c615ef265a565fb8a2a501ba41',
+ 'tests/live/helpers/rwtFocusSameTarget.ts':'14683946e8fb150e43007983ecd76a16ceb24f22fc8a153061f5e97f66252d24',
+ 'tests/live/helpers/feedbackNoSessionCleanup.ts':'ccf908836a0f6b679976aa366b78f5ea64d98c36a2fbe02b07d3d505896affdb',
+ 'tests/unit/rwtFocusPresentation.test.ts':'619317a034774fbab4b27424aafc7e7952e02a79f5902c1fec8070156a983055',
+ 'tests/unit/rwtFocusSameTarget.test.ts':'3225e7ad7167a62642866b0ba5acea7e4e82a496ee51cd156c7bd9b9b6130d19',
+ 'tests/unit/feedbackNoSessionCleanup.test.ts':'1411d8b18bae347b022b562ee5c5f8ab96cb6478ee086d9208b56e6d9bf669db',
 });
 // These two non-product inputs are part of this diagnostic integration itself.
 // Pin their exact reviewed postimages rather than treating every workflow or

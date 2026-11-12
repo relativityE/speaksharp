@@ -34,6 +34,7 @@ import {
 import {
     type CapturedReports, captureRunReports, cleanupRunReports, writeUncertainty, writeZeroResidueRow, zeroResidueNotRun,
 } from './helpers/feedbackReportCleanup';
+import { noSessionWriteUncertainty, type NoSessionInsertSnapshot } from './helpers/feedbackNoSessionCleanup';
 import {
     FeedbackRecoveryInventory, RECOVERY_STORE_STEP, recordDurably, settleRecoveryInventory, verifyRecoveryStore,
 } from './helpers/feedbackRecoveryInventory';
@@ -149,6 +150,8 @@ interface SubmitObservers {
     onSubmitted(submitted: { feedbackBefore: number; submitAt: number }): void;
     /** Earlier toasts are marked before the click; then the dialog's detach and an unmarked acknowledgment are observed. */
     onFreshAcknowledgment(observation: FreshAcknowledgmentObservation): void;
+    /** AHT-08 report cleanup: what the submit's insert observer saw, delivered when the submit ends, also when it throws. */
+    onInserts?(inserts: NoSessionInsertSnapshot): void;
 }
 
 async function submitFeedback(
@@ -172,6 +175,7 @@ async function submitFeedback(
         return await submitOpenDialog(page, tap, uid, association, sessionId, inserts, newerSessionId, observers);
     } finally {
         inserts.stop();
+        observers?.onInserts?.({ keys: [...inserts.keys], insertRequests: inserts.insertRequests, unattributedInserts: inserts.unattributedInserts });
     }
 }
 
@@ -617,6 +621,9 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
         let reportId: string | null = null;
         // AHT-08 received feedback: the submit's telemetry window, set just before the Submit click (null: never submitted).
         let submitWindow: { feedbackBefore: number; submitAt: number } | null = null;
+        // AHT-08 report cleanup: the submit's observed inserts (its idempotency key) and its stored-row read.
+        let insertSnapshot: NoSessionInsertSnapshot | null = null;
+        let storedRows: number | null = null;
         // #1593 (Sam, #1662 RETURN control 1): ONE owned finalization — the body's finally and the suite's afterEach
         // (which Playwright runs after a timeout) run this same memoized closure exactly once.
         const finish = finalizer.once(async () => {
@@ -646,12 +653,31 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             await steps.step('owned pages closed', (alive) => parity.ownedPagesClosedRow(aliveReceipt(receipt, alive)), PARITY_CLOSE_STEP_MS);
             // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion. With a report, the retention proof deletes through it;
             // the deletion's own settlement then decides the row — a stalled readback never deletes again.
+            // AHT-08 report cleanup (feedbackNoSessionCleanup.ts), AHT-07's race-safe steps unchanged. Step 1, after every owned page
+            // closed and BEFORE the account deletion: capture the owner's reports UNION those under the submit's observed key.
+            const runKeys = insertSnapshot?.keys ?? [];
+            let capturedReports: CapturedReports | null = null;
+            if (owner.uid) {
+                capturedReports = await steps.step('feedback report capture', () => captureRunReports(admin as never, owner.uid, runKeys, null)) ?? null;
+            }
             if ((owner.uid || owner.email) && !accountDeleted) {
                 const cleanup = new OwnedCleanup(() => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
                 const report = owner.uid ? reportId : null;
                 accountDeleted = (await finalizeOwnedCleanup(steps, receipt, cleanup, report
                     ? (alive) => feedbackRetentionAfterDeletionRow(aliveReceipt(receipt, alive), admin as never, report, () => cleanup.run())
                     : undefined)) === 'deleted';
+            }
+            // Steps 3–5, after the retention read: re-capture (the race), delete by id with an exact count, zero-residue reads. The
+            // submit's own observation decides whether the one write's outcome is known; an unknown outcome HOLDs, naming the ids.
+            if (owner.uid) {
+                const written = await steps.step('feedback report cleanup', async (alive) => {
+                    const uncertainty = noSessionWriteUncertainty({ submitted: submitWindow !== null, inserts: insertSnapshot, reportId, storedRows });
+                    const verdict = await cleanupRunReports(admin as never, owner.uid, runKeys, capturedReports, uncertainty);
+                    if (!alive()) return false;
+                    writeZeroResidueRow(receipt, verdict);
+                    return true;
+                }, FINALIZE_CLEANUP_MS);
+                if (written !== true) writeZeroResidueRow(receipt, zeroResidueNotRun(capturedReports));
             }
             await finishReceipt(receipt, testInfo, tap, claimed, steps);
         });
@@ -665,10 +691,12 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             const stored = await submitFeedback(page, tap, owner.uid, 'no_session', null, undefined, {
                 onSubmitted: (submitted) => { submitWindow = submitted; },
                 onFreshAcknowledgment: (observation) => writeFreshAcknowledgmentRow(receipt, observation),
+                onInserts: (inserts) => { insertSnapshot = inserts; },
             });
             // Captured FIRST: whatever the stored reference holds, cleanup and retention bookkeeping keep this report id.
             reportId = stored.id;
             writeNoSessionReportRows(receipt, stored);
+            storedRows = stored.storedRows;
         } catch (error) {
             receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
             throw error;

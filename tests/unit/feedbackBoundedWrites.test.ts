@@ -627,9 +627,14 @@ describe('the AHT-07 spec wiring (source order)', () => {
 
 describe('AHT-08 (no session) is untouched, and the new helpers stay case-only', () => {
     it('the No-session scenario uses none of the bounded-write wiring', () => {
-        for (const name of ['installFeedbackWriteRoute', 'FeedbackAttemptLedger', 'runFeedbackFaultLeg', 'ledger.', 'captureRunReports', 'cleanupRunReports',
-            'writeZeroResidueRow', 'FEEDBACK_FAULT_LEGS', 'observedLedger']) {
+        // AHT-08 report cleanup (feedbackNoSessionCleanup.ts) reuses ONLY the race-safe cleanup steps: no write route, ledger,
+        // fault leg or recovery inventory; whether its one write's outcome is known comes from the submit's own observation.
+        for (const name of ['installFeedbackWriteRoute', 'FeedbackAttemptLedger', 'runFeedbackFaultLeg', 'ledger.', 'FEEDBACK_FAULT_LEGS', 'observedLedger',
+            'writeUncertainty(', 'FeedbackRecoveryInventory', 'inventory']) {
             expect({ name, used: none.includes(name) }).toEqual({ name, used: false });
+        }
+        for (const name of ['captureRunReports', 'cleanupRunReports', 'writeZeroResidueRow', 'noSessionWriteUncertainty(']) {
+            expect({ name, used: none.includes(name) }).toEqual({ name, used: true });
         }
         expect(none).toMatch(/const stored = await submitFeedback\(page, tap, owner\.uid, 'no_session', null, undefined, \{/);
         expect(none).toContain('feedbackRetentionAfterDeletionRow(aliveReceipt(receipt, alive), admin as never, report, () => cleanup.run())');
@@ -647,7 +652,7 @@ describe('AHT-08 (no session) is untouched, and the new helpers stay case-only',
             .filter((f) => f.endsWith('.ts'));
         const importers = files.filter((f) => /from '\.\/(helpers\/)?(feedbackAttemptLedger|feedbackReportCleanup)'/.test(readFileSync(f, 'utf8')))
             .map((f) => path.relative(live, f)).sort();
-        expect(importers).toEqual(['helpers/feedbackRecoveryInventory.ts', 'helpers/feedbackReportCleanup.ts', 'rwt-feedback-association-boundaries.live.spec.ts']);
+        expect(importers).toEqual(['helpers/feedbackNoSessionCleanup.ts', 'helpers/feedbackRecoveryInventory.ts', 'helpers/feedbackReportCleanup.ts', 'rwt-feedback-association-boundaries.live.spec.ts']);
         const inventoryImporters = files.filter((f) => /from '\.\/(helpers\/)?feedbackRecoveryInventory'/.test(readFileSync(f, 'utf8'))).map((f) => path.relative(live, f));
         expect(inventoryImporters).toEqual(['rwt-feedback-association-boundaries.live.spec.ts']);
     });
