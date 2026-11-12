@@ -105,6 +105,26 @@ export const ENGINE_RETIRE_UNCONFIRMED_MESSAGE =
     'SpeakSharp could not confirm the last recording stopped, so this tab still holds your account\'s recording. Reload or close this tab to end it, or start on another device and take over.';
 
 /**
+ * #1643 Codex P2s on 3c9de91 / b9f36b4 — RECORDING HISTORY IS BOUND TO THE LEASE.
+ *
+ * A take can reach RECORDING and then fail before its placeholder row exists (the save rejects). The server cannot tell
+ * that from a Start that never recorded, so only the client can keep it from being abandoned. Every lease whose take was
+ * ever seen in RECORDING — or that a Start could not watch — is remembered here, and every settlement path (a failed or
+ * refused Start, a later proof, leaving the page) releases such a lease the ordinary way, keeping its save obligation.
+ */
+const leasesThatMayHaveRecorded = new Set<string>();
+function markLeaseMayHaveRecorded(lease: string | null): void {
+    if (lease !== null) leasesThatMayHaveRecorded.add(lease);
+}
+function mayAbandonLease(lease: string | null): lease is string {
+    return lease !== null && !leasesThatMayHaveRecorded.has(lease);
+}
+/** Test seam: lease ids repeat across isolated test cases, so the remembered history is cleared between them. */
+export function resetLeaseRecordingHistoryForTests(): void {
+    leasesThatMayHaveRecorded.clear();
+}
+
+/**
  * #1476 PM RETURN on 54576db9 and PM pre-push review — RELEASE ONLY WHEN THE ENGINE IS ACTUALLY TERMINAL. Unmounting the
  * session page retires the engine through the controller's bounded, explicit route (a Start still preparing never
  * becomes a recording; a live engine is stopped and saved, and if that fails, destroyed — the Retry Save is kept).
@@ -117,8 +137,9 @@ export async function releaseTakeLeaseOnUnmount(wasListening: boolean): Promise<
     const leaseOfTake = currentTakeLeaseId();
     // #1643 missing-Start: leaving while a Start is still preparing (nothing recording) settles that exact lease as an
     // abandoned Start once the engine is proven off. The server refuses that, and the lease is released as before,
-    // whenever a take exists for it, so a stopped take that is still saving keeps its save.
-    const release = () => (!wasListening && leaseOfTake !== null
+    // whenever a take exists for it, so a stopped take that is still saving keeps its save. A lease whose take ever
+    // recorded is never abandoned here, even when nothing is listening now (Codex P2 on b9f36b4).
+    const release = () => (!wasListening && mayAbandonLease(leaseOfTake)
         ? releaseTakeLease({ startFailed: leaseOfTake })
         : releaseTakeLease());
     // #1593 case 4: a retirement that timed out and LATER proved the engine off releases this take's lease then — still
@@ -151,8 +172,9 @@ export async function releaseTakeLeaseOnUnmount(wasListening: boolean): Promise<
 export async function releaseTakeLeaseOnProof(opts: { startFailed?: boolean } = {}): Promise<boolean> {
     const leaseOfTake = currentTakeLeaseId();
     // #1643 missing-Start: a Start that failed or was refused settles its exact lease as abandoned, once the engine is
-    // proven off. The server refuses that (and the lease is released as before) whenever a take exists for it.
-    const release = () => (opts.startFailed === true && leaseOfTake !== null
+    // proven off. The server refuses that (and the lease is released as before) whenever a take exists for it. A lease
+    // whose take ever recorded is never abandoned, whichever path settles it.
+    const release = () => (opts.startFailed === true && mayAbandonLease(leaseOfTake)
         ? releaseTakeLease({ startFailed: leaseOfTake })
         : releaseTakeLease());
     if (speechRuntimeController.isEngineTerminal()) { await release(); return true; }
@@ -940,10 +962,16 @@ export const useSessionLifecycle = () => {
                  * of RECORDING keeps the ordinary release and its save obligation. Without a way to watch, the Start is
                  * treated as possibly recorded, so uncertainty never abandons.
                  */
+                const leaseOfStart = acquiredLeaseId ?? currentTakeLeaseId();
                 let startSawRecording = useSessionStore.getState().runtimeState === 'RECORDING';
                 const stopWatchingRecording = typeof useSessionStore.subscribe === 'function'
-                    ? useSessionStore.subscribe((state) => { if (state.runtimeState === 'RECORDING') startSawRecording = true; })
+                    ? useSessionStore.subscribe((state) => {
+                        if (state.runtimeState !== 'RECORDING') return;
+                        startSawRecording = true;
+                        markLeaseMayHaveRecorded(leaseOfStart);
+                    })
                     : null;
+                if (startSawRecording || stopWatchingRecording === null) markLeaseMayHaveRecorded(leaseOfStart);
                 const settleStartLease = () => {
                     stopWatchingRecording?.();
                     const neverRecorded = stopWatchingRecording !== null && !startSawRecording;
@@ -1365,7 +1393,11 @@ export const useSessionLifecycle = () => {
     // retirement or the next take's own acquire resolve it) and say so. Bound to the lease the take held.
     const leaseRuntimeState = useSessionStore((state) => state.runtimeState);
     useEffect(() => {
-        if (leaseRuntimeState === 'RECORDING') { takeReachedRecordingRef.current = true; return; }
+        if (leaseRuntimeState === 'RECORDING') {
+            takeReachedRecordingRef.current = true;
+            markLeaseMayHaveRecorded(currentTakeLeaseId());
+            return;
+        }
         if (!takeReachedRecordingRef.current || leaseRuntimeState === 'STOPPING') return;
         takeReachedRecordingRef.current = false;
         void releaseTakeLeaseOnProof();

@@ -5,7 +5,7 @@
  * tests/db/recording-start-abandonment-realpg.test.mjs; the lease module half is recordingLeaseAbandon1643.test.ts.
  */
 import { act, renderHook } from '@testing-library/react';
-import { useSessionLifecycle } from '../useSessionLifecycle';
+import { useSessionLifecycle, resetLeaseRecordingHistoryForTests } from '../useSessionLifecycle';
 import { describe, it, expect, vi, beforeEach, Mock } from 'vitest';
 import { useSessionStore } from '@/stores/useSessionStore';
 import type { UseQueryResult } from '@tanstack/react-query';
@@ -274,6 +274,7 @@ describe('useSessionLifecycle — a Start that never recorded settles its exact 
 
     beforeEach(() => {
         vi.clearAllMocks();
+        resetLeaseRecordingHistoryForTests();
         leaseMock.acquire.mockImplementation(async () => ({ action: 'start' as const, tookOver: false }));
         leaseMock.confirm.mockImplementation(async () => 'held' as const);
         leaseMock.current = null;
@@ -367,6 +368,24 @@ describe('useSessionLifecycle — a Start that never recorded settles its exact 
         });
         const { result } = render();
         await act(async () => { await result.current.handleStartStop(); await Promise.resolve(); await Promise.resolve(); });
+        await vi.waitFor(() => expect(leaseMock.settled).toEqual([released('lease-1')]));
+    });
+
+    it('CASUALTY (Codex P2 on b9f36b4): leaving after a Start recorded, failed and kept its lease releases it the ordinary way — never abandoned', async () => {
+        const store = readyStore();
+        vi.mocked(speechRuntimeController.isEngineTerminal).mockReturnValue(false);
+        vi.mocked(speechRuntimeController.confirmEngineShutdown).mockImplementation(async () => 'unconfirmed');
+        vi.mocked(speechRuntimeController.startRecording).mockImplementationOnce(async () => {
+            store.setState({ runtimeState: 'RECORDING', isListening: true } as never);
+            store.setState({ runtimeState: 'READY', isListening: false } as never);
+            throw new Error('Session save failed');
+        });
+        const { result, unmount } = render();
+        vi.mocked(speechRuntimeController.isEngineTerminal).mockReturnValueOnce(true); // the prior-engine check at Start
+        await act(async () => { await result.current.handleStartStop().catch(() => undefined); await Promise.resolve(); await Promise.resolve(); });
+        expect(leaseMock.settled, 'the unproven engine keeps the lease').toEqual([]);
+        expect(leaseMock.current).toBe('lease-1');
+        unmount();
         await vi.waitFor(() => expect(leaseMock.settled).toEqual([released('lease-1')]));
     });
 
