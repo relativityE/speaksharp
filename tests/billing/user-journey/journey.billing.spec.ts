@@ -384,7 +384,11 @@ class SandboxJourney {
     // Billing lifecycle records do not cascade with auth deletion. Missing permissions/counts are
     // NOT zero. A reviewed sandbox cleanup path must settle and remove these fixtures without
     // bypassing the account-deletion/save-obligation guards before cleanup can ever be qualified.
-    if (this.uid) {
+    // The disposable local stack does NOT count these rows: migrations revoke all access to the three
+    // tables from service_role (account_closure_tokens, pending_completion_journal), so the read can only
+    // error, and permissions are not widened to make it pass. The receipt says the rows were NOT read, and
+    // the workflow must separately prove the whole stack (database volume included) was destroyed.
+    if (this.uid && !useLocalStack) {
       for (const table of ['account_billing_fences', 'account_checkout_operations', 'account_save_obligations']) {
         const readback = await this.admin.from(table).select('*', { count: 'exact', head: true }).eq('user_id', this.uid);
         if (readback.error || readback.count !== 0) accountFailed = true;
@@ -412,6 +416,8 @@ for (const journey of BILLING_JOURNEYS) {
         failureStage: failed ? run?.stage ?? 'preflight' : null,
         reason,
         cleanup: cleanupFailed ? 'UNPROVEN' : run?.steps.has('cleanup') ? 'VERIFIED' : 'NOT_RUN',
+        // Never reported as checked on the local stack; only the workflow's destruction proof covers them.
+        billingRowResidue: useLocalStack ? 'NOT_READ_REQUIRES_STACK_DESTRUCTION_PROOF' : 'COUNTED_ZERO_OR_FAILED',
         testedRelease: env.BILLING_SANDBOX_RELEASE_SHA?.match(/^[a-f0-9]{40}$/i)?.[0] ?? null,
       }), contentType: 'application/json' });
       requireFact(!failed && !cleanupFailed && result.result === 'PASSED', 'journey_incomplete_see_sanitized_receipt');

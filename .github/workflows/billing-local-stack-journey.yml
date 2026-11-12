@@ -46,6 +46,7 @@ jobs:
     timeout-minutes: 60
     env:
       SUPABASE_WORKDIR: backend
+      LOCAL_STACK_PROJECT: billing-local-stack-${{ github.run_id }}-${{ github.run_attempt }}
       LOCAL_API_URL: http://127.0.0.1:54321
       LOCAL_APP_URL: http://localhost:5173
       PRODUCTION_SUPABASE_URL: https://yxlapjuovrsvjswkwnrk.supabase.co
@@ -125,12 +126,18 @@ jobs:
           version: 2.101.0
 
       - name: Start the disposable local Supabase stack (migrations from this commit)
+        id: stack_start
         run: |
           set -euo pipefail
           # backend/supabase/seed.sql is a stale local-dev fixture: it writes the generated auth.users.confirmed_at
           # column, collides with the profile trigger and ends in a psql-only \echo, so seeding stops the start. The
           # journey makes its own throwaway accounts, so this runner's checkout skips seeding; the repo file is untouched.
           printf '\n[db.seed]\nenabled = false\n' >> "$SUPABASE_WORKDIR/supabase/config.toml"
+          # A run-unique project id names every container, volume and network this stack creates, so the
+          # destruction proof below can only match this run's stack (never the repo's real project id).
+          sed -i "s/^project_id = .*/project_id = \"$LOCAL_STACK_PROJECT\"/" "$SUPABASE_WORKDIR/supabase/config.toml"
+          grep -qx "project_id = \"$LOCAL_STACK_PROJECT\"" "$SUPABASE_WORKDIR/supabase/config.toml" \
+            || { echo '::error::Could not give the disposable stack its run-unique project id.'; exit 1; }
           supabase start --workdir "$SUPABASE_WORKDIR" -x studio,imgproxy,vector,logflare
           status="$(supabase status --workdir "$SUPABASE_WORKDIR" -o json)"
           api_url="$(jq -r '.API_URL' <<<"$status")"
@@ -273,6 +280,22 @@ jobs:
           rm -f "$RUNNER_TEMP/functions.env"
           supabase stop --workdir "$SUPABASE_WORKDIR" --no-backup || true
 
+      # The journey cannot read three billing tables (service_role has no access), so it never claims they
+      # are empty. What makes their rows harmless is that the whole database is gone: prove it.
+      - name: Prove the disposable stack was destroyed
+        id: stack_destroyed
+        if: always() && steps.stack_start.outcome != 'skipped'
+        run: |
+          set -euo pipefail
+          filter="label=com.supabase.cli.project=$LOCAL_STACK_PROJECT"
+          containers="$(docker ps -aq --filter "$filter"; docker ps -aq --filter "name=_${LOCAL_STACK_PROJECT}")"
+          volumes="$(docker volume ls -q --filter "$filter"; docker volume ls -q --filter "name=_${LOCAL_STACK_PROJECT}")"
+          networks="$(docker network ls -q --filter "$filter"; docker network ls -q --filter "name=_${LOCAL_STACK_PROJECT}")"
+          echo "Remaining for this run's stack: containers=$(wc -w <<<"$containers") volumes=$(wc -w <<<"$volumes") networks=$(wc -w <<<"$networks")"
+          [ -z "${containers//[[:space:]]/}" ] && [ -z "${volumes//[[:space:]]/}" ] && [ -z "${networks//[[:space:]]/}" ] \
+            || { echo '::error::The disposable stack was not fully destroyed; its billing rows were never read, so this run cannot pass.'; exit 1; }
+          echo 'Disposable stack destroyed: no container, volume or network with this run'"'"'s project id remains.'
+
       - name: Summarize
         if: always()
         run: |
@@ -286,6 +309,8 @@ jobs:
             else
               echo '- No receipt: the run stopped before the journey wrote one.'
             fi
+            echo '- Billing rows (fences, checkout operations, save obligations): not read; service_role has no access.'
+            echo "- Disposable stack destroyed: ${{ steps.stack_destroyed.outcome }}"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4

@@ -48,6 +48,14 @@ permissions or leftover records fail closed. Do not grant broad permissions or
 delete unsettled obligations merely to make the test pass. This draft does not
 implement that privileged cleanup path.
 
+The disposable local stack (`BILLING_SANDBOX_TARGET=local-disposable-stack`) does
+not count those three tables, because migrations revoke all access to them from
+`service_role` and permissions are not widened for a test. Its receipt says so
+(`billingRowResidue: NOT_READ_REQUIRES_STACK_DESTRUCTION_PROOF`). The workflow then
+proves the stack was destroyed: no container, volume or network with the run's own
+Supabase project id may remain, or the run fails. Stripe-side and auth/profile
+cleanup are still required. The hosted-sandbox target keeps the fail-closed counts.
+
 The suite exercises the real checkout API followed by the real hosted UI. It does
 not claim to prove the public upgrade button. Duplicate/out-of-order webhook
 controls remain separate handler/DB evidence. Account deletion, actual microphone
