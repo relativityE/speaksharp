@@ -1,7 +1,7 @@
 /**
  * #1258 B1 (Browser PM 6097765962) — governed recovery for run-owned Production accounts left behind by an INTERRUPTED
- * rehearsal. Every normal journey deletes its account in Playwright teardown; a cancelled job, a lost runner or the 45-minute
- * `gate-3-dast` timeout can skip that teardown and leave the account and its cascaded rows.
+ * rehearsal. Every normal journey deletes its account in Playwright teardown; a cancelled job, a lost runner or the
+ * `gate-3-dast` job timeout can skip that teardown and leave the account and its cascaded rows.
  *
  * Detect-and-HOLD by default. Deletion happens only from protected default-branch bytes, with a delete acknowledgement bound
  * to the exact commit this run executes AND separate PO Production authority for that run, and only through the existing
@@ -10,13 +10,18 @@
  * malformed or ambiguous (judged over the whole listing); the listing is bounded, requires a real users array on every page and
  * fails closed. Idempotent: a second run finds nothing to recover. The report is content-safe — counts and a status only.
  */
+import { currentRunBinding, sameRunBinding, type RunBinding } from './runBinding';
 import { RUN_OWNED_PREFIX_RE, cleanupRunOwnedAccount } from './runOwnedCleanup';
 
 /** The delete acknowledgement, bound to one exact commit: `RWT-INTERRUPTED-RUN-RECOVERY-DELETE@<40-hex sha>`. */
 export const RECOVERY_DELETE_ACK_PREFIX = 'RWT-INTERRUPTED-RUN-RECOVERY-DELETE';
 export const recoveryDeleteAck = (sha: string): string => `${RECOVERY_DELETE_ACK_PREFIX}@${sha}`;
-/** `gate-3-dast` job timeout plus a safety margin: a younger account may still belong to a live run. */
-export const GATE3_JOB_TIMEOUT_MS = 45 * 60_000;
+/**
+ * `gate-3-dast` job timeout plus a safety margin: a younger account may still belong to a live run. COUPLED to
+ * rc-gates.yml `jobs.gate-3-dast.timeout-minutes` (tests/unit/rcGatesTimeBudget.test.ts asserts equality), so raising the job
+ * limit can never silently spend the safety margin.
+ */
+export const GATE3_JOB_TIMEOUT_MS = 105 * 60_000;
 export const SAFETY_MARGIN_MS = 30 * 60_000;
 export const MIN_AGE_MS = GATE3_JOB_TIMEOUT_MS + SAFETY_MARGIN_MS;
 
@@ -72,8 +77,8 @@ export function ownedPrefixOf(email: string, domain: string): string | null {
     return owned ? owned[0] : null;
 }
 
-export interface AuthUserLike { id?: unknown; email?: unknown; created_at?: unknown }
-export interface RecoveryCandidate { id: string; email: string; prefix: string }
+export interface AuthUserLike { id?: unknown; email?: unknown; created_at?: unknown; app_metadata?: { ct_run?: unknown } }
+export interface RecoveryCandidate { id: string; email: string; prefix: string; binding?: RunBinding }
 export interface SelectionCounts {
     scanned: number; nonOwned: number; ownershipUnproven: number; legacyUnqualified: number; runOwned: number; fresh: number; malformed: number; ambiguous: number; eligible: number;
 }
@@ -108,7 +113,23 @@ export function selectInterruptedRunAccounts(users: readonly AuthUserLike[], now
         if (nowMs - created < minAgeMs) { counts.fresh += 1; continue; }
         // The same id or email anywhere else in the listing is ambiguous: refuse rather than guess.
         if ((idCounts.get(id.toLowerCase()) ?? 0) > 1 || (emailCounts.get(email) ?? 0) > 1) { counts.ambiguous += 1; continue; }
-        eligible.push({ id, email, prefix });
+        const raw = user.app_metadata?.ct_run;
+        let binding: RunBinding | undefined;
+        if (raw !== undefined) {
+            const b = raw as Partial<RunBinding> | null;
+            const parsed = b && currentRunBinding({ GITHUB_ACTIONS: 'true', GITHUB_REPOSITORY: b.repository,
+                GITHUB_WORKFLOW_REF: b.workflow, GITHUB_RUN_ID: b.runId, GITHUB_RUN_ATTEMPT: b.runAttempt });
+            const mine = currentRunBinding();
+            if (!parsed || !mine || !sameRunBinding({ ct_run: raw }, parsed)
+                || parsed.repository !== mine.repository
+                || !parsed.workflow.startsWith(`${mine.repository}/.github/workflows/rc-gates.yml@refs/`)
+                || !email.split('@')[0].endsWith(`-${parsed.runId}`) || parsed.runId === mine.runId) {
+                counts.ownershipUnproven += 1;
+                continue;
+            }
+            binding = parsed;
+        }
+        eligible.push({ id, email, prefix, ...(binding ? { binding } : {}) });
     }
     counts.eligible = eligible.length;
     return { eligible, counts };
@@ -158,7 +179,7 @@ export async function listAuthUsersBounded(admin: AdminLike, perPage = 200, maxP
     return { users, complete: false };
 }
 
-export type RecoveryStatus = 'HOLD_NO_DOMAIN' | 'HOLD_NO_ACK' | 'HOLD_INCOMPLETE_LISTING' | 'NOTHING_TO_RECOVER' | 'RECOVERED' | 'FAILED';
+export type RecoveryStatus = 'HOLD_NO_DOMAIN' | 'HOLD_NO_ACK' | 'HOLD_INCOMPLETE_LISTING' | 'HOLD_RECOVERY_ELIGIBILITY' | 'NOTHING_TO_RECOVER' | 'RECOVERED' | 'FAILED';
 export interface RecoveryReport extends SelectionCounts { status: RecoveryStatus; deleted: number; minAgeMinutes: number }
 
 type Cleanup = typeof cleanupRunOwnedAccount;
@@ -186,8 +207,10 @@ export async function recoverInterruptedRuns(params: {
     let deleted = 0;
     for (const account of eligible) {
         try {
-            await cleanup({ admin: params.admin as never, capturedUid: account.id, createdEmail: account.email, runOwnedPrefix: account.prefix });
-        } catch {
+            await cleanup({ admin: params.admin as never, capturedUid: account.id, createdEmail: account.email, runOwnedPrefix: account.prefix,
+                ...(account.binding ? { recovery: { originalBinding: account.binding, dispatchSha: params.sha, deleteAck: params.ack, minAgeMs } } : {}) });
+        } catch (error) {
+            if (error instanceof Error && error.message === 'cleanup_recovery_eligibility_unproven (HOLD)') return report('HOLD_RECOVERY_ELIGIBILITY', counts, deleted);
             return report('FAILED', counts, deleted);
         }
         deleted += 1;

@@ -12,7 +12,8 @@
 import React, { useState } from 'react';
 import { Sparkles } from 'lucide-react';
 import AISuggestions from './AISuggestions';
-import { FOCUS_POINTS_DISCLOSURE, NOT_AVAILABLE_FOR_SESSION_MESSAGE, OPEN_MIC_DISCLOSURE, UNAVAILABLE_MESSAGE } from './reviewCopy';
+import { NOT_AVAILABLE_FOR_SESSION_MESSAGE, UNAVAILABLE_MESSAGE } from './reviewCopy';
+import { CoachingDisclosure } from './CoachingDisclosure';
 import type { SessionProduct } from '@/types/session';
 
 interface RestoredReviewRetryProps {
@@ -61,7 +62,7 @@ export const RestoredReviewRetry: React.FC<RestoredReviewRetryProps> = ({ sessio
                         Try again
                     </button>
                     <p className="mt-2 text-[12px] font-semibold text-ink-muted">
-                        {product === 'focus_points' ? FOCUS_POINTS_DISCLOSURE : OPEN_MIC_DISCLOSURE}
+                        <CoachingDisclosure product={product} />
                     </p>
                 </>
             ) : (
