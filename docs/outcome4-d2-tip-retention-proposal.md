@@ -1,6 +1,6 @@
-# Outcome 4 D2: keeping the chosen tip with its repeat (proposal, revision 2)
+# Outcome 4 D2: keeping the chosen tip with its repeat (proposal, revision 3)
 
-Status: proposal for Sam's review. Local branch only. Nothing here is applied to any database, merged or released,
+Status: proposal for Sam's review, in draft PR #1827. Nothing here is applied to any database, merged or released,
 and none of it is authorised by this document.
 
 ## What changes for the user
@@ -17,9 +17,12 @@ the coaching tip was followed." stays.
 ## Retention rule (proposed)
 
 A copy of the original session's coaching tip (`what_to_try_next`, server-validated with the app's own review
-contract) is taken when Practice again is pressed. That copy:
+contract) is taken when Practice again is pressed, but only if that original is the user's newest saved session and
+its transcript has not expired. Pressing Practice again on an older session, even one whose review is still available
+because retention is off, copies nothing. That copy:
 
-1. Lives with the original while the original is still the newest saved session.
+1. Lives with the original while the original is still the newest saved session, and is deleted if the original
+   expires before a repeat is bound.
 2. Is bound, once and by the server, to the first session completed after Practice again was pressed that is newer
    than the original. The binding happens when that session's status becomes `completed`, which in
    `complete_session_v2` is step 1, before the transcript write and newest-one retention expire the original.
@@ -32,6 +35,9 @@ contract) is taken when Practice again is pressed. That copy:
 Net effect: per attempt, at most one session's worth of chosen-tip text exists, and only while that session is the
 user's newest saved session, which is the lifetime newest-one retention already gives that session's transcript.
 The rule does not depend on retention being activated: with retention off, the copy lives shorter than its source.
+
+Pressing Practice again, saving and expiry are decided one at a time per user (a per-user advisory transaction lock),
+so a new copy cannot be taken from an original that a concurrent save or expiry has just made older or expired.
 
 ## Disclosure (proposed wording)
 
@@ -52,6 +58,9 @@ The rule does not depend on retention being activated: with retention off, the c
 | Keeping the tip past its source's expiry changes retention | Explicit rule and disclosure above | This document |
 | Server-validated, immutable binding | Set only by the completion trigger, validated (owner, completed, newer than the original, started after Practice again), never moved; tip insert-only | PGlite "binding" test |
 | Abandoned attempts, delayed retries, concurrent saves | Each clears or waits as above; the completion trigger locks the user's tip rows first | PGlite tests; `tests/db/manual/repeat-practised-tip-concurrency.sh` on PostgreSQL 16 |
+| Revision 2 return: an unbound copy survived its original expiring | Expiry now deletes a copy not yet bound whose original is the expired session; a copy already bound stays | PGlite and real-save "unbound copy goes when its original expires" tests; each fails against its control |
+| Revision 2 return: an older original's tip was copied | The copy is taken only from the newest saved, unexpired original; accept, save and expiry share a per-user advisory lock | PGlite and real-save "only the newest saved session" tests; concurrency scenarios 6 to 9 fail without the lock |
+| Revision 2 return: tied start times made one test flaky | Fixture starts are strictly ordered; equal start times are tested on purpose, both ways | PGlite "equal start times" tests |
 | Owner-only reads, server-sourced text | Existing RLS select only; no client write path or new RPC | PGlite "owner" and "not callable" tests |
 
 ## Limits of the proof

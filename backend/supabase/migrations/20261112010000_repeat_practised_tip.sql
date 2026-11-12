@@ -1,5 +1,5 @@
 -- Outcome 4, step 2 (decision D2): the coaching tip chosen for a repeat is kept with that repeat, under its own
--- explicit retention rule. Revision 2, after Sam's review of the first design (2026-11-12).
+-- explicit retention rule. Revision 3, after Sam's reviews of the first design and of revision 2 (2026-11-12).
 --
 -- WHY A COPY, AND WHY IT IS TAKEN WHEN PRACTICE AGAIN IS PRESSED
 -- The tip is the original session's `sessions.ai_suggestions.what_to_try_next`. Saving the repeat runs newest-one
@@ -20,9 +20,20 @@
 --   3. "Keeping the tip beyond its source's expiry changes content retention." The rule is explicit (below) and
 --      stated in the product copy beside the tip.
 --
+-- REVISION 3 (Sam's return of revision 2 at 1186c368)
+--   a. An unbound copy now goes when its original expires. A copy already bound to the repeat (which happens in the
+--      repeat's save, before that save expires the original) is kept.
+--   b. A copy is taken only from the owner's NEWEST saved session, and only while it is unexpired. Pressing Practice
+--      again on an older session's still-available review copies nothing.
+--   c. Acceptance, saves and expiry for one owner are serialised by one per-owner advisory transaction lock, so a
+--      new attempt row cannot slip past a concurrent save or expiry (row locks cannot cover a row not yet inserted).
+--      The advisory lock is used, not the `user_profiles` row, because the save path takes that row with NOWAIT and
+--      a held row would make a concurrent save fail.
+--
 -- RETENTION RULE (proposed; content-bearing, never measured)
 --   The copy exists only while it is attached to the newest saved session that can still be its repeat:
---     * Before any repeat is saved, it lives with the original, which is still the newest saved session.
+--     * It is taken only when Practice again is pressed on the owner's newest saved session, while that session is
+--       unexpired. Before any repeat is saved, it lives with that original and goes if the original expires.
 --     * The first session completed after Practice again was pressed (newer than the original) is bound as its
 --       repeat, once, by the server. The copy then lives with that repeat.
 --     * It is deleted when ANY newer session is saved, when the repeat expires, when the repeat is deleted, when
@@ -37,11 +48,13 @@
 --     (the client's `readSavedReview` rule). A supplied value is discarded. Afterwards it can only be cleared.
 --   * `tip_session_id` is set once, only by the completion trigger, only to a validated session, and never moved.
 --   * Clients keep SELECT only on this table (existing RLS: own rows). No client-callable function is added.
---   * Concurrency: the completion trigger locks this user's tip-bearing attempts before deciding, so a concurrent
---     save, advance or retry is decided on the latest committed row, never on a stale snapshot.
+--   * Concurrency: acceptance, completion and expiry each take the owner's advisory lock first, and the completion
+--     trigger then locks the owner's tip-bearing attempts, so a concurrent accept, save, expiry, advance or retry is
+--     decided on the latest committed rows, never on a stale snapshot.
 --
 -- NOT APPLIED TO ANY DATABASE BY THIS CHANGE. Requires separate Product Owner authorization.
--- ROLLBACK: drop the four triggers and their functions, then drop the columns `tip_session_id` and `practised_tip`.
+-- ROLLBACK: drop the four triggers and their functions (and `_prec_att_lock_owner`), then drop the columns
+-- `tip_session_id` and `practised_tip`.
 
 ALTER TABLE public.progress_recommendation_attempts
     ADD COLUMN IF NOT EXISTS practised_tip text,
@@ -103,13 +116,25 @@ BEGIN
 END;
 $$;
 
--- BEFORE INSERT: snapshot the original's tip; never trust a supplied value or binding.
+-- One lock per owner for every decision about a copy: acceptance, completion and expiry. Held to commit.
+CREATE OR REPLACE FUNCTION public._prec_att_lock_owner(p_user uuid)
+RETURNS void
+LANGUAGE sql VOLATILE SET search_path = public, pg_temp
+AS $$
+    SELECT pg_advisory_xact_lock(hashtextextended('prec_att_tip:' || p_user::text, 0));
+$$;
+
+-- BEFORE INSERT: snapshot the original's tip, only while the original is the owner's newest saved session and
+-- unexpired; never trust a supplied value or binding.
 CREATE OR REPLACE FUNCTION public._prec_att_snapshot_tip()
 RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
 BEGIN
     NEW.tip_session_id := NULL;
+    NEW.practised_tip := NULL;
+    -- Wait for any concurrent save or expiry for this owner; the next statement then sees it committed.
+    PERFORM public._prec_att_lock_owner(NEW.user_id);
     SELECT public._prec_att_review_tip(s.ai_suggestions)
       INTO NEW.practised_tip
       FROM public.progress_recommendations r
@@ -117,7 +142,12 @@ BEGIN
      WHERE r.id = NEW.recommendation_id
        AND r.user_id = NEW.user_id
        AND s.user_id = NEW.user_id
-       AND s.transcript_state IS DISTINCT FROM 'expired';
+       AND s.status = 'completed'
+       AND s.transcript_state IS DISTINCT FROM 'expired'
+       AND NOT EXISTS (
+           SELECT 1 FROM public.sessions n
+            WHERE n.user_id = NEW.user_id AND n.status = 'completed' AND n.id <> s.id
+              AND (n.created_at, n.id) > (s.created_at, s.id));
     IF NOT FOUND THEN NEW.practised_tip := NULL; END IF;
     RETURN NEW;
 END;
@@ -191,7 +221,9 @@ AS $$
 BEGIN
     IF TG_OP = 'UPDATE' AND OLD.status = 'completed' THEN RETURN NULL; END IF;
 
-    -- Decide on the latest committed rows: wait for any concurrent save, advance or retry on these attempts.
+    -- Wait for any concurrent acceptance, save or expiry for this owner, then decide on the latest committed rows:
+    -- including an attempt inserted by a concurrent Practice again, which no row lock could have covered.
+    PERFORM public._prec_att_lock_owner(NEW.user_id);
     PERFORM 1 FROM public.progress_recommendation_attempts
       WHERE user_id = NEW.user_id AND practised_tip IS NOT NULL
       ORDER BY id FOR UPDATE;
@@ -233,18 +265,25 @@ CREATE TRIGGER trg_sessions_prec_tip_on_completed
     WHEN (NEW.status = 'completed')
     EXECUTE FUNCTION public._prec_att_on_session_completed();
 
--- AFTER the bound repeat's transcript expires (defence in depth: a newer completed save has normally cleared it
--- already). No condition on ai_suggestions.
+-- AFTER a session's transcript expires, with no condition on ai_suggestions:
+--   * a copy bound to it, or resolved to it, goes (a newer completed save has normally cleared it already);
+--   * a copy NOT YET BOUND whose original is this session goes. A copy already bound to a repeat stays: the repeat's
+--     own save binds it before that save expires the original.
 CREATE OR REPLACE FUNCTION public._prec_att_purge_tip_on_expire()
 RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
 BEGIN
-    UPDATE public.progress_recommendation_attempts
+    PERFORM public._prec_att_lock_owner(NEW.user_id);
+    UPDATE public.progress_recommendation_attempts a
        SET practised_tip = NULL
-     WHERE user_id = NEW.user_id
-       AND practised_tip IS NOT NULL
-       AND (tip_session_id = NEW.id OR practice_session_id = NEW.id);
+     WHERE a.user_id = NEW.user_id
+       AND a.practised_tip IS NOT NULL
+       AND (a.tip_session_id = NEW.id
+            OR a.practice_session_id = NEW.id
+            OR (a.tip_session_id IS NULL AND EXISTS (
+                    SELECT 1 FROM public.progress_recommendations r
+                     WHERE r.id = a.recommendation_id AND r.source_session_id = NEW.id)));
     RETURN NULL;
 END;
 $$;
@@ -257,6 +296,7 @@ CREATE TRIGGER trg_sessions_purge_practised_tip_on_expire
     EXECUTE FUNCTION public._prec_att_purge_tip_on_expire();
 
 REVOKE ALL ON FUNCTION public._prec_att_review_tip(jsonb) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public._prec_att_lock_owner(uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public._prec_att_snapshot_tip() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public._prec_att_can_hold_tip(public.progress_recommendation_attempts, uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public._prec_att_guard_tip() FROM PUBLIC, anon, authenticated;

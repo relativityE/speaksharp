@@ -198,12 +198,18 @@ async function mutantPurgeNeedsCoaching() {
             EXECUTE FUNCTION public._prec_att_purge_tip_on_expire();`);
     await removeSupersedeOnSave();
 }
-/** The completion trigger still binds, but a newer save no longer retires an older repeat's copy. */
+/** Replace one fragment of an installed function. The fragment must occur exactly once. */
+async function mutateFn(fn: string, from: string, to: string) {
+    const def = (await db!.query<{ d: string }>(`SELECT pg_get_functiondef('${fn}'::regprocedure) AS d`)).rows[0].d;
+    expect(def.split(from)).toHaveLength(2);
+    await db!.exec(def.replace(from, to));
+}
+/** A newer save no longer retires a copy: neither an older repeat's, nor an unbound copy this save cannot hold. */
 async function removeSupersedeOnSave() {
-    const def = (await db!.query<{ d: string }>(`SELECT pg_get_functiondef('public._prec_att_on_session_completed()'::regprocedure) AS d`)).rows[0].d;
-    const target = '(a.tip_session_id IS NOT NULL AND a.tip_session_id <> NEW.id AND EXISTS (';
-    expect(def.split(target)).toHaveLength(2);
-    await db!.exec(def.replace(target, '(false AND EXISTS ('));
+    await mutateFn('public._prec_att_on_session_completed()',
+        '(a.tip_session_id IS NOT NULL AND a.tip_session_id <> NEW.id AND EXISTS (', '(false AND EXISTS (');
+    await mutateFn('public._prec_att_on_session_completed()',
+        'OR (a.tip_session_id IS NULL\n                AND NOT public._prec_att_can_hold_tip(a, NEW.id)', 'OR (false\n                AND NOT public._prec_att_can_hold_tip(a, NEW.id)');
 }
 
 describe('outcome 4 D2 on the shipped save path (every shipped migration, real complete_session_v2 and retention)', () => {
@@ -243,18 +249,20 @@ describe('outcome 4 D2 on the shipped save path (every shipped migration, real c
         expect(await attemptState(attempt)).toMatchObject({ practised_tip: null, practice_session_id: b });
     }, 180_000);
 
-    it('NEGATIVE CONTROL: binding moved after the original expires breaks the ordering the first test proves', async () => {
+    it('NEGATIVE CONTROL: binding moved after the original expires breaks the ordering and loses the tip', async () => {
         db = await shippedChain();
         const uid = await signup();
         const a = await take(uid);
         await coach(a);
-        await pressPracticeAgain(uid, a);
+        const attempt = await pressPracticeAgain(uid, a);
         await mutantBindAfterExpiry();
         const order = await recordEventOrder();
         const b = await take(uid);
         expect(await sessionState(a)).toMatchObject({ transcript_state: 'expired', has_review: false });
-        expect(await order()).toEqual([{ event: 'expired', ref: a }, { event: 'bound', ref: b }]);
+        // The original expires while the copy is still unbound, so the copy goes and there is nothing left to bind.
+        expect(await order()).toEqual([{ event: 'expired', ref: a }]);
         expect(await order()).not.toEqual([{ event: 'bound', ref: b }, { event: 'expired', ref: a }]);
+        expect(await attemptState(attempt)).toMatchObject({ practised_tip: null, tip_session_id: null });
     }, 180_000);
 
     it("retention: the next real save expires the repeat's transcript and deletes its copy", async () => {
@@ -328,6 +336,55 @@ describe('outcome 4 D2 on the shipped save path (every shipped migration, real c
         await take(uid, '   ');
         expect(await sessionState(b)).toMatchObject({ transcript_state: 'available' });
         expect(await attemptState(attempt)).toMatchObject({ practised_tip: TIP, tip_session_id: b });
+    }, 180_000);
+
+    it('an older original, still available because retention is off, gives no copy: only the newest saved session does', async () => {
+        db = await shippedChain({ activateRetention: false });
+        const uid = await signup();
+        const a = await take(uid);
+        await coach(a);
+        await take(uid); // a newer save; with retention off, A keeps its transcript and its review
+        expect(await sessionState(a)).toMatchObject({ transcript_state: 'available', has_review: true });
+        const attempt = await pressPracticeAgain(uid, a);
+        expect(await attemptState(attempt)).toMatchObject({ practised_tip: null, tip_session_id: null, lifecycle: 'pending' });
+    }, 180_000);
+
+    it('NEGATIVE CONTROL: without the newest-original rule, the older original\'s tip is copied', async () => {
+        db = await shippedChain({ activateRetention: false });
+        const uid = await signup();
+        const a = await take(uid);
+        await coach(a);
+        await take(uid);
+        await mutateFn('public._prec_att_snapshot_tip()', `AND (n.created_at, n.id) > (s.created_at, s.id)`, `AND false`);
+        const attempt = await pressPracticeAgain(uid, a);
+        expect(await attemptState(attempt)).toMatchObject({ practised_tip: TIP, tip_session_id: null });
+    }, 180_000);
+
+    it("an unbound copy goes when the real save expires its original, even with the newer-save rule removed", async () => {
+        db = await shippedChain();
+        const uid = await signup();
+        const a = await take(uid);
+        await coach(a);
+        const b = await startTake(uid); // started before Practice again, so it can never be the repeat
+        const attempt = await pressPracticeAgain(uid, a);
+        await removeSupersedeOnSave(); // isolate the expiry rule
+        await saveTake(uid, b, 'synthetic words for this take');
+        expect(await sessionState(a)).toMatchObject({ transcript_state: 'expired' });
+        expect(await attemptState(attempt)).toMatchObject({ practised_tip: null, tip_session_id: null, lifecycle: 'pending' });
+    }, 180_000);
+
+    it('NEGATIVE CONTROL: without the unbound-source expiry clause (and the newer-save rule), the copy outlives its original', async () => {
+        db = await shippedChain();
+        const uid = await signup();
+        const a = await take(uid);
+        await coach(a);
+        const b = await startTake(uid);
+        const attempt = await pressPracticeAgain(uid, a);
+        await removeSupersedeOnSave();
+        await mutateFn('public._prec_att_purge_tip_on_expire()', `OR (a.tip_session_id IS NULL AND EXISTS (`, `OR (false AND EXISTS (`);
+        await saveTake(uid, b, 'synthetic words for this take');
+        expect(await sessionState(a)).toMatchObject({ transcript_state: 'expired' });
+        expect(await attemptState(attempt)).toMatchObject({ practised_tip: TIP, tip_session_id: null });
     }, 180_000);
 
     it('retention not yet activated (Production today): the original is not expired, the repeat is still bound, and the next save deletes the copy', async () => {

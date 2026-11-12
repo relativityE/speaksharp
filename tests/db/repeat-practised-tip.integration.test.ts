@@ -45,16 +45,32 @@ async function seed(id: string, minutesAgo: number, fillers: number, aiSuggestio
     );
 }
 
-/** Start recording: an active session row, created now (after any earlier Practice again) unless told otherwise. */
+/**
+ * Start recording: an active session row, created now (after any earlier Practice again) unless told otherwise.
+ * Starts are STRICTLY ordered: each is at least 1 microsecond after every existing session, because two
+ * `clock_timestamp()` reads can be equal and a tie would then be decided by id, not by start order. Equal start times
+ * are tested on purpose, with an explicit `createdAt`, in the equal-time case.
+ */
 async function start(id: string, opts: { createdAt?: string; user?: string } = {}) {
     await db.query(
         `INSERT INTO public.sessions (id, user_id, total_words, duration, wpm, filler_words, engine, engine_version,
              model_name, attribution_status, status, created_at, transcript_state)
          VALUES ($1, $2, 300, 120, 140, '{"um":{"count":2},"total":{"count":2}}'::jsonb, 'private', 'whisper-base.en@v2',
-                 'whisper-base.en', 'verified', 'active', COALESCE($3::timestamptz, clock_timestamp()), 'not_captured')`,
+                 'whisper-base.en', 'verified', 'active',
+                 COALESCE($3::timestamptz, GREATEST(clock_timestamp(),
+                     (SELECT max(created_at) + interval '1 microsecond' FROM public.sessions))), 'not_captured')`,
         [id, opts.user ?? USER, opts.createdAt ?? null],
     );
 }
+
+/** Replace one fragment of an installed function, for a negative control. The fragment must occur exactly once. */
+async function mutate(fn: string, from: string, to: string) {
+    const def = (await db.query<{ d: string }>(`SELECT pg_get_functiondef('${fn}'::regprocedure) AS d`)).rows[0].d;
+    expect(def.split(from)).toHaveLength(2);
+    await db.exec(def.replace(from, to));
+}
+const expireTranscript = (id: string) =>
+    db.query(`UPDATE public.sessions SET transcript = NULL, transcript_state = 'expired' WHERE id = $1`, [id]);
 
 /**
  * FIXTURE, not the save path: marks a started session completed and writes its transcript in one transaction, then
@@ -106,6 +122,7 @@ const advance = (attempt: string, lifecycle: string, practice: string | null = n
 const state = async (attempt: string) => (await db.query<{ practised_tip: string | null; tip_session_id: string | null; lifecycle: string; practice_session_id: string | null }>(
     'SELECT practised_tip, tip_session_id, lifecycle, practice_session_id FROM public.progress_recommendation_attempts WHERE id = $1', [attempt])).rows[0];
 const tipOf = async (attempt: string) => (await state(attempt))?.practised_tip;
+const reviewOf = async (id: string) => (await db.query<{ ai_suggestions: unknown }>('SELECT ai_suggestions FROM public.sessions WHERE id = $1', [id])).rows[0].ai_suggestions;
 
 /** The original A (saved an hour ago, with a valid review), its recommendation, and Practice again pressed. */
 async function pressPracticeAgain(): Promise<string> {
@@ -124,7 +141,7 @@ beforeEach(async () => {
     await db.exec('GRANT authenticated TO CURRENT_USER');
 });
 
-describe('outcome 4 D2 rev 2: the tip chosen for a repeat is bound to it by the server and kept under its own rule', () => {
+describe('outcome 4 D2 rev 3: the tip chosen for a repeat is bound to it by the server and kept under its own rule', () => {
     // Save order, retention and cleanup without coaching or transcript text are proved against the real
     // `complete_session_v2` and retention in repeat-practised-tip-real-save.integration.test.ts.
     it('the copy is read only by its owner, through the existing RLS select', async () => {
@@ -311,8 +328,84 @@ describe('outcome 4 D2 rev 2: the tip chosen for a repeat is bound to it by the 
         expect(await state(attempt)).toMatchObject({ practised_tip: TIP, tip_session_id: null });
     });
 
+    it('equal start times: the tie is broken by id, the same way retention orders sessions', async () => {
+        await seed(A, 60, 6);
+        const attempt = await accept(await recommendOnA());
+        const at = new Date(Date.now() + 1_000).toISOString();
+        // B and C start at the same instant; C's id is larger, so C counts as newer.
+        await start(B, { createdAt: at });
+        await start(C, { createdAt: at });
+        await save(C);
+        expect(await state(attempt)).toMatchObject({ practised_tip: TIP, tip_session_id: C });
+        // B ties with C but sorts before it, so B's later save is older than the repeat: nothing changes.
+        await save(B);
+        expect(await state(attempt)).toMatchObject({ practised_tip: TIP, tip_session_id: C });
+    });
+
+    it('equal start times, other order: the tied session that sorts after the repeat supersedes it', async () => {
+        await seed(A, 60, 6);
+        const attempt = await accept(await recommendOnA());
+        const at = new Date(Date.now() + 1_000).toISOString();
+        await start(B, { createdAt: at });
+        await start(C, { createdAt: at });
+        await save(B);
+        expect(await state(attempt)).toMatchObject({ practised_tip: TIP, tip_session_id: B });
+        await save(C);
+        expect(await state(attempt)).toMatchObject({ practised_tip: null, tip_session_id: B });
+    });
+
+    it('an unbound copy goes when its original expires; a copy already bound to the repeat stays', async () => {
+        await seed(A, 60, 6);
+        const unbound = await accept(await recommendOnA());
+        expect(await state(unbound)).toMatchObject({ practised_tip: TIP, tip_session_id: null });
+        // Any expiry path for A, before a repeat binds: the unbound copy goes.
+        await expireTranscript(A);
+        expect(await state(unbound)).toMatchObject({ practised_tip: null, tip_session_id: null, lifecycle: 'pending' });
+
+        await db.exec('TRUNCATE public.progress_recommendation_attempts, public.progress_recommendations, public.session_progress_evaluations, public.sessions CASCADE');
+        await seed(A, 60, 6);
+        const bound = await accept(await recommendOnA());
+        await start(B);
+        await db.query(`UPDATE public.sessions SET status = 'completed' WHERE id = $1`, [B]);
+        expect(await state(bound)).toMatchObject({ practised_tip: TIP, tip_session_id: B });
+        await expireTranscript(A);
+        expect(await state(bound)).toMatchObject({ practised_tip: TIP, tip_session_id: B });
+    });
+
+    it('NEGATIVE CONTROL: without the unbound-source clause, the copy survives its original expiring', async () => {
+        await mutate('public._prec_att_purge_tip_on_expire()',
+            `OR (a.tip_session_id IS NULL AND EXISTS (`, `OR (false AND EXISTS (`);
+        await seed(A, 60, 6);
+        const attempt = await accept(await recommendOnA());
+        await expireTranscript(A);
+        expect(await state(attempt)).toMatchObject({ practised_tip: TIP, tip_session_id: null });
+    });
+
+    it('a copy is taken only from the newest saved session: an older original, still available, gives none', async () => {
+        // Retention is not running here (as in Production today), so A keeps its transcript and review after B saves.
+        await seed(A, 60, 6);
+        await seed(B, 30, 4);
+        const fromOlder = await accept(await recommendOnA());
+        expect(await reviewOf(A)).not.toBeNull();
+        expect(await state(fromOlder)).toMatchObject({ practised_tip: null, tip_session_id: null, lifecycle: 'pending' });
+
+        // A session that is only started (not saved) does not make the original older.
+        await db.exec('TRUNCATE public.progress_recommendation_attempts, public.progress_recommendations, public.session_progress_evaluations, public.sessions CASCADE');
+        await seed(C, 90, 4);
+        await seed(A, 60, 6);
+        await start(B);
+        expect(await tipOf(await accept(await recommendOnA()))).toBe(TIP);
+    });
+
+    it('NEGATIVE CONTROL: without the newest-original rule, an older original\'s tip is copied', async () => {
+        await mutate('public._prec_att_snapshot_tip()', `AND (n.created_at, n.id) > (s.created_at, s.id)`, `AND false`);
+        await seed(A, 60, 6);
+        await seed(B, 30, 4);
+        expect(await tipOf(await accept(await recommendOnA()))).toBe(TIP);
+    });
+
     it('the helper functions are not callable by clients', async () => {
-        for (const fn of ['_prec_att_review_tip(jsonb)', '_prec_att_snapshot_tip()', '_prec_att_can_hold_tip(public.progress_recommendation_attempts, uuid)',
+        for (const fn of ['_prec_att_review_tip(jsonb)', '_prec_att_lock_owner(uuid)', '_prec_att_snapshot_tip()', '_prec_att_can_hold_tip(public.progress_recommendation_attempts, uuid)',
             '_prec_att_guard_tip()', '_prec_att_on_session_completed()', '_prec_att_purge_tip_on_expire()']) {
             const grants = await db.query<{ allowed: boolean }>(`SELECT has_function_privilege('authenticated', '${fn}'::regprocedure, 'EXECUTE') AS allowed`);
             expect({ fn, allowed: grants.rows[0].allowed }).toEqual({ fn, allowed: false });

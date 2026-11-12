@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Outcome 4 D2 rev 2 — concurrency proof for the practised-tip migration on a REAL PostgreSQL server.
+# Outcome 4 D2 rev 3 — concurrency proof for the practised-tip migration on a REAL PostgreSQL server.
 # PGlite is single-connection, so interleaved transactions are proven here instead. NOT run in CI.
 # Usage (disposable local server only, never a hosted database):
 #   PGHOST=/path/to/socket PGPORT=5432 PGUSER=postgres tests/db/manual/repeat-practised-tip-concurrency.sh
@@ -22,7 +22,7 @@ fail=0
 q() { PGOPTIONS="-c client_min_messages=warning" psql -X -q -v ON_ERROR_STOP=1 -d "$DB" "$@"; }
 as_user() { printf "SET request.jwt.claim.sub = '%s'; SET ROLE authenticated; %s" "$U" "$1"; }
 
-setup() {
+setup() { # $1 = scenario name; $2 = "noaccept" to leave Practice again to the scenario (B then starts before it)
   DB="tip_conc_$1"
   PGOPTIONS="-c client_min_messages=warning" psql -X -q -d postgres -c "DROP DATABASE IF EXISTS $DB" -c "CREATE DATABASE $DB"
   q -f "$ROOT/tests/db/progress-evaluations-bootstrap.sql" >/dev/null
@@ -39,17 +39,22 @@ VALUES ('$A', '$U', 300, 120, 140, '{"um":{"count":6},"total":{"count":6}}', 'a 
 SQL
   q -Atc "$(as_user "SELECT public.record_progress_evaluation('$A');")" >/dev/null
   REC=$(q -Atc "$(as_user "SELECT public.record_progress_recommendation('$A', 'filler_rate', 'decrease', 3, 'percent', 'Cut fillers');")" | tail -1)
-  ATT=$(q -Atc "$(as_user "SELECT public.record_recommendation_attempt('$REC');")" | tail -1)
-  # B then C start recording after Practice again.
+  if [[ "${2:-}" != noaccept ]]; then
+    q -Atc "$(as_user "SELECT public.record_recommendation_attempt('$REC');")" >/dev/null
+  fi
+  # B then C start recording (after Practice again, unless the scenario presses it later).
   for s in "$B" "$C"; do
     q -c "INSERT INTO public.sessions (id, user_id, total_words, duration, wpm, filler_words, engine, engine_version, model_name,
           attribution_status, status, created_at, transcript_state) VALUES ('$s', '$U', 300, 120, 140,
           '{\"um\":{\"count\":2},\"total\":{\"count\":2}}', 'private', 'whisper-base.en@v2', 'whisper-base.en', 'verified',
           'active', clock_timestamp(), 'not_captured')" >/dev/null
   done
+  ATT_SQL="(SELECT id FROM public.progress_recommendation_attempts WHERE recommendation_id = '$REC')"
 }
+accept_sql() { as_user "SELECT public.record_recommendation_attempt('$REC');"; }
+expire_a_sql() { echo "UPDATE public.sessions SET transcript = NULL, transcript_state = 'expired' WHERE id = '$A';"; }
 complete_sql() { echo "UPDATE public.sessions SET status = 'completed' WHERE id = '$1';"; }
-result() { q -Atc "SELECT coalesce(practised_tip, '<none>') || ' | bound=' || coalesce(tip_session_id::text, '<none>') || ' | practice=' || coalesce(practice_session_id::text, '<none>') || ' | ' || lifecycle FROM public.progress_recommendation_attempts WHERE id = '$ATT'"; }
+result() { q -Atc "SELECT coalesce(practised_tip, '<none>') || ' | bound=' || coalesce(tip_session_id::text, '<none>') || ' | practice=' || coalesce(practice_session_id::text, '<none>') || ' | ' || lifecycle FROM public.progress_recommendation_attempts WHERE recommendation_id = '$REC'"; }
 check() { local name="$1" want="$2" got; got="$(result)"; if [[ "$got" == "$want" ]]; then echo "PASS  $name: $got"; else echo "FAIL  $name: got [$got] want [$want]"; fail=1; fi; }
 overlap() { # $1 = first txn body (held open 3 s), $2 = second txn body (starts 1 s later)
   q -c "BEGIN; $1 SELECT pg_sleep(3); COMMIT;" >/dev/null & local first=$!
@@ -65,21 +70,37 @@ check "C supersedes B even though B's binding was uncommitted when C started" "<
 echo "2. The advance for B is still open when the newer C saves."
 setup s2; q -c "$(complete_sql "$B")" >/dev/null
 q -Atc "$(as_user "SELECT public.record_progress_evaluation('$B');")" >/dev/null
-overlap "$(as_user "SELECT public.advance_recommendation_attempt('$ATT', 'not_comparable', '$B');")" "$(complete_sql "$C")"
+overlap "$(as_user "SELECT public.advance_recommendation_attempt($ATT_SQL, 'not_comparable', '$B');")" "$(complete_sql "$C")"
 check "C's save waits for the advance, then deletes the copy" "<none> | bound=$B | practice=$B | not_comparable"
 
 echo "3. Delayed retry: C's save is still open when the late advance for B arrives."
 setup s3; q -c "$(complete_sql "$B")" >/dev/null
 q -Atc "$(as_user "SELECT public.record_progress_evaluation('$B');")" >/dev/null
-overlap "$(complete_sql "$C")" "$(as_user "SELECT public.advance_recommendation_attempt('$ATT', 'not_comparable', '$B');")"
+overlap "$(complete_sql "$C")" "$(as_user "SELECT public.advance_recommendation_attempt($ATT_SQL, 'not_comparable', '$B');")"
 check "the late advance binds B and carries no tip" "<none> | bound=$B | practice=$B | not_comparable"
 
 echo "4. Control: B saves and is advanced with nothing overlapping."
 setup s4; q -c "$(complete_sql "$B")" >/dev/null
-q -Atc "$(as_user "SELECT public.advance_recommendation_attempt('$ATT', 'abandoned');")" >/dev/null
+q -Atc "$(as_user "SELECT public.advance_recommendation_attempt($ATT_SQL, 'abandoned');")" >/dev/null
 check "abandon clears; binding kept" "<none> | bound=$B | practice=<none> | abandoned"
 setup s5; q -c "$(complete_sql "$B")" >/dev/null
 check "B alone keeps the tip" "$TIP | bound=$B | practice=<none> | pending"
 
-for s in s1 s2 s3 s4 s5; do PGOPTIONS="-c client_min_messages=warning" psql -X -q -d postgres -c "DROP DATABASE IF EXISTS tip_conc_$s"; done
+echo "6. Practice again on A while a newer save (B, started before it) is still open."
+setup s6 noaccept; overlap "$(complete_sql "$B")" "$(accept_sql)"
+check "the accept waits for B's save; A is no longer newest, so nothing is copied" "<none> | bound=<none> | practice=<none> | pending"
+
+echo "7. A newer save (B, started before Practice again) while Practice again is still open."
+setup s7 noaccept; overlap "$(accept_sql)" "$(complete_sql "$B")"
+check "B's save waits for the new attempt, then deletes its copy" "<none> | bound=<none> | practice=<none> | pending"
+
+echo "8. Practice again on A while A's expiry is still open."
+setup s8 noaccept; overlap "$(expire_a_sql)" "$(accept_sql)"
+check "the accept waits for the expiry; nothing is copied from an expired original" "<none> | bound=<none> | practice=<none> | pending"
+
+echo "9. A's expiry while Practice again is still open."
+setup s9 noaccept; overlap "$(accept_sql)" "$(expire_a_sql)"
+check "the expiry waits for the new attempt, then deletes its unbound copy" "<none> | bound=<none> | practice=<none> | pending"
+
+for s in s1 s2 s3 s4 s5 s6 s7 s8 s9; do PGOPTIONS="-c client_min_messages=warning" psql -X -q -d postgres -c "DROP DATABASE IF EXISTS tip_conc_$s"; done
 exit $fail
