@@ -42,4 +42,10 @@ describe('#1532 partial fixture under the real matcher', () => {
     it('the offline STT transcript of the committed WAV scores exactly the expected verdicts', () => {
         expect(deriveFocusCoverage(points, WHISPER_TRANSCRIPT, entry.speechSeconds as number).rows.map((r) => r.status)).toEqual(expectedFinal);
     });
+    it('a second loop preserves partial/absent statuses for the eligible source and repeat', () => {
+        for (const text of [spoken, WHISPER_TRANSCRIPT]) {
+            expect(deriveFocusCoverage(points, `${text} ${text}`, 60).rows.map((r) => r.status)).toEqual(expectedFinal);
+        }
+    });
+
 });

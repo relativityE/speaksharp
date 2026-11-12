@@ -20,3 +20,24 @@ test('unavailable or nonancestor release cannot be substituted',t=>{const f=fixt
 test('normal changed workflow plus proof files remain diagnostic only',t=>{const f=fixture(t);const head=f.commit('.github/workflows/rc-gates.yml','synthetic diagnostic workflow');assert.equal(verify({...f.env,GITHUB_SHA:head},f.dir).kind,'rwt-diagnostic-source-compatible-not-release-qualification');});
 test('only the exact accepted attribution and integration postimages may differ from deployed source',t=>{const f=fixture(t);let head=f.head;for(const p of Object.keys({...TEST_PINS,...INTEGRATION_PINS}))head=f.commit(p,fs.readFileSync(path.resolve(__dirname,'../../..',p)));assert.equal(verify({...f.env,GITHUB_SHA:head},f.dir).servedSha,f.release);});
 for(const p of Object.keys({...TEST_PINS,...INTEGRATION_PINS}))test('changed reviewed source bytes refuse: '+p,t=>{const f=fixture(t),head=f.commit(p,'synthetic unreviewed alteration');assert.throws(()=>verify({...f.env,GITHUB_SHA:head},f.dir),/DIAGNOSTIC_TEST_SOURCE_PIN_DIFFERS/);});
+
+// The v3 integration must remain usable against the unchanged deployed product.
+const V3_PROOF_PATHS=[
+ "scripts/lib/helperExecutionEvidence.mjs",
+ "scripts/lib/sourceContractEvidence.mjs",
+ "tests/live/helpers/runOwnedCleanup.ts",
+ "tests/live/helpers/rwtHarnessParity.ts",
+ "tests/live/helpers/rwtWatchdog.ts",
+ "tests/unit/helperExecutionEvidence.test.js",
+ "tests/unit/runOwnedCleanupNullCount1593.test.ts",
+ "tests/unit/runOwnedCleanupSaveObligations1643.test.ts",
+ "tests/unit/rwtHarnessParity.test.ts",
+ "tests/unit/rwtRunBoundCleanup.test.ts",
+ "tests/unit/rwtSharedAcceptance1811.test.ts",
+ "tests/unit/rwtWatchdogAht0215Signals.test.ts",
+ "tests/unit/sourceContractEvidence.test.js"
+];
+test('v3 integration pins include every changed cleanup, watchdog and registry proof input',()=>{for(const p of V3_PROOF_PATHS)assert.ok(Object.hasOwn({...TEST_PINS,...INTEGRATION_PINS},p), 'missing reviewed proof pin: '+p);});
+test('an unreviewed sibling of a v3 helper still refuses',t=>{const f=fixture(t),head=f.commit('tests/live/helpers/runOwnedCleanupUnreviewed.ts','unreviewed sibling');assert.throws(()=>verify({...f.env,GITHUB_SHA:head},f.dir),/PRODUCT_OR_LIVE_TEST_SOURCE_DIFFERS/);});
+
+test('inherited main proof inputs stay individually pinned',()=>{for(const p of ['product_release/RELEASE_STATUS.md', 'product_release/ROADMAP.md', 'tests/live/rwt-open-mic-first-session.live.spec.ts'])assert.ok(Object.hasOwn(INTEGRATION_PINS,p), p);});
