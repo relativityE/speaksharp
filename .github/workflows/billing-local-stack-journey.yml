@@ -127,6 +127,10 @@ jobs:
       - name: Start the disposable local Supabase stack (migrations from this commit)
         run: |
           set -euo pipefail
+          # backend/supabase/seed.sql is a stale local-dev fixture: it writes the generated auth.users.confirmed_at
+          # column, collides with the profile trigger and ends in a psql-only \echo, so seeding stops the start. The
+          # journey makes its own throwaway accounts, so this runner's checkout skips seeding; the repo file is untouched.
+          printf '\n[db.seed]\nenabled = false\n' >> "$SUPABASE_WORKDIR/supabase/config.toml"
           supabase start --workdir "$SUPABASE_WORKDIR" -x studio,imgproxy,vector,logflare
           status="$(supabase status --workdir "$SUPABASE_WORKDIR" -o json)"
           api_url="$(jq -r '.API_URL' <<<"$status")"
