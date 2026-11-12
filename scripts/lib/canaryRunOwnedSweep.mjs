@@ -1,5 +1,5 @@
 /**
- * DRAFT for review (not yet wired into canary.yml) — canary active-trial lane, run-owned trial accounts: the orphan SWEEPER core.
+ * Canary active-trial lane, run-owned trial accounts: the orphan SWEEPER core (wired by scripts/canary-run-owned.ts).
  *
  * Deletes a candidate ONLY with positive proof that it is a canary run-owned account from a FINISHED run of THIS
  * repository/workflow, re-checked immediately before deletion. Anything unknown is left alone and reported (non-success).
@@ -48,7 +48,7 @@ export function decide({ account, run, now, expected, self }) {
 
 /**
  * Sweep. deps: listRunOwnedAccounts() → [{id,email,created_at,app_metadata}] | throws; getUser(id) → account|null|throws;
- * getRun(runId) → run | {error:true}; deleteAndProve(id) → {ok:true} | {ok:false, step} | {ok:'absent'} (absent = auth user
+ * getRun(runId, runAttempt) → that ATTEMPT's run | {error:true}; deleteAndProve(id) → {ok:true} | {ok:false, step} | {ok:'absent'} (absent = auth user
  * already gone AND full residue read-back zero; residue without an account must be {ok:false, step:'residue-without-account'}).
  */
 export async function sweep(deps, { now = Date.now(), expected, self } = {}) {
@@ -58,7 +58,8 @@ export async function sweep(deps, { now = Date.now(), expected, self } = {}) {
     try { candidates = await deps.listRunOwnedAccounts(); } catch { report.success = false; report.failures['list-failed'] = 1; return report; }
     for (const account of candidates) {
         let first;
-        try { first = decide({ account, run: await deps.getRun(parseBinding(account.app_metadata, expected)?.runId ?? ''), now, expected, self }); }
+        const bound = parseBinding(account.app_metadata, expected);
+        try { first = decide({ account, run: bound ? await deps.getRun(bound.runId, bound.runAttempt) : null, now, expected, self }); }
         catch { leave('run-lookup-failed'); continue; }
         if (first.action !== 'delete') { if (first.reason !== 'not-run-owned-prefix') leave(first.reason); continue; }
         if (report.swept + report.alreadyGone >= MAX_DELETES_PER_SWEEP) { report.capReached = true; report.success = false; continue; }
@@ -70,7 +71,7 @@ export async function sweep(deps, { now = Date.now(), expected, self } = {}) {
             // before it may report `absent` (never counted as gone from the auth lookup alone).
             if (!fresh) { again = { action: 'delete', binding: first.binding }; }
             else {
-                const run = await deps.getRun(first.binding.runId);
+                const run = await deps.getRun(first.binding.runId, first.binding.runAttempt);
                 again = decide({ account: fresh, run, now, expected, self });
                 if (again.action === 'delete' && (again.binding.runId !== first.binding.runId || again.binding.runAttempt !== first.binding.runAttempt)) {
                     again = { action: 'leave', reason: 'binding-changed' };

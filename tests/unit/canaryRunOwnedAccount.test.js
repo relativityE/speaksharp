@@ -1,5 +1,5 @@
 // @vitest-environment node
-/** DRAFT controls: one run-owned trial account per run, bound to the exact run before use. Not yet wired into canary.yml. */
+/** Controls: one run-owned trial account per run, bound to the exact run before use (#1826). */
 import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { __resetCreateGuardForTests, createRunOwnedTrialAccount, currentCanaryBinding } from '../../scripts/lib/canaryRunOwnedAccount.mjs';
 

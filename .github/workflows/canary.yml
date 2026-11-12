@@ -142,6 +142,10 @@ jobs:
       matrix:
         lane: ${{ fromJSON(github.event.schedule == '0 6 * * 1' && '["active-trial","billing-qualification"]' || '["active-trial"]') }}
     runs-on: ubuntu-latest
+    # #1826: the run-owned sweep reads finished-run state for this repository (actions: read); nothing else is granted.
+    permissions:
+      contents: read
+      actions: read
     # 45 minutes (was 25, 15, 10). The job ceiling is the OUTERMOST budget, so it must fit EVERY permitted
     # attempt, or GitHub kills a legitimate retry before it can pass or report (#1518, Codex P1 on
     # 3492c5b). `playwright.canary.config.ts` keeps `retries: 1` — the canary's existing failure contract.
@@ -178,17 +182,27 @@ jobs:
         run: node scripts/canary-identity-config.mjs
 
       # ── Routine active-trial lane: the COMPLETE Pro product path through a genuine, server-active 30-day
-      #    trial (its effective tier is already 'pro'). Read-only sign-in; never mutates or charges. ──
-      - name: Provision Canary User (active-trial)
+      #    trial. #1826 (PO Option 2): the 30-day trial is one-time per account, so each run creates ONE fresh
+      #    run-owned `ctrial-run-*` account (which gets its own 30-day trial at signup), binds it to this exact
+      #    run in app_metadata, and deletes it at the end with the shared zero-residue proof. This is the ONLY
+      #    production write the canary makes, and only in this lane; the billing-qualification lane is unchanged.
+      #    The credentials reach later steps only through masked $GITHUB_ENV values. ──
+      - name: Create run-owned trial account (active-trial)
         if: matrix.lane == 'active-trial'
         env:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
-          # READ-ONLY canary: the PUBLIC anon key is the ONLY credential. No service-role key is injected —
-          # the canary cannot create an account, reset a password, or grant/extend a trial. Any sign-in or
-          # verification failure fails closed.
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # Only the operator-owned DOMAIN of the configured trial identity is used for the new address.
+          CANARY_TRIAL_EMAIL: ${{ vars.CANARY_TRIAL_EMAIL }}
+        run: pnpm exec tsx scripts/canary-run-owned.ts setup
+
+      # Read-only verification of the new account through the PUBLIC anon flow: sign-in and an active-trial
+      # profile binding. No service-role key here.
+      - name: Verify run-owned trial account (active-trial)
+        if: matrix.lane == 'active-trial'
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          CANARY_LANE_PASSWORD: ${{ secrets.CANARY_TRIAL_PASSWORD }}
-          CANARY_EMAIL: ${{ vars.CANARY_TRIAL_EMAIL }}
           CANARY_EXPECTED_ACCESS: active-trial
           CANARY_MAX: '2'
           CANARY_ENFORCE: fail
@@ -199,13 +213,30 @@ jobs:
         env:
           VITE_TEST_MODE: "true"
           VITE_USE_LIVE_DB: "true"
-          CANARY_LANE_PASSWORD: ${{ secrets.CANARY_TRIAL_PASSWORD }}
-          CANARY_EMAIL: ${{ vars.CANARY_TRIAL_EMAIL }}
           CANARY_EXPECTED_ACCESS: active-trial
           BASE_URL: https://speaksharp-public.vercel.app/
           # A later main merge is not a deployment. Test the verified served release, not github.sha.
           EXPECTED_RELEASE_SHA: ${{ needs.release-binding.outputs.release_sha }}
         run: pnpm test:deploy:prod
+
+      # Always delete THIS run+attempt's account, whatever happened above. Unproven deletion or residue fails
+      # the job (never silently green).
+      - name: Delete run-owned trial account (active-trial)
+        if: always() && matrix.lane == 'active-trial'
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: pnpm exec tsx scripts/canary-run-owned.ts cleanup
+
+      # Hygiene, after the product result: remove orphans of FINISHED earlier runs (runner lost before its
+      # delete step), bounded and re-checked. Accounts it cannot prove finished are left and reported.
+      - name: Sweep run-owned orphans (hygiene)
+        if: always() && matrix.lane == 'active-trial'
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: pnpm exec tsx scripts/canary-run-owned.ts sweep
 
       # ── Automated WEEKLY Stripe test-mode/test-clock billing lifecycle qualification. NO live charge, NO real
       #    card. It fails closed BEFORE creating anything unless Stripe proves livemode=false with a sk_test_ key

@@ -1,5 +1,5 @@
 // @vitest-environment node
-/** DRAFT controls for the canary run-owned trial-account sweeper. Not yet wired into canary.yml. */
+/** Controls for the canary run-owned trial-account sweeper (#1826). */
 import { describe, it, expect, vi } from 'vitest';
 import { decide, parseBinding, sweep, MAX_DELETES_PER_SWEEP, ROLE } from '../../scripts/lib/canaryRunOwnedSweep.mjs';
 
@@ -55,6 +55,12 @@ const deps = (accounts, o = {}) => {
 const S = (dep, self) => sweep(dep, { now: NOW, expected: EXPECTED, self });
 
 describe('sweep — re-check, residue proof, caps, races', () => {
+    it('reads the state of the bound ATTEMPT, not just the run, on both the first read and the re-check', async () => {
+        const dep = deps([acct()]);
+        await S(dep);
+        expect(dep.getRun.mock.calls.length).toBe(2);
+        for (const call of dep.getRun.mock.calls) expect(call).toEqual([expect.any(String), expect.stringMatching(/^[1-9]\d*$/)]);
+    });
     it('sweeps an eligible orphan after re-checking it, with the residue proof', async () => {
         const dep = deps([acct()]);
         expect(await S(dep)).toMatchObject({ swept: 1, success: true });
