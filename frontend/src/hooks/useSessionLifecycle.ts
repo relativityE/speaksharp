@@ -11,6 +11,7 @@ import { toTelemetryMode, isShadowMetricsEngineEnabled } from '@/services/teleme
 import { useSpeechRecognition } from './useSpeechRecognition';
 import { pushE2EEvent } from '@/lib/e2eProbe';
 import { sanitizeStartError } from '@/lib/sanitizeStartError';
+import { MIC_ACCESS_MESSAGES, MIC_BLOCKED_MESSAGE, micAccessIssue } from '@/lib/micAccessErrors';
 import { useSessionMetrics } from './useSessionMetrics';
 import { useUsageLimit, type UsageLimitCheck } from './useUsageLimit';
 import { useStreak } from './useStreak';
@@ -57,17 +58,16 @@ import {
 const getStartFailureMessage = (error: unknown, mode: TranscriptionMode): string => {
     const err = error as { name?: string; message?: string; cause?: { name?: unknown } } | null;
     const rawMessage = typeof err?.message === 'string' ? err.message.trim() : '';
-    // The controller retains the sanitized engine error as the canonical wrapper's
-    // cause. Use only its closed type name; never render arbitrary cause prose.
-    const deniedName = (name: unknown) => name === 'NotAllowedError' || name === 'PermissionDeniedError';
-    const micPermissionError =
-        deniedName(err?.name)
-        || (rawMessage.startsWith('TRANSCRIPTION_START_DID_NOT_RECORD:') && deniedName(err?.cause?.name))
-        || ((!err?.name || err.name === 'Error')
-            && /^(?:mic_stream_unavailable|NotAllowedError(?::.*)?|PermissionDeniedError(?::.*)?)$/.test(rawMessage));
+    // A denied, missing or busy microphone gets its own actionable copy. The controller retains the
+    // sanitized engine error as the canonical wrapper's cause; only its closed name (and the closed
+    // getUserMedia marker) is read, never arbitrary cause prose.
+    const micIssue = micAccessIssue(error);
+    if (micIssue) return MIC_ACCESS_MESSAGES[micIssue];
+    const micPermissionError = (!err?.name || err.name === 'Error')
+        && /^(?:mic_stream_unavailable|NotAllowedError(?::.*)?|PermissionDeniedError(?::.*)?)$/.test(rawMessage);
 
     if (micPermissionError) {
-        return 'Microphone access is blocked. Allow microphone access and try again.';
+        return MIC_BLOCKED_MESSAGE;
     }
 
     if (mode === 'private') {
