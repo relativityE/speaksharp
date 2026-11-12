@@ -131,6 +131,10 @@ export async function handler(
           console.error(`[Stripe Webhook] refund follow-up uncertain for ${event.id}: ${refund.reason}`);
           return createErrorResponse(ErrorCodes.STRIPE_API_ERROR, "Refund follow-up unverified", responseHeaders);
         }
+        if (refund.outcome === "partial_refund_ignored") {
+          // Refunds are full only; a partial one changes nothing here and needs an operator to look at it.
+          console.error(`[Stripe Webhook] partial refund left unscheduled for ${event.id}`);
+        }
         return createSuccessResponse({ received: true, refund: refund.outcome }, responseHeaders);
       }
       default:

@@ -6,7 +6,7 @@
  */
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { handler } from "./index.ts";
-import { ENDED_STATES, SCHEDULABLE_STATES, scheduleCancellationAfterRefund } from "./refund.ts";
+import { ENDED_STATES, SCHEDULABLE_STATES, reference, refundAmount, scheduleCancellationAfterRefund } from "./refund.ts";
 
 const PRO = "price_pro_1282";
 const env = (key: string) => ({ STRIPE_PRO_PRICE_ID: PRO, STRIPE_PRICE_CURRENCY: "usd" } as Record<string, string>)[key];
@@ -14,18 +14,21 @@ const env = (key: string) => ({ STRIPE_PRO_PRICE_ID: PRO, STRIPE_PRICE_CURRENCY:
 type Call = [string, ...unknown[]];
 
 const proSub = (over: Record<string, unknown> = {}) => ({ id: "sub_1", customer: "cus_1", livemode: false, status: "active",
-  cancel_at_period_end: false, current_period_end: 3000, items: { data: [{ price: { id: PRO } }] }, ...over });
-const invoiceFor = (over: Record<string, unknown> = {}) => ({ id: "in_1", customer: "cus_1", livemode: false, subscription: "sub_1", ...over });
+  cancel_at_period_end: false, current_period_end: 3000, latest_invoice: "in_1", items: { data: [{ price: { id: PRO } }] }, ...over });
+const invoiceFor = (over: Record<string, unknown> = {}) => ({ id: "in_1", customer: "cus_1", livemode: false, subscription: "sub_1", status: "paid", currency: "usd",
+  amount_paid: 1000, ...over });
 
 function fakeStripe(opts: {
-  invoice?: any; invoiceErr?: boolean; sub?: any; subErr?: boolean; updateErr?: boolean; updated?: any;
+  invoice?: any; invoices?: Record<string, any>; invoiceErr?: boolean; sub?: any; subErr?: boolean; updateErr?: boolean; updated?: any;
 } = {}) {
   const calls: Call[] = [];
   const stripe = {
     webhooks: { constructEvent: (body: string) => JSON.parse(body) },
     invoices: {
       retrieve: (id: string) => { calls.push(["invoices.retrieve", id]);
-        return opts.invoiceErr ? Promise.reject(new Error("down")) : Promise.resolve("invoice" in opts ? opts.invoice : invoiceFor({ id })); },
+        if (opts.invoiceErr) return Promise.reject(new Error("down"));
+        if (opts.invoices && id in opts.invoices) return Promise.resolve(opts.invoices[id]);
+        return Promise.resolve("invoice" in opts ? opts.invoice : invoiceFor({ id })); },
     },
     subscriptions: {
       retrieve: (id: string) => { calls.push(["subscriptions.retrieve", id]);
@@ -43,7 +46,8 @@ function fakeStripe(opts: {
 }
 
 const fullCharge = (over: Record<string, unknown> = {}) =>
-  ({ id: "ch_1", customer: "cus_1", livemode: false, amount: 1000, amount_refunded: 1000, refunded: true, invoice: "in_1", ...over });
+  ({ id: "ch_1", customer: "cus_1", livemode: false, amount: 1000, amount_refunded: 1000, refunded: true, currency: "usd",
+    invoice: "in_1", ...over });
 
 const db = () => {
   const rpcs: string[] = [];
@@ -192,5 +196,123 @@ Deno.test("refund → cancel at period end", async (t) => {
     const out = await scheduleCancellationAfterRefund(stripe, fullCharge({ subscription: "sub_spoofed" }), "evt", PRO);
     assertEquals(out, { outcome: "scheduled", subscriptionId: "sub_from_invoice" });
     assertEquals(updates(calls)[0]?.[1], "sub_from_invoice");
+  });
+  await t.step("v5 return: only a verified full refund schedules; partial is acknowledged and changes nothing", async () => {
+    assertEquals(refundAmount(fullCharge()), "full");
+    assertEquals(refundAmount(fullCharge({ amount_refunded: 1, refunded: false })), "partial");
+    // A partial refund (1/1000) is acknowledged with no Stripe call, so nothing is cancelled.
+    const partial = fakeStripe();
+    const res = await handler(refundEvent(fullCharge({ amount_refunded: 1, refunded: false })), partial.stripe, db().supabase, "secret", env);
+    assertEquals(res.status, 200);
+    assertEquals((await res.json()).refund, "partial_refund_ignored");
+    assertEquals(partial.calls, []);
+    // Zero, missing or inconsistent amounts are unverified (non-2xx), never scheduled.
+    const unknown: Record<string, unknown>[] = [
+      { amount_refunded: 0, refunded: false }, { amount_refunded: 0, refunded: true }, { amount_refunded: undefined },
+      { amount_refunded: null }, { amount: undefined }, { amount: 0, amount_refunded: 0 }, { amount_refunded: "1000" },
+      { amount_refunded: 999.5 }, { amount_refunded: 1001 }, { refunded: false }, { refunded: undefined },
+      { amount_refunded: 1, refunded: true }, { amount: -1000, amount_refunded: -1000 },
+    ];
+    for (const over of unknown) {
+      assertEquals(refundAmount(fullCharge(over)), "unknown", JSON.stringify(over));
+      const { stripe, calls } = fakeStripe();
+      const out = await handler(refundEvent(fullCharge(over)), stripe, db().supabase, "secret", env);
+      assertEquals(out.status >= 500, true, JSON.stringify(over));
+      assertEquals(calls, [], JSON.stringify(over));
+    }
+  });
+
+  await t.step("v5 return: an explicit null is 'no invoice'; a missing or malformed reference is unverified", async () => {
+    assertEquals(reference(null), { kind: "absent" });
+    assertEquals(reference("in_1"), { kind: "id", id: "in_1" });
+    assertEquals(reference({ id: "in_1" }), { kind: "id", id: "in_1" });
+    for (const value of [undefined, "", "  ", 42, {}, { id: 7 }, { id: "" }, "in 1", "not-an-id", [], true]) {
+      assertEquals(reference(value), { kind: "malformed" }, JSON.stringify(value));
+    }
+    for (const invoice of [undefined, "", 42, {}, { id: "" }, "not-an-id"]) {
+      const { stripe, calls } = fakeStripe();
+      const charge = fullCharge({ invoice });
+      if (invoice === undefined) delete (charge as Record<string, unknown>).invoice;
+      const res = await handler(refundEvent(charge), stripe, db().supabase, "secret", env);
+      assertEquals(res.status >= 500, true, `charge.invoice ${JSON.stringify(invoice)}`);
+      assertEquals(updates(calls), []);
+    }
+    for (const subscription of [undefined, "", 42, {}, { id: null }, "not-an-id"]) {
+      const invoice = invoiceFor({ subscription });
+      if (subscription === undefined) delete (invoice as Record<string, unknown>).subscription;
+      const { stripe, calls } = fakeStripe({ invoice });
+      const res = await handler(refundEvent(), stripe, db().supabase, "secret", env);
+      assertEquals(res.status >= 500, true, `invoice.subscription ${JSON.stringify(subscription)}`);
+      assertEquals(updates(calls), []);
+    }
+  });
+
+  await t.step("v5 return: the refunded invoice must be the paid invoice for this charge", async () => {
+    for (const over of [{ status: "open" }, { status: "void" }, { status: undefined }, { currency: "eur" }, { amount_paid: 1 },
+      { amount_paid: undefined }]) {
+      const { stripe, calls } = fakeStripe({ invoice: invoiceFor(over) });
+      const res = await handler(refundEvent(), stripe, db().supabase, "secret", env);
+      assertEquals(res.status >= 500, true, JSON.stringify(over));
+      assertEquals(updates(calls), [], JSON.stringify(over));
+    }
+  });
+
+  await t.step("v5 return: a cancellation answer with a missing or unknown status is never 'scheduled'", async () => {
+    for (const status of [undefined, null, "", "something_new", "incomplete", "canceled"]) {
+      const { stripe } = fakeStripe({ updated: proSub({ status, cancel_at_period_end: true }) });
+      const res = await handler(refundEvent(), stripe, db().supabase, "secret", env);
+      assertEquals(res.status >= 500, true, String(status));
+    }
+    for (const over of [{ customer: "cus_other" }, { customer: undefined }, { livemode: true }, { livemode: undefined }]) {
+      const { stripe } = fakeStripe({ updated: proSub({ cancel_at_period_end: true, ...over }) });
+      const res = await handler(refundEvent(), stripe, db().supabase, "secret", env);
+      assertEquals(res.status >= 500, true, JSON.stringify(over));
+    }
+  });
+
+  await t.step("renewal boundary: latest invoice schedules; an earlier one schedules only when the renewal is paid", async () => {
+    // The refunded invoice is the subscription's latest: scheduled.
+    const current = fakeStripe();
+    assertEquals((await (await handler(refundEvent(), current.stripe, db().supabase, "secret", env)).json()).refund, "scheduled");
+    // An earlier invoice, renewal already paid (or voided): scheduled, so the member keeps the paid month.
+    for (const status of ["paid", "void"]) {
+      const renewal = invoiceFor({ id: "in_2", status, amount_paid: status === "paid" ? 1000 : 0 });
+      const { stripe, calls } = fakeStripe({ sub: proSub({ latest_invoice: "in_2" }), invoices: { in_2: renewal } });
+      const res = await handler(refundEvent(), stripe, db().supabase, "secret", env);
+      assertEquals((await res.json()).refund, "scheduled", status);
+      assertEquals(updates(calls).length, 1, status);
+    }
+    // The same with the latest invoice expanded on the subscription: no extra read needed.
+    const expanded = fakeStripe({ sub: proSub({ latest_invoice: invoiceFor({ id: "in_2" }) }) });
+    assertEquals((await (await handler(refundEvent(), expanded.stripe, db().supabase, "secret", env)).json()).refund, "scheduled");
+    assertEquals(expanded.calls.filter(c => c[0] === "invoices.retrieve").map(c => c[1]), ["in_1"]);
+    // An earlier invoice while a renewal is outstanding: cancel at period end would not stop Stripe collecting
+    // it, so this is unverified and nothing is changed.
+    for (const status of ["draft", "open", "uncollectible", undefined, "something_new"]) {
+      const renewal = invoiceFor({ id: "in_2", status });
+      const { stripe, calls } = fakeStripe({ sub: proSub({ status: "past_due", latest_invoice: "in_2" }), invoices: { in_2: renewal } });
+      const res = await handler(refundEvent(), stripe, db().supabase, "secret", env);
+      assertEquals(res.status >= 500, true, String(status));
+      assertEquals(updates(calls), [], String(status));
+    }
+    const named = fakeStripe({ sub: proSub({ latest_invoice: "in_2" }), invoices: { in_2: invoiceFor({ id: "in_2", status: "open" }) } });
+    assertEquals(await scheduleCancellationAfterRefund(named.stripe, fullCharge(), "evt", PRO),
+      { outcome: "unverified", reason: "a later renewal invoice is still outstanding" });
+    // A latest invoice that is not this subscription's, unreadable, or missing: unverified.
+    const cases: Record<string, unknown>[] = [
+      { sub: proSub({ latest_invoice: "in_2" }), invoices: { in_2: invoiceFor({ id: "in_2", subscription: "sub_other" }) } },
+      { sub: proSub({ latest_invoice: "in_2" }), invoices: { in_2: invoiceFor({ id: "in_2", customer: "cus_other" }) } },
+      { sub: proSub({ latest_invoice: "in_2" }), invoices: { in_2: invoiceFor({ id: "in_3" }) } },
+      { sub: proSub({ latest_invoice: "in_2" }), invoices: { in_2: null } },
+      { sub: proSub({ latest_invoice: null }) },
+      { sub: proSub({ latest_invoice: undefined }) },
+      { sub: proSub({ latest_invoice: 42 }) },
+    ];
+    for (const opts of cases) {
+      const { stripe, calls } = fakeStripe(opts);
+      const res = await handler(refundEvent(), stripe, db().supabase, "secret", env);
+      assertEquals(res.status >= 500, true, JSON.stringify(opts));
+      assertEquals(updates(calls), [], JSON.stringify(opts));
+    }
   });
 });
