@@ -97,7 +97,7 @@ describe('fatalSignalOf — an unexpected failure, refusal or forbidden recordin
 
     it('every watched field is a governed closed enum, never content or an id', () => {
         const keys = Object.values(WATCHED_FIELDS).flat();
-        expect(keys.every((k) => /^(from_state|to_state|failure_code|intent_kind|intent_outcome|runtime_state_at_intent|outcome|runtime_state|phase|reason)$/.test(k))).toBe(true);
+        expect(keys.every((k) => /^(from_state|to_state|failure_code|intent_kind|intent_outcome|runtime_state_at_intent|outcome|runtime_state|phase|reason|error_code)$/.test(k))).toBe(true);
     });
 });
 

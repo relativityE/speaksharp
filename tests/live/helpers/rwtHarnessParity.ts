@@ -11,7 +11,7 @@
  * - owned-pages-closed: every page the context opened closes without error at the end.
  * Rows carry counts and closed reasons only.
  */
-import type { BrowserContext, Page } from '@playwright/test';
+import type { BrowserContext, Page, Request } from '@playwright/test';
 
 export const CLOUD_STT_URL = /assemblyai/i;
 /** The cloud-test harness's Start controls (draft-adapters/browser-actions.cjs START_CONTROLS), exactly. */
@@ -23,6 +23,8 @@ export interface TakeBindings { takes: Array<{ control: StartControl; ids: strin
 export interface StartPressBudget { total: number; perControl: Partial<Record<StartControl, number>> }
 export const START_CONTROL = START_CONTROLS.map((id) => `[data-testid="${id}"]`).join(',');
 export const LEASE_ACQUIRE_URL = /\/rest\/v1\/rpc\/acquire_recording_lease(?:\?|$)/;
+/** The product's one take-saving write (frontend/src/lib/storage.ts `complete_session_v2`, named `p_session_id`). */
+export const SAVE_WRITE_URL = /\/rest\/v1\/rpc\/complete_session_v2(?:\?|$)/;
 
 interface RowSink { row: (step: string, verdict: 'PASS' | 'FAIL' | 'HOLD', detail: string, evidence?: Record<string, string | number | boolean | null>) => void }
 
@@ -40,6 +42,10 @@ export class HarnessParityTap {
     private readonly pressEvents: Array<{ doc: string; seq: number; control: StartControl }> = [];
     private readonly persistEvents: Array<{ doc: string; seq: number; id: string }> = [];
     private readonly pages = new Set<Page>();
+    /** Every context this tap is attached to: a save from any other context of the same browsers is invisible to it. */
+    private readonly contexts = new Set<BrowserContext>();
+    /** Every save request the pages sent: the take it names (null when unreadable) and whether it was answered. */
+    private readonly saves = new Map<Request, { sessionId: string | null; answered: boolean }>();
 
     /**
      * Each Start press is a take; its saved session is the persisted-id write in the SAME document after that press and before the
@@ -69,16 +75,30 @@ export class HarnessParityTap {
 
     /** Attach BEFORE the first navigation: the click recorder is an init script, so it covers every later document. */
     async attach(context: BrowserContext): Promise<void> {
+        this.contexts.add(context);
         for (const p of context.pages()) this.track(p);
         context.on('page', (p) => this.track(p));
         context.on('request', (r) => {
             if (CLOUD_STT_URL.test(r.url())) this.cloudSttRequests += 1;
+            if (r.method() === 'POST' && SAVE_WRITE_URL.test(r.url())) {
+                let id: unknown = null;
+                try { id = (r.postDataJSON() as { p_session_id?: unknown } | null)?.p_session_id; } catch { id = null; }
+                this.saves.set(r, { sessionId: typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id) ? id : null, answered: false });
+            }
             if (r.method() === 'POST' && LEASE_ACQUIRE_URL.test(r.url())) {
                 this.leaseAcquisitions += 1;
                 let lease: unknown = null;
                 try { lease = (r.postDataJSON() as { p_lease_id?: unknown } | null)?.p_lease_id; } catch { lease = null; }
                 if (typeof lease === 'string' && /^[0-9a-f-]{36}$/i.test(lease) && !this.leaseIds.includes(lease)) this.leaseIds.push(lease);
             }
+        });
+        // Answered = a successful 2xx response arrived. Redirects and error responses do not prove server settlement.
+        // A failed or aborted request, or a 5xx (a gateway may answer while the statement still runs), stays unanswered: whether
+        // the server admitted it is unknown, so its take is never closed by the cleanup. Until the response is read, it is unanswered.
+        context.on('requestfinished', (r) => {
+            const s = this.saves.get(r);
+            if (!s) return;
+            void r.response().then((res) => { if (res && res.status() >= 200 && res.status() < 300) s.answered = true; }, () => undefined);
         });
         const pressed = (_source: unknown, id: unknown, doc: unknown, seq: unknown) => {
             if (typeof id !== 'string' || !(START_CONTROLS as readonly string[]).includes(id) || typeof doc !== 'string' || !Number.isInteger(seq)) return;
@@ -134,6 +154,33 @@ export class HarnessParityTap {
                 : 'a Start control was pressed more often than the journey is designed to press it', { ...evidence, overControls: over.join(',') || null });
     }
 
+    private allClosedAt: number | null = null;
+
+    /**
+     * Harness clock (ms) at which `ownedPagesClosedRow` proved every page this tap tracks closed; null before that, when a page
+     * failed to close, or when any tracked page (including one opened since) is open now. The run-owned cleanup's proof that no
+     * page of the journey can still save a take (runOwnedCleanup.ts StoppedTakeProof). Also null (security review of v3, low 2)
+     * unless every context of every browser the tap's contexts belong to is one the tap is attached to: a context opened
+     * without `attach` could send a save the tap never sees.
+     */
+    get ownedPagesClosedAt(): number | null {
+        if (this.pages.size === 0 || ![...this.pages].every((p) => p.isClosed())) return null;
+        for (const c of this.contexts) {
+            const browser = typeof c.browser === 'function' ? c.browser() : null;
+            if (!browser || browser.contexts().some((other) => !this.contexts.has(other))) return null;
+        }
+        return this.allClosedAt;
+    }
+
+    /**
+     * Saves sent and never answered: the takes they name, and how many name none readable. The run-owned cleanup never closes
+     * such a take (runOwnedCleanup.ts StoppedTakeProof), because the server may still admit the save.
+     */
+    get unsettledSaves(): { sessionIds: string[]; unnamed: number } {
+        const open = [...this.saves.values()].filter((s) => !s.answered);
+        return { sessionIds: open.flatMap((s) => (s.sessionId ? [s.sessionId] : [])), unnamed: open.filter((s) => !s.sessionId).length };
+    }
+
     /** Close every page the context opened; PASS only when all closed without error. Call last, before account cleanup. */
     async ownedPagesClosedRow(receipt: RowSink, closeMs = 15_000): Promise<void> {
         const pages = [...this.pages];
@@ -151,6 +198,7 @@ export class HarnessParityTap {
         }
         const closed = pages.filter((p) => p.isClosed()).length;
         const ok = failedCloses === 0 && closed === pages.length;
+        this.allClosedAt = ok ? Date.now() : null;
         receipt.row('owned pages closed', ok ? 'PASS' : 'FAIL', ok ? 'every page the journey opened closed' : 'a page the journey opened did not close',
             { ownedPages: pages.length, closedPages: closed, failedCloses });
     }
