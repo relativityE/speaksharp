@@ -68,7 +68,7 @@ const receivedFeedback = (over: Partial<ReceivedCoachingRow> = {}): ReceivedCoac
     ...receivedFailure(), event: 'feedback_submit', outcome: 'storage_ok', coachingDiagnosticId: REQUEST, ...over,
 });
 const pass = (step: string): ReceiptRow => ({ step, verdict: 'PASS', detail: 'control' });
-function finalize(chainRow: ReceiptRow, received?: ReturnType<typeof evaluateCoachingDiagnosticReceipt>, productVerdict: 'PASS' | 'FAIL' | 'EXTERNAL' = 'PASS') {
+function finalize(chainRow: ReceiptRow, received?: ReturnType<typeof evaluateCoachingDiagnosticReceipt>, productVerdict: 'PASS' | 'FAIL' | 'EXTERNAL' = 'PASS', externalProof = { reason: 'provider_http_5xx', providerStatus: 503 as number | null }) {
     const rows: ReceiptRow[] = [
         ...['telemetry decodable', 'signup-stage telemetry (user class)', 'receipt content-free', 'journey telemetry (canary class)'].map(pass),
         ...['signup-stage telemetry received', 'journey telemetry received'].map((step): ReceiptRow => ({ step, verdict: 'HOLD', detail: 'readback pending' })),
@@ -83,7 +83,8 @@ function finalize(chainRow: ReceiptRow, received?: ReturnType<typeof evaluateCoa
     ];
     if (productVerdict === 'EXTERNAL') {
         const parent = rows.find((r) => r.step === 'coaching rendered')!;
-        parent.evidence = { httpStatus: 502, externalOutcome: 'provider_timeout', failureReason: 'provider_timeout',
+        parent.evidence = { httpStatus: 502, externalOutcome: externalProof.reason === 'provider_timeout' ? 'provider_timeout' : 'provider_5xx',
+            failureReason: externalProof.reason, providerStatus: externalProof.providerStatus,
             takeExchangeUnique: true, savedTakeProven: true, reviewState: 'error', unavailableShown: true, retryEnabled: true };
         Object.assign(rows.find((r) => r.step === 'coaching visible = saved')!, { verdict: 'EXTERNAL',
             evidence: { savedCoachingAbsent: true, visibleCoachingAbsent: true } });
@@ -144,14 +145,27 @@ describe('#1593 case7 answered-failure chain, adapter through finalization', () 
     });
 
     it('received failure-chain PASS leaves a proved provider outage EXTERNAL and acceptance INCOMPLETE', async () => {
-        const row = await chain({ exchange: failure('provider_timeout', null) });
+        const row = await chain({ exchange: failure('provider_http_5xx', 503) });
         const expected = binding(row);
         if (!validExpectation(expected)) throw new Error('adapter did not emit a valid received binding');
-        const result = evaluateCoachingDiagnosticReceipt([receivedFailure({ providerStatus: null }), receivedFeedback()], expected, RELEASE, sha);
+        const result = evaluateCoachingDiagnosticReceipt([receivedFailure({ providerStatus: 503 }), receivedFeedback()], expected, RELEASE, sha);
         const out = finalize(row, result, 'EXTERNAL');
         expect(out).toMatchObject({ status: 'final', finalAcceptance: 'INCOMPLETE', successfulCoachingOutstanding: true,
             chain: { verdict: 'PASS' } });
         expect(out.rows.find((r) => r.step === 'coaching rendered')?.verdict).toBe('EXTERNAL');
+    });
+
+    it.each([null, 200])('received failure-chain PASS cannot make timeout status %s an EXTERNAL outage', async (providerStatus) => {
+        const row = await chain({ exchange: failure('provider_timeout', providerStatus) });
+        const expected = binding(row);
+        if (!validExpectation(expected)) throw new Error('adapter did not emit a valid received binding');
+        const result = evaluateCoachingDiagnosticReceipt([receivedFailure({ providerStatus }), receivedFeedback()], expected, RELEASE, sha);
+        expect(result.verdict).toBe('PASS'); // received failure telemetry does not prove a provider outage
+        const forged = finalize(row, result, 'EXTERNAL', { reason: 'provider_timeout', providerStatus });
+        expect(forged.status).toBe('binding_error');
+        expect(forged.errors.join(' ')).toContain('provider timeout lacks an observed integer upstream 5xx/429 status');
+        const productFailure = finalize(row, result, 'FAIL');
+        expect(productFailure).toMatchObject({ status: 'final', finalAcceptance: 'FAIL', chain: { verdict: 'PASS' } });
     });
 
     it.each([

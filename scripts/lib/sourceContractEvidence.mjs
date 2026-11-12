@@ -8,6 +8,7 @@ export const SOURCE_CONSUMER='tests/unit/sourceContractEvidence.test.js';
 export const SOURCE_ASSERTION='consumes registered source inputs with fault-sensitive contracts and no live credit';
 export const CASE07_APPLY='product_release/evidence/retained/case07-apply.proposed.sql';
 export const CASE07_ROLLBACK='product_release/evidence/retained/case07-rollback.proposed.sql';
+const FIXTURE_GENERATOR='tests/fixtures/rwt/generate-rwt-tts-fixtures.sh';
 export const BILLING_SPEC='tests/billing/user-journey/journey.billing.spec.ts';
 export const BILLING_TARGET='tests/billing/user-journey/sandbox-target.json';
 export const BILLING_README='tests/billing/user-journey/README.md';
@@ -43,6 +44,7 @@ export const SOURCE_CONTRACTS=Object.freeze([
   'tests/evidence/fixtures/model-evaluator/corpus-fixture-001-paired.json',
   'tests/evidence/fixtures/model-evaluator/product-campaign.json',
   'tests/evidence/fixtures/model-evaluator/product-campaign.parakeet-fixture-001.json',
+  FIXTURE_GENERATOR,
 ]);
 const MODEL_ADAPTER='./scripts/model-evaluator/adapters/candidate-browser.ts';
 const arm=(candidateId,engine,modelId,assetDigest,runtime,backend)=>Object.freeze({kind:'json',pins:[
@@ -158,6 +160,50 @@ const importsMissing=(ts,parsed,file)=>{
 };
 export const registeredSourceContract=file=>SOURCE_CONTRACTS.includes(file);
 
+const FILLER_REFERENCE='tests/live/helpers/rwtFillerReference.ts';
+// #1720 keeps annotations in reviewed executable code, not the manifest. Parse literals only;
+// never import/execute a live helper, and bind its exact bytes into the source witness.
+function fixtureReference(root,entry) {
+  const source=read(root,FILLER_REFERENCE);
+  const ts=createRequire(path.join(root,'package.json'))('typescript');
+  const parsed=ts.createSourceFile(FILLER_REFERENCE,source,ts.ScriptTarget.Latest,true);
+  if(parsed.parseDiagnostics.length) throw new Error('Invalid fixture reference source');
+  const declarations=parsed.statements.filter(ts.isVariableStatement).flatMap(s=>[...s.declarationList.declarations]);
+  const initializer=name=>{
+    const matches=declarations.filter(d=>ts.isIdentifier(d.name)&&d.name.text===name);
+    if(matches.length!==1) throw new Error('Missing/duplicate fixture reference declaration');
+    return matches[0].initializer;
+  };
+  const frozen=n=>{
+    if(!n||!ts.isCallExpression(n)||n.expression.getText(parsed)!=='Object.freeze'||n.arguments.length!==1) throw new Error('Unreviewed fixture reference expression');
+    return n.arguments[0];
+  };
+  const object=(n,keys)=>{
+    if(!ts.isObjectLiteralExpression(n)||n.properties.length!==keys.length) throw new Error('Invalid fixture reference literal');
+    const result={};
+    for(const p of n.properties) {
+      if(!ts.isPropertyAssignment(p)||!ts.isIdentifier(p.name)||!keys.includes(p.name.text)||Object.hasOwn(result,p.name.text)||!ts.isStringLiteral(p.initializer)) throw new Error('Invalid fixture reference property');
+      result[p.name.text]=p.initializer.text;
+    }
+    return result;
+  };
+  const identity=object(frozen(initializer('OPEN_MIC_TTS_IDENTITY')),['file','sha256','kind']);
+  if(!entry||Object.hasOwn(entry,'fillerAnnotations')||identity.kind!=='synthetic'||identity.file!=='open_mic_tts.wav'
+    || !/^[a-f0-9]{64}$/.test(identity.sha256)||Object.entries(identity).some(([k,v])=>entry[k]!==v)) throw new Error('Fixture reference identity mismatch');
+  const mapped=frozen(initializer('OPEN_MIC_TTS_ANNOTATIONS'));
+  if(!ts.isCallExpression(mapped)||!ts.isPropertyAccessExpression(mapped.expression)||mapped.expression.name.text!=='map'
+    ||!ts.isArrayLiteralExpression(mapped.expression.expression)||mapped.arguments.length!==1
+    ||tokens(root,mapped.arguments[0].getText(parsed))!==tokens(root,'(a) => Object.freeze(a)')) throw new Error('Invalid fixture annotation table');
+  const resolver=initializer('fillerAnnotationsOf');
+  const expected=`(entry: unknown): FillerAnnotation[] => {
+    const e = entry as { file?: unknown; sha256?: unknown; kind?: unknown } | null;
+    if (!e || e.file !== OPEN_MIC_TTS_IDENTITY.file || e.sha256 !== OPEN_MIC_TTS_IDENTITY.sha256 || e.kind !== OPEN_MIC_TTS_IDENTITY.kind) return [];
+    return OPEN_MIC_TTS_ANNOTATIONS.map((a) => ({ ...a }));
+  }`;
+  if(tokens(root,resolver.getText(parsed))!==tokens(root,expected)) throw new Error('Fixture reference resolver wiring changed');
+  return {items:mapped.expression.expression.elements.map(n=>object(n,['word','anchor'])),sourceSha256:hash(source)};
+}
+
 export function sourceContractApplicability(root,file) {
   if(!registeredSourceContract(file)) return {supported:false,reason:'unregistered source contract'};
   try {read(root,SOURCE_CONSUMER);} catch {return {supported:false,reason:'source contract consumer unavailable or aliased'};}
@@ -171,10 +217,11 @@ export function sourceContractApplicability(root,file) {
       if(dataProblems(root,file,source).length) return {supported:false,reason:'receiving evaluator input pins unavailable'};
     } else if(TEXT_CONTRACTS[file]) {
       if(TEXT_CONTRACTS[file].some(fragment=>source.split(fragment).length!==2)) return {supported:false,reason:'receiving operator statements unavailable'};
+    } else if(file===FIXTURE_GENERATOR) {
+      inspectFixtureGenerator(root,source);
     } else if(file===SOURCE_CONTRACTS[2]) {
       const entry=JSON.parse(source).fixtures?.open_mic_tts;
-      if(!entry?.fillerAnnotations || !Array.isArray(entry.fillerAnnotations.items)
-        || typeof entry.fillerAnnotations.source!=='string') return {supported:false,reason:'receiving fixture annotations unavailable'};
+      fixtureReference(root,entry);
       read(root,'tests/fixtures/rwt/generate-rwt-tts-fixtures.sh');
     } else {
       const ts=createRequire(path.join(root,'package.json'))('typescript');
@@ -401,6 +448,7 @@ function savedMatchers(ts,parsed) {
 
 export function inspectSourceContract(root,file,source=read(root,file)) {
   if(!registeredSourceContract(file)) throw new Error('Unregistered source contract');
+  if(file===FIXTURE_GENERATOR) return inspectFixtureGenerator(root,source);
   if(file===BILLING_TARGET || file===BILLING_README) return inspectBillingInput(file,source);
   if(CASE07_SQL[file]) return inspectCase07Sql(file,source);
   if(DATA_CONTRACTS[file]) {
@@ -454,13 +502,17 @@ export function inspectSourceContract(root,file,source=read(root,file)) {
       detectedFaults:controls.length+(savedMatcher?.detectedFaults || 0),...(savedMatcher?{savedMatcher}:{}),
       liveExecution:'NOT RUN',scope:'registered wiring only; live test body not executed'};
   }
+  return inspectFixture(root,source,read(root,FIXTURE_GENERATOR));
+}
+
+function inspectFixture(root,source,generatorSource) {
+  const file=SOURCE_CONTRACTS[2];
   const manifest=JSON.parse(source);
   const entry=manifest.fixtures?.open_mic_tts;
-  const script=read(root,'tests/fixtures/rwt/generate-rwt-tts-fixtures.sh').match(/^OPEN_MIC="([^"\n]+)"$/m)?.[1];
+  const script=generatorSource.match(/^OPEN_MIC="([^"\n]+)"$/m)?.[1];
   if(!script || entry?.kind!=='synthetic' || !/^[a-f0-9]{64}$/.test(entry.sha256 || '')
-    || !entry.fillerAnnotations?.source?.includes('not audio-bound')
     || !entry.knownFixtureLimits?.some(value=>/human recording/i.test(value))) throw new Error('Missing fixture scope/identity');
-  const items=entry.fillerAnnotations.items;
+  const {items,sourceSha256:referenceSha256}=fixtureReference(root,entry);
   if(!Array.isArray(items) || items.length!==8) throw new Error('Missing fixture annotations');
   const counts={};let cursor=0;
   for(const {word,anchor} of items) {
@@ -471,17 +523,68 @@ export function inspectSourceContract(root,file,source=read(root,file)) {
     cursor=at+needle.length;counts[word]=(counts[word] || 0)+1;
   }
   if(JSON.stringify(Object.entries(counts).sort())!==JSON.stringify(Object.entries(entry.groundTruthFillers || {}).sort())) throw new Error('Fixture count/reference disagreement');
-  return {file,sha256:hash(source),generatorSha256:hash(read(root,'tests/fixtures/rwt/generate-rwt-tts-fixtures.sh')),
-    kind:'fixture-consumption',annotationCount:items.length,counts,liveExecution:'NOT RUN',audioExecution:'NOT RUN'};
+  return {file,sha256:hash(source),generatorSha256:hash(generatorSource),
+    referenceSha256,kind:'fixture-consumption',annotationSource:'reviewed code; script-derived, not audio-bound',annotationCount:items.length,counts,liveExecution:'NOT RUN',audioExecution:'NOT RUN'};
+}
+
+// Explicit source consumption, not shell execution. Reject additional commands and altered
+// generation settings rather than treating arbitrary .sh files as qualified.
+const GENERATOR_COMMANDS=[
+  "set -euo pipefail",
+  "cd \"$(dirname \"$0\")\"",
+  "VOICE=Samantha",
+  "RATE=150",
+  "TRAILING_SILENCE_S=15",
+  "OPEN_MIC=\"<script>\"",
+  "FOCUS_POINTS=\"<script>\"",
+  "FOCUS_POINTS_PARTIAL=\"<script>\"",
+  "make() { # name text",
+  "say -v \"$VOICE\" -r \"$RATE\" -o \"$1.aiff\" \"$2\"",
+  "ffmpeg -loglevel error -y -i \"$1.aiff\" -af \"apad=pad_dur=${TRAILING_SILENCE_S}\" -ar 16000 -ac 1 -sample_fmt s16 -bitexact -map_metadata -1 \"$1.wav\"",
+  "rm -f \"$1.aiff\"",
+  "printf '%s  %s  speech+silence=%ss\\n' \"$(shasum -a 256 \"$1.wav\" | cut -c1-64)\" \"$1.wav\" \"$(ffprobe -v error -show_entries format=duration -of csv=p=0 \"$1.wav\")\"",
+  "}",
+  "make open_mic_tts \"$OPEN_MIC\"",
+  "make focus_points_tts \"$FOCUS_POINTS\"",
+  "make focus_points_partial_tts \"$FOCUS_POINTS_PARTIAL\""
+];
+// Reviewed public TTS input texts, not audio digests. A script change requires explicit re-review.
+const GENERATOR_SCRIPT_SHA256={
+  "OPEN_MIC": "8e08aa6cdb6d45d2af3b282c318a6fb9872effd8eac2da77e6e24b27d55d4462",
+  "FOCUS_POINTS": "9e7f3f609b8d1a31d3c52b101ce85e5324dd4198e34d5db785e3ee2c2508f316",
+  "FOCUS_POINTS_PARTIAL": "f0bf65deccea4609fff070cf1e597406db55ac58a2109ce6924a1c03bd89f869"
+};
+function inspectFixtureGenerator(root,source) {
+  const names=['OPEN_MIC','FOCUS_POINTS','FOCUS_POINTS_PARTIAL'];
+  const declarations={};
+  const lines=source.split(/\r?\n/).map(line=>line.trim()).filter(line=>line&&!line.startsWith('#')).map(line=>{
+    const name=names.find(n=>line.startsWith(`${n}=`));
+    if(!name) return line;
+    const match=new RegExp(`^${name}="([^"\\n]+)"$`).exec(line);
+    if(!match||/[\x24`\\]/.test(match[1])||Object.hasOwn(declarations,name)) throw new Error('Unsafe/duplicate generator declaration');
+    declarations[name]=match[1];return `${name}="<script>"`;
+  });
+  if(JSON.stringify(lines)!==JSON.stringify(GENERATOR_COMMANDS)||names.some(n=>!declarations[n])) throw new Error('Generator command/settings contract failed');
+  if(names.some(name=>hash(declarations[name])!==GENERATOR_SCRIPT_SHA256[name])) throw new Error('Generator script text differs from reviewed input');
+  const manifestSource=read(root,SOURCE_CONTRACTS[2]);
+  const manifest=JSON.parse(manifestSource);
+  for(const key of ['open_mic_tts','focus_points_tts','focus_points_partial_tts']) {
+    const entry=manifest.fixtures?.[key];
+    if(entry?.file!==`${key}.wav`||entry.kind!=='synthetic'||!/^[a-f0-9]{64}$/.test(entry.sha256||'')) throw new Error('Generator manifest target mismatch');
+  }
+  const proof=inspectFixture(root,manifestSource,source);
+  return {...proof,file:FIXTURE_GENERATOR,sha256:hash(source),manifestSha256:hash(manifestSource),
+    kind:'generator-source-consumption',scriptSha256:{...GENERATOR_SCRIPT_SHA256},scriptExecution:'NOT RUN',
+    scope:'declared synthesis commands/settings and script-to-reference wiring only; macOS TTS/ffmpeg and audio not executed'};
 }
 
 export function sourceContractBinding(root,files) {
   if(!Array.isArray(files) || !files.length || new Set(files).size!==files.length || files.some(file=>!registeredSourceContract(file))) throw new Error('Unknown/duplicate source contract input');
   if(files.some(file=>!sourceContractApplicability(root,file).supported)) throw new Error('Unsupported source contract input or consumer');
   const dependencies=[...files,SOURCE_CONSUMER,'scripts/lib/sourceContractEvidence.mjs'];
-  if(files.includes(SOURCE_CONTRACTS[2])) dependencies.push('tests/fixtures/rwt/generate-rwt-tts-fixtures.sh');
+  if(files.includes(SOURCE_CONTRACTS[2])||files.includes(FIXTURE_GENERATOR)) dependencies.push(SOURCE_CONTRACTS[2],FIXTURE_GENERATOR,FILLER_REFERENCE);
   for(const file of files) if(DATA_CONTRACTS[file]?.corpus) dependencies.push(...corpusAudio(root,file));
-  return dependencies.map(file=>({file,sha256:hash(read(root,file))}));
+  return [...new Set(dependencies)].map(file=>({file,sha256:hash(read(root,file))}));
 }
 
 export function consumeSourceContracts(root,binding) {
