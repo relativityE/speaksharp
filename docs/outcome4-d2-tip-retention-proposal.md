@@ -46,8 +46,8 @@ The rule does not depend on retention being activated: with retention off, the c
 
 | Blocker (Sam, #1824 review of `30e07d17`) | Answer in revision 2 | Proof |
 |---|---|---|
-| The repeat save expires the original before the advance binds the repeat | The server binds the repeat when it completes, before retention runs in the same save; the advance can only confirm it | PGlite "save order" test |
-| The purge trigger needs `ai_suggestions IS NOT NULL`, so repeats without coaching are missed | Cleanup keys on saves, expiry, deletion and lifecycle, never on coaching or transcript content | PGlite "no coaching or kept transcript" and "own expiry" tests |
+| The repeat save expires the original before the advance binds the repeat | The server binds the repeat when it completes, before retention runs in the same save; the advance can only confirm it | Real-save test "binding before the original expires" (event log shows bound, then expired); fails when the binding is deferred past expiry |
+| The purge trigger needs `ai_suggestions IS NOT NULL`, so repeats without coaching are missed | Cleanup keys on saves, expiry, deletion and lifecycle, never on coaching or transcript content | Real-save tests "no coaching on the repeat" and "no transcript text on the newer save"; each fails against its control; PGlite "own expiry" test |
 | Repeat deletion is `ON DELETE SET NULL`, not cascade | Both links are SET NULL and the BEFORE UPDATE guard deletes the copy when either goes null | PGlite "deleting the repeat" test |
 | Keeping the tip past its source's expiry changes retention | Explicit rule and disclosure above | This document |
 | Server-validated, immutable binding | Set only by the completion trigger, validated (owner, completed, newer than the original, started after Practice again), never moved; tip insert-only | PGlite "binding" test |
@@ -56,8 +56,10 @@ The rule does not depend on retention being activated: with retention off, the c
 
 ## Limits of the proof
 
-- The save is modelled in the order `complete_session_v2` (20261025021046) runs it. The real function and the real
-  retention coordinator are not loaded, because no PGlite suite runs that chain yet.
+- `tests/db/repeat-practised-tip-real-save.integration.test.ts` applies every shipped migration and saves through the
+  real lease, create and `complete_session_v2`, with newest-one retention activated (and once without, as Production is
+  today). The engine attestation, which an Edge function writes, and the coaching write are done as the service side
+  would. The edge-case suite still drives the triggers with a fixture save.
 - Production also serialises a user's saves with a NOWAIT lock on `user_profiles`; the concurrency script omits it
   so the migration is shown correct even when writes overlap.
 - The e2e spec covers the tip line with mocked rows and has not run locally.

@@ -57,12 +57,10 @@ async function start(id: string, opts: { createdAt?: string; user?: string } = {
 }
 
 /**
- * Save a started session in the order `complete_session_v2` (20261025021046) runs it, in ONE transaction:
- *   step (1) the metrics/status write (line 418) — `status = 'completed'`;
- *   step (2) the transcript write (line 446), then newest-one retention, which expires every older completed
- *            transcript-bearing session of the owner (`expire_transcripts_newest_one`, line 264), and the existing
- *            `trg_sessions_purge_derived_on_expire` (20260810120000, applied verbatim) nulls their reviews.
- * Only the retention function's selection is restated; every trigger under test runs for real.
+ * FIXTURE, not the save path: marks a started session completed and writes its transcript in one transaction, then
+ * expires the owner's older transcript-bearing sessions the way newest-one retention selects them, so the D2 triggers
+ * can be driven through edge cases (deletion, abandon, retries, other accounts). The real save order — the binding
+ * before the original expires — and the real retention are proved in repeat-practised-tip-real-save.integration.test.ts.
  */
 async function save(id: string, opts: { aiSuggestions?: unknown; transcript?: string | null } = {}) {
     await db.transaction(async (tx) => {
@@ -108,7 +106,6 @@ const advance = (attempt: string, lifecycle: string, practice: string | null = n
 const state = async (attempt: string) => (await db.query<{ practised_tip: string | null; tip_session_id: string | null; lifecycle: string; practice_session_id: string | null }>(
     'SELECT practised_tip, tip_session_id, lifecycle, practice_session_id FROM public.progress_recommendation_attempts WHERE id = $1', [attempt])).rows[0];
 const tipOf = async (attempt: string) => (await state(attempt))?.practised_tip;
-const reviewOf = async (id: string) => (await db.query<{ ai_suggestions: unknown }>('SELECT ai_suggestions FROM public.sessions WHERE id = $1', [id])).rows[0].ai_suggestions;
 
 /** The original A (saved an hour ago, with a valid review), its recommendation, and Practice again pressed. */
 async function pressPracticeAgain(): Promise<string> {
@@ -128,41 +125,20 @@ beforeEach(async () => {
 });
 
 describe('outcome 4 D2 rev 2: the tip chosen for a repeat is bound to it by the server and kept under its own rule', () => {
-    it('save order: the repeat is bound when it completes, before the original expires; the tip survives the purge and the advance', async () => {
+    // Save order, retention and cleanup without coaching or transcript text are proved against the real
+    // `complete_session_v2` and retention in repeat-practised-tip-real-save.integration.test.ts.
+    it('the copy is read only by its owner, through the existing RLS select', async () => {
         const attempt = await pressPracticeAgain();
-        expect(await state(attempt)).toMatchObject({ practised_tip: TIP, tip_session_id: null, lifecycle: 'pending' });
-
         await start(B);
-        await save(B, { aiSuggestions: review({ what_to_try_next: 'A different, newer tip.' }) });
-        // In the same save: B is bound, A's transcript expired and its review purged, and the copy is B's.
-        expect(await reviewOf(A)).toBeNull();
-        expect(await state(attempt)).toMatchObject({ practised_tip: TIP, tip_session_id: B, lifecycle: 'pending' });
-
-        // The non-blocking advance after the save confirms the binding.
+        await save(B);
         await evaluate(B);
         expect(await advance(attempt, 'completed', B, B)).toBe('moved');
         expect(await state(attempt)).toMatchObject({ practised_tip: TIP, tip_session_id: B, practice_session_id: B });
-
-        // Owner-only reads through the existing RLS select.
         const own = await asUser(USER, (tx) => tx.query<{ practised_tip: string }>(
             'SELECT practised_tip FROM public.progress_recommendation_attempts WHERE practice_session_id = $1', [B]));
         expect(own.rows).toEqual([{ practised_tip: TIP }]);
         const other = await asUser(OTHER, (tx) => tx.query('SELECT practised_tip FROM public.progress_recommendation_attempts', []));
         expect(other.rows).toEqual([]);
-    });
-
-    it('any newer save deletes the copy, even when neither session has coaching or a kept transcript', async () => {
-        const attempt = await pressPracticeAgain();
-        await start(B);
-        await save(B, { aiSuggestions: null });
-        await evaluate(B);
-        await advance(attempt, 'not_comparable', B);
-        expect(await state(attempt)).toMatchObject({ practised_tip: TIP, tip_session_id: B });
-        // C saves with no coaching and no transcript: retention expires nothing, the copy still goes.
-        await start(C);
-        await save(C, { aiSuggestions: null, transcript: null });
-        expect(await db.query(`SELECT transcript_state FROM public.sessions WHERE id = $1`, [B]).then((r) => r.rows[0])).toEqual({ transcript_state: 'available' });
-        expect(await state(attempt)).toMatchObject({ practised_tip: null, tip_session_id: B, practice_session_id: B });
     });
 
     it("the repeat's own expiry deletes the copy, with no condition on its coaching", async () => {
