@@ -1,0 +1,85 @@
+# DRAFT — NOT WIRED INTO ANY WORKFLOW. Not to be enabled without Akin's go.
+#
+# AHT-07 / AHT-08 recovery executor job (recovery-store proposal 2026-11-12, sections 3 and 7). This is a snippet for Sam to
+# review; it is deliberately kept out of .github/workflows/ and out of rc-gates.yml. Nothing here is provisioned: the bucket,
+# the Workload Identity Federation provider, the service account and the `rwt-recovery-store` environment do not exist yet,
+# and the provisioner (not a test) writes the store marker `.rwt-recovery-store.json` once, after the store-only proof in
+# section 5 of the proposal passes.
+#
+# What it does: mounts the recovery bucket with Cloud Storage FUSE at /mnt/rwt-recovery (owner-only modes, zero-TTL metadata
+# caches) and runs tests/live/feedback-recovery-executor.live.spec.ts. Without the acknowledgement it only DETECTS and prints a
+# content-free count line. With `RWT-FEEDBACK-RECOVERY-DELETE@<the exact 40-hex commit this run executes>`, dispatched from
+# protected main on the first attempt, and only under separate Production authority, it calls recoverFromInventory per file.
+#
+# Known limit: a runner killed before its writer-stopped record cannot be recovered; that file HOLDs and is kept.
+#
+# The writer side (the AHT-07 and AHT-08 jobs) needs the same `permissions`, auth step, mount step and RWT_RECOVERY_DIR.
+
+on:
+  workflow_dispatch:
+    inputs:
+      feedback_recovery_ack:
+        description: "FEEDBACK RECOVERY ONLY — empty = detect and HOLD. RWT-FEEDBACK-RECOVERY-DELETE@<the exact 40-hex commit this run executes> = delete under separate Production authority, from protected main only. Any recovery value bound to another commit fails before credentials."
+        required: false
+        default: ''
+
+jobs:
+  feedback-recovery-executor:
+    name: Feedback recovery executor (DRAFT)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Sam's call whether this environment needs a required reviewer (proposal section 9, decision 2).
+    environment: rwt-recovery-store
+    permissions:
+      contents: read
+      id-token: write   # GitHub OIDC for Workload Identity Federation; no long-lived key anywhere.
+    env:
+      RWT_RECOVERY_DIR: /mnt/rwt-recovery
+      RWT_FEEDBACK_RECOVERY_ACK: ${{ github.event.inputs.feedback_recovery_ack }}
+    steps:
+      - uses: actions/checkout@v6
+      # Credential-free authority, before auth or mount (mirrors interrupted-run recovery). The spec checks it again.
+      - name: Feedback recovery authority (protected main, exact SHA, first attempt; credential-free)
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_RUN_ATTEMPT:-}" != "1" ]; then echo "::error::HOLD: feedback recovery refuses re-runs"; exit 1; fi
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then echo "::error::HOLD: feedback recovery runs only from protected main"; exit 1; fi
+          if [ "$(git rev-parse HEAD)" != "$GITHUB_SHA" ]; then echo "::error::HOLD: checkout HEAD is not the dispatched commit"; exit 1; fi
+          case "$RWT_FEEDBACK_RECOVERY_ACK" in
+            RWT-FEEDBACK-RECOVERY-DELETE*)
+              if [ "$RWT_FEEDBACK_RECOVERY_ACK" != "RWT-FEEDBACK-RECOVERY-DELETE@$GITHUB_SHA" ]; then
+                echo "::error::HOLD: the feedback recovery acknowledgement is not bound to this exact commit"; exit 1
+              fi ;;
+          esac
+      # OIDC -> WIF -> one service account with roles/storage.objectUser on the recovery bucket only. The provider and the
+      # service account email are repository VARIABLES, not secrets. The WIF attribute condition admits only this repository,
+      # the governed workflow file (job_workflow_ref) and the `rwt-recovery-store` environment.
+      - name: Authenticate to Google Cloud (OIDC / Workload Identity Federation)
+        uses: google-github-actions/auth@v2   # pin to a reviewed commit SHA before enabling
+        with:
+          workload_identity_provider: ${{ vars.RWT_RECOVERY_WIF_PROVIDER }}
+          service_account: ${{ vars.RWT_RECOVERY_SERVICE_ACCOUNT }}
+      - name: Mount the recovery store (Cloud Storage FUSE)
+        run: |
+          set -euo pipefail
+          # Install gcsfuse from Google's signed apt repository (pin the version before enabling).
+          sudo mkdir -p "$RWT_RECOVERY_DIR"
+          sudo chown "$(id -u):$(id -g)" "$RWT_RECOVERY_DIR"
+          # Owner-only modes so verifyRecoveryStore sees 0700; zero-TTL metadata caches so the executor never reads a stale listing.
+          gcsfuse --implicit-dirs \
+            --file-mode 600 --dir-mode 700 \
+            --uid "$(id -u)" --gid "$(id -g)" \
+            --metadata-cache-ttl-secs 0 --stat-cache-max-size-mb 0 --type-cache-max-size-mb 0 \
+            "${{ vars.RWT_RECOVERY_BUCKET }}" "$RWT_RECOVERY_DIR"
+          test "$(stat -c '%a' "$RWT_RECOVERY_DIR")" = "700"
+      - name: Install dependencies
+        uses: ./.github/actions/setup-environment
+      - name: Run the feedback recovery executor
+        env:
+          # Only read by the spec when the SHA-bound ack authorizes deletion; detection creates no client.
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: pnpm exec playwright test tests/live/feedback-recovery-executor.live.spec.ts --config=playwright.deployed-live.config.ts --project=deployed-live-chromium --reporter=line
+      - name: Unmount the recovery store
+        if: always()
+        run: fusermount -u "$RWT_RECOVERY_DIR" || true

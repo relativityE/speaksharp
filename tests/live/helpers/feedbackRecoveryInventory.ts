@@ -21,6 +21,12 @@
  *    under its key, with no other attempt under that key that is unresolved or that stored a row. Anything unresolved HOLDs,
  *    deletes nothing and keeps the file. Otherwise it deletes exactly the run's ids (never by key, owner-less sweep or time
  *    window) and reads residue again; a run key under another account is never deleted (FAIL).
+ *  - PER CASE (AHT-07 / AHT-08 proposal 2026-11-12 §8 item 5). AHT-07 keeps its file name (`aht07-…`) and schema string
+ *    unchanged; AHT-08's inventory is `aht08-…` with its own schema string, so a recovery executor tells the two apart from
+ *    the file's own run line (`RecoveryRecord.recoveryCase`), never from where the file sits.
+ *  - KNOWN LIMIT (both cases): a runner killed before it writes its writer-stopped record cannot be recovered by this design.
+ *    Recovery HOLDs, deletes nothing and keeps the file; the report stays until its owner settles it by hand. No timeout, file
+ *    age or silence stands in for the stopped record.
  * Case-only helper: nothing AHT-01 loads imports it.
  */
 import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeSync, chmodSync } from 'node:fs';
@@ -29,6 +35,14 @@ import type { Evidence, FeedbackAttempt, RowVerdict } from './feedbackAttemptLed
 import { type ReportCleanupAdmin, captureRunReports, deleteRunReports, readResidue, zeroResidueVerdict } from './feedbackReportCleanup';
 
 export const RECOVERY_SCHEMA = 'speaksharp.aht07.feedback-recovery.v2';
+/** The cases that keep a recovery inventory. AHT-07 is the default everywhere, so its file name and schema never change. */
+export type RecoveryCase = 'aht07' | 'aht08';
+export const RECOVERY_CASES: readonly RecoveryCase[] = ['aht07', 'aht08'];
+/** Each case's run-line schema. AHT-07's is `RECOVERY_SCHEMA`, unchanged; AHT-08's names its own case. */
+export const RECOVERY_SCHEMAS: Readonly<Record<RecoveryCase, string>> = Object.freeze({
+    aht07: RECOVERY_SCHEMA,
+    aht08: 'speaksharp.aht08.feedback-recovery.v1',
+});
 export const RECOVERY_DIR_ENV = 'RWT_RECOVERY_DIR';
 export const RECOVERY_STORE_MARKER = '.rwt-recovery-store.json';
 export const RECOVERY_STORE_SCHEMA = 'speaksharp.rwt.recovery-store.v1';
@@ -96,8 +110,12 @@ export function verifyRecoveryStore(env: NodeJS.ProcessEnv = process.env): Store
 export interface RecoveryBinding { runId: string; runAttempt: string; testId: string; ownerUid: string }
 
 const part = (value: string): string => value.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64) || '_';
-export function recoveryFileName(b: RecoveryBinding): string {
-    return `aht07-${part(b.runId)}-${part(b.runAttempt)}-${part(b.testId)}-${part(b.ownerUid)}.jsonl`;
+export function recoveryFileName(b: RecoveryBinding, recoveryCase: RecoveryCase = 'aht07'): string {
+    return `${recoveryCase}-${part(b.runId)}-${part(b.runAttempt)}-${part(b.testId)}-${part(b.ownerUid)}.jsonl`;
+}
+/** The case a run line's schema names, or null for any other schema. */
+export function recoveryCaseOfSchema(schema: unknown): RecoveryCase | null {
+    return RECOVERY_CASES.find((c) => RECOVERY_SCHEMAS[c] === schema) ?? null;
 }
 
 function bindingProblem(b: RecoveryBinding): string | null {
@@ -129,13 +147,17 @@ export class FeedbackRecoveryInventory {
 
     private constructor(readonly file: string) {}
 
-    /** The file and its run line, in a verified store only. Throws when the binding or the write fails. */
-    static open(binding: RecoveryBinding, store: VerifiedStore): FeedbackRecoveryInventory {
+    /**
+     * The file and its run line, in a verified store only. Throws when the binding or the write fails. `recoveryCase` defaults to
+     * AHT-07, whose file name and schema are unchanged.
+     */
+    static open(binding: RecoveryBinding, store: VerifiedStore, recoveryCase: RecoveryCase = 'aht07'): FeedbackRecoveryInventory {
         const problem = bindingProblem(binding);
         if (problem) throw new Error(`recovery inventory not opened: ${problem}`);
+        if (!RECOVERY_CASES.includes(recoveryCase)) throw new Error('recovery inventory not opened: unknown case');
         mkdirSync(store.dir, { recursive: true, mode: 0o700 });
-        const file = path.join(store.dir, recoveryFileName(binding));
-        appendDurably(file, { schema: RECOVERY_SCHEMA, type: 'run', storeId: store.storeId, ...binding, createdAt: new Date().toISOString() });
+        const file = path.join(store.dir, recoveryFileName(binding, recoveryCase));
+        appendDurably(file, { schema: RECOVERY_SCHEMAS[recoveryCase], type: 'run', storeId: store.storeId, ...binding, createdAt: new Date().toISOString() });
         chmodSync(file, 0o600);
         return new FeedbackRecoveryInventory(file);
     }
@@ -198,6 +220,8 @@ export function settleRecoveryInventory(verdict: RowVerdict, inventory: Feedback
 export interface RecordedAttempt { ordinal: number; action: string; keys: string[] }
 export interface RecordedSettle { status: number | null; forwarded: boolean | null }
 export interface RecoveryRecord {
+    /** The case the run line's schema names (AHT-07 or AHT-08). */
+    recoveryCase: RecoveryCase;
     storeId: string;
     binding: RecoveryBinding;
     attempts: RecordedAttempt[];
@@ -208,14 +232,15 @@ export interface RecoveryRecord {
     malformed: number;
 }
 
-/** Read the file back. Null when it is missing, or its first line is not this schema's run line. */
+/** Read the file back. Null when it is missing, or its first line is not a known case's run line. */
 export function readRecoveryInventory(file: string): RecoveryRecord | null {
     let text: string;
     try { text = readFileSync(file, 'utf8'); } catch { return null; }
     const lines = text.split('\n').filter((l) => l.trim().length > 0);
     let head: Record<string, unknown>;
     try { head = JSON.parse(lines[0] ?? '') as Record<string, unknown>; } catch { return null; }
-    if (head?.schema !== RECOVERY_SCHEMA || head.type !== 'run' || typeof head.storeId !== 'string') return null;
+    const recoveryCase = recoveryCaseOfSchema(head?.schema);
+    if (!recoveryCase || head.type !== 'run' || typeof head.storeId !== 'string') return null;
     const binding: RecoveryBinding = { runId: String(head.runId), runAttempt: String(head.runAttempt), testId: String(head.testId), ownerUid: String(head.ownerUid) };
     if (bindingProblem(binding)) return null;
     const attempts: RecordedAttempt[] = [];
@@ -236,7 +261,7 @@ export function readRecoveryInventory(file: string): RecoveryRecord | null {
             writerStopped = { attempts: line.attempts };
         } else malformed += 1;
     }
-    return { storeId: head.storeId, binding, attempts, settles, writerStopped, malformed };
+    return { recoveryCase, storeId: head.storeId, binding, attempts, settles, writerStopped, malformed };
 }
 
 /** Never sent (aborted or answered by the route), or answered by the server: its outcome is known. */

@@ -3,7 +3,8 @@
  * AHT-07 bounded production writes (Sam's one-run limit, 2026-11-11): one disposable account, two Starts, two sessions, at most
  * 7 feedback insert attempts and at most 4 stored reports, exact run-owned cleanup and independent residue verification.
  * PASS / FAIL / HOLD controls for the pre-send cap, the three fault legs, the final-boundary ledger, the final submit's isolation
- * and the race-safe report cleanup; then source-order checks of the spec's wiring, and that AHT-08's path is untouched.
+ * and the race-safe report cleanup; then source-order checks of the spec's wiring, and that AHT-08 takes only the store pieces
+ * (verified store, its own inventory, a pass-through observer route) and none of AHT-07's fault legs or attempt-cap ledger.
  */
 import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -626,16 +627,24 @@ describe('the AHT-07 spec wiring (source order)', () => {
     });
 });
 
-describe('AHT-08 (no session) is untouched, and the new helpers stay case-only', () => {
-    it('the No-session scenario uses none of the bounded-write wiring', () => {
-        // AHT-08 report cleanup (feedbackNoSessionCleanup.ts) reuses ONLY the race-safe cleanup steps: no write route, ledger,
-        // fault leg or recovery inventory; whether its one write's outcome is known comes from the submit's own observation.
+describe('AHT-08 (no session) takes the store pieces but none of AHT-07\'s fault legs or attempt-cap ledger; helpers stay case-only', () => {
+    it('the No-session scenario uses the verified store, its own inventory and the pass-through route, and none of AHT-07\'s fault or cap wiring', () => {
+        // AHT-08 (recovery-store proposal 2026-11-12 §8 item 6): the race-safe cleanup steps, plus the verified store, its own
+        // AHT-08 inventory and the pass-through observer route (feedbackNoSessionCleanup.ts). Still forbidden: AHT-07's write
+        // route, its fault legs, its attempt-cap ledger and `runFeedbackFaultLeg`; whether its one write's outcome is known still
+        // comes from the submit's own observation (plus the route's drain).
         for (const name of ['installFeedbackWriteRoute', 'FeedbackAttemptLedger', 'runFeedbackFaultLeg', 'ledger.', 'FEEDBACK_FAULT_LEGS', 'observedLedger',
-            'writeUncertainty(', 'FeedbackRecoveryInventory', 'inventory']) {
+            'writeUncertainty(', 'armLeg', 'markRetry', 'beginFinal', 'syntheticRejection', 'feedbackLedgerVerdict', 'FEEDBACK_ATTEMPT_CAP', 'recordDurably(']) {
             expect({ name, used: none.includes(name) }).toEqual({ name, used: false });
         }
-        for (const name of ['captureRunReports', 'cleanupRunReports', 'writeZeroResidueRow', 'noSessionWriteUncertainty(']) {
+        for (const name of ['captureRunReports', 'cleanupRunReports', 'writeZeroResidueRow', 'noSessionWriteUncertainty(',
+            'verifyRecoveryStore(process.env)', "storeCheck.store, 'aht08'", 'new NoSessionReportRoute(', 'withRouteDrain(', 'settleRecoveryInventory(']) {
             expect({ name, used: none.includes(name) }).toEqual({ name, used: true });
+        }
+        // The AHT-08 helper takes no AHT-07 fault or cap piece either.
+        const noSessionHelper = read('../live/helpers/feedbackNoSessionCleanup.ts');
+        for (const name of ['feedbackAttemptLedger', 'FeedbackAttemptLedger', 'runFeedbackFaultLeg', 'FEEDBACK_FAULT_LEGS', 'syntheticRejection', 'capDecision']) {
+            expect({ name, inHelper: noSessionHelper.includes(name) }).toEqual({ name, inHelper: false });
         }
         expect(none).toMatch(/const stored = await submitFeedback\(page, tap, owner\.uid, 'no_session', null, undefined, \{/);
         expect(none).toContain('feedbackRetentionAfterDeletionRow(aliveReceipt(receipt, alive), admin as never, report, () => cleanup.run())');
@@ -653,9 +662,13 @@ describe('AHT-08 (no session) is untouched, and the new helpers stay case-only',
             .filter((f) => f.endsWith('.ts'));
         const importers = files.filter((f) => /from '\.\/(helpers\/)?(feedbackAttemptLedger|feedbackReportCleanup)'/.test(readFileSync(f, 'utf8')))
             .map((f) => path.relative(live, f)).sort();
-        expect(importers).toEqual(['helpers/feedbackNoSessionCleanup.ts', 'helpers/feedbackRecoveryInventory.ts', 'helpers/feedbackReportCleanup.ts', 'rwt-feedback-association-boundaries.live.spec.ts']);
-        const inventoryImporters = files.filter((f) => /from '\.\/(helpers\/)?feedbackRecoveryInventory'/.test(readFileSync(f, 'utf8'))).map((f) => path.relative(live, f));
-        expect(inventoryImporters).toEqual(['rwt-feedback-association-boundaries.live.spec.ts']);
+        expect(importers).toEqual(['helpers/feedbackNoSessionCleanup.ts', 'helpers/feedbackRecoveryExecutor.ts', 'helpers/feedbackRecoveryInventory.ts',
+            'helpers/feedbackReportCleanup.ts', 'rwt-feedback-association-boundaries.live.spec.ts']);
+        const inventoryImporters = files.filter((f) => /from '\.\/(helpers\/)?feedbackRecoveryInventory'/.test(readFileSync(f, 'utf8'))).map((f) => path.relative(live, f)).sort();
+        expect(inventoryImporters).toEqual(['helpers/feedbackNoSessionCleanup.ts', 'helpers/feedbackRecoveryExecutor.ts', 'rwt-feedback-association-boundaries.live.spec.ts']);
+        // The recovery executor has exactly one caller: its governed entry point.
+        const executorImporters = files.filter((f) => /from '\.\/(helpers\/)?feedbackRecoveryExecutor'/.test(readFileSync(f, 'utf8'))).map((f) => path.relative(live, f));
+        expect(executorImporters).toEqual(['feedback-recovery-executor.live.spec.ts']);
     });
 });
 
@@ -711,7 +724,8 @@ describe('a verified recovery store that survives runner loss, before any produc
         expect(at('}, storeCheck.store);', olderStart)).toBeLessThan(at('await installFeedbackWriteRoute(page, ledger, inventory);', olderStart));
         expect(RECOVERY_STORE_STEP).toBe('feedback recovery store');
         expect(older).not.toContain('recoveryDir(');
-        expect(none).not.toContain('verifyRecoveryStore');
+        // AHT-08 now has the same gate, also before its account (proposal §8 item 1).
+        expect(at('const storeCheck = verifyRecoveryStore(process.env);', noneStart)).toBeLessThan(at('const ready = await prepareDisposable(page, receipt, owner, (uid) => {', noneStart));
     });
 });
 

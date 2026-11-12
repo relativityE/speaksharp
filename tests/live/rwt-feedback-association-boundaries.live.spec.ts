@@ -34,7 +34,7 @@ import {
 import {
     type CapturedReports, captureRunReports, cleanupRunReports, writeUncertainty, writeZeroResidueRow, zeroResidueNotRun,
 } from './helpers/feedbackReportCleanup';
-import { noSessionWriteUncertainty, type NoSessionInsertSnapshot } from './helpers/feedbackNoSessionCleanup';
+import { NoSessionReportRoute, noSessionWriteUncertainty, withRouteDrain, type NoSessionInsertSnapshot } from './helpers/feedbackNoSessionCleanup';
 import {
     FeedbackRecoveryInventory, RECOVERY_STORE_STEP, recordDurably, settleRecoveryInventory, verifyRecoveryStore,
 } from './helpers/feedbackRecoveryInventory';
@@ -65,7 +65,12 @@ test.describe.configure({ mode: 'serial', retries: 0 });
 
 type Owner = { email: string; uid: string };
 
-async function prepareDisposable(page: Page, receipt: RwtReceipt, owner: Owner): Promise<boolean> {
+/**
+ * `onAccountCreated` (AHT-08 only): runs as soon as the account exists, before anything else is written for it, so the run's
+ * recovery inventory binds the owner uid durably before any submit. A throw there stops the scenario; the finalizer still deletes
+ * the account (no report exists yet).
+ */
+async function prepareDisposable(page: Page, receipt: RwtReceipt, owner: Owner, onAccountCreated?: (uid: string) => void): Promise<boolean> {
     const missing = rwtPreconditionFailures();
     if (!canaryClaimAuthorized() || process.env.RWT_CANARY_CLAIM_ACK !== RWT_CANARY_CLAIM_ACK_VALUE) {
         missing.push('AUTHORIZATION GATE: the separate run-owned canary-claim acknowledgement is absent');
@@ -81,6 +86,7 @@ async function prepareDisposable(page: Page, receipt: RwtReceipt, owner: Owner):
     receipt.forbid(owner.email, SERVICE_ROLE);
     const account = await signUpDisposableAccount(page, owner.email);
     owner.uid = account.uid;
+    onAccountCreated?.(owner.uid);
     const identity = await runOwnedIdentityFailures(admin as never, owner.uid, owner.email);
     if (identity.length > 0) throw new Error(`run-owned identity preflight failed: ${identity.join('; ')}`);
     receipt.row('run-owned signup', 'PASS', 'fresh disposable account and profile verified');
@@ -624,6 +630,10 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
         // AHT-08 report cleanup: the submit's observed inserts (its idempotency key) and its stored-row read.
         let insertSnapshot: NoSessionInsertSnapshot | null = null;
         let storedRows: number | null = null;
+        // AHT-08 surviving runner loss (proposal 2026-11-12 §8): the run's AHT-08 inventory, opened as soon as the account exists,
+        // and the pass-through observer route that records each insert's key durably BEFORE forwarding it.
+        let inventory: FeedbackRecoveryInventory | null = null;
+        let reportRoute: NoSessionReportRoute | null = null;
         // #1593 (Sam, #1662 RETURN control 1): ONE owned finalization — the body's finally and the suite's afterEach
         // (which Playwright runs after a timeout) run this same memoized closure exactly once.
         const finish = finalizer.once(async () => {
@@ -651,12 +661,27 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
                 zeroStartPressRow(aliveReceipt(receipt, alive), parity);
             });
             await steps.step('owned pages closed', (alive) => parity.ownedPagesClosedRow(aliveReceipt(receipt, alive)), PARITY_CLOSE_STEP_MS);
+            // AHT-08 writer stop (proposal §8 item 4), after every owned page closed: stop the route FIRST (every later write is
+            // aborted unsent and the inventory takes no new attempt), then drain; only a drain that found nothing in flight writes
+            // the writer's stopped record that recovery requires. A step that does not finish leaves the drain unobserved (HOLD).
+            let pendingAfterDrain: number | null = null;
+            if (inventory) {
+                await steps.step('feedback recovery writer', async () => {
+                    reportRoute?.stop();
+                    inventory?.stop();
+                    pendingAfterDrain = reportRoute ? await reportRoute.drain(15_000) : 0;
+                    inventory?.recordWriterStopped(pendingAfterDrain);
+                });
+                // The route's recorded keys join the run's keys, and its drain decides whether a write is still in flight.
+                insertSnapshot = withRouteDrain(insertSnapshot, reportRoute?.observation() ?? null, pendingAfterDrain);
+            }
             // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion. With a report, the retention proof deletes through it;
             // the deletion's own settlement then decides the row — a stalled readback never deletes again.
             // AHT-08 report cleanup (feedbackNoSessionCleanup.ts), AHT-07's race-safe steps unchanged. Step 1, after every owned page
             // closed and BEFORE the account deletion: capture the owner's reports UNION those under the submit's observed key.
-            // In-run only: the key and report id are held in memory, with no durable record and no verified store, so a lost runner
-            // leaves the report behind (Sam, #1811 RETURN on d1487bdb, item 2).
+            // Durable since the AHT-08 store work: the key is on disk in the run's AHT-08 inventory before the insert left the
+            // browser, so a runner lost before this cleanup leaves a report that a second executor finds by that key (once the
+            // writer-stopped record exists; without it recovery HOLDs, the known limit).
             const runKeys = insertSnapshot?.keys ?? [];
             let capturedReports: CapturedReports | null = null;
             if (owner.uid) {
@@ -676,10 +701,11 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
                     const uncertainty = noSessionWriteUncertainty({ submitted: submitWindow !== null, inserts: insertSnapshot, reportId, storedRows });
                     const verdict = await cleanupRunReports(admin as never, owner.uid, runKeys, capturedReports, uncertainty);
                     if (!alive()) return false;
-                    writeZeroResidueRow(receipt, verdict);
+                    // Retired only on PASS (settlement plus zero readback); any other verdict keeps it and names the file.
+                    writeZeroResidueRow(receipt, settleRecoveryInventory(verdict, inventory));
                     return true;
                 }, FINALIZE_CLEANUP_MS);
-                if (written !== true) writeZeroResidueRow(receipt, zeroResidueNotRun(capturedReports));
+                if (written !== true) writeZeroResidueRow(receipt, settleRecoveryInventory(zeroResidueNotRun(capturedReports), inventory));
             }
             await finishReceipt(receipt, testInfo, tap, claimed, steps);
         });
@@ -687,9 +713,29 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             // BEFORE the first navigation (the click recorder is an init script).
             await parity.attach(page.context());
             await suppressPageSnapshot(testInfo);
-            const ready = await prepareDisposable(page, receipt, owner);
+            // AHT-08 store gate (proposal §8 item 1): a verified recovery store that survives runner loss, before the first
+            // Production write (the account), or HOLD. Never created here: provisioning it is the store owner's act.
+            const storeCheck = verifyRecoveryStore(process.env);
+            if (!storeCheck.ok) {
+                receipt.halt(RECOVERY_STORE_STEP, `HOLD before Production writes: no verified recovery store (${storeCheck.reason})`);
+                return;
+            }
+            // Item 2: the AHT-08 inventory opens the moment the account exists, binding the owner uid on disk before any submit.
+            const ready = await prepareDisposable(page, receipt, owner, (uid) => {
+                inventory = FeedbackRecoveryInventory.open({
+                    runId: process.env.GITHUB_RUN_ID || 'local', runAttempt: process.env.GITHUB_RUN_ATTEMPT || '1', testId: testInfo.testId, ownerUid: uid,
+                }, storeCheck.store, 'aht08');
+            });
             claimed = ready;
             if (!ready) return;
+            // Item 3: the pass-through observer on the report insert only, installed before the submit. It records the insert's key
+            // durably, then forwards it unchanged; no fault, no synthetic answer, no extra attempt.
+            // Opened in prepareDisposable's callback, which TypeScript's flow analysis does not follow.
+            const opened = inventory as FeedbackRecoveryInventory | null;
+            if (!opened) throw new Error('the AHT-08 recovery inventory was not opened');
+            const route = new NoSessionReportRoute(opened);
+            await page.context().route(FEEDBACK_INSERT_URL, (r: Route) => route.handle<APIResponse>(r));
+            reportRoute = route;
             const stored = await submitFeedback(page, tap, owner.uid, 'no_session', null, undefined, {
                 onSubmitted: (submitted) => { submitWindow = submitted; },
                 onFreshAcknowledgment: (observation) => writeFreshAcknowledgmentRow(receipt, observation),
