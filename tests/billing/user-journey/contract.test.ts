@@ -1,8 +1,9 @@
 import { strict as assert } from 'node:assert';
+import { readFileSync } from 'node:fs';
 import { test } from 'vitest';
 import { BILLING_JOURNEYS, REQUIRED_STEPS, receipt, assertTestPrice, assertInvoice,
   isCorrelatedDelivery, assertSandboxConfiguration, safeFailureReason, testClockCreateFields, localStackStatus } from './contract';
-import { finaliseLocalStackReceipt } from './localStackReceipt.mjs';
+import { finaliseLocalStackReceipt, RECEIPT_KEYS } from './localStackReceipt.mjs';
 
 const price = { livemode: false, active: true, unit_amount: 1000, currency: 'usd',
   recurring: { interval: 'month', interval_count: 1 } };
@@ -121,30 +122,100 @@ test('local stack: the journey receipt never says PASSED or VERIFIED by itself',
   assert.deepEqual(localStackStatus('PASSED', 'VERIFIED', false), { result: 'PASSED', cleanup: 'VERIFIED' });
 });
 
-const pendingReceipt = { journey: 'conversion', result: 'PENDING_STACK_DESTRUCTION', cleanup: 'PENDING_STACK_DESTRUCTION',
-  billingRowResidue: 'NOT_READ_REQUIRES_STACK_DESTRUCTION_PROOF' };
+const RELEASE = 'a'.repeat(40);
+const STACK_RUN = 'billing-local-stack-123456-1';
+const pendingReceipt = { schema: 'billing-user-journey/v1', journey: 'conversion', stripeMode: 'test',
+  result: 'PENDING_STACK_DESTRUCTION', steps: REQUIRED_STEPS.conversion.map(step => ({ step, result: 'PASSED' })),
+  failureStage: null, reason: null, cleanup: 'PENDING_STACK_DESTRUCTION',
+  billingRowResidue: 'NOT_READ_REQUIRES_STACK_DESTRUCTION_PROOF', testedRelease: RELEASE, stackRun: STACK_RUN };
 const allChecks = { stackStopped: 'success', stackDestroyed: 'success', stripeClean: 'success' };
+const destruction = { schema: 'billing-local-stack-destroyed/v1', project: STACK_RUN, databaseSystemIdentifier: '7300000000000000001',
+  containers: 9, volumes: 3, networks: 1, destroyed: true };
+const finaliserExpected = { journey: 'conversion', release: RELEASE, stackRun: STACK_RUN, receiptSha256: 'b'.repeat(64), destruction };
 
 test('combined local receipt is PASSED only after checked teardown, destruction proof and Stripe cleanup', () => {
-  const combined = finaliseLocalStackReceipt([pendingReceipt], allChecks);
-  assert.equal(combined.result, 'PASSED');
+  const combined = finaliseLocalStackReceipt([pendingReceipt], allChecks, finaliserExpected);
+  assert.equal(combined.result, 'PASSED', JSON.stringify(combined.defects));
   assert.equal(combined.billingRowResidue, 'NOT_READ_DATABASE_DESTROYED');
+  // Bound to this dispatch: journey, release, stack and the raw receipt's hash.
+  assert.deepEqual([combined.journey, combined.release, combined.stackRun, combined.rawReceiptSha256],
+    ['conversion', RELEASE, STACK_RUN, 'b'.repeat(64)]);
+});
+
+test('the receipt the spec writes has exactly the shape the finalizer requires', () => {
+  const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
+  const attached = spec.slice(spec.indexOf("info.attach('billing-user-journey.json'"), spec.indexOf("contentType: 'application/json'"));
+  const added = [...attached.matchAll(/^ {8}([a-zA-Z]+)[:,]/gm)].map(m => m[1]);
+  // receipt() supplies schema, journey, stripeMode, result and steps; the attach adds the rest.
+  const written = new Set([...Object.keys(receipt('conversion', new Set())), ...added]);
+  assert.deepEqual([...written].sort(), [...RECEIPT_KEYS]);
 });
 
 test('combined local receipt negative controls: any failed, skipped or unknown check is NOT_PROVEN', () => {
   for (const key of Object.keys(allChecks) as (keyof typeof allChecks)[]) {
     for (const value of ['failure', 'skipped', 'cancelled', '', undefined]) {
-      const combined = finaliseLocalStackReceipt([pendingReceipt], { ...allChecks, [key]: value as string });
+      const combined = finaliseLocalStackReceipt([pendingReceipt], { ...allChecks, [key]: value as string }, finaliserExpected);
       assert.equal(combined.result, 'NOT_PROVEN', `${key}=${String(value)}`);
     }
   }
-  assert.equal(finaliseLocalStackReceipt([pendingReceipt], { ...allChecks, stackDestroyed: 'failure' }).billingRowResidue, 'NOT_READ_NOT_PROVEN');
+  assert.equal(finaliseLocalStackReceipt([pendingReceipt], { ...allChecks, stackDestroyed: 'failure' }, finaliserExpected).billingRowResidue, 'NOT_READ_NOT_PROVEN');
 });
 
 test('combined local receipt negative controls: a missing, extra, failed or self-PASSED journey receipt is NOT_PROVEN', () => {
   for (const receipts of [null, [], [pendingReceipt, pendingReceipt], [{ ...pendingReceipt, result: 'INCOMPLETE' }],
     [{ ...pendingReceipt, result: 'PASSED', cleanup: 'VERIFIED' }], [{ ...pendingReceipt, cleanup: 'UNPROVEN' }],
     [{ ...pendingReceipt, billingRowResidue: 'COUNTED_ZERO_OR_FAILED' }], [null], 'not json']) {
-    assert.equal(finaliseLocalStackReceipt(receipts, allChecks).result, 'NOT_PROVEN', JSON.stringify(receipts));
+    assert.equal(finaliseLocalStackReceipt(receipts, allChecks, finaliserExpected).result, 'NOT_PROVEN', JSON.stringify(receipts));
+  }
+});
+
+test('(c) negative control: a receipt holding only the PENDING/residue fields is not a journey', () => {
+  const bare = { journey: 'conversion', result: 'PENDING_STACK_DESTRUCTION', cleanup: 'PENDING_STACK_DESTRUCTION',
+    billingRowResidue: 'NOT_READ_REQUIRES_STACK_DESTRUCTION_PROOF' };
+  const combined = finaliseLocalStackReceipt([bare], allChecks, finaliserExpected);
+  assert.equal(combined.result, 'NOT_PROVEN');
+  assert.ok(combined.defects.includes('receipt_shape') && combined.defects.includes('steps_not_all_passed'));
+  // Sam's exact reproduction: the old finalizer returned PASSED with journey:null for a receipt with no journey.
+  const noJourney = Object.fromEntries(Object.entries(bare).filter(([key]) => key !== 'journey'));
+  const result = finaliseLocalStackReceipt([noJourney], allChecks, finaliserExpected);
+  assert.equal(result.result, 'NOT_PROVEN');
+});
+
+test('(c) negative control: the wrong journey, release, stack, steps or a recorded failure is NOT_PROVEN', () => {
+  const steps = pendingReceipt.steps;
+  const cases: [string, unknown][] = [
+    ['journey_not_dispatched', { ...pendingReceipt, journey: 'portal_expiry' }],
+    ['release_mismatch', { ...pendingReceipt, testedRelease: 'c'.repeat(40) }],
+    ['release_mismatch', { ...pendingReceipt, testedRelease: null }],
+    ['stack_run_mismatch', { ...pendingReceipt, stackRun: 'billing-local-stack-999-1' }],
+    ['stack_run_mismatch', { ...pendingReceipt, stackRun: null }],
+    ['steps_not_all_passed', { ...pendingReceipt, steps: steps.slice(1) }],
+    ['steps_not_all_passed', { ...pendingReceipt, steps: steps.map((s, i) => i === 3 ? { ...s, result: 'NOT_PROVEN' } : s) }],
+    ['steps_not_all_passed', { ...pendingReceipt, steps: [...steps].reverse() }],
+    ['steps_not_all_passed', { ...pendingReceipt, steps: REQUIRED_STEPS.portal_expiry.map(step => ({ step, result: 'PASSED' })) }],
+    ['failure_recorded', { ...pendingReceipt, reason: 'x' }],
+    ['failure_recorded', { ...pendingReceipt, failureStage: 'checkout' }],
+    ['stripe_mode', { ...pendingReceipt, stripeMode: 'live' }],
+    ['receipt_schema', { ...pendingReceipt, schema: 'billing-user-journey/v0' }],
+    ['receipt_shape', { ...pendingReceipt, extra: true }],
+  ];
+  for (const [defect, bad] of cases) {
+    const combined = finaliseLocalStackReceipt([bad], allChecks, finaliserExpected);
+    assert.equal(combined.result, 'NOT_PROVEN', defect);
+    assert.ok(combined.defects.includes(defect), `${defect}: ${JSON.stringify(combined.defects)}`);
+  }
+  // The dispatch itself must be well formed; the receipt cannot supply what was finaliserExpected.
+  for (const bad of [{ ...finaliserExpected, journey: undefined }, { ...finaliserExpected, journey: 'refund' }, { ...finaliserExpected, release: 'HEAD' },
+    { ...finaliserExpected, stackRun: undefined }, { ...finaliserExpected, receiptSha256: undefined }]) {
+    assert.equal(finaliseLocalStackReceipt([pendingReceipt], allChecks, bad).result, 'NOT_PROVEN', JSON.stringify(bad));
+  }
+});
+
+test('(c) negative control: a destruction proof missing, failed or for another run is NOT_PROVEN', () => {
+  for (const bad of [undefined, null, { ...destruction, project: 'billing-local-stack-999-1' }, { ...destruction, destroyed: false },
+    { ...destruction, containers: 0 }, { ...destruction, databaseSystemIdentifier: '' }, { ...destruction, schema: 'x' }]) {
+    const combined = finaliseLocalStackReceipt([pendingReceipt], allChecks, { ...finaliserExpected, destruction: bad });
+    assert.equal(combined.result, 'NOT_PROVEN', JSON.stringify(bad));
+    assert.equal(combined.stackDestroyed, 'NOT_PROVEN');
   }
 });

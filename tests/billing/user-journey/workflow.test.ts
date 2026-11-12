@@ -2,9 +2,13 @@
 // shell snippets run against a stubbed stripe_get that only prints a fixture.
 import { strict as assert } from 'node:assert';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'vitest';
 import { parse } from 'yaml';
+import { REQUIRED_STEPS } from './journeySteps.mjs';
 
 type Step = { name?: string; id?: string; if?: string; run?: string; env?: Record<string, string> };
 const workflowText = readFileSync('.github/workflows/billing-local-stack-journey.yml', 'utf8');
@@ -127,4 +131,64 @@ test('the combined receipt is finalised after teardown, destruction proof and re
 test('D1 source check: the clock create carries this run\'s marker as its name', () => {
   const create = /stripe\('test_helpers\/test_clocks', 'POST', ([^\n]*)\);/.exec(spec)?.[1] ?? '';
   assert.match(create, /^testClockCreateFields\(this\.marker,/);
+});
+
+// Sam's #1813 return on 230ae21b: (a) independent Docker checks, (b) exact identities, (c) a bound finalizer.
+test('(a) no Docker query is combined in one substitution any more; Docker is reached only through the checked module', () => {
+  assert.doesNotMatch(workflowText, /\$\(docker[^)]*;/);
+  for (const s of job.steps) assert.doesNotMatch(s.run ?? '', /^\s*[a-z_]+="\$\(docker/m, s.name);
+});
+
+test('(b) this run\'s identities are recorded right after creation, before any Stripe step or the journey', () => {
+  const ids = job.steps.map(s => s.id ?? s.name);
+  const at = ids.indexOf('stack_identity');
+  assert.equal(at, ids.indexOf('stack_start') + 1);
+  assert.match(step('stack_identity').run ?? '', /localStackResources\.mjs capture "\$LOCAL_STACK_PROJECT"\s*\\\s*\n\s*> "\$RUNNER_TEMP\/stack-identity\.json"/);
+  assert.match(step('stack_identity').run ?? '', /set -euo pipefail/);
+});
+
+test('(b) destruction is proven against those identities, and only after a checked stop', () => {
+  const destroyed = step('stack_destroyed');
+  assert.match(destroyed.if ?? '', /steps\.stack_stop\.outcome == 'success'/);
+  assert.match(destroyed.run ?? '', /localStackResources\.mjs verify "\$LOCAL_STACK_PROJECT" \\\s*\n\s*"\$RUNNER_TEMP\/stack-identity\.json" > billing-local-stack-destroyed\.json/);
+});
+
+test('(c) the finalizer is told this dispatch\'s journey, release and stack, and reads the destruction proof', () => {
+  const combined = step('combined');
+  assert.equal(combined.env?.JOURNEY, '${{ inputs.journey }}');
+  assert.equal(combined.env?.RELEASE, '${{ inputs.commit_sha }}');
+  const run = combined.run ?? '';
+  for (const flag of ['--receipt billing-local-stack-receipt.json', '--destruction billing-local-stack-destroyed.json',
+    '--journey "$JOURNEY"', '--release "$RELEASE"', '--run "$LOCAL_STACK_PROJECT"']) assert.ok(run.includes(flag), flag);
+});
+
+test('(c) the finalizer CLI binds the combined result to the raw receipt file, and refuses a bare receipt', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'billing-combined-'));
+  try {
+    const project = 'billing-local-stack-123456-1';
+    const release = 'a'.repeat(40);
+    const full = { schema: 'billing-user-journey/v1', journey: 'conversion', stripeMode: 'test', result: 'PENDING_STACK_DESTRUCTION',
+      steps: REQUIRED_STEPS.conversion.map(s => ({ step: s, result: 'PASSED' })), failureStage: null, reason: null,
+      cleanup: 'PENDING_STACK_DESTRUCTION', billingRowResidue: 'NOT_READ_REQUIRES_STACK_DESTRUCTION_PROOF',
+      testedRelease: release, stackRun: project };
+    const destroyed = { schema: 'billing-local-stack-destroyed/v1', project, databaseSystemIdentifier: '1', containers: 1,
+      volumes: 1, networks: 1, destroyed: true };
+    writeFileSync(join(dir, 'destroyed.json'), JSON.stringify(destroyed));
+    const finalise = (receipts: unknown) => {
+      writeFileSync(join(dir, 'receipt.json'), JSON.stringify(receipts));
+      return spawnSync('node', ['tests/billing/user-journey/localStackReceipt.mjs', '--receipt', join(dir, 'receipt.json'),
+        '--destruction', join(dir, 'destroyed.json'), '--journey', 'conversion', '--release', release, '--run', project,
+        '--stack-stopped', 'success', '--stack-destroyed', 'success', '--stripe-clean', 'success'], { encoding: 'utf8' });
+    };
+    const good = finalise([full]);
+    assert.equal(good.status, 0, good.stdout);
+    const sha = createHash('sha256').update(readFileSync(join(dir, 'receipt.json'))).digest('hex');
+    assert.equal(JSON.parse(good.stdout).rawReceiptSha256, sha);
+    const bare = finalise([{ journey: 'conversion', result: 'PENDING_STACK_DESTRUCTION', cleanup: 'PENDING_STACK_DESTRUCTION',
+      billingRowResidue: 'NOT_READ_REQUIRES_STACK_DESTRUCTION_PROOF' }]);
+    assert.equal(bare.status, 1);
+    assert.equal(JSON.parse(bare.stdout).result, 'NOT_PROVEN');
+    const otherRun = finalise([{ ...full, stackRun: 'billing-local-stack-999-1' }]);
+    assert.equal(otherRun.status, 1);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

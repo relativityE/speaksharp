@@ -158,6 +158,18 @@ jobs:
           echo "::add-mask::$anon"; echo "::add-mask::$service"
           { echo "LOCAL_ANON_KEY=$anon"; echo "LOCAL_SERVICE_ROLE_KEY=$service"; } >> "$GITHUB_ENV"
 
+      # Sam's #1813 return (b): record exactly what this run created, right after creation. Each Docker query is
+      # checked on its own; the label and name selectors must agree and include this run's database container
+      # and data volume, and the database must answer with its own system identifier. A wrong selector fails here.
+      - name: Record this run's stack identity
+        id: stack_identity
+        run: |
+          set -euo pipefail
+          node tests/billing/user-journey/localStackResources.mjs capture "$LOCAL_STACK_PROJECT" \
+            > "$RUNNER_TEMP/stack-identity.json"
+          jq -c '{project, containers: (.containers | length), volumes: (.volumes | length), networks: (.networks | length)}' \
+            "$RUNNER_TEMP/stack-identity.json"
+
       - name: Install the Stripe CLI (pinned, checksum-verified)
         run: |
           set -euo pipefail
@@ -307,28 +319,36 @@ jobs:
       # are empty. What makes their rows harmless is that the whole database is gone: prove it.
       - name: Prove the disposable stack was destroyed
         id: stack_destroyed
-        if: always() && steps.stack_start.outcome != 'skipped'
+        # Only after a CHECKED stop: an empty selector after a failed stop is not proof.
+        if: always() && steps.stack_start.outcome != 'skipped' && steps.stack_stop.outcome == 'success'
         run: |
           set -euo pipefail
-          filter="label=com.supabase.cli.project=$LOCAL_STACK_PROJECT"
-          containers="$(docker ps -aq --filter "$filter"; docker ps -aq --filter "name=_${LOCAL_STACK_PROJECT}")"
-          volumes="$(docker volume ls -q --filter "$filter"; docker volume ls -q --filter "name=_${LOCAL_STACK_PROJECT}")"
-          networks="$(docker network ls -q --filter "$filter"; docker network ls -q --filter "name=_${LOCAL_STACK_PROJECT}")"
-          echo "Remaining for this run's stack: containers=$(wc -w <<<"$containers") volumes=$(wc -w <<<"$volumes") networks=$(wc -w <<<"$networks")"
-          [ -z "${containers//[[:space:]]/}" ] && [ -z "${volumes//[[:space:]]/}" ] && [ -z "${networks//[[:space:]]/}" ] \
-            || { echo '::error::The disposable stack was not fully destroyed; its billing rows were never read, so this run cannot pass.'; exit 1; }
-          echo 'Disposable stack destroyed: no container, volume or network with this run'"'"'s project id remains.'
+          # Each identity recorded after creation must now be absent (Docker's own "no such" answer); any
+          # other inspect error is unverified, and the selectors are re-read, each checked on its own.
+          node tests/billing/user-journey/localStackResources.mjs verify "$LOCAL_STACK_PROJECT" \
+            "$RUNNER_TEMP/stack-identity.json" > billing-local-stack-destroyed.json \
+            || { echo '::error::The disposable stack was not proven destroyed; its billing rows were never read, so this run cannot pass.'; exit 1; }
+          cat billing-local-stack-destroyed.json
 
       # The journey's own receipt can only say PENDING_STACK_DESTRUCTION on this stack. It becomes PASSED only
       # here, after the checked teardown, the destruction proof and the Stripe residue check all succeeded.
       - name: Finalise the combined receipt
         id: combined
         if: always() && steps.stack_start.outcome != 'skipped'
+        env:
+          JOURNEY: ${{ inputs.journey }}
+          RELEASE: ${{ inputs.commit_sha }}
         run: |
           set -euo pipefail
           [ -f billing-local-stack-receipt.json ] || echo 'null' > billing-local-stack-receipt.json
-          node tests/billing/user-journey/localStackReceipt.mjs billing-local-stack-receipt.json \
-            '${{ steps.stack_stop.outcome }}' '${{ steps.stack_destroyed.outcome }}' '${{ steps.stripe_residue.outcome }}' \
+          # Sam's #1813 return (c): the finalizer checks the receipt is exactly this dispatch's journey, release
+          # and stack, with every step PASSED, and that the destruction proof is for the same stack. The
+          # combined result carries the raw receipt's sha256, so the two stay bound to this run.
+          node tests/billing/user-journey/localStackReceipt.mjs \
+            --receipt billing-local-stack-receipt.json --destruction billing-local-stack-destroyed.json \
+            --journey "$JOURNEY" --release "$RELEASE" --run "$LOCAL_STACK_PROJECT" \
+            --stack-stopped '${{ steps.stack_stop.outcome }}' --stack-destroyed '${{ steps.stack_destroyed.outcome }}' \
+            --stripe-clean '${{ steps.stripe_residue.outcome }}' \
             > billing-local-stack-combined.json && status=0 || status=$?
           cat billing-local-stack-combined.json
           sha256sum billing-local-stack-combined.json | tee billing-local-stack-combined.sha256
@@ -366,6 +386,7 @@ jobs:
           path: |
             billing-local-stack-receipt.json
             billing-local-stack-receipt.sha256
+            billing-local-stack-destroyed.json
             billing-local-stack-combined.json
             billing-local-stack-combined.sha256
           if-no-files-found: warn

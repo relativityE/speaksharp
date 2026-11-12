@@ -1,16 +1,6 @@
 /** Billing acceptance is separate from the fixed 15 practice journeys. No network or secrets here. */
-export const BILLING_JOURNEYS = ['conversion', 'renewal_recovery', 'portal_expiry'] as const;
-export type BillingJourney = typeof BILLING_JOURNEYS[number];
-export const REQUIRED_STEPS: Record<BillingJourney, readonly string[]> = {
-  conversion: ['trial_granted', 'trial_expired', 'hosted_checkout', 'first_invoice', 'stripe_delivery',
-    'paid_entitlement', 'returned_to_app', 'paid_ui', 'reload', 'sign_in_again', 'next_recording', 'cleanup'],
-  renewal_recovery: ['hosted_checkout', 'first_invoice', 'stripe_delivery', 'paid_entitlement',
-    'renewal_paid', 'renewal_delivery', 'failure_observed', 'failure_delivery', 'access_revoked',
-    'recovery_paid', 'recovery_delivery', 'access_restored', 'cleanup'],
-  portal_expiry: ['hosted_checkout', 'first_invoice', 'stripe_delivery', 'paid_entitlement',
-    'portal_opened', 'portal_cancelled', 'cancellation_delivery', 'paid_until_period_end',
-    'expiry_delivery', 'access_expired', 'account_retained', 'history_retained', 'cleanup'],
-};
+import { BILLING_JOURNEYS, REQUIRED_STEPS, type BillingJourney } from './journeySteps.mjs';
+export { BILLING_JOURNEYS, REQUIRED_STEPS, type BillingJourney };
 
 export function requireFact(value: unknown, code: string): asserts value {
   if (!value) throw new Error(`BILLING_JOURNEY:${code}`);

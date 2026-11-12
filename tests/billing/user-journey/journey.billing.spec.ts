@@ -423,7 +423,9 @@ for (const journey of BILLING_JOURNEYS) {
         cleanup: status.cleanup,
         // Never reported as checked on the local stack; only the workflow's destruction proof covers them.
         billingRowResidue: useLocalStack ? 'NOT_READ_REQUIRES_STACK_DESTRUCTION_PROOF' : 'COUNTED_ZERO_OR_FAILED',
-        testedRelease: env.BILLING_SANDBOX_RELEASE_SHA?.match(/^[a-f0-9]{40}$/i)?.[0] ?? null,
+        testedRelease: env.BILLING_SANDBOX_RELEASE_SHA?.match(/^[a-f0-9]{40}$/)?.[0] ?? null,
+        // Binds this receipt to this run's disposable stack; the finalizer refuses any other run's receipt.
+        stackRun: useLocalStack ? env.LOCAL_STACK_PROJECT?.match(/^billing-local-stack-[0-9]{1,20}-[0-9]{1,6}$/)?.[0] ?? null : null,
       }), contentType: 'application/json' });
       requireFact(!failed && !cleanupFailed && result.result === 'PASSED', 'journey_incomplete_see_sanitized_receipt');
     }

@@ -54,11 +54,19 @@ not count those three tables, because migrations revoke all access to them from
 journey's own receipt therefore never says PASSED or VERIFIED: it says
 `PENDING_STACK_DESTRUCTION`, with `billingRowResidue:
 NOT_READ_REQUIRES_STACK_DESTRUCTION_PROOF`. The rows are not claimed destroyed
-because disposal is intended. The workflow first stops the stack as a checked
-step (a failed stop fails the run), then checks that no container, volume or
-network with the run's own Supabase project id remains, then checks Stripe for
-leftovers. Only then does `localStackReceipt.mjs` write the combined receipt, and
-it says PASSED only if all of those succeeded; anything else is NOT_PROVEN.
+because disposal is intended. Right after the stack starts,
+`localStackResources.mjs capture` records this run's exact container, volume and
+network identities and the database's own system identifier; each Docker query is
+checked on its own, the label and name selectors must agree, and this run's
+database container and data volume must be among them, so a wrong selector fails
+there. The workflow then stops the stack as a checked step (a failed stop fails the
+run), and only after that `localStackResources.mjs verify` proves each recorded
+identity is gone (Docker's own "no such" answer; any other error is unverified),
+then Stripe is checked for leftovers. Only then does `localStackReceipt.mjs` write
+the combined receipt. It says PASSED only if all of those succeeded and the
+journey receipt is exactly the spec's shape, for the dispatched journey, release
+and stack, with every required step PASSED, and the destruction proof is for the
+same stack; it records the raw receipt's sha256. Anything else is NOT_PROVEN.
 Stripe-side and auth/profile cleanup are still required. The hosted-sandbox target
 keeps the fail-closed counts unchanged.
 
