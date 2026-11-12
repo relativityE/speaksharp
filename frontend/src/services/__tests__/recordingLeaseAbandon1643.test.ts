@@ -1,7 +1,7 @@
 /**
  * #1643 missing-Start (Sam, 2026-11-12): a Start that failed or was cancelled before it recorded anything settles its
  * exact lease as ABANDONED on the server instead of only releasing it. The server proves no take exists and fences the
- * identity (tests/db/recording-start-abandonment-realpg.mjs); this is the client contract: exact lease, never a newer
+ * identity (tests/db/recording-start-abandonment-realpg.test.mjs); this is the client contract: exact lease, never a newer
  * take's, and never weaker than the ordinary release.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';

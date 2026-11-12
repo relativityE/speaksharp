@@ -3,10 +3,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { accessSync, constants, mkdtempSync, mkdirSync, readFileSync, realpathSync, writeFileSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, isAbsolute, join } from 'node:path';
 import process from 'node:process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { completionBootstrap, recordingChain } from './account-completion-fixture.mjs';
@@ -22,6 +22,20 @@ const abandon = (a, lease = a.lease) => as(a, `SELECT abandon_recording_start_v1
 const create = (a, lease = a.lease) => as(a, `SELECT create_session_and_update_usage('{"title":"synthetic","duration":0${lease ? `,"lease_id":"${lease}"` : ''}}'::jsonb,'private')`);
 
 test('missing-Start abandonment: proven no-take cancellation, permanent fence, serialized with admission', async t => {
+  // One complete installed toolchain, found even under the evidence runner's sanitized PATH (the same search as the
+  // #1643 coaching-fence proof). No download, inherited connection configuration or external database.
+  const names = ['initdb', 'pg_ctl', 'psql'];
+  let bin;
+  for (const directory of [...(process.env.PATH ?? '').split(delimiter), '/usr/lib/postgresql/17/bin', '/usr/lib/postgresql/16/bin', '/usr/lib/postgresql/18/bin']) {
+    if (!isAbsolute(directory)) continue;
+    try {
+      bin = Object.fromEntries(names.map(name => {
+        const file = realpathSync(join(directory, name)); accessSync(file, constants.X_OK); return [name, file];
+      }));
+      break;
+    } catch { /* Only a complete installed toolchain is eligible. */ }
+  }
+  assert.ok(bin, 'NOT RUN: installed local PostgreSQL initdb/pg_ctl/psql toolchain unavailable');
   const root = mkdtempSync(join(tmpdir(), 'start-abandonment-'));
   const data = join(root, 'data'), socket = join(root, 'socket'); mkdirSync(socket);
   const env = { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('PG'))),
@@ -29,8 +43,8 @@ test('missing-Start abandonment: proven no-take cancellation, permanent fence, s
   const args = ['-h', socket, '-p', '5432', '-U', env.PGUSER, '-d', 'postgres', '-X', '-qAt', '-v', 'ON_ERROR_STOP=1'];
   // Large bootstrap text goes over stdin (one argument is capped by the OS); everything else is one -c command.
   const sql = text => (text.length > 64_000
-    ? execFileSync('psql', [...args, '-1', '-f', '-'], { env, encoding: 'utf8', timeout: 60000, input: text, stdio: ['pipe', 'pipe', 'pipe'] })
-    : execFileSync('psql', [...args, '-c', text], { env, encoding: 'utf8', timeout: 10000, stdio: ['ignore', 'pipe', 'pipe'] })).trim();
+    ? execFileSync(bin.psql, [...args, '-1', '-f', '-'], { env, encoding: 'utf8', timeout: 60000, input: text, stdio: ['pipe', 'pipe', 'pipe'] })
+    : execFileSync(bin.psql, [...args, '-c', text], { env, encoding: 'utf8', timeout: 10000, stdio: ['ignore', 'pipe', 'pipe'] })).trim();
   const json = text => { const value = sql(text).split('\n').at(-1); return value ? JSON.parse(value) : null; };
   const clients = [], receipts = []; let started = false, index = 0;
   const phase = a => sql(`SELECT coalesce((SELECT phase FROM account_save_obligations WHERE user_id='${a.user}' AND lease_id='${a.lease}'),'none')`);
@@ -56,7 +70,7 @@ test('missing-Start abandonment: proven no-take cancellation, permanent fence, s
     return json(service(`SELECT claim_account_pending_completion_v1('${a.user}','${a.request}','${scope}')`));
   };
   function client(name, text, hold = false) {
-    const child = spawn('psql', args, { env: { ...env, PGAPPNAME: name }, stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn(bin.psql, args, { env: { ...env, PGAPPNAME: name }, stdio: ['pipe', 'pipe', 'pipe'] });
     const c = { child, stdout: '', stderr: '', exited: false }; clients.push(c);
     child.stdout.on('data', x => { c.stdout += x; }); child.stderr.on('data', x => { c.stderr += x; });
     c.done = new Promise((resolve, reject) => { child.on('error', reject); child.on('close', code => { c.exited = true; resolve({ code, stdout: c.stdout, stderr: c.stderr }); }); });
@@ -68,8 +82,8 @@ test('missing-Start abandonment: proven no-take cancellation, permanent fence, s
     AND (SELECT pid FROM pg_stat_activity WHERE application_name='${h}')=ANY(pg_blocking_pids(pid)))`) === 't';
   const last = out => out.trim().split('\n').at(-1);
   try {
-    execFileSync('initdb', ['-D', data, '-U', env.PGUSER, '-A', 'trust', '--no-locale', '--encoding=UTF8'], { encoding: 'utf8' });
-    execFileSync('pg_ctl', ['-D', data, '-l', join(root, 'postgres.log'), '-w', 'start', '-o',
+    execFileSync(bin.initdb, ['-D', data, '-U', env.PGUSER, '-A', 'trust', '--no-locale', '--encoding=UTF8'], { encoding: 'utf8' });
+    execFileSync(bin.pg_ctl, ['-D', data, '-l', join(root, 'postgres.log'), '-w', 'start', '-o',
       `-F -k ${socket} -h '' -p 5432 -c max_connections=12 -c shared_buffers=16MB -c deadlock_timeout=100ms`], { encoding: 'utf8' });
     started = true; assert.equal(sql("SELECT current_setting('data_directory')"), data);
     sql(completionBootstrap());
@@ -274,10 +288,10 @@ test('missing-Start abandonment: proven no-take cancellation, permanent fence, s
     });
   } finally {
     for (const c of clients) if (!c.child.stdin.destroyed) c.child.stdin.end();
-    if (started) execFileSync('pg_ctl', ['-D', data, '-w', 'stop', '-m', 'immediate'], { encoding: 'utf8' });
+    if (started) execFileSync(bin.pg_ctl, ['-D', data, '-w', 'stop', '-m', 'immediate'], { encoding: 'utf8' });
     await Promise.allSettled(clients.map(c => c.done));
     mkdirSync('artifacts/recording-start-abandonment', { recursive: true });
-    const files = [candidate, journal, 'tests/db/recording-start-abandonment-realpg.mjs', ...recordingChain.map(x => 'backend/supabase/migrations/' + x)];
+    const files = [candidate, journal, 'tests/db/recording-start-abandonment-realpg.test.mjs', ...recordingChain.map(x => 'backend/supabase/migrations/' + x)];
     writeFileSync('artifacts/recording-start-abandonment/receipts.json', JSON.stringify({ createdAt: new Date().toISOString(),
       databaseStarted: started, qualification: 'Inspect TAP exit and participant results; this artifact alone is not a PASS',
       boundary: 'owned disposable PostgreSQL only; actual recording/admission/completion-journal migrations; declared signup/storage/usage fixtures; no hosted/provider calls',

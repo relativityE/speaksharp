@@ -2,7 +2,7 @@
  * #1643 missing-Start (Sam, 2026-11-12) — the real hook settles a Start that ended before it recorded anything as an
  * ABANDONED Start, for exactly the lease that Start acquired, and keeps every other path on the ordinary release.
  * The server half (proof that no take exists, the permanent fence, both race orders) is
- * tests/db/recording-start-abandonment-realpg.mjs; the lease module half is recordingLeaseAbandon1643.test.ts.
+ * tests/db/recording-start-abandonment-realpg.test.mjs; the lease module half is recordingLeaseAbandon1643.test.ts.
  */
 import { act, renderHook } from '@testing-library/react';
 import { useSessionLifecycle } from '../useSessionLifecycle';

@@ -1,7 +1,7 @@
 // @vitest-environment node
 // #1643 missing-Start abandonment against the real recording, admission and completion-journal chain in PostgreSQL WASM.
 // Sequential semantics only. Native concurrency (both race orders, delayed writers) is
-// tests/db/recording-start-abandonment-realpg.mjs. Not hosted ACL, provider, deletion or live evidence.
+// tests/db/recording-start-abandonment-realpg.test.mjs. Not hosted ACL, provider, deletion or live evidence.
 import { beforeAll, afterAll, describe, expect, it } from 'vitest';
 import { PGlite } from '@electric-sql/pglite';
 import { readFileSync, writeFileSync } from 'node:fs';
