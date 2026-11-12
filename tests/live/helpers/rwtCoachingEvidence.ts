@@ -36,7 +36,9 @@ export const EDGE_PROVIDER_BUDGET_MS = (() => {
 export const COACHING_SETTLE_BOUND_MS = EDGE_PROVIDER_BUDGET_MS + 15_000;
 
 export const coachingContract = JSON.parse(readFileSync(
-    resolve(dirname(fileURLToPath(import.meta.url)), '../../../backend/supabase/functions/get-ai-suggestions/contract.json'), 'utf8',
+    // The DEPLOYED backend's contract, not this checkout's: this run branch is the served frontend tree (5a7bf6a1) while the backend
+    // was released from fbc984fa (gemini-3.6-flash). deployedCoachingContract.json is that release's exact contract.json bytes, pinned.
+    resolve(dirname(fileURLToPath(import.meta.url)), './deployedCoachingContract.json'), 'utf8',
 )) as { model: string; promptTemplate: string };
 
 const SHA40 = /^[0-9a-f]{40}$/i;
