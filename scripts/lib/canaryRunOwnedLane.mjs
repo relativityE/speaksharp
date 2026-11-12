@@ -91,6 +91,9 @@ export function domainFrom(env) {
 export async function setupLane({ admin, env, mask, exportEnv, cleanup }) {
     const binding = currentCanaryBinding(env);
     if (!binding) return { ok: false, code: 'no-run-binding' };
+    // Checked HERE, before anything is created: the wrapper below is always a function, so the core's own required-cleanup
+    // guard cannot see a missing cleanup through it (review return on 5223bed2).
+    if (typeof cleanup !== 'function') return { ok: false, code: 'no-cleanup' };
     // Bind failure: the account this process just created (its uid from createUser) has no valid binding to revalidate, so it
     // goes through the shared cleanup on its uid+email identity alone.
     const result = await createRunOwnedTrialAccount(admin, { binding, domain: domainFrom(env), cleanup: ({ uid, email }) => cleanup({ admin, uid, email }) });

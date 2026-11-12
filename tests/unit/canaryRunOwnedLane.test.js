@@ -74,6 +74,18 @@ describe('setupLane — one account, masked before export', () => {
         expect(order[3][2]).toBe(order[1][1]);
         expect(order[2][2]).toMatch(/^ctrial-run-43000000002-1-[0-9a-f]{8}@example\.test$/);
     });
+    it('without a cleanup function (missing or not callable) nothing is created or exported (review return on 5223bed2)', async () => {
+        for (const cleanup of [undefined, null, 'cleanup', {}]) {
+            __resetCreateGuardForTests();
+            const a = admin([]);
+            const exportEnv = vi.fn();
+            const mask = vi.fn();
+            expect(await setupLane({ admin: a, env: ENV, mask, exportEnv, cleanup })).toEqual({ ok: false, code: 'no-cleanup' });
+            expect(a.auth.admin.createUser).not.toHaveBeenCalled();
+            expect(exportEnv).not.toHaveBeenCalled();
+            expect(mask).not.toHaveBeenCalled();
+        }
+    });
     it('outside a run, or with a prohibited/missing domain, creates and exports nothing', async () => {
         for (const env of [{ ...ENV, GITHUB_ACTIONS: 'false' }, { ...ENV, CANARY_TRIAL_EMAIL: 'x@speaksharp.app' }, { ...ENV, CANARY_TRIAL_EMAIL: '' }]) {
             __resetCreateGuardForTests();
