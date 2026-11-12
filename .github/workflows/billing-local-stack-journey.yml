@@ -152,6 +152,26 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Refuse a journey whose source prerequisites are not in this commit (before anything is provisioned)
+        env:
+          JOURNEY: ${{ inputs.journey }}
+        run: |
+          set -euo pipefail
+          # The runner plan's own prerequisite checks (runnerPlan.mjs), read from this commit only. A journey whose
+          # app or webhook support has not landed (for example the local test-mode payment gate the Upgrade,
+          # Manage billing and Cancel membership controls need) could only fail for that reason, so it stops here,
+          # before the stack, the Stripe listener or the app. Missing means BLOCKED PREREQUISITE, never a billing failure.
+          node --input-type=module -e '
+            const { PHASES, PREREQUISITES, readRepoFile } = await import("./tests/billing/user-journey/runnerPlan.mjs");
+            const journey = process.env.JOURNEY;
+            const blocked = what => { console.log(`::error::BLOCKED PREREQUISITE, not a billing failure: ${what}`); process.exit(1); };
+            const phase = PHASES.find(item => item.id === journey);
+            if (!phase) blocked(`${journey} has no phase in tests/billing/user-journey/runnerPlan.mjs.`);
+            const missing = phase.requires.filter(name => !PREREQUISITES[name].check(readRepoFile));
+            if (missing.length) blocked(`${journey} needs ${missing.map(name => `${name} (${PREREQUISITES[name].what})`).join("; ")}, not in this commit.`);
+            console.log(`${journey}: every source prerequisite is in this commit.`);
+          '
+
       - uses: supabase/setup-cli@v2
         env:
           SUPABASE_CLI_GITHUB_TOKEN: ${{ github.token }}

@@ -641,6 +641,37 @@ test('a dispatched journey whose spec is not in the commit is refused before any
   }
 });
 
+test('a dispatched journey whose source prerequisites are missing is refused before anything is provisioned', () => {
+  const doc = parse(readFileSync(WORKFLOW, 'utf8'));
+  const steps: { name?: string; uses?: string; run?: string; env?: Record<string, string> }[] = doc.jobs.journey.steps;
+  const name = 'Refuse a journey whose source prerequisites are not in this commit (before anything is provisioned)';
+  const at = steps.findIndex(step => step.name === name);
+  assert.equal(at, steps.findIndex(step => step.name === 'Install dependencies') + 1, 'right after the dependencies it imports');
+  for (const later of ['Start the disposable local Supabase stack (migrations from this commit)',
+    'Forward genuine test-mode Stripe events to the LOCAL webhook', "Build and serve this commit's app on the local origin"]) {
+    assert.ok(steps.findIndex(step => step.name === later) > at, later);
+  }
+  assert.equal(steps[at].env?.JOURNEY, '${{ inputs.journey }}');
+  assert.doesNotMatch(steps[at].run!, /\$\{\{/);
+  // The step's own script, run in this checkout, decides exactly as the runner plan does for every dispatchable journey.
+  const check = (journey: string) => spawnSync('bash', ['-c', steps[at].run!], { encoding: 'utf8',
+    env: { PATH: process.env.PATH, JOURNEY: journey } });
+  const options: string[] = doc.on.workflow_dispatch.inputs.journey.options;
+  assert.deepEqual([...options].sort(), PHASES.map(phase => phase.id).sort());
+  for (const phase of PHASES) {
+    const missing = phase.requires.filter(item => !PREREQUISITES[item].check(readRepoFile));
+    const result = check(phase.id);
+    assert.equal(result.status === 0, missing.length === 0, `${phase.id}: ${result.stdout}${result.stderr}`);
+    for (const item of missing) assert.match(result.stdout, new RegExp(`BLOCKED PREREQUISITE.*${item}`), phase.id);
+  }
+  // The finding that added this step: the portal journeys need the local payment gate.
+  for (const journey of ['conversion', 'portal_recovery', 'portal_expiry']) {
+    assert.ok(PHASES.find(phase => phase.id === journey)!.requires.includes('payment_gate'), journey);
+  }
+  assert.match(check('not_a_journey').stdout, /BLOCKED PREREQUISITE.*not_a_journey has no phase/);
+  assert.notEqual(check('not_a_journey').status, 0);
+});
+
 test('the workflow can dispatch every local-stack journey, the paid loop with its own config', () => {
   const doc = parse(readFileSync(WORKFLOW, 'utf8'));
   assert.deepEqual(doc.on.workflow_dispatch.inputs.journey.options, [...LOCAL_STACK_JOURNEYS]);
