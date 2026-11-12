@@ -5,8 +5,9 @@
 // here changes entitlement: Stripe then sends customer.subscription.updated (cancel_at_period_end), which the
 // canonical snapshot path applies, and customer.subscription.deleted when the period ends.
 //
-// Never cancels immediately, never touches the database, and is idempotent: a subscription already set to
-// cancel at period end, or already ended, is left alone. Refunds are full only (Akin, 2026-11-12).
+// Never cancels immediately and is idempotent: a subscription already set to cancel at period end, or already
+// ended, is left alone. Refunds are full only (Akin, 2026-11-12). The scheduling itself never touches the
+// database; the only write is the operator signal below (recordRefundFollowup), made by the webhook.
 //
 // Classified defensively (Sam's v5 returns): only a verified FULL refund schedules anything. A well-formed
 // partial refund is acknowledged and changes nothing (the product never offers one, and a later refund that
@@ -16,20 +17,24 @@
 //
 // Renewal boundary (explicit rule): a refund of the subscription's latest invoice, or of an earlier invoice
 // when the latest one is already paid, schedules cancel at period end, so the member keeps the period they
-// have paid for and is not charged again. A refund of an earlier invoice while a later renewal invoice is
+// have paid for and the next renewal is stopped. A refund of an earlier invoice while a later renewal invoice is
 // still outstanding (draft, open or uncollectible) is unverified: cancel_at_period_end does not stop Stripe
 // from collecting an invoice it has already issued, so an operator must decide. The same rule is applied again
 // to Stripe's update answer, in case a renewal was issued between the read and the update.
 //
 // "unverified" is detection and escalation, not prevention (Sam's adbec69d review). It returns non-2xx, so the
-// failure is logged and Stripe redelivers the event; it changes nothing in Stripe. In particular, when it is
+// failure is logged and Stripe redelivers the event; it changes nothing in Stripe. Each unverified outcome, and
+// each partial refund, also records a durable operator signal (Sam's 2026-11-12 decision): one row per refunded
+// charge in stripe_refund_followups, a closed reason code and Stripe's ids, no customer content. It stays
+// unresolved until an operator reconciles it; nothing here resolves it. In particular, when it is
 // found only on the update answer, cancel_at_period_end has already been set and is left set, and the
 // outstanding renewal invoice is neither voided nor otherwise stopped, so Stripe may still collect it.
 // Redelivery does not keep the alarm up: a redelivery fails closed only while that renewal is still
 // outstanding. Once Stripe has collected (or voided) it, the boundary check passes and the redelivery returns
-// 2xx "already_scheduled", so the event stops failing exactly when the charge has gone through. The logged
-// "after update" error is therefore the record an operator must act on; whether to void or refund that
-// invoice is an operator's decision, and this handler never makes it.
+// 2xx "already_scheduled", so the event stops failing exactly when the charge has gone through. The durable
+// signal recorded on the first failing delivery is therefore the record an operator must act on (a clean
+// redelivery writes nothing and never resolves it); whether to void or refund that invoice is an operator's
+// decision, and this handler never makes it.
 //
 // Fails closed (Sam's review of 34dab357): nothing is changed unless the charge, its invoice and the
 // subscription all belong to the same customer and mode, and the subscription is the configured Pro price.
@@ -39,10 +44,21 @@
 
 type StripeClient = any;
 
+/**
+ * Closed reason codes for the operator signal (stripe_refund_followups.reason, Sam's 2026-11-12 decision). The
+ * database refuses any other value, so a reason can never carry free text, customer content or payment details.
+ */
+export const FOLLOWUP_REASONS = Object.freeze([
+  "configuration_missing", "refund_unreadable", "stripe_read_failed", "ownership_mismatch",
+  "subscription_state_unverified", "renewal_outstanding", "update_failed", "update_unconfirmed",
+  "renewal_outstanding_after_update", "boundary_unverified_after_update", "partial_refund",
+] as const);
+export type FollowupReason = typeof FOLLOWUP_REASONS[number];
+
 export type RefundOutcome =
   | { outcome: "scheduled" | "already_scheduled" | "already_ended"; subscriptionId: string }
   | { outcome: "not_subscription_charge" | "not_pro_subscription" | "partial_refund_ignored" }
-  | { outcome: "unverified"; reason: string };
+  | { outcome: "unverified"; reason: string; code: FollowupReason };
 
 /** Stripe states that can still bill again, so a refund must stop the next charge. */
 export const SCHEDULABLE_STATES = Object.freeze(["active", "trialing", "past_due", "unpaid", "paused"]);
@@ -58,7 +74,7 @@ function objectId(value: unknown): string | null {
   return null;
 }
 
-const unverified = (reason: string): RefundOutcome => ({ outcome: "unverified", reason });
+const unverified = (code: FollowupReason, reason: string): RefundOutcome => ({ outcome: "unverified", reason, code });
 
 type Reference = { kind: "absent" } | { kind: "id"; id: string } | { kind: "malformed" };
 /** null is an explicit "none"; a usable id or expanded object is an id; anything else (missing too) is malformed. */
@@ -89,13 +105,27 @@ const CURRENCY = /^[a-z]{3}$/;
 /** Invoice states in which Stripe may still collect money. */
 const OUTSTANDING_INVOICE_STATES = Object.freeze(["draft", "open", "uncollectible"]);
 
+type BoundaryProblem = "subscription latest invoice unreadable" | "latest invoice retrieval failed"
+  | "latest invoice is not this subscription's" | "a later renewal invoice is still outstanding" | "latest invoice state unknown";
+
+/** The closed code for a renewal-boundary problem, before or after the update was applied. */
+function boundaryCode(problem: BoundaryProblem, afterUpdate: boolean): FollowupReason {
+  if (problem === "a later renewal invoice is still outstanding") {
+    return afterUpdate ? "renewal_outstanding_after_update" : "renewal_outstanding";
+  }
+  if (afterUpdate) return "boundary_unverified_after_update";
+  if (problem === "latest invoice retrieval failed") return "stripe_read_failed";
+  if (problem === "latest invoice is not this subscription's") return "ownership_mismatch";
+  return "subscription_state_unverified";
+}
+
 /**
  * Why the subscription's latest invoice makes scheduling unsafe, or null when it is safe: it is the refunded
  * invoice itself, or a later invoice of this subscription that is already paid or void. A later invoice that is
  * still outstanding, unknown, unreadable or not this subscription's is a problem.
  */
 async function renewalBoundaryProblem(stripe: StripeClient, latestValue: unknown,
-  expected: { invoiceId: string; subscriptionId: string; customer: string; livemode: boolean }): Promise<string | null> {
+  expected: { invoiceId: string; subscriptionId: string; customer: string; livemode: boolean }): Promise<BoundaryProblem | null> {
   const latestRef = reference(latestValue);
   if (latestRef.kind !== "id") return "subscription latest invoice unreadable";
   if (latestRef.id === expected.invoiceId) return null;
@@ -113,6 +143,42 @@ async function renewalBoundaryProblem(stripe: StripeClient, latestValue: unknown
   return null;
 }
 
+/**
+ * The operation an operator signal is kept for: the refunded charge, or the event when the charge id itself is
+ * unreadable. One row per operation, so a redelivered event never adds a second signal. Null when neither id is
+ * well formed, which the caller must treat as a failed write.
+ */
+export function followupOperationKey(event: any): string | null {
+  const chargeId = event?.data?.object?.id;
+  if (typeof chargeId === "string" && /^(ch|py)_[A-Za-z0-9_]{1,200}$/.test(chargeId)) return `charge:${chargeId}`;
+  const eventId = event?.id;
+  if (typeof eventId === "string" && /^evt_[A-Za-z0-9_]{1,200}$/.test(eventId)) return `event:${eventId}`;
+  return null;
+}
+
+/**
+ * Records the durable, operator-visible signal (stripe_refund_followups) for a refund follow-up that was not
+ * verified, or a partial refund. True only when the database confirms the write; a malformed id, an error, a
+ * thrown call or any answer other than `true` is a failed write, so the caller never reports success on it.
+ * It records only: no Stripe call, no retry of the refund, no void, no second cancellation.
+ */
+export async function recordRefundFollowup(supabase: any, event: any, reason: FollowupReason): Promise<boolean> {
+  const operationKey = followupOperationKey(event);
+  const eventId = event?.id;
+  if (!operationKey || typeof eventId !== "string" || !/^evt_[A-Za-z0-9_]{1,200}$/.test(eventId)) return false;
+  if (!FOLLOWUP_REASONS.includes(reason)) return false;
+  const livemode = event?.data?.object?.livemode;
+  try {
+    const { data, error } = await supabase.rpc("record_stripe_refund_followup", {
+      p_operation_key: operationKey, p_event_id: eventId,
+      p_livemode: typeof livemode === "boolean" ? livemode : null, p_reason: reason,
+    });
+    return !error && data === true;
+  } catch {
+    return false;
+  }
+}
+
 export async function scheduleCancellationAfterRefund(
   stripe: StripeClient,
   charge: any,
@@ -120,57 +186,57 @@ export async function scheduleCancellationAfterRefund(
   proPriceId: string | undefined,
 ): Promise<RefundOutcome> {
   const priceId = proPriceId?.trim();
-  if (!priceId) return unverified("pro price is not configured");
-  if (!charge || typeof charge !== "object" || reference(charge.id).kind !== "id") return unverified("charge is malformed");
+  if (!priceId) return unverified("configuration_missing", "pro price is not configured");
+  if (!charge || typeof charge !== "object" || reference(charge.id).kind !== "id") return unverified("refund_unreadable", "charge is malformed");
   const amount = refundAmount(charge);
-  if (amount === "unknown") return unverified("refund amount unverified");
+  if (amount === "unknown") return unverified("refund_unreadable", "refund amount unverified");
   if (amount === "partial") return { outcome: "partial_refund_ignored" };
   const invoiceRef = reference(charge.invoice);
   if (invoiceRef.kind === "absent") return { outcome: "not_subscription_charge" };
-  if (invoiceRef.kind === "malformed") return unverified("charge invoice reference malformed");
+  if (invoiceRef.kind === "malformed") return unverified("refund_unreadable", "charge invoice reference malformed");
   const invoiceId = invoiceRef.id;
   const customer = objectId(charge.customer);
-  if (!customer) return unverified("charge has no customer");
-  if (typeof charge.livemode !== "boolean") return unverified("charge mode unknown");
+  if (!customer) return unverified("refund_unreadable", "charge has no customer");
+  if (typeof charge.livemode !== "boolean") return unverified("refund_unreadable", "charge mode unknown");
 
   let invoice: any;
   try { invoice = await stripe.invoices.retrieve(invoiceId); }
-  catch { return unverified("invoice retrieval failed"); }
-  if (objectId(invoice) !== invoiceId) return unverified("invoice response is not the charged invoice");
+  catch { return unverified("stripe_read_failed", "invoice retrieval failed"); }
+  if (objectId(invoice) !== invoiceId) return unverified("ownership_mismatch", "invoice response is not the charged invoice");
   if (objectId(invoice.customer) !== customer || invoice.livemode !== charge.livemode) {
-    return unverified("invoice does not belong to the refunded customer");
+    return unverified("ownership_mismatch", "invoice does not belong to the refunded customer");
   }
   // The refunded charge paid this invoice in full: a paid invoice in the charge's currency for the same amount.
   // Both currencies must be read and valid: two missing currencies are not a match (Sam's c381f853 return).
-  if (!CURRENCY.test(`${charge.currency ?? ""}`)) return unverified("charge currency unreadable");
+  if (!CURRENCY.test(`${charge.currency ?? ""}`)) return unverified("refund_unreadable", "charge currency unreadable");
   if (invoice.status !== "paid" || invoice.currency !== charge.currency || invoice.amount_paid !== charge.amount) {
-    return unverified("refunded invoice is not the charge's paid invoice");
+    return unverified("ownership_mismatch", "refunded invoice is not the charge's paid invoice");
   }
   const subscriptionRef = reference(invoice.subscription);
   if (subscriptionRef.kind === "absent") return { outcome: "not_subscription_charge" };
-  if (subscriptionRef.kind === "malformed") return unverified("invoice subscription reference malformed");
+  if (subscriptionRef.kind === "malformed") return unverified("refund_unreadable", "invoice subscription reference malformed");
   const subscriptionId = subscriptionRef.id;
 
   let subscription: any;
   try { subscription = await stripe.subscriptions.retrieve(subscriptionId); }
-  catch { return unverified("subscription retrieval failed"); }
-  if (objectId(subscription) !== subscriptionId) return unverified("subscription response is not the invoiced subscription");
+  catch { return unverified("stripe_read_failed", "subscription retrieval failed"); }
+  if (objectId(subscription) !== subscriptionId) return unverified("ownership_mismatch", "subscription response is not the invoiced subscription");
   if (objectId(subscription.customer) !== customer || subscription.livemode !== charge.livemode) {
-    return unverified("subscription does not belong to the refunded customer");
+    return unverified("ownership_mismatch", "subscription does not belong to the refunded customer");
   }
   const items: unknown = subscription?.items?.data;
-  if (!Array.isArray(items)) return unverified("subscription items unreadable");
+  if (!Array.isArray(items)) return unverified("subscription_state_unverified", "subscription items unreadable");
   if (!items.some((item) => objectId(item?.price) === priceId)) return { outcome: "not_pro_subscription" };
 
   const status = typeof subscription.status === "string" ? subscription.status : "";
   if (ENDED_STATES.includes(status)) return { outcome: "already_ended", subscriptionId };
-  if (!SCHEDULABLE_STATES.includes(status)) return unverified(`subscription state ${status || "unknown"} cannot be scheduled`);
+  if (!SCHEDULABLE_STATES.includes(status)) return unverified("subscription_state_unverified", `subscription state ${status || "unknown"} cannot be scheduled`);
   // Renewal boundary: see the rule at the top of this file.
   const boundary = await renewalBoundaryProblem(stripe, subscription.latest_invoice,
     { invoiceId, subscriptionId, customer, livemode: charge.livemode });
-  if (boundary) return unverified(boundary);
+  if (boundary) return unverified(boundaryCode(boundary, false), boundary);
   if (subscription.cancel_at_period_end === true) return { outcome: "already_scheduled", subscriptionId };
-  if (subscription.cancel_at_period_end !== false) return unverified("cancel_at_period_end unreadable");
+  if (subscription.cancel_at_period_end !== false) return unverified("subscription_state_unverified", "cancel_at_period_end unreadable");
 
   let updated: any;
   try {
@@ -178,14 +244,14 @@ export async function scheduleCancellationAfterRefund(
     updated = await stripe.subscriptions.update(subscriptionId, { cancel_at_period_end: true },
       { idempotencyKey: `refund-cancel-at-period-end-${eventId}` });
   } catch {
-    return unverified("subscription update failed");
+    return unverified("update_failed", "subscription update failed");
   }
   // Only Stripe's own answer confirming the change counts as scheduled.
   // Its status must be read and still schedulable: a missing or unknown status is not a confirmation.
   if (objectId(updated) !== subscriptionId || updated?.cancel_at_period_end !== true
     || typeof updated?.status !== "string" || !SCHEDULABLE_STATES.includes(updated.status)
     || objectId(updated.customer) !== customer || updated.livemode !== charge.livemode) {
-    return unverified("subscription update not confirmed");
+    return unverified("update_unconfirmed", "subscription update not confirmed");
   }
   // The update answer is a newer reading of the subscription. If its latest invoice is no longer the one checked
   // above (a renewal was issued in between), check the boundary again on that answer: an outstanding renewal is
@@ -193,6 +259,6 @@ export async function scheduleCancellationAfterRefund(
   // This only detects and escalates: the update above stays applied and the renewal invoice is not touched.
   const after = await renewalBoundaryProblem(stripe, updated.latest_invoice,
     { invoiceId, subscriptionId, customer, livemode: charge.livemode });
-  if (after) return unverified(`after update: ${after}`);
+  if (after) return unverified(boundaryCode(after, true), `after update: ${after}`);
   return { outcome: "scheduled", subscriptionId };
 }
