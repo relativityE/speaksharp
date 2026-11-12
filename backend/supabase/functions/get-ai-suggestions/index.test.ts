@@ -1925,11 +1925,14 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     // 3. The expected prompt is built INDEPENDENTLY from the contract — this test's own substitution over
     //    `contract.promptTemplate`, with the fabricated transcript and a metrics block assembled here —
     //    and compared for EQUALITY. Reordering it, or appending an instruction, changes the string.
-    // #1258 (PM 5952231855): the Open Mic input contract — the two direct delivery signals, nothing derived.
+    // Framework M6/M7: independent oracle includes the selected saved aggregates.
     const expectedMetrics = `
       Delivery signals:
       - Words Per Minute (WPM): ${fabricated.wpm}
       - Filler Words: ${JSON.stringify(fabricated.filler_words)}
+      - Clarity heuristic: 88/100 (delivery diagnostic, not a presentation grade)
+- Extended pause count: 2
+- Use these as supporting delivery evidence, not proof of content quality or improvement; do not recite scores.
     `;
     const expectedPrompt = coachingContract.promptTemplate.replace(
       /\{\{(TRANSCRIPT|METRICS)\}\}/g,
@@ -2523,7 +2526,8 @@ Deno.test('LLM evaluator parity: the handler sends exactly the evaluator prompt 
     for (const item of openMic) {
       resetProvider();
       const mock = mockSupabase({
-        session: savedSession({ transcript: item.transcript, wpm: item.wpm, filler_counts: item.filler_counts, filler_words: null }),
+        session: savedSession({ transcript: item.transcript, wpm: item.wpm, filler_counts: item.filler_counts, filler_words: null,
+          clarity_score: null, pause_metrics: null }),
         focus: { objective: null },
       });
       assertEquals((await handler(request(), mock.create)).status, 200, item.id);
