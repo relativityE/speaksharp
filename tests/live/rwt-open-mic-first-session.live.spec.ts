@@ -420,7 +420,10 @@ test.describe('RWT — Open Mic first session @live', () => {
                 parity.startPressRow(aliveReceipt(receipt, alive), AHT01_START_PRESS_BUDGET);
             });
             await steps.step('probe saves isolated', async (alive) => {
-                if (admin) await probeSaveIsolationRow(aliveReceipt(receipt, alive), admin as never, capturedUid, [persistedId, repeatSessionId], parity.takeBindings(), parity.leaseIds, AHT01_DESIGNED_TAKES, ['saved', 'saved', 'probe', 'probe']);
+                // All four takes use normal Stop, including the two rapid restart checks. Stop saves;
+                // neither check exercises discard. Require one lease-bound save for each take, not
+                // a fabricated no-save outcome (run 43214173919). The first two remain the comparison pair.
+                if (admin) await probeSaveIsolationRow(aliveReceipt(receipt, alive), admin as never, capturedUid, [persistedId, repeatSessionId], parity.takeBindings(), parity.leaseIds, AHT01_DESIGNED_TAKES);
                 else aliveReceipt(receipt, alive).row('probe saves isolated', 'HOLD', 'no server read is available in this run');
             });
             await steps.step('owned pages closed', (alive) => parity.ownedPagesClosedRow(aliveReceipt(receipt, alive)), PARITY_CLOSE_STEP_MS);
