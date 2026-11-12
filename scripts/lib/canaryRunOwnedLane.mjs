@@ -110,6 +110,21 @@ export async function setupLane({ admin, env, mask, exportEnv, cleanup }) {
  * `cleanup({admin, uid, email})` must throw unless deletion AND residue zero are proven; it receives the GUARDED admin.
  * Returns {ok, code, deleted}. Zero accounts is truthful only because the listing is complete (it throws otherwise).
  */
+/**
+ * The closed failure code of one cleanup (#1826, Sam's option c): the adapter's own code when it names one (`unsettled_take`,
+ * `delete_refused`, `take_read_failed`), otherwise `cleanup-unproven`. An unsettled or refused account is PRESERVED, never retried
+ * into a different state and never reported as removed.
+ */
+export function cleanupCode(error) {
+    const code = error && typeof error === 'object' ? error.canaryCode : undefined;
+    return ['unsettled_take', 'delete_refused', 'take_read_failed'].includes(code) ? code : 'cleanup-unproven';
+}
+
+/** Recovery identity of a preserved account: its run binding and its owned address pattern. No email, uid or token. */
+export function ownedIdentity(binding) {
+    return { runId: binding.runId, runAttempt: binding.runAttempt, accountPattern: `ctrial-run-${binding.runId}-${binding.runAttempt}-*` };
+}
+
 export async function cleanupLane({ admin, env, cleanup }) {
     const binding = currentCanaryBinding(env);
     if (!binding) return { ok: false, code: 'no-run-binding', deleted: 0 };
@@ -125,7 +140,10 @@ export async function cleanupLane({ admin, env, cleanup }) {
     let deleted = 0;
     for (const u of mine) {
         const guarded = guardAdminForBinding(admin, { uid: u.id, email: u.email, expected: binding, runId: binding.runId, runAttempt: binding.runAttempt });
-        try { await cleanup({ admin: guarded, uid: u.id, email: u.email }); deleted += 1; } catch { return { ok: false, code: 'cleanup-unproven', deleted }; }
+        try { await cleanup({ admin: guarded, uid: u.id, email: u.email }); deleted += 1; } catch (error) {
+            const code = cleanupCode(error);
+            return code === 'cleanup-unproven' ? { ok: false, code, deleted } : { ok: false, code, deleted, preserved: ownedIdentity(binding) };
+        }
     }
     if (unbound > 0) return { ok: false, code: 'prefix-without-binding', deleted };
     return { ok: true, code: deleted ? 'cleanup-verified' : 'nothing-to-clean', deleted };
@@ -138,6 +156,7 @@ export async function cleanupLane({ admin, env, cleanup }) {
 export async function sweepLane({ admin, env, getRun, cleanup, now = Date.now() }) {
     const binding = currentCanaryBinding(env);
     if (!binding) return { ok: false, code: 'no-run-binding', report: null };
+    const preserved = [];
     const byId = new Map();
     const report = await sweep({
         listRunOwnedAccounts: async () => { const all = await listRunOwnedAccounts(admin); for (const u of all) byId.set(u.id, u.email); return all; },
@@ -154,11 +173,16 @@ export async function sweepLane({ admin, env, getRun, cleanup, now = Date.now() 
             // Revalidated at every destructive call against the ORIGINALLY listed binding. The shared cleanup proves deletion
             // + zero residue; an already-gone account cannot be proven that way, so it is reported unproven, not absent.
             const guarded = guardAdminForBinding(admin, { uid: id, email, expected: binding, runId: original.runId, runAttempt: original.runAttempt });
-            try { await cleanup({ admin: guarded, uid: id, email }); return { ok: true }; } catch { return { ok: false, step: 'cleanup-unproven' }; }
+            try { await cleanup({ admin: guarded, uid: id, email }); return { ok: true }; } catch (error) {
+                const step = cleanupCode(error);
+                // Preserved for recovery, not removed: the sweep never claims an unsettled orphan is gone.
+                if (step !== 'cleanup-unproven') preserved.push({ step, ...ownedIdentity({ runId: original.runId, runAttempt: original.runAttempt }) });
+                return { ok: false, step };
+            }
         },
     }, { now, expected: binding, self: { runId: binding.runId } });
     const failed = Object.keys(report.failures).length > 0 || report.capReached;
-    return { ok: !failed, code: failed ? 'sweep-failed' : 'sweep-ok', report };
+    return { ok: !failed, code: failed ? 'sweep-failed' : 'sweep-ok', report, preserved };
 }
 
 /** Content-free one-line summary of a sweep report. */
