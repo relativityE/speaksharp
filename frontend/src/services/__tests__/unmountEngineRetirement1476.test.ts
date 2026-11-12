@@ -162,6 +162,18 @@ describe('#1476 — unmount retires the engine before the account lease is relea
     });
     afterEach(() => { vi.clearAllMocks(); lease.release.mockImplementation(async () => undefined); lease.id = null; vi.useRealTimers(); });
 
+    /** A failed cold probe has already closed its child. Start a real explicit-download retry
+     * and hold that NEW acquisition, so the teardown controls own a live resource again. */
+    const holdDownloadRetry = async () => {
+        let finishInit!: () => void;
+        engine.initGate = new Promise<void>((resolve) => { finishInit = resolve; });
+        const previousCalls = engine.initCalls;
+        void controller.initiateModelDownload('private').catch(() => undefined);
+        await vi.waitFor(() => expect(engine.initCalls).toBeGreaterThan(previousCalls));
+        expect(controller.getState()).toBe('DOWNLOAD_REQUIRED');
+        return finishInit;
+    };
+
     it('CASUALTY: unmount at the START of preparation (no engine yet) — the Start never becomes a recording and no engine is ever created', async () => {
         // The real cold path, unaided: the click drives the download and the held Start resumes when the model lands.
         const started = controller.startRecording(POLICY as never, []);
@@ -191,11 +203,13 @@ describe('#1476 — unmount retires the engine before the account lease is relea
         await settle();
         expect((controller as unknown as { service: unknown }).service, 'precondition: the service holds it').not.toBeNull();
 
+        const finishInit = await holdDownloadRetry();
         const terminatedBefore = engine.terminateCalls;
         let terminatedAtRelease = -1;
         lease.release.mockImplementation(async () => { terminatedAtRelease = engine.terminateCalls; });
         await expect(releaseTakeLeaseOnUnmount(false)).resolves.toBe(true);
         engine.downloadEnabled = true; // the model lands after the page has gone
+        finishInit();
         await settle(60);
 
         expect(engine.startCalls, 'no recording on a page that is gone').toBe(0);
@@ -216,6 +230,7 @@ describe('#1476 — unmount retires the engine before the account lease is relea
         void started.catch(() => undefined);
         await vi.waitFor(() => expect(engine.initCalls).toBeGreaterThan(initialCalls), { timeout: 5_000 });
         await settle();
+        if (phase === 'download-required') finishInit = await holdDownloadRetry();
         let finishTermination!: () => void;
         engine.terminateGate = new Promise<void>((resolve) => { finishTermination = resolve; });
         const retiring = releaseTakeLeaseOnUnmount(false);
@@ -277,6 +292,7 @@ describe('#1476 — unmount retires the engine before the account lease is relea
         void started.catch(() => undefined);
         await vi.waitFor(() => expect(engine.initCalls).toBeGreaterThan(initialCalls));
         await settle();
+        if (phase === 'download-required') finishInit = await holdDownloadRetry();
         let finishTermination!: () => void;
         let failTermination!: (e: Error) => void;
         engine.terminateGate = new Promise<void>((resolve, reject) => { finishTermination = resolve; failTermination = reject; });

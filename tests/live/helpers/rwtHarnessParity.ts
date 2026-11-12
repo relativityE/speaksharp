@@ -164,16 +164,18 @@ type SessionsAdmin = {
  * probe-save-isolation, for the original journeys (review RETURNs on 5e1fa2fd, 2611cce9 and d9c1711c). Each designed take is joined to
  * its saved session through the take's OWN recording identity: take k's Start acquired lease k (`leaseIds`, in request order), and
  * the saved row records the lease it was created under (`sessions.lease_id`). The document recorder (`bindings`) must agree.
- * PASS: exactly `designedTakes` takes and leases; every completed session carries one of those leases; each lease has exactly one
- *   completed session; the recorder bound each take to exactly that lease's session; the captured takes are the first two; no stray.
- * HOLD: fewer takes or leases than designed, a completed session without a recorded lease (association unavailable), a take with
+ * PASS: exactly `designedTakes` takes and leases; every completed session carries one of those leases; each save take has one
+ *   completed session; probes have none; the recorder bound each save take to exactly that lease's session; the captured takes are the first two; no stray.
+ * HOLD: fewer takes or leases than designed, a completed session without a recorded lease (association unavailable), a save take with
  *   no or two recorder bindings, a captured take unknown, or a failed read.
  * FAIL: a stray save, more takes or leases than designed, a completed session under a lease no take acquired, two completed
- *   sessions under one take's lease (a double save — never standing in for another take), a take's lease with no completed
+ *   sessions under one take's lease (a double save — never standing in for another take), any probe save, a save take's lease with no completed
  *   session, or a recorder binding that is not the session of the take's own lease.
  */
 export async function probeSaveIsolationRow(receipt: RowSink, admin: SessionsAdmin, userId: string, capturedTakes: Array<string | null | undefined>,
-    bindings: TakeBindings, leaseIds: readonly string[], designedTakes: number): Promise<void> {
+    bindings: TakeBindings, leaseIds: readonly string[], designedTakes: number,
+    expectedSaves?: readonly ('saved' | 'probe')[]): Promise<void> {
+    const saveExpectations = expectedSaves ?? Array.from({ length: Number.isSafeInteger(designedTakes) && designedTakes >= 0 ? designedTakes : 0 }, () => 'saved' as const);
     const captured = capturedTakes.filter((x): x is string => typeof x === 'string' && x.length > 0);
     const leases = [...new Set(leaseIds)];
     const missing = bindings.takes.filter((t) => t.ids.length === 0).length;
@@ -181,6 +183,11 @@ export async function probeSaveIsolationRow(receipt: RowSink, admin: SessionsAdm
     const base = { designedTakes, takes: bindings.takes.length, leases: leases.length, missingBindings: missing, ambiguousBindings: ambiguous,
         straySaves: bindings.stray.length, capturedTakes: captured.length };
     const row = (v: 'PASS' | 'FAIL' | 'HOLD', d: string, e: Record<string, string | number | boolean | null> = {}) => receipt.row('probe saves isolated', v, d, { ...base, ...e });
+    if (saveExpectations.length !== designedTakes || saveExpectations.some((x) => x !== 'saved' && x !== 'probe')
+        || (expectedSaves ? saveExpectations.filter((x) => x === 'saved').length !== capturedTakes.length
+            : saveExpectations.filter((x) => x === 'saved').length < capturedTakes.length)) {
+        return row('HOLD', 'the designed take save expectations are invalid');
+    }
     if (!userId || captured.length !== capturedTakes.length || !Number.isInteger(designedTakes) || designedTakes < captured.length) {
         return row('HOLD', 'a captured take of the journey is unknown, so isolation cannot be judged');
     }
@@ -194,15 +201,18 @@ export async function probeSaveIsolationRow(receipt: RowSink, admin: SessionsAdm
     if (foreign > 0) return row('FAIL', 'a completed session was created under a lease no take of the journey acquired', { completedSessions: data.length, foreign });
     const perLease = leases.map((l) => data.filter((r) => r.lease_id === l).map((r) => r.id));
     if (perLease.some((ids) => ids.length > 1)) return row('FAIL', 'a take saved more than one session (a double save)', { completedSessions: data.length });
-    if (perLease.some((ids) => ids.length === 0)) return row('FAIL', 'a take\'s recording saved no completed session', { completedSessions: data.length });
+    if (perLease.some((ids, k) => saveExpectations[k] === 'probe' && ids.length !== 0)) return row('FAIL', 'a no-save recording probe created a completed session');
+    if (perLease.some((ids, k) => saveExpectations[k] === 'saved' && ids.length === 0)) return row('FAIL', 'a take\'s recording saved no completed session', { completedSessions: data.length });
     const sessionOfTake = perLease.map((ids) => ids[0]);
-    if (captured.some((id, k) => sessionOfTake[k] !== id)) return row('FAIL', 'a captured take\'s session is not the session of that take\'s own recording');
-    if (missing > 0 || ambiguous > 0) {
+    const savedIndices = saveExpectations.flatMap((x, k) => x === 'saved' ? [k] : []);
+    if (captured.some((id, k) => sessionOfTake[savedIndices[k]] !== id)) return row('FAIL', 'a captured take\'s session is not the session of that take\'s own recording');
+    if (bindings.takes.some((t, k) => saveExpectations[k] === 'probe' && t.ids.length > 0)) return row('FAIL', 'a no-save recording probe observed a save');
+    if (savedIndices.some((k) => bindings.takes[k].ids.length === 0) || ambiguous > 0) {
         return row('HOLD', missing > 0 ? 'a take has no saved session observed in its own interval' : 'a take has more than one saved session observed in its interval');
     }
-    const disagree = bindings.takes.filter((t, k) => t.ids[0] !== sessionOfTake[k]).length;
+    const disagree = bindings.takes.filter((t, k) => saveExpectations[k] === 'saved' && t.ids[0] !== sessionOfTake[k]).length;
     return row(disagree === 0 ? 'PASS' : 'FAIL',
-        disagree === 0 ? 'every designed take saved exactly one session, under its own recording, and nothing else saved'
+        disagree === 0 ? 'every save take persisted under its own recording; no-save probes and stray recordings saved nothing'
             : 'a take\'s observed save is not the session of its own recording', { completedSessions: data.length, disagree });
 }
 
@@ -213,12 +223,67 @@ export async function probeSaveIsolationRow(receipt: RowSink, admin: SessionsAdm
  * PASS/FAIL/HOLD; only its closed reason code and booleans reach the row.
  */
 export type NumericResult = { result: 'PASS' | 'FAIL' | 'NOT RUN'; facts?: Record<string, unknown> };
-export function numericComparisonRow(receipt: RowSink, r: NumericResult | null): void {
+/**
+ * The progress exclusion reasons, closed (buildProgressEvaluation.ts `ExclusionReason`; drift is caught by a unit control).
+ * Only these codes may reach a receipt.
+ */
+export const PROGRESS_EXCLUSION_REASONS: readonly string[] = Object.freeze([
+    'not_completed', 'too_short', 'too_few_words', 'no_transcript', 'no_clarity_evidence', 'unverified_attribution', 'engine_not_comparable', 'unknown',
+]);
+/**
+ * The repeat take's own stored progress evaluation, as read for the adapter's formula version. `absent` = no row (missing or
+ * pending evidence); `unread` = the read failed or timed out; `contradictory` = a row came back that is not the requested
+ * session/owner/formula or is internally inconsistent. Diagnostic only: it never sets the numeric verdict.
+ */
+export type RepeatEligibility =
+    | { state: 'observed'; eligible: boolean; exclusionReasons: readonly unknown[] }
+    | { state: 'absent' } | { state: 'unread' } | { state: 'contradictory' };
+type EvalRow = { session_id?: unknown; user_id?: unknown; formula_version?: unknown; eligible?: unknown; exclusion_reasons?: unknown };
+type EvalQuery = { eq(k: string, v: string): EvalQuery; maybeSingle(): PromiseLike<{ data: EvalRow | null; error: unknown }> };
+export interface EvalReader { from(table: 'session_progress_evaluations'): { select(cols: string): EvalQuery } }
+export const REPEAT_ELIGIBILITY_READ_MS = 10_000;
+
+/** Bounded, fail-closed read of the repeat's evaluation bound to (session, owner, formula version). Never throws. */
+export async function readRepeatEligibility(
+    db: EvalReader, o: { sessionId: string; userId: string; formulaVersion: string; timeoutMs?: number },
+): Promise<RepeatEligibility> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const read = (async (): Promise<RepeatEligibility> => {
+        const { data, error } = await db.from('session_progress_evaluations')
+            .select('session_id, user_id, formula_version, eligible, exclusion_reasons')
+            .eq('session_id', o.sessionId).eq('user_id', o.userId).eq('formula_version', o.formulaVersion).maybeSingle();
+        if (error) return { state: 'unread' };
+        if (!data) return { state: 'absent' };
+        if (data.session_id !== o.sessionId || data.user_id !== o.userId || data.formula_version !== o.formulaVersion
+            || typeof data.eligible !== 'boolean' || !Array.isArray(data.exclusion_reasons)) return { state: 'contradictory' };
+        return { state: 'observed', eligible: data.eligible, exclusionReasons: data.exclusion_reasons };
+    })().catch((): RepeatEligibility => ({ state: 'unread' }));
+    const timeout = new Promise<RepeatEligibility>((resolve) => { timer = setTimeout(() => resolve({ state: 'unread' }), o.timeoutMs ?? REPEAT_ELIGIBILITY_READ_MS); });
+    try { return await Promise.race([read, timeout]); } finally { clearTimeout(timer); }
+}
+
+/** Receipt evidence for the repeat's eligibility: closed codes only; anything unknown or inconsistent is `contradictory`. */
+export function repeatEligibilityEvidence(e: RepeatEligibility | undefined): Record<string, string | null> {
+    if (e === undefined) return {};
+    if (e.state !== 'observed') return { repeatEligibility: e.state, repeatExclusions: null };
+    const codes = e.exclusionReasons;
+    const closed = codes.every((c) => typeof c === 'string' && PROGRESS_EXCLUSION_REASONS.includes(c)) && new Set(codes).size === codes.length;
+    const consistent = e.eligible ? codes.length === 0 : codes.length > 0;
+    if (!closed || !consistent) return { repeatEligibility: 'contradictory', repeatExclusions: null };
+    return { repeatEligibility: e.eligible ? 'eligible' : 'ineligible', repeatExclusions: [...(codes as string[])].sort().join(',') };
+}
+export function numericComparisonRow(receipt: RowSink, r: NumericResult | null, repeat?: RepeatEligibility, saveTakeMs?: number): void {
     const facts = r?.facts ?? {};
     const reason = typeof facts.reason === 'string' && /^[a-z0-9-]{1,80}$/.test(facts.reason) ? facts.reason : 'unknown';
+    // Diagnostic keys are written LAST so an adapter fact can never overwrite them.
+    const diagnostic: Record<string, string | number | null> = {
+        ...repeatEligibilityEvidence(repeat),
+        ...(saveTakeMs === undefined ? {} : { saveTakeSeconds: Number.isInteger(saveTakeMs) ? saveTakeMs / 1000 : null }),
+    };
     const evidence: Record<string, string | number | boolean | null> = { reason };
-    for (const [k, v] of Object.entries(facts)) if (k !== 'reason' && typeof v === 'boolean') evidence[k] = v;
-    if (!r) { receipt.row('saved and displayed comparison numbers match', 'HOLD', 'the numeric comparison could not be observed', { reason: 'not-observed' }); return; }
+    for (const [k, v] of Object.entries(facts)) if (k !== 'reason' && typeof v === 'boolean' && !(k in diagnostic)) evidence[k] = v;
+    Object.assign(evidence, diagnostic);
+    if (!r) { receipt.row('saved and displayed comparison numbers match', 'HOLD', 'the numeric comparison could not be observed', { reason: 'not-observed', ...diagnostic }); return; }
     const verdict = r.result === 'PASS' ? 'PASS' : r.result === 'FAIL' ? 'FAIL' : 'HOLD';
     receipt.row('saved and displayed comparison numbers match', verdict,
         verdict === 'PASS' ? 'the displayed before → after values equal the saved values exactly (metric, order, units, precision)'

@@ -40,7 +40,7 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './helpers/benchmark-utils';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
-import { HarnessParityTap, numericComparisonRow, probeSaveIsolationRow, type NumericResult } from './helpers/rwtHarnessParity';
+import { HarnessParityTap, numericComparisonRow, probeSaveIsolationRow, readRepeatEligibility, type NumericResult, type RepeatEligibility } from './helpers/rwtHarnessParity';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
@@ -63,6 +63,7 @@ import {
     nextStartEvidence,
     nextStartRows,
     practiceAgainEvidence,
+    OPEN_MIC_COMPARABLE_SAVE_TAKE_MS,
     practiceAgainRows,
     productMarkerRows,
     modelIdentityRow,
@@ -111,7 +112,7 @@ import { corpusRows, crossCheckCounts, fillerAnnotationsOf, hesitationTotals } f
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { feedbackDiagnosticChainRow } from './helpers/coachingFeedbackAdapter';
 import { capturedTakesDifferVerdict, coachingPromptBindingRow, coachingRequestBudgetRow, createCoachingTakeCapture, readSavedReviewPair } from './helpers/rwtCoachingCollector';
-import { answerOrder, latestAnsweredAt, lateCoachingSavedRow, ownerSessionReader } from './helpers/rwtLateCoaching';
+import { answerOrder, latestAnsweredAt, lateCoachingSavedRow, ownerNewerCompletedCounter, ownerSessionReader } from './helpers/rwtLateCoaching';
 import { coachingContract } from './helpers/rwtCoachingEvidence';
 import { openProductsItem } from './helpers/productsMenu';
 import {
@@ -306,6 +307,8 @@ test.describe('RWT — Open Mic first session @live', () => {
         // The Practice-again pass's saved take: the coaching evidence's repeat take.
         let repeatSessionId: string | null = null;
         let repeatRecordingAt: number | null = null;
+        /** The Practice-again save-take duration actually used (undefined until that step runs). */
+        let saveTakeMs: number | undefined;
         let coachingCapture: ReturnType<typeof createCoachingTakeCapture> | null = null;
         const finish = finalizer.once(async () => {
             // Sam, #1662 RETURN: every step is bounded and isolated, so the account cleanup and the receipt always run.
@@ -417,7 +420,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                 parity.startPressRow(aliveReceipt(receipt, alive), AHT01_START_PRESS_BUDGET);
             });
             await steps.step('probe saves isolated', async (alive) => {
-                if (admin) await probeSaveIsolationRow(aliveReceipt(receipt, alive), admin as never, capturedUid, [persistedId, repeatSessionId], parity.takeBindings(), parity.leaseIds, AHT01_DESIGNED_TAKES);
+                if (admin) await probeSaveIsolationRow(aliveReceipt(receipt, alive), admin as never, capturedUid, [persistedId, repeatSessionId], parity.takeBindings(), parity.leaseIds, AHT01_DESIGNED_TAKES, ['saved', 'saved', 'probe', 'probe']);
                 else aliveReceipt(receipt, alive).row('probe saves isolated', 'HOLD', 'no server read is available in this run');
             });
             await steps.step('owned pages closed', (alive) => parity.ownedPagesClosedRow(aliveReceipt(receipt, alive)), PARITY_CLOSE_STEP_MS);
@@ -794,11 +797,10 @@ test.describe('RWT — Open Mic first session @live', () => {
                 receipt.row('coaching consistent with saved fillers', fillerAdviceRow.verdict, fillerAdviceRow.detail, { savedCoachable: coachable });
 
                 // Against the corpus (APP-G1h, Sam 1792982426.848739 / 1792984801.229109). The independent reference aligns each
-                // scripted hesitation to its unique anchor, over every declared key (expected 0 where the corpus has none). The
-                // exact per-word expectation stays: a substitution on synthetic audio is fixture-limited (HOLD: unverified, never
-                // PASS); an omission or insertion FAILs. Synthetic "uh" stays a human observation (the run never claims all eight
-                // were heard), but an omitted or inserted "uh" still FAILs (Sam 1792992507.489959). Rows carry classes and counts
-                // only; the hesitation total is informational and never sets a verdict.
+                // scripted hesitation to its unique anchor, over every declared key (expected 0 where the corpus has none). PO
+                // 2026-11-11: no exemptions for um, uh or ah. Every word, "uh" included, gets a row; a substitution, omission or
+                // insertion FAILs; a missing, repeated or contested anchor HOLDs. The human "uh" observation stays as a separate
+                // named row. Rows carry classes and counts only; the hesitation total is informational and never sets a verdict.
                 const corpus = fixture.entry.groundTruthFillers ?? {};
                 const totals = hesitationTotals(transcript, corpus);
                 if (fixture.entry.kind === 'synthetic' && corpus.uh !== undefined) {
@@ -955,7 +957,11 @@ test.describe('RWT — Open Mic first session @live', () => {
                 await coachingCapture.sample(persistedId, shownWell && shownNext
                     ? { version: 'gemini_coaching_v1', what_worked: shownWell, what_to_try_next: shownNext } : null);
                 coachingCapture.start();
-                const again = await practiceAgainEvidence(page, `${SUITE}-again`, persistedId, 'open_mic', [], () => { saveTakeEnd = tap.events.length; });
+                // A candidate comparable save take (run 43065574631: the 7 s take was below progress eligibility by construction).
+                // Its time budget is not proven here (see OPEN_MIC_COMPARABLE_SAVE_TAKE_MS).
+                saveTakeMs = OPEN_MIC_COMPARABLE_SAVE_TAKE_MS;
+                const again = await practiceAgainEvidence(page, `${SUITE}-again`, persistedId, 'open_mic', [], () => { saveTakeEnd = tap.events.length; },
+                    { saveTakeMs });
                 // The window closes at the SAVE take's Stop, so the review's repeat Start can never stand in for it.
                 repeatWindow = [repeatFrom, saveTakeEnd >= 0 ? saveTakeEnd : tap.events.length];
                 practiceAgainRows(receipt, 'open_mic', again);
@@ -989,12 +995,20 @@ test.describe('RWT — Open Mic first session @live', () => {
             // session and shown by its own saved review (Analytics detail, separate page; the journey page is untouched).
             await test.step('interrupted take coaching saved and shown in its saved review', async () => {
                 const id = repeatSessionId && capturedUid ? repeatSessionId : null;
+                // Read through the bounded settle (#1474 contract): an in-flight answer is waited for, never missed.
+                const aExchanges = id ? await generations.settledForSession(id) : [];
                 await lateCoachingSavedRow(receipt, id, {
                     // Product evidence is read AS THE SIGNED-IN ACCOUNT (its own session token + the public anon key), never admin.
                     readSaved: ownerSessionReader(page, {
                         url: SUPABASE_URL, anonKey: process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY ?? '',
                         expectedUid: capturedUid ?? '', sessionId: id ?? '',
                     }),
+                    // Reported only (never a verdict): newer completed sessions of this owner ranked above A.
+                    newerCompleted: ownerNewerCompletedCounter(page, {
+                        url: SUPABASE_URL, anonKey: process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY ?? '',
+                        expectedUid: capturedUid ?? '',
+                    }),
+                    expectedUid: capturedUid ?? '',
                     openSavedReview: async () => {
                         const reviewPage = await page.context().newPage();
                         const reopenRequests = new CoachingGenerationTap();
@@ -1019,7 +1033,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                 }, {
                     // Recorded, not judged: browser-observed A answer time vs B observed RECORDING (PO 2026-11-11).
                     order: answerOrder(
-                        latestAnsweredAt(id ? generations.forSession(id) : []),
+                        latestAnsweredAt(aExchanges),
                         repeatRecordingAt,
                     ),
                 });
@@ -1135,7 +1149,18 @@ test.describe('RWT — Open Mic first session @live', () => {
             // the panel the repeat-result step opened (that step navigates only once its server bindings hold); otherwise NOT RUN.
             await test.step('saved and displayed comparison numbers match', async () => {
                 let result: NumericResult | null = null;
+                // Diagnostic: the repeat take's own stored evaluation (bounded, fail-closed, formula-bound). Never sets the verdict.
+                let repeatEligibility: RepeatEligibility = { state: 'unread' };
                 try {
+                    if (repeatSessionId && capturedUid && admin) {
+                        // Bound to the numeric adapter's OWN formula version (the evaluation is unique per session + version).
+                        const pure = createRequire(import.meta.url)(fileURLToPath(new URL('../../tools/cloud-test/harness/draft-adapters/oracles/pure/progressNumericSelected.cjs', import.meta.url))) as {
+                            PROGRESS_FORMULA_VERSION: string;
+                        };
+                        repeatEligibility = await readRepeatEligibility(admin as never, {
+                            sessionId: repeatSessionId, userId: capturedUid, formulaVersion: pure.PROGRESS_FORMULA_VERSION,
+                        });
+                    }
                     if (persistedId && repeatSessionId && capturedUid && admin) {
                         const served = await page.evaluate(() => (window as unknown as { __APP_RELEASE__?: string }).__APP_RELEASE__ ?? null).catch(() => null);
                         const numeric = createRequire(import.meta.url)(fileURLToPath(new URL('../../tools/cloud-test/harness/draft-adapters/progress-numeric.cjs', import.meta.url))) as {
@@ -1149,7 +1174,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                 } catch (e) {
                     result = (e as { code?: string })?.code === 'NOT_RUN' ? { result: 'NOT RUN', facts: { reason: 'numeric-source-not-run' } } : null;
                 }
-                numericComparisonRow(receipt, result);
+                numericComparisonRow(receipt, result, repeatEligibility, saveTakeMs);
             });
         } finally {
             await finish();

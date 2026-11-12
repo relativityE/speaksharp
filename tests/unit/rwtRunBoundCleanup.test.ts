@@ -110,6 +110,35 @@ describe('cleanup', () => {
         const unbound = cleanupAdmin({ provider: 'email' });
         await expect(cleanupRunOwnedAccount({ admin: unbound as never, capturedUid: UID, createdEmail: EMAIL, runOwnedPrefix: RWT_ACCOUNT_PREFIX })).resolves.toBe(UID);
     });
+    it('authorized recovery deletes the ORIGINAL binding, with fresh binding and authority negatives', async () => {
+        const sha = 'a'.repeat(40);
+        const recovery = { originalBinding: B, dispatchSha: sha, deleteAck: `RWT-INTERRUPTED-RUN-RECOVERY-DELETE@${sha}` };
+        setEnv({ ...ENV, GITHUB_RUN_ID: '42800000009', GITHUB_SHA: sha, GITHUB_REF: 'refs/heads/main' });
+        const invoke = (admin: ReturnType<typeof cleanupAdmin>, r = recovery) => cleanupRunOwnedAccount({
+            admin: admin as never, capturedUid: UID, createdEmail: EMAIL, runOwnedPrefix: RWT_ACCOUNT_PREFIX, recovery: r });
+        const good = cleanupAdmin({ ct_run: B });
+        await expect(invoke(good)).resolves.toBe(UID);
+        expect(good.auth.admin.deleteUser).toHaveBeenCalledTimes(1);
+        for (const meta of [{}, { ct_run: { ...B, runAttempt: '2' } }, { ct_run: { ...B, runId: '4' } },
+            { ct_run: { ...B, extra: true } }]) {
+            const admin = cleanupAdmin(meta);
+            await expect(invoke(admin)).rejects.toThrow('cleanup_run_binding_mismatch');
+            expect(admin.auth.admin.deleteUser).not.toHaveBeenCalled();
+        }
+        for (const r of [{ ...recovery, deleteAck: '' }, { ...recovery, dispatchSha: 'b'.repeat(40) },
+            { ...recovery, originalBinding: { ...B, repository: 'foreign/repo' } },
+            { ...recovery, originalBinding: { ...B, workflow: B.workflow.replace('rc-gates.yml', 'other.yml') } }]) {
+            const admin = cleanupAdmin({ ct_run: B });
+            await expect(invoke(admin, r)).rejects.toThrow('cleanup_run_binding_mismatch');
+            expect(admin.auth.admin.deleteUser).not.toHaveBeenCalled();
+        }
+        for (const env of [{ GITHUB_REF: 'refs/heads/feature' }, { GITHUB_RUN_ATTEMPT: '2' }, { GITHUB_RUN_ID: B.runId }]) {
+            setEnv({ ...ENV, GITHUB_RUN_ID: '42800000009', GITHUB_SHA: sha, GITHUB_REF: 'refs/heads/main', ...env });
+            const admin = cleanupAdmin({ ct_run: B });
+            await expect(invoke(admin)).rejects.toThrow('cleanup_run_binding_mismatch');
+            expect(admin.auth.admin.deleteUser).not.toHaveBeenCalled();
+        }
+    });
     it('a failed cleanup reports the CLOSED step it stopped at; free text and unknown tables are `unknown`', async () => {
         const t = RESIDUE_CHECKS[0].table;
         const cases: [string, string][] = [

@@ -30,8 +30,18 @@ for(const target of targets) {
     assert.ok(index<job.steps.findIndex(step=>/\bsupabase\s+link\b/.test(step.run??'')));
     assert.equal(guard.if,undefined,'a missing password must not skip the guard');
     assert.equal(guard['continue-on-error'],undefined);
-    assert.equal(guard.env,undefined,'this change does not introduce a credential injection');
-    assert.equal(job.env.SUPABASE_DB_PASSWORD,undefined);
+    assert.equal(guard.env,undefined,'the guard itself never receives its own credential injection');
+    if(target.job==='migration-readiness') {
+      // Outcome 10: the daily canary's read-only readiness check is the ONE selected injection path. It is the
+      // existing repository secret by reference, at job level, so the guard above still decides admission.
+      assert.equal(job.env.SUPABASE_DB_PASSWORD,'${{ secrets.SUPABASE_DB_PASSWORD }}');
+      // ...and only on protected main, inside the protected environment every other password consumer uses, so a
+      // branch-dispatched copy of this workflow can never receive it.
+      assert.equal(job.if,"${{ github.ref == 'refs/heads/main' }}");
+      assert.equal(job.environment,'production-db');
+    } else {
+      assert.equal(job.env?.SUPABASE_DB_PASSWORD,undefined,'manual preflight keeps no injection');
+    }
     assert.doesNotMatch(guard.run,/\b(?:supabase|curl|wget)\s|set\s+-x/);
     if(target.job==='migration-readiness') {
       assert.equal(job.needs,'release-binding');

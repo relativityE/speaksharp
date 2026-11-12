@@ -165,7 +165,7 @@ describe('AHT-01 wiring', () => {
         expect([counts > -1, isolation > counts, close > isolation, close < spec.indexOf('const cleanup = new OwnedCleanup(')]).toEqual([true, true, true, true]);
         const block = spec.slice(counts, close);
         expect(block.split('aliveReceipt(receipt, alive)').join('')).not.toMatch(/\breceipt\b/);
-        expect(spec).toContain('probeSaveIsolationRow(aliveReceipt(receipt, alive), admin as never, capturedUid, [persistedId, repeatSessionId], parity.takeBindings(), parity.leaseIds, AHT01_DESIGNED_TAKES)');
+        expect(spec).toContain('probeSaveIsolationRow(aliveReceipt(receipt, alive), admin as never, capturedUid, [persistedId, repeatSessionId], parity.takeBindings(), parity.leaseIds, AHT01_DESIGNED_TAKES, [\'saved\', \'saved\', \'probe\', \'probe\'])');
         expect(spec).toContain("const AHT01_START_PRESS_BUDGET = { total: 4, perControl: { 'mic-start': 3, 'mic-download': 1, 'verdict-practice-again': 1 } } as const;");
         expect(spec).toContain('const AHT01_DESIGNED_TAKES = 4;');
     });
@@ -260,6 +260,28 @@ describe('AHT-01 design budgets (review: from the journey design, not a run coun
             await probeSaveIsolationRow(r, admin(rows) as never, 'u', [A, B], tap.takeBindings(), leaseIds, 4);
             expect({ name, v: r.rows[0].verdict }).toEqual({ name, v: verdict });
         }
+    });
+    it('two persisted takes and two no-save probes: absence is required, not a fabricated save', async () => {
+        const leases = ['lease-a', 'lease-b', 'lease-c', 'lease-d'];
+        const plan = ['saved', 'saved', 'probe', 'probe'] as const;
+        const base = { takes: [{ control: 'mic-start', ids: ['a'] }, { control: 'mic-start', ids: ['b'] },
+            { control: 'verdict-practice-again', ids: [] }, { control: 'mic-start', ids: [] }], stray: [] };
+        const good = [{ id: 'a', lease_id: leases[0] }, { id: 'b', lease_id: leases[1] }];
+        const check = async (rows: typeof good, bindings = base, expected: readonly ('saved' | 'probe')[] = plan) => {
+            const r = sink();
+            const admin = { from: () => ({ select: () => ({ eq: () => ({ eq: async () => ({ data: rows, error: null }) }) }) }) };
+            await probeSaveIsolationRow(r, admin as never, 'u', ['a', 'b'], bindings as never, leases, 4, expected);
+            return r.rows[0].verdict;
+        };
+        expect(await check(good)).toBe('PASS');
+        expect(await check(good.slice(0, 1))).toBe('FAIL');
+        for (const lease_id of [leases[1], leases[2], leases[3], 'foreign']) {
+            expect(await check([...good, { id: 'late-extra', lease_id }])).toBe('FAIL');
+        }
+        expect(await check(good, { ...base, takes: base.takes.map((t, k) => k === 2 ? { ...t, ids: ['late'] } : t) })).toBe('FAIL');
+        expect(await check(good, { ...base, stray: ['stray'] } as never)).toBe('FAIL');
+        expect(await check(good, base, ['saved', 'probe'])).toBe('HOLD');
+        expect(await check([{ id: 'b', lease_id: leases[0] }, { id: 'a', lease_id: leases[1] }])).toBe('FAIL');
     });
     it('the tap reads each Start\'s lease id from its acquire_recording_lease request body, once each, in order', async () => {
         const f = fakeContext();

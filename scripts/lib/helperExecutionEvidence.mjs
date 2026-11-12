@@ -25,6 +25,11 @@ export const HELPER_CONTRACTS = Object.freeze([{
   helperFile:'tests/live/helpers/rwtStepDiagnostics.ts', testFile:'tests/unit/rwtStepDiagnostics1258.test.ts',
   callables:['routeClass'],
 }, {
+  // AHT-01 / #1812 Gate 3 budget: the interrupted-run recovery helper (its age floor is now coupled to the job limit).
+  helperFile:'tests/live/helpers/rwtInterruptedRunRecovery.ts', testFile:'tests/unit/rwtInterruptedRunRecovery1258.test.ts',
+  callables:['recoveryDeleteAck','deletionDomain','runOwnedDomain','ownedPrefixOf','selectInterruptedRunAccounts','recoveryAuthority',
+    'listAuthUsersBounded','recoverInterruptedRuns','recoveryReportLine'],
+}, {
   helperFile:'tests/live/helpers/rwtFillerReference.ts', testFile:'tests/unit/rwtFillerReference1258.test.ts',
   callables:['fillerAnnotationsOf','referenceKeyFor','referenceCount','alignFillers','corpusWordVerdict',
     'corpusVerdicts','corpusRows','hesitationTotals','integrityVerdict','crossCheckCounts'],
@@ -45,6 +50,61 @@ export const HELPER_CONTRACTS = Object.freeze([{
 }, {
   helperFile:'tests/live/helpers/rwtDocumentIdentity.ts',testFile:'tests/unit/rwtWatchdog1593.test.ts',
   callables:['trackDocuments','documentTrackerOf'],
+}, {
+  // #1760 model comparison harness and evaluator helpers, each through its own unit consumer.
+  helperFile:'tests/model-dropin/comparisonBounds.ts',testFile:'tests/model-dropin/comparisonBounds.test.ts',
+  callables:['validateApproval','requireCompatibleBackend','elapsedMs','privateTimingMetrics','canonicalCaseReceipts','canonicalPopulation','caseMs','registerPackageCaseLimits',
+    'ComparisonBudget#beginTake','ComparisonBudget#bindSession','ComparisonBudget#finishTake','ComparisonBudget#sessionSha256',
+    'ComparisonBudget#assertExistingSessions','ComparisonBudget#finishRun'],
+}, {
+  helperFile:'tests/model-dropin/switchDiagnostics.ts',testFile:'tests/model-dropin/switchDiagnostics.test.ts',
+  callables:['sanitizeSwitchOutcome','sanitizeSelectionFailure'],
+}, {
+  helperFile:'tests/model-dropin/completionObservation.ts',testFile:'tests/model-dropin/completionObservation.test.ts',
+  callables:['observeCompletedSave'],
+}, {
+  helperFile:'tests/model-dropin/cachedModelAssets.ts',testFile:'tests/model-dropin/cachedModelAssets.test.ts',
+  callables:['indexCachedAssets','startVerifiedAssetHttpServer','registeredAssetPins','closeVerifiedAssetIndex'],
+}, {
+  helperFile:'tests/model-dropin/qualification.mjs',testFile:'tests/model-dropin/qualification.test.ts',
+  callables:['qualifyComparison','timingMetric','validatePromotionPolicy'],
+}, {
+  helperFile:'tests/evidence/modelEvaluator.ts',testFile:'tests/evidence/__tests__/modelEvaluator.test.ts',
+  callables:['compareModelArms'],
+}, {
+  helperFile:'tests/evidence/fixtures/model-evaluator/offline-control-adapter.ts',testFile:'tests/evidence/__tests__/offlineControlAdapter.test.ts',
+  callables:['createAdapter'],
+}, {
+  // Work point 2: the frozen real-speech reliability scorer (stt_reliability_v1) and its controls.
+  helperFile:'tests/evidence/sttReliabilityScore.ts',testFile:'tests/evidence/__tests__/sttReliabilityScore.test.ts',
+  callables:['alignTokens','alignTokensPreferringEarlyMatches','findRepetitionLoops','scoreReliabilityCorpus'],
+}, {
+  helperFile:'tests/live/helpers/coachingExternal.ts',testFile:'tests/unit/rwtCoachingExternal1258.test.ts',
+  callables:['provenExternalOutcome','isCoachingUnavailableHeadline','gracefulFailures','coachingParentVerdict'],
+}, {
+  helperFile:'tests/live/helpers/runBinding.ts',testFile:'tests/unit/rwtRunBoundCleanup.test.ts',
+  callables:['runBindingState','currentRunBinding','sameRunBinding'],
+}, {
+  helperFile:'tests/live/helpers/runOwnedCleanup.ts',testFile:'tests/unit/rwtRunBoundCleanup.test.ts',
+  callables:['cleanupFailureStep','cleanupRunOwnedAccount','requireZeroResidue'],
+}, {
+  helperFile:'tests/live/helpers/rwtAcceptance.ts',testFile:'tests/unit/rwtAcceptanceExecution1812.test.ts',
+  callables:['externalParentProofGaps','receiptAcceptance','requiredAutomatedRows','validateReceipt','finalizeReceipt'],
+}, {
+  helperFile:'tests/live/helpers/rwtCoachingConsistency.ts',testFile:'tests/unit/rwtCoachingConsistency1258.test.ts',
+  callables:['characterCeilingVerdict','fillerAdviceVerdict','takesDifferVerdict','openPointReferenceVerdict','readTwoTakesCoaching'],
+}, {
+  helperFile:'tests/live/helpers/rwtCoachingEvidence.ts',testFile:'tests/unit/rwtCoachingEvidence.test.ts',
+  callables:['canonicalSuggestionSha256','coachingSessionBindingSha256','recomputeCoachingPromptSha256','buildRwtCoachingEvidenceArtifact','writeRwtCoachingEvidenceArtifact'],
+}, {
+  helperFile:'tests/live/helpers/rwtHarnessParity.ts',testFile:'tests/unit/rwtHarnessParityExecution1812.test.ts',
+  callables:['HarnessParityTap#takeBindings','HarnessParityTap#attach','HarnessParityTap#noCloudSttRow','HarnessParityTap#startPressRow','HarnessParityTap#ownedPagesClosedRow','probeSaveIsolationRow','numericComparisonRow','readRepeatEligibility','repeatEligibilityEvidence'],
+}, {
+  helperFile:'tests/live/helpers/rwtLateCoaching.ts',testFile:'tests/unit/rwtLateCoaching.test.ts',
+  callables:['sha256Hex','answerOrder','latestAnsweredAt','lateCoachingSavedRow','accessTokenFromAuthStorage','tokenSubject','ownerSessionReader','nonblankParity','classifyTarget','ownerNewerCompletedCounter'],
+}, {
+  helperFile:'tests/live/helpers/rwtWatchdog.ts',testFile:'tests/unit/rwtCleanupExecution1812.test.ts',
+  callables:['OwnedCleanup#run','OwnedCleanup#settle','finalizeOwnedCleanup'],
 }]);
 export const HELPER_CONFIG = 'scripts/efficacy-helper-vitest.config.mjs';
 
@@ -217,7 +277,7 @@ export function helperCoverageOptions(root, binding) {
     || !binding.coverageDirectory.startsWith(`${root}${path.sep}`)) throw new Error('Missing helper phase coverage directory');
   return {enabled: true, provider: 'custom',
     customProviderModule: path.join(root, 'scripts/lib/helperExecutionEvidence.mjs'),
-    include: [binding.helper.helperFile], exclude: [], extension: ['.ts', '.js'],
+    include: [binding.helper.helperFile], exclude: [], extension: ['.ts', '.js', '.mjs'],
     reporter: ['json'], reportsDirectory: binding.coverageDirectory,
     reportOnFailure: true, clean: true, cleanOnRerun: true, all: false,
     allowExternal: false, excludeAfterRemap: true, ignoreEmptyLines: false,
@@ -400,7 +460,16 @@ export function validateHelperCoverage(raw, binding, root) {
     const declarations=callableDeclarations(ts,parsed,name);
     const declaration=declarations.length===1?declarations[0]:null;
     const runtimeName=name.includes('#')?name.split('#')[1]:name;
-    const functions = conversion.functions.filter(fn => fn.functionName === runtimeName);
+    const start = declaration && parsed.getLineAndCharacterOfPosition(declaration.getStart(parsed));
+    const end = declaration && parsed.getLineAndCharacterOfPosition(declaration.end);
+    // A class-qualified contract cannot borrow a same-named method from another class.
+    // Disambiguate only with the retained raw range's independently replayed source map.
+    const insideDeclaration = span => start && end && span.start.line >= start.line+1
+      && span.end.line <= end.line+1
+      && (span.start.line !== start.line+1 || span.start.column >= start.character)
+      && (span.end.line !== end.line+1 || span.end.column <= end.character);
+    const functions = conversion.functions.filter(fn => fn.functionName === runtimeName
+      && (!name.includes('#') || fn.ranges?.length && insideDeclaration(mappedSpan(fn.ranges[0]))));
     if (!declaration?.body || functions.length !== 1) throw new Error(`Missing/ambiguous helper callable: ${name}`);
     const fn = functions[0];
     if (fn.isBlockCoverage !== true || !fn.ranges?.length || fn.ranges[0].count <= 0) throw new Error(`Uncalled helper: ${name}`);
@@ -414,8 +483,6 @@ export function validateHelperCoverage(raw, binding, root) {
         throw new Error('Helper nested range escapes its callable');
       }
     }
-    const start = parsed.getLineAndCharacterOfPosition(declaration.getStart(parsed));
-    const end = parsed.getLineAndCharacterOfPosition(declaration.end);
     for (const range of fn.ranges) {
       for (const offset of [range.startOffset, range.endOffset - 1]) {
         const original = originalAt(offset - conversion.wrapperLength);
@@ -426,7 +493,8 @@ export function validateHelperCoverage(raw, binding, root) {
         }
       }
     }
-    const entries = Object.entries(mapped.fnMap || {}).filter(([, value]) => value.name === runtimeName);
+    const entries = Object.entries(mapped.fnMap || {}).filter(([, value]) => value.name === runtimeName
+      && (!name.includes('#') || value.loc && insideDeclaration(value.loc)));
     if (entries.length !== 1 || !(mapped.f?.[entries[0][0]] > 0)) throw new Error(`Helper remapped callable not executed: ${name}`);
     if (mapped.f[entries[0][0]] !== fn.ranges[0].count) throw new Error('Remapped helper count contradicts raw worker count');
     const location = entries[0][1].loc;
@@ -437,15 +505,18 @@ export function validateHelperCoverage(raw, binding, root) {
     // The pinned legacy converter maps transformed async declarations to the
     // declaration start (including export), not the inner function keyword.
     // Accept that exact AST boundary only for an actual async declaration.
-    const asyncDeclaration=ts.isFunctionDeclaration(declaration)
+    const asyncDeclaration=(ts.isFunctionDeclaration(declaration) || ts.isMethodDeclaration(declaration))
       && declaration.modifiers?.some(modifier=>modifier.kind===ts.SyntaxKind.AsyncKeyword);
     const functionStart = keyword ? parsed.getLineAndCharacterOfPosition(asyncDeclaration?declaration.getStart(parsed):keyword.getStart(parsed))
       : declaration && ts.isArrowFunction(declaration) ? parsed.getLineAndCharacterOfPosition(declaration.getStart(parsed))
-        : ts.isMethodDeclaration(declaration) ? parsed.getLineAndCharacterOfPosition(declaration.name.getStart(parsed)) : null;
+        : ts.isMethodDeclaration(declaration) ? parsed.getLineAndCharacterOfPosition(asyncDeclaration?declaration.getStart(parsed):declaration.name.getStart(parsed)) : null;
     const typedArrow=ts.isArrowFunction(declaration) && (declaration.type || declaration.parameters.some(parameter=>parameter.type));
     const parameterStart=typedArrow && declaration.parameters[0]
       ? parsed.getLineAndCharacterOfPosition(declaration.parameters[0].getStart(parsed)):null;
-    const statement=typedArrow && declaration.parent?.parent?.parent;
+    // The pinned converter can end any arrow initializer at its statement's terminal ';' (typed or not, e.g. a
+    // variable-annotated `const f:Factory=a=>{...};`). Only that single exact character is admitted, and the span must
+    // still equal the replayed raw V8 range (expectedLocation) below.
+    const statement=ts.isArrowFunction(declaration) && declaration.parent?.parent?.parent;
     const statementEnd=statement && ts.isVariableStatement(statement)
       && source.slice(declaration.end,statement.end)===';'
       ? parsed.getLineAndCharacterOfPosition(statement.end):null;

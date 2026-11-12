@@ -15,7 +15,8 @@
  */
 export const PROVIDER_BUDGET_MS = 45_000;
 export const MIN_ATTEMPT_MS = 10_000;
-export const PROVIDER_ATTEMPT_CAP_MS = 20_000;
+// Bound each provider attempt to 15 s; retries and waits still share the 45 s budget.
+export const PROVIDER_ATTEMPT_CAP_MS = 15_000;
 export const MAX_PROVIDER_ATTEMPTS = 3;
 /** Full-jitter cap for the wait AFTER attempt n (index n − 1). */
 export const JITTER_CAP_MS: readonly number[] = [1_000, 2_000];

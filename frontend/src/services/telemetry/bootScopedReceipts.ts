@@ -197,7 +197,8 @@ export function buildReadbackQuery(params: {
                properties.end_reason AS end_reason,
                properties.origin_boot_id AS origin_boot_id,
                properties.intent_kind AS intent_kind, properties.intent_outcome AS intent_outcome,
-               properties.step AS step, properties.option_selected AS option_selected
+               properties.step AS step, properties.option_selected AS option_selected,
+               properties.render_target_attempt_id AS render_target_attempt_id
         FROM events
         WHERE timestamp > now() - INTERVAL ${Math.floor(windowHours)} HOUR
           AND properties.release_sha = ${quote(releaseSha)}

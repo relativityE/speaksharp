@@ -23,10 +23,12 @@ test('registers explicit canary and reader callable consumers without a generic 
     ['tests/live/helpers/rwtOracles.ts','tests/unit/rwtReadbackBindingReasons1258.test.ts'],
     ['tests/live/helpers/rwtStepDiagnostics.ts','tests/unit/rwtStepDiagnostics1258.test.ts'],
     ['tests/live/helpers/rwtFillerReference.ts','tests/unit/rwtFillerReference1258.test.ts'],
+    ['tests/live/helpers/rwtInterruptedRunRecovery.ts','tests/unit/rwtInterruptedRunRecovery1258.test.ts'],
     ['tests/live/helpers/returningSignInAttempt.ts','tests/unit/returningSignInAttempt1495.test.ts'],
     ['tests/live/helpers/repeatMetricWording.ts','tests/unit/repeatMetricWording1548.test.ts'],
     ['tests/db/c1CatalogStages.js','tests/unit/exactMigrationGate.test.js'],
     ['tests/live/helpers/rwtDocumentIdentity.ts','tests/unit/rwtWatchdog1593.test.ts'],
+    ['tests/evidence/sttReliabilityScore.ts','tests/evidence/__tests__/sttReliabilityScore.test.ts'],
   ]) {
     const found=HELPER_CONTRACTS.find(item=>item.helperFile===helperFile);
     assert.equal(found?.testFile,testFile,`${helperFile} requires its actual consumer`);
@@ -462,6 +464,34 @@ if(process.env.GITHUB_ACTIONS==='true'||process.env.TEST_EFFICACY_REAL_RUNTIME==
       }
     } finally {f.clean();}
   });
+  test('INSTALLED .mjs helper: real calls qualify through the producer, an uncalled callable refuses',()=>{
+    // qualification.mjs is a registered helper; a .js/.ts-only coverage extension list never instruments it.
+    const selected=HELPER_CONTRACTS.find(item=>item.helperFile.endsWith('.mjs'));
+    assert.ok(selected,'a registered .mjs helper exists');
+    const f=fixture();
+    const consumer=calls=>`import {test,expect} from 'vitest';\nimport {${selected.callables.join(',')}} from './${path.basename(selected.helperFile)}';\n`
+      +selected.callables.map(name=>`test('${name} returns the expected sum',()=>expect(${calls.includes(name)?`${name}(2,3)`:'2+3'}).toBe(5));`).join('\n')+'\n';
+    try {
+      f.write(selected.helperFile,selected.callables.map(name=>`export function ${name}(a = 2, b = 3) { return a + b; }`).join('\n')+'\n');
+      f.write(selected.testFile,consumer(selected.callables));
+      const run=()=>{
+        const expected=executionContext(f.directory,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
+        const receipt=runVitestHelperExecution({root:f.directory,base:f.git(['rev-parse','HEAD']),provenance:expected});
+        assert.deepEqual([...validateVitestExecution(receipt,expected,f.directory)].sort(),[contract.helperFile,selected.helperFile].sort());
+        return receipt;
+      };
+      const receipt=run();
+      const phase=receipt.tests.find(item=>item.helperFile===selected.helperFile).phase;
+      assert.deepEqual(phase.helperCoverage.validated.executed.map(item=>item.name),selected.callables);
+      assert.ok(phase.helperCoverage.validated.executed.every(item=>item.count===1));
+      f.write(selected.testFile,consumer(selected.callables.slice(1)));
+      assert.throws(run,error=>{
+        assert.match(error.message,new RegExp(`Uncalled helper: ${selected.callables[0]}|Helper remapped callable not executed: ${selected.callables[0]}`));
+        assert.equal(error.diagnostics.status,0,'a passing consumer that never calls the helper is insufficient');
+        return true;
+      });
+    } finally {f.clean();}
+  });
   test('INSTALLED typed arrow spans bind only the parameter/declaration and terminal-semicolon boundaries',()=>{
     const f=fixture();
     try {
@@ -475,6 +505,35 @@ if(process.env.GITHUB_ACTIONS==='true'||process.env.TEST_EFFICACY_REAL_RUNTIME==
         raw.conversions[0].converted=structuredClone(raw.report);
         assert.throws(()=>validateHelperCoverage(raw,receipt.tests[0].phase.binding,f.directory),/Invalid remapped callable span/);
       }
+    } finally {f.clean();}
+  });
+  test('INSTALLED variable-annotated block arrows end exactly at the terminal semicolon; other ends and uncalled arrows refuse',()=>{
+    // Shape of the registered offline-control-adapter: `export const createAdapter:AdapterFactory=context=>{...};`.
+    const f=fixture();
+    try {
+      f.write(contract.helperFile,'type Sum=(a?: number,b?: number)=>number;\n'
+        +contract.callables.map(name=>`export const ${name}:Sum=(a=2,b=3)=>{\n  return a + b;\n};`).join('\n')+'\n');
+      const run=()=>{
+        const expected=executionContext(f.directory,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
+        const receipt=runVitestHelperExecution({root:f.directory,base:f.git(['rev-parse','HEAD']),provenance:expected});
+        assert.deepEqual([...validateVitestExecution(receipt,expected,f.directory)],[contract.helperFile]);
+        return receipt;
+      };
+      const receipt=run();
+      const executed=receipt.tests[0].phase.helperCoverage.validated.executed;
+      assert.deepEqual(executed.map(item=>item.name),contract.callables);
+      const source=fs.readFileSync(path.join(f.directory,contract.helperFile),'utf8').split('\n');
+      for(const item of executed) assert.equal(source[item.remapped.loc.end.line-1].slice(0,item.remapped.loc.end.column),'};');
+      // The body end (one column earlier) and one past the statement are both refused by the exact raw-range replay.
+      for(const alter of [loc=>{loc.end.column--;},loc=>{loc.end.column++;},loc=>{loc.start.column++;}]) {
+        const raw=structuredClone(receipt.tests[0].phase.helperCoverage.raw);
+        const filename=Object.keys(raw.report)[0];alter(raw.report[filename].fnMap['0'].loc);
+        raw.conversions[0].converted=structuredClone(raw.report);
+        assert.throws(()=>validateHelperCoverage(raw,receipt.tests[0].phase.binding,f.directory),/Invalid remapped callable span/);
+      }
+      f.write(contract.testFile,`import {test,expect} from 'vitest';\nimport {${contract.callables.join(',')}} from '../live/helpers/rwtMarkerObserver';\n`
+        +contract.callables.map((name,index)=>`test('${name}',()=>expect(${index?`${name}(2,3)`:'2+3'}).toBe(5));`).join('\n')+'\n');
+      assert.throws(run,new RegExp(`Uncalled helper: ${contract.callables[0]}|Helper remapped callable not executed: ${contract.callables[0]}`));
     } finally {f.clean();}
   });
   test('INSTALLED async declarations require the exact mapped declaration boundary',()=>{

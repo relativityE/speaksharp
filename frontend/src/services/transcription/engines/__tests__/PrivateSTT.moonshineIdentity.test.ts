@@ -178,6 +178,14 @@ describe('a committed utterance reaches Moonshine through the REAL facade', () =
         expect(pstt.getMetadata().candidateId).toBe('moonshine:streaming-medium');
     });
 
+    it('the facade publishes Moonshine runtime identity for the model-only evaluator (Codex 416770cd)', async () => {
+        const { PrivateSTT } = await import('../PrivateSTT');
+        const pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        expect(pstt.getExecutionEvidence().runtime, 'nothing is observed before init').toBeNull();
+        await pstt.init();
+        expect(pstt.getExecutionEvidence().runtime).toEqual({ initSucceeded: true, backend: 'wasm', modelId: null, fallbackOccurred: false });
+    });
+
     it('CASUALTY: the facade does NOT silently re-transcribe on v2 when Moonshine decode fails', async () => {
         const { MoonshineStreamingEngine } = await import('../MoonshineStreamingEngine');
         sttRegistry.clear();

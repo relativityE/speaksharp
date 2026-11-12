@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { EXACT_MIGRATION_ALLOWLIST } from './lib/exactMigrationGate.mjs';
 import { T2_VERSIONS, T2_INVENTORY, assertT2Sources, t2CatalogQuery,
   t2ExpectedCatalog, assertT2Catalog, t2DisabledQuery, assertT2Disabled, t2LedgerQuery, t2AdmissionQuery,
-  t2ReleaseLedgerQuery, t2ReleaseContract, t2ReleaseSnapshotQuery, assertT2ReleaseSnapshot } from './lib/t2MigrationPostflight.mjs';
+  t2ReleaseLedgerQuery, t2ReleaseContract, t2EdgeReleaseContract, t2ReleaseSnapshotQuery, assertT2ReleaseSnapshot } from './lib/t2MigrationPostflight.mjs';
 
 try {
   const [mode, version] = process.argv.slice(2);
@@ -17,11 +17,12 @@ try {
     encoding: 'utf8', timeout: 30_000, stdio: ['ignore', 'pipe', 'ignore'],
     env: { ...process.env, PGOPTIONS: `${process.env.PGOPTIONS || ''} -c default_transaction_read_only=on` },
   }).trim().split('\n');
-  if (mode === 'verify' && version === 'release') {
+  if (mode === 'verify' && ['release', 'edge-release'].includes(version)) {
     const candidate = read(`BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; ${t2ReleaseLedgerQuery()} COMMIT;`);
     if (candidate.length !== 1) throw new Error('incomplete T2 release ledger');
-    const contract = t2ReleaseContract(resolve(dirname(fileURLToPath(import.meta.url)), '..'), candidate[0],
-      { catalogContext: 'retained-production' });
+    const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+    const contract = version === 'edge-release' ? t2EdgeReleaseContract(root, candidate[0])
+      : t2ReleaseContract(root, candidate[0], { catalogContext: 'retained-production' });
     const evidence = assertT2ReleaseSnapshot(contract, read(t2ReleaseSnapshotQuery(contract)));
     console.log(JSON.stringify({ mode, version, ...evidence, sourcePins: contract.pins,
       scope: 'read-only installed release catalog; no activation or customer-flow proof' }));

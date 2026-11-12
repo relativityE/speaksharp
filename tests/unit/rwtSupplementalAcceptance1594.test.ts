@@ -24,7 +24,7 @@ const J = 'journey-feedback';
 const sha = (v: string) => createHash('sha256').update(v, 'utf8').digest('hex');
 const pass = (step: string): ReceiptRow => ({ step, verdict: 'PASS', detail: 'ok' });
 const hold = (step: string): ReceiptRow => ({ step, verdict: 'HOLD', detail: 'pending' });
-const MODEL = 'gemini-3.8-flash';
+const MODEL = 'gemini-3.6-flash';
 const OLD = '11111111-1111-4111-8111-111111111111';
 const NEW = '22222222-2222-4222-8222-222222222222';
 const OLD_REQ = '33333333-3333-4333-8333-333333333333';

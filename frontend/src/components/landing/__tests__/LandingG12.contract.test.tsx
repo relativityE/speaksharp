@@ -163,10 +163,10 @@ describe('#1475 G12 Rev 2 — products and the Practice Loop', () => {
         expect(navigateSpy).toHaveBeenCalledWith('/auth/signup', { state: { from: { pathname: '/practice' } } });
     });
 
-    it('presents "Private, and built to repeat" with Never uploaded and the ink Practice Loop', () => {
+    it('presents "Private, and built to repeat" with Audio never uploaded and the ink Practice Loop', () => {
         render(<PracticePage />);
         const section = region(/private, and built to repeat/i);
-        expect(within(section).getByRole('heading', { name: 'Never uploaded' })).toBeTruthy();
+        expect(within(section).getByRole('heading', { name: 'Audio never uploaded' })).toBeTruthy();
         const loop = within(section).getByRole('region', { name: 'The Practice Loop' });
         expect(norm(loop)).toMatch(/Same loop in Open Mic and Focus Points\..*Speak.*Feedback.*Practice again/);
     });
@@ -287,7 +287,7 @@ describe('#1475 G12 Rev 2 — pricing (both payment states)', () => {
         expect(viewedSources()).toContain('pricing_pro_card');
     });
 
-    const FACTUAL_CHIPS = ['Private transcription keeps audio local', 'Transcript data supports SpeakSharp features'];
+    const FACTUAL_CHIPS = ['Private transcription keeps audio local', 'Saved transcripts are sent to an AI service for coaching'];
 
     it.each([
         [false, FACTUAL_CHIPS],

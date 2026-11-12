@@ -149,7 +149,7 @@ const sha256File = (file: string): string => createHash('sha256').update(readFil
 /**
  * The pinned fixture, checksum-verified. A PRIVATE human recording (never committed — this repository is public)
  * replaces the synthetic Open Mic file only when BOTH its path and its expected sha256 are supplied; it is then
- * labelled `human` and its filler ground truth becomes a hard PASS/FAIL row instead of a fixture-limited HOLD.
+ * labelled `human` and its filler ground truth is judged count-only (no synthetic annotations).
  */
 export function loadRwtFixture(key: FixtureKey): LoadedFixture {
     const entry = MANIFEST.fixtures[key];
@@ -1609,10 +1609,31 @@ export async function savedTakeIdentity(
     return { savedSessionId, saveTakePersisted, saveTakeNewSession: savedSessionId !== null ? savedSessionId !== previousSessionId : null };
 }
 
+/** The default Practice-again save take: just past the product's 5 s no-persist guard, so the take saves. */
+export const SAVE_TAKE_PERSIST_MS = 7_000;
+/**
+ * AHT-01 same-target-numeric: a CANDIDATE Open Mic save-take duration intended to make the repeat comparable. Progress
+ * eligibility is >= 30 s and >= 75 words (buildProgressEvaluation.ts PROGRESS_ELIGIBILITY); the 7 s take sits below it by
+ * construction. Candidate sizing only (uniform-rate arithmetic, not a guarantee): open_mic_tts.wav loops every 60.65 s
+ * (45.6 s speech + 15.1 s silence, 129 scripted words), so a 42 s window holds >= 26.9 s of scripted speech at any loop phase
+ * and is shorter than the script. Neither proves a recognised word count, eligibility or unequal stored counts: the repeat's
+ * stored evaluation is read and reported, the numeric adapter's own checks decide, and an ineligible or unread repeat stays
+ * HOLD; "coaching differs between takes" keeps its equal-count HOLD.
+ *
+ * Time budget: NOT proven here. It adds 35 s inside the unchanged AHT-01 test budget (1,500 s, pinned in the cloud-test config).
+ * Observed reference only: run 43065574631's whole spec step took 250 s (17:11:44–17:15:54 UTC). Validating the budget and the
+ * finalize-cleanup reserve against this duration is an explicit integration requirement.
+ */
+export const OPEN_MIC_COMPARABLE_SAVE_TAKE_MS = 42_000;
+export const saveTakeDuration = (ms: unknown): number =>
+    typeof ms === 'number' && Number.isInteger(ms) && ms >= SAVE_TAKE_PERSIST_MS && ms <= 120_000 ? ms : SAVE_TAKE_PERSIST_MS;
+
 export async function practiceAgainEvidence(
     page: Page, label: string, sessionId: string, product: 'open_mic' | 'focus_points', pointLabels: readonly string[] = [],
     /** #1532 Codex P1 r4124290575: called right after the SAVE take's Stop, so the caller can close that take's sent-stream window. */
     onSaveTakeStopped?: () => void,
+    /** How long the save take records (default SAVE_TAKE_PERSIST_MS; out-of-range values fall back to it). */
+    opts: { saveTakeMs?: number } = {},
 ): Promise<PracticeAgainEvidence> {
     const FINISHING_UP = /Finishing up your last session/;
     const ev: PracticeAgainEvidence = {
@@ -1660,7 +1681,7 @@ export async function practiceAgainEvidence(
         ev.saveTakeStartPressed = true;
         step = 'recording_started';
         await expectBenchmarkRecordingStarted(page, `${label}-save`);
-        await page.waitForTimeout(7_000); // past the 5 s no-persist guard, so this take saves
+        await page.waitForTimeout(saveTakeDuration(opts.saveTakeMs)); // past the 5 s no-persist guard, so this take saves
         step = 'stop';
         // Codex P2 r4278702635: the flag is set when the CLICK resolves, inside the helper — so `stop` with the flag true
         // means the click happened and the post-Stop settle failed; false means the click itself failed.

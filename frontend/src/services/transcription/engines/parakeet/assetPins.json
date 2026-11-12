@@ -1,0 +1,71 @@
+{
+  "repository": "ysdede/parakeet-tdt-0.6b-v3-onnx",
+  "revision": "e5356bf6e24bdb7a269536b0e9e7869bc034b893",
+  "upstreamModel": "nvidia/parakeet-tdt-0.6b-v3",
+  "upstreamRevision": null,
+  "conversionSource": "istupakov/parakeet-tdt-0.6b-v3-onnx",
+  "conversionRevision": "8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce",
+  "modelInventoryComplete": true,
+  "runtimeInventoryComplete": true,
+  "modelPinDigest": "d1ffaf4fdc3c34aa464f001168d5496b0eb6eaf33def0862855ea7647a653389",
+  "modelTotalBytes": 670488236,
+  "runtime": {
+    "package": "parakeet.js",
+    "version": "1.4.4",
+    "integrity": "sha512-+tYIDgp799bvsDye3y2lFyspYHgTOJ5YMZi0mWYABXyJjp/3NZmNaMTnS9jhf4qlIQJoBk0Nmj+UwsI3zk+Aqg==",
+    "onnxruntime": {
+      "package": "onnxruntime-web",
+      "version": "1.24.1",
+      "integrity": "sha512-i2u395dv+ZEQBdH+aORvlu19Bzvlg5AXJ7wjxnL350hknOP9z0UeP3pVfjkpMEWMPy2T6nCQxetKTmNia6wSzg==",
+      "binaryBytesVerified": true
+    }
+  },
+  "missingRuntimeFiles": [],
+  "runtimeNote": "Reproducible owned Vite bundle of byte-identical published parakeet.js1.4.4 and pinned ORT1.24.1 WASM JavaScript. Bundle exports stock backend.initOrt result; worker verifies model.ort identity and sets verified glue/WASM before sessions. Vendor console output removed by bundling for privacy. No upstream source edits.",
+  "files": [
+    {
+      "path": "encoder-model.int8.onnx",
+      "bytes": 652183999,
+      "sha256": "6139d2fa7e1b086097b277c7149725edbab89cc7c7ae64b23c741be4055aff09",
+      "url": "https://huggingface.co/ysdede/parakeet-tdt-0.6b-v3-onnx/resolve/e5356bf6e24bdb7a269536b0e9e7869bc034b893/encoder-model.int8.onnx"
+    },
+    {
+      "path": "decoder_joint-model.int8.onnx",
+      "bytes": 18202004,
+      "sha256": "eea7483ee3d1a30375daedc8ed83e3960c91b098812127a0d99d1c8977667a70",
+      "url": "https://huggingface.co/ysdede/parakeet-tdt-0.6b-v3-onnx/resolve/e5356bf6e24bdb7a269536b0e9e7869bc034b893/decoder_joint-model.int8.onnx"
+    },
+    {
+      "path": "vocab.txt",
+      "bytes": 102132,
+      "sha256": "ba8e4007c65f4bb4358ffe2ecc13d9ccc7a10351151065242b5c3a943e685742",
+      "url": "https://huggingface.co/ysdede/parakeet-tdt-0.6b-v3-onnx/resolve/e5356bf6e24bdb7a269536b0e9e7869bc034b893/vocab.txt"
+    },
+    {
+      "path": "config.json",
+      "bytes": 101,
+      "sha256": "562aedb0b804acbeb4e04215de190846c37e0bb239b696376df69d555785373a",
+      "url": "https://huggingface.co/ysdede/parakeet-tdt-0.6b-v3-onnx/resolve/e5356bf6e24bdb7a269536b0e9e7869bc034b893/config.json"
+    },
+    {
+      "path": "parakeet-runtime.mjs",
+      "bytes": 162973,
+      "sha256": "6a74f220584108dcea8e024d3dc8f314fc7cb43406709e06e4cccd6bc88b7606",
+      "url": "/models/parakeet-runtime/1.4.4-ort1.24.1/parakeet-runtime.mjs"
+    },
+    {
+      "path": "ort-wasm-simd-threaded.mjs",
+      "bytes": 24274,
+      "sha256": "3101568d9c131ea89d4c693fbff3e0d0c3dcbcf1baa09fd871b86662a071bd1a",
+      "url": "/models/parakeet-runtime/1.4.4-ort1.24.1/ort-wasm-simd-threaded.mjs"
+    },
+    {
+      "path": "ort-wasm-simd-threaded.wasm",
+      "bytes": 12297086,
+      "sha256": "fd078a39438a65660fc6c9df8d42fc886b5bf2931d6dbdd8dc51a17b1221499f",
+      "url": "/models/parakeet-runtime/1.4.4-ort1.24.1/ort-wasm-simd-threaded.wasm"
+    }
+  ],
+  "pinDigest": "a4646f1dac9191a8b65634526bda1c6619e148d1e1b58e2c60b1522fba7536fe",
+  "totalBytes": 682972569
+}

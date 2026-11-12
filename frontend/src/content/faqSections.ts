@@ -60,6 +60,7 @@ export const FAQ_SECTIONS: readonly FaqSection[] = [
                 question: 'What is saved after a session?',
                 answer: [
                     'The session’s text transcript and its measurements — words, fillers, pace — plus your review, so you can come back to them. Audio is never saved.',
+                    'The transcript is stored in your account and sent to an AI service to write your review. The Privacy Policy names the current provider.',
                 ],
             },
         ],
