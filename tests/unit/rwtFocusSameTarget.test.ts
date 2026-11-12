@@ -212,10 +212,15 @@ describe('Focus journey wiring', () => {
         const helpers = journey.slice(journey.indexOf('const readFocusSource'), journey.indexOf('let claimed = false;'));
         expect(helpers.match(/\.eq\('user_id', owner\.uid\)/g)?.length).toBeGreaterThanOrEqual(4);
     });
-    it('the repeat-metric row reads the Progress panel in its own tab and closes it', () => {
-        const metric = journey.slice(journey.indexOf("test.step('the repeat result names the measured metric'"));
+    it('the repeat-metric row reads the Progress panel in its own tab; the numeric step then reads and closes it', () => {
+        const from = journey.indexOf("test.step('the repeat result names the measured metric'");
+        const numeric = journey.indexOf("test.step('saved and displayed comparison numbers match'");
+        const metric = journey.slice(from, numeric);
         expect(metric).toContain('page.context().newPage()');
-        expect(metric).toMatch(/finally \{\s*await progressTab\?\.close\(\)/);
         expect(metric).toContain('receipt.row(REPEAT_METRIC_ROW');
+        // A tab that left the panel's route is closed in the metric step itself, and never handed on.
+        expect(metric).toMatch(/finally \{[\s\S]*pathname !== `\/progress\/\$\{persistedId\}`[\s\S]*progressPanelTab = null;\s*await progressTab\.close\(\)/);
+        // The numeric step always closes whatever it was handed.
+        expect(journey.slice(numeric)).toMatch(/finally \{\s*await progressPanelTab\?\.close\(\)\.catch\(\(\) => undefined\);\s*progressPanelTab = null;/);
     });
 });

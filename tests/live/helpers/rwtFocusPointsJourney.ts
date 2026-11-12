@@ -3,6 +3,8 @@
  * (`rwt-focus-points-session.live.spec.ts`) and the partial Dev fixture (`rwt-focus-points-partial.live.spec.ts`).
  * Each spec owns its browser (the fake microphone file is a launch option), account, receipt and cleanup.
  */
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import { createClient } from '@supabase/supabase-js';
 import { test } from './rwtProductionTest';
 import { expect, type Page, type TestInfo } from '@playwright/test';
@@ -20,7 +22,8 @@ import { cleanupRunOwnedAccount } from './runOwnedCleanup';
 import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, armWatchdog, watchProfileFor, type JourneyFinalizer } from './rwtWatchdog';
 import { savedFocusIdentityVerdict } from './rwtSavedFocusIdentity';
 import { recordRunOwnedCleanup } from './rwtAcceptance';
-import { HarnessParityTap, type StartPressBudget } from './rwtHarnessParity';
+import { HarnessParityTap, numericComparisonRow, probeSaveIsolationRow, readRepeatEligibility, type NumericResult, type RepeatEligibility, type StartPressBudget } from './rwtHarnessParity';
+import { focusCapturedTakes, focusDesignedSaves } from './rwtFocusSaveIsolation';
 import { CoachingGenerationTap } from './coachingGenerationTap';
 import { feedbackDiagnosticChainRow } from './coachingFeedbackAdapter';
 import { coachingPromptBindingRow, coachingRequestBudgetRow, createCoachingTakeCapture, readSavedReviewPair } from './rwtCoachingCollector';
@@ -241,6 +244,15 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     let repeatWindow: [number, number] | null = null;
     // The Practice-again pass's saved take: the coaching evidence's repeat take.
     let repeatSessionId: string | null = null;
+    // AHT-02 probe-save-isolation (Sam, #1811 RETURN on d1487bdb): the full journey's later saved takes, captured where each
+    // take saved, so the isolation row can join every saved take to its own recording (rwtFocusSaveIsolation.ts).
+    let switchOpenMicId: string | null = null;
+    let switchFocusTakeId: string | null = null;
+    let editedTakeId: string | null = null;
+    // same-target-numeric: the /progress panel the repeat-metric step opened (read, then closed, by the numeric step) and the
+    // one attempt that step bound to this repeat.
+    let progressPanelTab: Page | null = null;
+    let boundAttemptId: string | null = null;
     let coachingCapture: ReturnType<typeof createCoachingTakeCapture> | null = null;
     // AHT-02/03 same-target-repeat: owner-scoped, never-thrown reads (a failed read is 'error' and holds the row).
     const readFocusSource = async (id: string): Promise<SessionRow | null | 'error'> => {
@@ -357,6 +369,14 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         await steps.step('harness parity counts', (alive) => {
             parity.noCloudSttRow(aliveReceipt(receipt, alive));
             parity.startPressRow(aliveReceipt(receipt, alive), startPressBudget);
+        });
+        // probe-save-isolation (catalog AHT-02 / AHT-03), against #1812's helper with Focus's OWN design: two no-save probes, so
+        // the helper's all-saved default is never used, and the captured ids are the saved takes in press order.
+        await steps.step('probe saves isolated', async (alive) => {
+            const designed = focusDesignedSaves(fixtureKey);
+            const captured = focusCapturedTakes(fixtureKey, { first: persistedId, repeat: repeatSessionId, switchOpenMic: switchOpenMicId, switchFocus: switchFocusTakeId, edited: editedTakeId });
+            if (admin && owner.uid) await probeSaveIsolationRow(aliveReceipt(receipt, alive), admin as never, owner.uid, captured, parity.takeBindings(), parity.leaseIds, designed.length, designed);
+            else aliveReceipt(receipt, alive).row('probe saves isolated', 'HOLD', 'no server read is available in this run');
         });
         await steps.step('owned pages closed', (alive) => parity.ownedPagesClosedRow(aliveReceipt(receipt, alive)), PARITY_CLOSE_STEP_MS);
         // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion. The full run's retention proof and the partial run's own
@@ -897,6 +917,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                             boundCount: (bound ?? []).length,
                             boundId: bound?.length === 1 ? bound[0].id : null,
                         };
+                        boundAttemptId = bound?.length === 1 ? bound[0].id as string : null;
                     }
                 }
                 const prerequisite = repeatMetricPrerequisites(server, linkage);
@@ -906,6 +927,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 }
                 const tab = await page.context().newPage();
                 progressTab = tab;
+                progressPanelTab = tab;
                 const route = `/progress/${persistedId}`;
                 await tab.goto(route);
                 const panel = tab.getByTestId('progress-panel');
@@ -949,8 +971,47 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 const name = error instanceof Error && /^[A-Za-z]{1,40}Error$/.test(error.name) ? error.name : 'Error';
                 receipt.row(REPEAT_METRIC_ROW, 'HOLD', `the repeat-metric observation failed (${name})`);
             } finally {
-                await progressTab?.close().catch(() => undefined);
+                // A tab that left the panel's route is closed here; one still on it is read, then closed, by the numeric step.
+                if (progressTab && (progressTab.isClosed() || new URL(progressTab.url()).pathname !== `/progress/${persistedId}`)) {
+                    progressPanelTab = null;
+                    await progressTab.close().catch(() => undefined);
+                }
             }
+        });
+
+        // ── same-target-numeric (catalog AHT-02 / AHT-03): the harness's own numeric check on this journey's two saved takes ──
+        // Reuses tools/cloud-test/harness/draft-adapters/progress-numeric.cjs (no copy), as #1812's AHT-01 does. It reads the
+        // persisted recommendation, the attempt bound to THIS repeat (the id the step above captured) and both evaluations, then the
+        // panel the step above opened. It never navigates; with no panel open it reads the session page and returns NOT RUN (HOLD).
+        // Pinned to the served release it was revalidated against: any other release is NOT RUN (HOLD), never a pass.
+        await test.step('saved and displayed comparison numbers match', async () => {
+            let result: NumericResult | null = null;
+            let repeatEligibility: RepeatEligibility = { state: 'unread' };
+            try {
+                if (persistedId && repeatSessionId && persistedId !== repeatSessionId && owner.uid && admin) {
+                    const load = createRequire(import.meta.url);
+                    const pure = load(fileURLToPath(new URL('../../../tools/cloud-test/harness/draft-adapters/oracles/pure/progressNumericSelected.cjs', import.meta.url))) as {
+                        PROGRESS_FORMULA_VERSION: string;
+                    };
+                    repeatEligibility = await readRepeatEligibility(admin as never, { sessionId: repeatSessionId, userId: owner.uid, formulaVersion: pure.PROGRESS_FORMULA_VERSION });
+                    const numeric = load(fileURLToPath(new URL('../../../tools/cloud-test/harness/draft-adapters/progress-numeric.cjs', import.meta.url))) as {
+                        observe: (a: Record<string, unknown>) => Promise<NumericResult>;
+                    };
+                    const panelPage = progressPanelTab ?? page;
+                    const served = await panelPage.evaluate(() => (window as unknown as { __APP_RELEASE__?: string }).__APP_RELEASE__ ?? null).catch(() => null);
+                    result = await numeric.observe({
+                        page: panelPage, db: admin, sourceSessionId: persistedId, repeatSessionId,
+                        ...(boundAttemptId ? { expectedAttemptId: boundAttemptId } : {}),
+                        caseConfig: { sourceSha: expectedReleaseSha(), servedSha: served, account: { id: owner.uid } },
+                    });
+                }
+            } catch (e) {
+                result = (e as { code?: string })?.code === 'NOT_RUN' ? { result: 'NOT RUN', facts: { reason: 'numeric-source-not-run' } } : null;
+            } finally {
+                await progressPanelTab?.close().catch(() => undefined);
+                progressPanelTab = null;
+            }
+            numericComparisonRow(receipt, result, repeatEligibility);
         });
 
         // ── #1258 Focus-only: the product-switch take, then New Set / Edit from that take's completed review ──
@@ -1010,6 +1071,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 const openMicId = await waitForNewPersistedSession(page, before);
                 const openMicBefore = openMicId && openMicId !== before ? await sessionRow(openMicId) : unavailable('missing');
                 const savedOpenMicId = openMicId && openMicId !== before ? openMicId : null;
+                switchOpenMicId = savedOpenMicId;
                 const openMicObjectiveRowReads: Array<number | null> = savedOpenMicId ? [await objectiveRowsFor(savedOpenMicId)] : [];
                 const firstFocusAfter = await firstFocusEvidence();
                 // A point is a carry-over marker only if the Open Mic take actually recognised it (6090552875).
@@ -1039,6 +1101,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 await waitForBenchmarkSaveCandidate(page, `${suite}-switch-focus`, 180_000);
                 const focusId = await waitForNewPersistedSession(page, openMicId);
                 switchFocusId = focusId && focusId !== openMicId ? focusId : null;
+                switchFocusTakeId = switchFocusId;
                 await expect.poll(async () => (await readRail(page, points.length)).statuses.every((s) => s !== 'pending'), { timeout: 60_000 })
                     .toBe(true).catch(() => undefined);
                 const finalStatuses = (await readRail(page, points.length)).statuses;
@@ -1211,6 +1274,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                         })));
                     }
                 }
+                editedTakeId = takeBId && takeBId !== predecessor && takeBId !== persistedId ? takeBId : null;
                 const takeB = takeBId && takeBId !== predecessor && takeBId !== persistedId ? await savedFocus(takeBId) : { verdicts: [], brief: null, ordered: [] };
                 const takeAAfter = await savedFocus(persistedId);
                 const v = newSetEditVerdicts({
