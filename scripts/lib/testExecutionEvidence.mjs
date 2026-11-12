@@ -122,8 +122,15 @@ const retentionPinsFixture = Object.freeze({
   workflowSha256:'1531c95c1fa19558fba0eecf34a76e9c66073a1f5f41785d1461b7045a1d02b7',
   resolverSha256:'63935ffc8708aba82aa2721b224cd4da3c3a2e3d19b748477ec469d6478fdfd3',
 });
+const deployedCoachingFixture = Object.freeze({
+  fixtureFile:'tests/live/helpers/deployedCoachingContract.json', testFile:'tests/unit/deployedCoachingContractExecution1812.test.ts', protocol:'deployed-coaching',
+  assertion:'deployed coaching fixture drives both actual readers and rejects changed input',
+  sha256:'70c3099769cf24ac4faf3b4c191e322e50a0f1b34228a3aa72199a8f06adbe1b', consumerSha256:'9ff70aa89df82c44ec1069c249d775c578a2a93b96859af336991bb1db143caa',
+  readers:[{file:'tests/live/helpers/rwtCoachingConsistency.ts',sha256:'9c496e6e90c4d88a4704c80fbfb84cf8f53378c1f6fe654a81d5aba6d3c89bee'},{file:'tests/live/helpers/rwtCoachingEvidence.ts',sha256:'308f6c26d0b1c5d612e44d64b764b623774e5183a62561b7c3209c6a6d85f946'}],
+});
 export const registeredFixture = file => file === workflowFixture.fixtureFile ? workflowFixture
-  : file === retentionPinsFixture.fixtureFile ? retentionPinsFixture : null;
+  : file === retentionPinsFixture.fixtureFile ? retentionPinsFixture
+    : file === deployedCoachingFixture.fixtureFile ? deployedCoachingFixture : null;
 
 export function fixturePackageManagerIdentity(root, env=process.env) {
   const pin=JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8')).packageManager;
@@ -150,12 +157,20 @@ export function fixturePackageManagerIdentity(root, env=process.env) {
 export function fixtureSourceBinding(root, fixtureFile) {
   const contract=registeredFixture(fixtureFile);
   if(!contract) throw new Error('Unregistered fixture input');
-  const sources=[contract.fixtureFile,contract.testFile,...(contract.workflowFile?[contract.workflowFile]:[])].map(file=>{
+  const sources=[contract.fixtureFile,contract.testFile,...(contract.workflowFile?[contract.workflowFile]:[]),...(contract.readers || []).map(reader=>reader.file)].map(file=>{
     const target=path.join(root,file);
     if(!fs.lstatSync(target).isFile() || fs.realpathSync(target)!==target) throw new Error('Aliased fixture input or consumer');
     return {file,sha256:hash(fs.readFileSync(target))};
   });
   if(sources[0].sha256!==contract.sha256) throw new Error('Historical fixture bytes differ from the pinned input');
+  if(contract.protocol==='deployed-coaching') {
+    if(sources[1].sha256!==contract.consumerSha256
+      || contract.readers.some((reader,index)=>sources[index+2].sha256!==reader.sha256)) {
+      throw new Error('Reviewed deployed coaching consumer/reader bytes differ');
+    }
+    const execPath=fs.realpathSync(process.execPath);
+    return {sources,node:{execPath,version:process.version,sha256:hash(fs.readFileSync(execPath))}};
+  }
   if(contract.protocol==='retention-pins') {
     if(sources[1].sha256!==contract.consumerSha256)throw new Error('Reviewed retention fixture consumer bytes differ');
     if(sources[2].sha256!==contract.workflowSha256)throw new Error('Reviewed retention workflow bytes differ');
@@ -180,6 +195,20 @@ export function validateFixtureWitness(raw,binding,root,report,envelope) {
     ? assertions.length>0 && assertions.every(test=>test.status==='passed') : assertions.length===1;
   if(!validCount || matches.length!==1 || matches[0].status!=='passed' || tasks.length!==1 || tasks[0].result?.state!=='pass') {
     throw new Error('Registered fixture consumer was not executed successfully');
+  }
+  if(contract.protocol==='deployed-coaching') {
+    const positive=raw?.positive;
+    if(raw?.schemaVersion!==3 || raw.phaseId!==binding.phaseId || raw.bindingSha256!==hash(JSON.stringify(binding))
+      || raw.fixtureFile!==contract.fixtureFile || raw.fixtureSha256!==contract.sha256 || raw.assertion!==contract.assertion
+      || JSON.stringify(positive?.reads)!==JSON.stringify([contract.fixtureFile,contract.fixtureFile])
+      || JSON.stringify(positive?.ceiling)!==JSON.stringify({what_worked:240,what_to_try_next:240})
+      || positive?.ceilingVerdict!=='PASS' || positive?.model!=='gemini-3.6-flash'
+      || !/^[a-f0-9]{64}$/.test(positive?.promptHash || '')
+      || raw.ceilingNegative!=='FAIL' || !/^[a-f0-9]{64}$/.test(raw.promptNegative || '')
+      || raw.promptNegative===positive.promptHash || raw.malformedRejected!==true) {
+      throw new Error('Missing or invalid actual deployed coaching consumption witness');
+    }
+    return contract.fixtureFile;
   }
   if(contract.protocol==='retention-pins') {
     const pins=JSON.parse(fs.readFileSync(path.join(root,contract.fixtureFile),'utf8'));

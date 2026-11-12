@@ -858,9 +858,17 @@ const MAIN_DRAIN = '20261016180000_account_closure_drain_enforcement.sql';
 const MAIN_RECOVERY = '20261017200000_checkout_rejection_recovery.sql';
 // Reviewed repository presence only. These bytes are NOT part of any historical
 // replay/catalog profile and must never enter its staged directory or ledger.
+// Reviewed migrations outside the account-closure chain, newer than every profile here: pinned repository
+// inventory that no profile replays, stages or records, the installed retirement profile included.
+export const REVIEWED_UNRELATED_MIGRATIONS=Object.freeze([
+  // #1829 refund follow-up signal (restricted operational table and its writer; Sam's 2026-11-12 decision).
+  Object.freeze({name:'20261112130000_stripe_refund_followups.sql',version:'20261112130000',
+    sha256:'47fce28446a1e8f56c27dd10a6bb92e803a5907db0fd9d7fa67cbf11f9701fe8'}),
+]);
 export const REVIEWED_WITHHELD_MIGRATIONS=Object.freeze([
   Object.freeze({name:'20261110173548_account_coaching_local_retirement.sql',version:'20261110173548',
     sha256:'cc3ee4369dec74d2926557128a06265fb3019077b018cdc5dc848f055a6f8e04'}),
+  ...REVIEWED_UNRELATED_MIGRATIONS,
 ]);
 
 export function parseMainProofArguments(args) {
@@ -888,7 +896,8 @@ export function buildMainU1ReplayPlan(rows, profile = 'main-120') {
   assert.equal(new Set(actual.map(row => row.name)).size, actual.length, 'duplicate migration name');
   const repositoryVersioned = actual.filter(row => row.version !== null);
   assert.equal(new Set(repositoryVersioned.map(row => row.version)).size, repositoryVersioned.length, 'duplicate migration version');
-  const withheldPins=profile===RETIREMENT_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION]:REVIEWED_WITHHELD_MIGRATIONS;
+  const withheldPins=profile===RETIREMENT_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION,...REVIEWED_UNRELATED_MIGRATIONS]
+    :REVIEWED_WITHHELD_MIGRATIONS;
   const withheld=actual.filter(row=>withheldPins.some(pin=>pin.name===row.name));
   for(const row of withheld) assert.equal(row.sha256,withheldPins.find(pin=>pin.name===row.name).sha256,
     'reviewed withheld migration digest changed: '+row.name);

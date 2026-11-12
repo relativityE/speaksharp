@@ -20,8 +20,13 @@ import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
 import { openProductsItem } from './helpers/productsMenu';
 import { RETURN_SETTLE_DEFAULTS, returnControlSample, settleReturnControlState, type ReturnControlState } from './helpers/rwtReturnControlState';
-import { selectBenchmarkMode } from './helpers/benchmark-utils';
-import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
+import {
+    preparePrivateModelIfPrompted, selectBenchmarkMode, startBenchmarkRecording, stopBenchmarkRecording, waitForPrivateEngineReady,
+} from './helpers/benchmark-utils';
+import { nextTakeIdArrived, type SessionRowFacts } from './helpers/rwtSaveRetry';
+import { recoveryTakePlan, recoveryTakeVerdict } from './helpers/rwtPendingStartRecovery';
+import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
+import { HarnessParityTap, type StartPressBudget } from './helpers/rwtHarnessParity';
 
 const SUITE = 'pending-start-navigation';
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
@@ -54,6 +59,20 @@ async function readMicEvidence(page: Page): Promise<{ acquisitions: number; live
     return state;
 }
 
+/** Content-free facts for every session row of the run-owned account (lengths and states, never text). */
+async function readSessionRows(uid: string): Promise<SessionRowFacts[]> {
+    const { data, error } = await admin!.from('sessions')
+        .select('id,status,idempotency_key,transcript_state,transcript,created_at').eq('user_id', uid).order('created_at');
+    if (error || !Array.isArray(data)) throw new Error(`session row read failed (fail closed): ${error?.code ?? 'unreadable'}`);
+    return data.map((row) => ({
+        id: String(row.id),
+        status: typeof row.status === 'string' ? row.status : null,
+        hasIdempotencyKey: typeof row.idempotency_key === 'string' && row.idempotency_key.length > 0,
+        transcriptState: typeof row.transcript_state === 'string' ? row.transcript_state : null,
+        transcriptLength: typeof row.transcript === 'string' ? row.transcript.length : 0,
+    }));
+}
+
 async function readSessionIds(uid: string): Promise<string[]> {
     const { data, error } = await admin!.from('sessions').select('id').eq('user_id', uid).order('id');
     if (error || !Array.isArray(data) || data.some((row) => typeof row.id !== 'string')) {
@@ -67,6 +86,19 @@ test.use({
     launchOptions: { args: rwtLaunchArgs(fixture, { webgpu: false }) },
 });
 
+/**
+ * Harness parity (catalog AHT-04, minimumStarts 2), from the journey's DESIGN (not a run's count). The journey presses two Starts:
+ *   1. the cold Start it abandons — `mic-download` (`page.getByTestId('mic-download').click`, below);
+ *      the return to Open Mic only reads the controls (`settleReturnControlState`) and presses none;
+ *   2. the deliberate recovery take — whichever control the settled return offers: `mic-download` when the abandoned model was
+ *      retired (`preparePrivateModelIfPrompted`, whose one press downloads AND starts the take) or `mic-start` when it is warm
+ *      (`startBenchmarkRecording`). Never both, and never `mic-retry` (a Retry return HOLDs the take instead of pressing).
+ * So: 2 presses in all, `mic-download` at most 2, `mic-start` at most 1.
+ */
+const AHT04_START_PRESS_BUDGET: StartPressBudget = { total: 2, perControl: { 'mic-download': 2, 'mic-start': 1 } };
+/** The page-close step's own bound: each page close is itself bounded at 15 s inside it. */
+const PARITY_CLOSE_STEP_MS = 60_000;
+
 /** #1593 (live case 12): the journey's finalization must survive a test timeout — see `JourneyFinalizer`. */
 const finalizer = new JourneyFinalizer();
 test.afterEach(async () => {
@@ -74,16 +106,22 @@ test.afterEach(async () => {
 });
 
 test('leaving during a cold Start does not leave a recording or session behind @live', async ({ page }, testInfo) => {
-    test.setTimeout(1_500_000);
+    // The recovery take may download the model again (up to 900 s), on top of the abandoned cold Start.
+    test.setTimeout(2_400_000);
     const receipt = new RwtReceipt(SUITE);
     const tap = new AnalyticsTap();
     const generations = new CoachingGenerationTap();
     tap.attach(page); generations.attach(page);
+    // Harness parity (PO route 2026-11-10): Cloud STT requests and Start presses on every page of this journey's context;
+    // attached in the body below, before the first navigation.
+    const parity = new HarnessParityTap();
     let email = '';
     let uid = '';
     let claimed = false;
     let accountDeleted = false;
     const owner = { uid: '', email: '' };
+    /** The recovery take's saved session, once the page binds it; its one coaching request is allowed (and no other). */
+    let recoveryId: string | null = null;
     // #1593 fail early: an unexpected failure, refusal or stall (case 4's dead Start) ends the journey in seconds.
     const watch = armWatchdog({ page, tap, profile: watchProfileFor(SUITE), label: SUITE });
     // #1593 (Sam, #1662 RETURN control 1): ONE owned finalization — the body's finally and the suite's afterEach
@@ -96,13 +134,22 @@ test('leaving during a cold Start does not leave a recording or session behind @
         await steps.step('telemetry settle', () => tap.settleEveryPage((ms) => new Promise((resolve) => setTimeout(resolve, ms))));
         await steps.step('watchdog', () => watch.record(receipt));
         await steps.step('coaching settle', () => generations.settle(), FINALIZE_SETTLE_MS);
-        // Abandoning a pending Start and returning saves nothing, so the whole scenario sends no coaching request.
-        await steps.step('coaching budget', () => coachingRequestBudgetRow(receipt, generations, { maximum: 0 }));
+        // Abandoning a pending Start and returning saves nothing; only the deliberate recovery take may ask for coaching, once.
+        await steps.step('coaching budget', () => coachingRequestBudgetRow(receipt, generations,
+            recoveryId ? { maximum: 1, oneRequestPerSession: [recoveryId] } : { maximum: 0 }));
+        // Harness parity rows (catalog AHT-04: no-cloud-stt, start-press-budget, owned-pages-closed), before the account is
+        // deleted. Bounded steps, rows only while each step is alive, and the page close in its own step, last before cleanup.
+        await steps.step('harness parity counts', (alive) => {
+            parity.noCloudSttRow(aliveReceipt(receipt, alive));
+            parity.startPressRow(aliveReceipt(receipt, alive), AHT04_START_PRESS_BUDGET);
+        });
+        await steps.step('owned pages closed', (alive) => parity.ownedPagesClosedRow(aliveReceipt(receipt, alive)), PARITY_CLOSE_STEP_MS);
         // A signup that died before its uid was read is still found by its created email.
         if ((uid || email) && !accountDeleted) {
             // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion; its own settlement decides the row.
             accountDeleted = (await finalizeOwnedCleanup(steps, receipt, new OwnedCleanup(
-                () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: uid, createdEmail: email, runOwnedPrefix: RWT_ACCOUNT_PREFIX })))) === 'deleted';
+                () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: uid, createdEmail: email, runOwnedPrefix: RWT_ACCOUNT_PREFIX,
+                    stoppedTakes: { writersClosedAt: () => parity.ownedPagesClosedAt, unsettledSaves: () => parity.unsettledSaves } })))) === 'deleted';
         }
         await steps.step('telemetry rows', () => telemetryClassRows(receipt, tap, claimed, false));
         steps.report(receipt);
@@ -118,6 +165,8 @@ test('leaving during a cold Start does not leave a recording or session behind @
             receipt.halt('preflight', `HOLD before Production writes: ${missing.join('; ')}`);
             return;
         }
+        // Before the first navigation: the click recorder is an init script.
+        await parity.attach(page.context());
         await installMicAcquisitionCounter(page);
         await page.goto('/auth/signup');
         await requireApprovedSurface(page, receipt);
@@ -172,6 +221,8 @@ test('leaving during a cold Start does not leave a recording or session behind @
             ? 'the user-triggered Start left the cold waiting state before navigation'
             : 'the pending Start transition was too brief or could not be observed; cancellation is not qualified');
         const micAtLeave = await readMicEvidence(page);
+        // AHT-04: leaving now abandons the pending acquisition; its one `aborted` acquisition failure is this leave's own.
+        watch.markNavigationIntent(page);
         await openProductsItem(page, 'focus-points');
         await page.waitForURL(/\/practice\?product=focus-points/, { timeout: 45_000 });
         // #1258 (live round 1, run 38847635290): Focus Points opens its setup as a MODAL over the header. A person closes it
@@ -192,6 +243,8 @@ test('leaving during a cold Start does not leave a recording or session behind @
             ? 'the pending model/start operation reached a terminal state after navigation'
             : 'the operation did not reach a readable terminal state; delayed Start remains unproven');
         if (startSettledAfterLeave) await page.waitForTimeout(2_000);
+        // The leave's own abort was captured while the abandoned Start settled; none after this point is excused.
+        watch.closeNavigationIntent();
         const recorderStillVisible = await page.getByTestId('recorder-stop').count().then((n) => n > 0);
         const micAfterLeave = await readMicEvidence(page);
         const noLateAcquisition = micAfterLeave.acquisitions === micAtLeave.acquisitions;
@@ -265,6 +318,34 @@ test('leaving during a cold Start does not leave a recording or session behind @
             { recorderVisible: recorderAfterReturn, liveTracks: micAfterReturn.liveTracks, acquisitions: micAfterReturn.acquisitions,
                 priorSessions: sessionIdsBefore.length, sessionsAfterReturn: sessionIdsAfterReturn.length,
                 sessionIdentityUnchanged: sessionIdentityAfterReturn === sessionIdentityBefore });
+
+        // Catalog `deliberate-recovery-saved`: one deliberate take from the control the settled return offers saves exactly one
+        // completed session, bound by the page, with its transcript kept. From here on nothing is an expected fault.
+        watch.setFaultPhase(false);
+        const plan = recoveryTakePlan(returned.settled, last?.expectedControl ?? null);
+        if (!plan.drive) {
+            receipt.row('deliberate recovery take saved', plan.verdict.status, plan.verdict.detail,
+                { returnSettled: returned.settled, returnControl: last?.expectedControl ?? null });
+        } else {
+            const priorIds = await readSessionIds(uid);
+            const setup = await preparePrivateModelIfPrompted(page, 900_000);
+            if (!setup.recordingAlreadyStarted) {
+                await waitForPrivateEngineReady(page, 600_000);
+                await startBenchmarkRecording(page, 'pending-start-recovery');
+            }
+            await page.waitForTimeout(Math.round((fixture.entry.speechSeconds + 4) * 1000));
+            await stopBenchmarkRecording(page, 'pending-start-recovery', 180_000);
+            // Wait for the take's OWN saved identity, never merely "different", which the start-of-take clear satisfies at once.
+            const bound = await expect.poll(async () => nextTakeIdArrived(
+                await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id')), sessionIdentityBefore),
+            { timeout: 180_000 }).toBe(true).then(() => true).catch(() => false);
+            recoveryId = bound ? await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id')) : null;
+            const rows = await readSessionRows(uid);
+            const recovered = recoveryTakeVerdict(priorIds, rows, recoveryId);
+            receipt.row('deliberate recovery take saved', recovered.status, recovered.detail,
+                { returnControl: plan.control, setupStartedTake: setup.recordingAlreadyStarted, persistedIdBound: recoveryId !== null,
+                    priorSessions: priorIds.length, rows: rows.length, completed: rows.filter((r) => r.status === 'completed').length });
+        }
     } catch (error) {
         receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
         throw error;

@@ -1,8 +1,8 @@
 /**
  * RWT R3 (row 17) — mic denied, on the deployed product with its own run-owned account and fresh browser: the browser's
  * microphone permission for the site is Blocked before Start. The page must say so, record nothing, and make no Cloud
- * request; once access is allowed, a take saves. The journey is shared with `rwt-adverse-mic-model.live.spec.ts`
- * (helpers/rwtAdverseJourney.ts); this variant lives in its own file because its `=deny` launch options must be
+ * request; once access is allowed, a take saves (one new completed row with its transcript) and reopens from Analytics.
+ * The journey is shared with `rwt-adverse-mic-model.live.spec.ts` (helpers/rwtAdverseJourney.ts); this variant lives in its own file because its `=deny` launch options must be
  * file-level — Playwright refuses `launchOptions` inside a describe group, which left the variant uncollectable.
  * Live-only by necessity. Receipts are content-free. Preparation only: execution requires a fresh release-bound RWT
  * authorization.
