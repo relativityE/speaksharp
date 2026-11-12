@@ -346,8 +346,10 @@ describe('#1432 PM decisions 5651830241 / 5651842972 — workflow contracts: one
       'DIAGNOSTIC_SPEC: ${{ github.event.inputs.diagnostic_dast_spec }}', `DIAGNOSTIC_RELEASE: \${{ ${OVERRIDE} }}`,
       'DIAGNOSTIC_GREP: ${{ github.event.inputs.diagnostic_dast_grep }}', 'SELECTED_GATE: ${{ github.event.inputs.gate }}',
       'COMPARISON_CELL: ${{ github.event.inputs.comparison_cell }}', 'PAID_LAUNCH: ${{ github.event.inputs.paid_launch }}',
-      'run: node tools/cloud-test/scripts/validate_rwt_release_binding.cjs',
+      'node tools/cloud-test/scripts/validate_rwt_release_binding.cjs',
+      'node tools/cloud-test/scripts/resolve_rwt_served_release.mjs resolve',
     ]) expect(guard).toContain(line);
+    expect(guard).toMatch(/if \[\[ "\$DIAGNOSTIC_SPEC" == tests\/live\/rwt-\* \]\]; then\s+node tools\/cloud-test\/scripts\/resolve_rwt_served_release\.mjs resolve\s+else\s+node tools\/cloud-test\/scripts\/validate_rwt_release_binding\.cjs\s+fi/);
     const steps = gate3.split('\n      - ').slice(1);
     const guardAt = steps.findIndex((s) => s.startsWith('name: Validate bounded RWT release selection'));
     expect(guardAt).toBe(1); // directly after checkout
@@ -356,11 +358,19 @@ describe('#1432 PM decisions 5651830241 / 5651842972 — workflow contracts: one
     expect(consumers.length).toBeGreaterThan(0);
     for (const [s, i] of consumers) {
       expect(i).toBeGreaterThan(guardAt);
-      // A consumer only ever falls back to the run's own commit; the canonical live gates never read the override.
-      expect([...s.matchAll(/\$\{\{[^}]*diagnostic_release_sha[^}]*\}\}/g)].map((m) => m[0])).toEqual(
-        expect.arrayContaining([`\${{ ${OVERRIDE} || github.sha }}`]));
-      expect(s).not.toMatch(/diagnostic_release_sha(?! \|\| github\.sha \}\})/);
+      // RWT uses the frozen observed release; legacy non-RWT fallback remains the run commit.
+      const observed = `\${{ steps.rwt_release.outputs.release_sha || ${OVERRIDE} || github.sha }}`;
+      const expressions = [...s.matchAll(/\$\{\{[^}]*diagnostic_release_sha[^}]*\}\}/g)].map((m) => m[0]);
+      if (s.startsWith('name: Run DAST Live Gate (DIAGNOSTIC')) {
+        expect(expressions).toEqual([observed, `\${{ ${OVERRIDE} }}`]);
+        expect(s).toContain('node tools/cloud-test/scripts/resolve_rwt_served_release.mjs verify');
+        expect(s.indexOf('resolve_rwt_served_release.mjs verify')).toBeLessThan(s.indexOf('pnpm exec playwright'));
+      } else {
+        expect(s.startsWith('name: Classify Gate 3 evidence target')).toBe(true);
+        expect(expressions).toEqual([observed]);
+      }
     }
+    expect(step('RWT telemetry readback (PostHog, per journey)')).toContain('RELEASE_SHA: ${{ steps.rwt_release.outputs.release_sha }}');
     for (const name of ['Run DAST Live Gate', 'Run DAST Live Gate — PAID Stripe readiness (paid-launch scope only)']) {
       expect(step(name)).not.toContain('diagnostic_release_sha');
       expect(step(name)).toContain('EXPECTED_RELEASE_SHA: ${{ github.sha }}');
