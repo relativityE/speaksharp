@@ -7,6 +7,8 @@ import { PGlite } from '@electric-sql/pglite';
 import { readFileSync } from 'node:fs';
 
 const MIGRATION = 'backend/supabase/migrations/20261112130000_stripe_refund_followups.sql';
+const WEBHOOK_REFUND = 'backend/supabase/functions/stripe-webhook/refund.ts';
+const quoted = (text: string, quote: string) => [...text.matchAll(new RegExp(`${quote}([a-z_]+)${quote}`, 'g'))].map(m => m[1]);
 const RECORD = 'public.record_stripe_refund_followup(text,text,boolean,text)';
 const RECONCILE = 'public.reconcile_stripe_refund_followup(text,text,text,text)';
 const API_ROLES = ['anon', 'authenticated', 'service_role'];
@@ -121,6 +123,18 @@ describe('stripe_refund_followups (operator signal for unverified refund follow-
     expect(await reconcile('charge:ch_missing', 'evt_b', 'renewal_collected_after_refund')).toBe(false);
     expect(await reconcile('charge:ch_1', 'evt_b', 'renewal_collected_after_refund')).toBe(true);
     expect(await row()).toMatchObject({ status: 'reconciled', reconciliation: 'operator_resolved' });
+  });
+
+  it("the webhook's reason codes are exactly the migration's closed list, and each one records", async () => {
+    const source = readFileSync(WEBHOOK_REFUND, 'utf8').match(/export const FOLLOWUP_REASONS = Object\.freeze\(\[([^\]]*)\]/);
+    expect(source).not.toBeNull();
+    const reasons = quoted(source![1], '"');
+    expect(reasons.length).toBe(12);
+    const lists = [...readFileSync(MIGRATION, 'utf8').matchAll(/reason (?:IN|NOT IN) \(([^)]*)\)/g)].map(m => quoted(m[1], "'"));
+    expect(lists).toEqual([reasons, reasons]); // the table CHECK and the writer's guard
+    for (const [index, reason] of reasons.entries()) {
+      expect({ reason, written: await record(`charge:ch_${index}`, 'evt_a', reason) }).toEqual({ reason, written: true });
+    }
   });
 
   it('the event key is used when the charge id is unreadable', async () => {

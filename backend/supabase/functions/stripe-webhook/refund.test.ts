@@ -6,7 +6,7 @@
  */
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { handler } from "./index.ts";
-import { ENDED_STATES, FOLLOWUP_REASONS, SCHEDULABLE_STATES, followupOperationKey, recordRefundFollowup, reference,
+import { ENDED_STATES, SCHEDULABLE_STATES, followupOperationKey, recordRefundFollowup, reference,
   refundAmount, scheduleCancellationAfterRefund } from "./refund.ts";
 
 const PRO = "price_pro_1282";
@@ -447,12 +447,8 @@ Deno.test("refund follow-up → durable operator signal (Sam's 2026-11-12 decisi
     updated: proSub({ cancel_at_period_end: true, latest_invoice: "in_2" }) });
   const partialCharge = () => fullCharge({ amount_refunded: 1, refunded: false });
 
-  await t.step("the TypeScript reason codes are exactly the migration's closed list", () => {
-    const sql = Deno.readTextFileSync(new URL("../../migrations/20261112130000_stripe_refund_followups.sql", import.meta.url));
-    const lists = [...sql.matchAll(/reason (?:IN|NOT IN) \(([^)]*)\)/g)].map(match => [...match[1].matchAll(/'([a-z_]+)'/g)].map(m => m[1]));
-    assertEquals(lists.length, 2, "the table CHECK and the writer's guard");
-    for (const list of lists) assertEquals(list, [...FOLLOWUP_REASONS]);
-  });
+  // That these codes are exactly the migration's closed list is checked in tests/unit/stripeRefundFollowups.test.ts,
+  // which may read files (the edge tests run without read access).
 
   await t.step("an unverified follow-up records one unresolved, content-free row, and still answers non-2xx", async () => {
     const database = db();
