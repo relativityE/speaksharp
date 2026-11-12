@@ -317,7 +317,8 @@ const wiring={
   "tests/live/auth.live.spec.ts":[
     "test.use({ trace: 'off', video: 'off', screenshot: 'off' });",
     "const expectRelease = (process.env.EXPECT_RELEASE_SHA ?? '').trim();",
-    "const bindRelease = requiresReleaseBinding(process.env.BASE_URL);",
+    "async ({ page, baseURL }) => {",
+    "const bindRelease = requiresReleaseBinding(baseURL);",
     "if (bindRelease) { const preflight = servedReleaseVerdict(expectRelease, expectRelease);",
     "expect(preflight, 'EXPECT_RELEASE_SHA must name the full served release under test').toEqual({ ok: true, release: expectRelease });",
     "await page.waitForURL((url) => isExpectedAuthLanding(url.pathname, DEFAULT_AUTH_LANDING), { timeout: 30_000 });",

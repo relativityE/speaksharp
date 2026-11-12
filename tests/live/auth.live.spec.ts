@@ -38,9 +38,11 @@ test.describe('Real Authentication Flow', () => {
     // The release under test: EXPECT_RELEASE_SHA (the served release being smoke-tested), distinct from any dispatched
     // source SHA. A deployed target without it fails closed before anything runs.
     const expectRelease = (process.env.EXPECT_RELEASE_SHA ?? '').trim();
-    const bindRelease = requiresReleaseBinding(process.env.BASE_URL);
 
-    test('should sign in with real credentials and establish session', async ({ page }) => {
+    test('should sign in with real credentials and establish session', async ({ page, baseURL }) => {
+        // Bound by Playwright's EFFECTIVE target (the config defaults it to localhost when BASE_URL is unset), not the
+        // raw env, so the local integration path keeps its exemption and a deployed target still fails closed.
+        const bindRelease = requiresReleaseBinding(baseURL);
         if (bindRelease) {
             const preflight = servedReleaseVerdict(expectRelease, expectRelease);
             expect(preflight, 'EXPECT_RELEASE_SHA must name the full served release under test').toEqual({ ok: true, release: expectRelease });

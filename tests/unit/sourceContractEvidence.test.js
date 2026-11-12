@@ -377,11 +377,13 @@ test('sign-in release wiring rejects disconnected release, landing and artifact 
   const source=fs.readFileSync(path.join(root,file),'utf8');
   const proof=inspectSourceContract(root,file,source);
   assert.equal(proof.liveExecution,'NOT RUN');
-  assert.equal(proof.detectedFaults,10);
+  assert.equal(proof.detectedFaults,11);
   for(const [from,to] of [
     ["trace: 'off'","trace: 'on'"],
     ['process.env.EXPECT_RELEASE_SHA','process.env.EXPECTED_RELEASE_SHA'],
-    ['requiresReleaseBinding(process.env.BASE_URL)','false'],
+    ['requiresReleaseBinding(baseURL)','false'],
+    ['requiresReleaseBinding(baseURL)','requiresReleaseBinding(process.env.BASE_URL)'],
+    ['async ({ page, baseURL }) =>','async ({ page }) =>'],
     ['servedReleaseVerdict(expectRelease, expectRelease)','{ ok: true }'],
     ['isExpectedAuthLanding(url.pathname, DEFAULT_AUTH_LANDING)','true'],
     ['.toBe(DEFAULT_AUTH_LANDING)','.not.toBe(DEFAULT_AUTH_LANDING)'],
