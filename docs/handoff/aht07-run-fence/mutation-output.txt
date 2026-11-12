@@ -1,0 +1,17 @@
+# Mutation controls, rerun 2026-11-12 on this branch: AHT07_PROPOSAL_OVERRIDE=docs/handoff/aht07-run-fence/mutants/<mutant>.sql timeout 300 node --test tests/db/aht07-run-fence.realpg.mjs
+# Each mutant removes one guard; a nonzero fail count means the guard is covered. 15/15 caught.
+m01-writer-no-shared-lock: pass 2 fail 8
+m02-state-read-before-lock: pass 8 fail 2
+m03-unregistered-key-admitted: pass 7 fail 3
+m04-fence-no-exclusive-lock: pass 2 fail 8
+m05-keyed-on-user_id-not-request-identity: pass 4 fail 6
+m06-run-key-usable-by-others: pass 7 fail 3
+m07-key-registration-after-fence: pass 7 fail 3
+m08-service-steps-client-executable: pass 7 fail 3
+m09-key-mutable: pass 8 fail 2
+m10-settle-while-account-exists: pass 7 fail 3
+m11-fenced-email-still-signs-up: pass 7 fail 3
+m12-register-no-email-lock: pass 8 fail 2
+m13-no-account-gone-check: pass 8 fail 2
+m14-key-cap-unchecked: pass 8 fail 2
+m15-settle-not-serialized: pass 8 fail 2

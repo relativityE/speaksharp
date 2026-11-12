@@ -1,0 +1,17 @@
+# Rerun 2026-11-12 on origin/main 4787338 + this branch's tests/db files (identical to the local proof at 7b03d310)
+v22.23.4
+postgres (PostgreSQL) 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)
+$ timeout 400 node --test tests/db/aht07-run-fence.realpg.mjs
+    ok 1 - T1 catalogue: no login session or token stored; service-only functions; pinned search_path; no client grants
+    ok 2 - T2 signup records the uid atomically; only keys registered to the run are admitted, by the run account only
+    ok 3 - T3 an admitted write commits before the fence returns; writes queued behind the fence or later are refused
+    ok 4 - T4 an admitted write whose client disconnects leaves nothing; the fence still returns
+    ok 5 - T5 fence timeout is a HOLD: the run stays open and nothing is lost
+    ok 6 - T6 identity, not user_id: run-account inserts while open, after the fence and after deletion; keys immutable
+    ok 7 - T7 crash before signup or before any write: settled by the uid recorded at signup, never by email
+    ok 8 - T8 settlement: exact keys, lost responses, competing fencers and settlers, crash after deletion, N vs N+1
+    ok 9 - T9 real users are unaffected; clients cannot read the run tables, call its steps, or take a run email
+ok 1 - AHT-07 run settlement: run-owned id tied to exact idempotency keys, fenced, durable settlement record
+# tests 10
+# pass 10
+# fail 0
