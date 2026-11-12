@@ -11,7 +11,8 @@ const guard = coverage.steps.find((step) => step.name === 'Require Upstream Succ
 describe('parallel quality preserves required merge evidence', () => {
   it('starts the identical quality command after scope, without waiting for tests', () => {
     expect(quality.needs).toBe('scope');
-    expect(quality.if).toBe("needs.scope.outputs.full_required == 'true'");
+    // #1837: the docs lane runs the identical quality gate as well.
+    expect(quality.if).toBe("needs.scope.outputs.full_required == 'true' || needs.scope.outputs.docs_lane == 'true'");
     expect(quality.steps.filter((step) => step.run === 'pnpm quality')).toHaveLength(1);
     expect(coverage.steps.some((step) => step.run === 'pnpm quality')).toBe(false);
     expect(quality.steps.find((step) => step.uses === 'actions/checkout@v6').with?.ref).toBeUndefined();

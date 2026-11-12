@@ -17,6 +17,9 @@ test('fresh producer, verified restore, changed plugin/glob/dependency force reb
  put('scripts/model-evaluator/runtime-bindings.mjs',`export async function verifyProjectRuntimeBindings(){console.log('runtime-guard');}`);
  put('scripts/validate-env.mjs',`console.log('env-guard');`);
  put('frontend/vite.config.mjs','// fixture');put('pnpm-lock.yaml','lock');put('node_modules/pkg/index.js','dep');
+ // #1837: pin the fake pnpm to CommonJS. The native-evidence runner puts TMPDIR inside the checkout, where the
+ // nearest package.json is the repository's ("type": "module") and would load this extensionless script as ESM.
+ put('bin/package.json','{"type":"commonjs"}\n');
  put('bin/pnpm',`#!/usr/bin/env node\nconst fs=require('fs');if(process.argv.includes('--version')){console.log('10.29.1');process.exit(0);}console.log('REAL_BUILD');fs.mkdirSync('frontend/dist',{recursive:true});for(const name of ['index.html','private-dropin.html'])fs.writeFileSync('frontend/dist/'+name,'window.__APP_RELEASE__="'+process.env.GITHUB_SHA+'";');fs.writeFileSync('frontend/dist/unchanged.js','same compiled bytes');`);chmodSync(join(root,'bin/pnpm'),0o755);
  const env={...process.env,PATH:join(root,'bin')+':'+process.env.PATH,CI:'true',GITHUB_ACTIONS:'true',GITHUB_SHA:'a'.repeat(40),GITHUB_RUN_ID:'12',GITHUB_RUN_ATTEMPT:'1',GITHUB_EVENT_NAME:'push',GITHUB_REF:'refs/heads/main',GITHUB_REPOSITORY:'a/b',GITHUB_REPOSITORY_ID:'7',GITHUB_OUTPUT:join(base,'output'),GITHUB_TOKEN:''};
  function run(overrides={}) {const r=spawnSync(process.execPath,['scripts/ci-smart-build.mjs'],{cwd:root,env:{...env,...overrides},encoding:'utf8'});assert.equal(r.status,0,r.stderr+'\n'+r.stdout);return r.stdout;}

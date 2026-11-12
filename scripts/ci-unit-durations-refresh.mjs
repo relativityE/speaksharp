@@ -80,4 +80,9 @@ if (isMain) {
     durationsMs,
   }, null, 2)}\n`);
   console.log(`[duration-refresh] wrote ${Object.keys(durationsMs).length} file durations to ${out}`);
+  // Measured cost per shard (sum of per-file wall cost; workers run files in parallel, so this is work, not wall).
+  const totals = shards.map(({ shard, record }) => ({ shard, files: record.files.length,
+    seconds: Math.round(record.files.reduce((sum, f) => sum + (Number.isFinite(f.durationMs) ? f.durationMs : 0), 0) / 1000) }));
+  const secs = totals.map((t) => t.seconds);
+  console.log(`[duration-refresh] measured per-shard work: ${totals.map((t) => `shard-${t.shard} ${t.files} files ${t.seconds}s`).join(', ')}; spread ${Math.max(...secs) - Math.min(...secs)}s`);
 }

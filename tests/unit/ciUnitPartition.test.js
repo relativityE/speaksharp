@@ -115,6 +115,17 @@ describe('workflow and config wiring', () => {
     expect(step.run).toContain('node scripts/ci-unit-partition-check.mjs');
   });
 
+  it('refreshes scheduling hints from the same run only after the partition is proven', () => {
+    const names = mergeSteps.map((s) => s.name);
+    const refresh = names.indexOf('Report Shard Balance And Refreshed Scheduling Hints');
+    expect(refresh).toBeGreaterThan(names.indexOf('Verify Every Unit Test File Executed Exactly Once'));
+    const step = mergeSteps[refresh];
+    expect(step['continue-on-error']).toBeUndefined();
+    expect(step.run).toContain('node scripts/ci-unit-durations-refresh.mjs artifacts/coverage --repository "$GITHUB_REPOSITORY"');
+    expect(step.run).toContain('--commit "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID"');
+    expect(mergeSteps[names.indexOf('Upload Refreshed Scheduling Hints')].with['if-no-files-found']).toBe('error');
+  });
+
   it('activates the duration sequencer only for CI shard runs', () => {
     const config = readFileSync('frontend/vitest.config.mjs', 'utf8');
     expect(config).toContain("sequence: process.env.CI_SHARD_MODE === 'true' ? { sequencer: DurationSequencer } : undefined");

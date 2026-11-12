@@ -48,6 +48,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       full_required: ${{ steps.classify.outputs.full_required }}
+      docs_lane: ${{ steps.classify.outputs.docs_lane }}
       docs_only: ${{ steps.classify.outputs.docs_only }}
       frontend_changed: ${{ steps.classify.outputs.frontend_changed }}
       edge_changed: ${{ steps.classify.outputs.edge_changed }}
@@ -58,14 +59,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Classify Change
-        id: classify
+      - name: Resolve Changed Files
         shell: bash
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          IS_DRAFT: ${{ github.event.pull_request.draft || false }}
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
-          FORCE_FULL: ${{ github.event.inputs.force_full || false }}
         run: |
           set -euo pipefail
           if [[ -n "${BASE_SHA:-}" ]] && ! [[ "$BASE_SHA" =~ ^0+$ ]]; then
@@ -73,13 +70,54 @@ jobs:
           else
             : > "$RUNNER_TEMP/changed.txt"
           fi
-          node scripts/ci-change-scope.mjs "$RUNNER_TEMP/changed.txt"
+
+      # #1837 docs lane: a non-draft PR that changes only docs-lane Markdown is a CANDIDATE. It takes the docs
+      # lane only if the guard below shows, on this checkout, that no job the docs lane skips reads a changed
+      # file. A candidate the guard does not confirm (including any guard error) takes the full lane.
+      - name: Detect Docs Lane Candidate
+        id: candidate
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          IS_DRAFT: ${{ github.event.pull_request.draft || false }}
+          FORCE_FULL: ${{ github.event.inputs.force_full || false }}
+        run: node scripts/ci-change-scope.mjs "$RUNNER_TEMP/changed.txt"
+
+      - name: Setup Environment (docs-lane guard)
+        if: steps.candidate.outputs.docs_lane_candidate == 'true'
+        uses: ./.github/actions/setup-environment
+        with:
+          install-native-deps: 'false'
+          install-playwright: 'false'
+
+      - name: Prove No Skipped Job Reads The Changed Files
+        id: docs_guard
+        if: steps.candidate.outputs.docs_lane_candidate == 'true'
+        shell: bash
+        run: |
+          set -uo pipefail
+          if node scripts/ci-docs-lane-guard.mjs "$RUNNER_TEMP/changed.txt"; then
+            echo "confirmed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::docs-lane guard did not confirm this change; taking the full lane"
+            echo "confirmed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Classify Change
+        id: classify
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          IS_DRAFT: ${{ github.event.pull_request.draft || false }}
+          FORCE_FULL: ${{ github.event.inputs.force_full || false }}
+          DOCS_LANE_CONFIRMED: ${{ steps.docs_guard.outputs.confirmed == 'true' }}
+        run: node scripts/ci-change-scope.mjs "$RUNNER_TEMP/changed.txt"
 
   # ---- Affected draft lane (NEW, non-required names; drafts cannot merge) ------------------------
   draft-checks:
     name: draft-checks
     needs: scope
-    if: needs.scope.outputs.full_required != 'true'
+    if: needs.scope.outputs.full_required != 'true' && needs.scope.outputs.docs_lane != 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -205,7 +243,8 @@ jobs:
   deps-prep:
     name: deps-prep
     needs: scope
-    if: always() && needs.scope.outputs.full_required == 'true'
+    # #1837: the docs lane runs the complete unit suite too, so it needs the shards' apt bundle.
+    if: always() && (needs.scope.outputs.full_required == 'true' || needs.scope.outputs.docs_lane == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -254,7 +293,7 @@ jobs:
   unit-shard:
     name: unit-shard-${{ matrix.shard }}
     needs: [scope, deps-prep]
-    if: always() && needs.scope.outputs.full_required == 'true'
+    if: always() && (needs.scope.outputs.full_required == 'true' || needs.scope.outputs.docs_lane == 'true')
     runs-on: ubuntu-latest
     # #1311 job-level backstop: bounds a stalled setup phase well above the 300s apt timeout but far
     # below GitHub's 6h default, so a hang fast-fails instead of zombie-running.
@@ -308,7 +347,7 @@ jobs:
   quality:
     name: quality
     needs: scope
-    if: needs.scope.outputs.full_required == 'true'
+    if: needs.scope.outputs.full_required == 'true' || needs.scope.outputs.docs_lane == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -326,7 +365,7 @@ jobs:
   unit-coverage-merge:
     name: unit-coverage-merge
     needs: [scope, unit-shard, quality]
-    if: always() && !cancelled() && needs.scope.outputs.full_required == 'true'
+    if: always() && !cancelled() && (needs.scope.outputs.full_required == 'true' || needs.scope.outputs.docs_lane == 'true')
     runs-on: ubuntu-latest
     steps:
       - name: Require Upstream Success
@@ -373,6 +412,27 @@ jobs:
           pnpm exec vitest list --filesOnly --config frontend/vitest.config.mjs --json="$RUNNER_TEMP/unit-discovered.json" > /dev/null
           node scripts/ci-unit-partition-check.mjs "$RUNNER_TEMP/unit-discovered.json" artifacts/coverage
 
+      # #1837: shard balance is only as good as its hints. Derive fresh per-file costs from THIS run's executed-file
+      # records (scheduling hints only; the partition proof above is what guarantees every file ran), print the
+      # measured per-shard totals, and publish the refreshed hints so they can be committed from a real run.
+      - name: Report Shard Balance And Refreshed Scheduling Hints
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/ci-unit-durations-refresh.mjs artifacts/coverage --repository "$GITHUB_REPOSITORY" \
+            --commit "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --out "$RUNNER_TEMP/ci-unit-durations.json"
+          echo "::group::Refreshed scripts/ci-unit-durations.json"
+          cat "$RUNNER_TEMP/ci-unit-durations.json"
+          echo "::endgroup::"
+
+      - name: Upload Refreshed Scheduling Hints
+        uses: actions/upload-artifact@v6
+        with:
+          name: unit-duration-hints
+          path: ${{ runner.temp }}/ci-unit-durations.json
+          retention-days: 7
+          if-no-files-found: error
+
       - name: Run Coverage Merge
         run: pnpm ci:unit:merge
 
@@ -386,6 +446,65 @@ jobs:
             unit-metrics.json
           retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
           if-no-files-found: warn
+
+  # #1837 — THE DOCS LANE'S OWN EVIDENCE. Runs beside the unit shards. It re-derives the lane on its own
+  # checkout instead of trusting `scope`'s outputs, re-proves that no skipped job reads a changed file, runs the
+  # draft docs lane's remaining checks so the docs lane is never weaker than it, and uploads a receipt.
+  docs-evidence:
+    name: docs-evidence
+    needs: scope
+    if: needs.scope.outputs.docs_lane == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-native-deps: 'false'
+          install-playwright: 'false'
+
+      - name: Re-derive The Docs Lane On This Checkout
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          IS_DRAFT: ${{ github.event.pull_request.draft || false }}
+          DOCS_LANE_CONFIRMED: 'true'
+          REQUIRE_DOCS_LANE: 'true'
+          DOCS_LANE_RECEIPT: ${{ runner.temp }}/docs-lane-evidence.json
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::no pull request base; refusing docs-lane evidence"; exit 1; }
+          git diff --name-only "$BASE_SHA"...HEAD > "$RUNNER_TEMP/changed.txt"
+          node scripts/ci-change-scope.mjs "$RUNNER_TEMP/changed.txt"
+          node scripts/ci-docs-lane-guard.mjs "$RUNNER_TEMP/changed.txt"
+
+      - name: Validate Environment Variables
+        run: node scripts/validate-env.mjs
+
+      - name: Diff Check
+        run: git diff --check ${{ github.event.pull_request.base.sha }}...HEAD
+
+      - name: Setup Deno (billing qualification)
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Billing Qualification Contract (Deno + PGlite)
+        run: pnpm test:billing-qualification
+
+      - name: Upload Docs Lane Evidence
+        uses: actions/upload-artifact@v6
+        with:
+          name: docs-lane-evidence
+          path: ${{ runner.temp }}/docs-lane-evidence.json
+          retention-days: 7
+          if-no-files-found: error
 
   edge-tests:
     name: edge-tests
@@ -916,13 +1035,15 @@ jobs:
   # the aggregate has already reported success.
   report:
     name: report
-    needs: [scope, draft-checks, unit-coverage-merge, edge-tests, build, health-check, e2e, full-evidence]
+    needs: [scope, draft-checks, unit-coverage-merge, docs-evidence, edge-tests, build, health-check, e2e, full-evidence]
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     steps:
       - name: Enforce Selected Lane
         env:
           FULL_REQUIRED: ${{ needs.scope.outputs.full_required }}
+          DOCS_LANE: ${{ needs.scope.outputs.docs_lane }}
+          DOCS_RESULT: ${{ needs.docs-evidence.result }}
           SCOPE_RESULT: ${{ needs.scope.result }}
           DRAFT_RESULT: ${{ needs.draft-checks.result }}
           UNIT_RESULT: ${{ needs.unit-coverage-merge.result }}
@@ -943,6 +1064,14 @@ jobs:
               [[ "$r" == "success" ]] || { echo "::error::full lane failed"; exit 1; }
             done
             echo "Full merge-candidate lane passed."
+          elif [[ "$DOCS_LANE" == "true" ]]; then
+            # #1837: complete unit suite + coverage + quality + partition proof (unit-coverage-merge), and the
+            # docs lane's own re-derivation, reader guard and receipt (docs-evidence). Both must pass.
+            echo "Docs lane: unit=$UNIT_RESULT docs-evidence=$DOCS_RESULT"
+            for r in "$UNIT_RESULT" "$DOCS_RESULT"; do
+              [[ "$r" == "success" ]] || { echo "::error::docs lane failed"; exit 1; }
+            done
+            echo "Docs lane passed."
           else
             echo "Affected draft lane: draft-checks=$DRAFT_RESULT"
             [[ "$DRAFT_RESULT" == "success" ]] || { echo "::error::draft lane failed"; exit 1; }
