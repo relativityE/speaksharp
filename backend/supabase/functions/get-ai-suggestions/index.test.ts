@@ -1776,9 +1776,9 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
   });
 
   /*
-   * #1258 (PM 5952231855) — THE COACHING INPUT CONTRACT: only the reliable signals, asserted on what is SENT.
+   * Framework review M6/M7: selected saved aggregate evidence, asserted on what is SENT.
    */
-  await t.step('#1258: Open Mic sends transcript + finalized fillers + WPM, and NOT clarity, pauses, total words or duration', async () => {
+  await t.step('framework M6/M7: Open Mic sends validated clarity and pauses alongside transcript, fillers and WPM', async () => {
     resetProvider();
     const saved = {
       transcript: 'We launch on Monday because the support rota is finally covered.',
@@ -1790,6 +1790,9 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertStringIncludes(lastPrompt, saved.transcript);
     assertStringIncludes(lastPrompt, `Words Per Minute (WPM): ${saved.wpm}`);
     assertStringIncludes(lastPrompt, `Filler Words: ${JSON.stringify(saved.filler_counts)}`);
+    assertStringIncludes(lastPrompt, 'Clarity heuristic: 82/100');
+    assertStringIncludes(lastPrompt, 'Pause count: 7');
+    assertStringIncludes(lastPrompt, 'Extended pause count: 1');
     for (const excluded of ['Clarity Score', 'Pause Metrics', 'Total Words', 'Duration:', '"totalPauses"', '82%']) {
       assertEquals(lastPrompt.includes(excluded), false, `${excluded} must not be a coaching input`);
     }
@@ -1817,10 +1820,12 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     for (const text of [fillersChosen, paceChosen]) {
       for (const excluded of ['Clarity', 'Pause', 'Total Words', 'Duration']) assertEquals(text.includes(excluded), false);
     }
-    // Open Mic, for contrast: both direct delivery signals, nothing else.
+    // Open Mic includes the additional validated saved aggregates; Focus retains its one-signal contract.
     const openMic = buildDeliverySignals({ ...base, next_action_signal: { metric: 'filler_rate' } }, { kind: 'none' });
     assertStringIncludes(openMic, 'Words Per Minute (WPM): 171');
     assertStringIncludes(openMic, 'Filler Words: {"um":6}');
+    assertStringIncludes(openMic, 'Clarity heuristic: 82/100');
+    assertStringIncludes(openMic, 'Pause count: 7');
   });
 
   await t.step('coaching a user ALREADY received stays readable after the budget lands', async () => {
