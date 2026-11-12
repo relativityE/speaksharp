@@ -27,6 +27,7 @@ import { countWords } from '@/lib/contentDigest';
 import type { SessionPersistStatus } from '@/lib/forensicAnchors';
 import { safeLocalStorageGet, safeLocalStorageSet } from '@/lib/safeStorage';
 import { toSanitizedCause } from '@/lib/sanitizeStartError';
+import { MIC_ACCESS_MESSAGES, MIC_BLOCKED_MESSAGE, isMicAccessMessage, micAccessIssue } from '@/lib/micAccessErrors';
 import TranscriptionService, { getTranscriptionService, hasEngineNotConfirmedStopped } from '@/services/transcription/TranscriptionService';
 import type { TranscriptionPolicy } from '@/services/transcription/TranscriptionPolicy';
 import { resolvePrivateModel } from '@/services/transcription/utils/privateModelFlag';
@@ -3137,9 +3138,12 @@ export class SpeechRuntimeController {
             this.commandQueue = Promise.resolve();
             if (error) {
                 const rawMessage = error.message || '';
+                const micIssue = micAccessIssue(error);
                 const isMicPermissionError = /permission|not-allowed|service-not-allowed|microphone|mic/i.test(rawMessage);
-                const displayMessage = isMicPermissionError
-                    ? 'Microphone access is denied. Please grant permission in your browser settings.'
+                // Copy handleError already chose (a missing or busy mic mentions "microphone") is kept as it is.
+                const displayMessage = micIssue ? MIC_ACCESS_MESSAGES[micIssue]
+                    : isMicAccessMessage(rawMessage) ? rawMessage
+                    : isMicPermissionError ? MIC_BLOCKED_MESSAGE
                     : rawMessage;
                 store.setSTTStatus({ type: 'error', message: displayMessage });
             }
@@ -3316,8 +3320,9 @@ export class SpeechRuntimeController {
         const store = useSessionStore.getState();
         const rawMessage = error.message || '';
         const isMicPermissionError = /permission|not-allowed|service-not-allowed|microphone|mic/i.test(rawMessage);
-        const displayMessage = isMicPermissionError
-            ? 'Microphone access is denied. Please grant permission in your browser settings.'
+        const micIssue = micAccessIssue(error);
+        const displayMessage = micIssue ? MIC_ACCESS_MESSAGES[micIssue]
+            : isMicPermissionError ? MIC_BLOCKED_MESSAGE
             : rawMessage;
 
         if (store.sttStatus?.type === 'recording' && !isMicPermissionError) {
