@@ -199,7 +199,7 @@ export default function AuthPage() {
             </CardTitle>
             <CardDescription className="text-base">
               {view === 'sign_in' && 'Enter your credentials to access your account'}
-              {view === 'sign_up' && 'Practice privately, get focused feedback, and improve one take at a time.'}
+              {view === 'sign_up' && 'Practice with on-device transcription, get focused feedback, and improve one take at a time.'}
               {view === 'forgot_password' && "Enter your email address and we'll send you a reset link"}
             </CardDescription>
           </CardHeader>
