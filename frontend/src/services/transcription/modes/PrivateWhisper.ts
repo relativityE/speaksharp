@@ -2049,7 +2049,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       this.onStatusChange?.({
         type: 'info',
         message: 'Processing speech locally…',
-        detail: 'Finalizing your private transcript on this device.',
+        detail: 'Finishing your transcript on this device.',
       });
     }
 
