@@ -124,6 +124,26 @@ jobs:
           ref: ${{ inputs.commit_sha }}
           persist-credentials: false
 
+      - name: Refuse a journey whose spec is not in this commit (before anything is provisioned)
+        env:
+          JOURNEY: ${{ inputs.journey }}
+        run: |
+          set -euo pipefail
+          # The same config choice as the run step. A journey can be offered in the dispatch list before its spec
+          # lands (the outcome 8 paid loop arrives with #1822), so check here, before the stack, the Stripe
+          # listener or the app, that this commit holds its config, the spec that config collects, and a test
+          # titled for the journey. Missing means BLOCKED PREREQUISITE, never a billing failure.
+          config=playwright.billing-journey.config.ts
+          [ "$JOURNEY" = 'paid_value_loop' ] && config=playwright.paid-value-loop.config.ts
+          blocked() { echo "::error::BLOCKED PREREQUISITE, not a billing failure: $1"; exit 1; }
+          [ -f "$config" ] || blocked "$JOURNEY needs $config, which is not in this commit."
+          spec=$(sed -n "s/.*testMatch: *'\([^']*\)'.*/\1/p" "$config" | head -n 1)
+          [ -n "$spec" ] || blocked "$config names no single testMatch spec."
+          [ -f "tests/billing/user-journey/$spec" ] || blocked "$config collects $spec, which is not in this commit."
+          grep -Fq "billing ${JOURNEY}:" "tests/billing/user-journey/$spec" \
+            || grep -Fq 'billing ${journey}:' "tests/billing/user-journey/$spec" \
+            || blocked "$spec has no test titled for $JOURNEY."
+
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
