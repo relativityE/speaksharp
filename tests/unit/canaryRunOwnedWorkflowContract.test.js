@@ -24,11 +24,24 @@ describe('canary run-owned trial account wiring (#1826)', () => {
         expect([...order].sort((a, b) => a - b)).toEqual(order);
     });
     it('the run-owned commands are exactly setup, cleanup and sweep, each in its own step, active-trial lane only', () => {
-        expect(step(CREATE).run).toBe('pnpm exec tsx scripts/canary-run-owned.ts setup');
-        expect(step(DELETE).run).toBe('pnpm exec tsx scripts/canary-run-owned.ts cleanup');
-        expect(step(SWEEP).run).toBe('pnpm exec tsx scripts/canary-run-owned.ts sweep');
+        expect(step(CREATE).run).toBe('pnpm exec tsx .canary-tooling/scripts/canary-run-owned.ts setup');
+        expect(step(DELETE).run).toBe('pnpm exec tsx .canary-tooling/scripts/canary-run-owned.ts cleanup');
+        expect(step(SWEEP).run).toBe('pnpm exec tsx .canary-tooling/scripts/canary-run-owned.ts sweep');
         expect(steps.filter(runOwned).map((s) => s.name)).toEqual([CREATE, DELETE, SWEEP]);
         expect(step(CREATE).if).toBe("matrix.lane == 'active-trial'");
+    });
+    it('the tooling comes from the WORKFLOW source while the product checkout stays on the served release (Codex P1 on 1a572919)', () => {
+        const TOOLING = 'Checkout run-owned account tooling (workflow source)';
+        const product = steps.find((s) => s.name === 'Checkout code');
+        expect(product.with.ref).toBe('${{ needs.release-binding.outputs.release_sha }}');
+        const tooling = step(TOOLING);
+        expect(tooling.with).toMatchObject({ ref: '${{ github.sha }}', path: '.canary-tooling', 'persist-credentials': false, 'sparse-checkout-cone-mode': false });
+        expect(tooling.with['sparse-checkout'].trim().split('\n').map((l) => l.trim())).toEqual(['scripts/canary-run-owned.ts', 'scripts/lib', 'tests/live/helpers']);
+        expect(tooling.if).toBe("matrix.lane == 'active-trial'");
+        // before every step that runs the tooling, after the workspace install it resolves packages from
+        expect(idx(TOOLING)).toBeGreaterThan(idx('Setup Environment'));
+        expect(idx(TOOLING)).toBeLessThan(idx(CREATE));
+        for (const s of steps.filter(runOwned)) expect(String(s.run)).toMatch(/^pnpm exec tsx \.canary-tooling\/scripts\/canary-run-owned\.ts (setup|cleanup|sweep)$/);
     });
     it('delete and sweep ALWAYS run for the active-trial lane, whatever failed before them', () => {
         expect(step(DELETE).if).toBe("always() && matrix.lane == 'active-trial'");
