@@ -6,6 +6,20 @@
 const {spawnSync}=require('node:child_process'),{createHash}=require('node:crypto');
 // Exact diagnostic postimages; never a broad live-test exception.
 const TEST_PINS=Object.freeze({
+ // Reviewed #1811 v3 cleanup/watchdog and evidence-registry postimages.
+ 'scripts/lib/helperExecutionEvidence.mjs':'308866ee91665a4e867c745518bf2aac40be1c75a63bff565ffae4d7fa4d4723',
+ 'scripts/lib/sourceContractEvidence.mjs':'f4bc5e4a464997522df18de40c09e4e7fac0c52f9e3138935a7c7a6bacc75585',
+ 'tests/live/helpers/runOwnedCleanup.ts':'f52a848832000addbe93a164f57bccbfd0fbbf4185b9943bc4cf8c3e89f36211',
+ 'tests/live/helpers/rwtHarnessParity.ts':'c3715f6327955dd077596156e340072be554c7d160858a0a6bf321b0c8fdbd25',
+ 'tests/live/helpers/rwtWatchdog.ts':'fd360afaa23d2bf396765eb6622dbcefaffb38dacd289219ffad4f68d7a1f102',
+ 'tests/unit/helperExecutionEvidence.test.js':'01e30fa2f62ba2ff00812c77a6d2fa3cb128ce41b88e6766e9b99a75b846d3ab',
+ 'tests/unit/runOwnedCleanupNullCount1593.test.ts':'a30489f6a20893a3995b4c4ce44ede89aaf243378ea471906d90effa99a185e9',
+ 'tests/unit/runOwnedCleanupSaveObligations1643.test.ts':'515aad81c1f7905ba30fcbcfb034112638f06e8324063203c102482f28093100',
+ 'tests/unit/rwtHarnessParity.test.ts':'54609c02acc9eda57a5d414d583ec7f5401bcf51d7aa18d8e98b700eb0f9ddde',
+ 'tests/unit/rwtRunBoundCleanup.test.ts':'1c9cefde2b065db2feb2c6aace2e3967deaa97211a6f27442308da39d16a95b2',
+ 'tests/unit/rwtSharedAcceptance1811.test.ts':'a6ac34441dae1d3137297d4d00c67d10109a1c81d23efd316ed232e0eae29288',
+ 'tests/unit/rwtWatchdogAht0215Signals.test.ts':'e9d8daeac67fa1bb033f0fd7f22078e1aabe7350f02decd6dc0865077f57a173',
+ 'tests/unit/sourceContractEvidence.test.js':'667d7a788dd835df9ecc68c5f544a4e87b0b35febf00d0277a92104b3fb891b6',
  // AHT-07 bounded writes (pre-send caps, three fault legs, race-safe report cleanup): exact reviewed postimages.
  'tests/live/helpers/feedbackAttemptLedger.ts':'106f421cc75c5e793a613b7a89eb453392409dce14c4e8663275643b32a8b751',
  'tests/live/helpers/feedbackReportCleanup.ts':'c1c3cbe22affac9c6b0ca754d0d13626d63024ec1e4d61e880bb4cb70679b4af',
