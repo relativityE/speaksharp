@@ -263,6 +263,7 @@ describe('useSessionLifecycle — a Start that never recorded settles its exact 
         (useSessionStore as unknown as Mock).mockImplementation(mockStore);
         (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
         (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+        (useSessionStore as unknown as { subscribe?: typeof mockStore.subscribe }).subscribe = mockStore.subscribe;
         return mockStore;
     };
     const render = () => renderHook(() => useSessionLifecycle(), {
@@ -341,6 +342,41 @@ describe('useSessionLifecycle — a Start that never recorded settles its exact 
         expect(leaseMock.settled, 'nothing while the engine may still run').toEqual([]);
         await act(async () => { prove('terminal'); await Promise.resolve(); await Promise.resolve(); });
         await vi.waitFor(() => expect(leaseMock.settled).toEqual([abandoned('lease-1')]));
+    });
+
+    it('CASUALTY (Codex P2 on 3c9de91): a Start that failed AFTER it reached RECORDING (placeholder save rejected) keeps the ordinary release — never abandoned', async () => {
+        const store = readyStore();
+        vi.mocked(speechRuntimeController.startRecording).mockImplementationOnce(async () => {
+            // Like the controller: RECORDING is published, then the placeholder save rejects and the runtime leaves it.
+            store.setState({ runtimeState: 'RECORDING', isListening: true } as never);
+            store.setState({ runtimeState: 'READY', isListening: false } as never);
+            throw new Error('Session save failed');
+        });
+        const { result } = render();
+        await act(async () => { await result.current.handleStartStop().catch(() => undefined); await Promise.resolve(); await Promise.resolve(); });
+        await vi.waitFor(() => expect(leaseMock.settled).toEqual([released('lease-1')]));
+        expect(leaseMock.settled.some((s) => s.kind === 'abandon'), 'a Start that recorded is never abandoned').toBe(false);
+    });
+
+    it('CASUALTY (Codex P2 on 3c9de91): a refused Start that passed through RECORDING keeps the ordinary release', async () => {
+        const store = readyStore();
+        vi.mocked(speechRuntimeController.getState).mockReturnValue('IDLE' as never);
+        vi.mocked(speechRuntimeController.startRecording).mockImplementationOnce(async () => {
+            store.setState({ runtimeState: 'RECORDING', isListening: true } as never);
+            store.setState({ runtimeState: 'IDLE', isListening: false } as never);
+        });
+        const { result } = render();
+        await act(async () => { await result.current.handleStartStop(); await Promise.resolve(); await Promise.resolve(); });
+        await vi.waitFor(() => expect(leaseMock.settled).toEqual([released('lease-1')]));
+    });
+
+    it('CONTROL: when the Start cannot watch the runtime it is treated as possibly recorded — plain release, no abandonment', async () => {
+        readyStore();
+        delete (useSessionStore as unknown as { subscribe?: unknown }).subscribe;
+        vi.mocked(speechRuntimeController.startRecording).mockRejectedValueOnce(new Error('model preparation failed'));
+        const { result } = render();
+        await act(async () => { await result.current.handleStartStop().catch(() => undefined); await Promise.resolve(); await Promise.resolve(); });
+        await vi.waitFor(() => expect(leaseMock.settled).toEqual([released('lease-1')]));
     });
 
     it('CONTROL: an engine that cannot be proven off after a failed Start keeps the lease — nothing is abandoned or released', async () => {

@@ -931,24 +931,43 @@ export const useSessionLifecycle = () => {
                     return typeof message === 'string' && message.startsWith('RECORDING_INTENT_RETIRED:')
                         && (isRetryCancelled(startAttempt.id) || startCancelled() || currentStartAttempt()?.id !== startAttempt.id);
                 };
+                /**
+                 * #1643 Codex P2 on 3c9de91 — ONLY A START THAT NEVER RECORDED IS ABANDONED.
+                 *
+                 * The controller publishes RECORDING before the placeholder save, so a Start can fail after it recorded
+                 * (the save rejects) with no session row and an unbound journal entry: the server cannot tell that from a
+                 * Start that never recorded. The runtime state is watched for the whole Start, synchronously, and any sight
+                 * of RECORDING keeps the ordinary release and its save obligation. Without a way to watch, the Start is
+                 * treated as possibly recorded, so uncertainty never abandons.
+                 */
+                let startSawRecording = useSessionStore.getState().runtimeState === 'RECORDING';
+                const stopWatchingRecording = typeof useSessionStore.subscribe === 'function'
+                    ? useSessionStore.subscribe((state) => { if (state.runtimeState === 'RECORDING') startSawRecording = true; })
+                    : null;
+                const settleStartLease = () => {
+                    stopWatchingRecording?.();
+                    const neverRecorded = stopWatchingRecording !== null && !startSawRecording;
+                    void releaseTakeLeaseOnProof(neverRecorded ? { startFailed: true } : {});
+                };
                 try {
                     await speechRuntimeController.startRecording(selectedPolicy, userFillerWords);
                     if (speechRuntimeController.getState() !== 'RECORDING') {
                         startLatency.settle('refused');
                         // #1476 Codex P1 on 56cc5ad3: engine work may have begun before the refusal — release on proof.
-                        // #1643: settled as an abandoned Start, which the server refuses if a take exists.
-                        void releaseTakeLeaseOnProof({ startFailed: true });
+                        // #1643: abandoned only if this Start never recorded; the server also refuses if a take exists.
+                        settleStartLease();
                         return;
                     }
+                    stopWatchingRecording?.();
                     startLatency.settle('recording_started');
                 } catch (error) {
                     // A cancellation settles no outcome and leaves the lease to the unmount/successor that owns it.
-                    if (cancelledRetirement(error)) throw error;
+                    if (cancelledRetirement(error)) { stopWatchingRecording?.(); throw error; }
                     startLatency.settle('failed');
                     // #1476 Codex P1 on 56cc5ad3: a Start can fail after the engine reached RECORDING (e.g. the placeholder
                     // save rejects), and the start_failed reset does not await its destroy — release only on proof.
-                    // #1643: settled as an abandoned Start, which the server refuses if a take exists.
-                    void releaseTakeLeaseOnProof({ startFailed: true });
+                    // #1643: abandoned only if this Start never recorded; the server also refuses if a take exists.
+                    settleStartLease();
                     throw error;
                 }
                 analyticsBuffer.push('session_started', {
