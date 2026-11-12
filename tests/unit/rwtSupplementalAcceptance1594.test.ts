@@ -153,7 +153,9 @@ describe('#1594 supplemental suites in acceptance and finalization', () => {
         const feedback = src('live/rwt-feedback-association-boundaries.live.spec.ts');
         const pending = src('live/rwt-pending-start-navigation.live.spec.ts');
         const helpers = ['live/helpers/rwtJourney.ts', 'live/helpers/coachingFeedbackAdapter.ts', 'live/helpers/rwtCoachingCollector.ts',
-            'live/helpers/feedbackDiagnosticRef.ts'].map(src).join('\n');
+            'live/helpers/feedbackDiagnosticRef.ts',
+            // AHT-07 bounded writes (case-only helpers): the fault-leg, ledger and isolation rows, and the cleanup's zero residue.
+            'live/helpers/feedbackAttemptLedger.ts', 'live/helpers/feedbackReportCleanup.ts'].map(src).join('\n');
         expect(feedback).toContain("const SUITE = 'feedback-association-boundaries';");
         expect(feedback).toContain('`${SUITE}-older-take`');
         expect(feedback).toContain('`${SUITE}-no-session`');

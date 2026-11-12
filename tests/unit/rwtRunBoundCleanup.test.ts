@@ -92,7 +92,8 @@ describe('cleanup', () => {
                 deleteUser: vi.fn(async () => { gone = true; return { error: null }; }),
                 listUsers: vi.fn(),
             } },
-            from: () => ({ delete: () => ({ eq: async () => ({ error: null }) }), select: () => ({ eq: async () => ({ count: 0, error: null }) }) }),
+            // The take settlement's reads see an account with no takes (rows `[]`); residue reads count 0.
+            from: () => ({ delete: () => ({ eq: async () => ({ error: null }) }), select: () => ({ eq: async () => ({ data: [], count: 0, error: null }) }) }),
         };
     };
     it('deletes an account bound to THIS run; CASUALTY: an account bound to another run is refused before any deletion', async () => {

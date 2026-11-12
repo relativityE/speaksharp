@@ -105,6 +105,60 @@ export const HELPER_CONTRACTS = Object.freeze([{
 }, {
   helperFile:'tests/live/helpers/rwtWatchdog.ts',testFile:'tests/unit/rwtCleanupExecution1812.test.ts',
   callables:['OwnedCleanup#run','OwnedCleanup#settle','finalizeOwnedCleanup'],
+}, {
+  helperFile:'tests/live/helpers/feedbackAttemptLedger.ts',testFile:'tests/unit/feedbackBoundedWrites.test.ts',
+  callables:["stableDraftSha","capDecision","isNamedIdempotencyReplay","syntheticRejection","feedbackCapVerdict","feedbackLedgerVerdict","stickyFinalVerdict","writeFeedbackAttemptRows","feedbackLegRecovered","feedbackLegRows","finalIsolationVerdict","withoutFaultLegSubmits"],
+}, {
+  helperFile:'tests/live/helpers/feedbackDiagnosticRef.ts',testFile:'tests/unit/feedbackDiagnosticRef1539.test.ts',
+  callables:["readStoredDiagnosticRef","noSessionBindingVerdict","olderTakeBindingVerdict","classifyInsertBody","writeNoSessionReportRows","writeOlderTakeReportRows","writeOlderTakeBindingRow"],
+}, {
+  helperFile:'tests/live/helpers/feedbackNoSessionCleanup.ts',testFile:'tests/unit/feedbackNoSessionCleanup.test.ts',
+  callables:["noSessionWriteUncertainty"],
+}, {
+  helperFile:'tests/live/helpers/feedbackRecoveryInventory.ts',testFile:'tests/unit/feedbackBoundedWrites.test.ts',
+  callables:["verifyRecoveryStore","recoveryFileName","recordDurably","settleRecoveryInventory","readRecoveryInventory","unresolvedAttempts","recoverFromInventory"],
+}, {
+  helperFile:'tests/live/helpers/feedbackReportCleanup.ts',testFile:'tests/unit/feedbackBoundedWrites.test.ts',
+  callables:["mergeCapture","captureRunReports","writeUncertainty","zeroResidueVerdict","cleanupRunReports","zeroResidueNotRun"],
+}, {
+  helperFile:'tests/live/helpers/rwtAdverseRecovery.ts',testFile:'tests/unit/rwtAdverseRecovery.test.ts',
+  callables:["isRecoveryControl","retrySetupOutcome","recoverySavedVerdict","savedTranscriptDigest","reviewReopenVerdict","modelBytesSeen","midDownloadFailureVerdict"],
+}, {
+  helperFile:'tests/live/helpers/rwtFocusEditCancel.ts',testFile:'tests/unit/rwtFocusEditCancel.test.ts',
+  callables:["editCancelVerdict"],
+}, {
+  helperFile:'tests/live/helpers/rwtFocusNextMarker.ts',testFile:'tests/unit/rwtFocusNextMarker.test.ts',
+  callables:["expectedNextMarker","nextPointMarkedVerdict","sampleFocusRail"],
+}, {
+  helperFile:'tests/live/helpers/rwtFocusOpenMicIsolation.ts',testFile:'tests/unit/rwtFocusOpenMicIsolation.test.ts',
+  callables:["openMicIsolationVerdict"],
+}, {
+  helperFile:'tests/live/helpers/rwtFocusPresentation.ts',testFile:'tests/unit/rwtFocusPresentation.test.ts',
+  callables:["focusPresentationRow","focusSignInRow"],
+}, {
+  helperFile:'tests/live/helpers/rwtFocusSameTarget.ts',testFile:'tests/unit/rwtFocusSameTarget.test.ts',
+  callables:["instructionHash","focusSetHash","pointHash","decidingRead","displayedTargetMatches","focusSameTargetVerdict","readTargetInPage"],
+}, {
+  helperFile:'tests/live/helpers/rwtFocusSaveIsolation.ts',testFile:'tests/unit/rwtFocusSaveIsolation.test.ts',
+  callables:["focusDesignedSaves","focusCapturedTakes"],
+}, {
+  helperFile:'tests/live/helpers/rwtFocusTakesDiffer.ts',testFile:'tests/unit/rwtFocusTakesDiffer.test.ts',
+  callables:["focusTakesDifferRow"],
+}, {
+  helperFile:'tests/live/helpers/rwtLeaveDestinationReady.ts',testFile:'tests/unit/rwtLeaveDestinationReady.test.ts',
+  callables:["onFocusDestination","leaveDestinationReady","waitForLeaveDestinationReady"],
+}, {
+  helperFile:'tests/live/helpers/rwtNavigationRows.ts',testFile:'tests/unit/rwtNavigationRows.test.ts',
+  callables:["sessionFactsFromRows","sessionWritesVerdict","historyPreservedVerdict","deepLinkTarget","listedOwnTarget","returnEntryMicVerdict","renderedOwnDetailVerdict","renderedOwnDetailRow"],
+}, {
+  helperFile:'tests/live/helpers/rwtPendingStartRecovery.ts',testFile:'tests/unit/rwtPendingStartRecovery.test.ts',
+  callables:["recoveryTakePlan","recoveryTakeVerdict"],
+}, {
+  helperFile:'tests/live/helpers/rwtSaveRetryAttempts.ts',testFile:'tests/unit/rwtSaveRetryAttempts.test.ts',
+  callables:["parseCompletionAttempt","attemptEvidence","completionAttemptsVerdict","exactRetrySaveVerdict","reviewReopenVerdict","transcriptDigest"],
+}, {
+  helperFile:'tests/live/helpers/rwtTwoPlaces.ts',testFile:'tests/unit/rwtTwoPlaces.test.ts',
+  callables:["sameBrowserRefusedVerdict","displacedFenceVerdict"],
 }]);
 export const HELPER_CONFIG = 'scripts/efficacy-helper-vitest.config.mjs';
 

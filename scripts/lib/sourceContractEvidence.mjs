@@ -39,6 +39,15 @@ export const SOURCE_CONTRACTS=Object.freeze([
   'tests/evidence/fixtures/model-evaluator/product-campaign.json',
   'tests/evidence/fixtures/model-evaluator/product-campaign.parakeet-fixture-001.json',
   FIXTURE_GENERATOR,
+  // #1811: source consumption only. These browser drivers are never executed by this consumer.
+  'tests/live/rwt-abandon-and-two-tabs.live.spec.ts',
+  'tests/live/rwt-adverse-mic-denied.live.spec.ts',
+  'tests/live/rwt-adverse-mic-model.live.spec.ts',
+  'tests/live/rwt-feedback-association-boundaries.live.spec.ts',
+  'tests/live/rwt-pending-start-navigation.live.spec.ts',
+  'tests/live/rwt-save-retry-recovery.live.spec.ts',
+  'tests/live/helpers/rwtFocusPointsJourney.ts',
+  'tests/live/helpers/rwtAdverseJourney.ts',
 ]);
 const MODEL_ADAPTER='./scripts/model-evaluator/adapters/candidate-browser.ts';
 const arm=(candidateId,engine,modelId,assetDigest,runtime,backend)=>Object.freeze({kind:'json',pins:[
@@ -138,6 +147,14 @@ const CASE07_SQL=Object.freeze({
 });
 // Real (non-type, unrenamed) imports a wiring contract requires; route contracts require none.
 const REQUIRED_IMPORTS=Object.freeze({
+  'tests/live/rwt-abandon-and-two-tabs.live.spec.ts':{module:'./helpers/rwtTwoPlaces',names:['displacedFenceVerdict','sameBrowserRefusedVerdict']},
+  'tests/live/rwt-adverse-mic-denied.live.spec.ts':{module:'./helpers/rwtAdverseJourney',names:['finalizer','fixture','runVariant']},
+  'tests/live/rwt-adverse-mic-model.live.spec.ts':{module:'./helpers/rwtAdverseJourney',names:['finalizer','fixture','runVariant']},
+  'tests/live/rwt-feedback-association-boundaries.live.spec.ts':{module:'./helpers/feedbackNoSessionCleanup',names:['noSessionWriteUncertainty']},
+  'tests/live/rwt-pending-start-navigation.live.spec.ts':{module:'./helpers/rwtPendingStartRecovery',names:['recoveryTakePlan','recoveryTakeVerdict']},
+  'tests/live/rwt-save-retry-recovery.live.spec.ts':{module:'./helpers/rwtSaveRetryAttempts',names:['completionAttemptsVerdict']},
+  'tests/live/helpers/rwtFocusPointsJourney.ts':{module:'./rwtHarnessParity',names:['probeSaveIsolationRow','numericComparisonRow','readRepeatEligibility']},
+  'tests/live/helpers/rwtAdverseJourney.ts':{module:'./rwtAdverseRecovery',names:['recoverySavedVerdict','reviewReopenVerdict']},
   [SOURCE_CONTRACTS[0]]:{module:'./canaryStopSaveOracle',names:['collectCanaryStopSave','isOwnedStopSettledInPage','startOwnerId']},
   [SOURCE_CONTRACTS[1]]:{module:'./helpers/rwtFillerReference',names:['corpusRows','crossCheckCounts','fillerAnnotationsOf','hesitationTotals']},
 });
@@ -312,6 +329,51 @@ const MODEL_WIRING=Object.freeze({
 });
 const wiring={
   ...MODEL_WIRING,
+  'tests/live/rwt-abandon-and-two-tabs.live.spec.ts':[
+    "const oldOwnerFence = displacedFenceVerdict({ read: await readDisplacedFence(displacedId), displacedId, takeOverId, ownerId: owner.uid });",
+    "receipt.row('displaced take is permanently fenced', oldOwnerFence.status, oldOwnerFence.detail, { ...oldOwnerFence.evidence });",
+    "receipt.row('same-browser tab is refused', local.status, local.detail,",
+  ],
+  'tests/live/rwt-adverse-mic-denied.live.spec.ts':[
+    "import { finalizer, fixture, runVariant } from './helpers/rwtAdverseJourney';",
+    "await runVariant(page, browser, testInfo, 'mic-denied');",
+    'await finalizer.drain();',
+  ],
+  'tests/live/rwt-adverse-mic-model.live.spec.ts':[
+    "import { finalizer, fixture, runVariant } from './helpers/rwtAdverseJourney';",
+    "await runVariant(page, browser, testInfo, 'download-fails');",
+    "await runVariant(page, browser, testInfo, 'offline-mid-download');",
+    'await finalizer.drain();',
+  ],
+  'tests/live/rwt-feedback-association-boundaries.live.spec.ts':[
+    'const runKeys = insertSnapshot?.keys ?? [];',
+    'const uncertainty = noSessionWriteUncertainty({ submitted: submitWindow !== null, inserts: insertSnapshot, reportId, storedRows });',
+    'const verdict = await cleanupRunReports(admin as never, owner.uid, runKeys, capturedReports, uncertainty);',
+    'await runFeedbackFaultLeg(page, tap, ledger, leg, olderId, owner.uid, legJourneys)',
+  ],
+  'tests/live/rwt-pending-start-navigation.live.spec.ts':[
+    'const plan = recoveryTakePlan(returned.settled, last?.expectedControl ?? null);',
+    'const recovered = recoveryTakeVerdict(priorIds, rows, recoveryId);',
+    "receipt.row('deliberate recovery take saved', recovered.status, recovered.detail,",
+  ],
+  'tests/live/rwt-save-retry-recovery.live.spec.ts':[
+    'const attemptsVerdict = completionAttemptsVerdict(attempts);',
+    "aliveReceipt(receipt, alive).row('completion attempts are the fault and one Retry', attemptsVerdict.status, attemptsVerdict.detail,",
+    "await runVariant(page, testInfo, 'request-lost');",
+    "await runVariant(page, testInfo, 'response-lost');",
+  ],
+  'tests/live/helpers/rwtFocusPointsJourney.ts':[
+    'await probeSaveIsolationRow(aliveReceipt(receipt, alive), admin as never, owner.uid, captured, parity.takeBindings(), parity.leaseIds, designed.length, designed)',
+    '...(boundAttemptId ? { expectedAttemptId: boundAttemptId } : {})',
+    'caseConfig: { sourceSha: expectedReleaseSha(), servedSha: served, account: { id: owner.uid } }',
+    'numericComparisonRow(receipt, result, repeatEligibility, saveTakeMs);',
+    'receipt.row(FOCUS_SAME_TARGET_ROW, sameTarget.verdict, sameTarget.detail, sameTarget.evidence);',
+  ],
+  'tests/live/helpers/rwtAdverseJourney.ts':[
+    'const verdict = recoverySavedVerdict({ variant, preconditionEstablished, attempt, savedId, rows: read.rows });',
+    'const verdict = reviewReopenVerdict({ ...seen, savedId: recovered.savedId, savedDigest: recovered.savedDigest });',
+    "receipt.row('the recovered take reopens from Analytics', verdict.status, verdict.detail,",
+  ],
   [SOURCE_CONTRACTS[0]]:[
     'const savedId = startOutcome.sessionId;',
     'const outcome = await collectCanaryStopSave(page, {',
