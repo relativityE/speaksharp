@@ -22,11 +22,14 @@
 // to Stripe's update answer, in case a renewal was issued between the read and the update.
 //
 // "unverified" is detection and escalation, not prevention (Sam's adbec69d review). It returns non-2xx, so the
-// failure is logged and Stripe redelivers the event (each redelivery fails closed the same way until Stripe
-// stops retrying); it changes nothing in Stripe. In particular, when it is found only on the update answer,
-// cancel_at_period_end has already been set and is left set, and the outstanding renewal invoice is neither
-// voided nor otherwise stopped, so Stripe may still collect it. Whether to void or refund that invoice is an
-// operator's decision; this handler never makes it.
+// failure is logged and Stripe redelivers the event; it changes nothing in Stripe. In particular, when it is
+// found only on the update answer, cancel_at_period_end has already been set and is left set, and the
+// outstanding renewal invoice is neither voided nor otherwise stopped, so Stripe may still collect it.
+// Redelivery does not keep the alarm up: a redelivery fails closed only while that renewal is still
+// outstanding. Once Stripe has collected (or voided) it, the boundary check passes and the redelivery returns
+// 2xx "already_scheduled", so the event stops failing exactly when the charge has gone through. The logged
+// "after update" error is therefore the record an operator must act on; whether to void or refund that
+// invoice is an operator's decision, and this handler never makes it.
 //
 // Fails closed (Sam's review of 34dab357): nothing is changed unless the charge, its invoice and the
 // subscription all belong to the same customer and mode, and the subscription is the configured Pro price.

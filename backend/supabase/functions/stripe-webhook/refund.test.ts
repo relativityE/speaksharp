@@ -42,7 +42,18 @@ function fakeStripe(opts: {
     refunds: { create: () => { calls.push(["refunds.create"]); return Promise.resolve({}); } },
     prices: { retrieve: () => Promise.reject(new Error("unused")) },
   };
-  return { stripe, calls };
+  // Any Stripe method the fake does not define (invoices.voidInvoice, invoices.pay, subscriptions.resume, ...)
+  // is still recorded before it fails, so "nothing else was written" can be asserted from calls alone.
+  const recording = (resource: string, target: Record<string, unknown>) => new Proxy(target, {
+    get: (object, prop) => typeof prop !== "string" || prop in object ? Reflect.get(object, prop)
+      : (...args: unknown[]) => { calls.push([`${resource}.${prop}`, ...args] as Call); return Promise.reject(new Error("unexpected call")); },
+  });
+  // Only the money-moving resources are recorded this way; webhooks and prices keep their plain shape.
+  const recorded = { ...stripe,
+    invoices: recording("invoices", stripe.invoices), subscriptions: recording("subscriptions", stripe.subscriptions),
+    refunds: recording("refunds", stripe.refunds), charges: recording("charges", {}), creditNotes: recording("creditNotes", {}),
+    customers: recording("customers", {}), paymentIntents: recording("paymentIntents", {}) };
+  return { stripe: recorded as unknown as typeof stripe, calls };
 }
 
 const fullCharge = (over: Record<string, unknown> = {}) =>
@@ -343,13 +354,16 @@ Deno.test("refund → cancel at period end", async (t) => {
       const renewal = invoiceFor({ id: "in_2", status });
       const { stripe, calls } = fakeStripe({ invoices: { in_2: renewal },
         updated: proSub({ cancel_at_period_end: true, latest_invoice: "in_2" }) });
-      const res = await handler(refundEvent(), stripe, db().supabase, "secret", env);
+      const database = db();
+      const res = await handler(refundEvent(), stripe, database.supabase, "secret", env);
       assertEquals(res.status >= 500, true, String(status));
       assertEquals(updates(calls).length, 1, String(status));
       // Detection and escalation only (Sam's adbec69d review): the one update stays applied (never reverted to
-      // false) and nothing else is written, so the issued renewal is not stopped by this handler.
+      // false) and nothing else is written, in Stripe or the database, so the issued renewal is not stopped here.
+      // The fake records every Stripe method, defined or not, so a new write call would show up in calls.
       assertEquals(updates(calls).map(call => call[2]), [{ cancel_at_period_end: true }], String(status));
       assertEquals(calls.filter(call => !String(call[0]).endsWith(".retrieve") && call[0] !== "subscriptions.update"), [], String(status));
+      assertEquals(database.rpcs, [], String(status));
     }
     const named = fakeStripe({ invoices: { in_2: invoiceFor({ id: "in_2", status: "open" }) },
       updated: proSub({ cancel_at_period_end: true, latest_invoice: "in_2" }) });
@@ -370,11 +384,19 @@ Deno.test("refund → cancel at period end", async (t) => {
       const { stripe } = fakeStripe({ updated });
       assertEquals((await (await handler(refundEvent(), stripe, db().supabase, "secret", env)).json()).refund, "scheduled");
     }
-    // A redelivery after such a failure still fails closed at the boundary, before "already_scheduled".
+    // A redelivery after such a failure still fails closed at the boundary, before "already_scheduled", but only
+    // while the renewal is outstanding. Once Stripe has collected it, a redelivery is 2xx "already_scheduled":
+    // the alarm is the logged "after update" error, not a failing event (security review of 8958c6cc).
     const redelivered = fakeStripe({ sub: proSub({ cancel_at_period_end: true, latest_invoice: "in_2" }),
       invoices: { in_2: invoiceFor({ id: "in_2", status: "open" }) } });
     const again = await handler(refundEvent(), redelivered.stripe, db().supabase, "secret", env);
     assertEquals(again.status >= 500, true);
     assertEquals(updates(redelivered.calls), []);
+    const collected = fakeStripe({ sub: proSub({ cancel_at_period_end: true, latest_invoice: "in_2" }),
+      invoices: { in_2: invoiceFor({ id: "in_2", status: "paid" }) } });
+    const afterCharge = await handler(refundEvent(), collected.stripe, db().supabase, "secret", env);
+    assertEquals(afterCharge.status, 200);
+    assertEquals((await afterCharge.json()).refund, "already_scheduled");
+    assertEquals(updates(collected.calls), []);
   });
 });
