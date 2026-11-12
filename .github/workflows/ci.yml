@@ -296,17 +296,41 @@ jobs:
           retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
           if-no-files-found: warn
 
+  # Run the unchanged quality gate alongside unit shards, not on their critical-path tail.
+  quality:
+    name: quality
+    needs: scope
+    if: needs.scope.outputs.full_required == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-native-deps: 'false'
+          install-playwright: 'false'
+
+      - name: Code Quality Gate
+        run: pnpm quality
+
   unit-coverage-merge:
     name: unit-coverage-merge
-    needs: [scope, unit-shard]
+    needs: [scope, unit-shard, quality]
     if: always() && !cancelled() && needs.scope.outputs.full_required == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Require Upstream Success
         env:
           UNIT_RESULT: ${{ needs.unit-shard.result }}
+          QUALITY_RESULT: ${{ needs.quality.result }}
         run: |
           set -euo pipefail
+          if [[ "$QUALITY_RESULT" != "success" ]]; then
+            echo "::error::quality did not pass; refusing coverage qualification"
+            exit 1
+          fi
           if [[ "$UNIT_RESULT" == "skipped" || "$UNIT_RESULT" == "cancelled" ]]; then
             echo "::error::unit-shard was skipped or cancelled; skipping coverage merge"
             exit 1
@@ -331,9 +355,6 @@ jobs:
           path: artifacts/coverage
           pattern: 'unit-artifacts-*'
           merge-multiple: true
-
-      - name: Code Quality Gate
-        run: pnpm quality
 
       - name: Run Coverage Merge
         run: pnpm ci:unit:merge
