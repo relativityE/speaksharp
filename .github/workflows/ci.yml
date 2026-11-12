@@ -290,7 +290,10 @@ jobs:
 
       - name: Rename Unit Metrics
         if: always()
-        run: mv unit-metrics.json artifacts/coverage/shard-${{ matrix.shard }}/unit-metrics.json || true
+        run: |
+          mv unit-metrics.json artifacts/coverage/shard-${{ matrix.shard }}/unit-metrics.json || true
+          # #1837: the files this shard executed, for the partition check in unit-coverage-merge.
+          mv unit-file-timings.json artifacts/coverage/shard-${{ matrix.shard }}/unit-file-timings.json || true
 
       - name: Upload Unit Artifacts
         if: always()
@@ -360,6 +363,15 @@ jobs:
           path: artifacts/coverage
           pattern: 'unit-artifacts-*'
           merge-multiple: true
+
+      # #1837: shards are partitioned by measured duration, so prove the partition, not just the shards.
+      # Every file Vitest discovers at this commit must have executed in exactly one shard (fail closed).
+      - name: Verify Every Unit Test File Executed Exactly Once
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm exec vitest list --filesOnly --config frontend/vitest.config.mjs --json="$RUNNER_TEMP/unit-discovered.json" > /dev/null
+          node scripts/ci-unit-partition-check.mjs "$RUNNER_TEMP/unit-discovered.json" artifacts/coverage
 
       - name: Run Coverage Merge
         run: pnpm ci:unit:merge
