@@ -55,7 +55,8 @@ export function journeyReceiptDefects(receipt, expected) {
   return defects;
 }
 
-function destructionDefects(destruction, stackRun) {
+/** Every reason a destruction proof is not this stack's. Empty = proven. */
+export function destructionDefects(destruction, stackRun) {
   if (!isObject(destruction)) return ['destruction_proof_missing'];
   const defects = [];
   if (destruction.schema !== 'billing-local-stack-destroyed/v1' || destruction.destroyed !== true) defects.push('destruction_proof_shape');

@@ -243,5 +243,5 @@ test('smoke (Sam): conversion proves repeated click, cancel and retry before it 
   for (const code of ['cancelled_checkout_subscribed', 'cancelled_checkout_granted_access', 'retry_did_not_reuse_session',
     'retry_created_second_session']) assert.ok(checkout.includes(`'${code}'`), code);
   // Payment happens only after all three were recorded.
-  assert.ok(checkout.indexOf("this.steps.add('checkout_retried')") < checkout.indexOf('await this.page.goto(data.checkoutUrl)'));
+  assert.ok(checkout.indexOf("this.steps.add('checkout_retried')") < checkout.indexOf('this.session = await this.openCheckout(checkoutUrl);'));
 });

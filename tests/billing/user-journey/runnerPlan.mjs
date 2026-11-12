@@ -2,11 +2,14 @@
 // reads no key and starts nothing. `--dry-run` prints what a run WOULD do and what still blocks it; it never
 // authorizes a run. A real run still needs a written yes from Akin and Sam and the protected environment's
 // reviewer approval, and goes through billing-local-stack-journey.yml.
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
 import { parse } from 'yaml';
 import { PENDING_POLICY, POLICY_PENDING_STEPS, REQUIRED_STEPS } from './journeySteps.mjs';
+import { PENDING, destructionDefects, journeyReceiptDefects } from './localStackReceipt.mjs';
+import { PROJECT_PATTERN } from './localStackResources.mjs';
 
 export const MODES = ['smoke', 'full'];
 const BILLING_CONFIG = 'playwright.billing-journey.config.ts';
@@ -165,41 +168,105 @@ export function planRun(mode, read = readRepoFile) {
   };
 }
 
-/** A combined local-stack receipt whose only defect is the held end-of-access policy. */
-const onlyPolicyPending = (item) => item?.schema === 'billing-local-stack-combined/v2'
-  && Array.isArray(item.defects) && item.defects.length === 1 && item.defects[0] === 'policy_pending'
-  && item.stackStopped === 'PASSED' && item.stackDestroyed === 'PASSED' && item.stripeFixturesRemoved === 'PASSED';
+const COMBINED_KEYS = ['billingRowResidue', 'defects', 'journey', 'journeyReceipt', 'rawReceiptSha256', 'release', 'result',
+  'schema', 'stackDestroyed', 'stackRun', 'stackStopped', 'stripeFixturesRemoved'].join(',');
+const SHA = /^[0-9a-f]{40}$/;
+const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+const sameList = (a, b) => Array.isArray(a) && a.length === b.length && a.every((value, i) => value === b[i]);
 
 /**
- * One mode's result from its phases' receipts (billing-local-stack-combined/v2, or the hosted
- * billing-user-journey/v1). PASSED only when every phase of the mode has exactly one receipt and each says
- * PASSED. A phase held only by the end-of-access policy is PENDING_POLICY, and the mode is then
- * PENDING_POLICY, never PASSED. A missing, duplicate, unknown or other-mode phase is NOT_PROVEN.
+ * Steps an external phase's receipt must prove, by phase. Empty until the phase's owner (#1822 for the paid
+ * loop) commits its step list here, so until then that phase can only be NOT_PROVEN.
  */
-export function finaliseModeReceipt(mode, receipts) {
+export const EXTERNAL_REQUIRED_STEPS = Object.freeze({});
+
+/**
+ * One local-stack phase, re-validated from its evidence rather than trusted from a summary (Sam's fa7e7180
+ * return: a bare {journey, result: 'PASSED'} must not pass). The run must hand over the combined receipt, the
+ * raw journey receipt exactly as written, and the stack's destruction proof. The raw receipt is re-hashed and
+ * re-checked step by step for this phase, this release and this stack; the combined receipt must have exactly
+ * its schema's fields and agree; the destruction proof must be for the same stack. Returns the phase's result
+ * and why it is not PASSED.
+ */
+function localPhaseResult(id, held, item, release) {
+  if (!isObject(item) || !isObject(item.combined) || typeof item.rawReceipt !== 'string') return { result: 'NOT_PROVEN', why: ['evidence_missing'] };
+  const { combined, rawReceipt, destruction } = item;
+  const why = [];
+  if (Object.keys(combined).sort().join(',') !== COMBINED_KEYS) why.push('combined_shape');
+  if (combined.schema !== 'billing-local-stack-combined/v2') why.push('combined_schema');
+  if (combined.journey !== id) why.push('combined_journey');
+  if (combined.release !== release) why.push('combined_release');
+  if (!PROJECT_PATTERN.test(`${combined.stackRun ?? ''}`)) why.push('combined_stack_run');
+  if (createHash('sha256').update(rawReceipt).digest('hex') !== combined.rawReceiptSha256) why.push('raw_receipt_hash');
+  for (const part of ['stackStopped', 'stackDestroyed', 'stripeFixturesRemoved']) if (combined[part] !== 'PASSED') why.push(`combined_${part}`);
+  if (combined.billingRowResidue !== 'NOT_READ_DATABASE_DESTROYED') why.push('combined_residue');
+  why.push(...destructionDefects(destruction, combined.stackRun));
+  let raw = null;
+  try { raw = JSON.parse(rawReceipt); } catch { why.push('raw_receipt_unreadable'); }
+  const journey = raw === null ? ['raw_receipt_unreadable'] : journeyReceiptDefects(raw, { journey: id, release, stackRun: combined.stackRun });
+  // A held phase's only allowed defect is the held policy, in the raw receipt and the combined one alike.
+  const allowed = held ? ['policy_pending'] : [];
+  if (!sameList(journey, allowed)) why.push(...journey.filter(defect => !allowed.includes(defect)), ...(held && !journey.includes('policy_pending') ? ['held_steps_not_pending'] : []));
+  if (!sameList(combined.defects, allowed)) why.push('combined_defects');
+  if (combined.journeyReceipt !== (held ? 'NOT_PROVEN' : PENDING)) why.push('combined_journey_receipt');
+  if (combined.result !== (held ? 'NOT_PROVEN' : 'PASSED')) why.push('combined_result');
+  return why.length ? { result: 'NOT_PROVEN', why: [...new Set(why)] } : { result: held ? PENDING_POLICY : 'PASSED', why: [] };
+}
+
+/** An external phase's hosted receipt, checked against the step list its owner committed. */
+function externalPhaseResult(id, item, release) {
+  const steps = EXTERNAL_REQUIRED_STEPS[id];
+  if (!Array.isArray(steps) || steps.length === 0) return { result: 'NOT_PROVEN', why: ['external_contract_undefined'] };
+  const receipt = isObject(item) && typeof item.rawReceipt === 'string' ? (() => { try { return JSON.parse(item.rawReceipt); } catch { return null; } })() : null;
+  const why = [];
+  if (!isObject(receipt)) return { result: 'NOT_PROVEN', why: ['evidence_missing'] };
+  if (receipt.schema !== 'billing-user-journey/v1' || receipt.journey !== id) why.push('receipt_schema');
+  if (receipt.stripeMode !== 'test') why.push('stripe_mode');
+  if (receipt.testedRelease !== release) why.push('release_mismatch');
+  if (receipt.result !== 'PASSED' || receipt.cleanup !== 'VERIFIED') why.push('not_passed');
+  if (receipt.failureStage !== null || receipt.reason !== null) why.push('failure_recorded');
+  if (!Array.isArray(receipt.steps) || receipt.steps.length !== steps.length
+    || receipt.steps.some((row, i) => !isObject(row) || row.step !== steps[i] || row.result !== 'PASSED')) why.push('steps_not_all_passed');
+  return why.length ? { result: 'NOT_PROVEN', why } : { result: 'PASSED', why: [] };
+}
+
+/**
+ * One mode's result from its phases' evidence. Each entry is { phase, combined?, rawReceipt, destruction? }:
+ * for a local-stack phase the combined receipt, the raw journey receipt text and the destruction proof; for an
+ * external phase the raw hosted receipt text. Every phase is re-validated for this release (`expected.release`)
+ * on its own stack. PASSED only when every phase of the mode has exactly one entry and each re-validates. A phase
+ * held only by the end-of-access policy is PENDING_POLICY, and the mode is then PENDING_POLICY, never PASSED. A
+ * missing, duplicate, unknown, other-mode or unproven phase, or two phases on one stack, is NOT_PROVEN.
+ */
+export function finaliseModeReceipt(mode, entries, expected = {}) {
   if (!MODES.includes(mode)) throw new Error('BILLING_RUNNER:mode_unknown');
-  const expected = PHASES.filter(phase => phase.modes.includes(mode));
-  const ids = expected.map(phase => phase.id);
-  const list = Array.isArray(receipts) ? receipts : [];
+  const release = SHA.test(`${expected?.release ?? ''}`) ? expected.release : null;
+  const expectedPhases = PHASES.filter(phase => phase.modes.includes(mode));
+  const ids = expectedPhases.map(phase => phase.id);
+  const list = Array.isArray(entries) ? entries : [];
   const problems = [];
+  if (!release) problems.push('release_unknown');
   const seen = new Map();
   for (const item of list) {
-    const journey = item && typeof item === 'object' ? item.journey : undefined;
-    if (typeof journey !== 'string' || !ids.includes(journey)) { problems.push('unexpected_phase'); continue; }
-    seen.set(journey, (seen.get(journey) ?? 0) + 1);
+    const id = isObject(item) ? item.phase : undefined;
+    if (typeof id !== 'string' || !ids.includes(id)) { problems.push('unexpected_phase'); continue; }
+    seen.set(id, (seen.get(id) ?? 0) + 1);
   }
-  const phases = expected.map(({ id, pendingPolicySteps }) => {
+  const phases = expectedPhases.map(({ id, kind, pendingPolicySteps }) => {
     const count = seen.get(id) ?? 0;
-    const only = count === 1 ? list.find(item => item?.journey === id) : null;
     if (count > 1) problems.push(`duplicate_${id}`);
-    const pending = pendingPolicySteps.length > 0
-      && (onlyPolicyPending(only) || (only?.schema === 'billing-user-journey/v1' && only.result === PENDING_POLICY));
-    return { phase: id, result: only?.result === 'PASSED' && pendingPolicySteps.length === 0 ? 'PASSED'
-      : pending ? PENDING_POLICY : 'NOT_PROVEN' };
+    const item = count === 1 ? list.find(entry => isObject(entry) && entry.phase === id) : null;
+    const checked = !item || !release ? { result: 'NOT_PROVEN', why: [item ? 'release_unknown' : 'phase_missing'] }
+      : kind === 'external_spec' ? externalPhaseResult(id, item, release)
+        : localPhaseResult(id, pendingPolicySteps.length > 0, item, release);
+    return { phase: id, result: checked.result, why: checked.why };
   });
+  // Every local phase runs on its own disposable stack.
+  const stacks = list.filter(entry => isObject(entry) && isObject(entry.combined)).map(entry => entry.combined.stackRun);
+  if (new Set(stacks).size !== stacks.length) problems.push('stack_reused');
   const results = phases.map(phase => phase.result);
   return {
-    schema: 'billing-runner-mode/v1', mode, phases, problems,
+    schema: 'billing-runner-mode/v2', mode, release, phases, problems,
     result: problems.length || results.includes('NOT_PROVEN') ? 'NOT_PROVEN'
       : results.includes(PENDING_POLICY) ? PENDING_POLICY : 'PASSED',
   };

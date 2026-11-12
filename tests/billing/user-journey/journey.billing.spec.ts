@@ -7,6 +7,7 @@ import { runnerPreflight } from './runnerPreflight.mjs';
 import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, requireFact, assertSandboxConfiguration, PENDING_POLICY,
   assertTestPrice, assertInvoice, isCorrelatedDelivery, safeFailureReason, testClockCreateFields, localStackStatus,
   assertFullRefund, isRefundCancellation, assertCheckoutGrantedNothing,
+  checkoutSessionFromUrl, assertCheckoutIdentity, newlyAddedCard, assertNoSecondCharge,
   type RunnerJourney, type BillingEvent } from './contract';
 import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { selectBenchmarkMode, preparePrivateModelIfPrompted, startBenchmarkRecording,
@@ -24,6 +25,7 @@ type Obj = {
   stripe_customer_id: string; stripe_subscription_id: string; subscription_id: string;
   subscription_status: string; can_start: boolean; is_pro: boolean; trial_active: boolean;
   charge: string | { id: string } | null; amount_paid: number; card: { last4?: string } | null;
+  paid: boolean; payment_method: string | null;
 };
 const env = process.env;
 // The disposable local stack (billing-local-stack-journey.yml) selects its own committed loopback target.
@@ -228,6 +230,18 @@ class SandboxJourney {
     requireFact((await this.profile()).subscription_status !== 'pro', 'failed_checkout_granted_access');
   }
 
+  /**
+   * Goes to a Checkout URL only after the URL and the provider's own session record are both proven to be this
+   * member's open test-mode Checkout (Sam's returns: never navigate first and check afterwards).
+   */
+  async openCheckout(raw: string | null): Promise<string> {
+    const session = checkoutSessionFromUrl(raw);
+    assertCheckoutIdentity(await this.stripe(`checkout/sessions/${session}`),
+      { session, customer: this.customer, uid: this.uid, app: this.targets.app });
+    await this.page.goto(raw as string);
+    return session;
+  }
+
   async checkout(): Promise<void> {
     this.stage = 'hosted_checkout';
     // Use the real server checkout route; hosted payment and return are browser-driven.
@@ -257,7 +271,7 @@ class SandboxJourney {
 
       // Cancel on the hosted Checkout page with Stripe's own back link: back in the app, nothing charged,
       // no subscription, still no paid access.
-      await this.page.goto(answers[0]);
+      requireFact(await this.openCheckout(answers[0]) === only, 'repeated_click_two_sessions');
       const back = this.page.locator(`a[href^="${this.targets.app}/pricing?checkout=cancelled"]`).first();
       await expect(back).toBeVisible({ timeout: 30_000 }).catch(() => { throw new Error('BILLING_JOURNEY:hosted_cancel_link_unavailable'); });
       await back.click();
@@ -277,11 +291,7 @@ class SandboxJourney {
       this.steps.add('checkout_retried');
     } else if (this.journey === 'failed_checkout') {
       // A declined card: Stripe shows the decline on its own page, nothing is paid, nothing is granted.
-      const first = await invoke();
-      requireFact(first, 'checkout_unavailable');
-      const declined = sessionOf(first);
-      requireFact(declined, 'test_checkout_required');
-      await this.page.goto(first);
+      const declined = await this.openCheckout(await invoke());
       await this.payOnHostedPage('4000000000000002');
       await expect(this.page.getByText(/declined/i).first()).toBeVisible({ timeout: 60_000 })
         .catch(() => { throw new Error('BILLING_JOURNEY:decline_not_shown'); });
@@ -303,17 +313,8 @@ class SandboxJourney {
       checkoutUrl = await invoke();
     }
     requireFact(checkoutUrl, 'checkout_unavailable');
-    const data = { checkoutUrl };
-    const url = new URL(data.checkoutUrl);
-    requireFact(url.origin === 'https://checkout.stripe.com', 'checkout_origin');
-    this.session = url.pathname.match(/cs_test_[A-Za-z0-9]+/)?.[0] ?? '';
-    requireFact(this.session, 'test_checkout_required');
-    const pending = await this.stripe(`checkout/sessions/${this.session}`);
-    requireFact(pending.livemode === false && pending.mode === 'subscription' && pending.customer === this.customer
-      && pending.client_reference_id === this.uid && pending.metadata?.userId === this.uid, 'checkout_identity');
-    requireFact(new URL(pending.success_url).origin === this.targets.app, 'checkout_return_origin');
     requireFact((await this.usage()).can_start === false, 'checkout_granted_before_payment');
-    await this.page.goto(data.checkoutUrl);
+    this.session = await this.openCheckout(checkoutUrl);
     await this.payOnHostedPage('4242424242424242');
     await this.page.waitForURL(url => url.origin === this.targets.app && url.searchParams.get('checkout') === 'success', { timeout: 90_000 });
     const complete = await this.stripe(`checkout/sessions/${this.session}`);
@@ -431,21 +432,29 @@ class SandboxJourney {
       this.steps.add('portal_opened');
       const add = this.page.getByRole('link', { name: /Add payment method/i }).or(this.page.getByRole('button', { name: /Add payment method/i })).first();
       await expect(add).toBeVisible({ timeout: 30_000 }).catch(() => { throw new Error('BILLING_JOURNEY:portal_add_card_unavailable'); });
+      const cards = () => this.stripe(`payment_methods?${new URLSearchParams({ customer: this.customer, type: 'card', limit: '10' })}`);
+      // Every card already on the customer, including the 4242 card from Checkout, before the member adds one.
+      const listedBefore = await cards();
+      requireFact(Array.isArray(listedBefore.data) && listedBefore.has_more === false, 'payment_method_page_incomplete');
+      const before = (listedBefore.data as Obj[]).map(pm => String(pm.id));
       await add.click();
       await this.fillCard('4242424242424242', false);
       await this.page.getByRole('button', { name: /^(Add|Save)/i }).last().click();
-      const added = await this.poll(() => this.stripe(`payment_methods?${new URLSearchParams({ customer: this.customer, type: 'card', limit: '10' })}`),
-        listed => Array.isArray(listed.data) && (listed.data as Obj[]).some(pm => pm.id !== badCard && pm.card?.last4 === '4242'),
-        'portal_card_not_added');
-      requireFact(added.has_more === false, 'payment_method_page_incomplete');
+      const newCard = newlyAddedCard(await this.poll(cards, listed => {
+        try { newlyAddedCard(listed, before, badCard); return true; } catch { return false; }
+      }, 'portal_card_not_added'), before, badCard);
       this.steps.add('portal_payment_method_updated');
       const pay = this.page.getByRole('button', { name: /^Pay\b/i }).or(this.page.getByRole('link', { name: /^Pay\b/i })).first();
       await expect(pay).toBeVisible({ timeout: 30_000 }).catch(() => { throw new Error('BILLING_JOURNEY:portal_recovery_pay_unavailable'); });
       await pay.click();
       const confirm = this.page.getByRole('button', { name: /^Pay\b/i }).last();
       if (await confirm.isVisible()) await confirm.click();
-      await this.recovered(await this.poll(() => this.stripe(`invoices/${failedInvoice}`), i => i.status === 'paid',
-        'portal_recovery_not_paid'), failedInvoice);
+      const paid = await this.poll(() => this.stripe(`invoices/${failedInvoice}`), i => i.status === 'paid', 'portal_recovery_not_paid');
+      // The past-due invoice was paid with the card the member just added, not the one already on file.
+      const recoveryCharge = await this.stripe(`charges/${id(paid.charge)}`);
+      requireFact(recoveryCharge.livemode === false && recoveryCharge.paid === true
+        && recoveryCharge.payment_method === newCard, 'portal_recovery_not_new_card');
+      await this.recovered(paid, failedInvoice);
     } else if (this.journey === 'portal_expiry') {
       await this.record();
       await this.account(/Pro · Active/);
@@ -460,7 +469,8 @@ class SandboxJourney {
       await this.paidUntilPeriodEnd(ending);
     } else {
       // refund_period_end (Akin, 2026-11-12): a full refund; the customer keeps Pro for the rest of the
-      // month and is never charged again.
+      // month and is never charged again. A paid recording first, so account_retained also proves saved data.
+      await this.record();
       const first = await this.stripe(`subscriptions/${this.subscription}`);
       const firstInvoice = id(first.latest_invoice);
       const charge = id((await this.stripe(`invoices/${firstInvoice}`)).charge);
@@ -484,9 +494,8 @@ class SandboxJourney {
         s => s.cancel_at_period_end === true && s.status === 'active', 'refund_did_not_schedule_cancellation');
       this.steps.add('refund_cancellation_scheduled');
       await this.paidUntilPeriodEnd(ending);
-      const invoices = await this.stripe(`invoices?${new URLSearchParams({ subscription: this.subscription, limit: '10' })}`);
-      requireFact(Array.isArray(invoices.data) && invoices.has_more === false
-        && (invoices.data as Obj[]).every(i => i.id === firstInvoice || i.amount_paid === 0), 'second_charge_after_refund');
+      assertNoSecondCharge(await this.stripe(`invoices?${new URLSearchParams({ customer: this.customer, subscription: this.subscription, limit: '10' })}`),
+        { customer: this.customer, subscription: this.subscription, firstInvoice });
       this.steps.add('no_second_charge');
     }
   }
@@ -535,10 +544,10 @@ class SandboxJourney {
     await this.delivery('customer.subscription.deleted', this.subscription); this.steps.add('expiry_delivery');
     const user = await this.admin.auth.admin.getUserById(this.uid);
     requireFact(!user.error && user.data.user?.id === this.uid, 'account_deleted_by_cancellation');
-    if (this.savedSession) {
-      const saved = await this.admin.from('sessions').select('id').eq('id', this.savedSession).eq('user_id', this.uid).single();
-      requireFact(!saved.error && saved.data, 'history_deleted_by_cancellation');
-    }
+    // Both branches that reach the period end record first, so the saved recording is always checked.
+    requireFact(this.savedSession, 'saved_data_not_seeded');
+    const saved = await this.admin.from('sessions').select('id').eq('id', this.savedSession).eq('user_id', this.uid).single();
+    requireFact(!saved.error && saved.data, 'history_deleted_by_cancellation');
     this.steps.add('account_retained');
   }
 

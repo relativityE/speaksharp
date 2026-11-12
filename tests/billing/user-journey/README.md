@@ -199,3 +199,17 @@ Access after a membership ends is on hold until the end-of-access policy is conf
 the spec fails with `access_after_end_policy_pending`, the combined receipt keeps the `policy_pending` defect,
 and full mode can say `PENDING_POLICY` at best, never `PASSED`. The run still proves the account and saved
 data are kept, from the database only.
+
+What each branch must prove before it may say so (Sam's fa7e7180 return):
+
+- Every Checkout URL is checked before the browser goes to it: Stripe's hosted origin, exactly one test session,
+  and Stripe's own record of that session (this member, this customer, open and unpaid, returning only to the app).
+- `portal_recovery` lists the customer's cards before the member adds one, binds the one new card, and checks that
+  the recovery charge used it. The card from Checkout can never satisfy the step.
+- `no_second_charge` needs a complete invoice read for this customer and subscription that holds the original paid
+  invoice. An empty or partial list proves nothing.
+- `refund_period_end` records first, so `account_retained` always checks a saved recording as well as the account.
+- `finaliseModeReceipt(mode, entries, { release })` takes each phase's combined receipt, the raw journey receipt text
+  and the destruction proof, re-hashes the raw receipt and re-checks its steps, release, stack and cleanup. A bare or
+  summary-only `PASSED` is `NOT_PROVEN`. Two phases on one stack are `NOT_PROVEN`. The paid loop stays `NOT_PROVEN`
+  until #1822 commits its step list in `EXTERNAL_REQUIRED_STEPS`, so full mode cannot pass before then.

@@ -17,4 +17,5 @@ export interface CombinedLocalStackReceipt {
   result: 'PASSED' | 'NOT_PROVEN';
 }
 export declare function journeyReceiptDefects(receipt: unknown, expected: LocalStackExpected): string[];
+export declare function destructionDefects(destruction: unknown, stackRun: string | null | undefined): string[];
 export declare function finaliseLocalStackReceipt(journeyReceipts: unknown, checks: LocalStackChecks, expected?: LocalStackExpected): CombinedLocalStackReceipt;

@@ -1,13 +1,15 @@
 // Offline controls for the runner's full mode. Nothing here reaches a network, reads a key or starts a run:
 // fetch is replaced by a trap for the whole file, and every check reads committed source or pure functions.
 import { strict as assert } from 'node:assert';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, test } from 'vitest';
 import { parse } from 'yaml';
 import { selectRunnerJourneys, receipt, isRefundCancellation, assertFullRefund, assertCheckoutGrantedNothing,
+  checkoutSessionFromUrl, assertCheckoutIdentity, newlyAddedCard, assertNoSecondCharge,
   BILLING_JOURNEYS, FULL_MODE_JOURNEYS, RUNNER_JOURNEYS, REQUIRED_STEPS, POLICY_PENDING_STEPS, PENDING_POLICY } from './contract';
 import { finaliseLocalStackReceipt } from './localStackReceipt.mjs';
-import { MODES, PHASES, PREREQUISITES, STRIPE_WRITE_ALLOWLIST, planRun, finaliseModeReceipt, readRepoFile } from './runnerPlan.mjs';
+import { MODES, PHASES, PREREQUISITES, STRIPE_WRITE_ALLOWLIST, planRun, finaliseModeReceipt, readRepoFile, EXTERNAL_REQUIRED_STEPS } from './runnerPlan.mjs';
 
 const SPEC = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
 const WORKFLOW = '.github/workflows/billing-local-stack-journey.yml';
@@ -80,7 +82,15 @@ test('access after the end is never read: no sign-in, page or access check after
 test('portal recovery repairs billing in Manage billing only, never with an API payment', () => {
   const branch = between("} else if (this.journey === 'portal_recovery') {", "} else if (this.journey === 'portal_expiry') {");
   assert.match(branch, /await this\.failRenewal\(\);/);
-  assert.match(branch, /await this\.recovered\(await this\.poll\(\(\) => this\.stripe\(`invoices\/\$\{failedInvoice\}`\)/);
+  assert.match(branch, /const paid = await this\.poll\(\(\) => this\.stripe\(`invoices\/\$\{failedInvoice\}`\)/);
+  assert.match(branch, /await this\.recovered\(paid, failedInvoice\);/);
+  // Sam's fa7e7180 return: the card is the one the member just added, never the 4242 card from Checkout, and
+  // the recovery charge used it.
+  const snapshot = branch.indexOf('const listedBefore = await cards();');
+  assert.ok(snapshot > -1 && snapshot < branch.indexOf('await add.click();'), 'cards are listed before Add');
+  assert.match(branch, /const newCard = newlyAddedCard\(/);
+  assert.match(branch, /recoveryCharge\.payment_method === newCard, 'portal_recovery_not_new_card'/);
+  assert.doesNotMatch(branch, /pm\.card\?\.last4 === '4242'/);
   assert.match(branch, /name: 'Manage billing', exact: true/);
   assert.match(branch, /billing\.stripe\.com/);
   assert.doesNotMatch(branch, /\/pay`|invoices\/[^`]*\/pay|'POST', \{ *\}\)/);
@@ -100,6 +110,8 @@ test('failed checkout: a declining test card, an expired session, then one paid 
     .map(step => branch.indexOf(`steps.add('${step}')`));
   assert.deepEqual([...order].sort((a, b) => a - b), order);
   assert.ok(order.every(index => index > -1));
+  // The declined Checkout is checked before the browser goes to it (Sam's fa7e7180 return).
+  assert.match(branch, /const declined = await this\.openCheckout\(await invoke\(\)\);/);
   assert.match(SPEC, /all\.data\.length === 1\s*\n?\s*&& all\.data\[0\]\.id === this\.subscription, 'more_than_one_subscription'/);
 });
 
@@ -110,7 +122,7 @@ test('refund: the whole charge, never an amount; the cancellation must be the we
   assert.doesNotMatch(refundCall![1], /amount/);
   assert.match(branch, /assertFullRefund\(refund, charge\)/);
   assert.match(branch, /isRefundCancellation\(e, \{ subscription: this\.subscription, customer: this\.customer, refundEventId \}\)/);
-  assert.match(branch, /'second_charge_after_refund'/);
+  assert.match(branch, /assertNoSecondCharge\(/);
 });
 
 test('contract helpers: a refund cancellation counts only from this refund event\'s webhook request', () => {
@@ -165,6 +177,105 @@ const destruction = { schema: 'billing-local-stack-destroyed/v1', project: STACK
 const expectedFor = (journey: string) => ({ journey, release: RELEASE, stackRun: STACK_RUN, receiptSha256: 'b'.repeat(64), destruction });
 const combine = (journey: keyof typeof REQUIRED_STEPS, override: Record<string, unknown> = {}) =>
   finaliseLocalStackReceipt([{ ...pendingFor(journey), ...override }], checks, expectedFor(journey));
+
+test('Checkout is validated before navigation: every page.goto of a Checkout URL goes through openCheckout', () => {
+  const open = between('  async openCheckout(raw: string | null): Promise<string> {', '\n  }\n');
+  const order = ['checkoutSessionFromUrl(raw)', 'assertCheckoutIdentity(await this.stripe(`checkout/sessions/${session}`)', 'await this.page.goto(raw as string);']
+    .map(part => open.indexOf(part));
+  assert.ok(order.every(index => index > -1) && order[0] < order[1] && order[1] < order[2], 'URL, then provider identity, then navigation');
+  // Nowhere else does the browser go to a Checkout URL, and the three Checkout entries all use the helper.
+  const gotos = [...SPEC.matchAll(/this\.page\.goto\(([^)]*)\)/g)].map(match => match[1]);
+  assert.deepEqual(gotos.filter(arg => !arg.includes('this.targets.app')), ['raw as string']);
+  assert.equal(SPEC.match(/await this\.openCheckout\(/g)?.length, 3);
+  assert.match(SPEC, /requireFact\(await this\.openCheckout\(answers\[0\]\) === only, 'repeated_click_two_sessions'\);/);
+  assert.match(SPEC, /this\.session = await this\.openCheckout\(checkoutUrl\);/);
+});
+
+test('contract helpers: a Checkout URL and session are refused before navigation unless they are this member\'s', () => {
+  const good = 'https://checkout.stripe.com/c/pay/cs_test_a1B2c3#fragment';
+  assert.equal(checkoutSessionFromUrl(good), 'cs_test_a1B2c3');
+  for (const [name, raw, code] of [
+    ['missing', null, 'checkout_unavailable'],
+    ['not a URL', 'checkout', 'checkout_origin'],
+    ['http', 'http://checkout.stripe.com/c/pay/cs_test_a1', 'checkout_origin'],
+    ['look-alike host', 'https://checkout.stripe.com.evil.example/c/pay/cs_test_a1', 'checkout_origin'],
+    ['credentials', 'https://user:pw@checkout.stripe.com/c/pay/cs_test_a1', 'checkout_origin'],
+    ['port', 'https://checkout.stripe.com:8443/c/pay/cs_test_a1', 'checkout_origin'],
+    ['app origin', 'https://app.example/c/pay/cs_test_a1', 'checkout_origin'],
+    ['live session', 'https://checkout.stripe.com/c/pay/cs_live_a1', 'test_checkout_required'],
+    ['no session', 'https://checkout.stripe.com/c/pay/', 'test_checkout_required'],
+    ['two sessions', 'https://checkout.stripe.com/c/pay/cs_test_a1/cs_test_b2', 'test_checkout_required'],
+    ['live beside test', 'https://checkout.stripe.com/c/pay/cs_live_a1/cs_test_b2', 'test_checkout_required'],
+  ] as [string, string | null, string][]) {
+    assert.throws(() => checkoutSessionFromUrl(raw), new RegExp(`BILLING_JOURNEY:${code}$`), name);
+  }
+  const app = 'http://127.0.0.1:4173';
+  const expected = { session: 'cs_test_a1', customer: 'cus_1', uid: 'u1', app };
+  const session = { id: 'cs_test_a1', livemode: false, mode: 'subscription', status: 'open', payment_status: 'unpaid',
+    customer: 'cus_1', client_reference_id: 'u1', metadata: { userId: 'u1' },
+    success_url: `${app}/account?checkout=success`, cancel_url: `${app}/pricing?checkout=cancelled` };
+  assertCheckoutIdentity(session, expected);
+  for (const [name, change, code] of [
+    ['mismatched session', { id: 'cs_test_other' }, 'checkout_identity'],
+    ['live', { livemode: true }, 'checkout_identity'],
+    ['payment mode', { mode: 'payment' }, 'checkout_identity'],
+    ['other customer', { customer: 'cus_2' }, 'checkout_identity'],
+    ['other member', { client_reference_id: 'u2' }, 'checkout_identity'],
+    ['metadata for another member', { metadata: { userId: 'u2' } }, 'checkout_identity'],
+    ['already complete', { status: 'complete', payment_status: 'paid' }, 'checkout_not_open'],
+    ['success elsewhere', { success_url: 'https://evil.example/account' }, 'checkout_return_origin'],
+    ['cancel elsewhere', { cancel_url: 'https://evil.example/pricing' }, 'checkout_return_origin'],
+    ['no return URL', { success_url: null }, 'checkout_return_origin'],
+  ] as [string, Record<string, unknown>, string][]) {
+    assert.throws(() => assertCheckoutIdentity({ ...session, ...change }, expected), new RegExp(`BILLING_JOURNEY:${code}$`), name);
+  }
+  assert.throws(() => assertCheckoutIdentity(null, expected), /checkout_identity/);
+});
+
+test('contract helpers: the portal card is the newly added one; no second charge needs a complete, bound read', () => {
+  const before = ['pm_checkout4242', 'pm_bad'];
+  const page = (data: unknown[], hasMore = false) => ({ data, has_more: hasMore });
+  const original = { id: 'pm_checkout4242', card: { last4: '4242' } };
+  const bad = { id: 'pm_bad', card: { last4: '0341' } };
+  assert.equal(newlyAddedCard(page([original, bad, { id: 'pm_new', card: { last4: '4242' } }]), before, 'pm_bad'), 'pm_new');
+  for (const [name, listed] of [
+    ['no-op Add: only the original 4242 card', page([original, bad])],
+    ['new card is not 4242', page([original, bad, { id: 'pm_new', card: { last4: '1881' } }])],
+    ['two new cards', page([original, bad, { id: 'pm_new', card: { last4: '4242' } }, { id: 'pm_other', card: { last4: '4242' } }])],
+    ['incomplete page', page([original, bad, { id: 'pm_new', card: { last4: '4242' } }], true)],
+    ['unreadable', null],
+  ] as [string, unknown][]) {
+    assert.throws(() => newlyAddedCard(listed, before, 'pm_bad'), /portal_card_not_added|payment_method_page_incomplete/, name);
+  }
+
+  const expected = { customer: 'cus_1', subscription: 'sub_1', firstInvoice: 'in_first' };
+  const invoice = (id: string, amount: number, change: Record<string, unknown> = {}) =>
+    ({ id, livemode: false, customer: 'cus_1', subscription: 'sub_1', amount_paid: amount, ...change });
+  assertNoSecondCharge(page([invoice('in_first', 1000), invoice('in_zero', 0)]), expected);
+  for (const [name, listed, code] of [
+    ['empty list', page([]), 'original_invoice_missing'],
+    ['original missing', page([invoice('in_zero', 0)]), 'original_invoice_missing'],
+    ['original not the full payment', page([invoice('in_first', 1)]), 'original_invoice_missing'],
+    ['incomplete page', page([invoice('in_first', 1000)], true), 'invoice_page_incomplete'],
+    ['unreadable', null, 'invoice_page_incomplete'],
+    ['foreign customer', page([invoice('in_first', 1000), invoice('in_x', 0, { customer: 'cus_2' })]), 'invoice_identity'],
+    ['foreign subscription', page([invoice('in_first', 1000), invoice('in_x', 0, { subscription: 'sub_2' })]), 'invoice_identity'],
+    ['live invoice', page([invoice('in_first', 1000, { livemode: true })]), 'invoice_identity'],
+    ['second charge', page([invoice('in_first', 1000), invoice('in_renewal', 1000)]), 'second_charge_after_refund'],
+  ] as [string, unknown, string][]) {
+    assert.throws(() => assertNoSecondCharge(listed, expected), new RegExp(`BILLING_JOURNEY:${code}$`), name);
+  }
+});
+
+test('refund branch: a paid recording first, so the period end always checks saved data', () => {
+  const branch = between("      // refund_period_end (Akin, 2026-11-12)", "\n  /** A renewal on a card that declines");
+  const recorded = branch.indexOf('await this.record();');
+  assert.ok(recorded > -1 && recorded < branch.indexOf("this.stripe('refunds', 'POST'"), 'recording before the refund');
+  assert.match(branch, /assertNoSecondCharge\(await this\.stripe\(`invoices\?/);
+  const end = between('  async periodEnd(ending: Obj): Promise<void> {', '\n  }\n');
+  assert.match(end, /requireFact\(this\.savedSession, 'saved_data_not_seeded'\);/);
+  assert.doesNotMatch(end, /if \(this\.savedSession\)/);
+});
 
 test('combined receipt: a held run is never PASSED, and its only defect is policy_pending', () => {
   for (const journey of RUNNER_JOURNEYS) {
@@ -256,30 +367,94 @@ test('every Stripe write in the runner is on the allowlist, and every phase\'s w
   assert.doesNotMatch(SPEC, /this\.stripe\(`subscriptions\/[^`]*`, 'DELETE'/);
 });
 
-test('mode result: PASSED only when every phase passed; held phases make it PENDING_POLICY, never PASSED', () => {
-  const combinedFor = (journey: keyof typeof REQUIRED_STEPS) => combine(journey);
-  const fullIds = PHASES.filter(phase => phase.modes.includes('full')).map(phase => phase.id);
-  const external = { schema: 'billing-user-journey/v1', journey: 'paid_value_loop', result: 'PASSED' };
-  const all = [...RUNNER_JOURNEYS.map(combinedFor), external];
-  assert.deepEqual(all.map(item => item.journey).sort(), [...fullIds].sort());
-  const full = finaliseModeReceipt('full', all);
-  assert.equal(full.result, PENDING_POLICY, JSON.stringify(full));
-  assert.deepEqual(full.phases.filter(phase => phase.result === PENDING_POLICY).map(phase => phase.phase).sort(), ['portal_expiry', 'refund_period_end']);
-  assert.equal(finaliseModeReceipt('smoke', [combinedFor('conversion')]).result, 'PASSED');
+/** What a real run hands the mode finaliser for one local phase: combined receipt, raw receipt text, destruction proof. */
+const evidenceFor = (journey: keyof typeof REQUIRED_STEPS, stack = 1, rawOverride: Record<string, unknown> = {}) => {
+  const stackRun = `billing-local-stack-123456-${stack}`;
+  const rawReceipt = JSON.stringify({ ...pendingFor(journey), stackRun, ...rawOverride });
+  const proof = { ...destruction, project: stackRun };
+  const combined = finaliseLocalStackReceipt([JSON.parse(rawReceipt)], checks, { journey, release: RELEASE, stackRun,
+    receiptSha256: createHash('sha256').update(rawReceipt).digest('hex'), destruction: proof });
+  return { phase: journey, combined, rawReceipt, destruction: proof };
+};
 
-  const cases: [string, unknown[]][] = [
-    ['missing phase', all.filter(item => item.journey !== 'failed_checkout')],
-    ['duplicate phase', [...all, combinedFor('failed_checkout')]],
-    ['unknown phase', [...all, { journey: 'invented', result: 'PASSED' }]],
-    ['other defect beside policy_pending', all.map(item => item.journey === 'portal_expiry' ? { ...item, defects: ['policy_pending', 'release_mismatch'] } : item)],
-    ['held phase claims PASSED', all.map(item => item.journey === 'refund_period_end' ? { ...item, result: 'PASSED', defects: [] } : item)],
-    ['teardown not proven', all.map(item => item.journey === 'portal_expiry' ? { ...item, stackDestroyed: 'NOT_PROVEN' } : item)],
-    ['phase not proven', all.map(item => item.journey === 'portal_recovery' ? { ...item, result: 'NOT_PROVEN' } : item)],
-    ['not a list', 'receipts' as unknown as unknown[]],
+test('mode result: each phase is re-validated from its evidence; held phases are PENDING_POLICY, never PASSED', () => {
+  const fullIds = PHASES.filter(phase => phase.modes.includes('full')).map(phase => phase.id);
+  const local = RUNNER_JOURNEYS.map((journey, i) => evidenceFor(journey, i + 1));
+  const external = { phase: 'paid_value_loop', rawReceipt: JSON.stringify({ schema: 'billing-user-journey/v1', journey: 'paid_value_loop', result: 'PASSED' }) };
+  const all = [...local, external];
+  assert.deepEqual(all.map(item => item.phase).sort(), [...fullIds].sort());
+  const full = finaliseModeReceipt('full', all, { release: RELEASE });
+  const byPhase = Object.fromEntries(full.phases.map(phase => [phase.phase, phase]));
+  for (const journey of RUNNER_JOURNEYS) {
+    assert.equal(byPhase[journey].result, POLICY_PENDING_STEPS[journey] ? PENDING_POLICY : 'PASSED', `${journey} ${byPhase[journey].why}`);
+  }
+  // The paid loop's step contract belongs to #1822. Until it is committed here, nothing can prove that phase,
+  // so full mode is NOT_PROVEN however its receipt reads.
+  assert.deepEqual(EXTERNAL_REQUIRED_STEPS, {});
+  assert.deepEqual(byPhase.paid_value_loop.why, ['external_contract_undefined']);
+  assert.equal(full.result, 'NOT_PROVEN');
+  assert.equal(finaliseModeReceipt('smoke', [evidenceFor('conversion')], { release: RELEASE }).result, 'PASSED');
+});
+
+test('mode result negative controls: a bare or summary-only PASSED, or evidence from another run, never passes', () => {
+  const smoke = (entries: unknown, release = RELEASE) => finaliseModeReceipt('smoke', entries, { release });
+  const good = evidenceFor('conversion');
+  // Sam's fa7e7180 return: the bare receipt and the bare combined summary.
+  assert.equal(smoke([{ journey: 'conversion', result: 'PASSED' }]).result, 'NOT_PROVEN');
+  assert.equal(smoke([{ phase: 'conversion', result: 'PASSED' }]).result, 'NOT_PROVEN');
+  assert.equal(smoke([good.combined]).result, 'NOT_PROVEN');
+  assert.equal(smoke([{ phase: 'conversion', combined: good.combined }]).result, 'NOT_PROVEN');
+  const why = (entry: unknown) => smoke([entry]).phases[0].why;
+  const cases: [string, unknown, string][] = [
+    ['raw receipt edited after combining', { ...good, rawReceipt: good.rawReceipt.replace('"conversion"', '"conversion" ') }, 'raw_receipt_hash'],
+    ['steps missing from the raw receipt', evidenceFor('conversion', 1, { steps: [] }), 'steps_not_all_passed'],
+    ['raw receipt for another stack', evidenceFor('conversion', 1, { stackRun: 'billing-local-stack-999-9' }), 'stack_run_mismatch'],
+    ['raw receipt for another release', evidenceFor('conversion', 1, { testedRelease: 'c'.repeat(40) }), 'release_mismatch'],
+    ['cleanup not pending destruction', evidenceFor('conversion', 1, { cleanup: 'FAILED' }), 'cleanup_not_pending'],
+    ['failure recorded', evidenceFor('conversion', 1, { failureStage: 'checkout', reason: 'x' }), 'failure_recorded'],
+    ['combined summary with an extra field', { ...good, combined: { ...good.combined, note: 'ok' } }, 'combined_shape'],
+    ['combined summary for another journey', { ...good, combined: { ...good.combined, journey: 'renewal_recovery' } }, 'combined_journey'],
+    ['combined summary for another release', { ...good, combined: { ...good.combined, release: 'c'.repeat(40) } }, 'combined_release'],
+    ['teardown not proven', { ...good, combined: { ...good.combined, stackDestroyed: 'NOT_PROVEN' } }, 'combined_stackDestroyed'],
+    ['destruction proof missing', { ...good, destruction: undefined }, 'destruction_proof_missing'],
+    ['destruction proof for another stack', { ...good, destruction: { ...destruction, project: 'billing-local-stack-1-1' } }, 'destruction_not_this_run'],
+    ['raw receipt unreadable', { ...good, rawReceipt: 'not json' }, 'raw_receipt_unreadable'],
   ];
-  for (const [name, receipts] of cases) assert.equal(finaliseModeReceipt('full', receipts).result, 'NOT_PROVEN', name);
-  assert.equal(finaliseModeReceipt('smoke', [{ ...combinedFor('conversion'), journey: 'renewal_recovery' }]).result, 'NOT_PROVEN');
-  assert.throws(() => finaliseModeReceipt('all', all), /mode_unknown/);
+  for (const [name, entry, expected] of cases) {
+    const result = smoke([entry]);
+    assert.equal(result.result, 'NOT_PROVEN', name);
+    assert.ok(why(entry).includes(expected), `${name}: ${why(entry)}`);
+  }
+  assert.equal(smoke([good], 'c'.repeat(40)).result, 'NOT_PROVEN', 'evidence from another release');
+  assert.equal(smoke([good], 'not-a-sha').result, 'NOT_PROVEN', 'no release to bind to');
+
+  const local = RUNNER_JOURNEYS.map((journey, i) => evidenceFor(journey, i + 1));
+  const full = (entries: unknown) => finaliseModeReceipt('full', entries, { release: RELEASE });
+  const held = local.find(item => item.phase === 'portal_expiry')!;
+  const asserted = JSON.parse(held.rawReceipt);
+  asserted.result = 'PENDING_STACK_DESTRUCTION';
+  asserted.steps = asserted.steps.map((row: { step: string; result: string }) => ({ ...row, result: 'PASSED' }));
+  const fullCases: [string, unknown][] = [
+    ['missing phase', local.filter(item => item.phase !== 'failed_checkout')],
+    ['duplicate phase', [...local, evidenceFor('failed_checkout', 20)]],
+    ['unknown phase', [...local, { ...evidenceFor('conversion', 21), phase: 'invented' }]],
+    ['two phases on one stack', local.map(item => item.phase === 'portal_recovery' ? evidenceFor('portal_recovery', 1) : item)],
+    ['held phase asserts its held steps', local.map(item => item.phase === 'portal_expiry'
+      ? evidenceFor('portal_expiry', 3, { result: asserted.result, steps: asserted.steps }) : item)],
+    ['held combined receipt with another defect', local.map(item => item.phase === 'portal_expiry'
+      ? { ...item, combined: { ...item.combined, defects: ['policy_pending', 'release_mismatch'] } } : item)],
+    ['not a list', 'receipts'],
+  ];
+  for (const [name, entries] of fullCases) {
+    const result = full(entries);
+    assert.equal(result.result, 'NOT_PROVEN', name);
+    if (name !== 'missing phase' && name !== 'not a list') {
+      // Every full run is NOT_PROVEN anyway while the paid loop has no contract; prove each case fails on its own.
+      assert.ok(result.problems.length > 0 || result.phases.some(phase => phase.phase !== 'paid_value_loop' && phase.result === 'NOT_PROVEN'), name);
+    }
+  }
+  assert.equal(smoke([{ ...evidenceFor('conversion'), phase: 'renewal_recovery' }]).result, 'NOT_PROVEN');
+  assert.throws(() => finaliseModeReceipt('all', local, { release: RELEASE }), /mode_unknown/);
 });
 
 test('the workflow can dispatch the three new branches in full mode, and not the paid loop it does not own', () => {

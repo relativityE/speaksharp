@@ -111,6 +111,64 @@ export function assertFullRefund(input: unknown, charge: string): void {
     && refund.currency === 'usd' && refund.charge === charge, 'refund_not_full_contract');
 }
 
+/**
+ * The Checkout URL the app returned, checked BEFORE the browser goes anywhere (Sam's v5 and fa7e7180 returns):
+ * Stripe's own hosted origin over https, no credentials or port, and exactly one test-mode session id.
+ */
+export function checkoutSessionFromUrl(raw: unknown): string {
+  requireFact(typeof raw === 'string' && raw.length > 0, 'checkout_unavailable');
+  let url: URL;
+  try { url = new URL(raw); } catch { throw new Error('BILLING_JOURNEY:checkout_origin'); }
+  requireFact(url.protocol === 'https:' && url.origin === 'https://checkout.stripe.com'
+    && url.username === '' && url.password === '' && url.port === '', 'checkout_origin');
+  const sessions = url.pathname.match(/cs_(?:test|live)_[A-Za-z0-9]+/g) ?? [];
+  requireFact(sessions.length === 1 && sessions[0].startsWith('cs_test_'), 'test_checkout_required');
+  return sessions[0];
+}
+
+/**
+ * The provider's own record of that session, also read before navigation: this member's test-mode subscription
+ * Checkout, still open and unpaid, returning only to this app.
+ */
+export function assertCheckoutIdentity(input: unknown, expected: { session: string; customer: string; uid: string; app: string }): void {
+  const session = (input ?? {}) as { id?: unknown; livemode?: unknown; mode?: unknown; status?: unknown; payment_status?: unknown;
+    customer?: unknown; client_reference_id?: unknown; metadata?: { userId?: unknown } | null; success_url?: unknown; cancel_url?: unknown };
+  const originOf = (raw: unknown) => { try { return typeof raw === 'string' ? new URL(raw).origin : ''; } catch { return ''; } };
+  requireFact(session.id === expected.session && session.livemode === false && session.mode === 'subscription', 'checkout_identity');
+  requireFact(session.customer === expected.customer && session.client_reference_id === expected.uid
+    && session.metadata?.userId === expected.uid, 'checkout_identity');
+  requireFact(session.status === 'open' && session.payment_status === 'unpaid', 'checkout_not_open');
+  requireFact(originOf(session.success_url) === expected.app && originOf(session.cancel_url) === expected.app, 'checkout_return_origin');
+}
+
+/**
+ * The payment method the member just added in the portal: exactly one card that was not on the customer before
+ * the Add (so the 4242 card from Checkout, or a no-op Add, can never satisfy it), and not the failing card.
+ */
+export function newlyAddedCard(listed: unknown, before: readonly string[], excluded: string): string {
+  const page = (listed ?? {}) as { data?: unknown; has_more?: unknown };
+  requireFact(Array.isArray(page.data) && page.has_more === false, 'payment_method_page_incomplete');
+  const fresh = (page.data as { id?: unknown; card?: { last4?: unknown } | null }[])
+    .filter(pm => typeof pm?.id === 'string' && !before.includes(pm.id) && pm.id !== excluded);
+  requireFact(fresh.length === 1 && fresh[0].card?.last4 === '4242', 'portal_card_not_added');
+  return fresh[0].id as string;
+}
+
+/**
+ * After a full refund and the period end, no second charge: a complete, identity-bound invoice read that holds
+ * the original paid invoice, and nothing else that took money. An empty or partial list proves nothing.
+ */
+export function assertNoSecondCharge(listed: unknown, expected: { customer: string; subscription: string; firstInvoice: string }): void {
+  const page = (listed ?? {}) as { data?: unknown; has_more?: unknown };
+  requireFact(Array.isArray(page.data) && page.has_more === false, 'invoice_page_incomplete');
+  const invoices = page.data as { id?: unknown; livemode?: unknown; customer?: unknown; subscription?: unknown; amount_paid?: unknown }[];
+  requireFact(invoices.every(i => i?.livemode === false && i.customer === expected.customer && i.subscription === expected.subscription),
+    'invoice_identity');
+  const first = invoices.filter(i => i.id === expected.firstInvoice);
+  requireFact(first.length === 1 && first[0].amount_paid === 1000, 'original_invoice_missing');
+  requireFact(invoices.every(i => i.id === expected.firstInvoice || i.amount_paid === 0), 'second_charge_after_refund');
+}
+
 /** A declined or abandoned Checkout grants nothing: no subscription, no payment, the session not complete. */
 export function assertCheckoutGrantedNothing(input: unknown, expectedStatus: 'open' | 'expired'): void {
   const session = (input ?? {}) as { livemode?: unknown; status?: unknown; payment_status?: unknown; subscription?: unknown };
