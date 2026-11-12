@@ -125,8 +125,9 @@ export async function handler(
         // Refund policy: keep access until the period ends, never charge again. This only schedules
         // cancel_at_period_end in Stripe; entitlement changes solely through the subscription events Stripe
         // then sends. No database write here.
-        const refund = await scheduleCancellationAfterRefund(stripe, event.data.object, event.id);
-        if (refund.outcome === "retry") {
+        const refund = await scheduleCancellationAfterRefund(stripe, event.data.object, event.id,
+          getEnv("STRIPE_PRO_PRICE_ID"));
+        if (refund.outcome === "unverified") {
           console.error(`[Stripe Webhook] refund follow-up uncertain for ${event.id}: ${refund.reason}`);
           return createErrorResponse(ErrorCodes.STRIPE_API_ERROR, "Refund follow-up unverified", responseHeaders);
         }
