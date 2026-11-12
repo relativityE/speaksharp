@@ -1,0 +1,48 @@
+# Captured output of tests/db/manual/repeat-practised-tip-concurrency-proof.sh
+# Author's run, 2026-11-12T03:01Z, migration as in commit d42aeab (unchanged since), throwaway local cluster. Exit status 0.
+# Scenario 4 has two checks and there is no scenario 5, so the 9 checks are scenarios 1-4 (5 checks) and 6-9 (the 4 race checks).
+#
+PostgreSQL: 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)  (throwaway cluster, Unix socket only)
+Migration:  20261112010000_repeat_practised_tip.sql  sha256 a0c8465157bc10e0210852a98dfe4f3219807515a4e073d72ba98affc8f7ec78
+
+== Run 1: migration as committed (expect 9 PASS)
+1. Two saves overlap: B's save (binds B) is still open when the newer C saves.
+PASS  C supersedes B even though B's binding was uncommitted when C started: <none> | bound=aaaaaaaa-0000-4000-8000-00000000000b | practice=<none> | pending
+2. The advance for B is still open when the newer C saves.
+PASS  C's save waits for the advance, then deletes the copy: <none> | bound=aaaaaaaa-0000-4000-8000-00000000000b | practice=aaaaaaaa-0000-4000-8000-00000000000b | not_comparable
+3. Delayed retry: C's save is still open when the late advance for B arrives.
+PASS  the late advance binds B and carries no tip: <none> | bound=aaaaaaaa-0000-4000-8000-00000000000b | practice=aaaaaaaa-0000-4000-8000-00000000000b | not_comparable
+4. Control: B saves and is advanced with nothing overlapping.
+PASS  abandon clears; binding kept: <none> | bound=aaaaaaaa-0000-4000-8000-00000000000b | practice=<none> | abandoned
+PASS  B alone keeps the tip: Pause before you name the price. | bound=aaaaaaaa-0000-4000-8000-00000000000b | practice=<none> | pending
+6. Practice again on A while a newer save (B, started before it) is still open.
+PASS  the accept waits for B's save; A is no longer newest, so nothing is copied: <none> | bound=<none> | practice=<none> | pending
+7. A newer save (B, started before Practice again) while Practice again is still open.
+PASS  B's save waits for the new attempt, then deletes its copy: <none> | bound=<none> | practice=<none> | pending
+8. Practice again on A while A's expiry is still open.
+PASS  the accept waits for the expiry; nothing is copied from an expired original: <none> | bound=<none> | practice=<none> | pending
+9. A's expiry while Practice again is still open.
+PASS  the expiry waits for the new attempt, then deletes its unbound copy: <none> | bound=<none> | practice=<none> | pending
+
+== Run 2: control with the per-owner lock removed (expect the first 5 checks PASS, race scenarios 6-9 FAIL)
+1. Two saves overlap: B's save (binds B) is still open when the newer C saves.
+PASS  C supersedes B even though B's binding was uncommitted when C started: <none> | bound=aaaaaaaa-0000-4000-8000-00000000000b | practice=<none> | pending
+2. The advance for B is still open when the newer C saves.
+PASS  C's save waits for the advance, then deletes the copy: <none> | bound=aaaaaaaa-0000-4000-8000-00000000000b | practice=aaaaaaaa-0000-4000-8000-00000000000b | not_comparable
+3. Delayed retry: C's save is still open when the late advance for B arrives.
+PASS  the late advance binds B and carries no tip: <none> | bound=aaaaaaaa-0000-4000-8000-00000000000b | practice=aaaaaaaa-0000-4000-8000-00000000000b | not_comparable
+4. Control: B saves and is advanced with nothing overlapping.
+PASS  abandon clears; binding kept: <none> | bound=aaaaaaaa-0000-4000-8000-00000000000b | practice=<none> | abandoned
+PASS  B alone keeps the tip: Pause before you name the price. | bound=aaaaaaaa-0000-4000-8000-00000000000b | practice=<none> | pending
+6. Practice again on A while a newer save (B, started before it) is still open.
+FAIL  the accept waits for B's save; A is no longer newest, so nothing is copied: got [Pause before you name the price. | bound=<none> | practice=<none> | pending] want [<none> | bound=<none> | practice=<none> | pending]
+7. A newer save (B, started before Practice again) while Practice again is still open.
+FAIL  B's save waits for the new attempt, then deletes its copy: got [Pause before you name the price. | bound=<none> | practice=<none> | pending] want [<none> | bound=<none> | practice=<none> | pending]
+8. Practice again on A while A's expiry is still open.
+FAIL  the accept waits for the expiry; nothing is copied from an expired original: got [Pause before you name the price. | bound=<none> | practice=<none> | pending] want [<none> | bound=<none> | practice=<none> | pending]
+9. A's expiry while Practice again is still open.
+FAIL  the expiry waits for the new attempt, then deletes its unbound copy: got [Pause before you name the price. | bound=<none> | practice=<none> | pending] want [<none> | bound=<none> | practice=<none> | pending]
+
+RESULT run 1: 9/9 PASS
+RESULT run 2: control fails the 4 race scenarios, as expected
+PROOF: OK
