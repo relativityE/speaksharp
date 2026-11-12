@@ -123,10 +123,37 @@ test('the combined receipt is finalised after teardown, destruction proof and re
   for (const before of ['stripe_residue', 'stack_stop', 'stack_destroyed']) {
     assert.ok(ids.indexOf(before) > -1 && ids.indexOf(before) < combined, before);
   }
-  const run = step('combined').run ?? '';
-  for (const outcome of ['stack_stop', 'stack_destroyed', 'stripe_residue']) {
-    assert.match(run, new RegExp(`steps\\.${outcome}\\.outcome`));
+  const combinedStep = step('combined');
+  for (const [name, outcome] of [['STACK_STOPPED', 'stack_stop'], ['STACK_DESTROYED', 'stack_destroyed'],
+    ['STRIPE_CLEAN', 'stripe_residue']]) {
+    assert.equal(combinedStep.env?.[name], `\${{ steps.${outcome}.outcome }}`);
+    assert.ok((combinedStep.run ?? '').includes(`"$${name}"`), name);
   }
+});
+
+// Codex on #1813 (afcc2259): Summarize runs even after the dispatch check refuses the inputs, so a commit_sha
+// interpolated into shell source would run as a command. No step may put an expression into shell source.
+test('no expression is interpolated into any run script; inputs reach the shell only as env', () => {
+  for (const s of job.steps) {
+    if (s.run) assert.doesNotMatch(s.run, /\$\{\{/, s.name ?? s.id ?? 'unnamed step');
+  }
+});
+
+test('the summary prints a hostile commit_sha as text and never runs it', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'billing-summary-'));
+  try {
+    const marker = join(dir, 'executed');
+    const summary = join(dir, 'summary.md');
+    const result = spawnSync('bash', ['-c', step('summary').run ?? ''], { cwd: dir, encoding: 'utf8', env: {
+      PATH: process.env.PATH, GITHUB_STEP_SUMMARY: summary, COMMIT_SHA: `$(touch ${marker})\`touch ${marker}\``,
+      JOURNEY: '$(id)', RUN_URL: 'https://example.invalid/run', STRIPE_BLOCKED: '', STACK_STOPPED: 'success',
+      STACK_DESTROYED: 'success', STRIPE_CLEAN: 'success' } });
+    assert.equal(result.status, 0, result.stderr);
+    assert.throws(() => readFileSync(marker), 'the injected command must not run');
+    const text = readFileSync(summary, 'utf8');
+    assert.ok(text.includes(`- Commit: \`$(touch ${marker})`), text);
+    assert.ok(text.includes('- Journey: $(id)'), text);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('D1 source check: the clock create carries this run\'s marker as its name', () => {

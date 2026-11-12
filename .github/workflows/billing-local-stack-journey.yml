@@ -351,6 +351,9 @@ jobs:
         env:
           JOURNEY: ${{ inputs.journey }}
           RELEASE: ${{ inputs.commit_sha }}
+          STACK_STOPPED: ${{ steps.stack_stop.outcome }}
+          STACK_DESTROYED: ${{ steps.stack_destroyed.outcome }}
+          STRIPE_CLEAN: ${{ steps.stripe_residue.outcome }}
         run: |
           set -euo pipefail
           [ -f billing-local-stack-receipt.json ] || echo 'null' > billing-local-stack-receipt.json
@@ -361,31 +364,41 @@ jobs:
             --receipt billing-local-stack-receipt.json --destruction billing-local-stack-destroyed.json \
             --identity billing-local-stack-identity.json \
             --journey "$JOURNEY" --release "$RELEASE" --run "$LOCAL_STACK_PROJECT" \
-            --stack-stopped '${{ steps.stack_stop.outcome }}' --stack-destroyed '${{ steps.stack_destroyed.outcome }}' \
-            --stripe-clean '${{ steps.stripe_residue.outcome }}' \
+            --stack-stopped "$STACK_STOPPED" --stack-destroyed "$STACK_DESTROYED" --stripe-clean "$STRIPE_CLEAN" \
             > billing-local-stack-combined.json && status=0 || status=$?
           cat billing-local-stack-combined.json
           sha256sum billing-local-stack-combined.json | tee billing-local-stack-combined.sha256
           [ "$status" = '0' ] || { echo '::error::Combined receipt is NOT_PROVEN: the journey, teardown, destruction proof or Stripe residue check did not all pass.'; exit 1; }
 
+      # Runs even after the dispatch check refused the inputs, so every value reaches the shell only as a quoted
+      # environment variable: no expression is ever interpolated into shell source (Codex, #1813).
       - name: Summarize
+        id: summary
         if: always()
+        env:
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+          JOURNEY: ${{ inputs.journey }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          STRIPE_BLOCKED: ${{ steps.stripe_account.outputs.blocked }}
+          STACK_STOPPED: ${{ steps.stack_stop.outcome }}
+          STACK_DESTROYED: ${{ steps.stack_destroyed.outcome }}
+          STRIPE_CLEAN: ${{ steps.stripe_residue.outcome }}
         run: |
           {
             echo '## Billing journey on a local stack (TEST MODE, sandbox-qualified only)'
-            echo "- Commit: \`${{ inputs.commit_sha }}\`"
-            echo "- Journey: ${{ inputs.journey }}"
-            echo "- Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            printf -- '- Commit: `%s`\n' "$COMMIT_SHA"
+            printf -- '- Journey: %s\n' "$JOURNEY"
+            printf -- '- Run: %s\n' "$RUN_URL"
             if [ -f billing-local-stack-receipt.sha256 ]; then
               echo "- Receipt SHA-256: \`$(cut -d' ' -f1 billing-local-stack-receipt.sha256)\`"
             else
               echo '- No receipt: the run stopped before the journey wrote one.'
             fi
-            if [ '${{ steps.stripe_account.outputs.blocked }}' = 'dirty_test_account' ]; then
+            if [ "$STRIPE_BLOCKED" = 'dirty_test_account' ]; then
               echo '- BLOCKED PREREQUISITE: the test account held fixtures from an earlier run. Not a billing failure; nothing was created or deleted.'
             fi
             echo '- Billing rows (fences, checkout operations, save obligations): not read; service_role has no access.'
-            echo "- Stack stopped: ${{ steps.stack_stop.outcome }}; destroyed: ${{ steps.stack_destroyed.outcome }}; Stripe residue check: ${{ steps.stripe_residue.outcome }}"
+            printf -- '- Stack stopped: %s; destroyed: %s; Stripe residue check: %s\n' "$STACK_STOPPED" "$STACK_DESTROYED" "$STRIPE_CLEAN"
             if [ -f billing-local-stack-combined.json ]; then
               echo "- Combined result: $(jq -r '.result' billing-local-stack-combined.json)"
               echo "- Stack identity SHA-256: \`$(jq -r '.stackIdentitySha256 // "not proven"' billing-local-stack-combined.json)\`"
