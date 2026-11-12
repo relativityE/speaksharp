@@ -74,7 +74,8 @@ test.describe('outcome 4: the repeat shows what it repeated', () => {
         .toHaveText('Filler rate was lower on the repeat than in the original session.');
       await expect(page.getByTestId('repeat-origin-scope'))
         .toHaveText('This comparison measures delivery, not whether the coaching tip was followed.');
-      await expect(page.getByTestId('repeat-origin-tip')).toHaveText('Tip you practised: “Pause instead of saying um.”');
+      await expect(page.getByTestId('repeat-origin-tip')).toHaveText('Tip you chose for this repeat: “Pause instead of saying um.”');
+      await expect(page.getByTestId('repeat-origin-tip-retention')).toHaveText('This tip is kept with this repeat until you save another session.');
       await expect(block).not.toContainText(/improv|reached|caused|because of/i);
       await expect(page.getByTestId('repeat-origin-error')).toHaveCount(0);
     }
