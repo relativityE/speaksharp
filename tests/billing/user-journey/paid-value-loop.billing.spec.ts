@@ -4,7 +4,8 @@ import { randomUUID } from 'node:crypto';
 import sandboxTarget from './sandbox-target.json' with { type: 'json' };
 import localStackTarget from './sandbox-target.local.json' with { type: 'json' };
 import { requireFact, assertSandboxConfiguration, assertTestPrice, assertInvoice, isCorrelatedDelivery,
-  safeFailureReason, type BillingEvent } from './contract';
+  safeFailureReason, localStackStatus, testClockCreateFields, type BillingEvent } from './contract';
+import { runnerPreflight } from './runnerPreflight.mjs';
 import { paidValueLoopReceipt, assertSavedTake, assertEligibleEvaluation, savedCoaching, coachingShownAsSaved,
   assertRecommendation, comparisonExpectation, assertComparisonShown } from './paidValueLoop';
 import { PROGRESS_FORMULA, LEGACY_PHRASE, type PanelObservation, type ServerAttempt, type ServerEvidence }
@@ -157,10 +158,15 @@ class PaidValueLoop {
     requireFact(!error && data.user, 'fixture_signup_failed');
     this.uid = data.user.id;
     const initial = await this.profile();
-    requireFact(initial.commercial_trial_granted_at && !initial.stripe_customer_id && !initial.stripe_subscription_id,
-      'card_free_trial_missing');
+    // Same grant contract as journey.billing.spec.ts: a 30-day card-free trial with no Stripe identity yet.
+    const windowDays = (Date.parse(initial.trial_expires_at) - Date.parse(initial.trial_started_at)) / 86_400_000;
+    requireFact(initial.commercial_trial_granted_at && Math.abs(windowDays - 30) < 0.01
+      && !initial.stripe_customer_id && !initial.stripe_subscription_id && !initial.subscription_id, 'card_free_trial_missing');
     const auth = await this.member.auth.signInWithPassword({ email: this.email, password: this.password });
     requireFact(!auth.error && auth.data.user?.id === this.uid, 'fixture_auth_failed');
+    // The live trial must grant access before it is expired, or trial_expired would prove nothing.
+    const trial = await this.usage();
+    requireFact(trial.trial_active === true && trial.can_start === true, 'trial_access_missing');
     // Controlled expiry of ONLY this disposable fixture, so every later step runs on PAID access, not trial access.
     const expired = await this.admin.from('user_profiles').update({ trial_expires_at: new Date(Date.now() - 60_000).toISOString() }).eq('id', this.uid);
     requireFact(!expired.error, 'fixture_expiry_failed');
@@ -171,7 +177,9 @@ class PaidValueLoop {
 
     // A clock-backed customer keeps this run's Stripe objects independent and removable in one delete.
     this.uncertainStripeCreate = true;
-    const clock = await this.stripe('test_helpers/test_clocks', 'POST', { frozen_time: String(Math.floor(Date.now() / 1000)) });
+    // The run marker goes in the clock's name in the create request itself (testClockCreateFields), as in
+    // journey.billing.spec.ts, so a clock whose response is lost can still be attributed to this run.
+    const clock = await this.stripe('test_helpers/test_clocks', 'POST', testClockCreateFields(this.marker, Math.floor(Date.now() / 1000)));
     requireFact(typeof clock.id === 'string' && clock.id.startsWith('clock_'), 'clock_identity_missing');
     this.clock = clock.id;
     this.uncertainStripeCreate = false;
@@ -430,6 +438,9 @@ class PaidValueLoop {
   }
 
   async run(): Promise<void> {
+    // Before ANY Stripe call, as in journey.billing.spec.ts: test keys only, the same key and price the local Edge
+    // functions were served with, and a loopback stack that answers (runnerPreflight.mjs).
+    if (useLocalStack) await runnerPreflight(env);
     await this.convert();
     await this.firstTakeAndCoaching();
     const server = await this.linkedRepeat();
@@ -454,7 +465,10 @@ class PaidValueLoop {
       if (this.signupAttempted) await cleanupRunOwnedAccount({ admin: this.admin as never,
         capturedUid: this.uid, createdEmail: this.email, runOwnedPrefix: 'rwt-journey-billing-' });
     } catch { accountFailed = true; }
-    if (this.uid) {
+    // As in journey.billing.spec.ts: on the disposable local stack these three tables are not readable by
+    // service_role (migrations revoke it), so the read could only error. The receipt says they were NOT read, and
+    // the workflow's destruction proof of the whole stack covers them instead.
+    if (this.uid && !useLocalStack) {
       for (const table of ['account_billing_fences', 'account_checkout_operations', 'account_save_obligations']) {
         const readback = await this.admin.from(table).select('*', { count: 'exact', head: true }).eq('user_id', this.uid);
         if (readback.error || readback.count !== 0) accountFailed = true;
@@ -477,12 +491,18 @@ test('billing paid_value_loop: one paid test-mode account through coaching, link
     finally {
       if (run) { try { await run.cleanup(); } catch { cleanupFailed = true; } }
       const result = paidValueLoopReceipt(run?.steps ?? new Set());
+      // Exactly the billing journeys' receipt (journey.billing.spec.ts): on the local stack it never says PASSED
+      // or VERIFIED by itself; the workflow finalises it only after the checked teardown and destruction proof.
+      const status = localStackStatus(failed || cleanupFailed ? 'INCOMPLETE' : result.result,
+        cleanupFailed ? 'UNPROVEN' : run?.steps.has('cleanup') ? 'VERIFIED' : 'NOT_RUN', useLocalStack);
       await info.attach('billing-user-journey.json', { body: JSON.stringify({ ...result,
-        result: failed || cleanupFailed ? 'INCOMPLETE' : result.result,
+        result: status.result,
         failureStage: failed ? run?.stage ?? 'preflight' : null,
         reason,
-        cleanup: cleanupFailed ? 'UNPROVEN' : run?.steps.has('cleanup') ? 'VERIFIED' : 'NOT_RUN',
-        testedRelease: env.BILLING_SANDBOX_RELEASE_SHA?.match(/^[a-f0-9]{40}$/i)?.[0] ?? null,
+        cleanup: status.cleanup,
+        billingRowResidue: useLocalStack ? 'NOT_READ_REQUIRES_STACK_DESTRUCTION_PROOF' : 'COUNTED_ZERO_OR_FAILED',
+        testedRelease: env.BILLING_SANDBOX_RELEASE_SHA?.match(/^[a-f0-9]{40}$/)?.[0] ?? null,
+        stackRun: useLocalStack ? env.LOCAL_STACK_PROJECT?.match(/^billing-local-stack-[0-9]{1,20}-[0-9]{1,6}$/)?.[0] ?? null : null,
       }), contentType: 'application/json' });
       requireFact(!failed && !cleanupFailed && result.result === 'PASSED', 'journey_incomplete_see_sanitized_receipt');
     }

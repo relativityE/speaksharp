@@ -15,7 +15,7 @@
  * This is test-mode, sandbox-qualified evidence only. It is not Production paid acceptance, does not cover Focus Points
  * or the paid Open Mic limits, and does not replace the human coaching review (COACH-01) or value observations (VALUE-01).
  */
-import { requireFact } from './contract';
+import { REQUIRED_STEPS, receipt, requireFact } from './contract';
 import { readSavedReview, type SavedReview } from '../../../frontend/src/components/practice/lastSessionFix';
 import {
   PROGRESS_FORMULA, validRecommendation, repeatMetricPrerequisites, repeatMetricWordingVerdict,
@@ -24,23 +24,19 @@ import {
 
 export const PAID_VALUE_LOOP = 'paid_value_loop' as const;
 
-export const PAID_VALUE_LOOP_STEPS = [
-  'trial_expired', 'hosted_checkout', 'first_invoice', 'stripe_delivery', 'paid_entitlement',
-  'first_take_saved', 'first_take_eligible', 'coaching_saved', 'coaching_rendered', 'recommendation_recorded',
-  'linked_repeat_started', 'repeat_take_saved', 'repeat_resolved', 'comparison_shown',
-  'sign_in_again', 'readback', 'cleanup',
-] as const;
+/**
+ * The steps this journey must prove, from the one shared list (journeySteps.mjs), so the spec, the workflow's
+ * combined receipt and the runner plan cannot drift.
+ */
+export const PAID_VALUE_LOOP_STEPS = REQUIRED_STEPS[PAID_VALUE_LOOP];
 export type PaidValueLoopStep = typeof PAID_VALUE_LOOP_STEPS[number];
 
-/** Same closed, content-free shape as the billing receipts, under its own schema. */
+/**
+ * The same closed, content-free receipt as the billing journeys (billing-user-journey/v1), built by the same
+ * function, so the local-stack workflow's combined receipt and the runner's mode result can check it.
+ */
 export function paidValueLoopReceipt(steps: ReadonlySet<string>) {
-  requireFact([...steps].every(step => (PAID_VALUE_LOOP_STEPS as readonly string[]).includes(step)), 'unknown_step');
-  const missing = PAID_VALUE_LOOP_STEPS.filter(step => !steps.has(step));
-  return {
-    schema: 'paid-value-loop/v1', journey: PAID_VALUE_LOOP, stripeMode: 'test', evidenceClass: 'sandbox-qualified',
-    result: missing.length ? 'INCOMPLETE' : 'PASSED',
-    steps: PAID_VALUE_LOOP_STEPS.map(step => ({ step, result: steps.has(step) ? 'PASSED' : 'NOT_PROVEN' })),
-  };
+  return receipt(PAID_VALUE_LOOP, steps);
 }
 
 /** The saved session row as the journey reads it with admin authority. */
