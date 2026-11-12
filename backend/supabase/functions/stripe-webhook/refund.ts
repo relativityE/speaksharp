@@ -5,13 +5,14 @@
 // and customer.subscription.deleted at period end moves the account to Free.
 //
 // Never cancels immediately, never touches the database, and is idempotent: a subscription already set to
-// cancel at period end, or no longer active, is left alone. Partial refunds (goodwill credits) do nothing.
+// cancel at period end, or no longer active, is left alone. Refunds are full only (Akin, 2026-11-12): the
+// product issues no partial refunds, so there is no partial-refund path here.
 
 type StripeClient = any;
 
 export type RefundOutcome =
   | { outcome: "scheduled" | "already_scheduled" | "not_active"; subscriptionId: string }
-  | { outcome: "not_full_refund" | "not_subscription_charge" }
+  | { outcome: "not_subscription_charge" }
   | { outcome: "retry"; reason: string };
 
 function objectId(value: unknown): string | null {
@@ -23,18 +24,11 @@ function objectId(value: unknown): string | null {
   return null;
 }
 
-export function isFullRefund(charge: any): boolean {
-  return charge?.refunded === true
-    && typeof charge?.amount === "number" && charge.amount > 0
-    && charge?.amount_refunded === charge.amount;
-}
-
 export async function scheduleCancellationAfterRefund(
   stripe: StripeClient,
   charge: any,
   eventId: string,
 ): Promise<RefundOutcome> {
-  if (!isFullRefund(charge)) return { outcome: "not_full_refund" };
   const invoiceId = objectId(charge?.invoice);
   if (!invoiceId) return { outcome: "not_subscription_charge" };
 

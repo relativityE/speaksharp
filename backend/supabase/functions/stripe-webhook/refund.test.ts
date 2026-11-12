@@ -5,7 +5,7 @@
  */
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { handler } from "./index.ts";
-import { isFullRefund, scheduleCancellationAfterRefund } from "./refund.ts";
+import { scheduleCancellationAfterRefund } from "./refund.ts";
 
 const env = (key: string) => ({ STRIPE_PRO_PRICE_ID: "price_pro_1282", STRIPE_PRICE_CURRENCY: "usd" } as Record<string, string>)[key];
 
@@ -88,14 +88,12 @@ Deno.test("refund → cancel at period end", async (t) => {
     assertEquals(second.calls.filter(c => c[0] === "subscriptions.update"), []);
   });
 
-  await t.step("partial refunds and non-subscription charges do nothing", async () => {
-    for (const charge of [fullCharge({ amount_refunded: 500, refunded: false }), fullCharge({ amount_refunded: 999 }),
-      fullCharge({ refunded: false }), fullCharge({ amount: 0, amount_refunded: 0 }), fullCharge({ invoice: null })]) {
-      const { stripe, calls } = fakeStripe();
-      const res = await handler(refundEvent(charge), stripe, db().supabase, "secret", env);
-      assertEquals(res.status, 200, JSON.stringify(charge));
-      assertEquals(calls.filter(c => c[0] === "subscriptions.update"), [], JSON.stringify(charge));
-    }
+  await t.step("a charge that is not a subscription invoice's does nothing", async () => {
+    const noInvoice = fakeStripe();
+    const first = await handler(refundEvent(fullCharge({ invoice: null })), noInvoice.stripe, db().supabase, "secret", env);
+    assertEquals(first.status, 200);
+    assertEquals((await first.json()).refund, "not_subscription_charge");
+    assertEquals(noInvoice.calls, []);
     const { stripe, calls } = fakeStripe({ invoice: { id: "in_1", subscription: null } });
     const res = await handler(refundEvent(), stripe, db().supabase, "secret", env);
     assertEquals((await res.json()).refund, "not_subscription_charge");
@@ -108,14 +106,6 @@ Deno.test("refund → cancel at period end", async (t) => {
       const res = await handler(refundEvent(), stripe, db().supabase, "secret", env);
       assertEquals(res.status >= 500, true, JSON.stringify(opts));
     }
-  });
-
-  await t.step("isFullRefund requires refunded, a positive amount and the whole amount back", () => {
-    assertEquals(isFullRefund(fullCharge()), true);
-    assertEquals(isFullRefund(fullCharge({ amount_refunded: 999 })), false);
-    assertEquals(isFullRefund(fullCharge({ refunded: false })), false);
-    assertEquals(isFullRefund({ refunded: true }), false);
-    assertEquals(isFullRefund(null), false);
   });
 
   await t.step("the follow-up names the subscription from the refunded invoice, not from the event", async () => {
