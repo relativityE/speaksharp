@@ -394,7 +394,7 @@ describe('product-row inventory: a receipt missing any product outcome can never
         const writers = ['live/helpers/rwtJourney.ts', 'live/rwt-open-mic-first-session.live.spec.ts', 'live/helpers/rwtFocusPointsJourney.ts',
             'live/rwt-products-navigation.live.spec.ts', 'live/helpers/coachingFeedbackAdapter.ts', 'live/helpers/rwtCoachingCollector.ts',
             // AHT-02/03 (#1811): the Focus case rows are written by their own case-only helpers.
-            'live/helpers/rwtFocusTakesDiffer.ts', 'live/helpers/rwtFocusEditCancel.ts', 'live/helpers/rwtFocusOpenMicIsolation.ts'].map(src).join('\n');
+            'live/helpers/rwtFocusTakesDiffer.ts', 'live/helpers/rwtFocusEditCancel.ts', 'live/helpers/rwtFocusOpenMicIsolation.ts', 'live/helpers/rwtFocusSameTarget.ts', 'live/helpers/repeatMetricWording.ts'].map(src).join('\n');
         for (const s of SUITES) for (const step of requiredAutomatedRows(s.suite)!.product) {
             expect({ step, written: writers.includes(`'${step}'`) }).toEqual({ step, written: true });
         }

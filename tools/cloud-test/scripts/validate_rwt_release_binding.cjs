@@ -44,7 +44,7 @@ const TEST_PINS=Object.freeze({
  'tests/live/rwt-adverse-mic-model.live.spec.ts':'6d61b609d70264a579436af1a2480178fe44bb08741d9b343c1930c847f542ca',
  'tests/unit/feedbackAckReceivedAht08.test.ts':'a645fff8f8de3d0a5d1bab51be845484481b2779d055513eaa5ee51c05aad91f',
  'tests/unit/rwtAdverseRecovery.test.ts':'3f7f3ca2e9134247a8d04174b0c093a29331d446978c1e4148856150bac8a7db',
- 'tests/unit/rwtFinalization1532.test.ts':'e75bc6124381e69e1646da68855fc09acdc799d4073f3f4d1bd75a45c8892250',
+ 'tests/unit/rwtFinalization1532.test.ts':'59fb6409ada5b3dca9cffde96899a3c463df2a4d99dc43a1aaccd594d119633b',
  'tests/unit/rwtFocusEditCancel.test.ts':'5bc38f81042b773f1d7fd7254677a4d812f0e206d2095e8b7c5b0abe6f61914f',
  'tests/unit/rwtFocusNextMarker.test.ts':'84a78df21e117a0565c26bf847ab7da5b486660e02c7b96f11cda2c9072b2310',
  'tests/unit/rwtFocusOpenMicIsolation.test.ts':'96e07c9481583085704084d28ff062adad89f9f4850dcad2a71c4c36b0d2a489',
