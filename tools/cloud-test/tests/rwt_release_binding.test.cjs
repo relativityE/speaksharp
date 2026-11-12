@@ -39,3 +39,5 @@ const V3_PROOF_PATHS=[
 ];
 test('v3 integration pins include every changed cleanup, watchdog and registry proof input',()=>{for(const p of V3_PROOF_PATHS)assert.ok(Object.hasOwn({...TEST_PINS,...INTEGRATION_PINS},p), 'missing reviewed proof pin: '+p);});
 test('an unreviewed sibling of a v3 helper still refuses',t=>{const f=fixture(t),head=f.commit('tests/live/helpers/runOwnedCleanupUnreviewed.ts','unreviewed sibling');assert.throws(()=>verify({...f.env,GITHUB_SHA:head},f.dir),/PRODUCT_OR_LIVE_TEST_SOURCE_DIFFERS/);});
+
+test('inherited main proof inputs stay individually pinned',()=>{for(const p of ['product_release/RELEASE_STATUS.md', 'product_release/ROADMAP.md', 'tests/live/rwt-open-mic-first-session.live.spec.ts'])assert.ok(Object.hasOwn(INTEGRATION_PINS,p), p);});

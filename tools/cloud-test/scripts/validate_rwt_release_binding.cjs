@@ -15,7 +15,7 @@ const TEST_PINS=Object.freeze({
  'tests/unit/helperExecutionEvidence.test.js':'01e30fa2f62ba2ff00812c77a6d2fa3cb128ce41b88e6766e9b99a75b846d3ab',
  'tests/unit/runOwnedCleanupNullCount1593.test.ts':'a30489f6a20893a3995b4c4ce44ede89aaf243378ea471906d90effa99a185e9',
  'tests/unit/runOwnedCleanupSaveObligations1643.test.ts':'515aad81c1f7905ba30fcbcfb034112638f06e8324063203c102482f28093100',
- 'tests/unit/rwtHarnessParity.test.ts':'54609c02acc9eda57a5d414d583ec7f5401bcf51d7aa18d8e98b700eb0f9ddde',
+ 'tests/unit/rwtHarnessParity.test.ts':'602cd32f1ae367250fae5ceac1663013cb3cb01cb160be356041f3088c042c45',
  'tests/unit/rwtRunBoundCleanup.test.ts':'1c9cefde2b065db2feb2c6aace2e3967deaa97211a6f27442308da39d16a95b2',
  'tests/unit/rwtSharedAcceptance1811.test.ts':'a6ac34441dae1d3137297d4d00c67d10109a1c81d23efd316ed232e0eae29288',
  'tests/unit/rwtWatchdogAht0215Signals.test.ts':'e9d8daeac67fa1bb033f0fd7f22078e1aabe7350f02decd6dc0865077f57a173',
@@ -80,6 +80,10 @@ const TEST_PINS=Object.freeze({
 // Pin their exact reviewed postimages rather than treating every workflow or
 // authority-test change as proof-only source.
 const INTEGRATION_PINS=Object.freeze({
+ // Inherited reviewed main: #1832 source-currency docs and #1830 AHT-01 save expectations.
+ 'product_release/RELEASE_STATUS.md':'f823b945fa3d24dbb49ffb1a72e705fa84b767e0ce96229d6e861b9c44279779',
+ 'product_release/ROADMAP.md':'ac4e34c689c8575883a33f9cdd15d95267c3bae42f82a9daa65f85e32b5e8fb7',
+ 'tests/live/rwt-open-mic-first-session.live.spec.ts':'955bef27970a423a0586f069c5ebbeb8eaf1e02ee63d9079695af8ae71ef2de6',
  '.github/workflows/cloud-test.yml':'33a0d4ee002f59946ee3e09c1b3cad9c30e26741ae3ea5a841c7f55a97c5c285',
  'tests/unit/modelComparisonRunAuthority.test.js':'95262458ac364c96c13a2a6d7c1164a4008914a04d626078a3ef57a2588088d6',
 });

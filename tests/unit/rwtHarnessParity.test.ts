@@ -165,7 +165,7 @@ describe('AHT-01 wiring', () => {
         expect([counts > -1, isolation > counts, close > isolation, close < spec.indexOf('const cleanup = new OwnedCleanup(')]).toEqual([true, true, true, true]);
         const block = spec.slice(counts, close);
         expect(block.split('aliveReceipt(receipt, alive)').join('')).not.toMatch(/\breceipt\b/);
-        expect(spec).toContain('probeSaveIsolationRow(aliveReceipt(receipt, alive), admin as never, capturedUid, [persistedId, repeatSessionId], parity.takeBindings(), parity.leaseIds, AHT01_DESIGNED_TAKES, [\'saved\', \'saved\', \'probe\', \'probe\'])');
+        expect(spec).toContain('probeSaveIsolationRow(aliveReceipt(receipt, alive), admin as never, capturedUid, [persistedId, repeatSessionId], parity.takeBindings(), parity.leaseIds, AHT01_DESIGNED_TAKES)');
         expect(spec).toContain("const AHT01_START_PRESS_BUDGET = { total: 4, perControl: { 'mic-start': 3, 'mic-download': 1, 'verdict-practice-again': 1 } } as const;");
         expect(spec).toContain('const AHT01_DESIGNED_TAKES = 4;');
     });
@@ -261,7 +261,20 @@ describe('AHT-01 design budgets (review: from the journey design, not a run coun
             expect({ name, v: r.rows[0].verdict }).toEqual({ name, v: verdict });
         }
     });
-    it('two persisted takes and two no-save probes: absence is required, not a fabricated save', async () => {
+    it('run 43214173919: four normal Stops save, while the old no-save plan rejects the same evidence', async () => {
+        const leases = ['lease-a', 'lease-b', 'lease-c', 'lease-d'];
+        const rows = leases.map((lease_id, i) => ({ id: `session-${i}`, lease_id }));
+        const bindings = { takes: rows.map(({ id }) => ({ control: 'mic-start' as const, ids: [id] })), stray: [] };
+        const admin = { from: () => ({ select: () => ({ eq: () => ({ eq: async () => ({ data: rows, error: null }) }) }) }) };
+        const check = async (plan?: readonly ('saved' | 'probe')[]) => {
+            const r = sink();
+            await probeSaveIsolationRow(r, admin as never, 'u', ['session-0', 'session-1'], bindings, leases, 4, plan);
+            return r.rows[0];
+        };
+        expect(await check()).toMatchObject({ verdict: 'PASS', evidence: { completedSessions: 4, disagree: 0 } });
+        expect(await check(['saved', 'saved', 'probe', 'probe'])).toMatchObject({ verdict: 'FAIL', detail: 'a no-save recording probe created a completed session' });
+    });
+    it('explicit no-save probes still require absence, not a fabricated save', async () => {
         const leases = ['lease-a', 'lease-b', 'lease-c', 'lease-d'];
         const plan = ['saved', 'saved', 'probe', 'probe'] as const;
         const base = { takes: [{ control: 'mic-start', ids: ['a'] }, { control: 'mic-start', ids: ['b'] },
