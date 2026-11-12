@@ -1,16 +1,20 @@
 'use strict';
-// G03 numeric comparison; selected d100 snapshots revalidated byte-for-byte at served 5a7bf6a1.
+// G03 numeric comparison; selected d100 snapshots revalidated byte-for-byte at served 5a7bf6a1, and at each later release
+// listed in REVALIDATED_SHAS (source/receiving-numeric-source-<sha8>.json: all four consumer files, identical sha256).
 // Source qualification does not establish live product PASS.
 const pure=require('./oracles/pure/progressNumericSelected.cjs');
 const SOURCE_SHA='5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2';
 const ROW='same-target-numeric';
+// Exact full releases whose consumer files were compared with the snapshots. Source and served must be the SAME listed release.
+const RELEASE_SHA='d401349bca036be1f5413fa50faba536fba3ed51';
+const REVALIDATED_SHAS=Object.freeze([SOURCE_SHA,RELEASE_SHA]);
 const SELECT=Object.freeze({
  recommendation:'id,user_id,source_session_id,formula_version,target_metric,target_direction,target_value,target_units,source_metric_value,shown_text',
  attempt:'id,user_id,recommendation_id,practice_session_id,next_comparable_session_id,lifecycle,outcome,accepted_at',
  evaluation:pure.EVAL_FIELDS+',user_id,formula_version'
 });
 function notRun(reason){const e=new Error(reason);e.code='NOT_RUN';e.trustedBlocker=reason;throw e;}
-function preflight(c){if(c?.sourceSha!==SOURCE_SHA||c?.servedSha!==SOURCE_SHA)notRun('G03 numeric source requires the exact revalidated 5a7bf6a1 source/served binding');return {ready:true,sourceSha:SOURCE_SHA};}
+function preflight(c){if(typeof c?.sourceSha!=='string'||c.sourceSha!==c.servedSha||!REVALIDATED_SHAS.includes(c.sourceSha))notRun('G03 numeric source requires the exact revalidated 5a7bf6a1 or listed release source/served binding');return {ready:true,sourceSha:c.sourceSha};}
 function answer(result,reason,more={}){return {result,facts:{sourceNumericContract:true,reason,...more}};}
 const normalize=x=>typeof x==='string'?x.replace(/\s+/gu,' ').trim():null;
 function expectedText(value){const f=pure.formatRepeatValues(value.metric,value.before,value.after);return normalize(`${pure.TARGET_METRIC_LABELS[value.metric]}: ${f.before} → ${f.after} ${value.units} (original session → linked repeat).${f.belowPrecision?' The stored values differ by less than the displayed precision.':''}`);}
@@ -45,7 +49,7 @@ async function readExpected({db,caseConfig:c,sourceSessionId,repeatSessionId,exp
  // Exact source derivation requests the persisted next-comparable evaluation. Add owner/formula identity
  // checks around that GET; do not fall back to session history, rounded metrics, target_value or zero.
  let nextIntegrity=null;
- const boundDb={from(table){if(table!=='session_progress_evaluations')notRun('G03 unexpected source read');const q=db.from(table);return {select(){q.select(SELECT.evaluation);return this;},eq(k,v){q.eq(k,v);return this;},async maybeSingle(){const r=await q.maybeSingle();if(r.error)notRun('G03 linked evaluation owner GET unavailable');if(r.data&&(r.data.user_id!==c.account.id||r.data.formula_version!==pure.PROGRESS_FORMULA_VERSION||r.data.session_id!==repeatSessionId)){nextIntegrity='persisted-linked-evaluation-identity-mismatch';return {data:null,error:null};}return r;}};}};
+ const boundDb={from(table){if(table!=='session_progress_evaluations')notRun('G03 unexpected source read');let q=db.from(table);return {select(){q=q.select(SELECT.evaluation);return this;},eq(k,v){q=q.eq(k,v);return this;},async maybeSingle(){const r=await q.maybeSingle();if(r.error)notRun('G03 linked evaluation owner GET unavailable');if(r.data&&(r.data.user_id!==c.account.id||r.data.formula_version!==pure.PROGRESS_FORMULA_VERSION||r.data.session_id!==repeatSessionId)){nextIntegrity='persisted-linked-evaluation-identity-mismatch';return {data:null,error:null};}return r;}};}};
  const value=await pure.loadRepeatResult(boundDb,sourceSessionId,source,rec,attempt);
  if(nextIntegrity)return answer('FAIL',nextIntegrity);
  return {value};
@@ -56,4 +60,4 @@ async function observe({page,db,caseConfig,sourceSessionId,repeatSessionId,expec
  let observation;try{observation=await page.evaluate(route=>{const panel=document.querySelector('[data-testid="progress-panel"]'),nodes=panel?Array.from(panel.querySelectorAll('[data-testid="progress-attempt-values"]')):[],node=nodes[0],style=node?getComputedStyle(node):null;return {readable:true,pathMatches:location.pathname===route,settled:!!panel?.querySelector('[data-testid="progress-direction"]')&&!panel?.querySelector('[data-testid="progress-loading"]'),count:nodes.length,visible:!!node&&style?.visibility!=='hidden'&&style?.display!=='none'&&node.getClientRects().length>0,text:node?.textContent??null};},'/progress/'+sourceSessionId);}catch{return answer('NOT RUN','numeric-ui-observation-unavailable');}
  return verify(expected,observation);
 }
-module.exports={SOURCE_SHA,ROW,SELECT,preflight,readExpected,observe,verify,expectedText};
+module.exports={SOURCE_SHA,REVALIDATED_SHAS,ROW,SELECT,preflight,readExpected,observe,verify,expectedText};

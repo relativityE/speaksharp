@@ -50,6 +50,15 @@ describe('non-gating rows (PO 2026-09-28): exactly two, HOLD only', () => {
     it('the allowlist is exactly the two PO-named rows, each with a reason', () => {
         expect(Object.keys(NON_GATING_ROWS).sort()).toEqual(['base_q4 primary', 'signup-stage telemetry received']);
         for (const reason of Object.values(NON_GATING_ROWS)) expect(reason).toMatch(/PO 2026-09-28/);
+        // PO 2026-11-11: no exemptions for um, uh or ah. An "ah" (or "uh") corpus HOLD gates like any other HOLD; a FAIL gates.
+        const pass = (step: string): ReceiptRow => ({ step, verdict: 'PASS', detail: 'ok' } as ReceiptRow);
+        for (const word of ['um', 'uh', 'ah']) {
+            const held = receiptAcceptance([pass('session saved'), { step: `filler "${word}" vs corpus`, verdict: 'HOLD', detail: 'an anchor is missing' } as ReceiptRow]);
+            expect([held.acceptance, held.automatedRowsAllPass]).toEqual(['INCOMPLETE', false]);
+            expect(held.nonGating).toEqual([]);
+        }
+        const ahFail = receiptAcceptance([pass('session saved'), { step: 'filler "ah" vs corpus', verdict: 'FAIL', detail: 'missed' } as ReceiptRow]);
+        expect([ahFail.acceptance, ahFail.automatedRowsAllPass]).toEqual(['FAIL', false]);
     });
     it('CASUALTY: those two HOLDs alone no longer make a run INCOMPLETE; any other HOLD still does', () => {
         expect(receiptAcceptance([pass('a'), hold('signup-stage telemetry received'), hold('base_q4 primary')]).acceptance).toBe('PASS');
