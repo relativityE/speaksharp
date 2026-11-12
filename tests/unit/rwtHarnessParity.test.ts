@@ -6,7 +6,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { CLOUD_STT_URL, HarnessParityTap, LEASE_ACQUIRE_URL, START_CONTROL, START_CONTROLS, numericComparisonRow, probeSaveIsolationRow } from '../live/helpers/rwtHarnessParity';
+import { CLOUD_STT_URL, HarnessParityTap, LEASE_ACQUIRE_URL, SAVE_WRITE_URL, START_CONTROL, START_CONTROLS, numericComparisonRow, probeSaveIsolationRow } from '../live/helpers/rwtHarnessParity';
 
 type Row = { step: string; verdict: string; detail: string; evidence?: Record<string, unknown> };
 const sink = () => { const rows: Row[] = []; return { rows, row: (step: string, verdict: 'PASS' | 'FAIL' | 'HOLD', detail: string, evidence?: Record<string, unknown>) => rows.push({ step, verdict, detail, evidence }) }; };
@@ -165,7 +165,7 @@ describe('AHT-01 wiring', () => {
         expect([counts > -1, isolation > counts, close > isolation, close < spec.indexOf('const cleanup = new OwnedCleanup(')]).toEqual([true, true, true, true]);
         const block = spec.slice(counts, close);
         expect(block.split('aliveReceipt(receipt, alive)').join('')).not.toMatch(/\breceipt\b/);
-        expect(spec).toContain('probeSaveIsolationRow(aliveReceipt(receipt, alive), admin as never, capturedUid, [persistedId, repeatSessionId], parity.takeBindings(), parity.leaseIds, AHT01_DESIGNED_TAKES, [\'saved\', \'saved\', \'probe\', \'probe\'])');
+        expect(spec).toContain('probeSaveIsolationRow(aliveReceipt(receipt, alive), admin as never, capturedUid, [persistedId, repeatSessionId], parity.takeBindings(), parity.leaseIds, AHT01_DESIGNED_TAKES)');
         expect(spec).toContain("const AHT01_START_PRESS_BUDGET = { total: 4, perControl: { 'mic-start': 3, 'mic-download': 1, 'verdict-practice-again': 1 } } as const;");
         expect(spec).toContain('const AHT01_DESIGNED_TAKES = 4;');
     });
@@ -261,7 +261,20 @@ describe('AHT-01 design budgets (review: from the journey design, not a run coun
             expect({ name, v: r.rows[0].verdict }).toEqual({ name, v: verdict });
         }
     });
-    it('two persisted takes and two no-save probes: absence is required, not a fabricated save', async () => {
+    it('run 43214173919: four normal Stops save, while the old no-save plan rejects the same evidence', async () => {
+        const leases = ['lease-a', 'lease-b', 'lease-c', 'lease-d'];
+        const rows = leases.map((lease_id, i) => ({ id: `session-${i}`, lease_id }));
+        const bindings = { takes: rows.map(({ id }) => ({ control: 'mic-start' as const, ids: [id] })), stray: [] };
+        const admin = { from: () => ({ select: () => ({ eq: () => ({ eq: async () => ({ data: rows, error: null }) }) }) }) };
+        const check = async (plan?: readonly ('saved' | 'probe')[]) => {
+            const r = sink();
+            await probeSaveIsolationRow(r, admin as never, 'u', ['session-0', 'session-1'], bindings, leases, 4, plan);
+            return r.rows[0];
+        };
+        expect(await check()).toMatchObject({ verdict: 'PASS', evidence: { completedSessions: 4, disagree: 0 } });
+        expect(await check(['saved', 'saved', 'probe', 'probe'])).toMatchObject({ verdict: 'FAIL', detail: 'a no-save recording probe created a completed session' });
+    });
+    it('explicit no-save probes still require absence, not a fabricated save', async () => {
         const leases = ['lease-a', 'lease-b', 'lease-c', 'lease-d'];
         const plan = ['saved', 'saved', 'probe', 'probe'] as const;
         const base = { takes: [{ control: 'mic-start', ids: ['a'] }, { control: 'mic-start', ids: ['b'] },
@@ -321,5 +334,113 @@ describe('coaching contract binding (run 42938644148)', () => {
         }
         const deployed = JSON.parse(readFileSync(resolve(__dirname, '../live/helpers/deployedCoachingContract.json'), 'utf8')) as { model: string };
         expect(deployed.model).toBe('gemini-3.6-flash');
+    });
+});
+
+describe('HarnessParityTap.unsettledSaves (the cleanup\'s drain proof: saves sent and never answered)', () => {
+    const T1 = '20000000-0000-4000-8000-000000000001';
+    const T2 = '20000000-0000-4000-8000-000000000002';
+    const save = (body: unknown, status?: number | null, method = 'POST') => ({
+        url: () => 'https://xyz.supabase.co/rest/v1/rpc/complete_session_v2', method: () => method,
+        postDataJSON: () => { if (body instanceof Error) throw body; return body; },
+        response: async () => (status === undefined || status === null ? null : { status: () => status }),
+    });
+    const flush = () => new Promise((r) => setTimeout(r, 0));
+
+    it('names the take of every save sent and not yet answered; an answered save drops out', async () => {
+        const f = fakeContext();
+        const tap = new HarnessParityTap();
+        await tap.attach(f.ctx as never);
+        const a = save({ p_session_id: T1 }, 200); const b = save({ p_session_id: T2 }, 200);
+        f.emit('request', a); f.emit('request', b);
+        expect(tap.unsettledSaves).toEqual({ sessionIds: [T1, T2], unnamed: 0 });
+        f.emit('requestfinished', a); await flush();
+        expect(tap.unsettledSaves).toEqual({ sessionIds: [T2], unnamed: 0 });
+    });
+
+    it('a failed or aborted save, and a 5xx answer, stay unanswered (the server may still admit it)', async () => {
+        const f = fakeContext();
+        const tap = new HarnessParityTap();
+        await tap.attach(f.ctx as never);
+        const failed = save({ p_session_id: T1 }); const gateway = save({ p_session_id: T2 }, 504);
+        f.emit('request', failed); f.emit('requestfailed', failed);
+        f.emit('request', gateway); f.emit('requestfinished', gateway); await flush();
+        expect(tap.unsettledSaves).toEqual({ sessionIds: [T1, T2], unnamed: 0 });
+    });
+
+    it.each([301, 307, 308, 400, 408, 409, 429, 499])('an ambiguous HTTP %s response keeps the save unresolved', async (status) => {
+        const f = fakeContext();
+        const tap = new HarnessParityTap();
+        await tap.attach(f.ctx as never);
+        const refused = save({ p_session_id: T1 }, status);
+        f.emit('request', refused); f.emit('requestfinished', refused); await flush();
+        expect(tap.unsettledSaves).toEqual({ sessionIds: [T1], unnamed: 0 });
+    });
+
+    it('a save whose take cannot be read is counted as unnamed (the cleanup then closes nothing)', async () => {
+        const f = fakeContext();
+        const tap = new HarnessParityTap();
+        await tap.attach(f.ctx as never);
+        f.emit('request', save(new Error('not json')));
+        f.emit('request', save({ p_session_id: 'not-a-uuid' }));
+        f.emit('request', save(null));
+        expect(tap.unsettledSaves).toEqual({ sessionIds: [], unnamed: 3 });
+    });
+
+    it('only POSTs to complete_session_v2 are saves', async () => {
+        const f = fakeContext();
+        const tap = new HarnessParityTap();
+        await tap.attach(f.ctx as never);
+        f.emit('request', save({ p_session_id: T1 }, 200, 'GET'));
+        f.emit('request', { ...save({ p_session_id: T1 }), url: () => 'https://xyz.supabase.co/rest/v1/rpc/complete_session_v2_shadow' });
+        expect(tap.unsettledSaves).toEqual({ sessionIds: [], unnamed: 0 });
+        expect(SAVE_WRITE_URL.test('https://x.supabase.co/rest/v1/rpc/complete_session_v2?select=*')).toBe(true);
+    });
+});
+
+describe('HarnessParityTap.ownedPagesClosedAt (security review of v3, low 2: every writer context must be watched)', () => {
+    const closed = async (f: ReturnType<typeof fakeContext>, tap: HarnessParityTap) => { await tap.ownedPagesClosedRow(sink()); };
+
+    it('is the close moment once every page closed and every context of the browser is attached', async () => {
+        const f = fakeContext();
+        const browser = { contexts: () => [f.ctx] };
+        Object.assign(f.ctx, { browser: () => browser });
+        const tap = new HarnessParityTap();
+        await tap.attach(f.ctx as never);
+        expect(tap.ownedPagesClosedAt).toBeNull(); // pages still open
+        const before = Date.now();
+        await closed(f, tap);
+        expect(tap.ownedPagesClosedAt).toBeGreaterThanOrEqual(before);
+    });
+
+    it('NEGATIVE: a context in the same browser that the tap never attached withdraws the proof', async () => {
+        const f = fakeContext();
+        const unwatched = {};
+        Object.assign(f.ctx, { browser: () => ({ contexts: () => [f.ctx, unwatched] }) });
+        const tap = new HarnessParityTap();
+        await tap.attach(f.ctx as never);
+        await closed(f, tap);
+        expect(tap.ownedPagesClosedAt).toBeNull();
+    });
+
+    it('NEGATIVE: a context whose browser cannot be read (no browser, or none) proves nothing', async () => {
+        for (const browser of [undefined, () => null]) {
+            const f = fakeContext();
+            if (browser) Object.assign(f.ctx, { browser });
+            const tap = new HarnessParityTap();
+            await tap.attach(f.ctx as never);
+            await closed(f, tap);
+            expect(tap.ownedPagesClosedAt).toBeNull();
+        }
+    });
+
+    it('two attached browsers (the adverse journey\'s recovery browser) prove closed when each has only attached contexts', async () => {
+        const f = fakeContext(); const g = fakeContext();
+        Object.assign(f.ctx, { browser: () => ({ contexts: () => [f.ctx] }) });
+        Object.assign(g.ctx, { browser: () => ({ contexts: () => [g.ctx] }) });
+        const tap = new HarnessParityTap();
+        await tap.attach(f.ctx as never); await tap.attach(g.ctx as never);
+        await closed(f, tap);
+        expect(tap.ownedPagesClosedAt).not.toBeNull();
     });
 });

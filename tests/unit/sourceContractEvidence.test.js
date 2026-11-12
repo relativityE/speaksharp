@@ -442,3 +442,54 @@ test(SOURCE_ASSERTION,()=>{
   assert.equal(witness.liveExecution,'NOT RUN');
   fs.writeFileSync(binding.sourceContract.witnessFile,JSON.stringify(witness));
 });
+
+test('#1811 browser drivers select source-only contracts, detect verdict and binding faults, and never claim live execution',()=>{
+  const cases=[
+    ['tests/live/rwt-abandon-and-two-tabs.live.spec.ts','oldOwnerFence.status',"'PASS'"],
+    ['tests/live/rwt-adverse-mic-denied.live.spec.ts',"'mic-denied'","'download-fails'"],
+    ['tests/live/rwt-adverse-mic-model.live.spec.ts',"'offline-mid-download'","'download-fails'"],
+    ['tests/live/rwt-feedback-association-boundaries.live.spec.ts','inserts: insertSnapshot, reportId, storedRows','inserts: null, reportId, storedRows'],
+    ['tests/live/rwt-pending-start-navigation.live.spec.ts','recovered.status',"'PASS'"],
+    ['tests/live/rwt-save-retry-recovery.live.spec.ts','attemptsVerdict.status',"'PASS'"],
+    ['tests/live/helpers/rwtFocusPointsJourney.ts','expectedAttemptId: boundAttemptId','expectedAttemptId: null'],
+    ['tests/live/helpers/rwtAdverseJourney.ts','rows: read.rows','rows: []'],
+  ];
+  for(const [file,from,to] of cases) {
+    const source=fs.readFileSync(path.join(root,file),'utf8');
+    const route=executionRoute(file,root);
+    assert.equal(route.runner,'vitest-source-contract');assert.equal(route.applicable,true);
+    assert.equal(route.consumer,SOURCE_CONSUMER);assert.equal(route.liveExecution,'NOT RUN');
+    const witness=inspectSourceContract(root,file,source);
+    assert.equal(witness.kind,'wiring-contract');assert.equal(witness.liveExecution,'NOT RUN');
+    assert.ok(witness.detectedFaults>=3);
+    assert.ok(source.includes(from),`${file}: mutation must change actual source`);
+    assert.throws(()=>inspectSourceContract(root,file,source.replace(from,to)),/Source wiring contract failed/);
+    assert.throws(()=>inspectSourceContract(root,file,`/* ${source.replaceAll('*/','* /')} */`),/Source wiring contract failed/);
+    const importsRemoved=source.replace(/from (['"])(\.\/[^'"]+)\1/g,"from './foreign-helper'");
+    assert.notEqual(importsRemoved,source);
+    assert.throws(()=>inspectSourceContract(root,file,importsRemoved),/Source wiring contract failed/);
+  }
+});
+
+ test('billing stack registrations bind paid helper bodies and source-only runner inputs without live credit',()=>{
+assert.equal(executionRoute("tests/billing/user-journey/paidValueLoop.ts",root).runner,'vitest-helper');
+assert.equal(executionRoute("tests/billing/user-journey/paidValueLoop.ts",root).applicable,true);
+assert.equal(executionRoute("tests/billing/user-journey/localStackResources.mjs",root).runner,'vitest-helper');
+assert.equal(executionRoute("tests/billing/user-journey/localStackResources.mjs",root).applicable,true);
+assert.equal(executionRoute("tests/billing/user-journey/localStackReceipt.mjs",root).runner,'vitest-helper');
+assert.equal(executionRoute("tests/billing/user-journey/localStackReceipt.mjs",root).applicable,true);
+assert.equal(executionRoute("tests/billing/user-journey/runnerPlan.mjs",root).runner,'vitest-helper');
+assert.equal(executionRoute("tests/billing/user-journey/runnerPlan.mjs",root).applicable,true);
+assert.equal(executionRoute("tests/billing/user-journey/runnerPreflight.mjs",root).runner,'vitest-helper');
+assert.equal(executionRoute("tests/billing/user-journey/runnerPreflight.mjs",root).applicable,true);
+{const file="tests/billing/user-journey/paid-value-loop.billing.spec.ts";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
+{const file="tests/billing/user-journey/journeySteps.mjs";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
+{const file="tests/billing/user-journey/paidLoopSteps.mjs";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
+{const file="tests/billing/user-journey/sandbox-target.local.json";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
+{const file="tests/billing/user-journey/journeySteps.d.mts";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
+{const file="tests/billing/user-journey/localStackReceipt.d.mts";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
+{const file="tests/billing/user-journey/localStackResources.d.mts";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
+{const file="tests/billing/user-journey/paidLoopSteps.d.mts";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
+{const file="tests/billing/user-journey/runnerPlan.d.mts";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
+{const file="tests/billing/user-journey/runnerPreflight.d.mts";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
+});

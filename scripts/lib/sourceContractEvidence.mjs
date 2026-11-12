@@ -27,6 +27,17 @@ export const SOURCE_CONTRACTS=Object.freeze([
   BILLING_SPEC,
   BILLING_TARGET,
   BILLING_README,
+  "tests/billing/user-journey/paid-value-loop.billing.spec.ts",
+  "tests/billing/user-journey/journeySteps.mjs",
+  "tests/billing/user-journey/paidLoopSteps.mjs",
+  "tests/billing/user-journey/sandbox-target.local.json",
+  "tests/billing/user-journey/journeySteps.d.mts",
+  "tests/billing/user-journey/localStackReceipt.d.mts",
+  "tests/billing/user-journey/localStackResources.d.mts",
+  "tests/billing/user-journey/paidLoopSteps.d.mts",
+  "tests/billing/user-journey/runnerPlan.d.mts",
+  "tests/billing/user-journey/runnerPreflight.d.mts",
+
   // #1760 model comparison: operator-run harness and evaluator inputs with no unit execution of their own. Wiring, text and
   // data contracts only; the live in-app comparison, the standalone evaluator, browsers and models are NOT RUN.
   'tests/model-dropin/inAppComparison.live.spec.ts',
@@ -45,6 +56,15 @@ export const SOURCE_CONTRACTS=Object.freeze([
   'tests/evidence/fixtures/model-evaluator/product-campaign.json',
   'tests/evidence/fixtures/model-evaluator/product-campaign.parakeet-fixture-001.json',
   FIXTURE_GENERATOR,
+  // #1811: source consumption only. These browser drivers are never executed by this consumer.
+  'tests/live/rwt-abandon-and-two-tabs.live.spec.ts',
+  'tests/live/rwt-adverse-mic-denied.live.spec.ts',
+  'tests/live/rwt-adverse-mic-model.live.spec.ts',
+  'tests/live/rwt-feedback-association-boundaries.live.spec.ts',
+  'tests/live/rwt-pending-start-navigation.live.spec.ts',
+  'tests/live/rwt-save-retry-recovery.live.spec.ts',
+  'tests/live/helpers/rwtFocusPointsJourney.ts',
+  'tests/live/helpers/rwtAdverseJourney.ts',
 ]);
 const MODEL_ADAPTER='./scripts/model-evaluator/adapters/candidate-browser.ts';
 const arm=(candidateId,engine,modelId,assetDigest,runtime,backend)=>Object.freeze({kind:'json',pins:[
@@ -54,6 +74,8 @@ const arm=(candidateId,engine,modelId,assetDigest,runtime,backend)=>Object.freez
 const WAV={'fixture-001':'500dc7ab81937cab98f6b3ef4da9b29ee1093b583e1a677840ea8458b92ef247'};
 // Pinned evaluator inputs: every pin must hold exactly, and a corpus consumes each referenced WAV by digest (as the evaluator does).
 const DATA_CONTRACTS=Object.freeze({
+"tests/billing/user-journey/sandbox-target.local.json":Object.freeze({kind:"json",pins:[[["status"], "LOCAL_DISPOSABLE_STACK"], [["appOrigin"], "http://localhost:5173"], [["apiOrigin"], "http://127.0.0.1:54321"], [["productionApiOrigin"], "https://yxlapjuovrsvjswkwnrk.supabase.co"]]}),
+
   'tests/evidence/fixtures/model-evaluator/baseline-shared-v2.json':arm('v2:base.en','private-v2','Xenova/whisper-base.en',
     'c7eaa6a9f8ccacbdafce2092d8e03752e2540acf0d4d87b01aebb05f6ba1d110','@xenova/transformers@2.17.2','wasm'),
   'tests/evidence/fixtures/model-evaluator/candidate-parakeet-tdt-v3.json':arm('parakeet:tdt-v3:int8','parakeet-tdt','nvidia/parakeet-tdt-0.6b-v3',
@@ -77,6 +99,15 @@ const DATA_CONTRACTS=Object.freeze({
 });
 // Operator documentation: each required statement must appear exactly once (a raw-text wiring contract).
 const TEXT_CONTRACTS=Object.freeze({
+"tests/billing/user-journey/journeySteps.mjs":Object.freeze(["// The billing journeys and the steps each must prove. One source for the spec (via contract.ts), the workflow's\n// combined-receipt finalizer (localStackReceipt.mjs) and the runner plan (runnerPlan.mjs), so they can't drift.\nimport { PAID_LOOP_STEPS } from './paidLoopSteps.mjs';\n\n/** The three lifecycle journeys a run without a mode collects (unchanged). */\nexport const BILLING_JOURNEYS = Object.freeze(['conversion', 'renewal_recovery', 'portal_expiry']);\n/** Branches only the Stripe test-mode runner's full mode adds. Each has its own fixture, test and receipt. */\nexport const FULL_MODE_JOURNEYS = Object.freeze(['failed_checkout', 'portal_recovery', 'refund_period_end']);\nexport const RUNNER_JOURNEYS = Object.freeze([...BILLING_JOURNEYS, ...FULL_MODE_JOURNEYS]);\n/**\n * The outcome 8 paid value loop (#1822). It has its own spec, Playwright config and runner mode (`paid_loop`), so the\n * lifecycle spec never collects it and billing's verdict never depends on it, but it runs on the same disposable\n * local stack and goes through the same receipt path.\n */\nexport const PAID_LOOP_JOURNEYS = Object.freeze(['paid_value_loop']);\n/** Every journey the local-stack workflow may dispatch, and so every journey its combined receipt accepts. */\nexport const LOCAL_STACK_JOURNEYS = Object.freeze([...RUNNER_JOURNEYS, ...PAID_LOOP_JOURNEYS]);\nexport const RUNNER_MODES = Object.freeze(['smoke', 'full']);\n\nconst PAID = ['hosted_checkout', 'first_invoice', 'stripe_delivery', 'paid_entitlement'];\nexport const REQUIRED_STEPS = Object.freeze({\n  conversion: Object.freeze(['trial_granted', 'trial_expired', 'repeated_click_one_session', 'checkout_cancelled',\n    'checkout_retried', ...PAID, 'returned_to_app', 'paid_ui', 'reload', 'sign_in_again', 'next_recording', 'cleanup']),\n  renewal_recovery: Object.freeze([...PAID,\n    'renewal_paid', 'renewal_delivery', 'failure_observed', 'failure_delivery', 'access_revoked',\n    'recovery_paid', 'recovery_delivery', 'access_restored', 'cleanup']),\n  portal_expiry: Object.freeze([...PAID,\n    'portal_opened', 'portal_cancelled', 'cancellation_delivery', 'paid_until_period_end',\n    'expiry_delivery', 'account_retained', 'access_expired', 'history_retained', 'cleanup']),\n  // A declined card and an abandoned session grant nothing; a retry then converts to exactly one subscription.\n  failed_checkout: Object.freeze(['trial_expired', 'declined_checkout', 'no_access_after_decline', 'abandoned_checkout',\n    'no_access_after_abandon', ...PAID, 'single_subscription', 'cleanup']),\n  // Recovery is the customer's own act in Manage billing (the Stripe portal), not an API payment.\n  portal_recovery: Object.freeze([...PAID,\n    'failure_observed', 'failure_delivery', 'access_revoked', 'portal_opened', 'portal_payment_method_updated',\n    'recovery_paid', 'recovery_delivery', 'access_restored', 'cleanup']),\n  // Akin, 2026-11-12: refunds are full only, and \"the customer uses the balance days/time of the monthly\n  // subscription\": Pro until the period ends, then no second charge.\n  refund_period_end: Object.freeze([...PAID,\n    'refund_issued', 'refund_cancellation_scheduled', 'cancellation_delivery', 'paid_until_period_end',\n    'expiry_delivery', 'no_second_charge', 'account_retained', 'access_expired', 'history_retained', 'cleanup']),\n  // Outcome 8 (#1822) owns this list in paidLoopSteps.mjs; this file only lists it.\n  paid_value_loop: PAID_LOOP_STEPS,\n});\n\n/**\n * What a member can do once a paid membership has ended is ON HOLD (Sam, 2026-11-12) until Akin confirms the\n * end-of-access policy with Sam. These steps are never asserted and never PASSED: each receipt shows them as\n * PENDING_POLICY, and a journey holding one cannot pass. Data retention (account_retained) is not access and\n * is still proven, from the database only.\n */\nexport const PENDING_POLICY = 'PENDING_POLICY';\nexport const POLICY_PENDING_STEPS = Object.freeze({\n  portal_expiry: Object.freeze(['access_expired', 'history_retained']),\n  refund_period_end: Object.freeze(['access_expired', 'history_retained']),\n});"]),
+"tests/billing/user-journey/paidLoopSteps.mjs":Object.freeze(["// The outcome 8 paid value loop's step list (#1822). Outcome 8 owns this list; journeySteps.mjs only lists it, so\n// the spec, the workflow's combined receipt and the runner plan all read the same 17 steps.\n\n/** The four steps every paid journey proves first (the same four as the billing journeys, in the same order). */\nexport const PAID_LOOP_PAID_STEPS = Object.freeze(['hosted_checkout', 'first_invoice', 'stripe_delivery', 'paid_entitlement']);\n\n/** One paid account gets coaching, a linked repeat, a comparison and a returning sign-in. */\nexport const PAID_LOOP_STEPS = Object.freeze(['trial_expired', ...PAID_LOOP_PAID_STEPS,\n  'first_take_saved', 'first_take_eligible', 'coaching_saved', 'coaching_rendered', 'recommendation_recorded',\n  'linked_repeat_started', 'repeat_take_saved', 'repeat_resolved', 'comparison_shown',\n  'sign_in_again', 'readback', 'cleanup']);"]),
+"tests/billing/user-journey/journeySteps.d.mts":Object.freeze(["export declare const BILLING_JOURNEYS: readonly ['conversion', 'renewal_recovery', 'portal_expiry'];\nexport type BillingJourney = typeof BILLING_JOURNEYS[number];\nexport declare const FULL_MODE_JOURNEYS: readonly ['failed_checkout', 'portal_recovery', 'refund_period_end'];\nexport declare const RUNNER_JOURNEYS: readonly [...typeof BILLING_JOURNEYS, ...typeof FULL_MODE_JOURNEYS];\nexport type RunnerJourney = typeof RUNNER_JOURNEYS[number];\nexport declare const PAID_LOOP_JOURNEYS: readonly ['paid_value_loop'];\nexport declare const LOCAL_STACK_JOURNEYS: readonly [...typeof RUNNER_JOURNEYS, ...typeof PAID_LOOP_JOURNEYS];\nexport type LocalStackJourney = typeof LOCAL_STACK_JOURNEYS[number];\nexport declare const RUNNER_MODES: readonly ['smoke', 'full'];\nexport type RunnerMode = typeof RUNNER_MODES[number];\nexport declare const REQUIRED_STEPS: Readonly<Record<LocalStackJourney, readonly string[]>>;\nexport declare const PENDING_POLICY: 'PENDING_POLICY';\nexport declare const POLICY_PENDING_STEPS: Readonly<Partial<Record<LocalStackJourney, readonly string[]>>>;"]),
+"tests/billing/user-journey/localStackReceipt.d.mts":Object.freeze(["export declare const PENDING: 'PENDING_STACK_DESTRUCTION';\nexport declare const RECEIPT_KEYS: readonly string[];\nexport interface LocalStackChecks { stackStopped?: string; stackDestroyed?: string; stripeClean?: string }\nexport interface LocalStackExpected { journey?: string; release?: string; stackRun?: string; receiptSha256?: string; destruction?: unknown; identity?: unknown }\nexport interface CombinedLocalStackReceipt {\n  schema: 'billing-local-stack-combined/v3';\n  journey: string | null;\n  release: string | null;\n  stackRun: string | null;\n  rawReceiptSha256: string | null;\n  stackIdentitySha256: string | null;\n  journeyReceipt: 'PENDING_STACK_DESTRUCTION' | 'NOT_PROVEN';\n  stackStopped: 'PASSED' | 'NOT_PROVEN';\n  stackDestroyed: 'PASSED' | 'NOT_PROVEN';\n  stripeFixturesRemoved: 'PASSED' | 'NOT_PROVEN';\n  billingRowResidue: 'NOT_READ_DATABASE_DESTROYED' | 'NOT_READ_NOT_PROVEN';\n  defects: string[];\n  result: 'PASSED' | 'NOT_PROVEN';\n}\nexport declare function journeyReceiptDefects(receipt: unknown, expected: LocalStackExpected): string[];\nexport declare function destructionDefects(destruction: unknown, stackRun: string | null | undefined, identity: unknown): string[];\nexport declare function finaliseLocalStackReceipt(journeyReceipts: unknown, checks: LocalStackChecks, expected?: LocalStackExpected): CombinedLocalStackReceipt;"]),
+"tests/billing/user-journey/localStackResources.d.mts":Object.freeze(["export declare const IDENTITY_SCHEMA: 'billing-local-stack-identity/v1';\nexport declare const DESTROYED_SCHEMA: 'billing-local-stack-destroyed/v2';\nexport declare const PROJECT_PATTERN: RegExp;\nexport interface DockerAnswer { code: number; stdout: string; stderr: string }\nexport type DockerRunner = (args: string[]) => DockerAnswer;\nexport declare class StackProofError extends Error { code: string }\nexport interface StackIdentity {\n  schema: 'billing-local-stack-identity/v1'; project: string;\n  database: { container: string; volume: string; systemIdentifier: string };\n  containers: string[]; volumes: string[]; networks: string[];\n}\nexport interface StackDestroyed {\n  schema: 'billing-local-stack-destroyed/v2'; project: string; databaseSystemIdentifier: string; identitySha256: string;\n  containers: number; volumes: number; networks: number; destroyed: true;\n}\nexport declare function runDocker(args: string[]): DockerAnswer;\nexport declare function captureStackIdentity(project: string, docker?: DockerRunner): StackIdentity;\nexport declare function assertIdentityShape(identity: unknown, project: string): void;\nexport declare function stackIdentitySha256(identity: unknown, project: string): string;\nexport declare function verifyStackDestroyed(identity: unknown, project: string, docker?: DockerRunner): StackDestroyed;"]),
+"tests/billing/user-journey/paidLoopSteps.d.mts":Object.freeze(["export declare const PAID_LOOP_PAID_STEPS: readonly ['hosted_checkout', 'first_invoice', 'stripe_delivery', 'paid_entitlement'];\nexport declare const PAID_LOOP_STEPS: readonly string[];"]),
+"tests/billing/user-journey/runnerPlan.d.mts":Object.freeze(["export type RunnerPlanMode = 'smoke' | 'full' | 'paid_loop';\nexport const MODES: RunnerPlanMode[];\nexport const STRIPE_WRITE_ALLOWLIST: string[];\nexport type Reader = (path: string) => string | null;\nexport const PREREQUISITES: Record<string, { what: string; check: (read: Reader) => boolean }>;\nexport type Phase = {\n  id: string; kind: 'browser_branch'; modes: RunnerPlanMode[]; config: string; grep: string;\n  requires: string[]; steps: readonly string[]; pendingPolicySteps: readonly string[]; stripeWrites: string[];\n  testCards: string[]; events: string[]; proves: string; runtimeNeeds?: string[];\n};\nexport const PHASES: Phase[];\nexport const OPEN_QUESTIONS: string[];\nexport function readRepoFile(path: string): string | null;\nexport function workflowDispatch(read: Reader): { options: string[]; configs: Record<string, boolean> };\nexport type PlannedPhase = {\n  id: string; kind: Phase['kind']; status: 'READY' | 'BLOCKED_PREREQUISITE';\n  blockedBy: { prerequisite: string; what: string }[];\n  dispatch: { workflow: string; journey: string; config: string; grep: string; env: { BILLING_RUNNER_MODE?: string } };\n  pendingPolicySteps: readonly string[]; stripeWrites: string[]; testCards: string[]; events: string[];\n  proves: string; runtimeNeeds: string[];\n};\nexport function planRun(mode: string, read?: Reader): {\n  schema: 'billing-runner-plan/v1'; mode: RunnerPlanMode; dryRun: true; stripeCalls: 0; authorizesExecution: false;\n  result: 'READY' | 'READY_WITH_PENDING_POLICY' | 'BLOCKED_PREREQUISITE'; phases: PlannedPhase[]; openQuestions: string[];\n};\nexport type ModeEvidence = { phase: string; combined?: unknown; rawReceipt?: string | Uint8Array; destruction?: unknown; identity?: unknown };\nexport function finaliseModeReceipt(mode: string, entries: unknown, expected?: { release?: string }): {\n  schema: 'billing-runner-mode/v2'; mode: RunnerPlanMode; release: string | null; problems: string[];\n  phases: { phase: string; result: 'PASSED' | 'PENDING_POLICY' | 'NOT_PROVEN'; why: string[] }[];\n  result: 'PASSED' | 'PENDING_POLICY' | 'NOT_PROVEN';\n};"]),
+"tests/billing/user-journey/runnerPreflight.d.mts":Object.freeze(["export declare class PreflightError extends Error { code: string }\nexport declare const LOCAL_API_ORIGINS: readonly string[];\nexport declare function fingerprint(value: unknown): string;\ntype Env = Record<string, string | undefined>;\nexport declare function assertTestKeys(env: Env): void;\nexport declare function assertKeysMatchStack(env: Env): void;\nexport declare function assertLocalSupabaseKeys(env: Env): string;\nexport declare function probeLocalBackend(origin: string, anonKey: string | undefined,\n  fetchImpl: (url: string, init?: RequestInit) => Promise<{ status: number }>): Promise<void>;\nexport declare function runnerPreflight(env: Env,\n  fetchImpl?: (url: string, init?: RequestInit) => Promise<{ status: number }>): Promise<{\n  api: string; keyClass: 'test'; keysMatchStack: true; backend: 'loopback' }>;"]),
+
   'tests/model-dropin/EXECUTION.md':Object.freeze([
     'No account/session deletion or cleanup command is implemented.',
     'Evaluator binding: the collector binds take, capture and candidate identity from the',
@@ -144,6 +175,16 @@ const CASE07_SQL=Object.freeze({
 });
 // Real (non-type, unrenamed) imports a wiring contract requires; route contracts require none.
 const REQUIRED_IMPORTS=Object.freeze({
+"tests/billing/user-journey/paid-value-loop.billing.spec.ts":{module:"./paidValueLoop",names:["paidValueLoopReceipt", "assertSavedTake", "assertEligibleEvaluation", "savedCoaching", "coachingShownAsSaved", "assertRecommendation", "comparisonExpectation", "assertComparisonShown"]},
+
+  'tests/live/rwt-abandon-and-two-tabs.live.spec.ts':{module:'./helpers/rwtTwoPlaces',names:['displacedFenceVerdict','sameBrowserRefusedVerdict']},
+  'tests/live/rwt-adverse-mic-denied.live.spec.ts':{module:'./helpers/rwtAdverseJourney',names:['finalizer','fixture','runVariant']},
+  'tests/live/rwt-adverse-mic-model.live.spec.ts':{module:'./helpers/rwtAdverseJourney',names:['finalizer','fixture','runVariant']},
+  'tests/live/rwt-feedback-association-boundaries.live.spec.ts':{module:'./helpers/feedbackNoSessionCleanup',names:['noSessionWriteUncertainty']},
+  'tests/live/rwt-pending-start-navigation.live.spec.ts':{module:'./helpers/rwtPendingStartRecovery',names:['recoveryTakePlan','recoveryTakeVerdict']},
+  'tests/live/rwt-save-retry-recovery.live.spec.ts':{module:'./helpers/rwtSaveRetryAttempts',names:['completionAttemptsVerdict']},
+  'tests/live/helpers/rwtFocusPointsJourney.ts':{module:'./rwtHarnessParity',names:['probeSaveIsolationRow','numericComparisonRow','readRepeatEligibility']},
+  'tests/live/helpers/rwtAdverseJourney.ts':{module:'./rwtAdverseRecovery',names:['recoverySavedVerdict','reviewReopenVerdict']},
   [SOURCE_CONTRACTS[0]]:{module:'./canaryStopSaveOracle',names:['collectCanaryStopSave','isOwnedStopSettledInPage','startOwnerId']},
   [SOURCE_CONTRACTS[1]]:{module:'./helpers/rwtFillerReference',names:['corpusRows','crossCheckCounts','fillerAnnotationsOf','hesitationTotals']},
   [BILLING_SPEC]:{module:'./contract',names:['BILLING_JOURNEYS','receipt','requireFact','assertSandboxConfiguration',
@@ -321,6 +362,8 @@ const MODEL_WIRING=Object.freeze({
   ],
 });
 const wiring={
+"tests/billing/user-journey/paid-value-loop.billing.spec.ts":["readonly targets = assertSandboxConfiguration(env, committedTarget);", "if (useLocalStack) await runnerPreflight(env);", "requireFact(balance.livemode === false, 'stripe_account_not_test');", "assertEligibleEvaluation(evaluation, sessionId, this.uid);", "const result = paidValueLoopReceipt(run?.steps ?? new Set());", "result: status.result,", "requireFact(!stripeFailed && !accountFailed && stripeClean && !this.uncertainStripeCreate, 'cleanup_unproven');"],
+
   [BILLING_SPEC]:[
     'readonly targets = assertSandboxConfiguration(env, committedTarget);',
     "const useLocalStack = env.BILLING_SANDBOX_TARGET === 'local-disposable-stack';",
@@ -341,6 +384,51 @@ const wiring={
     "requireFact(!failed && !cleanupFailed && result.result === 'PASSED', 'journey_incomplete_see_sanitized_receipt');",
   ],
   ...MODEL_WIRING,
+  'tests/live/rwt-abandon-and-two-tabs.live.spec.ts':[
+    "const oldOwnerFence = displacedFenceVerdict({ read: await readDisplacedFence(displacedId), displacedId, takeOverId, ownerId: owner.uid });",
+    "receipt.row('displaced take is permanently fenced', oldOwnerFence.status, oldOwnerFence.detail, { ...oldOwnerFence.evidence });",
+    "receipt.row('same-browser tab is refused', local.status, local.detail,",
+  ],
+  'tests/live/rwt-adverse-mic-denied.live.spec.ts':[
+    "import { finalizer, fixture, runVariant } from './helpers/rwtAdverseJourney';",
+    "await runVariant(page, browser, testInfo, 'mic-denied');",
+    'await finalizer.drain();',
+  ],
+  'tests/live/rwt-adverse-mic-model.live.spec.ts':[
+    "import { finalizer, fixture, runVariant } from './helpers/rwtAdverseJourney';",
+    "await runVariant(page, browser, testInfo, 'download-fails');",
+    "await runVariant(page, browser, testInfo, 'offline-mid-download');",
+    'await finalizer.drain();',
+  ],
+  'tests/live/rwt-feedback-association-boundaries.live.spec.ts':[
+    'const runKeys = insertSnapshot?.keys ?? [];',
+    'const uncertainty = noSessionWriteUncertainty({ submitted: submitWindow !== null, inserts: insertSnapshot, reportId, storedRows });',
+    'const verdict = await cleanupRunReports(admin as never, owner.uid, runKeys, capturedReports, uncertainty);',
+    'await runFeedbackFaultLeg(page, tap, ledger, leg, olderId, owner.uid, legJourneys)',
+  ],
+  'tests/live/rwt-pending-start-navigation.live.spec.ts':[
+    'const plan = recoveryTakePlan(returned.settled, last?.expectedControl ?? null);',
+    'const recovered = recoveryTakeVerdict(priorIds, rows, recoveryId);',
+    "receipt.row('deliberate recovery take saved', recovered.status, recovered.detail,",
+  ],
+  'tests/live/rwt-save-retry-recovery.live.spec.ts':[
+    'const attemptsVerdict = completionAttemptsVerdict(attempts);',
+    "aliveReceipt(receipt, alive).row('completion attempts are the fault and one Retry', attemptsVerdict.status, attemptsVerdict.detail,",
+    "await runVariant(page, testInfo, 'request-lost');",
+    "await runVariant(page, testInfo, 'response-lost');",
+  ],
+  'tests/live/helpers/rwtFocusPointsJourney.ts':[
+    'await probeSaveIsolationRow(aliveReceipt(receipt, alive), admin as never, owner.uid, captured, parity.takeBindings(), parity.leaseIds, designed.length, designed)',
+    '...(boundAttemptId ? { expectedAttemptId: boundAttemptId } : {})',
+    'caseConfig: { sourceSha: expectedReleaseSha(), servedSha: served, account: { id: owner.uid } }',
+    'numericComparisonRow(receipt, result, repeatEligibility, saveTakeMs);',
+    'receipt.row(FOCUS_SAME_TARGET_ROW, sameTarget.verdict, sameTarget.detail, sameTarget.evidence);',
+  ],
+  'tests/live/helpers/rwtAdverseJourney.ts':[
+    'const verdict = recoverySavedVerdict({ variant, preconditionEstablished, attempt, savedId, rows: read.rows });',
+    'const verdict = reviewReopenVerdict({ ...seen, savedId: recovered.savedId, savedDigest: recovered.savedDigest });',
+    "receipt.row('the recovered take reopens from Analytics', verdict.status, verdict.detail,",
+  ],
   [SOURCE_CONTRACTS[0]]:[
     'const savedId = startOutcome.sessionId;',
     'const outcome = await collectCanaryStopSave(page, {',
