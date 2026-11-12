@@ -87,7 +87,7 @@ const INTEGRATION_PINS=Object.freeze({
  'product_release/ROADMAP.md':'ac4e34c689c8575883a33f9cdd15d95267c3bae42f82a9daa65f85e32b5e8fb7',
  'tests/live/rwt-open-mic-first-session.live.spec.ts':'955bef27970a423a0586f069c5ebbeb8eaf1e02ee63d9079695af8ae71ef2de6',
  '.github/workflows/cloud-test.yml':'33a0d4ee002f59946ee3e09c1b3cad9c30e26741ae3ea5a841c7f55a97c5c285',
- 'tests/unit/modelComparisonRunAuthority.test.js':'95262458ac364c96c13a2a6d7c1164a4008914a04d626078a3ef57a2588088d6',
+ 'tests/unit/modelComparisonRunAuthority.test.js':'c310510ceeb66217d09d6d7994ee703a5738e488b1206a424f7374575f3fe08b',
 });
 const SOURCE_PINS=Object.freeze({...TEST_PINS,...INTEGRATION_PINS});
 const SPECS=Object.freeze([
