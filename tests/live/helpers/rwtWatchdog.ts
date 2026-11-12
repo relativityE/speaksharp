@@ -18,6 +18,7 @@ import type { BrowserContext, Page } from '@playwright/test';
 import type { AnalyticsTap, DocumentRef, RwtReceipt, SentEvent } from './rwtJourney';
 import { documentTrackerIfAny } from './rwtDocumentIdentity';
 import { COACHING_SETTLE_BOUND_MS } from './rwtCoachingEvidence';
+import { cleanupFailureStep } from './runOwnedCleanup';
 
 /** The ONLY properties the watchdog reads from an event: every one a governed closed enum (telemetryAllowlist). */
 export const WATCHED_FIELDS: Readonly<Record<string, readonly string[]>> = Object.freeze({
@@ -775,16 +776,19 @@ export const CLEANUP_SETTLE_GRACE_MS = 10_000;
 export class OwnedCleanup<T = unknown> {
     private deletion: Promise<T> | null = null;
     private state: CleanupSettlement = 'not_started';
+    private error: unknown = undefined;
     constructor(private readonly remove: () => Promise<T>) {}
 
     get settlement(): CleanupSettlement { return this.state; }
+    /** The closed step code a failed deletion stopped at (cleanupFailureStep); null unless it failed. */
+    get failureStep(): string | null { return this.state === 'failed' ? cleanupFailureStep(this.error) : null; }
 
     run(): Promise<T> {
         if (!this.deletion) {
             this.state = 'pending';
             this.deletion = Promise.resolve().then(this.remove).then(
                 (value) => { this.state = 'deleted'; return value; },
-                (error: unknown) => { this.state = 'failed'; throw error; },
+                (error: unknown) => { this.state = 'failed'; this.error = error; throw error; },
             );
         }
         return this.deletion;
@@ -812,7 +816,10 @@ export async function finalizeOwnedCleanup<T>(steps: FinalizationSteps, receipt:
     steps.note('run-owned cleanup', settlement === 'deleted' ? 'ok' : settlement === 'failed' ? 'error' : 'timeout', { critical: true });
     if (!receipt.rows.some((r) => r.step === 'run-owned cleanup')) {
         if (settlement === 'deleted') receipt.row('run-owned cleanup', 'PASS', 'the run-owned account was deleted and residue checks passed');
-        else if (settlement === 'failed') receipt.row('run-owned cleanup', 'FAIL', 'run-owned account deletion or residue readback failed');
+        else if (settlement === 'failed') {
+            receipt.row('run-owned cleanup', 'FAIL', `run-owned account deletion or residue readback failed at step ${cleanup.failureStep ?? 'unknown'}`,
+                { failureStep: cleanup.failureStep ?? 'unknown' });
+        }
         else receipt.row('run-owned cleanup', 'FAIL', 'the run-owned account deletion did not settle within its bound, so residue is unproven');
     }
     return settlement;
