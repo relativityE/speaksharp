@@ -3,6 +3,7 @@ import Stripe from "npm:stripe@16"
 import { createClient } from "npm:@supabase/supabase-js@2"
 import { ErrorCodes, createErrorResponse, createSuccessResponse } from "../_shared/errors.ts"
 import { corsGuard, corsHeaders } from "../_shared/cors.ts"
+import { scheduleCancellationAfterRefund } from "./refund.ts"
 
 type SupabaseClient = any;
 type StripeClient = any;
@@ -119,6 +120,17 @@ export async function handler(
       case "invoice.payment_failed": {
         subscriptionId = normalizeStripeObjectId(event.data.object?.subscription);
         break;
+      }
+      case "charge.refunded": {
+        // Refund policy: keep access until the period ends, never charge again. This only schedules
+        // cancel_at_period_end in Stripe; entitlement changes solely through the subscription events Stripe
+        // then sends. No database write here.
+        const refund = await scheduleCancellationAfterRefund(stripe, event.data.object, event.id);
+        if (refund.outcome === "retry") {
+          console.error(`[Stripe Webhook] refund follow-up uncertain for ${event.id}: ${refund.reason}`);
+          return createErrorResponse(ErrorCodes.STRIPE_API_ERROR, "Refund follow-up unverified", responseHeaders);
+        }
+        return createSuccessResponse({ received: true, refund: refund.outcome }, responseHeaders);
       }
       default:
         // Not a subscription-state event — acknowledge and ignore (nothing to reconcile).
