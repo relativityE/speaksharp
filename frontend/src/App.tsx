@@ -147,9 +147,10 @@ const App: React.FC = () => {
     if (!isListening) return;
 
     // UX-NAV-1: a hard navigation (URL bar, refresh, tab close) cannot await the async
-    // Private stop→decode→save, so the in-progress transcript would be lost. We can't
-    // save the full session here, but we CAN synchronously persist a recovery draft to
-    // localStorage before the page unloads; SessionPage restores it on next load. Write
+    // Private stop→decode→save, so the in-progress transcript is lost. We can't save the
+    // full session here, but we CAN synchronously persist a CONTENT-FREE recovery draft
+    // (counts and recording state only, never transcript text: #1306) to localStorage
+    // before the page unloads, so the next load can report the interrupted take. Write
     // it in both `pagehide` (fires on real teardown, incl. bfcache) and `beforeunload`
     // (where the snapshot is freshest) — the write is idempotent and cleared on a normal
     // stop+save, so it never resurrects an already-saved session.
@@ -173,10 +174,11 @@ const App: React.FC = () => {
       if (document.visibilityState === 'hidden') flushRecoveryDraft();
     };
 
-    // Belt-and-suspenders: a throttled heartbeat persists the draft DURING recording, so a hard
-    // reload / crash recovers the latest transcript even if no unload event fires (the prior
-    // unload-only approach failed the real-auth reload proof). localStorage writes are cheap and
-    // idempotent; persistActiveRecoveryDraft no-ops until there is non-empty transcript.
+    // Belt-and-suspenders: a throttled heartbeat persists the content-free draft DURING recording,
+    // so a hard reload / crash still reports the interrupted take even if no unload event fires (the
+    // prior unload-only approach failed the real-auth reload proof). It does NOT restore transcript
+    // text (#1306; work point 2, D5). localStorage writes are cheap and idempotent;
+    // persistActiveRecoveryDraft no-ops until there is non-empty transcript.
     const heartbeat = window.setInterval(flushRecoveryDraft, 2000);
 
     window.addEventListener('beforeunload', handleBeforeUnload);

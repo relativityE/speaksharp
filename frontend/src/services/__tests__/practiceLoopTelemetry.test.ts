@@ -52,7 +52,7 @@ describe('Practice Loop review telemetry', () => {
     trackAiCoachingDiagnostic({
       diagnostic_request_id: id, diagnostic_attempt_id: id, client_attempt: 1,
       outcome: 'failure', phase: 'provider', reason: 'provider_timeout', status: 502,
-      provider_status: null, provider: 'google_gemini', configured_model: 'gemini-3.8-flash',
+      provider_status: null, provider: 'google_gemini', configured_model: 'gemini-3.6-flash',
       observed_model: null, source: 'fresh', provider_attempts: 2, retry_count: 1,
       provider_duration_ms: 40_000, total_duration_ms: 41_000, prompt_sha256: 'a'.repeat(64),
       product: 'open_mic', has_session: true, client_release_id: 'a'.repeat(40),

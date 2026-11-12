@@ -8,12 +8,72 @@ import {createHash, randomUUID} from 'node:crypto';
 import {createRequire} from 'node:module';
 import {HELPER_CONTRACTS, helperRuntimeIdentity, helperSourceBinding, helperCoverageOptions, validateHelperCoverage,normalizedHelperWorkerFunctions,validateRawHelperFunctions} from '../../scripts/lib/helperExecutionEvidence.mjs';
 import {runVitestHelperExecution,runVitestExecution,dependencyPaths} from '../../scripts/run-test-efficacy.mjs';
-import {executionContext, validateVitestExecution,executionRoute,executionCoverage,changedEvidencePaths,readCurrentQuality} from '../../scripts/lib/testExecutionEvidence.mjs';
+import {executionContext, validateVitestExecution,executionRoute,executionCoverage,changedEvidencePaths,readCurrentQuality,selectExecutionContracts} from '../../scripts/lib/testExecutionEvidence.mjs';
 import {TEST_EFFICACY_CONTRACTS,MEANINGFUL_COVERAGE_MANIFEST} from '../../scripts/lib/softwareQualityEvidenceQualification.mjs';
 const {test} = process.env.NODE_TEST_CONTEXT ? await import('node:test') : await import('vitest');
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const contract = HELPER_CONTRACTS[0];
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+
+const AHT1811_HELPERS=[
+  ['tests/live/helpers/feedbackAttemptLedger.ts','tests/unit/feedbackBoundedWrites.test.ts',["stableDraftSha","capDecision","isNamedIdempotencyReplay","syntheticRejection","feedbackCapVerdict","feedbackLedgerVerdict","stickyFinalVerdict","writeFeedbackAttemptRows","feedbackLegRecovered","feedbackLegRows","finalIsolationVerdict","withoutFaultLegSubmits"]],
+  ['tests/live/helpers/feedbackDiagnosticRef.ts','tests/unit/feedbackDiagnosticRef1539.test.ts',["readStoredDiagnosticRef","noSessionBindingVerdict","olderTakeBindingVerdict","classifyInsertBody","writeNoSessionReportRows","writeOlderTakeReportRows","writeOlderTakeBindingRow"]],
+  ['tests/live/helpers/feedbackNoSessionCleanup.ts','tests/unit/feedbackNoSessionCleanup.test.ts',["noSessionWriteUncertainty"]],
+  ['tests/live/helpers/feedbackRecoveryInventory.ts','tests/unit/feedbackBoundedWrites.test.ts',["verifyRecoveryStore","recoveryFileName","recordDurably","settleRecoveryInventory","readRecoveryInventory","unresolvedAttempts","recoverFromInventory"]],
+  ['tests/live/helpers/feedbackReportCleanup.ts','tests/unit/feedbackBoundedWrites.test.ts',["mergeCapture","captureRunReports","writeUncertainty","zeroResidueVerdict","cleanupRunReports","zeroResidueNotRun"]],
+  ['tests/live/helpers/rwtAdverseRecovery.ts','tests/unit/rwtAdverseRecovery.test.ts',["isRecoveryControl","retrySetupOutcome","recoverySavedVerdict","savedTranscriptDigest","reviewReopenVerdict","modelBytesSeen","midDownloadFailureVerdict"]],
+  ['tests/live/helpers/rwtFocusEditCancel.ts','tests/unit/rwtFocusEditCancel.test.ts',["editCancelVerdict"]],
+  ['tests/live/helpers/rwtFocusNextMarker.ts','tests/unit/rwtFocusNextMarker.test.ts',["expectedNextMarker","nextPointMarkedVerdict","sampleFocusRail"]],
+  ['tests/live/helpers/rwtFocusOpenMicIsolation.ts','tests/unit/rwtFocusOpenMicIsolation.test.ts',["openMicIsolationVerdict"]],
+  ['tests/live/helpers/rwtFocusPresentation.ts','tests/unit/rwtFocusPresentation.test.ts',["focusPresentationRow","focusSignInRow"]],
+  ['tests/live/helpers/rwtFocusSameTarget.ts','tests/unit/rwtFocusSameTarget.test.ts',["instructionHash","focusSetHash","pointHash","decidingRead","displayedTargetMatches","focusSameTargetVerdict","readTargetInPage"]],
+  ['tests/live/helpers/rwtFocusSaveIsolation.ts','tests/unit/rwtFocusSaveIsolation.test.ts',["focusDesignedSaves","focusCapturedTakes"]],
+  ['tests/live/helpers/rwtFocusTakesDiffer.ts','tests/unit/rwtFocusTakesDiffer.test.ts',["focusTakesDifferRow"]],
+  ['tests/live/helpers/rwtLeaveDestinationReady.ts','tests/unit/rwtLeaveDestinationReady.test.ts',["onFocusDestination","leaveDestinationReady","waitForLeaveDestinationReady"]],
+  ['tests/live/helpers/rwtNavigationRows.ts','tests/unit/rwtNavigationRows.test.ts',["sessionFactsFromRows","sessionWritesVerdict","historyPreservedVerdict","deepLinkTarget","listedOwnTarget","returnEntryMicVerdict","renderedOwnDetailVerdict","renderedOwnDetailRow"]],
+  ['tests/live/helpers/rwtPendingStartRecovery.ts','tests/unit/rwtPendingStartRecovery.test.ts',["recoveryTakePlan","recoveryTakeVerdict"]],
+  ['tests/live/helpers/rwtSaveRetryAttempts.ts','tests/unit/rwtSaveRetryAttempts.test.ts',["parseCompletionAttempt","attemptEvidence","completionAttemptsVerdict","exactRetrySaveVerdict","reviewReopenVerdict","transcriptDigest"]],
+  ['tests/live/helpers/rwtTwoPlaces.ts','tests/unit/rwtTwoPlaces.test.ts',["sameBrowserRefusedVerdict","displacedFenceVerdict"]],
+];
+test('AHT-02 through AHT-15 helpers select exact offline callable consumers on helper-only changes',()=>{
+  for(const [helperFile,testFile,callables] of AHT1811_HELPERS) {
+    const contract=HELPER_CONTRACTS.find(item=>item.helperFile===helperFile);
+    assert.deepEqual(contract,{helperFile,testFile,callables});
+    assert.equal(executionRoute(helperFile,root).runner,'vitest-helper');
+    assert.equal(executionRoute(helperFile,root).applicable,true);
+    const selected=selectExecutionContracts(root,[helperFile],{helpersOnly:true});
+    assert.equal(selected.length,1);
+    assert.equal(selected[0].testFile,testFile);
+    assert.deepEqual(selected[0].callables,callables);
+  }
+  assert.equal(HELPER_CONTRACTS.some(item=>item.helperFile==='tests/live/helpers/rwtFocusPointsJourney.ts'),false,
+    'source-reviewed journey must not acquire live execution credit');
+  assert.equal(HELPER_CONTRACTS.some(item=>item.helperFile==='tests/live/helpers/rwtAdverseJourney.ts'),false,
+    'source-reviewed journey must not acquire live execution credit');
+});
+test('AHT helper qualification refuses missing consumer and missing callable for every added edge',()=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'aht-helper-routes-'));
+  try {
+    fs.writeFileSync(path.join(directory,'package.json'),'{"type":"module"}');
+    fs.symlinkSync(path.join(root,'node_modules'),path.join(directory,'node_modules'),'dir');
+    for(const [helperFile,testFile,callables] of AHT1811_HELPERS) {
+      const helper=path.join(directory,helperFile),consumer=path.join(directory,testFile);
+      fs.mkdirSync(path.dirname(helper),{recursive:true});fs.mkdirSync(path.dirname(consumer),{recursive:true});
+      const source=fs.readFileSync(path.join(root,helperFile),'utf8');
+      fs.writeFileSync(helper,source);fs.writeFileSync(consumer,fs.readFileSync(path.join(root,testFile)));
+      assert.equal(executionRoute(helperFile,directory).applicable,true);
+      fs.unlinkSync(consumer);
+      assert.equal(executionRoute(helperFile,directory).applicable,false);
+      fs.writeFileSync(consumer,fs.readFileSync(path.join(root,testFile)));
+      const name=callables[0];
+      const mutant=source.replaceAll(name,name+'Removed');
+      assert.notEqual(mutant,source);
+      fs.writeFileSync(helper,mutant);
+      assert.equal(executionRoute(helperFile,directory).applicable,false);
+    }
+  } finally {fs.rmSync(directory,{recursive:true,force:true});}
+});
+
 
 test('registers explicit canary and reader callable consumers without a generic helper exemption',()=>{
   for(const [helperFile,testFile] of [
@@ -23,10 +83,12 @@ test('registers explicit canary and reader callable consumers without a generic 
     ['tests/live/helpers/rwtOracles.ts','tests/unit/rwtReadbackBindingReasons1258.test.ts'],
     ['tests/live/helpers/rwtStepDiagnostics.ts','tests/unit/rwtStepDiagnostics1258.test.ts'],
     ['tests/live/helpers/rwtFillerReference.ts','tests/unit/rwtFillerReference1258.test.ts'],
+    ['tests/live/helpers/rwtInterruptedRunRecovery.ts','tests/unit/rwtInterruptedRunRecovery1258.test.ts'],
     ['tests/live/helpers/returningSignInAttempt.ts','tests/unit/returningSignInAttempt1495.test.ts'],
     ['tests/live/helpers/repeatMetricWording.ts','tests/unit/repeatMetricWording1548.test.ts'],
     ['tests/db/c1CatalogStages.js','tests/unit/exactMigrationGate.test.js'],
     ['tests/live/helpers/rwtDocumentIdentity.ts','tests/unit/rwtWatchdog1593.test.ts'],
+    ['tests/evidence/sttReliabilityScore.ts','tests/evidence/__tests__/sttReliabilityScore.test.ts'],
   ]) {
     const found=HELPER_CONTRACTS.find(item=>item.helperFile===helperFile);
     assert.equal(found?.testFile,testFile,`${helperFile} requires its actual consumer`);
@@ -462,6 +524,34 @@ if(process.env.GITHUB_ACTIONS==='true'||process.env.TEST_EFFICACY_REAL_RUNTIME==
       }
     } finally {f.clean();}
   });
+  test('INSTALLED .mjs helper: real calls qualify through the producer, an uncalled callable refuses',()=>{
+    // qualification.mjs is a registered helper; a .js/.ts-only coverage extension list never instruments it.
+    const selected=HELPER_CONTRACTS.find(item=>item.helperFile.endsWith('.mjs'));
+    assert.ok(selected,'a registered .mjs helper exists');
+    const f=fixture();
+    const consumer=calls=>`import {test,expect} from 'vitest';\nimport {${selected.callables.join(',')}} from './${path.basename(selected.helperFile)}';\n`
+      +selected.callables.map(name=>`test('${name} returns the expected sum',()=>expect(${calls.includes(name)?`${name}(2,3)`:'2+3'}).toBe(5));`).join('\n')+'\n';
+    try {
+      f.write(selected.helperFile,selected.callables.map(name=>`export function ${name}(a = 2, b = 3) { return a + b; }`).join('\n')+'\n');
+      f.write(selected.testFile,consumer(selected.callables));
+      const run=()=>{
+        const expected=executionContext(f.directory,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
+        const receipt=runVitestHelperExecution({root:f.directory,base:f.git(['rev-parse','HEAD']),provenance:expected});
+        assert.deepEqual([...validateVitestExecution(receipt,expected,f.directory)].sort(),[contract.helperFile,selected.helperFile].sort());
+        return receipt;
+      };
+      const receipt=run();
+      const phase=receipt.tests.find(item=>item.helperFile===selected.helperFile).phase;
+      assert.deepEqual(phase.helperCoverage.validated.executed.map(item=>item.name),selected.callables);
+      assert.ok(phase.helperCoverage.validated.executed.every(item=>item.count===1));
+      f.write(selected.testFile,consumer(selected.callables.slice(1)));
+      assert.throws(run,error=>{
+        assert.match(error.message,new RegExp(`Uncalled helper: ${selected.callables[0]}|Helper remapped callable not executed: ${selected.callables[0]}`));
+        assert.equal(error.diagnostics.status,0,'a passing consumer that never calls the helper is insufficient');
+        return true;
+      });
+    } finally {f.clean();}
+  });
   test('INSTALLED typed arrow spans bind only the parameter/declaration and terminal-semicolon boundaries',()=>{
     const f=fixture();
     try {
@@ -475,6 +565,35 @@ if(process.env.GITHUB_ACTIONS==='true'||process.env.TEST_EFFICACY_REAL_RUNTIME==
         raw.conversions[0].converted=structuredClone(raw.report);
         assert.throws(()=>validateHelperCoverage(raw,receipt.tests[0].phase.binding,f.directory),/Invalid remapped callable span/);
       }
+    } finally {f.clean();}
+  });
+  test('INSTALLED variable-annotated block arrows end exactly at the terminal semicolon; other ends and uncalled arrows refuse',()=>{
+    // Shape of the registered offline-control-adapter: `export const createAdapter:AdapterFactory=context=>{...};`.
+    const f=fixture();
+    try {
+      f.write(contract.helperFile,'type Sum=(a?: number,b?: number)=>number;\n'
+        +contract.callables.map(name=>`export const ${name}:Sum=(a=2,b=3)=>{\n  return a + b;\n};`).join('\n')+'\n');
+      const run=()=>{
+        const expected=executionContext(f.directory,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
+        const receipt=runVitestHelperExecution({root:f.directory,base:f.git(['rev-parse','HEAD']),provenance:expected});
+        assert.deepEqual([...validateVitestExecution(receipt,expected,f.directory)],[contract.helperFile]);
+        return receipt;
+      };
+      const receipt=run();
+      const executed=receipt.tests[0].phase.helperCoverage.validated.executed;
+      assert.deepEqual(executed.map(item=>item.name),contract.callables);
+      const source=fs.readFileSync(path.join(f.directory,contract.helperFile),'utf8').split('\n');
+      for(const item of executed) assert.equal(source[item.remapped.loc.end.line-1].slice(0,item.remapped.loc.end.column),'};');
+      // The body end (one column earlier) and one past the statement are both refused by the exact raw-range replay.
+      for(const alter of [loc=>{loc.end.column--;},loc=>{loc.end.column++;},loc=>{loc.start.column++;}]) {
+        const raw=structuredClone(receipt.tests[0].phase.helperCoverage.raw);
+        const filename=Object.keys(raw.report)[0];alter(raw.report[filename].fnMap['0'].loc);
+        raw.conversions[0].converted=structuredClone(raw.report);
+        assert.throws(()=>validateHelperCoverage(raw,receipt.tests[0].phase.binding,f.directory),/Invalid remapped callable span/);
+      }
+      f.write(contract.testFile,`import {test,expect} from 'vitest';\nimport {${contract.callables.join(',')}} from '../live/helpers/rwtMarkerObserver';\n`
+        +contract.callables.map((name,index)=>`test('${name}',()=>expect(${index?`${name}(2,3)`:'2+3'}).toBe(5));`).join('\n')+'\n');
+      assert.throws(run,new RegExp(`Uncalled helper: ${contract.callables[0]}|Helper remapped callable not executed: ${contract.callables[0]}`));
     } finally {f.clean();}
   });
   test('INSTALLED async declarations require the exact mapped declaration boundary',()=>{

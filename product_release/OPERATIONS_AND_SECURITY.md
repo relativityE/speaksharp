@@ -113,7 +113,7 @@ Many `secrets.*` are non-secret config over-classified as Secrets; a small numbe
 
 | Name | Storage / consumer | Meaning / ownership |
 |---|---|---|
-| `PRODUCTION_RELEASE_SHA` | Home D: **repository Actions Variable**, consumed as `vars.PRODUCTION_RELEASE_SHA`; non-secret, full 40-character Git commit SHA | Last successfully promoted and independently read-back **served frontend release**. App is the selected release operator; an operator with separately authorized repository-variable write access maintains this binding. It is not the latest unserved `main` SHA or a frontend runtime secret. |
+| `PRODUCTION_RELEASE_SHA` | **Retired** (repository Actions Variable; no workflow reads it) | The scheduled canary now reads the served release from production's `window.__APP_RELEASE__` at run time and accepts it only once GitHub confirms it is a commit on `main` (RELEASE_PROCESS.md §5.1). An existing value is inert and may be deleted by an operator with repository-variable access. |
 
 This is the required configuration contract for the selected default-off release policy,
 not evidence that a variable exists or that the policy has been installed. Before use,

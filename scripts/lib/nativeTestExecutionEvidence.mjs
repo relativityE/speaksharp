@@ -16,6 +16,15 @@ export const SQL_INPUTS=Object.freeze([
   'backend/supabase/migrations/20261027192550_account_completion_billing_settlement.sql',
   'tests/db/account-completion-billing-full-chain-invariants.sql',
 ]);
+export const SQL_CONTRACTS=Object.freeze([
+  Object.freeze({consumer:SQL_CONSUMER,files:SQL_INPUTS}),
+  Object.freeze({consumer:'tests/db/account-coaching-expiry-proposal.integration.test.ts',
+    files:Object.freeze(['backend/supabase/migrations/20261110173548_account_coaching_local_retirement.sql'])}),
+  // #1829 refund follow-up signal: the migration runs in PGlite with Supabase's API roles mirrored.
+  Object.freeze({consumer:'tests/unit/stripeRefundFollowups.test.ts',
+    files:Object.freeze(['backend/supabase/migrations/20261112130000_stripe_refund_followups.sql'])}),
+]);
+export const sqlContract=file=>SQL_CONTRACTS.find(item=>item.files.includes(file));
 export const NATIVE_HELPERS=Object.freeze([
   {file:'tests/db/account-closure-full-chain.mjs',consumer:'tests/db/account-closure-full-chain-main-u1-plan.test.mjs',
     callables:['buildMainU1ReplayPlan','parseMainProofArguments'],claim:'actual planner callables only; Docker replay NOT RUN'},
@@ -35,6 +44,12 @@ export const NATIVE_HELPERS=Object.freeze([
   // A change to the R10 preflight script alone must still run its test, including the spawned CLI entry (run 42059286564).
   {file:'tools/cloud-test/scripts/prerequisite_preflight.cjs',consumer:'tools/cloud-test/tests/prerequisite-preflight.test.cjs',
     callables:['prepare','charge'],claim:'actual preflight callables and script entry with a synthetic fetch; hosted step, credentials and Supabase NOT RUN'},
+  // #1760 model comparison runner helpers: the real host-lock barrier, cleanup and launch-ownership code in temporary directories.
+  {file:'tests/model-dropin/ownedCleanup.mjs',consumer:'tests/model-dropin/ownedCleanup.node.test.mjs',
+    callables:['createCleanupBarrier','awaitOwnedCleanup','launchOwned'],
+    claim:'actual cleanup barrier, owned-process cleanup and launch-ownership callables with real child processes; browser and live run NOT RUN'},
+  {file:'tests/model-dropin/identityExclusion.mjs',consumer:'tests/model-dropin/identityExclusion.node.test.mjs',
+    callables:['assertNotMaintainedIdentity'],claim:'actual maintained-identity refusal with synthetic identifiers; credentials and accounts NOT RUN'},
 ]);
 const fail=message=>{throw new Error(message);};
 function regular(root,file) {
@@ -47,7 +62,9 @@ export const nativeHelper=file=>NATIVE_HELPERS.find(item=>item.file===file);
 export function nativeTestRoute(file,root) {
   const helper=nativeHelper(file);
   if(helper)return {runner:'node-test-helper',consumer:helper.consumer,claim:helper.claim};
-  if(SQL_INPUTS.includes(file))return {runner:'vitest-sql',consumer:SQL_CONSUMER,claim:'actual SQL consumed in PGlite fixture; native database NOT RUN'};
+  if(sqlContract(file))return {runner:'vitest-sql',consumer:sqlContract(file).consumer,claim:'actual SQL consumed in PGlite fixture; native database NOT RUN'};
+  if(file==='tests/db/account-coaching-local-fence.realpg.mjs'&&fs.existsSync(path.join(root,file))
+    &&/\bfrom\s+['"]node:test['"]/.test(fs.readFileSync(regular(root,file),'utf8')))return {runner:'node-test',consumer:file};
   if(/^backend\/supabase\/functions\/.*(?:\.test|_test)\.ts$/.test(file))return {runner:'deno',consumer:file};
   if(/\.test\.mjs$/.test(file)&&fs.existsSync(path.join(root,file))&&/\bfrom\s+['"]node:test['"]/.test(fs.readFileSync(regular(root,file),'utf8')))return {runner:'node-test',consumer:file};
   // The reviewed cloud-test package only: its CommonJS controls run under node:test. A .cjs that never
@@ -179,6 +196,75 @@ const coachingProfiles=Object.freeze([
     'backend/supabase/functions/get-ai-suggestions/providerDecode.ts':'ecc8034bd53bd6b3b88dcbb981a6bf29be8c85d08cd031d0483e2d083e10d2a2',
     [coachingTest]:'f7a86245794090b3b85d48aa6166fee1af6eee6c5840cefb6e1fa173a4a97995',
     'backend/supabase/functions/get-ai-suggestions/contract.json':'7398a3f7910eaab3d76ee2639989851a59c2b5a95996d99a726108ac33eec4e2',
+    'backend/supabase/functions/get-ai-suggestions/providers/catalog.ts':'59d4a83989239a71085415d9fc3eaa8b3145786db085c8de8abe35cd052eaac1',
+    'backend/supabase/functions/get-ai-suggestions/providers/gemini.ts':'dac0b17ee31b82dcbeaf01b7496013e093246843af56bb7382ae5d40f6f3f963',
+    'backend/supabase/functions/get-ai-suggestions/providers/registry.ts':'e5744505a502ecc525a3604dfa8fa687a03dc18a33b9ef9aa9080d4df12571f7',
+    'backend/supabase/functions/get-ai-suggestions/providers/types.ts':'f401085b1542bc07b514f793e1b557886ab11f72442313e8c85d89823999d0cb',
+    'backend/supabase/functions/get-ai-suggestions/evaluation/prompt.ts':'16d40c6b1500b535bf45e0d1d07699ab509f68879c39586cf8ebd4363c7f92ee',
+    'backend/supabase/functions/get-ai-suggestions/evaluation/transcripts.json':'a4db4fdac8c4e2bd6c113d83c87ed458eac6197d99b1ccc747822bfad52b9a1a'}},
+  // #1760 after #1792: the LLM evaluator parity closure, with #1760's package.json (its model:import / model:stage-adoption
+  // scripts). Every other pin is exactly coaching-llm-evaluator-parity's.
+  {id:'coaching-llm-evaluator-parity-model-scripts-1760',files:{...coachingClosure,
+    'package.json':'afaad509e196b4cf0d784a55b47d3f17e51409dcd91d9d7f6a2e341b175eb0ed',
+    'backend/supabase/functions/get-ai-suggestions/index.ts':'6216addf51bbf99e4c961f79b2ebbe9eba4d24bd4527a311c71c3fff747be877',
+    'backend/supabase/functions/get-ai-suggestions/providerDecode.ts':'ecc8034bd53bd6b3b88dcbb981a6bf29be8c85d08cd031d0483e2d083e10d2a2',
+    [coachingTest]:'f7a86245794090b3b85d48aa6166fee1af6eee6c5840cefb6e1fa173a4a97995',
+    'backend/supabase/functions/get-ai-suggestions/contract.json':'7398a3f7910eaab3d76ee2639989851a59c2b5a95996d99a726108ac33eec4e2',
+    'backend/supabase/functions/get-ai-suggestions/providers/catalog.ts':'59d4a83989239a71085415d9fc3eaa8b3145786db085c8de8abe35cd052eaac1',
+    'backend/supabase/functions/get-ai-suggestions/providers/gemini.ts':'dac0b17ee31b82dcbeaf01b7496013e093246843af56bb7382ae5d40f6f3f963',
+    'backend/supabase/functions/get-ai-suggestions/providers/registry.ts':'e5744505a502ecc525a3604dfa8fa687a03dc18a33b9ef9aa9080d4df12571f7',
+    'backend/supabase/functions/get-ai-suggestions/providers/types.ts':'f401085b1542bc07b514f793e1b557886ab11f72442313e8c85d89823999d0cb',
+    'backend/supabase/functions/get-ai-suggestions/evaluation/prompt.ts':'16d40c6b1500b535bf45e0d1d07699ab509f68879c39586cf8ebd4363c7f92ee',
+    'backend/supabase/functions/get-ai-suggestions/evaluation/transcripts.json':'a4db4fdac8c4e2bd6c113d83c87ed458eac6197d99b1ccc747822bfad52b9a1a'}},
+  // #1802: 35 s attempt cap within the unchanged 45 s total provider budget; deterministic handler controls.
+  {id:'coaching-attempt-35s-1802',files:{...coachingClosure,
+    'backend/supabase/functions/get-ai-suggestions/providerRetry.ts':'dff7b40f6755d96f3fb22bcfa739d8fd5214d99e5c402d49a9cabd1a43b6d30f',
+    'package.json':'afaad509e196b4cf0d784a55b47d3f17e51409dcd91d9d7f6a2e341b175eb0ed',
+    'backend/supabase/functions/get-ai-suggestions/index.ts':'6216addf51bbf99e4c961f79b2ebbe9eba4d24bd4527a311c71c3fff747be877',
+    'backend/supabase/functions/get-ai-suggestions/providerDecode.ts':'ecc8034bd53bd6b3b88dcbb981a6bf29be8c85d08cd031d0483e2d083e10d2a2',
+    [coachingTest]:'520b6c61f6640aac7f79cd1b82eddbee115790fcb56b1ca4073c3545046403da',
+    'backend/supabase/functions/get-ai-suggestions/contract.json':'7398a3f7910eaab3d76ee2639989851a59c2b5a95996d99a726108ac33eec4e2',
+    'backend/supabase/functions/get-ai-suggestions/providers/catalog.ts':'59d4a83989239a71085415d9fc3eaa8b3145786db085c8de8abe35cd052eaac1',
+    'backend/supabase/functions/get-ai-suggestions/providers/gemini.ts':'dac0b17ee31b82dcbeaf01b7496013e093246843af56bb7382ae5d40f6f3f963',
+    'backend/supabase/functions/get-ai-suggestions/providers/registry.ts':'e5744505a502ecc525a3604dfa8fa687a03dc18a33b9ef9aa9080d4df12571f7',
+    'backend/supabase/functions/get-ai-suggestions/providers/types.ts':'f401085b1542bc07b514f793e1b557886ab11f72442313e8c85d89823999d0cb',
+    'backend/supabase/functions/get-ai-suggestions/evaluation/prompt.ts':'16d40c6b1500b535bf45e0d1d07699ab509f68879c39586cf8ebd4363c7f92ee',
+    'backend/supabase/functions/get-ai-suggestions/evaluation/transcripts.json':'a4db4fdac8c4e2bd6c113d83c87ed458eac6197d99b1ccc747822bfad52b9a1a'}},
+  // #1643: reviewed local retirement handler and tests; all other import/config pins remain unchanged.
+  {id:'coaching-local-retirement-1643',files:{...coachingClosure,
+    'package.json':'afaad509e196b4cf0d784a55b47d3f17e51409dcd91d9d7f6a2e341b175eb0ed',
+    'backend/supabase/functions/get-ai-suggestions/index.ts':'a0d5d30397c08440831f1d25022754886bc16cce75e76309014c435a9096196e',
+    'backend/supabase/functions/get-ai-suggestions/providerDecode.ts':'ecc8034bd53bd6b3b88dcbb981a6bf29be8c85d08cd031d0483e2d083e10d2a2',
+    [coachingTest]:'09e7282279210d5dbedb0cb4c49711cdb4f43cc619d34cb489390f0d1d80ff15',
+    'backend/supabase/functions/get-ai-suggestions/contract.json':'7398a3f7910eaab3d76ee2639989851a59c2b5a95996d99a726108ac33eec4e2',
+    'backend/supabase/functions/get-ai-suggestions/providers/catalog.ts':'59d4a83989239a71085415d9fc3eaa8b3145786db085c8de8abe35cd052eaac1',
+    'backend/supabase/functions/get-ai-suggestions/providers/gemini.ts':'dac0b17ee31b82dcbeaf01b7496013e093246843af56bb7382ae5d40f6f3f963',
+    'backend/supabase/functions/get-ai-suggestions/providers/registry.ts':'e5744505a502ecc525a3604dfa8fa687a03dc18a33b9ef9aa9080d4df12571f7',
+    'backend/supabase/functions/get-ai-suggestions/providers/types.ts':'f401085b1542bc07b514f793e1b557886ab11f72442313e8c85d89823999d0cb',
+    'backend/supabase/functions/get-ai-suggestions/evaluation/prompt.ts':'16d40c6b1500b535bf45e0d1d07699ab509f68879c39586cf8ebd4363c7f92ee',
+    'backend/supabase/functions/get-ai-suggestions/evaluation/transcripts.json':'a4db4fdac8c4e2bd6c113d83c87ed458eac6197d99b1ccc747822bfad52b9a1a'}},
+  // Coaching model back to gemini-3.6-flash (3.8 answers 503 "high demand"): only the contract's model and the test's pinned
+  // model literals change. Every other pin is exactly coaching-local-retirement-1643's; key policy unchanged.
+  {id:'coaching-model-gemini-3-6-flash',files:{...coachingClosure,
+    'package.json':'afaad509e196b4cf0d784a55b47d3f17e51409dcd91d9d7f6a2e341b175eb0ed',
+    'backend/supabase/functions/get-ai-suggestions/index.ts':'a0d5d30397c08440831f1d25022754886bc16cce75e76309014c435a9096196e',
+    'backend/supabase/functions/get-ai-suggestions/providerDecode.ts':'ecc8034bd53bd6b3b88dcbb981a6bf29be8c85d08cd031d0483e2d083e10d2a2',
+    [coachingTest]:'6ccd7e9a387aced2745b291ba2ee6dab54feea0196975a0d3d0b36d22e8ccbfc',
+    'backend/supabase/functions/get-ai-suggestions/contract.json':'70c3099769cf24ac4faf3b4c191e322e50a0f1b34228a3aa72199a8f06adbe1b',
+    'backend/supabase/functions/get-ai-suggestions/providers/catalog.ts':'59d4a83989239a71085415d9fc3eaa8b3145786db085c8de8abe35cd052eaac1',
+    'backend/supabase/functions/get-ai-suggestions/providers/gemini.ts':'dac0b17ee31b82dcbeaf01b7496013e093246843af56bb7382ae5d40f6f3f963',
+    'backend/supabase/functions/get-ai-suggestions/providers/registry.ts':'e5744505a502ecc525a3604dfa8fa687a03dc18a33b9ef9aa9080d4df12571f7',
+    'backend/supabase/functions/get-ai-suggestions/providers/types.ts':'f401085b1542bc07b514f793e1b557886ab11f72442313e8c85d89823999d0cb',
+    'backend/supabase/functions/get-ai-suggestions/evaluation/prompt.ts':'16d40c6b1500b535bf45e0d1d07699ab509f68879c39586cf8ebd4363c7f92ee',
+    'backend/supabase/functions/get-ai-suggestions/evaluation/transcripts.json':'a4db4fdac8c4e2bd6c113d83c87ed458eac6197d99b1ccc747822bfad52b9a1a'}},
+  // #1802 revision: 15 s attempt cap on top of the 3.6-flash contract and #1643 handler (main fbd164cd); preserve the historical 35 s profile and all permissions.
+  {id:'coaching-attempt-15s-1802',files:{...coachingClosure,
+    'backend/supabase/functions/get-ai-suggestions/providerRetry.ts':'eda8685f3f005e3cb774c54cadf8a04e43bb483d68c7a31130fd268b06ff7820',
+    'package.json':'afaad509e196b4cf0d784a55b47d3f17e51409dcd91d9d7f6a2e341b175eb0ed',
+    'backend/supabase/functions/get-ai-suggestions/index.ts':'a0d5d30397c08440831f1d25022754886bc16cce75e76309014c435a9096196e',
+    'backend/supabase/functions/get-ai-suggestions/providerDecode.ts':'ecc8034bd53bd6b3b88dcbb981a6bf29be8c85d08cd031d0483e2d083e10d2a2',
+    [coachingTest]:'5b7fc6eddc9e179dc45f478369b2c322ceee199a95c4d8445cc0edeb5c5147be',
+    'backend/supabase/functions/get-ai-suggestions/contract.json':'70c3099769cf24ac4faf3b4c191e322e50a0f1b34228a3aa72199a8f06adbe1b',
     'backend/supabase/functions/get-ai-suggestions/providers/catalog.ts':'59d4a83989239a71085415d9fc3eaa8b3145786db085c8de8abe35cd052eaac1',
     'backend/supabase/functions/get-ai-suggestions/providers/gemini.ts':'dac0b17ee31b82dcbeaf01b7496013e093246843af56bb7382ae5d40f6f3f963',
     'backend/supabase/functions/get-ai-suggestions/providers/registry.ts':'e5744505a502ecc525a3604dfa8fa687a03dc18a33b9ef9aa9080d4df12571f7',
@@ -488,14 +574,18 @@ export function validateNativeCallables(raw,binding,root,helpers) {
   }
   return credited;
 }
-export function sqlSourceBinding(root) {
-  return SQL_INPUTS.map(file=>({file,sha256:hash(fs.readFileSync(regular(root,file)))}));
+export function sqlSourceBinding(root,consumer=SQL_CONSUMER) {
+  const contract=SQL_CONTRACTS.find(item=>item.consumer===consumer);
+  if(!contract)fail('Unregistered SQL consumer');
+  return contract.files.map(file=>({file,sha256:hash(fs.readFileSync(regular(root,file)))}));
 }
 export function validateSqlWitness(raw,binding,root) {
-  const consumed=sqlSourceBinding(root).map(item=>({...item,beforeSha256:item.sha256,afterSha256:item.sha256}));
+  const consumer=binding.testFile&&path.isAbsolute(binding.testFile)
+    ?path.relative(binding.cwd,binding.testFile):binding.testFile??SQL_CONSUMER;
+  const consumed=sqlSourceBinding(root,consumer).map(item=>({...item,beforeSha256:item.sha256,afterSha256:item.sha256}));
   if(raw?.schemaVersion!==1||raw.phaseId!==binding.phaseId||raw.bindingSha256!==hash(JSON.stringify(binding))
-    ||raw.consumer!==SQL_CONSUMER||JSON.stringify(raw.consumed)!==JSON.stringify(consumed))fail('Missing, stale or changed-SQL consumption witness');
-  return SQL_INPUTS;
+    ||raw.consumer!==consumer||JSON.stringify(raw.consumed)!==JSON.stringify(consumed))fail('Missing, stale or changed-SQL consumption witness');
+  return SQL_CONTRACTS.find(item=>item.consumer===consumer).files;
 }
 export function produceNativePhase({root,cwd,contract,provenance,inputSha256,sourceCopyCommit,runId,environment,drain,children=nativeChildTracker(drain)}) {
   const runtime=nativeRuntime(root,contract.runner),coverageDirectory=fs.mkdtempSync(path.join(cwd,'.native-coverage-'));

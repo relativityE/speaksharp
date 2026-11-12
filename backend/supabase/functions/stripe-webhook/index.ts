@@ -3,6 +3,7 @@ import Stripe from "npm:stripe@16"
 import { createClient } from "npm:@supabase/supabase-js@2"
 import { ErrorCodes, createErrorResponse, createSuccessResponse } from "../_shared/errors.ts"
 import { corsGuard, corsHeaders } from "../_shared/cors.ts"
+import { recordRefundFollowup, scheduleCancellationAfterRefund } from "./refund.ts"
 
 type SupabaseClient = any;
 type StripeClient = any;
@@ -119,6 +120,45 @@ export async function handler(
       case "invoice.payment_failed": {
         subscriptionId = normalizeStripeObjectId(event.data.object?.subscription);
         break;
+      }
+      case "charge.refunded": {
+        // Refund policy: keep access until the period ends. This only schedules cancel_at_period_end in Stripe;
+        // entitlement changes solely through the subscription events Stripe then sends, and it is not by itself
+        // a guarantee of no further charge. "unverified" (for example, a renewal invoice already issued) and a
+        // partial refund need an operator: each records a durable, unresolved signal (stripe_refund_followups,
+        // one row per refunded charge) that only an operator's reconciliation closes. It records only; it never
+        // retries the refund, voids an invoice or cancels again.
+        const refund = await scheduleCancellationAfterRefund(stripe, event.data.object, event.id,
+          getEnv("STRIPE_PRO_PRICE_ID"), event.created);
+        if (refund.outcome === "unverified") {
+          const recorded = await recordRefundFollowup(supabase, event, refund.code);
+          console.error(`[Stripe Webhook] refund follow-up uncertain for ${event.id}: ${refund.reason}; `
+            + `operator signal ${recorded ? "recorded" : "NOT recorded"}`);
+          // Always non-2xx, so Stripe redelivers and the failure stays visible on the endpoint as well.
+          return createErrorResponse(ErrorCodes.STRIPE_API_ERROR, "Refund follow-up unverified", responseHeaders);
+        }
+        if (refund.outcome === "partial_refund_ignored") {
+          // Refunds are full only; a partial one changes nothing here and needs an operator to look at it.
+          // Acknowledged only once the signal is durable: a failed write is non-2xx, so Stripe redelivers.
+          if (!(await recordRefundFollowup(supabase, event, "partial_refund"))) {
+            console.error(`[Stripe Webhook] partial refund left unscheduled for ${event.id}; operator signal NOT recorded`);
+            return createErrorResponse(ErrorCodes.DATABASE_ERROR, "Refund follow-up signal not recorded", responseHeaders);
+          }
+          console.error(`[Stripe Webhook] partial refund left unscheduled for ${event.id}; operator signal recorded`);
+          return createSuccessResponse({ received: true, refund: refund.outcome, followup: "unresolved" }, responseHeaders);
+        }
+        if ((refund.outcome === "scheduled" || refund.outcome === "already_scheduled" || refund.outcome === "already_ended")
+          && refund.followup) {
+          // Scheduled, but a later renewal was collected at or after the refund: the member was charged again.
+          // Acknowledged only once the signal is durable, exactly as for a partial refund.
+          if (!(await recordRefundFollowup(supabase, event, refund.followup))) {
+            console.error(`[Stripe Webhook] renewal collected after refund for ${event.id}; operator signal NOT recorded`);
+            return createErrorResponse(ErrorCodes.DATABASE_ERROR, "Refund follow-up signal not recorded", responseHeaders);
+          }
+          console.error(`[Stripe Webhook] renewal collected after refund for ${event.id}; operator signal recorded`);
+          return createSuccessResponse({ received: true, refund: refund.outcome, followup: "unresolved" }, responseHeaders);
+        }
+        return createSuccessResponse({ received: true, refund: refund.outcome }, responseHeaders);
       }
       default:
         // Not a subscription-state event — acknowledge and ignore (nothing to reconcile).

@@ -42,6 +42,102 @@
                 {
                     "key": "Cross-Origin-Embedder-Policy",
                     "value": "credentialless"
+                },
+                {
+                    "key": "Strict-Transport-Security",
+                    "value": "max-age=63072000; includeSubDomains"
+                },
+                {
+                    "key": "X-Frame-Options",
+                    "value": "DENY"
+                },
+                {
+                    "key": "Referrer-Policy",
+                    "value": "strict-origin-when-cross-origin"
+                },
+                {
+                    "key": "Content-Security-Policy",
+                    "value": "frame-ancestors 'none'; base-uri 'self'; object-src 'none'"
+                },
+                {
+                    "key": "Content-Security-Policy-Report-Only",
+                    "value": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' blob: https://us-assets.i.posthog.com https://cdn.jsdelivr.net; worker-src 'self' blob:; connect-src 'self' blob: data: https://*.supabase.co wss://*.supabase.co https://*.posthog.com https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://huggingface.co https://*.huggingface.co https://*.hf.co https://download.moonshine.ai https://cdn.jsdelivr.net; img-src 'self' data: blob: https://*.supabase.co; style-src 'self' 'unsafe-inline'; font-src 'self' data:; media-src 'self' blob:; frame-src 'none'; form-action 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'"
+                }
+            ]
+        },
+        {
+            "source": "/models/(.*)",
+            "headers": [
+                {
+                    "key": "X-Content-Type-Options",
+                    "value": "nosniff"
+                },
+                {
+                    "key": "Content-Security-Policy",
+                    "value": "default-src 'none'; sandbox; frame-ancestors 'none'; base-uri 'none'"
+                }
+            ]
+        },
+        {
+            "source": "/models/(.*)\\.json",
+            "headers": [
+                {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                }
+            ]
+        },
+        {
+            "source": "/models/(.*)\\.txt",
+            "headers": [
+                {
+                    "key": "Content-Type",
+                    "value": "text/plain; charset=utf-8"
+                }
+            ]
+        },
+        {
+            "source": "/models/(.*)\\.(onnx|data|bin|ort)",
+            "headers": [
+                {
+                    "key": "Content-Type",
+                    "value": "application/octet-stream"
+                }
+            ]
+        },
+        {
+            "source": "/models/(.*)\\.(js|mjs|cjs)",
+            "headers": [
+                {
+                    "key": "Content-Type",
+                    "value": "text/javascript; charset=utf-8"
+                }
+            ]
+        },
+        {
+            "source": "/models/(.*)\\.wasm",
+            "headers": [
+                {
+                    "key": "Content-Type",
+                    "value": "application/wasm"
+                }
+            ]
+        },
+        {
+            "source": "/models/((?:[^/]+/)*[^/.]+)",
+            "headers": [
+                {
+                    "key": "Content-Type",
+                    "value": "text/plain; charset=utf-8"
+                }
+            ]
+        },
+        {
+            "source": "/models/((?:[^/]+/)*[^/]*\\.(?!(?:json|txt|onnx|data|bin|ort|js|mjs|cjs|wasm)$)[^/.]*)",
+            "headers": [
+                {
+                    "key": "Content-Type",
+                    "value": "application/octet-stream"
                 }
             ]
         }

@@ -1,4 +1,5 @@
 import { PRIV_STT } from './sttConstants';
+import type { WhisperDecodeProfile } from './candidateRegistry';
 
 /**
  * #1304 A1 — the SINGLE source of the shipping Whisper decode window/stride/timestamp options.
@@ -44,12 +45,34 @@ export function decodeStrideBranch(audioLengthSeconds: number): DecodeStrideBran
  * Callers may layer additional keys (engine-specific anti-loop defaults, language/task, proof hooks)
  * ON TOP of this, but must not re-derive the window/stride/timestamp values themselves.
  */
-export function buildShippingDecodeOptions(audioLengthSeconds: number): ShippingDecodeOptions {
+export function buildShippingDecodeOptions(audioLengthSeconds: number, profile?: WhisperDecodeProfile): ShippingDecodeOptions {
+    const windowSeconds = profile?.windowSeconds ?? PRIV_STT.WHISPER_WINDOW_SECONDS;
+    const strideSeconds = profile?.strideSeconds ?? PRIV_STT.WHISPER_STRIDE_SECONDS;
+    if (!Number.isFinite(audioLengthSeconds) || audioLengthSeconds < 0
+        || !Number.isFinite(windowSeconds) || windowSeconds <= 0
+        || !Number.isFinite(strideSeconds) || strideSeconds < 0 || strideSeconds * 2 >= windowSeconds) {
+        throw new Error('Invalid Whisper input duration or decode window/stride');
+    }
     return {
-        chunk_length_s: PRIV_STT.WHISPER_WINDOW_SECONDS,
-        stride_length_s: decodeStrideBranch(audioLengthSeconds) === 'single-window-zero-stride'
+        chunk_length_s: windowSeconds,
+        stride_length_s: audioLengthSeconds < windowSeconds
             ? 0
-            : PRIV_STT.WHISPER_STRIDE_SECONDS,
-        return_timestamps: true,
+            : strideSeconds,
+        return_timestamps: profile?.returnTimestamps ?? true,
+    };
+}
+
+/** Architecture logic shared by the main-thread and worker execution paths. */
+export function buildWhisperDecodeOptions(
+    profile: WhisperDecodeProfile, audioLengthSeconds: number, overrides?: Record<string, unknown>,
+): Record<string, unknown> {
+    // Generation knobs go FIRST, so the shipping window/stride/timestamp options always win (review of 27607fb3: a profile's
+    // generation could otherwise reintroduce a stride the chunk loop cannot advance through). Explicit overrides stay last.
+    return {
+        ...profile.generation,
+        ...buildShippingDecodeOptions(audioLengthSeconds, profile),
+        ...(profile.language ? { language: profile.language } : {}),
+        ...(profile.task ? { task: profile.task } : {}),
+        ...overrides,
     };
 }

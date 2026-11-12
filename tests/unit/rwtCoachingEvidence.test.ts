@@ -77,7 +77,7 @@ const take = (suffix: string, source: 'fresh' | 'cache' = 'fresh'): RwtCoachingT
     source,
     providerDurationMs: source === 'fresh' ? 640 : 0, totalDurationMs: 920, promptSha256: null,
     authorityReceipt: {
-      session_id: sessionId, user_id: userId, provider: 'google_gemini', model: 'gemini-3.8-flash-001',
+      session_id: sessionId, user_id: userId, provider: 'google_gemini', model: 'gemini-3.6-flash-001',
       provider_request_made: true, receipt_suggestion_sha256: canonicalSuggestionSha256(phrase), current_suggestion_sha256: canonicalSuggestionSha256(phrase),
       ai_suggestions: { ...phrase }, ...(source === 'cache' ? { cache_read_count: 1 } : { cache_read_count: 0 }),
     },

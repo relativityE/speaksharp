@@ -33,6 +33,8 @@
 import logger from '../../../lib/logger';
 import { redactTranscript } from '../../../lib/logRedaction';
 import { sanitizeTranscriptText } from '../transcriptSanitizer';
+import { createCaptureReceipt, type CaptureReceipt } from '../captureReceipt';
+import { hasModelComparisonAuthorization } from '../modelComparisonAuthorization';
 import { recordFinalizeRate, toFinalizeEngineKey } from '../finalizeRateStore';
 import { detectRepetitionRisk } from '../../../utils/repetitionRisk';
 import { createPrivateSTT, EngineType } from '../engines';
@@ -70,7 +72,18 @@ declare global {
      * Diagnostics only — never gates product behavior. See PrivateTimingSummary.
      */
     __PRIVATE_TIMING__?: PrivateTimingSummary;
+    /**
+     * Model-comparison evaluator only: latest listener receipt (counts and times, never audio or text).
+     * Published only in an internal build or under the CDP-installed comparison authorization; a public
+     * Production page never defines it.
+     */
+    __PRIVATE_CAPTURE_RECEIPT__?: () => CaptureReceipt;
   }
+}
+
+/** Same predicate as the runtime candidate switch (runtimeCandidateAccessAllowed), read at call time. */
+function captureReceiptAllowed(): boolean {
+  return import.meta.env.VITE_INTERNAL_BUILD === 'true' || hasModelComparisonAuthorization();
 }
 
 /**
@@ -680,6 +693,7 @@ import { STTEngine } from '../../../contracts/STTEngine';
  */
 export default class PrivateWhisper extends STTEngine implements ITranscriptionEngine {
   private frameListenerDisposer: (() => void) | null = null;
+  private captureReceipt: ReturnType<typeof createCaptureReceipt> | null = null;
   private onTranscriptUpdate?: (update: TranscriptUpdate) => void;
   private onModelLoadProgress?: (progress: number | null) => void;
   public onReady?: () => void;
@@ -1132,12 +1146,25 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     // Subscribe to microphone frames
     this.cleanupFrameListener(); // CRITICAL: Clean up previous listener before adding new one
     this.pcmReceiptCapture = undefined;
+    // #1760 evaluator binding: one receipt per capture, gated; the listener holds its own receipt so a retired
+    // listener can never count frames into a successor capture. Ungated pages allocate nothing.
+    // Diagnostic only: an identity lookup that throws must never stop a recording, so it degrades to null.
+    let receiptCandidateId: string | null = null;
+    if (captureReceiptAllowed()) { try { receiptCandidateId = this.getMetadata().candidateId ?? null; } catch { receiptCandidateId = null; } }
+    const captureReceipt = captureReceiptAllowed() ? createCaptureReceipt({
+      captureId: crypto.randomUUID(),
+      candidateId: receiptCandidateId,
+      sampleRateHz: this.mic.sampleRate,
+    }) : null;
+    this.captureReceipt = captureReceipt;
+    if (captureReceipt && typeof window !== 'undefined') window.__PRIVATE_CAPTURE_RECEIPT__ = captureReceipt.read;
 
     // #891 Phase 5.6 (SHADOW): resolve the dev-gate ONCE here, not per frame, so production does zero
     // per-frame work for the passive diagnostic.
     const publishShadowFrames = isShadowMetricsEngineEnabled();
 
     const listener = (frame: Float32Array) => {
+      captureReceipt?.receive(frame.length, performance.now());
       // Copy the frame to avoid buffer detachment issues
       const receiptCapture = captureForPcm(frame);
       if (receiptCapture) {
@@ -2022,7 +2049,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       this.onStatusChange?.({
         type: 'info',
         message: 'Processing speech locally…',
-        detail: 'Finalizing your private transcript on this device.',
+        detail: 'Finishing your transcript on this device.',
       });
     }
 
@@ -2141,6 +2168,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   }
 
   private cleanupFrameListener(): void {
+    this.captureReceipt?.stop();
     this.pcmReceiptCapture?.closeListener();
     if (this.frameListenerDisposer) {
       this.frameListenerDisposer();
