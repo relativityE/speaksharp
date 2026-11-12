@@ -15,7 +15,8 @@ import {
 import { PracticeLoopReviewPair } from '@/components/review/PracticeLoopReviewPair';
 import { loadSavedSessionReview } from '@/services/review/savedSessionReview';
 import { deriveReviewState } from './reviewState';
-import { COACHING_ERROR_SESSION_ASSURANCE, FOCUS_POINTS_DISCLOSURE, OPEN_MIC_DISCLOSURE, UNAVAILABLE_MESSAGE } from './reviewCopy';
+import { COACHING_ERROR_SESSION_ASSURANCE, UNAVAILABLE_MESSAGE } from './reviewCopy';
+import { CoachingDisclosure } from './CoachingDisclosure';
 import { createCoachingDiagnosticId, rememberCoachingDiagnostic } from '@/services/coachingDiagnosticLink';
 import { savedTakeAttempt } from '@/services/telemetry/savedTakeTarget';
 import {
@@ -983,7 +984,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
             </button>
           )}
           <p className="mt-2 text-[12px] font-semibold text-ink-muted" data-testid="ai-suggestions-disclosure">
-            {product === 'focus_points' ? FOCUS_POINTS_DISCLOSURE : OPEN_MIC_DISCLOSURE}
+            <CoachingDisclosure product={product} />
           </p>
         </div>
       )}
@@ -1017,12 +1018,12 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
         are prefilled), so the user can see which saved session inputs go to the provider.
 
         #1416 P2-4 — THIS MATTERS MORE NOW THAT THE SEND IS AUTOMATIC. A user must not learn their
-        session inputs went to the AI service provider from text attached to a button they never touched, so it sits in the card
+        session inputs went to the AI service from text attached to a button they never touched, so it sits in the card
         body, in the same region as the review and its progress state. It is a statement, not a gate.
       */}
       {!(stillComing && !inFlight) && (
         <p className="mt-4 text-[12px] font-medium text-ink-muted" data-testid="ai-suggestions-disclosure">
-          {product === 'focus_points' ? FOCUS_POINTS_DISCLOSURE : OPEN_MIC_DISCLOSURE}
+          <CoachingDisclosure product={product} />
         </p>
       )}
     </div>

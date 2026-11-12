@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { arePaymentsEnabled } from '@/config/appRuntimeConfig';
+import { legalSectionId } from './legalSectionId';
 
 type LegalPageProps = {
   title: string;
@@ -25,7 +26,7 @@ const LegalPage = ({ title, updated, sections }: LegalPageProps) => {
         </header>
         <div className="space-y-7 text-sm leading-7 text-foreground/90">
           {sections.map((section) => (
-            <section key={section.heading} className="space-y-2">
+            <section key={section.heading} id={legalSectionId(section.heading)} className="space-y-2 scroll-mt-28">
               <h2 className="text-lg font-semibold text-foreground">{section.heading}</h2>
               <p>{section.body}</p>
             </section>
@@ -76,7 +77,7 @@ export const TermsPage = () => {
 export const PrivacyPage = () => (
   <LegalPage
     title="Privacy Policy"
-    updated="August 11, 2026"
+    updated="November 11, 2026"
     sections={[
       {
         heading: 'What We Process',
@@ -84,15 +85,15 @@ export const PrivacyPage = () => (
       },
       {
         heading: 'Transcription Modes',
-        body: 'SpeakSharp uses Private on-device transcription for every customer practice session. After a one-time model setup, speech audio is processed on the user’s device and is not uploaded to a transcription provider.',
+        body: 'SpeakSharp uses Private on-device transcription for every customer practice session. After a one-time model setup, your speech audio is processed in memory on your device. The audio is never uploaded or saved. Transcription happens on your device, but the transcript it produces is not kept only on your device: see below.',
       },
       {
         heading: 'How Data Is Used',
-        body: 'Session data is used to provide transcripts, coaching, progress, reports, reliability monitoring, and support. Transcript text and coaching results may be stored with saved session records. Retention duration and deletion timing are still being finalized; use Share Feedback for a data-retention request. Non-content session metrics may remain for progress.',
+        body: 'Session data is used to provide transcripts, coaching, progress, reports, reliability monitoring, and support. When a session is saved, its transcript text, measurements, and coaching results are stored with the session in your account. Retention duration and deletion timing are still being finalized; use Share Feedback for a data-retention request. Non-content session metrics may remain for progress.',
       },
       {
         heading: 'Service Providers',
-        body: 'SpeakSharp may use providers such as Supabase, Stripe, PostHog, Sentry, and Gemini for authentication, billing infrastructure, analytics, monitoring, and coaching. Private speech audio is not sent to those providers for transcription. When a server-backed coaching feature is used, the minimum text required for that feature may be processed under this policy.',
+        body: 'SpeakSharp uses providers such as Supabase, Stripe, PostHog, Sentry, and Google Gemini for authentication and data storage, billing infrastructure, analytics, monitoring, and AI coaching. Speech audio is never sent to any of them. Saved transcripts are stored with Supabase. AI coaching sends a saved session’s transcript (up to 8,000 characters), its speaking measurements, and, for Focus Points, its topic, points and results to Google Gemini to write your review. Coaching currently starts automatically after a session is saved.',
       },
       {
         heading: 'Control',
