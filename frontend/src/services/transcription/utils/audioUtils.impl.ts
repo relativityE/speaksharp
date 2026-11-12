@@ -4,6 +4,7 @@ import { ENV } from '../../../config/TestFlags';
 import { PRIV_CLOUD_AUDIO } from '../sttConstants';
 import { FrameReplayBuffer } from './frameReplayBuffer';
 import { beginPcmBoundaryCapture, inheritPcmSlice } from '../pcmBoundaryReceipt';
+import { markMicAcquisitionError } from '../../../lib/micAccessErrors';
 
 // This file contains the actual implementation for creating a microphone stream
 // and is dynamically imported by the 'safe' wrapper file (audioUtils.ts).
@@ -124,7 +125,14 @@ export async function createMicStreamImpl(
     mediaStream = dst.stream;
   } else {
     const { mode, constraints } = resolveAudioConstraints();
-    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: constraints });
+    try {
+      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: constraints });
+    } catch (error) {
+      // A denied, missing or busy microphone. Mark it as getUserMedia's own failure so the start copy can name
+      // the issue (micAccessErrors), and close the context opened above: each retry would otherwise leak one.
+      void Promise.resolve().then(() => audioCtx.close()).catch(() => undefined);
+      throw markMicAcquisitionError(error);
+    }
     // Surface both the REQUESTED constraints and the ACTUAL track settings Chrome
     // returned, so STT testing can confirm what the browser actually applied (the
     // two can differ). Diagnostic only; no behavior depends on this log.
