@@ -38,7 +38,7 @@ describe('createRunOwnedTrialAccount', () => {
         const r = await createRunOwnedTrialAccount(a, { binding: B, domain: 'example.test' });
         expect(r.status).toBe('created');
         expect(r.email).toMatch(/^ctrial-run-43000000001-1-[0-9a-f]{8}@example\.test$/);
-        expect(a.auth.admin.createUser).toHaveBeenCalledWith(expect.objectContaining({ email_confirm: true, app_metadata: { ct_run: B } }));
+        expect(a.auth.admin.createUser).toHaveBeenCalledWith(expect.objectContaining({ email_confirm: true, app_metadata: { canary_run: B } }));
     });
     it('CASUALTY: a second create in the same run is refused (hard cap 1)', async () => {
         const a = admin();

@@ -6,7 +6,7 @@ import { decide, parseBinding, sweep, MAX_DELETES_PER_SWEEP, ROLE } from '../../
 const EXPECTED = { repository: 'relativityE/speaksharp', workflow: 'relativityE/speaksharp/.github/workflows/canary.yml@refs/heads/main' };
 const NOW = Date.parse('2026-11-12T12:00:00Z');
 const H = 3600_000;
-const binding = (over = {}) => ({ ct_run: { repository: EXPECTED.repository, workflow: EXPECTED.workflow, runId: '43000000001', runAttempt: '1', role: ROLE, ...over } });
+const binding = (over = {}) => ({ canary_run: { repository: EXPECTED.repository, workflow: EXPECTED.workflow, runId: '43000000001', runAttempt: '1', role: ROLE, ...over } });
 const acct = (over = {}) => ({ id: 'u1', email: 'ctrial-run-43000000001-1-abcd1234@example.test', created_at: new Date(NOW - 5 * H).toISOString(), app_metadata: binding(), ...over });
 const run = (over = {}) => ({ status: 'completed', run_attempt: 1, updated_at: new Date(NOW - 2 * H).toISOString(), ...over });
 const d = (a, r, self) => decide({ account: a, run: r, now: NOW, expected: EXPECTED, self });
@@ -22,8 +22,8 @@ describe('decide — delete only with positive proof', () => {
         ['malformed-or-foreign-binding', acct({ app_metadata: binding({ workflow: 'relativityE/speaksharp/.github/workflows/rc-gates.yml@refs/heads/main' }) })],
         ['malformed-or-foreign-binding', acct({ app_metadata: binding({ role: 'rwt-journey' }) })],
         ['malformed-or-foreign-binding', acct({ app_metadata: binding({ runId: '0' }) })],
-        ['malformed-or-foreign-binding', acct({ app_metadata: { ct_run: { ...binding().ct_run, extra: 1 } } })],
-        ['malformed-or-foreign-binding', acct({ app_metadata: { ct_run: { runId: '43000000001' } } })],
+        ['malformed-or-foreign-binding', acct({ app_metadata: { canary_run: { ...binding().canary_run, extra: 1 } } })],
+        ['malformed-or-foreign-binding', acct({ app_metadata: { canary_run: { runId: '43000000001' } } })],
         ['too-young', acct({ created_at: new Date(NOW - 1 * H).toISOString() })],
         ['too-young', acct({ created_at: 'garbage' })],
     ])('leaves %s', (reason, a) => { expect(d(a, run())).toEqual({ action: 'leave', reason }); });
@@ -38,7 +38,7 @@ describe('decide — delete only with positive proof', () => {
         expect(d(acct(), run(), { runId: '43000000001' }).reason).toBe('own-current-run');
     });
     it('parseBinding refuses forged shapes', () => {
-        expect(parseBinding({ ct_run: 'x' }, EXPECTED)).toBeNull();
+        expect(parseBinding({ canary_run: 'x' }, EXPECTED)).toBeNull();
         expect(parseBinding(null, EXPECTED)).toBeNull();
     });
 });

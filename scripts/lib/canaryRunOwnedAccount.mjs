@@ -3,7 +3,7 @@
  * this exact run before anything else uses it. Injectable admin; closed codes only; the password never leaves memory.
  */
 import { randomBytes } from 'node:crypto';
-import { RUN_OWNED_PREFIX, ROLE, parseBinding } from './canaryRunOwnedSweep.mjs';
+import { BINDING_KEY, RUN_OWNED_PREFIX, ROLE, parseBinding } from './canaryRunOwnedSweep.mjs';
 
 const RUN_ID = /^[1-9]\d{0,19}$/;
 const ATTEMPT = /^[1-9]\d{0,3}$/;
@@ -32,7 +32,7 @@ export async function createRunOwnedTrialAccount(admin, { binding, domain }) {
     createdThisProcess = true;
     const email = `${RUN_OWNED_PREFIX}${binding.runId}-${binding.runAttempt}-${randomBytes(4).toString('hex')}@${domain}`;
     const password = `Ct-${randomBytes(18).toString('base64url')}-9a!`;
-    const { data, error } = await admin.auth.admin.createUser({ email, password, email_confirm: true, app_metadata: { ct_run: binding } });
+    const { data, error } = await admin.auth.admin.createUser({ email, password, email_confirm: true, app_metadata: { [BINDING_KEY]: binding } });
     const userId = data?.user?.id;
     if (error || !userId) return { status: 'failed', code: 'create-failed' };
     // Read back: the binding must be exactly this run's, or the account is removed.

@@ -8,6 +8,11 @@
  */
 export const RUN_OWNED_PREFIX = 'ctrial-run-';
 export const ROLE = 'canary-active-trial';
+/**
+ * The canary's own app_metadata key. Deliberately NOT `ct_run`: that key is the RWT journey's run binding, which the shared
+ * runOwnedCleanup enforces against the current RWT run. A canary binding there would make every canary cleanup refuse.
+ */
+export const BINDING_KEY = 'canary_run';
 export const MIN_ACCOUNT_AGE_MS = 2 * 3600_000;
 export const MIN_RUN_COMPLETED_MS = 30 * 60_000;
 export const MAX_DELETES_PER_SWEEP = 5;
@@ -17,7 +22,7 @@ const ATTEMPT = /^[1-9]\d{0,3}$/;
 
 /** The exact run binding shape, or null. Extra or missing keys, wrong types or a foreign repo/workflow → null. */
 export function parseBinding(meta, expected) {
-    const b = meta && typeof meta === 'object' ? meta.ct_run : null;
+    const b = meta && typeof meta === 'object' ? meta[BINDING_KEY] : null;
     if (!b || typeof b !== 'object' || Array.isArray(b)) return null;
     const keys = Object.keys(b).sort().join(',');
     if (keys !== 'repository,role,runAttempt,runId,workflow') return null;
@@ -32,7 +37,7 @@ export function parseBinding(meta, expected) {
  */
 export function decide({ account, run, now, expected, self }) {
     if (typeof account?.email !== 'string' || !account.email.toLowerCase().startsWith(RUN_OWNED_PREFIX)) return { action: 'leave', reason: 'not-run-owned-prefix' };
-    if (account.app_metadata?.ct_run === undefined) return { action: 'leave', reason: 'unbound' };
+    if (account.app_metadata?.[BINDING_KEY] === undefined) return { action: 'leave', reason: 'unbound' };
     const binding = parseBinding(account.app_metadata, expected);
     if (!binding) return { action: 'leave', reason: 'malformed-or-foreign-binding' };
     if (self && binding.runId === self.runId) return { action: 'leave', reason: 'own-current-run' };

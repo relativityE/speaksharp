@@ -9,7 +9,7 @@ const ENV = { GITHUB_ACTIONS: 'true', GITHUB_REPOSITORY: 'relativityE/speaksharp
     GITHUB_WORKFLOW_REF: WF, CANARY_TRIAL_EMAIL: 'trial-identity@Example.Test' };
 const NOW = Date.parse('2026-11-12T12:00:00Z');
 const H = 3600_000;
-const bind = (runId, runAttempt = '1', over = {}) => ({ ct_run: { repository: 'relativityE/speaksharp', workflow: WF, runId, runAttempt, role: 'canary-active-trial', ...over } });
+const bind = (runId, runAttempt = '1', over = {}) => ({ canary_run: { repository: 'relativityE/speaksharp', workflow: WF, runId, runAttempt, role: 'canary-active-trial', ...over } });
 const user = (id, email, meta, ageH = 5) => ({ id, email, app_metadata: meta, created_at: new Date(NOW - ageH * H).toISOString() });
 const MINE = user('m1', 'ctrial-run-43000000002-1-aaaa1111@example.test', bind('43000000002'));
 
