@@ -1,5 +1,5 @@
 // @vitest-environment node
-/** DRAFT controls for the canary run-owned trial-account sweeper (review after AHT-01). */
+/** DRAFT controls for the canary run-owned trial-account sweeper. Not yet wired into canary.yml. */
 import { describe, it, expect, vi } from 'vitest';
 import { decide, parseBinding, sweep, MAX_DELETES_PER_SWEEP, ROLE } from '../../scripts/lib/canaryRunOwnedSweep.mjs';
 

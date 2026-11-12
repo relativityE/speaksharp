@@ -1,5 +1,5 @@
 /**
- * DRAFT (local, for review after AHT-01) — canary active-trial lane: create ONE run-owned trial account and bind it to
+ * DRAFT for review (not yet wired into canary.yml) — canary active-trial lane: create ONE run-owned trial account and bind it to
  * this exact run before anything else uses it. Injectable admin; closed codes only; the password never leaves memory.
  */
 import { randomBytes } from 'node:crypto';

@@ -1,5 +1,5 @@
 /**
- * DRAFT (local, for review after AHT-01) — canary active-trial lane, run-owned trial accounts: the orphan SWEEPER core.
+ * DRAFT for review (not yet wired into canary.yml) — canary active-trial lane, run-owned trial accounts: the orphan SWEEPER core.
  *
  * Deletes a candidate ONLY with positive proof that it is a canary run-owned account from a FINISHED run of THIS
  * repository/workflow, re-checked immediately before deletion. Anything unknown is left alone and reported (non-success).
