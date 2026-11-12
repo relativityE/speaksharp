@@ -535,12 +535,13 @@ const noneStart = at("test('No session feedback stores no take or coaching link'
 const older = spec.slice(olderStart, noneStart);
 const none = spec.slice(noneStart);
 
-describe('acceptance: every new always-written row is required of the older-take suite only', () => {
-    it('the older-take product rows hold the bounded-write rows and zero residue; the no-session suite holds none', () => {
+describe('acceptance: bounded writes belong to the older-take suite; both suites require cleanup', () => {
+    it('the older-take suite requires bounded-write rows; both suites require zero residue', () => {
         const product = requiredAutomatedRows(FEEDBACK_OLDER_TAKE_SUITE)!.product;
         for (const step of [...FEEDBACK_BOUNDED_WRITE_ROWS, ZERO_RESIDUE_ROW]) expect({ step, required: product.includes(step) }).toEqual({ step, required: true });
         const noSession = requiredAutomatedRows(FEEDBACK_NO_SESSION_SUITE)!.product;
-        for (const step of [...FEEDBACK_BOUNDED_WRITE_ROWS, ZERO_RESIDUE_ROW]) expect(noSession).not.toContain(step);
+        for (const step of FEEDBACK_BOUNDED_WRITE_ROWS) expect(noSession).not.toContain(step);
+        expect(noSession).toContain(ZERO_RESIDUE_ROW);
         expect(FEEDBACK_BOUNDED_WRITE_ROWS).toHaveLength(3 * 7 + 3);
         expect(new Set(FEEDBACK_BOUNDED_WRITE_ROWS).size).toBe(FEEDBACK_BOUNDED_WRITE_ROWS.length);
         expect(FEEDBACK_BOUNDED_WRITE_ROWS).toContain(FEEDBACK_ISOLATION_ROW);
@@ -903,8 +904,10 @@ describe('restart / late-commit control across executors (Sam, ff3922e9 RETURN i
             'if (!inv.recordWriterStopped(0)) process.exit(5);',
             'console.log(JSON.stringify({ file: inv.file }));',
         ].join('\n'));
-        const tsx = path.resolve(here, '../../node_modules/.bin/tsx');
-        const ran = spawnSync(tsx, [script], {
+        // Use tsx's supported Node loader: the CLI starts an unrelated IPC server,
+        // which restricted executors can forbid. Keep the separate process and real store proof.
+        const tsx = createRequire(import.meta.url).resolve('tsx');
+        const ran = spawnSync(process.execPath, ['--import', tsx, script], {
             encoding: 'utf8', timeout: 60_000,
             env: { PATH: process.env.PATH, GITHUB_ACTIONS: 'true', HOME: path.join(executorA, 'home'), RUNNER_TEMP: path.join(executorA, 'tmp'),
                 TMPDIR: path.join(executorA, 'tmp'), [RECOVERY_DIR_ENV]: mountA },

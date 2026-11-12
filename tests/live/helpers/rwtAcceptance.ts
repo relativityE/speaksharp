@@ -442,6 +442,7 @@ const OPEN_MIC_PRODUCT_ROWS = Object.freeze([
     'feedback diagnostic chain', 'coaching prompt binding',
 ]);
 const FOCUS_PRODUCT_ROWS = Object.freeze([
+    'sign-in', 'Focus presentation contract', 'Practice again keeps the saved target', 'repeat result names the measured metric',
     'coaching request budget', 'base_q4 primary', 'session bears canary claim', 'Products → Focus Points', 'no mic on navigation', 'new-account entitlement',
     'pace guide', 'Head to session', 'rail legend', 'pending points labelled', 'rail before speaking', 'model identity',
     'live marker changes', 'next point marked', 'marker timing vs audio', 'no red before Stop', 'session saved', 'saved exactly once',
@@ -507,7 +508,7 @@ const FEEDBACK_OLDER_TAKE_PRODUCT_ROWS = Object.freeze([
 ]);
 const FEEDBACK_NO_SESSION_PRODUCT_ROWS = Object.freeze([
     ...SUPPLEMENTAL_ACCOUNT_ROWS, 'no-session report stored once', 'no-session association', 'no-session diagnostic binding',
-    'coaching request budget', 'feedback retention',
+    'coaching request budget', 'feedback retention', 'zero residue',
     // AHT-08 (#1811): this submit's own acknowledgement, and one attempted + one storage_ok for it.
     'fresh acknowledgment', 'received feedback',
 ]);

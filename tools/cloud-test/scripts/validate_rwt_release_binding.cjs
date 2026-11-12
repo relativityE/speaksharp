@@ -17,7 +17,7 @@ const TEST_PINS=Object.freeze({
  'tests/unit/rwtDocumentBinaryTransport.test.js':'e4722993a0e008cf6ead7fe1e092cdc50f3d8b75df0ff29066f35dd95d2bda80',
  // AHT-02..15 prep (parity rows, AHT-07 key-bound fail-closed stored-once, AHT-09 navigation-bound ready wait, AHT-04 recovery take, AHT-05/06 attempts/exact save/reopen, AHT-02/03 Focus marker and rows, AHT-08/11/12-15 checks): exact reviewed postimages.
  'tests/live/helpers/feedbackDiagnosticRef.ts':'aeccd8dbd54dd5172da83f08b87d948f1d32028090e846c50f2e5eaf55be27fe',
- 'tests/live/helpers/rwtAcceptance.ts':'33e68e7ee827a42105aa0a477ae81a90ed6297fba45ecc0783c172a56ac05169',
+ 'tests/live/helpers/rwtAcceptance.ts':'76f1c3b92aa530ae40cc08ef426efded3a0088853d2efb7ee76fc3b286b76c5b',
  'tests/live/helpers/rwtAdverseJourney.ts':'43b481b686f04ad4632fc5c05a503b012dc4ab1914201905b302c95492158e3a',
  'tests/live/helpers/rwtFocusPointsJourney.ts':'df7869bf23328527c221493960e959fa4f0338bf2ed95d65cd1d8c814bdc7b58',
  'tests/live/helpers/rwtPendingStartRecovery.ts':'41ad72641a30753e8a173ff79390b33305d25d8c7b1eafed7a57bd2d010118c5',
