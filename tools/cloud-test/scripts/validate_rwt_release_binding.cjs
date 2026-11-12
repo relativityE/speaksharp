@@ -6,7 +6,8 @@
 const {spawnSync}=require('node:child_process'),{createHash}=require('node:crypto');
 // Exact diagnostic postimages; never a broad live-test exception.
 const TEST_PINS=Object.freeze({
- 'tests/unit/rwtComparableSaveTake.test.ts':'9e3957b2bb0660002be6680a9cbd45cb9102f622edb0c44b15b93918f2da6e3c',
+ 'tests/unit/rwtPartialFixtureMatcher.test.ts':'9a6b7f29a5c3cccf7560b2ce0a93cd13b24ef8d2cf105d320cbb2cf04ba87848',
+ 'tests/unit/rwtComparableSaveTake.test.ts':'c93b6f4507b63d0f3b68e75abdea028edb5835cb557cfdfbea5e7574b87cdfa5',
  // Reviewed #1811 v3 cleanup/watchdog and evidence-registry postimages.
  'scripts/lib/helperExecutionEvidence.mjs':'308866ee91665a4e867c745518bf2aac40be1c75a63bff565ffae4d7fa4d4723',
  'scripts/lib/sourceContractEvidence.mjs':'523d7b10fcecc10b20c601a8a9e49761f181e5eaf1e39868d01240a1b9d9a948',
@@ -34,7 +35,7 @@ const TEST_PINS=Object.freeze({
  'tests/live/helpers/feedbackDiagnosticRef.ts':'aeccd8dbd54dd5172da83f08b87d948f1d32028090e846c50f2e5eaf55be27fe',
  'tests/live/helpers/rwtAcceptance.ts':'76f1c3b92aa530ae40cc08ef426efded3a0088853d2efb7ee76fc3b286b76c5b',
  'tests/live/helpers/rwtAdverseJourney.ts':'3e22be61570789f3cee98d14fb94255b5715f6c7b7025c101a29995da920f11a',
- 'tests/live/helpers/rwtFocusPointsJourney.ts':'732595327656a68361d9f35145d8b92509ac9470150b4a9f4097f5da5e91ff35',
+ 'tests/live/helpers/rwtFocusPointsJourney.ts':'7bd806a84f6bce20874c2f924a2090f4e8f197f31d7720cf17278c28ca7b8ce1',
  'tests/live/helpers/rwtPendingStartRecovery.ts':'41ad72641a30753e8a173ff79390b33305d25d8c7b1eafed7a57bd2d010118c5',
  'tests/live/helpers/rwtSaveRetryAttempts.ts':'cfa37a628a18e1c4347bb40eed73b33b303245a6930efaca0aeb24ee39ec0be2',
  'tests/live/helpers/rwtLeaveDestinationReady.ts':'5df6c2b0533098c9a9c019b2d491783b060be2cc6d5f52614d4a8053092542db',

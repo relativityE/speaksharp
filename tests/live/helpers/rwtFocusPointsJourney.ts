@@ -177,6 +177,9 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     // Adds 35/53 s within unchanged 2100/1500 s case budgets; live completion/cleanup reserve remains unproven.
     // Stored eligibility and the numeric adapter still decide PASS/FAIL/HOLD, never the timer.
     const saveTakeMs = fixtureKey === 'focus_points_partial_tts' ? 60_000 : 42_000;
+    // The numeric adapter requires BOTH source and repeat eligible. Keep the marker window unchanged,
+    // then extend only the partial source, without resampling, to the same candidate eligibility floor.
+    const sourceTakeMs = fixtureKey === 'focus_points_partial_tts' ? 60_000 : Math.round((fixture.entry.speechSeconds + 4) * 1000);
     const topic = fixture.entry.topic ?? '';
     const points = fixture.entry.points ?? [];
     const expectedFinal = fixture.entry.expectedFinal ?? [];
@@ -594,6 +597,8 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
 
         // ── Row 11 — Stop: verdicts, n/4, average ───────────────────────────────────────────────────────
         await test.step('row 11 — Stop: verdicts, count and average', async () => {
+            // Marker evidence was already sealed in row 10; extra fixture speech cannot rewrite it.
+            await page.waitForTimeout(Math.max(0, startedAt + sourceTakeMs - Date.now()));
             stoppedAt = Date.now();
             rowsStoppedAt = stoppedAt;
             await stopBenchmarkRecording(page, suite, 180_000);
