@@ -43,6 +43,41 @@ export function makeGetRun({ fetchImpl, token, repository, apiUrl = 'https://api
     };
 }
 
+/**
+ * The admin client handed to the SHARED cleanup. The shared helper knows nothing of `canary_run`, so every DESTRUCTIVE call it
+ * makes — the trial_entitlements pre-delete and deleteUser — first re-reads the account and requires the same email and the
+ * exact expected canary binding (`expected` repo/workflow/role plus `runId`/`runAttempt`). Reads pass through unchanged; any
+ * other mutation is refused. A changed, foreign or vanished binding at the mutation boundary throws: nothing is deleted.
+ */
+export function guardAdminForBinding(admin, { uid, email, expected, runId, runAttempt }) {
+    const refuse = () => { throw new Error('canary_binding_changed_at_mutation (fail closed)'); };
+    const revalidate = async () => {
+        let got;
+        try { got = await admin.auth.admin.getUserById(uid); } catch { refuse(); }
+        const u = got?.data?.user;
+        if (got?.error || !u || typeof u.email !== 'string' || u.email.toLowerCase() !== String(email).toLowerCase()) refuse();
+        const b = parseBinding(u.app_metadata, expected);
+        if (!b || b.runId !== runId || b.runAttempt !== runAttempt) refuse();
+    };
+    return {
+        auth: { admin: {
+            listUsers: (args) => admin.auth.admin.listUsers(args),
+            getUserById: (id) => admin.auth.admin.getUserById(id),
+            deleteUser: async (id) => { if (id !== uid) refuse(); await revalidate(); return admin.auth.admin.deleteUser(id); },
+        } },
+        from: (table) => ({
+            select: (...args) => admin.from(table).select(...args),
+            delete: () => ({
+                eq: async (column, value) => {
+                    if (column !== 'user_id' || value !== uid) refuse();
+                    await revalidate();
+                    return admin.from(table).delete().eq(column, value);
+                },
+            }),
+        }),
+    };
+}
+
 /** The account domain is the operator-owned domain of the configured trial identity (already validated upstream). */
 export function domainFrom(env) {
     const at = (env.CANARY_TRIAL_EMAIL ?? '').lastIndexOf('@');
@@ -53,10 +88,12 @@ export function domainFrom(env) {
  * Create this run's account and export CANARY_EMAIL / CANARY_LANE_PASSWORD to later steps, masked first.
  * Returns {ok, code}. A refusal or failure exports nothing.
  */
-export async function setupLane({ admin, env, mask, exportEnv }) {
+export async function setupLane({ admin, env, mask, exportEnv, cleanup }) {
     const binding = currentCanaryBinding(env);
     if (!binding) return { ok: false, code: 'no-run-binding' };
-    const result = await createRunOwnedTrialAccount(admin, { binding, domain: domainFrom(env) });
+    // Bind failure: the account this process just created (its uid from createUser) has no valid binding to revalidate, so it
+    // goes through the shared cleanup on its uid+email identity alone.
+    const result = await createRunOwnedTrialAccount(admin, { binding, domain: domainFrom(env), cleanup: ({ uid, email }) => cleanup({ admin, uid, email }) });
     if (result.status !== 'created') return { ok: false, code: result.code };
     mask(result.email);
     mask(result.password);
@@ -67,7 +104,7 @@ export async function setupLane({ admin, env, mask, exportEnv }) {
 
 /**
  * Delete exactly this run+attempt's run-owned account(s) through the shared zero-residue cleanup.
- * `cleanup({uid, email})` must throw unless deletion AND residue zero are proven.
+ * `cleanup({admin, uid, email})` must throw unless deletion AND residue zero are proven; it receives the GUARDED admin.
  * Returns {ok, code, deleted}. Zero accounts is truthful only because the listing is complete (it throws otherwise).
  */
 export async function cleanupLane({ admin, env, cleanup }) {
@@ -84,7 +121,8 @@ export async function cleanupLane({ admin, env, cleanup }) {
     const unbound = accounts.filter((u) => u.email.toLowerCase().startsWith(prefix)).length - mine.length;
     let deleted = 0;
     for (const u of mine) {
-        try { await cleanup({ uid: u.id, email: u.email }); deleted += 1; } catch { return { ok: false, code: 'cleanup-unproven', deleted }; }
+        const guarded = guardAdminForBinding(admin, { uid: u.id, email: u.email, expected: binding, runId: binding.runId, runAttempt: binding.runAttempt });
+        try { await cleanup({ admin: guarded, uid: u.id, email: u.email }); deleted += 1; } catch { return { ok: false, code: 'cleanup-unproven', deleted }; }
     }
     if (unbound > 0) return { ok: false, code: 'prefix-without-binding', deleted };
     return { ok: true, code: deleted ? 'cleanup-verified' : 'nothing-to-clean', deleted };
@@ -106,12 +144,14 @@ export async function sweepLane({ admin, env, getRun, cleanup, now = Date.now() 
             return data?.user ?? null;
         },
         getRun,
-        deleteAndProve: async (id) => {
+        deleteAndProve: async (id, original) => {
             const email = byId.get(id);
             if (!email) return { ok: false, step: 'no-listed-email' };
-            // The shared cleanup re-reads the account and proves deletion + zero residue; an already-gone account
-            // cannot be proven that way, so it is reported unproven rather than counted as absent.
-            try { await cleanup({ uid: id, email }); return { ok: true }; } catch { return { ok: false, step: 'cleanup-unproven' }; }
+            if (!original?.runId || !original?.runAttempt) return { ok: false, step: 'no-original-binding' };
+            // Revalidated at every destructive call against the ORIGINALLY listed binding. The shared cleanup proves deletion
+            // + zero residue; an already-gone account cannot be proven that way, so it is reported unproven, not absent.
+            const guarded = guardAdminForBinding(admin, { uid: id, email, expected: binding, runId: original.runId, runAttempt: original.runAttempt });
+            try { await cleanup({ admin: guarded, uid: id, email }); return { ok: true }; } catch { return { ok: false, step: 'cleanup-unproven' }; }
         },
     }, { now, expected: binding, self: { runId: binding.runId } });
     const failed = Object.keys(report.failures).length > 0 || report.capReached;

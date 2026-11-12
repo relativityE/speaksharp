@@ -53,11 +53,11 @@ export function decide({ account, run, now, expected, self }) {
 
 /**
  * Sweep. deps: listRunOwnedAccounts() → [{id,email,created_at,app_metadata}] | throws; getUser(id) → account|null|throws;
- * getRun(runId, runAttempt) → that ATTEMPT's run | {error:true}; deleteAndProve(id) → {ok:true} | {ok:false, step} | {ok:'absent'} (absent = auth user
+ * getRun(runId, runAttempt) → that ATTEMPT's run | {error:true}; deleteAndProve(id, originalBinding) → {ok:true} | {ok:false, step} | {ok:'absent'} (absent = auth user
  * already gone AND full residue read-back zero; residue without an account must be {ok:false, step:'residue-without-account'}).
  */
 export async function sweep(deps, { now = Date.now(), expected, self } = {}) {
-    const report = { swept: 0, alreadyGone: 0, left: {}, failures: {}, capReached: false, success: true };
+    const report = { swept: 0, alreadyGone: 0, attempts: 0, left: {}, failures: {}, capReached: false, success: true };
     const leave = (reason) => { report.left[reason] = (report.left[reason] ?? 0) + 1; report.success = false; };
     let candidates;
     try { candidates = await deps.listRunOwnedAccounts(); } catch { report.success = false; report.failures['list-failed'] = 1; return report; }
@@ -67,7 +67,8 @@ export async function sweep(deps, { now = Date.now(), expected, self } = {}) {
         try { first = decide({ account, run: bound ? await deps.getRun(bound.runId, bound.runAttempt) : null, now, expected, self }); }
         catch { leave('run-lookup-failed'); continue; }
         if (first.action !== 'delete') { if (first.reason !== 'not-run-owned-prefix') leave(first.reason); continue; }
-        if (report.swept + report.alreadyGone >= MAX_DELETES_PER_SWEEP) { report.capReached = true; report.success = false; continue; }
+        // The cap bounds DESTRUCTIVE ATTEMPTS, successful or not: a run of failing residue proofs must not keep deleting.
+        if (report.attempts >= MAX_DELETES_PER_SWEEP) { report.capReached = true; report.success = false; continue; }
         // Re-check immediately before deletion: the same account, the same binding, the run still completed.
         let again;
         try {
@@ -85,7 +86,8 @@ export async function sweep(deps, { now = Date.now(), expected, self } = {}) {
         } catch { leave('recheck-failed'); continue; }
         if (again.action === 'leave') { leave(again.reason === 'run-lookup-failed' ? 'run-lookup-failed' : 'state-changed'); continue; }
         let result;
-        try { result = await deps.deleteAndProve(account.id); } catch { result = { ok: false, step: 'unknown' }; }
+        report.attempts += 1;
+        try { result = await deps.deleteAndProve(account.id, first.binding); } catch { result = { ok: false, step: 'unknown' }; }
         if (result.ok === true) report.swept += 1;
         else if (result.ok === 'absent') report.alreadyGone += 1;
         else { report.failures[result.step ?? 'unknown'] = (report.failures[result.step ?? 'unknown'] ?? 0) + 1; report.success = false; }

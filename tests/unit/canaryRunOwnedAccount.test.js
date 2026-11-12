@@ -21,6 +21,7 @@ const admin = (o = {}) => {
         } },
     };
 };
+const okCleanup = async () => {};
 beforeEach(() => __resetCreateGuardForTests());
 
 describe('currentCanaryBinding', () => {
@@ -35,32 +36,43 @@ describe('currentCanaryBinding', () => {
 describe('createRunOwnedTrialAccount', () => {
     it('creates one prefixed, run-bound account and reads the binding back', async () => {
         const a = admin();
-        const r = await createRunOwnedTrialAccount(a, { binding: B, domain: 'example.test' });
+        const r = await createRunOwnedTrialAccount(a, { binding: B, domain: 'example.test', cleanup: okCleanup });
         expect(r.status).toBe('created');
         expect(r.email).toMatch(/^ctrial-run-43000000001-1-[0-9a-f]{8}@example\.test$/);
         expect(a.auth.admin.createUser).toHaveBeenCalledWith(expect.objectContaining({ email_confirm: true, app_metadata: { canary_run: B } }));
     });
     it('CASUALTY: a second create in the same run is refused (hard cap 1)', async () => {
         const a = admin();
-        await createRunOwnedTrialAccount(a, { binding: B, domain: 'example.test' });
-        expect(await createRunOwnedTrialAccount(a, { binding: B, domain: 'example.test' })).toEqual({ status: 'refused', code: 'second-create-in-run' });
+        await createRunOwnedTrialAccount(a, { binding: B, domain: 'example.test', cleanup: okCleanup });
+        expect(await createRunOwnedTrialAccount(a, { binding: B, domain: 'example.test', cleanup: okCleanup })).toEqual({ status: 'refused', code: 'second-create-in-run' });
         expect(a.auth.admin.createUser).toHaveBeenCalledTimes(1);
     });
     it('CASUALTY: no run binding, or an invalid/prohibited domain, creates nothing', async () => {
         const a = admin();
-        expect((await createRunOwnedTrialAccount(a, { binding: null, domain: 'example.test' })).code).toBe('no-run-binding');
-        expect((await createRunOwnedTrialAccount(a, { binding: B, domain: 'speaksharp.app' })).code).toBe('domain-invalid');
+        expect((await createRunOwnedTrialAccount(a, { binding: null, domain: 'example.test', cleanup: okCleanup })).code).toBe('no-run-binding');
+        expect((await createRunOwnedTrialAccount(a, { binding: B, domain: 'speaksharp.app', cleanup: okCleanup })).code).toBe('domain-invalid');
         expect(a.auth.admin.createUser).not.toHaveBeenCalled();
     });
-    it('CASUALTY: a binding that does not read back deletes the account and says so; a failed delete is reported', async () => {
+    it('CASUALTY: a binding that does not read back goes through the SHARED cleanup, never a bare deleteUser (review return on 10c5aa80)', async () => {
         const dropped = admin({ dropBinding: true });
-        expect(await createRunOwnedTrialAccount(dropped, { binding: B, domain: 'example.test' })).toEqual({ status: 'failed', code: 'bind-failed-deleted' });
-        expect(dropped.users.size).toBe(0);
+        const cleanup = vi.fn(async ({ uid }) => { dropped.users.delete(uid); });
+        const r = await createRunOwnedTrialAccount(dropped, { binding: B, domain: 'example.test', cleanup });
+        expect(r).toEqual({ status: 'failed', code: 'bind-failed-cleaned' });
+        expect(cleanup).toHaveBeenCalledWith({ uid: 'u1', email: expect.stringMatching(/^ctrial-run-43000000001-1-[0-9a-f]{8}@example\.test$/) });
+        expect(dropped.auth.admin.deleteUser).not.toHaveBeenCalled();
         __resetCreateGuardForTests();
-        expect((await createRunOwnedTrialAccount(admin({ dropBinding: true, deleteError: true }), { binding: B, domain: 'example.test' })).code).toBe('bind-failed-delete-failed');
+        const unproven = admin({ dropBinding: true });
+        expect(await createRunOwnedTrialAccount(unproven, { binding: B, domain: 'example.test', cleanup: async () => { throw new Error('residue'); } }))
+            .toEqual({ status: 'failed', code: 'bind-failed-cleanup-unproven' });
+        expect(unproven.auth.admin.deleteUser).not.toHaveBeenCalled();
         __resetCreateGuardForTests();
-        expect((await createRunOwnedTrialAccount(admin({ readError: true }), { binding: B, domain: 'example.test' })).code).toBe('bind-failed-deleted');
+        expect((await createRunOwnedTrialAccount(admin({ readError: true }), { binding: B, domain: 'example.test', cleanup: okCleanup })).code).toBe('bind-failed-cleaned');
         __resetCreateGuardForTests();
-        expect((await createRunOwnedTrialAccount(admin({ createError: true }), { binding: B, domain: 'example.test' })).code).toBe('create-failed');
+        expect((await createRunOwnedTrialAccount(admin({ createError: true }), { binding: B, domain: 'example.test', cleanup: okCleanup })).code).toBe('create-failed');
+    });
+    it('CASUALTY: without the shared cleanup nothing is created', async () => {
+        const a = admin();
+        expect(await createRunOwnedTrialAccount(a, { binding: B, domain: 'example.test' })).toEqual({ status: 'refused', code: 'no-cleanup' });
+        expect(a.auth.admin.createUser).not.toHaveBeenCalled();
     });
 });

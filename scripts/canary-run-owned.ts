@@ -24,8 +24,10 @@ if (!['setup', 'cleanup', 'sweep'].includes(command ?? '') || !SUPABASE_URL || !
 }
 
 const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
-const cleanup = async ({ uid, email }: { uid: string; email: string }) => {
-    await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: uid, createdEmail: email, runOwnedPrefix: RUN_OWNED_PREFIX });
+// The lane passes the admin to use: the binding-guarded client for in-run cleanup and the sweep, the plain one only for the
+// bind-failure cleanup of the account this process itself just created.
+const cleanup = async ({ admin: client, uid, email }: { admin: unknown; uid: string; email: string }) => {
+    await cleanupRunOwnedAccount({ admin: client as never, capturedUid: uid, createdEmail: email, runOwnedPrefix: RUN_OWNED_PREFIX });
 };
 
 if (command === 'setup') {
@@ -35,6 +37,7 @@ if (command === 'setup') {
         env: process.env,
         mask: (value: string) => console.log(`::add-mask::${value}`),
         exportEnv: (name: string, value: string) => appendFileSync(GITHUB_ENV, `${name}=${value}\n`),
+        cleanup,
     });
     console.log(`canary-run-owned setup: ${result.code}`);
     process.exit(result.ok ? 0 : 1);

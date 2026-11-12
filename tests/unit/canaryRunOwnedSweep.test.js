@@ -65,7 +65,7 @@ describe('sweep — re-check, residue proof, caps, races', () => {
         const dep = deps([acct()]);
         expect(await S(dep)).toMatchObject({ swept: 1, success: true });
         expect(dep.getUser).toHaveBeenCalledWith('u1');
-        expect(dep.deleteAndProve).toHaveBeenCalledWith('u1');
+        expect(dep.deleteAndProve).toHaveBeenCalledWith('u1', expect.objectContaining({ runId: '43000000001' }));
     });
     it('CONTROL: the run changes state between lookup and deletion (a rerun starts) → left alone, non-success', async () => {
         let n = 0;
@@ -101,6 +101,18 @@ describe('sweep — re-check, residue proof, caps, races', () => {
         const r = await S(deps(many));
         expect(r.swept).toBe(MAX_DELETES_PER_SWEEP);
         expect(r).toMatchObject({ capReached: true, success: false });
+    });
+    it('the cap bounds destructive ATTEMPTS: eight failing residue proofs stop after five attempts (review return on 10c5aa80)', async () => {
+        const many = Array.from({ length: 8 }, (_, i) => acct({ id: `u${i}` }));
+        const dep = deps(many, { deleteAndProve: () => ({ ok: false, step: 'residue' }) });
+        const r = await S(dep);
+        expect(dep.deleteAndProve).toHaveBeenCalledTimes(MAX_DELETES_PER_SWEEP);
+        expect(r).toMatchObject({ attempts: MAX_DELETES_PER_SWEEP, swept: 0, capReached: true, success: false, failures: { residue: MAX_DELETES_PER_SWEEP } });
+    });
+    it('deleteAndProve receives the ORIGINALLY listed binding, for revalidation at the mutation boundary', async () => {
+        const dep = deps([acct()]);
+        await S(dep);
+        expect(dep.deleteAndProve).toHaveBeenCalledWith('u1', { runId: '43000000001', runAttempt: '1' });
     });
     it('a failed listing deletes nothing and is non-success; foreign and own-run accounts are reported, not deleted', async () => {
         expect(await S(deps([acct()], { listThrows: true }))).toMatchObject({ swept: 0, success: false, failures: { 'list-failed': 1 } });

@@ -66,7 +66,7 @@ describe('setupLane — one account, masked before export', () => {
     });
     it('creates and binds one account, masks email and password BEFORE exporting them', async () => {
         const order = [];
-        const r = await setupLane({ admin: admin([]), env: ENV, mask: (v) => order.push(['mask', v]), exportEnv: (n, v) => order.push(['export', n, v]) });
+        const r = await setupLane({ admin: admin([]), env: ENV, mask: (v) => order.push(['mask', v]), exportEnv: (n, v) => order.push(['export', n, v]), cleanup: vi.fn() });
         expect(r).toEqual({ ok: true, code: 'created-bound' });
         expect(order.map((e) => e[0])).toEqual(['mask', 'mask', 'export', 'export']);
         expect(order.slice(2).map((e) => e[1])).toEqual(['CANARY_EMAIL', 'CANARY_LANE_PASSWORD']);
@@ -79,7 +79,7 @@ describe('setupLane — one account, masked before export', () => {
             __resetCreateGuardForTests();
             const a = admin([]);
             const exportEnv = vi.fn();
-            const r = await setupLane({ admin: a, env, mask: vi.fn(), exportEnv });
+            const r = await setupLane({ admin: a, env, mask: vi.fn(), exportEnv, cleanup: vi.fn() });
             expect(r.ok).toBe(false);
             expect(a.auth.admin.createUser).not.toHaveBeenCalled();
             expect(exportEnv).not.toHaveBeenCalled();
@@ -98,7 +98,7 @@ describe('cleanupLane — only this run+attempt, only with proof', () => {
         const cleanup = vi.fn(async () => {});
         const r = await cleanupLane({ admin: admin([MINE, ...others]), env: ENV, cleanup });
         expect(r).toEqual({ ok: true, code: 'cleanup-verified', deleted: 1 });
-        expect(cleanup.mock.calls).toEqual([[{ uid: 'm1', email: MINE.email }]]);
+        expect(cleanup.mock.calls).toEqual([[expect.objectContaining({ uid: 'm1', email: MINE.email })]]);
     });
     it('reports nothing-to-clean truthfully when the complete listing has no account of this run', async () => {
         expect(await cleanupLane({ admin: admin(others), env: ENV, cleanup: vi.fn() })).toEqual({ ok: true, code: 'nothing-to-clean', deleted: 0 });
@@ -132,7 +132,7 @@ describe('sweepLane — hygiene failures vs warnings', () => {
         const getRun = vi.fn(finished);
         const r = await sweepLane({ admin: admin([orphan]), env: ENV, getRun, cleanup, now: NOW });
         expect(r).toMatchObject({ ok: true, code: 'sweep-ok', report: { swept: 1 } });
-        expect(cleanup.mock.calls).toEqual([[{ uid: 'p1', email: orphan.email }]]);
+        expect(cleanup.mock.calls).toEqual([[expect.objectContaining({ uid: 'p1', email: orphan.email })]]);
         expect(getRun).toHaveBeenCalledWith('43000000001', '1');
     });
     it('an unproven orphan deletion FAILS the hygiene step', async () => {

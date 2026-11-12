@@ -23,10 +23,13 @@ export function __resetCreateGuardForTests() { createdThisProcess = false; }
 
 /**
  * Create the run's single trial account. Returns {status:'created', userId, email, password} or {status:'refused'|'failed', code}.
- * On a bind failure the just-created account is deleted (and that deletion's outcome reported) — never left unbound.
+ * On a bind failure the just-created account goes through `cleanup({uid, email})` — the SHARED zero-residue cleanup (trial
+ * entitlements pre-delete, deletion, not-found proof, residue read-back), never a bare deleteUser — and its outcome is reported.
+ * `cleanup` is required: without it nothing is created.
  */
-export async function createRunOwnedTrialAccount(admin, { binding, domain }) {
+export async function createRunOwnedTrialAccount(admin, { binding, domain, cleanup }) {
     if (!binding) return { status: 'refused', code: 'no-run-binding' };
+    if (typeof cleanup !== 'function') return { status: 'refused', code: 'no-cleanup' };
     if (createdThisProcess) return { status: 'refused', code: 'second-create-in-run' };
     if (!/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(domain ?? '') || /(^|\.)speaksharp\.app$/i.test(domain)) return { status: 'refused', code: 'domain-invalid' };
     createdThisProcess = true;
@@ -39,8 +42,8 @@ export async function createRunOwnedTrialAccount(admin, { binding, domain }) {
     const { data: read, error: readError } = await admin.auth.admin.getUserById(userId);
     const bound = !readError && parseBinding(read?.user?.app_metadata, binding);
     if (!bound || bound.runId !== binding.runId || bound.runAttempt !== binding.runAttempt) {
-        const { error: delError } = await admin.auth.admin.deleteUser(userId);
-        return { status: 'failed', code: delError ? 'bind-failed-delete-failed' : 'bind-failed-deleted' };
+        try { await cleanup({ uid: userId, email }); } catch { return { status: 'failed', code: 'bind-failed-cleanup-unproven' }; }
+        return { status: 'failed', code: 'bind-failed-cleaned' };
     }
     return { status: 'created', userId, email, password };
 }
