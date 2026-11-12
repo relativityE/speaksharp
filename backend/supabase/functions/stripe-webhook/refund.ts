@@ -31,10 +31,12 @@
 // outstanding renewal invoice is neither voided nor otherwise stopped, so Stripe may still collect it.
 // Redelivery does not keep the alarm up: a redelivery fails closed only while that renewal is still
 // outstanding. Once Stripe has collected (or voided) it, the boundary check passes and the redelivery returns
-// 2xx "already_scheduled", so the event stops failing exactly when the charge has gone through. The durable
-// signal recorded on the first failing delivery is therefore the record an operator must act on (a clean
-// redelivery writes nothing and never resolves it); whether to void or refund that invoice is an operator's
-// decision, and this handler never makes it.
+// 2xx "already_scheduled" only once its own signal is durable: a later renewal that Stripe collected at or
+// after the refund (its paid_at against the refund event's created) records "renewal_collected_after_refund",
+// and a failed write of that signal is non-2xx, so Stripe redelivers. A signal whose first write failed is
+// therefore not lost when the renewal is then collected (security review of 664b84f6). Whether to void or
+// refund that invoice is an operator's decision, and this handler never makes it. A redelivery that reads
+// clean never resolves a signal; only an operator's reconciliation does.
 //
 // Fails closed (Sam's review of 34dab357): nothing is changed unless the charge, its invoice and the
 // subscription all belong to the same customer and mode, and the subscription is the configured Pro price.
@@ -52,11 +54,13 @@ export const FOLLOWUP_REASONS = Object.freeze([
   "configuration_missing", "refund_unreadable", "stripe_read_failed", "ownership_mismatch",
   "subscription_state_unverified", "renewal_outstanding", "update_failed", "update_unconfirmed",
   "renewal_outstanding_after_update", "boundary_unverified_after_update", "partial_refund",
+  "renewal_collected_after_refund",
 ] as const);
 export type FollowupReason = typeof FOLLOWUP_REASONS[number];
 
 export type RefundOutcome =
-  | { outcome: "scheduled" | "already_scheduled" | "already_ended"; subscriptionId: string }
+  | { outcome: "scheduled" | "already_scheduled"; subscriptionId: string; followup?: "renewal_collected_after_refund" }
+  | { outcome: "already_ended"; subscriptionId: string }
   | { outcome: "not_subscription_charge" | "not_pro_subscription" | "partial_refund_ignored" }
   | { outcome: "unverified"; reason: string; code: FollowupReason };
 
@@ -120,27 +124,42 @@ function boundaryCode(problem: BoundaryProblem, afterUpdate: boolean): FollowupR
 }
 
 /**
- * Why the subscription's latest invoice makes scheduling unsafe, or null when it is safe: it is the refunded
- * invoice itself, or a later invoice of this subscription that is already paid or void. A later invoice that is
- * still outstanding, unknown, unreadable or not this subscription's is a problem.
+ * Why the subscription's latest invoice makes scheduling unsafe (`problem`), or null when it is safe: it is the
+ * refunded invoice itself, or a later invoice of this subscription that is already paid or void. A later invoice
+ * that is still outstanding, unknown, unreadable or not this subscription's is a problem.
+ *
+ * A later invoice that is paid is safe to schedule after, but when Stripe collected it at or after the refund
+ * (`collectedAfterRefund`), the member was charged again after the refund: scheduling still goes ahead, and the
+ * webhook records an operator signal. A paid later invoice whose payment time, or the refund's time, is unreadable
+ * is a problem, so this can never be passed over silently.
  */
-async function renewalBoundaryProblem(stripe: StripeClient, latestValue: unknown,
-  expected: { invoiceId: string; subscriptionId: string; customer: string; livemode: boolean }): Promise<BoundaryProblem | null> {
+type Boundary = { problem: BoundaryProblem | null; collectedAfterRefund: boolean };
+const BOUNDARY_SAFE: Boundary = Object.freeze({ problem: null, collectedAfterRefund: false });
+const boundaryProblem = (problem: BoundaryProblem): Boundary => ({ problem, collectedAfterRefund: false });
+
+/** A Stripe timestamp: whole seconds since the epoch. */
+const isTimestamp = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) > 0;
+
+async function renewalBoundary(stripe: StripeClient, latestValue: unknown,
+  expected: { invoiceId: string; subscriptionId: string; customer: string; livemode: boolean; refundedAt: unknown }): Promise<Boundary> {
   const latestRef = reference(latestValue);
-  if (latestRef.kind !== "id") return "subscription latest invoice unreadable";
-  if (latestRef.id === expected.invoiceId) return null;
+  if (latestRef.kind !== "id") return boundaryProblem("subscription latest invoice unreadable");
+  if (latestRef.id === expected.invoiceId) return BOUNDARY_SAFE;
   let latest: any = latestValue && typeof latestValue === "object" ? latestValue : null;
   if (typeof latest?.status !== "string") {
     try { latest = await stripe.invoices.retrieve(latestRef.id); }
-    catch { return "latest invoice retrieval failed"; }
+    catch { return boundaryProblem("latest invoice retrieval failed"); }
   }
   if (objectId(latest) !== latestRef.id || objectId(latest.subscription) !== expected.subscriptionId
     || objectId(latest.customer) !== expected.customer || latest.livemode !== expected.livemode) {
-    return "latest invoice is not this subscription's";
+    return boundaryProblem("latest invoice is not this subscription's");
   }
-  if (OUTSTANDING_INVOICE_STATES.includes(latest.status)) return "a later renewal invoice is still outstanding";
-  if (latest.status !== "paid" && latest.status !== "void") return "latest invoice state unknown";
-  return null;
+  if (OUTSTANDING_INVOICE_STATES.includes(latest.status)) return boundaryProblem("a later renewal invoice is still outstanding");
+  if (latest.status === "void") return BOUNDARY_SAFE;
+  if (latest.status !== "paid") return boundaryProblem("latest invoice state unknown");
+  const paidAt = latest.status_transitions?.paid_at;
+  if (!isTimestamp(paidAt) || !isTimestamp(expected.refundedAt)) return boundaryProblem("latest invoice state unknown");
+  return { problem: null, collectedAfterRefund: paidAt >= expected.refundedAt };
 }
 
 /**
@@ -184,6 +203,8 @@ export async function scheduleCancellationAfterRefund(
   charge: any,
   eventId: string,
   proPriceId: string | undefined,
+  /** When the refund happened: the charge.refunded event's `created`, in Stripe seconds. */
+  refundedAt?: unknown,
 ): Promise<RefundOutcome> {
   const priceId = proPriceId?.trim();
   if (!priceId) return unverified("configuration_missing", "pro price is not configured");
@@ -232,10 +253,11 @@ export async function scheduleCancellationAfterRefund(
   if (ENDED_STATES.includes(status)) return { outcome: "already_ended", subscriptionId };
   if (!SCHEDULABLE_STATES.includes(status)) return unverified("subscription_state_unverified", `subscription state ${status || "unknown"} cannot be scheduled`);
   // Renewal boundary: see the rule at the top of this file.
-  const boundary = await renewalBoundaryProblem(stripe, subscription.latest_invoice,
-    { invoiceId, subscriptionId, customer, livemode: charge.livemode });
-  if (boundary) return unverified(boundaryCode(boundary, false), boundary);
-  if (subscription.cancel_at_period_end === true) return { outcome: "already_scheduled", subscriptionId };
+  const boundary = await renewalBoundary(stripe, subscription.latest_invoice,
+    { invoiceId, subscriptionId, customer, livemode: charge.livemode, refundedAt });
+  if (boundary.problem) return unverified(boundaryCode(boundary.problem, false), boundary.problem);
+  const collected = (b: Boundary) => b.collectedAfterRefund ? { followup: "renewal_collected_after_refund" as const } : {};
+  if (subscription.cancel_at_period_end === true) return { outcome: "already_scheduled", subscriptionId, ...collected(boundary) };
   if (subscription.cancel_at_period_end !== false) return unverified("subscription_state_unverified", "cancel_at_period_end unreadable");
 
   let updated: any;
@@ -257,8 +279,9 @@ export async function scheduleCancellationAfterRefund(
   // above (a renewal was issued in between), check the boundary again on that answer: an outstanding renewal is
   // not something cancel at period end can stop, so it is unverified, never "scheduled" (Sam's c381f853 return).
   // This only detects and escalates: the update above stays applied and the renewal invoice is not touched.
-  const after = await renewalBoundaryProblem(stripe, updated.latest_invoice,
-    { invoiceId, subscriptionId, customer, livemode: charge.livemode });
-  if (after) return unverified(boundaryCode(after, true), `after update: ${after}`);
-  return { outcome: "scheduled", subscriptionId };
+  const after = await renewalBoundary(stripe, updated.latest_invoice,
+    { invoiceId, subscriptionId, customer, livemode: charge.livemode, refundedAt });
+  if (after.problem) return unverified(boundaryCode(after.problem, true), `after update: ${after.problem}`);
+  return { outcome: "scheduled", subscriptionId,
+    ...collected({ problem: null, collectedAfterRefund: boundary.collectedAfterRefund || after.collectedAfterRefund }) };
 }

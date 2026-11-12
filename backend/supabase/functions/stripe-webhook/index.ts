@@ -129,7 +129,7 @@ export async function handler(
         // one row per refunded charge) that only an operator's reconciliation closes. It records only; it never
         // retries the refund, voids an invoice or cancels again.
         const refund = await scheduleCancellationAfterRefund(stripe, event.data.object, event.id,
-          getEnv("STRIPE_PRO_PRICE_ID"));
+          getEnv("STRIPE_PRO_PRICE_ID"), event.created);
         if (refund.outcome === "unverified") {
           const recorded = await recordRefundFollowup(supabase, event, refund.code);
           console.error(`[Stripe Webhook] refund follow-up uncertain for ${event.id}: ${refund.reason}; `
@@ -145,6 +145,16 @@ export async function handler(
             return createErrorResponse(ErrorCodes.DATABASE_ERROR, "Refund follow-up signal not recorded", responseHeaders);
           }
           console.error(`[Stripe Webhook] partial refund left unscheduled for ${event.id}; operator signal recorded`);
+          return createSuccessResponse({ received: true, refund: refund.outcome, followup: "unresolved" }, responseHeaders);
+        }
+        if ((refund.outcome === "scheduled" || refund.outcome === "already_scheduled") && refund.followup) {
+          // Scheduled, but a later renewal was collected at or after the refund: the member was charged again.
+          // Acknowledged only once the signal is durable, exactly as for a partial refund.
+          if (!(await recordRefundFollowup(supabase, event, refund.followup))) {
+            console.error(`[Stripe Webhook] renewal collected after refund for ${event.id}; operator signal NOT recorded`);
+            return createErrorResponse(ErrorCodes.DATABASE_ERROR, "Refund follow-up signal not recorded", responseHeaders);
+          }
+          console.error(`[Stripe Webhook] renewal collected after refund for ${event.id}; operator signal recorded`);
           return createSuccessResponse({ received: true, refund: refund.outcome, followup: "unresolved" }, responseHeaders);
         }
         return createSuccessResponse({ received: true, refund: refund.outcome }, responseHeaders);
