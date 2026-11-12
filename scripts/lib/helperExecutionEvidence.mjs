@@ -224,7 +224,7 @@ function regularFile(root, relative) {
 
 export function helperRuntimeIdentity(root) {
   const require = createRequire(path.join(root, 'package.json'));
-  const packages = ['@vitest/coverage-v8', 'jsdom', '@jridgewell/trace-mapping', 'typescript','vite-node'].map(name => {
+  const packages = ['@vitest/coverage-v8', 'jsdom', '@jridgewell/trace-mapping', 'typescript','vite','esbuild','vite-node'].map(name => {
     const location = require.resolve(`${name}/package.json`);
     const bytes = fs.readFileSync(location);
     return {name, version: JSON.parse(bytes).version, packageSha256: hash(bytes),
