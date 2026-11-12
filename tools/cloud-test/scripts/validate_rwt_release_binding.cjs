@@ -82,6 +82,8 @@ const TEST_PINS=Object.freeze({
 // Pin their exact reviewed postimages rather than treating every workflow or
 // authority-test change as proof-only source.
 const INTEGRATION_PINS=Object.freeze({
+ // Exact #1834 execution-evidence registration; siblings and changed bytes remain denied.
+ 'scripts/lib/nativeTestExecutionEvidence.mjs':'2d16b86019cda7c637f8cfa07461285b5b8d38e4e3c197762b1c7de5766704eb',
  // Inherited reviewed main: #1833 R5 provenance correction, #1832 currency docs, #1830 AHT-01 save expectations.
  'product_release/RELEASE_STATUS.md':'2e53046bfc9fce44a81351dcf7dddd302224cb3a2a341cc1a1e1bf5001d32aae',
  'product_release/ROADMAP.md':'ac4e34c689c8575883a33f9cdd15d95267c3bae42f82a9daa65f85e32b5e8fb7',
