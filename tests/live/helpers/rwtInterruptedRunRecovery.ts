@@ -179,7 +179,7 @@ export async function listAuthUsersBounded(admin: AdminLike, perPage = 200, maxP
     return { users, complete: false };
 }
 
-export type RecoveryStatus = 'HOLD_NO_DOMAIN' | 'HOLD_NO_ACK' | 'HOLD_INCOMPLETE_LISTING' | 'NOTHING_TO_RECOVER' | 'RECOVERED' | 'FAILED';
+export type RecoveryStatus = 'HOLD_NO_DOMAIN' | 'HOLD_NO_ACK' | 'HOLD_INCOMPLETE_LISTING' | 'HOLD_RECOVERY_ELIGIBILITY' | 'NOTHING_TO_RECOVER' | 'RECOVERED' | 'FAILED';
 export interface RecoveryReport extends SelectionCounts { status: RecoveryStatus; deleted: number; minAgeMinutes: number }
 
 type Cleanup = typeof cleanupRunOwnedAccount;
@@ -208,8 +208,9 @@ export async function recoverInterruptedRuns(params: {
     for (const account of eligible) {
         try {
             await cleanup({ admin: params.admin as never, capturedUid: account.id, createdEmail: account.email, runOwnedPrefix: account.prefix,
-                ...(account.binding ? { recovery: { originalBinding: account.binding, dispatchSha: params.sha, deleteAck: params.ack } } : {}) });
-        } catch {
+                ...(account.binding ? { recovery: { originalBinding: account.binding, dispatchSha: params.sha, deleteAck: params.ack, minAgeMs } } : {}) });
+        } catch (error) {
+            if (error instanceof Error && error.message === 'cleanup_recovery_eligibility_unproven (HOLD)') return report('HOLD_RECOVERY_ELIGIBILITY', counts, deleted);
             return report('FAILED', counts, deleted);
         }
         deleted += 1;

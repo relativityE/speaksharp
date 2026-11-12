@@ -338,8 +338,11 @@ describe('bound interrupted account recovery', () => {
         const f = fakeAdmin([account]);
         expect((await recover(f)).status).toBe('RECOVERED');
         expect(f.cleanup).toHaveBeenCalledWith(expect.objectContaining({ recovery: {
-            originalBinding: binding, dispatchSha: SHA, deleteAck: ACK,
+            originalBinding: binding, dispatchSha: SHA, deleteAck: ACK, minAgeMs: MIN_AGE_MS,
         } }));
+        const held = fakeAdmin([account]);
+        held.cleanup.mockRejectedValueOnce(new Error('cleanup_recovery_eligibility_unproven (HOLD)'));
+        expect(await recover(held)).toMatchObject({ status: 'HOLD_RECOVERY_ELIGIBILITY', deleted: 0 });
         for (const ct_run of [null, {}, { ...binding, extra: 1 }, { ...binding, repository: 'foreign/repo' },
             { ...binding, workflow: workflow.replace('rc-gates', 'unrelated') }, { ...binding, runId: '38000000002' },
             { ...binding, runAttempt: '0' }, { ...binding, role: 'other' }, { ...binding, runId: '39000000001' }]) {

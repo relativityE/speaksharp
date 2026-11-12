@@ -167,7 +167,7 @@ export async function cleanupRunOwnedAccount(params: {
     /** Email prefix this proof owns, e.g. 'retention-proof-'. Anything else is refused. */
     runOwnedPrefix: string;
     /** Only the separately SHA-acknowledged recovery path supplies the original, validated binding. */
-    recovery?: { originalBinding: RunBinding; dispatchSha: string; deleteAck: string };
+    recovery?: { originalBinding: RunBinding; dispatchSha: string; deleteAck: string; minAgeMs: number };
 }): Promise<string> {
     const { admin, createdEmail, runOwnedPrefix } = params;
     let capturedUid = params.capturedUid;
@@ -234,6 +234,37 @@ export async function cleanupRunOwnedAccount(params: {
         }
     } else if (ctRun !== undefined && (!mine || !sameRunBinding({ ct_run: ctRun }, mine))) {
         throw new Error('cleanup_run_binding_mismatch (fail closed)');
+    }
+
+    if (params.recovery) {
+        const { originalBinding: original, minAgeMs } = params.recovery;
+        // Age is not proof that another workflow version has stopped. Read both the exact owning
+        // attempt and the latest attempt: a completed old attempt must not authorize deleting a rerun's account.
+        // Public repository read, fixed API origin, no redirects or provider error text in the report.
+        try {
+            if (!Number.isFinite(minAgeMs) || minAgeMs < 135 * 60_000) throw new Error('age floor');
+            for (const suffix of [`/attempts/${original.runAttempt}`, '']) {
+                const response = await fetch(`https://api.github.com/repos/${original.repository}/actions/runs/${original.runId}${suffix}`, {
+                    headers: { Accept: 'application/vnd.github+json' }, redirect: 'error', signal: AbortSignal.timeout(10_000),
+                });
+                if (!response.ok) throw new Error('unavailable');
+                const run = await response.json();
+                if (!run || String(run.id) !== original.runId || String(run.run_attempt) !== original.runAttempt
+                    || run.repository?.full_name !== original.repository || run.path !== '.github/workflows/rc-gates.yml'
+                    || run.status !== 'completed' || typeof run.conclusion !== 'string' || !run.conclusion) throw new Error('not terminal');
+            }
+            // The listing and first lookup are not a mutation-time eligibility proof. Re-read after
+            // GitHub I/O and refuse changed identity/binding, missing timestamps or newly fresh accounts.
+            const { data: fresh, error } = await admin.auth.admin.getUserById(capturedUid);
+            const user = fresh?.user as { email?: string; created_at?: string; app_metadata?: unknown } | null | undefined;
+            const created = typeof user?.created_at === 'string' ? Date.parse(user.created_at) : Number.NaN;
+            const now = Date.now();
+            if (error || user?.email?.toLowerCase() !== createdEmail.toLowerCase()
+                || !sameRunBinding(user?.app_metadata, original) || !Number.isFinite(created)
+                || created > now || now - created < minAgeMs) throw new Error('account changed');
+        } catch {
+            throw new Error('cleanup_recovery_eligibility_unproven (HOLD)');
+        }
     }
 
     for (const table of PRE_DELETE_TABLES) {
