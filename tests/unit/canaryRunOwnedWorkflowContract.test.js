@@ -43,7 +43,7 @@ describe('canary run-owned trial account wiring (#1826)', () => {
         const tooling = step(TOOLING);
         expect(tooling.with).toMatchObject({ ref: '${{ github.sha }}', path: '.canary-tooling', 'persist-credentials': false, 'sparse-checkout-cone-mode': false });
         expect(tooling.with['sparse-checkout'].trim().split('\n').map((l) => l.trim())).toEqual(['scripts/canary-run-owned.ts', 'scripts/lib', 'tests/live/helpers']);
-        expect(tooling.if).toBe("matrix.lane == 'active-trial'");
+        expect(tooling.if).toBe(`matrix.lane == 'active-trial' && ${ON}`);
         // before every step that runs the tooling, after the workspace install it resolves packages from
         expect(idx(TOOLING)).toBeGreaterThan(idx('Setup Environment'));
         expect(idx(TOOLING)).toBeLessThan(idx(CREATE));
@@ -71,12 +71,18 @@ describe('canary run-owned trial account wiring (#1826)', () => {
                 .toEqual({ gate, smokes: 1, provisions: 1, creates: gate === 'enabled' });
         }
     });
-    it('cleanup obligations are UNGATED: delete and sweep do not depend on the activation gate', () => {
-        for (const name of [DELETE, SWEEP, 'Checkout run-owned account tooling (workflow source)']) expect(String(step(name).if)).not.toContain('CANARY_RUN_OWNED_TRIAL');
+    it('with the gate OFF no destructive or tooling step is reachable: create, delete, sweep and the tooling checkout are all gated (Sam on 79a4b7ee)', () => {
+        for (const name of [CREATE, DELETE, SWEEP, 'Checkout run-owned account tooling (workflow source)']) expect(String(step(name).if)).toContain(ON);
+        // Every step that runs the tooling (setup, cleanup, sweep) carries the ON clause.
+        for (const s of steps.filter(runOwned)) expect(String(s.if)).toContain(ON);
+        // With the gate off, every service-role step left is the pre-existing ceiling check alone.
+        const gateOn = (s) => String(s.if ?? '').includes(ON);
+        const reachableWithKey = steps.filter((s) => !gateOn(s) && JSON.stringify(s.env ?? {}).includes('SUPABASE_SERVICE_ROLE_KEY')).map((s) => s.name);
+        expect(reachableWithKey).toEqual([CEILING]);
     });
-    it('delete and sweep ALWAYS run for the active-trial lane, whatever failed before them', () => {
-        expect(step(DELETE).if).toBe("always() && matrix.lane == 'active-trial'");
-        expect(step(SWEEP).if).toBe("always() && matrix.lane == 'active-trial'");
+    it('when enabled, delete and sweep ALWAYS run for the active-trial lane, whatever failed before them', () => {
+        expect(step(DELETE).if).toBe(`always() && matrix.lane == 'active-trial' && ${ON}`);
+        expect(step(SWEEP).if).toBe(`always() && matrix.lane == 'active-trial' && ${ON}`);
         expect(step(DELETE)['continue-on-error']).toBeUndefined();
         expect(step(SWEEP)['continue-on-error']).toBeUndefined();
     });

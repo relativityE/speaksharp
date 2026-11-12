@@ -173,7 +173,7 @@ jobs:
       # existed. The product journey above stays bound to the served release. Read-only sparse checkout of exactly
       # the tooling and the shared cleanup it reuses; it resolves its packages from the workspace install.
       - name: Checkout run-owned account tooling (workflow source)
-        if: matrix.lane == 'active-trial'
+        if: matrix.lane == 'active-trial' && vars.CANARY_RUN_OWNED_TRIAL == 'enabled'
         uses: actions/checkout@v6
         with:
           ref: ${{ github.sha }}
@@ -270,10 +270,10 @@ jobs:
         run: pnpm test:deploy:prod
 
       # Always delete THIS run+attempt's account, whatever happened above. Unproven deletion or residue fails
-      # the job (never silently green). UNGATED on purpose: cleanup obligations survive deactivation; with the gate
-      # off nothing was created, so it lists and deletes nothing.
+      # the job (never silently green). Gated like creation: with the gate off nothing was created, so no destructive
+      # step is reachable. Orphans left from an enabled period are swept by the next enabled run (Sam on 79a4b7ee).
       - name: Delete run-owned trial account (active-trial)
-        if: always() && matrix.lane == 'active-trial'
+        if: always() && matrix.lane == 'active-trial' && vars.CANARY_RUN_OWNED_TRIAL == 'enabled'
         env:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -282,7 +282,7 @@ jobs:
       # Hygiene, after the product result: remove orphans of FINISHED earlier runs (runner lost before its
       # delete step), bounded and re-checked. Accounts it cannot prove finished are left and reported.
       - name: Sweep run-owned orphans (hygiene)
-        if: always() && matrix.lane == 'active-trial'
+        if: always() && matrix.lane == 'active-trial' && vars.CANARY_RUN_OWNED_TRIAL == 'enabled'
         env:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
