@@ -18,7 +18,7 @@ const UID = '0b9c5e2a-1111-4222-8333-444455556666';
 const EMAIL = `${RWT_ACCOUNT_PREFIX}open-mic-1794310000000-42800000001@example.com`;
 
 const setEnv = (env: Record<string, string | undefined>) => { for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v as string); };
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
 /** A fake service-role client with one account, a profile row, and merge semantics for app_metadata (as GoTrue). */
 function fake(meta: Record<string, unknown> = { provider: 'email' }, o: { writeError?: string; dropWrite?: boolean } = {}) {
@@ -84,7 +84,7 @@ describe('the run binding', () => {
 
 describe('cleanup', () => {
     const cleanupAdmin = (meta: Record<string, unknown>) => {
-        const user = { id: UID, email: EMAIL, app_metadata: meta };
+        const user = { id: UID, email: EMAIL, created_at: new Date(Date.now() - 200 * 60_000).toISOString(), app_metadata: meta };
         let gone = false;
         return {
             auth: { admin: {
@@ -112,13 +112,20 @@ describe('cleanup', () => {
     });
     it('authorized recovery deletes the ORIGINAL binding, with fresh binding and authority negatives', async () => {
         const sha = 'a'.repeat(40);
-        const recovery = { originalBinding: B, dispatchSha: sha, deleteAck: `RWT-INTERRUPTED-RUN-RECOVERY-DELETE@${sha}` };
+        const recovery = { originalBinding: B, dispatchSha: sha, deleteAck: `RWT-INTERRUPTED-RUN-RECOVERY-DELETE@${sha}`, minAgeMs: 135 * 60_000 };
+        vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ id: Number(B.runId), run_attempt: 1,
+            repository: { full_name: B.repository }, path: '.github/workflows/rc-gates.yml', status: 'completed', conclusion: 'cancelled' }) })));
         setEnv({ ...ENV, GITHUB_RUN_ID: '42800000009', GITHUB_SHA: sha, GITHUB_REF: 'refs/heads/main' });
         const invoke = (admin: ReturnType<typeof cleanupAdmin>, r = recovery) => cleanupRunOwnedAccount({
             admin: admin as never, capturedUid: UID, createdEmail: EMAIL, runOwnedPrefix: RWT_ACCOUNT_PREFIX, recovery: r });
         const good = cleanupAdmin({ ct_run: B });
         await expect(invoke(good)).resolves.toBe(UID);
         expect(good.auth.admin.deleteUser).toHaveBeenCalledTimes(1);
+        expect(vi.mocked(fetch).mock.calls.map(([url]) => url)).toEqual([
+            `https://api.github.com/repos/${B.repository}/actions/runs/${B.runId}/attempts/1`,
+            `https://api.github.com/repos/${B.repository}/actions/runs/${B.runId}`,
+        ]);
+        expect(vi.mocked(fetch).mock.calls.every(([, options]) => options?.redirect === 'error' && options.signal instanceof AbortSignal)).toBe(true);
         for (const meta of [{}, { ct_run: { ...B, runAttempt: '2' } }, { ct_run: { ...B, runId: '4' } },
             { ct_run: { ...B, extra: true } }]) {
             const admin = cleanupAdmin(meta);
@@ -138,6 +145,53 @@ describe('cleanup', () => {
             await expect(invoke(admin)).rejects.toThrow('cleanup_run_binding_mismatch');
             expect(admin.auth.admin.deleteUser).not.toHaveBeenCalled();
         }
+    });
+    it('foreign recovery HOLDS before any mutation for active, unavailable or contradictory attempt evidence and fresh/changed accounts', async () => {
+        const sha = 'a'.repeat(40);
+        setEnv({ ...ENV, GITHUB_RUN_ID: '42800000009', GITHUB_SHA: sha, GITHUB_REF: 'refs/heads/main' });
+        const recovery = { originalBinding: B, dispatchSha: sha, deleteAck: `RWT-INTERRUPTED-RUN-RECOVERY-DELETE@${sha}`, minAgeMs: 135 * 60_000 };
+        const terminal = { id: Number(B.runId), run_attempt: 1, repository: { full_name: B.repository },
+            path: '.github/workflows/rc-gates.yml', status: 'completed', conclusion: 'cancelled' };
+        for (const bad of [{ status: 'in_progress' }, { status: 'queued' }, { conclusion: null }, { run_attempt: 2 },
+            { id: 7 }, { repository: { full_name: 'other/repo' } }, { path: '.github/workflows/other.yml' }]) {
+            for (const badAt of [0, 1]) {
+                let calls = 0;
+                const fetcher = vi.fn(async () => ({ ok: true, json: async () => calls++ === badAt ? { ...terminal, ...bad } : terminal }));
+                vi.stubGlobal('fetch', fetcher);
+                const admin = cleanupAdmin({ ct_run: B });
+                const mutate = vi.fn(admin.from); admin.from = mutate;
+                await expect(cleanupRunOwnedAccount({ admin: admin as never, capturedUid: UID, createdEmail: EMAIL,
+                    runOwnedPrefix: RWT_ACCOUNT_PREFIX, recovery })).rejects.toThrow('cleanup_recovery_eligibility_unproven');
+                expect(mutate).not.toHaveBeenCalled(); expect(admin.auth.admin.deleteUser).not.toHaveBeenCalled();
+            }
+        }
+        for (const fetcher of [vi.fn(async () => { throw new Error('network'); }), vi.fn(async () => ({ ok: false })),
+            vi.fn(async () => ({ ok: true, json: async () => { throw new Error('malformed'); } }))]) {
+            vi.stubGlobal('fetch', fetcher);
+            const admin = cleanupAdmin({ ct_run: B }); const mutate = vi.fn(admin.from); admin.from = mutate;
+            await expect(cleanupRunOwnedAccount({ admin: admin as never, capturedUid: UID, createdEmail: EMAIL,
+                runOwnedPrefix: RWT_ACCOUNT_PREFIX, recovery })).rejects.toThrow('cleanup_recovery_eligibility_unproven');
+            expect(mutate).not.toHaveBeenCalled(); expect(admin.auth.admin.deleteUser).not.toHaveBeenCalled();
+        }
+        for (const changed of [{ created_at: new Date().toISOString() }, { created_at: 'invalid' }, { created_at: '' },
+            { created_at: new Date(Date.now() + 60_000).toISOString() },
+            { app_metadata: { ct_run: { ...B, runAttempt: '2' } } }, { email: 'another@example.com' }]) {
+            vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => terminal })));
+            const admin = cleanupAdmin({ ct_run: B });
+            admin.auth.admin.getUserById.mockResolvedValueOnce({ data: { user: { id: UID, email: EMAIL,
+                created_at: new Date(0).toISOString(), app_metadata: { ct_run: B } } }, error: null });
+            admin.auth.admin.getUserById.mockResolvedValueOnce({ data: { user: { id: UID, email: EMAIL,
+                created_at: new Date(0).toISOString(), app_metadata: { ct_run: B }, ...changed } }, error: null });
+            const mutate = vi.fn(admin.from); admin.from = mutate;
+            await expect(cleanupRunOwnedAccount({ admin: admin as never, capturedUid: UID, createdEmail: EMAIL,
+                runOwnedPrefix: RWT_ACCOUNT_PREFIX, recovery })).rejects.toThrow('cleanup_recovery_eligibility_unproven');
+            expect(mutate).not.toHaveBeenCalled(); expect(admin.auth.admin.deleteUser).not.toHaveBeenCalled();
+        }
+        vi.stubGlobal('fetch', vi.fn());
+        const youngFloor = cleanupAdmin({ ct_run: B });
+        await expect(cleanupRunOwnedAccount({ admin: youngFloor as never, capturedUid: UID, createdEmail: EMAIL,
+            runOwnedPrefix: RWT_ACCOUNT_PREFIX, recovery: { ...recovery, minAgeMs: 1 } })).rejects.toThrow('cleanup_recovery_eligibility_unproven');
+        expect(fetch).not.toHaveBeenCalled(); expect(youngFloor.auth.admin.deleteUser).not.toHaveBeenCalled();
     });
     it('a failed cleanup reports the CLOSED step it stopped at; free text and unknown tables are `unknown`', async () => {
         const t = RESIDUE_CHECKS[0].table;
