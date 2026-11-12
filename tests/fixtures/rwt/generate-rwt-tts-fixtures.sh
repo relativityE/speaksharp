@@ -2,11 +2,11 @@
 # RWT two-product journey — SYNTHETIC (macOS TTS) speech fixtures for the automated rehearsal suites.
 #
 # These drive the real browser's fake microphone (Chromium --use-file-for-fake-audio-capture). They are
-# SYNTHETIC: a TTS voice reading the PO's public RWT scripts. They are adequate for the product FLOW (model
-# download, recording, Stop/save, coaching, Analytics/PDF, feedback, Focus Points setup and point coverage),
-# but NOT for the Open Mic filler ground truth: measured locally, whisper-base.en hears every macOS voice's
-# "uh" as "ah" (or drops it). The Open Mic filler row therefore needs a HUMAN recording, which must never be
-# committed to this public repository.
+# SYNTHETIC: a TTS voice reading the PO's public RWT scripts, for the product FLOW (model download, recording,
+# Stop/save, coaching, Analytics/PDF, feedback, Focus Points setup and point coverage) and the Open Mic per-word
+# filler rows. Offline (2026-11-11), whisper-base.en heard this voice's "uh" as "uh" mid-sentence but as "Ah" (or
+# dropped it) sentence-initially, for the same audio token; see knownFixtureLimits in the manifest. A separate
+# human recording observation also applies; it must never be committed to this public repository.
 #
 # Chromium LOOPS its fake-audio file, so each fixture ends with TRAILING_SILENCE_S of silence and the suites
 # stop recording inside that silence — the speech is heard exactly once.

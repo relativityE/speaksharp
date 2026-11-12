@@ -5,7 +5,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {CASE07_APPLY,CASE07_ROLLBACK,SOURCE_CONTRACTS,SOURCE_CONSUMER,SOURCE_ASSERTION,inspectSourceContract,sourceContractBinding,
   consumeSourceContracts,validateSourceContractWitness} from '../../scripts/lib/sourceContractEvidence.mjs';
-import {executionRoute} from '../../scripts/lib/testExecutionEvidence.mjs';
+import {executionRoute,selectExecutionContracts} from '../../scripts/lib/testExecutionEvidence.mjs';
 const {test}=process.env.NODE_TEST_CONTEXT?await import('node:test'):await import('vitest');
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 const canary=`import {collectCanaryStopSave,isOwnedStopSettledInPage,startOwnerId} from './canaryStopSaveOracle';
@@ -244,23 +244,89 @@ test('source witness refuses stale bytes, missing consumer, wrong phase and fake
   assert.throws(()=>sourceContractBinding(dir,['tests/fixtures/unconsumed.json']),/Unknown/);
 }));
 
-test('fixture contract consumes all annotations against the pinned generator, without audio credit',()=>fixture(({dir,write})=>{
-  const words=['um','uh','um','you know','uh','um','uh','um'];
-  const items=words.map((word,i)=>({word,anchor:`anchor ${i}`}));
-  const manifest={fixtures:{open_mic_tts:{kind:'synthetic',sha256:'a'.repeat(64),groundTruthFillers:{um:4,uh:3,'you know':1},
-    fillerAnnotations:{source:'script, not audio-bound',items},knownFixtureLimits:['needs human recording']}}};
-  write('tests/fixtures/rwt/generate-rwt-tts-fixtures.sh',`OPEN_MIC="${items.map(({word,anchor})=>`${word}, ${anchor}`).join('. ')}"\n`);
-  const source=JSON.stringify(manifest);
-  write(SOURCE_CONTRACTS[2],source);assert.equal(executionRoute(SOURCE_CONTRACTS[2],dir).applicable,true);
-  const absent=structuredClone(manifest);delete absent.fixtures.open_mic_tts.fillerAnnotations;
-  write(SOURCE_CONTRACTS[2],JSON.stringify(absent));assert.equal(executionRoute(SOURCE_CONTRACTS[2],dir).applicable,false);
-  write(SOURCE_CONTRACTS[2],source);
+test('real manifest consumes reviewed code annotations against the generator, without audio credit',()=>fixture(({dir,write})=>{
+  const helper='tests/live/helpers/rwtFillerReference.ts';
+  const generator='tests/fixtures/rwt/generate-rwt-tts-fixtures.sh';
+  const helperSource=fs.readFileSync(path.join(root,helper),'utf8');
+  const source=fs.readFileSync(path.join(root,SOURCE_CONTRACTS[2]),'utf8');
+  const manifest=JSON.parse(source);
+  assert.equal(Object.hasOwn(manifest.fixtures.open_mic_tts,'fillerAnnotations'),false);
+  for(const file of [helper,generator,SOURCE_CONTRACTS[2]]) write(file,fs.readFileSync(path.join(root,file),'utf8'));
+  assert.equal(executionRoute(SOURCE_CONTRACTS[2],dir).applicable,true);
   const proof=inspectSourceContract(dir,SOURCE_CONTRACTS[2],source);
   assert.equal(proof.annotationCount,8);assert.equal(proof.audioExecution,'NOT RUN');
+  assert.equal(proof.liveExecution,'NOT RUN');assert.equal(proof.annotationSource,'reviewed code; script-derived, not audio-bound');
+  assert.deepEqual(proof.counts,{um:4,uh:3,'you know':1});
+  const binding=sourceContractBinding(dir,[SOURCE_CONTRACTS[2]]);
+  assert.ok(binding.some(b=>b.file===helper&&b.sha256===proof.referenceSha256));
   const wrong=structuredClone(manifest);wrong.fixtures.open_mic_tts.groundTruthFillers.uh=2;
   assert.throws(()=>inspectSourceContract(dir,SOURCE_CONTRACTS[2],JSON.stringify(wrong)),/disagreement/);
-  const unconsumed=structuredClone(manifest);unconsumed.fixtures.open_mic_tts.fillerAnnotations.items[1].anchor='not in generator';
-  assert.throws(()=>inspectSourceContract(dir,SOURCE_CONTRACTS[2],JSON.stringify(unconsumed)),/not consumed/);
+  for(const [key,value] of [['sha256','0'.repeat(64)],['file','foreign.wav'],['kind','human']]) {
+    const other=structuredClone(manifest);other.fixtures.open_mic_tts[key]=value;
+    write(SOURCE_CONTRACTS[2],JSON.stringify(other));
+    assert.equal(executionRoute(SOURCE_CONTRACTS[2],dir).applicable,false);
+    assert.throws(()=>inspectSourceContract(dir,SOURCE_CONTRACTS[2]),/identity|scope/);
+  }
+  write(SOURCE_CONTRACTS[2],source);
+  for(const [from,to,error] of [
+    ["anchor: 'I propose'","anchor: 'not in generator'",/not consumed/],
+    ["{ word: 'um', anchor: 'deadlines live' },",'',/Missing fixture annotations/],
+    ['e.sha256 !== OPEN_MIC_TTS_IDENTITY.sha256','false',/resolver wiring/],
+    ["word: 'uh'","word: computedWord()",/reference property/],
+  ]) {
+    assert.ok(helperSource.includes(from));write(helper,helperSource.replace(from,to));
+    assert.throws(()=>inspectSourceContract(dir,SOURCE_CONTRACTS[2]),error);
+  }
+  write(helper,helperSource+'\n// changed reference bytes');
+  assert.notDeepEqual(sourceContractBinding(dir,[SOURCE_CONTRACTS[2]]),binding);
+  write(helper,helperSource);
+  const duplicate=structuredClone(manifest);duplicate.fixtures.open_mic_tts.fillerAnnotations={source:'legacy',items:[]};
+  assert.throws(()=>inspectSourceContract(dir,SOURCE_CONTRACTS[2],JSON.stringify(duplicate)),/identity/);
+  fs.unlinkSync(path.join(dir,helper));
+  assert.equal(executionRoute(SOURCE_CONTRACTS[2],dir).applicable,false);
+}));
+
+
+test('exact fixture generator has a bounded source-only route, including generator-only deltas',()=>fixture(({dir,write})=>{
+  const generator='tests/fixtures/rwt/generate-rwt-tts-fixtures.sh';
+  const helper='tests/live/helpers/rwtFillerReference.ts';
+  for(const file of [generator,helper,SOURCE_CONTRACTS[2]]) write(file,fs.readFileSync(path.join(root,file),'utf8'));
+  const source=fs.readFileSync(path.join(dir,generator),'utf8');
+  const route=executionRoute(generator,dir);
+  assert.equal(route.runner,'vitest-source-contract');assert.equal(route.applicable,true);assert.equal(route.liveExecution,'NOT RUN');
+  assert.equal(executionRoute('tests/fixtures/rwt/unregistered-generator.sh',dir),null);
+  const selected=selectExecutionContracts(dir,[generator]);
+  assert.equal(selected.length,1);assert.deepEqual(selected[0].sourceFiles,[generator]);
+  const proof=inspectSourceContract(dir,generator);
+  assert.equal(proof.kind,'generator-source-consumption');assert.equal(proof.scriptExecution,'NOT RUN');
+  assert.equal(proof.audioExecution,'NOT RUN');assert.equal(proof.annotationCount,8);
+  const binding=sourceContractBinding(dir,[generator]);
+  for(const file of [generator,helper,SOURCE_CONTRACTS[2]]) assert.ok(binding.some(b=>b.file===file));
+  assert.equal(new Set(binding.map(b=>b.file)).size,binding.length);
+  for(const [from,to] of [
+    ['RATE=150','RATE=151'],['VOICE=Samantha','VOICE=Other'],
+    ['TRAILING_SILENCE_S=15','TRAILING_SILENCE_S=0'],
+    ['say -v','echo -v'],['-ar 16000','-ar 8000'],
+    ['make open_mic_tts','make wrong_target'],
+    ['Uh, I propose','Uh, unrelated anchor'],
+    ['OPEN_MIC="','OPEN_MIC="$(malicious)'],
+  ]) {
+    assert.ok(source.includes(from));assert.throws(()=>inspectSourceContract(dir,generator,source.replace(from,to)));
+  }
+  for(const name of ['OPEN_MIC','FOCUS_POINTS','FOCUS_POINTS_PARTIAL']) {
+    const changed=source.replace(new RegExp(`^${name}="[^"\\n]+"$`,'m'),`${name}="garbage"`);
+    assert.notEqual(changed,source);assert.throws(()=>inspectSourceContract(dir,generator,changed),/script text differs/);
+  }
+  assert.throws(()=>inspectSourceContract(dir,generator,source+'\necho extra-command\n'),/command/);
+  assert.throws(()=>inspectSourceContract(dir,generator,source.split('\n').map(l=>'# '+l).join('\n')),/command/);
+  write(generator,source+'\n# source-only comment correction\n');
+  assert.notDeepEqual(sourceContractBinding(dir,[generator]),binding);
+  assert.equal(inspectSourceContract(dir,generator).scriptExecution,'NOT RUN');
+  write(generator,source);
+  const manifest=JSON.parse(fs.readFileSync(path.join(dir,SOURCE_CONTRACTS[2]),'utf8'));
+  manifest.fixtures.focus_points_tts.file='foreign.wav';write(SOURCE_CONTRACTS[2],JSON.stringify(manifest));
+  assert.equal(executionRoute(generator,dir).applicable,false);
+  assert.throws(()=>inspectSourceContract(dir,generator),/target mismatch/);
 }));
 
 const MODEL='tests/evidence/fixtures/model-evaluator/';
