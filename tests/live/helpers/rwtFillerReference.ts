@@ -4,8 +4,9 @@
  * L1 (run 40071973428 on fb30674e) failed `filler "um" vs corpus` with corpus 4 vs transcript 5, while every
  * transcript/display/saved row agreed. An exact per-word count cannot tell an inserted or omitted filler from one hesitation
  * recognised as another, so this module aligns each SCRIPTED hesitation to the transcript through its unique following
- * anchor phrase and classifies it. The annotations come from the TTS input script, not from the realised audio, so a
- * substitution is recognition/fixture ambiguity (FIXTURE_LIMITED on synthetic audio), never proof the fixture alone caused it.
+ * anchor phrase and classifies it. The annotations come from the TTS input script. PO 2026-11-11 (no exemptions for um, uh
+ * or ah): a hesitation recognised as another is a per-word FAIL on synthetic audio as on human audio, so the weakness stays
+ * visible. A missing, repeated or contested anchor still HOLDs: uncertainty is never turned into a FAIL or a PASS.
  *
  * Independence: the variant table below is declared here on purpose, NOT imported from `fillerWordUtils`, so a defect in the
  * product counter cannot pass both sides. It copies the variant contract as specified at eb030b95; `crossCheckCounts` turns
@@ -15,7 +16,7 @@
  */
 
 export type ReferenceKey = 'um' | 'uh' | 'ah' | 'you_know';
-export type Verdict = 'PASS' | 'FAIL' | 'HOLD' | 'FIXTURE_LIMITED';
+export type Verdict = 'PASS' | 'FAIL' | 'HOLD';
 export type InstanceClass = 'MATCH' | 'SUBSTITUTED' | 'OMITTED' | 'ANCHOR_MISSING' | 'AMBIGUOUS' | 'CONTESTED';
 
 /** One scripted hesitation: the filler as written in the TTS script and the unique phrase that follows it. */
@@ -173,9 +174,8 @@ export interface WordVerdict { verdict: Verdict; detail: string; evidence: Recor
 
 /**
  * The `filler "<word>" vs corpus` verdict. The exact expectation stays: PASS needs the reference count to equal the corpus
- * count with every instance matched and nothing inserted. A hold anywhere in the word's alignment is HOLD; an omission or an
- * insertion is FAIL even when the total is conserved; a substitution is FIXTURE_LIMITED on synthetic audio and FAIL on human
- * audio. FIXTURE_LIMITED is unverified, never a pass.
+ * count with every instance matched and nothing inserted. A hold anywhere in the word's alignment is HOLD; an omission, an
+ * insertion or a substitution is FAIL even when the total is conserved, on synthetic and human audio alike (PO 2026-11-11).
  */
 export const corpusWordVerdict = (
     word: string, expected: number, transcript: string, alignment: Alignment, fixtureKind: 'synthetic' | 'human',
@@ -199,7 +199,7 @@ export const corpusWordVerdict = (
     }
     if (evidence.substitutedOut > 0 || evidence.substitutedIn > 0) {
         return fixtureKind === 'synthetic'
-            ? { verdict: 'FIXTURE_LIMITED', detail: 'a scripted hesitation was recognised as another (synthetic audio: unverified)', evidence }
+            ? { verdict: 'FAIL', detail: 'a scripted hesitation was recognised as another', evidence }
             : { verdict: 'FAIL', detail: 'a spoken hesitation was recognised as another', evidence };
     }
     return observed === expected
@@ -250,28 +250,16 @@ export const humanCountRows = (corpus: Readonly<Record<string, number>>, transcr
 };
 
 /**
- * The spec's `filler "<word>" vs corpus` rows. A substitution on synthetic audio is HOLD (fixture-limited, unverified),
- * never PASS. Synthetic "uh" is judged by a human observation, so its substitution or held anchor emits no row; but an
- * omitted or inserted "uh" is still a FAIL row, so equal counts cannot hide a displaced "uh" (Sam 1792992507.489959).
+ * The spec's `filler "<word>" vs corpus` rows: one row per word over the full key union, "uh" included (PO 2026-11-11: no
+ * suppression and no exemption). A substitution, omission or insertion FAILs; a missing, repeated or contested anchor HOLDs.
  */
 export const corpusRows = (
     corpus: Readonly<Record<string, number>>, transcript: string, annotations: readonly FillerAnnotation[],
     fixtureKind: 'synthetic' | 'human',
 ): CorpusRow[] => (annotations.length === 0 && fixtureKind === 'human' ? humanCountRows(corpus, transcript) : Object.entries(corpusVerdicts(corpus, transcript, alignFillers(transcript, annotations), fixtureKind))
-    .flatMap(([word, v]): CorpusRow[] => {
-        const humanObserved = fixtureKind === 'synthetic' && word === 'uh';
-        if (annotations.length === 0) {
-            return humanObserved ? [] : [{ word, verdict: 'HOLD', detail: 'the fixture carries no filler annotations', evidence: v.evidence }];
-        }
-        if (humanObserved) {
-            return v.verdict === 'FAIL'
-                ? [{ word, verdict: 'FAIL', detail: `synthetic "uh" diagnostic: ${v.detail}`, evidence: v.evidence }]
-                : [];
-        }
-        return v.verdict === 'FIXTURE_LIMITED'
-            ? [{ word, verdict: 'HOLD', detail: `fixture-limited (unverified): ${v.detail}`, evidence: v.evidence }]
-            : [{ word, verdict: v.verdict, detail: v.detail, evidence: v.evidence }];
-    }));
+    .map(([word, v]): CorpusRow => (annotations.length === 0
+        ? { word, verdict: 'HOLD', detail: 'the fixture carries no filler annotations', evidence: v.evidence }
+        : { word, verdict: v.verdict, detail: v.detail, evidence: v.evidence })));
 
 /** Informational only: the hesitation total (um+uh+ah) against the corpus total. It never upgrades a per-word verdict. */
 export const hesitationTotals = (transcript: string, corpus: Readonly<Record<string, number>>) => {

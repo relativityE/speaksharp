@@ -143,8 +143,50 @@ describe('Admin - Test Users workflow contract', () => {
     expect(canary.run.trim()).toBe('pnpm verify:test-users');
   });
 
-  it('verify_target selects the reviewers check (default) or the read-only canary inspection', () => {
-    expect(inputs.verify_target.options).toEqual(['reviewers', 'canaries']);
+  // Cloud test live run: the two required accounts by role only, in their OWN least-privilege step (Sam 1793541050.190059).
+  it('CASUALTY: the live-journey account verify path runs in its own step with ONLY the allowed environment', () => {
+    const steps = wf.jobs['test-user-admin'].steps;
+    const STEP = 'Run live-journey account verification (strictly read-only, role only)';
+    const own = steps.filter((s) => s.name === STEP);
+    expect(own).toHaveLength(1);
+    const [step] = own;
+    const others = steps.filter((s) => s.name !== STEP && /live-journey-accounts/.test(s.if ?? '') && !/\$\{\{\s*!/.test(s.if ?? ''));
+    expect(others.map((s) => s.name)).toEqual([]);
+    expect(step.if).toMatch(/action\s*==\s*'verify'/);
+    expect(step.if).toMatch(/verify_target\s*==\s*'live-journey-accounts'/);
+    expect(Object.keys(step.env ?? {}).sort()).toEqual(['ACTION', 'CLOUD_TEST_LIVE_ACCOUNTS', 'SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_URL', 'VERIFY_TARGET']);
+    expect(step.env.CLOUD_TEST_LIVE_ACCOUNTS).toBe('${{ secrets.CLOUD_TEST_LIVE_ACCOUNTS }}');
+    const env = JSON.stringify(step.env ?? {});
+    for (const banned of ['PASSWORD', 'ANON_KEY', 'SOAK', 'GH_PAT', 'GH_TOKEN', 'PRO_TEST', 'CREATE_', 'CANARY_', 'E2E_', '_EMAIL', 'EXPECTED_']) {
+      expect(env, `live-journey verify step must not receive ${banned}`).not.toContain(banned);
+    }
+    const broad = steps.find((s) => s.name === 'Run test user admin action');
+    expect(broad.if, 'broad step must exclude the live-journey case').toMatch(/!\s*\(.*action\s*==\s*'verify'.*verify_target\s*==\s*'live-journey-accounts'.*\)/s);
+    expect(step.run.trim()).toBe('pnpm verify:test-users');
+  });
+
+  // Log privacy (Sam 1793542704.992869): dispatch inputs are shown on the run page and non-secret env values in step headers.
+  it('PRIVACY: account identifiers travel only in the masked Secret; never a Variable, dispatch input, derived expression or run script', () => {
+    const steps = wf.jobs['test-user-admin'].steps;
+    const step = steps.find((s) => s.name === 'Run live-journey account verification (strictly read-only, role only)');
+    expect(JSON.stringify(step)).not.toMatch(/vars\.[A-Z_]*_EMAIL|_ID_SHA256/);
+    // A value derived from a Secret by an expression is NOT masked by Actions, so the bundle is never parsed in a workflow expression.
+    expect(raw).not.toMatch(/fromJSON\(\s*secrets\./);
+    expect((raw.match(/secrets\.CLOUD_TEST_LIVE_ACCOUNTS/g) || []).length).toBe(1);
+    for (const name of Object.keys(inputs)) expect(name, `dispatch input ${name}`).not.toMatch(/sha256|digest|account_id|user_id/i);
+    expect(raw).not.toMatch(/inputs\.expected_/);
+    for (const s of steps) expect(s.run ?? '', `${s.name} interpolates an expression into its script`).not.toContain('${{');
+    // The verifier masks every email and digest before it prints anything for this target.
+    const src = readFileSync(resolve(process.cwd(), 'scripts/verify-test-users.mjs'), 'utf8');
+    const branch = src.slice(src.indexOf("if (VERIFY_TARGET === 'live-journey-accounts') {"));
+    const mask = branch.indexOf('maskCommands(liveJourneyMaskValues(raw))');
+    expect(mask).toBeGreaterThan(-1);
+    expect(mask).toBeLessThan(branch.indexOf('createClient('));
+    expect(mask).toBeLessThan(branch.indexOf('console.'));
+  });
+
+  it('verify_target selects the reviewers check (default), the read-only canary inspection or the live-journey accounts', () => {
+    expect(inputs.verify_target.options).toEqual(['reviewers', 'canaries', 'live-journey-accounts']);
     expect(inputs.verify_target.default).toBe('reviewers');
     expect(raw).toContain('VERIFY_TARGET: ${{ github.event.inputs.verify_target }}');
   });

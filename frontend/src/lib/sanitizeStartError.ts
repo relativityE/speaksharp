@@ -13,10 +13,14 @@
  * along — transcript / audio / filler / request bodies never reach this path.
  */
 
+import { isMicAcquisitionError, markMicAcquisitionError } from './micAccessErrors';
+
 export interface SanitizedLeafError {
   name: string;
   message: string;
   frames: string[];
+  /** Closed marker: the leaf came from `getUserMedia` itself (see micAccessErrors). Present only when true. */
+  micAcquisition?: true;
 }
 
 const BEARER = /Bearer\s+[A-Za-z0-9._~+/-]+=*/gi;
@@ -63,7 +67,7 @@ export function sanitizeStartError(err: unknown): SanitizedLeafError | null {
         .filter(Boolean)
     : [];
 
-  return { name, message, frames };
+  return isMicAcquisitionError(err) ? { name, message, frames, micAcquisition: true } : { name, message, frames };
 }
 
 /**
@@ -83,5 +87,6 @@ export function toSanitizedCause(err: unknown): Error | null {
   cause.stack = s.frames.length
     ? [`${cause.name}: ${cause.message}`, ...s.frames].join('\n')
     : undefined;
-  return cause;
+  // Carry the closed getUserMedia marker so the start wrapper's cause still classifies (micAccessErrors).
+  return s.micAcquisition ? markMicAcquisitionError(cause) : cause;
 }

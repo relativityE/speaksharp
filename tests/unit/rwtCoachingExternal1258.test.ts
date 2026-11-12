@@ -2,7 +2,7 @@
 /**
  * #1258 — COACHING PROVIDER UNAVAILABILITY IS EXTERNAL (PO 2026-10-14; PM 6171519534, A+B+C with D1).
  *
- * A PROVED provider outage (request-bound provider 5xx with its integer status, or provider timeout) that the app handled
+ * A PROVED provider outage (request-bound provider 5xx with its integer status, or timeout with observed provider 5xx/429) that the app handled
  * gracefully is EXTERNAL: non-blocking, named, never PASS — acceptance stays INCOMPLETE because successful coaching is
  * still unproven. Everything the app owns stays PASS/FAIL, and EXTERNAL can never hide a failed save, a missing or
  * disabled Try again, missing failure telemetry, a request/session mismatch, identity or cleanup errors.
@@ -12,11 +12,11 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
     classifySavedCoaching, coachingParentVerdict, failureTelemetryBinding, coachingRequestBindingRow, coachingTelemetryVerdict, focusExternalDependentRows,
-    gracefulFailures, provenExternalOutcome, providerStatusFrom, successDependentRow, takeExchangeEvidence,
+    gracefulFailures, isCoachingUnavailableHeadline, provenExternalOutcome, providerStatusFrom, successDependentRow, takeExchangeEvidence,
     type CoachingFailureEvidence, type GracefulDegradation,
 } from '../live/helpers/coachingExternal';
 import { CoachingGenerationTap } from '../live/helpers/coachingGenerationTap';
-import { analyticsRows, exactCountVerdict, firstTakeSavedExactlyOnce, observeCoachingPhrase, readCoachingFailureEvidence, readCoachingFailureReason, RwtReceipt, visibleCoachingAbsence } from '../live/helpers/rwtJourney';
+import { analyticsRows, exactCountVerdict, firstTakeSavedExactlyOnce, observeCoachingPhrase, readCoachingFailureEvidence, readCoachingFailureReason, readCoachingFailureUi, RwtReceipt, visibleCoachingAbsence } from '../live/helpers/rwtJourney';
 import {
     finalizeReceipt, humanWorksheet, parseHumanWorksheet, receiptAcceptance, requiredAutomatedRows, validateReceipt, type ReceiptRow,
 } from '../live/helpers/rwtAcceptance';
@@ -38,8 +38,16 @@ describe('the parent "coaching rendered" verdict', () => {
         expect(v).toMatchObject({ verdict: 'EXTERNAL', external: 'provider_5xx' });
         expect(v.detail).toMatch(/provider 503.*non-blocking per PO.*Successful coaching was not exercised/);
     });
-    it('3. provider timeout + graceful app → EXTERNAL', () => {
-        expect(parent(providerTimeout)).toMatchObject({ verdict: 'EXTERNAL', external: 'provider_timeout' });
+    it('3. local provider timeout without upstream status stays product FAIL, despite graceful UI', () => {
+        expect(parent(providerTimeout)).toMatchObject({ verdict: 'FAIL', external: null });
+    });
+    it.each([429, 500, 503, 599])('timeout with observed provider %i + graceful app is EXTERNAL, never PASS', (providerStatus) => {
+        const verdict = parent({ ...providerTimeout, providerStatus });
+        expect(verdict).toMatchObject({ verdict: 'EXTERNAL', external: 'provider_timeout' });
+        expect(verdict.detail).toContain(`observed provider ${providerStatus}`);
+    });
+    it.each([null, undefined, 200, 408, 499, 600, 503.5, '503', Number.NaN])('timeout without an integer upstream 5xx/429 (%s) is not external', (providerStatus) => {
+        expect(parent({ ...providerTimeout, providerStatus: providerStatus as never })).toMatchObject({ verdict: 'FAIL', external: null });
     });
     it.each([
         ['the saved take is not proven (failed or absent save proof)', { savedTakeProven: false }],
@@ -495,8 +503,16 @@ describe('Codex P1 r4275387520 — EXTERNAL is a closed claim: only the proved c
     });
     it('the parent may be EXTERNAL only with its own proof (5xx or timeout); each missing proof is named', () => {
         expect(errorsOf(openMic([provedParent('coaching rendered')]))).toBe('');
-        const timeout = { ...provedParent('coaching rendered'), evidence: { ...PROVED_PARENT_EVIDENCE, externalOutcome: 'provider_timeout', failureReason: 'provider_timeout', providerStatus: null } };
-        expect(errorsOf(openMic([timeout]))).toBe('');
+        const timeout = { ...provedParent('coaching rendered'), evidence: { ...PROVED_PARENT_EVIDENCE, externalOutcome: 'provider_timeout', failureReason: 'provider_timeout', providerStatus: 503 } };
+        for (const providerStatus of [429, 500, 503, 599]) {
+            const receipt = openMic([{ ...timeout, evidence: { ...timeout.evidence, providerStatus } }]);
+            expect(errorsOf(receipt)).toBe('');
+        }
+        for (const providerStatus of [null, undefined, 200, 408, 499, 600, 503.5, '503', Number.NaN]) {
+            const receipt = openMic([{ ...timeout, evidence: { ...timeout.evidence, providerStatus } }]);
+            expect(errorsOf(receipt)).toContain('provider timeout lacks an observed integer upstream 5xx/429 status');
+            expect(finalizeReceipt(receipt, parseHumanWorksheet('')).status).toBe('binding_error');
+        }
         expect(errorsOf(openMic([external('coaching rendered')]))).toMatch(/"coaching rendered" is EXTERNAL without its proof: httpStatus is not 502/);
         for (const [key, value] of [
             ['httpStatus', 500], ['failureReason', 'provider_transport'], ['providerStatus', 429], ['providerStatus', 503.5], ['externalOutcome', null],
@@ -925,5 +941,77 @@ describe('Codex P1 r4278164966 (PM 6182647772) — an answered failure is termin
         const take = takeExchangeEvidence(exchanges);
         expect(take).toMatchObject({ unique: true, evidence: { httpStatus: 502, reason: 'provider_http_5xx', providerStatus: 503 } });
         expect(coachingParentVerdict({ rendered: false, evidence: take.evidence, graceful: { ...graceful, requestBoundToSession: take.unique } }).verdict).toBe('EXTERNAL');
+    });
+});
+
+describe('current coaching error headlines and local-deadline classification', () => {
+    const localTimeoutHeadline = 'provider_timeout: The local coaching deadline was exceeded. Your session is saved.';
+    const providerHeadline = 'UNAVAILABLE: The service is temporarily unavailable. Your session is saved.';
+    type Ui = {
+        headline?: string; headlineVisible?: boolean; headlineReadFails?: boolean; visibilityReadFails?: boolean;
+        retryVisible?: boolean; retryEnabled?: boolean; retryLabel?: string; retryReadFails?: boolean;
+    };
+    const card = (ui: Ui = {}) => ({
+        getByTestId: (id: string) => {
+            if (id === 'ai-suggestions-headline') return {
+                isVisible: async () => { if (ui.visibilityReadFails) throw new Error('offline visibility unavailable'); return ui.headlineVisible ?? true; },
+                innerText: async () => { if (ui.headlineReadFails) throw new Error('offline text unavailable'); return ui.headline ?? localTimeoutHeadline; },
+            };
+            expect(id).toBe('ai-suggestions-retry');
+            return {
+                isVisible: async () => ui.retryVisible ?? true,
+                isEnabled: async () => ui.retryEnabled ?? true,
+                innerText: async () => { if (ui.retryReadFails) throw new Error('offline retry read unavailable'); return ui.retryLabel ?? 'Try again'; },
+            };
+        },
+    }) as never;
+    it.each([
+        "The review didn't load. Your session is saved.", localTimeoutHeadline, providerHeadline,
+        'UNKNOWN (local normalization): Unknown error. Your session is saved.',
+        'RESOURCE_EXHAUSTED: The service rate limit was exceeded. Your session is saved.',
+        'RESOURCE_EXHAUSTED: The service credit balance is depleted. Your session is saved.',
+    ])('reads a supported visible error headline without exposing its text: %s', async (headline) => {
+        expect(isCoachingUnavailableHeadline(headline)).toBe(true);
+        expect(await readCoachingFailureUi(card({ headline }))).toEqual({ unavailableShown: true, retryEnabled: true });
+    });
+    it.each([
+        '', 'Your session is saved.', 'private provider text Your session is saved.',
+        'UNAVAILABLE: unexpected provider prose. Your session is saved.',
+        'UNAVAILABLE: The service is temporarily unavailable.',
+        `${providerHeadline} Extra provider text`,
+    ])('does not accept arbitrary, missing, or altered error text: %s', async (headline) => {
+        const ui = await readCoachingFailureUi(card({ headline }));
+        expect(ui.unavailableShown).toBe(false);
+        const verdict = parent(provider503, { ...graceful, ...ui });
+        expect(verdict.verdict).toBe('FAIL');
+        expect(JSON.stringify({ ui, verdict })).not.toContain(headline || 'synthetic-no-text-marker');
+    });
+    it.each([
+        { headlineVisible: false }, { headlineReadFails: true }, { visibilityReadFails: true },
+    ])('unobserved headline is not graceful handling: %j', async (ui) => {
+        expect((await readCoachingFailureUi(card(ui))).unavailableShown).toBe(false);
+    });
+    it.each([
+        { retryVisible: false }, { retryEnabled: false }, { retryLabel: 'Retry elsewhere' }, { retryReadFails: true },
+    ])('a missing, disabled, or unreadable retry is still a product failure: %j', async (ui) => {
+        const observed = await readCoachingFailureUi(card(ui));
+        expect(observed.retryEnabled).toBe(false);
+        expect(parent(provider503, { ...graceful, ...observed }).verdict).toBe('FAIL');
+    });
+    it('a corrected local-timeout headline cannot convert a no-status timeout or its telemetry to EXTERNAL', async () => {
+        const ui = await readCoachingFailureUi(card());
+        expect(ui).toEqual({ unavailableShown: true, retryEnabled: true });
+        const verdict = parent(providerTimeout, { ...graceful, ...ui });
+        expect(verdict).toMatchObject({ verdict: 'FAIL', external: null });
+        expect(successDependentRow(verdict, { verdict: 'FAIL', detail: 'no answer' }).verdict).toBe('FAIL');
+        expect(coachingTelemetryVerdict(verdict, 'bound', 'FAIL', 'success events absent', 'PASS').verdict).toBe('FAIL');
+        expect(JSON.stringify({ ui, verdict })).not.toContain(localTimeoutHeadline);
+    });
+    it('observed provider 503 with the current headline remains EXTERNAL, never successful coaching', async () => {
+        const ui = await readCoachingFailureUi(card({ headline: providerHeadline }));
+        const verdict = parent(provider503, { ...graceful, ...ui });
+        expect(verdict).toMatchObject({ verdict: 'EXTERNAL', external: 'provider_5xx' });
+        expect(coachingTelemetryVerdict(verdict, 'ambiguous', 'FAIL', 'no success', 'PASS').verdict).toBe('HOLD');
+        expect(coachingTelemetryVerdict(verdict, 'absent', 'FAIL', 'no success', 'PASS').verdict).toBe('FAIL');
     });
 });
