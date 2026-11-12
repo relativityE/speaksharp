@@ -20,6 +20,8 @@ export const SQL_CONTRACTS=Object.freeze([
   Object.freeze({consumer:SQL_CONSUMER,files:SQL_INPUTS}),
   Object.freeze({consumer:'tests/db/account-coaching-expiry-proposal.integration.test.ts',
     files:Object.freeze(['backend/supabase/migrations/20261110173548_account_coaching_local_retirement.sql'])}),
+  Object.freeze({consumer:'tests/db/recording-start-abandonment.integration.test.ts',
+    files:Object.freeze(['backend/supabase/migrations/20261112133000_recording_start_abandonment_1643.sql'])}),
 ]);
 export const sqlContract=file=>SQL_CONTRACTS.find(item=>item.files.includes(file));
 export const NATIVE_HELPERS=Object.freeze([

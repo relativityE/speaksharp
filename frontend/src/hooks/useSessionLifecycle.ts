@@ -111,22 +111,28 @@ export const ENGINE_RETIRE_UNCONFIRMED_MESSAGE =
  * Only a confirmed `terminal` releases the account's lease. Otherwise the lease is KEPT (other devices stay blocked, and
  * may still take over explicitly) and the unresolved state is reported, never presented as cleaned up.
  */
-export async function releaseTakeLeaseOnUnmount(_wasListening: boolean): Promise<boolean> {
+export async function releaseTakeLeaseOnUnmount(wasListening: boolean): Promise<boolean> {
     // #1476 Codex P1 on 1414f0c89: bound to the retiring take's lease. A remounted page may acquire a new take's lease
     // while this retirement is still settling; that lease is never released (or reported as unresolved) from here.
     const leaseOfTake = currentTakeLeaseId();
+    // #1643 missing-Start: leaving while a Start is still preparing (nothing recording) settles that exact lease as an
+    // abandoned Start once the engine is proven off. The server refuses that, and the lease is released as before,
+    // whenever a take exists for it, so a stopped take that is still saving keeps its save.
+    const release = () => (!wasListening && leaseOfTake !== null
+        ? releaseTakeLease({ startFailed: leaseOfTake })
+        : releaseTakeLease());
     // #1593 case 4: a retirement that timed out and LATER proved the engine off releases this take's lease then — still
     // only while this take owns it — and withdraws its own "could not confirm" status, never a newer one.
     const onLateTerminal = () => {
         if (currentTakeLeaseId() !== leaseOfTake) return;
-        void releaseTakeLease();
+        void release();
         const store = useSessionStore.getState();
         if (store.sttStatus.message === ENGINE_RETIRE_UNCONFIRMED_MESSAGE) store.setSTTStatus({ type: 'idle', message: 'Ready to record' });
     };
     const outcome = await speechRuntimeController.retireEngineForUnmount(undefined, onLateTerminal);
     if (currentTakeLeaseId() !== leaseOfTake) return false; // a newer take owns the lease now
     if (outcome === 'terminal') {
-        await releaseTakeLease();
+        await release();
         return true;
     }
     logger.warn('[useSessionLifecycle] engine termination not confirmed on unmount; keeping the recording lease');
@@ -142,12 +148,17 @@ export async function releaseTakeLeaseOnUnmount(_wasListening: boolean): Promise
  * next Start refuses until it is proven) and say so. Bound to the lease held when called — a newer take's lease is never
  * released by an older take's proof.
  */
-export async function releaseTakeLeaseOnProof(): Promise<boolean> {
+export async function releaseTakeLeaseOnProof(opts: { startFailed?: boolean } = {}): Promise<boolean> {
     const leaseOfTake = currentTakeLeaseId();
-    if (speechRuntimeController.isEngineTerminal()) { await releaseTakeLease(); return true; }
+    // #1643 missing-Start: a Start that failed or was refused settles its exact lease as abandoned, once the engine is
+    // proven off. The server refuses that (and the lease is released as before) whenever a take exists for it.
+    const release = () => (opts.startFailed === true && leaseOfTake !== null
+        ? releaseTakeLease({ startFailed: leaseOfTake })
+        : releaseTakeLease());
+    if (speechRuntimeController.isEngineTerminal()) { await release(); return true; }
     const outcome = await speechRuntimeController.confirmEngineShutdown(FAILED_TEARDOWN_CONFIRM_MS);
     if (currentTakeLeaseId() !== leaseOfTake) return false; // a newer take owns the lease now
-    if (outcome === 'terminal') { await releaseTakeLease(); return true; }
+    if (outcome === 'terminal') { await release(); return true; }
     logger.warn('[useSessionLifecycle] engine not confirmed off; keeping the recording lease');
     useSessionStore.getState().setSTTStatus({ type: 'error', message: ENGINE_RETIRE_UNCONFIRMED_MESSAGE });
     return false;
@@ -733,7 +744,11 @@ export const useSessionLifecycle = () => {
                 // page copy), so the bounded retry runs and the person returns to a truthful, recovering page.
                 let scannedOwner: string | null = null;
                 const abandonStart = () => {
-                    if (acquiredLeaseId !== null && currentTakeLeaseId() === acquiredLeaseId) void releaseTakeLease();
+                    // #1643 missing-Start: no engine of this Start ran, so no take exists for its lease. Settle exactly
+                    // that lease as abandoned (the server proves it and fences it), including when the unmount already
+                    // released it (a release never settles it). A newer take's lease is never touched.
+                    const heldNow = currentTakeLeaseId();
+                    if (acquiredLeaseId !== null && (heldNow === acquiredLeaseId || heldNow === null)) void releaseTakeLease({ startFailed: acquiredLeaseId });
                     if (scannedOwner !== null) {
                         const resolvedFor = useSessionStore.getState().progressGateResolvedFor;
                         if (resolvedFor === null || resolvedFor === scannedOwner) {
@@ -841,13 +856,17 @@ export const useSessionLifecycle = () => {
                 if (confirmation === 'revoked' || revokedBeforeEngine) {
                     // Another device took the account's one engine while this Start was still checking. Nothing was
                     // recorded here, so say the Start did not happen, and arm the explicit take-over the copy offers.
+                    // #1643 missing-Start: the displaced lease is no longer held here, but its identity is still open
+                    // save debt on the server. Settle exactly that identity as abandoned (never the other device's lease).
+                    if (acquiredLeaseId !== null && currentTakeLeaseId() === null) void releaseTakeLease({ startFailed: acquiredLeaseId });
                     takeoverArmedUntilRef.current = Date.now() + TAKEOVER_WINDOW_MS;
                     setSTTStatus({ type: 'error', message: LEASE_NOT_HELD_MESSAGE });
                     reportIntent('blocked_lock_held');
                     return;
                 }
                 if (confirmation !== 'held') {
-                    void releaseTakeLease();
+                    // #1643 missing-Start: no engine of this Start ran; settle its exact lease as abandoned.
+                    void releaseTakeLease(acquiredLeaseId !== null ? { startFailed: acquiredLeaseId } : {});
                     setSTTStatus({ type: 'error', message: LEASE_UNCONFIRMED_MESSAGE });
                     reportIntent('blocked_lock_held');
                     return;
@@ -917,7 +936,8 @@ export const useSessionLifecycle = () => {
                     if (speechRuntimeController.getState() !== 'RECORDING') {
                         startLatency.settle('refused');
                         // #1476 Codex P1 on 56cc5ad3: engine work may have begun before the refusal — release on proof.
-                        void releaseTakeLeaseOnProof();
+                        // #1643: settled as an abandoned Start, which the server refuses if a take exists.
+                        void releaseTakeLeaseOnProof({ startFailed: true });
                         return;
                     }
                     startLatency.settle('recording_started');
@@ -927,7 +947,8 @@ export const useSessionLifecycle = () => {
                     startLatency.settle('failed');
                     // #1476 Codex P1 on 56cc5ad3: a Start can fail after the engine reached RECORDING (e.g. the placeholder
                     // save rejects), and the start_failed reset does not await its destroy — release only on proof.
-                    void releaseTakeLeaseOnProof();
+                    // #1643: settled as an abandoned Start, which the server refuses if a take exists.
+                    void releaseTakeLeaseOnProof({ startFailed: true });
                     throw error;
                 }
                 analyticsBuffer.push('session_started', {
