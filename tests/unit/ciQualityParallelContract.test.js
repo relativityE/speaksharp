@@ -30,7 +30,7 @@ describe('parallel quality preserves required merge evidence', () => {
       const run = spawnSync('bash', ['-c', guard.run], {
         env: { ...process.env, UNIT_RESULT: 'success', QUALITY_RESULT: result }, encoding: 'utf8',
       });
-      expect(run.status, result).not.toBe(0);
+      expect(run.status).not.toBe(0);
     }
     expect(spawnSync('bash', ['-c', guard.run], {
       env: { ...process.env, UNIT_RESULT: 'success', QUALITY_RESULT: 'success' },

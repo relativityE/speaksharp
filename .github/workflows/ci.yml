@@ -24,6 +24,11 @@ on:
         type: boolean
         required: false
         default: true
+      build_reuse_trial:
+        description: 'Opt-in identical-input test-build reuse trial (main only; not a production release)'
+        type: boolean
+        required: false
+        default: false
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
@@ -394,6 +399,9 @@ jobs:
 
   build:
     name: build
+    permissions:
+      contents: read
+      actions: read
     needs: scope
     if: needs.scope.outputs.full_required == 'true'
     runs-on: ubuntu-latest
@@ -406,8 +414,33 @@ jobs:
         with:
           install-playwright: 'false'
 
+      - name: Verify Build Reuse Safety Contracts
+        run: node --test tests/unit/ciBuildOrigin.test.mjs tests/unit/ciBuildArtifactClient.test.mjs tests/unit/ciBuildInputs.test.mjs tests/unit/ciSmartBuild.test.mjs
+
+      # OFF by default: measured full-input hashing can cost more than compiling.
+      # Explicit main-only dispatch trials establish timing before wider activation.
       - name: Build Test App
+        if: ${{ !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.build_reuse_trial) }}
         run: pnpm ci:build
+
+      - name: Trial Verified Identical-Input Build Reuse
+        id: build_reuse
+        if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.build_reuse_trial }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/ci-smart-build.mjs
+
+      - name: Upload Trial Build Reuse Artifact
+        if: ${{ steps.build_reuse.outputs.cache_name != '' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ steps.build_reuse.outputs.cache_name }}
+          path: |
+            .ci-build-cache/dist
+            .ci-build-cache/receipt.json
+          include-hidden-files: true
+          retention-days: 7
+          if-no-files-found: error
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v6
@@ -1011,3 +1044,4 @@ jobs:
               process.exit(1);
             }
           '
+
