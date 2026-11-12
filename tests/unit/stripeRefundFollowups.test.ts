@@ -2,9 +2,10 @@
 // Executes the actual stripe_refund_followups migration in PostgreSQL WASM (Sam's 2026-11-12 decision for #1829):
 // the operator signal's grants, closed values, one row per operation, and who may close it. The webhook's use of
 // the writer is covered by backend/supabase/functions/stripe-webhook/refund.test.ts.
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { PGlite } from '@electric-sql/pglite';
-import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { readFileSync, writeFileSync } from 'node:fs';
 
 const MIGRATION = 'backend/supabase/migrations/20261112130000_stripe_refund_followups.sql';
 const WEBHOOK_REFUND = 'backend/supabase/functions/stripe-webhook/refund.ts';
@@ -14,6 +15,7 @@ const RECONCILE = 'public.reconcile_stripe_refund_followup(text,text,text,text)'
 const API_ROLES = ['anon', 'authenticated', 'service_role'];
 
 let db: PGlite;
+const consumed = new Map<string, { file: string; sha256: string; beforeSha256: string; afterSha256: string }>();
 async function as<T extends Record<string, unknown>>(role: string | null, text: string, args: unknown[] = []) {
   await db.exec('RESET ROLE');
   if (role) await db.exec(`SET ROLE ${role}`);
@@ -35,7 +37,20 @@ beforeEach(async () => {
     -- Supabase's default privileges grant the API roles on new objects; mirrored so the migration's REVOKEs are tested.
     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;`);
-  await db.exec(readFileSync(MIGRATION, 'utf8'));
+  const bytes = readFileSync(MIGRATION), beforeSha256 = createHash('sha256').update(bytes).digest('hex');
+  await db.exec(bytes.toString('utf8'));
+  const afterSha256 = createHash('sha256').update(readFileSync(MIGRATION)).digest('hex');
+  if (afterSha256 !== beforeSha256) throw new Error('SQL bytes changed across actual execution');
+  consumed.set(MIGRATION, { file: MIGRATION, sha256: beforeSha256, beforeSha256, afterSha256 });
+});
+// The execution-evidence witness (scripts/lib/nativeTestExecutionEvidence.mjs SQL_CONTRACTS): written only when the
+// quality run binds this file, and naming the exact migration bytes that ran.
+afterAll(async () => {
+  await db?.close();
+  const binding = JSON.parse(process.env.TEST_EFFICACY_BINDING ?? 'null');
+  if (binding?.sql) writeFileSync(binding.sql.witnessFile, JSON.stringify({ schemaVersion: 1,
+    phaseId: binding.phaseId, bindingSha256: createHash('sha256').update(JSON.stringify(binding)).digest('hex'),
+    consumer: 'tests/unit/stripeRefundFollowups.test.ts', consumed: [...consumed.values()] }));
 });
 
 describe('stripe_refund_followups (operator signal for unverified refund follow-ups)', () => {
