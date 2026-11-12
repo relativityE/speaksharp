@@ -13,6 +13,8 @@ const ORIGINAL_ID = 'session-4';
 const REFERENCE_ID = 'session-3';
 const REPEAT_ID = 'session-5';
 const UNRELATED_LATEST_ID = 'session-6';
+/** `openAttempt.ts`'s browser-local handoff key: present only in the browser that pressed Practice again. */
+const OPEN_ATTEMPT_KEY = 'ss_progress_open_attempt_v1';
 
 const savedSession = (id: string, createdAt: string, words: number, fillers: number) => ({
   id, user_id: TEST_USER_ID, created_at: createdAt,
@@ -50,9 +52,12 @@ async function settled(page: Page): Promise<void> {
 }
 
 test.describe('outcome 4: the repeat shows what it repeated', () => {
-  test('the repeat links to its original with the stored before → after, after reload too; the original and a newer unrelated session show none', async ({ page }) => {
+  test('the repeat links to its original with the stored before → after, after reload, on a fresh browser and on return; the original shows the same target and result; a newer unrelated session shows none', async ({ page }) => {
     await seed(page, { lifecycle: 'completed', outcome: 'moved', next_comparable_session_id: REPEAT_ID });
     await navigateToRoute(page, `/progress/${REPEAT_ID}`);
+    // A fresh browser: nothing here pressed Practice again, so no browser-local handoff exists. Everything below comes
+    // from the stored attempt and recommendation, as it would on another device.
+    expect(await page.evaluate((key) => window.localStorage.getItem(key), OPEN_ATTEMPT_KEY)).toBeNull();
     for (const reopening of [false, true]) {
       if (reopening) await page.reload();
       const block = page.getByTestId('repeat-origin');
@@ -79,8 +84,21 @@ test.describe('outcome 4: the repeat shows what it repeated', () => {
     await settled(page);
     await expect(page.getByTestId('progress-attempt-values'))
       .toHaveText('Filler rate: 1.6 → 0.8 percent of words (original session → linked repeat).');
+    // Same target on both pages: the original's saved target is the metric the repeat was measured on.
+    await expect(page.getByTestId('progress-attempt-target')).toContainText('Filler rate');
+    await expect(page.getByTestId('progress-attempt-outcome'))
+      .toHaveText('Filler rate was lower on the repeat than in the original session.');
     await expect(page.getByTestId('repeat-origin')).toHaveCount(0);
     await expect(page.getByTestId('repeat-origin-error')).toHaveCount(0);
+
+    // Returning to the repeat shows the same comparison again.
+    await page.goBack();
+    await expect(page).toHaveURL(new RegExp(`/progress/${REPEAT_ID}$`));
+    await expect(page.getByTestId('repeat-origin-link')).toHaveAttribute('href', `/progress/${ORIGINAL_ID}`);
+    await expect(page.getByTestId('repeat-origin-values'))
+      .toHaveText('Filler rate: 1.6 → 0.8 percent of words (original session → this repeat).');
+    await expect(page.getByTestId('repeat-origin-outcome'))
+      .toHaveText('Filler rate was lower on the repeat than in the original session.');
 
     await navigateToRoute(page, `/progress/${UNRELATED_LATEST_ID}`);
     await settled(page);

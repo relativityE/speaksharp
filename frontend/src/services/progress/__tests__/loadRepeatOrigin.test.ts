@@ -167,6 +167,50 @@ describe('outcome 4 loadRepeatOrigin', () => {
     });
 });
 
+describe('outcome 4 same-target comparison: a repeat is measured against its own original, on the original\'s target', () => {
+    it("is measured on the original's saved target, not on what this repeat would recommend for itself", async () => {
+        // The original's saved target is pace; this repeat's own fillers are high, so its own takeaway would pick filler rate.
+        Object.assign(tables.progress_recommendations[0], { target_metric: 'pace', target_direction: 'increase', target_value: 150, target_units: 'wpm', source_metric_value: 142 });
+        tables.session_progress_evaluations[1] = ev('B', { wpm: 151, filler_count: 30, word_count: 250 });
+        expect(await loadRepeatOrigin('B', USER)).toMatchObject({
+            status: 'repeat', originalSessionId: 'A',
+            target: { metric: 'pace', direction: 'increase', targetValue: 150, units: 'wpm' },
+            repeatResult: { status: 'available', metric: 'pace', direction: 'increase', units: 'wpm', before: 142, after: 151 },
+        });
+    });
+
+    it("before is the value saved with the original's target, even if the original's evaluation reads differently later", async () => {
+        tables.session_progress_evaluations[0] = ev('A', { filler_count: 20 });
+        expect(await loadRepeatOrigin('B', USER)).toMatchObject({ repeatResult: { status: 'available', before: (4 / 245) * 100, after: 0.8 } });
+    });
+
+    it('compares against the session whose target was practised, not the previous comparable session in between', async () => {
+        // A2 was recorded after A and before B, and is B's previous comparable session; the practised target is still A's.
+        tables.sessions.splice(1, 0, { id: 'A2', created_at: '2025-01-17T14:30:00.000Z' });
+        tables.session_progress_evaluations.push(ev('A2', { filler_count: 12, word_count: 240 }));
+        tables.session_progress_evaluations[1] = ev('B', { filler_count: 2, word_count: 250, previous_comparable_session_id: 'A2' });
+        expect(await loadRepeatOrigin('B', USER)).toMatchObject({
+            status: 'repeat', originalSessionId: 'A', originalCreatedAt: '2025-01-17T14:00:00.000Z',
+            repeatResult: { status: 'available', before: (4 / 245) * 100, after: 0.8 },
+        });
+    });
+
+    it("after is this repeat's own value, never a newer session's, even when a read returns every evaluation", async () => {
+        ignoreFilters.session_progress_evaluations = true;
+        expect(await loadRepeatOrigin('B', USER)).toMatchObject({ repeatResult: { status: 'available', after: 0.8 } });
+        expect(await loadRepeatOrigin('C', USER)).toEqual({ status: 'none', sessionId: 'C' });
+    });
+
+    it("the original's own Progress and the repeat's page read the same target and the same stored result", async () => {
+        const original = await loadSessionProgress('A');
+        const repeat = await loadRepeatOrigin('B', USER);
+        if (original.status !== 'eligible' || repeat.status !== 'repeat') throw new Error(`unexpected ${original.status} / ${repeat.status}`);
+        expect(repeat.target).toEqual(original.takeaways.target);
+        expect(repeat.repeatResult).toEqual(original.repeatResult);
+        expect(original.latestAttempt).toMatchObject({ lifecycle: repeat.lifecycle, outcome: repeat.outcome });
+    });
+});
+
 describe('outcome 4 parity: the repeat shows exactly what the original session\'s Progress shows', () => {
     // `loadRepeatOrigin` mirrors `loadSessionProgress`'s `loadRepeatResult` while that file stays byte-identical for
     // AHT-01. Both readers run over the same rows here; any drift in the guards or the derivation fails.
