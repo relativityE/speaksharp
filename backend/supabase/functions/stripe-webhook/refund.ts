@@ -60,7 +60,7 @@ export type FollowupReason = typeof FOLLOWUP_REASONS[number];
 
 export type RefundOutcome =
   | { outcome: "scheduled" | "already_scheduled"; subscriptionId: string; followup?: "renewal_collected_after_refund" }
-  | { outcome: "already_ended"; subscriptionId: string }
+  | { outcome: "already_ended"; subscriptionId: string; followup?: "renewal_collected_after_refund" }
   | { outcome: "not_subscription_charge" | "not_pro_subscription" | "partial_refund_ignored" }
   | { outcome: "unverified"; reason: string; code: FollowupReason };
 
@@ -130,10 +130,11 @@ function boundaryCode(problem: BoundaryProblem, afterUpdate: boolean): FollowupR
  *
  * A later invoice that is paid is safe to schedule after, but when Stripe collected it at or after the refund
  * (`collectedAfterRefund`), the member was charged again after the refund: scheduling still goes ahead, and the
- * webhook records an operator signal. A paid later invoice whose payment time, or the refund's time, is unreadable
- * is a problem, so this can never be passed over silently.
+ * webhook records an operator signal. When the payment time or the refund's time is unreadable, the answer is
+ * "unknown": the caller still schedules (so the member is not left to renew), then reports unverified, so it is
+ * never passed over silently (second security review of 06e63a11).
  */
-type Boundary = { problem: BoundaryProblem | null; collectedAfterRefund: boolean };
+type Boundary = { problem: BoundaryProblem | null; collectedAfterRefund: boolean | "unknown" };
 const BOUNDARY_SAFE: Boundary = Object.freeze({ problem: null, collectedAfterRefund: false });
 const boundaryProblem = (problem: BoundaryProblem): Boundary => ({ problem, collectedAfterRefund: false });
 
@@ -158,7 +159,7 @@ async function renewalBoundary(stripe: StripeClient, latestValue: unknown,
   if (latest.status === "void") return BOUNDARY_SAFE;
   if (latest.status !== "paid") return boundaryProblem("latest invoice state unknown");
   const paidAt = latest.status_transitions?.paid_at;
-  if (!isTimestamp(paidAt) || !isTimestamp(expected.refundedAt)) return boundaryProblem("latest invoice state unknown");
+  if (!isTimestamp(paidAt) || !isTimestamp(expected.refundedAt)) return { problem: null, collectedAfterRefund: "unknown" };
   return { problem: null, collectedAfterRefund: paidAt >= expected.refundedAt };
 }
 
@@ -250,14 +251,29 @@ export async function scheduleCancellationAfterRefund(
   if (!items.some((item) => objectId(item?.price) === priceId)) return { outcome: "not_pro_subscription" };
 
   const status = typeof subscription.status === "string" ? subscription.status : "";
-  if (ENDED_STATES.includes(status)) return { outcome: "already_ended", subscriptionId };
+  const boundaryExpected = { invoiceId, subscriptionId, customer, livemode: charge.livemode, refundedAt };
+  if (ENDED_STATES.includes(status)) {
+    // Nothing to schedule, but a renewal collected after the refund still needs an operator, even when the
+    // subscription ended before this delivery (second security review of 06e63a11). A boundary that cannot be
+    // read here stays "already_ended", as before; an unreadable payment time is not passed over.
+    const ended = await renewalBoundary(stripe, subscription.latest_invoice, boundaryExpected);
+    if (ended.collectedAfterRefund === "unknown") {
+      return unverified("subscription_state_unverified", "latest invoice payment time unknown");
+    }
+    return { outcome: "already_ended", subscriptionId,
+      ...(ended.collectedAfterRefund === true ? { followup: "renewal_collected_after_refund" as const } : {}) };
+  }
   if (!SCHEDULABLE_STATES.includes(status)) return unverified("subscription_state_unverified", `subscription state ${status || "unknown"} cannot be scheduled`);
   // Renewal boundary: see the rule at the top of this file.
-  const boundary = await renewalBoundary(stripe, subscription.latest_invoice,
-    { invoiceId, subscriptionId, customer, livemode: charge.livemode, refundedAt });
+  const boundary = await renewalBoundary(stripe, subscription.latest_invoice, boundaryExpected);
   if (boundary.problem) return unverified(boundaryCode(boundary.problem, false), boundary.problem);
-  const collected = (b: Boundary) => b.collectedAfterRefund ? { followup: "renewal_collected_after_refund" as const } : {};
-  if (subscription.cancel_at_period_end === true) return { outcome: "already_scheduled", subscriptionId, ...collected(boundary) };
+  const collected = (b: Boundary) => b.collectedAfterRefund === true ? { followup: "renewal_collected_after_refund" as const } : {};
+  if (subscription.cancel_at_period_end === true) {
+    if (boundary.collectedAfterRefund === "unknown") {
+      return unverified("subscription_state_unverified", "latest invoice payment time unknown");
+    }
+    return { outcome: "already_scheduled", subscriptionId, ...collected(boundary) };
+  }
   if (subscription.cancel_at_period_end !== false) return unverified("subscription_state_unverified", "cancel_at_period_end unreadable");
 
   let updated: any;
@@ -279,9 +295,12 @@ export async function scheduleCancellationAfterRefund(
   // above (a renewal was issued in between), check the boundary again on that answer: an outstanding renewal is
   // not something cancel at period end can stop, so it is unverified, never "scheduled" (Sam's c381f853 return).
   // This only detects and escalates: the update above stays applied and the renewal invoice is not touched.
-  const after = await renewalBoundary(stripe, updated.latest_invoice,
-    { invoiceId, subscriptionId, customer, livemode: charge.livemode, refundedAt });
+  const after = await renewalBoundary(stripe, updated.latest_invoice, boundaryExpected);
   if (after.problem) return unverified(boundaryCode(after.problem, true), `after update: ${after.problem}`);
+  // Scheduled either way; an unreadable payment time is reported only now, after the update is applied.
+  if (boundary.collectedAfterRefund === "unknown" || after.collectedAfterRefund === "unknown") {
+    return unverified("boundary_unverified_after_update", "after update: latest invoice payment time unknown");
+  }
   return { outcome: "scheduled", subscriptionId,
     ...collected({ problem: null, collectedAfterRefund: boundary.collectedAfterRefund || after.collectedAfterRefund }) };
 }

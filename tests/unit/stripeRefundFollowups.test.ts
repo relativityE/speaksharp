@@ -98,6 +98,18 @@ describe('stripe_refund_followups (operator signal for unverified refund follow-
     expect(await row()).toMatchObject({ status: 'unresolved', first_event_id: 'evt_a', last_event_id: 'evt_b', deliveries: 4 });
   });
 
+  it('a retry of the first event, after a second one, is still a plain retry when its reason is current', async () => {
+    await record('charge:ch_1', 'evt_a', 'renewal_outstanding');
+    await record('charge:ch_1', 'evt_b', 'renewal_outstanding');
+    expect(await reconcile('charge:ch_1', 'evt_b', 'renewal_outstanding')).toBe(true);
+    // Stripe retries evt_a (still failing the same way): the reconciliation stands.
+    await record('charge:ch_1', 'evt_a', 'renewal_outstanding');
+    expect(await row()).toMatchObject({ status: 'reconciled', first_event_id: 'evt_a', last_event_id: 'evt_a', deliveries: 3 });
+    // A third, unseen event reopens.
+    await record('charge:ch_1', 'evt_c', 'renewal_outstanding');
+    expect(await row()).toMatchObject({ status: 'unresolved', reconciliation: null });
+  });
+
   it('reconciliation closes only the occurrence the operator looked at (security review of 664b84f6)', async () => {
     await record('charge:ch_1', 'evt_a', 'partial_refund');
     // Reopened by evt_b while the operator was reviewing evt_a's partial refund.

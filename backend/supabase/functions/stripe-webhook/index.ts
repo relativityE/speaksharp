@@ -147,7 +147,8 @@ export async function handler(
           console.error(`[Stripe Webhook] partial refund left unscheduled for ${event.id}; operator signal recorded`);
           return createSuccessResponse({ received: true, refund: refund.outcome, followup: "unresolved" }, responseHeaders);
         }
-        if ((refund.outcome === "scheduled" || refund.outcome === "already_scheduled") && refund.followup) {
+        if ((refund.outcome === "scheduled" || refund.outcome === "already_scheduled" || refund.outcome === "already_ended")
+          && refund.followup) {
           // Scheduled, but a later renewal was collected at or after the refund: the member was charged again.
           // Acknowledged only once the signal is durable, exactly as for a partial refund.
           if (!(await recordRefundFollowup(supabase, event, refund.followup))) {

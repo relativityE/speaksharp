@@ -577,13 +577,37 @@ Deno.test("refund follow-up → durable operator signal (Sam's 2026-11-12 decisi
     assertEquals(answered.followups.get("charge:ch_1")?.reason, "renewal_collected_after_refund");
   });
 
+  await t.step("a subscription that ended before the redelivery does not hide a renewal collected after the refund", async () => {
+    const ended = (paid_at: number) => fakeStripe({ sub: proSub({ status: "canceled", latest_invoice: "in_2" }),
+      invoices: { in_2: invoiceFor({ id: "in_2", status: "paid", status_transitions: { paid_at } }) } });
+    const failing = await handler(refundEvent(), ended(PAID_AFTER_REFUND).stripe, db("false").supabase, "secret", env);
+    assertEquals(failing.status >= 500, true);
+    const database = db();
+    const res = await handler(refundEvent(), ended(PAID_AFTER_REFUND).stripe, database.supabase, "secret", env);
+    assertEquals(await res.json(), { received: true, refund: "already_ended", followup: "unresolved" });
+    assertEquals(database.followups.get("charge:ch_1")?.reason, "renewal_collected_after_refund");
+    const quiet = db();
+    const { stripe, calls } = ended(PAID_BEFORE_REFUND);
+    assertEquals(await (await handler(refundEvent(), stripe, quiet.supabase, "secret", env)).json(), { received: true, refund: "already_ended" });
+    assertEquals(quiet.rpcs, []);
+    assertEquals(updates(calls), []);
+  });
+
   await t.step("an unreadable payment or refund time is never passed over", async () => {
     const paidLater = (transitions: unknown) => fakeStripe({ sub: proSub({ latest_invoice: "in_2" }),
       invoices: { in_2: invoiceFor({ id: "in_2", status: "paid", status_transitions: transitions }) } });
+    // Unreadable: still scheduled (the member is not left to renew), then reported unverified after the update.
     for (const transitions of [undefined, null, {}, { paid_at: null }, { paid_at: "2500" }, { paid_at: 0 }, { paid_at: 2500.5 }]) {
       const { stripe, calls } = paidLater(transitions);
       const out = await scheduleCancellationAfterRefund(stripe, fullCharge(), "evt", PRO, REFUNDED_AT);
-      assertEquals(out.outcome === "unverified" ? out.code : out.outcome, "subscription_state_unverified", JSON.stringify(transitions));
+      assertEquals(out.outcome === "unverified" ? out.code : out.outcome, "boundary_unverified_after_update", JSON.stringify(transitions));
+      assertEquals(updates(calls).length, 1, JSON.stringify(transitions));
+    }
+    // Already scheduled, or already ended: nothing to apply, so unverified straight away.
+    for (const sub of [proSub({ cancel_at_period_end: true, latest_invoice: "in_2" }), proSub({ status: "canceled", latest_invoice: "in_2" })]) {
+      const { stripe, calls } = fakeStripe({ sub, invoices: { in_2: invoiceFor({ id: "in_2", status: "paid", status_transitions: {} }) } });
+      const out = await scheduleCancellationAfterRefund(stripe, fullCharge(), "evt", PRO, REFUNDED_AT);
+      assertEquals(out.outcome === "unverified" ? out.code : out.outcome, "subscription_state_unverified", sub.status);
       assertEquals(updates(calls), []);
     }
     // "missing" leaves created out of the event altogether (a default parameter would fill in undefined).
@@ -596,7 +620,7 @@ Deno.test("refund follow-up → durable operator signal (Sam's 2026-11-12 decisi
       const res = await handler(event, paidLater({ paid_at: 1 }).stripe,
         database.supabase, "secret", env);
       assertEquals(res.status >= 500, true, JSON.stringify(created));
-      assertEquals(database.followups.get("charge:ch_1")?.reason, "subscription_state_unverified", JSON.stringify(created));
+      assertEquals(database.followups.get("charge:ch_1")?.reason, "boundary_unverified_after_update", JSON.stringify(created));
     }
     // A void renewal, or the refunded invoice itself, needs no time: scheduled without a signal.
     const voided = fakeStripe({ sub: proSub({ latest_invoice: "in_2" }), invoices: { in_2: invoiceFor({ id: "in_2", status: "void", status_transitions: {} }) } });
