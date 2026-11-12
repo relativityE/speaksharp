@@ -7,7 +7,7 @@ import { parse } from 'yaml';
 import { selectRunnerJourneys, receipt, isRefundCancellation, assertFullRefund, assertCheckoutGrantedNothing,
   BILLING_JOURNEYS, FULL_MODE_JOURNEYS, RUNNER_JOURNEYS, REQUIRED_STEPS, POLICY_PENDING_STEPS, PENDING_POLICY } from './contract';
 import { finaliseLocalStackReceipt } from './localStackReceipt.mjs';
-import { MODES, PHASES, PREREQUISITES, STRIPE_WRITE_ALLOWLIST, planRun, finaliseModeReceipt } from './runnerPlan.mjs';
+import { MODES, PHASES, PREREQUISITES, STRIPE_WRITE_ALLOWLIST, planRun, finaliseModeReceipt, readRepoFile } from './runnerPlan.mjs';
 
 const SPEC = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
 const WORKFLOW = '.github/workflows/billing-local-stack-journey.yml';
@@ -215,8 +215,12 @@ test('dry run: plans only, makes no call, never authorizes, and cannot say READY
     assert.equal(plan.dryRun, true);
     assert.equal(plan.stripeCalls, 0);
     assert.equal(plan.authorizesExecution, false);
-    assert.notEqual(plan.result, 'READY', `${mode} on this branch is blocked`);
+    // READY only when every phase is READY and none holds a step; full mode holds two, so it is never READY.
+    const allReady = plan.phases.every(phase => phase.status === 'READY');
+    assert.equal(plan.result === 'READY', allReady && plan.phases.every(phase => phase.pendingPolicySteps.length === 0), mode);
+    if (!allReady) assert.equal(plan.result, 'BLOCKED_PREREQUISITE', mode);
   }
+  assert.notEqual(planRun('full').result, 'READY');
   const best = planRun('full', fullPlanReader);
   assert.ok(best.phases.every(phase => phase.status === 'READY'), JSON.stringify(best.phases.map(p => [p.id, p.blockedBy])));
   assert.equal(best.result, 'READY_WITH_PENDING_POLICY');
@@ -224,12 +228,16 @@ test('dry run: plans only, makes no call, never authorizes, and cannot say READY
   assert.ok(best.openQuestions.some(question => question.startsWith('access after a membership ends')));
   assert.equal(planRun('smoke', fullPlanReader).result, 'READY');
   assert.throws(() => planRun('bogus'), /mode_unknown/);
-  // On this branch: the refund handler and the payment gate live on other local branches, so those phases block.
+  // Whatever branch this runs on (alone or stacked with the gate and refund handler), each phase is blocked by
+  // exactly the prerequisites that the committed files here do not satisfy, and by nothing else.
   const here = planRun('full');
-  const blocked = (id: string) => here.phases.find(phase => phase.id === id)!.blockedBy.map(entry => entry.prerequisite);
-  assert.ok(blocked('refund_period_end').includes('refund_handler'));
-  assert.ok(blocked('portal_recovery').includes('payment_gate'));
-  assert.ok(blocked('paid_value_loop').includes('paid_loop_spec'));
+  for (const phase of here.phases) {
+    const spec = PHASES.find(entry => entry.id === phase.id)!;
+    const missing = spec.requires.filter(name => !PREREQUISITES[name].check(readRepoFile));
+    assert.deepEqual(phase.blockedBy.map(entry => entry.prerequisite).filter(name => name !== 'workflow_dispatch'), missing, phase.id);
+  }
+  // #1822 owns the paid loop, so it stays blocked until its spec and dispatch exist.
+  assert.ok(here.phases.find(phase => phase.id === 'paid_value_loop')!.blockedBy.length > 0);
   assert.deepEqual(Object.keys(PREREQUISITES).sort(), ['local_checkout_exception', 'paid_loop_spec', 'payment_gate', 'refund_handler']);
 });
 
