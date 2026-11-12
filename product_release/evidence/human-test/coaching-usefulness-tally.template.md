@@ -11,16 +11,16 @@ Build under review: release SHA `________`, coaching model `________`, review da
 
 Y/N/– per cell. "Reopen" is – when no pair was produced. Times in seconds.
 
-| # | Mode (OM / FF / FP) | Length bucket (<1 / 1–3 / >3 min) | First clock: advice or failure (s) | Advice on first try | Retry clock (s) | Retry result | Reopen same pair | G (R1/R2) | S (R1/R2) | A (R1/R2) | F (R1/R2) | Disagreement resolved as | Unsupported claim | Would try it | Model | Release |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | | | | | | | | | | | | | | | | |
+| # | Mode (OM / FF / FP) | Length bucket (<1 / 1–3 / >3 min) | First clock: advice or failure (s) | Advice on first try | Retry clock (s) | Retry result | Reopen same pair | G (R1/R2) | S (R1/R2) | W (R1/R2) | A (R1/R2) | F (R1/R2) | Disagreement resolved as | Unsupported claim | Would try it | Model | Release |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | | | | | | | | | | | | | | | | | |
 
 ## Totals, per mode and overall
 
 | Gate | Open Mic (/10) | Full Focus (/5) | Partial Focus (/5) | Overall | Bar | Pass |
 |---|---|---|---|---|---|---|
 | Unsupported claims | | | | | 0 | |
-| Grounded, specific and actionable | | | | | ≥ 16/20 | |
+| Grounded, specific and actionable (G, S, W, A) | | | | | ≥ 16/20 | |
 | Focus fit | – | | | | ≥ 8/10 | |
 | Reopen mismatches (of pairs produced) | | | | | 0 | |
 | First try with no advice | | | | | ≤ 2, truthful failure, Retry exercised | |

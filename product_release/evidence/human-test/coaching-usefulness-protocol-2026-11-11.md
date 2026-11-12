@@ -10,7 +10,8 @@ coaching is useful") is judged on real saved sessions.
 **Approval.** Standard approved by Sam (2026-11-11 14:08 UTC). Qualification bar approved by Sam (2026-11-11
 14:32 UTC, relayed by Akin), including a separate 50-second clock for Retry. This approves the bar only. Outcome 3
 closes when the evidence below passes, not when this protocol is accepted. Valid JSON, green CI or an available
-model is not proof.
+model is not proof. Two-part scoring (W, and G and S on both parts) added 2026-11-12 at Sam's request; the
+numbers are unchanged.
 
 ## Standard
 
@@ -31,7 +32,7 @@ another.
 |---|---|---|
 | Sample | 20 real saved sessions: 10 Open Mic, 5 full Focus, 5 partial Focus (at least one point not detected); at least 4 speakers | Shows a repeated failure in each mode and fits the 10-per-user-per-UTC-day uncached coaching cap |
 | Unsupported claims | 0 of 20 | One invented claim misleads the user; any one means fix, then review again |
-| Grounded, specific and actionable | At least 16 of 20, by two independent reviewers; every disagreement and its resolution recorded | Allows a few thin short takes; advice that is generic as a pattern fails |
+| Grounded, specific and actionable (G, S, W and A all Yes) | At least 16 of 20, by two independent reviewers; every disagreement and its resolution recorded | Allows a few thin short takes; advice that is generic as a pattern fails |
 | Focus fit | At least 8 of 10 Focus sessions get the detected and not-detected points right | Focus advice that misreads the points is worse than none |
 | Same session and pair on reopen | Every pair actually produced: 0 mismatches | A mismatch is a correctness defect, not a judgment call |
 | First try with no advice | At most 2 of 20, each with the truthful failure state and an exercised Retry. A broken Retry fails the bar | Provider errors happen; the bar is honesty plus working recovery |
@@ -44,13 +45,17 @@ Both clocks are recorded for every session where they apply.
 
 ## Rubric (Yes/No per pair)
 
-- **G Grounded:** every claim and quote appears in the saved transcript or the metrics shown.
-- **S Specific:** swap test. If the pair would still read as true under another session in the sample, it fails.
+Each pair is read as its two actual parts: **What went well** (`what_worked`) and **Try this next run**
+(`what_to_try_next`). G and S are judged on both parts; a pair passes only if both parts do.
+
+- **G Grounded:** every claim and quote in either part appears in the saved transcript or the metrics shown.
+- **S Specific:** swap test. If either part would still read as true under another session in the sample, it fails.
+- **W What went well:** states something true of this take; where nothing went well, a neutral fact. Invented praise fails.
 - **A Actionable:** "Try this next run" is one concrete step for the next take, not a number recital.
 - **F Focus fit** (Focus only): matches which points were and were not detected.
 - **U Would try it** (speaker only): "Will you try this on your next take?"
 
-G, S, A and F are scored by two independent reviewers. A disagreement goes to a third reviewer (the Product
+G, S, W, A and F are scored by two independent reviewers. A disagreement goes to a third reviewer (the Product
 Owner), and the resolution is recorded in the tally.
 
 ## Procedure, per session
