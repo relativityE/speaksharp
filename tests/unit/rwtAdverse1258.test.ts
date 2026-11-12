@@ -69,7 +69,9 @@ describe('guards — the spec, the acceptance map and the product stay in step',
     const written = `${spec}\n${src('tests/live/helpers/rwtDisposableAccount.ts')}`;
 
     it('the blocked copy and failed model states are the product\'s own', () => {
-        expect(src('frontend/src/hooks/useSessionLifecycle.ts')).toContain(`'${MIC_BLOCKED_COPY}'`);
+        // The live journey matches the blocked copy's opening; the product's copy keeps it verbatim and adds the how-to.
+        expect(src('frontend/src/lib/micAccessErrors.ts')).toContain(`'${MIC_BLOCKED_COPY} `);
+        expect(src('frontend/src/hooks/useSessionLifecycle.ts')).toContain('MIC_BLOCKED_MESSAGE');
         const card = src('frontend/src/components/session/MicCard.tsx');
         for (const state of MODEL_FAILED_STATES) expect(card).toContain(`privateModelStatus === '${state}'`);
         expect(card).toContain("modelError ? 'mic-retry'");
