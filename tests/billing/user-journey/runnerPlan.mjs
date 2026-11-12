@@ -1,4 +1,4 @@
-// The Stripe test-mode runner's smoke and full modes, as a plan. Offline only: this file makes no network call,
+// The Stripe test-mode runner's smoke, full and paid_loop modes, as a plan. Offline only: this file makes no network call,
 // reads no key and starts nothing. `--dry-run` prints what a run WOULD do and what still blocks it; it never
 // authorizes a run. A real run still needs a written yes from Akin and Sam and the protected environment's
 // reviewer approval, and goes through billing-local-stack-journey.yml.
@@ -12,7 +12,9 @@ import { PENDING_POLICY, POLICY_PENDING_STEPS, REQUIRED_STEPS } from './journeyS
 import { PENDING, destructionDefects, journeyReceiptDefects } from './localStackReceipt.mjs';
 import { PROJECT_PATTERN } from './localStackResources.mjs';
 
-export const MODES = ['smoke', 'full'];
+// `paid_loop` is outcome 8's own mode (#1822): a Gemini outage or a coaching bug shows as outcome 8 not proven,
+// never as billing not proven, and billing's full mode never waits on coaching.
+export const MODES = ['smoke', 'full', 'paid_loop'];
 const BILLING_CONFIG = 'playwright.billing-journey.config.ts';
 const WORKFLOW = '.github/workflows/billing-local-stack-journey.yml';
 
@@ -57,11 +59,12 @@ export const PREREQUISITES = {
 };
 
 const browser = (id, modes, extra) => ({
-  id, kind: 'browser_branch', modes, config: BILLING_CONFIG, grep: `billing ${id}:`,
+  id, kind: 'browser_branch', modes, config: extra.config ?? BILLING_CONFIG, grep: `billing ${id}:`,
   requires: ['local_checkout_exception', ...(extra.requires ?? [])],
   steps: REQUIRED_STEPS[id], pendingPolicySteps: POLICY_PENDING_STEPS[id] ?? [],
   stripeWrites: [...FIXTURE_WRITES, ...(extra.writes ?? [])],
   testCards: extra.cards ?? ['4242424242424242'], events: extra.events, proves: extra.proves,
+  ...(extra.runtimeNeeds ? { runtimeNeeds: extra.runtimeNeeds } : {}),
 });
 
 /** In run order. Each phase has its own fixture, test and receipt; a failed phase does not hide another. */
@@ -99,13 +102,15 @@ export const PHASES = [
     events: ['checkout.session.completed', 'charge.refunded', 'customer.subscription.updated', 'customer.subscription.deleted'],
     proves: 'full refund; the customer uses the balance of the month as Pro; then the membership ends with no second charge; access after the end pending policy',
   }),
-  {
-    id: 'paid_value_loop', kind: 'external_spec', modes: ['full'], config: 'playwright.paid-value-loop.config.ts',
-    grep: 'billing paid_value_loop:', requires: ['local_checkout_exception', 'paid_loop_spec'],
-    steps: [], pendingPolicySteps: [], stripeWrites: [...FIXTURE_WRITES], testCards: ['4242424242424242'], events: ['checkout.session.completed'],
+  // Outcome 8 (#1822): its own spec, config and mode, but the same disposable local stack, receipt and combined
+  // receipt as the branches above, so it is re-validated exactly like them (no separate outside contract).
+  browser('paid_value_loop', ['paid_loop'], {
+    config: 'playwright.paid-value-loop.config.ts',
+    requires: ['paid_loop_spec'],
+    events: ['checkout.session.completed'],
     proves: 'paid practice with coaching, a linked repeat, comparison and a returning sign-in on one paid account',
     runtimeNeeds: ['GEMINI_API_KEY in the protected environment (coaching)'],
-  },
+  }),
 ];
 
 /** Things a dry run cannot settle; listed so a plan never reads as more ready than it is. */
@@ -155,7 +160,8 @@ export function planRun(mode, read = readRepoFile) {
     return {
       id: phase.id, kind: phase.kind, status: blockedBy.length ? 'BLOCKED_PREREQUISITE' : 'READY', blockedBy,
       dispatch: { workflow: WORKFLOW, journey: phase.id, config: phase.config, grep: phase.grep,
-        env: { BILLING_RUNNER_MODE: mode } },
+        // Only the lifecycle spec reads the mode; the paid loop's own spec ignores it.
+        env: phase.config === BILLING_CONFIG ? { BILLING_RUNNER_MODE: mode } : {} },
       pendingPolicySteps: phase.pendingPolicySteps,
       stripeWrites: phase.stripeWrites, testCards: phase.testCards, events: phase.events, proves: phase.proves,
       runtimeNeeds: phase.runtimeNeeds ?? [],
@@ -182,12 +188,6 @@ const parseRaw = (value) => {
   } catch { return undefined; }
 };
 const sameList = (a, b) => Array.isArray(a) && a.length === b.length && a.every((value, i) => value === b[i]);
-
-/**
- * Steps an external phase's receipt must prove, by phase. Empty until the phase's owner (#1822 for the paid
- * loop) commits its step list here, so until then that phase can only be NOT_PROVEN.
- */
-export const EXTERNAL_REQUIRED_STEPS = Object.freeze({});
 
 /**
  * One local-stack phase, re-validated from its evidence rather than trusted from a summary (Sam's fa7e7180
@@ -229,29 +229,12 @@ function localPhaseResult(id, held, item, release) {
   return why.length ? { result: 'NOT_PROVEN', why: [...new Set(why)] } : { result: held ? PENDING_POLICY : 'PASSED', why: [] };
 }
 
-/** An external phase's hosted receipt, checked against the step list its owner committed. */
-function externalPhaseResult(id, item, release) {
-  const steps = EXTERNAL_REQUIRED_STEPS[id];
-  if (!Array.isArray(steps) || steps.length === 0) return { result: 'NOT_PROVEN', why: ['external_contract_undefined'] };
-  const receipt = isObject(item) && isRawBytes(item.rawReceipt) ? parseRaw(item.rawReceipt) ?? null : null;
-  const why = [];
-  if (!isObject(receipt)) return { result: 'NOT_PROVEN', why: ['evidence_missing'] };
-  if (receipt.schema !== 'billing-user-journey/v1' || receipt.journey !== id) why.push('receipt_schema');
-  if (receipt.stripeMode !== 'test') why.push('stripe_mode');
-  if (receipt.testedRelease !== release) why.push('release_mismatch');
-  if (receipt.result !== 'PASSED' || receipt.cleanup !== 'VERIFIED') why.push('not_passed');
-  if (receipt.failureStage !== null || receipt.reason !== null) why.push('failure_recorded');
-  if (!Array.isArray(receipt.steps) || receipt.steps.length !== steps.length
-    || receipt.steps.some((row, i) => !isObject(row) || row.step !== steps[i] || row.result !== 'PASSED')) why.push('steps_not_all_passed');
-  return why.length ? { result: 'NOT_PROVEN', why } : { result: 'PASSED', why: [] };
-}
-
 /**
  * One mode's result from its phases' evidence. Each entry is { phase, combined?, rawReceipt, destruction?, identity? }:
  * for a local-stack phase the combined receipt, the raw receipt file exactly as the workflow wrote it (a JSON array
  * holding the one journey receipt, as text or, better, as its bytes), the destruction proof and the
- * captured stack identity; for an
- * external phase the raw hosted receipt text. Every phase is re-validated for this release (`expected.release`)
+ * captured stack identity. Every phase, the paid value loop included, runs on the disposable local stack and is
+ * re-validated the same way for this release (`expected.release`)
  * on its own stack. PASSED only when every phase of the mode has exactly one entry and each re-validates. A phase
  * held only by the end-of-access policy is PENDING_POLICY, and the mode is then PENDING_POLICY, never PASSED. A
  * missing, duplicate, unknown, other-mode or unproven phase, or two phases on one stack, is NOT_PROVEN.
@@ -270,13 +253,12 @@ export function finaliseModeReceipt(mode, entries, expected = {}) {
     if (typeof id !== 'string' || !ids.includes(id)) { problems.push('unexpected_phase'); continue; }
     seen.set(id, (seen.get(id) ?? 0) + 1);
   }
-  const phases = expectedPhases.map(({ id, kind, pendingPolicySteps }) => {
+  const phases = expectedPhases.map(({ id, pendingPolicySteps }) => {
     const count = seen.get(id) ?? 0;
     if (count > 1) problems.push(`duplicate_${id}`);
     const item = count === 1 ? list.find(entry => isObject(entry) && entry.phase === id) : null;
     const checked = !item || !release ? { result: 'NOT_PROVEN', why: [item ? 'release_unknown' : 'phase_missing'] }
-      : kind === 'external_spec' ? externalPhaseResult(id, item, release)
-        : localPhaseResult(id, pendingPolicySteps.length > 0, item, release);
+      : localPhaseResult(id, pendingPolicySteps.length > 0, item, release);
     return { phase: id, result: checked.result, why: checked.why };
   });
   // Every local phase runs on its own disposable stack.
@@ -295,7 +277,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const args = process.argv.slice(2);
   const mode = args[args.indexOf('--mode') + 1];
   if (!args.includes('--dry-run') || !args.includes('--mode')) {
-    process.stderr.write('usage: runnerPlan.mjs --dry-run --mode smoke|full (planning only; nothing runs)\n');
+    process.stderr.write('usage: runnerPlan.mjs --dry-run --mode smoke|full|paid_loop (planning only; nothing runs)\n');
     process.exit(2);
   }
   try {

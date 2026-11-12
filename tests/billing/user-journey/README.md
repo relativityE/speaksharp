@@ -198,8 +198,10 @@ prove the deployed webhook endpoint, production configuration, or a real charge.
 `smoke` is conversion only (repeated click, cancel and retry before it pays); `full` adds `failed_checkout`
 (declined card, expired session, one paid retry), `portal_recovery` (failed renewal repaired by the member in
 Manage billing, never by an API payment) and `refund_period_end` (a whole refund, Pro to the end of the paid
-month, no second charge). Any other value is refused. `runnerPlan.mjs --dry-run --mode smoke|full` prints the
-plan and what still blocks it; it reads committed files only and never authorizes a run.
+month, no second charge). Any other value is refused. `runnerPlan.mjs --dry-run --mode smoke|full|paid_loop`
+prints the plan and what still blocks it; it reads committed files only and never authorizes a run. `paid_loop` is
+outcome 8's own mode: it holds only the paid value loop, which `smoke` and `full` never include, so a Gemini outage
+or a coaching bug shows as outcome 8 not proven, never as billing not proven.
 
 Access after a membership ends is on hold until the end-of-access policy is confirmed. `access_expired` and
 `history_retained` in `portal_expiry` and `refund_period_end` read `PENDING_POLICY`: they are never asserted,
@@ -221,8 +223,16 @@ What each branch must prove before it may say so (Sam's fa7e7180 return):
   attachments, best passed as its bytes) and the destruction proof. It re-hashes those bytes, requires the array to
   hold exactly one receipt, and re-checks that receipt's steps, release, stack and cleanup (Sam's ac08d973 review).
   A test runs the workflow's own jq extraction and the combined finaliser's CLI and hands the files to it. A bare or
-  summary-only `PASSED` is `NOT_PROVEN`. Two phases on one stack are `NOT_PROVEN`. The paid loop stays `NOT_PROVEN`
-  until #1822 commits its step list in `EXTERNAL_REQUIRED_STEPS`, so full mode cannot pass before then.
+  summary-only `PASSED` is `NOT_PROVEN`. Two phases on one stack are `NOT_PROVEN`. While access after a membership
+  ends is held, full mode is at best `PENDING_POLICY`, never `PASSED`.
+- The outcome 8 paid value loop (#1822, `paid_value_loop`) is a local-stack journey like the others, not an outside
+  receipt, re-validated in its own `paid_loop` mode. It keeps its own spec, Playwright config and 90-minute job
+  timeout (the billing journeys keep 60). Its 17 steps are in outcome 8's own `paidLoopSteps.mjs`, which
+  `journeySteps.mjs` only lists. It runs the
+  same runner preflight before any Stripe call, it does not read the three billing tables on the local stack, it
+  names its test clock with the run marker, and it writes the same `billing-user-journey/v1` receipt held at
+  `PENDING_STACK_DESTRUCTION`. The workflow's combined-receipt step and `finaliseModeReceipt` check it exactly as
+  they check the other journeys.
 - The stack-identity list captured right after `supabase start` is kept as `billing-local-stack-identity.json` and
   uploaded with the receipts (Sam's 6cd45e76 review). The destruction proof (`billing-local-stack-destroyed/v2`)
   names it by a canonical sha256, and the combined receipt (`billing-local-stack-combined/v3`) carries the same

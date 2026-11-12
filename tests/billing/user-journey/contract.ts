@@ -1,8 +1,10 @@
 /** Billing acceptance is separate from the fixed 15 practice journeys. No network or secrets here. */
 import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, RUNNER_JOURNEYS, RUNNER_MODES, REQUIRED_STEPS, PENDING_POLICY,
-  POLICY_PENDING_STEPS, type BillingJourney, type RunnerJourney, type RunnerMode } from './journeySteps.mjs';
+  POLICY_PENDING_STEPS, LOCAL_STACK_JOURNEYS, type BillingJourney, type RunnerJourney, type RunnerMode,
+  type LocalStackJourney } from './journeySteps.mjs';
 export { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, RUNNER_JOURNEYS, RUNNER_MODES, REQUIRED_STEPS, PENDING_POLICY,
-  POLICY_PENDING_STEPS, type BillingJourney, type RunnerJourney, type RunnerMode };
+  POLICY_PENDING_STEPS, LOCAL_STACK_JOURNEYS, type BillingJourney, type RunnerJourney, type RunnerMode,
+  type LocalStackJourney };
 
 /**
  * Which branches a run collects. No mode keeps today's three lifecycle branches unchanged. Anything other
@@ -25,7 +27,7 @@ export function safeFailureReason(error: unknown): string {
 }
 
 /** All output is a closed, content-free list. Never serialize provider responses or credentials. */
-export function receipt(journey: RunnerJourney, steps: ReadonlySet<string>) {
+export function receipt(journey: LocalStackJourney, steps: ReadonlySet<string>) {
   const required = REQUIRED_STEPS[journey];
   const pending: readonly string[] = POLICY_PENDING_STEPS[journey] ?? [];
   requireFact([...steps].every(step => required.includes(step)), 'unknown_step');

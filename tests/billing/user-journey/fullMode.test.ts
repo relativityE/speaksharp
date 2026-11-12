@@ -10,10 +10,11 @@ import { afterAll, beforeAll, test } from 'vitest';
 import { parse } from 'yaml';
 import { selectRunnerJourneys, receipt, isRefundCancellation, assertFullRefund, assertCheckoutGrantedNothing,
   checkoutSessionFromUrl, assertCheckoutIdentity, newlyAddedCard, assertNoSecondCharge,
-  BILLING_JOURNEYS, FULL_MODE_JOURNEYS, RUNNER_JOURNEYS, REQUIRED_STEPS, POLICY_PENDING_STEPS, PENDING_POLICY } from './contract';
+  BILLING_JOURNEYS, FULL_MODE_JOURNEYS, RUNNER_JOURNEYS, LOCAL_STACK_JOURNEYS, REQUIRED_STEPS, POLICY_PENDING_STEPS, PENDING_POLICY } from './contract';
 import { finaliseLocalStackReceipt, journeyReceiptDefects } from './localStackReceipt.mjs';
 import { stackIdentitySha256 } from './localStackResources.mjs';
-import { MODES, PHASES, PREREQUISITES, STRIPE_WRITE_ALLOWLIST, planRun, finaliseModeReceipt, readRepoFile, EXTERNAL_REQUIRED_STEPS } from './runnerPlan.mjs';
+import { MODES, PHASES, PREREQUISITES, STRIPE_WRITE_ALLOWLIST, planRun, finaliseModeReceipt, readRepoFile } from './runnerPlan.mjs';
+import { PAID_LOOP_STEPS, PAID_LOOP_PAID_STEPS } from './paidLoopSteps.mjs';
 
 const SPEC = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
 const WORKFLOW = '.github/workflows/billing-local-stack-journey.yml';
@@ -348,17 +349,30 @@ test('dry run: plans only, makes no call, never authorizes, and cannot say READY
   assert.equal(best.authorizesExecution, false);
   assert.ok(best.openQuestions.some(question => question.startsWith('access after a membership ends')));
   assert.equal(planRun('smoke', fullPlanReader).result, 'READY');
+  // The paid loop's own mode has no held step, so with its spec and dispatch present it can be READY, and it
+  // carries none of full mode's open questions.
+  const paidBest = planRun('paid_loop', fullPlanReader);
+  assert.deepEqual([paidBest.result, paidBest.openQuestions], ['READY', []]);
   assert.throws(() => planRun('bogus'), /mode_unknown/);
   // Whatever branch this runs on (alone or stacked with the gate and refund handler), each phase is blocked by
   // exactly the prerequisites that the committed files here do not satisfy, and by nothing else.
   const here = planRun('full');
-  for (const phase of here.phases) {
+  assert.deepEqual(here.phases.map(phase => phase.id), [...RUNNER_JOURNEYS].sort((a, b) =>
+    PHASES.findIndex(p => p.id === a) - PHASES.findIndex(p => p.id === b)), 'full mode plans the six billing phases only');
+  for (const phase of [...here.phases, ...planRun('paid_loop').phases]) {
     const spec = PHASES.find(entry => entry.id === phase.id)!;
     const missing = spec.requires.filter(name => !PREREQUISITES[name].check(readRepoFile));
     assert.deepEqual(phase.blockedBy.map(entry => entry.prerequisite).filter(name => name !== 'workflow_dispatch'), missing, phase.id);
   }
-  // #1822 owns the paid loop, so it stays blocked until its spec and dispatch exist.
-  assert.ok(here.phases.find(phase => phase.id === 'paid_value_loop')!.blockedBy.length > 0);
+  // The paid loop (#1822) is planned in its own mode like every other local phase: blocked exactly when its spec, its
+  // config or the workflow's dispatch of it is missing, with its own config. Its spec reads no runner mode.
+  const paidPlan = planRun('paid_loop');
+  assert.deepEqual(paidPlan.phases.map(phase => phase.id), ['paid_value_loop']);
+  const paid = paidPlan.phases[0];
+  assert.equal(paid.kind, 'browser_branch');
+  assert.equal(paid.dispatch.config, 'playwright.paid-value-loop.config.ts');
+  assert.deepEqual(paid.dispatch.env, {});
+  assert.deepEqual(here.phases.map(phase => phase.dispatch.env), here.phases.map(() => ({ BILLING_RUNNER_MODE: 'full' })));
   assert.deepEqual(Object.keys(PREREQUISITES).sort(), ['local_checkout_exception', 'paid_loop_spec', 'payment_gate', 'refund_handler']);
 });
 
@@ -391,21 +405,48 @@ const evidenceFor = (journey: keyof typeof REQUIRED_STEPS, stack = 1, rawOverrid
 
 test('mode result: each phase is re-validated from its evidence; held phases are PENDING_POLICY, never PASSED', () => {
   const fullIds = PHASES.filter(phase => phase.modes.includes('full')).map(phase => phase.id);
-  const local = RUNNER_JOURNEYS.map((journey, i) => evidenceFor(journey, i + 1));
-  const external = { phase: 'paid_value_loop', rawReceipt: JSON.stringify({ schema: 'billing-user-journey/v1', journey: 'paid_value_loop', result: 'PASSED' }) };
-  const all = [...local, external];
-  assert.deepEqual(all.map(item => item.phase).sort(), [...fullIds].sort());
+  // Full mode is billing's verdict (outcome 7): the six billing phases, never the paid loop, so coaching cannot
+  // hold it up.
+  assert.deepEqual([...fullIds].sort(), [...RUNNER_JOURNEYS].sort());
+  const all = RUNNER_JOURNEYS.map((journey, i) => evidenceFor(journey, i + 1));
   const full = finaliseModeReceipt('full', all, { release: RELEASE });
   const byPhase = Object.fromEntries(full.phases.map(phase => [phase.phase, phase]));
   for (const journey of RUNNER_JOURNEYS) {
     assert.equal(byPhase[journey].result, POLICY_PENDING_STEPS[journey] ? PENDING_POLICY : 'PASSED', `${journey} ${byPhase[journey].why}`);
   }
-  // The paid loop's step contract belongs to #1822. Until it is committed here, nothing can prove that phase,
-  // so full mode is NOT_PROVEN however its receipt reads.
-  assert.deepEqual(EXTERNAL_REQUIRED_STEPS, {});
-  assert.deepEqual(byPhase.paid_value_loop.why, ['external_contract_undefined']);
-  assert.equal(full.result, 'NOT_PROVEN');
+  // Access after a membership ends is still held, so full mode is PENDING_POLICY, never PASSED.
+  assert.deepEqual(full.problems, []);
+  assert.equal(full.result, PENDING_POLICY);
   assert.equal(finaliseModeReceipt('smoke', [evidenceFor('conversion')], { release: RELEASE }).result, 'PASSED');
+});
+
+test('the paid loop has its own mode: outcome 8 is proven or not on its own, and never moves billing\'s verdict', () => {
+  assert.deepEqual(MODES, ['smoke', 'full', 'paid_loop']);
+  assert.deepEqual(PHASES.filter(phase => phase.modes.includes('paid_loop')).map(phase => phase.id), ['paid_value_loop']);
+  assert.deepEqual(PHASES.find(phase => phase.id === 'paid_value_loop')!.modes, ['paid_loop']);
+  const paidLoop = (entries: unknown) => finaliseModeReceipt('paid_loop', entries, { release: RELEASE });
+  const paid = evidenceFor('paid_value_loop', 7);
+  // Its receipt goes through the same re-validation, against its own 17 steps, and nothing in it is held.
+  const passed = paidLoop([paid]);
+  assert.deepEqual([passed.result, passed.problems, passed.phases], ['PASSED', [], [{ phase: 'paid_value_loop', result: 'PASSED', why: [] }]]);
+  const short = paidLoop([evidenceFor('paid_value_loop', 7, { steps: pendingFor('paid_value_loop').steps.slice(1) })]);
+  assert.equal(short.result, 'NOT_PROVEN');
+  assert.ok(short.phases[0].why.includes('steps_not_all_passed'), short.phases[0].why.join(','));
+  assert.equal(paidLoop([]).result, 'NOT_PROVEN', 'no evidence');
+  assert.equal(paidLoop([{ ...evidenceFor('conversion', 8), phase: 'paid_value_loop' }]).result, 'NOT_PROVEN', 'a billing receipt cannot stand in');
+  assert.equal(paidLoop([paid, evidenceFor('conversion', 8)]).result, 'NOT_PROVEN', 'a billing phase in the paid mode');
+  // A failed paid loop leaves billing's verdict exactly as it was, and a paid receipt cannot join billing's mode.
+  const billing = RUNNER_JOURNEYS.map((journey, i) => evidenceFor(journey, i + 1));
+  assert.equal(finaliseModeReceipt('full', billing, { release: RELEASE }).result, PENDING_POLICY);
+  const withPaid = finaliseModeReceipt('full', [...billing, paid], { release: RELEASE });
+  assert.equal(withPaid.result, 'NOT_PROVEN');
+  assert.ok(withPaid.problems.includes('unexpected_phase'));
+  // The step list is outcome 8's own file; the shared list only points at it, with the billing journeys' paid steps.
+  assert.equal(REQUIRED_STEPS.paid_value_loop, PAID_LOOP_STEPS);
+  assert.equal(PAID_LOOP_STEPS.length, 17);
+  assert.deepEqual(PAID_LOOP_STEPS.slice(1, 5), [...PAID_LOOP_PAID_STEPS]);
+  assert.deepEqual(REQUIRED_STEPS.conversion.filter(step => PAID_LOOP_PAID_STEPS.includes(step as never)), [...PAID_LOOP_PAID_STEPS]);
+  assert.equal(new Set(PAID_LOOP_STEPS).size, PAID_LOOP_STEPS.length);
 });
 
 test('mode result reads the raw receipt as the workflow writes it: one receipt inside a JSON array, hashed as bytes', () => {
@@ -441,10 +482,10 @@ test('workflow artifacts to mode result: the files a run uploads re-validate to 
   assert.ok(extract, 'the workflow extracts the receipt with jq into billing-local-stack-receipt.json');
   assert.match(workflow, /--receipt billing-local-stack-receipt\.json --destruction billing-local-stack-destroyed\.json \\\n\s+--identity billing-local-stack-identity\.json/);
   const dir = mkdtempSync(join(tmpdir(), 'billing-mode-artifacts-'));
-  const run = (attachments: number) => {
-    const receiptBody = Buffer.from(JSON.stringify(pendingFor('conversion'))).toString('base64');
+  const run = (attachments: number, journey: keyof typeof REQUIRED_STEPS = 'conversion') => {
+    const receiptBody = Buffer.from(JSON.stringify(pendingFor(journey))).toString('base64');
     const attachment = { name: 'billing-user-journey.json', contentType: 'application/json', body: receiptBody };
-    const report = { suites: [{ title: 'journey.billing.spec.ts', specs: [{ title: 'billing conversion: x', tests: [{ results: [
+    const report = { suites: [{ title: 'journey.billing.spec.ts', specs: [{ title: `billing ${journey}: x`, tests: [{ results: [
       { attachments: [...Array.from({ length: attachments }, () => attachment), { name: 'trace', contentType: 'application/zip', path: 'trace.zip' }] },
     ] }] }] }] };
     const file = (name: string) => join(dir, name);
@@ -456,11 +497,11 @@ test('workflow artifacts to mode result: the files a run uploads re-validate to 
     writeFileSync(file('billing-local-stack-destroyed.json'), JSON.stringify(destroyedFor(STACK_RUN)));
     const cli = spawnSync(process.execPath, ['tests/billing/user-journey/localStackReceipt.mjs',
       '--receipt', file('billing-local-stack-receipt.json'), '--destruction', file('billing-local-stack-destroyed.json'),
-      '--identity', file('billing-local-stack-identity.json'), '--journey', 'conversion', '--release', RELEASE, '--run', STACK_RUN,
+      '--identity', file('billing-local-stack-identity.json'), '--journey', journey, '--release', RELEASE, '--run', STACK_RUN,
       '--stack-stopped', 'success', '--stack-destroyed', 'success', '--stripe-clean', 'success'], { encoding: 'utf8', env: {} });
     const combined = JSON.parse(cli.stdout);
     const bytes = readFileSync(file('billing-local-stack-receipt.json'));
-    const entry = { phase: 'conversion', combined, rawReceipt: bytes,
+    const entry = { phase: journey, combined, rawReceipt: bytes,
       destruction: JSON.parse(readFileSync(file('billing-local-stack-destroyed.json'), 'utf8')),
       identity: JSON.parse(readFileSync(file('billing-local-stack-identity.json'), 'utf8')) };
     return { cli, combined, bytes, entry };
@@ -483,6 +524,13 @@ test('workflow artifacts to mode result: the files a run uploads re-validate to 
     const twice = finaliseModeReceipt('smoke', [two.entry], { release: RELEASE });
     assert.equal(twice.result, 'NOT_PROVEN');
     assert.ok(twice.phases[0].why.includes('raw_receipt_count'), twice.phases[0].why.join(','));
+    // The paid value loop goes through the same two steps: the combined step accepts it and the mode result
+    // re-validates it against its own steps (it is no longer an outside receipt the workflow cannot finalise).
+    const paid = run(1, 'paid_value_loop');
+    assert.equal(paid.cli.status, 0, paid.cli.stdout);
+    assert.equal(paid.combined.journey, 'paid_value_loop');
+    const paidMode = finaliseModeReceipt('paid_loop', [paid.entry], { release: RELEASE });
+    assert.deepEqual([paidMode.result, paidMode.phases[0].phase, paidMode.phases[0].why], ['PASSED', 'paid_value_loop', []]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -526,6 +574,7 @@ test('mode result negative controls: a bare or summary-only PASSED, or evidence 
 
   const local = RUNNER_JOURNEYS.map((journey, i) => evidenceFor(journey, i + 1));
   const full = (entries: unknown) => finaliseModeReceipt('full', entries, { release: RELEASE });
+  assert.equal(full(local).result, PENDING_POLICY, 'the untouched evidence is not NOT_PROVEN, so each case below fails on its own');
   const held = local.find(item => item.phase === 'portal_expiry')!;
   const asserted = JSON.parse(held.rawReceipt)[0];
   asserted.result = 'PENDING_STACK_DESTRUCTION';
@@ -545,19 +594,22 @@ test('mode result negative controls: a bare or summary-only PASSED, or evidence 
     const result = full(entries);
     assert.equal(result.result, 'NOT_PROVEN', name);
     if (name !== 'missing phase' && name !== 'not a list') {
-      // Every full run is NOT_PROVEN anyway while the paid loop has no contract; prove each case fails on its own.
-      assert.ok(result.problems.length > 0 || result.phases.some(phase => phase.phase !== 'paid_value_loop' && phase.result === 'NOT_PROVEN'), name);
+      assert.ok(result.problems.length > 0 || result.phases.some(phase => phase.result === 'NOT_PROVEN'), name);
     }
   }
   assert.equal(smoke([{ ...evidenceFor('conversion'), phase: 'renewal_recovery' }]).result, 'NOT_PROVEN');
   assert.throws(() => finaliseModeReceipt('all', local, { release: RELEASE }), /mode_unknown/);
 });
 
-test('the workflow can dispatch the three new branches in full mode, and not the paid loop it does not own', () => {
+test('the workflow can dispatch every local-stack journey, the paid loop with its own config', () => {
   const doc = parse(readFileSync(WORKFLOW, 'utf8'));
-  assert.deepEqual(doc.on.workflow_dispatch.inputs.journey.options, [...RUNNER_JOURNEYS]);
+  assert.deepEqual(doc.on.workflow_dispatch.inputs.journey.options, [...LOCAL_STACK_JOURNEYS]);
   const step = doc.jobs.journey.steps.find((entry: { name?: string }) => entry.name === 'Run the billing journey against the local stack');
   assert.equal(step.env.BILLING_RUNNER_MODE, 'full');
   assert.match(step.run, /-g "billing \$\{JOURNEY\}:"/);
-  assert.ok(!doc.on.workflow_dispatch.inputs.journey.options.includes('paid_value_loop'), 'the paid loop is #1822\'s to wire');
+  assert.match(step.run, /\[ "\$JOURNEY" = 'paid_value_loop' \] && config=playwright\.paid-value-loop\.config\.ts/);
+  // Only the paid loop gets the longer timeout; the billing journeys keep their 60 minutes.
+  assert.equal(doc.jobs.journey['timeout-minutes'], "${{ inputs.journey == 'paid_value_loop' && 90 || 60 }}");
+  // Every dispatched journey's receipt is accepted by the same combined-receipt step, so none bypasses it.
+  for (const journey of LOCAL_STACK_JOURNEYS) assert.ok(REQUIRED_STEPS[journey].length > 0, journey);
 });

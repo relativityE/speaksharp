@@ -1,11 +1,20 @@
 // The billing journeys and the steps each must prove. One source for the spec (via contract.ts), the workflow's
 // combined-receipt finalizer (localStackReceipt.mjs) and the runner plan (runnerPlan.mjs), so they can't drift.
+import { PAID_LOOP_STEPS } from './paidLoopSteps.mjs';
 
 /** The three lifecycle journeys a run without a mode collects (unchanged). */
 export const BILLING_JOURNEYS = Object.freeze(['conversion', 'renewal_recovery', 'portal_expiry']);
 /** Branches only the Stripe test-mode runner's full mode adds. Each has its own fixture, test and receipt. */
 export const FULL_MODE_JOURNEYS = Object.freeze(['failed_checkout', 'portal_recovery', 'refund_period_end']);
 export const RUNNER_JOURNEYS = Object.freeze([...BILLING_JOURNEYS, ...FULL_MODE_JOURNEYS]);
+/**
+ * The outcome 8 paid value loop (#1822). It has its own spec, Playwright config and runner mode (`paid_loop`), so the
+ * lifecycle spec never collects it and billing's verdict never depends on it, but it runs on the same disposable
+ * local stack and goes through the same receipt path.
+ */
+export const PAID_LOOP_JOURNEYS = Object.freeze(['paid_value_loop']);
+/** Every journey the local-stack workflow may dispatch, and so every journey its combined receipt accepts. */
+export const LOCAL_STACK_JOURNEYS = Object.freeze([...RUNNER_JOURNEYS, ...PAID_LOOP_JOURNEYS]);
 export const RUNNER_MODES = Object.freeze(['smoke', 'full']);
 
 const PAID = ['hosted_checkout', 'first_invoice', 'stripe_delivery', 'paid_entitlement'];
@@ -30,6 +39,8 @@ export const REQUIRED_STEPS = Object.freeze({
   refund_period_end: Object.freeze([...PAID,
     'refund_issued', 'refund_cancellation_scheduled', 'cancellation_delivery', 'paid_until_period_end',
     'expiry_delivery', 'no_second_charge', 'account_retained', 'access_expired', 'history_retained', 'cleanup']),
+  // Outcome 8 (#1822) owns this list in paidLoopSteps.mjs; this file only lists it.
+  paid_value_loop: PAID_LOOP_STEPS,
 });
 
 /**

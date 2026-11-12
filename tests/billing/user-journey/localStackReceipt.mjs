@@ -13,7 +13,7 @@ import { readFileSync } from 'node:fs';
 import process from 'node:process';
 import { parseArgs } from 'node:util';
 import { pathToFileURL } from 'node:url';
-import { PENDING_POLICY, POLICY_PENDING_STEPS, REQUIRED_STEPS, RUNNER_JOURNEYS } from './journeySteps.mjs';
+import { LOCAL_STACK_JOURNEYS, PENDING_POLICY, POLICY_PENDING_STEPS, REQUIRED_STEPS } from './journeySteps.mjs';
 import { DESTROYED_SCHEMA, PROJECT_PATTERN, stackIdentitySha256 } from './localStackResources.mjs';
 
 export const PENDING = 'PENDING_STACK_DESTRUCTION';
@@ -31,7 +31,7 @@ export function journeyReceiptDefects(receipt, expected) {
   const keys = Object.keys(receipt).sort().join(',');
   if (keys !== RECEIPT_KEYS.join(',')) defects.push('receipt_shape');
   if (receipt.schema !== 'billing-user-journey/v1') defects.push('receipt_schema');
-  if (!RUNNER_JOURNEYS.includes(expected?.journey)) defects.push('expected_journey_unknown');
+  if (!LOCAL_STACK_JOURNEYS.includes(expected?.journey)) defects.push('expected_journey_unknown');
   if (receipt.journey !== expected?.journey) defects.push('journey_not_dispatched');
   if (receipt.stripeMode !== 'test') defects.push('stripe_mode');
   // Access after a membership ends is on hold: a journey that reached it cannot be promoted.
@@ -105,7 +105,7 @@ export function finaliseLocalStackReceipt(journeyReceipts, checks, expected = {}
   return {
     schema: 'billing-local-stack-combined/v3',
     // What this run was dispatched for, never read from the receipt.
-    journey: RUNNER_JOURNEYS.includes(expected.journey) ? expected.journey : null,
+    journey: LOCAL_STACK_JOURNEYS.includes(expected.journey) ? expected.journey : null,
     release: SHA.test(`${expected.release ?? ''}`) ? expected.release : null,
     stackRun: PROJECT_PATTERN.test(`${expected.stackRun ?? ''}`) ? expected.stackRun : null,
     rawReceiptSha256: SHA256.test(`${expected.receiptSha256 ?? ''}`) ? expected.receiptSha256 : null,
