@@ -21,7 +21,11 @@ test('inactive account completion: native readiness, journal, and concurrent cla
   const env = {...Object.fromEntries(Object.entries(process.env).filter(([k])=>!k.startsWith('PG'))),
     PGHOST:socket, PGPORT:'5432', PGUSER:'completion_fixture_admin', PGDATABASE:'postgres'};
   const args = ['-h',socket,'-p','5432','-U',env.PGUSER,'-d','postgres','-X','-qAt','-v','ON_ERROR_STOP=1','-v','VERBOSITY=verbose'];
-  const sql = text => execFileSync('psql',[...args,'-c',text],{env,encoding:'utf8',timeout:10000,stdio:['ignore','pipe','pipe']}).trim();
+  // #1843 item 4: the ~128 KB completion bootstrap exceeds Linux's per-argument limit as one -c argument (spawnSync
+  // E2BIG), so this suite could never run there. Large text goes over stdin in one transaction, as the #1831 proof does.
+  const sql = text => (text.length > 64_000
+    ? execFileSync('psql',[...args,'-1','-f','-'],{env,encoding:'utf8',timeout:60000,input:text,stdio:['pipe','pipe','pipe']})
+    : execFileSync('psql',[...args,'-c',text],{env,encoding:'utf8',timeout:10000,stdio:['ignore','pipe','pipe']})).trim();
   const json = text => {const value=sql(text).split('\n').at(-1);return value ? JSON.parse(value) : null;};
   const clients=[], receipts=[]; let started=false, index=0;
   const claim = a => service(`SELECT claim_account_pending_completion_v1('${a.user}','${a.request}','${scope}')`);
