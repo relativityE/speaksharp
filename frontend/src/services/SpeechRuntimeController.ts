@@ -5587,7 +5587,11 @@ export class SpeechRuntimeController {
                      * downstream can detect.
                      */
                     markCompletionStage('recording_terminated');
-                    emitFinalizeBreakdown(readPrivateTimingSummary(), stopEntryPerfMs, service.getMode?.() ?? stopEntryMode);
+                    // Only while this stop still owns the shared surfaces: a superseded stop must not put
+                    // its rows (or its successor's summary) into the successor's journey (#1431).
+                    if (this.stopStillOwnsSharedState(stopAuthority, token)) {
+                        emitFinalizeBreakdown(readPrivateTimingSummary(), stopEntryPerfMs, service.getMode?.() ?? stopEntryMode);
+                    }
                     logger.info({
                         mode: service.getMode?.() ?? stopEntryMode,
                         sessionId,
