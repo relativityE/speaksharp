@@ -1776,9 +1776,10 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
   });
 
   /*
-   * Framework review M6/M7: selected saved aggregate evidence, asserted on what is SENT.
+   * Framework review M6/M7 (Akin 2026-11-13): measured saved pause aggregates, asserted on what is SENT. Clarity stays out:
+   * it is a composite of the WPM and fillers already sent, and an unscorable take is saved as 0.
    */
-  await t.step('framework M6/M7: Open Mic sends validated clarity and pauses alongside transcript, fillers and WPM', async () => {
+  await t.step('framework M6/M7: Open Mic sends measured pauses alongside transcript, fillers and WPM, and never clarity', async () => {
     resetProvider();
     const saved = {
       transcript: 'We launch on Monday because the support rota is finally covered.',
@@ -1790,16 +1791,30 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertStringIncludes(lastPrompt, saved.transcript);
     assertStringIncludes(lastPrompt, `Words Per Minute (WPM): ${saved.wpm}`);
     assertStringIncludes(lastPrompt, `Filler Words: ${JSON.stringify(saved.filler_counts)}`);
-    assertStringIncludes(lastPrompt, 'Clarity heuristic: 82/100');
     assertStringIncludes(lastPrompt, 'Pause count: 7');
     assertStringIncludes(lastPrompt, 'Extended pause count: 1');
-    for (const excluded of ['Clarity Score', 'Pause Metrics', 'Total Words', 'Duration:', '"totalPauses"', '82%']) {
+    for (const excluded of ['Clarity', '82/100', 'Pause Metrics', 'Total Words', 'Duration:', '"totalPauses"', '82%']) {
       assertEquals(lastPrompt.includes(excluded), false, `${excluded} must not be a coaching input`);
     }
     // The model synthesises; it does not restate a number.
     assertStringIncludes(lastPrompt, 'Metric recital or reusable generic advice is invalid.');
     assertStringIncludes(lastPrompt, 'Do not restate a number');
     assertStringIncludes(lastPrompt, 'logical structure, vocabulary variety, sentence variety, transitions, specificity, and audience impact');
+  });
+
+  await t.step('framework M6/M7: an unmeasured take (the all-zero reset) sends no pause evidence, not "0 pauses"', async () => {
+    resetProvider();
+    const unmeasured = {
+      transcript: 'We launch on Monday because the support rota is finally covered.',
+      wpm: 148, clarity_score: 0, filler_counts: { um: 1 },
+      pause_metrics: { totalPauses: 0, averagePauseDuration: 0, longestPause: 0, pausesPerMinute: 0, silencePercentage: 0,
+        transitionPauses: 0, extendedPauses: 0 },
+    };
+    assertEquals((await handler(request(), mockSupabase({ session: savedSession(unmeasured) }).create)).status, 200);
+    assertStringIncludes(lastPrompt, `Words Per Minute (WPM): ${unmeasured.wpm}`);
+    for (const excluded of ['Pause', 'pause data', 'Silence', 'Clarity', '0/100']) {
+      assertEquals(lastPrompt.includes(excluded), false, `${excluded} must not be sent for an unmeasured take`);
+    }
   });
 
   await t.step('#1258: Focus Points sends at most ONE delivery signal — the one its saved next action is about', () => {
@@ -1820,12 +1835,12 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     for (const text of [fillersChosen, paceChosen]) {
       for (const excluded of ['Clarity', 'Pause', 'Total Words', 'Duration']) assertEquals(text.includes(excluded), false);
     }
-    // Open Mic includes the additional validated saved aggregates; Focus retains its one-signal contract.
+    // Open Mic adds the measured saved pause aggregates (never clarity); Focus retains its one-signal contract.
     const openMic = buildDeliverySignals({ ...base, next_action_signal: { metric: 'filler_rate' } }, { kind: 'none' });
     assertStringIncludes(openMic, 'Words Per Minute (WPM): 171');
     assertStringIncludes(openMic, 'Filler Words: {"um":6}');
-    assertStringIncludes(openMic, 'Clarity heuristic: 82/100');
     assertStringIncludes(openMic, 'Pause count: 7');
+    assertEquals(openMic.includes('Clarity'), false);
   });
 
   await t.step('coaching a user ALREADY received stays readable after the budget lands', async () => {
@@ -1898,7 +1913,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
       clarity_score: 88,
       total_words: 16,
       duration: 8,
-      pause_metrics: { extendedPauses: 2 },
+      pause_metrics: { totalPauses: 3, extendedPauses: 2 },
       filler_words: { um: { count: 3 } },
     };
     const mock = mockSupabase({ session: savedSession(fabricated) });
@@ -1925,14 +1940,14 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     // 3. The expected prompt is built INDEPENDENTLY from the contract — this test's own substitution over
     //    `contract.promptTemplate`, with the fabricated transcript and a metrics block assembled here —
     //    and compared for EQUALITY. Reordering it, or appending an instruction, changes the string.
-    // Framework M6/M7: independent oracle includes the selected saved aggregates.
+    // Framework M6/M7: independent oracle includes the measured saved pause aggregates and no clarity.
     const expectedMetrics = `
       Delivery signals:
       - Words Per Minute (WPM): ${fabricated.wpm}
       - Filler Words: ${JSON.stringify(fabricated.filler_words)}
-      - Clarity heuristic: 88/100 (delivery diagnostic, not a presentation grade)
+      - Pause count: 3
 - Extended pause count: 2
-- Use these as supporting delivery evidence, not proof of content quality or improvement; do not recite scores.
+- Use the pause data as supporting delivery evidence, not proof of content quality or improvement; do not recite the numbers.
     `;
     const expectedPrompt = coachingContract.promptTemplate.replace(
       /\{\{(TRANSCRIPT|METRICS)\}\}/g,
@@ -2522,12 +2537,16 @@ Deno.test('LLM evaluator parity: the handler sends exactly the evaluator prompt 
   // The set's shape is validated by evaluation/evaluator.test.ts; this test imports only the prompt module and the data.
   const openMic = (evaluationSet.items as EvaluationItem[]).filter((item) => item.product === 'open_mic');
   assertEquals(openMic.length, 6);
+  // Both pause cases are in the set, so parity covers the measured lines and the unmeasured omission.
+  assertEquals(openMic.some((item) => (item.pause_metrics?.totalPauses ?? 0) > 0), true);
+  assertEquals(openMic.some((item) => item.pause_metrics?.totalPauses === 0), true);
   try {
     for (const item of openMic) {
       resetProvider();
       const mock = mockSupabase({
+        // The set carries measured and unmeasured pause evidence; a saved clarity score must not change the prompt.
         session: savedSession({ transcript: item.transcript, wpm: item.wpm, filler_counts: item.filler_counts, filler_words: null,
-          clarity_score: null, pause_metrics: null }),
+          clarity_score: 77, pause_metrics: item.pause_metrics ?? null }),
         focus: { objective: null },
       });
       assertEquals((await handler(request(), mock.create)).status, 200, item.id);

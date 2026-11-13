@@ -10,6 +10,7 @@
       "transcript": "Good morning everyone. This week the onboarding team finished the new checklist, and the first three customers used it without calling support. Um, the part that still slows people down is account setup, because the verification email arrives late. So next week we will test sending the code by text message instead. If that works, setup should take about half as long. That's my update.",
       "wpm": 142,
       "filler_counts": { "um": 1 },
+      "pause_metrics": { "totalPauses": 6, "averagePauseDuration": 0.8, "longestPause": 1.9, "pausesPerMinute": 12.2, "silencePercentage": 16, "transitionPauses": 4, "extendedPauses": 1 },
       "grounding": {
         "anchors": ["checklist", "onboarding", "verification", "setup", "text message", "support"],
         "unsupported": ["\\bslides?\\b", "\\binvestors?\\b", "\\bboard\\b", "\\bstory\\b", "\\bjoke\\b"]
@@ -21,6 +22,7 @@
       "transcript": "So, um, I want to talk about, like, why our garden project matters. Um, the school has, uh, no green space, and, like, the kids eat lunch on concrete. We, um, we planted twelve raised beds last spring. Uh, the tomatoes did well, like, really well. So, um, we need volunteers for the summer watering schedule.",
       "wpm": 118,
       "filler_counts": { "um": 6, "uh": 2, "like": 4 },
+      "pause_metrics": { "totalPauses": 9, "averagePauseDuration": 0.6, "longestPause": 1.2, "pausesPerMinute": 19.1, "silencePercentage": 19, "transitionPauses": 5, "extendedPauses": 0 },
       "grounding": {
         "anchors": ["garden", "raised beds", "tomatoes", "volunteers", "watering", "green space", "concrete", "lunch"],
         "unsupported": ["\\bslides?\\b", "\\bquarterly\\b", "\\brevenue\\b", "\\bcustomers?\\b"]
@@ -43,6 +45,7 @@
       "transcript": "Hi, I'm testing the microphone. One, two, three.",
       "wpm": 96,
       "filler_counts": {},
+      "pause_metrics": { "totalPauses": 0, "averagePauseDuration": 0, "longestPause": 0, "pausesPerMinute": 0, "silencePercentage": 0, "transitionPauses": 0, "extendedPauses": 0 },
       "grounding": {
         "anchors": ["microphone", "testing"],
         "unsupported": ["\\bconclusion\\b", "\\baudience\\b", "\\bstory\\b"]

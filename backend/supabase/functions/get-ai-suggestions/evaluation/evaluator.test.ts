@@ -107,6 +107,8 @@ Deno.test('the committed set is synthetic, bounded, and every anchor and trap is
     // An anchor must be a whole word of the transcript: 'date' is not inside 'update'.
     ['EVAL_ITEM_ANCHOR_NOT_IN_TRANSCRIPT', (s: EvaluationSet) => { s.items[0].grounding.anchors = ['date']; }],
     ['EVAL_ITEM_UNSUPPORTED_IN_TRANSCRIPT', (s: EvaluationSet) => { s.items[0].grounding.unsupported = ['\\bchecklist\\b']; }],
+    ['EVAL_ITEM_PAUSES_INVALID', (s: EvaluationSet) => { (s.items[0] as unknown as Record<string, unknown>).pause_metrics = { totalPauses: '6' }; }],
+    ['EVAL_ITEM_PAUSES_INVALID', (s: EvaluationSet) => { (s.items[0] as unknown as Record<string, unknown>).pause_metrics = [6]; }],
   ] as const) {
     assertThrows(() => parseEvaluationSet(mutate(change)), Error, code);
   }
@@ -124,6 +126,15 @@ Deno.test('the prompt is the handler\'s: transcript inserted once and verbatim, 
   assertEquals(notDetected.includes('Never say a point was missed'), true);
   assertEquals(notDetected.includes('Filler Words'), true, 'the take\'s chosen delivery signal (filler_rate)');
   assertEquals(notDetected.includes('Words Per Minute'), false);
+  // Framework M6/M7: the set exercises both pause cases, so an evaluation sees the pause lines a measured take sends.
+  const measured = evaluationPrompt(SET.items.find((i) => i.id === 'om-01-team-update')!);
+  assertEquals(measured.includes('Pause count: 6'), true);
+  assertEquals(measured.includes('Extended pause count: 1'), true);
+  const realZero = evaluationPrompt(SET.items.find((i) => i.id === 'om-02-filler-heavy')!);
+  assertEquals(realZero.includes('Extended pause count: 0'), true, 'a measured take keeps its real zero');
+  const unmeasured = evaluationPrompt(SET.items.find((i) => i.id === 'om-04-too-short')!);
+  assertEquals(unmeasured.includes('Pause'), false, 'the all-zero reset is not "0 pauses"');
+  for (const item of SET.items) assertEquals(evaluationPrompt(item).includes('Clarity'), false, item.id);
 });
 
 Deno.test('grounding proxies: exact quotes count, invented quotes and unsupported claims are caught, whole-word anchors only', () => {

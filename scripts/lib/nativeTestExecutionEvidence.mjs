@@ -271,6 +271,23 @@ const coachingProfiles=Object.freeze([
     'backend/supabase/functions/get-ai-suggestions/providers/types.ts':'f401085b1542bc07b514f793e1b557886ab11f72442313e8c85d89823999d0cb',
     'backend/supabase/functions/get-ai-suggestions/evaluation/prompt.ts':'16d40c6b1500b535bf45e0d1d07699ab509f68879c39586cf8ebd4363c7f92ee',
     'backend/supabase/functions/get-ai-suggestions/evaluation/transcripts.json':'a4db4fdac8c4e2bd6c113d83c87ed458eac6197d99b1ccc747822bfad52b9a1a'}},
+  // #1836 (framework M6/M7, Akin 2026-11-13): Open Mic adds measured saved pause aggregates (new local import pauseSignals.ts) and
+  // never clarity; the evaluation prompt and set carry measured and unmeasured pause evidence. Retry, decoder, contract, providers,
+  // package and lock bytes are #1802's; the key policy (set 'test-key', delete) is unchanged.
+  {id:'coaching-pause-signals-1836',files:{...coachingClosure,
+    'backend/supabase/functions/get-ai-suggestions/providerRetry.ts':'eda8685f3f005e3cb774c54cadf8a04e43bb483d68c7a31130fd268b06ff7820',
+    'package.json':'afaad509e196b4cf0d784a55b47d3f17e51409dcd91d9d7f6a2e341b175eb0ed',
+    'backend/supabase/functions/get-ai-suggestions/index.ts':'4d4b5702e599f3db50b67ac07167087622fbbfeedfbea33feb4c501b4e3066f9',
+    'backend/supabase/functions/get-ai-suggestions/pauseSignals.ts':'efca964d9681aa8b0672abaee48017379e0a0f31c7d60027fba5e58e36083dea',
+    'backend/supabase/functions/get-ai-suggestions/providerDecode.ts':'ecc8034bd53bd6b3b88dcbb981a6bf29be8c85d08cd031d0483e2d083e10d2a2',
+    [coachingTest]:'5336cb152b9b2b037df15b0dc042003720105159aa9fa86cdae23f235e9919f7',
+    'backend/supabase/functions/get-ai-suggestions/contract.json':'70c3099769cf24ac4faf3b4c191e322e50a0f1b34228a3aa72199a8f06adbe1b',
+    'backend/supabase/functions/get-ai-suggestions/providers/catalog.ts':'59d4a83989239a71085415d9fc3eaa8b3145786db085c8de8abe35cd052eaac1',
+    'backend/supabase/functions/get-ai-suggestions/providers/gemini.ts':'dac0b17ee31b82dcbeaf01b7496013e093246843af56bb7382ae5d40f6f3f963',
+    'backend/supabase/functions/get-ai-suggestions/providers/registry.ts':'e5744505a502ecc525a3604dfa8fa687a03dc18a33b9ef9aa9080d4df12571f7',
+    'backend/supabase/functions/get-ai-suggestions/providers/types.ts':'f401085b1542bc07b514f793e1b557886ab11f72442313e8c85d89823999d0cb',
+    'backend/supabase/functions/get-ai-suggestions/evaluation/prompt.ts':'3db54e7e904766bd1daab792ea6f02414908174e8f2403a890bbb8572a751197',
+    'backend/supabase/functions/get-ai-suggestions/evaluation/transcripts.json':'8c0b1eee0289d343aff6ff88048436209e9014737130b58bc45224a36fe73820'}},
 ]);
 export function nativeDenoPolicy(file) {
   return {schemaVersion:1,testFile:file,environment:{names:file===coachingTest?['GEMINI_API_KEY']:[],

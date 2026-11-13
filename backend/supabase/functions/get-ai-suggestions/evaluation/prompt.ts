@@ -14,6 +14,8 @@ export interface EvaluationItem {
   transcript: string;
   wpm: number | null;
   filler_counts: Record<string, number>;
+  /** Saved aggregate pause evidence, as a session row stores it. An all-zero object is an unmeasured take (no pause lines). */
+  pause_metrics?: Record<string, number> | null;
   next_action_metric?: 'wpm' | 'filler_rate';
   focus?: { topic: string | null; points: Array<{ label: string; verdict: 'detected' | 'not_detected' | 'unavailable'; detectedAtSeconds: number | null }> };
   grounding: { anchors: string[]; unsupported: string[] };
@@ -24,7 +26,7 @@ export function evaluationPrompt(item: EvaluationItem): string {
   const focus: FocusContext = item.focus ? { kind: 'focus', topic: item.focus.topic, points: item.focus.points } : { kind: 'none' };
   const session = {
     transcript: item.transcript, transcript_state: 'ready', duration: null, total_words: null, filler_words: null,
-    filler_counts: item.filler_counts, clarity_score: null, wpm: item.wpm, pause_metrics: null,
+    filler_counts: item.filler_counts, clarity_score: null, wpm: item.wpm, pause_metrics: item.pause_metrics ?? null,
     next_action_signal: item.next_action_metric ? { metric: item.next_action_metric } : null, ai_suggestions: null, product: item.product,
   } as Parameters<typeof buildDeliverySignals>[0];
   return buildCoachingPrompt(item.transcript, buildDeliverySignals(session, focus) + buildFocusCoachingText(focus));

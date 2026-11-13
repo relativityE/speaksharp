@@ -1,4 +1,4 @@
-import { buildClarityPauseSignals } from './clarityPauseSignals.ts';
+import { buildPauseSignals } from './pauseSignals.ts';
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { corsGuard, corsHeaders as buildCorsHeaders } from '../_shared/cors.ts';
@@ -387,13 +387,15 @@ const quoteLabel = (text: string): string => `"${text.replace(/[\r\n"]+/g, ' ').
 /**
  * #1258 (PM 5952231855) — THE COACHING INPUT CONTRACT: only the reliable signals.
  *
- * Open Mic: the finalized transcript (sent separately) + finalized filler counts + WPM. Focus Points: the transcript +
+ * Open Mic: the finalized transcript (sent separately) + finalized filler counts + WPM + saved aggregate pause metrics,
+ * the last only when the take's pauses were actually measured (framework M6/M7; `buildPauseSignals`). Focus Points: the transcript +
  * the Focus Points results (`buildFocusCoachingText`) + AT MOST ONE delivery signal - the one the product's own saved
  * next action for this take is about (`next_action_signal.metric`: `filler_rate` -> fillers, `wpm` -> pace); any other
  * next action means no delivery signal, and the Focus evidence leads.
  *
- * NOT sent as coaching signals: clarity score (a composite of the same delivery evidence - it would double-count),
- * raw pause metrics (not yet validated for coaching), total words and duration (WPM already carries them).
+ * NOT sent as coaching signals: clarity score (a composite of the same delivery evidence - it would double-count, and a
+ * take too short to score is saved as 0), unmeasured pause metrics (an all-zero reset is not "0 pauses"), any pause field
+ * outside the allowlist, pause metrics for Focus Points, and total words and duration (WPM already carries them).
  */
 export function buildDeliverySignals(session: SessionEvidence, focusContext: FocusContext): string {
   // #1258: saves write `filler_counts` and strip `filler_words`; the legacy field is only a fallback for older rows.
@@ -405,7 +407,7 @@ export function buildDeliverySignals(session: SessionEvidence, focusContext: Foc
       Delivery signals:
       ${pace}
       ${fillers}
-      ${buildClarityPauseSignals(session.clarity_score, session.pause_metrics)}
+      ${buildPauseSignals(session.pause_metrics)}
     `;
   }
   const metric = (session.next_action_signal as { metric?: unknown } | null | undefined)?.metric;

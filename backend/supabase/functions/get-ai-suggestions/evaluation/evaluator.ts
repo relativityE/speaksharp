@@ -59,6 +59,12 @@ export function parseEvaluationSet(input: unknown): EvaluationSet {
     if (typeof item.transcript !== 'string' || !item.transcript.trim()) refuse('EVAL_ITEM_TRANSCRIPT_INVALID');
     if ((item.transcript as string).length > EVALUATION_MAX_TRANSCRIPT_CHARS) refuse('EVAL_ITEM_TRANSCRIPT_TOO_LONG');
     if ((item.product === 'focus_points') !== (typeof item.focus === 'object' && item.focus !== null)) refuse('EVAL_ITEM_FOCUS_INVALID');
+    // A malformed pause object would build a prompt only because the helper drops it silently; refuse it as a fixture error.
+    if (item.pause_metrics !== undefined && item.pause_metrics !== null) {
+      const pauses = item.pause_metrics as Record<string, unknown>;
+      if (typeof pauses !== 'object' || Array.isArray(pauses)
+        || Object.values(pauses).some((value) => typeof value !== 'number' || !Number.isFinite(value) || value < 0)) refuse('EVAL_ITEM_PAUSES_INVALID');
+    }
     // Review of 1c83108c: a malformed point would build a prompt the handler (which reads validated rows) never sends.
     if (item.focus !== undefined) {
       const focus = item.focus as Record<string, unknown>;
