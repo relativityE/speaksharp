@@ -37,12 +37,12 @@ describe('#1501 — merge-queue CI support', () => {
         expect(report.name).toBe('report');
         expect(report.if).toBe('always() && !cancelled()');
         const needs = Array.isArray(report.needs) ? report.needs : [report.needs];
-        for (const job of ['scope', 'unit-coverage-merge', 'edge-tests', 'build', 'health-check', 'e2e', 'full-evidence']) {
+        for (const job of ['scope', 'quality', 'unit-coverage-merge', 'edge-tests', 'build', 'health-check', 'e2e', 'full-evidence']) {
             expect(needs, `report needs ${job}`).toContain(job);
         }
         const run = report.steps?.map((step) => step.run ?? '').join('\n') ?? '';
         // Fail closed on a failed classification, and require success from each full-lane result.
         expect(run).toMatch(/SCOPE_RESULT" != "success"[\s\S]*exit 1/);
-        expect(run).toMatch(/for r in "\$UNIT_RESULT" "\$EDGE_RESULT" "\$BUILD_RESULT" "\$HEALTH_RESULT" "\$E2E_RESULT" "\$EVIDENCE_RESULT"/);
+        expect(run).toMatch(/for r in "\$QUALITY_RESULT" "\$UNIT_RESULT" "\$EDGE_RESULT" "\$BUILD_RESULT" "\$HEALTH_RESULT" "\$E2E_RESULT" "\$EVIDENCE_RESULT"/);
     });
 });
