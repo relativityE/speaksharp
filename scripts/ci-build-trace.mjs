@@ -6,7 +6,7 @@
 // and mode, directory listings, symlink targets, absence. A consumer may reuse the producer's output only when
 // every manifest entry is identical in its own checkout and its build environment digest is equal. Anything
 // the parser does not fully understand, any write outside the build's own scratch/output roots, and any
-// network connection make the trace UNUSABLE: the producer then publishes nothing and nobody can reuse it.
+// connection that could have been answered make the trace UNUSABLE: the producer then publishes nothing and nobody can reuse it.
 //
 // Scope note: mtimes are not recorded (a fresh checkout changes them all). The build's caches that key on
 // mtime are deleted before every build, and node's compile cache under /tmp validates its own source hash.
@@ -134,7 +134,21 @@ export function parseTrace(text) {
     const { name, args } = call;
     try {
       if (name === 'getdents64') { const dir = decoration(args[0]); if (!dir?.startsWith('/')) throw Error('TRACE_UNDECORATED_FD'); listed.add(posix.normalize(dir)); continue; }
-      if (name === 'connect') { network.push(`${pid}: ${args[1]?.slice(0, 80)}`); continue; }
+      if (name === 'connect') {
+        // A local socket path that does not exist answers nothing: glibc probes the nscd socket this way before
+        // falling back to files (/etc/passwd, /etc/hosts) that are themselves traced. That probe is an
+        // observation of an absent path, so a later runner where the socket exists rebuilds. Any connection that
+        // could have been answered (inet, abstract, or an existing socket) is network use and fails closed.
+        const unix = /^\{sa_family=AF_UNIX, sun_path=("(?:[^"\\]|\\.)*")\}$/.exec(args[1] ?? '');
+        if (unix && /^= -1 ENOENT\b/.test(call.result)) {
+          const socketPath = decodeString(unix[1]);
+          if (!socketPath?.startsWith('/')) throw Error('TRACE_UNRESOLVED_RELATIVE_PATH');
+          observed.add(posix.normalize(socketPath));
+          continue;
+        }
+        network.push(`${pid}: ${args[1]?.slice(0, 80)} ${call.result.slice(0, 40)}`);
+        continue;
+      }
       if (NO_PATH.has(name)) continue;
       const spec = PATH_ARGS[name];
       if (!spec) throw Error(`TRACE_UNCLASSIFIED_SYSCALL ${name}`);

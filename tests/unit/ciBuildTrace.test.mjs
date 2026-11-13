@@ -66,6 +66,24 @@ test('unclassified path syscalls, undecorated fds and network use make the trace
   assert.match(m.problems.join(), /network/);
 });
 
+test('a failed connect to an absent local socket is a probe; any answerable connection is network use', () => {
+  const nscd = '10 connect(5<socket:[9]>, {sa_family=AF_UNIX, sun_path="/var/run/nscd/socket"}, 110) = -1 ENOENT (No such file or directory)';
+  const probe = parse([nscd]);
+  assert.deepEqual(probe.problems, []);
+  assert.deepEqual(probe.network, []);
+  assert(probe.observed.has('/var/run/nscd/socket'), 'recorded as an observed (absent) path, so a socket that appears later forces a rebuild');
+  for (const line of [
+    '10 connect(5<socket:[9]>, {sa_family=AF_UNIX, sun_path="/var/run/nscd/socket"}, 110) = 0',
+    '10 connect(5<socket:[9]>, {sa_family=AF_UNIX, sun_path="/var/run/nscd/socket"}, 110) = -1 ECONNREFUSED (Connection refused)',
+    '10 connect(5<socket:[9]>, {sa_family=AF_UNIX, sun_path=@"abstract"}, 12) = -1 ENOENT (No such file or directory)',
+    '10 connect(5<socket:[9]>, {sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr("127.0.0.53")}, 16) = -1 ENOENT (No such file or directory)',
+  ]) {
+    const t = parse([line]);
+    assert.equal(t.network.length, 1, line);
+    assert.match(buildManifest(t, { root: '/r', outputRoots: [] }).problems.join(), /network/, line);
+  }
+});
+
 function tree(t) {
   const root = mkdtempSync(join(tmpdir(), 'trace-manifest-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
