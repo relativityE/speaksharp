@@ -22,6 +22,7 @@ import { emitFillerMeasurement } from '@/services/telemetry/fillerMeasurement';
 import { noteEngineReady, noteEngineTeardown } from '@/services/telemetry/reinitObservation';
 import { resetTranscriptStability } from '@/services/telemetry/transcriptStability';
 import { markCompletionStage, resetCompletionChain } from '@/services/telemetry/completionStages';
+import { emitFinalizeBreakdown, readPrivateTimingSummary } from '@/services/telemetry/finalizeBreakdown';
 import { resolvedEngine } from '@/services/telemetry/runtimeAttribution';
 import { countWords } from '@/lib/contentDigest';
 import type { SessionPersistStatus } from '@/lib/forensicAnchors';
@@ -5562,6 +5563,7 @@ export class SpeechRuntimeController {
                     // On expiry we throw into the EXISTING catch, which transitions to FAILED, clears the
                     // finalizing latch and surfaces the recovery draft the user already spoke.
                     let finalizeTimer: ReturnType<typeof setTimeout> | undefined;
+                    const stopEntryPerfMs = typeof performance !== 'undefined' ? performance.now() : null;
                     try {
                         result = await Promise.race([
                             service.stopTranscription(),
@@ -5585,6 +5587,7 @@ export class SpeechRuntimeController {
                      * downstream can detect.
                      */
                     markCompletionStage('recording_terminated');
+                    emitFinalizeBreakdown(readPrivateTimingSummary(), stopEntryPerfMs, service.getMode?.() ?? stopEntryMode);
                     logger.info({
                         mode: service.getMode?.() ?? stopEntryMode,
                         sessionId,
