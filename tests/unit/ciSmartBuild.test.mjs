@@ -49,6 +49,8 @@ const key=process.env.VITE_SUPABASE_ANON_KEY;fs.writeFileSync('frontend/dist/app
   const git = (...args) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } });
   git('init', '-q'); git('add', '-A'); git('commit', '-qm', 'fixture');
   const produced = run();
+  // A test reporter may keep no assertion message, so say on stderr why the producer published no receipt.
+  if (!produced.includes('Smart-build receipt')) process.stderr.write(`producer output without a receipt:\n${produced.slice(0, 1500)}\n`);
   assert(produced.includes('REAL_BUILD') && produced.includes('runtime-guard') && produced.includes('Smart-build receipt'), produced);
   assert.match(readFileSync(join(base, 'output'), 'utf8'), /receipt_name=smart-build-receipt-v1-attempt-1/);
   const receipt = JSON.parse(readFileSync(join(root, '.ci-build-cache/receipt.json'), 'utf8'));
