@@ -200,6 +200,9 @@ export function parseTrace(text, { scratchRoots = ['/tmp'] } = {}) {
   // that cwd, so a (pid, chdir-epoch) whose decorations all agree gives the cwd; disagreement fails closed.
   const parsed = [], epoch = new Map(), cwd = new Map();
   for (const { pid, line: text, entry, exit } of calls) {
+    // A read or an option on a socket changes nothing the receipt depends on (SOCKET_QUIET), and strace decodes netlink
+    // replies (interface names, addresses, link statistics) in forms the argument splitter need not understand.
+    if (/^(recvfrom|recvmsg|recvmmsg|getsockopt|setsockopt|getsockname|getpeername|getrandom)\(/.test(text)) continue;
     const call = splitCall(text);
     if (!call) { problems.push(`unparsed call: ${text.slice(0, 120)}`); continue; }
     const e = epoch.get(pid) ?? 0, key = `${pid}:${e}`;

@@ -118,11 +118,16 @@ test('a build may only use socket pairs and the kernel\'s interface list; any ot
     // A send to a local socket that does not exist reaches nobody; it is recorded as an absent path.
     '10 socket(AF_UNIX, SOCK_DGRAM|SOCK_CLOEXEC, 0) = 5<socket:[9]>',
     '10 sendto(5<socket:[9]>, "x", 1, MSG_NOSIGNAL, {sa_family=AF_UNIX, sun_path="/dev/log"}, 110) = -1 ENOENT (No such file or directory)',
+    // A netlink reply as a CI runner's strace decodes it need not split into arguments: reads are not classified.
+    '10 recvmsg(20<socket:[3590]>, {msg_name={sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, msg_namelen=12, msg_iov=[{iov_base=[[{nlmsg_len=796, nlmsg_type=RTM_NEWLINK}, {ifi_family=AF_UNSPEC}, [[{nla_len=7, nla_type=IFLA_IFNAME}, "lo"], {nla_len=8<unbalanced]}], iov_len=8192}], msg_iovlen=1, msg_controllen=0, msg_flags=0}, 0) = 796',
   ];
   const ok = parse(quiet);
   assert.deepEqual(ok.problems, []);
   assert.deepEqual(ok.network, []);
   assert(ok.observed.has('/dev/log'));
+  // Only reads skip the argument splitter: a send that will not split still makes the trace unusable.
+  const unsplit = parse([quiet[quiet.length - 1].replace('recvmsg(', 'sendmsg(')]);
+  assert.match(unsplit.problems.join('\n'), /unparsed call: sendmsg\(/);
   for (const line of [
     '10 socket(AF_INET, SOCK_DGRAM|SOCK_CLOEXEC|SOCK_NONBLOCK, IPPROTO_IP) = 5<socket:[9]>',
     '10 socket(AF_INET6, SOCK_STREAM, IPPROTO_TCP) = -1 EACCES (Permission denied)',
