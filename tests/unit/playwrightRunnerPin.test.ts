@@ -34,7 +34,8 @@ describe('Playwright-dependent jobs run on a runner image the pinned Playwright 
     it('ci.yml: every environment-setup job is on ubuntu-24.04, except full-evidence on ubuntu-26.04', () => {
         const { jobs } = load('.github/workflows/ci.yml');
         expect(Object.keys(jobs).filter((name) => setsUpEnvironment(jobs[name])).sort()).toEqual(
-            ['build', 'deps-prep', 'draft-checks', 'e2e', 'edge-tests', 'full-evidence', 'lighthouse-advisory', 'unit-coverage-merge', 'unit-shard']);
+            ['build', 'deps-prep', 'docs-evidence', 'draft-checks', 'e2e', 'edge-tests', 'full-evidence', 'lighthouse-advisory', 'quality', 'scope',
+                'unit-coverage-merge', 'unit-shard']);
         expect(offPin(jobs, setsUpEnvironment)).toEqual([]);
     });
 
