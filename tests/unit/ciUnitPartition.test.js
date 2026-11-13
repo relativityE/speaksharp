@@ -110,6 +110,13 @@ describe('combining hints from several runs', () => {
     expect(() => combineDurationReceipts([receipt(1, {}), { schemaVersion: 1, durationsMs: {} }])).toThrow();
   });
 
+  it('refuses a damaged duration instead of dropping it from the average', () => {
+    for (const bad of ['100', 0, -5, 4_000_000, Number.NaN, null]) {
+      expect(() => combineDurationReceipts([receipt(1, { 'a.test.js': bad }), receipt(2, { 'a.test.js': 200 })])).toThrow(/malformed duration/);
+    }
+    expect(() => combineDurationReceipts([receipt(1, { '../a.test.js': 1 }), receipt(2, {})])).toThrow(/malformed duration/);
+  });
+
   it('the committed hints are a combination the sequencer accepts', () => {
     const committed = JSON.parse(readFileSync('scripts/ci-unit-durations.json', 'utf8'));
     expect(committed.schemaVersion).toBe(1);

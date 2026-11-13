@@ -67,7 +67,10 @@ export function combineDurationReceipts(receipts) {
     if (runs.length && source.repository !== runs[0].repository) throw new Error('hint files from different repositories');
     runs.push({ repository: source.repository, runId: source.runId, commit: source.commit });
     for (const [file, ms] of Object.entries(receipt.durationsMs)) {
-      if (!Number.isFinite(ms) || ms <= 0 || ms > MAX_MS) continue;
+      // A refreshed file only ever holds valid costs, so anything else means the input is damaged: refuse it.
+      if (file === '' || file.startsWith('../') || !Number.isFinite(ms) || ms <= 0 || ms > MAX_MS) {
+        throw new Error(`run ${source.runId}: malformed duration for ${JSON.stringify(file)}`);
+      }
       const entry = sums.get(file) ?? { total: 0, count: 0 };
       entry.total += ms;
       entry.count += 1;
