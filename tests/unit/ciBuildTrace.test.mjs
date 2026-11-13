@@ -235,9 +235,8 @@ test('negative control: a temporary file the build did not create blocks the rec
 });
 
 test('a temporary file the build created from nothing before reading it is allowed and is not an input', () => {
-  for (const create of ['10 openat(AT_FDCWD</r>, "/tmp/esbuild-1", O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC, 0666) = 3</tmp/esbuild-1>',
-    '10 openat(AT_FDCWD</r>, "/tmp/esbuild-1", O_RDWR|O_CREAT|O_EXCL|O_CLOEXEC, 0600) = 3</tmp/esbuild-1>',
-    '10 creat("/tmp/esbuild-1", 0644) = 3</tmp/esbuild-1>']) {
+  for (const create of ['10 openat(AT_FDCWD</r>, "/tmp/esbuild-1", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0666) = 3</tmp/esbuild-1>',
+    '10 openat(AT_FDCWD</r>, "/tmp/esbuild-1", O_RDWR|O_CREAT|O_EXCL|O_CLOEXEC, 0600) = 3</tmp/esbuild-1>']) {
     const result = scratchBuild([create, '11 openat(AT_FDCWD</r>, "/tmp/esbuild-1", O_RDONLY|O_CLOEXEC) = 5</tmp/esbuild-1>',
       '11 statx(5</tmp/esbuild-1>, "", AT_STATX_SYNC_AS_STAT|AT_EMPTY_PATH, STATX_ALL, {stx_mode=S_IFREG|0644}) = 0',
       '10 unlink("/tmp/esbuild-1") = 0', '11 access("/tmp/esbuild-1", F_OK) = -1 ENOENT (No such file or directory)']);
@@ -254,12 +253,56 @@ test('a temporary file the build created from nothing before reading it is allow
   assert.equal(renamed.problems, undefined, renamed.problems?.join('\n'));
 });
 
+// Codex review of 9dc8837: a truncating open keeps a pre-existing file's mode, owner and links, and a failed exclusive
+// create tells the build whether a path existed. Neither proves anything outside the build's own fresh TMPDIR.
+test('a truncating open, creat() and a failed exclusive create prove nothing about a temporary path', () => {
+  const mode = '11 statx(5</tmp/esbuild-1>, "", AT_STATX_SYNC_AS_STAT|AT_EMPTY_PATH, STATX_ALL, {stx_mode=S_IFREG|0644}) = 0';
+  for (const truncate of ['10 openat(AT_FDCWD</r>, "/tmp/esbuild-1", O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC, 0666) = 3</tmp/esbuild-1>',
+    '10 creat("/tmp/esbuild-1", 0644) = 3</tmp/esbuild-1>']) {
+    assert(refusedTemp(scratchBuild([truncate, mode]), '/tmp/esbuild-1'), truncate);
+    assert(refusedTemp(scratchBuild([truncate, '11 openat(AT_FDCWD</r>, "/tmp/esbuild-1", O_RDONLY|O_CLOEXEC) = 5</tmp/esbuild-1>']), '/tmp/esbuild-1'), truncate);
+  }
+  for (const failed of ['10 openat(AT_FDCWD</r>, "/tmp/build-flag", O_WRONLY|O_CREAT|O_EXCL, 0644) = -1 EEXIST (File exists)',
+    '10 openat(AT_FDCWD</r>, "/tmp/build-flag", O_WRONLY|O_TRUNC) = -1 ENOENT (No such file or directory)',
+    '10 creat("/tmp/build-flag", 0644) = -1 EACCES (Permission denied)']) assert(refusedTemp(scratchBuild([failed]), '/tmp/build-flag'), failed);
+});
+
+test('everything in the build\'s own fresh TMPDIR is the build\'s, so its usual patterns keep the receipt', () => {
+  const fresh = (lines) => buildManifest(parse(lines), { root: '/r', outputRoots: ['/r/dist'], scratchRoots: ['/tmp'], freshRoots: ['/tmp/build-tmp'] });
+  const esbuild = fresh(['10 statx(AT_FDCWD</r>, "/tmp/build-tmp", AT_STATX_SYNC_AS_STAT, STATX_ALL, {stx_mode=S_IFDIR|0700}) = 0',
+    '10 openat(AT_FDCWD</r>, "/tmp/build-tmp/esbuild-1", O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC, 0666) = 3</tmp/build-tmp/esbuild-1>',
+    '11 openat(AT_FDCWD</r>, "/tmp/build-tmp/esbuild-1", O_RDONLY|O_CLOEXEC) = 5</tmp/build-tmp/esbuild-1>',
+    '11 statx(5</tmp/build-tmp/esbuild-1>, "", AT_STATX_SYNC_AS_STAT|AT_EMPTY_PATH, STATX_ALL, {stx_mode=S_IFREG|0644}) = 0',
+    '10 openat(AT_FDCWD</r>, "/tmp/build-tmp/flag", O_WRONLY|O_CREAT|O_EXCL, 0644) = -1 ENOENT (No such file or directory)',
+    '10 unlinkat(AT_FDCWD</r>, "/tmp/build-tmp/esbuild-1", 0) = 0']);
+  assert.equal(esbuild.problems, undefined, esbuild.problems?.join('\n'));
+  assert(!esbuild.manifest.some(([n]) => n.startsWith('/tmp/')), 'the build\'s own TMPDIR is not an input');
+  // The fresh directory does not vouch for anything outside it, for a link out of it, or for a removed name.
+  assert(refusedTemp(fresh(['10 openat(AT_FDCWD</r>, "/tmp/build-tmpx", O_RDONLY) = 3</tmp/build-tmpx>']), '/tmp/build-tmpx'));
+  assert(refusedTemp(fresh(['10 symlink("/tmp/pre", "/tmp/build-tmp/l") = 0', '10 openat(AT_FDCWD</r>, "/tmp/build-tmp/l", O_RDONLY) = 3</tmp/pre>']), '/tmp/pre'));
+  assert(refusedTemp(fresh(['10 rename("/tmp/pre", "/tmp/build-tmp/a") = 0', '10 openat(AT_FDCWD</r>, "/tmp/build-tmp/a", O_RDONLY) = 3</tmp/build-tmp/a>']), '/tmp/build-tmp/a'));
+  assert(refusedTemp(fresh(['10 unlink("/tmp/build-tmp/a") = 0', '10 openat(AT_FDCWD</r>, "/tmp/build-tmp/a", O_RDONLY) = 3</tmp/build-tmp/a>']), '/tmp/build-tmp/a'));
+  assert.throws(() => buildManifest(parse([]), { root: '/r', outputRoots: [], scratchRoots: ['/tmp'], freshRoots: ['/r/tmp'] }), /TRACE_FRESH_ROOT_OUTSIDE_SCRATCH/);
+  // A file created inside it while another thread stats or lists it is the build's own on either side; a rename or a
+  // link into it at that moment could bring in something from outside, so it is still refused.
+  const parallel = fresh(['11 openat(AT_FDCWD</r>, "/tmp/build-tmp/e2", O_WRONLY|O_CREAT|O_TRUNC, 0666 <unfinished ...>',
+    '12 statx(AT_FDCWD</r>, "/tmp/build-tmp", AT_STATX_SYNC_AS_STAT, STATX_ALL, {stx_mode=S_IFDIR|0700}) = 0',
+    '12 getdents64(5</tmp/build-tmp>, 0x1 /* 3 entries */, 32768) = 72', '11 <... openat resumed>) = 3</tmp/build-tmp/e2>']);
+  assert.equal(parallel.problems, undefined, parallel.problems?.join('\n'));
+  for (const change of ['rename("/tmp/pre", "/tmp/build-tmp/a"', 'link("/tmp/pre", "/tmp/build-tmp/a"', 'symlink("/tmp/pre", "/tmp/build-tmp/a"']) {
+    assert(refusedTemp(fresh([`12 ${change} <unfinished ...>`, '11 openat(AT_FDCWD</r>, "/tmp/build-tmp/a", O_RDONLY) = 4</tmp/build-tmp/a>',
+      `12 <... ${change.split('(')[0]} resumed>) = 0`]), '/tmp/build-tmp/a'), change);
+  }
+  // An fd on an unlinked file stays refused there too: the trace cannot show which file it was opened on.
+  assert(refusedTemp(fresh(['10 statx(3</tmp/build-tmp/e (deleted)>, "", AT_STATX_SYNC_AS_STAT|AT_EMPTY_PATH, STATX_ALL, {stx_mode=S_IFREG|0600}) = 0']), '/tmp/build-tmp/e (deleted)'));
+});
+
 test('a temporary path only counts as created when nothing pre-existing could have supplied it', () => {
   const cases = {
-    'read before it was created': ['11 openat(AT_FDCWD</r>, "/tmp/a", O_RDONLY) = 5</tmp/a>', '10 openat(AT_FDCWD</r>, "/tmp/a", O_WRONLY|O_CREAT|O_TRUNC, 0644) = 3</tmp/a>'],
+    'read before it was created': ['11 openat(AT_FDCWD</r>, "/tmp/a", O_RDONLY) = 5</tmp/a>', '10 openat(AT_FDCWD</r>, "/tmp/a", O_WRONLY|O_CREAT|O_EXCL, 0644) = 3</tmp/a>'],
     'a probe that found nothing, before the build made it': ['11 access("/tmp/a", F_OK) = -1 ENOENT (No such file or directory)', '10 openat(AT_FDCWD</r>, "/tmp/a", O_WRONLY|O_CREAT|O_EXCL, 0644) = 3</tmp/a>'],
     'appended to, not started from nothing': ['10 openat(AT_FDCWD</r>, "/tmp/a", O_WRONLY|O_CREAT|O_APPEND, 0644) = 3</tmp/a>', '10 openat(AT_FDCWD</r>, "/tmp/a", O_RDONLY) = 3</tmp/a>'],
-    'truncating open that followed a planted symlink': ['10 openat(AT_FDCWD</r>, "/tmp/a", O_WRONLY|O_CREAT|O_TRUNC, 0644) = 3</r/src/secret>', '10 openat(AT_FDCWD</r>, "/tmp/a", O_RDONLY) = 3</r/src/secret>'],
+    'exclusive create through a planted symlinked directory': ['10 openat(AT_FDCWD</r>, "/tmp/a", O_WRONLY|O_CREAT|O_EXCL, 0644) = 3</r/src/secret>', '10 openat(AT_FDCWD</r>, "/tmp/a", O_RDONLY) = 3</r/src/secret>'],
     'a failed create': ['10 openat(AT_FDCWD</r>, "/tmp/a", O_WRONLY|O_CREAT|O_EXCL, 0644) = -1 EEXIST (File exists)', '10 openat(AT_FDCWD</r>, "/tmp/a", O_RDONLY) = 3</tmp/a>'],
     'replaced by a symlink after it was created': ['10 openat(AT_FDCWD</r>, "/tmp/a", O_WRONLY|O_CREAT|O_EXCL, 0644) = 3</tmp/a>', '10 unlink("/tmp/a") = 0', '10 symlink("/r/src/secret", "/tmp/a") = 0', '10 openat(AT_FDCWD</r>, "/tmp/a", O_RDONLY) = 3</r/src/secret>'],
     'a hard link to another file': ['10 link("/r/dist/out.js", "/tmp/a") = 0', '10 openat(AT_FDCWD</r>, "/tmp/a", O_RDONLY) = 3</tmp/a>'],
@@ -350,14 +393,18 @@ test('a read is ordered by when it started: a file replaced while it was being o
   assert(refusedTemp(overlapping, '/tmp/c'), 'a read that starts before the create returned');
 });
 
+// The kernel's per-process root links. Kept as whole names so the repository's local-path guard, which looks for a
+// `root` directory followed by a name, does not read them as a developer's home directory.
+const PROC_ROOT = '/proc/self/root', TASK_ROOT = '/proc/self/task/10/root';
+
 test('a read is checked where it really landed: /proc and links in the outputs cannot hide a temporary file', () => {
-  for (const lines of [['10 openat(AT_FDCWD</r>, "/proc/self/root/tmp/pre.json", O_RDONLY) = 3</tmp/pre.json>'],
+  for (const lines of [[`10 openat(AT_FDCWD</r>, "${PROC_ROOT}${'/tmp/pre.json'}", O_RDONLY) = 3</tmp/pre.json>`],
     ['10 openat(AT_FDCWD</r>, "/proc/self/fd/9", O_RDONLY) = 3</tmp/pre.json>'],
     ['10 openat(AT_FDCWD</r>, "/r/dist/l", O_RDONLY) = 3</tmp/pre.json>']]) {
     assert(refusedTemp(scratchBuild(lines), '/tmp/pre.json'), lines.join('\n'));
   }
   // /proc/<pid>/root, cwd and fd name any file under another name, so they are refused outright.
-  for (const path of ['/proc/self/root/r/src/a.ts', '/proc/42/cwd/src/a.ts', '/proc/self/fd/9']) {
+  for (const path of [`${PROC_ROOT}${'/r/src/a.ts'}`, '/proc/42/cwd/src/a.ts', '/proc/self/fd/9']) {
     assert.match(scratchBuild([`10 statx(AT_FDCWD</r>, "${path}", AT_STATX_SYNC_AS_STAT, STATX_ALL, {stx_mode=S_IFREG|0644}) = 0`]).problems.join(), /through \/proc/, path);
   }
   assert.equal(scratchBuild(['10 openat(AT_FDCWD</r>, "/proc/self/maps", O_RDONLY) = 3</proc/1/maps>']).problems, undefined, 'other /proc files are fine');
@@ -366,6 +413,28 @@ test('a read is checked where it really landed: /proc and links in the outputs c
     assert.match(scratchBuild([`10 symlink("${target}", "/r/dist/l") = 0`]).problems.join(), /linked an output/, target);
   }
   assert.equal(scratchBuild(['10 symlink("assets/a.js", "/r/dist/l") = 0']).problems, undefined, 'a link within the outputs is fine');
+  // Codex review of 9dc8837: `..` after another link leaves the outputs although the target normalizes inside them.
+  const chained = scratchBuild(['10 symlink("..", "/r/dist/deep/link") = 0', '10 symlink("deep/link/../../tmp/pre", "/r/dist/entry") = 0',
+    '10 execve("/r/dist/entry", ["entry"], 0x1 /* 3 vars */) = 0']);
+  assert.match(chained.problems?.join() ?? '', /linked an output to something outside its outputs: \/r\/dist\/entry/);
+  assert.match(chained.problems?.join() ?? '', /linked an output to something outside its outputs: \/r\/dist\/deep\/link/);
+  assert.match(scratchBuild(['10 symlink("/r/dist/a/../b", "/r/dist/l") = 0']).problems?.join() ?? '', /linked an output/, 'an absolute target with `..` too');
+  // An output root that is not emptied before the build may already hold a link out, so no output link may point into it.
+  const locks = (lines) => buildManifest(parse(lines), { root: '/r', outputRoots: ['/r/dist', '/r/.host-locks'], scratchRoots: ['/tmp'], unclearedOutputRoots: ['/r/.host-locks'] });
+  assert.match(locks(['10 symlink("/r/.host-locks/evil/f", "/r/dist/entry") = 0', '10 execve("/r/dist/entry", ["entry"], 0x1 /* 3 vars */) = 0']).problems?.join() ?? '', /linked an output/);
+  assert.equal(locks(['10 symlink("assets/a.js", "/r/dist/l") = 0']).problems, undefined);
+});
+
+// Codex review of 9dc8837: an open that is not write-only can read, whatever creation or append flags it carries.
+test('a readable open with O_CREAT or O_APPEND reads a temporary file, so it needs the same proof', () => {
+  for (const flags of ['O_RDONLY|O_CREAT', 'O_RDONLY|O_APPEND', 'O_RDONLY|O_CREAT|O_APPEND|O_CLOEXEC', 'O_RDWR|O_APPEND']) {
+    const result = scratchBuild([`10 openat(AT_FDCWD</r>, "/tmp/pre", ${flags}, 0644) = 3</tmp/pre>`]);
+    assert(refusedTemp(result, '/tmp/pre'), `${flags}\n${result.problems?.join('\n')}`);
+    // Where it lands is checked too.
+    assert(refusedTemp(scratchBuild([`10 openat(AT_FDCWD</r>, "/r/dist/x", ${flags}, 0644) = 3</tmp/pre>`]), '/tmp/pre'), flags);
+  }
+  // Write-only opens never read: they stay writes (the build's own temporary output).
+  assert.equal(scratchBuild(['10 openat(AT_FDCWD</r>, "/tmp/out", O_WRONLY|O_APPEND, 0644) = 3</tmp/out>']).problems, undefined);
 });
 
 test('ordinary temporary-file patterns keep the receipt', () => {
@@ -402,7 +471,7 @@ test('a read that runs at the same time as a change to its path is refused, whic
 });
 
 test('exec, /proc/<pid>/task, /dev/fd and moves into the outputs cannot reach a temporary file unrecorded', () => {
-  assert.match(scratchBuild(['10 execve("/proc/self/task/10/root/tmp/pre.sh", ["x"], 0x1 /* 3 vars */) = 0']).problems.join(), /through \/proc/);
+  assert.match(scratchBuild([`10 execve("${TASK_ROOT}${'/tmp/pre.sh'}", ["x"], 0x1 /* 3 vars */) = 0`]).problems.join(), /through \/proc/);
   assert.match(scratchBuild(['10 execve("/dev/fd/9", ["x"], 0x1 /* 3 vars */) = 0']).problems.join(), /inherited fd/);
   assert.match(scratchBuild(['10 symlink("/tmp/pre.sh", "/tmp/s") = 0', '10 rename("/tmp/s", "/r/dist/run") = 0',
     '10 execve("/r/dist/run", ["run"], 0x1 /* 3 vars */) = 0']).problems.join(), /moved something into its outputs/);

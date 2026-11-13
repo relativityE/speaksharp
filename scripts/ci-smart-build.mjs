@@ -12,7 +12,7 @@ import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { appendFileSync, cpSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { buildEnvironment, environmentDigest, missingRequiredInputs, releaseWrappers, requiredBuildInputs, safeOutputPath } from './ci-build-inputs.mjs';
+import { BUILD_TMPDIR, buildEnvironment, environmentDigest, missingRequiredInputs, releaseWrappers, requiredBuildInputs, safeOutputPath } from './ci-build-inputs.mjs';
 import { downloadTrustedArtifact, trustedMainRuns } from './ci-build-artifact-client.mjs';
 import { buildManifest, firstManifestDifference, manifestDigest, parseTrace } from './ci-build-trace.mjs';
 
@@ -23,8 +23,17 @@ const OUTPUT_ARTIFACT = 'build-artifacts';
 // What the build may write, and therefore never an input: its output, its own caches and the host lock.
 const outputRoots = ['frontend/dist', '.ci-build-cache', '.host-locks', 'node_modules/.vite', 'node_modules/.vite-temp',
   'node_modules/.cache', 'frontend/node_modules/.vite', 'frontend/node_modules/.vite-temp'].map((p) => join(root, p));
-// The build may also write temporary files, but may read one only if the trace proves it created it first.
-const scratchRoots = ['/tmp'];
+// The build may also write temporary files, but may read one only if the trace proves it created it first, or it
+// is inside the build's own TMPDIR, which is made empty and private just before the build.
+const scratchRoots = ['/tmp'], freshRoots = [BUILD_TMPDIR];
+// The one output root not emptied before the build: it only holds the host lock, and no output link may point into it.
+const unclearedOutputRoots = [join(root, '.host-locks')];
+function freshTemporaryDirectory() {
+  rmSync(BUILD_TMPDIR, { recursive: true, force: true });
+  mkdirSync(BUILD_TMPDIR, { mode: 0o700 });
+  const stat = lstatSync(BUILD_TMPDIR);
+  if (!stat.isDirectory() || stat.uid !== process.getuid() || (stat.mode & 0o777) !== 0o700 || readdirSync(BUILD_TMPDIR).length) throw Error('BUILD_REUSE_TMPDIR');
+}
 
 function inventory(dir, prefix = '') {
   const rows = [];
@@ -100,6 +109,13 @@ async function reuse({ env, envDigest }) {
 
 function tracedBuild(env) {
   rmSync(cache, { recursive: true, force: true }); mkdirSync(cache, { recursive: true });
+  try { freshTemporaryDirectory(); } catch (error) {
+    // Without its own fresh TMPDIR the build cannot be proven, so it runs plainly and publishes no receipt.
+    console.log(`Build TMPDIR unavailable (${error.code ?? error.message}): building without a receipt.`);
+    const plain = spawnSync('pnpm', ['ci:build'], { cwd: root, env: { ...env, TMPDIR: process.env.TMPDIR ?? '/tmp' }, stdio: 'inherit' });
+    if (plain.error || plain.status !== 0) process.exit(plain.status || 1);
+    return null;
+  }
   const tracePath = join('/tmp', `ci-build-trace-${process.pid}.strace`);
   const strace = spawnSync('strace', ['-V'], { encoding: 'utf8' });
   if (strace.status !== 0) {
@@ -112,8 +128,8 @@ function tracedBuild(env) {
     'pnpm', 'ci:build'], { cwd: root, env, stdio: 'inherit' });
   if (result.error || result.status !== 0) process.exit(result.status || 1);
   const trace = parseTrace(readFileSync(tracePath, 'utf8'));
-  rmSync(tracePath, { force: true });
-  const { manifest, problems } = buildManifest(trace, { root, outputRoots, scratchRoots });
+  rmSync(tracePath, { force: true }); rmSync(BUILD_TMPDIR, { recursive: true, force: true });
+  const { manifest, problems } = buildManifest(trace, { root, outputRoots, scratchRoots, freshRoots, unclearedOutputRoots });
   if (!manifest) { console.log(`Build succeeded; no receipt, because the trace cannot be trusted:\n  ${problems.slice(0, 20).join('\n  ')}`); return null; }
   // A manifest that does not describe its own checkout would never be safe to match.
   const self = firstManifestDifference(manifest, { root, outputRoots });

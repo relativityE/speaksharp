@@ -6,6 +6,7 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, cpSync, ch
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { BUILD_TMPDIR } from '../../scripts/ci-build-inputs.mjs';
 const here = new URL('../../scripts/', import.meta.url).pathname;
 const zip = (dir, out) => execFileSync('python3', ['-I', '-c', `import pathlib,zipfile,sys\nroot=pathlib.Path(sys.argv[1])\nwith zipfile.ZipFile(sys.argv[2],'w') as z:\n for p in sorted(root.rglob('*')):\n  if p.is_file():z.write(p,p.relative_to(root))`, dir, out]);
 
@@ -110,6 +111,14 @@ fs.writeFileSync('frontend/dist/app.js',app);`);
     withBuild(`const d=fs.mkdtempSync(require('path').join(require('os').tmpdir(),'fake-build-'));fs.writeFileSync(d+'/part','x');fs.readFileSync(d+'/part');fs.rmSync(d,{recursive:true});`);
     const own = run();
     assert(own.includes('REAL_BUILD') && own.includes('Smart-build receipt'), own);
+    // The build's TMPDIR is made empty and private before it runs, so a file left there earlier never reaches it,
+    // and what the build writes and stats there (as esbuild does, with truncating writes) keeps the receipt.
+    mkdirSync(BUILD_TMPDIR, { recursive: true }); writeFileSync(join(BUILD_TMPDIR, 'left-over'), 'stale');
+    withBuild(`const os=require('os'),t=os.tmpdir();if(t!==${JSON.stringify(BUILD_TMPDIR)}||fs.readdirSync(t).length||(fs.statSync(t).mode&0o777)!==0o700)throw Error('TMPDIR not fresh');`
+      + `fs.writeFileSync(t+'/esbuild-1','x');fs.statSync(t+'/esbuild-1');fs.readFileSync(t+'/esbuild-1');`);
+    const fresh = run();
+    assert(fresh.includes('REAL_BUILD') && fresh.includes('Smart-build receipt'), fresh);
+    assert.throws(() => readFileSync(join(BUILD_TMPDIR, 'left-over')), /ENOENT/, 'the build\'s TMPDIR is removed after the build');
   } finally { put('bin/pnpm', pnpm); }
 });
 

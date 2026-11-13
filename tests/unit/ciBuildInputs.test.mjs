@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildEnvironment,environmentDigest,releaseWrappers,safeOutputPath } from '../../scripts/ci-build-inputs.mjs';
+import { BUILD_TMPDIR,buildEnvironment,environmentDigest,releaseWrappers,safeOutputPath } from '../../scripts/ci-build-inputs.mjs';
 const env={CI:'true',PATH:'/bin',VITE_X:'one',GITHUB_SHA:'a'.repeat(40)};
 test('release commit is not part of the environment digest',()=>assert.equal(environmentDigest(env),environmentDigest({...env,GITHUB_SHA:'b'.repeat(40)})));
 test('any other build variable changes the environment digest',()=>{for(const change of [{VITE_X:'two'},{VITE_NEW:'x'},{PATH:'/usr/bin'},{CI:undefined}])assert.notEqual(environmentDigest(env),environmentDigest(Object.fromEntries(Object.entries({...env,...change}).filter(([,v])=>v!==undefined))));});
 test('variable order does not change the environment digest',()=>assert.equal(environmentDigest(env),environmentDigest(Object.fromEntries(Object.entries(env).reverse()))));
-test('build environment strips tokens and volatile metadata',()=>assert.deepEqual(buildEnvironment({PATH:'/bin',CI:'true',VITE_X:'yes',GITHUB_TOKEN:'secret',GITHUB_RUN_ID:'42'}),{PATH:'/bin',CI:'true',VITE_X:'yes',NODE_DISABLE_COMPILE_CACHE:'1'}));
+test('build environment strips tokens and volatile metadata',()=>assert.deepEqual(buildEnvironment({PATH:'/bin',CI:'true',VITE_X:'yes',GITHUB_TOKEN:'secret',GITHUB_RUN_ID:'42'}),{PATH:'/bin',CI:'true',VITE_X:'yes',TMPDIR:BUILD_TMPDIR,NODE_DISABLE_COMPILE_CACHE:'1'}));
 test('the build never reads Node\'s compile cache from /tmp, whatever the runner sets',()=>assert.equal(buildEnvironment({PATH:'/bin',NODE_DISABLE_COMPILE_CACHE:'0'}).NODE_DISABLE_COMPILE_CACHE,'1'));
+test('the build\'s TMPDIR is always its own fresh directory, whatever the runner sets',()=>assert.equal(buildEnvironment({PATH:'/bin',TMPDIR:'/tmp'}).TMPDIR,BUILD_TMPDIR));
 test('side-effecting source-map upload never reuses',()=>assert.throws(()=>buildEnvironment({SENTRY_AUTH_TOKEN:'secret'})));
 test('both HTML entry points receive current release',()=>{const old='a'.repeat(40),next='b'.repeat(40),html=`window.__APP_RELEASE__="${old}";`;const out=releaseWrappers({'index.html':html,'private-dropin.html':html},old,next);assert(Object.values(out).every(x=>x.includes(next)&&!x.includes(old)));});
 test('missing second wrapper refuses',()=>assert.throws(()=>releaseWrappers({'index.html':''},'a'.repeat(40),'b'.repeat(40))));

@@ -11,7 +11,8 @@
 // Temporary files (/tmp): the build may write them, but a read of one is allowed only when the trace proves, in
 // order, that the build itself created it from nothing first (scratchVerdicts); any other read of a temporary path
 // makes the trace unusable, because its pre-build content is not recorded and could differ on another runner.
-// Node's compile cache, which vite turns on in /tmp, is disabled for the traced build (buildEnvironment).
+// The build's TMPDIR is a directory made empty and private just before it starts (ci-smart-build), so everything in
+// it is the build's own. Node's compile cache, which vite turns on, is disabled for the build (buildEnvironment).
 //
 // Scope note: mtimes are not recorded (a fresh checkout changes them all). The build's caches that key on
 // mtime are deleted before every build. Processes outside the traced build are trusted not to change the checkout
@@ -26,6 +27,8 @@ import { posix } from 'node:path';
 
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const WRITE_FLAGS = /\b(O_WRONLY|O_RDWR|O_CREAT|O_TRUNC|O_APPEND|O_TMPFILE)\b/;
+// The access mode alone decides whether an open can read: O_RDONLY is 0, so only O_WRONLY (and creat) cannot.
+const readable = (name, flags) => name !== 'creat' && !/\bO_WRONLY\b/.test(flags ?? '');
 // [syscall]: which arguments are paths, as [dirfdIndex|null, pathIndex, kind]. kind: 'observe' | 'write'.
 const PATH_ARGS = {
   open: [[null, 0, 'open']], creat: [[null, 0, 'write']], openat: [[0, 1, 'open']], openat2: [[0, 1, 'open']],
@@ -238,7 +241,7 @@ export function parseTrace(text, { scratchRoots = ['/tmp'] } = {}) {
       // file the requested name does not show. That file is read too.
       const landed = ['open', 'openat', 'openat2', 'creat'].includes(name) && ok ? returnedPath(call.result) : null;
       const [first] = touched;
-      if (landed?.startsWith('/') && posix.normalize(landed) !== first.path && (first.effective !== 'write' || /\bO_RDWR\b/.test(first.flags))
+      if (landed?.startsWith('/') && posix.normalize(landed) !== first.path && readable(name, first.flags)
         && !/\bO_TMPFILE\b/.test(first.flags)) {
         observed.add(posix.normalize(landed)); event('observe', posix.normalize(landed), { ok: true });
       }
@@ -253,11 +256,9 @@ export function parseTrace(text, { scratchRoots = ['/tmp'] } = {}) {
 }
 
 // What one call did to temporary paths, for scratchVerdicts. Only a call that provably started a path from nothing
-// is a `create`: an exclusive create or a truncating write whose returned fd resolves to exactly the requested
-// path (so no pre-existing symlink anywhere on the way was followed), creat() likewise, or a successful mkdir.
-// A truncating open empties the old content; what it cannot rule out is that a same-named file planted earlier was a
-// hard link to another file, which the write would then also change. That is a write the build makes, not stale
-// content it reads, and it is the one assumption this proof makes about /tmp.
+// is a `create`: an exclusive create whose returned fd resolves to exactly the requested path (so no pre-existing
+// symlink anywhere on the way was followed), or a successful mkdir. A truncating open (creat() included) is not: it
+// empties the old content but keeps the old file's mode, owner and links, which a later stat would read.
 function recordScratchEvents(name, args, result, touched, event) {
   const ok = /^= (?!-1\b|\?)/.test(result ?? '');
   const [first, second] = touched;
@@ -265,12 +266,12 @@ function recordScratchEvents(name, args, result, touched, event) {
   if (['open', 'openat', 'openat2', 'creat'].includes(name)) {
     const { path, effective, flags } = first;
     if (effective !== 'write') return event('observe', path, { ok, ...first.fd });
-    const fresh = ok && returnedPath(result) === path && (name === 'creat' || (/\bO_CREAT\b/.test(flags) && /\bO_EXCL\b/.test(flags))
-      || (/\bO_TRUNC\b/.test(flags) && /\b(O_WRONLY|O_RDWR)\b/.test(flags)));
-    if (fresh) return event('create', path);
-    // A read-write open of something the build did not create reads it.
-    if (/\bO_RDWR\b/.test(flags)) event('observe', path, { ok });
-    return event(ok && /\bO_CREAT\b/.test(flags) ? 'create-in-place' : 'write', path);
+    // A failed create or write still found out whether the path was there, which the build can act on.
+    if (!ok) return event('observe', path, { ok });
+    if (/\bO_CREAT\b/.test(flags) && /\bO_EXCL\b/.test(flags) && returnedPath(result) === path) return event('create', path);
+    // Any open that is not write-only can read what is there (O_RDONLY|O_CREAT and O_RDONLY|O_APPEND included).
+    if (readable(name, flags)) event('observe', path, { ok });
+    return event(name === 'creat' || /\bO_CREAT\b/.test(flags) ? 'create-in-place' : 'write', path);
   }
   if (name === 'mkdir' || name === 'mkdirat') return event(ok ? 'mkdir' : 'observe', first.path, { ok });
   if (['unlink', 'unlinkat', 'rmdir'].includes(name)) return event(ok ? 'remove' : 'observe', first.path, { ok });
@@ -298,8 +299,10 @@ function recordScratchEvents(name, args, result, touched, event) {
  * failed, when the build itself removed the path first. Every other read of a temporary path is a pre-existing
  * input that the manifest cannot record faithfully, so it makes the trace unusable.
  */
-export function scratchVerdicts(events, isScratch) {
+export function scratchVerdicts(events, isScratch, freshRoots = []) {
   const state = new Map(), verified = new Set(), refused = new Set();
+  // A directory made empty and private for this build before it started (its TMPDIR): all it holds is the build's.
+  for (const fresh of freshRoots) state.set(fresh, 'create');
   const clearUnder = (path) => { for (const key of [...state.keys()]) if (key.startsWith(`${path}/`)) state.delete(key); };
   const status = (path) => {
     for (let p = path; isScratch(p); p = posix.dirname(p)) if (state.has(p)) return state.get(p);
@@ -348,7 +351,11 @@ export function scratchVerdicts(events, isScratch) {
   // Ordering a read by its start and a change by its return is exact only when the two did not run at the same
   // time. A read that overlaps any change to the same path, a directory above it or a path below it may have seen
   // either side of that change, so it is refused.
-  const changes = events.filter((e) => !['observe', 'write'].includes(e.op));
+  // Inside the build's fresh TMPDIR, a create or removal is the build's own either way, so either side is safe; a
+  // rename, link or symlink there can still bring in something from outside, so those stay changes.
+  const inFresh = (path) => freshRoots.some((r) => path === r || path.startsWith(`${r}/`));
+  const changes = events.filter((e) => !['observe', 'write'].includes(e.op)
+    && !(['create', 'mkdir', 'create-in-place', 'remove', 'anon'].includes(e.op) && inFresh(e.path)));
   const related = (a, b) => a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
   for (const read of events) {
     if (read.op !== 'observe' || !isScratch(read.path)) continue;
@@ -414,7 +421,7 @@ export function pathState(path, { listing = false, outputRoots = [] } = {}) {
  * Turn a parsed trace into a manifest. `root` is the checkout; repository paths are stored relative to it so
  * that the manifest is independent of where the checkout lives. Returns { manifest } or { problems }.
  */
-export function buildManifest(trace, { root, outputRoots, scratchRoots = [], ignoredRoots = ['/proc', '/sys', '/dev'] }) {
+export function buildManifest(trace, { root, outputRoots, scratchRoots = [], freshRoots = [], unclearedOutputRoots = [], ignoredRoots = ['/proc', '/sys', '/dev'] }) {
   const problems = [...trace.problems];
   if (trace.network.length) problems.push(...trace.network.map((n) => `network connection during build: ${n}`));
   const outputs = outputRoots.map((r) => posix.normalize(r)), scratch = scratchRoots.map((r) => posix.normalize(r));
@@ -423,7 +430,9 @@ export function buildManifest(trace, { root, outputRoots, scratchRoots = [], ign
   const isScratch = (path) => under(path, scratch) && !scratch.includes(path) && !under(path, [root, ...outputs])
     && !root.startsWith(`${path}/`);
   // The build may write temporary files, but it may read one only if it created it itself (scratchVerdicts).
-  const { verified, refused } = scratchVerdicts(trace.events ?? [], isScratch);
+  const fresh = freshRoots.map((r) => posix.normalize(r));
+  if (fresh.some((r) => !isScratch(r))) throw Error('TRACE_FRESH_ROOT_OUTSIDE_SCRATCH');
+  const { verified, refused } = scratchVerdicts(trace.events ?? [], isScratch, fresh);
   // Refused: a read the event log shows came first. Unverified: a recorded read with no event proving it safe.
   const unsafe = new Set([...refused, ...[...trace.observed, ...trace.listed].filter((path) => isScratch(path) && !verified.has(path))]);
   for (const path of [...unsafe].sort()) problems.push(`build read a temporary path it did not create: ${path}`);
@@ -446,11 +455,17 @@ export function buildManifest(trace, { root, outputRoots, scratchRoots = [], ign
   for (const { from, to } of trace.moves ?? []) {
     if (under(to, outputs) && !under(from, outputs)) problems.push(`build moved something into its outputs from outside them: ${to}`);
   }
-  // Reads under output roots are not recorded, so a link there may only point within the outputs.
+  // Reads under output roots are not recorded, so a link there may only point within the outputs. A `..` in the
+  // target is refused before normalizing: the kernel follows a link on the way before applying `..`, so
+  // `entry -> deep/link/../../tmp/x` with `deep/link -> ..` leaves the outputs though it normalizes inside them.
   for (const { target, path } of trace.links ?? []) {
     if (!under(path, outputs)) continue;
-    const to = typeof target === 'string' ? posix.normalize(posix.isAbsolute(target) ? target : posix.join(posix.dirname(path), target)) : null;
-    if (!to || !under(to, outputs) || to.split('/').includes('..')) problems.push(`build linked an output to something outside its outputs: ${path}`);
+    const to = typeof target === 'string' && !target.split('/').includes('..')
+      ? posix.normalize(posix.isAbsolute(target) ? target : posix.join(posix.dirname(path), target)) : null;
+    // An output root that is not emptied before the build (.host-locks) may hold links from before it, so it does not count.
+    if (!to || !under(to, outputs) || under(to, unclearedOutputRoots.map((r) => posix.normalize(r)))) {
+      problems.push(`build linked an output to something outside its outputs: ${path}`);
+    }
   }
   // A `..` lookup is replayed by path, not in trace order, so one that goes through a temporary path is refused.
   for (const { path, visited, write } of physical) {

@@ -2,12 +2,15 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+// The build's TMPDIR. ci-smart-build makes it empty and private (0700) just before every build, so a traced build
+// may read back whatever it wrote there; a temporary file outside it counts only with the trace's own proof.
+export const BUILD_TMPDIR = '/tmp/speaksharp-ci-build-tmp';
 export function buildEnvironment(env = process.env) {
   if (env.SENTRY_AUTH_TOKEN || env.BUILD_ID || env.VERCEL_GIT_COMMIT_SHA || env.NODE_OPTIONS) throw Error('BUILD_REUSE_SIDE_EFFECT');
   const exact = new Set(['PATH', 'HOME', 'TMPDIR', 'LANG', 'TZ', 'CI', 'NODE_ENV', 'NODE_OPTIONS', 'PNPM_HOME', 'COREPACK_HOME', 'COREPACK_ENABLE_DOWNLOAD_PROMPT', 'ImageOS', 'ImageVersion', 'GITHUB_SHA']);
   // Node's compile cache (vite turns it on) lives in /tmp and outlives the build, so a traced build would read
   // cache entries it did not create, which makes its trace unusable. It only speeds up startup: switch it off.
-  return { ...Object.fromEntries(Object.entries(env).filter(([key]) => exact.has(key) || /^(VITE_|STT_|SENTRY_)/.test(key))), NODE_DISABLE_COMPILE_CACHE: '1' };
+  return { ...Object.fromEntries(Object.entries(env).filter(([key]) => exact.has(key) || /^(VITE_|STT_|SENTRY_)/.test(key))), TMPDIR: BUILD_TMPDIR, NODE_DISABLE_COMPILE_CACHE: '1' };
 }
 // The build's environment, as one digest. The release commit is excluded: it is rebound, never compiled in.
 export function environmentDigest(env) {
