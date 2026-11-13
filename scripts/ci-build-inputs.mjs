@@ -1,40 +1,15 @@
 import { createHash } from 'node:crypto';
-import { lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { resolve } from 'node:path';
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
-// Only generated outputs and Git metadata are excluded. No documentation is
-// declared irrelevant: plugins may read it. All installed dependency bytes count.
-const excluded = new Set(['.git', 'frontend/dist', '.ci-build-cache', 'node_modules/.vite', 'node_modules/.cache']);
 export function buildEnvironment(env = process.env) {
   if (env.SENTRY_AUTH_TOKEN || env.BUILD_ID || env.VERCEL_GIT_COMMIT_SHA || env.NODE_OPTIONS) throw Error('BUILD_REUSE_SIDE_EFFECT');
   const exact = new Set(['PATH', 'HOME', 'TMPDIR', 'LANG', 'TZ', 'CI', 'NODE_ENV', 'NODE_OPTIONS', 'PNPM_HOME', 'COREPACK_HOME', 'COREPACK_ENABLE_DOWNLOAD_PROMPT', 'ImageOS', 'ImageVersion', 'GITHUB_SHA']);
   return Object.fromEntries(Object.entries(env).filter(([key]) => exact.has(key) || /^(VITE_|STT_|SENTRY_)/.test(key)));
 }
-export function snapshotBuildInputs(root, env, toolchain) {
-  const base = realpathSync(root), rows = [];
-  function visit(directory) {
-    for (const name of readdirSync(directory).sort()) {
-      const path = join(directory, name), rel = relative(base, path).split('\\').join('/');
-      if (excluded.has(rel)) continue;
-      const stat = lstatSync(path);
-      if (stat.isSymbolicLink()) {
-        const target = realpathSync(path);
-        // pnpm internal links are covered by walking the real store. External
-        // stores or workspace links cannot qualify without their bytes.
-        if (target !== base && !target.startsWith(base + '/')) throw Error('BUILD_REUSE_EXTERNAL_SYMLINK');
-        rows.push([rel, 'link', readlinkSync(path)]);
-      } else if (stat.isDirectory()) {
-        rows.push([rel, 'directory', stat.mode & 0o777]);
-        visit(path);
-      } else if (stat.isFile()) rows.push([rel, stat.mode & 0o777, hash(readFileSync(path))]);
-      else throw Error('BUILD_REUSE_SPECIAL_INPUT');
-    }
-  }
-  visit(base);
-  if (!rows.some(([p]) => p === 'pnpm-lock.yaml') || !rows.some(([p]) => p === 'frontend/vite.config.mjs')) throw Error('BUILD_REUSE_INCOMPLETE_INPUTS');
-  const variables = Object.entries(env).filter(([key]) => key !== 'GITHUB_SHA').sort(([a], [b]) => a.localeCompare(b));
-  if (!toolchain?.nodeHash || !toolchain?.pnpm || !toolchain?.platform || !toolchain?.arch) throw Error('BUILD_REUSE_TOOLCHAIN');
-  return hash(JSON.stringify({schema:2, mode:'test', rows, variables, toolchain}));
+// The build's environment, as one digest. The release commit is excluded: it is rebound, never compiled in.
+export function environmentDigest(env) {
+  const variables = Object.entries(env).filter(([key]) => key !== 'GITHUB_SHA').sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return hash(JSON.stringify({ schema: 1, mode: 'test', variables }));
 }
 export function releaseWrappers(files, oldSha, newSha) {
   if (![oldSha,newSha].every(s => /^[a-f0-9]{40}$/.test(s))) throw Error('BUILD_REUSE_RELEASE_SHA');

@@ -26,16 +26,3 @@ export function verifyArtifactOrigin({ apiRun: run, apiArtifact: artifact, archi
   // and installed-runtime verification. Origin alone does not permit a cache hit.
   return { repository, sourceSha, runId, attempt, artifactId, digest: artifact.digest };
 }
-
-// Build dependency evidence must come from the trusted producer. Include every
-// bundler module, watched input, glob root and explicit build-control input.
-// Directory snapshots are required: an added glob match can change a bundle even
-// when all previously seen module bytes match. Incomplete graph => rebuild.
-export function canReuseBuild({ producer, consumer }) {
-  if (!producer || !consumer || producer.schema !== 1 || consumer.schema !== 1
-    || producer.complete !== true || consumer.complete !== true) return false;
-  for (const key of ['toolchain', 'environment', 'controls', 'modules', 'watched', 'globTrees', 'runtimeBindings']) {
-    if (!/^[a-f0-9]{64}$/.test(producer[key] || '') || producer[key] !== consumer[key]) return false;
-  }
-  return true;
-}
