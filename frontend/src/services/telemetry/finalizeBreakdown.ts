@@ -22,6 +22,24 @@ export interface FinalizeTimingLike {
     finalizePrepMs: number | null;
     finalizeDecodeMs: number | null;
     updatedAtMs: number;
+    /** The take PrivateWhisper stamped on these numbers (PrivateTimingSummary.takeSeq). */
+    takeSeq?: number | null;
+}
+
+/** The stop being reported: when it began, and which take it is stopping. */
+export interface FinalizeStopAnchor {
+    entryPerfMs: number | null;
+    takeSeq: number | null;
+}
+
+/**
+ * The take number of the engine this stop is stopping, read at Stop entry. Only PrivateWhisper has one;
+ * any other strategy, or none, gives null and so emits nothing.
+ */
+export function readFinalizeTakeSeq(service: unknown): number | null {
+    const strategy = (service as { getStrategy?: () => unknown } | null)?.getStrategy?.();
+    const seq = (strategy as { getFinalizeTakeSeq?: () => unknown } | null | undefined)?.getFinalizeTakeSeq?.();
+    return typeof seq === 'number' && Number.isInteger(seq) && seq > 0 ? seq : null;
 }
 
 export function readPrivateTimingSummary(): FinalizeTimingLike | null {
@@ -31,15 +49,17 @@ export function readPrivateTimingSummary(): FinalizeTimingLike | null {
 }
 
 /**
- * Emit the three finalize intervals for the stop that started at `stopEntryPerfMs`.
+ * Emit the three finalize intervals for `stop`.
  *
- * OVERLAP: the controller refuses a new Start while a stop is still finalizing
- * (StartRefusedFinalizationError), and only calls this while the stop still owns the shared
- * surfaces (#1431), so a superseded stop never emits into its successor's journey. The fence is
- * released when a stop hits the finalize ceiling, though, and that take's engine can keep decoding
- * and publish into the page-global summary during the NEXT take's stop. Every interval here is
- * measured inside one stop, so their sum cannot exceed the time since this stop began; a summary
- * that does belongs to another take and is dropped whole.
+ * BINDING: the summary is emitted only if it carries the take number of the engine this stop is
+ * stopping (`stop.takeSeq`, read at Stop entry). PrivateWhisper assigns a fresh page-monotonic number
+ * at each recording start, stamps it on every publish, and writes a finalize interval only while the
+ * stopping take is still its current one. So a late summary from an earlier take that hit the finalize
+ * ceiling and kept decoding into this stop carries the earlier number and is dropped, whatever its
+ * durations are. The controller also emits only while the stop still owns the shared surfaces (#1431).
+ *
+ * SANITY: the freshness and elapsed-time checks below remain as cheap guards against a broken writer.
+ * They are not the binding.
  *
  * FRESHNESS: the summary is page-global. A non-Whisper engine never writes it, so after a Whisper take
  * it still holds that take's numbers. A summary last published before this stop began belongs to an
@@ -47,14 +67,16 @@ export function readPrivateTimingSummary(): FinalizeTimingLike | null {
  */
 export function emitFinalizeBreakdown(
     timing: FinalizeTimingLike | null,
-    stopEntryPerfMs: number | null,
+    stop: FinalizeStopAnchor | null,
     stoppingMode: string | null,
     nowPerfMs: number | null = typeof performance !== 'undefined' ? performance.now() : null,
 ): number {
     // Only a Private Whisper stop writes these numbers. Any other engine's stop gets none, even if the
     // page still holds a recent Whisper summary.
     if (stoppingMode !== 'private') return 0;
-    if (!timing || stopEntryPerfMs === null) return 0;
+    if (!timing || !stop || stop.entryPerfMs === null || stop.takeSeq === null) return 0;
+    if (timing.takeSeq !== stop.takeSeq) return 0;
+    const stopEntryPerfMs = stop.entryPerfMs;
     if (!Number.isFinite(timing.updatedAtMs) || timing.updatedAtMs < stopEntryPerfMs) return 0;
     const rows: Array<['stop_finalize_wait' | 'stop_finalize_prep' | 'stop_finalize_decode', number | null]> = [
         ['stop_finalize_wait', timing.finalizeWaitMs],

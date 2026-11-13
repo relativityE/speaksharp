@@ -72,8 +72,13 @@ describe('finalize breakdown is bound to the stop that owns the take', () => {
      * A Private service whose 3s stop publishes its own finalize summary, the way PrivateWhisper does,
      * and optionally lets a successor take over before it returns.
      */
-    const privateService = (beforeReturn: () => void = () => undefined): ITranscriptionService => ({
+    const privateService = (
+        beforeReturn: () => void = () => undefined,
+        { stoppingTake = 7, publishedTake = 7 }: { stoppingTake?: number; publishedTake?: number } = {},
+    ): ITranscriptionService => ({
         getMode: vi.fn().mockReturnValue('private'),
+        // The engine being stopped, as PrivateWhisper reports its current take.
+        getStrategy: vi.fn().mockReturnValue({ getFinalizeTakeSeq: () => stoppingTake }),
         getStartTime: vi.fn().mockReturnValue(Date.now() - 60_000),
         stopTranscription: vi.fn(() => new Promise((resolve) => {
             setTimeout(() => {
@@ -82,6 +87,7 @@ describe('finalize breakdown is bound to the stop that owns the take', () => {
                     finalizePrepMs: 0,
                     finalizeDecodeMs: 2_500,
                     updatedAtMs: performance.now(),
+                    takeSeq: publishedTake,
                 };
                 beforeReturn();
                 resolve({ transcript: 'a real take with real speech in it' });
@@ -104,6 +110,18 @@ describe('finalize breakdown is bound to the stop that owns the take', () => {
         expect(breakdownRows()).toEqual([
             ['stop_finalize_wait', 400], ['stop_finalize_prep', 0], ['stop_finalize_decode', 2_500],
         ]);
+    });
+
+    it('OVERLAP: a fresh summary from an earlier, timed-out take sends none, though its durations fit', async () => {
+        // Stopping take 8; take 7's engine is still decoding past its ceiling and publishes during this stop.
+        // 2.9s of intervals fit inside the 3s stop and the summary is fresh, so only the take binding refuses it.
+        (controller as unknown as { service: unknown }).service = privateService(undefined, { stoppingTake: 8, publishedTake: 7 });
+
+        const stopPromise = controller.stopRecording().catch((e: unknown) => e);
+        await vi.advanceTimersByTimeAsync(4_000);
+        await stopPromise;
+
+        expect(breakdownRows(), 'an earlier take\'s summary must not be attributed to this stop').toEqual([]);
     });
 
     it('CASUALTY: a stop superseded during stopTranscription() sends none', async () => {
