@@ -87,7 +87,8 @@ jobs:
       - name: Setup Environment
         uses: ./.github/actions/setup-environment
         with:
-          install-native-deps: ${{ needs.scope.outputs.docs_only != 'true' && 'true' || 'false' }}
+          # Every draft runs the affected unit tests, docs-only included, and some of them load canvas/sharp.
+          install-native-deps: 'true'
           install-playwright: ${{ needs.scope.outputs.e2e_required }}
 
       - name: Validate Environment Variables
@@ -106,13 +107,7 @@ jobs:
           set -euo pipefail
           git diff --name-only --diff-filter=ACMR ${{ github.event.pull_request.base.sha }}...HEAD \
             | grep -E '\.(js|jsx|ts|tsx)$' > "$RUNNER_TEMP/changed-code.txt" || true
-          grep -E '(^|/)__tests__/|\.(test|spec)\.(js|jsx|ts|tsx)$' "$RUNNER_TEMP/changed-code.txt" \
-            > "$RUNNER_TEMP/changed-tests.txt" || true
-          # sources = code files that are NOT tests, so `vitest related` never re-runs a changed
-          # test file that the explicit step above already executed.
-          grep -vE '(^|/)__tests__/|\.(test|spec)\.(js|jsx|ts|tsx)$' "$RUNNER_TEMP/changed-code.txt" \
-            > "$RUNNER_TEMP/changed-sources.txt" || true
-          echo "changed code=$(wc -l < "$RUNNER_TEMP/changed-code.txt") tests=$(wc -l < "$RUNNER_TEMP/changed-tests.txt") sources=$(wc -l < "$RUNNER_TEMP/changed-sources.txt")"
+          echo "changed code=$(wc -l < "$RUNNER_TEMP/changed-code.txt")"
 
       - name: Lint Changed Files
         if: needs.scope.outputs.docs_only != 'true'
@@ -132,37 +127,26 @@ jobs:
             tests/config/documentationContract.test.ts tests/deps/docs-integrity.test.js \
             tests/release/tester-instructions.test.ts
 
-      - name: Directly Changed Test Files
-        if: needs.scope.outputs.docs_only != 'true'
+      # Draft feedback only (merge candidates run the complete suite in the full lane). `vitest related` saw only
+      # tests that IMPORT a changed file, and a docs-only draft ran only the three documentation contracts; tests
+      # that read changed files at run time (workflow, doc, migration and cloud-test contracts, repository scans,
+      # scripts run with spawn) were skipped. scripts/ci-draft-affected-tests.mjs also selects those, for every
+      # draft, and writes FULL (whole suite) when a file every test loads changes or when it cannot decide.
+      - name: Affected Unit Tests
         shell: bash
         env:
           VITEST_MAX_FORKS: '2'
         run: |
           set -euo pipefail
-          # `vitest related` selects tests that IMPORT a changed source file; it does not necessarily
-          # select a changed test file itself. Run those explicitly.
-          if [[ -s "$RUNNER_TEMP/changed-tests.txt" ]]; then
-            mapfile -t files < "$RUNNER_TEMP/changed-tests.txt"
-            pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false \
-              --passWithNoTests "${files[@]}"
+          git diff --no-renames --name-only ${{ github.event.pull_request.base.sha }}...HEAD > "$RUNNER_TEMP/changed-all.txt"
+          node scripts/ci-draft-affected-tests.mjs "$RUNNER_TEMP/changed-all.txt" "$RUNNER_TEMP/affected-tests.txt"
+          if [[ "$(head -n 1 "$RUNNER_TEMP/affected-tests.txt")" == "FULL" ]]; then
+            pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false
+          elif [[ -s "$RUNNER_TEMP/affected-tests.txt" ]]; then
+            mapfile -t files < "$RUNNER_TEMP/affected-tests.txt"
+            pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false --passWithNoTests "${files[@]}"
           else
-            echo "No test files changed."
-          fi
-
-      - name: Related Unit Tests
-        if: needs.scope.outputs.docs_only != 'true'
-        shell: bash
-        env:
-          VITEST_MAX_FORKS: '2'
-        run: |
-          set -euo pipefail
-          if [[ -s "$RUNNER_TEMP/changed-sources.txt" ]]; then
-            mapfile -t files < "$RUNNER_TEMP/changed-sources.txt"
-            # --passWithNoTests: a changed file with no importing test must NOT fail the lane.
-            pnpm exec vitest related --run --config frontend/vitest.config.mjs \
-              --coverage.enabled=false --passWithNoTests "${files[@]}"
-          else
-            echo "No changed source files require related tests."
+            echo "No unit test can be affected by this change."
           fi
 
       - name: Build (frontend/e2e-affecting changes only)
