@@ -37,7 +37,7 @@ const REJECTION_RECOVERY = '20261017200000'; // later checkout-rejection recover
 const T2_TARGETS = ['20261018090000', '20261018170000', '20261019010000', '20261019055102', '20261019202856', '20261020230653'];
 // C1 follows the T2 queue; these later targets must remain pending and isolated.
 // C1 and its exact local-retirement successor must remain pending for this earlier target.
-const C1_TARGETS = ['20261024083000', '20261025021046', '20261110173548'];
+const C1_TARGETS = ['20261024083000', '20261025021046', '20261110173548', '20261112133000'];
 const GATE = `postflight_${VERSION}`;
 const ROOT = resolve(import.meta.dirname, '..', '..');
 const SUPABASE = resolve(ROOT, 'backend/supabase');

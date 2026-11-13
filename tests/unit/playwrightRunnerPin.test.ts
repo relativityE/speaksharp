@@ -3,7 +3,8 @@
  * `ubuntu-latest` began resolving to ubuntu-26.04, where the pinned Playwright (1.57) has no Chromium build:
  *   - AHT-01 run 43413270234: rc-gates `setup-environment` failed before any gate ran;
  *   - main CI 43413866919: ci.yml `deps-prep` got no `install-deps --dry-run` list and every apt-bundle consumer failed;
- *   - #1839's own run 43418320824: the #1047 U3 cross-page workflow's own `deps-prep` failed the same way.
+ *   - #1839's own run 43418320824: the #1047 U3 cross-page workflow's own `deps-prep` failed the same way;
+ *   - canary run 43428299133: canary-check's Setup Environment failed before any lane ran.
  * Until the Playwright upgrade (#1840), every job that sets up the environment runs on ubuntu-24.04. The one deliberate exception is
  * ci.yml `full-evidence`, which needs the system Chrome >=156 that only the ubuntu-26.04 images ship (nativeTestExecutionEvidence).
  */
@@ -43,8 +44,14 @@ describe('Playwright-dependent jobs run on a runner image the pinned Playwright 
         expect(offPin(jobs, setsUpEnvironment)).toEqual([]);
     });
 
+    it('canary: canary-check, the only job that installs Playwright, is on ubuntu-24.04', () => {
+        const { jobs } = load('.github/workflows/canary.yml');
+        expect(Object.keys(jobs).filter((name) => installsPlaywright(jobs[name])).sort()).toEqual(['canary-check']);
+        expect(offPin(jobs, installsPlaywright)).toEqual([]);
+    });
+
     it('negative controls: a job moved back to a floating or unsupported label is reported', () => {
-        for (const [file, job, select] of [['.github/workflows/rc-gates.yml', 'gate-3-dast', installsPlaywright], ['.github/workflows/ci.yml', 'deps-prep', setsUpEnvironment], ['.github/workflows/1047-u3-cross-page.yml', 'cross-page-evidence', setsUpEnvironment]] as const) {
+        for (const [file, job, select] of [['.github/workflows/rc-gates.yml', 'gate-3-dast', installsPlaywright], ['.github/workflows/ci.yml', 'deps-prep', setsUpEnvironment], ['.github/workflows/1047-u3-cross-page.yml', 'cross-page-evidence', setsUpEnvironment], ['.github/workflows/canary.yml', 'canary-check', installsPlaywright]] as const) {
             for (const label of ['ubuntu-latest', 'ubuntu-26.04']) {
                 const { jobs } = load(file);
                 jobs[job]['runs-on'] = label;
