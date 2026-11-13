@@ -1,4 +1,4 @@
-"""The in-job proof generator propagates every failure (Sam 1793385574): a truncated or failing suite, an incomplete plan-control run, any
+"""The in-job proof generator propagates every failure : a truncated or failing suite, an incomplete plan-control run, any
 mutation refusal or uncaught control, or a proof that is not PASS means no accepted proof and a failing job. A pre-existing output is refused."""
 import hashlib
 import json
@@ -11,7 +11,7 @@ import unittest
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
-import generate_offline_proof as G  # noqa: E402  (pure until main(); the network guard loads only there)
+import generate_offline_proof as G  # noqa: E402 (pure until main; the network guard loads only there)
 import offline_proof  # noqa: E402
 
 PLAN = offline_proof.PLAN_CONTROLS
@@ -119,6 +119,35 @@ class Verdict(unittest.TestCase):
         self.assertTrue(any("not run" in p for p in problems(mutations={CONTROLS[0]: {"fail": 1}})))
         for bad in ({"fail": 0}, {"fail": True}, {}, None):
             self.assertTrue(any("not caught" in p for p in problems(mutations=dict(good()["mutations"], **{CONTROLS[1]: bad}))), bad)
+
+    def test_the_named_egress_service_suite_must_run_with_its_exact_count_and_pass(self):
+        """an explicit single-file inclusion with stable per-file identity; missing, a different count, a SKIP or a
+        failure refuses the proof."""
+        name = "service:tests/egress-connect-proxy.test.cjs"
+        counts = {"tests/egress-connect-proxy.test.cjs": 3}
+        base = dict(good()["suites"])
+        self.assertEqual(problems(suites=dict(base, **{name: (0, tap("ok", "ok", "ok"))}), service_counts=counts), [])
+        self.assertTrue(any("not run" in p for p in problems(service_counts=counts)))
+        self.assertTrue(any("2 tests ran, 3 expected" in p for p in problems(suites=dict(base, **{name: (0, tap("ok", "ok"))}), service_counts=counts)))
+        self.assertTrue(any("4 tests ran, 3 expected" in p for p in problems(suites=dict(base, **{name: (0, tap("ok", "ok", "ok", "ok"))}), service_counts=counts)))
+        self.assertTrue(any(name in p and "did not pass" in p for p in problems(suites=dict(base, **{name: (1, tap("ok", "fail", "ok"))}), service_counts=counts)))
+        skipped = tap("ok", "ok", "ok").replace("ok 3 - T3 test", "ok 3 - T3 test # SKIP openssl unavailable")
+        self.assertTrue(problems(suites=dict(base, **{name: (0, skipped)}), service_counts=counts), "a SKIP is never a pass")
+
+    def test_the_service_inclusion_is_exactly_the_named_proxy_test_and_its_count_matches_the_file(self):
+        self.assertEqual(G.SERVICE_TEST_COUNTS, {"tests/egress-connect-proxy.test.cjs": 10})
+        src = Path(G.__file__).read_text(encoding="utf-8")
+        self.assertIn('("service", service_tests, ROOT, base)', src)
+        self.assertNotRegex(src, r'glob\.glob\(os\.path\.join\(ROOT, "tests", "\*')       # never a glob over the top-level tests/
+        self.assertIn("service_counts=SERVICE_TEST_COUNTS", src)
+        test_file = Path(G.ROOT) / "tests" / "egress-connect-proxy.test.cjs"
+        declared = sum(1 for line in test_file.read_text(encoding="utf-8").splitlines() if line.startswith("test("))
+        self.assertEqual(declared, G.SERVICE_TEST_COUNTS["tests/egress-connect-proxy.test.cjs"], "the pinned count is the file's declared tests")
+        r = subprocess.run(["node", "--test", "--test-reporter=tap", str(test_file)], capture_output=True, text=True, cwd=G.ROOT, timeout=180)
+        self.assertEqual(r.returncode, 0, r.stdout[-2000:])
+        import harness_mutation_controls as M
+        tests = M.parse_tap(r.stdout, r.returncode)
+        self.assertEqual((len(tests), {t["status"] for t in tests}), (10, {"PASS"}))
 
     def test_the_proof_itself_must_exit_cleanly_and_pass(self):
         for proof_run, proof in ((1, {"result": "PASS"}), (0, {"result": "FAIL"}), (0, None)):

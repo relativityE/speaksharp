@@ -1,4 +1,4 @@
-"""Case 10 current-state reader (Sam 1793575145.256299, J2), offline only. Every transport here is SYNTHETIC; production pins no project and no
+"""Case 10 current-state reader (J2), offline only. Every transport here is SYNTHETIC; production pins no project and no
 schedule, so every reader refuses before any request."""
 import base64
 import json
@@ -93,7 +93,7 @@ class Reader(unittest.TestCase):
         self.assertEqual(t.sent[0][1], ORIGIN + "/auth/v1/token?grant_type=password")
         self.assertEqual(t.sent[2][1], ORIGIN + "/rest/v1/sessions?select=id&user_id=eq." + ACCOUNT)
         self.assertEqual(t.sent[2][2]["Prefer"], "count=exact")
-        self.assertEqual(t.sent[3][1], ORIGIN + "/auth/v1/logout?scope=local")  # Sam 1793580999.418089: never a global logout
+        self.assertEqual(t.sent[3][1], ORIGIN + "/auth/v1/logout?scope=local")  # never a global logout
         self.assertTrue(all(h["Authorization"] == "Bearer " + TOKEN for _, _, h, _ in t.sent[1:]))
         self.assertEqual(projection["snapshotSizes"], [7, 7, 8, 8, 9, 9])
         self.assertEqual({k: v for k, v in projection.items() if k != "snapshotSizes"}, SCHEDULE["plan"])
@@ -184,7 +184,7 @@ class Reader(unittest.TestCase):
 
 
 class AdmittedTransport(unittest.TestCase):
-    """Sam 1793582780.014609: the registered reader's production path. The observe process keeps the blanket _netguard; the one admitted
+    """the registered reader's production path. The observe process keeps the blanket _netguard; the one admitted
     network path is case10_reader's own subprocess, whose environment is built from scratch and which prints only the projection."""
     CHILD = {"CT_CASE10_PASSWORD": PASSWORD, "CT_CASE10_ANON_KEY": ANON, "PATH": "/usr/bin:/bin", "HOME": "/home/x",
              "CLOUD_TEST_LIVE_ACCOUNTS": "{private bundle}", "THROWAWAY_TEST_PASSWORD": "other-secret", "GITHUB_TOKEN": "ghs_token"}

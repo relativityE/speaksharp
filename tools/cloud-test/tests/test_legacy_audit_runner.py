@@ -1,4 +1,4 @@
-"""The historical-audit runner never reports PASS without executing exactly its whole suite, cleanly, on the retained history (Sam 1793405092)."""
+"""The historical-audit runner never reports PASS without executing exactly its whole suite, cleanly, on the retained history ."""
 import json
 import os
 import subprocess

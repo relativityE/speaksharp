@@ -37,7 +37,7 @@ function fake(caseId,o={}){
  delete require.cache[require.resolve(P+'/draft-adapters/source-adapters.cjs')];let mod;try{mod=require(P+'/draft-adapters/source-adapters.cjs');}finally{Module._load=orig;}
  const c={...minCfg(caseId),...(o.cfg||{})};FINAL=()=>c.focus?.expectedFinal||[];const recorded=[],evidence=[];let n=0;
  const oracle=r=>async a=>a.phase==='assert'||a.phase==='numeric'?{result:'PASS',contentSafe:true,evidenceRefs:['unit.json'],observed:true,...r}:{observed:true};
- const oracles={coaching:oracle({}),pdfOwnerTake:oracle({}),sameTarget:oracle({}),feedbackReceived:oracle({}),feedbackAssociation:oracle(o.association||{}),coachingAssociation:oracle({}),focusEvidence:oracle({}),abandonmentLease:oracle({}),takeoverLease:oracle({})};
+ const oracles={coaching:oracle({}),pdfOwnerTake:oracle({}),sameTarget:oracle({}),feedbackReceived:oracle({}),feedbackAssociation:oracle(o.association||{}),coachingAssociation:oracle({}),focusEvidence:oracle({}),abandonmentLease:oracle({}),takeoverLease:oracle({}),...(o.oracles||{})};
  const cap={credentials:{email:'a@b.c',password:'x'},writeEvidence:async(name,v)=>{evidence.push({name,v});return 'e'+(++n)+'.json';},recordAssertion:async a=>{recorded.push(a);},recordStartPress:async()=>{},oracles};
  const pagesCreated=[pageA];let first=true;const context={newPage:async()=>{if(first){first=false;return pageA;}const p=mkPage();pagesCreated.push(p);return p;},grantPermissions:async()=>{},clearPermissions:async()=>{}};
  const guard=o.guard||{armDownloadFault:()=> 'dl1',resumeDownloadNetwork:async()=>{counts.resume++;},summary:()=>({faults:[{id:'f1',fired:true}],downloadFaults:[{id:'dl1',fired:true,bytesForwarded:5,browserOfflineApplied:true}]})};

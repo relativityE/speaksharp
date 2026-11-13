@@ -13,9 +13,9 @@ import {
   REQUIRED_JOBS,
 } from '../../scripts/ci-merge-qualification.mjs';
 
-/** A full lane where everything ran — real shape of main push run 32744959454 at e1b07886. */
+/** A full lane where everything ran — real shape of main push run 32744959454 at e1b07886, plus the parallel quality job (#1837). */
 const ALL_SUCCESS = {
-  scope: 'success', build: 'success', 'edge-tests': 'success', 'unit-shard': 'success',
+  scope: 'success', build: 'success', quality: 'success', 'edge-tests': 'success', 'unit-shard': 'success',
   'unit-coverage-merge': 'success', e2e: 'success', 'health-check': 'success', 'full-evidence': 'success',
   'draft-checks': 'skipped', 'deps-prep': 'success', 'lighthouse-advisory': 'success', report: 'success',
 };
@@ -121,8 +121,13 @@ describe('CI-GATE merge qualification', () => {
     expect(d.qualified).toBe(false);
   });
 
+  it.each(['failure', 'skipped', 'cancelled'])('#1837 quality %s does not qualify, whatever unit-coverage-merge says', (result) => {
+    const d = evaluateMergeQualification({ fullRequired: 'true', results: withRequired({ quality: result }) });
+    expect(d.qualified).toBe(false);
+  });
+
   it('REQUIRED_JOBS covers every substantive lane and is immutable', () => {
-    for (const job of ['scope', 'build', 'edge-tests', 'unit-shard', 'unit-coverage-merge', 'e2e', 'health-check', 'full-evidence']) {
+    for (const job of ['scope', 'build', 'quality', 'edge-tests', 'unit-shard', 'unit-coverage-merge', 'e2e', 'health-check', 'full-evidence']) {
       expect(REQUIRED_JOBS).toContain(job);
     }
     expect(Object.isFrozen(REQUIRED_JOBS)).toBe(true);
