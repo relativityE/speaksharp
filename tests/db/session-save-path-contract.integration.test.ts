@@ -85,7 +85,7 @@ CREATE OR REPLACE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE AS $f$
 // owner (the pattern of retention-expiry-no-superuser-1258), after they ran, before any test.
 const OWNER = 'save_path_owner';
 const PRODUCTION_OWNERSHIP = `
-CREATE ROLE ${OWNER} NOSUPERUSER NOCREATEROLE NOCREATEDB NOBYPASSRLS;
+CREATE ROLE ${OWNER} NOSUPERUSER NOCREATEROLE NOCREATEDB BYPASSRLS; -- Supabase's postgres: not superuser, bypasses RLS
 GRANT USAGE, CREATE ON SCHEMA public TO ${OWNER};
 GRANT USAGE ON SCHEMA auth TO ${OWNER};
 DO $o$ DECLARE r record; BEGIN
@@ -257,7 +257,7 @@ beforeAll(async () => {
 afterEach(async () => {
   await releaseTakeLease();
   __resetTakeLeaseForTests();
-  const unsupported = transports.flatMap(t => t.unsupported);
+  const unsupported = transports.flatMap(t => t.unsupported.splice(0));
   if (unsupported.length) throw new Error(`a test went through an unimplemented PostgREST path: ${unsupported.join('; ')}`);
 });
 afterAll(async () => { holder.client = null; await db?.close(); });
@@ -293,7 +293,7 @@ describe('the database under test runs the CURRENT save-path code and access lay
     expect((await db.query<{ rls: boolean }>("SELECT relrowsecurity AS rls FROM pg_class WHERE oid = 'public.sessions'::regclass")).rows[0].rls).toBe(true);
   });
 
-  it('both save RPCs are SECURITY DEFINER owned by a non-superuser, as on Supabase', async () => {
+  it('both save RPCs, and every other public SECURITY DEFINER function, are owned by a non-superuser, as on Supabase', async () => {
     const owners = (await db.query<{ fn: string; definer: boolean; owner: string; superuser: boolean }>(
       `SELECT p.proname AS fn, p.prosecdef AS definer, r.rolname AS owner, r.rolsuper AS superuser
          FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace JOIN pg_roles r ON r.oid = p.proowner
@@ -302,6 +302,10 @@ describe('the database under test runs the CURRENT save-path code and access lay
       { fn: 'complete_session_v2', definer: true, owner: OWNER, superuser: false },
       { fn: 'create_session_and_update_usage', definer: true, owner: OWNER, superuser: false },
     ]);
+    const superuserDefiners = (await db.query<{ fn: string }>(
+      `SELECT p.oid::regprocedure::text AS fn FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+         JOIN pg_roles r ON r.oid = p.proowner WHERE n.nspname = 'public' AND p.prosecdef AND r.rolsuper`)).rows;
+    expect(superuserDefiners).toEqual([]); // no SECURITY DEFINER function anywhere in public runs as a superuser
   });
 });
 
