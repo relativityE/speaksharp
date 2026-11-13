@@ -326,7 +326,11 @@ jobs:
 
       - name: Run Unit Shard Execution
         env:
-          VITEST_MAX_FORKS: '2'
+          # #1837: the unit shards were the whole critical path (8-11 min each) while using two forks on a
+          # 4-vCPU hosted runner (public repo). A third fork keeps one core for the main Vitest process and
+          # the OS. Job names, shard count and every gate stay as they are: branch protection names
+          # unit-shard-1..4, so the shard count is not changed here.
+          VITEST_MAX_FORKS: '3'
         run: pnpm ci:unit:shard ${{ matrix.shard }} 4
 
       - name: Rename Unit Metrics
