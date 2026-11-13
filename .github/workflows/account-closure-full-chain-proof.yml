@@ -70,7 +70,9 @@ jobs:
       fail-fast: false
       matrix:
         profile: [main-completion-billing-129, main-coaching-retirement-129]
-    runs-on: ubuntu-latest
+    # Pinned with #1839/#1841/#1845: on ubuntu-26.04 the historical Supabase replay refuses ('running image configuration
+    # differs from immutable pin', run 43467911148); the last green proof ran on ubuntu-24.04. Remove with #1840.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       DOCKER_HOST: unix:///var/run/docker.sock
