@@ -37,7 +37,9 @@ for(const name of ['index.html','private-dropin.html'])fs.writeFileSync('fronten
 fs.writeFileSync('frontend/dist/app.js',app);`);
   chmodSync(join(root, 'bin/pnpm'), 0o755);
   const env = { PATH: `${join(root, 'bin')}:${process.env.PATH}`, HOME: process.env.HOME, CI: 'true', GITHUB_ACTIONS: 'true', GITHUB_SHA: 'a'.repeat(40), GITHUB_RUN_ID: '12',
-    GITHUB_RUN_ATTEMPT: '1', GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/main', GITHUB_REPOSITORY: 'a/b', GITHUB_REPOSITORY_ID: '7', GITHUB_OUTPUT: join(base, 'output'), GITHUB_TOKEN: '' };
+    GITHUB_RUN_ATTEMPT: '1', GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/main', GITHUB_REPOSITORY: 'a/b', GITHUB_REPOSITORY_ID: '7', GITHUB_OUTPUT: join(base, 'output'), GITHUB_TOKEN: '',
+    // Explicit, so Node does not pass a covered test run's NODE_V8_COVERAGE on to the traced build.
+    NODE_V8_COVERAGE: '' };
   const run = (overrides = {}) => { writeFileSync(join(base, 'output'), ''); const r = spawnSync(process.execPath, ['scripts/ci-smart-build.mjs'], { cwd: root, env: { ...env, ...overrides }, encoding: 'utf8' }); assert.equal(r.status, 0, r.stderr + '\n' + r.stdout); return r.stdout; };
   const next = 'b'.repeat(40), consumer = { GITHUB_TOKEN: 'fake', GITHUB_EVENT_NAME: 'pull_request', GITHUB_REF: 'refs/pull/1/merge', GITHUB_SHA: next, GITHUB_RUN_ID: '13' };
 

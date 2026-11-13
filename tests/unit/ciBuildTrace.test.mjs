@@ -187,7 +187,10 @@ test('a real strace of a small build observes what it read, probed and listed', 
   const f = tree(t);
   f.put('build.mjs', `import fs from 'node:fs';fs.existsSync('src/maybe.ts');fs.readdirSync('src');fs.writeFileSync('dist/out.js',fs.readFileSync('src/a.ts'));`);
   const out = join(f.root, 'dist', 'trace.strace');
-  const r = spawnSync('strace', ['-f', '-qq', '-s', '8192', '-y', '-e', 'trace=%file,getdents64,fchdir,connect', '-o', out, process.execPath, 'build.mjs'], { cwd: f.root, encoding: 'utf8' });
+  const r = spawnSync('strace', ['-f', '-qq', '-s', '8192', '-y', '-e', 'trace=%file,getdents64,fchdir,connect', '-o', out, process.execPath, 'build.mjs'], { cwd: f.root, encoding: 'utf8',
+    // Node passes NODE_V8_COVERAGE to children unless it is set explicitly; a covered test run would otherwise make
+    // the traced fixture write coverage outside its output roots (a real build has no coverage directory).
+    env: { ...process.env, NODE_V8_COVERAGE: '' } });
   assert.equal(r.status, 0, r.stderr);
   const trace = parseTrace(readFileSync(out, 'utf8'));
   assert.deepEqual(trace.problems, []);
