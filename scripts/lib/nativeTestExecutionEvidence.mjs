@@ -46,6 +46,10 @@ export const NATIVE_HELPERS=Object.freeze([
   // A change to the R10 preflight script alone must still run its test, including the spawned CLI entry (run 42059286564).
   {file:'tools/cloud-test/scripts/prerequisite_preflight.cjs',consumer:'tools/cloud-test/tests/prerequisite-preflight.test.cjs',
     callables:['prepare','charge'],claim:'actual preflight callables and script entry with a synthetic fetch; hosted step, credentials and Supabase NOT RUN'},
+  // The PO-approved loopback CONNECT egress service (2026-11-08): a change to the script alone must run its controls.
+  {file:'tools/cloud-test/scripts/egress_connect_proxy.cjs',consumer:'tools/cloud-test/tests/egress-connect-proxy.test.cjs',
+    callables:['createProxy','forbiddenAddress','reviewedPolicy'],
+    claim:'actual service callables, the real guard upstreamSocket and the script entry on loopback fixtures; hosted runner and production hosts NOT RUN'},
   // #1760 model comparison runner helpers: the real host-lock barrier, cleanup and launch-ownership code in temporary directories.
   {file:'tests/model-dropin/ownedCleanup.mjs',consumer:'tests/model-dropin/ownedCleanup.node.test.mjs',
     callables:['createCleanupBarrier','awaitOwnedCleanup','launchOwned'],

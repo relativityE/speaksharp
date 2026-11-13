@@ -4,7 +4,7 @@
   "environments": {
     "github-hosted": {
       "minimumMajor": 156,
-      "established": "2026-10-31 (PO via Sam 1793459012.268649 / 1793459056.147699): GitHub-hosted ubuntu-24.04 image 20261026.354.1 lists Google Chrome 156.0.8078.47 and Chromium 156.0.8078.0. Proposed baseline; the first qualification run discloses the actual version used.",
+      "established": "2026-10-31 (owner decision): GitHub-hosted ubuntu-24.04 image 20261026.354.1 lists Google Chrome 156.0.8078.47 and Chromium 156.0.8078.0. Proposed baseline; the first qualification run discloses the actual version used.",
       "candidates": [
         "/opt/google/chrome/chrome",
         "/usr/bin/google-chrome",

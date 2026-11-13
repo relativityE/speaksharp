@@ -305,7 +305,7 @@ core.runCampaign(plan,io,{executeR0:true}).then(result=>{
         output = self.f.root / "env.txt"
         result = subprocess.run([sys.executable, "-I", str(Path(ROOT) / "scripts/run_env.py"), "--request", self.f.env["BP_REQUEST_FILE"],
             "--request-sha256", self.f.env["BP_REQUEST_SHA256"], "--reconciliation", self.f.env["BP_RECONCILIATION_FILE"],
-            "--out", str(output)], capture_output=True, text=True)
+            "--execution-deadline", json.load(open(self.f.env["BP_REQUEST_FILE"]))["window"]["endUtc"], "--out", str(output)], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         values = {line.split("=",1)[0]: shlex.split(line.split("=",1)[1])[0] for line in output.read_text().splitlines() if shlex.split(line.split("=",1)[1])}
         for key in ("BP_REQUEST_FILE", "BP_REQUEST_SHA256", "BP_RECONCILIATION_FILE", "BP_RECONCILIATION_SHA256"):
@@ -410,7 +410,8 @@ core.runCampaign(plan,io,{executeR0:true}).then(result=>{
 
     def test_environment_substitution_and_press_extra_refuse_before_parsing(self):
         for key,value in (("BP_MODE","full"),("BP_RUNTIME","wrong"),("BP_SOURCE_SHA","a"*40),
-            ("BP_T0","2021-01-01T00:00:00Z"),("BP_T1","2098-01-01T00:00:00Z"),("BP_CAMPAIGN","other"),
+            ("BP_T0","2021-01-01T00:00:00Z"),("BP_T1","2099-01-01T00:00:01Z"),("BP_T1","2020-01-01T00:00:00Z"),("BP_T1",""),
+            ("BP_T1","soon"),("BP_CAMPAIGN","other"),
             ("BP_SELECT","14"),("BP_EST","13:100,13:100"),("BP_SELECT_REF","different"),
             ("BP_PRESS_EXTRA","13:3"),("BP_PRESS_EXTRA","not-even-a-map"),("BP_SKIP","13")):
             old=dict(self.f.env); self.f.env[key]=value; self.rejected(); self.f.env=old

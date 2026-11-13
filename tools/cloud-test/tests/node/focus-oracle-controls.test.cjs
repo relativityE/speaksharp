@@ -1,5 +1,5 @@
 'use strict';
-// Proof v2, marker corrections (Sam 1793382389): the original live Focus marker behaviours, asserted directly against the vendored
+// Proof v2, marker corrections : the original live Focus marker behaviours, asserted directly against the vendored
 // focus-oracle.cjs (read-only; the harness bytes stay pinned). FOCUS_ORACLE points at a mutated temp copy for the mutation controls.
 // Run: node --test --test-reporter=tap tools/cloud-test/tests/node/focus-oracle-controls.test.cjs
 const test = require('node:test');
