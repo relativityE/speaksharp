@@ -23,6 +23,8 @@ export const SQL_CONTRACTS=Object.freeze([
   // #1829 refund follow-up signal: the migration runs in PGlite with Supabase's API roles mirrored.
   Object.freeze({consumer:'tests/unit/stripeRefundFollowups.test.ts',
     files:Object.freeze(['backend/supabase/migrations/20261112130000_stripe_refund_followups.sql'])}),
+  Object.freeze({consumer:'tests/db/recording-start-abandonment.integration.test.ts',
+    files:Object.freeze(['backend/supabase/migrations/20261112133000_recording_start_abandonment_1643.sql'])}),
 ]);
 export const sqlContract=file=>SQL_CONTRACTS.find(item=>item.files.includes(file));
 export const NATIVE_HELPERS=Object.freeze([
@@ -50,6 +52,9 @@ export const NATIVE_HELPERS=Object.freeze([
     claim:'actual cleanup barrier, owned-process cleanup and launch-ownership callables with real child processes; browser and live run NOT RUN'},
   {file:'tests/model-dropin/identityExclusion.mjs',consumer:'tests/model-dropin/identityExclusion.node.test.mjs',
     callables:['assertNotMaintainedIdentity'],claim:'actual maintained-identity refusal with synthetic identifiers; credentials and accounts NOT RUN'},
+  {file:'tools/cloud-test/scripts/resolve_rwt_served_release.mjs',consumer:'tools/cloud-test/tests/rwt_served_release.test.mjs',
+    callables:['resolveRwtServedRelease','verifyRwtServedRelease'],
+    claim:'actual runtime release identity and compatibility guards with mocked production responses and synthetic Git; deployment and live writes NOT RUN'},
 ]);
 const fail=message=>{throw new Error(message);};
 function regular(root,file) {

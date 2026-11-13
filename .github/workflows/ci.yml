@@ -75,7 +75,9 @@ jobs:
     name: draft-checks
     needs: scope
     if: needs.scope.outputs.full_required != 'true'
-    runs-on: ubuntu-latest
+    # Pinned with rc-gates (#1839): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build and
+    # apt-prefetch gets no install-deps list (main CI 43413866919). Remove with the Playwright upgrade (#1840).
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -201,7 +203,9 @@ jobs:
     name: deps-prep
     needs: scope
     if: always() && needs.scope.outputs.full_required == 'true'
-    runs-on: ubuntu-latest
+    # Pinned with rc-gates (#1839): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build and
+    # apt-prefetch gets no install-deps list (main CI 43413866919). Remove with the Playwright upgrade (#1840).
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout Code
@@ -250,7 +254,9 @@ jobs:
     name: unit-shard-${{ matrix.shard }}
     needs: [scope, deps-prep]
     if: always() && needs.scope.outputs.full_required == 'true'
-    runs-on: ubuntu-latest
+    # Pinned with rc-gates (#1839): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build and
+    # apt-prefetch gets no install-deps list (main CI 43413866919). Remove with the Playwright upgrade (#1840).
+    runs-on: ubuntu-24.04
     # #1311 job-level backstop: bounds a stalled setup phase well above the 300s apt timeout but far
     # below GitHub's 6h default, so a hang fast-fails instead of zombie-running.
     timeout-minutes: 20
@@ -300,7 +306,9 @@ jobs:
     name: unit-coverage-merge
     needs: [scope, unit-shard]
     if: always() && !cancelled() && needs.scope.outputs.full_required == 'true'
-    runs-on: ubuntu-latest
+    # Pinned with rc-gates (#1839): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build and
+    # apt-prefetch gets no install-deps list (main CI 43413866919). Remove with the Playwright upgrade (#1840).
+    runs-on: ubuntu-24.04
     steps:
       - name: Require Upstream Success
         env:
@@ -353,7 +361,9 @@ jobs:
     name: edge-tests
     needs: scope
     if: needs.scope.outputs.full_required == 'true'
-    runs-on: ubuntu-latest
+    # Pinned with rc-gates (#1839): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build and
+    # apt-prefetch gets no install-deps list (main CI 43413866919). Remove with the Playwright upgrade (#1840).
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -375,7 +385,9 @@ jobs:
     name: build
     needs: scope
     if: needs.scope.outputs.full_required == 'true'
-    runs-on: ubuntu-latest
+    # Pinned with rc-gates (#1839): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build and
+    # apt-prefetch gets no install-deps list (main CI 43413866919). Remove with the Playwright upgrade (#1840).
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -428,7 +440,9 @@ jobs:
     # edge tests or health-check. Those still gate the overall result via `report`.
     needs: [scope, build, deps-prep]
     if: success() && needs.scope.outputs.full_required == 'true'
-    runs-on: ubuntu-latest
+    # Pinned with rc-gates (#1839): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build and
+    # apt-prefetch gets no install-deps list (main CI 43413866919). Remove with the Playwright upgrade (#1840).
+    runs-on: ubuntu-24.04
     # #1311 job-level backstop (see unit-shard).
     timeout-minutes: 20
     strategy:
@@ -521,7 +535,9 @@ jobs:
     name: lighthouse-advisory
     needs: [scope, build]
     if: always() && !cancelled() && needs.scope.outputs.full_required == 'true'
-    runs-on: ubuntu-latest
+    # Pinned with rc-gates (#1839): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build and
+    # apt-prefetch gets no install-deps list (main CI 43413866919). Remove with the Playwright upgrade (#1840).
+    runs-on: ubuntu-24.04
     continue-on-error: true
     steps:
       - name: Checkout Code
