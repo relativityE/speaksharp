@@ -43,6 +43,9 @@ export interface EvaluationSet {
 const ITEM_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 /** Shape validation of the committed set. A refusal names a closed code only. */
+const PAUSE_COUNTS = ['totalPauses', 'transitionPauses', 'extendedPauses'] as const;
+const PAUSE_FIELDS = new Set<string>([...PAUSE_COUNTS, 'averagePauseDuration', 'longestPause', 'pausesPerMinute', 'silencePercentage']);
+
 export function parseEvaluationSet(input: unknown): EvaluationSet {
   const refuse = (code: string): never => { throw new Error(code); };
   if (typeof input !== 'object' || input === null) refuse('EVAL_SET_NOT_OBJECT');
@@ -60,10 +63,17 @@ export function parseEvaluationSet(input: unknown): EvaluationSet {
     if ((item.transcript as string).length > EVALUATION_MAX_TRANSCRIPT_CHARS) refuse('EVAL_ITEM_TRANSCRIPT_TOO_LONG');
     if ((item.product === 'focus_points') !== (typeof item.focus === 'object' && item.focus !== null)) refuse('EVAL_ITEM_FOCUS_INVALID');
     // A malformed pause object would build a prompt only because the helper drops it silently; refuse it as a fixture error.
+    // The fixture must also be a take the detector could save: known fields only, whole-number counts, silence at most 100%,
+    // and every pause either a transition (0.5 to 1.5 s) or an extended (over 1.5 s) one, so the two counts add up to the total.
     if (item.pause_metrics !== undefined && item.pause_metrics !== null) {
       const pauses = item.pause_metrics as Record<string, unknown>;
       if (typeof pauses !== 'object' || Array.isArray(pauses)
-        || Object.values(pauses).some((value) => typeof value !== 'number' || !Number.isFinite(value) || value < 0)) refuse('EVAL_ITEM_PAUSES_INVALID');
+        || Object.keys(pauses).some((key) => !PAUSE_FIELDS.has(key))
+        || Object.values(pauses).some((value) => typeof value !== 'number' || !Number.isFinite(value) || value < 0)
+        || PAUSE_COUNTS.some((key) => key in pauses && !Number.isSafeInteger(pauses[key]))
+        || (pauses.silencePercentage as number) > 100
+        || (PAUSE_COUNTS.every((key) => key in pauses)
+          && (pauses.transitionPauses as number) + (pauses.extendedPauses as number) !== pauses.totalPauses)) refuse('EVAL_ITEM_PAUSES_INVALID');
     }
     // Review of 1c83108c: a malformed point would build a prompt the handler (which reads validated rows) never sends.
     if (item.focus !== undefined) {

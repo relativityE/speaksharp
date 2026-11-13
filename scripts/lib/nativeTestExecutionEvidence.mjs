@@ -278,7 +278,7 @@ const coachingProfiles=Object.freeze([
     'backend/supabase/functions/get-ai-suggestions/providerRetry.ts':'eda8685f3f005e3cb774c54cadf8a04e43bb483d68c7a31130fd268b06ff7820',
     'package.json':'afaad509e196b4cf0d784a55b47d3f17e51409dcd91d9d7f6a2e341b175eb0ed',
     'backend/supabase/functions/get-ai-suggestions/index.ts':'4d4b5702e599f3db50b67ac07167087622fbbfeedfbea33feb4c501b4e3066f9',
-    'backend/supabase/functions/get-ai-suggestions/pauseSignals.ts':'efca964d9681aa8b0672abaee48017379e0a0f31c7d60027fba5e58e36083dea',
+    'backend/supabase/functions/get-ai-suggestions/pauseSignals.ts':'2f0b3d39f377b159d403e2255ced3315031971ac8ff254ca54e2303c6809e12c',
     'backend/supabase/functions/get-ai-suggestions/providerDecode.ts':'ecc8034bd53bd6b3b88dcbb981a6bf29be8c85d08cd031d0483e2d083e10d2a2',
     [coachingTest]:'5336cb152b9b2b037df15b0dc042003720105159aa9fa86cdae23f235e9919f7',
     'backend/supabase/functions/get-ai-suggestions/contract.json':'70c3099769cf24ac4faf3b4c191e322e50a0f1b34228a3aa72199a8f06adbe1b',
@@ -287,7 +287,7 @@ const coachingProfiles=Object.freeze([
     'backend/supabase/functions/get-ai-suggestions/providers/registry.ts':'e5744505a502ecc525a3604dfa8fa687a03dc18a33b9ef9aa9080d4df12571f7',
     'backend/supabase/functions/get-ai-suggestions/providers/types.ts':'f401085b1542bc07b514f793e1b557886ab11f72442313e8c85d89823999d0cb',
     'backend/supabase/functions/get-ai-suggestions/evaluation/prompt.ts':'3db54e7e904766bd1daab792ea6f02414908174e8f2403a890bbb8572a751197',
-    'backend/supabase/functions/get-ai-suggestions/evaluation/transcripts.json':'8c0b1eee0289d343aff6ff88048436209e9014737130b58bc45224a36fe73820'}},
+    'backend/supabase/functions/get-ai-suggestions/evaluation/transcripts.json':'9dbaf29eed03f4ec9291d0537ee7851915d46cac69b41a2f3ac9e5adc1c3bf58'}},
 ]);
 export function nativeDenoPolicy(file) {
   return {schemaVersion:1,testFile:file,environment:{names:file===coachingTest?['GEMINI_API_KEY']:[],

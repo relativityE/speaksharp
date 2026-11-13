@@ -9,8 +9,11 @@
  * positive pause count shows the detector ran, a 0 in another field (for example no extended pauses) is a real measured
  * zero and is sent.
  *
- * Clarity is deliberately NOT here: the saved clarity score is a composite of word count, fillers, error tags and WPM, the
- * last two of which the prompt already carries, and a take too short to score is saved as 0.
+ * Clarity is deliberately NOT here: the saved clarity score is a composite of word count, fillers, error tags and WPM, and
+ * the prompt already carries the fillers and WPM; a take too short to score is also saved as 0.
+ *
+ * "Measured" means the detector ran, not that every value is exact: for example the silence before the speaker presses
+ * Stop can count as a pause. Values are checked for type and sign only and are not capped or rounded.
  */
 export function buildPauseSignals(pauseMetrics: unknown): string {
   if (!pauseMetrics || typeof pauseMetrics !== 'object' || Array.isArray(pauseMetrics)) return '';
