@@ -13,6 +13,10 @@
  * Usage:
  *   node scripts/ci-unit-durations-refresh.mjs <coverage-dir> --repository owner/name --commit <40-hex> \
  *     --run-id <id> [--out scripts/ci-unit-durations.json]
+ *   node scripts/ci-unit-durations-refresh.mjs --combine <out.json> <refreshed.json> <refreshed.json>...
+ *
+ * `--combine` averages refreshed hint files from several real runs. One run's per-file cost swings 20-30% for
+ * the heavy database integration files, so hints from a single run balance that run and not the next one.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -45,8 +49,55 @@ export function durationsFromShards(shards) {
   return Object.fromEntries(Object.entries(durations).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 }
 
+/**
+ * Mean per-file cost across refreshed hint receipts. A file measured in only some runs is averaged over those.
+ * @param {Array<any>} receipts parsed refreshed hint files (schemaVersion 1, one source run each)
+ */
+export function combineDurationReceipts(receipts) {
+  if (!Array.isArray(receipts) || receipts.length < 2) throw new Error('combine needs at least two refreshed hint files');
+  const sums = new Map();
+  const runs = [];
+  for (const receipt of receipts) {
+    const source = receipt?.source;
+    if (receipt?.schemaVersion !== 1 || !receipt.durationsMs || typeof receipt.durationsMs !== 'object' || Array.isArray(receipt.durationsMs)
+      || !Number.isSafeInteger(source?.runId) || !/^[0-9a-f]{40}$/.test(source?.commit ?? '') || typeof source?.repository !== 'string') {
+      throw new Error('malformed refreshed hint file');
+    }
+    if (runs.some((run) => run.runId === source.runId)) throw new Error(`run ${source.runId} combined twice`);
+    if (runs.length && source.repository !== runs[0].repository) throw new Error('hint files from different repositories');
+    runs.push({ repository: source.repository, runId: source.runId, commit: source.commit });
+    for (const [file, ms] of Object.entries(receipt.durationsMs)) {
+      if (!Number.isFinite(ms) || ms <= 0 || ms > MAX_MS) continue;
+      const entry = sums.get(file) ?? { total: 0, count: 0 };
+      entry.total += ms;
+      entry.count += 1;
+      sums.set(file, entry);
+    }
+  }
+  const durationsMs = Object.fromEntries([...sums.keys()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+    .map((file) => [file, Math.round(sums.get(file).total / sums.get(file).count)]));
+  return {
+    schemaVersion: 1,
+    source: {
+      repository: runs[0].repository,
+      runs: runs.map(({ runId, commit }) => ({ runId, commit })),
+      basis: 'Mean per-file Vitest wall cost (prepare + environment + setup + collect + tests) across the listed runs; scheduling hints only, never execution evidence',
+    },
+    durationsMs,
+  };
+}
+
 const isMain = process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/^.*\//, ''));
-if (isMain) {
+if (isMain && process.argv[2] === '--combine') {
+  const [out, ...inputs] = process.argv.slice(3);
+  if (!out || inputs.length < 2) {
+    console.error('usage: ci-unit-durations-refresh.mjs --combine <out.json> <refreshed.json> <refreshed.json>...');
+    process.exit(2);
+  }
+  const combined = combineDurationReceipts(inputs.map((file) => JSON.parse(fs.readFileSync(file, 'utf8'))));
+  fs.writeFileSync(out, `${JSON.stringify(combined, null, 2)}\n`);
+  console.log(`[duration-refresh] combined ${inputs.length} runs into ${Object.keys(combined.durationsMs).length} file durations at ${out}`);
+} else if (isMain) {
   const args = process.argv.slice(2);
   const dir = args[0];
   const flag = (name) => {

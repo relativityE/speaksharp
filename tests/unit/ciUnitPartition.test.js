@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import yaml from 'js-yaml';
 import { describe, it, expect } from 'vitest';
 import { checkPartition, PARTITION_HOLD } from '../../scripts/ci-unit-partition-check.mjs';
-import { durationsFromShards } from '../../scripts/ci-unit-durations-refresh.mjs';
+import { durationsFromShards, combineDurationReceipts } from '../../scripts/ci-unit-durations-refresh.mjs';
 
 const root = '/repo';
 const discovered = ['a', 'b', 'c', 'd', 'e'].map((n) => ({ file: `/repo/tests/${n}.test.js` }));
@@ -87,6 +87,34 @@ describe('duration refresh turns executed-file costs into hints only', () => {
     expect(() => durationsFromShards([{ shard: 1, record: null }])).toThrow();
     expect(() => durationsFromShards([{ shard: 1, record: ok }, { shard: 2, record: ok }])).toThrow();
     expect(() => durationsFromShards([{ shard: 1, record: { ...ok, files: [{ path: '../x' }] } }])).toThrow();
+  });
+});
+
+describe('combining hints from several runs', () => {
+  const receipt = (runId, durationsMs) => ({ schemaVersion: 1,
+    source: { repository: 'o/r', commit: 'a'.repeat(40), runId, basis: 'x' }, durationsMs });
+
+  it('averages each file over the runs that measured it and records every source run', () => {
+    const combined = combineDurationReceipts([receipt(1, { 'b.test.js': 100, 'a.test.js': 30 }), receipt(2, { 'b.test.js': 200, 'c.test.js': 9 })]);
+    expect(combined.durationsMs).toEqual({ 'a.test.js': 30, 'b.test.js': 150, 'c.test.js': 9 });
+    expect(Object.keys(combined.durationsMs)).toEqual(['a.test.js', 'b.test.js', 'c.test.js']);
+    expect(combined.source.runs).toEqual([{ runId: 1, commit: 'a'.repeat(40) }, { runId: 2, commit: 'a'.repeat(40) }]);
+  });
+
+  it('refuses a single run, a repeated run, mixed repositories or a malformed file', () => {
+    expect(() => combineDurationReceipts([receipt(1, {})])).toThrow();
+    expect(() => combineDurationReceipts([receipt(1, {}), receipt(1, {})])).toThrow();
+    const other = receipt(2, {});
+    other.source.repository = 'x/y';
+    expect(() => combineDurationReceipts([receipt(1, {}), other])).toThrow();
+    expect(() => combineDurationReceipts([receipt(1, {}), { schemaVersion: 1, durationsMs: {} }])).toThrow();
+  });
+
+  it('the committed hints are a combination the sequencer accepts', () => {
+    const committed = JSON.parse(readFileSync('scripts/ci-unit-durations.json', 'utf8'));
+    expect(committed.schemaVersion).toBe(1);
+    expect(committed.source.runs.length).toBeGreaterThanOrEqual(2);
+    expect(Object.values(committed.durationsMs).every((ms) => Number.isInteger(ms) && ms > 0 && ms <= 3_600_000)).toBe(true);
   });
 });
 
