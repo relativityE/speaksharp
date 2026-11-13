@@ -1,7 +1,9 @@
 """Source policy oracle for the diagnostic runner's private/public artifact boundary."""
 import copy
+import json
 import os
 from pathlib import Path
+import subprocess
 import unittest
 
 import yaml
@@ -28,6 +30,48 @@ def assert_upload_boundary(case, workflow):
         case.assertTrue("diagnostic_dast_spec == ''" in condition or "!" + RWT in condition)
 
 
+DISCOVER = "Validate bounded RWT release selection"
+CLASSIFY = "Classify Gate 3 evidence target"
+DAST = "Run DAST Live Gate (DIAGNOSTIC single spec — NOT a Gate 3 pass)"
+TELEMETRY = "RWT telemetry readback (PostHog, per journey)"
+DISCOVERED = "${{ steps.rwt_release.outputs.release_sha }}"
+FALLBACK = "${{ steps.rwt_release.outputs.release_sha || github.event.inputs.diagnostic_release_sha || github.sha }}"
+
+
+def assert_release_binding(case, workflow):
+    """#1834 contract. An RWT spec resolves the release production actually serves, and every RWT consumer uses that
+    discovered SHA. Classification and the DAST step also serve non-RWT diagnostics, so they keep the dispatch-input and
+    workflow-SHA fallback after the discovered value. Telemetry runs only for RWT and takes the discovered SHA alone: a
+    fallback there could put an unobserved SHA in place of a failed discovery."""
+    steps = workflow["jobs"]["gate-3-dast"]["steps"]
+    named = lambda n: next(s for s in steps if s.get("name") == n)
+    discover = named(DISCOVER)
+    case.assertEqual(discover.get("id"), "rwt_release")
+    case.assertNotIn("if", discover)
+    case.assertNotIn("continue-on-error", discover)
+    case.assertEqual([l.strip() for l in discover["run"].strip().splitlines()], [
+        'if [[ "$DIAGNOSTIC_SPEC" == tests/live/rwt-* ]]; then',
+        "node tools/cloud-test/scripts/resolve_rwt_served_release.mjs resolve",
+        "else",
+        "node tools/cloud-test/scripts/validate_rwt_release_binding.cjs",
+        "fi"])
+    case.assertEqual(discover["env"]["DIAGNOSTIC_SPEC"], "${{ github.event.inputs.diagnostic_dast_spec }}")
+    case.assertEqual(discover["env"]["DIAGNOSTIC_RELEASE"], "${{ github.event.inputs.diagnostic_release_sha }}")
+    case.assertEqual(discover["env"]["SELECTED_GATE"], "${{ github.event.inputs.gate }}")
+    case.assertEqual(discover["env"]["DIAGNOSTIC_GREP"], "${{ github.event.inputs.diagnostic_dast_grep }}")
+    case.assertLess(steps.index(discover), next(i for i, s in enumerate(steps) if s.get("uses") == "./.github/actions/setup-environment"))
+    case.assertEqual(named(CLASSIFY)["env"]["EXPECTED_RELEASE_SHA"], FALLBACK)
+    case.assertEqual(named(DAST)["env"]["EXPECTED_RELEASE_SHA"], FALLBACK)
+    telemetry = named(TELEMETRY)
+    case.assertEqual(telemetry["if"], "${{ always() && " + RWT + " }}")
+    case.assertEqual(telemetry["env"]["RELEASE_SHA"], DISCOVERED)
+    calls = telemetry["run"].count("pnpm -s telemetry:readback-qualification")
+    case.assertGreaterEqual(calls, 1)
+    case.assertEqual(telemetry["run"].count('pnpm -s telemetry:readback-qualification --release-sha "$RELEASE_SHA"'), calls)
+    comparison = next(s for s in workflow["jobs"]["comparison-authorization"]["steps"] if s.get("name") == "Authorize one comparison cell (exact release, Production, repository owner)")
+    case.assertEqual(comparison["env"]["EXPECTED_RELEASE_SHA"], "${{ github.sha }}")
+
+
 class RwtArtifactBoundary(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -51,23 +95,43 @@ class RwtArtifactBoundary(unittest.TestCase):
         with self.assertRaises(AssertionError):
             assert_upload_boundary(self, changed)
 
-    def test_frontend_binding_requires_closed_rwt_source_compatibility_guard(self):
-        steps = self.workflow["jobs"]["gate-3-dast"]["steps"]
-        bindings = []
-        for name, key in (("Classify Gate 3 evidence target", "EXPECTED_RELEASE_SHA"),
-                          ("Run DAST Live Gate (DIAGNOSTIC single spec — NOT a Gate 3 pass)", "EXPECTED_RELEASE_SHA"),
-                          ("RWT telemetry readback (PostHog, per journey)", "RELEASE_SHA")):
-            step = next(s for s in steps if s.get("name") == name)
-            bindings.append(step["env"][key])
-        self.assertEqual(len(set(bindings)), 1)
-        self.assertIn("github.event.inputs.diagnostic_release_sha || github.sha", bindings[0])
-        guard = next(s for s in steps if s.get("name") == "Validate bounded RWT release selection")
-        self.assertEqual(guard["run"], "node tools/cloud-test/scripts/validate_rwt_release_binding.cjs")
-        self.assertEqual(guard["env"]["SELECTED_GATE"], "${{ github.event.inputs.gate }}")
-        self.assertEqual(guard["env"]["DIAGNOSTIC_GREP"], "${{ github.event.inputs.diagnostic_dast_grep }}")
-        self.assertLess(steps.index(guard), next(i for i,s in enumerate(steps) if s.get("uses") == "./.github/actions/setup-environment"))
-        comparison = next(s for s in self.workflow["jobs"]["comparison-authorization"]["steps"] if s.get("name") == "Authorize one comparison cell (exact release, Production, repository owner)")
-        self.assertEqual(comparison["env"]["EXPECTED_RELEASE_SHA"], "${{ github.sha }}")
+    def test_release_binding_uses_discovered_rwt_release_and_keeps_the_non_rwt_fallback(self):
+        assert_release_binding(self, self.workflow)
+
+    def test_negative_controls_a_loosened_release_binding_is_rejected(self):
+        def mutate(step_name, change):
+            changed = copy.deepcopy(self.workflow)
+            change(next(s for s in changed["jobs"]["gate-3-dast"]["steps"] if s.get("name") == step_name))
+            return changed
+        cases = {
+            "telemetry falls back to the dispatch input or workflow SHA": mutate(TELEMETRY, lambda s: s["env"].__setitem__("RELEASE_SHA", FALLBACK)),
+            "telemetry pinned to the workflow SHA": mutate(TELEMETRY, lambda s: s["env"].__setitem__("RELEASE_SHA", "${{ github.sha }}")),
+            "a readback queried against the workflow SHA": mutate(TELEMETRY, lambda s: s.__setitem__("run", s["run"].replace('--release-sha "$RELEASE_SHA"', '--release-sha "$GITHUB_SHA"', 1))),
+            "failed discovery tolerated": mutate(DISCOVER, lambda s: s.__setitem__("continue-on-error", True)),
+            "discovery made conditional": mutate(DISCOVER, lambda s: s.__setitem__("if", "${{ false }}")),
+            "RWT routed back to the old single validator": mutate(DISCOVER, lambda s: s.__setitem__("run", "node tools/cloud-test/scripts/validate_rwt_release_binding.cjs")),
+            "classification loses the non-RWT fallback": mutate(CLASSIFY, lambda s: s["env"].__setitem__("EXPECTED_RELEASE_SHA", DISCOVERED)),
+        }
+        for label, changed in cases.items():
+            with self.subTest(label), self.assertRaises(AssertionError):
+                assert_release_binding(self, changed)
+
+    def test_negative_control_missing_discovery_cannot_qualify_telemetry(self):
+        # A failed discovery leaves steps.rwt_release.outputs.release_sha empty, and the always() readback still runs with
+        # RELEASE_SHA="". The real readback script must HOLD (exit 1, which the step records as HOLD and fails) before it
+        # queries anything, and must never print QUALIFIED.
+        env = {k: v for k, v in os.environ.items() if not k.startswith("POSTHOG")}
+        env["RELEASE_SHA"] = ""
+        result = subprocess.run(["node", "--import", "tsx", "scripts/telemetry-readback-qualification.mts", "--release-sha", "",
+                                 "--journey-id", "missing-discovery-control", "--traffic-type", "canary"],
+                                cwd=REPO, env=env, capture_output=True, text=True, timeout=120)
+        self.assertEqual(result.returncode, 1, result.stderr[-2000:])
+        self.assertNotIn("QUALIFIED", result.stdout)
+        line = next(l for l in result.stdout.splitlines() if l.startswith("TELEMETRY_READBACK_QUALIFICATION_EVIDENCE "))
+        evidence = json.loads(line.split(" ", 1)[1])
+        self.assertEqual(evidence["verdict"], "HOLD")
+        self.assertEqual(evidence["release_sha"], "")
+        self.assertIn("no --release-sha supplied", evidence["reasons"][0])
 
     def test_diagnostic_does_not_become_release_qualification(self):
         steps = self.workflow["jobs"]["gate-3-dast"]["steps"]
