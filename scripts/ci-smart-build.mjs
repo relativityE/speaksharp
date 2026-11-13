@@ -12,7 +12,7 @@ import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { appendFileSync, cpSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { buildEnvironment, environmentDigest, releaseWrappers, safeOutputPath } from './ci-build-inputs.mjs';
+import { buildEnvironment, environmentDigest, missingRequiredInputs, releaseWrappers, requiredBuildInputs, safeOutputPath } from './ci-build-inputs.mjs';
 import { downloadTrustedArtifact, trustedMainRuns } from './ci-build-artifact-client.mjs';
 import { buildManifest, firstManifestDifference, manifestDigest, parseTrace } from './ci-build-trace.mjs';
 
@@ -118,6 +118,11 @@ function tracedBuild(env) {
   // A manifest that does not describe its own checkout would never be safe to match.
   const self = firstManifestDifference(manifest, { root, outputRoots });
   if (self) { console.log(`Build succeeded; no receipt, because the manifest does not describe this checkout (${self}).`); return null; }
+  const missing = missingRequiredInputs(manifest, requiredBuildInputs(root));
+  if (missing.length) {
+    console.log(`::warning::Build succeeded; no receipt, because the trace missed ${missing.length} required build input(s): ${missing.slice(0, 10).join(', ')}`);
+    return null;
+  }
   return manifest;
 }
 

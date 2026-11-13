@@ -43,6 +43,10 @@ fs.writeFileSync('frontend/dist/app.js',app);`);
   const run = (overrides = {}) => { writeFileSync(join(base, 'output'), ''); const r = spawnSync(process.execPath, ['scripts/ci-smart-build.mjs'], { cwd: root, env: { ...env, ...overrides }, encoding: 'utf8' }); assert.equal(r.status, 0, r.stderr + '\n' + r.stdout); return r.stdout; };
   const next = 'b'.repeat(40), consumer = { GITHUB_TOKEN: 'fake', GITHUB_EVENT_NAME: 'pull_request', GITHUB_REF: 'refs/pull/1/merge', GITHUB_SHA: next, GITHUB_RUN_ID: '13' };
 
+  // A real work tree, so the producer's completeness floor (tracked TypeScript under frontend/src, the entry
+  // page and both package manifests) is computed with git, as on a runner.
+  const git = (...args) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } });
+  git('init', '-q'); git('add', '-A'); git('commit', '-qm', 'fixture');
   const produced = run();
   assert(produced.includes('REAL_BUILD') && produced.includes('runtime-guard') && produced.includes('Smart-build receipt'), produced);
   assert.match(readFileSync(join(base, 'output'), 'utf8'), /receipt_name=smart-build-receipt-v1-attempt-1/);
@@ -79,4 +83,37 @@ fs.writeFileSync('frontend/dist/app.js',app);`);
   const origin = readFileSync(join(base, 'origin.json'));
   rebuilds('a receipt bound to another commit', () => writeFileSync(join(base, 'origin.json'), JSON.stringify({ repository: 'a/b', sourceSha: 'c'.repeat(40), runId: 12, attempt: 1 })), () => writeFileSync(join(base, 'origin.json'), origin));
   assert(reuse().includes('Reused the verified build'), 'every undo restores the hit');
+
+  // #1837 completeness floor: a tracked frontend source the traced build never read means the trace is
+  // incomplete for this app, so the producer publishes no receipt (and nothing can ever be reused against it).
+  put('frontend/src/unread.ts', 'export const unread = 1;'); git('add', 'frontend/src/unread.ts');
+  try {
+    rmSync(join(root, 'frontend/dist'), { recursive: true, force: true });
+    const floor = run();
+    assert(floor.includes('REAL_BUILD') && floor.includes('missed 1 required build input(s): frontend/src/unread.ts') && !floor.includes('Smart-build receipt'), floor);
+    assert.doesNotMatch(readFileSync(join(base, 'output'), 'utf8'), /receipt_name=/);
+  } finally { git('rm', '-q', '--cached', 'frontend/src/unread.ts'); unlinkSync(join(root, 'frontend/src/unread.ts')); }
+  assert(run().includes('Smart-build receipt'), 'the receipt returns once every required input is read');
+});
+
+test('completeness floor lists tracked required inputs and refuses an unlistable tree', () => {
+  return import(new URL('ci-build-inputs.mjs', `file://${here}`).href).then(({ requiredBuildInputs, missingRequiredInputs }) => {
+    const repo = mkdtempSync(join(tmpdir(), 'smart-build-floor-'));
+    try {
+      const git = (...args) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' });
+      git('init', '-q');
+      for (const p of ['frontend/index.html', 'frontend/package.json', 'package.json', 'frontend/src/a.ts', 'frontend/src/deep/b.tsx', 'frontend/src/c.js', 'frontend/src/d.md', 'tests/e.ts', 'docs/x.md']) {
+        mkdirSync(dirname(join(repo, p)), { recursive: true }); writeFileSync(join(repo, p), 'x');
+      }
+      writeFileSync(join(repo, 'frontend/src/untracked.ts'), 'x');
+      git('add', '-A', ':!frontend/src/untracked.ts');
+      const required = requiredBuildInputs(repo).sort();
+      assert.deepEqual(required, ['frontend/index.html', 'frontend/package.json', 'frontend/src/a.ts', 'frontend/src/deep/b.tsx', 'package.json']);
+      const manifest = required.map((p) => [`@root/${p}`, 'file', 'h']);
+      assert.deepEqual(missingRequiredInputs(manifest, required), []);
+      assert.deepEqual(missingRequiredInputs(manifest.slice(1), required), [required[0]]);
+      assert.equal(requiredBuildInputs(join(repo, 'missing')), null);
+      assert.equal(missingRequiredInputs(manifest, null).length, 1);
+    } finally { rmSync(repo, { recursive: true, force: true }); }
+  });
 });

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 export function buildEnvironment(env = process.env) {
@@ -24,4 +25,22 @@ export function releaseWrappers(files, oldSha, newSha) {
 export function safeOutputPath(name) {
   if (typeof name !== 'string' || !name || name.includes('\\') || name.startsWith('/') || name.split('/').some(p => !p || p === '.' || p === '..') || resolve('/', name) !== '/' + name) throw Error('BUILD_REUSE_UNSAFE_PATH');
   return name;
+}
+// #1837 completeness floor. Every real build of this app reads these tracked files: the entry page, both
+// package manifests, and every TypeScript source under frontend/src (Vite compiles the module graph and Tailwind
+// scans all of src for class names). A manifest missing any of them means the trace lost part of the build, so it
+// is never published as a receipt. Returns null when the tracked set cannot be listed; the caller then publishes
+// nothing.
+export const REQUIRED_INPUT_PATHSPECS = Object.freeze([':(glob)frontend/index.html', ':(glob)frontend/package.json',
+  ':(glob)package.json', ':(glob)frontend/src/**/*.ts', ':(glob)frontend/src/**/*.tsx']);
+export function requiredBuildInputs(root, run = execFileSync) {
+  try {
+    const out = run('git', ['-C', root, 'ls-files', '-z', '--', ...REQUIRED_INPUT_PATHSPECS], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    return out.split('\0').filter(Boolean);
+  } catch { return null; }
+}
+export function missingRequiredInputs(manifest, required) {
+  if (!Array.isArray(required)) return ['(the tracked build inputs could not be listed)'];
+  const names = new Set(manifest.map(([name]) => name));
+  return required.filter((path) => !names.has(`@root/${path}`));
 }
