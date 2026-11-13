@@ -5,7 +5,7 @@ import json
 import os
 import unittest
 
-from _fixtures import EXPIRED_GRANT_REL, ROOT, expired_grant_active
+from _fixtures import EXPIRED_GRANT_REL, ROOT, with_expired_grant
 import init_run_inputs as I
 
 COMMITTED = [EXPIRED_GRANT_REL, "config/runs/R10-3b040043-aht01.json", "config/runs/R10-3b040043-all15.json",
@@ -17,18 +17,7 @@ def load(rel):
         return json.load(f)
 
 
-
-_EXPIRED_GRANT = expired_grant_active()
-
-
-def setUpModule():
-    _EXPIRED_GRANT.start()
-
-
-def tearDownModule():
-    _EXPIRED_GRANT.stop()
-
-
+@with_expired_grant
 class Publishable(unittest.TestCase):
     def test_every_committed_r10_input_is_publishable(self):
         for rel in COMMITTED:
@@ -103,6 +92,7 @@ class Publishable(unittest.TestCase):
         self.assertIn('facts.get("approvedBy") == APPROVER_ROLE and facts.get("reviewer") in REVIEWER_ROLES', block)
 
 
+@with_expired_grant
 class OpaqueApprovalsInJournalAndRelease(unittest.TestCase):
     """New journal provenance and manual-release approvals can be opaque codes; the historical chat-timestamp form stays accepted
     only so the existing journal history keeps validating."""

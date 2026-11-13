@@ -12,7 +12,7 @@ import unittest
 from datetime import datetime, timezone
 from unittest import mock
 
-from _fixtures import EXPIRED_GRANT_REL, ROOT, expired_grant_active
+from _fixtures import EXPIRED_GRANT_REL, ROOT, with_expired_grant
 import accounting_rollup as R
 import case_start_caps as C
 import init_run_inputs as I
@@ -37,21 +37,11 @@ BM = CFG["modes"]["full"]["budgetModel"]
 SMOKE_CATALOG = load("config/smoke-assertion-catalog.json")
 
 
-_EXPIRED_GRANT = expired_grant_active()
-
-
-def setUpModule():
-    _EXPIRED_GRANT.start()
-
-
-def tearDownModule():
-    _EXPIRED_GRANT.stop()
-
-
 def derived(cases=("AHT-01",)):
     return I.subset_estimate(BASE, list(cases), BM, SMOKE_CATALOG)
 
 
+@with_expired_grant
 class Derivation(unittest.TestCase):
     def test_the_derived_caps_are_the_agreed_figures_and_the_committed_bytes_are_pinned(self):
         d = derived()
@@ -88,6 +78,7 @@ class Derivation(unittest.TestCase):
         self.assertEqual(I._canonical_cases(["AHT-01", "AHT-15"]), ["AHT-01", "AHT-15"])
 
 
+@with_expired_grant
 class SubsetTemplate(unittest.TestCase):
     def refuses(self, change, code):
         t = copy.deepcopy(REQUEST)
@@ -130,6 +121,7 @@ class SubsetTemplate(unittest.TestCase):
         self.assertTrue(I.check_subset_template(BASE, t, ["AHT-01"], derived(), SCOPE["ceilings"]))
 
 
+@with_expired_grant
 class GrantBinding(unittest.TestCase):
     def test_the_committed_grant_admits_exactly_its_selection_inside_its_window(self):
         occ = I.materialize_authoritative_smoke_occurrence(REPO, REQUEST, "2026-11-08T16:10:00Z")
@@ -182,6 +174,7 @@ class GrantBinding(unittest.TestCase):
             I.one_off_grant(REPO, None, "2026-11-08T16:10:00Z", selection=["AHT-01"])
 
 
+@with_expired_grant
 class SmokeSubsetOnlyForTheR10Campaign(unittest.TestCase):
     def occurrence(self):
         return I.materialize_authoritative_smoke_occurrence(REPO, REQUEST, "2026-11-08T16:10:00Z")
@@ -200,6 +193,7 @@ class SmokeSubsetOnlyForTheR10Campaign(unittest.TestCase):
             I.check_request(occ, datetime(2026, 11, 8, 16, 10, tzinfo=timezone.utc), I._request_keys())
 
 
+@with_expired_grant
 class RealRequestValidator(unittest.TestCase):
     """the REAL validate_run_request.validate, as pipeline.py runs it, on the committed AHT-01 occurrence, the committed
     config, gap ledger and workflow. The R10 one-off subset is admitted exactly as the pinned grant selects it; ordinary smoke and full
@@ -266,6 +260,7 @@ class RealRequestValidator(unittest.TestCase):
             self.assertIn(self.SUBSET_ERROR, self.errors(self.occ))
 
 
+@with_expired_grant
 class NotTargetedContract(unittest.TestCase):
     """Run 42494152179 : the admitted one-case request carried notTargeted as bare gap ids; the
     run reserved, passed admission, browser guard and identity, then the live report crashed (workflow_report: string indices). The
@@ -409,6 +404,7 @@ class NotTargetedContract(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("ERROR: notTargeted must be a list of {gap, why}", r.stdout)
 
+@with_expired_grant
 class ProjectionCatalog(unittest.TestCase):
     """the CLI `project` hardcoded the FULL assertion catalog (AHT-01 = 20 rows) even for smoke (15), so run
     42496837188's selected AHT-01 record was refused `row-verdicts`. The projection now builds row verdicts from the pinned catalog of the

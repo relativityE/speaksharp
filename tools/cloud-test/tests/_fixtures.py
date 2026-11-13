@@ -41,6 +41,21 @@ def expired_grant_active():
     return mock.patch.multiple(init_run_inputs, ONE_OFF_GRANT_PATH="tools/cloud-test/" + EXPIRED_GRANT_REL, ONE_OFF_GRANT_SHA256=sha)
 
 
+def with_expired_grant(cls):
+    """Class decorator: the preserved expired grant is the pinned one-off grant for every test of `cls` (and its subclasses), started in
+    setUpClass and stopped by a class cleanup. A class fixture, not setUpModule: the native evidence reporter loads a test module
+    without registering it in sys.modules, and unittest then skips module fixtures silently."""
+    base = cls.setUpClass.__func__
+
+    def setUpClass(klass):
+        patcher = expired_grant_active()
+        patcher.start()
+        klass.addClassCleanup(patcher.stop)
+        base(klass)
+    cls.setUpClass = classmethod(setUpClass)
+    return cls
+
+
 NOW = "2026-10-28T22:00:00Z"
 TESTED = "4c85b006ac05e180521fd6e7d807f736987cafe8"
 REQUEST_FIXTURES = {

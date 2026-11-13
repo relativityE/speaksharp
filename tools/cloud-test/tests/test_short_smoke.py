@@ -25,19 +25,7 @@ import check_coverage as coverage  # noqa: E402
 from test_init_run_inputs import ACCOUNT_ID, CFG, KEYS, NOW, SUPABASE_URL_OK, bundle_with, facts, live_request  # noqa: E402
 from test_case_start_caps import SyntheticBuilder  # noqa: E402
 import state_ref_writer  # noqa: E402
-from _fixtures import EXPIRED_GRANT_REL, expired_grant_active  # noqa: E402
-
-
-
-_EXPIRED_GRANT = expired_grant_active()
-
-
-def setUpModule():
-    _EXPIRED_GRANT.start()
-
-
-def tearDownModule():
-    _EXPIRED_GRANT.stop()
+from _fixtures import EXPIRED_GRANT_REL, with_expired_grant  # noqa: E402
 
 
 def request():
@@ -104,6 +92,7 @@ def root_pinned_grant():
     return mock.patch.multiple(init, _read=reader, ONE_OFF_GRANT_SHA256=hashlib.sha256(variant).hexdigest())
 
 
+@with_expired_grant
 class ApprovalPin(unittest.TestCase):
     def test_the_committed_grant_pins_the_po_decision_and_an_awaiting_grant_refuses_every_dispatch_path(self):
         """, re-pinned for one run under : the committed grant is APPROVED only under the PO's
@@ -123,6 +112,7 @@ class ApprovalPin(unittest.TestCase):
                 init.one_off_grant(str(ROOT.parents[1]), template, "2026-11-08T16:00:00Z")
 
 
+@with_expired_grant
 class ShortSmokeContract(unittest.TestCase):
     def setUp(self):
         patch = served_grant(APPROVED_GRANT)

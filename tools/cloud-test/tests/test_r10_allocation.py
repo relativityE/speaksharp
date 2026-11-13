@@ -7,7 +7,7 @@ import hashlib
 import json
 import os
 
-from _fixtures import EXPIRED_GRANT_REL, ROOT, expired_grant_active
+from _fixtures import EXPIRED_GRANT_REL, ROOT, with_expired_grant
 import init_run_inputs as I
 import manual_reservation as M
 from test_accounting_rollup import Journal, scope
@@ -27,18 +27,7 @@ def occurrence(template=TEMPLATE):
     return raw, hashlib.sha256(raw).hexdigest()
 
 
-
-_EXPIRED_GRANT = expired_grant_active()
-
-
-def setUpModule():
-    _EXPIRED_GRANT.start()
-
-
-def tearDownModule():
-    _EXPIRED_GRANT.stop()
-
-
+@with_expired_grant
 class R10Allocation(Journal):
     def rollup_with_headroom(self, headroom):
         base = scope()["ceilings"]
