@@ -13,7 +13,7 @@
     "receipt": "../delta-final-source/ADAPTER-OFFLINE.tap"
   },
   "focusedNumericControls": {
-    "passed": 66,
+    "passed": 70,
     "failed": 0,
     "skipped": 0,
     "receipt": "tests/progress-numeric.tap"
@@ -82,7 +82,7 @@
     "port-presentation-pure.cjs": "c1ee9f4f768df6e7b6f1d959813aaf6800a6d783f835a7d8058dc3d0d5a83517",
     "port-progress-numeric-pure.cjs": "c552a568edef956a49b5c18a8acb85dc552b86d21d5d14852d3bb18c5b48b95a",
     "presentation-controls.cjs": "b5b998de4a339a822323b19887e07882039b133a4d9f4a01c1b45ccea28b0790",
-    "progress-numeric.cjs": "2291cc168836d9af99c5880b9ce19b3b1d306411430fcf76da6bf5e81bf6659a",
+    "progress-numeric.cjs": "8ca59756ec8d8fe393fa2fac815f063a044a07f26c66fb6c33332df139ab0ad7",
     "repeat-probes.cjs": "b486fbc59dc2ff3b92fc9584d018f87435b91e568445954bc17897c5e76b684b",
     "save-fault-binding.cjs": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d",
     "source/AnalyticsDashboard.tsx": "6b011922e95eefd52316138362438b83c44dc03b30c779eb5dcf2a1ef03cbbdc",
@@ -115,7 +115,7 @@
     "tests/oracles.offline.test.cjs": "b82b4e7babb47bee7cdb24eedcf2cc21175b75369f32f3003c37358afbcb876d",
     "tests/post-stop-evidence.offline.test.cjs": "dac45b864b6a64cee9384757bf41b020dd67b29a5b242acff363651ed6c88d76",
     "tests/presentation-controls.offline.test.cjs": "932914082fc28256b3cd5cb346a83b7c45139511b43fd9ebb975c83a1ad6031e",
-    "tests/progress-numeric.offline.test.cjs": "653a48b844b9e9514b946ac2b6d6edd019ab6c2e9b84ca78cd74f26dc59e774b",
+    "tests/progress-numeric.offline.test.cjs": "6a6f6e1148941592529b4d707e6adc43d15b5f891e5e511be557aaa307bedaac",
     "tests/repeat-retention.offline.test.cjs": "0df2562b01cac484f93cc8dfee89a51e1374f3d9b513c6c2ef33c5bd3abb7963",
     "tests/save-fault.offline.test.cjs": "c987e7333175ec3600c22a4882920c8670e69cd25ee825361f80d8b8fa6ec048",
     "tests/smoke-timing.offline.test.cjs": "0daabf52e935023fee52b193c240ed0b5313ed06a24ab27afbed1ed89e5ada23",
@@ -124,6 +124,7 @@
     "source/receiving-source.json": "9d101e3c1f51da6482d7ebeb920350c63aa03c04268ce78fb891d7c2f2b66a8d",
     "source/receiving-numeric-source.json": "3fc427cb7d90088772e517b0473189812d40f514a04b48900623d429c2be3f6b",
     "source/receiving-numeric-source-d401349b.json": "b7f224cca77e94969d8ff24facff2a330b89207d102277dbc8bb335f8c1095da",
+    "source/receiving-numeric-source-61000470.json": "8e729c275e5aa66ce978bf5a084cc4da6b9798cfb18d6775d6faf376644b8fee",
     "source/receiving-save-source.json": "752aa01f333164a0d20247f0498aad7e6a20d979fec33dcb18de72c917c068ff",
     "tests/case10-admission.offline.test.cjs": "a07df1449b5bf282106e5c66d9786250bc613d1dd0f36a8805fda324c20c0cab",
     "tests/case14-fault-boundary.offline.test.cjs": "ab4335d46c10cff6c8b02eb5f41d48353b15bfa63d169e364df2fc0c0cd915fa",
