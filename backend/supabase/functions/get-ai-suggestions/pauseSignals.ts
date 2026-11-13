@@ -13,7 +13,8 @@
  * the prompt already carries the fillers and WPM; a take too short to score is also saved as 0.
  *
  * "Measured" means the detector ran, not that every value is exact: for example the silence before the speaker presses
- * Stop can count as a pause. Values are checked for type and sign only and are not capped or rounded.
+ * Stop can count as a pause. Values are checked for type, sign, whole-number counts and silence of at most 100%, and are
+ * not otherwise capped or rounded.
  */
 export function buildPauseSignals(pauseMetrics: unknown): string {
   if (!pauseMetrics || typeof pauseMetrics !== 'object' || Array.isArray(pauseMetrics)) return '';

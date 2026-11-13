@@ -110,9 +110,11 @@ Deno.test('the committed set is synthetic, bounded, and every anchor and trap is
     ['EVAL_ITEM_PAUSES_INVALID', (s: EvaluationSet) => { (s.items[0] as unknown as Record<string, unknown>).pause_metrics = { totalPauses: '6' }; }],
     ['EVAL_ITEM_PAUSES_INVALID', (s: EvaluationSet) => { (s.items[0] as unknown as Record<string, unknown>).pause_metrics = [6]; }],
     ['EVAL_ITEM_PAUSES_INVALID', (s: EvaluationSet) => { s.items[0].pause_metrics = { ...s.items[0].pause_metrics, note: 1 }; }],
-    ['EVAL_ITEM_PAUSES_INVALID', (s: EvaluationSet) => { s.items[0].pause_metrics = { ...s.items[0].pause_metrics, totalPauses: 6.5 }; }],
+    ['EVAL_ITEM_PAUSES_INVALID', (s: EvaluationSet) => { s.items[0].pause_metrics = { ...s.items[0].pause_metrics, totalPauses: 6.5, transitionPauses: 5.5 }; }],
     ['EVAL_ITEM_PAUSES_INVALID', (s: EvaluationSet) => { s.items[0].pause_metrics = { ...s.items[0].pause_metrics, silencePercentage: 101 }; }],
     ['EVAL_ITEM_PAUSES_INVALID', (s: EvaluationSet) => { s.items[0].pause_metrics = { ...s.items[0].pause_metrics, transitionPauses: 4 }; }],
+    ['EVAL_ITEM_PAUSES_INVALID', (s: EvaluationSet) => { s.items[0].pause_metrics = { totalPauses: 6, transitionPauses: 10 }; }],
+    ['EVAL_ITEM_PAUSES_INVALID', (s: EvaluationSet) => { s.items[0].pause_metrics = { ...s.items[0].pause_metrics, longestPause: 1.4 }; }],
   ] as const) {
     assertThrows(() => parseEvaluationSet(mutate(change)), Error, code);
   }

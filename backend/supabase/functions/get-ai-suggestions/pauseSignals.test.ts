@@ -3,9 +3,9 @@ import { strict as assert } from 'node:assert';
 
 Deno.test('a measured take sends every allowed aggregate pause field with units', () => {
   const result = buildPauseSignals({ totalPauses: 3, averagePauseDuration: 0.75,
-    longestPause: 1.5, pausesPerMinute: 2, silencePercentage: 12, transitionPauses: 2, extendedPauses: 1 });
+    longestPause: 1.8, pausesPerMinute: 2, silencePercentage: 12, transitionPauses: 2, extendedPauses: 1 });
   for (const fragment of ['Pause count: 3', 'Average pause (seconds): 0.75',
-    'Longest pause (seconds): 1.5', 'Pauses per minute: 2', 'Silence (%): 12',
+    'Longest pause (seconds): 1.8', 'Pauses per minute: 2', 'Silence (%): 12',
     'Transition pause count: 2', 'Extended pause count: 1', 'do not recite the numbers']) {
     assert.ok(result.includes(fragment), fragment);
   }

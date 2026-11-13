@@ -278,7 +278,7 @@ const coachingProfiles=Object.freeze([
     'backend/supabase/functions/get-ai-suggestions/providerRetry.ts':'eda8685f3f005e3cb774c54cadf8a04e43bb483d68c7a31130fd268b06ff7820',
     'package.json':'afaad509e196b4cf0d784a55b47d3f17e51409dcd91d9d7f6a2e341b175eb0ed',
     'backend/supabase/functions/get-ai-suggestions/index.ts':'4d4b5702e599f3db50b67ac07167087622fbbfeedfbea33feb4c501b4e3066f9',
-    'backend/supabase/functions/get-ai-suggestions/pauseSignals.ts':'2f0b3d39f377b159d403e2255ced3315031971ac8ff254ca54e2303c6809e12c',
+    'backend/supabase/functions/get-ai-suggestions/pauseSignals.ts':'4d1859c6e992f123c72c21b97a338f78323300b786d12eb12d1adfa7c2483874',
     'backend/supabase/functions/get-ai-suggestions/providerDecode.ts':'ecc8034bd53bd6b3b88dcbb981a6bf29be8c85d08cd031d0483e2d083e10d2a2',
     [coachingTest]:'5336cb152b9b2b037df15b0dc042003720105159aa9fa86cdae23f235e9919f7',
     'backend/supabase/functions/get-ai-suggestions/contract.json':'70c3099769cf24ac4faf3b4c191e322e50a0f1b34228a3aa72199a8f06adbe1b',

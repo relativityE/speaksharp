@@ -73,7 +73,12 @@ export function parseEvaluationSet(input: unknown): EvaluationSet {
         || PAUSE_COUNTS.some((key) => key in pauses && !Number.isSafeInteger(pauses[key]))
         || (pauses.silencePercentage as number) > 100
         || (PAUSE_COUNTS.every((key) => key in pauses)
-          && (pauses.transitionPauses as number) + (pauses.extendedPauses as number) !== pauses.totalPauses)) refuse('EVAL_ITEM_PAUSES_INVALID');
+          && (pauses.transitionPauses as number) + (pauses.extendedPauses as number) !== pauses.totalPauses)
+        || ('totalPauses' in pauses && ((pauses.transitionPauses as number) > (pauses.totalPauses as number)
+          || (pauses.extendedPauses as number) > (pauses.totalPauses as number)))
+        // An extended pause is over 1.5 s, so the longest pause says whether there was one.
+        || ('longestPause' in pauses && 'extendedPauses' in pauses
+          && ((pauses.extendedPauses as number) > 0) !== ((pauses.longestPause as number) > 1.5))) refuse('EVAL_ITEM_PAUSES_INVALID');
     }
     // Review of 1c83108c: a malformed point would build a prompt the handler (which reads validated rows) never sends.
     if (item.focus !== undefined) {
