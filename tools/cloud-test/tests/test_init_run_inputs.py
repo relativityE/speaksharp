@@ -1,4 +1,4 @@
-"""GitHub live caller inputs (Sam 1793538100.358869, 1793538322.008999; RETURNs of b0100ad8 and 3e0279d6): a committed request in the ONE
+"""GitHub live caller inputs (RETURNs of b0100ad8 and 3e0279d6): a committed request in the ONE
 reviewed location, its live/approval/window/source bindings, request-only lineage or a fully bound older-release diagnostic, complete-case
 sampling, per-run and time ceilings (cumulative caps stay G5's), one account role bound to credential names, account ID and history, the
 builder's real facts schema, the producer scope composed from the request and accepted by the real bootstrap, fail-closed continuity, and
@@ -7,6 +7,7 @@ import copy
 import hashlib
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -47,24 +48,29 @@ def live_request(cases=None, **over):
         r["estimate"]["requests"]["runCap"] = 700
         r["estimate"]["identityReads"] = 8
         r["estimate"].pop("window", None)
-    r.update(synthetic=False, executionRuntime=I.RUNTIME, selectionApprovalRef="slack:1793538100.358869")
+    r.update(synthetic=False, executionRuntime=I.RUNTIME, selectionApprovalRef=FIXTURE_APPROVAL)
     r["release"]["testedSha"] = SHA
-    r["harness"]["ownerApprovalRef"] = "slack:1793538100.358869"
-    r["window"] = {"startUtc": "2026-11-01T13:00:00Z", "endUtc": "2026-11-01T20:00:00Z", "approvalRef": "slack:1793538100.358869"}
+    r["harness"]["ownerApprovalRef"] = FIXTURE_APPROVAL
+    r["window"] = {"startUtc": "2026-11-01T13:00:00Z", "endUtc": "2026-11-01T20:00:00Z", "approvalRef": FIXTURE_APPROVAL}
     full = r["coverageMode"] == "full"
     start_caps = {row["case"]: row["startPressCap"] for row in r["selection"]}
     r["proposedLimits"]["startPressCaps"] = copy.deepcopy(start_caps)
     r["estimate"]["starts"] = sum(start_caps.values())
     r["approvedLimits"] = {"cumulativeCeilingRequests": 12000, "identityCap": 126, "runCapRequests": 4310 if full else 800,
-                           "startPressCaps": start_caps, "approvalRef": "slack:1793538100.358869", "approvedBy": "sam"}
+                           "startPressCaps": start_caps, "approvalRef": FIXTURE_APPROVAL, "approvedBy": I.APPROVER_ROLE}
     r.update(over)
     return r
 
 
+# A synthetic opaque approval code (public-repository rule: no chat-message reference or personal name in dispatch inputs).
+FIXTURE_APPROVAL = "approval-" + "0123456789abcdef" * 2
+
+
 def facts(**over):
-    f = {"ownerApprovalReference": "slack:1793538100.358869", "approvedBy": "sam", "reviewer": "jensen",
+    f = {"ownerApprovalReference": FIXTURE_APPROVAL, "approvedBy": I.APPROVER_ROLE, "reviewer": "release-reviewer",
          "receipts": {k: "receipt:%s@aaaaaaaaaaaa" % k for k in I.RECEIPT_KEYS},
-         "accounts": {"existing-disposable": {"idSha256": hashlib.sha256(ACCOUNT_ID.encode()).hexdigest(), "historyRef": "history:throwaway@r5"}}}
+         "accounts": {"existing-disposable": {"idSha256": hashlib.sha256(ACCOUNT_ID.encode()).hexdigest(), "historyRef": "history:throwaway@r5"}},
+         "backend": {"manifestRef": "synthetic:backend-manifest@1", "generation": 7, "completion": "OFF", "migration129": "absent"}}
     f.update(over)
     return f
 
@@ -78,6 +84,9 @@ def action_approval(req, request_sha256, reconciliation_bytes, **over):
     a.update(over)
     return a
 
+
+# The live step always supplies the project origin (vars.SUPABASE_URL as VITE_SUPABASE_URL); the builder used to default to this host.
+LIVE_ORIGIN_ENV = dict(os.environ, VITE_SUPABASE_URL="https://yxlapjuovrsvjswkwnrk.supabase.co")
 
 class FirstObservationExportTests(unittest.TestCase):
     def setUp(self):
@@ -116,6 +125,26 @@ class FirstObservationExportTests(unittest.TestCase):
         self.assertEqual([x["caseId"] for x in out["observations"]], ["AHT-01", "AHT-15"])
         self.assertEqual(out["observations"][1]["observation"]["inventoryStatus"], "UNKNOWN")
         self.assertNotIn("00000000-0000-4000-8000-000000000001", json.dumps(out))
+
+    def test_a_run_that_stopped_before_any_case_records_no_case_reached_instead_of_refusing(self):
+        """Consultant P2-2 (R10 runs 42494152179, 42615792133): no cases directory at all is a retained, content-safe record."""
+        missing = os.path.join(self.cases, "no-cases-yet")
+        out = I.first_observation_export(missing, ["AHT-01"])
+        self.assertEqual(out, {"schema": "speaksharp-first-observations-v1", "contentSafe": True, "selectedCases": ["AHT-01"],
+                               "observations": [], "notObserved": [{"caseId": "AHT-01", "status": "NOT OBSERVED", "reason": "CASE NOT REACHED"}]})
+        out = I.first_observation_export(missing, ["AHT-02"])
+        self.assertEqual((out["observations"], out["notObserved"]), ([], []))
+        # A symlink or a regular file where the directory belongs still refuses.
+        as_file = os.path.join(self.cases, "cases-file")
+        with open(as_file, "w", encoding="utf-8") as f:
+            f.write("x")
+        real = os.path.join(self.cases, "real-cases")
+        os.mkdir(real)
+        link = os.path.join(self.cases, "cases-link")
+        os.symlink(real, link)
+        for bad in (as_file, link):
+            with self.subTest(bad), self.assertRaisesRegex(I.Refused, "first-observation-cases-dir"):
+                I.first_observation_export(bad, ["AHT-01"])
 
     def test_completed_observation_survives_when_a_later_selected_case_was_never_reached(self):
         self.write_case("AHT-01")
@@ -186,7 +215,8 @@ class CaseTimingExportTests(unittest.TestCase):
                 raw = (json.dumps(summary) + "\n").encode()
                 with open(os.path.join(directory, "summary.json"), "wb") as f:
                     f.write(raw)
-                row.update(result="PASS", executionReceipt={"summarySha256": "f" * 64 if tamper else hashlib.sha256(raw).hexdigest()})
+                row.update(result="PASS", executionReceipt={"summarySha256": "f" * 64 if tamper else hashlib.sha256(raw).hexdigest(),
+                                                            "caseId": case_id, "runId": "42142985744"})
             elif case_id == "AHT-01":
                 row["result"] = "PASS"
             rows.append(row)
@@ -200,6 +230,158 @@ class CaseTimingExportTests(unittest.TestCase):
                                                   "startedAtUtc": "2026-11-03T16:00:00.000Z", "endedAtUtc": "2026-11-03T16:00:12.000Z", "durationMs": 12000})
         self.assertEqual(out["cases"][1]["timingStatus"], "NOT OBSERVED")
         self.assertNotIn("privateError", json.dumps(out))
+
+    BIND = {"runId": "42142985744", "runAttempt": "1", "headSha": "7" * 40, "workflowStartUtc": "2026-11-06T01:18:48Z"}
+
+    def test_a_run_that_never_started_is_affirmatively_not_run_for_every_selected_case_and_says_where_setup_stopped(self):
+        # Run 42142985744 (the reviewer): setup stopped before the run stage and no per-case table or timing survived.
+        trace = os.path.join(self.cases, "stage-trace.tsv")
+        with open(trace, "w", encoding="utf-8") as f:
+            f.write("install-tools\t2026-11-06T01:24:52Z\t2026-11-06T01:24:53Z\t0\nbuild-plan\t2026-11-06T01:24:53Z\t2026-11-06T01:24:53Z\t78\n")
+        out = I.run_timing_export(os.path.join(self.cases, "absent-cases"), os.path.join(self.cases, "absent-results.json"),
+                                  ["AHT-01", "AHT-15"], os.path.join(self.cases, "started.txt"), trace, self.BIND)
+        self.assertEqual((out["schema"], out["outcome"], out["runStarted"], out["stoppedAtStage"]),
+                         ("speaksharp-case-timings-v2", "not-started", False, "build-plan"))
+        self.assertEqual(out["binding"], {"runId": "42142985744", "runAttempt": 1, "headSha": "7" * 40})
+        self.assertEqual(len(out["cases"]), 15)
+        by = {c["caseId"]: c for c in out["cases"]}
+        self.assertEqual((by["AHT-01"]["result"], by["AHT-01"]["evidence"]), ("NOT RUN", "run-stage-never-started"))
+        self.assertEqual((by["AHT-02"]["result"], by["AHT-02"]["timingStatus"]), ("NOT SELECTED", "NOT APPLICABLE"))
+        self.assertEqual([(r["stage"], r["durationMs"], r["exitCode"]) for r in out["stages"]], [("install-tools", 1000, 0), ("build-plan", 0, 78)])
+        self.assertIn("WRAPPED command", out["traceScope"])
+        self.assertEqual(out["timings"], {"workflowStartUtc": "2026-11-06T01:18:48Z", "runStageStartedAtUtc": None, "workflowStartToRunStageMs": None})
+        # with no trace at all it is still a complete table; case results without a started run are a contradiction and refuse
+        self.assertEqual(I.run_timing_export(self.cases, None, ["AHT-01"], None, None, self.BIND)["stages"], [])
+        self.fixture()
+        with self.assertRaisesRegex(I.Refused, "case-timing-results-without-run"):
+            I.run_timing_export(self.cases, self.results, ["AHT-01"], os.path.join(self.cases, "started.txt"), trace, self.BIND)
+
+    def test_started_without_case_results_is_unknown_never_not_run(self):
+        # started.txt precedes admission, so a missing result does not prove a case never ran.
+        started = os.path.join(self.cases, "started.txt")
+        with open(started, "w", encoding="utf-8") as f:
+            f.write("2026-11-06T01:30:00Z\n")
+        out = I.run_timing_export(self.cases, os.path.join(self.cases, "absent-results.json"), ["AHT-01", "AHT-07"], started, None, self.BIND)
+        self.assertEqual((out["outcome"], out["runStarted"]), ("started-without-results", True))
+        by = {c["caseId"]: c for c in out["cases"]}
+        self.assertEqual((by["AHT-07"]["result"], by["AHT-07"]["evidence"]), ("UNKNOWN", "started-without-case-results"))
+        self.assertNotIn("NOT RUN", {c["result"] for c in out["cases"]})
+        self.assertEqual(out["timings"]["workflowStartToRunStageMs"], 672000)
+
+    def test_a_started_run_keeps_its_case_timings_and_adds_the_measured_stages(self):
+        self.fixture()
+        started = os.path.join(self.cases, "started.txt")
+        with open(started, "w", encoding="utf-8") as f:
+            f.write("2026-11-03T15:59:00Z\n")
+        trace = os.path.join(self.cases, "stage-trace.tsv")
+        with open(trace, "w", encoding="utf-8") as f:
+            f.write("run\t2026-11-03T15:59:00Z\t2026-11-03T16:01:00Z\t0\n")
+        bind = dict(self.BIND, workflowStartUtc="2026-11-03T15:50:00Z")      # the same day, before the run stage started
+        out = I.run_timing_export(self.cases, self.results, ["AHT-01", "AHT-02"], started, trace, bind)
+        self.assertEqual(out["timings"]["workflowStartToRunStageMs"], 540000)
+        projected = {c["caseId"]: c for c in I.case_timing_export(self.cases, self.results, ["AHT-01", "AHT-02"])["cases"]}
+        for c in out["cases"]:
+            if c["caseId"] in projected:
+                self.assertEqual({k: c[k] for k in projected[c["caseId"]]}, projected[c["caseId"]])
+                self.assertEqual(c["evidence"], "bound-case-receipt" if c["caseId"] == "AHT-01" else "harness-not-run")
+        self.assertEqual((out["outcome"], out["runStarted"], out["stoppedAtStage"], out["stages"][0]["durationMs"]), ("results", True, None, 120000))
+        for bad in ("unknown-stage\t2026-11-03T15:59:00Z\t2026-11-03T16:01:00Z\t0\n", "run\t2026-11-03T16:01:00Z\t2026-11-03T15:59:00Z\t0\n",
+                    "run\t2026-11-03T15:59:00Z\t2026-11-03T16:01:00Z\t0\t/private/path\n", "run\tnot-a-time\t2026-11-03T16:01:00Z\t0\n"):
+            with open(trace, "w", encoding="utf-8") as f:
+                f.write(bad)
+            with self.assertRaisesRegex(I.Refused, "stage-trace"):
+                I.run_timing_export(self.cases, self.results, ["AHT-01"], started, trace, bind)
+        # out-of-order times refuse instead of yielding a negative or misleading duration
+        with open(trace, "w", encoding="utf-8") as f:
+            f.write("run\t2026-11-03T15:59:00Z\t2026-11-03T16:01:00Z\t0\n")
+        with self.assertRaisesRegex(I.Refused, "case-timing-out-of-order"):           # run stage before the workflow started
+            I.run_timing_export(self.cases, self.results, ["AHT-01"], started, None, dict(bind, workflowStartUtc="2026-11-03T16:00:00Z"))
+        with self.assertRaisesRegex(I.Refused, "case-timing-out-of-order"):           # a traced stage before the workflow started
+            I.run_timing_export(self.cases, self.results, ["AHT-01"], started, trace, dict(bind, workflowStartUtc="2026-11-03T15:59:30Z"))
+        with open(trace, "w", encoding="utf-8") as f:
+            f.write("run\t2026-11-03T16:00:00Z\t2026-11-03T16:01:00Z\t0\nbuild-plan\t2026-11-03T15:58:00Z\t2026-11-03T15:58:30Z\t0\n")
+        with self.assertRaisesRegex(I.Refused, "case-timing-out-of-order"):           # trace rows out of time order
+            I.run_timing_export(self.cases, self.results, ["AHT-01"], started, trace, dict(bind, workflowStartUtc="2026-11-03T15:50:00Z"))
+        for wrong in (dict(self.BIND, runId="0"), dict(self.BIND, headSha="x"), dict(self.BIND, workflowStartUtc="yesterday")):
+            with self.assertRaisesRegex(I.Refused, "case-timing-binding"):
+                I.run_timing_export(self.cases, self.results, ["AHT-01"], started, None, wrong)
+        with self.assertRaisesRegex(I.Refused, "case-timing-selection"):
+            I.run_timing_export(self.cases, self.results, ["AHT-01", "AHT-01"], started, None, bind)
+
+    def started(self):
+        path = os.path.join(self.cases, "started.txt")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("2026-11-03T15:59:00Z\n")
+        return path
+
+    def table(self, selected=("AHT-01", "AHT-02")):
+        out = I.run_timing_export(self.cases, self.results, list(selected), self.started(), None,
+                                  dict(self.BIND, workflowStartUtc="2026-11-03T15:50:00Z"))
+        return out, {c["caseId"]: c for c in out["cases"]}
+
+    def test_corrupt_or_ambiguous_top_level_results_credit_nothing_and_still_yield_the_table(self):
+        # a corrupt results file must not erase the table nor credit any result
+        for content, reason in (("{not json", "case-results-unreadable"), ('{"cases": [null]}', "case-results-shape"),
+                                ('{"cases": [{"result": "NOT RUN"}]}', "case-results-shape"), ('[]', "case-results-shape")):
+            with self.subTest(content):
+                with open(self.results, "w", encoding="utf-8") as f:
+                    f.write(content)
+                out, by = self.table()
+                self.assertEqual(out["outcome"], "results-invalid")
+                self.assertEqual({by[c]["result"] for c in ("AHT-01", "AHT-02")}, {"UNKNOWN"})
+                self.assertEqual({by[c]["evidence"] for c in ("AHT-01", "AHT-02")}, {reason})
+                self.assertTrue(all(by[c]["durationMs"] is None for c in ("AHT-01", "AHT-02")))
+
+    def test_one_bad_case_is_isolated_to_its_own_unknown_row(self):
+        # the reviewer B3-B9 / a wrong digest, reversed times, an over-limit duration, an unbound receipt, a malformed
+        # summary or a duplicate row makes ONLY that row UNKNOWN with null measurements; the valid peer keeps its verified timing
+        def mutate(change):
+            self.fixture()
+            doc = json.load(open(self.results))
+            change(doc)
+            with open(self.results, "w", encoding="utf-8") as f:
+                json.dump(doc, f)
+
+        def summary(body):
+            raw = (json.dumps(body) + "\n").encode()
+            with open(os.path.join(self.cases, "AHT-01", "summary.json"), "wb") as f:
+                f.write(raw)
+            return hashlib.sha256(raw).hexdigest()
+
+        cases = {
+            "summary-digest": lambda d: d["cases"][0]["executionReceipt"].update(summarySha256="0" * 64),
+            "receipt-not-bound": lambda d: d["cases"][0]["executionReceipt"].update(runId="1"),
+            "duplicate-case": lambda d: d["cases"].append(dict(d["cases"][0])),
+            "case-result-invalid": lambda d: d["cases"][0].update(result="PASSED"),
+        }
+        for reason, change in cases.items():
+            with self.subTest(reason):
+                self.tmp.cleanup(); self.tmp = tempfile.TemporaryDirectory(); self.cases = self.tmp.name
+                self.results = os.path.join(self.cases, "case-results.json")
+                mutate(change)
+                out, by = self.table()
+                self.assertEqual((out["outcome"], by["AHT-01"]["result"], by["AHT-01"]["evidence"], by["AHT-01"]["durationMs"]),
+                                 ("results", "UNKNOWN", reason, None))
+                self.assertEqual((by["AHT-02"]["result"], by["AHT-02"]["evidence"]), ("NOT RUN", "harness-not-run"))
+        for body in ({"startedAt": "2026-11-03T16:00:12.000Z", "endedAt": "2026-11-03T16:00:00.000Z"},       # reversed
+                     {"startedAt": "2026-11-03T16:00:00.000Z", "endedAt": "2026-11-03T16:45:00.000Z"},       # over the 40-minute limit
+                     []):                                                                                    # not an object
+            with self.subTest(body):
+                self.tmp.cleanup(); self.tmp = tempfile.TemporaryDirectory(); self.cases = self.tmp.name
+                self.results = os.path.join(self.cases, "case-results.json")
+                self.fixture()
+                digest = summary(body)
+                doc = json.load(open(self.results)); doc["cases"][0]["executionReceipt"]["summarySha256"] = digest
+                with open(self.results, "w", encoding="utf-8") as f:
+                    json.dump(doc, f)
+                out, by = self.table()
+                self.assertEqual((by["AHT-01"]["result"], by["AHT-01"]["evidence"], by["AHT-01"]["durationMs"]), ("UNKNOWN", "case-timing-invalid", None))
+        # and the valid case keeps its verdict and verified timing
+        self.tmp.cleanup(); self.tmp = tempfile.TemporaryDirectory(); self.cases = self.tmp.name
+        self.results = os.path.join(self.cases, "case-results.json")
+        self.fixture()
+        out, by = self.table()
+        self.assertEqual((by["AHT-01"]["result"], by["AHT-01"]["timingStatus"], by["AHT-01"]["durationMs"]), ("PASS", "OBSERVED", 12000))
 
     def test_tampered_summary_or_executed_case_without_receipt_refuses(self):
         for tamper, missing, reason in ((True, False, "summary-digest"), (False, True, "missing-receipt")):
@@ -365,7 +547,7 @@ class Ceilings(unittest.TestCase):
 
 
 class CumulativeCapsAreG5s(unittest.TestCase):
-    """G5 (check_gates.py 131-170) is the authority for the CUMULATIVE caps (Sam RETURN 3e0279d6). The caller holds no second formula; this
+    """G5 (check_gates.py 131-170) is the authority for the CUMULATIVE caps (the reviewer RETURN 3e0279d6). The caller holds no second formula; this
     drives the REAL gate evaluator at its exact boundary with nonzero reconciled prior usage."""
 
     def setUp(self):
@@ -400,7 +582,7 @@ class CumulativeCapsAreG5s(unittest.TestCase):
 
 
 class Lineage(unittest.TestCase):
-    """Workflow source vs tested release (Sam RETURNs b0100ad8 #4 and 3e0279d6 #1)."""
+    """Workflow source vs tested release (the reviewer RETURNs b0100ad8 #4 and 3e0279d6 #1)."""
 
     def setUp(self):
         self.repo = GitRepo()
@@ -427,7 +609,7 @@ class Lineage(unittest.TestCase):
 
     def test_an_older_release_diagnostic_is_bound_to_workflow_tested_request_and_selection(self):
         head = self.repo.commit({"frontend/app.json": {"v": 2}, RUNS + "r6.json": self.req()})
-        good = {"approvalRef": "slack:1793539739.216639", "workflowSha": head, "testedSha": self.release, "requestBlob": "blob", "cases": ["AHT-05"]}
+        good = {"approvalRef": "slack:1000000010.000010", "workflowSha": head, "testedSha": self.release, "requestBlob": "blob", "cases": ["AHT-05"]}
         self.assertEqual(self.lineage(head, good), "explicit-older-release-diagnostic")
         for k, v in (("workflowSha", "c" * 40), ("testedSha", "c" * 40), ("requestBlob", "other"), ("cases", ["AHT-06"]), ("approvalRef", "")):
             refused(self, "source-changes-product-beyond-request", self.lineage, head, dict(good, **{k: v}))
@@ -441,7 +623,7 @@ class Lineage(unittest.TestCase):
 
 
 class Account(unittest.TestCase):
-    """Jensen's I1'/I2' contract (Sam 1793554938.870679 Case15): every selected role bound to its own credential names, its own account id
+    """the CLI developer's I1'/I2' contract (Case15): every selected role bound to its own credential names, its own account id
     from the private bundle and its own history; an all-15 run is 14 existing-disposable + 1 maintained-read-only."""
     FREE_ID = "22222222-2222-4222-8222-222222222222"
 
@@ -511,8 +693,23 @@ class Account(unittest.TestCase):
 class Facts(unittest.TestCase):
     def test_the_builder_schema_is_produced_without_the_account_binding_or_diagnostic(self):
         out = I.translate_facts(facts(olderReleaseDiagnostic={"approvalRef": "x"}), live_request(), "github-direct")
-        self.assertEqual(set(out), {"ownerApprovalReference", "approvedBy", "reviewer", "receipts"})
+        self.assertEqual(set(out), {"ownerApprovalReference", "approvedBy", "reviewer", "receipts", "backend"})
         self.assertEqual(set(out["receipts"]), {"pre", "rls", "analytics", "disp", "fence", "review"})
+
+    def test_facts_without_the_backend_identity_refuse_in_prepare_not_in_the_stage_runner(self):
+        # Run 42226498611: these exact dispatch facts (no `backend`) passed prepare, then the plan builder refused them after the reserve
+        # and the preflight (build_plan.py `obj(FACTS.get('backend'), 'facts-backend')`). They now refuse here, with a named code.
+        dispatched = {"accounts": {"existing-disposable": {"historyRef": "first-observation:existing-disposable@R10-3b040043-smoke15",
+                                                           "idSha256": "FIRST-DISCOVERY"},
+                                   "maintained-read-only": {"historyRef": "first-observation:maintained-read-only@R10-3b040043-smoke15",
+                                                            "idSha256": "FIRST-DISCOVERY"}},
+                      "approvedBy": "product-owner", "ownerApprovalReference": FIXTURE_APPROVAL, "producerReviewReference": "slack:1000000011.000011",
+                      "receipts": {"analytics": "pending:preflight", "disp": "slack:1000000012.000012", "fence": "slack:1000000013.000013",
+                                   "pre": "pending:preflight", "review": "slack:1000000011.000011", "rls": "pending:preflight"}, "reviewer": "Sam"}
+        refused(self, "facts-backend-missing", I.translate_facts, dispatched, live_request(), "github-producer")
+        with_backend = dict(dispatched, backend={"manifestRef": "synthetic:backend-manifest@1", "generation": 7, "completion": "OFF",
+                                                 "migration129": "absent"})
+        self.assertEqual(I.translate_facts(with_backend, live_request(), "github-producer")["backend"]["generation"], 7)
 
     def test_the_old_receipt_shape_and_unbound_approvals_are_refused(self):
         old = facts(receipts={k: "receipt:%s@aaaaaaaaaaaa" % k for k in ("analytics", "disp", "fence", "review")})
@@ -524,7 +721,7 @@ class Facts(unittest.TestCase):
 
 class ProducerScope(unittest.TestCase):
     """The producer scope is composed from the COMMITTED request and accepted by the REAL authenticated_job_bootstrap.validateBindings
-    against the builder environment the REAL run_env.py derives from the same request (Sam RETURN 3e0279d6 #4)."""
+    against the builder environment the REAL run_env.py derives from the same request (the reviewer RETURN 3e0279d6 #4)."""
 
     LIMITS = {"maxDeliveries": 4, "maxSupabaseRequests": 32, "maxTelemetryReads": 2}
 
@@ -534,9 +731,10 @@ class ProducerScope(unittest.TestCase):
         now = datetime.now(timezone.utc).replace(microsecond=0)
         self.req = live_request(["AHT-07"], evidenceScope=dict(self.LIMITS))
         self.req["window"].update(startUtc=utc(now - timedelta(hours=1)), endUtc=utc(now + timedelta(hours=3)))
+        self.deadline = I.execution_deadline(self.req, now, 40)   # the run's one execution deadline, as prepare computes it
         self.facts = I.translate_facts(facts(producerReviewReference="review:producer@1"), self.req, "github-producer")
 
-    def bind(self, scope, account=ACCOUNT_ID, facts_over=None):
+    def bind(self, scope, account=ACCOUNT_ID, facts_over=None, plan_deadline=None):
         private = os.path.join(self.d, "private-%d" % len(os.listdir(self.d)))
         os.mkdir(private, 0o700)
         scope_file, facts_file, bindings_file, req_file, reconciliation_file, env_file = (
@@ -558,15 +756,18 @@ class ProducerScope(unittest.TestCase):
             os.chmod(path, 0o600)
         put(reconciliation_file, reconciliation())
         os.chmod(reconciliation_file, 0o600)
+        # The REAL run_env.py gets the same project origin the binding resolver gets (VITE_SUPABASE_URL); BP_HOST_DB is never injected here,
+        # because the live path never injected it either (run 42142985744 refused against https://undefined).
         r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", req_file,
-                            "--request-sha256", I._sha(req_file), "--reconciliation", reconciliation_file, "--out", env_file],
-                           capture_output=True, text=True)
+                            "--request-sha256", I._sha(req_file), "--reconciliation", reconciliation_file,
+                            "--execution-deadline", plan_deadline or self.deadline, "--out", env_file],
+                           capture_output=True, text=True, env=dict(os.environ, VITE_SUPABASE_URL="https://%s.supabase.co" % project_ref))
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(env_file, encoding="utf-8") as f:
             bp = dict(line.rstrip("\n").split("=", 1) for line in f if "=" in line)
         env = dict(bp, PATH=os.environ["PATH"], GITHUB_ACTIONS="true", GITHUB_REPOSITORY="relativityE/speaksharp", GITHUB_RUN_ID="123",
                    GITHUB_RUN_ATTEMPT="1", GITHUB_JOB="live", GITHUB_SHA="b" * 40, BP_FACTS=facts_file,
-                   BP_ACCOUNT_BINDINGS_FILE=bindings_file, BP_HOST_DB=project_ref + ".supabase.co")
+                   BP_ACCOUNT_BINDINGS_FILE=bindings_file)
         script = ("const b=require(process.argv[1]),{privateJson}=require(process.argv[2]),fs=require('node:fs');"
                   "const s=privateJson(process.argv[3],process.argv[4]);b.validateBindings(s,JSON.parse(fs.readFileSync(process.env.BP_FACTS)),process.env);"
                   "console.log('BOUND')")
@@ -576,13 +777,81 @@ class ProducerScope(unittest.TestCase):
         return p.stdout.strip(), p.stderr
 
     def scope(self):
-        return I.compose_scope(self.req, self.facts, ACCOUNT_ID, ["AHT-07"], "github-producer")
+        return I.compose_scope(self.req, self.facts, ACCOUNT_ID, ["AHT-07"], "github-producer", self.deadline)
 
     def test_the_composed_scope_is_accepted_by_the_real_bootstrap(self):
         s = self.scope()
         self.assertEqual((s["caseIds"], s["campaignId"], s["sourceSha"]), (["AHT-07"], self.req["runId"], SHA))
         out, err = self.bind(s)
         self.assertEqual(out, "BOUND", err)
+
+    def test_the_real_plan_environment_carries_the_project_host_and_a_missing_one_is_a_named_refusal(self):
+        # Run 42142985744: the plan environment had no BP_HOST_DB, so the bootstrap compared bindings with https://undefined behind a
+        # generic refusal. The real run_env.py now derives it from the resolver's origin, and refuses a producer run without one.
+        s = self.scope()
+        req_file = os.path.join(self.d, "req-host.json"); put(req_file, self.req); os.chmod(req_file, 0o600)
+        rec = os.path.join(self.d, "rec-host.json"); put(rec, reconciliation()); os.chmod(rec, 0o600)
+        env_file = os.path.join(self.d, "env-host.txt")
+        base = {k: v for k, v in os.environ.items() if k != "VITE_SUPABASE_URL"}
+        cmd = [sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", req_file, "--request-sha256", I._sha(req_file),
+               "--reconciliation", rec, "--execution-deadline", self.deadline, "--out", env_file]
+        missing = subprocess.run(cmd, capture_output=True, text=True, env=base)
+        self.assertNotEqual(missing.returncode, 0)
+        self.assertIn("project origin (VITE_SUPABASE_URL) is required", missing.stderr)
+        for bad in ("http://abcdefghijklmnopqrst.supabase.co", "https://abcdefghijklmnopqrst.supabase.co:8443", "https://evil.example/"):
+            self.assertNotEqual(subprocess.run(cmd, capture_output=True, text=True, env=dict(base, VITE_SUPABASE_URL=bad)).returncode, 0, bad)
+        ok = subprocess.run(cmd, capture_output=True, text=True, env=dict(base, VITE_SUPABASE_URL="https://abcdefghijklmnopqrst.supabase.co"))
+        self.assertEqual(ok.returncode, 0, ok.stderr)
+        with open(env_file, encoding="utf-8") as f:
+            self.assertIn("BP_HOST_DB=abcdefghijklmnopqrst.supabase.co\n", f.read())
+        self.assertEqual(self.bind(s)[0], "BOUND")
+
+    def through_execute_run(self, origin):
+        """the PRODUCTION path, not a direct call. The real execute_run.sh functions build, ensure_account_bindings,
+        plan_env_file and run_stage (env -i, then `. plan-env.txt`) run the real binding resolver, the real run_env.py and the real
+        bootstrap CLI, which invokes the real plan builder. Returns (returncode, stderr, plan-env text)."""
+        script = open(os.path.join(ROOT, "scripts", "execute_run.sh"), encoding="utf-8").read()
+        fns = "".join(re.search(r"(?ms)^%s\(\) \{.*?^\}\n" % n, script).group(0) for n in ("run_stage", "ensure_account_bindings", "plan_env_file", "build"))
+        d = os.path.realpath(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d)
+        out, inputs = os.path.join(d, "out"), os.path.join(d, "inputs")
+        os.mkdir(out, 0o700); os.mkdir(inputs, 0o700)
+        files = {}
+        for name, doc in (("request.json", self.req), ("facts.json", self.facts), ("scope.json", self.scope())):
+            files[name] = os.path.join(inputs, name); put(files[name], doc); os.chmod(files[name], 0o600)
+        bundle = os.path.join(inputs, "live-accounts.json")
+        with open(bundle, "wb") as f:                       # the workflow writes the bundle's canonical bytes (init_run_inputs prepare)
+            f.write(I.canonical_bundle_bytes(I.parse_live_accounts_bundle(bundle_with(ACCOUNT_ID))))
+        os.chmod(bundle, 0o600)
+        put(os.path.join(out, "reconciliation.json"), reconciliation()); os.chmod(os.path.join(out, "reconciliation.json"), 0o600)
+        env = {"PATH": os.environ["PATH"], "HOME": d, "GITHUB_ACTIONS": "true", "GITHUB_REPOSITORY": "relativityE/speaksharp", "GITHUB_RUN_ID": "123",
+               "GITHUB_RUN_ATTEMPT": "1", "GITHUB_JOB": "live", "GITHUB_SHA": "b" * 40, "VITE_SUPABASE_URL": origin,
+               "VITE_SUPABASE_ANON_KEY": "anon-synthetic", "CT_OUT": out, "CT_PRIVATE_INPUT_DIR": inputs, "CT_CHECKOUT": os.path.dirname(os.path.dirname(ROOT)),
+               "CT_FACTS_FILE": files["facts.json"], "CT_REQUEST": files["request.json"], "CT_REQUEST_SHA256": I._sha(files["request.json"]),
+               "CT_EVIDENCE_SCOPE_FILE": files["scope.json"], "CT_EVIDENCE_SCOPE_SHA256": I._sha(files["scope.json"]),
+               "CT_LIVE_ACCOUNTS_FILE": bundle, "CT_LIVE_ACCOUNTS_SHA256": I._sha(bundle), "CT_EXECUTION_DEADLINE": self.deadline}
+        harness = ("set -euo pipefail\nROOT=%r\nREPO=%r\nCFG=%r\nREQ=%r\nROUTE=github-producer\nHP=%r\nOUT=%r\nSTAGE=build-plan\n"
+                   "ss_broker_service_role=''\nss_broker_telemetry_key=''\nPYENV=(\"PATH=$PATH\" \"HOME=$HOME\")\n"
+                   "blocked() { echo \"BLOCKED_SETUP: $*\" >&2; exit 78; }\n%s\nbuild \"$OUT/plan\"\n") % (
+            ROOT, os.path.dirname(os.path.dirname(ROOT)), os.path.join(ROOT, "config", "test-config.v1.json"), files["request.json"],
+            os.path.join(ROOT, "harness"), out, fns)
+        r = subprocess.run(["bash", "-c", harness], capture_output=True, text=True, env=env, timeout=120)
+        plan_env = os.path.join(out, "plan-env.txt")
+        return r.returncode, r.stderr, open(plan_env, encoding="utf-8").read() if os.path.exists(plan_env) else None
+
+    def test_the_production_path_carries_the_host_through_env_i_into_the_bootstrap_cli_and_reaches_the_builder(self):
+        rc, err, plan_env = self.through_execute_run("https://abcdefghijklmnopqrst.supabase.co")
+        self.assertIn("BP_HOST_DB=abcdefghijklmnopqrst.supabase.co\n", plan_env)
+        # Past every binding check, the bootstrap reached the real plan builder (which refuses these synthetic inputs): never the host refusal.
+        self.assertNotIn("PROJECT_HOST_REQUIRED", err)
+        self.assertNotIn("bundle-project-mismatch", err)
+        self.assertIn("NOT_RUN: AUTHENTICATED_JOB_PREPARATION_REFUSED PLAN_BUILD_REFUSED", err)
+
+    def test_the_production_path_refuses_an_empty_malformed_or_other_project_host_before_the_bootstrap(self):
+        for origin in ("", "not-a-url", "https://zzzzzzzzzzzzzzzzzzzz.supabase.co"):
+            rc, err, _ = self.through_execute_run(origin)
+            self.assertNotEqual(rc, 0, origin)
+            self.assertNotIn("AUTHENTICATED_JOB_PREPARATION_REFUSED", err, origin)   # stopped before the bootstrap ever ran
 
     def test_the_real_bootstrap_refuses_another_account_or_review_reference(self):
         self.assertNotEqual(self.bind(self.scope(), account=ACCOUNT_ID.replace("1", "2"))[0], "BOUND")
@@ -592,11 +861,25 @@ class ProducerScope(unittest.TestCase):
 
     def test_scope_limits_window_and_route_are_checked_before_composition(self):
         for lim in ({}, dict(self.LIMITS, maxDeliveries=0), dict(self.LIMITS, maxSupabaseRequests=257), dict(self.LIMITS, extra=1)):
-            refused(self, "evidence-scope-limits", I.compose_scope, dict(self.req, evidenceScope=lim), self.facts, ACCOUNT_ID, ["AHT-07"], "github-producer")
+            refused(self, "evidence-scope-limits", I.compose_scope, dict(self.req, evidenceScope=lim), self.facts, ACCOUNT_ID, ["AHT-07"], "github-producer",
+                    self.deadline)
         r = copy.deepcopy(self.req); r["window"]["endUtc"] = utc(datetime.now(timezone.utc) + timedelta(hours=6))
-        refused(self, "producer-scope-window-over-six-hours", I.compose_scope, r, self.facts, ACCOUNT_ID, ["AHT-07"], "github-producer")
-        refused(self, "evidence-scope-only-for-producer-route", I.compose_scope, self.req, self.facts, ACCOUNT_ID, ["AHT-05"], "github-direct")
-        self.assertIsNone(I.compose_scope(live_request(["AHT-05"]), self.facts, ACCOUNT_ID, ["AHT-05"], "github-direct"))
+        refused(self, "producer-scope-window-over-six-hours", I.compose_scope, r, self.facts, ACCOUNT_ID, ["AHT-07"], "github-producer", self.deadline)
+        refused(self, "evidence-scope-only-for-producer-route", I.compose_scope, self.req, self.facts, ACCOUNT_ID, ["AHT-05"], "github-direct",
+                self.deadline)
+        self.assertIsNone(I.compose_scope(live_request(["AHT-05"]), self.facts, ACCOUNT_ID, ["AHT-05"], "github-direct", None))
+        # The scope's deadline is the run's one execution deadline: missing, malformed or outside the occurrence refuses.
+        w = self.req["window"]
+        for bad in (None, "", "soon", w["startUtc"], utc(datetime.strptime(w["endUtc"], "%Y-%m-%dT%H:%M:%SZ") + timedelta(seconds=1))):
+            refused(self, "execution-deadline-missing", I.compose_scope, self.req, self.facts, ACCOUNT_ID, ["AHT-07"], "github-producer", bad)
+        self.assertEqual(self.scope()["deadlineAt"], self.deadline)
+        self.assertNotEqual(self.deadline, w["endUtc"])
+
+    def test_a_plan_deadline_other_than_the_scope_deadline_is_refused_by_the_real_bootstrap(self):
+        """admission, producer and campaign bind ONE value. A plan built with any other deadline (the occurrence end, as
+        before) cannot pair with the scope: the real bootstrap refuses it."""
+        out, err = self.bind(self.scope(), plan_deadline=self.req["window"]["endUtc"])
+        self.assertNotEqual(out, "BOUND")
 
 
 class PrepareFailsClosedOnContinuity(unittest.TestCase):
@@ -684,7 +967,8 @@ class PrepareFailsClosedOnContinuity(unittest.TestCase):
         self.assertEqual(I.canonical_bundle_bytes(I.parse_live_accounts_bundle(canonical.decode())), canonical, "canonical bytes are a fixed point")
         # The window check accepts exactly those bytes, and refuses them once the workspace-style copy is rewritten.
         check = lambda: subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "init_run_inputs.py"), "window-check", "--request",
-                                        ct_request, "--live-minutes", "47", "--request-sha256", published["request_sha256"]],
+                                        ct_request, "--live-minutes", published["live_minutes"], "--request-sha256", published["request_sha256"],
+                                        "--execution-deadline", published["execution_deadline"]],
                                        capture_output=True, text=True, env={"PATH": os.environ["PATH"]})
         self.assertEqual(check().returncode, 0, check().stderr)
         os.chmod(ct_request, 0o600)
@@ -697,6 +981,7 @@ class Qualify(unittest.TestCase):
     and config bytes), the dispatch subset in plan.selection, and case results whose other rows are notSelected (campaign-core.cjs 116)."""
 
     SELECTED = ["AHT-05", "AHT-09"]
+    CAMPAIGN = "C1"
 
     def setUp(self):
         self.d = os.path.realpath(tempfile.mkdtemp())
@@ -714,7 +999,7 @@ class Qualify(unittest.TestCase):
         self.code = os.path.join(self.d, "packet", "CODE.sha256")
         put(self.code, "".join(manifest))
         self.plan = os.path.join(self.d, "campaign-plan.json")
-        put(self.plan, {"campaignId": "C1", "sourceSha": SHA, "servedSha": SHA, "coverageMode": "partial", "assertionDepth": "full", "cases": rows,
+        put(self.plan, {"campaignId": self.CAMPAIGN, "sourceSha": SHA, "servedSha": SHA, "coverageMode": "partial", "assertionDepth": "full", "cases": rows,
                         "selection": {"ids": list(self.SELECTED), "order": list(self.SELECTED), "ownerApprovalReference": "slack:1", "reason": "unit"}})
         self.approval = os.path.join(self.d, "security-approval.json")
         put(self.approval, {"reviewedCodeManifestSha256": self.sha(self.code)})
@@ -754,7 +1039,7 @@ class Qualify(unittest.TestCase):
         built = rows or [row(c) for c in I.ALL_CASES]
         for c, change in (patch or {}).items():
             built = [change(dict(r)) if r["caseId"] == c else r for r in built]
-        put(self.results, dict({"campaignId": "C1", "sourceSha": SHA, "servedSha": SHA, "cases": built}, **over))
+        put(self.results, dict({"campaignId": self.CAMPAIGN, "sourceSha": SHA, "servedSha": SHA, "cases": built}, **over))
 
     def qualify(self, run_verifier=I._run_verifier, selected=None, mode="partial"):
         self.runs += 1
@@ -766,7 +1051,7 @@ class Qualify(unittest.TestCase):
 
     def request(self, selected=None, mode="partial"):
         """The committed request this campaign ran: runId = campaignId, the selection, the tested release and the harness CODE pin."""
-        req = live_request(None if mode == "full" else list(selected or self.SELECTED), runId="C1")
+        req = live_request(None if mode == "full" else list(selected or self.SELECTED), runId=self.CAMPAIGN)
         if mode == "smoke":
             req.update(coverageMode="smoke", sampleMode="smoke", priority="journey-smoke")
         req["release"]["testedSha"] = SHA
@@ -774,7 +1059,7 @@ class Qualify(unittest.TestCase):
         return req
 
     def ids(self, request_file, catalog=None):
-        """identities() shape over a synthetic catalog whose per-case sets are exactly this fixture's required assertions."""
+        """identities shape over a synthetic catalog whose per-case sets are exactly this fixture's required assertions."""
         return {"requestSha256": self.sha(request_file), "request": J(request_file), "catalogSha256": "c" * 64,
                 "catalog": catalog or {c: ["%s-a" % c.lower(), "%s-b" % c.lower()] for c in I.ALL_CASES}}
 
@@ -889,8 +1174,64 @@ class Qualify(unittest.TestCase):
         self.assertEqual(I.LR.qualified_comparable(done["history"], clean["comparability"]), [])
         self.assertEqual(I.LR.parse_body(I.LR.render(done)), done)
 
+    def make_selected_smoke(self, selected):
+        """The real smoke builder's shape for the R10 one-case attempt (run_env BP_SELECT): smoke markers, the fifteen-row denominator, only the
+        selected cases dispatched; the other rows notSelected."""
+        plan = J(self.plan)
+        plan.update(campaignId=self.CAMPAIGN, coverageMode="smoke", assertionDepth="smoke",
+                    selection={"ids": list(selected), "order": list(selected), "ownerApprovalReference": "slack:1", "reason": "unit one case"})
+        put(self.plan, plan)
+        self.SELECTED = list(selected)
+        for cid in os.listdir(self.cases):      # the setUp fixture's own dispatched cases are not part of this campaign
+            if cid not in selected:
+                shutil.rmtree(os.path.join(self.cases, cid))
+        for cid in selected:
+            self.write_case(cid, [("a", "PASS"), ("b", "PASS")], refresh=False)
+        self.write_results()
+
+    def test_the_r10_selected_aht01_smoke_qualifies_projects_and_publishes_with_fifteen_display_rows(self):
+        """a SUCCESSFUL selected-AHT-01 smoke must not become another unpublishable record. The real verifier, qualifier,
+        collector, projection and latest-record publisher compose: only AHT-01's own smoke assertions qualify; the display keeps fifteen rows
+        with fourteen NOT SELECTED; the record completes as smoke, outside acceptance history."""
+        self.CAMPAIGN = I.R10_ONE_OFF_RUN_ID
+        self.setUp()
+        self.make_selected_smoke(["AHT-01"])
+        request = self.request(["AHT-01"], mode="smoke")
+        record = self.collect(request)
+        q = self.qualify(selected=["AHT-01"], mode="smoke")
+        self.assertEqual((q["coverage"], q["outcome"], q["campaignId"], q["cases"]), ("smoke", "passed", I.R10_ONE_OFF_RUN_ID, ["AHT-01"]))
+        with open(self.results, "rb") as f:
+            case_results_raw = f.read()
+        with open(os.path.join(self.d, "request-%d.json" % self.runs), "rb") as f:
+            request_raw = f.read()
+        catalog = {"cases": {cid: {"requiredAssertions": ["%s-a" % cid.lower(), "%s-b" % cid.lower()]} for cid in I.ALL_CASES}}
+        rec = I.project(record, "123", 1, "c" * 40, SHA, q, q["requestSha256"], prov_of(q),
+                        case_results_raw, catalog, request_raw, b"synthetic-smoke-media")
+        self.assertEqual((rec["coverage"], rec["outcome"], rec["campaignId"], len(rec["cases"])), ("smoke", "passed", I.R10_ONE_OFF_RUN_ID, 15))
+        self.assertEqual([c["caseId"] for c in rec["cases"] if c["result"] != "NOT SELECTED"], ["AHT-01"])
+        self.assertEqual(sum(c["result"] == "NOT SELECTED" for c in rec["cases"]), 14)
+        self.assertEqual(next(c for c in rec["cases"] if c["caseId"] == "AHT-01")["result"], "PASS")
+        clean = I.LR.sanitize_record(rec)
+        with self.assertRaisesRegex(I.LR.Refused, "not-selected-rows"):     # NOT SELECTED smoke rows only for the R10 one-off campaign
+            I.LR.sanitize_record(dict(rec, campaignId="C1"))
+        running = I.LR.begin(I.LR.parse_body(""), "123", 1, "c" * 40, record["startedUtc"])
+        pending = I.LR.pending_completion(running, clean, "2026-11-01T14:40:00Z", "8" * 64, "9" * 64)
+        self.assertEqual(I.LR.parse_body(I.LR.render(pending))["pendingCompletion"]["record"]["coverage"], "smoke")
+        done = I.LR.complete(running, clean)
+        self.assertEqual(I.LR.parse_body(I.LR.render(done)), done)
+        self.assertEqual((done["latestCompleted"]["outcome"], done["history"]["occurrences"][0]["coverage"]), ("passed", "smoke"))
+        self.assertEqual(done["history"]["rows"], {}, "smoke never enters acceptance history")
+        # a failing AHT-01 row stays a qualified FAIL, publishable as such
+        self.write_case("AHT-01", [("a", "PASS"), ("b", "FAIL")], "FAIL")
+        q2 = self.qualify(selected=["AHT-01"], mode="smoke")
+        self.assertEqual((q2["coverage"], q2["outcome"]), ("smoke", "failed"))
+
+    def test_a_smoke_subset_of_any_other_campaign_never_qualifies(self):
+        self.make_selected_smoke(["AHT-01"])
+        refused(self, "plan-not-an-all-fifteen-smoke-plan", self.qualify, selected=["AHT-01"], mode="smoke")
+
     def test_incomplete_smoke_keeps_its_source_depth_and_never_becomes_acceptance_history(self):
-        """The real frozen verifier/qualifier/project/pending/readback/complete path for Sam's incomplete-smoke RETURN."""
+        """The real frozen verifier/qualifier/project/pending/readback/complete path for the reviewer's incomplete-smoke RETURN."""
         self.make_smoke()
         self.write_case("AHT-15", [("a", "PASS"), ("b", "NOT RUN")], "NOT RUN")
         request = self.request(mode="smoke")
@@ -936,16 +1277,16 @@ class Qualify(unittest.TestCase):
         self.assertEqual(accepted["history"]["rows"]["AHT-05"]["last"]["runId"], "125")
 
     def test_a_request_substituted_after_admission_keeping_the_five_checked_fields_never_qualifies(self):
-        # Sam 1793548687.416409: the five execution-identity checks (runId, selection, tested release, mode, harness CODE pin) do not bind the
+        # the five execution-identity checks (runId, selection, tested release, mode, harness CODE pin) do not bind the
         # request blob. Substitute window, approval and budget fields after admission while preserving those five exactly.
         record = self.collect(live_request(list(self.SELECTED), runId="C1"))
         request_file = os.path.join(self.d, "admitted.json")
         put(request_file, self.request())
         admitted = self.sha(request_file)
         substitute = self.request()
-        substitute["window"].update(endUtc="2099-01-01T00:00:00Z", approvalRef="slack:1793549999.000001")
-        substitute["selectionApprovalRef"] = "slack:1793549999.000002"
-        substitute["approvedLimits"].update(runCapRequests=4000, cumulativeCeilingRequests=99999, identityCap=999, approvalRef="slack:1793549999.000003")
+        substitute["window"].update(endUtc="2099-01-01T00:00:00Z", approvalRef="slack:1000000014.000014")
+        substitute["selectionApprovalRef"] = "slack:1000000015.000015"
+        substitute["approvedLimits"].update(runCapRequests=4000, cumulativeCeilingRequests=99999, identityCap=999, approvalRef="slack:1000000016.000016")
         substitute["estimate"]["requests"]["runCap"] = 4000
         self.assertEqual({k: substitute[k] for k in ("runId", "selection", "release", "coverageMode", "harness")},
                          {k: self.request()[k] for k in ("runId", "selection", "release", "coverageMode", "harness")})
@@ -966,7 +1307,7 @@ class Qualify(unittest.TestCase):
         self.assertEqual(I.project(record, "123", 1, "c" * 40, SHA, q, q["requestSha256"], prov_of(q))["outcome"], "passed", "the same bytes still bind")
 
     def test_a_complete_authenticated_fail_baseline_is_full_and_failed(self):
-        # Sam 1793547120.015339: every required row executed (PASS or FAIL) is full coverage; FAILs make the outcome failed, never unqualified.
+        # every required row executed (PASS or FAIL) is full coverage; FAILs make the outcome failed, never unqualified.
         self.make_full()
         self.write_case("AHT-03", [("a", "PASS"), ("b", "FAIL")], "FAIL")
         self.write_case("AHT-12", [("a", "FAIL"), ("b", "FAIL")], "FAIL")
@@ -1007,7 +1348,7 @@ class Qualify(unittest.TestCase):
 
     def test_required_assertions_must_be_exactly_the_catalog_set(self):
         # Remove a required assertion from AHT-09's config and refresh the plan's config digest: every hash stays coherent, the case can
-        # even PASS, but it no longer covers the catalog (Sam RETURN 546429c4 #1).
+        # even PASS, but it no longer covers the catalog (the reviewer RETURN 546429c4 #1).
         config = os.path.join(self.d, "cfg", "AHT-09.json")
         put(config, {"caseId": "AHT-09", "requiredAssertions": ["aht-09-a"]})
         plan = J(self.plan)
@@ -1167,7 +1508,7 @@ class Qualify(unittest.TestCase):
 
 
 class Project(unittest.TestCase):
-    """The real collector keeps all 15 rows; qualification binds to THIS record's case-results digest and releases (Sam RETURN 3e0279d6 #3)."""
+    """The real collector keeps all 15 rows; qualification binds to THIS record's case-results digest and releases (the reviewer RETURN 3e0279d6 #3)."""
 
     def record(self):
         rows = [{"case": c, "result": "PASS" if c in ("AHT-05", "AHT-09") else "NOT RUN", "reason": None if c in ("AHT-05", "AHT-09") else "Not selected",
@@ -1336,7 +1677,7 @@ def bundle_with(throwaway_id):
 
 
 class ExecutionProvenance(unittest.TestCase):
-    """The I4' receiver against Jensen's producer shapes at 75b47b2c, with every expectation derived from a COMPLETE frozen plan: the
+    """The I4' receiver against the CLI developer's producer shapes at 75b47b2c, with every expectation derived from a COMPLETE frozen plan: the
     build-plan consumption receipt, the nightly reservation's request consumption, each case's execution receipt and runtime-start file, and
     the collector's executionProvenance. Includes A-admitted / B-consumed-at-runtime / A-restored with reserve and collector reporting A."""
     A, B = "a" * 64, "b" * 64
@@ -1551,7 +1892,7 @@ class ProvenanceFromFiles(unittest.TestCase):
 
 
 class NightlyMode(unittest.TestCase):
-    """Sam 1793557964.186059: a scheduled run admits exactly the bytes the nightly gate derived and admitted (its request_b64 beside
+    """a scheduled run admits exactly the bytes the nightly gate derived and admitted (its request_b64 beside
     request_sha256), never a committed file; a nightly-regression request is admitted only that way."""
     def setUp(self):
         from test_nightly_request import SHA as NSHA, SLOT as NSLOT, derive as nightly_derive
@@ -1608,7 +1949,7 @@ class NightlyMode(unittest.TestCase):
         refused(self, "nightly-facts-not-pinned", I.nightly_facts, repo)
         self.assertIsNone(I.NIGHTLY_FACTS_SHA256)
         refused(self, "nightly-facts-unreadable", I.nightly_facts, repo, "0" * 64)
-        raw = json.dumps(facts(ownerApprovalReference="slack:1793553158.013909")).encode()
+        raw = json.dumps(facts(ownerApprovalReference="slack:1000000008.000008")).encode()
         os.makedirs(os.path.join(repo, os.path.dirname(I.NIGHTLY_FACTS_PATH)))
         with open(os.path.join(repo, I.NIGHTLY_FACTS_PATH), "wb") as f:
             f.write(raw)
@@ -1631,7 +1972,7 @@ class NightlyMode(unittest.TestCase):
         second_raw = nightly_derive(run_id="102", sha=self.sha)
         second = json.loads(second_raw)
         reconciliation = b'{"accepted":"synthetic-unit-control"}\n'
-        committed = facts(ownerApprovalReference="slack:1793553158.013909")
+        committed = facts(ownerApprovalReference="slack:1000000008.000008")
         self.assertNotIn("actionApproval", committed)
         def standing(request, raw):
             # D1(a): the stand-in for standing_envelope, whose gates are controlled in StandingEnvelope; it returns the request- and
@@ -1676,10 +2017,10 @@ import state_ref_writer as W  # noqa: E402
 
 
 class ContinuityCheckpoint(Journal):
-    """Increment I (Sam 1793566031.065709): the continuity checkpoint is the accepted rollup over the verified journal, bound to the admitted
+    """Increment I : the continuity checkpoint is the accepted rollup over the verified journal, bound to the admitted
     request, written as the exact bytes the stage runner consumes before plan construction. Synthetic inputs and test-only pins only."""
 
-    APPROVAL = "slack:1793538100.358869"
+    APPROVAL = FIXTURE_APPROVAL
 
     def setUp(self):
         super().setUp()
@@ -1771,7 +2112,8 @@ class ContinuityCheckpoint(Journal):
             f.write(rc_bytes)
         put(req_file, self.req)
         r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", req_file,
-                            "--request-sha256", I._sha(req_file), "--reconciliation", rc_file, "--out", env_file], capture_output=True, text=True)
+                            "--request-sha256", I._sha(req_file), "--reconciliation", rc_file, "--execution-deadline", self.req["window"]["endUtc"],
+                            "--out", env_file], capture_output=True, text=True, env=LIVE_ORIGIN_ENV)
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(env_file, encoding="utf-8") as f:
             bp = dict(line.rstrip("\n").split("=", 1) for line in f if "=" in line)
@@ -1825,7 +2167,7 @@ class ContinuityCheckpoint(Journal):
         self.refused("continuity-run-identity-exceeds-period", req=nightly)  # 126 - 100 = 26 left < 32
 
     def test_prepare_admits_only_the_supplied_envelope_and_the_real_builder_binding_accepts_the_placed_bytes(self):
-        # RETURN 1793567352.685309 #1: prepare -> placement -> the real case_start_caps.bind_inputs, with substitution refusals.
+        # RETURN #1: prepare -> placement -> the real case_start_caps.bind_inputs, with substitution refusals.
         import contextlib
         import io
         import case_start_caps as CS
@@ -1867,9 +2209,9 @@ class ContinuityCheckpoint(Journal):
                                (dict(good, schema="x"), "action-approval-shape"),
                                (dict(good, requestSha256="0" * 64), "action-approval-not-the-request"),
                                (dict(good, reconciliationSha256="0" * 64), "action-approval-not-the-checkpoint"),
-                               (dict(good, approvalRef="slack:1793566031.065709"), "action-approval-reference"),
+                               (dict(good, approvalRef="approval-" + "f" * 32), "action-approval-reference"),
                                (dict(good, approvedBy="someone-else"), "action-approval-reference"),
-                               (dict(good, selectionApprovalRef="slack:1793566031.065709"), "action-approval-selection")):
+                               (dict(good, selectionApprovalRef="approval-" + "f" * 32), "action-approval-selection")):
             with self.subTest(code=code, envelope=str(envelope)[:60]):
                 result = prepare(envelope)
                 self.assertEqual(result[:2], (78, "BLOCKED_SETUP: " + code))
@@ -1979,8 +2321,9 @@ process.exitCode = result.exitCode;
         def bind():
             env_file = os.path.join(ct_out, "plan-env-%d.txt" % len(os.listdir(ct_out)))
             r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", os.path.join(out, "request.json"),
-                                "--request-sha256", published["request_sha256"], "--reconciliation", placed, "--out", env_file],
-                               capture_output=True, text=True)
+                                "--request-sha256", published["request_sha256"], "--reconciliation", placed,
+                                "--execution-deadline", published["execution_deadline"], "--out", env_file],
+                               capture_output=True, text=True, env=LIVE_ORIGIN_ENV)
             self.assertEqual(r.returncode, 0, r.stderr)
             import shlex
             with open(env_file, encoding="utf-8") as f:  # execute_run.sh sources this file; values are shlex-quoted
@@ -1999,7 +2342,7 @@ process.exitCode = result.exitCode;
         self.assertEqual(str(e.exception), "action-digests")
 
     def test_prepare_outputs_drive_the_real_builder_through_phase_two_and_its_consumption_receipt(self):
-        # Sam 1793567840.781019 / 1793568078.292469: the positive control continues from prepare and the placed bytes through the actual
+        # the positive control continues from prepare and the placed bytes through the actual
         # build_plan entry point (phase 1, then phase 2) to its bound outputs, with complete admitted facts; synthetic, no browser/network.
         import contextlib
         import io
@@ -2045,8 +2388,9 @@ process.exitCode = result.exitCode;
         # The runner's own reader derives the builder's BP_* environment from the admitted request and the placed bytes.
         plan_env = ct_out / "plan-env.txt"
         r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", os.path.join(out, "request.json"),
-                            "--request-sha256", published["request_sha256"], "--reconciliation", str(placed), "--out", str(plan_env)],
-                           capture_output=True, text=True)
+                            "--request-sha256", published["request_sha256"], "--reconciliation", str(placed),
+                            "--execution-deadline", published["execution_deadline"], "--out", str(plan_env)],
+                           capture_output=True, text=True, env=LIVE_ORIGIN_ENV)
         self.assertEqual(r.returncode, 0, r.stderr)
         bp = {k: (shlex.split(v)[0] if v else "") for k, v in (line.split("=", 1) for line in plan_env.read_text().splitlines() if "=" in line)}
         # Non-caller scaffolding (packet, checkout, private dir, browser identity, account bindings) from the builder's own synthetic fixture,
@@ -2070,7 +2414,7 @@ process.exitCode = result.exitCode;
         bad_rc.write_bytes(rc_bytes.replace(b'"outstandingReservations":0', b'"outstandingReservations":1'))
         bad_facts = ct_out / "substituted-facts.json"
         changed = json.loads(Path(env["BP_FACTS"]).read_text())
-        changed["actionApproval"]["selectionApprovalRef"] = "slack:1793566031.065709"
+        changed["actionApproval"]["selectionApprovalRef"] = "slack:1000000017.000017"
         bad_facts.write_text(json.dumps(changed))
         for label, over in (("reconciliation bytes", {"BP_RECONCILIATION_FILE": str(bad_rc),
                                                       "BP_RECONCILIATION_SHA256": hashlib.sha256(bad_rc.read_bytes()).hexdigest()}),
@@ -2112,11 +2456,11 @@ process.exitCode = result.exitCode;
 
 
 class StandingEnvelope(Journal):
-    """Option A (Sam 1793568947.054419), design only: a nightly occurrence's action envelope is DERIVED under the explicit grant in the pinned
+    """Option A , design only: a nightly occurrence's action envelope is DERIVED under the explicit grant in the pinned
     recurring approval. Every approval, grant, pin and checkpoint here is SYNTHETIC, supplied through test-only overrides; the production pin
     stays unset, so production derivation refuses."""
     GRANT = {"scope": "per-occurrence-start-take", "cases": I.ALL_CASES, "grantRef": "SYNTHETIC-NOT-A-GRANT"}
-    REF = "slack:1793553158.013909"  # the synthetic recurring approval's reference (test_nightly_request.approval)
+    REF = "slack:1000000008.000008"  # the synthetic recurring approval's reference (test_nightly_request.approval)
 
     def setUp(self):
         super().setUp()
@@ -2213,7 +2557,7 @@ class StandingEnvelope(Journal):
         return (self.req["runId"], run, 1, hashlib.sha256(self.req_raw).hexdigest())
 
     def test_an_exact_fit_already_reserved_request_is_admitted_against_its_held_allocation(self):
-        # Sam RETURN 1793625480.539669: the rollup charges the open reserve; admission must not demand the same headroom a second time.
+        # the reviewer RETURN : the rollup charges the open reserve; admission must not demand the same headroom a second time.
         rc0 = json.loads(self.checkpoint())
         need = self.need()
         filler = {k: rc0["currentHeadroom"][k] - need[k] for k in I.STANDING_PERIOD_DIMENSIONS}
@@ -2227,7 +2571,7 @@ class StandingEnvelope(Journal):
         refused(self, "continuity-run-identity-exceeds-period", self.derive, prior=I.reserved_occurrences(self.chain(), self.own()))
 
     def test_a_released_own_reserve_holds_nothing(self):
-        # Jensen's review of 7ab42417: a release returns the allocation exactly like a settle; it must not still count as held.
+        # the CLI developer's review of 7ab42417: a release returns the allocation exactly like a settle; it must not still count as held.
         need = self.need()
         self.reserve_on_chain(allocation=dict(need, coachingRequests=0, runnerMinutes=0))
         self.assertIsNotNone(I.own_held_allocation(self.chain(), self.own()))
@@ -2262,7 +2606,7 @@ class StandingEnvelope(Journal):
                 prior=I.reserved_occurrences(self.chain(), self.own()), own=self.own())
 
     def test_this_executions_own_open_reserve_is_not_a_replay_but_any_other_reserve_is(self):
-        # Sam RETURN 1793624502.797169 #2: journal-reserve appends THIS run's reserve before prepare; it must not reject itself.
+        # the reviewer RETURN #2: journal-reserve appends THIS run's reserve before prepare; it must not reject itself.
         own = (self.req["runId"], "101", 1, hashlib.sha256(self.req_raw).hexdigest())
         self.reserve_on_chain()
         prior = I.reserved_occurrences(self.chain(), own)
@@ -2315,7 +2659,8 @@ class StandingEnvelope(Journal):
             with open(path, "wb") as f:
                 f.write(raw)
         r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", req_file, "--request-sha256", request_sha,
-                            "--reconciliation", rc_file, "--out", env_file], capture_output=True, text=True)
+                            "--reconciliation", rc_file, "--execution-deadline", json.loads(self.req_raw)["window"]["endUtc"], "--out", env_file],
+                           capture_output=True, text=True, env=LIVE_ORIGIN_ENV)
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(env_file, encoding="utf-8") as f:
             bp = {k: (shlex.split(v)[0] if v else "") for k, v in (line.rstrip("\n").split("=", 1) for line in f if "=" in line)}
@@ -2330,7 +2675,7 @@ class StandingEnvelope(Journal):
             CS.bind_inputs(dict(bp, BP_REQUEST_SHA256=hashlib.sha256(nxt).hexdigest()), {"actionApproval": envelope})
 
     def test_composed_nightly_occurrence_runs_gate_reserve_observation_prepare_and_both_builder_phases(self):
-        # Sam 1793572531.612979: ONE composed all-15 synthetic control. Real: nightly derive, the observation's accepted reserve on the journal,
+        # ONE composed all-15 synthetic control. Real: nightly derive, the observation's accepted reserve on the journal,
         # its settle, prepare (continuity checkpoint, standing envelope, Case 10 admission), run_env, and build_plan phase 1 and 2 in-process,
         # to the consumption receipt. Explicit test-only substitutions, nothing else: the approval/facts/continuity pins, the trusted reader
         # identity, the synthetic packet scaffold, producer descriptor and PDF-parser file. Admission and accounting are not stubbed.
@@ -2345,7 +2690,7 @@ class StandingEnvelope(Journal):
         from test_nightly_request import derive as nightly_derive
         now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
         slot = now - timedelta(minutes=1)
-        # The 360-minute nightly window (Sam 1793554593.723039) holds setup + live + collect from an admission a few seconds after the slot.
+        # The 360-minute nightly window holds setup + live + collect from an admission a few seconds after the slot.
         approval_raw = self.nightly_approval(startTakeGrant=self.GRANT, perRunCaps={"windowMinutes": 360})
         bundle = json.loads(bundle_with(ACCOUNT_ID))
         maintained = bundle["accounts"]["maintained-read-only"]["accountId"]
@@ -2406,7 +2751,8 @@ class StandingEnvelope(Journal):
         shutil.copyfile(os.path.join(out, "reconciliation.json"), ct_out / "reconciliation.json")
         r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", os.path.join(out, "request.json"),
                             "--request-sha256", published["request_sha256"], "--reconciliation", str(ct_out / "reconciliation.json"),
-                            "--out", str(ct_out / "plan-env.txt")], capture_output=True, text=True)
+                            "--execution-deadline", published["execution_deadline"], "--out", str(ct_out / "plan-env.txt")],
+                           capture_output=True, text=True, env=LIVE_ORIGIN_ENV)
         self.assertEqual(r.returncode, 0, r.stderr)
         bp = {k: (shlex.split(v)[0] if v else "") for k, v in (line.split("=", 1) for line in (ct_out / "plan-env.txt").read_text().splitlines() if "=" in line)}
         # 5. Both builder phases (real build_plan, in-process so the explicit reader trust applies), on the synthetic packet scaffold.
@@ -2509,13 +2855,13 @@ class StandingEnvelope(Journal):
                 ("estimate requests", {"req": self.changed(lambda r: r["estimate"]["requests"].update(runCap=4401))}, "per-run"),
                 ("period ceiling", {"req": self.changed(lambda r: r["approvedLimits"].update(cumulativeCeilingRequests=131999))}, "period"),
                 ("approver", {"req": self.changed(lambda r: r["approvedLimits"].update(approvedBy="someone-else"))}, "reference"),
-                ("selection", {"req": self.changed(lambda r: r.update(selectionApprovalRef="slack:1793566031.065709"))}, "reference"),
-                ("standing ref", {"req": self.changed(lambda r: r["nightly"].update(standingApprovalRef="slack:1793566031.065709"))}, "reference")):
+                ("selection", {"req": self.changed(lambda r: r.update(selectionApprovalRef="slack:1000000017.000017"))}, "reference"),
+                ("standing ref", {"req": self.changed(lambda r: r["nightly"].update(standingApprovalRef="slack:1000000017.000017"))}, "reference")):
             with self.subTest(label):
                 refused(self, "action-approval-standing-" + code, self.derive, **kw)
 
     def test_the_checkpoint_period_and_every_period_ceiling_must_be_the_standing_approvals_own(self):
-        # RETURN 1793570165.380389: a different accounting scope can never extend the standing grant.
+        # RETURN : a different accounting scope can never extend the standing grant.
         self.assertTrue(self.derive())
         ceilings = {"requests": 132000, "protectedReserveRequests": 300, "identityReads": 960, "starts": 1260, "takes": 1200}
         for label, over in (("period starts later", {"periodStartUtc": "2026-11-02T00:00:00Z"}),
@@ -2575,6 +2921,8 @@ class StandingEnvelope(Journal):
 
         # Granted and pinned, nothing supplied: derived for this occurrence; the result equals the envelope an approver would have supplied.
         self.assertEqual(prepare(facts(), self.pin)["facts"]["actionApproval"], supplied)
+        # a nightly (unshared) run binds no reservation; only a manual run's own verified reserve does
+        self.assertIsNone(prepare(facts(), self.pin)["reservationBinding"])
         # D1(a): a supplied nightly envelope always refuses (no fallback); the production pin unset refuses derivation by name.
         refused(self, "nightly-action-approval-must-be-derived", prepare, facts(actionApproval=supplied), self.pin)
         refused(self, "action-approval-standing-not-pinned", prepare, facts(), None)
@@ -2591,7 +2939,7 @@ class StandingEnvelope(Journal):
 
 
 class Case10Bound(unittest.TestCase):
-    """Sam 1793567664.474339 item 2: prepare admits the Case 10 projection only through the builder's own validator; synthetic only."""
+    """item 2: prepare admits the Case 10 projection only through the builder's own validator; synthetic only."""
     ENTRIES = {"existing-disposable": {"accountId": ACCOUNT_ID}}
 
     def record(self, req, **over):
@@ -2634,7 +2982,7 @@ class Case10Bound(unittest.TestCase):
 
 
 class JournalReservationRecord(unittest.TestCase):
-    """I4' on the journal (RETURN 1793572741.370569): a nightly run's reservation record is the journal's own reserve event."""
+    """I4' on the journal (RETURN ): a nightly run's reservation record is the journal's own reserve event."""
     def snapshot(self, *events):
         return {"schema": "speaksharp.cloud-test.journal-snapshot.v1", "headSha": "a" * 40, "events": list(events)}
 
@@ -2653,7 +3001,7 @@ class JournalReservationRecord(unittest.TestCase):
 
 
 class Case10ObservationAdmission(unittest.TestCase):
-    """Design A in prepare (Sam 1793570217.800529): a nightly AHT-10 row pinning an observationContract admits only the placed fresh
+    """Design A in prepare : a nightly AHT-10 row pinning an observationContract admits only the placed fresh
     observation, through the builder's own validator, for this request digest, run and time; synthetic reader trusted by test override only."""
     ENTRIES = {"existing-disposable": {"accountId": ACCOUNT_ID}}
 
@@ -2703,7 +3051,7 @@ class WindowAtAdmission(unittest.TestCase):
 
 
 class LiveAccountsBundle(unittest.TestCase):
-    # Cross-language golden fixture (Sam RETURN 89949827; Jensen 1793552377.273939): the synthetic "valid" vector's exact canonical file bytes
+    # Cross-language golden fixture (the reviewer RETURN 89949827): the synthetic "valid" vector's exact canonical file bytes
     # and their digest. The resolver side pins the same two literals, so caller and resolver agree byte for byte.
     GOLDEN_BYTES = (b'{"accounts":{"existing-disposable":{"accountId":"11111111-1111-4111-8111-111111111111",'
                     b'"email":"throwaway.synthetic@example.invalid"},"maintained-read-only":{"accountId":"22222222-2222-4222-8222-222222222222",'
@@ -2725,7 +3073,7 @@ class LiveAccountsBundle(unittest.TestCase):
                 refused(self, code, I.parse_live_accounts_bundle, raw)
 
     def test_the_origin_is_one_full_string_match_with_no_url_parser(self):
-        # Sam 1793564538.998609: the caller imports no network-capable module, and the origin is matched in full, bound to the project.
+        # the caller imports no network-capable module, and the origin is matched in full, bound to the project.
         with open(os.path.join(ROOT, "scripts", "init_run_inputs.py"), encoding="utf-8") as f:
             self.assertNotRegex(f.read(), r"(?m)^\s*(import|from)\s+(socket|urllib|http|requests|ssl)\b")
         for url in ("https://%s.supabase.co:0443" % PROJECT, "https://%s.supabase.co:" % PROJECT, "https://%s.supabase.co\n" % PROJECT,
@@ -2737,7 +3085,7 @@ class LiveAccountsBundle(unittest.TestCase):
         for ref in (PROJECT + ".supabase.co", "a.c", "", None):
             with self.subTest(ref=ref):
                 self.assertFalse(I.is_project_origin("https://%s.supabase.co" % ref, ref))
-        # Sam RETURN 1793565233.209949: a newline-terminated reference paired with its URL, and Unicode case-folding (long s).
+        # the reviewer RETURN : a newline-terminated reference paired with its URL, and Unicode case-folding (long s).
         self.assertFalse(I.is_project_origin("https://%s\n.supabase.co" % PROJECT, PROJECT + "\n"))
         for url in ("https://%s.\u017fupabase.co" % PROJECT, "https://%s.supabase.\u0441o" % PROJECT, "https://%s.\u017fUPABASE.CO" % PROJECT):
             with self.subTest(url=url):
@@ -2755,7 +3103,7 @@ class LiveAccountsBundle(unittest.TestCase):
     def test_role_truth_project_binding_and_each_role_returns_only_its_own_entry(self):
         b = I.parse_live_accounts_bundle(bundle_with(ACCOUNT_ID))
         self.assertEqual(I.role_account(b, "existing-disposable", SUPABASE_URL_OK)["accountId"], ACCOUNT_ID)
-        # Case15 (Sam 1793554938.870679): maintained-read-only returns its OWN entry, never THROWAWAY's; whether it may run at all is the
+        # Case15 : maintained-read-only returns its OWN entry, never THROWAWAY's; whether it may run at all is the
         # run-stage allowlist's decision in account_bindings (refused today: Account.test_an_all_fifteen_selection_binds_fourteen_plus_one...).
         self.assertEqual(I.role_account(b, "maintained-read-only", SUPABASE_URL_OK)["accountId"], "22222222-2222-4222-8222-222222222222")
         refused(self, "account-role-not-in-bundle", I.role_account, b, "other-role", SUPABASE_URL_OK)
@@ -2800,3 +3148,300 @@ class LiveAccountsBundle(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CaseDiagnosticTests(unittest.TestCase):
+    """Run 42483030590 : each bound timing row carries a CLOSED, content-free cause: the guard stop code from the
+    digest-verified summary, the receipt exit code, the first non-passing catalog assertion id; early guard exits without a summary are
+    classified from the exit code; nothing free-text, injected or unlisted is ever projected."""
+    BIND = {"runId": "42483030590", "runAttempt": "1", "headSha": "2" * 40, "workflowStartUtc": "2026-11-08T13:02:28Z"}
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.cases = self.tmp.name
+        self.results = os.path.join(self.cases, "case-results.json")
+        self.started = os.path.join(self.cases, "started.txt")
+        with open(self.started, "w", encoding="utf-8") as f:
+            f.write("2026-11-08T13:10:40Z\n")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_one(self, summary=None, exit_code=0, assertions=None, result="FAIL", case_result=None, extra_rows=()):
+        directory = os.path.join(self.cases, "AHT-01")
+        os.makedirs(directory, exist_ok=True)
+        receipt = {"caseId": "AHT-01", "runId": "42483030590", "exitCode": exit_code, "summarySha256": None}
+        if case_result is not None:      # the case's own case-result.json, bound by the receipt's caseResultSha256
+            with open(os.path.join(directory, "case-result.json"), "wb") as f:
+                f.write(case_result)
+            receipt["caseResultSha256"] = hashlib.sha256(case_result).hexdigest()
+        if summary is not None:
+            raw = (json.dumps(dict({"startedAt": "2026-11-08T13:11:56.988Z", "endedAt": "2026-11-08T13:11:58.127Z"}, **summary)) + "\n").encode()
+            with open(os.path.join(directory, "summary.json"), "wb") as f:
+                f.write(raw)
+            receipt["summarySha256"] = hashlib.sha256(raw).hexdigest()
+        row = {"caseId": "AHT-01", "result": result, "executionReceipt": receipt, "assertions": assertions or []}
+        with open(self.results, "w", encoding="utf-8") as f:
+            json.dump({"cases": [row] + list(extra_rows)}, f)
+        out = I.run_timing_export(self.cases, self.results, ["AHT-01"] + [r["caseId"] for r in extra_rows], self.started, None, self.BIND)
+        return next(c for c in out["cases"] if c["caseId"] == "AHT-01"), json.dumps(out)
+
+    def test_closed_stop_codes_from_the_verified_summary(self):
+        for reason, code in (("sandbox-check-failed", "sandbox-check-failed"), ("step-error", "step-error"), ("completed", "completed"),
+                             ("fatal:uncaughtException", "fatal-uncaught-exception"), ("signal:SIGTERM", "signal-sigterm"),
+                             ("guard-fatal", "guard-fatal")):
+            with self.subTest(reason):
+                row, _ = self.run_one(summary={"reason": reason}, exit_code=3)
+                self.assertEqual(row["diagnostic"]["stopCode"], code)
+                self.assertEqual(row["diagnostic"]["exitCode"], 3)
+
+    def test_an_injected_or_unknown_reason_is_other_and_never_projected(self):
+        evil = "step-error; cat /etc/passwd password=hunter2"
+        row, text = self.run_one(summary={"reason": evil, "privateError": "must-not-be-exported"}, exit_code=3)
+        self.assertEqual(row["diagnostic"]["stopCode"], "other")
+        self.assertNotIn("passwd", text)
+        self.assertNotIn("hunter2", text)
+        self.assertNotIn("must-not-be-exported", text)
+
+    def test_guard_exits_without_a_summary_are_classified_from_the_exit_code(self):
+        for exit_code, code in ((2, "guard-usage-refused"), (78, "guard-refused-before-start"), (1, "guard-exited-without-summary"),
+                                (None, "unknown"), ("78", "unknown"), (999, "unknown")):
+            with self.subTest(exit_code):
+                row, _ = self.run_one(summary=None, exit_code=exit_code)
+                self.assertEqual(row["diagnostic"]["stopCode"], code)
+                self.assertEqual(row["timingStatus"], "NOT OBSERVED")
+
+    def test_first_non_passing_assertion_is_a_catalog_id_or_unlisted(self):
+        row, _ = self.run_one(summary={"reason": "step-error"}, exit_code=3,
+                              assertions=[{"id": "owned-pages-closed", "result": "PASS"}, {"id": "start-press-budget", "result": "FAIL"}])
+        self.assertEqual(row["diagnostic"]["firstNonPassingAssertion"], {"id": "start-press-budget", "result": "FAIL"})
+        row, text = self.run_one(summary={"reason": "step-error"}, exit_code=3,
+                                 assertions=[{"id": "Sign in as alice@example.com", "result": "FAIL"}])
+        self.assertEqual(row["diagnostic"]["firstNonPassingAssertion"], {"id": "unlisted", "result": "FAIL"})
+        self.assertNotIn("alice@example.com", text)
+        row, _ = self.run_one(summary={"reason": "completed"}, exit_code=0, assertions=[{"id": "owned-pages-closed", "result": "PASS"}], result="PASS")
+        self.assertIsNone(row["diagnostic"]["firstNonPassingAssertion"])
+
+
+class DriverInterruptionDiagnosticTests(CaseDiagnosticTests):
+    """a driver that caught an early error records FAIL and returns normally (guard `completed`, exit 0); its
+    content-safe interruption evidence names the cause ONLY when bound to this case and its retained receipt, through the reviewed
+    vocabularies. Format-valid injected values are dropped, mismatched or ambiguous refs are `unknown`, malformed shapes never raise."""
+    DOC = {"contentSafe": True, "caseId": "AHT-01", "kind": "interruption-diagnostic", "stage": "start-press", "step": "owner-bound",
+           "error": {"name": "TimeoutError", "code": None, "api": "locator.click", "kind": "timeout", "timeoutMs": 30000,
+                     "testIds": ["sign-in-submit"]}}
+    NAME = "aht-01-interruption.json"
+
+    def bound(self, doc, name=NAME, refs=None, digest=None, raw=None):
+        """Write the interruption file and a case-result.json listing its digest; return (assertions, case_result bytes)."""
+        directory = os.path.join(self.cases, "AHT-01")
+        os.makedirs(directory, exist_ok=True)
+        raw = raw if raw is not None else json.dumps(doc).encode()
+        with open(os.path.join(directory, name), "wb") as f:
+            f.write(raw)
+        refs = [name] if refs is None else refs
+        case_result = json.dumps({"evidenceDigests": {r: digest or hashlib.sha256(raw).hexdigest() for r in refs}}).encode()
+        return ([{"id": "owner-bound", "result": "FAIL", "evidenceRefs": []},
+                 {"id": "owned-pages-closed", "result": "NOT RUN", "evidenceRefs": refs}], case_result)
+
+    def project(self, doc=None, **kw):
+        assertions, case_result = self.bound(self.DOC if doc is None else doc, **kw)
+        row, text = self.run_one(summary={"reason": "completed"}, exit_code=0, assertions=assertions, case_result=case_result)
+        return row["diagnostic"]["driverInterruption"], text
+
+    def test_a_completed_guard_with_a_caught_error_is_named_by_the_bound_driver_interruption(self):
+        assertions, case_result = self.bound(self.DOC)
+        row, _ = self.run_one(summary={"reason": "completed"}, exit_code=0, assertions=assertions, case_result=case_result)
+        d = row["diagnostic"]
+        self.assertEqual((d["stopCode"], d["exitCode"]), ("completed", 0))
+        self.assertEqual(d["firstNonPassingAssertion"], {"id": "owner-bound", "result": "FAIL"})
+        self.assertEqual(d["driverInterruption"], {"stage": "start-press", "step": "owner-bound",
+                                                   "error": {"name": "TimeoutError", "code": None, "kind": "timeout", "api": "locator.click",
+                                                             "timeoutMs": 30000, "testIds": ["sign-in-submit"], "netError": None}, "trail": []})
+
+    def test_sams_format_valid_injected_values_are_dropped(self):
+        doc = dict(self.DOC, stage="password-huntertwo", step="password-huntertwo",
+                   error={"name": "SecretError", "code": "LEAK", "api": "secret.token", "kind": "password=x", "timeoutMs": -5,
+                          "testIds": ["password-huntertwo", "sign-in-submit", "user-12345678", "Bad Id"], "message": "token=abc"})
+        got, text = self.project(doc)
+        self.assertEqual(got, {"stage": "other", "step": "unlisted",
+                               "error": {"name": "Error", "code": None, "kind": "other", "api": None, "timeoutMs": None,
+                                         "testIds": ["sign-in-submit"], "netError": None}, "trail": []})
+        for leak in ("huntertwo", "secret.token", "token=abc", "password=x", "LEAK", "SecretError", "user-12345678"):
+            self.assertNotIn(leak, text)
+
+    def test_the_document_must_be_this_cases_own(self):
+        got, _ = self.project(dict(self.DOC, caseId="AHT-15"))          # the reviewer's repro: an AHT-15 document under AHT-01
+        self.assertEqual(got, {"stage": "unknown", "step": None, "error": None, "trail": []})
+        got, _ = self.project(dict(self.DOC, caseId=["AHT-01"]))
+        self.assertEqual(got, {"stage": "unknown", "step": None, "error": None, "trail": []})
+
+    def test_mismatched_or_ambiguous_refs_are_unknown(self):
+        for label, kw in (("another case's file name", {"name": "aht-15-interruption.json"}),
+                          ("two interruption refs", {"refs": [self.NAME, "aht-02-interruption.json"]}),
+                          ("an escaping ref", {"refs": ["../" + self.NAME]}),
+                          ("a nested ref", {"refs": ["sub/" + self.NAME]})):
+            with self.subTest(label):
+                got, _ = self.project(**kw)
+                self.assertEqual(got, {"stage": "unknown", "step": None, "error": None, "trail": []})
+
+    def test_the_file_must_be_bound_by_the_receipt_and_case_result_digests(self):
+        got, _ = self.project(digest="0" * 64)                            # case-result names another digest for the file
+        self.assertEqual(got, {"stage": "unknown", "step": None, "error": None, "trail": []})
+        assertions, case_result = self.bound(self.DOC)
+        row, _ = self.run_one(summary={"reason": "completed"}, exit_code=0, assertions=assertions)   # no caseResultSha256 in the receipt
+        self.assertEqual(row["diagnostic"]["driverInterruption"], {"stage": "unknown", "step": None, "error": None, "trail": []})
+        assertions, case_result = self.bound(self.DOC)
+        row, _ = self.run_one(summary={"reason": "completed"}, exit_code=0, assertions=assertions, case_result=case_result)
+        with open(os.path.join(self.cases, "AHT-01", "case-result.json"), "ab") as f:                # case-result changed after the receipt
+            f.write(b" ")
+        rows, _ = I.isolated_case_rows(self.cases, self.results, ["AHT-01"], "42483030590")
+        self.assertEqual(rows["AHT-01"]["diagnostic"]["driverInterruption"], {"stage": "unknown", "step": None, "error": None, "trail": []})
+
+    def test_a_symlinked_interruption_file_is_refused_by_its_original_identity(self):
+        assertions, case_result = self.bound(self.DOC, name="real.json")
+        directory = os.path.join(self.cases, "AHT-01")
+        os.symlink(os.path.join(directory, "real.json"), os.path.join(directory, self.NAME))
+        with open(os.path.join(directory, "real.json"), "rb") as f:
+            raw = f.read()
+        case_result = json.dumps({"evidenceDigests": {self.NAME: hashlib.sha256(raw).hexdigest()}}).encode()
+        assertions = [{"id": "owner-bound", "result": "FAIL", "evidenceRefs": [self.NAME]}]
+        row, _ = self.run_one(summary={"reason": "completed"}, exit_code=0, assertions=assertions, case_result=case_result)
+        self.assertEqual(row["diagnostic"]["driverInterruption"], {"stage": "unknown", "step": None, "error": None, "trail": []})
+
+    def test_malformed_shapes_never_raise_and_never_destroy_peer_rows(self):
+        peer = {"caseId": "AHT-02", "result": "FAIL", "assertions": [],
+                "executionReceipt": {"caseId": "AHT-02", "runId": "42483030590", "exitCode": 2, "summarySha256": None}}
+        shapes = {"reason=[]": dict(summary={"reason": []}),
+                  "reason={}": dict(summary={"reason": {"a": 1}}),
+                  "assertions=dict": dict(summary={"reason": "completed"}, assertions={"id": "x"}),
+                  "assertion id list": dict(summary={"reason": "completed"}, assertions=[{"id": ["owner-bound"], "result": "FAIL"}]),
+                  "result list": dict(summary={"reason": "completed"}, assertions=[{"id": "owner-bound", "result": ["FAIL"]}]),
+                  "evidenceRefs dict": dict(summary={"reason": "completed"},
+                                            assertions=[{"id": "owner-bound", "result": "FAIL", "evidenceRefs": {self.NAME: 1}}])}
+        for label, kw in shapes.items():
+            with self.subTest(label):
+                row, _ = self.run_one(extra_rows=[peer], **kw)
+                self.assertIn(row["diagnostic"]["stopCode"], ("other", "completed", "unknown"))
+        row, _ = self.run_one(summary={"reason": []}, extra_rows=[peer])
+        self.assertEqual(row["diagnostic"]["stopCode"], "other")
+        for label, err in (("name list", {"name": ["Error"]}), ("code dict", {"code": {"a": 1}}), ("kind list", {"kind": ["timeout"]}),
+                           ("api list", {"api": ["locator.click"]}), ("testIds dict", {"testIds": {"sign-in-submit": 1}}),
+                           ("testIds string", {"testIds": "sign-in-submit"}), ("testIds nested", {"testIds": [["sign-in-submit"]]})):
+            with self.subTest(label):
+                got, _ = self.project(dict(self.DOC, error=dict(self.DOC["error"], **err)))
+                self.assertEqual(got["stage"], "start-press")
+                self.assertTrue(isinstance(got["error"], dict))
+        for label, doc in (("stage list", dict(self.DOC, stage=["start-press"])), ("step dict", dict(self.DOC, step={"a": 1}))):
+            with self.subTest(label):
+                got, _ = self.project(doc)
+                self.assertIn(got["stage"], ("other", "start-press"))
+        got, _ = self.project(raw=b"[1, 2")
+        self.assertEqual(got, {"stage": "unknown", "step": None, "error": None, "trail": []})
+        with mock.patch.object(I, "_case_diagnostic", side_effect=RuntimeError("boom")):
+            row, _ = self.run_one(summary={"reason": "completed"}, extra_rows=[peer])
+        self.assertEqual(row["diagnostic"], I.UNKNOWN_DIAGNOSTIC)
+
+    def test_the_exact_net_error_is_kept_only_from_the_closed_allowlist(self):
+        for given, kept in (("ERR_HTTP_RESPONSE_CODE_FAILURE", "ERR_HTTP_RESPONSE_CODE_FAILURE"), ("ERR_PROXY_CONNECTION_FAILED", "ERR_PROXY_CONNECTION_FAILED"),
+                            ("other", "other"), ("ERR_SECRET_token=abc", None), (["ERR_FAILED"], None), ("err_failed", None)):
+            with self.subTest(given=given):
+                doc = dict(self.DOC, error=dict(self.DOC["error"], api="page.goto", kind="network-error", netError=given))
+                got, text = self.project(doc)
+                self.assertEqual((got["error"]["api"], got["error"]["kind"], got["error"]["netError"]), ("page.goto", "network-error", kept))
+                self.assertNotIn("token=abc", text)
+
+    def test_the_guard_upstream_configuration_and_reasons_are_closed_and_never_carry_values(self):
+        guard = {"upstreamConfig": {"mode": "env-proxy", "proxyConfigured": False, "proxyValid": False, "noProxyMatched": False,
+                                    "proxy": "http://user:s3cr3t@proxy.internal:3128"},
+                 "counters": {"upstreamReasons": {"proxy-not-configured": 3, "secret.host.example": 1, "dns": "2", "tls": -1}}}
+        row, text = self.run_one(summary={"reason": "completed", "guard": guard}, exit_code=0)
+        self.assertEqual(row["diagnostic"]["guard"], {"upstreamMode": "env-proxy", "proxyConfigured": False, "proxyValid": False,
+                                                      "noProxyMatched": False, "upstreamReasons": {"proxy-not-configured": 3}})
+        for leak in ("s3cr3t", "proxy.internal", "3128", "secret.host"):
+            self.assertNotIn(leak, text)
+        for bad in ({"upstreamConfig": {"mode": "socks", "proxyConfigured": "yes"}}, {"upstreamConfig": [], "counters": []}, "guard"):
+            with self.subTest(bad=bad):
+                row, _ = self.run_one(summary={"reason": "completed", "guard": bad}, exit_code=0)
+                g = row["diagnostic"]["guard"]
+                self.assertTrue(g is None or (g["upstreamMode"] is None and g["proxyConfigured"] is None and g["upstreamReasons"] == {}))
+        row, _ = self.run_one(summary={"reason": "completed"}, exit_code=0)
+        self.assertIsNone(row["diagnostic"]["guard"])
+
+    def test_the_ordered_navigation_trail_is_closed_bounded_and_never_carries_text(self):
+        trail = [{"event": "nav-start", "route": "route-signin", "statusClass": None, "netError": None, "ms": 0},
+                 {"event": "nav-error", "route": "route-signin", "statusClass": None, "netError": "ERR_HTTP_RESPONSE_CODE_FAILURE", "ms": 1179},
+                 {"event": "nav-response", "route": "https://secret.example/x?token=abc", "statusClass": "status-200", "netError": "ERR_X", "ms": -3},
+                 {"event": "password=hunter2", "route": "route-signin"}, "nav-start", {"event": ["nav-start"]}]
+        got, text = self.project(dict(self.DOC, trail=trail))
+        self.assertEqual(got["trail"], [
+            {"event": "nav-start", "route": "route-signin", "statusClass": None, "netError": None, "ms": 0},
+            {"event": "nav-error", "route": "route-signin", "statusClass": None, "netError": "ERR_HTTP_RESPONSE_CODE_FAILURE", "ms": 1179},
+            {"event": "nav-response", "route": "route-other", "statusClass": None, "netError": None, "ms": None}])
+        for leak in ("secret.example", "token=abc", "hunter2", "status-200"):
+            self.assertNotIn(leak, text)
+        got, _ = self.project(dict(self.DOC, trail=[{"event": "nav-start", "route": "route-practice", "ms": i} for i in range(40)]))
+        self.assertEqual([e["ms"] for e in got["trail"]], list(range(16, 40)), "the newest TRAIL_MAX entries, in order")
+        for bad in ("trail", {"a": 1}, None):
+            with self.subTest(bad=bad):
+                got, _ = self.project(dict(self.DOC, trail=bad))
+                self.assertEqual(got["trail"], [])
+
+    def test_no_interruption_named_is_none(self):
+        row, _ = self.run_one(summary={"reason": "completed"}, assertions=[{"id": "owner-bound", "result": "FAIL", "evidenceRefs": []}])
+        self.assertIsNone(row["diagnostic"]["driverInterruption"])
+
+
+class DriverVocabularyPins(unittest.TestCase):
+    """The closed vocabularies are the reviewed driver's own sets, not format checks: drift in either direction fails here."""
+    ADAPTERS = os.path.join(ROOT, "harness", "draft-adapters")
+
+    def sources(self):
+        out = {}
+        for d, dirs, files in os.walk(self.ADAPTERS):
+            dirs[:] = sorted(x for x in dirs if x != "tests")
+            for name in sorted(files):
+                if name.endswith(".cjs"):
+                    with open(os.path.join(d, name), encoding="utf-8") as f:
+                        out[os.path.relpath(os.path.join(d, name), self.ADAPTERS)] = f.read()
+        return out
+
+    def test_stages_equal_the_drivers_STAGES_set(self):
+        src = self.sources()["browser-actions.cjs"]
+        stages = set(re.findall(r"'([a-z-]+)'", re.search(r"const STAGES=new Set\(\[(.*?)\]\)", src).group(1)))
+        self.assertEqual(set(I.DRIVER_STAGES), stages)
+
+    def test_test_ids_equal_the_exact_ids_the_adapters_address(self):
+        ids = set()
+        for text in self.sources().values():
+            ids |= set(re.findall(r"getByTestId\('([a-z][a-z0-9-]{1,40})'\)", text))
+            ids |= set(re.findall(r'data-testid="([a-z][a-z0-9-]{1,40})"', text))
+        self.assertEqual(set(I.DRIVER_TEST_IDS), {i for i in ids if not i.endswith("-")}, "dynamic prefixes are never ids")
+
+    def test_net_errors_equal_the_drivers_allowlist_and_upstream_reasons_the_guards(self):
+        src = self.sources()["browser-actions.cjs"]
+        net = set(re.findall(r"'(ERR_[A-Z_]+)'", re.search(r"const NET_ERRORS=new Set\(\[(.*?)\]\)", src).group(1)))
+        self.assertEqual(set(I.DRIVER_NET_ERRORS) - {"other"}, net)
+        with open(os.path.join(ROOT, "harness", "bundle", "harness", "guard-proxy.cjs"), encoding="utf-8") as f:
+            guard = f.read()
+        reasons = set(re.findall(r"'([a-z-]+)'", re.search(r"const UPSTREAM_REASONS = new Set\(\[(.*?)\]\)", guard, re.S).group(1)))
+        self.assertEqual(set(I.GUARD_UPSTREAM_REASONS), reasons)
+        modes = set(re.findall(r"'([a-z-]+)'", re.search(r"\['env-proxy','direct','override'\]", guard).group(0)))
+        self.assertEqual(set(I.GUARD_UPSTREAM_MODES), modes)
+
+    def test_trail_vocabularies_equal_the_drivers(self):
+        src = self.sources()["browser-actions.cjs"]
+        events = set(re.findall(r"'([a-z-]+)'", re.search(r"const TRAIL_EVENTS=new Set\(\[(.*?)\]\)", src).group(1)))
+        routes = set(re.findall(r"'([a-z-]+)'", re.search(r"const TRAIL_ROUTES=new Set\(\[(.*?)\]\)", src).group(1)))
+        self.assertEqual((set(I.TRAIL_EVENTS), set(I.TRAIL_ROUTES)), (events, routes))
+        self.assertIn("'status-'+Math.floor(status/100)+'xx'", src)
+        self.assertEqual(I.TRAIL_MAX, int(re.search(r"TRAIL_MAX=(\d+)", src).group(1)))
+
+    def test_apis_are_playwright_page_or_locator_calls_and_the_page_calls_are_used(self):
+        used = set()
+        for text in self.sources().values():
+            used |= {"page." + m for m in re.findall(r"\bpage\.([a-zA-Z]+)\(", text)}
+        for api in I.DRIVER_APIS:
+            self.assertRegex(api, r"^(page|locator)\.[a-zA-Z]+$")
+            if api.startswith("page."):
+                self.assertIn(api, used, api)

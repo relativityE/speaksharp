@@ -1,0 +1,253 @@
+{
+ "jobs": [
+  {
+   "completed_at": "2026-11-08T13:02:43Z",
+   "conclusion": "success",
+   "head_sha": "204190f5ad872e4747da56cdbd23dd719104fb8c",
+   "name": "Record the attempt (latest-record comment; no live credentials)",
+   "run_attempt": 1,
+   "run_id": 42483030590,
+   "started_at": "2026-11-08T13:02:31Z",
+   "status": "completed"
+  },
+  {
+   "completed_at": "2026-11-08T13:02:29Z",
+   "conclusion": "skipped",
+   "head_sha": "204190f5ad872e4747da56cdbd23dd719104fb8c",
+   "name": "Nightly gate (switch, attempt, activated writer, standing approval; no credentials)",
+   "run_attempt": 1,
+   "run_id": 42483030590,
+   "started_at": "2026-11-08T13:02:30Z",
+   "status": "completed"
+  },
+  {
+   "completed_at": "2026-11-08T13:02:57Z",
+   "conclusion": "success",
+   "head_sha": "204190f5ad872e4747da56cdbd23dd719104fb8c",
+   "name": "Reserve the run on the state-ref journal (the one push before the run)",
+   "run_attempt": 1,
+   "run_id": 42483030590,
+   "started_at": "2026-11-08T13:02:44Z",
+   "status": "completed"
+  },
+  {
+   "completed_at": "2026-11-08T13:12:30Z",
+   "conclusion": "failure",
+   "head_sha": "204190f5ad872e4747da56cdbd23dd719104fb8c",
+   "name": "Selected live journeys (existing stage runner; preinstalled browser)",
+   "run_attempt": 1,
+   "run_id": 42483030590,
+   "started_at": "2026-11-08T13:03:00Z",
+   "status": "completed",
+   "steps": [
+    {
+     "conclusion": "success",
+     "name": "Set up job",
+     "number": 1,
+     "status": "completed"
+    },
+    {
+     "conclusion": "success",
+     "name": "Run actions/checkout@v6",
+     "number": 2,
+     "status": "completed"
+    },
+    {
+     "conclusion": "success",
+     "name": "Bind private runner paths and initialize the inactive accounting workspace",
+     "number": 3,
+     "status": "completed"
+    },
+    {
+     "conclusion": "success",
+     "name": "Run actions/setup-python@v5",
+     "number": 4,
+     "status": "completed"
+    },
+    {
+     "conclusion": "success",
+     "name": "Run actions/setup-node@v6",
+     "number": 5,
+     "status": "completed"
+    },
+    {
+     "conclusion": "success",
+     "name": "Install the pinned Python execution-evidence dependency",
+     "number": 6,
+     "status": "completed"
+    },
+    {
+     "conclusion": "success",
+     "name": "Pinned runner dependencies from the reviewed lockfile (ephemeral runner only; no lifecycle scripts, no browser)",
+     "number": 7,
+     "status": "completed"
+    },
+    {
+     "conclusion": "success",
+     "name": "Discover the preinstalled browser against the reviewed baseline",
+     "number": 8,
+     "status": "completed"
+    },
+    {
+     "conclusion": "success",
+     "name": "Allow the clean-room network namespace on this ephemeral runner",
+     "number": 9,
+     "status": "completed"
+    },
+    {
+     "conclusion": "success",
+     "name": "Generate the exact-head browser-bound proof and offline checks",
+     "number": 10,
+     "status": "completed"
+    },
+    {
+     "conclusion": "success",
+     "name": "Prove the selected accounts' bounded first-use prerequisites",
+     "number": 11,
+     "status": "completed"
+    },
+    {
+     "conclusion": "success",
+     "name": "Select the committed request and bind this run's inputs",
+     "number": 12,
+     "status": "completed"
+    },
+    {
+     "conclusion": "success",
+     "name": "Bind a clean detached checkout of the admitted tested release",
+     "number": 13,
+     "status": "completed"
+    },
+    {
+     "conclusion": "success",
+     "name": "Bind the tested release's pinned package manager (corepack)",
+     "number": 14,
+     "status": "completed"
+    },
+    {
+     "conclusion": "success",
+     "name": "Place the admitted continuity checkpoint as the runner's reconciliation",
+     "number": 15,
+     "status": "completed"
+    },
+    {
+     "conclusion": "success",
+     "name": "Stage runner (install-tools, plans, stimulus preflight, gates)",
+     "number": 16,
+     "status": "completed"
+    },
+    {
+     "conclusion": "success",
+     "name": "Approved window still fits the live run",
+     "number": 17,
+     "status": "completed"
+    },
+    {
+     "conclusion": "failure",
+     "name": "Stage runner (run), bounded to the selected cases' live minutes",
+     "number": 18,
+     "status": "completed"
+    },
+    {
+     "conclusion": "failure",
+     "name": "Collect, verify the binding, qualify every selected row, and project the closed record",
+     "number": 19,
+     "status": "completed"
+    },
+    {
+     "conclusion": "success",
+     "name": "Project the linked content-safe first observations",
+     "number": 20,
+     "status": "completed"
+    },
+    {
+     "conclusion": "success",
+     "name": "Retain the linked first observations for the next run",
+     "number": 21,
+     "status": "completed"
+    },
+    {
+     "conclusion": "success",
+     "name": "Project content-free per-case timing telemetry",
+     "number": 22,
+     "status": "completed"
+    },
+    {
+     "conclusion": "success",
+     "name": "Retain content-free per-case timing telemetry",
+     "number": 23,
+     "status": "completed"
+    },
+    {
+     "conclusion": "success",
+     "name": "Project the closed settle input (ids, digests and counts only; without a run record, none)",
+     "number": 24,
+     "status": "completed"
+    },
+    {
+     "conclusion": "success",
+     "name": "Hand the closed settle input to the journal-settle job (1 day)",
+     "number": 25,
+     "status": "completed"
+    },
+    {
+     "conclusion": "success",
+     "name": "Hand the closed record to the record job (short-lived; not the authoritative record)",
+     "number": 26,
+     "status": "completed"
+    },
+    {
+     "conclusion": "success",
+     "name": "Remove the private run inputs",
+     "number": 27,
+     "status": "completed"
+    },
+    {
+     "conclusion": "skipped",
+     "name": "Post Run actions/setup-node@v6",
+     "number": 52,
+     "status": "completed"
+    },
+    {
+     "conclusion": "skipped",
+     "name": "Post Run actions/setup-python@v5",
+     "number": 53,
+     "status": "completed"
+    },
+    {
+     "conclusion": "success",
+     "name": "Post Run actions/checkout@v6",
+     "number": 54,
+     "status": "completed"
+    },
+    {
+     "conclusion": "success",
+     "name": "Complete job",
+     "number": 55,
+     "status": "completed"
+    }
+   ]
+  },
+  {
+   "completed_at": "2026-11-08T13:12:43Z",
+   "conclusion": "success",
+   "head_sha": "204190f5ad872e4747da56cdbd23dd719104fb8c",
+   "name": "Settle the run's reservation on the state-ref journal (the one push after the run)",
+   "run_attempt": 1,
+   "run_id": 42483030590,
+   "started_at": "2026-11-08T13:12:31Z",
+   "status": "completed"
+  },
+  {
+   "completed_at": "2026-11-08T13:12:55Z",
+   "conclusion": "success",
+   "head_sha": "204190f5ad872e4747da56cdbd23dd719104fb8c",
+   "name": "Complete or interrupt the attempt in the latest record (no live credentials)",
+   "run_attempt": 1,
+   "run_id": 42483030590,
+   "started_at": "2026-11-08T13:12:45Z",
+   "status": "completed"
+  }
+ ],
+ "total_count": 6
+}

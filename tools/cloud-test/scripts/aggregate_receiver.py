@@ -157,7 +157,7 @@ def receive_occurrence(request, request_raw, occurrence):
     """#1772 Code finding 4446324167: the occurrence envelope of a recurring request, derived only from the AUTHENTICATED journal: the supplied
     snapshot is admitted only when its head and events are exactly the approved state ref as authenticated now, through the same boundary
     G11 uses (check_gates.authenticated_chain: a fresh fetch into a private repository and whole-chain validation from the reviewed root;
-    Jensen RETURN 1793647288.547869), so a well-shaped fabricated, reduced or stale snapshot never yields an envelope or a receipt. That
+    the CLI developer RETURN ), so a well-shaped fabricated, reduced or stale snapshot never yields an envelope or a receipt. That
     journal must hold exactly one open reserve of THIS request (campaign and admitted request digest). A nightly reconciliation is at the
     reserved head; a manual reconciliation is the authenticated parent that immediately precedes this run's own final reserve. Returns
     (envelope, occurrence runtime bytes)."""
@@ -185,7 +185,7 @@ def receive_occurrence(request, request_raw, occurrence):
     if request.get("priority") == "nightly-regression":
         need(rec.get("headSha") == snap["headSha"], "aggregate-occurrence-reconciliation")
     else:
-        need(request.get("priority") == "full-coverage" and snap["events"] and snap["events"][-1] == own[0],
+        need(check_gates.manual_occurrence(request) and snap["events"] and snap["events"][-1] == own[0],
              "aggregate-occurrence-reserve-transition")
         try:
             parent_head, _parent_events = check_gates.authenticated_parent_transition(rec.get("headSha"), auth_head, auth_events)
@@ -243,7 +243,8 @@ def receive_bundle(manifest_raw, bundle_dir, request_raw, config, pins, occurren
     envelope = None
     if recurring:
         # the pinned historical part names no request or campaign; the occurrence envelope binds them from the verified journal
-        need(request.get("priority") in ("nightly-regression", "full-coverage"), "aggregate-occurrence-priority")
+        import check_gates
+        need(request.get("priority") == "nightly-regression" or check_gates.manual_occurrence(request), "aggregate-occurrence-priority")
         manifest, docs, original = receive_retained(manifest_raw, bundle_dir, pins)
         envelope, occurrence_runtime = receive_occurrence(request, request_raw, occurrence)
     else:
