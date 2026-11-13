@@ -5,13 +5,17 @@
 // `frontend/src/services/recordingLease.ts` (the take lease a save must carry), the real `@supabase/supabase-js`
 // client, and PostgreSQL (PGlite) with EVERY shipped migration applied in order — so the newest bodies of
 // `create_session_and_update_usage` and `complete_session_v2`, the signup trial trigger, RLS, the column grants and
-// the retention pins are the production ones, not restated or sliced. The only stand-in is the HTTP hop: a
-// PostgREST-shaped fetch (helpers/postgrestPglite.ts) that runs each request as its JWT role in its own transaction.
+// the retention pins are the production ones, not restated or sliced. Supabase's own pieces outside our migrations
+// are reproduced: its `auth.uid()`/`auth.jwt()` (reading `request.jwt.claims`), its platform default privileges, and
+// production ownership (every object owned by a NON-superuser, so SECURITY DEFINER bodies run without superuser
+// rights). The HTTP hop is a PostgREST-shaped fetch (helpers/postgrestPglite.ts) that runs each request as its JWT
+// role in its own transaction; what that emulator does not model is listed in its header.
 //
 // What it proves: a save writes every metric to the column it belongs in and reads back intact; a refused or failed
 // write reaches the caller as a failure and leaves no partial completion; an identical retry recovers and a
-// conflicting retry is refused; ownership holds across users. Negative controls show the round-trip assertion goes
-// red when the server stops writing a metric or the client stops sending one.
+// conflicting retry is refused; ownership holds across users. Negative controls show each check goes red on the
+// regression it guards: the server dropping a metric, the client dropping one, and a transcript-write failure being
+// swallowed into a "successful" partial completion.
 //
 // Synthetic PGlite only. No hosted URL, credential, provider or production database is reachable from here.
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -60,12 +64,52 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO anon, authen
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
 `;
 
+// Supabase's own auth helpers (supabase/auth `auth.uid()`, `auth.role()`, `auth.jwt()`): they prefer the legacy
+// per-claim setting and fall back to `request.jwt.claims`, which is all PostgREST v12 sets. The bootstrap's stand-ins
+// read only the legacy setting; replacing them means the emulator can set exactly what PostgREST sets.
+const SUPABASE_AUTH_HELPERS = `
+CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $f$
+  SELECT coalesce(nullif(current_setting('request.jwt.claim.sub', true), ''),
+                  (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub'))::uuid $f$;
+CREATE OR REPLACE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS $f$
+  SELECT coalesce(nullif(current_setting('request.jwt.claim.role', true), ''),
+                  (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role'))::text $f$;
+CREATE OR REPLACE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE AS $f$
+  SELECT coalesce(nullif(current_setting('request.jwt.claim', true), ''),
+                  nullif(current_setting('request.jwt.claims', true), ''))::jsonb $f$;
+`;
+
+// Production ownership. On Supabase the migrations run as \`postgres\`, which is NOT a superuser, so every SECURITY
+// DEFINER function runs without superuser rights. PGlite's default user is a superuser, under which a missing grant
+// inside a definer body would pass here and fail in production. Hand everything the migrations made to a NOSUPERUSER
+// owner (the pattern of retention-expiry-no-superuser-1258), after they ran, before any test.
+const OWNER = 'save_path_owner';
+const PRODUCTION_OWNERSHIP = `
+CREATE ROLE ${OWNER} NOSUPERUSER NOCREATEROLE NOCREATEDB NOBYPASSRLS;
+GRANT USAGE, CREATE ON SCHEMA public TO ${OWNER};
+GRANT USAGE ON SCHEMA auth TO ${OWNER};
+DO $o$ DECLARE r record; BEGIN
+  FOR r IN SELECT n.nspname, c.relname, c.relkind FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+           WHERE n.nspname IN ('public', 'auth') AND c.relkind IN ('r', 'p', 'v', 'm') LOOP
+    EXECUTE format(CASE r.relkind WHEN 'v' THEN 'ALTER VIEW %I.%I OWNER TO ${OWNER}'
+                                  WHEN 'm' THEN 'ALTER MATERIALIZED VIEW %I.%I OWNER TO ${OWNER}'
+                                  ELSE 'ALTER TABLE %I.%I OWNER TO ${OWNER}' END, r.nspname, r.relname);
+  END LOOP;
+  FOR r IN SELECT p.oid::regprocedure AS sig FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+           WHERE n.nspname = 'public' AND p.prokind IN ('f', 'p') LOOP
+    EXECUTE format('ALTER ROUTINE %s OWNER TO ${OWNER}', r.sig);
+  END LOOP;
+END $o$;
+`;
+
 async function shippedChain(): Promise<PGlite> {
   const db = new PGlite();
   try {
     await db.exec(SUPABASE_BOOTSTRAP);
+    await db.exec(SUPABASE_AUTH_HELPERS);
     await db.exec(PLATFORM_DEFAULT_PRIVILEGES);
     for (const f of SHIPPED) await db.exec(migration(f));
+    await db.exec(PRODUCTION_OWNERSHIP);
     return db;
   } catch (error) {
     await db.close();
@@ -160,26 +204,62 @@ function persistedMismatches(row: Row | undefined, asked: ReturnType<typeof comp
     .map(([key]) => key);
 }
 
-async function withFault<T>(db: PGlite, event: 'INSERT' | 'UPDATE', sessionId: string | null, body: () => Promise<T>): Promise<T> {
-  const when = event === 'UPDATE' && sessionId ? `WHEN (OLD.id = '${sessionId}'::uuid)` : '';
+/** The SQLSTATE the synthetic fault raises: unique, so a test can prove the failure it saw was this fault. */
+const FAULT_CODE = 'SP846';
+/** Which write a fault hits. complete_session_v2 writes the metrics first, then (separately) the transcript. */
+const metricsWrite = (id: string) => `WHEN (OLD.id = '${id}'::uuid AND NEW.status IS DISTINCT FROM OLD.status)`;
+const transcriptWrite = (id: string) => `WHEN (OLD.id = '${id}'::uuid AND NEW.transcript IS DISTINCT FROM OLD.transcript)`;
+
+async function withFault<T>(db: PGlite, event: 'INSERT' | 'UPDATE', when: string, body: () => Promise<T>): Promise<T> {
   await db.exec(`
     CREATE FUNCTION public.save_path_fixture_fault() RETURNS trigger LANGUAGE plpgsql AS $f$
-      BEGIN RAISE EXCEPTION 'synthetic_save_fault ${TRANSCRIPT}'; END $f$;
+      BEGIN RAISE EXCEPTION 'synthetic_save_fault ${TRANSCRIPT}' USING ERRCODE = '${FAULT_CODE}'; END $f$;
     CREATE TRIGGER save_path_fixture_fault BEFORE ${event} ON public.sessions
       FOR EACH ROW ${when} EXECUTE FUNCTION public.save_path_fixture_fault();`);
   try { return await body(); }
   finally { await db.exec('DROP TRIGGER save_path_fixture_fault ON public.sessions; DROP FUNCTION public.save_path_fixture_fault();'); }
 }
 
+/**
+ * THE PARTIAL-COMPLETION CHECK. Completes a fresh take while the TRANSCRIPT write (the second write, after the
+ * metrics) fails, and reports what the caller was told and whether the row was left exactly as it was. The only pass
+ * is { success: false, rowUnchanged: true, failedOnFault: true }: anything else is a completion that kept part of a
+ * failed save, or failed for some reason other than the fault.
+ */
+async function completionUnderTranscriptFault(database: PGlite, t: PostgrestPglite) {
+  bindClient(t, await newUser(database));
+  const id = await startTake();
+  const before = await rowOf(database, id);
+  vi.mocked(logger.error).mockClear();
+  const result = await withFault(database, 'UPDATE', transcriptWrite(id), () => completeSession(id, completion()));
+  return {
+    success: result.success,
+    rowUnchanged: isDeepStrictEqual(await rowOf(database, id), before),
+    failedOnFault: JSON.stringify(vi.mocked(logger.error).mock.calls).includes(FAULT_CODE),
+  };
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
 let db: PGlite;
 let transport: PostgrestPglite;
+/** Every transport a test makes, so afterEach can prove no test leaned on an unimplemented PostgREST path. */
+const transports: PostgrestPglite[] = [];
+const transportFor = (database: PGlite, intercept?: Parameters<typeof postgrestPglite>[1]) => {
+  const t = postgrestPglite(database, intercept);
+  transports.push(t);
+  return t;
+};
 
 beforeAll(async () => {
   db = await shippedChain();
-  transport = postgrestPglite(db);
+  transport = transportFor(db);
 }, 180_000);
-afterEach(async () => { await releaseTakeLease(); __resetTakeLeaseForTests(); });
+afterEach(async () => {
+  await releaseTakeLease();
+  __resetTakeLeaseForTests();
+  const unsupported = transports.flatMap(t => t.unsupported);
+  if (unsupported.length) throw new Error(`a test went through an unimplemented PostgREST path: ${unsupported.join('; ')}`);
+});
 afterAll(async () => { holder.client = null; await db?.close(); });
 
 describe('the database under test runs the CURRENT save-path code and access layer', () => {
@@ -211,6 +291,17 @@ describe('the database under test runs the CURRENT save-path code and access lay
     expect(effective).toEqual(grants.at(-1));
     expect(effective).not.toContain('filler_counts');
     expect((await db.query<{ rls: boolean }>("SELECT relrowsecurity AS rls FROM pg_class WHERE oid = 'public.sessions'::regclass")).rows[0].rls).toBe(true);
+  });
+
+  it('both save RPCs are SECURITY DEFINER owned by a non-superuser, as on Supabase', async () => {
+    const owners = (await db.query<{ fn: string; definer: boolean; owner: string; superuser: boolean }>(
+      `SELECT p.proname AS fn, p.prosecdef AS definer, r.rolname AS owner, r.rolsuper AS superuser
+         FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace JOIN pg_roles r ON r.oid = p.proowner
+        WHERE n.nspname = 'public' AND p.proname IN ('create_session_and_update_usage', 'complete_session_v2') ORDER BY 1`)).rows;
+    expect(owners).toEqual([
+      { fn: 'complete_session_v2', definer: true, owner: OWNER, superuser: false },
+      { fn: 'create_session_and_update_usage', definer: true, owner: OWNER, superuser: false },
+    ]);
   });
 });
 
@@ -272,19 +363,23 @@ describe('failures reach the caller and leave no partial completion', () => {
     expect(await rowOf(db, id)).toEqual(before);
   });
 
-  it('a database failure mid-write rolls back the whole completion and is logged content-free', async () => {
+  it('a database failure on the metrics write fails the completion, writes nothing, and is logged content-free', async () => {
     bindClient(transport, await newUser(db));
     const id = await startTake();
     const before = await activeRow(id);
     vi.mocked(logger.error).mockClear();
 
-    const result = await withFault(db, 'UPDATE', id, () => completeSession(id, completion()));
+    const result = await withFault(db, 'UPDATE', metricsWrite(id), () => completeSession(id, completion()));
     expect(result).toEqual({ success: false });
     expect(await rowOf(db, id)).toEqual(before);
 
     const logged = JSON.stringify(vi.mocked(logger.error).mock.calls);
-    expect(logged).toContain('P0001');
+    expect(logged).toContain(FAULT_CODE); // it failed because of THIS fault, not some other guard
     expect(logged).not.toContain(TRANSCRIPT); // the fault message quotes the transcript; the log must not
+  });
+
+  it('PARTIAL COMPLETION: a failure on the transcript write, after the metrics write, rolls the metrics back too', async () => {
+    expect(await completionUnderTranscriptFault(db, transport)).toEqual({ success: false, rowUnchanged: true, failedOnFault: true });
   });
 
   it('recovery: the identical retry succeeds, a replay is idempotent, a conflicting replay is refused', async () => {
@@ -292,7 +387,7 @@ describe('failures reach the caller and leave no partial completion', () => {
     const id = await startTake();
     const asked = completion();
 
-    expect(await withFault(db, 'UPDATE', id, () => completeSession(id, asked))).toEqual({ success: false });
+    expect(await withFault(db, 'UPDATE', metricsWrite(id), () => completeSession(id, asked))).toEqual({ success: false });
     const retried = await completeSession(id, asked);
     expect(retried).toMatchObject({ success: true, idempotent: false });
     expect(persistedMismatches(await rowOf(db, id), asked)).toEqual([]);
@@ -307,7 +402,7 @@ describe('failures reach the caller and leave no partial completion', () => {
   it('a request lost before the server (network failure) is a failure, and the retry recovers', async () => {
     const user = await newUser(db);
     let dropped = 0;
-    const flaky = postgrestPglite(db, req => (req.path.endsWith('/rpc/complete_session_v2') && !dropped++
+    const flaky = transportFor(db, req => (req.path.endsWith('/rpc/complete_session_v2') && !dropped++
       ? { networkError: new TypeError('fetch failed') } : undefined));
     bindClient(flaky, user);
     const id = await startTake();
@@ -339,19 +434,27 @@ describe('failures reach the caller and leave no partial completion', () => {
     expect(persistedMismatches(await rowOf(db, id), asked)).toEqual([]);
   });
 
-  it('saveSession: a database error is rpc_error and creates no row', async () => {
+  it('saveSession (leased take): a database error is rpc_error and creates no row', async () => {
     const user = await newUser(db);
     bindClient(transport, user);
-    const result = await withFault(db, 'INSERT', null, () => saveSession({ user_id: user, title: 't', duration: 0, product: 'open_mic' } as never, PROFILE, 'private'));
+    expect((await acquireTakeLease({ holderLabel: 'save-path-contract' })).action).toBe('start');
+    vi.mocked(logger.error).mockClear();
+    const result = await withFault(db, 'INSERT', '', () => saveSession({ user_id: user, title: 't', duration: 0, product: 'open_mic' } as never,
+      PROFILE, 'private', undefined, { engineVersion: 'v2', modelName: 'base', deviceType: 'desktop' }));
     expect(result).toEqual({ status: 'failed', reason: 'rpc_error' });
+    expect(JSON.stringify(vi.mocked(logger.error).mock.calls)).toContain(FAULT_CODE);
     expect((await db.query('SELECT 1 FROM public.sessions WHERE user_id = $1', [user])).rows).toHaveLength(0);
   });
 
-  it('saveSession: a server refusal in the envelope is server_rejected and creates no row', async () => {
+  it('saveSession: a server refusal in the envelope (invalid_product) is server_rejected and creates no row', async () => {
     const user = await newUser(db);
     bindClient(transport, user);
+    const before = transport.requests.length;
     const result = await saveSession({ user_id: user, title: 't', duration: 0, product: 'not_a_product' } as never, PROFILE, 'private');
     expect(result).toEqual({ status: 'failed', reason: 'server_rejected' });
+    const create = transport.requests.slice(before).filter(r => r.path.endsWith('/rpc/create_session_and_update_usage'));
+    expect(create).toHaveLength(1);
+    expect(create[0]).toMatchObject({ status: 200, response: { new_session: null, error: 'invalid_product' } });
     expect((await db.query('SELECT 1 FROM public.sessions WHERE user_id = $1', [user])).rows).toHaveLength(0);
   });
 });
@@ -371,7 +474,7 @@ describe('ownership across users', () => {
 
   it('getSessionById: a transport error throws the user-facing load error, a missing row is null', async () => {
     const user = await newUser(db);
-    const down = postgrestPglite(db, req => (req.method === 'GET' ? { networkError: new TypeError('fetch failed') } : undefined));
+    const down = transportFor(db, req => (req.method === 'GET' ? { networkError: new TypeError('fetch failed') } : undefined));
     bindClient(down, user);
     await expect(getSessionById(randomUUID())).rejects.toThrow('Unable to load this session');
     bindClient(transport, user);
@@ -423,6 +526,8 @@ describe('negative controls: the round-trip assertion goes red on real regressio
     { name: 'complete_session_v2 stops writing wpm', from: 'wpm           = COALESCE(p_wpm, wpm),', to: 'wpm           = wpm,', expected: ['wpm'] },
     { name: 'complete_session_v2 stops writing filler_counts', from: 'filler_counts = COALESCE(p_filler_counts, filler_counts),', to: 'filler_counts = filler_counts,', expected: ['filler_counts'] },
     { name: 'complete_session_v2 stops writing pause_metrics', from: 'pause_metrics = COALESCE(p_pause_metrics, pause_metrics),', to: 'pause_metrics = pause_metrics,', expected: ['pause_metrics'] },
+    { name: 'complete_session_v2 stops writing total_words', from: 'total_words   = COALESCE(p_total_words, total_words),', to: 'total_words   = total_words,', expected: ['total_words'] },
+    { name: 'complete_session_v2 stops writing the next action', from: "next_action_signal = CASE WHEN p_status = 'completed' THEN p_next_action ELSE next_action_signal END,", to: 'next_action_signal = next_action_signal,', expected: ['next_action_signal'] },
   ];
   // One isolated shipped chain for the server mutants; the original definition is restored (and re-pinned) before
   // each, so every mutant differs from the shipped v2 by exactly its one line.
@@ -438,17 +543,33 @@ describe('negative controls: the round-trip assertion goes red on real regressio
     it(`server: ${mutant.name}`, async () => {
       await installV2Mutant(mutantDb, originalV2, mutant.from, mutant.to);
       try {
-        const { result, mismatches } = await runOrdinary(mutantDb, postgrestPglite(mutantDb));
+        const { result, mismatches } = await runOrdinary(mutantDb, transportFor(mutantDb));
         expect(result.success).toBe(true); // the server still REPORTS success…
-        expect(mismatches).toEqual(mutant.expected); // …and only the round-trip check catches the lost metric
+        expect(mismatches).toEqual(mutant.expected); // …and the round-trip check names exactly the lost metric
       } finally {
         await installV2Mutant(mutantDb, originalV2, null, null);
       }
     }, 60_000);
   }
 
+  it('server: a transcript-write failure swallowed into success is caught by the partial-completion check', async () => {
+    const transcriptUpdate = [
+      '                UPDATE public.sessions',
+      '                SET transcript = p_final_transcript, updated_at = now()',
+      '                WHERE id = p_session_id AND user_id = auth.uid();',
+    ].join('\n');
+    await installV2Mutant(mutantDb, originalV2, transcriptUpdate,
+      `                BEGIN\n${transcriptUpdate}\n                EXCEPTION WHEN OTHERS THEN NULL; END;`);
+    try {
+      // The fault still fires, but the completion now REPORTS success with the metrics kept and no transcript.
+      expect(await completionUnderTranscriptFault(mutantDb, transportFor(mutantDb))).toEqual({ success: true, rowUnchanged: false, failedOnFault: false });
+    } finally {
+      await installV2Mutant(mutantDb, originalV2, null, null);
+    }
+  }, 60_000);
+
   it('client: a request that stops carrying p_clarity_score is caught', async () => {
-    const dropping = postgrestPglite(db, req => {
+    const dropping = transportFor(db, req => {
       if (!req.path.endsWith('/rpc/complete_session_v2')) return undefined;
       const rest = { ...(req.body as Record<string, unknown>) };
       delete rest.p_clarity_score;
@@ -459,9 +580,11 @@ describe('negative controls: the round-trip assertion goes red on real regressio
     expect(mismatches).toEqual(['clarity_score']);
   });
 
-  it('restored: the unmodified code passes the same check', async () => {
-    const { result, mismatches } = await runOrdinary(db, transport);
+  it('restored: the database the mutants ran on is back to the shipped code, and passes every check', async () => {
+    expect((await mutantDb.query<{ d: string }>('SELECT pg_get_functiondef($1::regprocedure) AS d', [V2_SIGNATURE])).rows[0].d).toBe(originalV2);
+    const { result, mismatches } = await runOrdinary(mutantDb, transportFor(mutantDb));
     expect(result.success).toBe(true);
     expect(mismatches).toEqual([]);
+    expect(await completionUnderTranscriptFault(mutantDb, transportFor(mutantDb))).toEqual({ success: false, rowUnchanged: true, failedOnFault: true });
   });
 });

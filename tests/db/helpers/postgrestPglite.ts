@@ -4,8 +4,9 @@
 // WHY. A fake client that records calls proves only what the client SENDS. It cannot show that the database
 // accepts the request, that the metric lands in the column it was meant for, or that a refusal reaches the
 // caller as a failure. Here every request becomes real SQL, run the way PostgREST runs it: one transaction per
-// request, `SET LOCAL ROLE` to the JWT's role, and the JWT claims exposed through `request.jwt.claim(s)` so
-// `auth.uid()`, RLS policies, column grants and SECURITY DEFINER functions all behave as they do in production.
+// request, `SET LOCAL ROLE` to the JWT's role, and the JWT claims exposed ONLY through `request.jwt.claims` (as
+// PostgREST v12 does), so `auth.uid()`, RLS policies and column grants see the caller the way production does. The
+// database must therefore carry Supabase's own `auth.uid()`/`auth.role()`/`auth.jwt()`, which read that setting.
 //
 // SCOPE IS DELIBERATELY NARROW. Only the request shapes the session save path uses are implemented:
 //   - POST  /rest/v1/rpc/<fn>          named-argument function calls
@@ -14,15 +15,18 @@
 // Anything else is refused with a 501 and recorded in `unsupported`, so a test can assert that nothing it relied on
 // went through an unimplemented path. It never guesses at semantics it does not model.
 //
-// NOT MODELLED (stated so nobody over-reads the result): JWT signatures are not verified (the token is decoded,
-// not trusted from a network peer); HTTP status codes follow PostgREST's mapping only for the SQLSTATE classes the
-// save path can produce; embedded resources, ordering, ranges and `Prefer: return=representation` are refused.
+// NOT MODELLED (stated so nobody over-reads the result): JWT signatures and expiry are not verified (the token is
+// decoded, not trusted from a network peer); the JWT carries only `sub` and `role`; HTTP statuses follow PostgREST's
+// SQLSTATE table (httpStatusFor) but supabase-js does not branch on them on this path; embedded resources, ordering,
+// ranges, non-`eq` filters and `Prefer: return=representation` are refused. Who OWNS the SECURITY DEFINER functions is
+// the database fixture's job, not this transport's.
 import type { PGlite, Transaction } from '@electric-sql/pglite';
 
 export const FAKE_SUPABASE_URL = 'http://postgrest-pglite.invalid';
 export const FAKE_ANON_KEY = 'postgrest-pglite-anon-key';
 
-export type RecordedRequest = { method: string; path: string; query: Record<string, string>; status: number };
+/** One request as the emulator answered it. `response` is the decoded JSON body (null for 204). */
+export type RecordedRequest = { method: string; path: string; query: Record<string, string>; status: number; response: unknown };
 
 type Claims = { sub?: string; role?: string };
 
@@ -56,14 +60,18 @@ class PostgrestError extends Error {
   constructor(readonly status: number, readonly body: Record<string, unknown>) { super(String(body.message)); }
 }
 
-/** PostgREST's SQLSTATE → HTTP mapping, for the classes the save path can raise. Everything else is a 500. */
+/** PostgREST's documented SQLSTATE → HTTP table. Anything it does not list is a 400, as in PostgREST. */
 function httpStatusFor(sqlstate: string | undefined, role: string): number {
   if (!sqlstate) return 500;
   if (sqlstate === '42501') return role === 'anon' ? 401 : 403;
-  if (sqlstate === '23505') return 409;
-  if (sqlstate === '42883' || sqlstate === '42P01' || sqlstate === '42703') return 404;
-  if (sqlstate.startsWith('22') || sqlstate.startsWith('23') || sqlstate === 'P0001') return 400;
-  return 500;
+  if (sqlstate === '23503' || sqlstate === '23505') return 409;
+  if (sqlstate === '42883' || sqlstate === '42P01') return 404;
+  if (sqlstate === '25006') return 405;
+  if (sqlstate === 'P0001') return 400;
+  if (/^(08|53)/.test(sqlstate)) return 503;
+  if (/^(0L|0P|28)/.test(sqlstate)) return 403;
+  if (/^(09|25|2D|38|39|3B|40|54|55|57|58|F0|HV|P0|XX)/.test(sqlstate) || sqlstate === '42P17') return 500;
+  return 400;
 }
 
 function pgErrorBody(error: unknown): { sqlstate?: string; body: Record<string, unknown> } {
@@ -91,18 +99,18 @@ async function columnTypes(tx: Transaction, table: string): Promise<ColumnTypes>
 function encodeParam(value: unknown, type: string): string | null {
   if (value === null || value === undefined) return null;
   if (type === 'jsonb' || type === 'json') return JSON.stringify(value);
-  if (typeof value === 'object') return JSON.stringify(value);
+  if (typeof value === 'object') throw new UnsupportedRequest(`a JSON ${Array.isArray(value) ? 'array' : 'object'} for a ${type} value`);
   return String(value);
 }
 
-function eqFilters(query: Record<string, string>, types: ColumnTypes, params: (string | null)[]): string {
+function eqFilters(table: string, query: Record<string, string>, types: ColumnTypes, params: (string | null)[]): string {
   const clauses: string[] = [];
   for (const [key, raw] of Object.entries(query)) {
     if (key === 'select') continue;
     if (!raw.startsWith('eq.')) throw new UnsupportedRequest(`filter operator not supported: ${key}=${raw}`);
     const type = types.get(key);
     if (!type) {
-      throw new PostgrestError(400, { code: '42703', message: `column sessions.${key} does not exist`, details: null, hint: null });
+      throw new PostgrestError(400, { code: '42703', message: `column ${table}.${key} does not exist`, details: null, hint: null });
     }
     params.push(raw.slice(3));
     clauses.push(`${quoteIdent(key)} = $${params.length}::${type}`);
@@ -113,9 +121,8 @@ function eqFilters(query: Record<string, string>, types: ColumnTypes, params: (s
 async function asRequestRole(db: PGlite, claims: Claims, body: (tx: Transaction) => Promise<unknown>): Promise<unknown> {
   return db.transaction(async tx => {
     await tx.query(
-      `SELECT set_config('request.jwt.claim.sub', $1, true), set_config('request.jwt.claim.role', $2, true),
-              set_config('request.jwt.claims', $3, true)`,
-      [claims.sub ?? '', claims.role ?? 'anon', JSON.stringify({ sub: claims.sub ?? null, role: claims.role ?? 'anon' })]);
+      `SELECT set_config('request.jwt.claims', $1, true)`,
+      [JSON.stringify(claims.sub ? { sub: claims.sub, role: claims.role ?? 'anon' } : { role: claims.role ?? 'anon' })]);
     await tx.exec(`SET LOCAL ROLE ${claims.role === 'authenticated' ? 'authenticated' : 'anon'}`);
     return body(tx);
   });
@@ -171,7 +178,7 @@ async function patch(tx: Transaction, table: string, query: Record<string, strin
     return `${quoteIdent(col)} = $${params.length}::${type}`;
   });
   if (sets.length === 0) return;
-  const where = eqFilters(query, types, params);
+  const where = eqFilters(table, query, types, params);
   await tx.query(`UPDATE public.${quoteIdent(table)} SET ${sets.join(', ')} ${where}`, params);
 }
 
@@ -185,7 +192,7 @@ async function select(tx: Transaction, table: string, query: Record<string, stri
   }
   const list = columns.includes('*') ? '*' : columns.map(quoteIdent).join(', ');
   const params: (string | null)[] = [];
-  const where = eqFilters(query, types, params);
+  const where = eqFilters(table, query, types, params);
   const r = await tx.query<{ j: unknown }>(`SELECT to_jsonb(t) AS j FROM (SELECT ${list} FROM public.${quoteIdent(table)} ${where}) t`, params);
   return r.rows.map(row => row.j);
 }
@@ -202,13 +209,13 @@ export type PostgrestPglite = {
  */
 export function postgrestPglite(
   db: PGlite,
-  intercept?: (req: { method: string; path: string; body: unknown }) => { body?: unknown; networkError?: Error } | void,
+  intercept?: (req: { method: string; path: string; body: unknown }) => { body?: unknown; networkError?: Error } | undefined,
 ): PostgrestPglite {
   const requests: RecordedRequest[] = [];
   const unsupported: string[] = [];
 
-  const respond = (status: number, payload: unknown, record: Omit<RecordedRequest, 'status'>) => {
-    requests.push({ ...record, status });
+  const respond = (status: number, payload: unknown, record: Omit<RecordedRequest, 'status' | 'response'>) => {
+    requests.push({ ...record, status, response: status === 204 ? null : payload });
     if (status === 204) return new Response(null, { status });
     return new Response(JSON.stringify(payload), { status, headers: { 'Content-Type': 'application/json' } });
   };
@@ -220,7 +227,12 @@ export function postgrestPglite(
     const query = Object.fromEntries(url.searchParams.entries());
     const record = { method, path: url.pathname, query };
     const text = method === 'GET' || method === 'HEAD' ? '' : await request.text();
-    let body: unknown = text ? JSON.parse(text) : undefined;
+    let body: unknown;
+    try {
+      body = text ? JSON.parse(text) : undefined;
+    } catch {
+      return respond(400, { code: 'PGRST102', message: 'Empty or invalid json', details: null, hint: null }, record);
+    }
 
     const override = intercept?.({ method, path: url.pathname, body });
     if (override?.networkError) throw override.networkError;
