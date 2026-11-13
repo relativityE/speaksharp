@@ -118,6 +118,31 @@ test('symlink targets become inputs, and the build may not write outside its out
   assert.match(bad.problems.join(), /wrote outside/);
 });
 
+test('`..` after a symlink is resolved as the kernel does: the file actually read is the input', (t) => {
+  const f = tree(t);
+  f.put('store/pkg/index.js', 'pkg'); f.put('store/input.js', 'real input'); f.put('input.js', 'lexical decoy');
+  symlinkSync('store/pkg', join(f.root, 'link'));
+  const trace = parse([`10 openat(AT_FDCWD<${f.root}>, "${f.root}/link/../input.js", O_RDONLY) = 3<${f.root}/store/input.js>`]);
+  assert.deepEqual(trace.problems, []);
+  const { manifest, problems } = buildManifest(trace, { root: f.root, outputRoots: f.outputRoots });
+  assert.equal(problems, undefined, problems?.join('\n'));
+  assert(manifest.some(([n]) => n === '@root/store/input.js'), manifest.map(([n]) => n).join());
+  const check = () => firstManifestDifference(manifest, { root: f.root, outputRoots: f.outputRoots });
+  assert.equal(check(), null);
+  f.put('store/input.js', 'changed'); assert.equal(check(), '@root/store/input.js', 'the consumed file changed');
+  f.put('store/input.js', 'real input');
+  rmSync(join(f.root, 'link')); mkdirSync(join(f.root, 'link'));
+  assert.equal(check(), '@root/link', 'the link replaced by a directory');
+});
+
+test('a write through `..` after a symlink is checked where it really lands', (t) => {
+  const f = tree(t);
+  symlinkSync('../src', join(f.root, 'dist/out'));
+  const trace = parse([`10 openat(AT_FDCWD<${f.root}>, "${f.root}/dist/out/../escaped.js", O_WRONLY|O_CREAT|O_TRUNC, 0644) = 3<${f.root}/escaped.js>`]);
+  assert(trace.written.has(`${f.root}/dist/escaped.js`), 'lexically inside the output root');
+  assert.match(buildManifest(trace, { root: f.root, outputRoots: f.outputRoots }).problems.join(), /wrote outside/);
+});
+
 test('a manifest with an unsafe or malformed entry never matches', (t) => {
   const f = tree(t);
   for (const manifest of [[], [['@root/../etc/passwd', { t: 'missing' }]], [['relative', { t: 'missing' }]], [[1, 2]]]) {

@@ -11,7 +11,7 @@
 // Scope note: mtimes are not recorded (a fresh checkout changes them all). The build's caches that key on
 // mtime are deleted before every build, and node's compile cache under /tmp validates its own source hash.
 import { createHash } from 'node:crypto';
-import { lstatSync, readdirSync, readFileSync, readlinkSync } from 'node:fs';
+import { lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync } from 'node:fs';
 import { posix } from 'node:path';
 
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
@@ -123,7 +123,7 @@ export function parseTrace(text) {
     if ((call.name === 'chdir' || call.name === 'fchdir') && !/= -1/.test(call.result)) epoch.set(pid, e + 1);
   }
 
-  const observed = new Set(), listed = new Set(), written = new Set(), network = [];
+  const observed = new Set(), listed = new Set(), written = new Set(), network = [], dotdot = [];
   const resolve = (dirfdArg, path, key) => {
     if (path.startsWith('/')) return posix.normalize(path);
     const base = dirfdArg === null ? cwd.get(key) : decoration(dirfdArg);
@@ -154,7 +154,7 @@ export function parseTrace(text) {
       if (!spec) throw Error(`TRACE_UNCLASSIFIED_SYSCALL ${name}`);
       for (const [fdIndex, pathIndex, kind] of spec) {
         const rawPath = args[pathIndex];
-        let path;
+        let path, unnormalized = null;
         if (rawPath === 'NULL' || (rawPath === '""' && /AT_EMPTY_PATH/.test(args.join(',')))) {
           path = decoration(args[fdIndex ?? -1]);
           if (!path?.startsWith('/')) throw Error('TRACE_UNDECORATED_FD');
@@ -165,7 +165,8 @@ export function parseTrace(text) {
           path = resolve(fdIndex === null ? null : args[fdIndex], text, key);
           // A lexically removed `..` is only valid when what precedes it is a real directory: record it.
           if (text.split('/').includes('..')) {
-            const parts = (text.startsWith('/') ? text : `${fdIndex === null ? cwd.get(key) : decoration(args[fdIndex])}/${text}`).split('/');
+            unnormalized = text.startsWith('/') ? text : `${fdIndex === null ? cwd.get(key) : decoration(args[fdIndex])}/${text}`;
+            const parts = unnormalized.split('/');
             parts.forEach((part, index) => { if (part === '..' && index > 0) observed.add(posix.normalize(parts.slice(0, index).join('/') || '/')); });
           }
         }
@@ -175,10 +176,39 @@ export function parseTrace(text) {
           effective = WRITE_FLAGS.test(flags) ? 'write' : 'observe';
         }
         (effective === 'write' ? written : observed).add(path);
+        // The kernel resolves a symlink before the `..` that follows it, so `link/../x` may name a file other than
+        // the lexical `x`. The manifest resolves these the kernel's way (resolveLikeKernel) as well.
+        if (unnormalized) dotdot.push({ path: unnormalized, write: effective === 'write' });
       }
     } catch (error) { problems.push(`${error.message}: ${call.name}(${call.args.slice(0, 3).join(', ').slice(0, 160)})`); }
   }
-  return { observed, listed, written, network, problems };
+  return { observed, listed, written, network, dotdot, problems };
+}
+
+/**
+ * Resolve an absolute path component by component, following symlinks before `..` as the kernel does.
+ * Stops at the first component that does not exist (the kernel's lookup fails there too) and returns it.
+ */
+export function resolveLikeKernel(path) {
+  let current = '/';
+  for (const part of path.split('/')) {
+    if (part === '' || part === '.') continue;
+    if (part === '..') { current = posix.dirname(current); continue; }
+    const next = posix.join(current, part);
+    let st;
+    try { st = lstatSync(next); } catch (error) {
+      if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return next;
+      throw Error(`TRACE_UNREADABLE ${error.code} ${next}`);
+    }
+    current = st.isSymbolicLink() ? realpathOrSelf(next) : next;
+  }
+  return current;
+}
+function realpathOrSelf(path) {
+  try { return realpathSync(path); } catch (error) {
+    if (error.code === 'ENOENT' || error.code === 'ENOTDIR' || error.code === 'ELOOP') return path;
+    throw Error(`TRACE_UNREADABLE ${error.code} ${path}`);
+  }
 }
 
 function under(path, roots) { return roots.some((r) => path === r || path.startsWith(`${r}/`)); }
@@ -214,7 +244,11 @@ export function buildManifest(trace, { root, outputRoots, ignoredRoots = ['/proc
   if (trace.network.length) problems.push(...trace.network.map((n) => `network connection during build: ${n}`));
   const outputs = outputRoots.map((r) => posix.normalize(r));
   // /dev/null and /dev/tty are not files; /proc and /sys writes would be odd but cannot change a later build's inputs.
-  for (const path of trace.written) if (!under(path, outputs) && !under(path, ignoredRoots)) problems.push(`build wrote outside its output roots: ${path}`);
+  const physical = (trace.dotdot ?? []).map(({ path, write }) => {
+    try { return { path: resolveLikeKernel(path), write }; } catch (error) { problems.push(error.message); return null; }
+  }).filter(Boolean);
+  const writes = [...trace.written, ...physical.filter((p) => p.write).map((p) => p.path)];
+  for (const path of writes) if (!under(path, outputs) && !under(path, ignoredRoots)) problems.push(`build wrote outside its output roots: ${path}`);
   if (problems.length) return { problems };
   const wanted = new Map();
   const add = (path, listing = false) => {
@@ -227,6 +261,7 @@ export function buildManifest(trace, { root, outputRoots, ignoredRoots = ['/proc
     }
   };
   for (const path of trace.observed) add(path);
+  for (const { path, write } of physical) if (!write) add(path);
   for (const path of trace.listed) add(path, true);
   // The kernel follows symlinks without telling strace where they lead: every link target is an input too.
   const states = new Map();
