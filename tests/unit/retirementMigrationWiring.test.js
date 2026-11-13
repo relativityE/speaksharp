@@ -33,7 +33,8 @@ describe('exact local retirement apply wiring', () => {
     expect(config.targetFile).toBe(file);
     expect(config.targetSha256).toBe(createHash('sha256').update(readFileSync(resolve(root, 'backend/supabase/migrations', file))).digest('hex'));
     expect(config.requiredAppliedVersions).toContain('20261025021046');
-    expect(config.excludedMigrations.map(row => row.version)).toEqual(['20260812042000', billingVersion]);
+    // The later #1831 start-abandonment entry is excluded too: it stays pending until its own exact apply.
+    expect(config.excludedMigrations.map(row => row.version)).toEqual(['20261112133000', '20260812042000', billingVersion]);
     expect(expectedAuthorizationPhrase('a'.repeat(40), config)).toBe(`APPLY ${version} ${file} SHA256 ${config.targetSha256} AT ${'a'.repeat(40)}`);
     expect(assertBeforeApply(ledger(), config).pending).toEqual([version, billingVersion]);
     expect(() => assertBeforeApply(ledger().replace('20261025021046 | 20261025021046', '20261025021046 | '), config)).toThrow();
