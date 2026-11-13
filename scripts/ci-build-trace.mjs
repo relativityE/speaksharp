@@ -8,11 +8,16 @@
 // the parser does not fully understand, any write outside the build's own scratch/output roots, and any
 // connection that could have been answered make the trace UNUSABLE: the producer then publishes nothing and nobody can reuse it.
 //
-// Temporary files (/tmp): the build may write them, but a read of one is allowed only when the trace proves, in
-// order, that the build itself created it from nothing first (scratchVerdicts); any other read of a temporary path
+// Temporary files (/tmp): the build may write them, but a read of one, or any call whose success shows what was there
+// (a non-exclusive create, a write-only open, an unlink, a chmod), is allowed only when the trace proves, in order,
+// that the build itself created it from nothing first (scratchVerdicts); any other read of a temporary path
 // makes the trace unusable, because its pre-build content is not recorded and could differ on another runner.
 // The build's TMPDIR is a directory made empty and private just before it starts (ci-smart-build), so everything in
 // it is the build's own. Node's compile cache, which vite turns on, is disabled for the build (buildEnvironment).
+//
+// /proc, /sys and /dev are not recorded. The build may only read /proc and /sys, and may use only known character
+// devices under /dev: /dev/shm and /dev/mqueue are writable directories whose files, links or aliases would
+// otherwise be read unrecorded, so any use of them makes the trace unusable, as does an input link into them.
 //
 // Scope note: mtimes are not recorded (a fresh checkout changes them all). The build's caches that key on
 // mtime are deleted before every build. Processes outside the traced build are trusted not to change the checkout
@@ -27,8 +32,6 @@ import { posix } from 'node:path';
 
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const WRITE_FLAGS = /\b(O_WRONLY|O_RDWR|O_CREAT|O_TRUNC|O_APPEND|O_TMPFILE)\b/;
-// The access mode alone decides whether an open can read: O_RDONLY is 0, so only O_WRONLY (and creat) cannot.
-const readable = (name, flags) => name !== 'creat' && !/\bO_WRONLY\b/.test(flags ?? '');
 // [syscall]: which arguments are paths, as [dirfdIndex|null, pathIndex, kind]. kind: 'observe' | 'write'.
 const PATH_ARGS = {
   open: [[null, 0, 'open']], creat: [[null, 0, 'write']], openat: [[0, 1, 'open']], openat2: [[0, 1, 'open']],
@@ -241,8 +244,10 @@ export function parseTrace(text, { scratchRoots = ['/tmp'] } = {}) {
       // file the requested name does not show. That file is read too.
       const landed = ['open', 'openat', 'openat2', 'creat'].includes(name) && ok ? returnedPath(call.result) : null;
       const [first] = touched;
-      if (landed?.startsWith('/') && posix.normalize(landed) !== first.path && readable(name, first.flags)
-        && !/\bO_TMPFILE\b/.test(first.flags)) {
+      // A write lands there too: it is checked against the output roots where it really went. The landed file is
+      // observed whatever the mode, since an fd on it shows its size and mode through calls strace does not trace.
+      if (landed?.startsWith('/') && posix.normalize(landed) !== first.path && !/\bO_TMPFILE\b/.test(first.flags)) {
+        if (first.effective === 'write') written.add(posix.normalize(landed));
         observed.add(posix.normalize(landed)); event('observe', posix.normalize(landed), { ok: true });
       }
       if ((name === 'symlink' || name === 'symlinkat') && ok) links.push({ target: decodeString(args[0]), path: touched[0].path });
@@ -269,14 +274,20 @@ function recordScratchEvents(name, args, result, touched, event) {
     // A failed create or write still found out whether the path was there, which the build can act on.
     if (!ok) return event('observe', path, { ok });
     if (/\bO_CREAT\b/.test(flags) && /\bO_EXCL\b/.test(flags) && returnedPath(result) === path) return event('create', path);
-    // Any open that is not write-only can read what is there (O_RDONLY|O_CREAT and O_RDONLY|O_APPEND included).
-    if (readable(name, flags)) event('observe', path, { ok });
+    // Every other successful open is an observation too. One that is not write-only can read what is there
+    // (O_RDONLY|O_CREAT and O_RDONLY|O_APPEND included); one without O_CREAT succeeds only on an existing path; and a
+    // non-exclusive create either made the file or opened the one already there, which strace cannot tell apart,
+    // while its fd shows the old file's size and mode through fstat and lseek, which are not traced.
+    event('observe', path, { ok, creates: name === 'creat' || /\bO_CREAT\b/.test(flags) });
     return event(name === 'creat' || /\bO_CREAT\b/.test(flags) ? 'create-in-place' : 'write', path);
   }
   if (name === 'mkdir' || name === 'mkdirat') return event(ok ? 'mkdir' : 'observe', first.path, { ok });
-  if (['unlink', 'unlinkat', 'rmdir'].includes(name)) return event(ok ? 'remove' : 'observe', first.path, { ok });
+  // From here on, a call that succeeded on an existing path also found out that it was there (and, for rmdir, that it
+  // was empty), so it is an observation as well as a change.
+  if (['unlink', 'unlinkat', 'rmdir'].includes(name)) { event('observe', first.path, { ok }); return ok ? event('remove', first.path) : undefined; }
   if (['rename', 'renameat', 'renameat2'].includes(name)) {
     if (!ok) { event('observe', first.path, { ok }); return event('observe', second.path, { ok }); }
+    event('observe', first.path, { ok });
     if (/\bRENAME_EXCHANGE\b/.test(args.join(','))) { event('taint', first.path); return event('taint', second.path); }
     return event('rename', first.path, { to: second.path });
   }
@@ -289,7 +300,11 @@ function recordScratchEvents(name, args, result, touched, event) {
   }
   // A symlink makes the destination name something whose content the build did not write there.
   if (name === 'symlink' || name === 'symlinkat') return event(ok ? 'taint' : 'observe', first.path, { ok });
-  for (const t of touched) event(t.effective === 'write' && ok ? 'write' : 'observe', t.path, { ok, ...t.fd });
+  for (const t of touched) {
+    // chmod, chown, utime, truncate and xattr changes need the path to exist; mknod creates it, as a create does.
+    if (t.effective === 'write' && ok && name !== 'mknod' && name !== 'mknodat') event('observe', t.path, { ok, ...t.fd });
+    event(t.effective === 'write' && ok ? 'write' : 'observe', t.path, { ok, ...t.fd });
+  }
 }
 
 /**
@@ -332,8 +347,9 @@ export function scratchVerdicts(events, isScratch, freshRoots = []) {
       // Through an fd on an unlinked file. Only the build's own anonymous O_TMPFILE file passes: any other such fd may
       // have been inherited from outside the build, and strace never shows which file it was opened on.
       if (e.fdOf) { (state.get(e.fdOf) === 'anon' ? verified : refused).add(path); continue; }
-      const s = status(path);
-      (s === 'create' || (s === 'remove' && !e.ok) ? verified : refused).add(path);
+      // A create where the build removed the old name inside a directory it made cannot have opened anything else.
+      const s = status(path), freshName = s === 'remove' && (!e.ok || (e.creates && status(parent) === 'create'));
+      (s === 'create' || freshName ? verified : refused).add(path);
     } else if (op === 'create') { clearUnder(path); state.set(path, 'create'); }
     else if (op === 'anon') { clearUnder(path); state.set(path, 'anon'); }
     else if (op === 'mkdir') {
@@ -421,6 +437,11 @@ export function pathState(path, { listing = false, outputRoots = [] } = {}) {
  * Turn a parsed trace into a manifest. `root` is the checkout; repository paths are stored relative to it so
  * that the manifest is independent of where the checkout lives. Returns { manifest } or { problems }.
  */
+// Character devices that hold no file data, and /dev itself. Reads of stdout and stderr are left out: they read an
+// inherited fd.
+const DEVICE_READ = /^\/dev(\/(null|zero|full|random|urandom|tty|ptmx|pts\/\d+))?$/;
+const DEVICE_WRITE = /^\/dev\/(null|zero|full|tty|stdout|stderr|pts\/\d+)$/;
+
 export function buildManifest(trace, { root, outputRoots, scratchRoots = [], freshRoots = [], unclearedOutputRoots = [], ignoredRoots = ['/proc', '/sys', '/dev'] }) {
   const problems = [...trace.problems];
   if (trace.network.length) problems.push(...trace.network.map((n) => `network connection during build: ${n}`));
@@ -451,6 +472,13 @@ export function buildManifest(trace, { root, outputRoots, scratchRoots = [], fre
   }
   // /dev/fd and /dev/stdin read an fd under another name, which /dev (not recorded) would hide.
   for (const path of [...trace.observed, ...trace.listed]) if (/^\/dev\/(fd|stdin)(\/|$)/.test(path)) problems.push(`build read an inherited fd through /dev: ${path}`);
+  // /dev is not recorded because its devices hold no file data, but /dev/shm and /dev/mqueue are ordinary writable
+  // directories: a file, link or alias there (`/dev/shm/x -> /tmp/pre`) would be read unrecorded. So only known
+  // character devices may be used under /dev, and nothing may be written under the other unrecorded roots at all.
+  for (const path of [...trace.observed, ...trace.listed]) {
+    if (under(path, ['/dev']) && !DEVICE_READ.test(path) && !/^\/dev\/(fd|stdin)(\/|$)/.test(path)) problems.push(`build used a /dev path that is not a known device: ${path}`);
+  }
+  for (const path of writes) if (under(path, ignoredRoots) && !DEVICE_WRITE.test(path)) problems.push(`build wrote under an unrecorded root: ${path}`);
   // Something moved or linked into an output root from outside would be read there unrecorded.
   for (const { from, to } of trace.moves ?? []) {
     if (under(to, outputs) && !under(from, outputs)) problems.push(`build moved something into its outputs from outside them: ${to}`);
@@ -502,6 +530,8 @@ export function buildManifest(trace, { root, outputRoots, scratchRoots = [], fre
         for (const candidate of [posix.normalize(unnormalized), target, ...visited]) {
           if (under(candidate, outputs)) { problems.push(`input link into an output root: ${path}`); break; }
           if (isScratch(candidate)) { problems.push(`input link into a temporary path: ${path}`); break; }
+          // A link into /dev/shm and the like (or /proc) names a file whose content is never recorded.
+          if (under(candidate, ignoredRoots) && !ignoredRoots.includes(candidate) && !DEVICE_READ.test(candidate)) { problems.push(`input link into an unrecorded root: ${path}`); break; }
           if (!wanted.has(candidate)) { add(candidate); changed = true; }
         }
       }

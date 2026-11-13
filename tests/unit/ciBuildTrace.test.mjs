@@ -342,8 +342,8 @@ test('temporary paths reached through `..` or a link, and the scratch root itsel
     { root: '/tmp/base/repo', outputRoots: ['/tmp/base/repo/dist'], scratchRoots: ['/tmp'] });
   assert.equal(above.problems, undefined, above.problems?.join('\n'));
   assert(above.manifest.some(([n]) => n === '/tmp/base'), 'a directory above the checkout is recorded like any directory');
-  // Writing temporary files is allowed; writing next to the checkout is not.
-  assert.equal(buildManifest(parse([`10 openat(AT_FDCWD<${f.root}>, "${scratch}/new", O_WRONLY|O_CREAT|O_TRUNC, 0644) = 3<${scratch}/new>`]), options).problems, undefined);
+  // Writing a new temporary file is allowed; writing next to the checkout is not.
+  assert.equal(buildManifest(parse([`10 openat(AT_FDCWD<${f.root}>, "${scratch}/new", O_WRONLY|O_CREAT|O_EXCL, 0644) = 3<${scratch}/new>`]), options).problems, undefined);
   assert.match(buildManifest(parse([`10 openat(AT_FDCWD<${f.root}>, "${f.root}/src/new", O_WRONLY|O_CREAT|O_TRUNC, 0644) = 3<${f.root}/src/new>`]), options).problems.join(), /wrote outside/);
 });
 
@@ -433,8 +433,48 @@ test('a readable open with O_CREAT or O_APPEND reads a temporary file, so it nee
     // Where it lands is checked too.
     assert(refusedTemp(scratchBuild([`10 openat(AT_FDCWD</r>, "/r/dist/x", ${flags}, 0644) = 3</tmp/pre>`]), '/tmp/pre'), flags);
   }
-  // Write-only opens never read: they stay writes (the build's own temporary output).
-  assert.equal(scratchBuild(['10 openat(AT_FDCWD</r>, "/tmp/out", O_WRONLY|O_APPEND, 0644) = 3</tmp/out>']).problems, undefined);
+  // A write-only create that may have opened the existing file shows its size and mode through fstat and lseek,
+  // which are not traced, so it needs the same proof; on the build's own file it is fine.
+  for (const line of ['10 openat(AT_FDCWD</r>, "/tmp/out", O_WRONLY|O_CREAT|O_APPEND, 0644) = 3</tmp/out>', '10 creat("/tmp/out", 0644) = 3</tmp/out>',
+    '10 openat(AT_FDCWD</r>, "/tmp/out", O_WRONLY|O_CREAT|O_TRUNC, 0644) = 3</tmp/out>']) {
+    assert(refusedTemp(scratchBuild([line]), '/tmp/out'), line);
+    assert.equal(scratchBuild(['10 openat(AT_FDCWD</r>, "/tmp/out", O_WRONLY|O_CREAT|O_EXCL, 0600) = 3</tmp/out>', line]).problems, undefined, line);
+  }
+  // A create after the build removed the old name inside a directory it made cannot have opened anything else.
+  assert.equal(scratchBuild(['10 mkdir("/tmp/w", 0700) = 0', '10 openat(AT_FDCWD</r>, "/tmp/w/a", O_WRONLY|O_CREAT|O_EXCL, 0600) = 3</tmp/w/a>',
+    '10 unlink("/tmp/w/a") = 0', '10 openat(AT_FDCWD</r>, "/tmp/w/a", O_WRONLY|O_CREAT|O_TRUNC, 0644) = 4</tmp/w/a>',
+    '10 openat(AT_FDCWD</r>, "/tmp/w/a", O_RDONLY) = 5</tmp/w/a>']).problems, undefined);
+});
+
+test('negative control: a write is checked where its fd really landed', () => {
+  // Through a link the build made in its own fresh TMPDIR, an open lands on the link's target, whatever it was called.
+  const fresh = (lines) => buildManifest(parse(lines), { root: '/r', outputRoots: ['/r/dist'], scratchRoots: ['/tmp'], freshRoots: ['/tmp/own'] });
+  const shm = fresh(['10 symlink("/dev/shm/y", "/tmp/own/l") = 0', '10 openat(AT_FDCWD</r>, "/tmp/own/l", O_WRONLY|O_CREAT|O_TRUNC, 0644) = 3</dev/shm/y>']);
+  assert((shm.problems ?? []).includes('build wrote under an unrecorded root: /dev/shm/y'), shm.problems?.join('\n'));
+  const checkout = fresh(['10 symlink("/r/src/a.ts", "/tmp/own/l") = 0', '10 openat(AT_FDCWD</r>, "/tmp/own/l", O_WRONLY|O_TRUNC) = 3</r/src/a.ts>']);
+  assert((checkout.problems ?? []).includes('build wrote outside its output roots: /r/src/a.ts'), checkout.problems?.join('\n'));
+  // Landing on a pre-existing temporary file through a link is a dependency on that file.
+  assert(refusedTemp(fresh(['10 symlink("/tmp/fixed.log", "/tmp/own/l") = 0', '10 openat(AT_FDCWD</r>, "/tmp/own/l", O_WRONLY|O_CREAT|O_APPEND, 0644) = 3</tmp/fixed.log>']), '/tmp/fixed.log'));
+  // A device reached under another name stays usable.
+  assert.equal(scratchBuild(['10 openat(AT_FDCWD</r>, "/dev/stderr", O_WRONLY) = 3</dev/pts/0>']).problems, undefined);
+});
+
+test('negative control: a call that succeeds only on an existing temporary path needs the same proof', () => {
+  // Each succeeds only because /tmp/pre was already there, so deleting it would change what the build saw.
+  for (const line of ['10 openat(AT_FDCWD</r>, "/tmp/pre", O_WRONLY) = 3</tmp/pre>', '10 openat(AT_FDCWD</r>, "/tmp/pre", O_WRONLY|O_TRUNC) = 3</tmp/pre>',
+    '10 openat(AT_FDCWD</r>, "/tmp/pre", O_WRONLY|O_APPEND) = 3</tmp/pre>', '10 unlink("/tmp/pre") = 0', '10 rmdir("/tmp/pre") = 0',
+    '10 rename("/tmp/pre", "/tmp/mine") = 0', '10 chmod("/tmp/pre", 0600) = 0', '10 utimensat(AT_FDCWD</r>, "/tmp/pre", NULL, 0) = 0',
+    '10 truncate("/tmp/pre", 0) = 0', '10 setxattr("/tmp/pre", "user.x", "1", 1, 0) = 0']) {
+    const result = scratchBuild([line]);
+    assert(refusedTemp(result, '/tmp/pre'), `${line}\n${result.problems?.join('\n')}`);
+  }
+  // Where a write-only open without O_CREAT lands is checked too.
+  assert(refusedTemp(scratchBuild(['10 openat(AT_FDCWD</r>, "/r/dist/x", O_WRONLY) = 3</tmp/pre>']), '/tmp/pre'));
+  // On the build's own file they are fine.
+  const own = scratchBuild(['10 openat(AT_FDCWD</r>, "/tmp/c", O_WRONLY|O_CREAT|O_EXCL, 0600) = 3</tmp/c>', '10 openat(AT_FDCWD</r>, "/tmp/c", O_WRONLY|O_APPEND) = 4</tmp/c>',
+    '10 chmod("/tmp/c", 0600) = 0', '10 rename("/tmp/c", "/tmp/d") = 0', '10 unlink("/tmp/d") = 0', '10 openat(AT_FDCWD</r>, "/tmp/e", O_WRONLY|O_CREAT|O_EXCL, 0644) = 5</tmp/e>',
+    '10 mknod("/tmp/f", S_IFIFO|0600) = 0']);
+  assert.equal(own.problems, undefined, own.problems?.join('\n'));
 });
 
 test('ordinary temporary-file patterns keep the receipt', () => {
@@ -499,4 +539,44 @@ test('an O_TMPFILE file and a hard link to the build\'s own file keep the receip
   assert(refusedTemp(scratchBuild([label, '10 link("/tmp/#123", "/tmp/named") = 0', '10 openat(AT_FDCWD</r>, "/tmp/named", O_RDONLY) = 4</tmp/named>']), '/tmp/named'));
   const linked = scratchBuild(['10 openat(AT_FDCWD</r>, "/tmp/a", O_WRONLY|O_CREAT|O_EXCL, 0644) = 3</tmp/a>', '10 link("/tmp/a", "/tmp/b") = 0', '10 openat(AT_FDCWD</r>, "/tmp/b", O_RDONLY) = 4</tmp/b>']);
   assert.equal(linked.problems, undefined, linked.problems?.join('\n'));
+});
+
+test('negative control: /dev/shm and the other unrecorded roots cannot hold a temporary file or an alias to one', () => {
+  const devRefused = (result, path) => (result.problems ?? []).includes(`build used a /dev path that is not a known device: ${path}`);
+  const wroteRefused = (result, path) => (result.problems ?? []).includes(`build wrote under an unrecorded root: ${path}`);
+  // An alias in /dev/shm to a pre-existing /tmp file, read by stat, which shows no landed path.
+  const alias = scratchBuild(['10 symlink("/tmp/pre-existing", "/dev/shm/probe") = 0',
+    '10 statx(AT_FDCWD</r>, "/dev/shm/probe", AT_STATX_SYNC_AS_STAT, STATX_ALL, {stx_mode=S_IFREG|0644, stx_size=3}) = 0',
+    '10 unlink("/dev/shm/probe") = 0']);
+  assert.equal(alias.manifest, undefined);
+  assert(wroteRefused(alias, '/dev/shm/probe') && devRefused(alias, '/dev/shm/probe'), alias.problems?.join('\n'));
+  // A file in /dev/shm from before the build, read or listed, and a file the build writes there.
+  assert(devRefused(scratchBuild(['10 openat(AT_FDCWD</r>, "/dev/shm/pre", O_RDONLY) = 3</dev/shm/pre>']), '/dev/shm/pre'));
+  assert(devRefused(scratchBuild(['10 getdents64(3</dev/shm>, 0x1 /* 3 entries */, 32768) = 72']), '/dev/shm'));
+  assert(devRefused(scratchBuild(['10 openat(AT_FDCWD</r>, "/dev/mqueue/q", O_RDONLY) = 3</dev/mqueue/q>']), '/dev/mqueue/q'));
+  assert(wroteRefused(scratchBuild(['10 openat(AT_FDCWD</r>, "/dev/shm/w", O_WRONLY|O_CREAT|O_EXCL, 0600) = 3</dev/shm/w>']), '/dev/shm/w'));
+  assert(wroteRefused(scratchBuild(['10 link("/tmp/pre", "/dev/shm/h") = 0']), '/dev/shm/h'));
+  assert(wroteRefused(scratchBuild(['10 rename("/tmp/pre", "/dev/shm/m") = 0']), '/dev/shm/m'));
+  assert(devRefused(scratchBuild(['10 openat(AT_FDCWD</r>, "/dev/stdout", O_RDONLY) = 3</dev/pts/0>']), '/dev/stdout'), 'reading stdout reads an inherited fd');
+  // /proc and /sys are read only.
+  assert(wroteRefused(scratchBuild(['10 openat(AT_FDCWD</r>, "/proc/self/oom_score_adj", O_WRONLY) = 3</proc/10/oom_score_adj>']), '/proc/self/oom_score_adj'));
+  assert(wroteRefused(scratchBuild(['10 symlink("/tmp/pre", "/sys/fs/x") = 0']), '/sys/fs/x'));
+  // Devices that hold no file data stay usable.
+  const devices = scratchBuild(['10 openat(AT_FDCWD</r>, "/dev/null", O_RDWR) = 3</dev/null>', '10 openat(AT_FDCWD</r>, "/dev/urandom", O_RDONLY) = 4</dev/urandom>',
+    '10 openat(AT_FDCWD</r>, "/dev/tty", O_RDWR) = 5</dev/tty>', '10 statx(1</dev/pts/0>, "", AT_STATX_SYNC_AS_STAT|AT_EMPTY_PATH, STATX_ALL, {stx_mode=S_IFCHR|0620}) = 0',
+    '10 openat(AT_FDCWD</r>, "/dev/stderr", O_WRONLY) = 6</dev/pts/0>', '10 openat(AT_FDCWD</r>, "/proc/self/maps", O_RDONLY) = 7</proc/10/maps>']);
+  assert.equal(devices.problems, undefined, devices.problems?.join('\n'));
+});
+
+test('negative control: an input link into /dev/shm or /proc is refused, a link to a device is not', (t) => {
+  const f = tree(t);
+  const linkBuild = (observed) => buildManifest({ observed: new Set(observed), listed: new Set(), written: new Set(), network: [], problems: [] }, { root: f.root, outputRoots: f.outputRoots });
+  symlinkSync('/dev/shm/probe', join(f.root, 'src/shm.json')); symlinkSync(`${PROC_ROOT}/tmp/pre`, join(f.root, 'src/proc.json'));
+  symlinkSync('/dev/shm', join(f.root, 'shmdir')); symlinkSync('/dev/null', join(f.root, 'src/null'));
+  for (const name of ['src/shm.json', 'src/proc.json']) assert.match(linkBuild([`${f.root}/${name}`]).problems?.join() ?? '', /input link into an unrecorded root/, name);
+  // `..` after a link into /dev/shm: the parser records the link before the `..`, so it is refused the same way.
+  const dotdot = buildManifest(parse([`10 openat(AT_FDCWD<${f.root}>, "${f.root}/shmdir/../x", O_RDONLY) = -1 ENOENT (No such file or directory)`]), { root: f.root, outputRoots: f.outputRoots });
+  assert.match(dotdot.problems?.join() ?? '', /input link into an unrecorded root/);
+  const device = linkBuild([`${f.root}/src/null`]);
+  assert.equal(device.problems, undefined, device.problems?.join('\n'));
 });
