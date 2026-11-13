@@ -19,6 +19,17 @@ for(const path of ['../evil','/abs','a/../../evil','a\\evil','./evil','a//b'])te
 test('a different Node, pnpm, platform or architecture changes the environment digest',()=>{for(const change of [{node:'v22.13.0'},{pnpm:'10.30.0'},{platform:'darwin'},{arch:'arm64'}])assert.notEqual(digestWith(env,tools),digestWith(env,{...tools,...change}));});
 test('no digest without a readable toolchain',()=>{for(const bad of [undefined,{...tools,node:''},{...tools,pnpm:'10'},{...tools,node:'22.12.0'}])assert.throws(()=>digestWith(env,bad),/BUILD_REUSE_TOOLCHAIN/);});
 test('the toolchain is read from the build\'s own PATH',()=>{const seen=[];const t=buildToolchain({PATH:'/x'},(tool,args,o)=>{seen.push([tool,args,o.env.PATH]);return tool==='node'?'v22.12.0\n':'10.29.1\n';});assert.deepEqual([t.node,t.pnpm],['v22.12.0','10.29.1']);assert.deepEqual(seen.map(([a,b,c])=>[a,b.join(),c]),[['node','--version','/x'],['pnpm','--version','/x']]);});
+test('the toolchain is read before the build\'s own TMPDIR exists: a real pnpm and node answer, from the build\'s PATH', async () => {
+  const { mkdtempSync, rmSync, existsSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const parent = mkdtempSync(join(tmpdir(), 'toolchain-')), missing = join(parent, 'not-made-yet');
+  try {
+    const t = buildToolchain({ ...buildEnvironment({ PATH: process.env.PATH, HOME: process.env.HOME }), TMPDIR: missing });
+    assert.match(t.node, /^v\d+\.\d+\.\d+$/); assert.match(t.pnpm, /^\d+\.\d+\.\d+$/);
+    assert(!existsSync(missing));
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+});
 test('the anon key\'s value is never in the digest, only whether it is set',()=>{const a={...env,VITE_SUPABASE_ANON_KEY:'key-one'};assert.equal(environmentDigest(a),environmentDigest({...env,VITE_SUPABASE_ANON_KEY:'key-two'}));assert.notEqual(environmentDigest(a),environmentDigest(env));});
 test('a build is reusable only when this checkout\'s secret is compiled into its JavaScript',()=>{const e={VITE_SUPABASE_ANON_KEY:'key-one'};assert(secretsCompiledIn(e,['x','const k="key-one";']));assert(!secretsCompiledIn(e,['const k="key-two";']));assert(!secretsCompiledIn(e,['key-one-and-more']));assert(!secretsCompiledIn(e,[]));assert(secretsCompiledIn({},[]));});
 test('full-evidence accepts only a build released as this commit',()=>{const sha='a'.repeat(40),page=(s)=>`<script>window.__APP_RELEASE__="${s}";</script>`;verifyBuildRelease({'index.html':page(sha),'private-dropin.html':page(sha)},sha);

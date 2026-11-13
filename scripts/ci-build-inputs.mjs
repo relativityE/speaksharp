@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 // The build's TMPDIR. ci-smart-build makes it empty and private (0700) just before every build, so a traced build
@@ -28,8 +29,12 @@ export function environmentDigest(env, toolchain) {
   return hash(JSON.stringify({ schema: 2, mode: 'test', variables, toolchain: { node: toolchain.node, pnpm: toolchain.pnpm, platform: toolchain.platform, arch: toolchain.arch } }));
 }
 // The Node and pnpm the build itself resolves from its PATH, so a runner image or pnpm change never reuses.
+// The build's own TMPDIR is made only just before the build, and pnpm will not even print its version while TMPDIR
+// does not exist, so the query runs with this process's temporary directory. TMPDIR plays no part in which binary
+// the PATH resolves.
 export function buildToolchain(env, run = execFileSync) {
-  const version = (tool) => run(tool, ['--version'], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  const queryEnv = { ...env, TMPDIR: tmpdir() };
+  const version = (tool) => run(tool, ['--version'], { env: queryEnv, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
   return { node: version('node'), pnpm: version('pnpm'), platform: process.platform, arch: process.arch };
 }
 // Every secret set in this environment must appear, as the exact string literal Vite compiles in, in the build's
