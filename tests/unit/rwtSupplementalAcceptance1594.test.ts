@@ -24,7 +24,7 @@ const J = 'journey-feedback';
 const sha = (v: string) => createHash('sha256').update(v, 'utf8').digest('hex');
 const pass = (step: string): ReceiptRow => ({ step, verdict: 'PASS', detail: 'ok' });
 const hold = (step: string): ReceiptRow => ({ step, verdict: 'HOLD', detail: 'pending' });
-const MODEL = 'gemini-3.8-flash';
+const MODEL = 'gemini-3.6-flash';
 const OLD = '11111111-1111-4111-8111-111111111111';
 const NEW = '22222222-2222-4222-8222-222222222222';
 const OLD_REQ = '33333333-3333-4333-8333-333333333333';
@@ -153,7 +153,9 @@ describe('#1594 supplemental suites in acceptance and finalization', () => {
         const feedback = src('live/rwt-feedback-association-boundaries.live.spec.ts');
         const pending = src('live/rwt-pending-start-navigation.live.spec.ts');
         const helpers = ['live/helpers/rwtJourney.ts', 'live/helpers/coachingFeedbackAdapter.ts', 'live/helpers/rwtCoachingCollector.ts',
-            'live/helpers/feedbackDiagnosticRef.ts'].map(src).join('\n');
+            'live/helpers/feedbackDiagnosticRef.ts',
+            // AHT-07 bounded writes (case-only helpers): the fault-leg, ledger and isolation rows, and the cleanup's zero residue.
+            'live/helpers/feedbackAttemptLedger.ts', 'live/helpers/feedbackReportCleanup.ts'].map(src).join('\n');
         expect(feedback).toContain("const SUITE = 'feedback-association-boundaries';");
         expect(feedback).toContain('`${SUITE}-older-take`');
         expect(feedback).toContain('`${SUITE}-no-session`');

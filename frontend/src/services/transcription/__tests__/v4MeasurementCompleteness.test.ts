@@ -87,6 +87,8 @@ function workerReceipt(entries: Entry[], token: string, perfAvailable = true): A
 async function publishThroughV4(entries: Entry[], perfAvailable = true) {
     const attempt = mintAcquisitionAttempt(V4.id);
     const v4 = new TransformersJSV4Engine({} as never) as unknown as {
+        activeLoadRequestId: number | null;
+        pendingWorkerRequests: Map<number, unknown>;
         handleWorkerMessage: (r: unknown, m: unknown) => void;
         activeAttempt: unknown;
         acquisitionReceipt: AcquisitionReceipt | null;
@@ -95,6 +97,8 @@ async function publishThroughV4(entries: Entry[], perfAvailable = true) {
         getAcquisitionAttempt: () => unknown;
         settledAttempt: unknown;
     };
+    v4.activeLoadRequestId = 1;
+    v4.pendingWorkerRequests = new Map([[1, {}]]);
     v4.activeAttempt = attempt;
     v4.settledAttempt = attempt;
     v4.acquisitionReceipt = null;

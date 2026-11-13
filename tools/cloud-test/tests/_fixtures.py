@@ -26,6 +26,21 @@ NO_HISTORY_REASON = "NOT APPLICABLE: owner decision 2026-10-30, no retained hist
 def needs_history(obj):
     """Skip a test or test class that reads the real retained history when CT_HISTORY=none; never otherwise."""
     return unittest.skipIf(HISTORY_MODE == "none", NO_HISTORY_REASON)(obj)
+# The AHT-01 one-off grant expired 2026-11-12T00:00Z and the committed tree has no active grant (init_run_inputs.ONE_OFF_GRANT_SHA256 is
+# None). Contract tests exercise the real admission code against the grant's preserved bytes, made active only inside the test process.
+EXPIRED_GRANT_REL = "tests/fixtures/r10-aht01-grant.expired.json"
+
+
+def expired_grant_active():
+    """A patcher that makes the preserved expired grant the pinned one-off grant for a test module (start in setUpModule)."""
+    import hashlib
+    from unittest import mock
+    import init_run_inputs
+    with open(os.path.join(ROOT, EXPIRED_GRANT_REL), "rb") as f:
+        sha = hashlib.sha256(f.read()).hexdigest()
+    return mock.patch.multiple(init_run_inputs, ONE_OFF_GRANT_PATH="tools/cloud-test/" + EXPIRED_GRANT_REL, ONE_OFF_GRANT_SHA256=sha)
+
+
 NOW = "2026-10-28T22:00:00Z"
 TESTED = "4c85b006ac05e180521fd6e7d807f736987cafe8"
 REQUEST_FIXTURES = {

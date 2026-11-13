@@ -566,12 +566,15 @@ const POST_STOP_CHAIN_OPEN_MIC = {
  *   R's observed state at the invalidation is R's own single `ended` row — `endLifecycle` is once-only:
  *     completed_before_repeat: `completed`, emitted in the same tick as R's `rendered`, both BEFORE the Repeat press —
  *       a fast, legitimate review, never a failure.
+ *     completed_during_successor_preparation: explicit render-target A evidence, with one ready/render/completed
+ *       chain before B's RECORDING. An accepted Start changes ambient attempt before A's review is retired.
  *     open_at_invalidation: `superseded_*`, emitted by R's own lifecycle when the session change is observed, and only
  *       while R is still open, at or after the press. It is the observed terminal REPORT, not the exact invalidation
  *       instant (render invalidates before the deferred cleanup reports), so any R `rendered` at or before it — a lost
  *       pre-repeat completion, or a render between the press and the report — is ambiguous and HOLDs.
  *     No `ended` row HOLDs: neither branch is ever inferred from a missing row.
- *   Stale application into B (FAIL) is proven only by R `rendered` under B's attempt. Readiness alone, completion before
+ *   Wrong-target rendering (FAIL) is proven by an explicit different target, or R rendered under B after B records.
+ *   Explicit A rendering after B records also fails. Ambient B before recording alone is ambiguous. Readiness alone, completion before
  *   the invalidation, and a labelled saved-review revisit (its own family) are not that failure; any other late or
  *   unattributable ready/rendered for R is ambiguous and HOLDs. Late transport facts for R (`response_received`,
  *   `persisted`) are separate facts, never a second terminal.
@@ -585,7 +588,7 @@ const REVIEW_REPEAT_OPTIONS: ReadonlySet<string> = new Set(['practice_next', 're
 export type InterruptedRepeatResult =
     | {
         ok: true;
-        branch: 'completed_before_repeat' | 'open_at_invalidation';
+        branch: 'completed_before_repeat' | 'completed_during_successor_preparation' | 'open_at_invalidation';
         requestId: string; takeAttempt: string; successorAttempt: string;
     }
     | { ok: false; reason: string };
@@ -680,7 +683,9 @@ export function classifyInterruptedRepeat(
         && Number.isFinite(timed(r)) && timed(r) >= timed(successorRecording));
     if (!successorStarted) return hold('the successor take\'s recording has no session_started of its own after that recording');
 
-    // Stale application into B — R rendered under B's attempt — is an observed failure, whatever else is missing.
+    // Ambient B starts at accepted intent, while A's review is deliberately retained until B records.
+    // A visible wrong target is positive failure evidence. Ambient B alone proves takeover only once
+    // B records; before then missing displayed-target evidence is ambiguous, never a qualifying pass.
     const own = lifecycle.filter((r) => prop(r, 'diagnostic_request_id') === requestId);
     const shown = (r: DecodedTelemetryRow) => prop(r, 'stage') === 'ready' || prop(r, 'stage') === 'rendered';
     // Every row of R names the SAME origin take and boot it was requested under (bbc58543 return 3).
@@ -688,7 +693,13 @@ export function classifyInterruptedRepeat(
     if (own.some((r) => prop(r, 'origin_attempt_id') !== takeAttempt || prop(r, 'origin_boot_id') !== originBoot)) {
         return hold('the interrupted take\'s coaching request reports conflicting origin take or boot across its lifecycle');
     }
-    if (own.some((r) => prop(r, 'stage') === 'rendered' && attemptOf(r) === successor)) {
+    if (own.some((r) => prop(r, 'stage') === 'rendered' && nonBlank(prop(r, 'render_target_attempt_id'))
+        && prop(r, 'render_target_attempt_id') !== takeAttempt)) {
+        return hold('FAIL: the interrupted take\'s coaching was rendered for a different session target');
+    }
+    if (own.some((r) => prop(r, 'stage') === 'rendered'
+        && (attemptOf(r) === successor || prop(r, 'render_target_attempt_id') === takeAttempt)
+        && Number.isFinite(timed(r)) && timed(r) >= timed(successorRecording))) {
         return hold('FAIL: the interrupted take\'s coaching was rendered under the next take — an observed stale application into B');
     }
     if (chainHold !== null) return hold(chainHold);
@@ -702,7 +713,7 @@ export function classifyInterruptedRepeat(
     if (!Number.isFinite(endedAt) || endedAt < requestedAt) return hold('the coaching request\'s terminal precedes the request itself');
     if (own.some((r) => shown(r) && !Number.isFinite(timed(r)))) return hold('a ready/rendered row for the request has no producer time');
     const reason = String(prop(end, 'end_reason') ?? '');
-    const result = (branch: 'completed_before_repeat' | 'open_at_invalidation'): InterruptedRepeatResult =>
+    const result = (branch: 'completed_before_repeat' | 'completed_during_successor_preparation' | 'open_at_invalidation'): InterruptedRepeatResult =>
         ({ ok: true, branch, requestId: requestId as string, takeAttempt, successorAttempt: successor });
     if (own.some((r) => shown(r) && timed(r) < requestedAt)) return hold('the interrupted take\'s coaching was ready or rendered before it was requested');
     if (reason === 'completed') {
@@ -715,19 +726,39 @@ export function classifyInterruptedRepeat(
         if (rendered.length !== 1 || timed(rendered[0]) > endedAt) {
             return hold('the interrupted take\'s coaching completed without exactly one render of its own at completion');
         }
+        if (ready.length !== 1) return hold('the interrupted take\'s coaching completed without exactly one readiness report');
+        // New evidence may establish a legitimate retained-A completion after B's accepted Start.
+        // It must positively bind the visible session to A and remain strictly before B takes over.
+        // Never manufacture this target from origin or timestamps in a historical/legacy receipt.
+        // PO Option 1 (2026-11-10): A's review stays A's from the Repeat press until B records, so the window opens at the
+        // PRESS. The ambient take must agree with when it can exist: A from the press until B's accepted Start (which mints
+        // B), B from that Start until B records. Any other ambient take, or one out of its time, never qualifies.
+        const renderedAt = timed(rendered[0]);
+        const renderedUnderNow = attemptOf(rendered[0]);
+        const ambientConsistent = (renderedUnderNow === takeAttempt && renderedAt >= pressAt && renderedAt < repeatAt)
+            || (renderedUnderNow === successor && renderedAt >= repeatAt);
+        if (ambientConsistent && prop(rendered[0], 'render_target_attempt_id') === takeAttempt
+            && endedAt < timed(successorRecording) && timed(ready[0]) < timed(successorRecording)) {
+            return result('completed_during_successor_preparation');
+        }
         // The render is R's (its origin is A and this boot, checked above), and it must not have been shown while ANOTHER
         // take was current (Codex r4308033814). The producer ties `rendered` to the visible, validated review of its own
         // session, independent of an open recording attempt, so an ambient take of A, or no ambient attempt reported, is
         // accepted HERE only — beside the positive origin/boot/readiness/single-render/completed/pre-press bindings. It is no
-        // wildcard elsewhere: any other ambient take makes the render unattributable (HOLD); one under B is FAIL above.
+        // wildcard elsewhere: any other ambient take makes the render unattributable (HOLD). B during preparation
+        // requires the positive target branch above; B at/after recording is the observed failure checked above.
         const renderedUnder = attemptOf(rendered[0]);
         if (renderedUnder !== null && renderedUnder !== takeAttempt) {
             return hold('the interrupted take\'s coaching was rendered while another take was current — unattributable');
         }
-        if (ready.length !== 1) return hold('the interrupted take\'s coaching completed without exactly one readiness report');
         // `ended` is the terminal REPORT, emitted after the render: a completion after the press is not certified from silence.
         if (endedAt >= pressAt) return hold('the interrupted take\'s coaching completed only after the Repeat press, so its target is ambiguous');
         if (timed(ready[0]) >= pressAt) return hold('the interrupted take\'s coaching readiness was reported only after the Repeat press — ambiguous target');
+        // PO Option 1 (2026-11-10): a completed render qualifies ONLY with the positive displayed target A — here as in the
+        // preparation branch above. No target recorded is HOLD (an explicit other target already FAILed, with precedence).
+        if (prop(rendered[0], 'render_target_attempt_id') !== takeAttempt) {
+            return hold('the interrupted take\'s coaching render names no displayed-review target, so whose review showed it is unproven');
+        }
         return result('completed_before_repeat');
     }
     if (SUPERSEDED_END_REASONS.has(reason)) {

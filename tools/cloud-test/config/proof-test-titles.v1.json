@@ -1673,7 +1673,9 @@
    "numeric source snapshot survives page close and FAIL is sticky in original oracle",
    "actual source confirms completed attempt uses same bound practice and next-comparable session",
    "legacy main70e source and split source/served bindings remain rejected after 5a7bf6a1 revalidation",
-   "both runtime preflights reject all formerly pinned releases including a297"
+   "the harness source-adapter preflight still rejects all formerly pinned releases including a297 (its pin is unchanged here)",
+   "runtime source check: a non-origin release qualifies only when all four consumer files at that exact SHA equal the sealed snapshots",
+   "a split binding between two source-compatible releases is refused; the sealed origin needs no read"
   ],
   "packet:draft-adapters/tests/repeat-retention.offline.test.cjs": [
    "explicit lawful expiry after independently captured A and actual B target is not false FAIL",

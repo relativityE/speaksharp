@@ -36,6 +36,7 @@ export const PYTHON_INPUT_CONTRACTS=Object.freeze([
   {inputFile:'tools/cloud-test/tests/fixtures/original-r15-pins.json',testFile:'tools/cloud-test/tests/test_runnable_package.py'},
   {inputFile:'tools/cloud-test/tests/fixtures/partial-request.json',testFile:'tools/cloud-test/tests/test_pipeline_and_report.py'},
   {inputFile:'tools/cloud-test/tests/fixtures/plan-facts.PLACEHOLDER.json',testFile:'tools/cloud-test/tests/test_selected_full_case_route.py'},
+  {inputFile:'tools/cloud-test/tests/fixtures/r10-aht01-grant.expired.json',testFile:'tools/cloud-test/tests/test_one_case_selection.py'},
   {inputFile:'tools/cloud-test/tests/fixtures/settled/admitted-42494152179.json',testFile:'tools/cloud-test/tests/test_one_case_selection.py'},
   {inputFile:'tools/cloud-test/tests/fixtures/settled/jobs-42483030590.json',testFile:'tools/cloud-test/tests/test_settled_attempt_evidence.py'},
   {inputFile:'tools/cloud-test/tests/fixtures/settled/record-before-42483030590.md',testFile:'tools/cloud-test/tests/test_settled_attempt_evidence.py'},

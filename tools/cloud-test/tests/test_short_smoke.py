@@ -25,6 +25,19 @@ import check_coverage as coverage  # noqa: E402
 from test_init_run_inputs import ACCOUNT_ID, CFG, KEYS, NOW, SUPABASE_URL_OK, bundle_with, facts, live_request  # noqa: E402
 from test_case_start_caps import SyntheticBuilder  # noqa: E402
 import state_ref_writer  # noqa: E402
+from _fixtures import EXPIRED_GRANT_REL, expired_grant_active  # noqa: E402
+
+
+
+_EXPIRED_GRANT = expired_grant_active()
+
+
+def setUpModule():
+    _EXPIRED_GRANT.start()
+
+
+def tearDownModule():
+    _EXPIRED_GRANT.stop()
 
 
 def request():
@@ -67,7 +80,7 @@ def live_smoke_request():
 
 
 ROOT_HEAD = "92d6ebf902351750c368d7d513116c6b1f19f80c"
-COMMITTED_GRANT = json.loads((ROOT / "config/runs/R10-3b040043-aht01-grant.json").read_text())
+COMMITTED_GRANT = json.loads((ROOT / EXPIRED_GRANT_REL).read_text())
 # The active one-off: one attempt of the R10 smoke campaign over the grant's explicit selectedCases .
 ONE_OFF_TEMPLATE = "config/runs/R10-3b040043-aht01.json"
 # The committed grant is APPROVED under the PO's pinned decision; the contract tests serve the same document as the reviewed bytes, so a
@@ -221,7 +234,7 @@ class ShortSmokeContract(unittest.TestCase):
         self.assertEqual((COMMITTED_GRANT["notBeforeUtc"], COMMITTED_GRANT["preReserveStateHead"], COMMITTED_GRANT["scopeApprovalRef"],
                           COMMITTED_GRANT["requestTemplateSha256"], COMMITTED_GRANT["testedSha"], COMMITTED_GRANT["backendSha"]),
                          ("2026-11-08T15:36:22Z", "39ec9ab27559662d003ad1a9b8f9b6586f86196f", "approval-2c749f7fca826f9e54d962517a702665",
-                          "742eb4bd1c28c29b89203eb212387f00d2ae8b11515e8308d601bc3a4d10b6e5", "5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2",
+                          "259cc10ba76ca8a8128a746784971d810cb3257ad0614ae8b1a0542fc931325b", "5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2",
                           "c32319f9121d4fef64dc48bb40fae5464dc6b65a"))
         repo = str(ROOT.parents[1])
         grant_path = os.path.join(repo, init.ONE_OFF_GRANT_PATH)

@@ -10,10 +10,13 @@ import unittest
 from datetime import datetime, timezone
 from unittest import mock
 
-from _fixtures import ROOT
+from _fixtures import EXPIRED_GRANT_REL, ROOT, expired_grant_active
 import accounting_rollup as R
 import case_start_caps as C
 import init_run_inputs as I
+
+# The committed (production) pin and path, read before any test activates the expired fixture grant.
+COMMITTED_GRANT_PATH, COMMITTED_GRANT_SHA256 = I.ONE_OFF_GRANT_PATH, I.ONE_OFF_GRANT_SHA256
 
 REPO = os.path.abspath(os.path.join(ROOT, "..", ".."))
 
@@ -25,11 +28,22 @@ def load(rel):
 
 BASE = load("config/runs/R10-3b040043-all15.json")
 REQUEST = load("config/runs/R10-3b040043-aht01.json")
-GRANT = load("config/runs/R10-3b040043-aht01-grant.json")
+GRANT = load(EXPIRED_GRANT_REL)
 CFG = load("config/test-config.v1.json")
 SCOPE = R.parse_scope(load("config/aggregate/period-scope.json"))
 BM = CFG["modes"]["full"]["budgetModel"]
 SMOKE_CATALOG = load("config/smoke-assertion-catalog.json")
+
+
+_EXPIRED_GRANT = expired_grant_active()
+
+
+def setUpModule():
+    _EXPIRED_GRANT.start()
+
+
+def tearDownModule():
+    _EXPIRED_GRANT.stop()
 
 
 def derived(cases=("AHT-01",)):
@@ -231,6 +245,19 @@ class RealRequestValidator(unittest.TestCase):
         full = dict(copy.deepcopy(self.occ), coverageMode="full", sampleMode="full")
         self.refused(full)
 
+    def test_the_committed_tree_has_no_active_one_off_grant_and_admits_none(self):
+        self.assertIsNone(COMMITTED_GRANT_SHA256)
+        self.assertFalse(os.path.lexists(os.path.join(REPO, COMMITTED_GRANT_PATH)))
+        with mock.patch.multiple(I, ONE_OFF_GRANT_PATH=COMMITTED_GRANT_PATH, ONE_OFF_GRANT_SHA256=COMMITTED_GRANT_SHA256):
+            with self.assertRaisesRegex(I.Refused, "one-off-grant-unreadable"):
+                I.one_off_grant(REPO)
+            self.assertIsNone(self.V.r10_selected_subset(self.occ))
+            self.assertIn(self.SUBSET_ERROR, self.errors(self.occ))
+        # the expired grant's own bytes do not satisfy the committed (absent) pin either
+        with mock.patch.multiple(I, ONE_OFF_GRANT_SHA256=COMMITTED_GRANT_SHA256):
+            with self.assertRaisesRegex(I.Refused, "one-off-grant-not-the-reviewed-bytes"):
+                I.one_off_grant(REPO)
+
     def test_an_unpinned_grant_admits_no_subset(self):
         with mock.patch.object(I, "ONE_OFF_GRANT_SHA256", "0" * 64):
             self.assertIsNone(self.V.r10_selected_subset(self.occ))
@@ -270,7 +297,10 @@ class NotTargetedContract(unittest.TestCase):
                 I.check_request(dict(occ, notTargeted=bad), now, I._request_keys())
         self.assertEqual(I.check_request(dict(occ, notTargeted=[]), now, I._request_keys()), ["AHT-01"])
 
-    def test_the_real_pipeline_and_report_accept_the_corrected_request_and_mark_the_admitted_one_invalid(self):
+    def test_without_an_active_grant_the_real_pipeline_refuses_the_one_case_request_and_still_refuses_the_admitted_shape(self):
+        """The pipeline validates in a child process, where only the committed grant state exists: no active grant (it expired
+        2026-11-12T00:00Z). The corrected request is refused ONLY as an unadmitted subset (its notTargeted shape is valid); the
+        exact admitted request is still refused for its notTargeted shape."""
         import tempfile
         from _fixtures import NOW, TESTED, prerequisite, run_py
         from _synthetic_history import shared as synthetic_history
@@ -288,14 +318,10 @@ class NotTargetedContract(unittest.TestCase):
             r = run_py("scripts/pipeline.py", "--request", h.request(src), "--out-dir", out, "--offline-checks", oc, "--repo", REPO,
                        "--now", NOW, "--generated-at", NOW, *h.args(), "--require-secret-free")
             results[name] = (r, out)
-        r, out = results["corrected"]
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("run request VALID", r.stdout)
-        with open(os.path.join(out, "report", "validation.json"), encoding="utf-8") as f:
-            self.assertTrue(json.load(f)["valid"])
-        with open(os.path.join(out, "report", "REPORT.html"), encoding="utf-8") as f:
-            html = f.read()
-        self.assertIn("Not selected: this one-case attempt runs only AHT-01 (GAP-01). GAP-02 is tracked separately", html)
+        r, _ = results["corrected"]
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("ERROR: " + RealRequestValidator.SUBSET_ERROR, r.stdout)
+        self.assertNotIn("notTargeted must be a list of {gap, why}", r.stdout)
         r, _ = results["admitted"]
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("ERROR: notTargeted must be a list of {gap, why}", r.stdout)

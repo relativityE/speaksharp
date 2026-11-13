@@ -37,7 +37,7 @@ on:
         required: false
         default: ''
       diagnostic_release_sha:
-        description: 'Closed RWT single-test diagnostic ONLY: exact deployed ancestor SHA; product/live-test/dependency bytes must match workflow source. Empty preserves existing binding.'
+        description: 'Closed RWT single-test diagnostic ONLY: optional assertion against runtime-discovered production SHA. Empty discovers production; source compatibility and write approval still required.'
         required: false
         default: ''
       comparison_cell:
@@ -89,7 +89,9 @@ jobs:
   gate-1-product:
     name: Gate 1 - Product Truth
     if: ${{ github.event.inputs.gate == 'all' || github.event.inputs.gate == 'gate-1-product' }}
-    runs-on: ubuntu-latest
+    # Pinned (AHT-01 run 43413270234): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build
+    # and setup fails before any gate runs. Remove with the Playwright upgrade (#1840).
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
@@ -126,28 +128,47 @@ jobs:
   gate-3-dast:
     name: Gate 3 - DAST / Running App
     if: ${{ github.event.inputs.gate == 'all' || github.event.inputs.gate == 'gate-3-dast' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Pinned (AHT-01 run 43413270234): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build
+    # and setup fails before any gate runs. Remove with the Playwright upgrade (#1840).
+    runs-on: ubuntu-24.04
+    # Bounded time budget (AHT-01 / #1812): every step on the single-spec RWT path has its own limit and the job limit is at
+    # least their sum plus a 4 min post-action allowance, so the job limit does not cut the spec step (whose finalizer and
+    # run-owned cleanup run inside it). Configured envelope only: Playwright start/teardown and runner loss/cancellation are
+    # not bounded here. Coupled to rwtInterruptedRunRecovery GATE3_JOB_TIMEOUT_MS. Guarded by tests/unit/rcGatesTimeBudget.test.ts.
+    timeout-minutes: 105
     steps:
       - uses: actions/checkout@v6
+        timeout-minutes: 3
         with:
           fetch-depth: 0
       - name: Validate bounded RWT release selection
+        id: rwt_release
+        timeout-minutes: 2
         env:
+          RWT_RELEASE_BINDING_FILE: ${{ runner.temp }}/rwt-release-${{ github.run_id }}-${{ github.run_attempt }}.json
+          BASE_URL: ${{ github.event.inputs.base_url }}
+          GH_TOKEN: ${{ github.token }}
           DIAGNOSTIC_SPEC: ${{ github.event.inputs.diagnostic_dast_spec }}
           DIAGNOSTIC_RELEASE: ${{ github.event.inputs.diagnostic_release_sha }}
           DIAGNOSTIC_GREP: ${{ github.event.inputs.diagnostic_dast_grep }}
           SELECTED_GATE: ${{ github.event.inputs.gate }}
           COMPARISON_CELL: ${{ github.event.inputs.comparison_cell }}
           PAID_LAUNCH: ${{ github.event.inputs.paid_launch }}
-        run: node tools/cloud-test/scripts/validate_rwt_release_binding.cjs
+        run: |
+          if [[ "$DIAGNOSTIC_SPEC" == tests/live/rwt-* ]]; then
+            node tools/cloud-test/scripts/resolve_rwt_served_release.mjs resolve
+          else
+            node tools/cloud-test/scripts/validate_rwt_release_binding.cjs
+          fi
       - uses: ./.github/actions/setup-environment
+        timeout-minutes: 8
         with:
           install-playwright: 'true'
       - name: Classify Gate 3 evidence target
+        timeout-minutes: 2
         env:
           BASE_URL: ${{ github.event.inputs.base_url }}
-          EXPECTED_RELEASE_SHA: ${{ github.event.inputs.diagnostic_release_sha || github.sha }}
+          EXPECTED_RELEASE_SHA: ${{ steps.rwt_release.outputs.release_sha || github.event.inputs.diagnostic_release_sha || github.sha }}
           EVIDENCE_SCOPE: ${{ github.event.inputs.diagnostic_dast_spec == '' && 'canonical-production' || 'diagnostic' }}
           EVIDENCE_ELIGIBILITY_FILE: ${{ runner.temp }}/gate-3-evidence-eligibility.json
         run: node scripts/rc-evidence-target-preflight.mjs
@@ -276,6 +297,7 @@ jobs:
       # owner dispatched and triggered (reruns included) this definition at the exact release the run executes. No key,
       # secret, variable or second workflow; no wall-clock expiry. Any refusal fails this step, so no product step runs.
       - name: Authorize the model-comparison cell in this run (DIAGNOSTIC comparison only)
+        timeout-minutes: 2
         if: ${{ github.event.inputs.diagnostic_dast_spec != '' && github.event.inputs.comparison_cell != 'none' }}
         env:
           COMPARISON_CELL: ${{ github.event.inputs.comparison_cell }}
@@ -293,6 +315,7 @@ jobs:
       # credential and runs before the credential-bearing step below: a feature-ref dispatch, a checkout that is not the
       # dispatched commit, or a recovery delete acknowledgement bound to any other commit fails HERE, before listing or cleanup.
       - name: Interrupted-run recovery authority (default branch, exact SHA; credential-free)
+        timeout-minutes: 3
         if: ${{ github.event.inputs.diagnostic_dast_spec == 'tests/live/interrupted-run-recovery.live.spec.ts' }}
         env:
           RECOVERY_ACK: ${{ github.event.inputs.rwt_writes_ack }}
@@ -318,10 +341,18 @@ jobs:
           esac
           echo "interrupted-run recovery authority: default branch, HEAD = dispatched commit"
       - name: Run DAST Live Gate (DIAGNOSTIC single spec — NOT a Gate 3 pass)
+        timeout-minutes: 45
         if: ${{ github.event.inputs.diagnostic_dast_spec != '' }}
         env:
+          RWT_RELEASE_BINDING_FILE: ${{ runner.temp }}/rwt-release-${{ github.run_id }}-${{ github.run_attempt }}.json
           BASE_URL: ${{ github.event.inputs.base_url }}
-          EXPECTED_RELEASE_SHA: ${{ github.event.inputs.diagnostic_release_sha || github.sha }}
+          EXPECTED_RELEASE_SHA: ${{ steps.rwt_release.outputs.release_sha || github.event.inputs.diagnostic_release_sha || github.sha }}
+          DIAGNOSTIC_SPEC: ${{ github.event.inputs.diagnostic_dast_spec }}
+          DIAGNOSTIC_RELEASE: ${{ github.event.inputs.diagnostic_release_sha }}
+          DIAGNOSTIC_GREP: ${{ github.event.inputs.diagnostic_dast_grep }}
+          SELECTED_GATE: ${{ github.event.inputs.gate }}
+          COMPARISON_CELL: ${{ github.event.inputs.comparison_cell }}
+          PAID_LAUNCH: ${{ github.event.inputs.paid_launch }}
           EVIDENCE_SCOPE: diagnostic
           EVIDENCE_ELIGIBILITY_FILE: ${{ runner.temp }}/gate-3-evidence-eligibility.json
           # #960: pass Vercel Protection Bypass so DAST can reach a PROTECTED preview (fix validation /
@@ -370,6 +401,8 @@ jobs:
             RWT_PRIVATE_EVIDENCE_DIR="$(mktemp -d "$RUNNER_TEMP/rwt-private.XXXXXX")"
             chmod 700 "$RWT_PRIVATE_EVIDENCE_DIR"
             export RWT_PRIVATE_EVIDENCE_DIR
+            # Same frozen run/attempt/spec/source; deployment drift is HOLD, never a rebind.
+            node tools/cloud-test/scripts/resolve_rwt_served_release.mjs verify
           fi
           if [ -n "$DIAGNOSTIC_DAST_GREP" ]; then
             VITE_USE_LIVE_DB=true pnpm exec playwright test "$DIAGNOSTIC_DAST_SPEC" --grep "$DIAGNOSTIC_DAST_GREP" --config=playwright.deployed-live.config.ts --project=deployed-live-chromium --reporter=line
@@ -380,12 +413,13 @@ jobs:
       # the stages that suite declares. Pre-claim signup events are user traffic, listed separately and never read back
       # as canary. Bounded wait for ingestion; any HOLD fails this step and names the journey.
       - name: RWT telemetry readback (PostHog, per journey)
+        timeout-minutes: 25
         if: ${{ always() && startsWith(github.event.inputs.diagnostic_dast_spec, 'tests/live/rwt-') }}
         env:
           POSTHOG_API_HOST: ${{ vars.POSTHOG_API_HOST }}
           POSTHOG_PERSONAL_API_KEY: ${{ secrets.POSTHOG_PERSONAL_API_KEY }}
           POSTHOG_PROJECT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
-          RELEASE_SHA: ${{ github.event.inputs.diagnostic_release_sha || github.sha }}
+          RELEASE_SHA: ${{ steps.rwt_release.outputs.release_sha }}
           # The first-download receipt (only a measured cold network download passes) is required PER BINDING, of the one
           # binding the receipt marks `firstDownload` (#1532 Codex P1 r4124290575): a repeat take in the post-reload journey
           # loads the model from cache by construction, and a feedback/PDF-only journey acquires nothing. Each binding also names
@@ -468,6 +502,7 @@ jobs:
       # The broad diagnostic uploader explicitly excludes RWT: no PDF, trace or page report upload.
       # A crash before writing any receipt deliberately fails this upload too; absence is not PASS.
       - name: Upload RWT receipts (content-free)
+        timeout-minutes: 3
         if: ${{ always() && startsWith(github.event.inputs.diagnostic_dast_spec, 'tests/live/rwt-') }}
         uses: actions/upload-artifact@v4
         with:
@@ -481,6 +516,7 @@ jobs:
           if-no-files-found: error
       # Content-free: repository, run, actor, release, origin, cell, document and nonce. Never a credential or content.
       - name: Upload model-comparison authorization (content-free)
+        timeout-minutes: 3
         if: ${{ always() && github.event.inputs.diagnostic_dast_spec != '' && github.event.inputs.comparison_cell != 'none' }}
         uses: actions/upload-artifact@v4
         with:
@@ -489,6 +525,7 @@ jobs:
           retention-days: 30
           if-no-files-found: ignore
       - name: Diagnostic single-spec notice (NOT a Gate 3 pass)
+        timeout-minutes: 1
         if: ${{ always() && github.event.inputs.diagnostic_dast_spec != '' }}
         run: |
           {
@@ -500,6 +537,7 @@ jobs:
             echo "Root-cause classification only. The release gate stays **FAIL** until a FULL Gate 3 (no diagnostic input) passes."
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Reject diagnostic run as release qualification
+        timeout-minutes: 1
         if: ${{ always() && github.event.inputs.diagnostic_dast_spec != '' }}
         run: |
           echo "::error::Diagnostic DAST completed as ineligible evidence; Gate 3 remains failed closed."
@@ -529,6 +567,7 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
       - name: Upload ineligible diagnostic Gate 3 artifacts
+        timeout-minutes: 3
         if: ${{ always() && github.event.inputs.diagnostic_dast_spec != '' && !startsWith(github.event.inputs.diagnostic_dast_spec, 'tests/live/rwt-') }}
         uses: actions/upload-artifact@v4
         with:
@@ -600,7 +639,9 @@ jobs:
   gate-5-ux:
     name: Gate 5 - UX Smoke
     if: ${{ github.event.inputs.gate == 'all' || github.event.inputs.gate == 'gate-5-ux' }}
-    runs-on: ubuntu-latest
+    # Pinned (AHT-01 run 43413270234): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build
+    # and setup fails before any gate runs. Remove with the Playwright upgrade (#1840).
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6

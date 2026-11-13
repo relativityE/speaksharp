@@ -51,10 +51,12 @@ SMOKE_OCCURRENCE_WINDOW_MINUTES = 100
 # all-15 template for exactly those cases with the caps re-derived here (subset_estimate) -- never defaulted to fifteen. Until the reviewed
 # grant bytes are pinned, every one-off admission refuses `one-off-grant-not-the-reviewed-bytes`.
 ONE_OFF_GRANT_PATH = "tools/cloud-test/config/runs/R10-3b040043-aht01-grant.json"
-ONE_OFF_GRANT_SHA256 = "ac23eb945fd87fe5aec0378f143106f95587bbd08fd992e5b4dba601af07eba7"   # the AHT-01 grant, opaque approval codes and role token
+# No active one-off grant: the AHT-01 grant expired 2026-11-12T00:00Z and was removed when #1788 was reconciled with main. Every one-off
+# admission refuses (`one-off-grant-unreadable`) until a reviewed change commits a new owner-approved grant and pins its bytes here.
+ONE_OFF_GRANT_SHA256 = None
 ONE_OFF_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-aht01.json"
 ONE_OFF_BASE_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
-ONE_OFF_BASE_TEMPLATE_SHA256 = "79d6454aceaad663f1a8833f87eec93d63f2446ac2732b6456ef8f57f931f3c6"
+ONE_OFF_BASE_TEMPLATE_SHA256 = "ccaccffeeccc49c15da7304a07d67f11ac031c595bd057575325279b6277767a"
 R10_ONE_OFF_RUN_ID = "R10-3b040043-smoke15"
 ONE_OFF_GRANT_STATUSES = {"APPROVED", "AWAITING_OWNER_DECISION"}
 ONE_OFF_GRANT_KEYS = {"schema", "status", "approvalRef", "scopeApprovalRef", "approvedBy", "runId", "attempt", "requestTemplateSha256",

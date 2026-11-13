@@ -75,7 +75,7 @@ def r10_selected_subset(req):
     import hashlib
     import json
     import init_run_inputs as I
-    path = os.path.join(ROOT, "config", "runs", os.path.basename(I.ONE_OFF_GRANT_PATH))
+    path = os.path.join(os.path.dirname(os.path.dirname(ROOT)), I.ONE_OFF_GRANT_PATH)
     try:
         if not os.path.isfile(path) or os.path.islink(path):
             return None

@@ -27,7 +27,11 @@ function adminReturning(count: number | null) {
         },
         from: (table: string) => ({
             delete: () => ({ eq: async () => ({ error: null }) }),
-            select: () => ({ eq: async () => { reads.push(table); return { count, error: null }; } }),
+            // The take settlement (sessions rows, held leases) reads an account with no takes; only residue reads are counted.
+            select: (columns: string) => ({ eq: async () => {
+                if (columns === 'id,status,lease_id,recording_fenced_at,created_at,expires_at,updated_at' || columns === 'lease_id,heartbeat_at') return { data: [], count: null, error: null };
+                reads.push(table); return { count, error: null };
+            } }),
         }),
     };
     return { admin, reads };

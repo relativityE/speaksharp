@@ -696,6 +696,8 @@ export const EVENT_SCHEMAS = Object.freeze({
         origin_journey_id: slug(48),
         origin_boot_id: slug(48),
         origin_attempt_id: slug(48),
+        // The rendered card's session owner, independently checked at visibility; ambient Start may be newer.
+        render_target_attempt_id: slug(48),
         product: enumOf(['open_mic', 'focus_points', 'unknown']),
     },
     // #1258 — a content-free request/attempt record. The opaque ids join the server diagnostic to the feedback row;

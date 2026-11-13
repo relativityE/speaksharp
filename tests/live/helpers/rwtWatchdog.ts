@@ -18,6 +18,7 @@ import type { BrowserContext, Page } from '@playwright/test';
 import type { AnalyticsTap, DocumentRef, RwtReceipt, SentEvent } from './rwtJourney';
 import { documentTrackerIfAny } from './rwtDocumentIdentity';
 import { COACHING_SETTLE_BOUND_MS } from './rwtCoachingEvidence';
+import { cleanupFailureStep } from './runOwnedCleanup';
 
 /** The ONLY properties the watchdog reads from an event: every one a governed closed enum (telemetryAllowlist). */
 export const WATCHED_FIELDS: Readonly<Record<string, readonly string[]>> = Object.freeze({
@@ -26,7 +27,9 @@ export const WATCHED_FIELDS: Readonly<Record<string, readonly string[]>> = Objec
     session_start_latency_measured: ['outcome'],
     session_save_latency_measured: ['outcome'],
     recording_start_failed: ['runtime_state'],
-    private_model_acquisition_failure: [],
+    // AHT-04 (Sam, review of the 2026-11-12 watchdog patch): the producer's closed `AcquisitionErrorCode`
+    // (modelAcquisitionTelemetry.ts), so an abort can be told from a real failure.
+    private_model_acquisition_failure: ['error_code'],
     progress_debt: ['phase', 'reason'],
 });
 
@@ -47,6 +50,71 @@ export interface WatchProfile {
      * through the ordinary start-error path: `recording_start_failed` + a start measured `failed`). Model failures stay fatal.
      */
     readonly allowStartFailure?: boolean;
+    /**
+     * AHT-04 (rc-gates run 43156314875): leaving during a cold Start ends the model acquisition, which the release reports
+     * as `private_model_acquisition_failure`. Excuses exactly ONE such event, only with `error_code` `aborted`, only captured
+     * at or after the spec's navigation intent (`markNavigationIntent`), only from the page that navigated, and only inside
+     * the fault phase. Any other code, an abort before the intent, a second abort, a failed or refused Start and every
+     * FAILED transition stay fatal.
+     */
+    readonly allowAcquisitionAbortAfterNavigation?: boolean;
+    /**
+     * AHT-13 (run 43156423671): a failed model download reaches FAILED with failure_code `other`, because the download error
+     * is not one of the authored messages `recordingFailureCode` maps. Excuses `other` ONLY on a FAILED transition out of
+     * engine preparation (from ENGINE_INITIALIZING) — never `other` while recording, stopping or saving.
+     */
+    readonly allowUnclassifiedWhilePreparing?: boolean;
+}
+
+/** The runtime states a model download or engine preparation fails out of (`allowUnclassifiedWhilePreparing`). */
+export const PREPARING_STATES: ReadonlySet<string> = new Set(['ENGINE_INITIALIZING']);
+
+/** The producer's `AcquisitionErrorCode` for an acquisition the page abandoned (classifyAcquisitionError). */
+export const ACQUISITION_ABORT_CODE = 'aborted';
+
+/** What the watchdog knows about an event beyond its own fields, resolved by the class from the events it has seen. */
+export interface SignalContext {
+    /** The same-attempt FAILED a code-less FAILED -> FAILED_VISIBLE presents (`presentedFailureOf`), when it is bound. */
+    readonly presentedFailure?: Readonly<Record<string, string>>;
+    /** The journey's one expected acquisition abort is unclaimed and this event came after the navigation intent. */
+    readonly navigationAbortOpen?: boolean;
+}
+
+/** A `recording_state` event's place in the capture order of one attempt (boot + attempt id), and its watched fields. */
+export interface StateRecord {
+    readonly capturedAt: number;
+    /** The PostHog request the event arrived in, and its index inside that body (emission order within one request). */
+    readonly batch: number | undefined;
+    readonly batchIndex: number | undefined;
+    readonly fields: Readonly<Record<string, string>>;
+}
+
+/**
+ * Whether `a` was provably captured before `b`: an earlier capture time, or the same millisecond earlier in the same
+ * request body. Two events in the same millisecond of DIFFERENT requests have no proven order.
+ */
+export const precedes = (a: StateRecord, b: StateRecord): boolean => a.capturedAt < b.capturedAt
+    || (a.capturedAt === b.capturedAt && a.batch !== undefined && a.batch === b.batch
+        && a.batchIndex !== undefined && b.batchIndex !== undefined && a.batchIndex < b.batchIndex);
+
+/**
+ * Pure (Sam, review of the 2026-11-12 patch): the failure a code-less FAILED -> FAILED_VISIBLE presents is the IMMEDIATELY
+ * preceding `recording_state` of the SAME attempt, by capture order — never the last FAILED seen, which can be stale (a
+ * later transition sits between them) or out of order (it arrived late). Returns that FAILED's fields only when:
+ *  - every same-attempt record seen is provably before or provably after the presentation (otherwise: unbound);
+ *  - exactly one record is the latest provably before it (a tie: unbound);
+ *  - that record is itself a FAILED transition (anything else between them: unbound).
+ * Unbound means the presentation is judged as it stands, which trips.
+ */
+export function presentedFailureOf(visible: StateRecord, history: readonly StateRecord[]): Readonly<Record<string, string>> | undefined {
+    const before: StateRecord[] = [];
+    for (const r of history) {
+        if (precedes(r, visible)) before.push(r);
+        else if (!precedes(visible, r)) return undefined;
+    }
+    const latest = before.filter((r) => !before.some((o) => o !== r && precedes(r, o)));
+    if (latest.length !== 1) return undefined;
+    return latest[0].fields.to_state === 'FAILED' ? latest[0].fields : undefined;
 }
 
 export interface WatchSignal {
@@ -66,7 +134,7 @@ export const WATCH_PROFILES: Readonly<Record<string, WatchProfile>> = Object.fre
     'focus-points-session': {},
     'focus-points-partial': {},
     // The abandoned cold Start is cancelled by leaving; the return may meet the Progress gate.
-    'pending-start-navigation': { allowFailureCodes: ['aborted', 'start_did_not_record'], allowStartRefused: true },
+    'pending-start-navigation': { allowFailureCodes: ['aborted', 'start_did_not_record'], allowStartRefused: true, allowAcquisitionAbortAfterNavigation: true },
     // The injected completion fault fails the first save; Retry Save resolves it.
     'save-retry-recovery-request-lost': { allowSaveFailed: true, allowFailureCodes: ['session_save_failed', 'session_completion_failed', 'finalize_timeout'] },
     'save-retry-recovery-response-lost': { allowSaveFailed: true, allowFailureCodes: ['session_save_failed', 'session_completion_failed', 'finalize_timeout'] },
@@ -78,12 +146,17 @@ export const WATCH_PROFILES: Readonly<Record<string, WatchProfile>> = Object.fre
     'abandon-and-two-tabs-take-over': { allowStartRefused: true, allowFailureCodes: [...LEASE_CODES, 'aborted'] },
     // The denied microphone must fail the Start truthfully; RECORDING during that step trips (`setForbidRecording`).
     'adverse-mic-model-mic-denied': {
-        allowFailureCodes: ['mic_permission', 'mic_not_allowed', 'mic_not_readable', 'start_failed'],
+        // AHT-12 (run 43156420645): the served release fails the denied Start as ENGINE_INITIALIZING -> FAILED with
+        // `start_did_not_record`. Still judged only inside the denial step, with RECORDING forbidden there.
+        allowFailureCodes: ['mic_permission', 'mic_not_allowed', 'mic_not_readable', 'start_failed', 'start_did_not_record'],
         allowStartFailure: true,
     },
-    'adverse-mic-model-download-fails': { allowModelFailure: true, allowFailureCodes: ['start_model_unavailable', 'engine_error', 'start_failed', 'timeout'] },
+    'adverse-mic-model-download-fails': {
+        allowModelFailure: true, allowUnclassifiedWhilePreparing: true,
+        allowFailureCodes: ['start_model_unavailable', 'engine_error', 'start_failed', 'timeout'],
+    },
     'adverse-mic-model-offline-mid-download': {
-        allowModelFailure: true, allowStartRefused: true,
+        allowModelFailure: true, allowStartRefused: true, allowUnclassifiedWhilePreparing: true,
         allowFailureCodes: ['start_model_unavailable', 'engine_error', 'start_failed', 'timeout', ...LEASE_CODES],
     },
     'returning-user-navigation': {},
@@ -128,12 +201,23 @@ export const watchedFieldsOf = (e: Pick<SentEvent, 'watch'>): Record<string, str
  * Pure: the fatal signal an event carries for this profile, or null. `forbidRecording` is set by the spec around a step
  * whose truthful outcome is NOT a recording (a denied microphone).
  */
-export function fatalSignalOf(e: Pick<SentEvent, 'event' | 'watch'>, profile: WatchProfile, forbidRecording = false): FatalKind | null {
-    const f = watchedFieldsOf(e);
+export function fatalSignalOf(e: Pick<SentEvent, 'event' | 'watch'>, profile: WatchProfile, forbidRecording = false,
+    ctx: SignalContext = {}): FatalKind | null {
+    let f = watchedFieldsOf(e);
+    const presentedFailure = ctx.presentedFailure;
     switch (e.event) {
         case 'recording_state':
+            // AHT-05/06 (runs 43156405157, 43156408125): FAILED -> FAILED_VISIBLE only SHOWS a failure that already happened,
+            // and the served release sends it without a failure_code. It is judged as the same-attempt FAILED immediately
+            // before it (`presentedFailureOf`), under the profile at its OWN capture time. Unbound, it is judged as it
+            // stands, which trips (fail closed).
+            if (f.to_state === 'FAILED_VISIBLE' && f.from_state === 'FAILED' && f.failure_code === undefined && presentedFailure) {
+                f = { ...presentedFailure };
+            }
             if (f.to_state === 'FAILED' || f.to_state === 'FAILED_VISIBLE') {
-                return (profile.allowFailureCodes ?? []).includes(f.failure_code ?? '') ? null : 'recording_failed';
+                if ((profile.allowFailureCodes ?? []).includes(f.failure_code ?? '')) return null;
+                if (profile.allowUnclassifiedWhilePreparing && f.failure_code === 'other' && PREPARING_STATES.has(f.from_state ?? '')) return null;
+                return 'recording_failed';
             }
             return f.to_state === 'RECORDING' && forbidRecording ? 'recording_while_forbidden' : null;
         case 'session_save_latency_measured':
@@ -153,7 +237,9 @@ export function fatalSignalOf(e: Pick<SentEvent, 'event' | 'watch'>, profile: Wa
             // already in flight is not: that in-flight Start is the take, and its own outcome is watched.
             return f.intent_kind === 'start' && f.intent_outcome === 'suppressed_finalizing' ? 'start_refused' : null;
         case 'private_model_acquisition_failure':
-            return profile.allowModelFailure ? null : 'model_failed';
+            if (profile.allowModelFailure) return null;
+            if (profile.allowAcquisitionAbortAfterNavigation && ctx.navigationAbortOpen && f.error_code === ACQUISITION_ABORT_CODE) return null;
+            return 'model_failed';
         default:
             return null;
     }
@@ -274,6 +360,12 @@ export class JourneyWatchdog {
      * at scan time. An expected event scanned late stays excused; an earlier unexpected one scanned inside stays fatal.
      */
     private readonly faultIntervals: { from: number; to: number }[] = [];
+    /** Every `recording_state` seen, per attempt (boot + attempt id), so a presentation binds to its own predecessor. */
+    private readonly stateHistory = new Map<string, StateRecord[]>();
+    /** Presentations excused by binding: a same-attempt event that later proves to sit between the pair trips. */
+    private readonly boundPresentations = new Map<string, Array<{ failed: StateRecord; visible: StateRecord }>>();
+    /** `markNavigationIntent`: when, from which page, until when (`closeNavigationIntent`), and whether the one abort was claimed. */
+    private navigationIntent: { at: number; until: number | null; page: unknown; claimed: boolean } | null = null;
     /** Time after which the suite's refusal allowance is withdrawn (a take-over press must not be refused again). */
     private refusalRevokedAt: number | null = null;
     /** Sam, #1662 RETURN (b128 control 1): only events SENT by a page this journey watches are its evidence. */
@@ -333,6 +425,22 @@ export class JourneyWatchdog {
      * be refused again — a second refusal then trips instead of waiting out the recording timeout.
      */
     setStartRefusedAllowed(allowed: boolean): void { this.refusalRevokedAt = allowed ? null : Date.now(); }
+
+    /**
+     * AHT-04: the spec is about to leave `page` while its cold Start is pending. From now on, ONE acquisition failure with
+     * the abort code, sent by that page, is the leave's own (`allowAcquisitionAbortAfterNavigation`).
+     */
+    markNavigationIntent(page: unknown): void {
+        // One intent per journey (security review of v3, info 1): a second mark never re-arms the one excused abort.
+        if (this.navigationIntent) return;
+        this.navigationIntent = { at: Date.now(), until: null, page, claimed: false };
+    }
+
+    /**
+     * AHT-04 (security review of v2, low 3): the abandoned acquisition has settled, so the leave's own abort was captured by
+     * now. An abort captured after this moment is never the leave's, even inside the fault phase.
+     */
+    closeNavigationIntent(): void { if (this.navigationIntent && this.navigationIntent.until === null) this.navigationIntent.until = Date.now(); }
 
     /** Open (true) or close (false) the phase in which the suite's declared faults are expected. */
     setFaultPhase(open: boolean): void {
@@ -484,8 +592,39 @@ export class JourneyWatchdog {
         this.watchedSeen += 1;
         this.lastEvent = { name: e.event, at: e.at };
         const sourcePage = (e as { sourcePage?: unknown }).sourcePage;
-        const kind = fatalSignalOf(e, this.profileAt(e.capturedAt, sourcePage), this.forbiddenAt(e.capturedAt));
-        return kind ? { kind, event: e.event, fields: watchedFieldsOf(e), elapsedMs: now - this.started } : null;
+        const fields = watchedFieldsOf(e);
+        const ctx: { presentedFailure?: Readonly<Record<string, string>>; navigationAbortOpen?: boolean } = {};
+        // Attempt binding needs a boot, an attempt id and a capture time; without them nothing is bound (fail closed).
+        const attempt = e.event === 'recording_state' && e.bootId && e.attemptId && e.capturedAt !== undefined ? `${e.bootId}|${e.attemptId}` : null;
+        const record: StateRecord | null = attempt === null ? null
+            : { capturedAt: e.capturedAt as number, batch: e.batch, batchIndex: e.batchIndex, fields };
+        if (attempt !== null && record !== null) {
+            // A late same-attempt event that is not provably outside an excused pair voids that binding.
+            for (const pair of this.boundPresentations.get(attempt) ?? []) {
+                if (!precedes(pair.visible, record) && !precedes(record, pair.failed)) {
+                    return { kind: 'recording_failed', event: e.event, fields: pair.visible.fields, elapsedMs: now - this.started };
+                }
+            }
+            const history = this.stateHistory.get(attempt) ?? [];
+            if (fields.to_state === 'FAILED_VISIBLE' && fields.from_state === 'FAILED' && fields.failure_code === undefined) {
+                ctx.presentedFailure = presentedFailureOf(record, history);
+            }
+            history.push(record);
+            this.stateHistory.set(attempt, history);
+        }
+        const intent = this.navigationIntent;
+        if (e.event === 'private_model_acquisition_failure' && intent && !intent.claimed && sourcePage === intent.page
+            && e.capturedAt !== undefined && e.capturedAt >= intent.at && (intent.until === null || e.capturedAt <= intent.until)) {
+            ctx.navigationAbortOpen = true;
+        }
+        const profile = this.profileAt(e.capturedAt, sourcePage);
+        const kind = fatalSignalOf(e, profile, this.forbiddenAt(e.capturedAt), ctx);
+        if (!kind && ctx.navigationAbortOpen && !profile.allowModelFailure && intent) intent.claimed = true;
+        if (!kind && ctx.presentedFailure && attempt !== null && record !== null) {
+            const failed = (this.stateHistory.get(attempt) ?? []).find((r) => r.fields === ctx.presentedFailure);
+            if (failed) this.boundPresentations.set(attempt, [...(this.boundPresentations.get(attempt) ?? []), { failed, visible: record }]);
+        }
+        return kind ? { kind, event: e.event, fields, elapsedMs: now - this.started } : null;
     }
 
     /** Classify every queued event (synchronous); the first unexpected fatal one is returned. */
@@ -775,16 +914,19 @@ export const CLEANUP_SETTLE_GRACE_MS = 10_000;
 export class OwnedCleanup<T = unknown> {
     private deletion: Promise<T> | null = null;
     private state: CleanupSettlement = 'not_started';
+    private error: unknown = undefined;
     constructor(private readonly remove: () => Promise<T>) {}
 
     get settlement(): CleanupSettlement { return this.state; }
+    /** The closed step code a failed deletion stopped at (cleanupFailureStep); null unless it failed. */
+    get failureStep(): string | null { return this.state === 'failed' ? cleanupFailureStep(this.error) : null; }
 
     run(): Promise<T> {
         if (!this.deletion) {
             this.state = 'pending';
             this.deletion = Promise.resolve().then(this.remove).then(
                 (value) => { this.state = 'deleted'; return value; },
-                (error: unknown) => { this.state = 'failed'; throw error; },
+                (error: unknown) => { this.state = 'failed'; this.error = error; throw error; },
             );
         }
         return this.deletion;
@@ -812,7 +954,10 @@ export async function finalizeOwnedCleanup<T>(steps: FinalizationSteps, receipt:
     steps.note('run-owned cleanup', settlement === 'deleted' ? 'ok' : settlement === 'failed' ? 'error' : 'timeout', { critical: true });
     if (!receipt.rows.some((r) => r.step === 'run-owned cleanup')) {
         if (settlement === 'deleted') receipt.row('run-owned cleanup', 'PASS', 'the run-owned account was deleted and residue checks passed');
-        else if (settlement === 'failed') receipt.row('run-owned cleanup', 'FAIL', 'run-owned account deletion or residue readback failed');
+        else if (settlement === 'failed') {
+            receipt.row('run-owned cleanup', 'FAIL', `run-owned account deletion or residue readback failed at step ${cleanup.failureStep ?? 'unknown'}`,
+                { failureStep: cleanup.failureStep ?? 'unknown' });
+        }
         else receipt.row('run-owned cleanup', 'FAIL', 'the run-owned account deletion did not settle within its bound, so residue is unproven');
     }
     return settlement;

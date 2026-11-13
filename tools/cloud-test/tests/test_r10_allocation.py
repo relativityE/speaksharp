@@ -7,7 +7,7 @@ import hashlib
 import json
 import os
 
-from _fixtures import ROOT
+from _fixtures import EXPIRED_GRANT_REL, ROOT, expired_grant_active
 import init_run_inputs as I
 import manual_reservation as M
 from test_accounting_rollup import Journal, scope
@@ -27,6 +27,18 @@ def occurrence(template=TEMPLATE):
     return raw, hashlib.sha256(raw).hexdigest()
 
 
+
+_EXPIRED_GRANT = expired_grant_active()
+
+
+def setUpModule():
+    _EXPIRED_GRANT.start()
+
+
+def tearDownModule():
+    _EXPIRED_GRANT.stop()
+
+
 class R10Allocation(Journal):
     def rollup_with_headroom(self, headroom):
         base = scope()["ceilings"]
@@ -40,7 +52,7 @@ class R10Allocation(Journal):
         raw, sha = occurrence()
         _req, alloc = M.manual_request(raw, sha)
         self.assertEqual({k: alloc[k] for k in M.G5_KEYS}, SIZED)
-        with open(os.path.join(ROOT, "config", "runs", "R10-3b040043-aht01-grant.json"), encoding="utf-8") as f:
+        with open(os.path.join(ROOT, EXPIRED_GRANT_REL), encoding="utf-8") as f:
             self.assertEqual(json.load(f)["limits"]["requestsIncludingIdentity"], SIZED["requests"])
 
     def test_allocation_at_all_ceilings_admits(self):

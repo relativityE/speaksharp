@@ -133,7 +133,7 @@ const EXTERNAL_SCOPES: Readonly<Record<string, ExternalScope>> = Object.freeze({
 
 /**
  * The parent's own recorded proof, mirroring `coachingParentVerdict`: the Edge 502 carried a provider 5xx (with its
- * integer status) or a provider timeout, from this take's unique exchange; the take was saved; the card settled on
+ * integer status) or a provider timeout with an observed upstream 5xx/429, from this take's unique exchange; the take was saved; the card settled on
  * `error` with the unavailable headline and an enabled Try again. Returns what is missing (empty = proved).
  */
 export function externalParentProofGaps(row: ReceiptRow): string[] {
@@ -146,6 +146,10 @@ export function externalParentProofGaps(row: ReceiptRow): string[] {
         if (typeof ps !== 'number' || !Number.isInteger(ps) || ps < 500 || ps > 599) gaps.push('providerStatus is not an integer 500–599');
     } else if (e.externalOutcome === 'provider_timeout') {
         if (e.failureReason !== 'provider_timeout') gaps.push('failureReason is not provider_timeout');
+        const ps = e.providerStatus;
+        if (typeof ps !== 'number' || !Number.isInteger(ps) || (ps !== 429 && (ps < 500 || ps > 599))) {
+            gaps.push('provider timeout lacks an observed integer upstream 5xx/429 status');
+        }
     } else {
         gaps.push('externalOutcome is not provider_5xx or provider_timeout');
     }
@@ -423,6 +427,8 @@ const OPEN_MIC_PRODUCT_ROWS = Object.freeze([
     'coaching within the character ceiling', 'coaching consistent with saved fillers', 'coaching differs between takes',
     // #1258 (Codex P2 r4274573839, PM 6175763509 §3): request provenance is mandatory evidence on every path.
     'coaching request bound to this take',
+    // Ordinary saved/reopened persistence only; this row does not qualify the separate after-B causal case.
+    'interrupted take coaching saved and shown in its saved review',
     'filler display matches saved (all words)', 'coachable filler headline', 'Products menu opened in the session',
     'Back from Progress restores the session', 'restored review', 'Back requests no coaching',
     'Analytics action', 'analytics session detail', 'reopen after reload', 'analytics detail shows both AI suggestions',
@@ -436,6 +442,7 @@ const OPEN_MIC_PRODUCT_ROWS = Object.freeze([
     'feedback diagnostic chain', 'coaching prompt binding',
 ]);
 const FOCUS_PRODUCT_ROWS = Object.freeze([
+    'sign-in', 'Focus presentation contract', 'Practice again keeps the saved target', 'repeat result names the measured metric',
     'coaching request budget', 'base_q4 primary', 'session bears canary claim', 'Products → Focus Points', 'no mic on navigation', 'new-account entitlement',
     'pace guide', 'Head to session', 'rail legend', 'pending points labelled', 'rail before speaking', 'model identity',
     'live marker changes', 'next point marked', 'marker timing vs audio', 'no red before Stop', 'session saved', 'saved exactly once',
@@ -445,6 +452,8 @@ const FOCUS_PRODUCT_ROWS = Object.freeze([
     'Focus coaching distinct', 'Focus coaching makes no omission claim', 'Focus coaching provenance',
     'Focus coaching within the character ceiling', 'Focus coaching refers to an open point',
     'Focus coaching visible = saved', 'Focus coaching server receipt', 'Products menu opened in the session',
+    // AHT-02/03 (#1811): grounded coaching differs between the two takes.
+    'Focus coaching differs between takes',
     'Focus Back from Progress and reload keep the saved session',
     'Analytics action', 'analytics session detail', 'reopen after reload', 'analytics detail shows both AI suggestions',
     'saved review is the first block', '"From this session" evidence', 'one practice action', 'Analytics generates no coaching',
@@ -456,7 +465,9 @@ const FOCUS_PRODUCT_ROWS = Object.freeze([
     'coaching prompt binding',
 ]);
 const FOCUS_FULL_ONLY_PRODUCT_ROWS = Object.freeze(['feedback', 'feedback retention', 'feedback outcome (sent)', 'Focus New Set', 'Focus Edit', 'take after switching products is clean',
-    'feedback diagnostic chain']);
+    'feedback diagnostic chain',
+    // AHT-02 only (#1811): Escape keeps the set; the Open Mic take writes no Focus evidence.
+    'Focus Edit cancel keeps the set', 'Open Mic take kept out of Focus']);
 /**
  * #1594 (PM 6120326867) — the supplemental boundary scenarios (`rwt-feedback-association-boundaries`,
  * `rwt-pending-start-navigation`). Each list is what that suite writes on its success path; a receipt missing any of them
@@ -476,15 +487,37 @@ const SUPPLEMENTAL_ACCOUNT_ROWS = Object.freeze(['run-owned signup', 'canary cla
 const FEEDBACK_OLDER_TAKE_PRODUCT_ROWS = Object.freeze([
     ...SUPPLEMENTAL_ACCOUNT_ROWS, 'two saved takes', 'older take coaching request observed', 'older-take report stored once',
     'older-take association', 'older-take diagnostic binding', 'feedback diagnostic chain', 'coaching request budget', 'feedback retention',
+    // AHT-07 bounded writes (Sam, 2026-11-11): the three fault legs (one failed attempt, one explicit same-key Retry each), the
+    // final submit's isolation, the pre-send cap and the exact attempt ledger, and the race-safe report cleanup's zero residue.
+    // Literal names (this module is loaded by AHT-01, so it imports no case-only helper); tests/unit/feedbackBoundedWrites.test.ts
+    // requires them to equal feedbackAttemptLedger.ts's FEEDBACK_BOUNDED_WRITE_ROWS plus feedbackReportCleanup.ts's ZERO_RESIDUE_ROW.
+    'feedback leg synthetic 42501: fault exercised', 'feedback leg synthetic 42501: alert copy truthful',
+    'feedback leg synthetic 42501: dialog kept open', 'feedback leg synthetic 42501: same key on Retry',
+    'feedback leg synthetic 42501: no fresh acknowledgement before the Retry', 'feedback leg synthetic 42501: Retry treated as stored',
+    'feedback leg synthetic 42501: exactly one stored row for the leg key',
+    'feedback leg request lost: fault exercised', 'feedback leg request lost: alert copy truthful',
+    'feedback leg request lost: dialog kept open', 'feedback leg request lost: same key on Retry',
+    'feedback leg request lost: no fresh acknowledgement before the Retry', 'feedback leg request lost: Retry treated as stored',
+    'feedback leg request lost: exactly one stored row for the leg key',
+    'feedback leg stored response lost: fault exercised', 'feedback leg stored response lost: alert copy truthful',
+    'feedback leg stored response lost: dialog kept open', 'feedback leg stored response lost: same key on Retry',
+    'feedback leg stored response lost: no fresh acknowledgement before the Retry', 'feedback leg stored response lost: Retry treated as stored',
+    'feedback leg stored response lost: exactly one stored row for the leg key',
+    'final submit isolated from the fault legs', 'feedback attempts within the cap',
+    'feedback attempts are three faults, three Retries and one final submit', 'zero residue',
 ]);
 const FEEDBACK_NO_SESSION_PRODUCT_ROWS = Object.freeze([
     ...SUPPLEMENTAL_ACCOUNT_ROWS, 'no-session report stored once', 'no-session association', 'no-session diagnostic binding',
-    'coaching request budget', 'feedback retention',
+    'coaching request budget', 'feedback retention', 'zero residue',
+    // AHT-08 (#1811): this submit's own acknowledgement, and one attempted + one storage_ok for it.
+    'fresh acknowledgment', 'received feedback',
 ]);
 const PENDING_START_PRODUCT_ROWS = Object.freeze([
     ...SUPPLEMENTAL_ACCOUNT_ROWS, 'cold Start is pending', 'Start transition observed', 'abandoned Start settles after leaving',
     'leaving pending Start releases microphone', 'leaving pending Start creates no session',
     'return to Open Mic exposes truthful Start state', 'return does not resume abandoned recording', 'coaching request budget',
+    // AHT-04 (#1811): one deliberate take after the abandoned Start saves once.
+    'deliberate recovery take saved',
 ]);
 const NO_COACHING_RESULT_ROWS = Object.freeze(['feedback diagnostic chain', 'coaching prompt binding']);
 /**
@@ -497,6 +530,8 @@ export const SAVE_RETRY_RESPONSE_LOST_SUITE = `${SAVE_RETRY_SUITE}-response-lost
 const SAVE_RETRY_PRODUCT_ROWS = Object.freeze([
     ...SUPPLEMENTAL_ACCOUNT_ROWS, 'completion request altered once', 'recovery banner is truthful', 'no Discard after the save resolves',
     'Retry Save leaves one saved session', 'next take saves only itself', 'coaching request budget',
+    // AHT-05/06 (#1811): exact payload, the take reopened from Analytics, and exactly the fault plus one Retry attempt.
+    'Retry Save saved the exact payload once', 'review reopens the saved take', 'completion attempts are the fault and one Retry',
 ]);
 /**
  * #1258 R2 (row 16) — `rwt-abandon-and-two-tabs`: leaving mid-recording (navigate away; close the tab) and the same
@@ -519,6 +554,8 @@ const TWO_TAB_PRODUCT_ROWS = Object.freeze([
     ...SUPPLEMENTAL_ACCOUNT_ROWS, 'same-browser tab is refused', 'another device is refused by the account lease',
     'take-over moves the one engine',
     'both takes saved, none left active', 'no Cloud STT request', 'coaching request budget',
+    // AHT-11 (#1811): the displaced take carries the server's 'displaced' fence.
+    'displaced take is permanently fenced',
 ]);
 /**
  * #1258 R3 (row 17) — `rwt-adverse-mic-model`: a blocked microphone, a failing model download, and offline mid-download.
@@ -529,16 +566,19 @@ export const ADVERSE_DOWNLOAD_FAILS_SUITE = `${ADVERSE_SUITE}-download-fails`;
 export const ADVERSE_OFFLINE_SUITE = `${ADVERSE_SUITE}-offline-mid-download`;
 const ADVERSE_MIC_PRODUCT_ROWS = Object.freeze([
     ...SUPPLEMENTAL_ACCOUNT_ROWS, 'blocked microphone is stated truthfully', 'after allowing the microphone a take saves',
-    'no Cloud STT request', 'coaching request budget',
+    'no Cloud STT request', 'coaching request budget', 'the recovered take reopens from Analytics',
 ]);
 const ADVERSE_DOWNLOAD_PRODUCT_ROWS = Object.freeze([
     ...SUPPLEMENTAL_ACCOUNT_ROWS, 'model download failure is stated truthfully', 'Retry downloads the model and a take saves',
-    'no Cloud STT request', 'coaching request budget',
+    'no Cloud STT request', 'coaching request budget', 'the recovered take reopens from Analytics',
 ]);
 const RETURNING_USER_PRODUCT_ROWS = Object.freeze([
     'returning-user sign-in', 'returning account state', 'Products → Open Mic', 'returning-user access', 'Products → Focus Points',
     'back to Open Mic', 'returning history', 'no mic on navigation', 'navigation writes nothing', 'journey_step sent',
     'coaching request budget',
+    // AHT-15 (#1811): the same rows as at sign-in, and no microphone on the return entry. The deep-link rows stay optional,
+    // like 'signed-in deep-link return', because that leg runs only when a deep-link target exists.
+    'history preserved', 'no mic on return entry',
 ]);
 
 export function requiredAutomatedRows(suite: string): { required: readonly string[]; product: readonly string[]; absent: readonly string[] } | null {

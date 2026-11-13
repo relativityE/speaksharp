@@ -5,16 +5,28 @@ import json
 import os
 import unittest
 
-from _fixtures import ROOT
+from _fixtures import EXPIRED_GRANT_REL, ROOT, expired_grant_active
 import init_run_inputs as I
 
-COMMITTED = ["config/runs/R10-3b040043-aht01-grant.json", "config/runs/R10-3b040043-aht01.json", "config/runs/R10-3b040043-all15.json",
+COMMITTED = [EXPIRED_GRANT_REL, "config/runs/R10-3b040043-aht01.json", "config/runs/R10-3b040043-all15.json",
              "config/runs/R10-3b040043-one-off-grant.json", "config/aggregate/period-scope.json"]
 
 
 def load(rel):
     with open(os.path.join(ROOT, rel), encoding="utf-8") as f:
         return json.load(f)
+
+
+
+_EXPIRED_GRANT = expired_grant_active()
+
+
+def setUpModule():
+    _EXPIRED_GRANT.start()
+
+
+def tearDownModule():
+    _EXPIRED_GRANT.stop()
 
 
 class Publishable(unittest.TestCase):

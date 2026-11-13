@@ -166,14 +166,14 @@ describe('resolvePrivateRuntimePath — v4 flag-gated tiering (controlled, base/
 
   it('v4 { enabled:false } → never selects v4', async () => {
     setGpu(workingAdapter());
-    const d = await resolvePrivateRuntimePath({ webgpuPromotionAllowed: false, turboModelCached: false, v4: { enabled: false, distilEnabled: false } });
+    const d = await resolvePrivateRuntimePath({ webgpuPromotionAllowed: false, turboModelCached: false, v4: { enabled: false, variant: 'base_q4' } });
     expect(d.provider).toBe('transformers-js');
     expect(d.v4Variant).toBeNull();
   });
 
   it('v4 enabled + WebGPU, no distil flag → base_q4 floor', async () => {
     setGpu(workingAdapter());
-    const d = await resolvePrivateRuntimePath({ webgpuPromotionAllowed: false, turboModelCached: false, v4: { enabled: true, distilEnabled: false } });
+    const d = await resolvePrivateRuntimePath({ webgpuPromotionAllowed: false, turboModelCached: false, v4: { enabled: true, variant: 'base_q4' } });
     expect(d.provider).toBe('transformers-js-v4');
     expect(d.v4Variant).toBe('base_q4');
     expect(d.runtime).toBe('webgpu');
@@ -183,7 +183,7 @@ describe('resolvePrivateRuntimePath — v4 flag-gated tiering (controlled, base/
 
   it('v4 enabled + distil flag + WebGPU → distil_q4 accuracy tier', async () => {
     setGpu(workingAdapter());
-    const d = await resolvePrivateRuntimePath({ webgpuPromotionAllowed: false, turboModelCached: false, v4: { enabled: true, distilEnabled: true } });
+    const d = await resolvePrivateRuntimePath({ webgpuPromotionAllowed: false, turboModelCached: false, v4: { enabled: true, variant: 'distil_q4' } });
     expect(d.provider).toBe('transformers-js-v4');
     expect(d.v4Variant).toBe('distil_q4');
   });
@@ -191,7 +191,7 @@ describe('resolvePrivateRuntimePath — v4 flag-gated tiering (controlled, base/
   it('v4 enabled + NO WebGPU → v2-base (conservative; no v4 on WASM)', async () => {
     setGpu(undefined);
     setIsolated(false);
-    const d = await resolvePrivateRuntimePath({ webgpuPromotionAllowed: false, turboModelCached: false, v4: { enabled: true, distilEnabled: true } });
+    const d = await resolvePrivateRuntimePath({ webgpuPromotionAllowed: false, turboModelCached: false, v4: { enabled: true, variant: 'distil_q4' } });
     expect(d.provider).toBe('transformers-js');
     expect(d.v4Variant).toBeNull();
   });
@@ -199,7 +199,7 @@ describe('resolvePrivateRuntimePath — v4 flag-gated tiering (controlled, base/
   it('v4 enabled + forceAuto + NO WebGPU → v4 base_q4 on WASM (dev/test headless-CI fallback proof)', async () => {
     setGpu(undefined);
     setIsolated(false);
-    const d = await resolvePrivateRuntimePath({ webgpuPromotionAllowed: false, turboModelCached: false, v4: { enabled: true, distilEnabled: false, forceAuto: true } });
+    const d = await resolvePrivateRuntimePath({ webgpuPromotionAllowed: false, turboModelCached: false, v4: { enabled: true, variant: 'base_q4', forceAuto: true } });
     expect(d.provider).toBe('transformers-js-v4');     // AUTO path attempts v4 without WebGPU
     expect(d.v4Variant).toBe('base_q4');
     expect(d.runtime).toBe('wasm-singlethread');
@@ -212,7 +212,7 @@ describe('resolvePrivateRuntimePath — v4 flag-gated tiering (controlled, base/
   it('v4 enabled + WebGPU detection throws → v2-base floor (never strands)', async () => {
     setGpu({ requestAdapter: vi.fn().mockRejectedValue(new Error('boom')) });
     setIsolated(false);
-    const d = await resolvePrivateRuntimePath({ webgpuPromotionAllowed: false, turboModelCached: false, v4: { enabled: true, distilEnabled: false } });
+    const d = await resolvePrivateRuntimePath({ webgpuPromotionAllowed: false, turboModelCached: false, v4: { enabled: true, variant: 'base_q4' } });
     expect(d.provider).toBe('transformers-js');
     expect(d.v4Variant).toBeNull();
   });

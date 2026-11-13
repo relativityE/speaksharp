@@ -20,11 +20,17 @@ concurrency:
 
 jobs:
   release-binding:
-    name: verify last released production identity
+    name: read the release production serves
     runs-on: ubuntu-latest
     timeout-minutes: 2
+    # Read-only: the compare call below needs only repository contents.
+    permissions:
+      contents: read
     outputs:
       release_sha: ${{ steps.served.outputs.release_sha }}
+      # Which HOLD it is (production-unreadable | served-sha-invalid | served-not-on-main), so canary-result can name it.
+      reason: ${{ steps.served.outputs.reason }}
+      observed_sha: ${{ steps.served.outputs.observed_sha }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -32,14 +38,22 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
+      # The canary tests whatever production serves at run time, read from window.__APP_RELEASE__ on the live page.
+      # No hand-maintained variable is involved. The page is public, so the SHA is accepted only when GitHub
+      # confirms it is a commit on main; the password-using jobs below check out nothing else.
       - id: served
-        name: Require the separately controlled last-served SHA to match production
+        name: Read the served release from production and require it to be a commit on main
         env:
-          EXPECTED_RELEASE_SHA: ${{ vars.PRODUCTION_RELEASE_SHA }}
-        run: node scripts/production-release-policy.mjs served
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/production-release-policy.mjs discover
 
   migration-readiness:
     needs: release-binding
+    # The database password is only ever handed to this job on protected main, inside the protected
+    # production-db environment that every other password-using job runs in. A workflow_dispatch from another
+    # branch runs that branch's copy of this file, so without both bindings a pushed branch could read it.
+    if: ${{ github.ref == 'refs/heads/main' }}
+    environment: production-db
     name: read-only runtime migration readiness
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -50,6 +64,10 @@ jobs:
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_PROJECT_ID: ${{ vars.SUPABASE_PROJECT_ID }}
+      # The selected injection path #1738 left open: the guard below refuses without it, so every canary that
+      # got past the release binding would stop here. Read-only use (`migration list`); the guard still fails
+      # closed when the secret is not visible to this job.
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -123,7 +141,13 @@ jobs:
       # billing-qualification lane. It never charges a real card and is never implied by a daily green canary.
       matrix:
         lane: ${{ fromJSON(github.event.schedule == '0 6 * * 1' && '["active-trial","billing-qualification"]' || '["active-trial"]') }}
-    runs-on: ubuntu-latest
+    # Pinned with ci.yml, rc-gates and U3 (#1839, #1841): pinned Playwright 1.57 has no Chromium build for ubuntu-26.04, so
+    # Setup Environment failed before any lane ran (canary run 43428299133). Remove with the Playwright upgrade (#1840).
+    runs-on: ubuntu-24.04
+    # #1826: the run-owned sweep reads finished-run state for this repository (actions: read); nothing else is granted.
+    permissions:
+      contents: read
+      actions: read
     # 45 minutes (was 25, 15, 10). The job ceiling is the OUTERMOST budget, so it must fit EVERY permitted
     # attempt, or GitHub kills a legitimate retry before it can pass or report (#1518, Codex P1 on
     # 3492c5b). `playwright.canary.config.ts` keeps `retries: 1` — the canary's existing failure contract.
@@ -146,6 +170,23 @@ jobs:
         with:
           install-playwright: 'true'
 
+      # #1826: the run-owned account TOOLING comes from this workflow's own reviewed commit, NOT the served release,
+      # so account create/delete/sweep work even while production still serves a build from before the tooling
+      # existed. The product journey above stays bound to the served release. Read-only sparse checkout of exactly
+      # the tooling and the shared cleanup it reuses; it resolves its packages from the workspace install.
+      - name: Checkout run-owned account tooling (workflow source)
+        if: matrix.lane == 'active-trial' && vars.CANARY_RUN_OWNED_TRIAL == 'enabled'
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          path: .canary-tooling
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/canary-run-owned.ts
+            scripts/lib
+            tests/live/helpers
+          sparse-checkout-cone-mode: false
+
       - name: Validate protected canary identities
         env:
           # #1294 email cutover: canary EMAILS resolve from repository Variables (non-secret, operator-owned).
@@ -159,10 +200,13 @@ jobs:
           CANARY_LANE_PASSWORD: ${{ matrix.lane == 'active-trial' && secrets.CANARY_TRIAL_PASSWORD || '' }}
         run: node scripts/canary-identity-config.mjs
 
+      # #1826 ACTIVATION GATE (default OFF): unless repository variable CANARY_RUN_OWNED_TRIAL is exactly 'enabled'
+      # (a separate PO activation decision), the active-trial lane runs these two steps exactly as before #1826,
+      # read-only on the existing identity, and the run-owned create/verify/smoke below never run.
       # ── Routine active-trial lane: the COMPLETE Pro product path through a genuine, server-active 30-day
       #    trial (its effective tier is already 'pro'). Read-only sign-in; never mutates or charges. ──
       - name: Provision Canary User (active-trial)
-        if: matrix.lane == 'active-trial'
+        if: matrix.lane == 'active-trial' && vars.CANARY_RUN_OWNED_TRIAL != 'enabled'
         env:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           # READ-ONLY canary: the PUBLIC anon key is the ONLY credential. No service-role key is injected —
@@ -177,7 +221,7 @@ jobs:
         run: node scripts/provision-canary.mjs
 
       - name: Run Smoke Test (active-trial product path)
-        if: matrix.lane == 'active-trial'
+        if: matrix.lane == 'active-trial' && vars.CANARY_RUN_OWNED_TRIAL != 'enabled'
         env:
           VITE_TEST_MODE: "true"
           VITE_USE_LIVE_DB: "true"
@@ -188,6 +232,64 @@ jobs:
           # A later main merge is not a deployment. Test the verified served release, not github.sha.
           EXPECTED_RELEASE_SHA: ${{ needs.release-binding.outputs.release_sha }}
         run: pnpm test:deploy:prod
+
+      # ── Routine active-trial lane: the COMPLETE Pro product path through a genuine, server-active 30-day
+      #    trial. #1826 (PO Option 2): the 30-day trial is one-time per account, so each run creates ONE fresh
+      #    run-owned `ctrial-run-*` account (which gets its own 30-day trial at signup), binds it to this exact
+      #    run in app_metadata, and deletes it at the end with the shared zero-residue proof. This is the ONLY
+      #    production write the canary makes, and only in this lane; the billing-qualification lane is unchanged.
+      #    The credentials reach later steps only through masked $GITHUB_ENV values. ──
+      - name: Create run-owned trial account (active-trial)
+        if: matrix.lane == 'active-trial' && vars.CANARY_RUN_OWNED_TRIAL == 'enabled'
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # Only the operator-owned DOMAIN of the configured trial identity is used for the new address.
+          CANARY_TRIAL_EMAIL: ${{ vars.CANARY_TRIAL_EMAIL }}
+        run: pnpm exec tsx .canary-tooling/scripts/canary-run-owned.ts setup
+
+      # Read-only verification of the new account through the PUBLIC anon flow: sign-in and an active-trial
+      # profile binding. No service-role key here.
+      - name: Verify run-owned trial account (active-trial)
+        if: matrix.lane == 'active-trial' && vars.CANARY_RUN_OWNED_TRIAL == 'enabled'
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          CANARY_EXPECTED_ACCESS: active-trial
+          CANARY_MAX: '2'
+          CANARY_ENFORCE: fail
+        run: node scripts/provision-canary.mjs
+
+      - name: Run Smoke Test (active-trial product path, run-owned account)
+        if: matrix.lane == 'active-trial' && vars.CANARY_RUN_OWNED_TRIAL == 'enabled'
+        env:
+          VITE_TEST_MODE: "true"
+          VITE_USE_LIVE_DB: "true"
+          CANARY_EXPECTED_ACCESS: active-trial
+          BASE_URL: https://speaksharp-public.vercel.app/
+          # A later main merge is not a deployment. Test the verified served release, not github.sha.
+          EXPECTED_RELEASE_SHA: ${{ needs.release-binding.outputs.release_sha }}
+        run: pnpm test:deploy:prod
+
+      # Always delete THIS run+attempt's account, whatever happened above. Unproven deletion or residue fails
+      # the job (never silently green). Gated like creation: with the gate off nothing was created, so no destructive
+      # step is reachable. Orphans left from an enabled period are swept by the next enabled run (Sam on 79a4b7ee).
+      - name: Delete run-owned trial account (active-trial)
+        if: always() && matrix.lane == 'active-trial' && vars.CANARY_RUN_OWNED_TRIAL == 'enabled'
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: pnpm exec tsx .canary-tooling/scripts/canary-run-owned.ts cleanup
+
+      # Hygiene, after the product result: remove orphans of FINISHED earlier runs (runner lost before its
+      # delete step), bounded and re-checked. Accounts it cannot prove finished are left and reported.
+      - name: Sweep run-owned orphans (hygiene)
+        if: always() && matrix.lane == 'active-trial' && vars.CANARY_RUN_OWNED_TRIAL == 'enabled'
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: pnpm exec tsx .canary-tooling/scripts/canary-run-owned.ts sweep
 
       # ── Automated WEEKLY Stripe test-mode/test-clock billing lifecycle qualification. NO live charge, NO real
       #    card. It fails closed BEFORE creating anything unless Stripe proves livemode=false with a sk_test_ key
@@ -258,6 +360,8 @@ jobs:
       - name: Require truthful terminal state
         env:
           BINDING_RESULT: ${{ needs.release-binding.result }}
+          BINDING_REASON: ${{ needs.release-binding.outputs.reason }}
+          OBSERVED_SHA: ${{ needs.release-binding.outputs.observed_sha }}
           READINESS_RESULT: ${{ needs.migration-readiness.result }}
           MIGRATION_READY: ${{ needs.migration-readiness.outputs.ready }}
           PRODUCT_LANES_RESULT: ${{ needs.canary-check.result }}
@@ -268,8 +372,24 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$BINDING_RESULT" != 'success' ]; then
-            echo '## HOLD — last-served release binding missing, stale or unverified; NO product qualification ran' >> "$GITHUB_STEP_SUMMARY"
-            echo '::error::CANARY HELD — reconcile PRODUCTION_RELEASE_SHA with the verified served release.'
+            # Name WHICH hold it is, so a hold is never misread as a product failure.
+            case "${BINDING_REASON:-}" in
+              production-unreadable)
+                why='the release production serves could not be read'
+                todo='Check that the production site is up and carries exactly one window.__APP_RELEASE__ marker.' ;;
+              served-sha-invalid)
+                why='production carries a window.__APP_RELEASE__ value that is not a full 40-character SHA'
+                todo='Check the production build: it must stamp the full lowercase commit SHA it was built from.' ;;
+              served-not-on-main)
+                why="production serves ${OBSERVED_SHA:-an unknown release}, which GitHub could not confirm is a commit on main"
+                todo='Investigate what production serves: only a release of a commit on main may be canaried.' ;;
+              *)
+                why='the release binding job did not report a reason'
+                todo='Open the release-binding job log.' ;;
+            esac
+            echo "## HOLD — served release binding: $why; NO product qualification ran" >> "$GITHUB_STEP_SUMMARY"
+            echo "- $todo" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::CANARY HELD — $why. $todo"
             exit 1
           fi
           if [ "$READINESS_RESULT" != 'success' ]; then

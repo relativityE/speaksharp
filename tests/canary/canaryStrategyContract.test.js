@@ -158,9 +158,34 @@ describe('canary terminal-state — executed bash (summary / failure / migration
   it('missing or stale served binding is HOLD before any product qualification', () => {
     const r = runTerminal({ ...READY, BINDING_RESULT: 'failure', PRODUCT_LANES_RESULT: 'success' });
     expect(r.code).toBe(1);
-    expect(r.summary).toContain('last-served release binding');
+    expect(r.summary).toContain('served release binding');
     expect(r.summary).toContain('NO product qualification ran');
     expect(r.summary).not.toContain('Canary qualification passed');
+  });
+
+  // Outcome 10: the HOLD names WHICH binding failure it is. Every canary from 27 Oct to 10 Nov held on an EMPTY
+  // PRODUCTION_RELEASE_SHA while the message read as drift. The canary now reads the served release from the live
+  // page, so the variable is gone and the holds are about the page itself.
+  it.each([
+    ['served-sha-invalid', {}, /not a full 40-character SHA/, /production build/],
+    ['served-not-on-main', { OBSERVED_SHA: 'b'.repeat(40) },
+      new RegExp(`production serves ${'b'.repeat(40)}, which GitHub could not confirm is a commit on main`), /only a release of a commit on main/],
+    ['production-unreadable', {}, /could not be read/, /production site is up/],
+    ['', {}, /did not report a reason/, /release-binding job log/],
+  ])('binding HOLD reason %j is named in the summary and the error, and still fails', (reason, extra, why, todo) => {
+    const r = runTerminal({ ...READY, BINDING_RESULT: 'failure', BINDING_REASON: reason, PRODUCT_LANES_RESULT: 'success', ...extra });
+    expect(r.code).toBe(1);
+    expect(r.summary).toMatch(why);
+    expect(r.summary).toMatch(todo);
+    expect(r.out).toMatch(/::error::CANARY HELD/);
+    expect(r.out).toMatch(why);
+    expect(r.summary).toContain('NO product qualification ran');
+    expect(r.summary).not.toContain('Canary qualification passed');
+  });
+
+  it('the terminal state never mentions the retired PRODUCTION_RELEASE_SHA variable', () => {
+    expect(script).not.toContain('PRODUCTION_RELEASE_SHA');
+    expect(step.env.EXPECTED_SHA).toBeUndefined();
   });
 
   it('migration readiness unestablished → hard error, exit 1', () => {

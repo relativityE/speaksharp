@@ -502,7 +502,8 @@ export async function handler(
   // diagnostic log or any telemetry: it is a stable pseudonymous link to the selected authenticated row.
   let sessionBindingSha256: string | null = null;
   // A durable account admission precedes quota/provider work. Unknown external or commit
-  // outcomes remain fenced; a disconnected browser is not proof that work settled.
+  // outcomes remain unknown. Once this handler has awaited all its work, the local
+  // retirement RPC can revoke future writes without claiming remote settlement.
   let coachingAdmission: { p_user_id: string; p_session_id: string; p_operation_id: string } | null = null;
   let coachingPersisted = false;
   let coachingOutcomeUnknown = false;
@@ -1052,6 +1053,8 @@ export async function handler(
       return finish({ error: 'AI coaching could not be saved. Please try again.', code: 'persist_failed' }, 503);
     }
     coachingPersisted = true;
+    // The durable save is verified, but an earlier remote timeout can still be unknown.
+    coachingOutcomeUnknown = !providerSettled;
 
     // #1258 (PO 2026-10-02): every SERVED generation is measured, content-free — counts and flags, never phrases.
     // Emitted only here, after save verification (Codex r4189408877): a generation that ends in 503 was never served,
@@ -1064,12 +1067,18 @@ export async function handler(
     console.error('Error getting AI suggestions:', error);
     return finish({ error: 'Failed to get AI suggestions. Please try again.' }, 500);
   } finally {
-    if (coachingAdmission && !coachingPersisted) {
+    if (coachingAdmission && (!coachingPersisted || coachingOutcomeUnknown)) {
       try {
-        const { data, error } = await createServiceRoleSupabase().rpc('finish_account_coaching_failure_v1', {
-          ...coachingAdmission,
-          p_outcome: coachingOutcomeUnknown ? 'unknown' : 'refused',
-        });
+        // No provider retry or persistence follows this awaited finally. If a database
+        // reply was lost, its transaction and this retirement serialize on the same
+        // operation locks: retain an already committed result, or block a late write.
+        // The remote provider outcome remains unknown in the durable fence audit.
+        const { data, error } = coachingOutcomeUnknown
+          ? await createServiceRoleSupabase().rpc('finish_account_coaching_local_v1', coachingAdmission)
+          : await createServiceRoleSupabase().rpc('finish_account_coaching_failure_v1', {
+            ...coachingAdmission,
+            p_outcome: 'refused',
+          });
         if (error || data !== true) console.error('Account coaching settlement remains unverified.');
       } catch {
         // The durable admission remains unsettled. Never turn a failed settlement write into permission to delete.
