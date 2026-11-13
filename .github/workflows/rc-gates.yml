@@ -89,7 +89,9 @@ jobs:
   gate-1-product:
     name: Gate 1 - Product Truth
     if: ${{ github.event.inputs.gate == 'all' || github.event.inputs.gate == 'gate-1-product' }}
-    runs-on: ubuntu-latest
+    # Pinned (AHT-01 run 43413270234): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build
+    # and setup fails before any gate runs. Move only together with a Playwright upgrade that supports the new image.
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
@@ -126,7 +128,9 @@ jobs:
   gate-3-dast:
     name: Gate 3 - DAST / Running App
     if: ${{ github.event.inputs.gate == 'all' || github.event.inputs.gate == 'gate-3-dast' }}
-    runs-on: ubuntu-latest
+    # Pinned (AHT-01 run 43413270234): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build
+    # and setup fails before any gate runs. Move only together with a Playwright upgrade that supports the new image.
+    runs-on: ubuntu-24.04
     # Bounded time budget (AHT-01 / #1812): every step on the single-spec RWT path has its own limit and the job limit is at
     # least their sum plus a 4 min post-action allowance, so the job limit does not cut the spec step (whose finalizer and
     # run-owned cleanup run inside it). Configured envelope only: Playwright start/teardown and runner loss/cancellation are
@@ -635,7 +639,9 @@ jobs:
   gate-5-ux:
     name: Gate 5 - UX Smoke
     if: ${{ github.event.inputs.gate == 'all' || github.event.inputs.gate == 'gate-5-ux' }}
-    runs-on: ubuntu-latest
+    # Pinned (AHT-01 run 43413270234): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build
+    # and setup fails before any gate runs. Move only together with a Playwright upgrade that supports the new image.
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
