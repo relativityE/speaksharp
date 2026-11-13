@@ -6,7 +6,7 @@ const pure=require('./oracles/pure/progressNumericSelected.cjs');
 const SOURCE_SHA='5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2';
 const ROW='same-target-numeric';
 // Exact full releases whose consumer files were compared with the snapshots. Source and served must be the SAME listed release.
-const RELEASE_SHAS=Object.freeze(['d401349bca036be1f5413fa50faba536fba3ed51','610004700e262ec4e27388ae8fdf04278124233a']);
+const RELEASE_SHAS=Object.freeze(['d401349bca036be1f5413fa50faba536fba3ed51','610004700e262ec4e27388ae8fdf04278124233a','9ae1dbcf3f07ef741ad3f3e9e48ef6960a41008d']);
 const REVALIDATED_SHAS=Object.freeze([SOURCE_SHA,...RELEASE_SHAS]);
 const SELECT=Object.freeze({
  recommendation:'id,user_id,source_session_id,formula_version,target_metric,target_direction,target_value,target_units,source_metric_value,shown_text',
