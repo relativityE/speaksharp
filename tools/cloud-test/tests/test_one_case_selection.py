@@ -6,6 +6,8 @@ import copy
 import hashlib
 import json
 import os
+import subprocess
+import sys
 import unittest
 from datetime import datetime, timezone
 from unittest import mock
@@ -326,6 +328,86 @@ class NotTargetedContract(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("ERROR: notTargeted must be a list of {gap, why}", r.stdout)
 
+
+    def isolated_package_with_the_fixture_grant(self):
+        """A temporary repository root whose tools/cloud-test is a byte copy of this package with exactly two differences: the preserved
+        expired grant installed at the committed grant path, and ONE_OFF_GRANT_SHA256 pinned to its bytes (the change a reviewed grant
+        makes). Every other repository entry is a read-only link to the real checkout. The committed tree itself is never modified."""
+        import shutil
+        import tempfile
+        pkg = tempfile.mkdtemp(prefix="ct-grant-pkg-")
+        self.addCleanup(shutil.rmtree, pkg, True)
+        dst = os.path.join(pkg, "tools", "cloud-test")
+        shutil.copytree(ROOT, dst, symlinks=True, ignore=shutil.ignore_patterns("__pycache__"))
+        for name in os.listdir(REPO):
+            if name not in ("tools", ".git"):
+                os.symlink(os.path.join(REPO, name), os.path.join(pkg, name))
+        for name in os.listdir(os.path.join(REPO, "tools")):
+            if name != "cloud-test":
+                os.symlink(os.path.join(REPO, "tools", name), os.path.join(pkg, "tools", name))
+        with open(os.path.join(ROOT, EXPIRED_GRANT_REL), "rb") as f:
+            raw = f.read()
+        with open(os.path.join(pkg, COMMITTED_GRANT_PATH), "xb") as f:
+            f.write(raw)
+        init = os.path.join(dst, "scripts", "init_run_inputs.py")
+        with open(init, encoding="utf-8") as f:
+            src = f.read()
+        self.assertEqual(src.count("ONE_OFF_GRANT_SHA256 = None\n"), 1)
+        with open(init, "w", encoding="utf-8") as f:
+            f.write(src.replace("ONE_OFF_GRANT_SHA256 = None\n", 'ONE_OFF_GRANT_SHA256 = "%s"\n' % hashlib.sha256(raw).hexdigest()))
+
+        def digests(base):
+            out = {}
+            for d, dirs, files in os.walk(base):
+                dirs[:] = [x for x in dirs if x != "__pycache__"]
+                for name in files:
+                    path = os.path.join(d, name)
+                    with open(path, "rb") as f:
+                        out[os.path.relpath(path, base)] = hashlib.sha256(f.read()).hexdigest()
+            return out
+        real, copy = digests(ROOT), digests(dst)
+        grant_rel = os.path.relpath(os.path.join(REPO, COMMITTED_GRANT_PATH), ROOT)
+        self.assertEqual(set(copy) - set(real), {grant_rel})
+        self.assertEqual(set(real) - set(copy), set())
+        self.assertEqual({k for k in real if real[k] != copy[k]}, {os.path.join("scripts", "init_run_inputs.py")})
+        self.assertFalse(os.path.lexists(os.path.join(REPO, COMMITTED_GRANT_PATH)))
+        return dst
+
+    def test_with_the_fixture_grant_in_an_isolated_package_the_real_pipeline_admits_and_reports_the_one_case_request(self):
+        """The positive real-pipeline contract, preserved without committing an active grant: the unchanged pipeline, validator and
+        report of an isolated package that differs only by the installed fixture grant and its pin accept the corrected one-case
+        request and render its Not-selected rows; the exact admitted request is still refused for its notTargeted shape."""
+        import tempfile
+        from _fixtures import NOW, TESTED, prerequisite
+        from _synthetic_history import shared as synthetic_history
+        prerequisite(os.system("git -C %s cat-file -e %s 2>/dev/null" % (REPO, TESTED)) == 0, "git history of the repository")
+        pkg = self.isolated_package_with_the_fixture_grant()
+        good = I.materialize_authoritative_smoke_occurrence(REPO, REQUEST, "2026-11-08T16:10:00Z")
+        results = {}
+        for name, req in (("corrected", good), ("admitted", self.admitted())):
+            d = tempfile.mkdtemp(prefix="ct-nt-")
+            src, oc, out = os.path.join(d, "request.json"), os.path.join(d, "oc.json"), os.path.join(d, "out")
+            with open(src, "w", encoding="utf-8") as f:
+                json.dump(req, f)
+            with open(oc, "w", encoding="utf-8") as f:
+                json.dump({"passed": True}, f)
+            h = synthetic_history()
+            env = {"PATH": os.environ["PATH"], "HOME": os.environ.get("HOME", "/tmp")}
+            r = subprocess.run([sys.executable, "-I", os.path.join(pkg, "scripts", "pipeline.py"), "--request", h.request(src),
+                                "--out-dir", out, "--offline-checks", oc, "--repo", REPO, "--now", NOW, "--generated-at", NOW, *h.args(),
+                                "--require-secret-free"], capture_output=True, text=True, env=env)
+            results[name] = (r, out)
+        r, out = results["corrected"]
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("run request VALID", r.stdout)
+        with open(os.path.join(out, "report", "validation.json"), encoding="utf-8") as f:
+            self.assertTrue(json.load(f)["valid"])
+        with open(os.path.join(out, "report", "REPORT.html"), encoding="utf-8") as f:
+            html = f.read()
+        self.assertIn("Not selected: this one-case attempt runs only AHT-01 (GAP-01). GAP-02 is tracked separately", html)
+        r, _ = results["admitted"]
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("ERROR: notTargeted must be a list of {gap, why}", r.stdout)
 
 class ProjectionCatalog(unittest.TestCase):
     """the CLI `project` hardcoded the FULL assertion catalog (AHT-01 = 20 rows) even for smoke (15), so run

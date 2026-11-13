@@ -871,6 +871,7 @@
     "package-unit-tests::test_one_case_selection.GuardRefusalExportAndPublication.test_the_real_cli_projects_the_smoke_record",
     "package-unit-tests::test_one_case_selection.NotTargetedContract.test_every_malformed_entry_is_refused_and_an_empty_list_stays_valid",
     "package-unit-tests::test_one_case_selection.NotTargetedContract.test_the_exact_admitted_request_is_refused_before_the_reserve_and_by_the_validator",
+    "package-unit-tests::test_one_case_selection.NotTargetedContract.test_with_the_fixture_grant_in_an_isolated_package_the_real_pipeline_admits_and_reports_the_one_case_request",
     "package-unit-tests::test_one_case_selection.NotTargetedContract.test_without_an_active_grant_the_real_pipeline_refuses_the_one_case_request_and_still_refuses_the_admitted_shape",
     "package-unit-tests::test_one_case_selection.ProjectionCatalog.test_the_catalog_is_the_admitted_depths_pin_and_must_match_the_qualification",
     "package-unit-tests::test_one_case_selection.ProjectionCatalog.test_the_full_catalog_refuses_row_verdicts_and_the_admitted_smoke_catalog_publishes",
