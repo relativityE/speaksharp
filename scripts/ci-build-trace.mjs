@@ -10,6 +10,7 @@
 //
 // Scope note: mtimes are not recorded (a fresh checkout changes them all). The build's caches that key on
 // mtime are deleted before every build, and node's compile cache under /tmp validates its own source hash.
+import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import { lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync } from 'node:fs';
 import { posix } from 'node:path';
@@ -60,23 +61,38 @@ export function splitCall(line) {
   return null;
 }
 
+// strace escapes are BYTES (a UTF-8 name such as caf\303\251.js arrives as two escaped bytes), so the string is
+// rebuilt as bytes and decoded as UTF-8; a name that is not valid UTF-8 cannot be represented and fails closed.
+const UTF8 = new TextDecoder('utf-8', { fatal: true });
 export function decodeString(arg) {
   if (typeof arg !== 'string' || !arg.startsWith('"')) return null;
-  let out = '', i = 1;
+  const bytes = []; let i = 1;
+  const push = (text) => bytes.push(...Buffer.from(text, 'utf8'));
   for (; i < arg.length && arg[i] !== '"'; i++) {
-    if (arg[i] !== '\\') { out += arg[i]; continue; }
+    if (arg[i] !== '\\') { push(arg[i]); continue; }
     const e = arg[++i];
     const simple = { n: '\n', t: '\t', r: '\r', v: '\v', f: '\f', '\\': '\\', '"': '"' }[e];
-    if (simple !== undefined) out += simple;
-    else if (e === 'x') { out += String.fromCharCode(parseInt(arg.slice(i + 1, i + 3), 16)); i += 2; }
-    else if (/[0-7]/.test(e)) { const oct = /^[0-7]{1,3}/.exec(arg.slice(i))[0]; out += String.fromCharCode(parseInt(oct, 8)); i += oct.length - 1; }
-    else throw Error(`TRACE_UNKNOWN_ESCAPE \\${e}`);
+    if (simple !== undefined) push(simple);
+    else if (e === 'x') {
+      const hex = /^[0-9a-fA-F]{2}/.exec(arg.slice(i + 1))?.[0];
+      if (!hex) throw Error('TRACE_BAD_ESCAPE');
+      bytes.push(parseInt(hex, 16)); i += 2;
+    } else if (/[0-7]/.test(e)) {
+      const oct = /^[0-7]{1,3}/.exec(arg.slice(i))[0], value = parseInt(oct, 8);
+      if (value > 255) throw Error('TRACE_BAD_ESCAPE');
+      bytes.push(value); i += oct.length - 1;
+    } else throw Error(`TRACE_UNKNOWN_ESCAPE \\${e}`);
   }
   if (arg[i] !== '"' || arg.slice(i + 1) !== '') throw Error('TRACE_TRUNCATED_STRING');
-  return out;
+  try { return UTF8.decode(Uint8Array.from(bytes)); } catch { throw Error('TRACE_PATH_NOT_UTF8'); }
 }
 
-const decoration = (arg) => /^(?:AT_FDCWD|\d+)<(.*)>$/s.exec(arg ?? '')?.[1] ?? null;
+// strace -y escapes unusual bytes in a decoration too; such a path cannot be read back faithfully, so it counts as
+// undecorated and every use of it fails closed.
+const decoration = (arg) => {
+  const path = /^(?:AT_FDCWD|\d+)<(.*)>$/s.exec(arg ?? '')?.[1] ?? null;
+  return path !== null && /^[\x20-\x7e]*$/.test(path) && !path.includes('\\') ? path : null;
+};
 
 /**
  * Parse `strace -f -qq -y -s <large> -e trace=%file,getdents64,fchdir,connect` output.
@@ -116,6 +132,7 @@ export function parseTrace(text) {
     for (const arg of call.args) {
       if (!arg.startsWith('AT_FDCWD<')) continue;
       const dir = decoration(arg);
+      if (dir === null) { problems.push(`TRACE_UNDECORATED_FD cwd in ${pid}`); continue; }
       if (cwd.has(key) && cwd.get(key) !== dir) problems.push(`cwd changed without chdir in ${pid}`);
       cwd.set(key, dir);
     }
@@ -189,12 +206,13 @@ export function parseTrace(text) {
  * Resolve an absolute path component by component, following symlinks before `..` as the kernel does.
  * Stops at the first component that does not exist (the kernel's lookup fails there too) and returns it.
  */
-export function resolveLikeKernel(path) {
+export function resolveLikeKernel(path, visited = []) {
   let current = '/';
   for (const part of path.split('/')) {
     if (part === '' || part === '.') continue;
     if (part === '..') { current = posix.dirname(current); continue; }
     const next = posix.join(current, part);
+    visited.push(next);
     let st;
     try { st = lstatSync(next); } catch (error) {
       if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return next;
@@ -245,7 +263,8 @@ export function buildManifest(trace, { root, outputRoots, ignoredRoots = ['/proc
   const outputs = outputRoots.map((r) => posix.normalize(r));
   // /dev/null and /dev/tty are not files; /proc and /sys writes would be odd but cannot change a later build's inputs.
   const physical = (trace.dotdot ?? []).map(({ path, write }) => {
-    try { return { path: resolveLikeKernel(path), write }; } catch (error) { problems.push(error.message); return null; }
+    const visited = [];
+    try { return { path: resolveLikeKernel(path, visited), visited, write }; } catch (error) { problems.push(error.message); return null; }
   }).filter(Boolean);
   const writes = [...trace.written, ...physical.filter((p) => p.write).map((p) => p.path)];
   for (const path of writes) if (!under(path, outputs) && !under(path, ignoredRoots)) problems.push(`build wrote outside its output roots: ${path}`);
@@ -261,7 +280,7 @@ export function buildManifest(trace, { root, outputRoots, ignoredRoots = ['/proc
     }
   };
   for (const path of trace.observed) add(path);
-  for (const { path, write } of physical) if (!write) add(path);
+  for (const { path, visited, write } of physical) { for (const step of visited) add(step); if (!write) add(path); }
   for (const path of trace.listed) add(path, true);
   // The kernel follows symlinks without telling strace where they lead: every link target is an input too.
   const states = new Map();
@@ -272,9 +291,15 @@ export function buildManifest(trace, { root, outputRoots, ignoredRoots = ['/proc
       const state = pathState(path, { listing, outputRoots: outputs });
       states.set(path, state);
       if (state.t === 'link') {
-        const target = posix.normalize(posix.isAbsolute(state.to) ? state.to : posix.join(posix.dirname(path), state.to));
-        if (under(target, outputs)) { problems.push(`input link into an output root: ${path}`); continue; }
-        if (!wanted.has(target)) { add(target); changed = true; }
+        // Resolve the target string the kernel's way too: a symlink inside it is followed before any `..`.
+        const unnormalized = posix.isAbsolute(state.to) ? state.to : `${posix.dirname(path)}/${state.to}`;
+        const visited = [];
+        let target;
+        try { target = resolveLikeKernel(unnormalized, visited); } catch (error) { problems.push(error.message); continue; }
+        for (const candidate of [posix.normalize(unnormalized), target, ...visited]) {
+          if (under(candidate, outputs)) { problems.push(`input link into an output root: ${path}`); break; }
+          if (!wanted.has(candidate)) { add(candidate); changed = true; }
+        }
       }
     }
   }

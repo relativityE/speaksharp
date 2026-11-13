@@ -20,6 +20,19 @@ test('decodes escapes and refuses truncated strings', () => {
   assert.throws(() => decodeString('"abc"...'), /TRUNCATED/);
 });
 
+test('escaped bytes are decoded as UTF-8, and a name that is not UTF-8 fails closed', () => {
+  assert.equal(decodeString('"caf\\303\\251.js"'), 'caf\u00e9.js');
+  assert.equal(decodeString('"caf\\xc3\\xa9.js"'), 'caf\u00e9.js');
+  assert.throws(() => decodeString('"bad\\377.js"'), /NOT_UTF8/);
+  const t = parse(['10 openat(AT_FDCWD</r>, "/r/caf\\303\\251.js", O_RDONLY) = 3</r/caf\\303\\251.js>']);
+  assert(t.observed.has('/r/caf\u00e9.js'), [...t.observed].join());
+});
+
+test('an escaped fd decoration cannot be read back faithfully and fails closed', () => {
+  assert.match(parse(['10 openat(5</r/caf\\303\\251>, "x.js", O_RDONLY) = 3']).problems.join(), /UNDECORATED|UNRESOLVED/);
+  assert.match(parse(['10 openat(AT_FDCWD</r/caf\\303\\251>, "/a", O_RDONLY) = 3</a>']).problems.join(), /UNDECORATED/);
+});
+
 test('joins unfinished and resumed halves of one call', () => {
   const t = parse(['10 openat(AT_FDCWD</r>, "src/a.ts", O_RDONLY|O_CLOEXEC <unfinished ...>', '11 statx(AT_FDCWD</r>, "/r/b", 0, STATX_ALL, 0x1) = 0',
     '10 <... openat resumed>) = 21</r/src/a.ts>']);
@@ -133,6 +146,24 @@ test('`..` after a symlink is resolved as the kernel does: the file actually rea
   f.put('store/input.js', 'real input');
   rmSync(join(f.root, 'link')); mkdirSync(join(f.root, 'link'));
   assert.equal(check(), '@root/link', 'the link replaced by a directory');
+});
+
+test('a symlink whose target goes through another symlink and `..` records the file actually read', (t) => {
+  const f = tree(t);
+  f.put('store/pkg/index.js', 'pkg'); f.put('store/input.js', 'real input'); f.put('input.js', 'lexical decoy');
+  symlinkSync('store/pkg', join(f.root, 'link'));
+  symlinkSync('link/../input.js', join(f.root, 'entry.js'));
+  const { manifest, problems } = buildManifest({ observed: new Set([`${f.root}/entry.js`]), listed: new Set(), written: new Set(), network: [], problems: [] },
+    { root: f.root, outputRoots: f.outputRoots });
+  assert.equal(problems, undefined, problems?.join('\n'));
+  const names = manifest.map(([n]) => n);
+  assert(names.includes('@root/store/input.js') && names.includes('@root/link'), names.join());
+  const check = () => firstManifestDifference(manifest, { root: f.root, outputRoots: f.outputRoots });
+  assert.equal(check(), null);
+  f.put('store/input.js', 'changed'); assert.equal(check(), '@root/store/input.js');
+  f.put('store/input.js', 'real input');
+  rmSync(join(f.root, 'link')); symlinkSync('src', join(f.root, 'link'));
+  assert.equal(check(), '@root/link', 'the intermediate link was retargeted');
 });
 
 test('a write through `..` after a symlink is checked where it really lands', (t) => {
