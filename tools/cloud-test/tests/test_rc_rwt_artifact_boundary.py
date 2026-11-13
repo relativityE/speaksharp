@@ -3,11 +3,14 @@ import copy
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
+import tempfile
 import unittest
 
 import yaml
-from _fixtures import REPO
+from _fixtures import REPO, ROOT, prerequisite, run_py
+import install_pdfjs
 
 RWT = "startsWith(github.event.inputs.diagnostic_dast_spec, 'tests/live/rwt-')"
 SPEC = "tests/live/rwt-products-navigation.live.spec.ts"
@@ -118,20 +121,33 @@ class RwtArtifactBoundary(unittest.TestCase):
 
     def test_negative_control_missing_discovery_cannot_qualify_telemetry(self):
         # A failed discovery leaves steps.rwt_release.outputs.release_sha empty, and the always() readback still runs with
-        # RELEASE_SHA="". The real readback script must HOLD (exit 1, which the step records as HOLD and fails) before it
-        # queries anything, and must never print QUALIFIED.
-        env = {k: v for k, v in os.environ.items() if not k.startswith("POSTHOG")}
-        env["RELEASE_SHA"] = ""
-        result = subprocess.run(["node", "--import", "tsx", "scripts/telemetry-readback-qualification.mts", "--release-sha", "",
-                                 "--journey-id", "missing-discovery-control", "--traffic-type", "canary"],
-                                cwd=REPO, env=env, capture_output=True, text=True, timeout=120)
-        self.assertEqual(result.returncode, 1, result.stderr[-2000:])
-        self.assertNotIn("QUALIFIED", result.stdout)
-        line = next(l for l in result.stdout.splitlines() if l.startswith("TELEMETRY_READBACK_QUALIFICATION_EVIDENCE "))
-        evidence = json.loads(line.split(" ", 1)[1])
-        self.assertEqual(evidence["verdict"], "HOLD")
-        self.assertEqual(evidence["release_sha"], "")
-        self.assertIn("no --release-sha supplied", evidence["reasons"][0])
+        # RELEASE_SHA="". The real readback script, in an isolated checkout bound to the verified runner dependencies (the
+        # same binding test_full_plan's governed-reader control uses), must HOLD (exit 1, which the step records as HOLD and
+        # fails) on the missing release before it reads credentials or queries anything, and must never print QUALIFIED.
+        runner = Path(ROOT) / "runner"
+        for package in install_pdfjs.PLAYWRIGHT_PACKAGES:
+            prerequisite((runner / "node_modules" / package / "package.json").is_file(), "npm ci in tools/cloud-test/runner")
+        with tempfile.TemporaryDirectory(prefix="ct-missing-discovery-") as d:
+            checkout = Path(d) / "checkout"
+            (checkout / "scripts").mkdir(parents=True)
+            shutil.copy2(Path(REPO) / "scripts/telemetry-readback-qualification.mts", checkout / "scripts/telemetry-readback-qualification.mts")
+            shutil.copytree(Path(REPO) / "frontend/src", checkout / "frontend/src")
+            shutil.copy2(Path(REPO) / "frontend/package.json", checkout / "frontend/package.json")
+            bound = run_py("scripts/install_pdfjs.py", "--checkout", str(checkout), "--runner-dir", str(runner), "--bind-playwright")
+            self.assertEqual(bound.returncode, 0, bound.stderr)
+            # Exactly the step's call shape when discovery produced nothing: an empty --release-sha and an empty RELEASE_SHA.
+            env = {"PATH": os.environ["PATH"], "HOME": d, "RELEASE_SHA": ""}
+            result = subprocess.run(["node", "--import", "tsx", str(checkout / "scripts/telemetry-readback-qualification.mts"),
+                                     "--release-sha", "", "--journey-id", "missing-discovery-control", "--traffic-type", "canary"],
+                                    cwd=checkout, env=env, capture_output=True, text=True, timeout=120)
+            self.assertEqual(result.returncode, 1, result.stderr[-2000:])
+            self.assertNotIn("QUALIFIED", result.stdout)
+            lines = [l for l in result.stdout.splitlines() if l.startswith("TELEMETRY_READBACK_QUALIFICATION_EVIDENCE ")]
+            self.assertEqual(len(lines), 1, result.stdout + result.stderr)
+            evidence = json.loads(lines[0].split(" ", 1)[1])
+            self.assertEqual(evidence["verdict"], "HOLD")
+            self.assertEqual(evidence["release_sha"], "")
+            self.assertIn("no --release-sha supplied", evidence["reasons"][0])
 
     def test_diagnostic_does_not_become_release_qualification(self):
         steps = self.workflow["jobs"]["gate-3-dast"]["steps"]
