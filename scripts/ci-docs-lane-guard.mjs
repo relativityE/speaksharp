@@ -2,7 +2,7 @@
 /**
  * #1837 — PROVE THAT NOTHING THE DOCS LANE SKIPS READS THE MARKDOWN THIS PULL REQUEST CHANGED. FAIL CLOSED.
  *
- * The docs lane (scripts/ci-change-scope.mjs `docs_lane`) runs the complete unit suite with coverage, the
+ * The docs lane (scripts/ci-change-scope.mjs `docs_lane`, draft PRs only) runs the complete unit suite with coverage, the
  * quality gate and the shard partition proof, and skips every other job in .github/workflows/ci.yml. That skip
  * is only sound if no skipped job can observe the changed files. This guard derives the skipped jobs from the
  * workflow itself (so a job added later is covered without editing this file), expands every command they run
@@ -12,8 +12,8 @@
  *   2. Does any skipped surface mention a Markdown name that a changed path ends with, or a Markdown pattern
  *      that has not been reviewed into REVIEWED_MARKDOWN_MENTIONS below?
  *
- * Either answer is "yes" => the change does not qualify for the docs lane. The scope job then takes the full
- * lane; the docs-evidence job refuses to qualify. Comments are ignored for JavaScript and TypeScript (parsed
+ * Either answer is "yes" => the change does not qualify for the docs lane. The scope job then keeps the draft on
+ * the affected draft lane; the docs-evidence job refuses to qualify. Comments are ignored for JavaScript and TypeScript (parsed
  * with the TypeScript compiler); shell, Python and YAML are scanned with their `#` comments stripped.
  */
 import fs from 'node:fs';
@@ -34,7 +34,7 @@ export const DOCS_LANE_JOBS = Object.freeze(['scope', 'deps-prep', 'unit-shard',
 export const NOT_TEST_SURFACES = Object.freeze({
     'draft-checks': 'drafts only; every test it runs is part of the complete unit suite the docs lane runs, and its diff, env and billing checks run in docs-evidence',
     'review-qualification': 'reads review state from GitHub; a docs-lane change has no review scope (scripts/review-qualification.mjs)',
-    'merge-qualification': 'reads job conclusions only; reports the docs lane as not merge-qualified',
+    'merge-qualification': 'reads job conclusions only; the docs lane runs on drafts only and is never merge-qualified',
 });
 
 /**

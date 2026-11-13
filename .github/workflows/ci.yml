@@ -68,9 +68,10 @@ jobs:
             : > "$RUNNER_TEMP/changed.txt"
           fi
 
-      # #1837 docs lane: a non-draft PR that changes only docs-lane Markdown is a CANDIDATE. It takes the docs
-      # lane only if the guard below shows, on this checkout, that no job the docs lane skips reads a changed
-      # file. A candidate the guard does not confirm (including any guard error) takes the full lane.
+      # #1837 docs lane (drafts only): a DRAFT PR that changes only docs-lane Markdown is a CANDIDATE. It takes
+      # the docs lane only if the guard below shows, on this checkout, that no job the docs lane skips reads a
+      # changed file. A candidate the guard does not confirm (including any guard error) stays on the affected
+      # draft lane. A non-draft PR is a merge candidate and always takes the full lane, docs-only or not.
       - name: Detect Docs Lane Candidate
         id: candidate
         shell: bash
@@ -96,7 +97,7 @@ jobs:
           if node scripts/ci-docs-lane-guard.mjs "$RUNNER_TEMP/changed.txt"; then
             echo "confirmed=true" >> "$GITHUB_OUTPUT"
           else
-            echo "::warning::docs-lane guard did not confirm this change; taking the full lane"
+            echo "::warning::docs-lane guard did not confirm this change; taking the affected draft lane"
             echo "confirmed=false" >> "$GITHUB_OUTPUT"
           fi
 

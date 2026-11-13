@@ -220,6 +220,25 @@ describe('docs-lane workflow wiring', () => {
     }
   });
 
+  it('docs-evidence refuses to qualify a non-draft PR, even a confirmed docs-only one (real CLI)', () => {
+    // #1837 (Sam's review): the docs lane is for drafts only. docs-evidence re-runs the classifier with
+    // REQUIRE_DOCS_LANE, so a merge candidate cannot be qualified by docs-lane evidence however it was selected.
+    const dir = mkdtempSync(join(tmpdir(), 'docs-lane-draft-'));
+    try {
+      writeFileSync(join(dir, 'changed.txt'), 'README.md\ndocs/guide/x.md\n');
+      const run = (isDraft) => spawnSync(process.execPath, ['scripts/ci-change-scope.mjs', join(dir, 'changed.txt')], {
+        encoding: 'utf8',
+        env: { ...process.env, GITHUB_OUTPUT: '', EVENT_NAME: 'pull_request', IS_DRAFT: isDraft, DOCS_LANE_CONFIRMED: 'true', REQUIRE_DOCS_LANE: 'true' },
+      });
+      expect(run('true').status).toBe(0);
+      const merge = run('false');
+      expect(merge.status).not.toBe(0);
+      expect(merge.stdout).toContain('non_draft_pr');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('report requires both the unit gate and docs-evidence on the docs lane (real shell)', () => {
     const step = jobs.report.steps.find((s) => s.name === 'Enforce Selected Lane');
     expect(jobs.report.needs).toContain('docs-evidence');

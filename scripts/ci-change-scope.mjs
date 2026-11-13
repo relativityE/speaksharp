@@ -129,28 +129,31 @@ export function classifyChanges(changedFiles, ctx = {}) {
     // correct only by accident.
     if (eventName === 'merge_group') return { ...full, reason: 'merge_group' };
     if (forceFull) return { ...full, reason: 'force_full' };
-    if (!isDraft) {
-        // #1837: a non-draft PR is a merge candidate. Only a `pull_request` event whose resolved diff is
-        // entirely docs-lane prose leaves the full lane, and then only for the docs lane, never the draft lane.
-        if (eventName === 'pull_request' && isDocsLaneChange(changedFiles)) {
-            if (docsLaneConfirmed !== true) return { ...full, docs_lane_candidate: true, reason: 'docs_lane_not_confirmed' };
-            return {
-                full_required: false,
-                docs_lane: true,
-                docs_lane_candidate: true,
-                docs_only: true,
-                frontend_changed: false,
-                edge_changed: false,
-                e2e_required: false,
-                reason: 'docs_lane',
-            };
-        }
-        return { ...full, reason: 'non_draft_pr' };
-    }
+    // #1837 (Sam's review): every non-draft PR is a merge candidate and always takes the full lane, docs-only
+    // changes included. The docs lane is a draft-only lane, so it never meets merge-qualification or AGENTS.md's
+    // full-lane rule.
+    if (!isDraft) return { ...full, reason: 'non_draft_pr' };
 
     // No resolvable diff => we cannot reason about scope => fail safe.
     if (!Array.isArray(changedFiles) || changedFiles.length === 0) {
         return { ...full, reason: 'no_diff_resolved' };
+    }
+
+    // #1837 docs lane (drafts only): a draft `pull_request` whose resolved diff is entirely docs-lane prose takes
+    // the docs lane once scripts/ci-docs-lane-guard.mjs has confirmed it on this checkout. An unconfirmed
+    // candidate stays on the affected draft lane below, exactly as before the docs lane existed.
+    const docsLaneCandidate = eventName === 'pull_request' && isDocsLaneChange(changedFiles);
+    if (docsLaneCandidate && docsLaneConfirmed === true) {
+        return {
+            full_required: false,
+            docs_lane: true,
+            docs_lane_candidate: true,
+            docs_only: true,
+            frontend_changed: false,
+            edge_changed: false,
+            e2e_required: false,
+            reason: 'docs_lane',
+        };
     }
 
     let docsOnly = true;
@@ -177,7 +180,7 @@ export function classifyChanges(changedFiles, ctx = {}) {
     return {
         full_required: false,
         docs_lane: false,
-        docs_lane_candidate: false,
+        docs_lane_candidate: docsLaneCandidate,
         docs_only: docsOnly,
         frontend_changed: frontendChanged,
         edge_changed: edgeChanged,
