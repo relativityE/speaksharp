@@ -25,7 +25,7 @@ on:
       - 'tests/db/account-closure-pending-realpg.mjs'
       - 'tests/db/account-closure-schema-realpg.mjs'
       - 'tests/db/account-coaching-admission-realpg.mjs'
-      - 'tests/db/account-completion-realpg.mjs'
+      - 'tests/db/account-completion-realpg.test.mjs'
       - 'tests/db/account-recording-admission-realpg.mjs'
       - 'tests/db/account-closure-tokens.integration.test.ts'
       - 'tests/db/account-closure-enforcement-full-chain.sql'
@@ -126,7 +126,7 @@ jobs:
           node tests/db/account-closure-pending-realpg.mjs
           node tests/db/account-closure-schema-realpg.mjs
           node tests/db/account-coaching-admission-realpg.mjs
-          node tests/db/account-completion-realpg.mjs
+          node tests/db/account-completion-realpg.test.mjs
           node tests/db/account-recording-admission-realpg.mjs
       - name: Replay actual baseline and closure migration; prove invariants
         run: node tests/db/account-closure-full-chain.mjs --profile=${{ matrix.profile }}

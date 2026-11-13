@@ -2,10 +2,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { accessSync, constants, mkdtempSync, mkdirSync, readFileSync, realpathSync, writeFileSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, isAbsolute, join } from 'node:path';
 import process from 'node:process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { completionBootstrap, recordingChain } from './account-completion-fixture.mjs';
@@ -16,6 +16,20 @@ const service = text => `SET ROLE service_role; ${text}`;
 const authenticated = (a,text) => `SET ROLE authenticated; SELECT set_config('request.jwt.claim.sub','${a.user}',false); ${text}`;
 
 test('inactive account completion: native readiness, journal, and concurrent claim', async t => {
+  // One complete installed toolchain, found even under the evidence runner's sanitized PATH (the #1831 native proof's
+  // search). No download, inherited connection configuration or external database.
+  const names = ['initdb', 'pg_ctl', 'psql'];
+  let bin;
+  for (const directory of [...(process.env.PATH ?? '').split(delimiter), '/usr/lib/postgresql/17/bin', '/usr/lib/postgresql/16/bin', '/usr/lib/postgresql/18/bin']) {
+    if (!isAbsolute(directory)) continue;
+    try {
+      bin = Object.fromEntries(names.map(name => {
+        const file = realpathSync(join(directory, name)); accessSync(file, constants.X_OK); return [name, file];
+      }));
+      break;
+    } catch { /* Only a complete installed toolchain is eligible. */ }
+  }
+  assert.ok(bin, 'NOT RUN: installed local PostgreSQL initdb/pg_ctl/psql toolchain unavailable');
   const root = mkdtempSync(join(tmpdir(),'closure-completion-'));
   const data = join(root,'data'), socket = join(root,'socket'); mkdirSync(socket);
   const env = {...Object.fromEntries(Object.entries(process.env).filter(([k])=>!k.startsWith('PG'))),
@@ -24,8 +38,8 @@ test('inactive account completion: native readiness, journal, and concurrent cla
   // #1843 item 4: the ~128 KB completion bootstrap exceeds Linux's per-argument limit as one -c argument (spawnSync
   // E2BIG), so this suite could never run there. Large text goes over stdin in one transaction, as the #1831 proof does.
   const sql = text => (text.length > 64_000
-    ? execFileSync('psql',[...args,'-1','-f','-'],{env,encoding:'utf8',timeout:60000,input:text,stdio:['pipe','pipe','pipe']})
-    : execFileSync('psql',[...args,'-c',text],{env,encoding:'utf8',timeout:10000,stdio:['ignore','pipe','pipe']})).trim();
+    ? execFileSync(bin.psql,[...args,'-1','-f','-'],{env,encoding:'utf8',timeout:60000,input:text,stdio:['pipe','pipe','pipe']})
+    : execFileSync(bin.psql,[...args,'-c',text],{env,encoding:'utf8',timeout:10000,stdio:['ignore','pipe','pipe']})).trim();
   const json = text => {const value=sql(text).split('\n').at(-1);return value ? JSON.parse(value) : null;};
   const clients=[], receipts=[]; let started=false, index=0;
   const claim = a => service(`SELECT claim_account_pending_completion_v1('${a.user}','${a.request}','${scope}')`);
@@ -51,7 +65,7 @@ test('inactive account completion: native readiness, journal, and concurrent cla
     assert.equal(sql(service(`SELECT acknowledge_account_completion_status_v1('${a.user}','${a.request}','${scope}','${h}')`)),'t');return a;};
   const own = a => {ready(a);const g=json(claim(a));assert.ok(g?.executionId,JSON.stringify(g));return {...a,execution:g.executionId};};
   function client(name,text,hold=false) {
-    const child=spawn('psql',args,{env:{...env,PGAPPNAME:name},stdio:['pipe','pipe','pipe']});
+    const child=spawn(bin.psql,args,{env:{...env,PGAPPNAME:name},stdio:['pipe','pipe','pipe']});
     const c={child,stdout:'',stderr:'',exited:false};clients.push(c);
     child.stdout.on('data',x=>{c.stdout+=x;}); child.stderr.on('data',x=>{c.stderr+=x;});
     c.done=new Promise((resolve,reject)=>{child.on('error',reject);child.on('close',code=>{c.exited=true;resolve({code,stdout:c.stdout,stderr:c.stderr});});});
@@ -62,8 +76,8 @@ test('inactive account completion: native readiness, journal, and concurrent cla
   const blocked = (w,h) => sql(`SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name='${w}'
     AND (SELECT pid FROM pg_stat_activity WHERE application_name='${h}')=ANY(pg_blocking_pids(pid)))`)==='t';
   try {
-    execFileSync('initdb',['-D',data,'-U',env.PGUSER,'-A','trust','--no-locale','--encoding=UTF8'],{encoding:'utf8'});
-    execFileSync('pg_ctl',['-D',data,'-l',join(root,'postgres.log'),'-w','start','-o',
+    execFileSync(bin.initdb,['-D',data,'-U',env.PGUSER,'-A','trust','--no-locale','--encoding=UTF8'],{encoding:'utf8'});
+    execFileSync(bin.pg_ctl,['-D',data,'-l',join(root,'postgres.log'),'-w','start','-o',
       `-F -k ${socket} -h '' -p 5432 -c max_connections=10 -c shared_buffers=16MB -c deadlock_timeout=100ms`],{encoding:'utf8'});
     started=true;assert.equal(sql("SELECT current_setting('data_directory')"),data);
     sql(completionBootstrap());
@@ -226,10 +240,10 @@ test('inactive account completion: native readiness, journal, and concurrent cla
     });
   } finally {
     for(const c of clients)if(!c.child.stdin.destroyed)c.child.stdin.end();
-    if(started)execFileSync('pg_ctl',['-D',data,'-w','stop','-m','immediate'],{encoding:'utf8'});
+    if(started)execFileSync(bin.pg_ctl,['-D',data,'-w','stop','-m','immediate'],{encoding:'utf8'});
     await Promise.allSettled(clients.map(c=>c.done));
     mkdirSync('artifacts/account-completion',{recursive:true});
-    const files=[candidate,'tests/db/account-completion-realpg.mjs',...recordingChain.map(x=>'backend/supabase/migrations/'+x)];
+    const files=[candidate,'tests/db/account-completion-realpg.test.mjs',...recordingChain.map(x=>'backend/supabase/migrations/'+x)];
     writeFileSync('artifacts/account-completion/receipts.json',JSON.stringify({createdAt:new Date().toISOString(),
       databaseStarted:started,qualification:'Inspect TAP exit and participant results; this artifact alone is not a PASS',
       boundary:'owned disposable PostgreSQL only; actual pending/recording/coaching/completion migrations; declared signup/storage/usage fixtures; no hosted/provider calls',
