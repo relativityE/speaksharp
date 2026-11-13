@@ -20,11 +20,11 @@ const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const root = process.cwd(), cache = join(root, '.ci-build-cache'), dist = join(root, 'frontend/dist');
 const RECEIPT_ARTIFACT = (attempt) => `smart-build-receipt-v1-attempt-${attempt}`;
 const OUTPUT_ARTIFACT = 'build-artifacts';
-// What the build may write, and therefore never an input: its output, its own caches, the host lock and /tmp.
+// What the build may write, and therefore never an input: its output, its own caches and the host lock.
 const outputRoots = ['frontend/dist', '.ci-build-cache', '.host-locks', 'node_modules/.vite', 'node_modules/.vite-temp',
-  'node_modules/.cache', 'frontend/node_modules/.vite', 'frontend/node_modules/.vite-temp'].map((p) => join(root, p))
-  // /tmp is scratch, unless the checkout itself lives there (only in this script's own tests).
-  .concat(root.startsWith('/tmp/') ? [] : ['/tmp']);
+  'node_modules/.cache', 'frontend/node_modules/.vite', 'frontend/node_modules/.vite-temp'].map((p) => join(root, p));
+// The build may also write temporary files, but may read one only if the trace proves it created it first.
+const scratchRoots = ['/tmp'];
 
 function inventory(dir, prefix = '') {
   const rows = [];
@@ -113,7 +113,7 @@ function tracedBuild(env) {
   if (result.error || result.status !== 0) process.exit(result.status || 1);
   const trace = parseTrace(readFileSync(tracePath, 'utf8'));
   rmSync(tracePath, { force: true });
-  const { manifest, problems } = buildManifest(trace, { root, outputRoots });
+  const { manifest, problems } = buildManifest(trace, { root, outputRoots, scratchRoots });
   if (!manifest) { console.log(`Build succeeded; no receipt, because the trace cannot be trusted:\n  ${problems.slice(0, 20).join('\n  ')}`); return null; }
   // A manifest that does not describe its own checkout would never be safe to match.
   const self = firstManifestDifference(manifest, { root, outputRoots });
@@ -134,8 +134,10 @@ try { env = buildEnvironment(process.env); } catch (error) {
   const plain = spawnSync('pnpm', ['ci:build'], { cwd: root, stdio: 'inherit' });
   process.exit(plain.status ?? 1);
 }
-// Build caches are not trusted inputs and cannot supply stale code.
-for (const path of ['node_modules/.vite', 'node_modules/.cache', 'frontend/node_modules/.vite']) rmSync(join(root, path), { recursive: true, force: true });
+// Build caches are not trusted inputs and cannot supply stale code. Reads under output roots are not recorded, so
+// every output root that can hold content from before this build starts empty (.host-locks only gates the build).
+for (const path of ['frontend/dist', 'node_modules/.vite', 'node_modules/.vite-temp', 'node_modules/.cache', 'frontend/node_modules/.vite',
+  'frontend/node_modules/.vite-temp']) rmSync(join(root, path), { recursive: true, force: true });
 // These guards run on every path, before any restored output is used.
 execFileSync(process.execPath, ['scripts/validate-env.mjs'], { cwd: root, env, stdio: 'inherit' });
 const { verifyProjectRuntimeBindings } = await import('./model-evaluator/runtime-bindings.mjs');

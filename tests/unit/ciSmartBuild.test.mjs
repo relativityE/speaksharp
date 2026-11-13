@@ -94,6 +94,23 @@ fs.writeFileSync('frontend/dist/app.js',app);`);
     assert.doesNotMatch(readFileSync(join(base, 'output'), 'utf8'), /receipt_name=/);
   } finally { git('rm', '-q', '--cached', 'frontend/src/unread.ts'); unlinkSync(join(root, 'frontend/src/unread.ts')); }
   assert(run().includes('Smart-build receipt'), 'the receipt returns once every required input is read');
+
+  // Negative control for Sam's #1837 finding: a /tmp file the build reads but did not create is not recorded in
+  // the receipt, so a consumer could never notice it changed. The producer must refuse to publish a receipt.
+  const pnpm = readFileSync(join(root, 'bin/pnpm'), 'utf8'), tempInput = join(base, 'generated-before-build.txt');
+  writeFileSync(tempInput, 'one');
+  const withBuild = (code) => put('bin/pnpm', pnpm.replace("console.log('REAL_BUILD');", `console.log('REAL_BUILD');${code}`));
+  try {
+    withBuild(`fs.readFileSync(${JSON.stringify(tempInput)});`);
+    rmSync(join(root, 'frontend/dist'), { recursive: true, force: true });
+    const stale = run();
+    assert(stale.includes('REAL_BUILD') && stale.includes(`build read a temporary path it did not create: ${tempInput}`) && !stale.includes('Smart-build receipt'), stale);
+    assert.doesNotMatch(readFileSync(join(base, 'output'), 'utf8'), /receipt_name=/);
+    // A temporary file the build itself writes and reads back is not an input, and the receipt is published.
+    withBuild(`const d=fs.mkdtempSync(require('path').join(require('os').tmpdir(),'fake-build-'));fs.writeFileSync(d+'/part','x');fs.readFileSync(d+'/part');fs.rmSync(d,{recursive:true});`);
+    const own = run();
+    assert(own.includes('REAL_BUILD') && own.includes('Smart-build receipt'), own);
+  } finally { put('bin/pnpm', pnpm); }
 });
 
 test('completeness floor lists tracked required inputs and refuses an unlistable tree', () => {
