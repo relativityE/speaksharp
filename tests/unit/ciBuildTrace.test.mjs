@@ -175,11 +175,14 @@ test('negative control: a /proc or /sys read outside the allowlist is refused; m
   const reads = (path) => buildManifest(parse([`10 openat(AT_FDCWD<${f.root}>, "${path}", O_RDONLY|O_CLOEXEC) = 3<${path}>`]), { root: f.root, outputRoots: f.outputRoots });
   for (const path of ['/proc/cpuinfo', '/proc/meminfo', '/proc/stat', '/proc/version', '/proc/version_signature', '/proc/self/maps', '/proc/self/cgroup', '/proc/thread-self/stat', '/proc/1234/maps', '/proc/1234/task/5/status',
     '/proc/self/task/12/status', '/proc/sys/vm/overcommit_memory', '/sys/fs/cgroup/memory.max', '/sys/fs/cgroup/memory/a/b/memory.limit_in_bytes',
-    '/sys/devices/system/cpu/online', '/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq', '/sys/devices/system/node/node1', '/sys/kernel/mm/transparent_hugepage/hpage_pmd_size']) {
+    '/sys/devices/system/cpu/online', '/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq', '/sys/devices/system/node/node1', '/sys/kernel/mm/transparent_hugepage/hpage_pmd_size',
+    // Ubuntu 26.04's env checks whether SELinux is on before it runs node.
+    '/proc/filesystems', '/sys/fs/selinux']) {
     assert.equal(reads(path).problems, undefined, path);
   }
   for (const path of ['/proc/1/exe', '/proc/1234/task/5/exe', '/proc/1/environ', '/proc/net/dev', '/proc/sys/kernel/random/boot_id', '/proc/self/environ', '/proc/1/cmdline', '/proc/self/mounts', '/proc/sysrq-trigger', '/proc/config.gz',
-    '/sys/class/net/eth0/address', '/sys/firmware/dmi/tables/DMI', '/sys/devices/virtual/dmi/id/product_uuid', '/sys/kernel/debug/x', '/sys/fsx', '/proc/cpuinfox']) {
+    '/sys/class/net/eth0/address', '/sys/firmware/dmi/tables/DMI', '/sys/devices/virtual/dmi/id/product_uuid', '/sys/kernel/debug/x', '/sys/fsx', '/proc/cpuinfox',
+    '/sys/fs/selinux/enforce', '/sys/fs/selinux/booleans/x', '/sys/fs/selinuxfs', '/proc/filesystems/x']) {
     assert.match(reads(path).problems?.join() ?? '', /unrecorded system path/, path);
   }
   // A listing of /proc is a list of the machine's processes, which is not a machine fact the allowlist names.

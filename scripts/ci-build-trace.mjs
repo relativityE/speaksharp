@@ -515,8 +515,10 @@ const DEVICE_WRITE = /^\/dev\/(null|zero|full|tty|stdout|stderr|pts\/\d+)$/;
 // the kernel's version and its huge-page and overcommit settings, and a process's own memory map, status and binary.
 // They shape scheduling, not what a build writes; the toolchain versions that do are in the environment digest.
 // A numbered process may be read the same way (Node reads its own pid's), but only /proc/self/exe follows to a binary.
-const PROC_READ = /^\/proc(\/((self|thread-self)(\/task\/\d+)?(\/(maps|cgroup|stat|statm|status|exe|mountinfo|limits))?|\d+(\/task\/\d+)?(\/(maps|cgroup|stat|statm|status|mountinfo|limits))?|meminfo|stat|cpuinfo|version|version_signature|loadavg|uptime|sys\/vm\/overcommit_memory))?$/;
-const SYS_READ = /^\/sys(\/(fs(\/cgroup(\/.*)?)?|devices(\/system(\/(cpu|node)(\/.*)?)?)?|kernel(\/mm(\/transparent_hugepage(\/.*)?)?)?))?$/;
+// Whether SELinux is on is read too, as the kernel's filesystem types and the selinuxfs mount point and nothing below
+// it: Ubuntu 26.04's `env` (uutils, built with SELinux support) checks it before it starts `#!/usr/bin/env node`.
+const PROC_READ = /^\/proc(\/((self|thread-self)(\/task\/\d+)?(\/(maps|cgroup|stat|statm|status|exe|mountinfo|limits))?|\d+(\/task\/\d+)?(\/(maps|cgroup|stat|statm|status|mountinfo|limits))?|meminfo|stat|cpuinfo|version|version_signature|loadavg|uptime|filesystems|sys\/vm\/overcommit_memory))?$/;
+const SYS_READ = /^\/sys(\/(fs(\/(cgroup(\/.*)?|selinux))?|devices(\/system(\/(cpu|node)(\/.*)?)?)?|kernel(\/mm(\/transparent_hugepage(\/.*)?)?)?))?$/;
 
 export function buildManifest(trace, { root, outputRoots, scratchRoots = [], freshRoots = [], unclearedOutputRoots = [], ignoredRoots = ['/proc', '/sys', '/dev'] }) {
   const problems = [...trace.problems];
