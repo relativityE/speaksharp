@@ -88,7 +88,7 @@ class Credentials(unittest.TestCase):
                         self.assertNotIn("value-not-printed", r.stdout + r.stderr)
 
     def run_stage_env(self, stage, env, route="claude", fixed_parent=False, selected_cases=None):
-        """Run the real run_stage() function and report which variable NAMES reach the stage (never values)."""
+        """Run the real run_stage function and report which variable NAMES reach the stage (never values)."""
         script = open(SH, encoding="utf-8").read()
         fn = re.search(r"run_stage\(\) \{.*?\n\}\n", script, re.S).group(0)
         with tempfile.TemporaryDirectory(prefix="ct-stage-env-") as d:
@@ -200,7 +200,7 @@ class Credentials(unittest.TestCase):
                 self.assertNotIn("not-printed-", result.stdout + result.stderr)
 
     def test_the_service_role_key_appears_only_where_it_is_forbidden_or_explained(self):
-        allowed = ("config/test-config.v1.json", "scripts/execute_run.sh", "scripts/pipeline.py", "tests/", "README.md", "WORKFLOW.md", "CHANGELOG.md", "CREDENTIALS.md", "harness/", "report/", "templates/", "NEXT-RUN-PROPOSAL.md", "samples/", "config/history/")
+        allowed = ("config/test-config.v1.json", "config/proof-test-titles.v1.json", "scripts/execute_run.sh", "scripts/pipeline.py", "tests/", "README.md", "WORKFLOW.md", "CHANGELOG.md", "CREDENTIALS.md", "harness/", "report/", "templates/", "NEXT-RUN-PROPOSAL.md", "samples/", "config/history/")
         offenders = []
         for r, _, fs in os.walk(ROOT):
             for fn in fs:
@@ -353,7 +353,7 @@ class Boundary(unittest.TestCase):
 
 NETWORK_IMPORT = re.compile(r"^\s*(import|from)\s+(socket|urllib|http|requests|ssl|ftplib|smtplib|aiohttp|httpx|websocket)\b", re.M)
 NETWORK_ALLOWED = {"install_browser.py", "_netguard.py"}
-# Sam 1793583857.461789 (narrow A): the ONE admitted Case 10 transport is exempt by its exact path under the package root, never by basename;
+# (narrow A): the ONE admitted Case 10 transport is exempt by its exact path under the package root, never by basename;
 # it runs only as its own `-I` subprocess, while every control-plane process keeps the guard.
 ADMITTED_TRANSPORT = os.path.join("scripts", "case10_reader.py")
 GUARD_EXEMPT = ("_netguard.py", "_common.py", "install_browser.py", "cfg_get.py", "stage_env.py", "stimulus_preflight_retry.py", "case_start_caps.py")

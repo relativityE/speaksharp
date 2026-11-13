@@ -371,6 +371,29 @@ test(SOURCE_ASSERTION,()=>{
   fs.writeFileSync(binding.sourceContract.witnessFile,JSON.stringify(witness));
 });
 
+// #1815: qualification is exact source wiring, never a successful deployed sign-in claim.
+test('sign-in release wiring rejects disconnected release, landing and artifact controls',()=>{
+  const file='tests/live/auth.live.spec.ts';
+  const source=fs.readFileSync(path.join(root,file),'utf8');
+  const proof=inspectSourceContract(root,file,source);
+  assert.equal(proof.liveExecution,'NOT RUN');
+  assert.equal(proof.detectedFaults,11);
+  for(const [from,to] of [
+    ["trace: 'off'","trace: 'on'"],
+    ['process.env.EXPECT_RELEASE_SHA','process.env.EXPECTED_RELEASE_SHA'],
+    ['requiresReleaseBinding(baseURL)','false'],
+    ['requiresReleaseBinding(baseURL)','requiresReleaseBinding(process.env.BASE_URL)'],
+    ['async ({ page, baseURL }) =>','async ({ page }) =>'],
+    ['servedReleaseVerdict(expectRelease, expectRelease)','{ ok: true }'],
+    ['isExpectedAuthLanding(url.pathname, DEFAULT_AUTH_LANDING)','true'],
+    ['.toBe(DEFAULT_AUTH_LANDING)','.not.toBe(DEFAULT_AUTH_LANDING)'],
+    ["getByTestId('nav-account-avatar')","getByTestId('unrelated')"],
+    ['.__APP_RELEASE__ ?? null','.__APP_RELEASE__ ?? expectRelease'],
+    ['servedReleaseVerdict(expectRelease, observedRelease)','servedReleaseVerdict(expectRelease, expectRelease)'],
+    ['if (bindRelease)','if (false)'],
+  ]) assert.throws(()=>inspectSourceContract(root,file,source.replace(from,to)),/Source wiring contract failed/,from);
+});
+
 test('#1811 browser drivers select source-only contracts, detect verdict and binding faults, and never claim live execution',()=>{
   const cases=[
     ['tests/live/rwt-abandon-and-two-tabs.live.spec.ts','oldOwnerFence.status',"'PASS'"],

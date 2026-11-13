@@ -12,6 +12,14 @@ describe('#1054 CI change classifier', () => {
             { label: 'merge-queue candidate (merge_group)', files: ['README.md'], ctx: { ...draft, eventName: 'merge_group' as const } },
             { label: 'explicit force_full', files: ['README.md'], ctx: { ...draft, forceFull: true } },
             { label: 'non-draft PR (merge candidate)', files: ['README.md'], ctx: { isDraft: false } },
+            // #1837 (Sam's review): a non-draft PR is a merge candidate. It never leaves the full lane, even when
+            // it changes only docs-lane Markdown and the reader guard confirms it.
+            { label: 'non-draft docs PR without guard confirmation', files: ['docs/x.md'], ctx: { isDraft: false } },
+            { label: 'non-draft docs PR, guard confirmation not exactly true', files: ['docs/x.md'], ctx: { isDraft: false, docsLaneConfirmed: 'true' as unknown as boolean } },
+            { label: 'non-draft docs PR even when confirmed', files: ['README.md', 'docs/guide/x.md'], ctx: { isDraft: false, docsLaneConfirmed: true } },
+            { label: 'merge-queue docs candidate even when confirmed', files: ['docs/x.md'], ctx: { isDraft: false, eventName: 'merge_group' as const, docsLaneConfirmed: true } },
+            { label: 'push of docs even when confirmed', files: ['docs/x.md'], ctx: { isDraft: false, eventName: 'push' as const, docsLaneConfirmed: true } },
+            { label: 'force_full docs PR even when confirmed', files: ['docs/x.md'], ctx: { isDraft: false, forceFull: true, docsLaneConfirmed: true } },
             { label: 'empty diff', files: [], ctx: draft },
             { label: 'unresolvable diff (null)', files: null as unknown as string[], ctx: draft },
         ])('$label', ({ files, ctx }) => {
@@ -95,6 +103,40 @@ describe('#1054 CI change classifier', () => {
         it('a directly changed unit test is narrow scope, not full', () => {
             const r = classifyChanges(['frontend/src/services/__tests__/SpeechRuntimeController.test.ts'], draft);
             expect(r.full_required).toBe(false);
+        });
+
+        it('a confirmed draft docs PR takes the docs lane, not the draft lane', () => {
+            const r = classifyChanges(['README.md', 'docs/guide/x.md'], { ...draft, docsLaneConfirmed: true });
+            expect(r).toMatchObject({ full_required: false, docs_lane: true, docs_lane_candidate: true, docs_only: true,
+                frontend_changed: false, edge_changed: false, e2e_required: false, reason: 'docs_lane' });
+        });
+
+        it.each([
+            ['without guard confirmation', undefined],
+            ['when confirmation is not exactly true', 'true' as unknown as boolean],
+        ])('an unconfirmed draft docs candidate stays on the affected draft lane (%s)', (_label, confirmed) => {
+            const r = classifyChanges(['README.md', 'docs/guide/x.md'], { ...draft, docsLaneConfirmed: confirmed });
+            expect(r).toMatchObject({ full_required: false, docs_lane: false, docs_lane_candidate: true, docs_only: true, reason: 'docs_only' });
+        });
+
+        it('the full-lane result of a non-draft docs PR never marks it a docs-lane candidate', () => {
+            const r = classifyChanges(['README.md', 'docs/guide/x.md'], { isDraft: false, docsLaneConfirmed: true });
+            expect(r).toMatchObject({ full_required: true, docs_lane: false, docs_lane_candidate: false, reason: 'non_draft_pr' });
+        });
+
+        it.each([
+            ['Markdown under the app', 'frontend/README.md'],
+            ['Markdown under the backend', 'backend/supabase/functions/README.md'],
+            ['Markdown under cloud-test tooling', 'tools/cloud-test/README.md'],
+            ['a canonical release document', 'product_release/ROADMAP.md'],
+            ['release evidence', 'product_release/evidence/x.md'],
+            ['Markdown on a control path', 'scripts/README.md'],
+            ['Markdown in workflow config', '.github/PULL_REQUEST_TEMPLATE.md'],
+            ['a non-Markdown doc', 'docs/notes.txt'],
+            ['a padded path', ' docs/x.md'],
+        ])('never offers the docs lane for %s', (_label, file) => {
+            const r = classifyChanges(['docs/ok.md', file], { ...draft, docsLaneConfirmed: true });
+            expect(r).toMatchObject({ docs_lane: false, docs_lane_candidate: false });
         });
 
         it('docs + code is NOT docs_only', () => {

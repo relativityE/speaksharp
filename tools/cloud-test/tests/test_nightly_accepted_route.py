@@ -1,4 +1,4 @@
-"""Sam 1793589877.215059: a scheduled (nightly) run on #1772's verified accepted-input route reaches its recurring and history gates. The
+"""a scheduled (nightly) run on #1772's verified accepted-input route reaches its recurring and history gates. The
 REAL aggregate receiver admits the pinned bundle; the REAL pipeline then hands check_gates the history index, the standing approval, the
 journal snapshot as reservations and the carried prior state, and runs the carried-history comparison and its report section. Offline."""
 import datetime
@@ -165,7 +165,7 @@ class NightlyAcceptedRoute(unittest.TestCase):
         r, _ = self.run_route(occurrence=(first + "-next", "v1-of-another-occurrence"))
         self.assertEqual(r.returncode, 78)
         self.assertIn("aggregate-request-binding", r.stderr)
-        # Jensen RETURN 1793647288.547869: the REAL receiver CLI authenticates the occurrence snapshot itself (G11's boundary). Production pins
+        # the CLI developer RETURN : the REAL receiver CLI authenticates the occurrence snapshot itself (G11's boundary). Production pins
         # no reviewed root, so this well-shaped synthetic snapshot is refused and NO accepted bytes or receipt are written. The positive, two
         # occurrences received through an actually authenticated state ref, is test_aggregate_receiver.OccurrenceEnvelopeOnARealStateRef.
         self.setUp()
@@ -175,7 +175,7 @@ class NightlyAcceptedRoute(unittest.TestCase):
         self.assertFalse(accepted.exists(), "no accepted directory or receiver receipt for an unauthenticated occurrence")
 
     def test_a_nightly_accepted_run_reaches_g7_and_g11_and_the_carried_history_consumers(self):
-        # Sam RETURN 1793624502.797169 #1: the valid authenticated-snapshot route with NO history index file reaches the real check_gates
+        # the reviewer RETURN #1: the valid authenticated-snapshot route with NO history index file reaches the real check_gates
         self.assertFalse(os.path.exists(os.path.join(ROOT, "config", "history", "index.json")))
         r, out = self.run_route()
         self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
@@ -297,7 +297,7 @@ class ExecutionRunIdOnTheRoute(unittest.TestCase):
 
 
 class ExecutionRunId(unittest.TestCase):
-    """Sam 1793593791.820389: one strict run-id selector for both routes; the offline override never stands in for GitHub's own id."""
+    """one strict run-id selector for both routes; the offline override never stands in for GitHub's own id."""
     def pick(self, **env):
         import pipeline
         return pipeline.execution_run_id(env)
@@ -316,7 +316,7 @@ class ExecutionRunId(unittest.TestCase):
 
 
 class AcceptedSummaryAndReport(unittest.TestCase):
-    """Option A (owner-approved; Sam 1793616419.679859 / 1793616663.425479): the REAL executive summary and report are built on the nightly
+    """Option A (owner-approved): the REAL executive summary and report are built on the nightly
     accepted route from a receipt-free gap ledger. Historical verdicts come only from the verified accepted comparison; raw evidence and
     signals stay UNOBSERVABLE or NOT RUN, latest stays PENDING, no gap closes, and the safety HOLD is unchanged."""
     setUp = NightlyAcceptedRoute.setUp
@@ -362,7 +362,7 @@ class AcceptedSummaryAndReport(unittest.TestCase):
         self.assertIn("UNOBSERVABLE", html)
         self.assertIn("Gap-closure ledger", html)
         self.assertIn("Nightly carried-forward history", html)
-        # Sam 1793618201.181979: the receipt-free provenance reaches the rendering; no caption claims sealed-receipt evidence
+        # the receipt-free provenance reaches the rendering; no caption claims sealed-receipt evidence
         self.assertEqual(json.loads((out / "report" / "report.json").read_text())["evidenceMode"]["mode"], "receipt-free")
         for claim in ("derived from sealed receipts", "sealed receipts: R4C", "evidence from the sealed receipts"):
             self.assertNotIn(claim, html)

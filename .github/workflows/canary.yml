@@ -141,7 +141,9 @@ jobs:
       # billing-qualification lane. It never charges a real card and is never implied by a daily green canary.
       matrix:
         lane: ${{ fromJSON(github.event.schedule == '0 6 * * 1' && '["active-trial","billing-qualification"]' || '["active-trial"]') }}
-    runs-on: ubuntu-latest
+    # Pinned with ci.yml, rc-gates and U3 (#1839, #1841): pinned Playwright 1.57 has no Chromium build for ubuntu-26.04, so
+    # Setup Environment failed before any lane ran (canary run 43428299133). Remove with the Playwright upgrade (#1840).
+    runs-on: ubuntu-24.04
     # #1826: the run-owned sweep reads finished-run state for this repository (actions: read); nothing else is granted.
     permissions:
       contents: read

@@ -15,6 +15,7 @@ const rows = readdirSync(directory).filter(name => name.endsWith('.sql')).map(na
 const profile = 'main-coaching-retirement-129';
 const retirement = '20261110173548';
 const billing = '20261027192550';
+const abandonment = '20261112133000';
 // #1829's refund follow-up table: outside the account-closure chain, withheld by every profile.
 const refund = '20261112130000';
 
@@ -31,9 +32,10 @@ test('successor delta covers every source-defined function and changed table exa
 test('installed retirement profile replays exact128 then retirement, withholding billing129', () => {
   assert.equal(parseMainProofArguments([`--profile=${profile}`]).profile, profile);
   const plan = buildMainU1ReplayPlan(rows, profile);
-  assert.equal(plan.repositoryMigrations, 131);
+  assert.equal(plan.repositoryMigrations, 132);
   assert.equal(plan.migrations, 129);
-  assert.deepEqual(plan.withheld.map(row => [row.version, row.status]), [[billing, 'NOT REPLAYED'], [refund, 'NOT REPLAYED']]);
+  assert.deepEqual(plan.withheld.map(row => [row.version, row.status]),
+    [[billing, 'NOT REPLAYED'], [refund, 'NOT REPLAYED'], [abandonment, 'NOT REPLAYED']]);
   assert.equal(plan.stages.at(-1).name, 'coaching-local-retirement');
   assert.equal(plan.stages.at(-2).name, 'content-free-retention');
   assert.deepEqual(plan.stages.at(-1).versions, [...plan.stages.at(-2).versions, retirement]);
@@ -44,13 +46,13 @@ test('installed retirement profile replays exact128 then retirement, withholding
 
 test('historical billing129 stays unchanged and retirement bytes remain separately withheld', () => {
   const historical = buildMainU1ReplayPlan(rows, 'main-completion-billing-129');
-  assert.deepEqual(historical.withheld.map(row => row.version), [retirement, refund]);
+  assert.deepEqual(historical.withheld.map(row => row.version), [retirement, refund, abandonment]);
   assert.equal(historical.stages.at(-1).name, 'completion-billing');
   assert.ok(historical.stages.every(stage => !stage.versions.includes(retirement)));
 });
 
 test('retirement profile refuses changed installed or withheld bytes and unknown successors', () => {
-  for (const version of [retirement, billing, refund, '20261025021046']) {
+  for (const version of [retirement, billing, refund, abandonment, '20261025021046']) {
     assert.throws(() => buildMainU1ReplayPlan(rows.map(row => row.version === version
       ? { ...row, sha256: '0'.repeat(64) } : row), profile), /digest changed/);
   }

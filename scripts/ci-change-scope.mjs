@@ -63,6 +63,33 @@ const E2E_PATTERNS = [
     /^tests\/e2e\//,
 ];
 
+/**
+ * #1837 — THE DOCS LANE: a NON-DRAFT pull request whose every changed file is prose.
+ *
+ * Narrower than DOCS_PATTERNS on purpose. Only Markdown qualifies, and only outside the app (`frontend/`), the backend
+ * and edge functions (`backend/`), the cloud-test tooling (`tools/`) and everything under `product_release/`, whose
+ * canonical documents are release authorities with their own review scope (scripts/review-qualification.mjs). Control
+ * paths (FULL_LANE_PATTERNS, e.g. `.github/**.md`, `scripts/**.md`) are rejected before this is consulted.
+ *
+ * The docs lane still runs the COMPLETE unit suite with coverage, the quality gate and the shard partition proof,
+ * because unit tests are where documentation is read. It skips every other job, and only after
+ * scripts/ci-docs-lane-guard.mjs has shown on the same checkout that none of those jobs reads a changed file
+ * (`docsLaneConfirmed`). Pushes to main, merge-queue candidates and unconfirmed candidates take the full lane.
+ */
+export const DOCS_LANE_EXCLUDED = [/^frontend\//, /^backend\//, /^tools\//, /^product_release\//];
+
+export function isDocsLaneFile(path) {
+    if (typeof path !== 'string' || path.trim() === '' || path !== path.trim()) return false;
+    if (!/\.md$/.test(path)) return false;
+    if (matches(path, FULL_LANE_PATTERNS) || matches(path, DOCS_LANE_EXCLUDED)) return false;
+    return true;
+}
+
+/** Every changed file qualifies for the docs lane (an empty or unreadable list never does). */
+export function isDocsLaneChange(changedFiles) {
+    return Array.isArray(changedFiles) && changedFiles.length > 0 && changedFiles.every(isDocsLaneFile);
+}
+
 /** Recognised-but-narrow paths that do not by themselves force the full lane. */
 const RECOGNISED_PATTERNS = [
     ...DOCS_PATTERNS,
@@ -76,13 +103,17 @@ const matches = (path, patterns) => patterns.some((re) => re.test(path));
 
 /**
  * @param {string[]} changedFiles repo-relative paths
- * @param {{isDraft?: boolean, eventName?: string, forceFull?: boolean}} ctx
+ * @param {{isDraft?: boolean, eventName?: string, forceFull?: boolean, docsLaneConfirmed?: boolean}} ctx
+ *   `docsLaneConfirmed` is true only when scripts/ci-docs-lane-guard.mjs has shown, on this checkout, that no job the
+ *   docs lane skips reads a changed file. Without it a docs-lane candidate takes the full lane.
  */
 export function classifyChanges(changedFiles, ctx = {}) {
-    const { isDraft = false, eventName = 'pull_request', forceFull = false } = ctx;
+    const { isDraft = false, eventName = 'pull_request', forceFull = false, docsLaneConfirmed = false } = ctx;
 
     const full = {
         full_required: true,
+        docs_lane: false,
+        docs_lane_candidate: false,
         docs_only: false,
         frontend_changed: true,
         edge_changed: true,
@@ -98,11 +129,31 @@ export function classifyChanges(changedFiles, ctx = {}) {
     // correct only by accident.
     if (eventName === 'merge_group') return { ...full, reason: 'merge_group' };
     if (forceFull) return { ...full, reason: 'force_full' };
+    // #1837 (Sam's review): every non-draft PR is a merge candidate and always takes the full lane, docs-only
+    // changes included. The docs lane is a draft-only lane, so it never meets merge-qualification or AGENTS.md's
+    // full-lane rule.
     if (!isDraft) return { ...full, reason: 'non_draft_pr' };
 
     // No resolvable diff => we cannot reason about scope => fail safe.
     if (!Array.isArray(changedFiles) || changedFiles.length === 0) {
         return { ...full, reason: 'no_diff_resolved' };
+    }
+
+    // #1837 docs lane (drafts only): a draft `pull_request` whose resolved diff is entirely docs-lane prose takes
+    // the docs lane once scripts/ci-docs-lane-guard.mjs has confirmed it on this checkout. An unconfirmed
+    // candidate stays on the affected draft lane below, exactly as before the docs lane existed.
+    const docsLaneCandidate = eventName === 'pull_request' && isDocsLaneChange(changedFiles);
+    if (docsLaneCandidate && docsLaneConfirmed === true) {
+        return {
+            full_required: false,
+            docs_lane: true,
+            docs_lane_candidate: true,
+            docs_only: true,
+            frontend_changed: false,
+            edge_changed: false,
+            e2e_required: false,
+            reason: 'docs_lane',
+        };
     }
 
     let docsOnly = true;
@@ -128,6 +179,8 @@ export function classifyChanges(changedFiles, ctx = {}) {
 
     return {
         full_required: false,
+        docs_lane: false,
+        docs_lane_candidate: docsLaneCandidate,
         docs_only: docsOnly,
         frontend_changed: frontendChanged,
         edge_changed: edgeChanged,
@@ -151,11 +204,18 @@ if (isMain) {
         isDraft: process.env.IS_DRAFT === 'true',
         eventName: process.env.EVENT_NAME || 'pull_request',
         forceFull: process.env.FORCE_FULL === 'true',
+        docsLaneConfirmed: process.env.DOCS_LANE_CONFIRMED === 'true',
     });
     console.log(`[ci-change-scope] ${JSON.stringify(result)}`);
+    // #1837: the docs lane's authority job re-runs this classifier on its own checkout and refuses to
+    // qualify unless the diff is still docs-lane prose, independently of the `scope` job's outputs.
+    if (process.env.REQUIRE_DOCS_LANE === 'true' && result.docs_lane !== true) {
+        console.log(`::error::not a docs-lane change (${result.reason}); refusing docs-lane qualification`);
+        process.exit(1);
+    }
     const out = process.env.GITHUB_OUTPUT;
     if (out) {
-        for (const key of ['full_required', 'docs_only', 'frontend_changed', 'edge_changed', 'e2e_required']) {
+        for (const key of ['full_required', 'docs_lane', 'docs_lane_candidate', 'docs_only', 'frontend_changed', 'edge_changed', 'e2e_required']) {
             appendFileSync(out, `${key}=${result[key]}\n`);
         }
     }

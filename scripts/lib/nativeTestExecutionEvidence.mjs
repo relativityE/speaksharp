@@ -23,6 +23,8 @@ export const SQL_CONTRACTS=Object.freeze([
   // #1829 refund follow-up signal: the migration runs in PGlite with Supabase's API roles mirrored.
   Object.freeze({consumer:'tests/unit/stripeRefundFollowups.test.ts',
     files:Object.freeze(['backend/supabase/migrations/20261112130000_stripe_refund_followups.sql'])}),
+  Object.freeze({consumer:'tests/db/recording-start-abandonment.integration.test.ts',
+    files:Object.freeze(['backend/supabase/migrations/20261112133000_recording_start_abandonment_1643.sql'])}),
 ]);
 export const sqlContract=file=>SQL_CONTRACTS.find(item=>item.files.includes(file));
 export const NATIVE_HELPERS=Object.freeze([
@@ -44,12 +46,19 @@ export const NATIVE_HELPERS=Object.freeze([
   // A change to the R10 preflight script alone must still run its test, including the spawned CLI entry (run 42059286564).
   {file:'tools/cloud-test/scripts/prerequisite_preflight.cjs',consumer:'tools/cloud-test/tests/prerequisite-preflight.test.cjs',
     callables:['prepare','charge'],claim:'actual preflight callables and script entry with a synthetic fetch; hosted step, credentials and Supabase NOT RUN'},
+  // The PO-approved loopback CONNECT egress service (2026-11-08): a change to the script alone must run its controls.
+  {file:'tools/cloud-test/scripts/egress_connect_proxy.cjs',consumer:'tools/cloud-test/tests/egress-connect-proxy.test.cjs',
+    callables:['createProxy','forbiddenAddress','reviewedPolicy'],
+    claim:'actual service callables, the real guard upstreamSocket and the script entry on loopback fixtures; hosted runner and production hosts NOT RUN'},
   // #1760 model comparison runner helpers: the real host-lock barrier, cleanup and launch-ownership code in temporary directories.
   {file:'tests/model-dropin/ownedCleanup.mjs',consumer:'tests/model-dropin/ownedCleanup.node.test.mjs',
     callables:['createCleanupBarrier','awaitOwnedCleanup','launchOwned'],
     claim:'actual cleanup barrier, owned-process cleanup and launch-ownership callables with real child processes; browser and live run NOT RUN'},
   {file:'tests/model-dropin/identityExclusion.mjs',consumer:'tests/model-dropin/identityExclusion.node.test.mjs',
     callables:['assertNotMaintainedIdentity'],claim:'actual maintained-identity refusal with synthetic identifiers; credentials and accounts NOT RUN'},
+  {file:'tools/cloud-test/scripts/resolve_rwt_served_release.mjs',consumer:'tools/cloud-test/tests/rwt_served_release.test.mjs',
+    callables:['resolveRwtServedRelease','verifyRwtServedRelease'],
+    claim:'actual runtime release identity and compatibility guards with mocked production responses and synthetic Git; deployment and live writes NOT RUN'},
 ]);
 const fail=message=>{throw new Error(message);};
 function regular(root,file) {
