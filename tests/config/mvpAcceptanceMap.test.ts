@@ -29,6 +29,17 @@ const retainedSources = [
   [9, 1775, 'd08055ca5165d1a1c40fe49f18366f5afad75490'],
   [10, 1774, '54c674ace88f2e22acd1c01a9a5ec2cf533193f2'],
 ] as const;
+// PR states re-read from GitHub on 13 November 2026; the pinned SHAs above stay historical.
+const currentStates: Record<number, string> = {
+  1760: 'merged', 1782: 'merged', 1770: 'merged',
+  1788: 'open unmerged', 1795: 'open unmerged', 1775: 'open unmerged',
+};
+// Gaps Sam asked the map to keep explicitly (12 November framework-review reconciliation).
+const retainedGaps = [
+  ['3', ['**Two-part coaching output contract:**', '`what_worked`', '`what_to_try_next`']],
+  ['4', ['**Analytics correctness:**']],
+  ['9', ['**Private audio stays on-device:**', 'network-observed']],
+] as const;
 
 function violations(document: string): string[] {
   const errors: string[] = [];
@@ -48,6 +59,11 @@ function violations(document: string): string[] {
       .map((m) => `${m[1]}:${m[2]}`);
     if (JSON.stringify(steps) !== JSON.stringify(['1:Define', '2:Close', '3:Prove', '4:Release/learn'])) {
       errors.push(`four-stages:${heading[1]}`);
+    }
+    for (const [bucket, markers] of retainedGaps) {
+      if (heading[1] === bucket && !markers.every((marker) => section.includes(marker))) {
+        errors.push(`retained-gap:${bucket}`);
+      }
     }
   }
   for (const obligation of ['**15 automated practice cases**', '**six human/device records**', '**151 requirements**']) {
@@ -74,8 +90,9 @@ function violations(document: string): string[] {
     if (rows.length !== 1 || !rows[0].startsWith(`| ${bucket} |`) || !rows[0].includes(sha)) {
       errors.push(`retained-source:${pr}`);
     }
-    if ((pr === 1760 || pr === 1788) && !rows[0]?.includes('open unmerged')) {
-      errors.push(`unmerged-source:${pr}`);
+    const state = currentStates[pr];
+    if (state && !rows[0]?.includes(`/pull/${pr}), ${state}`)) {
+      errors.push(`${state === 'merged' ? 'merged' : 'unmerged'}-source:${pr}`);
     }
   }
   return errors;
@@ -110,6 +127,11 @@ describe('bounded MVP acceptance-map contract', () => {
     { name: 'unmeasured release promoted to acceptance', before: '**HOLD.** The release outcome', after: '**PASS.** The release outcome', code: 'release-hold' },
     { name: 'retained source moved to wrong bucket', before: '| 2 | [#1760]', after: '| 3 | [#1760]', code: 'retained-source:1760' },
     { name: 'unmerged source presented as delivered', before: 'pull/1788), open unmerged |', after: 'pull/1788), delivered |', code: 'unmerged-source:1788' },
+    { name: 'merged source presented as still open', before: 'pull/1760), merged 10 November 2026 |', after: 'pull/1760), open unmerged |', code: 'merged-source:1760' },
+    { name: 'open source presented as merged', before: 'pull/1795), open unmerged |', after: 'pull/1795), merged |', code: 'unmerged-source:1795' },
+    { name: 'two-part coaching contract dropped', before: '**Two-part coaching output contract:**', after: '**Coaching output:**', code: 'retained-gap:3' },
+    { name: 'analytics correctness dropped', before: '**Analytics correctness:**', after: '**Analytics note:**', code: 'retained-gap:4' },
+    { name: 'on-device audio proof dropped', before: '**Private audio stays on-device:**', after: '**Private audio design:**', code: 'retained-gap:9' },
     { name: 'received observer evidence dropped', before: '| Observer integrity |', after: '| Unselected telemetry |', code: 'telemetry-family:Observer integrity' },
     { name: 'false-green register lost', before: '| False-green, mock-fidelity and obsolete-test register |', after: '| Test count summary |', code: 'efficacy-deliverable:False-green, mock-fidelity and obsolete-test register' },
   ];

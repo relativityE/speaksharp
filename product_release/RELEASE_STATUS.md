@@ -3,7 +3,7 @@
 **Status:** Authoritative for the bounded 9 November 2026 MVP acceptance map and source snapshot below; earlier dated component snapshots remain history. Release acceptance HOLD.
 **Owner:** Product Owner (relativityE)
 **Last Reviewed:** 2026-10-28 — specialist source review and current-main receiving; exact-head qualification remains a separate gate.
-**Last Verified:** 2026-11-12 — source through main `b9907d62` (#1830); Production `__APP_RELEASE__` read directly as `d401349b` on 2026-11-12; no end-to-end acceptance is claimed (the 5 November reconciliation below remains dated history). The acceptance map below records the 2026-11-10 consolidation state, inspected with its retained source. #1760 and #1788 remain open unmerged. #1798/#1799/#1800 are closed duplicates of #1760/#1782/#1795; #1797 retains distinct recovery work pending disposition. #1774 is closed with its branch deleted because its source landed through #1772; operational acceptance remains OPEN. The prior main observation was `524c325a95874d31239203dce9ef7893331ca756`. This is source reconciliation, not a fresh Production read, hosted recovery success or end-to-end acceptance.
+**Last Verified:** 2026-11-12 — source through main `b9907d62` (#1830); Production `__APP_RELEASE__` read directly as `d401349b` on 2026-11-12; no end-to-end acceptance is claimed (the 5 November reconciliation below remains dated history). The acceptance map below records the 2026-11-10 consolidation state with a 2026-11-13 PR-status correction read from GitHub: #1760, #1782 and #1770 are merged; #1788, #1795 and #1775 remain open unmerged; #1797, #1798, #1799, #1800 and #1774 are closed unmerged. Operational acceptance remains OPEN. The map's prior main observation was `524c325a95874d31239203dce9ef7893331ca756`. This is source reconciliation, not a fresh Production read, hosted recovery success or end-to-end acceptance.
 **Applies To:** Current production deployment + RWT/Alpha and MVP/Beta release tracks.
 **Class:** Runtime fact.
 **Authority:** The only source for changing release/deployment status, baselines, run IDs, blockers, and go/no-go.
@@ -144,9 +144,47 @@ design decisions (journeys), same-set comparison (same-target), and same-head re
 cancellation (release operation). Preserve their trigger conditions and explicit deferrals.
 Historical owners, old coaching-output shapes and model competitions are not revived.
 
+### Current-status correction, 13 November 2026
+
+PR states below were re-read from GitHub on 13 November 2026. They replace the
+current-tense PR states recorded on 10 November; the dated 9 and 10 November
+snapshots, source identities and preservation audits remain unchanged history.
+
+| PR | Bucket | State on 13 November 2026 | Source identity |
+|---|---|---|---|
+| [#1760](https://github.com/relativityE/speaksharp/pull/1760) | 2 | Merged 10 November 2026 | Merge `d1d59e47f51884f35d727a934dcc672dc5c87bf0`; final head `b504cf85fb22f9128382ed5c1782a8f5431231d3` |
+| [#1782](https://github.com/relativityE/speaksharp/pull/1782) | 6 | Merged 11 November 2026 | Merge `fe76a80101edc9dc3eacb5a6f9da00c72c899b08`; final head `7dc63f0f09884246f04cacb04cfb13ba05ac3d22` |
+| [#1770](https://github.com/relativityE/speaksharp/pull/1770) | 9 | Merged 12 November 2026 | Merge `3702953274ba1e2fbd229bf480f77d5a9ed2c09c`; final head `397908c28e4909948c17c373a5614b98cc0a32f5` |
+| [#1788](https://github.com/relativityE/speaksharp/pull/1788) | 5 | Open, unmerged | Head `bf7c1bcd5246154c41e0874b8928a1663232d653`, unchanged since 10 November |
+| [#1795](https://github.com/relativityE/speaksharp/pull/1795) | 7 | Open, unmerged, no longer draft | Head `e62243cbada300d12a9fa4ade3585ad70d9a85c4` |
+| [#1775](https://github.com/relativityE/speaksharp/pull/1775) | 9 | Open, unmerged | Head `2db369c71de7820fa0650e272e24d17affe0c200` |
+| [#1797](https://github.com/relativityE/speaksharp/pull/1797) | 5 | Closed 10 November 2026, unmerged, retired with provenance | Final head `d9de83ff48e625e3ab6841c21003cf46daed885d` |
+
+A merge is source delivery only. Merged #1760, #1782 and #1770 do not establish
+served-speech, device, account or customer acceptance; their buckets keep stages 3
+and 4 open. Neither this map nor merged plumbing proves customer improvement,
+COACH-01, VALUE-01 or supported-device acceptance. Duplicate #1798 stays closed and
+is not revived because it closed unmerged; #1760 is the merged foundation and
+preserved-speech acceptance still needs evidence.
+
+#1797's [closure record](https://github.com/relativityE/speaksharp/pull/1797#issuecomment-6768546164) retires its recovery-only
+workflow and settle-unexecuted/record-retirement machinery because they target the
+retired journal-based cloud-test live route. That closure is not merge, acceptance or
+completion: the 15-journey obligations and required missing checks remain in bucket 5
+with the approved implementation work.
+
+Owners named in the 10 November roster and bucket hand-offs below are historical.
+Retired roles are not active owners, and this map assigns no writer; current
+assignments come from Sam's coordination queue.
+
+The [12 November framework-review reconciliation](https://github.com/relativityE/speaksharp/pull/1796#issuecomment-6834863973)
+adds three explicit acceptance gaps, recorded in their buckets below: analytics
+correctness (bucket 4), network-observed on-device Private audio (bucket 9) and the
+two-part coaching output contract (bucket 3).
+
 ### Coordinated transition into ten outcome PRs
 
-**Current developer roster:** Bezos and Elon only. Bezos owns STT reliability
+**Developer roster as recorded 10 November 2026 (historical; see the 13 November correction):** Bezos and Elon only. Bezos owns STT reliability
 (outcome 2, surviving #1760; implementation paused); Elon owns practice-journey testing
 (outcome 5, surviving #1788). This map assigns no additional writer.
 Same-target comparison (outcome 4) remains queued until one is free
@@ -155,12 +193,13 @@ additional developer assignment is inferred from older dated records below.
 
 All seven legacy PRs are mapped below, not additional or unassigned workstreams.
 #1760 and #1788 were administratively closed and subsequently reopened at the
-Product Owner's direction. Both remain unmerged. Their actual published source is
-preserved in their original PRs; #1798 is closed as superseded, while #1797 remains
-open with distinct recovery machinery pending an explicit preserve-or-retire decision.
+Product Owner's direction. On 10 November both were unmerged; #1760 has since merged
+and #1788 remains open (13 November correction). Their actual published source is
+preserved in their original PRs; #1798 is closed as superseded, and #1797 was closed
+on 10 November as retired with provenance rather than kept open.
 The Product Owner has
-authorized merging the original PRs only after applicable qualification; no merge
-has been performed through this transition. Other legacy PRs remain open until
+authorized merging the original PRs only after applicable qualification; the
+10 November transition itself performed no merge. Other legacy PRs remain open until
 their complete source, deliverables, findings and owner handoff are verified.
 #1799 and #1800 are closed as duplicates of #1782 and #1795, with their duplicate
 branches deleted. #1774 is closed as already integrated through #1772; its obsolete
@@ -180,14 +219,14 @@ start overlapping implementations. Existing merged PRs remain immutable provenan
 | New bucket PR | Prior work to receive | Current transition |
 |---|---|---|
 | 1. MVP acceptance map | #1539 and this existing release record | [#1796](https://github.com/relativityE/speaksharp/pull/1796), substantive map and document controls. |
-| 2. Selected speech path | Reopened #1760; retain #1789/#1790/#1794 as explicitly deferred or remaining obligations | [#1760](https://github.com/relativityE/speaksharp/pull/1760) survives; duplicate #1798 is closed. Bezos retains ownership; implementation remains paused. |
+| 2. Selected speech path | Reopened #1760; retain #1789/#1790/#1794 as explicitly deferred or remaining obligations | [#1760](https://github.com/relativityE/speaksharp/pull/1760) merged 10 November 2026; duplicate #1798 is closed. Served-speech and real speech-quality acceptance remain open. |
 | 3. Useful current coaching | Merged #1773/#1792 evidence, no active PR to restore | Freeze scope and real-session rubric; no speculative provider change. |
 | 4. Same-target outcome | Merged #1548 provenance; preserved local product preparation | Queued until Bezos or Elon is free and ownership is confirmed; no releasable implementation claimed. |
-| 5. Automated practice journeys | Reopened #1788 and its exact all-15 closure contract | [#1788](https://github.com/relativityE/speaksharp/pull/1788) survives; #1797 remains open for explicit disposition of distinct recovery machinery and findings. Elon owns current work; no competing implementation. |
-| 6. Supported-device journey | #1782 and retained #1539 human/device obligations | [#1782](https://github.com/relativityE/speaksharp/pull/1782) survives; duplicate #1799 is closed and its branch deleted. Actual device proof remains open. |
-| 7. Testable billing | #1795 | [#1795](https://github.com/relativityE/speaksharp/pull/1795) survives; duplicate #1800 is closed and its branch deleted. Genuine billing acceptance remains open. |
+| 5. Automated practice journeys | Reopened #1788 and its exact all-15 closure contract | [#1788](https://github.com/relativityE/speaksharp/pull/1788) survives, open unmerged; #1797 closed 10 November 2026 as retired with provenance. No competing implementation. |
+| 6. Supported-device journey | #1782 and retained #1539 human/device obligations | [#1782](https://github.com/relativityE/speaksharp/pull/1782) merged 11 November 2026; duplicate #1799 is closed and its branch deleted. Actual device proof remains open. |
+| 7. Testable billing | #1795 | [#1795](https://github.com/relativityE/speaksharp/pull/1795) survives, open unmerged; duplicate #1800 is closed and its branch deleted. Genuine billing acceptance remains open. |
 | 8. Connect paid access to the same value loop | #1795's PAID-01 extension; dependencies from buckets 4 and 7 and identity controls from bucket 9 | Same paid identity through coaching → linked repeat → comparison → return; no separate implementation underway. |
-| 9. Account/privacy/credentials | #1770 and #1775; retained #1539 controls and PAID-04 identity/credential controls | Both retained PRs map here; reconcile their shared workflow before one successor writer. |
+| 9. Account/privacy/credentials | #1770 and #1775; retained #1539 controls and PAID-04 identity/credential controls | #1770 merged 12 November 2026; #1775 remains open unmerged. Reconcile the remaining shared workflow before one successor writer. |
 | 10. One operated release | #1774 source integrated through merged #1772; canonical release evidence | #1774 is closed as superseded and its branch deleted. No unique unlanded source or new implementation receiver is required. Operational acceptance remains OPEN in this map. |
 
 No placeholder implementation or unearned completion is implied by a planned bucket.
@@ -196,7 +235,8 @@ carried obligations and remaining approvals. Source delivery cannot claim stages
 
 ### Existing PR inventory to preserve
 
-Consolidation state was verified on 10 November 2026. The 9 November source snapshots
+Consolidation state was verified on 10 November 2026; the PR-state wording in this
+table was corrected on 13 November 2026. The 9 and 10 November source snapshots
 below remain immutable provenance, not current-head assertions. Every retained PR has
 one primary bucket; dependencies
 may cross buckets without creating another workstream. These are source identities,
@@ -204,19 +244,20 @@ not release identities. Re-read heads before any review, integration or operatio
 
 | Bucket | Retained PR | Observed head | Remaining acceptance boundary / source owner |
 |---|---|---|---|
-| 2 | [#1760](https://github.com/relativityE/speaksharp/pull/1760), open unmerged | Historical `f99627fc85f2a9f44abe979605402970ea0fec03`; 10 November head `b504cf85fb22f9128382ed5c1782a8f5431231d3` | Surviving source; duplicate #1798 closed. Final source/release qualification and real incumbent speech quality remain separate; implementation paused. |
-| 5 | [#1788](https://github.com/relativityE/speaksharp/pull/1788), open unmerged | Historical branch `2eb036766adf1a9fb3e3b618926a3494b84390c2`; earlier closed snapshot `655d229bf7b3d7dfe450a190775ee48c626cf325`; 10 November head `bf7c1bcd5246154c41e0874b8928a1663232d653` | Surviving source; #1797 at d9de83ff retains distinct recovery machinery pending explicit disposition. Preserve newer #1788 corrections, unresolved findings and all-15 contract; no whole-branch overwrite. |
-| 6 | [#1782](https://github.com/relativityE/speaksharp/pull/1782) | `62b7a0d044df736cd86c81a50271e8fd565fc646` | Saved-review viewport coverage and three semantic controls; real device/human acceptance remains separate. Existing viewport-test owner. |
-| 7 | [#1795](https://github.com/relativityE/speaksharp/pull/1795) | `5dc87301962252bf599963a86ebb0de6e2336462` | Draft sandbox lifecycle source; isolated entry, cleanup, genuine delivery and final qualification remain open. Sam coordinates billing implementation. |
-| 9 | [#1770](https://github.com/relativityE/speaksharp/pull/1770) | `47b5974f58ff28018b3f4f3737eea43397fdbeda` | Read-only account verifier; shared workflow reconciliation and current qualification. Existing account-verifier owner. |
-| 9 | [#1775](https://github.com/relativityE/speaksharp/pull/1775) | `d08055ca5165d1a1c40fe49f18366f5afad75490` | Trusted-main credential-job source; provisioning, consumer proof and fallback removal remain separately gated. Existing credential-boundary owner. |
+| 2 | [#1760](https://github.com/relativityE/speaksharp/pull/1760), merged 10 November 2026 | Historical `f99627fc85f2a9f44abe979605402970ea0fec03`; final head `b504cf85fb22f9128382ed5c1782a8f5431231d3`; merge `d1d59e47f51884f35d727a934dcc672dc5c87bf0` | Merged foundation; duplicate #1798 closed and not revived. Served-speech qualification, preserved-speech acceptance and real incumbent speech quality remain open. |
+| 5 | [#1788](https://github.com/relativityE/speaksharp/pull/1788), open unmerged | Historical branch `2eb036766adf1a9fb3e3b618926a3494b84390c2`; earlier closed snapshot `655d229bf7b3d7dfe450a190775ee48c626cf325`; 10 November head `bf7c1bcd5246154c41e0874b8928a1663232d653` | Surviving source. #1797 (final head d9de83ff) closed 10 November as retired with provenance; its recovery-only machinery targeted the retired journal-based route. Preserve newer #1788 corrections, unresolved findings and all-15 contract; no whole-branch overwrite. |
+| 6 | [#1782](https://github.com/relativityE/speaksharp/pull/1782), merged 11 November 2026 | 9 November `62b7a0d044df736cd86c81a50271e8fd565fc646`; final head `7dc63f0f09884246f04cacb04cfb13ba05ac3d22`; merge `fe76a80101edc9dc3eacb5a6f9da00c72c899b08` | Merged saved-review viewport coverage and semantic controls; real device/human acceptance remains separate. |
+| 7 | [#1795](https://github.com/relativityE/speaksharp/pull/1795), open unmerged | 9 November `5dc87301962252bf599963a86ebb0de6e2336462`; 13 November head `e62243cbada300d12a9fa4ade3585ad70d9a85c4` | Sandbox lifecycle source, no longer draft; isolated entry, cleanup, genuine delivery and final qualification remain open. Sam coordinates billing implementation. |
+| 9 | [#1770](https://github.com/relativityE/speaksharp/pull/1770), merged 12 November 2026 | 9 November `47b5974f58ff28018b3f4f3737eea43397fdbeda`; final head `397908c28e4909948c17c373a5614b98cc0a32f5`; merge `3702953274ba1e2fbd229bf480f77d5a9ed2c09c` | Merged read-only account verifier; remaining shared-workflow reconciliation and runtime account evidence stay open. |
+| 9 | [#1775](https://github.com/relativityE/speaksharp/pull/1775), open unmerged | 9 November `d08055ca5165d1a1c40fe49f18366f5afad75490`; 13 November head `2db369c71de7820fa0650e272e24d17affe0c200` | Trusted-main credential-job source; provisioning, consumer proof and fallback removal remain separately gated. |
 | 10 | [#1774](https://github.com/relativityE/speaksharp/pull/1774), closed superseded, unmerged | `54c674ace88f2e22acd1c01a9a5ec2cf533193f2` | Source integrated through #1772; obsolete branch deleted. No unique unlanded source remains. Operational acceptance stays OPEN; no active schedule is established. |
 
 Merged [#1548](https://github.com/relativityE/speaksharp/pull/1548),
 [#1773](https://github.com/relativityE/speaksharp/pull/1773) and
 [#1792](https://github.com/relativityE/speaksharp/pull/1792) are immutable delivery
 provenance, not extra active PRs. Their unproven outcomes map to buckets 4, 3 and 3
-respectively. No merged branch is restored, unique source discarded, or historical
+respectively. The same holds for #1760, #1782 and #1770, which merged after
+10 November and keep buckets 2, 6 and 9 open. No merged branch is restored, unique source discarded, or historical
 result rewritten by this documentation increment. The observed administrative
 closures above are not evidence of implementation or acceptance. New implementation
 must stay within the ten outcome PRs.
@@ -226,16 +267,17 @@ the f99627fc commit with #1760. To reopen the original without closing its recei
 #1798 temporarily targeted `integration/stt-reliability-receiving-base-20261109`,
 created at main `524c325a95874d31239203dce9ef7893331ca756`. This is a temporary
 stack, not a source rebase or qualification bypass. That historical transition is
-superseded by closure of duplicate #1798; continue on surviving #1760. Do not merge
-into the temporary base.
+superseded by closure of duplicate #1798; #1760 itself merged on 10 November 2026.
+Do not merge into the temporary base or revive #1798.
 
 For practice-journey testing, the full-tree audit of receiving carry commit
 `fb751383e4998515361bfd1a1840ed5838f7af0e` against legacy `2eb03676` found
 3,180 of 3,183 existing file blobs byte-identical and no deleted files. Three updates
 and four additions reconcile already-landed #1792 coaching work. The next received
 correction at `e3f0b94c` changes exactly five recovery/workflow/test/inventory files.
-Later #1797 heads, including observed `4d791aa0`, require their own qualification;
-the preservation audit is not a review of those later edits or unpublished work.
+Later #1797 heads, including observed `4d791aa0`, were never qualified; #1797 closed
+unmerged on 10 November. The preservation audit is not a review of those later edits
+or unpublished work.
 
 ### 1. One MVP acceptance map
 
@@ -256,8 +298,9 @@ the preservation audit is not a review of those later edits or unpublished work.
 **Owner/handoff:** Bezos selected; receiving checkpoint → independent review → Sam → authorized operator.
 **State:** serving correction was published at `359f7efd` per the
 [dated receipt](https://github.com/relativityE/speaksharp/pull/1760#issuecomment-6746204253);
-the newer observed head is recorded above and requires its own qualification.
-Production serving behavior and representative real-speech quality are not established.
+#1760 merged on 10 November 2026 at `d1d59e47` (13 November correction above).
+Production serving behavior, preserved-speech acceptance and representative real-speech
+quality are not established.
 
 **Outstanding source and review carryover:** retain all #1760 commits and its
 all historical review threads, including the supported-window correction at
@@ -287,8 +330,14 @@ deferred, with their source retained; they cannot silently expand the fixed-stac
 **Owner/handoff:** coaching engineering and quality → human observation owner (to select)
 → Sam. **State:** #1773/#1792 merged groundwork; real saved-session usefulness NOT PROVEN.
 
+**Two-part coaching output contract:** every coaching result keeps the current
+`gemini_coaching_v1` two-part shape, `what_worked` and `what_to_try_next`, and each
+part is judged separately for grounding and usefulness. A response that passes the
+schema with one empty, generic or unsupported part does not meet this bucket.
+
 1. **Define:** predeclare groundedness, specificity, actionability, latency and failure
-   criteria for Open Mic/full and partial Focus using the current Gemini path.
+   criteria for Open Mic/full and partial Focus using the current Gemini path, for
+   both parts of the coaching output.
 2. **Close:** evaluate authorized real saved sessions and fix only demonstrated gaps;
    use a bounded successor within this bucket if code is actually needed.
 3. **Prove:** bind saved source, generated/persisted/rendered advice and human judgment
@@ -304,6 +353,11 @@ deferred, with their source retained; they cannot silently expand the fixed-stac
 → independent code, security and product review → authorized release operator.
 **State:** local preparation preserved and paused; no active implementation assignment.
 #1548's generic stored-metric clarification does not close this gap.
+
+**Analytics correctness:** clarity, words per minute, filler and pause values must be
+shown correct against an independent reference on the same saved transcript and
+audio, as an obligation of its own. A correct before/after comparison of wrong values
+does not satisfy it. Transcript accuracy itself stays with bucket 2.
 
 1. **Define:** explicitly accepted advice must preserve its source, version, product
    and target through deliberate repeat, saved review and return. A target the product
@@ -337,7 +391,8 @@ preserves outstanding disposition and environment-policy work, and the
 [fresh Security receipt](https://github.com/relativityE/speaksharp/pull/1788#issuecomment-6746695318)
 reports no issues on that head. Code findings, final qualification and the mismatch
 between the old candidate-branch closure wording and the restored protected-source
-route still need coordinated disposition. No live outcome is established.
+route still need coordinated disposition. No live outcome is established. #1797 closed
+unmerged on 10 November as retired; its obligations stay here.
 
 **Outstanding source and review carryover:** retain every #1788 commit, both unresolved
 review threads and the full 15-case contract. The
@@ -381,7 +436,7 @@ bucket 5 with bucket 4 supplying the product contract, not an additional test-ga
 ### 6. Observe the complete supported-device journey
 
 **Owner/handoff:** existing #1782 owner → named human/device observation owner (to select)
-→ Sam. **State:** automated desktop viewport source exists; actual phone/user acceptance open.
+→ Sam. **State:** #1782 merged 11 November 2026; automated desktop viewport source exists; actual phone/user acceptance open.
 
 1. **Define:** supported device/browser matrix, participant tasks and human observations
    for record → transcript → coaching → repeat → comparison → return.
@@ -396,7 +451,7 @@ bucket 5 with bucket 4 supplying the product contract, not an additional test-ga
 ### 7. Make billing genuinely testable
 
 **Owner/handoff:** #1795 billing implementation → security/billing review → separately
-authorized sandbox operator → Sam. **State:** draft source; sandbox journeys NOT RUN.
+authorized sandbox operator → Sam. **State:** open unmerged source, no longer draft; no genuine sandbox journey result is recorded here.
 
 1. **Define:** reviewed isolated test-mode app/database/provider target, legitimate
    entry path, allowed effects, provider-event identity and safe settlement/cleanup.
@@ -434,7 +489,12 @@ PAID-01 remains open; bucket 9 supplies the required PAID-04 identity/credential
 ### 9. Close account, privacy and credential gaps
 
 **Owner/handoff:** #1770/#1775 existing owners → security review → Sam → separately
-authorized operations owner. **State:** source increments open; broader controls unproven.
+authorized operations owner. **State:** #1770 merged 12 November 2026; #1775 open unmerged; broader controls unproven.
+
+**Private audio stays on-device:** network-observed proof that Private raw audio does
+not leave the device across Start, Stop, retry and failure, captured at the browser's
+network boundary. The architectural assertion that Private mode is on-device is not
+that proof. Bucket 2 supplies the selected Private engine; this bucket owns the proof.
 
 1. **Define:** applicable account isolation, disclosure/consent, deletion, recovery,
    credential and stress-workflow account-recreation controls for the selected release.
