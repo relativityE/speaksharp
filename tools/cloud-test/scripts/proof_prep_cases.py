@@ -128,7 +128,9 @@ def build(out, packet, phases=("phase1",), stimulus_receipt=None, browser_identi
     with open(factp, "w", encoding="utf-8") as f:
         json.dump(facts, f)
     r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "run_env.py"), "--request", reqp,
-                        "--request-sha256", request_sha256, "--reconciliation", rcp, "--out", envf],
+                        "--request-sha256", request_sha256, "--reconciliation", rcp,
+                        # A placeholder proof plan, never a live run: its deadline is its own synthetic occurrence end.
+                        "--execution-deadline", request["window"]["endUtc"], "--out", envf],
                        capture_output=True, text=True, cwd=ROOT, env=base)
     if r.returncode:
         detail = (r.stderr or r.stdout or "no diagnostic output").strip().replace("\n", " | ")

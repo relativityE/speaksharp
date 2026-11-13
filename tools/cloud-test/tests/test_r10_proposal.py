@@ -1,4 +1,4 @@
-"""The R10 manual all-15 request PROPOSAL (Sam 1793556832.735079) stays a proposal: the reviewed template's shape, all 15 journeys with the
+"""The R10 manual all-15 request PROPOSAL stays a proposal: the reviewed template's shape, all 15 journeys with the
 ledger's gaps and the current derived accounting figures, but no approval, release or harness pin. Prepare refuses it, and its location is not the
 admitted one."""
 import json

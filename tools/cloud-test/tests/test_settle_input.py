@@ -1,4 +1,4 @@
-"""The closed settle input (Sam 1793580806.654369): the public hand-off between the read-only live job and journal-settle carries only ids,
+"""The closed settle input : the public hand-off between the read-only live job and journal-settle carries only ids,
 digests and counts, and settles exactly what the full run record would."""
 import hashlib
 import json

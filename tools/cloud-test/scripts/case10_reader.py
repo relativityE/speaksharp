@@ -1,14 +1,14 @@
-"""Case 10 current-state reader (Sam 1793575145.256299, J2). INACTIVE: no approved project origin and no pinned schedule exist today.
+"""Case 10 current-state reader (J2). INACTIVE: no approved project origin and no pinned schedule exist today.
 
 The only account state the Case 10 bound depends on is the owner's starting session count: every owner-session scan reads that count plus the
 sessions the case's own schedule saves before the scan. Lease, queue, obligation and plan counts are client- and schedule-determined (a fresh
 browser context starts with an empty local reconcile queue), so they come from the pinned schedule, never from the account.
 
 One read, in this exact order, through a closed endpoint allowlist on the one approved project origin:
-  1. POST /auth/v1/token?grant_type=password   login as the bound disposable account (the identity read; it CREATES an auth session)
-  2. GET  /auth/v1/user                        the authenticated UID must equal the bound account id
-  3. HEAD /rest/v1/sessions?select=id&user_id=eq.<uid>  with Prefer: count=exact; only the Content-Range total is read, never a row
-  4. POST /auth/v1/logout?scope=local          revokes ONLY that session (Sam 1793580999.418089: an unscoped logout is global and would end the
+  1. POST /auth/v1/token?grant_type=password login as the bound disposable account (the identity read; it CREATES an auth session)
+  2. GET /auth/v1/user the authenticated UID must equal the bound account id
+  3. HEAD /rest/v1/sessions?select=id&user_id=eq.<uid> with Prefer: count=exact; only the Content-Range total is read, never a row
+  4. POST /auth/v1/logout?scope=local revokes ONLY that session (an unscoped logout is global and would end the
                                                account's other sessions); attempted whenever step 1 issued a session-bound token, failure included
 At most 4 requests (a ceiling; a failed path stops early) and 1 identity read. No retry, no token refresh, no pagination. A token without a
 session binding (no session_id claim, or a subject other than the bound account) refuses at once and is never used, not even to log out. The caller reserves the read budget on the state-ref journal
@@ -197,7 +197,7 @@ def urllib_transport(method, url, headers, body):
         return e.code, dict(e.headers or {}), b""
 
 
-# The subprocess interface (Sam 1793582780.014609): the observe process keeps the blanket _netguard; the ONE admitted network path is this
+# The subprocess interface : the observe process keeps the blanket _netguard; the ONE admitted network path is this
 # module run as `python3 -I case10_reader.py read`, which never imports _netguard and enforces the closed allowlist and caps itself. Its whole
 # environment is these names, set by case10_observation from the private bundle and the step's Secrets; nothing is printed but the numeric
 # projection.
