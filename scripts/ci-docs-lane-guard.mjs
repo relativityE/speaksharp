@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 /**
- * #1837 — PROVE THAT NOTHING THE DOCS LANE SKIPS READS THE MARKDOWN THIS PULL REQUEST CHANGED. FAIL CLOSED.
+ * #1837 — CHECK THAT NOTHING THE DOCS LANE SKIPS NAMES THE MARKDOWN THIS PULL REQUEST CHANGED. FAIL CLOSED.
+ *
+ * This is a static check of the code the skipped jobs run, not a proof from a run-time trace: it finds every way the
+ * files and commands name a changed file, and refuses anything it cannot read, but a read assembled at run time from
+ * pieces it does not recognise is outside what it can see. The Markdown review list below covers the known patterns.
  *
  * The docs lane (scripts/ci-change-scope.mjs `docs_lane`, draft PRs only) runs the complete unit suite with coverage, the
  * quality gate and the shard partition proof, and skips every other job in .github/workflows/ci.yml. That skip

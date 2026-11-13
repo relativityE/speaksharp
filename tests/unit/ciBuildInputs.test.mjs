@@ -1,14 +1,52 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BUILD_TMPDIR,buildEnvironment,environmentDigest,releaseWrappers,safeOutputPath } from '../../scripts/ci-build-inputs.mjs';
+import process from 'node:process';
+import { BUILD_TMPDIR,buildEnvironment,buildToolchain,environmentDigest as digestWith,releaseWrappers,safeOutputPath,secretsCompiledIn,verifyBuildRelease } from '../../scripts/ci-build-inputs.mjs';
 const env={CI:'true',PATH:'/bin',VITE_X:'one',GITHUB_SHA:'a'.repeat(40)};
+const tools={node:'v22.12.0',pnpm:'10.29.1',platform:'linux',arch:'x64'};
+const environmentDigest=(e)=>digestWith(e,tools);
 test('release commit is not part of the environment digest',()=>assert.equal(environmentDigest(env),environmentDigest({...env,GITHUB_SHA:'b'.repeat(40)})));
 test('any other build variable changes the environment digest',()=>{for(const change of [{VITE_X:'two'},{VITE_NEW:'x'},{PATH:'/usr/bin'},{CI:undefined}])assert.notEqual(environmentDigest(env),environmentDigest(Object.fromEntries(Object.entries({...env,...change}).filter(([,v])=>v!==undefined))));});
 test('variable order does not change the environment digest',()=>assert.equal(environmentDigest(env),environmentDigest(Object.fromEntries(Object.entries(env).reverse()))));
-test('build environment strips tokens and volatile metadata',()=>assert.deepEqual(buildEnvironment({PATH:'/bin',CI:'true',VITE_X:'yes',GITHUB_TOKEN:'secret',GITHUB_RUN_ID:'42'}),{PATH:'/bin',CI:'true',VITE_X:'yes',TMPDIR:BUILD_TMPDIR,NODE_DISABLE_COMPILE_CACHE:'1'}));
+test('build environment strips tokens and volatile metadata',()=>assert.deepEqual(buildEnvironment({PATH:'/bin',CI:'true',VITE_X:'yes',GITHUB_TOKEN:'secret',GITHUB_RUN_ID:'42'}),{PATH:'/bin',CI:'true',VITE_X:'yes',TMPDIR:BUILD_TMPDIR,NODE_DISABLE_COMPILE_CACHE:'1',UV_USE_IO_URING:'0'}));
 test('the build never reads Node\'s compile cache from /tmp, whatever the runner sets',()=>assert.equal(buildEnvironment({PATH:'/bin',NODE_DISABLE_COMPILE_CACHE:'0'}).NODE_DISABLE_COMPILE_CACHE,'1'));
 test('the build\'s TMPDIR is always its own fresh directory, whatever the runner sets',()=>assert.equal(buildEnvironment({PATH:'/bin',TMPDIR:'/tmp'}).TMPDIR,BUILD_TMPDIR));
 test('side-effecting source-map upload never reuses',()=>assert.throws(()=>buildEnvironment({SENTRY_AUTH_TOKEN:'secret'})));
 test('both HTML entry points receive current release',()=>{const old='a'.repeat(40),next='b'.repeat(40),html=`window.__APP_RELEASE__="${old}";`;const out=releaseWrappers({'index.html':html,'private-dropin.html':html},old,next);assert(Object.values(out).every(x=>x.includes(next)&&!x.includes(old)));});
 test('missing second wrapper refuses',()=>assert.throws(()=>releaseWrappers({'index.html':''},'a'.repeat(40),'b'.repeat(40))));
 for(const path of ['../evil','/abs','a/../../evil','a\\evil','./evil','a//b'])test(`unsafe archive output ${path}`,()=>assert.throws(()=>safeOutputPath(path)));
+// #1837 (Sam): the toolchain is part of the digest, and a secret's value is not.
+test('a different Node, pnpm, platform or architecture changes the environment digest',()=>{for(const change of [{node:'v22.13.0'},{pnpm:'10.30.0'},{platform:'darwin'},{arch:'arm64'}])assert.notEqual(digestWith(env,tools),digestWith(env,{...tools,...change}));});
+test('no digest without a readable toolchain',()=>{for(const bad of [undefined,{...tools,node:''},{...tools,pnpm:'10'},{...tools,node:'22.12.0'}])assert.throws(()=>digestWith(env,bad),/BUILD_REUSE_TOOLCHAIN/);});
+test('the toolchain is read from the build\'s own PATH',()=>{const seen=[];const t=buildToolchain({PATH:'/x'},(tool,args,o)=>{seen.push([tool,args,o.env.PATH]);return tool==='node'?'v22.12.0\n':'10.29.1\n';});assert.deepEqual([t.node,t.pnpm],['v22.12.0','10.29.1']);assert.deepEqual(seen.map(([a,b,c])=>[a,b.join(),c]),[['node','--version','/x'],['pnpm','--version','/x']]);});
+test('the anon key\'s value is never in the digest, only whether it is set',()=>{const a={...env,VITE_SUPABASE_ANON_KEY:'key-one'};assert.equal(environmentDigest(a),environmentDigest({...env,VITE_SUPABASE_ANON_KEY:'key-two'}));assert.notEqual(environmentDigest(a),environmentDigest(env));});
+test('a build is reusable only when this checkout\'s secret is compiled into its JavaScript',()=>{const e={VITE_SUPABASE_ANON_KEY:'key-one'};assert(secretsCompiledIn(e,['x','const k="key-one";']));assert(!secretsCompiledIn(e,['const k="key-two";']));assert(!secretsCompiledIn(e,['key-one-and-more']));assert(!secretsCompiledIn(e,[]));assert(secretsCompiledIn({},[]));});
+test('full-evidence accepts only a build released as this commit',()=>{const sha='a'.repeat(40),page=(s)=>`<script>window.__APP_RELEASE__="${s}";</script>`;verifyBuildRelease({'index.html':page(sha),'private-dropin.html':page(sha)},sha);
+  for(const files of [{'index.html':page('b'.repeat(40)),'private-dropin.html':page(sha)},{'index.html':page(sha)},{'index.html':page(sha)+page(sha),'private-dropin.html':page(sha)},{'index.html':page('dev'),'private-dropin.html':page('dev')}])assert.throws(()=>verifyBuildRelease(files,sha));
+  assert.throws(()=>verifyBuildRelease({'index.html':page(''),'private-dropin.html':page('')},''));});
+test('full-evidence checks the release of the build it tests before any evidence is generated, and the check fails closed', async () => {
+  const { readFileSync, mkdtempSync, writeFileSync, rmSync } = await import('node:fs');
+  const { spawnSync } = await import('node:child_process');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { default: yaml } = await import('js-yaml');
+  const steps = yaml.load(readFileSync('.github/workflows/ci.yml', 'utf8')).jobs['full-evidence'].steps;
+  const at = (name) => steps.findIndex((s) => s.name === name), check = steps[at('Verify Build Release Is This Commit')];
+  assert.match(check.run, /test -d artifacts\/build-artifacts\n.*node scripts\/ci-verify-build-release\.mjs artifacts\/build-artifacts/s);
+  assert(check.if === undefined && check['continue-on-error'] === undefined);
+  assert(at('Organize Canonical Artifacts') < at('Verify Build Release Is This Commit') && at('Verify Build Release Is This Commit') < at('Begin fresh quality evidence attempt'));
+  const dist = mkdtempSync(join(tmpdir(), 'release-check-')), sha = 'a'.repeat(40);
+  try {
+    const page = (s) => `<script>window.__APP_RELEASE__="${s}";</script>`;
+    const verify = (env) => spawnSync(process.execPath, ['scripts/ci-verify-build-release.mjs', dist], { env: { PATH: process.env.PATH, ...env }, encoding: 'utf8' }).status;
+    writeFileSync(join(dist, 'index.html'), page(sha)); writeFileSync(join(dist, 'private-dropin.html'), page(sha));
+    assert.equal(verify({ GITHUB_SHA: sha }), 0);
+    assert.notEqual(verify({ GITHUB_SHA: 'b'.repeat(40) }), 0);
+    assert.notEqual(verify({}), 0);
+    writeFileSync(join(dist, 'private-dropin.html'), page('b'.repeat(40)));
+    assert.notEqual(verify({ GITHUB_SHA: sha }), 0);
+    rmSync(join(dist, 'private-dropin.html'));
+    assert.notEqual(verify({ GITHUB_SHA: sha }), 0);
+  } finally { rmSync(dist, { recursive: true, force: true }); }
+});
+test('libuv never does file operations through io_uring, which strace would not see, whatever the runner sets',()=>assert.equal(buildEnvironment({PATH:'/bin',UV_USE_IO_URING:'1'}).UV_USE_IO_URING,'0'));

@@ -27,15 +27,15 @@ export async function downloadTrustedArtifact(_options, { name }) {
 }`);
   put('scripts/model-evaluator/runtime-bindings.mjs', `export async function verifyProjectRuntimeBindings(){console.log('runtime-guard');}`);
   put('scripts/validate-env.mjs', `console.log('env-guard');`);
-  put('frontend/src/app.js', 'export const app = 1;'); put('frontend/src/util.js', 'unread'); put('tests/unit/x.test.js', 'test');
+  put('frontend/src/app.js', 'export const app = 1;'); put('frontend/src/util.md', 'unread'); put('tests/unit/x.test.js', 'test');
   // #1837: pin the fake pnpm to CommonJS; the nearest package.json may be ESM.
   put('bin/package.json', '{"type":"commonjs"}\n');
   put('bin/pnpm', `#!/usr/bin/env node
 const fs=require('fs');if(process.argv.includes('--version')){console.log('10.29.1');process.exit(0);}
 console.log('REAL_BUILD');fs.readdirSync('frontend/src');fs.existsSync('.env.local');
 const app=fs.readFileSync('frontend/src/app.js','utf8');fs.rmSync('frontend/dist',{recursive:true,force:true});fs.mkdirSync('frontend/dist',{recursive:true});
-for(const name of ['index.html','private-dropin.html'])fs.writeFileSync('frontend/dist/'+name,'window.__APP_RELEASE__="'+process.env.GITHUB_SHA+'";'+(process.env.VITE_X||''));
-fs.writeFileSync('frontend/dist/app.js',app);`);
+for(const name of ['index.html',...(process.env.VITE_OMIT_DROPIN?[]:['private-dropin.html'])])fs.writeFileSync('frontend/dist/'+name,'window.__APP_RELEASE__="'+process.env.GITHUB_SHA+'";'+(process.env.VITE_X||''));
+const key=process.env.VITE_SUPABASE_ANON_KEY;fs.writeFileSync('frontend/dist/app.js',app+(key&&!process.env.VITE_HIDE_KEY?';const key='+JSON.stringify(key)+';':''));`);
   chmodSync(join(root, 'bin/pnpm'), 0o755);
   const env = { PATH: `${join(root, 'bin')}:${process.env.PATH}`, HOME: process.env.HOME, CI: 'true', GITHUB_ACTIONS: 'true', GITHUB_SHA: 'a'.repeat(40), GITHUB_RUN_ID: '12',
     GITHUB_RUN_ATTEMPT: '1', GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/main', GITHUB_REPOSITORY: 'a/b', GITHUB_REPOSITORY_ID: '7', GITHUB_OUTPUT: join(base, 'output'), GITHUB_TOKEN: '',
@@ -44,8 +44,8 @@ fs.writeFileSync('frontend/dist/app.js',app);`);
   const run = (overrides = {}) => { writeFileSync(join(base, 'output'), ''); const r = spawnSync(process.execPath, ['scripts/ci-smart-build.mjs'], { cwd: root, env: { ...env, ...overrides }, encoding: 'utf8' }); assert.equal(r.status, 0, r.stderr + '\n' + r.stdout); return r.stdout; };
   const next = 'b'.repeat(40), consumer = { GITHUB_TOKEN: 'fake', GITHUB_EVENT_NAME: 'pull_request', GITHUB_REF: 'refs/pull/1/merge', GITHUB_SHA: next, GITHUB_RUN_ID: '13' };
 
-  // A real work tree, so the producer's completeness floor (tracked TypeScript under frontend/src, the entry
-  // page and both package manifests) is computed with git, as on a runner.
+  // A real work tree, so the producer's completeness floor (tracked sources under frontend/src, public files, the
+  // entry page, the build configs and both package manifests) is computed with git, as on a runner.
   const git = (...args) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } });
   git('init', '-q'); git('add', '-A'); git('commit', '-qm', 'fixture');
   const produced = run();
@@ -54,7 +54,7 @@ fs.writeFileSync('frontend/dist/app.js',app);`);
   const receipt = JSON.parse(readFileSync(join(root, '.ci-build-cache/receipt.json'), 'utf8'));
   const names = new Set(receipt.manifest.map(([n]) => n));
   for (const n of ['@root/frontend/src/app.js', '@root/frontend/src', '@root/.env.local', '@root/bin/pnpm']) assert(names.has(n), n);
-  assert(!names.has('@root/frontend/src/util.js') && !names.has('@root/tests/unit/x.test.js'));
+  assert(!names.has('@root/frontend/src/util.md') && !names.has('@root/tests/unit/x.test.js'));
   writeFileSync(join(base, 'origin.json'), JSON.stringify({ repository: 'a/b', sourceSha: 'a'.repeat(40), runId: 12, attempt: 1 }));
   mkdirSync(join(base, 'receipt')); cpSync(join(root, '.ci-build-cache/receipt.json'), join(base, 'receipt/receipt.json'));
   zip(join(base, 'receipt'), join(base, 'receipt.zip')); zip(join(root, 'frontend/dist'), join(base, 'output.zip'));
@@ -65,7 +65,7 @@ fs.writeFileSync('frontend/dist/app.js',app);`);
   for (const f of ['index.html', 'private-dropin.html']) assert(readFileSync(join(root, 'frontend/dist', f), 'utf8').includes(next));
   assert.equal(readFileSync(join(root, 'frontend/dist/app.js'), 'utf8'), 'export const app = 1;');
   assert.match(readFileSync(join(base, 'output'), 'utf8'), /reused=true/);
-  put('tests/unit/x.test.js', 'changed test'); put('frontend/src/util.js', 'changed but never read');
+  put('tests/unit/x.test.js', 'changed test'); put('frontend/src/util.md', 'changed but never read');
   assert(reuse().includes('Reused the verified build'), 'files the build never read do not force a rebuild');
 
   const rebuilds = (label, change, undo, overrides = {}) => {
@@ -120,6 +120,33 @@ fs.writeFileSync('frontend/dist/app.js',app);`);
     assert(fresh.includes('REAL_BUILD') && fresh.includes('Smart-build receipt'), fresh);
     assert.throws(() => readFileSync(join(BUILD_TMPDIR, 'left-over')), /ENOENT/, 'the build\'s TMPDIR is removed after the build');
   } finally { put('bin/pnpm', pnpm); }
+
+  // Sam, #1837: a release wrapper the producer cannot rebind leaves this commit's own fresh build in place, with no
+  // receipt, instead of failing the job.
+  rmSync(join(root, 'frontend/dist'), { recursive: true, force: true });
+  const unwrapped = run({ VITE_OMIT_DROPIN: '1' });
+  assert(unwrapped.includes('REAL_BUILD') && unwrapped.includes('no receipt, because ENOENT') && !unwrapped.includes('Smart-build receipt'), unwrapped);
+  assert.doesNotMatch(readFileSync(join(base, 'output'), 'utf8'), /receipt_name=/);
+  assert.equal(readFileSync(join(root, 'frontend/dist/app.js'), 'utf8'), 'export const app = 1;');
+
+  // The anon key is not in the digest, so reuse needs the consumer's own key compiled into the reused build.
+  const key = { VITE_SUPABASE_ANON_KEY: 'anon-key-one' };
+  rmSync(join(root, 'frontend/dist'), { recursive: true, force: true });
+  const hidden = run({ ...key, VITE_HIDE_KEY: '1' });
+  assert(hidden.includes('no receipt, because a secret build variable is not visible in the output') && !hidden.includes('Smart-build receipt'), hidden);
+  rmSync(join(root, 'frontend/dist'), { recursive: true, force: true });
+  assert(run(key).includes('Smart-build receipt'));
+  rmSync(join(base, 'receipt'), { recursive: true, force: true }); mkdirSync(join(base, 'receipt'));
+  cpSync(join(root, '.ci-build-cache/receipt.json'), join(base, 'receipt/receipt.json'));
+  rmSync(join(base, 'receipt.zip')); zip(join(base, 'receipt'), join(base, 'receipt.zip'));
+  rmSync(join(base, 'output.zip')); zip(join(root, 'frontend/dist'), join(base, 'output.zip'));
+  rebuilds('a different secret value', () => {}, () => {}, { VITE_SUPABASE_ANON_KEY: 'anon-key-two' });
+  rmSync(join(root, 'frontend/dist'), { recursive: true, force: true });
+  const sameKey = run({ ...consumer, ...key });
+  assert(sameKey.includes('Reused the verified build') && !sameKey.includes('REAL_BUILD'), sameKey);
+  rmSync(join(root, 'frontend/dist'), { recursive: true, force: true });
+  const otherKey = run({ ...consumer, VITE_SUPABASE_ANON_KEY: 'anon-key-two' });
+  assert(otherKey.includes('built with a different secret build variable'), otherKey);
 });
 
 test('completeness floor lists tracked required inputs and refuses an unlistable tree', () => {
@@ -128,13 +155,18 @@ test('completeness floor lists tracked required inputs and refuses an unlistable
     try {
       const git = (...args) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' });
       git('init', '-q');
-      for (const p of ['frontend/index.html', 'frontend/package.json', 'package.json', 'frontend/src/a.ts', 'frontend/src/deep/b.tsx', 'frontend/src/c.js', 'frontend/src/d.md', 'tests/e.ts', 'docs/x.md']) {
+      for (const p of ['frontend/index.html', 'frontend/package.json', 'package.json', 'frontend/src/a.ts', 'frontend/src/deep/b.tsx', 'frontend/src/c.js', 'frontend/src/d.md', 'tests/e.ts', 'docs/x.md',
+        'frontend/src/s.css', 'frontend/src/p.json', 'frontend/src/w.mjs', 'frontend/src/__tests__/n.node.test.mjs', 'frontend/src/x/__tests__/o.test.js', 'frontend/src/__tests__/t.test.ts',
+        'frontend/public/models/m.onnx', 'frontend/vite.config.mjs', 'frontend/tsconfig.json', 'frontend/tsconfig.node.json', 'frontend/postcss.config.cjs', 'frontend/tailwind.config.js', 'frontend/components.json', 'pnpm-lock.yaml']) {
         mkdirSync(dirname(join(repo, p)), { recursive: true }); writeFileSync(join(repo, p), 'x');
       }
       writeFileSync(join(repo, 'frontend/src/untracked.ts'), 'x');
       git('add', '-A', ':!frontend/src/untracked.ts');
       const required = requiredBuildInputs(repo).sort();
-      assert.deepEqual(required, ['frontend/index.html', 'frontend/package.json', 'frontend/src/a.ts', 'frontend/src/deep/b.tsx', 'package.json']);
+      // #1837 (Sam): css, json and bundled js count, as do public files and the build configs; Node-only js tests do not.
+      assert.deepEqual(required, ['frontend/index.html', 'frontend/package.json', 'frontend/postcss.config.cjs', 'frontend/public/models/m.onnx',
+        'frontend/src/__tests__/t.test.ts', 'frontend/src/a.ts', 'frontend/src/c.js', 'frontend/src/deep/b.tsx', 'frontend/src/p.json', 'frontend/src/s.css', 'frontend/src/w.mjs',
+        'frontend/tailwind.config.js', 'frontend/tsconfig.json', 'frontend/tsconfig.node.json', 'frontend/vite.config.mjs', 'package.json']);
       const manifest = required.map((p) => [`@root/${p}`, 'file', 'h']);
       assert.deepEqual(missingRequiredInputs(manifest, required), []);
       assert.deepEqual(missingRequiredInputs(manifest.slice(1), required), [required[0]]);

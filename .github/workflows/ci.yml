@@ -90,7 +90,7 @@ jobs:
           install-native-deps: 'false'
           install-playwright: 'false'
 
-      - name: Prove No Skipped Job Reads The Changed Files
+      - name: Check No Skipped Job Names The Changed Files (Static)
         id: docs_guard
         if: steps.candidate.outputs.docs_lane_candidate == 'true'
         shell: bash
@@ -956,6 +956,13 @@ jobs:
           retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
           if-no-files-found: warn
 
+      # #1837: whether the build job built fresh or reused a verified main build, the build under test is this commit's.
+      - name: Verify Build Release Is This Commit
+        run: |
+          set -euo pipefail
+          test -d artifacts/build-artifacts
+          node scripts/ci-verify-build-release.mjs artifacts/build-artifacts
+
       - name: Assert Required Evidence Is Present
         shell: bash
         run: |
@@ -1053,7 +1060,7 @@ jobs:
   # the aggregate has already reported success.
   report:
     name: report
-    needs: [scope, draft-checks, unit-coverage-merge, docs-evidence, edge-tests, build, health-check, e2e, full-evidence]
+    needs: [scope, draft-checks, quality, unit-coverage-merge, docs-evidence, edge-tests, build, health-check, e2e, full-evidence]
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     steps:
@@ -1064,6 +1071,7 @@ jobs:
           DOCS_RESULT: ${{ needs.docs-evidence.result }}
           SCOPE_RESULT: ${{ needs.scope.result }}
           DRAFT_RESULT: ${{ needs.draft-checks.result }}
+          QUALITY_RESULT: ${{ needs.quality.result }}
           UNIT_RESULT: ${{ needs.unit-coverage-merge.result }}
           EDGE_RESULT: ${{ needs.edge-tests.result }}
           BUILD_RESULT: ${{ needs.build.result }}
@@ -1077,16 +1085,16 @@ jobs:
             exit 1
           fi
           if [[ "$FULL_REQUIRED" == "true" ]]; then
-            echo "Full merge-candidate lane: unit=$UNIT_RESULT edge=$EDGE_RESULT build=$BUILD_RESULT health=$HEALTH_RESULT e2e=$E2E_RESULT evidence=$EVIDENCE_RESULT"
-            for r in "$UNIT_RESULT" "$EDGE_RESULT" "$BUILD_RESULT" "$HEALTH_RESULT" "$E2E_RESULT" "$EVIDENCE_RESULT"; do
+            echo "Full merge-candidate lane: quality=$QUALITY_RESULT unit=$UNIT_RESULT edge=$EDGE_RESULT build=$BUILD_RESULT health=$HEALTH_RESULT e2e=$E2E_RESULT evidence=$EVIDENCE_RESULT"
+            for r in "$QUALITY_RESULT" "$UNIT_RESULT" "$EDGE_RESULT" "$BUILD_RESULT" "$HEALTH_RESULT" "$E2E_RESULT" "$EVIDENCE_RESULT"; do
               [[ "$r" == "success" ]] || { echo "::error::full lane failed"; exit 1; }
             done
             echo "Full merge-candidate lane passed."
           elif [[ "$DOCS_LANE" == "true" ]]; then
             # #1837: complete unit suite + coverage + quality + partition proof (unit-coverage-merge), and the
             # docs lane's own re-derivation, reader guard and receipt (docs-evidence). Both must pass.
-            echo "Docs lane: unit=$UNIT_RESULT docs-evidence=$DOCS_RESULT"
-            for r in "$UNIT_RESULT" "$DOCS_RESULT"; do
+            echo "Docs lane: quality=$QUALITY_RESULT unit=$UNIT_RESULT docs-evidence=$DOCS_RESULT"
+            for r in "$QUALITY_RESULT" "$UNIT_RESULT" "$DOCS_RESULT"; do
               [[ "$r" == "success" ]] || { echo "::error::docs lane failed"; exit 1; }
             done
             echo "Docs lane passed."
@@ -1148,7 +1156,7 @@ jobs:
   # CI cycle per case.
   merge-qualification:
     name: merge-qualification
-    needs: [scope, build, edge-tests, unit-shard, unit-coverage-merge, e2e, health-check, full-evidence, review-qualification]
+    needs: [scope, build, quality, edge-tests, unit-shard, unit-coverage-merge, e2e, health-check, full-evidence, review-qualification]
     # always(), NOT always() && !cancelled(): a cancelled upstream job must be REPORTED as unqualified
     # rather than skipping the gate that would have caught it.
     if: always()

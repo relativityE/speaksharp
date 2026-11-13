@@ -12,9 +12,10 @@ import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { appendFileSync, cpSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { BUILD_TMPDIR, buildEnvironment, environmentDigest, missingRequiredInputs, releaseWrappers, requiredBuildInputs, safeOutputPath } from './ci-build-inputs.mjs';
+import { BUILD_TMPDIR, buildEnvironment, buildToolchain, environmentDigest, missingRequiredInputs, releaseWrappers, requiredBuildInputs, safeOutputPath,
+  secretsCompiledIn } from './ci-build-inputs.mjs';
 import { downloadTrustedArtifact, trustedMainRuns } from './ci-build-artifact-client.mjs';
-import { buildManifest, firstManifestDifference, manifestDigest, parseTrace } from './ci-build-trace.mjs';
+import { TRACE_FILTER, buildManifest, firstManifestDifference, manifestDigest, parseTrace } from './ci-build-trace.mjs';
 
 const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const root = process.cwd(), cache = join(root, '.ci-build-cache'), dist = join(root, 'frontend/dist');
@@ -46,6 +47,7 @@ function inventory(dir, prefix = '') {
   }
   return rows;
 }
+const scripts = (dir, files) => files.filter(([name]) => /\.m?js$/.test(name)).map(([name]) => readFileSync(join(dir, name), 'utf8'));
 const wrappers = (dir, oldSha, newSha) => releaseWrappers(Object.fromEntries(['index.html', 'private-dropin.html'].map((p) => [p, readFileSync(join(dir, p), 'utf8')])), oldSha, newSha);
 
 // Reject traversal, links, duplicates, special files and oversized archives before writing anything.
@@ -97,6 +99,8 @@ async function reuse({ env, envDigest }) {
     writeFileSync(join(cache, 'output.zip'), output.archive);
     extract(join(cache, 'output.zip'), join(cache, 'dist'), '.+');
     if (JSON.stringify(inventory(join(cache, 'dist'))) !== JSON.stringify(receipt.files)) throw Error('BUILD_REUSE_OUTPUT_BINDING');
+    // Secrets are not in the digest, so the build must show it was made with this checkout's value.
+    if (!secretsCompiledIn(env, scripts(join(cache, 'dist'), receipt.files))) { console.log(`Main run ${run.id}: built with a different secret build variable.`); continue; }
     const rebound = wrappers(join(cache, 'dist'), origin.sourceSha, env.GITHUB_SHA);
     rmSync(dist, { recursive: true, force: true }); cpSync(join(cache, 'dist'), dist, { recursive: true });
     for (const [path, html] of Object.entries(rebound)) writeFileSync(join(dist, path), html);
@@ -124,7 +128,7 @@ function tracedBuild(env) {
     if (plain.error || plain.status !== 0) process.exit(plain.status || 1);
     return null;
   }
-  const result = spawnSync('strace', ['-f', '-qq', '-s', '8192', '-y', '-e', 'trace=%file,getdents64,fchdir,connect', '-o', tracePath,
+  const result = spawnSync('strace', ['-f', '-qq', '-s', '8192', '-y', '-e', TRACE_FILTER, '-o', tracePath,
     'pnpm', 'ci:build'], { cwd: root, env, stdio: 'inherit' });
   if (result.error || result.status !== 0) process.exit(result.status || 1);
   const trace = parseTrace(readFileSync(tracePath, 'utf8'));
@@ -144,8 +148,8 @@ function tracedBuild(env) {
 
 // This wrapper is deliberately CI-only; never clear a developer's local caches.
 if (process.env.CI !== 'true' || process.env.GITHUB_ACTIONS !== 'true' || !/^[a-f0-9]{40}$/.test(process.env.GITHUB_SHA || '')) throw Error('BUILD_REUSE_CI_ONLY');
-let env;
-try { env = buildEnvironment(process.env); } catch (error) {
+let env, toolchain;
+try { env = buildEnvironment(process.env); toolchain = buildToolchain(env); environmentDigest(env, toolchain); } catch (error) {
   console.log(`Smart build unavailable (${error.message}): plain fresh build.`);
   const plain = spawnSync('pnpm', ['ci:build'], { cwd: root, stdio: 'inherit' });
   process.exit(plain.status ?? 1);
@@ -158,20 +162,29 @@ for (const path of ['frontend/dist', 'node_modules/.vite', 'node_modules/.vite-t
 execFileSync(process.execPath, ['scripts/validate-env.mjs'], { cwd: root, env, stdio: 'inherit' });
 const { verifyProjectRuntimeBindings } = await import('./model-evaluator/runtime-bindings.mjs');
 await verifyProjectRuntimeBindings(root);
-const envDigest = environmentDigest(env);
+const envDigest = environmentDigest(env, toolchain);
 
 let reused = false;
 try { reused = await reuse({ env, envDigest }); } catch (error) { console.log(`No verified reusable build (${error.message}): fresh traced build.`); }
 if (!reused) {
   const manifest = tracedBuild(env);
+  // A build whose release wrapper cannot be rebound, or whose secrets cannot be seen in its output, is still this
+  // commit's fresh build and is used as such; it just never becomes a receipt that another commit could reuse.
   if (manifest) {
-    wrappers(dist, env.GITHUB_SHA, env.GITHUB_SHA);
-    writeFileSync(join(cache, 'receipt.json'), JSON.stringify({ schema: 1, repository: process.env.GITHUB_REPOSITORY, sourceSha: env.GITHUB_SHA,
-      runId: process.env.GITHUB_RUN_ID, attempt: process.env.GITHUB_RUN_ATTEMPT, environmentDigest: envDigest,
-      manifestDigest: manifestDigest(manifest), manifest, files: inventory(dist) }));
-    const outside = manifest.filter(([name]) => !name.startsWith('@root')).length;
-    console.log(`Smart-build receipt: ${manifest.length} recorded build inputs (${outside} outside the checkout), manifest ${manifestDigest(manifest)}.`);
-    appendFileSync(process.env.GITHUB_OUTPUT, `receipt_name=${RECEIPT_ARTIFACT(process.env.GITHUB_RUN_ATTEMPT)}\n`);
+    try {
+      wrappers(dist, env.GITHUB_SHA, env.GITHUB_SHA);
+      const files = inventory(dist);
+      if (!secretsCompiledIn(env, scripts(dist, files))) throw Error('a secret build variable is not visible in the output');
+      writeFileSync(join(cache, 'receipt.json'), JSON.stringify({ schema: 1, repository: process.env.GITHUB_REPOSITORY, sourceSha: env.GITHUB_SHA,
+        runId: process.env.GITHUB_RUN_ID, attempt: process.env.GITHUB_RUN_ATTEMPT, environmentDigest: envDigest,
+        manifestDigest: manifestDigest(manifest), manifest, files }));
+      const outside = manifest.filter(([name]) => !name.startsWith('@root')).length;
+      console.log(`Smart-build receipt: ${manifest.length} recorded build inputs (${outside} outside the checkout), manifest ${manifestDigest(manifest)}.`);
+      appendFileSync(process.env.GITHUB_OUTPUT, `receipt_name=${RECEIPT_ARTIFACT(process.env.GITHUB_RUN_ATTEMPT)}\n`);
+    } catch (error) {
+      rmSync(join(cache, 'receipt.json'), { force: true });
+      console.log(`Build succeeded; no receipt, because ${error.code ?? error.message}.`);
+    }
   }
 }
 appendFileSync(process.env.GITHUB_OUTPUT, `reused=${reused}\n`);

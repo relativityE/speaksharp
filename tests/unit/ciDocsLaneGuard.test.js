@@ -151,7 +151,7 @@ describe('docs-lane workflow wiring', () => {
     const steps = jobs.scope.steps;
     const names = steps.map((s) => s.name);
     const candidate = names.indexOf('Detect Docs Lane Candidate');
-    const guard = names.indexOf('Prove No Skipped Job Reads The Changed Files');
+    const guard = names.indexOf('Check No Skipped Job Names The Changed Files (Static)');
     const classify = names.indexOf('Classify Change');
     expect(candidate).toBeGreaterThan(-1);
     expect(guard).toBeGreaterThan(candidate);
@@ -243,7 +243,7 @@ describe('docs-lane workflow wiring', () => {
     const step = jobs.report.steps.find((s) => s.name === 'Enforce Selected Lane');
     expect(jobs.report.needs).toContain('docs-evidence');
     const run = (env) => spawnSync('bash', ['-c', step.run], {
-      env: { ...process.env, SCOPE_RESULT: 'success', FULL_REQUIRED: 'false', DOCS_LANE: 'true', DRAFT_RESULT: 'skipped', ...env },
+      env: { ...process.env, SCOPE_RESULT: 'success', FULL_REQUIRED: 'false', DOCS_LANE: 'true', DRAFT_RESULT: 'skipped', QUALITY_RESULT: 'success', ...env },
       encoding: 'utf8',
     }).status;
     expect(run({ UNIT_RESULT: 'success', DOCS_RESULT: 'success' })).toBe(0);

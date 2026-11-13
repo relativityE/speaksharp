@@ -5,8 +5,9 @@
 // resolved through is an input. The manifest records the state of each such path after the build: file bytes
 // and mode, directory listings, symlink targets, absence. A consumer may reuse the producer's output only when
 // every manifest entry is identical in its own checkout and its build environment digest is equal. Anything
-// the parser does not fully understand, any write outside the build's own scratch/output roots, and any
-// connection that could have been answered make the trace UNUSABLE: the producer then publishes nothing and nobody can reuse it.
+// the parser does not fully understand, any write outside the build's own scratch/output roots, any socket use that
+// could reach another process or host, and any anonymous memory file make the trace UNUSABLE: the producer then
+// publishes nothing and nobody can reuse it. Every socket call, memfd_create and getrandom is traced (TRACE_FILTER).
 //
 // Temporary files (/tmp): the build may write them, but a read of one, or any call whose success shows what was there
 // (a non-exclusive create, a write-only open, an unlink, a chmod), is allowed only when the trace proves, in order,
@@ -15,8 +16,8 @@
 // The build's TMPDIR is a directory made empty and private just before it starts (ci-smart-build), so everything in
 // it is the build's own. Node's compile cache, which vite turns on, is disabled for the build (buildEnvironment).
 //
-// /proc, /sys and /dev are not recorded. The build may only read /proc and /sys, and may use only known character
-// devices under /dev: /dev/shm and /dev/mqueue are writable directories whose files, links or aliases would
+// /proc, /sys and /dev are not recorded. The build may only read the /proc and /sys paths in PROC_READ and SYS_READ
+// (machine and process facts that change from run to run), and may use only known character devices under /dev: /dev/shm and /dev/mqueue are writable directories whose files, links or aliases would
 // otherwise be read unrecorded, so any use of them makes the trace unusable, as does an input link into them.
 //
 // Scope note: mtimes are not recorded (a fresh checkout changes them all). The build's caches that key on
@@ -52,6 +53,52 @@ const PATH_ARGS = {
   setxattr: [[null, 0, 'write']], lsetxattr: [[null, 0, 'write']], removexattr: [[null, 0, 'write']], lremovexattr: [[null, 0, 'write']],
 };
 const NO_PATH = new Set(['getcwd', 'fchdir', 'getdents64', 'connect']);
+// What the producer traces. Every traced call is classified below or the trace is unusable, so adding a syscall
+// class here can only ever refuse more.
+export const TRACE_FILTER = 'trace=%file,getdents64,fchdir,%network,memfd_create,getrandom';
+
+// Socket calls (Sam, #1837): a build may talk only to itself and to the kernel. Allowed: AF_UNIX socket pairs
+// (libuv's pipes between build processes) and AF_NETLINK route sockets that only send RTM_GET* dumps (the kernel's
+// list of network interfaces, which os.networkInterfaces() reads like /proc). A local socket that does not exist is
+// an absent path, as for connect. Anything else that could reach another process or host (an inet socket, a bind
+// or listen, a send to an address) makes the trace unusable. Reads and options on an allowed socket learn nothing
+// beyond what its peer was checked to be. getrandom is entropy, as /dev/urandom is: it cannot carry the checkout.
+const SOCKET_QUIET = new Set(['recvfrom', 'recvmsg', 'recvmmsg', 'getsockopt', 'setsockopt', 'getsockname', 'getpeername', 'shutdown', 'getrandom']);
+const SOCKET_SEND = new Set(['sendto', 'sendmsg', 'sendmmsg']);
+// Structure only: payload strings are dropped first, so text inside a message cannot look like an address.
+const withoutStrings = (text) => text.replace(/"(?:[^"\\]|\\.)*"(\.\.\.)?/g, '""');
+const KERNEL_NETLINK = /^\{sa_family=AF_NETLINK, nl_pid=0, nl_groups=0+\}$/;
+// `netlink` holds the route-netlink sockets the build opened (by inode), so every send on one is checked, whatever
+// address it names: on a netlink socket a send with no address goes to the kernel too.
+const rtmGetOnly = (all) => { const types = [...all.matchAll(/nlmsg_type=([A-Za-z0-9_]+)/g)].map((m) => m[1]); return types.length > 0 && types.every((t) => /^RTM_GET[A-Z]+$/.test(t)) ? null : types.join(',') || 'unknown'; };
+function socketCall(name, args, result, netlink) {
+  const all = withoutStrings(args.join(', '));
+  if (name === 'socketpair') return /^AF_(UNIX|LOCAL)$/.test(args[0]) ? null : `socket pair ${args[0]}`;
+  if (name === 'socket') {
+    if (/^AF_(UNIX|LOCAL)$/.test(args[0])) return null;
+    if (args[0] === 'AF_NETLINK' && args[2] === 'NETLINK_ROUTE') { const inode = /<(socket:\[\d+\])>$/.exec(result)?.[1]; if (inode) netlink.add(inode); return null; }
+    return `socket ${args.slice(0, 3).join(', ')}`;
+  }
+  if (name === 'bind') return KERNEL_NETLINK.test(withoutStrings(args[1] ?? '')) ? null : `bind ${all.slice(0, 80)}`;
+  if (SOCKET_SEND.has(name)) {
+    const onNetlink = netlink.has(/^\d+<(socket:\[\d+\])>$/.exec(args[0] ?? '')?.[1]);
+    if (onNetlink) { const bad = rtmGetOnly(all); if (bad) return `netlink request ${bad}`; }
+    // A netlink message on a socket the trace never saw opened (an inherited fd) is refused outright.
+    else if (/nlmsg_type=/.test(all)) return `netlink request on an untraced socket ${args[0]?.slice(0, 40)}`;
+    // Each destination address the call names: sendto's fifth argument, or every msg_name of sendmsg/sendmmsg.
+    const destinations = name === 'sendto' ? [args[4] ?? 'NULL'] : [...all.matchAll(/msg_name=(NULL|\{[^{}]*\})/g)].map((m) => m[1]);
+    if (name !== 'sendto' && (all.match(/msg_name=/g) ?? []).length !== destinations.length) return `${name} with an unreadable address`;
+    for (const to of destinations) {
+      if (to === 'NULL') continue;
+      if (KERNEL_NETLINK.test(to) && onNetlink) continue;
+      return `${name} to ${to.slice(0, 80)} ${result.slice(0, 40)}`;
+    }
+    return null;
+  }
+  if (SOCKET_QUIET.has(name)) return null;
+  return `${name} ${all.slice(0, 80)}`;
+}
+const SOCKET_CALLS = new Set(['socket', 'socketpair', 'bind', 'listen', 'accept', 'accept4', ...SOCKET_SEND, ...SOCKET_QUIET]);
 
 // Split one complete strace line `name(args) = result` into raw top-level arguments and the result text.
 export function splitCall(line) {
@@ -62,7 +109,10 @@ export function splitCall(line) {
     const c = line[i];
     if (c === '"') { for (i++; i < line.length && line[i] !== '"'; i++) if (line[i] === '\\') i++; continue; }
     if (c === '<' && /(?:AT_FDCWD|\d)$/.test(line.slice(start, i))) {
-      // An fd decoration from -y: `AT_FDCWD</cwd>` or `7</a/dir>`. It ends at '>' followed by a delimiter.
+      // An fd decoration from -y: `AT_FDCWD</cwd>` or `7</a/dir>`. It ends at '>' followed by a delimiter. A socket
+      // or pipe has no path, and its decoration has a fixed form (`21<socket:[1650]>`, also inside a socketpair's `[..]`).
+      const inode = /^<(?:socket|pipe):\[\d+\]>/.exec(line.slice(i));
+      if (inode) { i += inode[0].length - 1; continue; }
       const end = line.slice(i).search(/>(?=[,)\s]|$)/);
       if (end < 0) return null;
       i += end; continue;
@@ -113,7 +163,7 @@ const decoration = (arg) => {
 const returnedPath = (result) => decoration(/^= (\d+<.*>)$/s.exec(result ?? '')?.[1]);
 
 /**
- * Parse `strace -f -qq -y -s <large> -e trace=%file,getdents64,fchdir,connect` output.
+ * Parse `strace -f -qq -y -s <large> -e <TRACE_FILTER>` output.
  * Returns absolute observed/listed/written paths and every reason the trace cannot be trusted. For paths under
  * `scratchRoots` it also returns `events`, in trace order, so a reader of temporary files can be checked against
  * what the build itself created there (scratchVerdicts).
@@ -164,6 +214,7 @@ export function parseTrace(text, { scratchRoots = ['/tmp'] } = {}) {
     if ((call.name === 'chdir' || call.name === 'fchdir') && !/= -1/.test(call.result)) epoch.set(pid, e + 1);
   }
 
+  const netlinkSockets = new Set();
   const observed = new Set(), listed = new Set(), written = new Set(), network = [], dotdot = [], events = [], links = [], moves = [];
   const inScratch = (path) => under(path, scratchRoots);
   let at = { entry: 0, exit: 0 };
@@ -203,6 +254,19 @@ export function parseTrace(text, { scratchRoots = ['/tmp'] } = {}) {
           continue;
         }
         network.push(`${pid}: ${args[1]?.slice(0, 80)} ${call.result.slice(0, 40)}`);
+        continue;
+      }
+      if (name === 'memfd_create') { problems.push(`build made an anonymous memory file, whose content is not traced: ${args[0]?.slice(0, 80)}`); continue; }
+      if (SOCKET_CALLS.has(name)) {
+        // An AF_UNIX send to a path that does not exist reaches nobody, like the connect probe above.
+        const unix = SOCKET_SEND.has(name) ? /^\{sa_family=AF_UNIX, sun_path=("(?:[^"\\]|\\.)*")\}$/.exec(name === 'sendto' ? args[4] ?? '' : '') : null;
+        if (unix && /^= -1 ENOENT\b/.test(call.result) && decodeString(unix[1])?.startsWith('/')) {
+          const socketPath = posix.normalize(decodeString(unix[1]));
+          observed.add(socketPath); event('observe', socketPath, { ok: false });
+          continue;
+        }
+        const refused = socketCall(name, args, call.result, netlinkSockets);
+        if (refused) network.push(`${pid}: ${refused}`);
         continue;
       }
       if (NO_PATH.has(name)) continue;
@@ -441,6 +505,15 @@ export function pathState(path, { listing = false, outputRoots = [] } = {}) {
 // inherited fd.
 const DEVICE_READ = /^\/dev(\/(null|zero|full|random|urandom|tty|ptmx|pts\/\d+))?$/;
 const DEVICE_WRITE = /^\/dev\/(null|zero|full|tty|stdout|stderr|pts\/\d+)$/;
+// /proc and /sys are not recorded: they describe the machine and the build's own processes, and on a runner change
+// from run to run (CPU speed, memory use, cgroup names), so recording them would never match. Only these reads are
+// allowed, and anything else under /proc or /sys makes the trace unusable (Sam, #1837). Each is what Node, libuv,
+// esbuild or the Go runtime reads to size thread pools and memory: CPU and NUMA layout, memory and cgroup limits,
+// the kernel's version and its huge-page and overcommit settings, and a process's own memory map, status and binary.
+// They shape scheduling, not what a build writes; the toolchain versions that do are in the environment digest.
+// A numbered process may be read the same way (Node reads its own pid's), but only /proc/self/exe follows to a binary.
+const PROC_READ = /^\/proc(\/((self|thread-self)(\/task\/\d+)?(\/(maps|cgroup|stat|statm|status|exe|mountinfo|limits))?|\d+(\/task\/\d+)?(\/(maps|cgroup|stat|statm|status|mountinfo|limits))?|meminfo|stat|cpuinfo|version|version_signature|loadavg|uptime|sys\/vm\/overcommit_memory))?$/;
+const SYS_READ = /^\/sys(\/(fs(\/cgroup(\/.*)?)?|devices(\/system(\/(cpu|node)(\/.*)?)?)?|kernel(\/mm(\/transparent_hugepage(\/.*)?)?)?))?$/;
 
 export function buildManifest(trace, { root, outputRoots, scratchRoots = [], freshRoots = [], unclearedOutputRoots = [], ignoredRoots = ['/proc', '/sys', '/dev'] }) {
   const problems = [...trace.problems];
@@ -478,6 +551,11 @@ export function buildManifest(trace, { root, outputRoots, scratchRoots = [], fre
   for (const path of [...trace.observed, ...trace.listed]) {
     if (under(path, ['/dev']) && !DEVICE_READ.test(path) && !/^\/dev\/(fd|stdin)(\/|$)/.test(path)) problems.push(`build used a /dev path that is not a known device: ${path}`);
   }
+  for (const path of [...trace.observed, ...trace.listed]) {
+    if ((under(path, ['/proc']) && !PROC_READ.test(path)) || (under(path, ['/sys']) && !SYS_READ.test(path))) problems.push(`build read an unrecorded system path that is not allowed: ${path}`);
+  }
+  // A listing there (of /proc, the machine's processes) is not one of those facts.
+  for (const path of trace.listed) if (under(path, ['/proc', '/sys'])) problems.push(`build listed an unrecorded system directory: ${path}`);
   for (const path of writes) if (under(path, ignoredRoots) && !DEVICE_WRITE.test(path)) problems.push(`build wrote under an unrecorded root: ${path}`);
   // Something moved or linked into an output root from outside would be read there unrecorded.
   for (const { from, to } of trace.moves ?? []) {

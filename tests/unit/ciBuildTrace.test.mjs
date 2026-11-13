@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSyn
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { parseTrace, buildManifest, firstManifestDifference, splitCall, decodeString } from '../../scripts/ci-build-trace.mjs';
+import { TRACE_FILTER, parseTrace, buildManifest, firstManifestDifference, splitCall, decodeString } from '../../scripts/ci-build-trace.mjs';
 
 const parse = (lines) => parseTrace(lines.join('\n'));
 
@@ -94,6 +94,109 @@ test('a failed connect to an absent local socket is a probe; any answerable conn
     const t = parse([line]);
     assert.equal(t.network.length, 1, line);
     assert.match(buildManifest(t, { root: '/r', outputRoots: [] }).problems.join(), /network/, line);
+  }
+});
+
+// Sam, #1837: the producer traces every socket call, memfd_create and getrandom, and fails closed on the rest.
+test('the producer traces socket calls, anonymous memory files and entropy', () => {
+  assert.equal(TRACE_FILTER, 'trace=%file,getdents64,fchdir,%network,memfd_create,getrandom');
+});
+
+test('a build may only use socket pairs and the kernel\'s interface list; any other socket use is network use', () => {
+  const quiet = [
+    // libuv's pipes between build processes, as a real build makes them (the pair is decorated inside brackets).
+    '10 socketpair(AF_UNIX, SOCK_STREAM|SOCK_CLOEXEC, 0, [21<socket:[1650]>, 22<socket:[1651]>]) = 0',
+    '10 setsockopt(21<socket:[1650]>, SOL_SOCKET, SO_RCVBUF, [65536], 4) = 0',
+    '10 sendmsg(21<socket:[1650]>, {msg_name=NULL, msg_namelen=0, msg_iov=[{iov_base="msg_name={sa_family=AF_INET}", iov_len=28}], msg_iovlen=1, msg_controllen=0, msg_flags=0}, 0) = 28',
+    '10 recvmsg(22<socket:[1651]>, {msg_name=NULL, msg_namelen=0, msg_iov=[{iov_base="x", iov_len=1}], msg_iovlen=1, msg_controllen=0, msg_flags=0}, 0) = 1',
+    // os.networkInterfaces(): a route-netlink dump from the kernel, as a real vite build does it.
+    '10 socket(AF_NETLINK, SOCK_RAW|SOCK_CLOEXEC, NETLINK_ROUTE) = 20<socket:[3590]>',
+    '10 bind(20<socket:[3590]>, {sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, 12) = 0',
+    '10 getsockname(20<socket:[3590]>, {sa_family=AF_NETLINK, nl_pid=10, nl_groups=00000000}, [12]) = 0',
+    '10 sendto(20<socket:[3590]>, [{nlmsg_len=20, nlmsg_type=RTM_GETLINK, nlmsg_flags=NLM_F_REQUEST|NLM_F_DUMP, nlmsg_seq=1, nlmsg_pid=0}, {ifi_family=AF_UNSPEC, ...}], 20, 0, {sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, 12) = 20',
+    '10 getrandom("\\xfc\\xc3", 2, GRND_NONBLOCK) = 2',
+    // A send to a local socket that does not exist reaches nobody; it is recorded as an absent path.
+    '10 socket(AF_UNIX, SOCK_DGRAM|SOCK_CLOEXEC, 0) = 5<socket:[9]>',
+    '10 sendto(5<socket:[9]>, "x", 1, MSG_NOSIGNAL, {sa_family=AF_UNIX, sun_path="/dev/log"}, 110) = -1 ENOENT (No such file or directory)',
+  ];
+  const ok = parse(quiet);
+  assert.deepEqual(ok.problems, []);
+  assert.deepEqual(ok.network, []);
+  assert(ok.observed.has('/dev/log'));
+  for (const line of [
+    '10 socket(AF_INET, SOCK_DGRAM|SOCK_CLOEXEC|SOCK_NONBLOCK, IPPROTO_IP) = 5<socket:[9]>',
+    '10 socket(AF_INET6, SOCK_STREAM, IPPROTO_TCP) = -1 EACCES (Permission denied)',
+    '10 socket(AF_NETLINK, SOCK_RAW, NETLINK_AUDIT) = 5<socket:[9]>',
+    '10 socket(AF_PACKET, SOCK_RAW, 768) = 5<socket:[9]>',
+    '10 socketpair(AF_INET, SOCK_STREAM, 0, [5<socket:[9]>, 6<socket:[10]>]) = -1 EOPNOTSUPP (Operation not supported)',
+    '10 bind(5<socket:[9]>, {sa_family=AF_UNIX, sun_path="/tmp/s"}, 110) = 0',
+    '10 bind(5<socket:[9]>, {sa_family=AF_INET, sin_port=htons(0), sin_addr=inet_addr("0.0.0.0")}, 16) = 0',
+    '10 listen(5<socket:[9]>, 511) = 0',
+    '10 accept4(5<socket:[9]>, NULL, NULL, SOCK_CLOEXEC) = 6<socket:[10]>',
+    '10 sendto(5<socket:[9]>, "q", 1, 0, {sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr("1.1.1.1")}, 16) = 1',
+    '10 sendto(5<socket:[9]>, "q", 1, 0, {sa_family=AF_UNIX, sun_path="/run/systemd/journal/socket"}, 110) = 1',
+    '10 sendto(5<socket:[9]>, "q", 1, 0, {sa_family=AF_UNIX, sun_path=@"abstract"}, 12) = -1 ENOENT (No such file or directory)',
+    '10 sendto(20<socket:[3590]>, [{nlmsg_len=20, nlmsg_type=RTM_NEWADDR, nlmsg_flags=NLM_F_REQUEST, nlmsg_seq=1, nlmsg_pid=0}, {ifa_family=AF_INET, ...}], 20, 0, {sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, 12) = 20',
+    '10 sendto(20<socket:[3590]>, [{nlmsg_len=20, nlmsg_type=RTM_GETLINK, nlmsg_flags=NLM_F_REQUEST, nlmsg_seq=1, nlmsg_pid=0}], 20, 0, {sa_family=AF_NETLINK, nl_pid=42, nl_groups=00000000}, 12) = 20',
+    '10 sendmsg(5<socket:[9]>, {msg_name={sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr("1.1.1.1")}, msg_namelen=16, msg_iov=[{iov_base="q", iov_len=1}], msg_iovlen=1, msg_controllen=0, msg_flags=0}, 0) = 1',
+    '10 sendmsg(5<socket:[9]>, {msg_name=0x7ffd1234, msg_namelen=16, msg_iov=[{iov_base="q", iov_len=1}], msg_iovlen=1, msg_controllen=0, msg_flags=0}, 0) = 1',
+    '10 sendmmsg(5<socket:[9]>, [{msg_hdr={msg_name=NULL, msg_namelen=0, msg_iov=[{iov_base="q", iov_len=1}], msg_iovlen=1, msg_controllen=0, msg_flags=0}, msg_len=1}, {msg_hdr={msg_name={sa_family=AF_INET6, sin6_port=htons(53)}, msg_namelen=28, msg_iov=[{iov_base="q", iov_len=1}], msg_iovlen=1, msg_controllen=0, msg_flags=0}, msg_len=1}], 2, 0) = 2',
+  ]) {
+    const t = parse([line]);
+    assert.equal(t.network.length, 1, line);
+    assert.match(buildManifest(t, { root: '/r', outputRoots: [] }).problems.join(), /network/, line);
+  }
+  assert.match(parse(['10 accept(5<socket:[9]>, NULL, NULL) = 6<socket:[10]>']).network.join(), /accept/);
+  // On a netlink socket a send with no address goes to the kernel too, so its request types are checked as well.
+  const netlink = '10 socket(AF_NETLINK, SOCK_RAW|SOCK_CLOEXEC, NETLINK_ROUTE) = 3<socket:[9]>';
+  for (const line of [
+    '10 sendto(3<socket:[9]>, [{nlmsg_len=40, nlmsg_type=RTM_NEWADDR, nlmsg_flags=NLM_F_REQUEST, nlmsg_seq=1, nlmsg_pid=0}, {ifa_family=AF_INET, ...}], 40, 0, NULL, 0) = 40',
+    '10 sendmsg(3<socket:[9]>, {msg_name=NULL, msg_namelen=0, msg_iov=[{iov_base=[{nlmsg_len=40, nlmsg_type=RTM_NEWROUTE, nlmsg_flags=NLM_F_REQUEST, nlmsg_seq=1, nlmsg_pid=0}], iov_len=40}], msg_iovlen=1, msg_controllen=0, msg_flags=0}, 0) = 40',
+    '10 sendto(3<socket:[9]>, "\\x14\\x00", 20, 0, NULL, 0) = 20',
+  ]) assert.match(parse([netlink, line]).network.join(), /netlink request/, line);
+  assert.deepEqual(parse([netlink, '10 sendto(3<socket:[9]>, [{nlmsg_len=20, nlmsg_type=RTM_GETADDR, nlmsg_flags=NLM_F_REQUEST|NLM_F_DUMP, nlmsg_seq=1, nlmsg_pid=0}, {ifa_family=AF_UNSPEC, ...}], 20, 0, NULL, 0) = 20']).network, []);
+  assert.match(parse(['10 sendto(9<socket:[77]>, [{nlmsg_len=40, nlmsg_type=RTM_NEWADDR, nlmsg_flags=NLM_F_REQUEST, nlmsg_seq=1, nlmsg_pid=0}], 40, 0, NULL, 0) = 40']).network.join(), /untraced socket/);
+  // A kernel netlink address on a socket the trace never saw opened as route netlink is refused.
+  assert.equal(parse(['10 sendto(4<socket:[11]>, [{nlmsg_len=20, nlmsg_type=RTM_GETLINK, nlmsg_flags=NLM_F_REQUEST, nlmsg_seq=1, nlmsg_pid=0}], 20, 0, {sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, 12) = 20']).network.length, 1);
+  assert.match(parse(['10 shutdown(5<socket:[9]>, SHUT_WR) = 0', '10 epoll_wait(5, [], 1024, 0) = 0']).problems.join(), /UNCLASSIFIED/);
+});
+
+test('negative control: an anonymous memory file makes the trace unusable', () => {
+  assert.match(parse(['10 memfd_create("buf", MFD_CLOEXEC) = 5</memfd:buf (deleted)>']).problems.join(), /anonymous memory file/);
+});
+
+test('negative control: a /proc or /sys read outside the allowlist is refused; machine facts are not', (t) => {
+  const f = tree(t);
+  const reads = (path) => buildManifest(parse([`10 openat(AT_FDCWD<${f.root}>, "${path}", O_RDONLY|O_CLOEXEC) = 3<${path}>`]), { root: f.root, outputRoots: f.outputRoots });
+  for (const path of ['/proc/cpuinfo', '/proc/meminfo', '/proc/stat', '/proc/version', '/proc/version_signature', '/proc/self/maps', '/proc/self/cgroup', '/proc/thread-self/stat', '/proc/1234/maps', '/proc/1234/task/5/status',
+    '/proc/self/task/12/status', '/proc/sys/vm/overcommit_memory', '/sys/fs/cgroup/memory.max', '/sys/fs/cgroup/memory/a/b/memory.limit_in_bytes',
+    '/sys/devices/system/cpu/online', '/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq', '/sys/devices/system/node/node1', '/sys/kernel/mm/transparent_hugepage/hpage_pmd_size']) {
+    assert.equal(reads(path).problems, undefined, path);
+  }
+  for (const path of ['/proc/1/exe', '/proc/1234/task/5/exe', '/proc/1/environ', '/proc/net/dev', '/proc/sys/kernel/random/boot_id', '/proc/self/environ', '/proc/1/cmdline', '/proc/self/mounts', '/proc/sysrq-trigger', '/proc/config.gz',
+    '/sys/class/net/eth0/address', '/sys/firmware/dmi/tables/DMI', '/sys/devices/virtual/dmi/id/product_uuid', '/sys/kernel/debug/x', '/sys/fsx', '/proc/cpuinfox']) {
+    assert.match(reads(path).problems?.join() ?? '', /unrecorded system path/, path);
+  }
+  // A listing of /proc is a list of the machine's processes, which is not a machine fact the allowlist names.
+  assert.match(buildManifest(parse(['10 getdents64(3</proc>, 0x1 /* 40 entries */, 32768) = 1200']), { root: f.root, outputRoots: f.outputRoots }).problems?.join() ?? '', /listed an unrecorded system directory: \/proc$/);
+});
+
+test('a real strace: a UDP send, an unallowed /proc read or a memfd blocks the receipt; a plain Node build does not', (t) => {
+  const f = tree(t);
+  const traced = (code) => {
+    f.put('build.mjs', code);
+    const out = join(f.root, 'dist', 'trace.strace');
+    const r = spawnSync('strace', ['-f', '-qq', '-s', '8192', '-y', '-e', TRACE_FILTER, '-o', out, process.execPath, 'build.mjs'], { cwd: f.root, encoding: 'utf8', env: { ...process.env, NODE_V8_COVERAGE: '' } });
+    assert.equal(r.status, 0, r.stderr);
+    const m = buildManifest(parseTrace(readFileSync(out, 'utf8')), { root: f.root, outputRoots: f.outputRoots });
+    rmSync(out); return m.problems?.join('\n') ?? '';
+  };
+  assert.equal(traced(`import fs from 'node:fs';import os from 'node:os';os.cpus();os.networkInterfaces();fs.writeFileSync('dist/out.js',fs.readFileSync('src/a.ts'));`), '');
+  assert.match(traced(`import dgram from 'node:dgram';const s=dgram.createSocket('udp4');s.send('x',9,'127.0.0.1',()=>s.close());`), /network/);
+  assert.match(traced(`import fs from 'node:fs';fs.readFileSync('/proc/self/mounts');`), /not allowed: \/proc\/self\/mounts/);
+  const python = spawnSync('python3', ['-c', 'import os; os.memfd_create'], { encoding: 'utf8' });
+  if (python.status === 0) {
+    assert.match(traced(`import { execFileSync } from 'node:child_process';execFileSync('python3',['-I','-S','-c','import os; os.close(os.memfd_create("x"))']);`), /anonymous memory file/);
   }
 });
 
@@ -187,7 +290,7 @@ test('a real strace of a small build observes what it read, probed and listed', 
   const f = tree(t);
   f.put('build.mjs', `import fs from 'node:fs';fs.existsSync('src/maybe.ts');fs.readdirSync('src');fs.writeFileSync('dist/out.js',fs.readFileSync('src/a.ts'));`);
   const out = join(f.root, 'dist', 'trace.strace');
-  const r = spawnSync('strace', ['-f', '-qq', '-s', '8192', '-y', '-e', 'trace=%file,getdents64,fchdir,connect', '-o', out, process.execPath, 'build.mjs'], { cwd: f.root, encoding: 'utf8',
+  const r = spawnSync('strace', ['-f', '-qq', '-s', '8192', '-y', '-e', TRACE_FILTER, '-o', out, process.execPath, 'build.mjs'], { cwd: f.root, encoding: 'utf8',
     // Node passes NODE_V8_COVERAGE to children unless it is set explicitly; a covered test run would otherwise make
     // the traced fixture write coverage outside its output roots (a real build has no coverage directory).
     env: { ...process.env, NODE_V8_COVERAGE: '' } });
@@ -356,7 +459,7 @@ test('a real strace: a temporary file the build made is allowed, a pre-existing 
   const traced = (source, env = {}) => {
     f.put('build.mjs', source);
     const out = join(f.root, 'dist', 'trace.strace');
-    const r = spawnSync('strace', ['-f', '-qq', '-s', '8192', '-y', '-e', 'trace=%file,getdents64,fchdir,connect', '-o', out, process.execPath, 'build.mjs'],
+    const r = spawnSync('strace', ['-f', '-qq', '-s', '8192', '-y', '-e', TRACE_FILTER, '-o', out, process.execPath, 'build.mjs'],
       { cwd: f.root, encoding: 'utf8', env: { ...process.env, NODE_V8_COVERAGE: '', ...env } });
     assert.equal(r.status, 0, r.stderr);
     const trace = parseTrace(readFileSync(out, 'utf8'), { scratchRoots: [scratch] });
