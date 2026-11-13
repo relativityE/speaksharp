@@ -301,8 +301,8 @@
     }
   },
   "harness": {
-    "codeManifestSha256": "2a20f24c3e9bfea45b6e4716b957555635ff9da984f40efd25919b2edd0eccf2",
-    "packetManifestSha256": "7de14f9ba37d3ed751fe80a75bb91a85b877961a1d9c6633d3f4f51d0c9b9bf7",
+    "codeManifestSha256": "9aed35a322d95702770245f9c8e0e514e870b5ebf7bb06b043eaa6169e87cc86",
+    "packetManifestSha256": "5aa50a569ab2bc86ca60f7e38112e3ffbff8ace5b779b20ba947c2456c15a98f",
     "ownerApprovalRef": "slack:1793652215.171339",
     "offlineProofFile": "config/proofs/offline-proof-74d26870.json"
   },
