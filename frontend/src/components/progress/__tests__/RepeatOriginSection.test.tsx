@@ -141,6 +141,20 @@ describe('outcome 4 RepeatOriginSection', () => {
         expect(loadRepeatOrigin).toHaveBeenCalledTimes(2);
     });
 
+    it('an attempt that resolves while the first read is still in flight gets a fresh read once that read settles', async () => {
+        expect(setOpenAttempt({ attemptId: 'att-2', userId: 'user-1', sourceSessionId: 'A', resolutionSessionId: 'B' })).toBe(true);
+        // The first read saw the attempt still pending, but its answer only arrives after the attempt has resolved.
+        let settleFirst: (v: unknown) => void = () => {};
+        loadRepeatOrigin.mockImplementationOnce(() => new Promise((resolve) => { settleFirst = resolve; })).mockResolvedValue(repeat());
+        renderSection();
+        await waitFor(() => expect(loadRepeatOrigin).toHaveBeenCalledTimes(1));
+        expect(clearOpenAttemptIfMatches('user-1', 'att-2')).toBe(true);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        settleFirst({ status: 'none', sessionId: 'B' });
+        expect(await screen.findByTestId('repeat-origin-link')).toHaveAttribute('href', '/progress/A');
+        expect(loadRepeatOrigin).toHaveBeenCalledTimes(2);
+    });
+
     it('a handoff change on a page already showing its repeat does not read again', async () => {
         loadRepeatOrigin.mockResolvedValue(repeat());
         renderSection();

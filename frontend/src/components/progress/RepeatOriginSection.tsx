@@ -28,16 +28,26 @@ export const RepeatOriginSection: React.FC<{ sessionId: string }> = ({ sessionId
     // The attempt that makes this session a repeat is resolved after save without blocking it (`resolveOpenAttemptWith`),
     // so a page opened first can read `none` while it is still pending. Resolving clears the open-attempt handoff, which
     // notifies here (this tab, or another tab through the storage event): read again whenever the handoff changes and
-    // this page does not already show a repeat, so the block appears without a reload.
+    // this page does not already show a repeat, so the block appears without a reload. A read already in flight may have
+    // seen the attempt still pending, and `refetch()` would only join it (no data is cached yet), so the fresh read is
+    // queued until that read settles.
     const handoff = useSyncExternalStore(subscribeOpenAttempt, openAttemptSnapshot, () => null);
     const lastHandoff = useRef(handoff);
-    const { refetch } = query;
+    const queuedRead = useRef(false);
+    const { refetch, isFetching } = query;
     const showsRepeat = query.data?.status === 'repeat';
     useEffect(() => {
         if (lastHandoff.current === handoff) return;
         lastHandoff.current = handoff;
+        if (!userId || showsRepeat) return;
+        if (isFetching) queuedRead.current = true;
+        else void refetch();
+    }, [handoff, userId, showsRepeat, isFetching, refetch]);
+    useEffect(() => {
+        if (isFetching || !queuedRead.current) return;
+        queuedRead.current = false;
         if (userId && !showsRepeat) void refetch();
-    }, [handoff, userId, showsRepeat, refetch]);
+    }, [isFetching, userId, showsRepeat, refetch]);
 
     if (!userId || query.isPending) return null;
     const view = query.data;
