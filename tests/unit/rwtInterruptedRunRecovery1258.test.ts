@@ -343,8 +343,11 @@ describe('#1811 feedback fences of a recovered run', () => {
             const fenceCase = args.p_run_key.replace('38000000001-1-', '');
             const open = openCases[fenceCase];
             if (!open) return { data: null, error: { code: 'P0002' } };
+            const state = open.residue || open.foreign ? 'closed' : 'cleaned';
             if (fn === 'close_rwt_feedback_fence_v1') return { data: { state: 'closed', reports: open.deleted + open.residue, keys: 1 }, error: null };
-            return { data: { ...open, state: open.residue || open.foreign ? 'closed' : 'cleaned' }, error: null };
+            if (fn === 'verify_rwt_feedback_fence_v1') return { data: { exists: true, state, owner: uuid(1), case: fenceCase, recorded: open.deleted + open.residue,
+                keys: 1, remaining: open.residue, foreign: open.foreign }, error: null };
+            return { data: { ...open, state }, error: null };
         });
         Object.assign(f.admin as object, { rpc });
         return { rpc, calls };
@@ -361,7 +364,7 @@ describe('#1811 feedback fences of a recovered run', () => {
         expect(r.feedback).toEqual({ fences: 1, deleted: 1, residue: 0, foreign: 0 });
         expect(order).toEqual(['fence', 'account']);
         expect(fences.calls).toContain('clean_rwt_feedback_fence_v1:38000000001-1-AHT-08');
-        expect(fences.calls.filter((c) => c.startsWith('close_'))).toHaveLength(4); // every case label is tried
+        expect(fences.calls.filter((c) => c.startsWith('close_'))).toHaveLength(5); // every case label is tried
         const line = recoveryReportLine(r);
         expect(line).toContain('feedback_fences=1 feedback_deleted=1 feedback_residue=0 feedback_foreign=0');
         expect(line).not.toContain('AHT-08');
