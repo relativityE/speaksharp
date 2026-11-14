@@ -16,7 +16,7 @@ vi.mock('@/services/AnalyticsBuffer', () => ({
 
 import {
     probeCache, markIdentitySettled, recordAcquisitionStart, recordAcquisitionSuccess,
-    recordAcquisitionFailure, classifyAcquisitionError, __resetAcquisitionTelemetry, __pendingCount,
+    recordAcquisitionFailure, recordAcquisitionCancelled, classifyAcquisitionError, __resetAcquisitionTelemetry, __pendingCount,
     type AcquisitionSubject,
 } from '../modelAcquisitionTelemetry';
 
@@ -163,6 +163,8 @@ describe('#1259s failure is sanitized, bounded and non-blocking', () => {
         ['WebGPU is not supported', 'unsupported'],
         ['operation timed out', 'timeout'],
         ['something nobody predicted', 'unknown'],
+        // #1858: the release outcome wins over whatever the underlying error says (here, an "abort" and a "network").
+        ['init cancelled, and disposing the pipeline FAILED (release uncertain): aborted network fetch', 'release_uncertain'],
     ])('reduces %s to a bounded code', (message, code) => {
         expect(classifyAcquisitionError(new Error(message))).toBe(code);
     });
@@ -279,5 +281,17 @@ describe('#1259s the event body is content-free', () => {
         expect(pushed[0].props.acquired_candidate_id).toBe('moonshine:streaming-medium');
         expect(pushed[1].props.acquired_candidate_id).toBe('v2:base.en');
         expect(pushed[1].props.model_identity).toBe('whisper-base.en');
+    });
+});
+
+describe('AHT-01/04: a cancelled acquisition is a lifecycle outcome, not a failure', () => {
+    it('emits private_model_acquisition_cancelled, content-free, with no error code', () => {
+        markIdentitySettled();
+        recordAcquisitionCancelled(SUBJECT, 'hit', 1234);
+        const e = pushed.find((p) => p.name === 'private_model_acquisition_cancelled')!;
+        expect(e).toBeDefined();
+        expect(e.props).toMatchObject({ outcome: 'cancelled', cache_result: 'hit', total_ms: 1234 });
+        expect(e.props).not.toHaveProperty('error_code');
+        expect(pushed.some((p) => p.name === 'private_model_acquisition_failure')).toBe(false);
     });
 });

@@ -61,6 +61,8 @@ describe('fatalSignalOf — an unexpected failure, refusal or forbidden recordin
         expect(fatalSignalOf(ev('session_start_latency_measured', { outcome: 'failed' }), NONE)).toBe('start_failed');
         expect(fatalSignalOf(ev('recording_start_failed', { runtime_state: 'INITIATING' }), NONE)).toBe('start_failed');
         expect(fatalSignalOf(ev('private_model_acquisition_failure'), NONE)).toBe('model_failed');
+        // AHT-01/04: a cancelled acquisition (the user left mid-load) is a lifecycle outcome, never a model failure.
+        expect(fatalSignalOf(ev('private_model_acquisition_cancelled'), NONE)).toBeNull();
         expect(fatalSignalOf(ev('private_model_acquisition_failure'), { allowModelFailure: true })).toBeNull();
     });
 
