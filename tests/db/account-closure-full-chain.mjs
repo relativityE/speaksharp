@@ -59,6 +59,48 @@ export function observeRetirementReleaseCatalog({ sql, root, apply, retain }) {
   }
 }
 
+// Ledger-10 successor: the SAME release contract/query/validator the operational `verify release|edge-release`
+// executable uses, read before (ledger 9, retirement) and after applying 20261112133000 on the disposable stack.
+export function observeAbandonmentReleaseCatalog({ sql, root, apply, retain }) {
+  const receipt = { status: 'INCOMPLETE', profile: 'post-1643-abandonment', negatives: [] };
+  const save = () => retain(globalThis.structuredClone(receipt));
+  const ledger = () => sql(`BEGIN READ ONLY; ${t2ReleaseLedgerQuery()} COMMIT;`);
+  try {
+    const retired = t2ReleaseContract(root, ledger(), { catalogContext: 'native-replay' });
+    assert.equal(retired.profile, 'post-128-retirement', 'abandonment must follow the installed retirement ledger');
+    receipt.before = sql(t2ReleaseSnapshotQuery(retired)).trim().split('\n');
+    assertT2ReleaseSnapshot(retired, receipt.before);
+    save();
+    apply();
+    const contract = t2ReleaseContract(root, ledger(), { catalogContext: 'native-replay' });
+    assert.equal(contract.profile, 'post-1643-abandonment', 'native release stage/ledger differs');
+    receipt.sourcePins = contract.pins;
+    receipt.after = sql(t2ReleaseSnapshotQuery(contract)).trim().split('\n');
+    save();
+    receipt.result = assertT2ReleaseSnapshot(contract, receipt.after);
+    assert.throws(() => assertT2ReleaseSnapshot(retired, receipt.after), /ledger changed|known129|catalog mismatch/);
+    const snapshot = t2ReleaseSnapshotQuery(contract).replace(/^BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;/, '').replace(/COMMIT;\s*$/, '');
+    for (const [name, mutation] of [
+      ['anon-execute', 'GRANT EXECUTE ON FUNCTION public.abandon_recording_start_v1(uuid) TO anon;'],
+      ['service-role-execute', 'GRANT EXECUTE ON FUNCTION public.abandon_recording_start_v1(uuid) TO service_role;'],
+      ['table-readable', 'GRANT SELECT ON public.recording_start_abandonments TO authenticated;'],
+      ['table-rls-disabled', 'ALTER TABLE public.recording_start_abandonments DISABLE ROW LEVEL SECURITY;'],
+      ['security-invoker', 'ALTER FUNCTION public.abandon_recording_start_v1(uuid) SECURITY INVOKER;'],
+      ['known-billing-family', 'CREATE FUNCTION public.settle_account_completion_billing_v1(text) RETURNS boolean LANGUAGE sql AS $$ SELECT true $$;'],
+    ]) {
+      const changed = sql(`BEGIN; ${mutation}\n${snapshot}\nROLLBACK;`).trim().split('\n');
+      assert.throws(() => assertT2ReleaseSnapshot(contract, changed), /catalog mismatch|known129/);
+      receipt.negatives.push({ name, refused: true, rollback: true, rows: changed }); save();
+    }
+    const restored = sql(t2ReleaseSnapshotQuery(contract)).trim().split('\n');
+    assertT2ReleaseSnapshot(contract, restored);
+    assert.deepEqual(restored, receipt.after, 'abandonment catalog negative controls did not restore');
+    receipt.status = 'PASS'; receipt.restored = true; save(); return receipt;
+  } catch (error) {
+    receipt.status = 'FAIL'; receipt.reason = error.message; save(); throw error;
+  }
+}
+
 // Separate post-C1 observations. The historical stage0..6 observer is unchanged.
 // This uses the SAME contract/query/validator as the operational executable.
 export function observeC1ReleaseCatalog({ sql, root, stage, retain }) {
@@ -842,25 +884,39 @@ const BILLING_PROFILE='main-completion-billing-129';
 const RETIREMENT_PROFILE='main-coaching-retirement-129';
 const RETIREMENT_MIGRATION=Object.freeze({name:'20261110173548_account_coaching_local_retirement.sql',version:'20261110173548',
   sha256:'cc3ee4369dec74d2926557128a06265fb3019077b018cdc5dc848f055a6f8e04',stage:'coaching-local-retirement'});
-const MAIN_PROFILES=['main-120','main-u1-121','main-analytics-u1-122','main-t2-account-126','main-t2-fence-127','main-t2-retention-128',BILLING_PROFILE,RETIREMENT_PROFILE];
-const T2_PROFILES=['main-t2-account-126','main-t2-fence-127','main-t2-retention-128',BILLING_PROFILE,RETIREMENT_PROFILE];
+// #1643 start abandonment (ledger 10): the installed retirement profile plus 20261112133000, staged after it.
+const ABANDONMENT_PROFILE='main-start-abandonment-130';
+const MAIN_PROFILES=['main-120','main-u1-121','main-analytics-u1-122','main-t2-account-126','main-t2-fence-127','main-t2-retention-128',BILLING_PROFILE,RETIREMENT_PROFILE,ABANDONMENT_PROFILE];
+const T2_PROFILES=['main-t2-account-126','main-t2-fence-127','main-t2-retention-128',BILLING_PROFILE,RETIREMENT_PROFILE,ABANDONMENT_PROFILE];
 function selectedAdditions(profile) {
   const rows=[...(profile!=='main-120'?[{...MAIN_U1_MIGRATION,stage:'heartbeat-u1'}]:[]),
     ...(['main-analytics-u1-122',...T2_PROFILES].includes(profile)?[{...MAIN_ANALYTICS_MIGRATION,stage:'analytics-observed-rate'}]:[]),
     ...(T2_PROFILES.includes(profile)?MAIN_T2_ACCOUNT_MIGRATIONS:[]),
-    ...(['main-t2-fence-127','main-t2-retention-128',BILLING_PROFILE,RETIREMENT_PROFILE].includes(profile)?[MAIN_T2_FENCE_MIGRATION]:[]),
-    ...(['main-t2-retention-128',BILLING_PROFILE,RETIREMENT_PROFILE].includes(profile)?[MAIN_T2_RETENTION_MIGRATION]:[]),
+    ...(['main-t2-fence-127','main-t2-retention-128',BILLING_PROFILE,RETIREMENT_PROFILE,ABANDONMENT_PROFILE].includes(profile)?[MAIN_T2_FENCE_MIGRATION]:[]),
+    ...(['main-t2-retention-128',BILLING_PROFILE,RETIREMENT_PROFILE,ABANDONMENT_PROFILE].includes(profile)?[MAIN_T2_RETENTION_MIGRATION]:[]),
     ...(profile===BILLING_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION]:[]),
-    ...(profile===RETIREMENT_PROFILE?[RETIREMENT_MIGRATION]:[])];
+    ...([RETIREMENT_PROFILE,ABANDONMENT_PROFILE].includes(profile)?[RETIREMENT_MIGRATION]:[]),
+    ...(profile===ABANDONMENT_PROFILE?[{...START_ABANDONMENT_MIGRATION,stage:'start-abandonment'}]:[])];
   return rows.sort((a,b)=>a.name.localeCompare(b.name,'en'));
 }
 const MAIN_DRAIN = '20261016180000_account_closure_drain_enforcement.sql';
 const MAIN_RECOVERY = '20261017200000_checkout_rejection_recovery.sql';
 // Reviewed repository presence only. These bytes are NOT part of any historical
 // replay/catalog profile and must never enter its staged directory or ledger.
+const START_ABANDONMENT_MIGRATION=Object.freeze({name:'20261112133000_recording_start_abandonment_1643.sql',
+  version:'20261112133000',sha256:'37bbfd561ef825cae92fa6787adc87f786a97a6c219fc1941572a6dd714e158e'});
+// Reviewed migrations outside the account-closure chain, newer than every profile here: pinned repository
+// inventory that no profile replays, stages or records, the installed retirement profile included.
+export const REVIEWED_UNRELATED_MIGRATIONS=Object.freeze([
+  // #1829 refund follow-up signal (restricted operational table and its writer; Sam's 2026-11-12 decision).
+  Object.freeze({name:'20261112130000_stripe_refund_followups.sql',version:'20261112130000',
+    sha256:'47fce28446a1e8f56c27dd10a6bb92e803a5907db0fd9d7fa67cbf11f9701fe8'}),
+]);
 export const REVIEWED_WITHHELD_MIGRATIONS=Object.freeze([
+  START_ABANDONMENT_MIGRATION,
   Object.freeze({name:'20261110173548_account_coaching_local_retirement.sql',version:'20261110173548',
     sha256:'cc3ee4369dec74d2926557128a06265fb3019077b018cdc5dc848f055a6f8e04'}),
+  ...REVIEWED_UNRELATED_MIGRATIONS,
 ]);
 
 export function parseMainProofArguments(args) {
@@ -888,7 +944,10 @@ export function buildMainU1ReplayPlan(rows, profile = 'main-120') {
   assert.equal(new Set(actual.map(row => row.name)).size, actual.length, 'duplicate migration name');
   const repositoryVersioned = actual.filter(row => row.version !== null);
   assert.equal(new Set(repositoryVersioned.map(row => row.version)).size, repositoryVersioned.length, 'duplicate migration version');
-  const withheldPins=profile===RETIREMENT_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION]:REVIEWED_WITHHELD_MIGRATIONS;
+  const withheldPins=profile===RETIREMENT_PROFILE
+    ?[MAIN_COMPLETION_BILLING_MIGRATION,START_ABANDONMENT_MIGRATION,...REVIEWED_UNRELATED_MIGRATIONS]
+    :profile===ABANDONMENT_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION,...REVIEWED_UNRELATED_MIGRATIONS]
+    :REVIEWED_WITHHELD_MIGRATIONS;
   const withheld=actual.filter(row=>withheldPins.some(pin=>pin.name===row.name));
   for(const row of withheld) assert.equal(row.sha256,withheldPins.find(pin=>pin.name===row.name).sha256,
     'reviewed withheld migration digest changed: '+row.name);
@@ -903,7 +962,7 @@ export function buildMainU1ReplayPlan(rows, profile = 'main-120') {
   }
   for (const row of expected) assert.ok(replay.some(value => value.name === row.name), 'reviewed migration missing: ' + row.name);
   const history = excluded => versioned.filter(row => !excluded.includes(row.name)).map(row => row.version);
-  const late=[MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name,RETIREMENT_MIGRATION.name];
+  const late=[MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name,RETIREMENT_MIGRATION.name,START_ABANDONMENT_MIGRATION.name];
   const stages = [
     { name: 'baseline-before-drain', versions: history([MAIN_DRAIN, MAIN_RECOVERY, ...late]) },
     { name: 'drain-enforcement', versions: history([MAIN_RECOVERY, ...late]) },
@@ -935,7 +994,8 @@ export function runMainClosureProof() {
   const migrations = manifest.filter(row=>row.version!==null&&plan.replayFiles.includes(row.name));
   const completeT2=T2_PROFILES.includes(args.profile);
   const billingT2=args.profile===BILLING_PROFILE;
-  const retirementT2=args.profile===RETIREMENT_PROFILE;
+  const abandonmentT2=args.profile===ABANDONMENT_PROFILE;
+  const retirementT2=args.profile===RETIREMENT_PROFILE||abandonmentT2;
   const retentionT2=args.profile==='main-t2-retention-128'||billingT2||retirementT2;
   const fenceT2=args.profile==='main-t2-fence-127'||retentionT2;
   const hasAnalytics=['main-analytics-u1-122',...T2_PROFILES].includes(args.profile);
@@ -1031,7 +1091,7 @@ export function runMainClosureProof() {
     // Supported CLI selector; fresh staging only, never an installed/project DB.
     mkdirSync(join(directory, '.temp'), { recursive: true });
     writeFileSync(join(directory, '.temp', 'postgres-version'), postgresVersion);
-    for (const file of plan.replayFiles.filter((name) => ![candidate,recovery,MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name,RETIREMENT_MIGRATION.name].includes(name))) cpSync(join(root, file), join(directory, 'migrations', file));
+    for (const file of plan.replayFiles.filter((name) => ![candidate,recovery,MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name,RETIREMENT_MIGRATION.name,START_ABANDONMENT_MIGRATION.name].includes(name))) cpSync(join(root, file), join(directory, 'migrations', file));
     // Internal-only bridges do not publish the localhost DB port used by the
     // pinned CLI. Use a loopback-published bridge with an owned egress DROP rule
     // established before starting any database/service container instead.
@@ -1324,9 +1384,18 @@ export function runMainClosureProof() {
         apply: () => {
           cpSync(join(root,RETIREMENT_MIGRATION.name),join(directory,'migrations',RETIREMENT_MIGRATION.name));
           cli(['migration','up','--local']);
-          assert.deepEqual(history(),plan.stages.at(-1).versions,'retirement installed ledger differs');
+          assert.deepEqual(history(),plan.stages.find(row=>row.name===RETIREMENT_MIGRATION.stage).versions,'retirement installed ledger differs');
         },
         retain: receipt => writeFileSync(join(evidence,'retirement-installed-catalog.json'),JSON.stringify(receipt,null,2)) });
+    }
+    if(abandonmentT2) {
+      observeAbandonmentReleaseCatalog({ sql, root: process.cwd(),
+        apply: () => {
+          cpSync(join(root,START_ABANDONMENT_MIGRATION.name),join(directory,'migrations',START_ABANDONMENT_MIGRATION.name));
+          cli(['migration','up','--local']);
+          assert.deepEqual(history(),plan.stages.at(-1).versions,'start-abandonment installed ledger differs');
+        },
+        retain: receipt => writeFileSync(join(evidence,'abandonment-installed-catalog.json'),JSON.stringify(receipt,null,2)) });
     }
     assert.deepEqual(history(),plan.stages.at(-1).versions,'historical final ledger differs from replay profile');
     for(const row of plan.withheld) assert.equal(existsSync(join(directory,'migrations',row.name)),false,'withheld migration was staged');
@@ -1334,6 +1403,9 @@ export function runMainClosureProof() {
       WHERE n.nspname='public' AND p.proname IN ('finish_account_coaching_local_v1','fence_account_coaching_expired_v1'))
       AND to_regclass('public.account_coaching_local_fences') IS NULL
       AND to_regclass('public.account_coaching_expiry_fences') IS NULL;`),'t','withheld retirement catalog must remain absent');
+    if(!abandonmentT2) assert.equal(sql(`SELECT NOT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+      WHERE n.nspname='public' AND p.proname='abandon_recording_start_v1')
+      AND to_regclass('public.recording_start_abandonments') IS NULL;`),'t','withheld start-abandonment catalog must remain absent');
   } catch (error) {
     primaryError = error;
   } finally {

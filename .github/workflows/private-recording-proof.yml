@@ -69,6 +69,18 @@ jobs:
           LIVE_TEST_EMAIL_DOMAIN: ${{ vars.LIVE_TEST_EMAIL_DOMAIN }}
         run: pnpm exec playwright test tests/live/private-recording-proof.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
 
+      # Post-release existing-account sign-in smoke, bound to the SAME release under test (expect_sha): the ordinary
+      # /practice landing, the rendered account, and the page's own release must equal expect_sha (fail closed).
+      - name: Run existing-account sign-in smoke (bound to expect_sha)
+        env:
+          VITE_USE_LIVE_DB: 'true'
+          VITE_SKIP_MSW: 'true'
+          BASE_URL: ${{ github.event.inputs.base_url }}
+          EXPECT_RELEASE_SHA: ${{ github.event.inputs.expect_sha }}
+          FREE_TEST_EMAIL: ${{ vars.FREE_TEST_EMAIL }}
+          FREE_TEST_PASSWORD: ${{ secrets.FREE_TEST_PASSWORD }}
+        run: pnpm exec playwright test tests/live/auth.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
+
       # P1.4: NO broad report/results/ZIP upload or long retention — the proof emits only content-free
       # console evidence (ids, booleans), and trace/video/screenshots are disabled in the spec's test.use.
       # Nothing credential-bearing is produced, so nothing is uploaded.

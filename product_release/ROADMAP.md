@@ -1,7 +1,7 @@
 **Status:** Authoritative for the bounded current work routing below; wider canonical reconciliation remains open under #1318.
 **Owner:** Product Owner (relativityE)
 **Last Reviewed:** 2026-10-28 — bounded source/component currency correction; independent review and qualification remain required.
-**Last Verified:** 2026-11-05 — source reconciliation baseline `8f9f9451`; component observations, R10 outcome and operational HOLD are recorded only in `RELEASE_STATUS.md`.
+**Last Verified:** 2026-11-12 — source baseline `b9907d62` (through #1830); component observations, deployment identity and operational HOLDs are recorded only in `RELEASE_STATUS.md`.
 **Applies To:** RWT/Alpha, MVP/Beta sequencing and explicitly deferred SpeakSharp work.
 **Class:** Open gap / risk.
 **Authority:** The source for Now / Next / Later / Declined work and implementation order.
@@ -14,7 +14,7 @@
 ## Receiving and acceptance ownership
 
 The [5 November source reconciliation](./RELEASE_STATUS.md#5-november-2026-source-reconciliation-and-r10-hold)
-is the current source-currency receipt for baseline `8f9f9451`. It preserves the open
+is the dated source-currency receipt for the earlier baseline `8f9f9451` (current baseline `b9907d62`). It preserves the open
 acceptance obligations below. Historical queue assignments do not restart writers;
 current file handoffs remain in the owning issue/PR thread.
 
@@ -55,9 +55,9 @@ dated source/release receipt and does not independently verify GitHub or Product
 Routing here grants no deployment, activation or acceptance authority.
 
 <!-- CURRENCY-BLOCK
-baseline: 8f9f9451bb6bf37ba2bca524acd92d933e2b826c
-deployed-release: 4c85b006ac05e180521fd6e7d807f736987cafe8
-verified-on: 2026-10-28
+baseline: b9907d625e6d5b9810050f556d62904baa62982c
+deployed-release: d401349bca036be1f5413fa50faba536fba3ed51
+verified-on: 2026-11-12
 release-blocker: production-journey-recovery
 retention-campaign: off-critical-path
 task-1304-1: merged

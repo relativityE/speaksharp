@@ -46,7 +46,9 @@ function runIdentity(config, transport = spawnSync) {
       transportExit: transportError || !match || response.status !== 0 ? 1 : 0, expectedSha: binding.expectedSha });
     const receipt = { ...parsed, phase: binding.phase, url: binding.url, identityGetsUsed: ledger.state.identityGets, cap: binding.cap };
     ledger.complete(n, receipt);
-    return { exitCode: parsed.result === 'MATCH' ? 0 : 10, receipt };
+    // R10 run 42423408284 : print the COMPLETED ledger record (its reservation number, startedAt and endedAt), the same
+    // record verify_release reads from the ledger, not the pre-completion object; admission keeps it and campaign reuse requires them.
+    return { exitCode: parsed.result === 'MATCH' ? 0 : 10, receipt: { ...ledger.state.receipts[n - 1] } };
   } finally {
     if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
     ledger.release();

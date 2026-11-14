@@ -20,6 +20,11 @@ export const SQL_CONTRACTS=Object.freeze([
   Object.freeze({consumer:SQL_CONSUMER,files:SQL_INPUTS}),
   Object.freeze({consumer:'tests/db/account-coaching-expiry-proposal.integration.test.ts',
     files:Object.freeze(['backend/supabase/migrations/20261110173548_account_coaching_local_retirement.sql'])}),
+  // #1829 refund follow-up signal: the migration runs in PGlite with Supabase's API roles mirrored.
+  Object.freeze({consumer:'tests/unit/stripeRefundFollowups.test.ts',
+    files:Object.freeze(['backend/supabase/migrations/20261112130000_stripe_refund_followups.sql'])}),
+  Object.freeze({consumer:'tests/db/recording-start-abandonment.integration.test.ts',
+    files:Object.freeze(['backend/supabase/migrations/20261112133000_recording_start_abandonment_1643.sql'])}),
 ]);
 export const sqlContract=file=>SQL_CONTRACTS.find(item=>item.files.includes(file));
 export const NATIVE_HELPERS=Object.freeze([
@@ -41,12 +46,19 @@ export const NATIVE_HELPERS=Object.freeze([
   // A change to the R10 preflight script alone must still run its test, including the spawned CLI entry (run 42059286564).
   {file:'tools/cloud-test/scripts/prerequisite_preflight.cjs',consumer:'tools/cloud-test/tests/prerequisite-preflight.test.cjs',
     callables:['prepare','charge'],claim:'actual preflight callables and script entry with a synthetic fetch; hosted step, credentials and Supabase NOT RUN'},
+  // The PO-approved loopback CONNECT egress service (2026-11-08): a change to the script alone must run its controls.
+  {file:'tools/cloud-test/scripts/egress_connect_proxy.cjs',consumer:'tools/cloud-test/tests/egress-connect-proxy.test.cjs',
+    callables:['createProxy','forbiddenAddress','reviewedPolicy'],
+    claim:'actual service callables, the real guard upstreamSocket and the script entry on loopback fixtures; hosted runner and production hosts NOT RUN'},
   // #1760 model comparison runner helpers: the real host-lock barrier, cleanup and launch-ownership code in temporary directories.
   {file:'tests/model-dropin/ownedCleanup.mjs',consumer:'tests/model-dropin/ownedCleanup.node.test.mjs',
     callables:['createCleanupBarrier','awaitOwnedCleanup','launchOwned'],
     claim:'actual cleanup barrier, owned-process cleanup and launch-ownership callables with real child processes; browser and live run NOT RUN'},
   {file:'tests/model-dropin/identityExclusion.mjs',consumer:'tests/model-dropin/identityExclusion.node.test.mjs',
     callables:['assertNotMaintainedIdentity'],claim:'actual maintained-identity refusal with synthetic identifiers; credentials and accounts NOT RUN'},
+  {file:'tools/cloud-test/scripts/resolve_rwt_served_release.mjs',consumer:'tools/cloud-test/tests/rwt_served_release.test.mjs',
+    callables:['resolveRwtServedRelease','verifyRwtServedRelease'],
+    claim:'actual runtime release identity and compatibility guards with mocked production responses and synthetic Git; deployment and live writes NOT RUN'},
 ]);
 const fail=message=>{throw new Error(message);};
 function regular(root,file) {
@@ -213,6 +225,20 @@ const coachingProfiles=Object.freeze([
     'backend/supabase/functions/get-ai-suggestions/providers/types.ts':'f401085b1542bc07b514f793e1b557886ab11f72442313e8c85d89823999d0cb',
     'backend/supabase/functions/get-ai-suggestions/evaluation/prompt.ts':'16d40c6b1500b535bf45e0d1d07699ab509f68879c39586cf8ebd4363c7f92ee',
     'backend/supabase/functions/get-ai-suggestions/evaluation/transcripts.json':'a4db4fdac8c4e2bd6c113d83c87ed458eac6197d99b1ccc747822bfad52b9a1a'}},
+  // #1802: 35 s attempt cap within the unchanged 45 s total provider budget; deterministic handler controls.
+  {id:'coaching-attempt-35s-1802',files:{...coachingClosure,
+    'backend/supabase/functions/get-ai-suggestions/providerRetry.ts':'dff7b40f6755d96f3fb22bcfa739d8fd5214d99e5c402d49a9cabd1a43b6d30f',
+    'package.json':'afaad509e196b4cf0d784a55b47d3f17e51409dcd91d9d7f6a2e341b175eb0ed',
+    'backend/supabase/functions/get-ai-suggestions/index.ts':'6216addf51bbf99e4c961f79b2ebbe9eba4d24bd4527a311c71c3fff747be877',
+    'backend/supabase/functions/get-ai-suggestions/providerDecode.ts':'ecc8034bd53bd6b3b88dcbb981a6bf29be8c85d08cd031d0483e2d083e10d2a2',
+    [coachingTest]:'520b6c61f6640aac7f79cd1b82eddbee115790fcb56b1ca4073c3545046403da',
+    'backend/supabase/functions/get-ai-suggestions/contract.json':'7398a3f7910eaab3d76ee2639989851a59c2b5a95996d99a726108ac33eec4e2',
+    'backend/supabase/functions/get-ai-suggestions/providers/catalog.ts':'59d4a83989239a71085415d9fc3eaa8b3145786db085c8de8abe35cd052eaac1',
+    'backend/supabase/functions/get-ai-suggestions/providers/gemini.ts':'dac0b17ee31b82dcbeaf01b7496013e093246843af56bb7382ae5d40f6f3f963',
+    'backend/supabase/functions/get-ai-suggestions/providers/registry.ts':'e5744505a502ecc525a3604dfa8fa687a03dc18a33b9ef9aa9080d4df12571f7',
+    'backend/supabase/functions/get-ai-suggestions/providers/types.ts':'f401085b1542bc07b514f793e1b557886ab11f72442313e8c85d89823999d0cb',
+    'backend/supabase/functions/get-ai-suggestions/evaluation/prompt.ts':'16d40c6b1500b535bf45e0d1d07699ab509f68879c39586cf8ebd4363c7f92ee',
+    'backend/supabase/functions/get-ai-suggestions/evaluation/transcripts.json':'a4db4fdac8c4e2bd6c113d83c87ed458eac6197d99b1ccc747822bfad52b9a1a'}},
   // #1643: reviewed local retirement handler and tests; all other import/config pins remain unchanged.
   {id:'coaching-local-retirement-1643',files:{...coachingClosure,
     'package.json':'afaad509e196b4cf0d784a55b47d3f17e51409dcd91d9d7f6a2e341b175eb0ed',
@@ -233,6 +259,20 @@ const coachingProfiles=Object.freeze([
     'backend/supabase/functions/get-ai-suggestions/index.ts':'a0d5d30397c08440831f1d25022754886bc16cce75e76309014c435a9096196e',
     'backend/supabase/functions/get-ai-suggestions/providerDecode.ts':'ecc8034bd53bd6b3b88dcbb981a6bf29be8c85d08cd031d0483e2d083e10d2a2',
     [coachingTest]:'6ccd7e9a387aced2745b291ba2ee6dab54feea0196975a0d3d0b36d22e8ccbfc',
+    'backend/supabase/functions/get-ai-suggestions/contract.json':'70c3099769cf24ac4faf3b4c191e322e50a0f1b34228a3aa72199a8f06adbe1b',
+    'backend/supabase/functions/get-ai-suggestions/providers/catalog.ts':'59d4a83989239a71085415d9fc3eaa8b3145786db085c8de8abe35cd052eaac1',
+    'backend/supabase/functions/get-ai-suggestions/providers/gemini.ts':'dac0b17ee31b82dcbeaf01b7496013e093246843af56bb7382ae5d40f6f3f963',
+    'backend/supabase/functions/get-ai-suggestions/providers/registry.ts':'e5744505a502ecc525a3604dfa8fa687a03dc18a33b9ef9aa9080d4df12571f7',
+    'backend/supabase/functions/get-ai-suggestions/providers/types.ts':'f401085b1542bc07b514f793e1b557886ab11f72442313e8c85d89823999d0cb',
+    'backend/supabase/functions/get-ai-suggestions/evaluation/prompt.ts':'16d40c6b1500b535bf45e0d1d07699ab509f68879c39586cf8ebd4363c7f92ee',
+    'backend/supabase/functions/get-ai-suggestions/evaluation/transcripts.json':'a4db4fdac8c4e2bd6c113d83c87ed458eac6197d99b1ccc747822bfad52b9a1a'}},
+  // #1802 revision: 15 s attempt cap on top of the 3.6-flash contract and #1643 handler (main fbd164cd); preserve the historical 35 s profile and all permissions.
+  {id:'coaching-attempt-15s-1802',files:{...coachingClosure,
+    'backend/supabase/functions/get-ai-suggestions/providerRetry.ts':'eda8685f3f005e3cb774c54cadf8a04e43bb483d68c7a31130fd268b06ff7820',
+    'package.json':'afaad509e196b4cf0d784a55b47d3f17e51409dcd91d9d7f6a2e341b175eb0ed',
+    'backend/supabase/functions/get-ai-suggestions/index.ts':'a0d5d30397c08440831f1d25022754886bc16cce75e76309014c435a9096196e',
+    'backend/supabase/functions/get-ai-suggestions/providerDecode.ts':'ecc8034bd53bd6b3b88dcbb981a6bf29be8c85d08cd031d0483e2d083e10d2a2',
+    [coachingTest]:'5b7fc6eddc9e179dc45f478369b2c322ceee199a95c4d8445cc0edeb5c5147be',
     'backend/supabase/functions/get-ai-suggestions/contract.json':'70c3099769cf24ac4faf3b4c191e322e50a0f1b34228a3aa72199a8f06adbe1b',
     'backend/supabase/functions/get-ai-suggestions/providers/catalog.ts':'59d4a83989239a71085415d9fc3eaa8b3145786db085c8de8abe35cd052eaac1',
     'backend/supabase/functions/get-ai-suggestions/providers/gemini.ts':'dac0b17ee31b82dcbeaf01b7496013e093246843af56bb7382ae5d40f6f3f963',

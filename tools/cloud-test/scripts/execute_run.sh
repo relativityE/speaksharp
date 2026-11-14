@@ -12,10 +12,121 @@
 set -euo pipefail
 STAGE="${1:-}"
 blocked() { echo "BLOCKED_SETUP: $*" >&2; exit 78; }
+# a privileged recursive ownership change accepts only canonical roots: absolute, no trailing slash, an existing
+# directory whose realpath is itself (so no component, including the last, is a symlink).
+canonical_dir() { case "$1" in /*/|/) return 1 ;; /*) ;; *) return 1 ;; esac; [ -d "$1" ] && [ ! -L "$1" ] && [ "$(realpath "$1")" = "$1" ]; }
+# the run stage's TERM/INT traps cannot run on SIGKILL (nor after an ignored TERM is followed by KILL), so the run-owned
+# trees can stay root-owned. Internal second half of `recover-ownership`, entered only through sudo: return exactly the canonical run-owned
+# trees, and only once run_stage_quiescence.py finds no stage process left (bounded wait, fail closed, no signal sent). Trees the stage
+# already returned are left alone. Ownership only: no mode, ACL or other tree is touched.
+if [ "$STAGE" = recover-as-root ]; then
+  [ "$(id -u)" = 0 ] && [ "$#" -eq 4 ] || blocked "recover-as-root is internal to the run-stage ownership recovery"
+  owner="$2"; out="$3"; pin="$4"
+  [[ "$owner" =~ ^[1-9][0-9]*:[0-9]+$ ]] || blocked "the recovery owner must be the job user's numeric uid:gid"
+  canonical_dir "$out" || blocked "CT_OUT must be a canonical directory with no symlink component"
+  trees=("$out")
+  case "$pin" in /*) ;; *) blocked "private run inputs must be a canonical directory with no symlink component" ;; esac
+  if [ -e "$pin" ] || [ -L "$pin" ]; then
+    canonical_dir "$pin" || blocked "private run inputs must be a canonical directory with no symlink component"
+    trees+=("$pin")
+  fi
+  foreign="$(find "${trees[@]}" ! -uid "${owner%%:*}" -print -quit)" || blocked "run-owned trees could not be inspected"
+  if [ -z "$foreign" ]; then echo "run-owned trees already returned to the job user"; exit 0; fi
+  quiet=(); for t in "${trees[@]}"; do quiet+=(--tree "$t"); done
+  python3 -I "$(dirname "$0")/run_stage_quiescence.py" "${quiet[@]}" --wait-seconds 90 \
+    || blocked "run-owned trees not returned: a run-stage process may still write into them"
+  chown -R "$owner" "${trees[@]}" || blocked "run outputs could not be returned to the job user"
+  echo "run-owned trees returned to the job user after the run stage stopped"
+  exit 0
+fi
+# Internal second half of the elevated run stage (see below), entered only through sudo. corrections: taking
+# ownership of the run-owned trees must stop the stage when it fails, and returning it must be reported (and fail the stage) when it fails.
+if [ "$STAGE" = run-as-root ]; then
+  [ "$(id -u)" = 0 ] && [ "$#" -eq 4 ] || blocked "run-as-root is internal to the elevated run stage"
+  envfile="$2"; owner="$3"; pin="$4"
+  [ -f "$envfile" ] && [ ! -L "$envfile" ] || blocked "elevated run environment missing"
+  . "$envfile"; rm -f "$envfile"
+  [ -n "${CT_OUT:-}" ] && canonical_dir "$CT_OUT" || blocked "CT_OUT must be a canonical directory with no symlink component"
+  trees=("$CT_OUT")
+  case "$pin" in /*) ;; *) blocked "private run inputs must be a canonical directory with no symlink component" ;; esac
+  if [ -e "$pin" ] || [ -L "$pin" ]; then
+    canonical_dir "$pin" || blocked "private run inputs must be a canonical directory with no symlink component"
+    trees+=("$pin")
+  fi
+  # #1797 review (Codex P1 4518078436): admission's A2.source runs `git -C <tested checkout>` as root with an allowlisted environment
+  # (no SUDO_UID), so Git's sudo owner exception does not apply and a job-user-owned checkout is "dubious ownership" (exit 128) unless
+  # the runner image already trusts it. The stage therefore trusts exactly ONE directory: the verified tested checkout (canonical, no
+  # symlink component, owned by the job user, and its own work-tree top level), added to the system config only when not already
+  # listed, checked the way admission will use it, and removed again on every exit this script controls. No wildcard, no other path.
+  checkout="${CT_CHECKOUT:-}"
+  if [ -n "$checkout" ]; then
+    canonical_dir "$checkout" || blocked "the tested checkout must be a canonical directory with no symlink component"
+    [ -z "$(find "$checkout" -maxdepth 0 ! -uid "${owner%%:*}" -print)" ] || blocked "the tested checkout is not owned by the job user"
+  fi
+  rootgit() { env -u SUDO_UID -u SUDO_GID -u SUDO_USER -u GIT_CONFIG_SYSTEM -u GIT_CONFIG_NOSYSTEM -u GIT_CONFIG_GLOBAL -u GIT_CONFIG_COUNT \
+    -u GIT_CONFIG_PARAMETERS git "$@"; }
+  trusted=""
+  untrust() {
+    [ -n "$trusted" ] || return 0
+    rootgit config --system --fixed-value --unset-all safe.directory "$trusted" \
+      || { echo "BLOCKED_SETUP: the tested checkout's trust could not be removed" >&2; return 1; }
+    trusted=""
+  }
+  give_back() { chown -R "$owner" "${trees[@]}" || { echo "BLOCKED_SETUP: run outputs could not be returned to the job user" >&2; return 1; }; }
+  restore() { local r=0; untrust || r=1; give_back || r=1; return "$r"; }
+  trap 'restore; exit 143' TERM
+  trap 'restore; exit 130' INT
+  if ! chown -R 0:0 "${trees[@]}"; then
+    echo "BLOCKED_SETUP: run-owned trees could not be taken for the root run stage; the stage did not run" >&2
+    restore || exit 78
+    exit 78
+  fi
+  if [ -n "$checkout" ]; then
+    if ! rootgit config --system --fixed-value --get-all safe.directory "$checkout" > /dev/null; then
+      if ! rootgit config --system --add safe.directory "$checkout"; then
+        echo "BLOCKED_SETUP: the tested checkout could not be trusted for the root run stage; the stage did not run" >&2
+        restore || exit 78
+        exit 78
+      fi
+      trusted="$checkout"
+    fi
+    if [ "$(rootgit -C "$checkout" rev-parse --show-toplevel)" != "$checkout" ]; then
+      echo "BLOCKED_SETUP: the tested checkout is not a work tree root git accepts; the stage did not run" >&2
+      restore || exit 78
+      exit 78
+    fi
+  fi
+  rc=0; bash "$0" run || rc=$?
+  if ! restore; then [ "$rc" -ne 0 ] || rc=78; fi
+  exit "$rc"
+fi
+# The job-user entry of the ownership recovery above (workflow step after the run stage, always); only when the run stage was elevated.
+if [ "$STAGE" = recover-ownership ]; then
+  [ "${CT_RUN_STAGE_AS_ROOT:-}" = 1 ] && [ "$(id -u)" != 0 ] || blocked "recover-ownership follows only an elevated run stage, as the job user"
+  [ -n "${CT_OUT:-}" ] || blocked "CT_OUT is required to recover the run-owned trees"
+  private_inputs="${CT_PRIVATE_INPUT_DIR:-${RUNNER_TEMP:-/nonexistent}/run-inputs}"
+  exec sudo -n bash "$0" recover-as-root "$(id -u):$(id -g)" "$CT_OUT" "$private_inputs"
+fi
 case "$STAGE" in
   install-tools|build-plan|stimulus-preflight|build-plan-with-receipt|gate-and-validate|reserve|manual-reserve|run|collect|settle|manual-settle) ;;
   *) blocked "unknown stage $STAGE" ;;
 esac
+# PO 2026-11-06 ("relax the rules ... working release first"): on the ephemeral GitHub-hosted runner the guarded browser lane
+# (root-owned browser copy, setpriv to uid 65534 at every launch) needs root, which the job user has through passwordless sudo.
+# Only the run stage is elevated, only when the workflow asks for it. Its environment moves through a 0600 file that is deleted as soon
+# as it is loaded, and ownership of the run outputs returns to the job user on any exit, so collect/timing/settle can read them.
+if [ "$STAGE" = run ] && [ "${CT_RUN_STAGE_AS_ROOT:-}" = 1 ] && [ "$(id -u)" != 0 ]; then
+  [ -n "${CT_OUT:-}" ] && [ -d "$CT_OUT" ] || blocked "CT_OUT is required to elevate the run stage"
+  envfile="$(mktemp "${RUNNER_TEMP:-/tmp}/run-stage-env.XXXXXX")"; chmod 600 "$envfile"
+  export -p > "$envfile"
+  # R10 run 42386714252 (A7 "identity receipt unavailable"): the harness's private-state checks (identity-core assertPrivateDir/File,
+  # campaign-runner privateDir, with-authenticated-evidence privateJson, producer directories) require the run's own private outputs to be
+  # owned by the process that reads them. They were created by the job user in earlier stages, so the root run stage first takes ownership
+  # of exactly those run-owned trees ($CT_OUT and the private run inputs) in run-as-root above, and returns both to the job user after the
+  # stage or on INT/TERM; a failed take stops the stage, a failed return is reported and fails it.
+  private_inputs="${CT_PRIVATE_INPUT_DIR:-${RUNNER_TEMP:-/nonexistent}/run-inputs}"
+  exec sudo -n bash "$0" run-as-root "$envfile" "$(id -u):$(id -g)" "$private_inputs"
+fi
 [ -z "${SUPABASE_SECRET_KEY:-}" ] || blocked "SUPABASE_SECRET_KEY is present; forbidden"
 [ -z "${STRIPE_SECRET_KEY:-}" ] || blocked "STRIPE_SECRET_KEY is present; forbidden"
 ss_broker_service_role="${SUPABASE_SERVICE_ROLE_KEY:-}"
@@ -65,7 +176,7 @@ run_stage() {
   for n in CT_OUT CT_REQUEST CT_REQUEST_SHA256 CT_CONFIG CT_PRIOR_STATE CT_HISTORY_INDEX CT_COUNTERS CT_APPROVAL CT_GAP_LEDGER CT_RECEIPTS_ROOT CT_RESERVATIONS CT_OFFLINE_CHECKS CT_OFFLINE_PROOF CT_RETAINED_GATE_MANIFEST CT_STATE_REPO CT_STATE_JOURNAL_RESERVE CT_STATE_JOURNAL_SETTLE CT_ACCOUNTING_BOOTSTRAP CT_PERIOD_SCOPE CT_CHECKOUT CT_FACTS_FILE CT_LIVE_ACCOUNTS_FILE CT_LIVE_ACCOUNTS_SHA256 CT_ACCOUNT_BINDINGS_FILE CT_PRIVATE_INPUT_DIR CT_PREREQUISITE_RECEIPT CT_TASK_ID CT_SOURCE_REFERENCE CT_ENV_ID CT_MEDIA_PARENT CT_CHROME CT_BROWSER_RECEIPT CT_SETUP_MODE CT_SOURCE_SHA CT_EXECUTION_RUN_ID CT_EXISTING_PDFJS_DIR CT_EXISTING_DEPENDENCY_ROOT PLAYWRIGHT_BROWSERS_PATH HTTPS_PROXY HTTP_PROXY NO_PROXY SSL_CERT_FILE NODE_EXTRA_CA_CERTS; do
     [ -z "${!n:-}" ] || e+=("$n=${!n}")
   done
-  for n in CT_EVIDENCE_SCOPE_FILE CT_EVIDENCE_SCOPE_SHA256; do
+  for n in CT_EVIDENCE_SCOPE_FILE CT_EVIDENCE_SCOPE_SHA256 CT_RESERVATION_BINDING_FILE CT_RESERVATION_BINDING_SHA256; do
     [ -z "${!n:-}" ] || e+=("$n=${!n}")
   done
   if [[ "$ROUTE" == github-* ]]; then
@@ -81,15 +192,24 @@ run_stage() {
     [ -z "$ss_broker_service_role" ] || e+=("SUPABASE_SERVICE_ROLE_KEY=$ss_broker_service_role")
     [ -z "$ss_broker_telemetry_key" ] || e+=("POSTHOG_PERSONAL_API_KEY=$ss_broker_telemetry_key")
     # Shell builtins keep privileged values out of an external env command's argv.
+    local t0 rc=0; t0="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     (
       for n in $(compgen -e); do export -n "$n"; done
       export "${e[@]}"
       exec "$@"
-    )
-    return
+    ) || rc=$?
+    # Content-free stage timing (the reviewer M2 / run 42142985744): stage, start and end UTC, exit code; never a value, path or argument.
+    # Scope : the WRAPPED command only. A refusal raised before it (stage-environment checks, BLOCKED_SETUP)
+    # leaves no row, and steps outside this script are not traced; the timing table states this (init_run_inputs.TRACE_SCOPE).
+    [ -z "${OUT:-}" ] || [ ! -d "${OUT:-}" ] || printf '%s\t%s\t%s\t%s\n' "$stage" "$t0" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$rc" >> "$OUT/stage-trace.tsv"
+    return "$rc"
   fi
-  env -i "${e[@]}" "$@"
+  local t0 rc=0; t0="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  env -i "${e[@]}" "$@" || rc=$?
+  [ -z "${OUT:-}" ] || [ ! -d "${OUT:-}" ] || printf '%s\t%s\t%s\t%s\n' "$stage" "$t0" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$rc" >> "$OUT/stage-trace.tsv"
+  return "$rc"
 }
+
 
 playwright_identity() {
   local selected="${CT_EXISTING_DEPENDENCY_ROOT:-${CT_CHECKOUT:-}}"
@@ -136,8 +256,11 @@ require_runtime_inputs() {
 
 plan_env_file() {
   [ -f "$OUT/reconciliation.json" ] || blocked "reconciliation.json is required before plan construction"
+  # The run's one execution deadline (init step output): plan, guard policy, admission and producer scope all bind it.
+  [ -n "${CT_EXECUTION_DEADLINE:-}" ] || blocked "CT_EXECUTION_DEADLINE (the run's one execution deadline) is required"
   python3 -I "$ROOT/scripts/run_env.py" --request "$REQ" --request-sha256 "$CT_REQUEST_SHA256" \
-    --reconciliation "$OUT/reconciliation.json" --out "$OUT/plan-env.txt" >/dev/null
+    --reconciliation "$OUT/reconciliation.json" --execution-deadline "$CT_EXECUTION_DEADLINE" --out "$OUT/plan-env.txt" \
+    ${CT_RESERVATION_BINDING_FILE:+--reservation-binding "$CT_RESERVATION_BINDING_FILE" --reservation-binding-sha256 "${CT_RESERVATION_BINDING_SHA256:-}" --execution-run-id "${CT_EXECUTION_RUN_ID:-}" --source-sha "${CT_SOURCE_SHA:-}"} >/dev/null
 }
 
 ensure_account_bindings() {
@@ -249,8 +372,8 @@ case "$STAGE" in
       echo "retained history and plan accepted; current release gates require the genuine admission identity"
       exit 0
     elif [ "$priority" = nightly-regression ]; then
-      # G11 reads the verified state-ref journal the run's reservation is appended to (RETURN 1793572741.370569), not a file ledger;
-      # both gate routes below consume this one snapshot (Sam 1793589877.215059)
+      # G11 reads the verified state-ref journal the run's reservation is appended to (RETURN ), not a file ledger;
+      # both gate routes below consume this one snapshot
       run_stage gate-and-validate python3 -I "$ROOT/scripts/reservations.py" journal-snapshot --out "$OUT/journal-snapshot.json"
       RES_IN="$OUT/journal-snapshot.json"
     fi
@@ -335,6 +458,13 @@ case "$STAGE" in
       admission_dir="$OUT/plan/run/admission"
       admission_file="$admission_dir/admission-receipt.json"
       admission_config="$(python3 -I "$ROOT/scripts/cfg_get.py" "$planfile" admissionConfigFile)" || blocked "campaign admission config cannot be read"
+      # R10 run 42318728005 (A6 S12 ENOENT): in the elevated run stage, create-only prepare the plan's own approved
+      # private-media parent, which media-private.cjs requires to already exist root-owned 0711. Before admission; never modifies a node.
+      if [ "$(id -u)" = 0 ]; then
+        media_parent="$(python3 -I "$ROOT/scripts/cfg_get.py" "$admission_config" privateMediaParent)" || blocked "admission privateMediaParent cannot be read"
+        python3 -I "$ROOT/scripts/prepare_media_parent.py" --parent "$media_parent" --expected "${CT_MEDIA_PARENT:-/var/tmp/ss-media-cloud-test}" \
+          || blocked "approved private media parent could not be prepared"
+      fi
       run_stage run node "$HP/bundle/harness/admission.cjs" --bundle "$HP/bundle" --config "$admission_config" --out "$admission_dir" --execute-r0 true
       [ -f "$admission_file" ] && [ ! -L "$admission_file" ] || blocked "genuine admission receipt unavailable"
       admission_sha="$(sha256sum "$admission_file" | cut -d' ' -f1)"
@@ -360,6 +490,10 @@ case "$STAGE" in
         --request "$REQ" --config "$CFG" --out-dir "$accepted" --journal-snapshot "$RES_IN" \
         --occurrence-reconciliation "$OUT/reconciliation.json" --occurrence-release-verification "$OUT/release-verification.json"
       cmp -s "$accepted/reconciliation.json" "$OUT/reconciliation.json" || blocked "retained receiver and builder do not share the same accepted rollup"
+      # the reviewer RETURN : the plan's reservation binding is recomputed from the receiver-authenticated events, never trusted as written.
+      run_stage gate-and-validate python3 -I "$ROOT/scripts/reservation_runtime_check.py" check-plan --plan "$planfile" --plan-sha256 "$psha" \
+        --journal-snapshot "$RES_IN" --reconciliation "$OUT/reconciliation.json" --request "$REQ" --request-sha256 "$CT_REQUEST_SHA256" \
+        --source-sha "${CT_SOURCE_SHA:-}" --run-id "${GITHUB_RUN_ID:-}" --attempt "${GITHUB_RUN_ATTEMPT:-}" --repo "$REPO"
       retained_args=()
       [ -n "${CT_PRIOR_STATE:-}" ] && retained_args+=(--prior-state "$CT_PRIOR_STATE")
       [ -n "${CT_APPROVAL:-}" ] && retained_args+=(--approval "$CT_APPROVAL")
@@ -381,6 +515,9 @@ case "$STAGE" in
       run_stage gate-and-validate node "$ROOT/tests/node/plan-acceptance.cjs" "$HP" "$planfile" ${CAT[@]+"${CAT[@]}"}
       reuse_args=(--admission-receipt "$admission_file" --admission-receipt-sha256 "$admission_sha")
     fi
+    # One more read through the approved path immediately before the campaign: same head, this run's reserve still the open last event.
+    run_stage gate-and-validate python3 -I "$ROOT/scripts/reservation_runtime_check.py" pre-start --plan "$planfile" --plan-sha256 "$psha" \
+      --request-sha256 "$CT_REQUEST_SHA256" --run-id "${GITHUB_RUN_ID:-}" --attempt "${GITHUB_RUN_ATTEMPT:-}"
     if [ "$ROUTE" = github-producer ]; then
       scopefile="$OUT/plan/producer-scope.json"
       [ -f "$scopefile" ] || blocked "prepared bound producer scope missing"
@@ -397,6 +534,7 @@ case "$STAGE" in
     printf '{"os":"%s","nodeVersion":"%s","taskId":"%s"}\n' "$(uname -sr)" "$(node -v)" "${CT_TASK_ID:-}" > "$OUT/runner.json"
     run_stage collect python3 -I "$ROOT/scripts/collect_run_record.py" --request "$REQ" --request-sha256 "$CT_REQUEST_SHA256" --execution-run-id "$execution_run_id" --attempt "$attempt" \
       --case-results "$OUT/plan/run/case-results.json" --cases-dir "$OUT/plan/run/cases" --ledger-dir "$OUT/plan/ledgers" \
+      --admission-receipt "$OUT/plan/run/admission/admission-receipt.json" ${CT_PREREQUISITE_RECEIPT:+--prerequisite-receipt "$CT_PREREQUISITE_RECEIPT"} ${CT_SOURCE_SHA:+--source-sha "$CT_SOURCE_SHA"} \
       --gate-status "$OUT/final-gates/gate-status.json" --workflow "$ROOT/workflow.json" --runner-json "$OUT/runner.json" --started-utc "$started" --ended-utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --out "$OUT/run-record.json" ;;
   manual-settle)
     [ -f "$OUT/run-record.json" ] || blocked "a completed collector run record is required before settle"
