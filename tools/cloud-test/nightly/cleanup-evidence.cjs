@@ -29,6 +29,11 @@ const VERIFICATION_KINDS = Object.freeze(['zero-residue', 'nothing-created']);
  *   - `nothing-created`: the journey created nothing to clean, so it records no step and nothing left.
  * Missing verification, an unobserved count, a non-zero count, an unqueried kind or a contradictory claim leaves the
  * journey incomplete, so `admitRun` refuses the next run until a recovery is recorded.
+ *
+ * `created` (when given) is what the RUNNER recorded creating or attempting to create, before the send (Sam, 14 Nov:
+ * an omitted resource must not look clean). It binds the teardown's own report: every created resource needs a
+ * completed cleanup step for that exact resource, the residue verification must query every created kind, and
+ * `nothing-created` is refused when anything was created.
  */
 function unprovenCleanup(j) {
     const reasons = [];
@@ -38,6 +43,11 @@ function unprovenCleanup(j) {
         reasons.push(`${j.left.length} resource(s) left behind`);
     if (j.steps.some((s) => s.outcome !== 'done'))
         reasons.push('a cleanup step did not complete');
+    const created = j.created ?? [];
+    for (const r of created) {
+        if (!j.steps.some((s) => s.kind === r.kind && s.ref === r.ref && s.outcome === 'done'))
+            reasons.push(`created ${r.kind} ${r.ref} has no completed cleanup step`);
+    }
     const v = j.verification;
     if (v === undefined) {
         reasons.push('no residue verification recorded');
@@ -45,6 +55,8 @@ function unprovenCleanup(j) {
     else if (v.kind === 'nothing-created') {
         if (j.steps.length > 0 || j.left.length > 0)
             reasons.push('nothing-created claimed, but cleanup steps or leftovers were recorded');
+        if (created.length > 0)
+            reasons.push(`nothing-created claimed, but the runner recorded creating ${created.length} resource(s)`);
     }
     else {
         if (v.queries.length === 0)
@@ -56,7 +68,7 @@ function unprovenCleanup(j) {
                 reasons.push(`residue query for ${q.kind} ${q.scope} found ${q.count}`);
         }
         const queried = new Set(v.queries.map((q) => q.kind));
-        for (const kind of new Set([...j.steps, ...j.left].map((r) => r.kind))) {
+        for (const kind of new Set([...j.steps, ...j.left, ...created].map((r) => r.kind))) {
             if (!queried.has(kind))
                 reasons.push(`no residue query for ${kind}`);
         }
@@ -155,10 +167,14 @@ function beginRun(dir, runId, journeys, at = new Date().toISOString()) {
  * journey incomplete whatever the caller says. A malformed entry is refused rather than written, because evidence
  * that can't be read can't be recovered from.
  */
-function writeCleanupEvidence(dir, runId, journeys, { cleanupExhausted, at = new Date().toISOString() } = {}) {
+function writeCleanupEvidence(dir, runId, journeys, { cleanupExhausted, runFaults = [], at = new Date().toISOString() } = {}) {
     checkRunId(runId);
     if (typeof cleanupExhausted !== 'function')
         throw new Error('cleanup evidence needs the run budget\'s cleanupExhausted');
+    // A fault of the whole run (the budget journal torn or unreadable) can hide an unrecorded send, so no journey's
+    // cleanup is proven complete under it, whatever its own record says.
+    if (!Array.isArray(runFaults) || !runFaults.every((f) => typeof f === 'string' && f.length > 0))
+        throw new Error('runFaults must be a list of reasons');
     let started;
     try {
         started = JSON.parse(fs.readFileSync(runFile(dir, runId, 'started'), 'utf8'));
@@ -177,6 +193,8 @@ function writeCleanupEvidence(dir, runId, journeys, { cleanupExhausted, at = new
             throw new Error(`${j.journey}: a cleanup step is malformed`);
         if (!j.left.every(res))
             throw new Error(`${j.journey}: a resource left behind is malformed`);
+        if (j.created !== undefined && (!Array.isArray(j.created) || !j.created.every(res)))
+            throw new Error(`${j.journey}: a created resource is malformed`);
         const v = j.verification;
         if (v !== undefined && (!v || typeof v !== 'object' || !VERIFICATION_KINDS.includes(v.kind)
             || (v.kind === 'zero-residue' && (!Array.isArray(v.queries)
@@ -187,7 +205,7 @@ function writeCleanupEvidence(dir, runId, journeys, { cleanupExhausted, at = new
     if (JSON.stringify(named) !== JSON.stringify(started.journeys))
         throw new Error(`cleanup evidence names ${named.join(', ') || 'no journey'}, but the run started with ${(started.journeys ?? []).join(', ') || 'none'}`);
     const checked = journeys.map((j) => ({ ...j, reserveExhausted: j.reserveExhausted || cleanupExhausted(j.journey) !== false }));
-    const reasons = Object.fromEntries(checked.map((j) => [j.journey, unprovenCleanup(j)]).filter(([, r]) => r.length > 0));
+    const reasons = Object.fromEntries(checked.map((j) => [j.journey, [...runFaults, ...unprovenCleanup(j)]]).filter(([, r]) => r.length > 0));
     const incomplete = checked.filter((j) => reasons[j.journey]);
     const doc = {
         runId, writtenAt: at, cleanup: incomplete.length > 0 ? 'incomplete' : 'complete',

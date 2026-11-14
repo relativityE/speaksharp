@@ -1353,6 +1353,102 @@
       "find": "    return Math.ceil(Number((count * pricePerUnitUsd * 100).toFixed(6))) / 100;\n",
       "replace": "    return Math.round(count * pricePerUnitUsd * 100) / 100;\n",
       "test": "tests/limits.test.cjs"
+    },
+    {
+      "id": "P10-bridge-j2-admitted",
+      "guards": "a run naming J2 (no reviewed cleanup) is refused before anything is planned or sent",
+      "file": "runner-bridge.cjs",
+      "find": "                    if (e instanceof CleanupUndefined)\n                        throw new RunRefused(`${leg} is named, but ${e.message}`);\n",
+      "replace": "                    if (e instanceof CleanupUndefined)\n                        continue;\n",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-bridge-admit-before-plan",
+      "guards": "the run budget is planned and the start recorded before the harness admission",
+      "file": "runner-bridge.cjs",
+      "find": "            if (budget)\n                throw new Error('nightly: the run was already admitted');\n",
+      "replace": "            if (budget)\n                throw new Error('nightly: the run was already admitted');\n            await io.admit(...args);\n",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-bridge-send-unreserved",
+      "guards": "every ordinary send leaves only through its reservation",
+      "file": "runner-bridge.cjs",
+      "find": "                send: async (leg, kind, action) => { own(leg); return budget.send(leg, kind, action); },\n",
+      "replace": "                send: async (leg, kind, action) => { own(leg); return { sent: true, value: await action() }; },\n",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-bridge-cleanup-unreserved",
+      "guards": "every cleanup request draws on the journey's protected reserve",
+      "file": "runner-bridge.cjs",
+      "find": "                cleanup: async (leg, action) => { own(leg); return budget.send(leg, CLEANUP, action); },\n",
+      "replace": "                cleanup: async (leg, action) => { own(leg); return { sent: true, value: await action() }; },\n",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-bridge-torn-not-fault",
+      "guards": "a torn budget journal makes every journey's cleanup incomplete",
+      "file": "runner-bridge.cjs",
+      "find": "                    : torn > 0 ? [`${torn} run budget journal write(s) were cut short`] : [];\n",
+      "replace": "                    : [];\n",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-bridge-unverified-journey-assumed",
+      "guards": "a journey no case accounted for is written unverified, never complete",
+      "file": "runner-bridge.cjs",
+      "find": "    if (parts.length === 0 || parts.some((p) => p.verification === undefined))\n",
+      "replace": "    if (parts.length === 0)\n",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-bridge-no-evidence",
+      "guards": "the run's cleanup evidence is written on save",
+      "file": "runner-bridge.cjs",
+      "find": "                evidence = writeCleanupEvidence(opts.evidenceDir, opts.runId, entries, { cleanupExhausted: (j) => budget.cleanupExhausted(j), runFaults });\n",
+      "replace": "                evidence = { cleanup: 'complete', incompleteJourneys: [], incompleteReasons: {} };\n",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-evidence-run-fault-ignored",
+      "guards": "a run fault marks every journey incomplete",
+      "file": "cleanup-evidence.cjs",
+      "find": "[j.journey, [...runFaults, ...unprovenCleanup(j)]]",
+      "replace": "[j.journey, [...unprovenCleanup(j)]]",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-created-step-unchecked",
+      "guards": "every resource the runner created needs a completed cleanup step for that exact resource",
+      "file": "cleanup-evidence.cjs",
+      "find": "            reasons.push(`created ${r.kind} ${r.ref} has no completed cleanup step`);\n",
+      "replace": "            void r;\n",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-created-nothing-claim",
+      "guards": "nothing-created is refused when the runner recorded a creation",
+      "file": "cleanup-evidence.cjs",
+      "find": "            reasons.push(`nothing-created claimed, but the runner recorded creating ${created.length} resource(s)`);\n",
+      "replace": "            void created;\n",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-created-kind-unqueried",
+      "guards": "the residue verification must query every created kind",
+      "file": "cleanup-evidence.cjs",
+      "find": "new Set([...j.steps, ...j.left, ...created].map((r) => r.kind))",
+      "replace": "new Set([...j.steps, ...j.left].map((r) => r.kind))",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-bridge-created-not-recorded",
+      "guards": "the runner's creation record, not the teardown report, is written to the evidence",
+      "file": "runner-bridge.cjs",
+      "find": "                    created: createdByJourney.get(journey) ?? [],\n",
+      "replace": "",
+      "test": "tests/runner-bridge.test.cjs"
     }
   ]
 }
