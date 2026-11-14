@@ -105,7 +105,7 @@ const feedbackFenceProfile = 'main-feedback-fence-131';
 test('feedback-fence delta covers exactly its source-defined functions, created table and write trigger', () => {
   const source = readFileSync(new URL('20261114100000_rwt_feedback_fence_1811.sql', directory), 'utf8');
   const keys = functionDefinitions(source).map(fn => `function:${fn.signature.replaceAll(',', ', ')}`);
-  assert.equal(keys.length, 4);
+  assert.equal(keys.length, 5);
   keys.push(...[...source.matchAll(/CREATE TABLE public\.([a-z_0-9]+)/g)].map(match => `table:public.${match[1]}`));
   keys.push(...[...source.matchAll(/CREATE TRIGGER ([a-z_0-9]+)\s+BEFORE INSERT ON public\.([a-z_0-9]+)/g)]
     .map(match => `trigger:public.${match[2]}.${match[1]}`));

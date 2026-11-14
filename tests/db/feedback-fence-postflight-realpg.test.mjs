@@ -108,6 +108,8 @@ test('feedback fence exact pre/postflight over the real report chain', async (t)
           'REVOKE EXECUTE ON FUNCTION public.clean_rwt_feedback_fence_v1(text) FROM PUBLIC', /RPC ACL differs/],
         ['REVOKE EXECUTE ON FUNCTION public.close_rwt_feedback_fence_v1(text) FROM service_role',
           'GRANT EXECUTE ON FUNCTION public.close_rwt_feedback_fence_v1(text) TO service_role', /RPC ACL differs/],
+        ['GRANT EXECUTE ON FUNCTION public.verify_rwt_feedback_fence_v1(text) TO anon',
+          'REVOKE EXECUTE ON FUNCTION public.verify_rwt_feedback_fence_v1(text) FROM anon', /RPC ACL differs/],
         ['GRANT EXECUTE ON FUNCTION public._rwt_feedback_fence_v1() TO authenticated',
           'REVOKE EXECUTE ON FUNCTION public._rwt_feedback_fence_v1() FROM authenticated', /trigger function ACL differs/],
         ['GRANT SELECT ON public.rwt_feedback_fences TO authenticated',

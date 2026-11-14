@@ -1,4 +1,4 @@
--- #1811 AHT-02/07/08 recoverable feedback writes: a transactional run fence on user_issue_reports.
+-- #1811 AHT-01/02/07/08 recoverable feedback writes: a transactional run fence on user_issue_reports.
 --
 -- A live journey's disposable, run-owned account (app_metadata.ct_run, written only by the service role) may submit feedback.
 -- Without this fence a runner lost mid-journey can leave reports the run cannot name. The fence makes the database itself the
@@ -8,18 +8,22 @@
 --   * write — every report the fenced account inserts takes the fence row lock, is refused once the fence is closed or past its
 --             key cap or unkeyed, and has its id and idempotency key recorded IN THE SAME TRANSACTION (committed report ⇔ recorded);
 --   * close — takes the same row lock, so it waits for every in-flight insert of that account, then refuses all later ones;
---   * clean — deletes exactly the recorded report ids (still owned by the account or ownerless), then reads them back to zero.
+--   * clean — deletes exactly the recorded report ids (still owned by the account or ownerless), then reads them back to zero;
+--   * verify — a READ-ONLY readback of one fence (exists/state/owner/recorded/remaining/foreign), for the runner's independent
+--             zero check and to recover an uncertain open by its deterministic key instead of reopening (open is not idempotent).
 --             Ownerless covers AHT-02: the product keeps feedback after account deletion (user_id ON DELETE SET NULL), so the
 --             run's own reports survive its account; the fence still names them, and only them.
 -- Accounts without a fence (every real user) are untouched: one indexed lookup, no lock, no change.
 -- No application caller: only the service role reaches the RPCs; the table has no API grants.
 
 CREATE TABLE public.rwt_feedback_fences (
-  run_key text PRIMARY KEY CHECK (run_key ~ '^[0-9]{1,20}-[0-9]{1,4}-AHT-0[278](\+AHT-0[278]){0,2}$'),
+  run_key text PRIMARY KEY CHECK (run_key ~ '^[0-9]{1,20}-[0-9]{1,4}-AHT-0[1278](\+AHT-0[1278]){0,3}$'),
   owner_uid uuid NOT NULL UNIQUE,
-  -- One case, or a consolidated journey's cases in ascending order without repeats (e.g. 'AHT-07+AHT-08').
-  case_id text NOT NULL CHECK (case_id IN ('AHT-02', 'AHT-07', 'AHT-08', 'AHT-02+AHT-07', 'AHT-02+AHT-08', 'AHT-07+AHT-08',
-                                           'AHT-02+AHT-07+AHT-08')),
+  -- The feedback-submitting journeys (Sam, #1859 review): AHT-01, the Focus journey (AHT-02), AHT-07 and AHT-08. One case, or a
+  -- consolidated journey's cases in ascending order without repeats (e.g. 'AHT-07+AHT-08').
+  case_id text NOT NULL CHECK (case_id IN ('AHT-01', 'AHT-02', 'AHT-07', 'AHT-08', 'AHT-01+AHT-02', 'AHT-01+AHT-07', 'AHT-01+AHT-08',
+                                           'AHT-02+AHT-07', 'AHT-02+AHT-08', 'AHT-07+AHT-08', 'AHT-01+AHT-02+AHT-07', 'AHT-01+AHT-02+AHT-08',
+                                           'AHT-01+AHT-07+AHT-08', 'AHT-02+AHT-07+AHT-08', 'AHT-01+AHT-02+AHT-07+AHT-08')),
   run_binding jsonb NOT NULL CHECK (jsonb_typeof(run_binding) = 'object'),
   key_cap integer NOT NULL CHECK (key_cap BETWEEN 1 AND 8),
   report_ids uuid[] NOT NULL DEFAULT '{}',
@@ -129,9 +133,30 @@ BEGIN
     'state', CASE WHEN v_residue = 0 AND v_foreign = 0 THEN 'cleaned' ELSE v_fence.state END);
 END $$;
 
+-- Verify: read-only. Never writes, never locks; reports only counts, the state and the owner for the caller's own comparison.
+CREATE FUNCTION public.verify_rwt_feedback_fence_v1(p_run_key text)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = '' AS $$
+DECLARE
+  v_fence public.rwt_feedback_fences%ROWTYPE;
+  v_remaining integer;
+  v_foreign integer;
+BEGIN
+  SELECT * INTO v_fence FROM public.rwt_feedback_fences WHERE run_key = p_run_key;
+  IF NOT FOUND THEN RETURN jsonb_build_object('exists', false); END IF;
+  SELECT count(*) FILTER (WHERE r.user_id IS NULL OR r.user_id = v_fence.owner_uid),
+         count(*) FILTER (WHERE r.user_id IS NOT NULL AND r.user_id <> v_fence.owner_uid)
+    INTO v_remaining, v_foreign
+    FROM public.user_issue_reports r WHERE r.id = ANY (v_fence.report_ids);
+  RETURN jsonb_build_object('exists', true, 'state', v_fence.state, 'owner', v_fence.owner_uid, 'case', v_fence.case_id,
+    'recorded', cardinality(v_fence.report_ids), 'keys', cardinality(v_fence.report_keys),
+    'remaining', v_remaining, 'foreign', v_foreign);
+END $$;
+
 REVOKE ALL ON FUNCTION public.open_rwt_feedback_fence_v1(uuid, jsonb, text, integer) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.close_rwt_feedback_fence_v1(text) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.clean_rwt_feedback_fence_v1(text) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.verify_rwt_feedback_fence_v1(text) FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.open_rwt_feedback_fence_v1(uuid, jsonb, text, integer) TO service_role;
 GRANT EXECUTE ON FUNCTION public.close_rwt_feedback_fence_v1(text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.clean_rwt_feedback_fence_v1(text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.verify_rwt_feedback_fence_v1(text) TO service_role;

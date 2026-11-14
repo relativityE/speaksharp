@@ -1,4 +1,4 @@
-// Exact catalog-only gate for the #1811 AHT-02/07/08 feedback fence migration (20261114100000). SELECT-only: it never
+// Exact catalog-only gate for the #1811 AHT-01/02/07/08 feedback fence migration (20261114100000). SELECT-only: it never
 // invokes an RPC, reads report or account data, or writes. "before" proves the installed predecessor state and that nothing
 // of the target exists; "after" proves the exact target catalog, the write trigger, and that no other report trigger moved.
 import { createHash } from 'node:crypto';
@@ -13,7 +13,7 @@ const REQUIRED_APPLIED = Object.freeze(['20261112133000']);
 const MUST_REMAIN_PENDING = Object.freeze(['20261027192550', '20261112130000']);
 const TRIGGER_FUNCTION = 'public._rwt_feedback_fence_v1()';
 const RPCS = Object.freeze(['public.open_rwt_feedback_fence_v1(uuid,jsonb,text,integer)',
-  'public.close_rwt_feedback_fence_v1(text)', 'public.clean_rwt_feedback_fence_v1(text)']);
+  'public.close_rwt_feedback_fence_v1(text)', 'public.clean_rwt_feedback_fence_v1(text)', 'public.verify_rwt_feedback_fence_v1(text)']);
 const FUNCTIONS = Object.freeze([TRIGGER_FUNCTION, ...RPCS]);
 const TABLE = 'rwt_feedback_fences';
 const TRIGGER = 'zz_rwt_feedback_fence';
@@ -38,7 +38,7 @@ export function feedbackFenceContract(root, mode, version) {
   return { mode, version, targetSha256: pin.sha256, functions };
 }
 
-/** Four rows, each one JSON value: ledger, the four functions, the fence table, every trigger on user_issue_reports. */
+/** Four rows, each one JSON value: ledger, the five functions, the fence table, every trigger on user_issue_reports. */
 export function feedbackFenceSnapshotQuery() {
   const versions = [...REQUIRED_APPLIED, ...MUST_REMAIN_PENDING, FEEDBACK_FENCE_VERSION].map(literal).join(',');
   const fn = signature => `COALESCE((SELECT json_build_object('exists',true,'md5',md5(p.prosrc),'definer',p.prosecdef,
