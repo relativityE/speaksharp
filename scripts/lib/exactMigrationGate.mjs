@@ -291,6 +291,15 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
         classification: 'staged',
     }),
     Object.freeze({
+        // #1811: the AHT-02/07/08 transactional feedback fence on user_issue_reports. Must follow the start abandonment;
+        // the completion-billing successor and the #1829 refund follow-up stay pending. Exact apply and catalog proof
+        // remain mandatory. No application caller: only the service role reaches its RPCs.
+        version: '20261114100000',
+        file: '20261114100000_rwt_feedback_fence_1811.sql',
+        sha256: '9aa48a5642765beb1c36f305ed62482bca67928d97bd5c1efeb1296e0c79176c',
+        classification: 'staged',
+    }),
+    Object.freeze({
         version: '20260812042000',
         file: '20260812042000_trial_activation_stamp_1282.sql',
         sha256: '41f10614d396769f49236cb355205e80122a969d1784f803d5b127ab8e5cb181',
@@ -366,7 +375,7 @@ export function resolveExactMigrationConfig(env = process.env) {
                 ...EXACT_MIGRATION_ALLOWLIST.slice(targetIndex + 1)
                     .map(({ version, file }) => ({ version, file })),
                 ...(target.version === '20261110173548' ? [RETIREMENT_WITHHELD_BILLING] : []),
-                ...(target.version === '20261112133000' ? [RETIREMENT_WITHHELD_BILLING, ABANDONMENT_WITHHELD_REFUND] : []),
+                ...(['20261112133000', '20261114100000'].includes(target.version) ? [RETIREMENT_WITHHELD_BILLING, ABANDONMENT_WITHHELD_REFUND] : []),
             ],
             allowlisted: true,
         };
@@ -744,6 +753,7 @@ export const TARGET_POSTFLIGHT_GATES = Object.freeze([
     Object.freeze({ id: 'postflight_20261025021046', targetFile: '20261025021046_content_free_retention_evidence' }),
     Object.freeze({ id: 'postflight_20261110173548', targetFile: '20261110173548_account_coaching_local_retirement' }),
     Object.freeze({ id: 'postflight_20261112133000', targetFile: '20261112133000_recording_start_abandonment_1643' }),
+    Object.freeze({ id: 'postflight_20261114100000', targetFile: '20261114100000_rwt_feedback_fence_1811' }),
 ]);
 
 /**

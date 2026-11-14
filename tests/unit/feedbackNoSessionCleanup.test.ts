@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { noSessionWriteUncertainty, type NoSessionInsertSnapshot } from '../live/helpers/feedbackNoSessionCleanup';
+import { NO_SESSION_ATTEMPT_CAP, noSessionWriteDecision, noSessionWriteUncertainty, type NoSessionInsertSnapshot } from '../live/helpers/feedbackNoSessionCleanup';
 import { type ReportCleanupAdmin, captureRunReports, cleanupRunReports, zeroResidueNotRun } from '../live/helpers/feedbackReportCleanup';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -131,53 +131,87 @@ describe('AHT-08 report cleanup over the shared race-safe steps', () => {
     });
 });
 
-describe('AHT-08 spec wiring', () => {
+// #1811 (Sam, #1859 review): AHT-08's one feedback write now sits behind the database feedback fence, which replaces the in-run,
+// memory-only capture/cleanup above (those helpers stay unit-tested here but no longer run in the journey).
+describe('AHT-08 spec wiring (#1811 feedback fence)', () => {
     const start = spec.indexOf("test('No session feedback stores no take or coaching link'");
     const test08 = spec.slice(start);
-    it('the insert observation is delivered in submitFeedback\'s finally, so a submit that throws still reports its key', () => {
-        expect(spec).toMatch(/finally \{\s*inserts\.stop\(\);\s*observers\?\.onInserts\?\.\(/);
-        expect(test08).toContain('onInserts: (inserts) => { insertSnapshot = inserts; }');
-        expect(test08).toContain('storedRows = stored.storedRows;');
+    const at = (needle: string) => { const i = test08.indexOf(needle); expect({ needle, found: i >= 0 }).toEqual({ needle, found: true }); return i; };
+    it('opens the fence (cap one key) and HOLDs before the one submit unless it is confirmed open', () => {
+        const ready = at('if (!ready) return;');
+        const make = at("feedbackFence = new JourneyFeedbackFence(admin as never, 'AHT-08', 1);");
+        const open = at('await feedbackFence.open(owner.uid, currentRunBinding());');
+        const hold = at("receipt.halt('feedback fence open',");
+        const submit = at("const stored = await submitFeedback(page, tap, owner.uid, 'no_session', null, undefined, {");
+        expect([ready < make, make < open, open < hold, hold < submit]).toEqual([true, true, true, true]);
+        expect(test08.slice(hold, submit)).toContain('return;');
     });
-    it('captures BEFORE the account deletion and cleans up AFTER the retention proof, writing zero residue either way', () => {
-        const capture = test08.indexOf("steps.step('feedback report capture'");
-        const deletion = test08.indexOf('finalizeOwnedCleanup(');
-        const cleanup = test08.indexOf("steps.step('feedback report cleanup'");
-        expect(capture).toBeGreaterThan(0);
-        expect(deletion).toBeGreaterThan(capture);
-        expect(cleanup).toBeGreaterThan(deletion);
-        expect(test08.indexOf('finishReceipt(')).toBeGreaterThan(cleanup);
-        expect(test08).toContain('noSessionWriteUncertainty({ submitted: submitWindow !== null, inserts: insertSnapshot, reportId, storedRows })');
-        expect(test08).toContain('if (written !== true) writeZeroResidueRow(receipt, zeroResidueNotRun(capturedReports));');
+    it('closes after every owned page closed, deletes the account with its retention proof, then cleans and verifies zero', () => {
+        const fin = test08.slice(test08.indexOf('const finish = finalizer.once('), test08.indexOf('        try {'));
+        const order = ["await steps.step('owned pages closed'", "await steps.step('feedback fence close'", 'finalizeOwnedCleanup(steps, receipt, cleanup, report',
+            'feedbackRetentionAfterDeletionRow(', "await steps.step('feedback fence cleanup'", 'fence.cleanRow(aliveReceipt(receipt, alive), ZERO_RESIDUE_ROW)',
+            'await finishReceipt(receipt, testInfo, tap, claimed, steps);'];
+        const idx = order.map((needle) => fin.indexOf(needle));
+        expect(Object.fromEntries(order.map((n, i) => [n, idx[i] >= 0]))).toEqual(Object.fromEntries(order.map((n) => [n, true])));
+        for (let i = 1; i < idx.length; i += 1) expect({ before: order[i - 1], after: order[i], ok: idx[i - 1] < idx[i] }).toMatchObject({ ok: true });
     });
-    it('the capture and cleanup come after every owned page closed', () => {
-        expect(test08.indexOf("steps.step('feedback report capture'")).toBeGreaterThan(test08.indexOf("steps.step('owned pages closed'"));
-    });
-});
-
-// Sam, #1811 RETURN on d1487bdb, item 2: AHT-08's cleanup is in-run source behavior only. Its key and report id live in memory;
-// it has no durable inventory and no verified-store gate. These controls keep the claim honest and show why a lost runner's report
-// is not recoverable today: after the account deletion nulls `user_id`, only the submit's key finds the report.
-describe('AHT-08 recovery scope (in-run only)', () => {
-    const helper = readFileSync(path.join(here, '../live/helpers/feedbackNoSessionCleanup.ts'), 'utf8');
-    const test08 = spec.slice(spec.indexOf("test('No session feedback stores no take or coaching link'"));
-    it('the helper and the spec say in-run only and memory-only, and claim no recovery', () => {
-        expect(helper).toMatch(/IN-RUN cleanup only/);
-        expect(helper).toMatch(/in memory only; it has no durable inventory and no verified-store gate/);
-        expect(test08).toMatch(/In-run only: the key and report id are held in memory, with no durable record and no verified store/);
-        expect(helper).not.toMatch(/waits on the same recovery store/);
-        expect(test08).not.toMatch(/waits on the same recovery store/);
-    });
-    it('the no-session test has no store gate, inventory or recovery path (so it must not claim one)', () => {
-        for (const name of ['verifyRecoveryStore', 'FeedbackRecoveryInventory', 'recoverFromInventory', 'settleRecoveryInventory', 'RECOVERY_STORE_STEP', 'RWT_RECOVERY_DIR']) {
+    it('carries none of the replaced machinery: no store gate, inventory, capture/cleanup by key or memory-only uncertainty', () => {
+        for (const name of ['verifyRecoveryStore', 'FeedbackRecoveryInventory', 'captureRunReports', 'cleanupRunReports', 'noSessionWriteUncertainty',
+            'insertSnapshot', 'onInserts', 'In-run only']) {
             expect({ name, present: test08.includes(name) }).toEqual({ name, present: false });
         }
     });
+});
+
+describe('the old in-run limit, kept as a documented property of the helper', () => {
     it('after the account deletion a second executor with only the uid finds nothing; only the lost key finds the report', async () => {
         const s: State = { reports: [{ id: 'r1', idempotency_key: KEY, user_id: null }], sessions: 0, profiles: 0, authUser: false, deletes: [] };
         const byUidOnly = await captureRunReports(fakeAdmin(s), USER, [], null);
         expect(byUidOnly.ids).toEqual([]);
         const byKey = await captureRunReports(fakeAdmin(s), USER, [KEY], null);
         expect(byKey.ids).toEqual(['r1']);
+    });
+});
+
+// Ported from #1857 (Sam's #1860 review): AHT-08's request/retry bounds sit UNDER the fence — a database key cap limits committed
+// keys, not network attempts, unkeyed or malformed bodies, or non-insert methods.
+describe('noSessionWriteDecision (AHT-08 pre-send bounds)', () => {
+    const body = (rows: unknown) => () => rows;
+    it('forwards the one keyed insert and a same-key Retry', () => {
+        expect(noSessionWriteDecision({ method: 'POST', body: body([{ idempotency_key: KEY }]), ordinal: 1, keysSeen: [] }))
+            .toEqual({ action: 'forward', keys: [KEY], reason: null });
+        expect(noSessionWriteDecision({ method: 'POST', body: body({ idempotency_key: KEY }), ordinal: 2, keysSeen: [KEY] }).action).toBe('forward');
+    });
+    it.each([
+        ['a non-insert write', { method: 'PATCH', body: body([{ idempotency_key: KEY }]), ordinal: 1, keysSeen: [] }, 'not-an-insert'],
+        ['an unkeyed insert', { method: 'POST', body: body([{ description: 'x' }]), ordinal: 1, keysSeen: [] }, 'unattributed-insert'],
+        ['a two-key body', { method: 'POST', body: body([{ idempotency_key: KEY }, { idempotency_key: OTHER_KEY }]), ordinal: 1, keysSeen: [] }, 'unattributed-insert'],
+        ['an unreadable body', { method: 'POST', body: () => { throw new Error('no json'); }, ordinal: 1, keysSeen: [] }, 'unattributed-insert'],
+        ['a second distinct key', { method: 'POST', body: body([{ idempotency_key: OTHER_KEY }]), ordinal: 2, keysSeen: [KEY] }, 'report-cap'],
+        ['an attempt past the cap', { method: 'POST', body: body([{ idempotency_key: KEY }]), ordinal: NO_SESSION_ATTEMPT_CAP + 1, keysSeen: [KEY] }, 'attempt-cap'],
+    ])('aborts %s before it is sent', (_n, input, reason) => {
+        expect(noSessionWriteDecision(input)).toMatchObject({ action: 'cap-abort', reason });
+    });
+});
+
+describe('AHT-08 route wiring (bounds under the fence)', () => {
+    const test08 = spec.slice(spec.indexOf("test('No session feedback stores no take or coaching link'"));
+    it('the route is installed after the confirmed open and before the one submit; it sends only while the fence is writable', () => {
+        const hold = test08.indexOf("receipt.halt('feedback fence open',");
+        const install = test08.indexOf('writeRoute = await installNoSessionWriteRoute(page, feedbackFence);');
+        const submit = test08.indexOf("const stored = await submitFeedback(page, tap, owner.uid, 'no_session', null, undefined, {");
+        expect([hold > 0, install > hold, submit > install]).toEqual([true, true, true]);
+        const fn = spec.slice(spec.indexOf('async function installNoSessionWriteRoute('), spec.indexOf('async function installFeedbackWriteRoute('));
+        const decide = fn.indexOf('const decision = noSessionWriteDecision(');
+        const gate = fn.indexOf("if (!fence.writable || decision.action === 'cap-abort') {");
+        expect([decide > 0, gate > decide, fn.indexOf('route.fetch()') > gate]).toEqual([true, true, true]);
+    });
+    it('the writer stops and its bounds are reported before the fence closes', () => {
+        const fin = test08.slice(test08.indexOf('const finish = finalizer.once('), test08.indexOf('        try {'));
+        const order = ["await steps.step('owned pages closed'", 'feedbackFence?.stopWriter();', "await steps.step('feedback write bounds'",
+            "await steps.step('feedback fence close'"];
+        const idx = order.map((n) => fin.indexOf(n));
+        expect(idx.every((i) => i >= 0)).toBe(true);
+        for (let i = 1; i < idx.length; i += 1) expect(idx[i - 1]).toBeLessThan(idx[i]);
     });
 });

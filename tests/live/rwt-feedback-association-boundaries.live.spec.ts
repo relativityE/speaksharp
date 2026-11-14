@@ -31,14 +31,11 @@ import {
     feedbackLedgerVerdict, feedbackLegDescription, feedbackLegRecovered, finalIsolationVerdict, isNamedIdempotencyReplay, syntheticRejection,
     withoutFaultLegSubmits, writeFeedbackAttemptRows, writeFeedbackLegRows,
 } from './helpers/feedbackAttemptLedger';
-import {
-    type CapturedReports, captureRunReports, cleanupRunReports, writeUncertainty, writeZeroResidueRow, zeroResidueNotRun,
-} from './helpers/feedbackReportCleanup';
-import { noSessionWriteUncertainty, type NoSessionInsertSnapshot } from './helpers/feedbackNoSessionCleanup';
-import {
-    FeedbackRecoveryInventory, RECOVERY_STORE_STEP, recordDurably, settleRecoveryInventory, verifyRecoveryStore,
-} from './helpers/feedbackRecoveryInventory';
+import { ZERO_RESIDUE_ROW } from './helpers/feedbackReportCleanup';
+import { NO_SESSION_ATTEMPT_CAP, noSessionWriteDecision } from './helpers/feedbackNoSessionCleanup';
 import { HarnessParityTap, START_CONTROLS } from './helpers/rwtHarnessParity';
+import { JourneyFeedbackFence } from './helpers/feedbackFence';
+import { currentRunBinding } from './helpers/runBinding';
 import { coachingContract } from './helpers/rwtCoachingEvidence';
 import { openProductsItem } from './helpers/productsMenu';
 import { FINALIZE_CLEANUP_MS, FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
@@ -62,6 +59,10 @@ test.use({
 });
 // AHT-07's one-run write limit (Sam, 2026-11-11): a failed run is never re-driven inside the same authorization.
 test.describe.configure({ mode: 'serial', retries: 0 });
+/** #1811: AHT-07's fence key cap equals its route's distinct-key cap (four), so the route always refuses first. */
+const AHT07_FENCE_KEY_CAP = 4;
+/** #1811: the bounds step reads in-process counts. */
+const FEEDBACK_FENCE_STEP_MS = 10_000;
 
 type Owner = { email: string; uid: string };
 
@@ -150,8 +151,6 @@ interface SubmitObservers {
     onSubmitted(submitted: { feedbackBefore: number; submitAt: number }): void;
     /** Earlier toasts are marked before the click; then the dialog's detach and an unmarked acknowledgment are observed. */
     onFreshAcknowledgment(observation: FreshAcknowledgmentObservation): void;
-    /** AHT-08 report cleanup: what the submit's insert observer saw, delivered when the submit ends, also when it throws. */
-    onInserts?(inserts: NoSessionInsertSnapshot): void;
 }
 
 async function submitFeedback(
@@ -175,7 +174,6 @@ async function submitFeedback(
         return await submitOpenDialog(page, tap, uid, association, sessionId, inserts, newerSessionId, observers);
     } finally {
         inserts.stop();
-        observers?.onInserts?.({ keys: [...inserts.keys], insertRequests: inserts.insertRequests, unattributedInserts: inserts.unattributedInserts });
     }
 }
 
@@ -243,6 +241,43 @@ async function submitOpenDialog(
 }
 
 /**
+ * AHT-08 pre-send bounds (ported from #1857; Sam's #1860 review): ONE route on the no-session journey's context sees every write
+ * to `user_issue_reports`. Each is decided at entry (`noSessionWriteDecision`: one insert, one key, one same-key Retry) and sent
+ * only while the fence is writable; anything else is aborted, never sent. The fence below it records what commits.
+ */
+async function installNoSessionWriteRoute(page: Page, fence: JourneyFeedbackFence): Promise<{ pending: () => number; refused: () => number }> {
+    let ordinal = 0;
+    let inFlight = 0;
+    let refused = 0;
+    const keysSeen: string[] = [];
+    await page.context().route(FEEDBACK_INSERT_URL, async (route: Route) => {
+        const request = route.request();
+        if (['GET', 'HEAD', 'OPTIONS'].includes(request.method())) return route.fallback();
+        inFlight += 1;
+        ordinal += 1;
+        const decision = noSessionWriteDecision({ method: request.method(), body: () => request.postDataJSON(), ordinal, keysSeen });
+        try {
+            if (!fence.writable || decision.action === 'cap-abort') {
+                refused += 1;
+                return await route.abort('failed');
+            }
+            for (const key of decision.keys) if (!keysSeen.includes(key)) keysSeen.push(key);
+            let response: APIResponse;
+            try { response = await route.fetch(); } catch {
+                // An unanswered forward may still have committed: the fence recorded it if so, and close serializes with it.
+                return await route.abort('failed');
+            }
+            return await route.fulfill({ response });
+        } catch {
+            return undefined; // the page closed under the route
+        } finally {
+            inFlight -= 1;
+        }
+    });
+    return { pending: () => inFlight, refused: () => refused };
+}
+
+/**
  * AHT-07 bounded writes (Sam's one-run limit, 2026-11-11): ONE route on the journey's browser context sees every write to
  * `user_issue_reports`, so a write from any page of the journey is counted. Each is recorded and decided by the ledger at entry,
  * BEFORE it can leave the browser: the pre-send cap aborts the 8th attempt and later, an unkeyed insert, a fifth distinct key and
@@ -250,7 +285,7 @@ async function submitOpenDialog(
  * server through `route.fetch()` so the ledger keeps its answer, and the page gets that same answer. The precedent is AHT-06's
  * lost completion (rwt-save-retry-recovery.live.spec.ts: `route.fetch()` then `route.abort('failed')`).
  */
-async function installFeedbackWriteRoute(page: Page, ledger: FeedbackAttemptLedger, inventory: FeedbackRecoveryInventory): Promise<void> {
+async function installFeedbackWriteRoute(page: Page, ledger: FeedbackAttemptLedger, fence: JourneyFeedbackFence): Promise<void> {
     await page.context().route(FEEDBACK_INSERT_URL, async (route: Route) => {
         const request = route.request();
         if (['GET', 'HEAD', 'OPTIONS'].includes(request.method())) return route.fallback();
@@ -258,36 +293,31 @@ async function installFeedbackWriteRoute(page: Page, ledger: FeedbackAttemptLedg
         // Recorded and decided here, before anything is sent.
         const attempt = ledger.admit(request.method(), () => request.postDataJSON());
         try {
-            // Sam, #1811 791b3780 RETURN: the attempt's keys are durable on disk before anything can leave the browser, so a late
-            // commit stays locatable after this process exits. A write that cannot be recorded is aborted, never sent.
-            // After the writer stopped, nothing can be recorded, so nothing new is sent.
-            if (!recordDurably(inventory, attempt)) {
+            // #1811 (Sam, #1859 review): the database fence is the durable record — every insert the account commits is recorded
+            // in the same transaction, so a late commit stays locatable after this process exits. A write is sent only while the
+            // fence is confirmed open and the writer has not been stopped; anything else is aborted, never sent.
+            if (!fence.writable) {
                 ledger.settle(attempt, { status: null, forwarded: false });
                 return await route.abort('failed');
             }
-            // Every settle is recorded too (ff3922e9 RETURN): recovery resolves an attempt only by its settle record or its
-            // observed commit, never by age.
             if (attempt.action === 'cap-abort' || attempt.action === 'fault-request-lost') {
                 ledger.settle(attempt, { status: null, forwarded: false });
-                inventory.recordSettle(attempt);
                 return await route.abort('failed');
             }
             if (attempt.action === 'fault-synthetic-42501') {
                 ledger.settle(attempt, { status: 403, forwarded: false });
-                inventory.recordSettle(attempt);
                 return await route.fulfill(syntheticRejection(request.headers().origin));
             }
             let response: APIResponse;
             try { response = await route.fetch(); } catch {
+                // An unanswered forward may still have committed: the fence recorded it if so, and close serializes with it.
                 ledger.settle(attempt, { status: null, forwarded: null });
-                inventory.recordSettle(attempt);
                 return await route.abort('failed');
             }
             const status = response.status();
             const key = attempt.keys.length === 1 ? attempt.keys[0] : null;
             const replayNamed = status === 409 ? isNamedIdempotencyReplay(await response.text().catch(() => null), key) : null;
             ledger.settle(attempt, { status, forwarded: true, replayNamed });
-            inventory.recordSettle(attempt);
             // stored-response-lost: the server stored the row (201); only its answer is dropped.
             if (attempt.action === 'fault-stored-response-lost') return await route.abort('failed');
             return await route.fulfill({ response });
@@ -460,8 +490,9 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
         let routeInstalled = false;
         const legJourneys: string[] = [];
         let observedLedger: RowVerdict | null = null;
-        // Sam, #1811 791b3780 RETURN: the run-owned recovery inventory (keys on disk, never in a receipt), kept until zero residue.
-        let inventory: FeedbackRecoveryInventory | null = null;
+        // #1811 (Sam, #1859 review): the database feedback fence replaces the on-disk recovery inventory. Its cap is the route's
+        // distinct-key cap (four), so the route refuses first and the fence never surprises a legitimate write.
+        let feedbackFence: JourneyFeedbackFence | null = null;
         // #1593 (Sam, #1662 RETURN control 1): ONE owned finalization — the body's finally and the suite's afterEach
         // (which Playwright runs after a timeout) run this same memoized closure exactly once.
         const finish = finalizer.once(async () => {
@@ -491,10 +522,14 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
                 await steps.step('feedback attempt ledger', async (alive) => {
                     // ff3922e9 RETURN: close the route's door first (every later write is aborted unsent), then drain; only a
                     // drain that found nothing in flight writes the writer's stopped record that recovery requires.
-                    inventory?.stop();
+                    feedbackFence?.stopWriter();
                     pendingAfterDrain = await ledger.drain(15_000);
-                    inventory?.recordWriterStopped(pendingAfterDrain);
                     const sink = aliveReceipt(receipt, alive);
+                    // Sam, #1811 b319d42b RETURN: the drain's result is reported, never ignored. A handler still in flight is a write
+                    // whose outcome this process may not see; the fence close that follows serializes with it in the database.
+                    sink.row('feedback writer drained', pendingAfterDrain === 0 ? 'PASS' : 'HOLD',
+                        pendingAfterDrain === 0 ? 'no feedback write was still in flight when the writer stopped'
+                            : `${pendingAfterDrain} write(s) still in flight; the fence close records any that commit`, { pending: pendingAfterDrain });
                     writeFeedbackAttemptRows(sink, ledger.attempts, observedLedger);
                     const isolation = finalIsolationVerdict({
                         boundJourneys: tap.actionBindings.filter((b) => b.stage === 'share_feedback').map((b) => b.journeyId),
@@ -505,12 +540,11 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
                     sink.row(FEEDBACK_ISOLATION_ROW, isolation.verdict, isolation.detail, isolation.evidence);
                 });
             }
-            // Race-safe report cleanup (plan §3), step 1: capture the run's reports BEFORE the account deletion — the owner's rows
-            // UNION the rows under every key the route saw.
-            let capturedReports: CapturedReports | null = null;
-            if (routeInstalled && owner.uid) {
-                capturedReports = await steps.step('feedback report capture', () => captureRunReports(admin as never, owner.uid, ledger.seenKeys, null)) ?? null;
-            }
+            // #1811 (Sam, #1859 review): the writer is stopped and drained; close the fence, ACKNOWLEDGED, before any cleanup. Close
+            // waits in the database for every in-flight insert of the account, then refuses all later ones, so every report this run
+            // can ever commit is now recorded — including one forwarded with no answer (an "uncertain" commit).
+            const fence = feedbackFence;
+            if (fence) await steps.step('feedback fence close', async (alive) => { await fence.close(aliveReceipt(receipt, alive)); });
             // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion. With a report, the retention proof deletes through it;
             // the deletion's own settlement then decides the row — a stalled readback never deletes again.
             if ((owner.uid || owner.email) && !accountDeleted) {
@@ -520,21 +554,13 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
                     ? (alive) => feedbackRetentionAfterDeletionRow(aliveReceipt(receipt, alive), admin as never, report, () => cleanup.run())
                     : undefined)) === 'deleted';
             }
-            // Steps 3–5, after the retention read (a product contract): re-capture right before the delete (the race), delete by
-            // id only with an exact count, then the independent zero-residue reads. A step that could not finish HOLDs, naming ids.
-            if (routeInstalled && owner.uid) {
-                const written = await steps.step('feedback report cleanup', async (alive) => {
-                    // Drained again right before the delete; what is still in flight, or was forwarded with no answer, keeps the
-                    // row from PASS (an uncertain commit is never zero activity).
-                    if (pendingAfterDrain !== null) pendingAfterDrain = await ledger.drain(5_000);
-                    const uncertainty = writeUncertainty(ledger.attempts, pendingAfterDrain);
-                    const verdict = await cleanupRunReports(admin as never, owner.uid, ledger.seenKeys, capturedReports, uncertainty);
-                    if (!alive()) return false;
-                    // Retired only on PASS (settlement plus zero readback); any other verdict keeps it and names the file.
-                    writeZeroResidueRow(receipt, settleRecoveryInventory(verdict, inventory));
-                    return true;
-                }, FINALIZE_CLEANUP_MS);
-                if (written !== true) writeZeroResidueRow(receipt, settleRecoveryInventory(zeroResidueNotRun(capturedReports), inventory));
+            // AFTER the retention read (a product contract): delete exactly the fence-recorded reports (owned or, after the account
+            // deletion, ownerless; never another account's), then the INDEPENDENT read-only zero readback. A fence that could not be
+            // closed or cleaned is FAIL here, and the recovery dispatch closes and cleans it by its run key.
+            if (fence) {
+                const written = await steps.step('feedback fence cleanup', async (alive) => { await fence.cleanRow(aliveReceipt(receipt, alive), ZERO_RESIDUE_ROW); return true; },
+                    FINALIZE_CLEANUP_MS);
+                if (written !== true) receipt.row(ZERO_RESIDUE_ROW, 'FAIL', 'the fence cleanup step did not finish; the recovery dispatch closes and cleans it by run key');
             }
             await finishReceipt(receipt, testInfo, tap, claimed, steps, legJourneys);
         });
@@ -542,22 +568,20 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             // BEFORE the first navigation (the click recorder is an init script).
             await parity.attach(page.context());
             await suppressPageSnapshot(testInfo);
-            // Sam, #1811 ff3922e9 RETURN: a verified recovery store that survives runner loss, before the first Production
-            // write (the account), or HOLD. Never created here: provisioning it is the store owner's act.
-            const storeCheck = verifyRecoveryStore(process.env);
-            if (!storeCheck.ok) {
-                receipt.halt(RECOVERY_STORE_STEP, `HOLD before Production writes: no verified recovery store (${storeCheck.reason})`);
-                return;
-            }
             const ready = await prepareDisposable(page, receipt, owner);
             claimed = ready;
             if (!ready) return;
             // AHT-07 bounded writes: the pre-send cap, installed only after the canary claim is visible (no write before preflight).
-            // The recovery inventory is opened first: no route (and so no feedback write) without its durable binding.
-            inventory = FeedbackRecoveryInventory.open({
-                runId: process.env.GITHUB_RUN_ID || 'local', runAttempt: process.env.GITHUB_RUN_ATTEMPT || '1', testId: testInfo.testId, ownerUid: owner.uid,
-            }, storeCheck.store);
-            await installFeedbackWriteRoute(page, ledger, inventory);
+            // #1811 (Sam, #1859 review): the run's feedback fence is CONFIRMED open first — no route, and so no feedback write,
+            // without it. An uncertain open is recovered by its run key (never reopened); anything else HOLDs before any write.
+            feedbackFence = new JourneyFeedbackFence(admin as never, 'AHT-07', AHT07_FENCE_KEY_CAP);
+            await feedbackFence.open(owner.uid, currentRunBinding());
+            if (!feedbackFence.writable) {
+                receipt.halt('feedback fence open', `HOLD before any feedback write: ${feedbackFence.heldReason ?? 'not opened'}`);
+                return;
+            }
+            feedbackFence.openRow(receipt);
+            await installFeedbackWriteRoute(page, ledger, feedbackFence);
             routeInstalled = true;
             await page.goto('/practice');
             await openProductsItem(page, 'open-mic');
@@ -621,9 +645,10 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
         let reportId: string | null = null;
         // AHT-08 received feedback: the submit's telemetry window, set just before the Submit click (null: never submitted).
         let submitWindow: { feedbackBefore: number; submitAt: number } | null = null;
-        // AHT-08 report cleanup: the submit's observed inserts (its idempotency key) and its stored-row read.
-        let insertSnapshot: NoSessionInsertSnapshot | null = null;
-        let storedRows: number | null = null;
+        // #1811 (Sam, #1859 review): AHT-08's feedback fence. Its key cap of ONE is enforced by the database itself, so the one
+        // submit is bounded without a route, and a lost runner's report stays recorded for the recovery dispatch.
+        let feedbackFence: JourneyFeedbackFence | null = null;
+        let writeRoute: { pending: () => number; refused: () => number } | null = null;
         // #1593 (Sam, #1662 RETURN control 1): ONE owned finalization — the body's finally and the suite's afterEach
         // (which Playwright runs after a timeout) run this same memoized closure exactly once.
         const finish = finalizer.once(async () => {
@@ -651,17 +676,24 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
                 zeroStartPressRow(aliveReceipt(receipt, alive), parity);
             });
             await steps.step('owned pages closed', (alive) => parity.ownedPagesClosedRow(aliveReceipt(receipt, alive)), PARITY_CLOSE_STEP_MS);
+            // #1811: every owned page is closed. Stop the writer and report the route's bounds (in-flight handlers and refused
+            // writes are reported, never ignored), then close the fence (acknowledged) before any cleanup. Close waits for an
+            // in-flight insert and refuses every later one, so the submit's report — even one whose answer was lost — is recorded.
+            feedbackFence?.stopWriter();
+            const route = writeRoute;
+            if (route) {
+                await steps.step('feedback write bounds', (alive) => {
+                    const pending = route.pending(), refused = route.refused();
+                    aliveReceipt(receipt, alive).row('feedback write bounds', pending === 0 && refused === 0 ? 'PASS' : refused > 0 ? 'FAIL' : 'HOLD',
+                        refused > 0 ? `${refused} write(s) refused before sending (over the ${NO_SESSION_ATTEMPT_CAP}-attempt / one-key bound, or not an insert)`
+                            : pending > 0 ? `${pending} write(s) still in flight; the fence close records any that commit`
+                                : 'one insert and at most one same-key Retry; nothing was refused or left in flight', { pending, refused });
+                }, FEEDBACK_FENCE_STEP_MS);
+            }
+            const fence = feedbackFence;
+            if (fence) await steps.step('feedback fence close', async (alive) => { await fence.close(aliveReceipt(receipt, alive)); });
             // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion. With a report, the retention proof deletes through it;
             // the deletion's own settlement then decides the row — a stalled readback never deletes again.
-            // AHT-08 report cleanup (feedbackNoSessionCleanup.ts), AHT-07's race-safe steps unchanged. Step 1, after every owned page
-            // closed and BEFORE the account deletion: capture the owner's reports UNION those under the submit's observed key.
-            // In-run only: the key and report id are held in memory, with no durable record and no verified store, so a lost runner
-            // leaves the report behind (Sam, #1811 RETURN on d1487bdb, item 2).
-            const runKeys = insertSnapshot?.keys ?? [];
-            let capturedReports: CapturedReports | null = null;
-            if (owner.uid) {
-                capturedReports = await steps.step('feedback report capture', () => captureRunReports(admin as never, owner.uid, runKeys, null)) ?? null;
-            }
             if ((owner.uid || owner.email) && !accountDeleted) {
                 const cleanup = new OwnedCleanup(() => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
                 const report = owner.uid ? reportId : null;
@@ -669,17 +701,11 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
                     ? (alive) => feedbackRetentionAfterDeletionRow(aliveReceipt(receipt, alive), admin as never, report, () => cleanup.run())
                     : undefined)) === 'deleted';
             }
-            // Steps 3–5, after the retention read: re-capture (the race), delete by id with an exact count, zero-residue reads. The
-            // submit's own observation decides whether the one write's outcome is known; an unknown outcome HOLDs, naming the ids.
-            if (owner.uid) {
-                const written = await steps.step('feedback report cleanup', async (alive) => {
-                    const uncertainty = noSessionWriteUncertainty({ submitted: submitWindow !== null, inserts: insertSnapshot, reportId, storedRows });
-                    const verdict = await cleanupRunReports(admin as never, owner.uid, runKeys, capturedReports, uncertainty);
-                    if (!alive()) return false;
-                    writeZeroResidueRow(receipt, verdict);
-                    return true;
-                }, FINALIZE_CLEANUP_MS);
-                if (written !== true) writeZeroResidueRow(receipt, zeroResidueNotRun(capturedReports));
+            // AFTER the retention read: delete exactly the fence-recorded report(s), then the independent read-only zero readback.
+            if (fence) {
+                const written = await steps.step('feedback fence cleanup', async (alive) => { await fence.cleanRow(aliveReceipt(receipt, alive), ZERO_RESIDUE_ROW); return true; },
+                    FINALIZE_CLEANUP_MS);
+                if (written !== true) receipt.row(ZERO_RESIDUE_ROW, 'FAIL', 'the fence cleanup step did not finish; the recovery dispatch closes and cleans it by run key');
             }
             await finishReceipt(receipt, testInfo, tap, claimed, steps);
         });
@@ -690,15 +716,22 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             const ready = await prepareDisposable(page, receipt, owner);
             claimed = ready;
             if (!ready) return;
+            // #1811: the one feedback write only behind a CONFIRMED-open fence; otherwise HOLD before any write.
+            feedbackFence = new JourneyFeedbackFence(admin as never, 'AHT-08', 1);
+            await feedbackFence.open(owner.uid, currentRunBinding());
+            if (!feedbackFence.writable) {
+                receipt.halt('feedback fence open', `HOLD before any feedback write: ${feedbackFence.heldReason ?? 'not opened'}`);
+                return;
+            }
+            feedbackFence.openRow(receipt);
+            writeRoute = await installNoSessionWriteRoute(page, feedbackFence);
             const stored = await submitFeedback(page, tap, owner.uid, 'no_session', null, undefined, {
                 onSubmitted: (submitted) => { submitWindow = submitted; },
                 onFreshAcknowledgment: (observation) => writeFreshAcknowledgmentRow(receipt, observation),
-                onInserts: (inserts) => { insertSnapshot = inserts; },
             });
-            // Captured FIRST: whatever the stored reference holds, cleanup and retention bookkeeping keep this report id.
+            // Captured FIRST: whatever the stored reference holds, the retention bookkeeping keeps this report id.
             reportId = stored.id;
             writeNoSessionReportRows(receipt, stored);
-            storedRows = stored.storedRows;
         } catch (error) {
             receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
             throw error;

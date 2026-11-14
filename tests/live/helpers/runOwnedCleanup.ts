@@ -322,6 +322,32 @@ export async function settleRunOwnedTakes(admin: AdminClient, uid: string,
     return report(await readTakes(admin, uid), closed);
 }
 
+/**
+ * The run that owns a run-bound resource has STOPPED: both its exact owning attempt and its latest attempt read back from GitHub as
+ * the same completed attempt (id, attempt number, repository, rc-gates workflow, `completed` with a conclusion). Age is not proof
+ * that writers stopped, and a completed old attempt must never authorize touching a rerun's resources. Public repository read,
+ * fixed API origin, no redirects; any unavailable, active, changed-attempt or malformed answer is NOT terminal. Shared by the
+ * account deletion below and the #1811 feedback-fence recovery (Sam, #1860 review: before every close, clean or delete).
+ */
+export async function runAttemptsTerminal(original: RunBinding, fetchImpl: typeof fetch = fetch): Promise<boolean> {
+    try {
+        for (const suffix of [`/attempts/${original.runAttempt}`, '']) {
+            const response = await fetchImpl(`https://api.github.com/repos/${original.repository}/actions/runs/${original.runId}${suffix}`, {
+                headers: { Accept: 'application/vnd.github+json' }, redirect: 'error', signal: AbortSignal.timeout(10_000),
+            });
+            if (!response.ok) return false;
+            const run = await response.json() as { id?: unknown; run_attempt?: unknown; repository?: { full_name?: unknown }; path?: unknown;
+                status?: unknown; conclusion?: unknown } | null;
+            if (!run || String(run.id) !== original.runId || String(run.run_attempt) !== original.runAttempt
+                || run.repository?.full_name !== original.repository || run.path !== '.github/workflows/rc-gates.yml'
+                || run.status !== 'completed' || typeof run.conclusion !== 'string' || !run.conclusion) return false;
+        }
+        return true;
+    } catch {
+        return false;
+    }
+}
+
 /** Counts only: what the take settlement did, for the Actions log (content-free, like the verdict line). */
 function writeTakeSettlementLine(t: TakeSettlement): void {
     // Not prefixed RUN_OWNED_CLEANUP: that prefix is the verdict line, which readers match by prefix.
@@ -414,16 +440,7 @@ export async function cleanupRunOwnedAccount(params: {
         // Public repository read, fixed API origin, no redirects or provider error text in the report.
         try {
             if (!Number.isFinite(minAgeMs) || minAgeMs < 135 * 60_000) throw new Error('age floor');
-            for (const suffix of [`/attempts/${original.runAttempt}`, '']) {
-                const response = await fetch(`https://api.github.com/repos/${original.repository}/actions/runs/${original.runId}${suffix}`, {
-                    headers: { Accept: 'application/vnd.github+json' }, redirect: 'error', signal: AbortSignal.timeout(10_000),
-                });
-                if (!response.ok) throw new Error('unavailable');
-                const run = await response.json();
-                if (!run || String(run.id) !== original.runId || String(run.run_attempt) !== original.runAttempt
-                    || run.repository?.full_name !== original.repository || run.path !== '.github/workflows/rc-gates.yml'
-                    || run.status !== 'completed' || typeof run.conclusion !== 'string' || !run.conclusion) throw new Error('not terminal');
-            }
+            if (!(await runAttemptsTerminal(original))) throw new Error('not terminal');
             // The listing and first lookup are not a mutation-time eligibility proof. Re-read after
             // GitHub I/O and refuse changed identity/binding, missing timestamps or newly fresh accounts.
             const { data: fresh, error } = await admin.auth.admin.getUserById(capturedUid);

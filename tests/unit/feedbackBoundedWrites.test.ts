@@ -25,7 +25,7 @@ import {
     zeroResidueVerdict,
 } from '../live/helpers/feedbackReportCleanup';
 import {
-    FeedbackRecoveryInventory, RECOVERY_DIR_ENV, RECOVERY_SCHEMA, RECOVERY_STORE_MARKER, RECOVERY_STORE_SCHEMA, RECOVERY_STORE_STEP, type VerifiedStore,
+    FeedbackRecoveryInventory, RECOVERY_DIR_ENV, RECOVERY_SCHEMA, RECOVERY_STORE_MARKER, RECOVERY_STORE_SCHEMA, type VerifiedStore,
     readRecoveryInventory, recordDurably, recoverFromInventory, recoveryFileName, settleRecoveryInventory, unresolvedAttempts, verifyRecoveryStore,
 } from '../live/helpers/feedbackRecoveryInventory';
 import { FEEDBACK_NO_SESSION_SUITE, FEEDBACK_OLDER_TAKE_SUITE, type ReadbackActionBinding, requiredAutomatedRows } from '../live/helpers/rwtAcceptance';
@@ -549,14 +549,18 @@ describe('acceptance: bounded writes belong to the older-take suite; both suites
 });
 
 describe('the AHT-07 spec wiring (source order)', () => {
-    it('the route is installed after the canary claim and before the first take; one context route sees every page', () => {
+    it('the route is installed after the canary claim, behind a CONFIRMED fence open, and before the first take; one context route sees every page', () => {
         const ready = at('if (!ready) return;', olderStart);
-        const install = at('await installFeedbackWriteRoute(page, ledger, inventory);', olderStart);
-        // The recovery inventory is opened before the route: no feedback write without its durable binding.
-        expect(at('inventory = FeedbackRecoveryInventory.open({', olderStart)).toBeLessThan(install);
-        expect(ready).toBeLessThan(install);
+        const make = at("feedbackFence = new JourneyFeedbackFence(admin as never, 'AHT-07', AHT07_FENCE_KEY_CAP);", olderStart);
+        const open = at('await feedbackFence.open(owner.uid, currentRunBinding());', olderStart);
+        const hold = at("receipt.halt('feedback fence open', `HOLD before any feedback write: ${feedbackFence.heldReason ?? 'not opened'}`);", olderStart);
+        const install = at('await installFeedbackWriteRoute(page, ledger, feedbackFence);', olderStart);
+        // #1811 (Sam, #1859 review): no route, and so no feedback write, without a confirmed-open fence.
+        expect([ready < make, make < open, open < hold, hold < install]).toEqual([true, true, true, true]);
         expect(install).toBeLessThan(at('createSavedOpenMicTake(page, 1, true)', olderStart));
         expect(spec).toContain('await page.context().route(FEEDBACK_INSERT_URL, async (route: Route) => {');
+        // The fence cap is the route's distinct-key cap, so the route always refuses first.
+        expect(spec).toContain('const AHT07_FENCE_KEY_CAP = 4;');
     });
     it('the route records and decides each write before any abort, fulfil or fetch; the stored-response-lost answer is dropped after the real fetch', () => {
         const fn = spec.slice(at('async function installFeedbackWriteRoute('), at('async function runFeedbackFaultLeg('));
@@ -598,21 +602,19 @@ describe('the AHT-07 spec wiring (source order)', () => {
         expect(end).toBeLessThan(snapshot);
         expect(snapshot).toBeLessThan(at('reportId = stored.id;', olderStart));
     });
-    it('the finalizer judges the ledger after the owned pages close, captures before the account deletion, cleans up after the retention read', () => {
+    it('the finalizer stops the writer, drains, closes the fence, deletes the account with its retention proof, then cleans and verifies zero', () => {
         const fin = older.slice(older.indexOf('const finish = finalizer.once('), older.indexOf('        try {'));
-        const order = ["await steps.step('owned pages closed'", 'ledger.endWindow();', "await steps.step('feedback attempt ledger'", 'inventory?.stop();',
-            'pendingAfterDrain = await ledger.drain(15_000);', 'inventory?.recordWriterStopped(pendingAfterDrain);',
-            'writeFeedbackAttemptRows(sink, ledger.attempts, observedLedger);', 'sink.row(FEEDBACK_ISOLATION_ROW,', "await steps.step('feedback report capture'",
-            'finalizeOwnedCleanup(steps, receipt, cleanup, report', 'feedbackRetentionAfterDeletionRow(', "await steps.step('feedback report cleanup'",
-            'pendingAfterDrain = await ledger.drain(5_000);', 'const uncertainty = writeUncertainty(ledger.attempts, pendingAfterDrain);',
-            'cleanupRunReports(admin as never, owner.uid, ledger.seenKeys, capturedReports, uncertainty)', 'writeZeroResidueRow(receipt, settleRecoveryInventory(verdict, inventory));',
-            'if (written !== true) writeZeroResidueRow(receipt, settleRecoveryInventory(zeroResidueNotRun(capturedReports), inventory));',
+        const order = ["await steps.step('owned pages closed'", 'ledger.endWindow();', "await steps.step('feedback attempt ledger'", 'feedbackFence?.stopWriter();',
+            'pendingAfterDrain = await ledger.drain(15_000);', "sink.row('feedback writer drained',",
+            'writeFeedbackAttemptRows(sink, ledger.attempts, observedLedger);', 'sink.row(FEEDBACK_ISOLATION_ROW,', "await steps.step('feedback fence close'",
+            'finalizeOwnedCleanup(steps, receipt, cleanup, report', 'feedbackRetentionAfterDeletionRow(', "await steps.step('feedback fence cleanup'",
+            'fence.cleanRow(aliveReceipt(receipt, alive), ZERO_RESIDUE_ROW)',
             'await finishReceipt(receipt, testInfo, tap, claimed, steps, legJourneys);'];
         const idx = order.map((needle) => fin.indexOf(needle));
         expect(Object.fromEntries(order.map((n, i) => [n, idx[i] >= 0]))).toEqual(Object.fromEntries(order.map((n) => [n, true])));
         for (let i = 1; i < idx.length; i += 1) expect({ before: order[i - 1], after: order[i], ok: idx[i - 1] < idx[i] }).toMatchObject({ ok: true });
-        expect(fin).toContain('captureRunReports(admin as never, owner.uid, ledger.seenKeys, null)');
-        expect(fin).toMatch(/steps\.step\('feedback report cleanup', async \(alive\) => \{[\s\S]*?\}, FINALIZE_CLEANUP_MS\);/);
+        // The replaced capture/cleanup-by-key path is gone: only fence-recorded reports are deleted.
+        for (const gone of ['captureRunReports', 'cleanupRunReports', 'writeUncertainty(', 'settleRecoveryInventory', 'inventory?.']) expect({ gone, present: fin.includes(gone) }).toEqual({ gone, present: false });
     });
     it('keeps AHT-07\'s Start budget at the two designed presses and pins no retry for the file', () => {
         expect(spec).toContain("const AHT07_START_PRESS_BUDGET = { total: 2, perControl: { 'mic-start': 1, 'mic-download': 1, 'verdict-practice-again': 1 } } as const;");
@@ -627,19 +629,14 @@ describe('the AHT-07 spec wiring (source order)', () => {
 });
 
 describe('AHT-08 (no session) is untouched, and the new helpers stay case-only', () => {
-    it('the No-session scenario uses none of the bounded-write wiring', () => {
-        // AHT-08 report cleanup (feedbackNoSessionCleanup.ts) reuses ONLY the race-safe cleanup steps: no write route, ledger,
-        // fault leg or recovery inventory; whether its one write's outcome is known comes from the submit's own observation.
+    it('the No-session scenario uses none of the bounded-write wiring; its one write is bounded by its own fence', () => {
         for (const name of ['installFeedbackWriteRoute', 'FeedbackAttemptLedger', 'runFeedbackFaultLeg', 'ledger.', 'FEEDBACK_FAULT_LEGS', 'observedLedger',
-            'writeUncertainty(', 'FeedbackRecoveryInventory', 'inventory']) {
+            'writeUncertainty(', 'FeedbackRecoveryInventory', 'inventory', 'captureRunReports', 'cleanupRunReports']) {
             expect({ name, used: none.includes(name) }).toEqual({ name, used: false });
         }
-        for (const name of ['captureRunReports', 'cleanupRunReports', 'writeZeroResidueRow', 'noSessionWriteUncertainty(']) {
-            expect({ name, used: none.includes(name) }).toEqual({ name, used: true });
-        }
+        expect(none).toContain("feedbackFence = new JourneyFeedbackFence(admin as never, 'AHT-08', 1);");
         expect(none).toMatch(/const stored = await submitFeedback\(page, tap, owner\.uid, 'no_session', null, undefined, \{/);
         expect(none).toContain('feedbackRetentionAfterDeletionRow(aliveReceipt(receipt, alive), admin as never, report, () => cleanup.run())');
-        // AHT-08 keeps the default (no fault-leg journeys), so its readback binding sees every event unchanged.
         expect(none).toContain('await finishReceipt(receipt, testInfo, tap, claimed, steps);');
         expect(none).not.toContain('legJourneys');
     });
@@ -647,15 +644,16 @@ describe('AHT-08 (no session) is untouched, and the new helpers stay case-only',
         const ref = read('../live/helpers/feedbackDiagnosticRef.ts');
         expect(ref).not.toMatch(/feedbackAttemptLedger|feedbackReportCleanup/);
     });
-    it('only the feedback spec (and the cleanup helper, for types) import the new helpers', () => {
+    it('only the feedback spec (and the cleanup helpers, for types) import the bounded-write helpers; nothing live imports the replaced inventory', () => {
         const live = path.resolve(here, '../live');
         const files = [...readdirSync(live).map((f) => path.join(live, f)), ...readdirSync(path.join(live, 'helpers')).map((f) => path.join(live, 'helpers', f))]
             .filter((f) => f.endsWith('.ts'));
         const importers = files.filter((f) => /from '\.\/(helpers\/)?(feedbackAttemptLedger|feedbackReportCleanup)'/.test(readFileSync(f, 'utf8')))
             .map((f) => path.relative(live, f)).sort();
         expect(importers).toEqual(['helpers/feedbackNoSessionCleanup.ts', 'helpers/feedbackRecoveryInventory.ts', 'helpers/feedbackReportCleanup.ts', 'rwt-feedback-association-boundaries.live.spec.ts']);
+        // #1811: the database fence replaced the on-disk inventory in every journey.
         const inventoryImporters = files.filter((f) => /from '\.\/(helpers\/)?feedbackRecoveryInventory'/.test(readFileSync(f, 'utf8'))).map((f) => path.relative(live, f));
-        expect(inventoryImporters).toEqual(['rwt-feedback-association-boundaries.live.spec.ts']);
+        expect(inventoryImporters).toEqual([]);
     });
 });
 
@@ -703,14 +701,10 @@ describe('a verified recovery store that survives runner loss, before any produc
         // The probe leaves nothing behind.
         expect(readdirSync(outside)).toEqual([RECOVERY_STORE_MARKER]);
     });
-    it('the older-take journey halts before the account is created when no verified store exists', () => {
-        const gate = at('const storeCheck = verifyRecoveryStore(process.env);', olderStart);
-        const halt = at('receipt.halt(RECOVERY_STORE_STEP, `HOLD before Production writes: no verified recovery store (${storeCheck.reason})`);', olderStart);
-        expect(gate).toBeLessThan(halt);
-        expect(halt).toBeLessThan(at('const ready = await prepareDisposable(page, receipt, owner);', olderStart));
-        expect(at('}, storeCheck.store);', olderStart)).toBeLessThan(at('await installFeedbackWriteRoute(page, ledger, inventory);', olderStart));
-        expect(RECOVERY_STORE_STEP).toBe('feedback recovery store');
-        expect(older).not.toContain('recoveryDir(');
+    it('the older-take journey HOLDs before any feedback write when no fence is confirmed open (the store gate is replaced)', () => {
+        const hold = at("receipt.halt('feedback fence open', `HOLD before any feedback write: ${feedbackFence.heldReason ?? 'not opened'}`);", olderStart);
+        expect(hold).toBeLessThan(at('await installFeedbackWriteRoute(page, ledger, feedbackFence);', olderStart));
+        expect(older).not.toContain('verifyRecoveryStore');
         expect(none).not.toContain('verifyRecoveryStore');
     });
 });
@@ -756,19 +750,16 @@ describe('the recovery inventory is restricted, content-free and durable before 
         expect(inv.recordWriterStopped(null)).toBe(false);
         expect(readRecoveryInventory(inv.file)!.writerStopped).toBeNull();
     });
-    it('the route records before any abort, fulfil or fetch, aborts what it could not record, and records every settle', () => {
+    it('the route sends nothing unless the fence is writable: the gate precedes every abort, fulfil and fetch', () => {
         const fn = spec.slice(at('async function installFeedbackWriteRoute('), at('async function runFeedbackFaultLeg('));
         const admit = fn.indexOf('const attempt = ledger.admit(request.method(), () => request.postDataJSON());');
-        const record = fn.indexOf('if (!recordDurably(inventory, attempt)) {');
-        expect(record).toBeGreaterThan(admit);
+        const gate = fn.indexOf('if (!fence.writable) {');
+        expect(gate).toBeGreaterThan(admit);
         for (const act of ["route.abort('failed')", 'route.fulfill(syntheticRejection(', 'route.fetch()', 'route.fulfill({ response })']) {
-            expect({ act, afterRecord: fn.indexOf(act) > record }).toEqual({ act, afterRecord: true });
+            expect({ act, afterGate: fn.indexOf(act) > gate }).toEqual({ act, afterGate: true });
         }
-        expect(fn.slice(record).replace(/\s+/g, ' ')).toMatch(/^if \(!recordDurably\(inventory, attempt\)\) \{ ledger\.settle\(attempt, \{ status: null, forwarded: false \}\); return await route\.abort\('failed'\); \}/);
-        // Every other settle is followed by its settle record.
-        const settles = [...fn.matchAll(/ledger\.settle\(attempt, [^;]+;/g)].map((m) => m.index!);
-        expect(settles).toHaveLength(5);
-        for (const at0 of settles.slice(1)) expect(fn.slice(at0).split(';')[1].trim()).toBe('inventory.recordSettle(attempt)');
+        expect(fn.slice(gate).replace(/\s+/g, ' ')).toMatch(/^if \(!fence\.writable\) \{ ledger\.settle\(attempt, \{ status: null, forwarded: false \}\); return await route\.abort\('failed'\); \}/);
+        expect(fn).not.toContain('inventory');
     });
 });
 
