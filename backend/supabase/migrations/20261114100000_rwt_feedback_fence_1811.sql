@@ -1,20 +1,25 @@
--- #1811 AHT-07/08 recoverable feedback writes: a transactional run fence on user_issue_reports.
+-- #1811 AHT-02/07/08 recoverable feedback writes: a transactional run fence on user_issue_reports.
 --
 -- A live journey's disposable, run-owned account (app_metadata.ct_run, written only by the service role) may submit feedback.
 -- Without this fence a runner lost mid-journey can leave reports the run cannot name. The fence makes the database itself the
 -- durable, run-bound record and the writer-stop:
---   * open  — the service role opens ONE fence for the run-owned account, bound to its exact ct_run binding, a case and a key cap;
+--   * open  — the service role opens ONE fence for the run-owned account, bound to its exact ct_run binding, the case(s) that
+--             account runs (one, or several consolidated into one journey) and a key cap;
 --   * write — every report the fenced account inserts takes the fence row lock, is refused once the fence is closed or past its
 --             key cap or unkeyed, and has its id and idempotency key recorded IN THE SAME TRANSACTION (committed report ⇔ recorded);
 --   * close — takes the same row lock, so it waits for every in-flight insert of that account, then refuses all later ones;
 --   * clean — deletes exactly the recorded report ids (still owned by the account or ownerless), then reads them back to zero.
+--             Ownerless covers AHT-02: the product keeps feedback after account deletion (user_id ON DELETE SET NULL), so the
+--             run's own reports survive its account; the fence still names them, and only them.
 -- Accounts without a fence (every real user) are untouched: one indexed lookup, no lock, no change.
 -- No application caller: only the service role reaches the RPCs; the table has no API grants.
 
 CREATE TABLE public.rwt_feedback_fences (
-  run_key text PRIMARY KEY CHECK (run_key ~ '^[0-9]{1,20}-[0-9]{1,4}-AHT-0[78]$'),
+  run_key text PRIMARY KEY CHECK (run_key ~ '^[0-9]{1,20}-[0-9]{1,4}-AHT-0[278](\+AHT-0[278]){0,2}$'),
   owner_uid uuid NOT NULL UNIQUE,
-  case_id text NOT NULL CHECK (case_id IN ('AHT-07', 'AHT-08')),
+  -- One case, or a consolidated journey's cases in ascending order without repeats (e.g. 'AHT-07+AHT-08').
+  case_id text NOT NULL CHECK (case_id IN ('AHT-02', 'AHT-07', 'AHT-08', 'AHT-02+AHT-07', 'AHT-02+AHT-08', 'AHT-07+AHT-08',
+                                           'AHT-02+AHT-07+AHT-08')),
   run_binding jsonb NOT NULL CHECK (jsonb_typeof(run_binding) = 'object'),
   key_cap integer NOT NULL CHECK (key_cap BETWEEN 1 AND 8),
   report_ids uuid[] NOT NULL DEFAULT '{}',

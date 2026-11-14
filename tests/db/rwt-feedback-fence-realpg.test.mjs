@@ -1,5 +1,5 @@
 // Native, owned disposable PostgreSQL. No hosted database, provider or model calls.
-// #1811 AHT-07/08: the transactional run fence on user_issue_reports (20261114100000), over the real user_issue_reports
+// #1811 AHT-02/07/08: the transactional run fence on user_issue_reports (20261114100000), over the real user_issue_reports
 // migration chain. Proves: run-owned open only; committed report ⇔ recorded id; key cap / unkeyed / closed refusals; close waits
 // for an in-flight insert then refuses later ones; clean deletes exactly the recorded ids (owned or ownerless), never another
 // account's, and reads back to zero; real users untouched; no API access to the table or the RPCs.
@@ -26,6 +26,8 @@ const OWNER = '11111111-1111-4111-8111-111111111111';
 const REAL_USER = '22222222-2222-4222-8222-222222222222';
 const OTHER = '33333333-3333-4333-8333-333333333333';
 const RACER = '44444444-4444-4444-8444-444444444444';
+const AHT02 = '55555555-5555-4555-8555-555555555555';
+const COMBINED = '66666666-6666-4666-8666-666666666666';
 const BINDING = { repository: 'relativityE/speaksharp', workflow: 'relativityE/speaksharp/.github/workflows/rc-gates.yml@refs/heads/main',
   runId: '43583228045', runAttempt: '1', role: 'rwt-journey' };
 const key = (n) => `aaaaaaaa-aaaa-4aaa-8aaa-${String(n).padStart(12, '0')}`;
@@ -80,7 +82,9 @@ test('rwt feedback fence: open, record, cap, close-serializes, clean — on the 
       GRANT EXECUTE ON FUNCTION auth.uid() TO anon, authenticated, service_role;
       CREATE TABLE public.sessions(id uuid PRIMARY KEY, user_id uuid);
       INSERT INTO auth.users VALUES (${lit(OWNER)}, ${lit(JSON.stringify({ ct_run: BINDING }))}::jsonb),
-        (${lit(REAL_USER)}, '{}'), (${lit(OTHER)}, '{}'), (${lit(RACER)}, ${lit(JSON.stringify({ ct_run: { ...BINDING, runId: '9' } }))}::jsonb);`);
+        (${lit(REAL_USER)}, '{}'), (${lit(OTHER)}, '{}'), (${lit(RACER)}, ${lit(JSON.stringify({ ct_run: { ...BINDING, runId: '9' } }))}::jsonb),
+        (${lit(AHT02)}, ${lit(JSON.stringify({ ct_run: { ...BINDING, runId: '11' } }))}::jsonb),
+        (${lit(COMBINED)}, ${lit(JSON.stringify({ ct_run: { ...BINDING, runId: '13' } }))}::jsonb);`);
     for (const file of CHAIN) sql(readFileSync(file, 'utf8'));
     sql(`GRANT SELECT, DELETE ON public.user_issue_reports TO service_role;`);
     sql(readFileSync(FENCE, 'utf8'));
@@ -151,6 +155,27 @@ test('rwt feedback fence: open, record, cap, close-serializes, clean — on the 
     sql(as(OTHER, report(key(10))));
     fails(as(OTHER, report(key(11))), /key cap reached/);
     fails(service(`SELECT public.clean_rwt_feedback_fence_v1(${lit(otherKey)});`), /close before cleaning/);
+
+    // AHT-02: the journey checks that feedback SURVIVES account deletion. A REAL auth.users delete (the FK's ON DELETE SET
+    // NULL, not a simulated update) leaves the run's report ownerless; the fence still names it, and clean removes only it.
+    const aht02Key = sql(service(`SELECT public.open_rwt_feedback_fence_v1(${lit(AHT02)}::uuid, ${lit(JSON.stringify({ ...BINDING, runId: '11' }))}::jsonb, 'AHT-02', 1);`)).split('\n').at(-1);
+    assert.equal(aht02Key, '11-1-AHT-02');
+    sql(as(AHT02, report(key(30))));
+    sql(service(`SELECT public.close_rwt_feedback_fence_v1(${lit(aht02Key)});`));
+    sql(`DELETE FROM auth.users WHERE id = ${lit(AHT02)}::uuid;`);
+    const aht02Fence = JSON.parse(sql(`SELECT row_to_json(f) FROM public.rwt_feedback_fences f WHERE run_key = ${lit(aht02Key)};`));
+    assert.equal(sql(`SELECT count(*) FROM public.user_issue_reports WHERE id = ${lit(aht02Fence.report_ids[0])}::uuid AND user_id IS NULL;`), '1');
+    const realBefore = sql(`SELECT count(*) FROM public.user_issue_reports;`);
+    assert.deepEqual(JSON.parse(sql(service(`SELECT public.clean_rwt_feedback_fence_v1(${lit(aht02Key)});`)).split('\n').at(-1)),
+      { deleted: 1, residue: 0, foreign: 0, state: 'cleaned' });
+    assert.equal(sql(`SELECT count(*) FROM public.user_issue_reports;`), String(Number(realBefore) - 1)); // exactly that one row
+
+    // A consolidated journey (one account running several cases) holds ONE fence, labelled with its cases in order.
+    fails(service(`SELECT public.open_rwt_feedback_fence_v1(${lit(COMBINED)}::uuid, ${lit(JSON.stringify({ ...BINDING, runId: '13' }))}::jsonb, 'AHT-03', 1);`), /check constraint/);
+    fails(service(`SELECT public.open_rwt_feedback_fence_v1(${lit(COMBINED)}::uuid, ${lit(JSON.stringify({ ...BINDING, runId: '13' }))}::jsonb, 'AHT-08+AHT-07', 1);`), /check constraint/);
+    fails(service(`SELECT public.open_rwt_feedback_fence_v1(${lit(COMBINED)}::uuid, ${lit(JSON.stringify({ ...BINDING, runId: '13' }))}::jsonb, 'AHT-07+AHT-07', 1);`), /check constraint/);
+    assert.equal(sql(service(`SELECT public.open_rwt_feedback_fence_v1(${lit(COMBINED)}::uuid, ${lit(JSON.stringify({ ...BINDING, runId: '13' }))}::jsonb, 'AHT-07+AHT-08', 2);`)).split('\n').at(-1),
+      '13-1-AHT-07+AHT-08');
 
     // The check-then-close race, staged deterministically: a holder takes the fence row lock; close queues behind it FIRST,
     // then an insert queues behind close. Because the trigger reads the fence FOR UPDATE, the insert re-reads the row after
