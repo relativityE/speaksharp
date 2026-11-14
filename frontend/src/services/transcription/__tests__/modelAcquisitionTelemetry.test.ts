@@ -163,6 +163,8 @@ describe('#1259s failure is sanitized, bounded and non-blocking', () => {
         ['WebGPU is not supported', 'unsupported'],
         ['operation timed out', 'timeout'],
         ['something nobody predicted', 'unknown'],
+        // #1858: the release outcome wins over whatever the underlying error says (here, an "abort" and a "network").
+        ['init cancelled, and disposing the pipeline FAILED (release uncertain): aborted network fetch', 'release_uncertain'],
     ])('reduces %s to a bounded code', (message, code) => {
         expect(classifyAcquisitionError(new Error(message))).toBe(code);
     });

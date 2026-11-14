@@ -306,6 +306,13 @@ export class TransformersJSV4Engine extends STTEngine {
                 } catch (disposeError) {
                     logger.warn({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, err: disposeError },
                         '[TransformersJSV4] Disposing a pipeline that completed after teardown failed.');
+                    // #1858 (Codex P2): the teardown already reported success, so this late failure is the ONLY record that
+                    // a pipeline is still alive. It is retained (sticky, like every failed release) and returned as an
+                    // ordinary failure, never as a clean cancellation. The successor's `transcriber` is not touched.
+                    const failure = new Error('[TransformersJSV4] init cancelled, and disposing the pipeline that completed after '
+                        + `teardown FAILED (release uncertain): ${disposeError instanceof Error ? disposeError.message : String(disposeError)}`);
+                    this.recordReleaseFailure(failure);
+                    return Result.err(failure);
                 }
                 return cancelled();
             }

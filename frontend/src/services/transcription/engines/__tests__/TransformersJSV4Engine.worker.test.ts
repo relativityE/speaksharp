@@ -428,6 +428,89 @@ describe('TransformersJSV4Engine worker message contract', () => {
         await engine.destroy();
     });
 
+    // #1858 (Codex P2 on 8ee7fe1e, confirmed by Sam): a late pipeline whose dispose() REJECTED was logged and then reported as
+    // a clean typed cancellation after the teardown had already succeeded, so the leaked pipeline left no record at all.
+    describe('#1858 late-pipeline dispose outcome (v2 and v4 main thread)', () => {
+        const pipelineDouble = (dispose: () => Promise<unknown>) => Object.assign(vi.fn(async () => ({ text: '' })), { dispose: vi.fn(dispose) });
+        const engines = [
+            { label: 'v4', load: async () => (await import('../TransformersJSV4Engine')).TransformersJSV4Engine, mock: () => mockPipeline },
+            { label: 'v2', load: async () => (await import('../TransformersJSEngine')).TransformersJSEngine, mock: () => mockXenovaPipeline },
+        ] as const;
+        beforeEach(() => { mockXenovaPipeline.mockReset(); (globalThis as { Worker?: unknown }).Worker = undefined; });
+
+        it.each(engines)('$label: a REJECTING late dispose is an ordinary, retained release_uncertain failure — never a cancellation', async ({ load, mock }) => {
+            const { isInitCancelledError } = await import('@/contracts/STTEngine');
+            const { classifyAcquisitionError } = await import('../../modelAcquisitionTelemetry');
+            let resolveLoad!: (value: unknown) => void;
+            mock().mockImplementationOnce(() => new Promise(resolve => { resolveLoad = resolve; }));
+            const Engine = await load();
+            const engine = new Engine({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() });
+            const stale = engine.init();
+            await vi.waitFor(() => expect(mock()).toHaveBeenCalledTimes(1));
+            await engine.destroy(); // the teardown succeeds: the pipeline did not exist yet
+            const late = pipelineDouble(async () => { throw new Error('dispose rejected'); });
+            resolveLoad(late);
+            const result = await stale;
+
+            expect(result.isOk).toBe(false);
+            const error = result.isOk ? null : result.error;
+            expect(isInitCancelledError(error)).toBe(false);
+            expect(error?.message).toMatch(/FAILED \(release uncertain\): dispose rejected/);
+            expect(classifyAcquisitionError(error)).toBe('release_uncertain'); // the facade emits failure{release_uncertain}
+            expect(late.dispose).toHaveBeenCalledTimes(1);
+            // Retained: the engine's release is uncertain, so it neither re-initialises nor reports a clean teardown.
+            const again = await engine.init();
+            expect(again.isOk).toBe(false);
+            expect(again.isOk ? '' : again.error.message).toMatch(/release uncertain/);
+            await expect(engine.destroy()).rejects.toThrow(/dispose rejected/);
+        });
+
+        it.each(engines)('$label: a SUCCESSFUL late dispose stays a typed cancellation and retains nothing', async ({ load, mock }) => {
+            const { isInitCancelledError } = await import('@/contracts/STTEngine');
+            let resolveLoad!: (value: unknown) => void;
+            mock().mockImplementationOnce(() => new Promise(resolve => { resolveLoad = resolve; }));
+            const Engine = await load();
+            const engine = new Engine({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() });
+            const stale = engine.init();
+            await vi.waitFor(() => expect(mock()).toHaveBeenCalledTimes(1));
+            await engine.destroy();
+            const late = pipelineDouble(async () => undefined);
+            resolveLoad(late);
+            const result = await stale;
+
+            expect(result.isOk).toBe(false);
+            expect(isInitCancelledError(result.isOk ? null : result.error)).toBe(true);
+            expect(late.dispose).toHaveBeenCalledTimes(1);
+            const fresh = pipelineDouble(async () => undefined);
+            mock().mockResolvedValueOnce(fresh);
+            expect((await engine.init()).isOk).toBe(true); // nothing retained: a clean release allows the next lifetime
+            await engine.destroy();
+        });
+
+        it.each(engines)('$label: successor isolation — a rejecting late dispose never touches the successor\'s transcriber', async ({ load, mock }) => {
+            let resolveFirst!: (value: unknown) => void;
+            mock().mockImplementationOnce(() => new Promise(resolve => { resolveFirst = resolve; }));
+            const Engine = await load();
+            const engine = new Engine({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() });
+            const stale = engine.init();
+            await vi.waitFor(() => expect(mock()).toHaveBeenCalledTimes(1));
+            await engine.destroy();
+            const successor = pipelineDouble(async () => undefined);
+            mock().mockResolvedValueOnce(successor);
+            expect((await engine.init()).isOk).toBe(true);
+            const late = pipelineDouble(async () => { throw new Error('dispose rejected'); });
+            resolveFirst(late);
+            const result = await stale;
+
+            expect(result.isOk ? '' : result.error.message).toMatch(/release uncertain/);
+            expect((engine as unknown as { transcriber: unknown }).transcriber).toBe(successor);
+            expect(successor.dispose).not.toHaveBeenCalled();
+            // The instance now holds a leaked pipeline, so its teardown truthfully reports the uncertain release.
+            await expect(engine.destroy()).rejects.toThrow(/dispose rejected/);
+            expect(successor.dispose).toHaveBeenCalledTimes(1); // the successor itself is still released
+        });
+    });
+
     // The same fence on the v2 (Xenova) main-thread engine, which happy-dom always runs on the main thread.
     describe('v2 main-thread pipeline completing after teardown', () => {
         const latePipeline = () => Object.assign(vi.fn(async () => ({ text: '' })), { dispose: vi.fn(async () => undefined) });

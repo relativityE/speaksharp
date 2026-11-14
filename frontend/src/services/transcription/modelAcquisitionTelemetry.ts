@@ -358,6 +358,9 @@ export function recordAcquisitionCancelled(subject: AcquisitionSubject, cacheRes
  */
 export function classifyAcquisitionError(err: unknown): AcquisitionErrorCode {
     const name = err instanceof Error ? `${err.name} ${err.message}`.toLowerCase() : String(err ?? '').toLowerCase();
+    // #1858: checked first. An uncertain engine release (a failed or unconfirmed teardown/dispose) is its own outcome,
+    // whatever the underlying error text says.
+    if (name.includes('release uncertain')) return 'release_uncertain';
     if (name.includes('abort')) return 'aborted';
     if (name.includes('timeout') || name.includes('timed out')) return 'timeout';
     if (name.includes('integrity') || name.includes('sha-256') || name.includes('digest')) return 'integrity';
