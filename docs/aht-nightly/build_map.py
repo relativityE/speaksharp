@@ -146,7 +146,7 @@ JOURNEYS = [
   "Feedback stored once per send with the right session link or none."),
  ("J9", [], "Existing paying customer after an upgrade",
   "Only a long-lived account shows that old data and a paid entitlement survive a migration.",
-  "Long-lived paid account on the billing sandbox, signed up and paid through the product with a Stripe test-mode card; records no takes, but opening the billing portal creates a portal session whose address is never logged, traced, captured in a screenshot or kept. History recorded through the product on a named release and kept, never seeded. No test account is charged for real (product owner, 14 Nov 16:36Z), so J9 runs on the sandbox, upgraded with each release, and is disabled until that sandbox is runnable.",
+  "Long-lived paid account on the billing sandbox, signed up and paid through the product with a Stripe test-mode card; records no takes, but opening the billing portal creates a portal session whose address is never logged, traced, captured in a screenshot or kept. History recorded through the product on a named release and kept, never seeded. No test account is charged for real (product owner, 14 Nov 16:36Z), so J9 runs on the sandbox, upgraded with each release, and is disabled until that sandbox is runnable. Its results are sandbox results, never proof of production billing; a real paid account's entitlement after a production upgrade is reported NOT RUN until a safe, approved way exists.",
   "Kept sessions and Progress open as before; entitlement and billing portal hold."),
 ]
 export = None
