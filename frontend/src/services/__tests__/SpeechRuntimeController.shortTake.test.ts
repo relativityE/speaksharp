@@ -428,9 +428,32 @@ describe('G5 — a take under the minimum duration is discarded by the real cont
             expect(getUnsettledDiscardRecordForUser(OWNER)?.sessionId).toBe('test-sess');
             expect(getUnsettledDiscardRecordForUser('owner-b')).toBeNull();
 
+            expect(priv().sessionId, 'the released take\'s row is not left as the current session').toBeNull();
+
             controller.reset('account_switch');
             expect(controller.rehydrateUnresolvedRecording(OWNER)).toBe(true);
             expect(controller.pendingResolutionKind()).toBe('discard');
+        });
+
+        it('an ownerless slot is never released (nothing durable could bring it back), nor is a lock with another retry pending', async () => {
+            Object.assign(priv(), { capturedUserId: null, recordingStartedUnresolved: true });
+            engine(3);
+            failOnce();
+            await controller.stopRecording({ belowMinimumDuration: true });
+            const held = priv().pendingDiscardSettlement;
+            controller.rehydrateUnresolvedRecording('owner-b');
+            expect(priv().pendingDiscardSettlement, 'the only Try again is kept').toBe(held);
+
+            // An owned slot released while another retry is pending keeps that retry's lock.
+            Object.assign(priv(), {
+                pendingDiscardSettlement: { sessionId: 'x', reason: 'r', ownerId: OWNER, warning: null },
+                pendingAttributionRetry: { sessionId: 'y' },
+                recordingStartedUnresolved: true,
+            });
+            controller.rehydrateUnresolvedRecording('owner-b');
+            expect(controller.hasUnsettledDiscard()).toBe(false);
+            expect(priv().recordingStartedUnresolved, 'the pending retry still holds the take').toBe(true);
+            Object.assign(priv(), { pendingAttributionRetry: null });
         });
     });
 

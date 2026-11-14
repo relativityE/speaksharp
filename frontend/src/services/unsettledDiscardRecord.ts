@@ -81,7 +81,8 @@ export function saveUnsettledDiscardRecord(record: { sessionId: string; userId: 
     const existing = Object.prototype.hasOwnProperty.call(records, userId) ? records[userId] : undefined;
     if (existing && existing.sessionId !== sessionId) return;
     if (!existing && Object.keys(records).length >= MAX_OWNERS) return;
-    records[userId] = { sessionId, userId, reason, savedAt: new Date().toISOString() };
+    // Re-recording the same row keeps its first date, so the age bound is never restarted (review on f987608).
+    records[userId] = { sessionId, userId, reason, savedAt: existing?.savedAt ?? new Date().toISOString() };
     writeAll(records);
 }
 

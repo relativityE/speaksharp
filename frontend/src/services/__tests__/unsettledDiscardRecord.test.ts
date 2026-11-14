@@ -51,6 +51,15 @@ describe('unsettledDiscardRecord', () => {
         expect(getUnsettledDiscardRecordForUser('a')?.sessionId).toBe('s1');
     });
 
+    it('re-recording the same row keeps its first date, so the age bound is not restarted', () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-11-14T00:00:00Z'));
+        saveUnsettledDiscardRecord({ sessionId: 's1', userId: 'a', reason: REASON });
+        vi.setSystemTime(new Date('2026-11-14T20:00:00Z'));
+        saveUnsettledDiscardRecord({ sessionId: 's1', userId: 'a', reason: REASON });
+        expect(getUnsettledDiscardRecordForUser('a')?.savedAt).toBe('2026-11-14T00:00:00.000Z');
+    });
+
     it('stops re-arming a record past the age bound, or one dated in the future or undated', () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-11-14T00:00:00Z'));

@@ -38,9 +38,10 @@ message a settled discard shows, and a status published after the warning is lef
 The no-speech discard shares that branch and gets the same handling.
 
 The unsettled row is also recorded on this device for its owner (session id, owner and
-the fixed reason; no content). A reload, hard reset or sign-out drops the in-memory Try
-again; the same owner's return re-arms it for the same row, and no other account sees
-it. A confirmed retry or Discard clears the record.
+the fixed reason; no content). A reload or hard reset drops the in-memory Try again; the
+same owner's return re-arms it for the same row, and no other account sees it. A
+sign-out followed by another account's sign-in on the same page keeps it too (the record
+is written again on release). A confirmed retry or Discard clears the record.
 
 ## Canonical regressions
 
@@ -83,6 +84,10 @@ it. A confirmed retry or Discard clears the record.
 - A stop without the verdict that is queued just before the user's short Stop (for
   example a lease revocation) can complete the take; the user's Stop then finds
   READY and the page still says "Session too short". Pre-existing and narrow.
+- An explicit sign-out clears all site storage (`AuthProvider.signOut` calls
+  `localStorage.clear()`), so a sign-out followed by a reload or closed tab loses the
+  record and the owner's Try again, as it already loses the recovery draft. Keeping the
+  key through sign-out is a separate decision about what sign-out clears.
 - The record of an unsettled discard lives on the device that recorded the take. The
   owner signing in on another device, or clearing site data, does not see Try again
   there; the row's obligation then stays unsettled until it is retried on the original
