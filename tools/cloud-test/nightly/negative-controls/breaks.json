@@ -1,0 +1,422 @@
+{
+  "schema": "speaksharp.aht-nightly.negative-controls.v2",
+  "note": "Each entry seeds one break in the nightly suite's own code and names the node:test file that must fail on it and pass once it is restored. Paths are relative to tools/cloud-test/nightly. run.cjs applies each break, runs the test, restores the file byte for byte, and runs the test again.",
+  "breaks": [
+    {
+      "id": "P1-row-without-home",
+      "guards": "coverage drift: every catalog row has a home",
+      "file": "journey-plan.cjs",
+      "find": "    { caseId: 'AHT-15', assertion: 'return-signed-out', legs: ['J1.d'], change: 'moved' },\n",
+      "replace": "",
+      "test": "tests/journey-plan.test.cjs"
+    },
+    {
+      "id": "P1-dependency-ignored",
+      "guards": "a dependent leg is NOT RUN when its dependency did not pass",
+      "file": "leg-verdicts.cjs",
+      "find": "for (const dep of plan.needs) {",
+      "replace": "for (const dep of []) {",
+      "test": "tests/leg-verdicts.test.cjs"
+    },
+    {
+      "id": "P1-not-run-folds-green",
+      "guards": "a NOT RUN row keeps its leg from passing",
+      "file": "leg-verdicts.cjs",
+      "find": "PASS: 0, 'NOT RUN': 1, HOLD: 2, FAIL: 3",
+      "replace": "PASS: 0, 'NOT RUN': -1, HOLD: 2, FAIL: 3",
+      "test": "tests/leg-verdicts.test.cjs"
+    },
+    {
+      "id": "P1-run-green-with-hold",
+      "guards": "a run with a HOLD or NOT RUN leg is not green",
+      "file": "leg-verdicts.cjs",
+      "find": "        if (v.outcome !== 'PASS')\n            notGreen.push(",
+      "replace": "        if (v.outcome === 'FAIL')\n            notGreen.push(",
+      "test": "tests/leg-verdicts.test.cjs"
+    },
+    {
+      "id": "P1-gate-ignored",
+      "guards": "an unmet gate (canary claim, unqualified, disabled, test-mode fixture, no safe production proof) is reported, never passed",
+      "file": "leg-verdicts.cjs",
+      "find": "return gates.filter((g) => !satisfied.has(g.kind));",
+      "replace": "return gates.filter(() => false);",
+      "test": "tests/leg-verdicts.test.cjs"
+    },
+    {
+      "id": "P1-cap-above-minimum-accepted",
+      "guards": "the cap can be lowered, never raised above the calculated minimum",
+      "file": "coaching-budget.cjs",
+      "find": "if (cap > minimum) {",
+      "replace": "if (cap > minimum * 2) {",
+      "test": "tests/coaching-budget.test.cjs"
+    },
+    {
+      "id": "P1-minimum-counts-gated-legs",
+      "guards": "a held or not-run leg adds no coaching to its journey's cap",
+      "file": "coaching-budget.cjs",
+      "find": "ALL_LEGS.filter((l) => selected.includes(l.id) && l.gates.every((g) => satisfiedGates.has(g.kind)))",
+      "replace": "ALL_LEGS.filter((l) => selected.includes(l.id))",
+      "test": "tests/coaching-budget.test.cjs"
+    },
+    {
+      "id": "P1-sandbox-unlabelled",
+      "guards": "a sandbox result is never reported as production billing proof",
+      "file": "journey-plan.cjs",
+      "find": "                proofScope: 'stripe-test-mode-sandbox',\n",
+      "replace": "",
+      "test": "tests/leg-verdicts.test.cjs"
+    },
+    {
+      "id": "P1-production-j9-runs",
+      "guards": "the production J9 leg stays NOT RUN without a safe, approved proof",
+      "file": "journey-plan.cjs",
+      "find": "gates: [{ kind: 'no-safe-production-proof', outcome: 'NOT RUN',",
+      "replace": "gates: [{ kind: 'test-mode-fixture', outcome: 'NOT RUN',",
+      "test": "tests/leg-verdicts.test.cjs"
+    },
+    {
+      "id": "P1-request-past-journey-cap",
+      "guards": "no coaching request is sent past a journey's cap",
+      "file": "coaching-budget.cjs",
+      "find": "if (sent >= cap) {",
+      "replace": "if (sent > cap) {",
+      "test": "tests/coaching-budget.test.cjs"
+    },
+    {
+      "id": "P1-shared-pool",
+      "guards": "a journey's retry can never use another journey's allowance (per-journey, not a run pool)",
+      "file": "coaching-budget.cjs",
+      "find": "const cap = this.capOf(journey);",
+      "replace": "const cap = this.runCap;",
+      "test": "tests/coaching-budget.test.cjs"
+    },
+    {
+      "id": "P1-over-cap-passes-budget-row",
+      "guards": "a journey that tries to send past its cap fails its budget row",
+      "file": "coaching-budget.cjs",
+      "find": "outcome: overCap > 0 || sent > max ? 'FAIL' : 'PASS'",
+      "replace": "outcome: sent > max ? 'FAIL' : 'PASS'",
+      "test": "tests/coaching-budget.test.cjs"
+    },
+    {
+      "id": "P1-lowered-cap-blames-journey",
+      "guards": "a deliberately lowered run cap turns legs NOT RUN without failing the journey's budget row",
+      "file": "coaching-budget.cjs",
+      "find": "            this.stopped.add(journey);\n            return { admitted: false, reason: `the run's lowered",
+      "replace": "            this.overCapBy.set(journey, 1);\n            this.stopped.add(journey);\n            return { admitted: false, reason: `the run's lowered",
+      "test": "tests/coaching-budget.test.cjs"
+    },
+    {
+      "id": "P2-trial-not-thirty-days",
+      "guards": "trial-length-thirty-days: only exactly 30 days passes",
+      "file": "oracles/trial-window.cjs",
+      "find": "    if (length !== THIRTY_DAYS_MS)\n        return",
+      "replace": "    if (Math.abs(length - THIRTY_DAYS_MS) > 2 * 86_400_000)\n        return",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P2-trial-service-role-read",
+      "guards": "trial-length-thirty-days: read with the account's own token",
+      "file": "oracles/trial-window.cjs",
+      "find": "    if (read.via !== 'own-token')\n        return",
+      "replace": "    if (read.via === 'none')\n        return",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P2-trial-end-without-canary",
+      "guards": "trial end only on an account with the server-issued canary claim",
+      "file": "oracles/canary-trial-end.cjs",
+      "find": "    if (user.appMetadata.canary !== true)\n        throw",
+      "replace": "    if (user.appMetadata.canary === false)\n        throw",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P2-trial-end-other-account",
+      "guards": "trial end changes exactly this account",
+      "file": "oracles/canary-trial-end.cjs",
+      "find": "if (updatedIds.length !== 1 || updatedIds[0] !== req.uid) {",
+      "replace": "if (updatedIds.length === 0) {",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P2-signout-403-counted-as-failure",
+      "guards": "sign-out rows: a 403 or 401 denial is a correct answer, not a failure",
+      "file": "oracles/sign-out.cjs",
+      "find": "    if (o.ownedIdentifiersRendered > 0)\n        problems.push(",
+      "replace": "    if (refused > 0)\n        problems.push('denied requests around sign-out');\n    if (o.ownedIdentifiersRendered > 0)\n        problems.push(",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P2-wall-shows-history",
+      "guards": "payment wall: no past data",
+      "file": "oracles/payment-wall.cjs",
+      "find": "    if (w.historyVisible)\n        problems.push('History is reachable');\n",
+      "replace": "",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P2-wall-promotes-delete",
+      "guards": "payment wall: delete available, not promoted",
+      "file": "oracles/payment-wall.cjs",
+      "find": "    if (w.deletePromoted)\n        problems.push('deleting the account is promoted over paying');\n",
+      "replace": "",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P2-server-error-counts-as-refusal",
+      "guards": "trial-expired-server-refuses: a 5xx is not a refusal",
+      "file": "oracles/payment-wall.cjs",
+      "find": "!(p.status >= 400 && p.status < 500)",
+      "replace": "!(p.status >= 400)",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P2-short-stop-row-saved",
+      "guards": "short-stop-no-save: no session row saved",
+      "file": "oracles/payment-wall.cjs",
+      "find": "    if (added.length > 0)\n        problems.push(",
+      "replace": "    if (added.length > 1)\n        problems.push(",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P2-portal-url-logged",
+      "guards": "J9 portal: the bearer address is never logged",
+      "file": "oracles/billing-portal.cjs",
+      "find": "log(`portal: ${shown.portalShown ? 'shown' : 'not shown'}`);",
+      "replace": "ports.log(`portal: ${url}`);",
+      "test": "tests/billing.test.cjs"
+    },
+    {
+      "id": "P2-portal-live-opened",
+      "guards": "J9 portal: only a Stripe test-mode portal is opened",
+      "file": "oracles/billing-portal.cjs",
+      "find": "if (!TEST_MODE_PORTAL_RE.test(url)) {",
+      "replace": "if (!url.startsWith('https://billing.stripe.com/')) {",
+      "test": "tests/billing.test.cjs"
+    },
+    {
+      "id": "P2-billing-promises-zero",
+      "guards": "J9 cleanup: retained billing rows are reconciled, not promised away",
+      "file": "oracles/billing-portal.cjs",
+      "find": "const unreviewed = rows.filter((r) => r.count > 0 && !reviewedRetainedTables.includes(r.table));",
+      "replace": "const unreviewed = rows.filter((r) => r.count > 0);",
+      "test": "tests/billing.test.cjs"
+    },
+    {
+      "id": "P2-billing-foreign-rows",
+      "guards": "J9 cleanup: another account's billing rows fail",
+      "file": "oracles/billing-portal.cjs",
+      "find": "    if (foreign.length > 0)\n        return",
+      "replace": "    if (foreign.length > 1)\n        return",
+      "test": "tests/billing.test.cjs"
+    },
+    {
+      "id": "P2-fixture-live-key",
+      "guards": "J9.a fixture: Stripe test-mode key only",
+      "file": "oracles/paid-account-fixture.cjs",
+      "find": "/^(sk|rk)_test_/",
+      "replace": "/^(sk|rk)_/",
+      "test": "tests/billing.test.cjs"
+    },
+    {
+      "id": "P2-fixture-live-object",
+      "guards": "J9.a fixture: no live-mode Stripe object",
+      "file": "oracles/paid-account-fixture.cjs",
+      "find": "if (customer.livemode !== false || subscription.livemode !== false)",
+      "replace": "if (customer.livemode === undefined)",
+      "test": "tests/billing.test.cjs"
+    },
+    {
+      "id": "P2-unauthorized-read-passes",
+      "guards": "signout-no-unauthorized-read: data returned without a valid session fails",
+      "file": "oracles/sign-out.cjs",
+      "find": "const reads = o.requests.filter((r) => ok(r.status) && r.ownedIdentifiersInBody > 0 && !hadValidSession(o, r));",
+      "replace": "const reads = o.requests.filter((r) => ok(r.status) && r.ownedIdentifiersInBody > 0 && r.bearerDigest !== null && !hadValidSession(o, r));",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P2-stale-request-only-if-success",
+      "guards": "signout-no-stale-request: any request with the old session after sign-out fails, whatever the answer",
+      "file": "oracles/sign-out.cjs",
+      "find": "const stale = o.requests.filter((r) => r.sentAfterSignOutCompleted && r.bearerDigest === o.signedInBearerDigest);",
+      "replace": "const stale = o.requests.filter((r) => ok(r.status) && r.sentAfterSignOutCompleted && r.bearerDigest === o.signedInBearerDigest);",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P2-signout-page-leak",
+      "guards": "signout-no-unauthorized-read: saved data on the signed-out page fails",
+      "file": "oracles/sign-out.cjs",
+      "find": "    if (o.ownedIdentifiersRendered > 0)\n        problems.push(",
+      "replace": "    if (o.ownedIdentifiersRendered > 99)\n        problems.push(",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P2-reopen-sends-coaching",
+      "guards": "old-sessions-no-new-coaching: a coaching request on reopening fails",
+      "file": "oracles/upgrade-continuity.cjs",
+      "find": "    if (seen.coachingRequests > 0)\n        problems.push(",
+      "replace": "    if (seen.coachingRequests > 1)\n        problems.push(",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P2-reopen-missing-store-fails",
+      "guards": "old-sessions-no-new-coaching: a session with no stored coaching before the release is HOLD, not a false FAIL",
+      "file": "oracles/upgrade-continuity.cjs",
+      "find": "if (pre.withStoredCoaching < pre.keptSessions) {",
+      "replace": "if (pre.withStoredCoaching < 0) {",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P3-unplaced-row-dropped",
+      "file": "case-results.cjs",
+      "test": "tests/harness-mapping.test.cjs",
+      "guards": "a case row the plan places nowhere fails the legs of its case",
+      "find": "        if (!placed)\n            for",
+      "replace": "        if (false)\n            for"
+    },
+    {
+      "id": "P3-harness-not-run-passes",
+      "file": "case-results.cjs",
+      "test": "tests/harness-mapping.test.cjs",
+      "guards": "the harness's NOT_RUN reads as NOT RUN, never PASS",
+      "find": "    if (result === 'NOT_RUN')\n        return 'NOT RUN';",
+      "replace": "    if (result === 'NOT_RUN')\n        return 'PASS';"
+    },
+    {
+      "id": "P3-unknown-result-passes",
+      "file": "case-results.cjs",
+      "test": "tests/harness-mapping.test.cjs",
+      "guards": "an unknown harness result is a FAIL",
+      "find": "return OUTCOMES.has(result) ? result : 'FAIL';",
+      "replace": "return OUTCOMES.has(result) ? result : 'PASS';"
+    },
+    {
+      "id": "P3-duplicate-row-better-wins",
+      "file": "case-results.cjs",
+      "test": "tests/harness-mapping.test.cjs",
+      "guards": "a row reported twice keeps its worse outcome",
+      "find": "rank[outcome] > rank[r[row]]",
+      "replace": "rank[outcome] < rank[r[row]]"
+    },
+    {
+      "id": "P3-wrong-case-accepted",
+      "file": "case-results.cjs",
+      "test": "tests/harness-mapping.test.cjs",
+      "guards": "a case result is only read for its own case",
+      "find": "if (!caseResult || caseResult.caseId !== caseId)",
+      "replace": "if (!caseResult)"
+    },
+    {
+      "id": "P3-no-case-gate-dropped",
+      "file": "journey-plan.cjs",
+      "test": "tests/harness-mapping.test.cjs",
+      "guards": "a leg with no harness case is NOT RUN",
+      "find": "...(harnessCase(id)[0] === null ? [NO_HARNESS_CASE] : [])",
+      "replace": "...([])"
+    },
+    {
+      "id": "P3-short-stop-press-dropped",
+      "file": "journey-plan.cjs",
+      "test": "tests/harness-mapping.test.cjs",
+      "guards": "J1.c's short Stop is budgeted as a Start press",
+      "find": "'J1.c': ['AHT-01', 1]",
+      "replace": "'J1.c': ['AHT-01', 0]"
+    },
+    {
+      "id": "P3-limits-count-gated-legs",
+      "file": "limits.cjs",
+      "test": "tests/limits.test.cjs",
+      "guards": "a leg that can't run counts toward no limit",
+      "find": "return leg.gates.every((g) => !NEVER_SATISFIED.includes(g.kind) && satisfiedGates.has(g.kind));",
+      "replace": "return leg.gates.every((g) => !NEVER_SATISFIED.includes(g.kind));"
+    },
+    {
+      "id": "P3-limits-j9-production-counted",
+      "file": "limits.cjs",
+      "test": "tests/limits.test.cjs",
+      "guards": "J9.b, NOT RUN by design, never counts",
+      "find": "return leg.gates.every((g) => !NEVER_SATISFIED.includes(g.kind) && satisfiedGates.has(g.kind));",
+      "replace": "return leg.gates.every((g) => satisfiedGates.has(g.kind));"
+    },
+    {
+      "id": "P3-limits-sandbox-counted",
+      "file": "limits.cjs",
+      "test": "tests/limits.test.cjs",
+      "guards": "the J9.a sandbox leg counts against no production limit",
+      "find": "const isProduction = (l) => l.proofScope === 'deployed-production';",
+      "replace": "const isProduction = (l) => l.proofScope !== '';"
+    },
+    {
+      "id": "P3-limits-flat-percentage",
+      "file": "limits.cjs",
+      "test": "tests/limits.test.cjs",
+      "guards": "no flat margin: the proposed margins come from measured evidence",
+      "find": "requests: Object.freeze({ pct: 11,",
+      "replace": "requests: Object.freeze({ pct: 20,"
+    },
+    {
+      "id": "P3-limits-margin-never-lowered",
+      "file": "limits.cjs",
+      "test": "tests/limits.test.cjs",
+      "guards": "two closer baselines lower the margin to their spread",
+      "find": "        if (spreadPct < proposal.pct) {",
+      "replace": "        if (false) {"
+    },
+    {
+      "id": "P3-limits-margin-raised-by-spread",
+      "file": "limits.cjs",
+      "test": "tests/limits.test.cjs",
+      "guards": "a wider spread never raises the margin without the product owner",
+      "find": "        if (spreadPct < proposal.pct) {",
+      "replace": "        if (spreadPct !== proposal.pct) {"
+    },
+    {
+      "id": "P3-limits-incomplete-run-counted",
+      "file": "limits.cjs",
+      "test": "tests/limits.test.cjs",
+      "guards": "only complete baseline runs set a measured limit",
+      "find": "r && r.complete === true &&",
+      "replace": "r &&"
+    },
+    {
+      "id": "P3-limits-partial-baseline-summed",
+      "file": "limits.cjs",
+      "test": "tests/limits.test.cjs",
+      "guards": "a journey without a baseline leaves the run limit unset",
+      "find": "const perRun = missing.length > 0 ? null :",
+      "replace": "const perRun = false ? null :"
+    },
+    {
+      "id": "P3-limits-minutes-not-rounded-per-journey",
+      "file": "limits.cjs",
+      "test": "tests/limits.test.cjs",
+      "guards": "time rounds up to whole minutes per journey",
+      "find": "kind === 'minutes' ? Math.ceil(raw / 60)",
+      "replace": "kind === 'minutes' ? raw / 60"
+    },
+    {
+      "id": "P3-limits-paid-account-signed-up",
+      "file": "limits.cjs",
+      "test": "tests/limits.test.cjs",
+      "guards": "only fresh run-owned journeys are sign-ups",
+      "find": "journeys.filter((j) => j.account === 'fresh-run-owned').length",
+      "replace": "journeys.length + 1"
+    },
+    {
+      "id": "P3-limits-identity-reads-per-leg",
+      "file": "limits.cjs",
+      "test": "tests/limits.test.cjs",
+      "guards": "identity is read once at the start and once at the end of each journey, plus admission and final",
+      "find": "identityReads: 2 * journeys.length + 2,",
+      "replace": "identityReads: 2 * legs.length + 2,"
+    },
+    {
+      "id": "P3-limits-provider-retries-uncounted",
+      "file": "limits.cjs",
+      "test": "tests/limits.test.cjs",
+      "guards": "each coaching request can make 3 provider calls",
+      "find": "const PROVIDER_CALLS_PER_COACHING_REQUEST = 3;",
+      "replace": "const PROVIDER_CALLS_PER_COACHING_REQUEST = 1;"
+    }
+  ]
+}
