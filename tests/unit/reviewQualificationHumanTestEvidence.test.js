@@ -68,7 +68,7 @@ describe('human-test evidence documentation review scope', () => {
     [{ generatedAt: undefined }, 'receipt_generated_at_missing_or_invalid'],
     [{ generatedAt: new Date(NOW - 31 * 60 * 1000).toISOString() }, 'receipt_stale:1860s'],
     [{ generatedAt: new Date(NOW + 1000).toISOString() }, 'receipt_generated_in_the_future'],
-  ])('preserves every review requirement: %j', (overrides, reason) => {
+  ])('preserves every review requirement (case %#): %j', (overrides, reason) => {
     expect(receipt(overrides)).toMatchObject({ qualified: false });
     expect(receipt(overrides).reasons).toContain(reason);
   });
