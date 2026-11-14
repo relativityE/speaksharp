@@ -57,6 +57,7 @@ import { useSessionStore } from '@/stores/useSessionStore';
 import { getSupabaseClient } from '../lib/supabaseClient';
 import type { UserProfile } from '@/types/user';
 import type { TranscriptUpdate, HistorySegment, SttStatus } from '@/types/transcription';
+import { clearUnsettledDiscardRecord, getUnsettledDiscardRecordForUser, saveUnsettledDiscardRecord } from './unsettledDiscardRecord';
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 import { isModeAllowed } from '@/services/transcription/TranscriptionPolicy';
 import { emitEngineRequestCollapsedToPrivate, isRetiredEngineRequest } from '@/services/transcription/sttExclusivityTelemetry';
@@ -1284,6 +1285,8 @@ export class SpeechRuntimeController {
     private pendingDiscardSettlement: {
         sessionId: string;
         reason: string;
+        /** The take's owner, whose durable record (unsettledDiscardRecord) is cleared once the mark is confirmed. */
+        ownerId: string | null;
         /**
          * The warning this take left on screen (the exact stored status object) and the status a settled discard would
          * have shown. When the `failed` mark is later confirmed, `shown` is replaced by `settled` — only while it is
@@ -1552,6 +1555,7 @@ export class SpeechRuntimeController {
                 logger.warn({ e, sessionId: discard.sessionId }, '[controller] discard settlement retry threw (G5)');
             }
             if (!settled) return false; // still unsettled; stays locked and retryable
+            clearUnsettledDiscardRecord(discard.ownerId, discard.sessionId); // the row is settled, whoever holds the slot now
             if (this.pendingDiscardSettlement === discard) {
                 this.pendingDiscardSettlement = null;
                 // Retire this take's own warning before unlocking, so no successor's status can be on screen yet.
@@ -1966,6 +1970,7 @@ export class SpeechRuntimeController {
 
         this.pendingFullSaveRetry = null;
         this.pendingAttributionRetry = null;
+        if (discardSlot && sessionId === discardSlot.sessionId) clearUnsettledDiscardRecord(discardSlot.ownerId, discardSlot.sessionId);
         if (discardSlot && this.pendingDiscardSettlement === discardSlot) this.retireDiscardWarning(discardSlot);
         this.pendingDiscardSettlement = null;
         this.retireObjectiveBriefAfterSettlement(recoveryContext, () => this.stopStillOwnsSharedState(discardAuthority, discardToken));
@@ -1984,7 +1989,7 @@ export class SpeechRuntimeController {
         const draft = getRecoverableDraftForUser(userId);
         // #1306: only a FINALIZED draft can be re-armed for completion. An active_interrupted draft has no final
         // metrics and must never rehydrate into a completable save.
-        if (!draft || draft.recoveryState !== 'finalized_pending_save') return false;
+        if (!draft || draft.recoveryState !== 'finalized_pending_save') return this.rehydrateUnsettledDiscard(userId);
         this.sessionId = draft.sessionId;
         this.recordingStartedUnresolved = true;
         this.pendingFullSaveRetry = {
@@ -2030,6 +2035,8 @@ export class SpeechRuntimeController {
     public retireRehydratedRecoveryFor(userId: string | null | undefined): void {
         if (!userId || this.rehydratedFor !== userId) return;
         if (SpeechRuntimeController.RECORDING_LIFECYCLE_STATES.has(this.state)) return;
+        // G5: the departing owner's unsettled discard too; its durable record stays for their return.
+        if (this.pendingDiscardSettlement?.ownerId === userId) this.pendingDiscardSettlement = null;
         this.rehydratedFor = null;
         this.rehydratedSelectorProduct = null;
         this.pendingFullSaveRetry = null;
@@ -2037,6 +2044,24 @@ export class SpeechRuntimeController {
         this.sessionId = null;
         this.publishLockState();
         logger.info('[controller] retired the previous owner\'s rehydrated recovery on account change (#1476)');
+    }
+
+    /**
+     * G5 (#1861, Sam on a58a348) — same-owner return for an unsettled discard. A reload, hard reset or sign-out dropped
+     * the in-memory slot while the row and its save obligation stayed unsettled; the owner's durable record re-arms the
+     * same slot, so the take is locked again and Try again re-runs the same `failed` mark on the same row. Never for
+     * another account, never over a recording, and never over a slot already held.
+     */
+    private rehydrateUnsettledDiscard(userId: string | null | undefined): boolean {
+        const record = getUnsettledDiscardRecordForUser(userId);
+        if (!record || !userId) return false;
+        if (SpeechRuntimeController.RECORDING_LIFECYCLE_STATES.has(this.state)) return false;
+        if (this.pendingDiscardSettlement || this.pendingFullSaveRetry || this.pendingAttributionRetry) return false;
+        this.pendingDiscardSettlement = { sessionId: record.sessionId, reason: record.reason, ownerId: userId, warning: null };
+        this.rehydratedFor = userId;
+        this.publishLockState();
+        logger.info({ sessionId: record.sessionId }, '[controller] rehydrated an unsettled discard for its owner (G5)');
+        return true;
     }
 
     /** Closed allowlist of engine tokens eligible for a VERIFIED attribution. Anything else → unverified. */
@@ -5986,6 +6011,7 @@ export class SpeechRuntimeController {
                             // `{ success: false }` (RPC error, invalid response) or a throw leaves the row and its
                             // lease obligation unsettled: arm Try again and keep the take unresolved.
                             let discardSettled = false;
+                            const discardOwner = this.capturedUserId ?? null; // captured before the await, like the stop's authority
                             try {
                                 const discardMark = await completeSession(sessionId, { status: 'failed', reason: discardReason });
                                 discardSettled = Boolean(discardMark?.success);
@@ -5993,13 +6019,18 @@ export class SpeechRuntimeController {
                                 logger.warn({ discardError, sessionId }, '[DEBUG-STOP] completeSession failed-status threw');
                             }
                             if (!discardSettled) {
+                                // Sam on a58a348: the slot is memory only, so first record the unsettled row for its owner.
+                                // A reload, hard reset or sign-out drops the slot; the same owner returning re-arms Try
+                                // again for this row (rehydrateUnresolvedRecording). Recorded even when the stop was
+                                // superseded, because the row stays unsettled either way and only its owner sees it.
+                                saveUnsettledDiscardRecord({ sessionId, userId: discardOwner, reason: discardReason });
                                 // Only the stop that still owns the runtime may arm Try again. A hard reset or account
                                 // switch during the awaited mark already retired this take; arming afterwards would lock
                                 // the next owner behind a row it cannot settle (reviewer on 523e682).
                                 if (!this.stopStillOwnsSharedState(stopAuthority, token)) {
                                     logger.error({ sessionId }, '[SESSION_SAVE_GUARD] discard NOT settled and the stop was superseded — not arming Try again for the successor (G5)');
                                 } else if (!this.pendingDiscardSettlement || this.pendingDiscardSettlement.sessionId === sessionId) {
-                                    this.pendingDiscardSettlement = { sessionId, reason: discardReason, warning: null };
+                                    this.pendingDiscardSettlement = { sessionId, reason: discardReason, ownerId: discardOwner, warning: null };
                                 } else {
                                     logger.error({ existing: this.pendingDiscardSettlement.sessionId, sessionId }, '[controller] discard settlement slot held by another session — failing closed, not overwriting (G5)');
                                 }

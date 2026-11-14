@@ -13,6 +13,7 @@ import { SpeechRuntimeController } from '../SpeechRuntimeController';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { ITranscriptionService } from '../../hooks/useSpeechRecognition/useTranscriptionService';
 import { completeSession, saveSession } from '../../lib/storage';
+import { getUnsettledDiscardRecordForUser } from '../unsettledDiscardRecord';
 
 vi.mock('../../lib/logger', () => ({ default: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('../../lib/storage', () => ({
@@ -32,7 +33,7 @@ const DECODED_DURING_FINALIZING = 'and um that is why we should start next week'
 type Priv = {
     state: string; initialized: boolean; isEngineReady: boolean; isEmissionsSafe: boolean; sessionId: string | null; service: unknown;
     pendingDiscardSettlement: unknown; recordingStartedUnresolved: boolean;
-    pendingAttributionRetry?: unknown; pendingFullSaveRetry?: unknown;
+    pendingAttributionRetry?: unknown; pendingFullSaveRetry?: unknown; capturedUserId?: string | null; rehydratedFor?: string | null;
 };
 
 describe('G5 — a take under the minimum duration is discarded by the real controller', () => {
@@ -67,7 +68,7 @@ describe('G5 — a take under the minimum duration is discarded by the real cont
         controller = SpeechRuntimeController.getInstance();
         Object.assign(priv(), {
             state: 'RECORDING', initialized: true, isEngineReady: true, isEmissionsSafe: true, sessionId: 'test-sess',
-            pendingDiscardSettlement: null, recordingStartedUnresolved: false,
+            pendingDiscardSettlement: null, recordingStartedUnresolved: false, capturedUserId: null, rehydratedFor: null,
         });
         useSessionStore.getState().resetSession();
         useSessionStore.getState().setRuntimeState('RECORDING');
@@ -238,6 +239,95 @@ describe('G5 — a take under the minimum duration is discarded by the real cont
         useSessionStore.getState().setSTTStatus(later);
         await expect(controller.retryRecordingSave()).resolves.toBe(true);
         expect(useSessionStore.getState().sttStatus).toBe(later);
+    });
+
+
+    // Sam on a58a348: the slot is memory only. A reload, hard reset or sign-out must not lose the only way to settle the
+    // row's save obligation; the owner's return re-arms Try again for the same row, and no one else's does.
+    describe('an unsettled discard outlives a reload for its owner', () => {
+        const OWNER = 'owner-a';
+        const failOnce = () => vi.mocked(completeSession).mockResolvedValueOnce({ success: false } as never);
+
+        it('the owner returning after a hard reset re-arms Try again, which settles the same row; another account does not', async () => {
+            priv().capturedUserId = OWNER;
+            engine(3);
+            failOnce();
+            await controller.stopRecording({ belowMinimumDuration: true });
+            expect(getUnsettledDiscardRecordForUser(OWNER)?.sessionId).toBe('test-sess');
+
+            controller.reset('account_switch'); // the in-memory slot is gone, as after a reload
+            expect(controller.hasUnsettledDiscard()).toBe(false);
+
+            expect(controller.rehydrateUnresolvedRecording('owner-b'), 'never another account').toBe(false);
+            expect(controller.pendingResolutionKind()).toBeNull();
+
+            expect(controller.rehydrateUnresolvedRecording(OWNER)).toBe(true);
+            expect(controller.pendingResolutionKind()).toBe('discard');
+            expect(controller.isEngineSelectionLocked(), 'Start stays refused until the row is settled').toBe(true);
+            expect(useSessionStore.getState().pendingResolutionKind).toBe('discard');
+
+            await expect(controller.retryRecordingSave()).resolves.toBe(true);
+            expect(completions('failed').map((call) => call[0]), 'the same row, marked failed twice').toEqual(['test-sess', 'test-sess']);
+            expect(completions('completed')).toHaveLength(0);
+            expect(getUnsettledDiscardRecordForUser(OWNER), 'settled, so nothing is left to recover').toBeNull();
+            expect(controller.pendingResolutionKind()).toBeNull();
+            expect(controller.isEngineSelectionLocked()).toBe(false);
+        });
+
+        it('a stop superseded during the pending mark arms nothing here but still records the row for its owner', async () => {
+            priv().capturedUserId = OWNER;
+            engine(3);
+            let finishMark!: (v: unknown) => void;
+            vi.mocked(completeSession).mockImplementationOnce(() => new Promise((resolve) => { finishMark = resolve; }) as never);
+            const stopping = controller.stopRecording({ belowMinimumDuration: true }).catch(() => null);
+            await vi.waitFor(() => expect(finishMark).toBeTypeOf('function'));
+            controller.reset('account_switch');
+            finishMark({ success: false });
+            await stopping;
+
+            expect(controller.hasUnsettledDiscard()).toBe(false);
+            expect(getUnsettledDiscardRecordForUser(OWNER)?.sessionId).toBe('test-sess');
+            expect(controller.rehydrateUnresolvedRecording(OWNER)).toBe(true);
+            expect(controller.pendingResolutionKind()).toBe('discard');
+        });
+
+        it('a confirmed mark records nothing; a confirmed Discard clears the record; an ownerless take records nothing', async () => {
+            priv().capturedUserId = OWNER;
+            engine(3);
+            await controller.stopRecording({ belowMinimumDuration: true });
+            expect(getUnsettledDiscardRecordForUser(OWNER)).toBeNull();
+
+            Object.assign(priv(), { state: 'RECORDING', sessionId: 'test-sess-2' });
+            useSessionStore.getState().setRuntimeState('RECORDING');
+            engine(3);
+            failOnce();
+            await controller.stopRecording({ belowMinimumDuration: true });
+            expect(getUnsettledDiscardRecordForUser(OWNER)?.sessionId).toBe('test-sess-2');
+            await expect(controller.discardUnresolvedRecording()).resolves.toEqual({ outcome: 'discarded', sessionId: 'test-sess-2' });
+            expect(getUnsettledDiscardRecordForUser(OWNER)).toBeNull();
+
+            Object.assign(priv(), { state: 'RECORDING', sessionId: 'test-sess-3', capturedUserId: null });
+            useSessionStore.getState().setRuntimeState('RECORDING');
+            engine(3);
+            failOnce();
+            await controller.stopRecording({ belowMinimumDuration: true });
+            expect(controller.hasUnsettledDiscard(), 'still offered on this page').toBe(true);
+            expect(localStorage.getItem('speaksharp_unsettled_discard'), 'nothing durable without an owner').toBeNull();
+        });
+
+        it('an account change retires the departing owner\'s rehydrated discard and keeps their record', async () => {
+            priv().capturedUserId = OWNER;
+            engine(3);
+            failOnce();
+            await controller.stopRecording({ belowMinimumDuration: true });
+            controller.reset('account_switch');
+            expect(controller.rehydrateUnresolvedRecording(OWNER)).toBe(true);
+
+            controller.retireRehydratedRecoveryFor(OWNER);
+            expect(controller.hasUnsettledDiscard()).toBe(false);
+            expect(controller.isEngineSelectionLocked(), 'the next account is not locked behind it').toBe(false);
+            expect(getUnsettledDiscardRecordForUser(OWNER)?.sessionId).toBe('test-sess');
+        });
     });
 
 });
