@@ -119,6 +119,12 @@ export const HELPER_CONTRACTS = Object.freeze([{
   helperFile:'tests/live/helpers/feedbackNoSessionCleanup.ts',testFile:'tests/unit/feedbackNoSessionCleanup.test.ts',
   callables:["noSessionWriteUncertainty"],
 }, {
+  // #1811: the database feedback fence the AHT-01/02/07/08 journeys write behind (#1859 RPCs), through its own unit consumer.
+  helperFile:'tests/live/helpers/feedbackFence.ts',testFile:'tests/unit/feedbackFence1811.test.ts',
+  callables:["fenceRunKey","verifyFeedbackFence","openFeedbackFence","closeFeedbackFence","cleanFeedbackFence","cleanAndVerifyFeedbackFence",
+    "fenceCleanupVerdict","JourneyFeedbackFence#open","JourneyFeedbackFence#openRow","JourneyFeedbackFence#stopWriter",
+    "JourneyFeedbackFence#close","JourneyFeedbackFence#cleanRow"],
+}, {
   helperFile:'tests/live/helpers/feedbackRecoveryInventory.ts',testFile:'tests/unit/feedbackBoundedWrites.test.ts',
   callables:["verifyRecoveryStore","recoveryFileName","recordDurably","settleRecoveryInventory","readRecoveryInventory","unresolvedAttempts","recoverFromInventory"],
 }, {
