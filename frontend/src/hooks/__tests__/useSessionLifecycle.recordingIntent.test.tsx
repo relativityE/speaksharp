@@ -722,11 +722,24 @@ describe('#1258 C10 — start-attempt identity through the real hook', () => {
         const live = mountWith({ runtimeState: 'RECORDING', isListening: true, elapsedTime: 4, startTime: Date.now() - 5_300 });
         await act(async () => { await live.result.current.handleStartStop(); });
         expect(String(live.store.getState().sttStatus.message ?? ''), 'a 5.3 s live take is not refused as too short').not.toMatch(/too short/i);
+        expect(speechRuntimeController.stopRecording, 'a take that met the minimum is stopped to be saved').toHaveBeenLastCalledWith();
         live.unmount();
 
         const short = mountWith({ runtimeState: 'RECORDING', isListening: true, elapsedTime: 4, startTime: Date.now() - 3_000 });
         await act(async () => { await short.result.current.handleStartStop(); });
         expect(String(short.store.getState().sttStatus.message ?? '')).toMatch(/too short \(3s\)/i);
+        // G5 (#1861): the take the user is told is too short is stopped to be DISCARDED, not completed.
+        expect(speechRuntimeController.stopRecording).toHaveBeenLastCalledWith(expect.objectContaining({ belowMinimumDuration: true }));
+    });
+
+    it('G5: a short Stop that throws does not leave the control refusing every later press', async () => {
+        vi.mocked(speechRuntimeController.stopRecording).mockRejectedValueOnce(new Error('stop failed'));
+        const { result, store } = mountWith({ runtimeState: 'RECORDING', isListening: true, elapsedTime: 2, startTime: Date.now() - 3_000 });
+        await act(async () => { await expect(result.current.handleStartStop()).rejects.toThrow('stop failed'); });
+        // The runtime is back at READY; the next press is a Start, which the processing guard would refuse if left set.
+        act(() => { store.setState({ runtimeState: 'READY', isListening: false, startTime: null }); });
+        await act(async () => { await result.current.handleStartStop(); });
+        expect(speechRuntimeController.startRecording, 'the next Start reaches the controller').toHaveBeenCalledTimes(1);
     });
 
     it('a Start-only call never stops a recording', async () => {

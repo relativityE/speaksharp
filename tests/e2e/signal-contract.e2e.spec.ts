@@ -43,6 +43,9 @@ test.describe('Signal contract invariants', () => {
     await mockLiveTranscript(page, MOCK_TRANSCRIPTS as unknown as string[]);
     await waitForTranscriptionService(page, 'TRANSCRIPT_PULSE');
 
+    // G5 (#1861): a take stopped under the five-second minimum is discarded, not saved, so this saved-take contract
+    // records past the minimum like every other saved-take journey. The minimum is not lowered.
+    await page.waitForTimeout(5_200);
     await stopRecording(page);
     await waitForPersistenceSignal(page, 15_000);
 
