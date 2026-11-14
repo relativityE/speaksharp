@@ -81,14 +81,14 @@ new_rows = [
  ("J1.e","trial-expired-server-refuses","On the deployed build, direct calls with the expired account's own token (Start, save, coaching, history read) are refused. Checks the deployed bodies; the logic itself is in DB and contract tests (G1, G2).","needs payment-wall PR"),
  ("J1.f","account-delete-from-wall","The expired, unpaid user can still delete the account from the wall; account and saved data are gone afterwards.","needs deletion flow confirmed shippable"),
  ("J2","paid-wall-before-payment","A run-owned expired account sees the wall with a way to pay.","needs payment-wall PR"),
- ("J2","checkout-opens-for-expired-user","The wall's pay action opens hosted Checkout for the $10 monthly price, bound to this account, with no trial; not completed.","new"),
+ ("J2","checkout-opens-for-expired-user","The wall's pay action opens hosted Checkout for the $10 monthly price, bound to this account, with no trial; not completed. The session address is never logged, traced, captured in a screenshot or kept.","new"),
  ("J2","abandoned-checkout-stays-walled","Returning from Checkout without paying leaves the account walled and unpaid.","new"),
  ("J2","deployed-webhook-ready","The deployed webhook rejects an unsigned event and is configured (existing stripe-webhook-readiness).","exists"),
  ("J7.d","account-delete-during-trial","An in-trial user deletes the account from the Account page; sign-in fails afterwards and run cleanup finds nothing left.","needs deletion flow confirmed shippable"),
  ("J8.c","no-session-choice-with-takes","With takes listed, choosing No session stores feedback with no session link.","new"),
  ("J9","pre-upgrade-history-opens","Sessions the long-lived account recorded through the product on a named earlier release, and kept, still open with their metrics and coaching after the latest release.","needs paid-account decision"),
  ("J9","pre-upgrade-progress-opens","Progress over that kept history renders the same comparisons it did before the release.","new"),
- ("J9","entitlement-survives-upgrade","The paid entitlement holds and the billing portal opens after the release. Opening the portal creates a Stripe portal session; its address works for anyone holding it, so it is never logged or kept.","needs paid-account decision"),
+ ("J9","entitlement-survives-upgrade","The paid entitlement holds and the billing portal opens after the release. Opening the portal creates a Stripe portal session; its address works for anyone holding it, so it is never logged, traced, captured in a screenshot or kept.","needs paid-account decision"),
 ]
 unused = set(ov) - used
 if unused:
@@ -118,7 +118,7 @@ JOURNEYS = [
   "Bound saved takes and coaching, exact deep-link return with mic off, no save for a short Stop, wall on the open session and after sign-in, deployed refusal, deletion readback."),
  ("J2", [], "Hitting the wall and going to pay",
   "Wall to hosted Checkout crosses the deployed app, the deployed checkout function and Stripe's live configuration.",
-  "Fresh run-owned expired account; payment never completed; disabled until a reviewed cleanup expires the session and proves no billing residue.",
+  "Fresh run-owned expired account; payment never completed; disabled until a reviewed cleanup expires the session through Stripe and reconciles every outstanding checkout operation to a settled state, keeping the audit records the billing code needs. The Checkout address is never logged, traced, captured in a screenshot or kept.",
   "Checkout opens for the right price and account; abandoning it leaves the account walled; deployed webhook rejects an unsigned event."),
  ("J3", ["AHT-02","AHT-03"], "Focus practice",
   "Durable Focus evidence from real speech, with back and reload mid-Focus.",
@@ -146,7 +146,7 @@ JOURNEYS = [
   "Feedback stored once per send with the right session link or none."),
  ("J9", [], "Existing paying customer after an upgrade",
   "Only a long-lived account shows that old data and a paid entitlement survive a migration.",
-  "Long-lived paid account, signed up and paid through the product; records no takes, but opening the billing portal creates a portal session whose address is never logged. History recorded through the product on a named release and kept, never seeded. Disabled until the product owner decides how a production paid account is paid; no real charge until then.",
+  "Long-lived paid account, signed up and paid through the product; records no takes, but opening the billing portal creates a portal session whose address is never logged, traced, captured in a screenshot or kept. History recorded through the product on a named release and kept, never seeded. Disabled until the product owner decides how a production paid account is paid; no real charge until then.",
   "Kept sessions and Progress open as before; entitlement and billing portal hold."),
 ]
 export = None
@@ -177,8 +177,8 @@ if len(sys.argv) == 5:
                          "Trial ended early only on the test-created account carrying the canary tag, failing closed without it, with exact-account checks and cleanup",
                          "Requirements updated to the no-service-after-trial rule",
                          "Paid lifecycle in #1795's sandbox suite, no production charge"],
-       "acceptance": "Expired unpaid account is walled on the open session and after sign-in, the deployed endpoints refuse it, and it can delete the account. Paid restoration is proven in #1795's sandbox suite, not live in J1.",
-       "differsFrom1862": "#1862 accepts approved paid restoration live in J01 with a safe paid-restoration fixture; this design proves restoration in the sandbox suite, as the product owner chose on 14 Nov, and adds J2 for production checkout."},
+       "acceptance": "Expired unpaid account is walled on the open session and after sign-in, the deployed endpoints refuse it, and it can delete the account. Paid restoration is to be proven by a real sandbox run of #1795's suite (not yet runnable), not live in J1.",
+       "differsFrom1862": "#1862 accepts approved paid restoration live in J01 with a safe paid-restoration fixture; this design proves restoration by a real sandbox run of #1795's suite, once it is runnable, as the product owner chose on 14 Nov, and adds J2 for production checkout."},
       {"id": "checkout-from-wall", "journey": "J2", "status": "blocked",
        "prerequisites": ["Payment wall", "Reviewed checkout cleanup that expires the session through Stripe and reconciles every outstanding checkout operation to a settled state, keeping the audit records the billing code needs", "Trial ended early only on the test-created account carrying the canary tag, failing closed without it"],
        "acceptance": "Hosted Checkout opens for the right price and account and an abandoned checkout leaves the account walled."},

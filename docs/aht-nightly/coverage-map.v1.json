@@ -1490,7 +1490,7 @@
   {
    "leg": "J2",
    "assertion": "checkout-opens-for-expired-user",
-   "what": "The wall's pay action opens hosted Checkout for the $10 monthly price, bound to this account, with no trial; not completed.",
+   "what": "The wall's pay action opens hosted Checkout for the $10 monthly price, bound to this account, with no trial; not completed. The session address is never logged, traced, captured in a screenshot or kept.",
    "status": "new"
   },
   {
@@ -1532,7 +1532,7 @@
   {
    "leg": "J9",
    "assertion": "entitlement-survives-upgrade",
-   "what": "The paid entitlement holds and the billing portal opens after the release. Opening the portal creates a Stripe portal session; its address works for anyone holding it, so it is never logged or kept.",
+   "what": "The paid entitlement holds and the billing portal opens after the release. Opening the portal creates a Stripe portal session; its address works for anyone holding it, so it is never logged, traced, captured in a screenshot or kept.",
    "status": "needs paid-account decision"
   }
  ],
