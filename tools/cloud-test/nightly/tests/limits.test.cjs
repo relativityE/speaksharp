@@ -1,6 +1,7 @@
 "use strict";
 // Nightly AHT suite: the lowest limits that still give a truthful result (#1864 at 2c72705, Akin 14 Nov 17:31Z).
-const { describe, expect, it } = require('./expect-lite.cjs');
+const { describe, it } = require('node:test');
+const { expect } = require('./expect-lite.cjs');
 const {
     PROPOSED_MARGIN_PCT, allGateKinds, countedLimits, dollarCap, journeyAllowance, limitsTable, measuredLimit, runnableJourneys,
 } = require('../limits.cjs');

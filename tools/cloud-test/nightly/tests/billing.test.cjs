@@ -1,7 +1,8 @@
 "use strict";
 // Nightly AHT suite, J9.a: bounded portal check, the portal address never leaves the check, test mode only,
 // billing rows reconciled rather than promised away.
-const { describe, expect, fn, it } = require('./expect-lite.cjs');
+const { describe, it } = require('node:test');
+const { expect, fn } = require('./expect-lite.cjs');
 const { portalOpensVerdict, reconcileBillingRows, redactPortalUrls } = require('../oracles/billing-portal.cjs');
 const { FixtureNotBuilt, LiveModeRefused, assertTestModeFixture, loadPaidAccountFixture } = require('../oracles/paid-account-fixture.cjs');
 const TEST_URL = 'https://billing.stripe.com/p/session/test_YWNjdF8xUXlTZWNyZXQ';

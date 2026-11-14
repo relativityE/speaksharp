@@ -1,7 +1,8 @@
 "use strict";
 // Nightly AHT suite: the run budget meets Sam's contract (#1864 review, 14 Nov): frozen per-leg allocations reserved
 // before the run, atomic reservation, no retry borrowing, J1.e's probe reserved at its worst case, protected cleanup.
-const { describe, expect, it } = require('./expect-lite.cjs');
+const { describe, it } = require('node:test');
+const { expect } = require('./expect-lite.cjs');
 const { ALL_LEGS, rowsForLeg } = require('../journey-plan.cjs');
 const { allGateKinds, countedLimits } = require('../limits.cjs');
 const { VerdictLedger, legVerdict, runVerdict } = require('../leg-verdicts.cjs');

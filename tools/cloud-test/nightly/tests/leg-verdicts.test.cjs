@@ -1,7 +1,8 @@
 "use strict";
 // Nightly AHT suite: NOT RUN and HOLD are never PASS; a dependent leg is NOT RUN when its dependency did not pass;
 // a FAIL is never hidden by a later NOT RUN.
-const { describe, expect, it } = require('./expect-lite.cjs');
+const { describe, it } = require('node:test');
+const { expect } = require('./expect-lite.cjs');
 const { ALL_LEGS, rowsForLeg } = require('../journey-plan.cjs');
 const { VerdictLedger, legVerdict: rawLegVerdict, runVerdict, verdictLine } = require('../leg-verdicts.cjs');
 const ALLOCATED = Object.freeze({ allocated: true, overrun: [] });

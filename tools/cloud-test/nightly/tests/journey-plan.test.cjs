@@ -3,7 +3,8 @@
 // planned row is a catalog row, and the plan's structure matches the #1864 design (legs, dependencies, budget).
 const { readFileSync } = require('node:fs');
 const path = require('node:path');
-const { describe, expect, it } = require('./expect-lite.cjs');
+const { describe, it } = require('node:test');
+const { expect } = require('./expect-lite.cjs');
 const { ALL_LEGS, CATALOG_ROW_HOMES, DESIGN_RUN_COACHING_CAP, JOURNEYS, LEG_INVARIANTS, NEW_ROWS, legById, rowsForLeg } = require('../journey-plan.cjs');
 const root = path.resolve(__dirname, '../../../..');
 const catalog = JSON.parse(readFileSync(path.join(root, 'tools/cloud-test/config/assertion-catalog.json'), 'utf8'));

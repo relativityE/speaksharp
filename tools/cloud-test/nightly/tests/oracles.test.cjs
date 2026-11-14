@@ -1,7 +1,8 @@
 "use strict";
 // Nightly AHT suite: the new rows' oracles. Each one passes the healthy behaviour and fails the broken one.
 const { createHash } = require('node:crypto');
-const { describe, expect, it } = require('./expect-lite.cjs');
+const { describe, it } = require('node:test');
+const { expect } = require('./expect-lite.cjs');
 const { THIRTY_DAYS_MS, trialLengthVerdict } = require('../oracles/trial-window.cjs');
 const { ENDED_AGO_MS, TrialEndRefused, endRunOwnedTrial } = require('../oracles/canary-trial-end.cjs');
 const { staleRequestVerdict, unauthorizedReadVerdict } = require('../oracles/sign-out.cjs');

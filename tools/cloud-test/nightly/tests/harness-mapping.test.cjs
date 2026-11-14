@@ -2,7 +2,8 @@
 // Nightly AHT suite: the plan's mapping onto the existing harness cases, and the split of one case result into legs.
 const { readFileSync } = require('node:fs');
 const path = require('node:path');
-const { describe, expect, it } = require('./expect-lite.cjs');
+const { describe, it } = require('node:test');
+const { expect } = require('./expect-lite.cjs');
 const { ALL_LEGS, CATALOG_ROW_HOMES, DESIGN_RUN_START_PRESSES, HARNESS_CASES, legById, rowsForLeg } = require('../journey-plan.cjs');
 const { legsForCase, outcomeOf, splitCaseResult } = require('../case-results.cjs');
 const { legVerdict: rawLegVerdict } = require('../leg-verdicts.cjs');
