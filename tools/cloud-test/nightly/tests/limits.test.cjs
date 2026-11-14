@@ -8,8 +8,8 @@ const counted = (l) => [l.freshSignUps, l.takes, l.startPresses, l.coachingReque
 const run = (value, complete = true) => ({ complete, value });
 
 describe('counted limits', () => {
-    it('matches the all-legs column: 8 sign-ups, 31 takes, 43 starts, 31 coaching, 18 identity reads, 93 provider calls, $0', () => {
-        expect(counted(countedLimits(allGateKinds()))).toEqual([8, 31, 43, 31, 18, 93, 0]);
+    it('matches the all-legs column with J1.e\'s probe reserved: 8 sign-ups, 31 takes, 43 starts, 32 coaching, 18 identity reads, 96 provider calls, $0', () => {
+        expect(counted(countedLimits(allGateKinds()))).toEqual([8, 31, 43, 32, 18, 96, 0]);
     });
     it("matches today's column: 7 sign-ups, 30 takes, 40 starts, 30 coaching, 16 identity reads, 90 provider calls, $0", () => {
         expect(counted(countedLimits(new Set()))).toEqual([7, 30, 40, 30, 16, 90, 0]);
@@ -30,10 +30,11 @@ describe('counted limits', () => {
         expect(l.runsPerPeriod).toEqual({ runs: 30, days: 30 });
         expect(l.paidActionsUsd).toBe(0);
     });
-    it('adds the canary legs once the canary claim is acknowledged, with no take or start of their own', () => {
+    it('adds the canary legs once the canary claim is acknowledged: no take or start of their own, one probe reserved', () => {
         const withCanary = countedLimits(new Set(['canary-claim-ack', 'no-harness-case']));
         expect(withCanary.legs).toContain('J1.e');
-        expect(counted(withCanary).slice(1, 4)).toEqual([30, 40, 30]);
+        expect(counted(withCanary).slice(1, 4)).toEqual([30, 40, 31]);
+        expect(withCanary.providerCalls).toBe(93);
     });
 });
 

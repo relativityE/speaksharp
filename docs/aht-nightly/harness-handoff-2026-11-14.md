@@ -1,6 +1,6 @@
 # Nightly AHT suite: harness handoff
 
-Date: 14 November 2026. For: the owners of the pinned and shared harness files (Elon for the runner and release, Sam for review). From: #1865, whose offline core is in `tools/cloud-test/nightly/`. Design: #1864 at `2c72705`.
+Date: 14 November 2026. For: the owners of the pinned and shared harness files (Elon for the runner and release, Sam for review). From: #1865, whose offline core is in `tools/cloud-test/nightly/`. Design: #1864 at `2c72705`, with Sam's review of it (frozen per-leg allocations, atomic reservation, no retry borrowing, the probe reserve, protected cleanup). Checked against main `d81aa86`: #1858, #1859 and #1860 changed nothing under `tools/cloud-test`; what they change for this handoff is in section 1 and section 3.
 
 The product owner chose the existing AHT harness, "with isolated browser/fault legs and explicit file handoffs to avoid overlap with #1860" (14 Nov 17:31Z). #1865 adds new files only, outside the hash-pinned packet. Every change the suite needs in a pinned or shared file is listed here, file by file, for a separate reviewed PR. Nothing here is activated, run live, or applied to production.
 
@@ -18,6 +18,7 @@ These rows sit on legs that already have a case. Until the case emits them, `cas
 | `harness/draft-adapters/source-adapters.cjs` (`CONTRACTS['AHT-01']`, `run`) | Emit `trial-length-thirty-days` (J1.a: read with the account's own token, oracle `nightly/oracles/trial-window.cjs`) and `short-stop-no-save` (J1.c: one extra Start press, a Stop before the minimum take length, no session row saved, oracle `shortStopVerdict` in `nightly/oracles/payment-wall.cjs`) |
 | `harness/draft-adapters/source-adapters.cjs` (`CONTRACTS['AHT-15']`, `run`) | Emit `signout-no-unauthorized-read` and `signout-no-stale-request` as two rows (J1.d, oracle `nightly/oracles/sign-out.cjs`). A 401 or 403 after sign-out is a correct answer and fails neither row |
 | `harness/draft-adapters/contracts.json` | The same rows in `cases.AHT-01.requiredAssertions` and `cases.AHT-15.requiredAssertions`; `minimumAuthorizedStartPresses` for AHT-01 goes from 4 to 5 |
+| `tests/live/rwt-open-mic-first-session.live.spec.ts` (on main since #1860) | `AHT01_START_PRESS_BUDGET.total` goes from 4 to 5 for J1.c's short Stop, and the comment above `startPressRow` that still says "plus 2 presses of headroom" is corrected: the budget is exact. The short-Stop take must write no feedback, so it needs no change to the run fence #1860 opens for AHT-01 |
 | `config/assertion-catalog.json` | Regenerated with `scripts/derive_assertion_catalog.py --out config/assertion-catalog.json`, and the next `config/history/catalogs/vN.json` added, so the catalog stays additive |
 
 ## 2. Adapters for the legs with no case
@@ -38,9 +39,10 @@ Each leg below reports NOT RUN (gate `no-harness-case`) until its adapter lands.
 
 | File | Change |
 |---|---|
-| `harness/draft-adapters/source-adapters.cjs` (coaching guard) | Ask `CoachingBudget.admit(journey)` from `nightly/coaching-budget.cjs` before a coaching request leaves the browser, and abort it when refused. A journey's cap is the coaching its runnable legs need; it never uses another journey's allowance |
+| `harness/draft-adapters/source-adapters.cjs` (budget guard) | Build one `RunBudget` with `planRunBudget` from `nightly/run-budget.cjs` before the first leg starts, and refuse the run if it throws. Before each coaching request or Start press leaves the browser, call `reserve(leg, kind)` (or `send`) with no await in between, and abort the action when refused. Cleanup requests use `reserveCleanup(leg)` only. J1.e's expired-token probe goes through `reserve('J1.e', 'coaching')` like any coaching request. Pass `legBudget(leg)` to `legVerdict`, and record every verdict in one `VerdictLedger` |
+| Cleanup allocations | Each leg's cleanup requests, from the baseline run (no margin; a cleanup that needs more fails its leg). On main since #1860, AHT-01, 02, 07 and 08 close and clean their feedback fence after the account is deleted; those calls come from the leg's cleanup allocation (J1.a to J1.c, J3.a, J8.a, J8.b), never from its ordinary work. Until the baseline gives them, `planRunBudget` refuses the run |
 | `harness/bundle/harness/identity-check.cjs`, `campaign-runner.cjs` | Read identity once at the start and once at the end of each journey (J7.a's separate launch inside J7's pair), plus admission and final: 18 with every leg, 16 today. Today the harness reads 2 per case plus 2. If the per-journey read can't be done, the count in `nightly/limits.cjs` is re-derived |
-| `config/test-config.v1.json` `modes.full.budgetModel`, `caseMaxMs` | Request and time allowances per journey rather than per case, from `nightly/limits.cjs` once a complete baseline exists. Remove the flat allowances the product owner ruled out: `allowancePct` 125, `pooledSlackPct` 15, `coachingRetryAllowancePct` 25 (becomes 0: a coaching retry fails its row), and keep `cleanupReservePerCase` 10 only as far as a measured cleanup needs it |
+| `config/test-config.v1.json` `modes.full.budgetModel`, `caseMaxMs` | Request and time allowances per journey rather than per case, from `nightly/limits.cjs` once a complete baseline exists. The baseline has to come from a build that includes #1859 and #1860, since the fence adds requests to AHT-01, 02, 07 and 08. Remove the flat allowances the product owner ruled out: `allowancePct` 125, `pooledSlackPct` 15, `coachingRetryAllowancePct` 25 (becomes 0: a coaching retry fails its row), and keep `cleanupReservePerCase` 10 only as far as a measured cleanup needs it |
 | `scripts/recurring_budget.py` `per_run_measured` | Accept a run in which every runnable leg executed, not every catalog row (impossible while J7.a is held), and drop the 25% `margin_pct` on `runCapRequests`. The margins are the evidence-based 11% (requests) and 14% (time) from #1864, lowered to the spread of complete baselines when that is smaller |
 | `scripts/full_coverage_budget.py` | The same flat percentages appear in its estimate (`allowancePct`, `coachingRetryAllowancePct`, `pooledSlackPct`); it should read the nightly limits instead for the nightly mode |
 
@@ -55,7 +57,7 @@ Each leg below reports NOT RUN (gate `no-harness-case`) until its adapter lands.
 
 ## 5. Checks in CI
 
-`tests/test_nightly_suite.py` (in #1865) runs the 106 node:test tests inside `package-unit-tests`, so `scripts/run_offline_checks.py` covers them. The 52 negative controls (`nightly/negative-controls/run.cjs`) rewrite files while they run, so they are not part of that suite; wiring them into CI as a separate step is for the reviewer to decide.
+`tests/test_nightly_suite.py` (in #1865) runs the 121 node:test tests inside `package-unit-tests`, so `scripts/run_offline_checks.py` covers them. The 64 negative controls (`nightly/negative-controls/run.cjs`) rewrite files while they run, so they are not part of that suite; wiring them into CI as a separate step is for the reviewer to decide.
 
 ## Order
 

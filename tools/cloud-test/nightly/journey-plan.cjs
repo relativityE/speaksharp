@@ -39,18 +39,24 @@ const leg = (id, story, o = {}) => Object.freeze({
     id, journey: id.slice(0, 2), story,
     caseId: harnessCase(id)[0], startPresses: harnessCase(id)[1],
     needs: Object.freeze(o.needs ?? []), context: o.context ?? 'shared', needsCoaching: o.needsCoaching ?? (o.coachingRequests ?? 0) > 0,
-    coachingRequests: o.coachingRequests ?? 0, proofScope: o.proofScope ?? 'deployed-production',
+    coachingRequests: o.coachingRequests ?? 0, coachingProbes: o.coachingProbes ?? 0,
+    // What the run budget reserves for the leg before the run starts: one per saved take's review, plus the worst case of
+    // every probe the server should refuse (Sam's #1864 review: reserve the probe's cost before it is sent).
+    coachingReserve: (o.coachingRequests ?? 0) + (o.coachingProbes ?? 0), proofScope: o.proofScope ?? 'deployed-production',
     gates: Object.freeze([...(o.gates ?? []), ...(harnessCase(id)[0] === null ? [NO_HARNESS_CASE] : [])]),
 });
 const JOURNEYS = Object.freeze([
     {
-        id: 'J1', title: "New user's first 30 days", account: 'fresh-run-owned', coachingMax: 4,
+        id: 'J1', title: "New user's first 30 days", account: 'fresh-run-owned', coachingMax: 5,
         legs: [
             leg('J1.a', 'sign up, trial length, first Open Mic take', { coachingRequests: 4 }),
             leg('J1.b', 'coaching, review, PDF, same-target repeat', { needs: ['J1.a'], needsCoaching: true, coachingRequests: 0 }),
             leg('J1.c', 'short Stop saves nothing; probe save isolation', { needs: ['J1.a'], needsCoaching: true, coachingRequests: 0 }),
             leg('J1.d', 'sign out and return, deep link, history preserved', { needs: ['J1.a'] }),
-            leg('J1.e', 'trial ends: wall on the open session, then after a fresh sign-in; server refuses', { gates: [CANARY_GATE] }),
+            // J1.e sends one coaching request with the expired account's token, which the server must refuse before any
+            // provider work. If it wrongly accepts it, that request costs up to 3 provider calls, so the run reserves it
+            // up front (Sam, #1864 review) instead of leaving it outside the ceiling.
+            leg('J1.e', 'trial ends: wall on the open session, then after a fresh sign-in; server refuses', { gates: [CANARY_GATE], coachingProbes: 1 }),
             leg('J1.f', 'delete the account from the wall', { needs: ['J1.e'], gates: [CANARY_GATE] }),
         ],
     },
@@ -127,13 +133,13 @@ const JOURNEYS = Object.freeze([
         ],
     },
 ].map((j) => {
-    // The journey maxima are the design's §6 table; they must equal the sum of the legs' catalog take counts.
-    const sum = j.legs.reduce((n, l) => n + l.coachingRequests, 0);
+    // The journey maxima are the design's §6 table plus J1.e's probe reserve; they must equal the sum of the legs' reserves.
+    const sum = j.legs.reduce((n, l) => n + l.coachingReserve, 0);
     if (sum !== j.coachingMax)
         throw new Error(`${j.id}: legs send ${sum} coaching requests, the journey allows ${j.coachingMax}`);
     return Object.freeze({ ...j, legs: Object.freeze(j.legs) });
 }));
-/** The ceiling with every leg runnable: the sum of the journeys' maxima (31, the design's §6 proposal). */
+/** The ceiling with every leg runnable: the sum of the journeys' maxima (32: the design's 31 takes plus J1.e's probe). */
 const DESIGN_RUN_COACHING_CAP = JOURNEYS.reduce((n, j) => n + j.coachingMax, 0);
 /** Start presses with every leg runnable: 43. */
 const DESIGN_RUN_START_PRESSES = JOURNEYS.reduce((n, j) => n + j.legs.reduce((m, l) => m + l.startPresses, 0), 0);

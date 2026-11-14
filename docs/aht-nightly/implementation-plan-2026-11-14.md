@@ -1,10 +1,10 @@
 # Nightly AHT suite: implementation plan
 
-Date: 14 November 2026. Base: main `897117b`; main is now `d81aa86` (#1860 merged), with no change under `tools/cloud-test` since the base. Design source: draft PR #1864 (`docs/aht-nightly/design-2026-11-14.md`, `coverage-map.v1.json`), checked against head `2c72705`. This PR implements that design; where the two disagree, #1864 wins and this plan is corrected.
+Date: 14 November 2026. Base: main `d81aa86` (#1858, #1859 and #1860 merged; none of them changed `tools/cloud-test`). Design source: draft PR #1864 (`docs/aht-nightly/design-2026-11-14.md`, `coverage-map.v1.json`), checked against head `2c72705`. This PR implements that design; where the two disagree, #1864 wins and this plan is corrected.
 
 ## Architecture (product owner, 14 Nov 17:31Z)
 
-"Use the existing AHT harness, with isolated browser/fault legs and explicit file handoffs to avoid overlap with #1860." So the suite does not get a runner of its own. Each journey leg runs as an existing harness case, or as part of one (`tools/cloud-test/harness/draft-adapters/AHT-NN.cjs` through `source-adapters.cjs run()`), and the new code in `tools/cloud-test/nightly/` turns case results into leg and run verdicts, enforces the coaching hard stop per journey, and derives the nightly limits.
+"Use the existing AHT harness, with isolated browser/fault legs and explicit file handoffs to avoid overlap with #1860." So the suite does not get a runner of its own. Each journey leg runs as an existing harness case, or as part of one (`tools/cloud-test/harness/draft-adapters/AHT-NN.cjs` through `source-adapters.cjs run()`), and the new code in `tools/cloud-test/nightly/` turns case results into leg and run verdicts, holds the run budget, and derives the nightly limits.
 
 The vendored packet (`harness/bundle`, `harness/draft-adapters`) is hash-pinned, so this PR does not edit it. Everything it needs there is in `docs/aht-nightly/harness-handoff-2026-11-14.md`, file by file, for the owners of those files.
 
@@ -13,8 +13,9 @@ The vendored packet (`harness/bundle`, `harness/draft-adapters`) is hash-pinned,
 - **Offline only.** Nothing in this PR deploys, applies a migration, touches Stripe live mode or production, or runs a live AHT. Nightly activation is not part of this PR.
 - **New files only, outside the pinned packet.** No open PR touches `tools/cloud-test`. Shared and pinned files change only through the handoff.
 - **Existing live AHT rows stay.** The 15 cases and their 204 rows stay live and unchanged. A row moves to the nightly suite only once its replacement is independently proven to fail on the same break and pass when restored.
-- **Every new or strengthened check has a negative control.** A seeded break makes its test fail; restoring it makes the test pass. All 52 are recorded.
+- **Every new or strengthened check has a negative control.** A seeded break makes its test fail; restoring it makes the test pass. All 64 are recorded.
 - **NOT RUN and HOLD are never PASS.** A run with any NOT RUN or HOLD leg can't be green.
+- **A FAIL is never hidden.** A leg that recorded a FAIL, or asked for more than its allocation, is FAIL whatever NOT RUN or HOLD comes after; the run's ledger keeps the worse of two verdicts for a leg.
 - **#1857 is left alone.**
 
 ## Leg to harness case
@@ -30,7 +31,8 @@ The vendored packet (`harness/bundle`, `harness/draft-adapters`) is hash-pinned,
 | J6 | AHT-11 | 2 | 4 |
 | J7.a, J7.b, J7.c | AHT-12, AHT-13, AHT-14 | 1, 1, 1 | 3, 3, 3 |
 | J8.a, J8.b | AHT-08, AHT-07 | 0, 2 | 0, 2 |
-| J1.e, J1.f, J2, J7.d, J8.c, J9.a, J9.b | none yet | 0 | 0 |
+| J1.e | none yet | 0 takes, 1 probe reserved at its worst case | 0 |
+| J1.f, J2, J7.d, J8.c, J9.a, J9.b | none yet | 0 | 0 |
 
 Each case spends exactly its catalog Start presses and takes; AHT-01 spends one more for J1.c's short Stop (43 in all). A leg with no harness case reports NOT RUN until its adapter lands through the handoff. A new row on an existing case (the trial-length, short-Stop and sign-out rows) reports NOT RUN until the case emits it, so its leg can't pass early.
 
@@ -42,12 +44,12 @@ Each case spends exactly its catalog Start presses and takes; AHT-01 spends one 
 | `docs/aht-nightly/harness-handoff-2026-11-14.md` | The exact-file handoff for the pinned and shared harness files |
 | `tools/cloud-test/nightly/journey-plan.cjs` | J1 to J9: 24 legs, the home of each of the 204 catalog rows and the 19 new rows, each leg's harness case, Start presses, coaching, proof scope, browser context and gates |
 | `tools/cloud-test/nightly/case-results.cjs` | Splits one harness case result into its legs' results; a row the plan places nowhere fails those legs |
-| `tools/cloud-test/nightly/leg-verdicts.cjs` | Leg and run verdicts, and one report line per leg |
-| `tools/cloud-test/nightly/coaching-budget.cjs` | The coaching hard stop, per journey |
+| `tools/cloud-test/nightly/leg-verdicts.cjs` | Leg and run verdicts, the run's verdict ledger, and one report line per leg |
+| `tools/cloud-test/nightly/run-budget.cjs` | The run budget: frozen per-leg allocations, atomic reservation, no retry borrowing, the probe reserve, protected cleanup |
 | `tools/cloud-test/nightly/limits.cjs` | The nightly limits (below) |
 | `tools/cloud-test/nightly/oracles/*.cjs` | The new rows' checks: trial length, canary trial end, sign-out (two rows), payment wall, server refusal, short Stop, billing portal, billing-row reconciliation, test-mode paid fixture, kept sessions send no new coaching |
-| `tools/cloud-test/nightly/tests/*.test.cjs` | 106 node:test tests, including the coverage drift test against the catalog |
-| `tools/cloud-test/nightly/negative-controls/breaks.json`, `run.cjs` | 52 seeded breaks and their runner |
+| `tools/cloud-test/nightly/tests/*.test.cjs` | 121 node:test tests, including the coverage drift test against the catalog |
+| `tools/cloud-test/nightly/negative-controls/breaks.json`, `run.cjs` | 64 seeded breaks and their runner |
 | `tools/cloud-test/nightly/README.md` | What the folder holds and how to run it |
 | `tools/cloud-test/tests/test_nightly_suite.py` | Runs the node:test files inside the package unit tests, failing on any failure or skip |
 
@@ -60,9 +62,9 @@ Akin (14 Nov 17:31Z): "Don't add an automatic 20%. Calculate the lowest limits t
 | Fresh sign-ups | 8 | 7 | None: an exact count |
 | Takes | 31 | 30 | None |
 | Start presses | 43 | 40 | None |
-| Coaching requests | 31 | 30 | None; enforced per journey |
+| Coaching requests | 32 | 30 | None. 31 saved takes plus J1.e's expired-token probe reserved at its worst case (Sam's review); J1.e is gated today. Enforced per leg |
 | Identity reads | 18 | 16 | None: 2 per production journey that runs, plus admission and final |
-| Provider calls | 93 | 90 | None: 3 per coaching request is already the most possible |
+| Provider calls | 96 | 90 | None: 3 per coaching request is already the most possible |
 | Paid actions | $0 | $0 | None |
 | Runs | 30 per 30 days | 30 per 30 days | None |
 | Requests | Per journey from a complete baseline | Same | 11% proposed, from the largest difference between the two measured runs on cases whose work matched |
@@ -70,6 +72,18 @@ Akin (14 Nov 17:31Z): "Don't add an automatic 20%. Calculate the lowest limits t
 | Provider and GitHub dollars | Calls or minutes times a price the product owner supplies | Same | None of their own |
 
 Today J2 is disabled, J7.a is held, and J1.e, J1.f, J7.d and J8.c wait for their adapters, so they count toward nothing and report NOT RUN. J9 runs on the billing sandbox, so it counts against no production limit. A request or time limit stays unset while any journey that can run has no baseline run in which every runnable leg executed. With two or more such baselines, each margin comes down to their spread if the spread is smaller; it goes up only on the product owner's word. Nothing here applies a limit or activates the nightly.
+
+## Run budget (Sam's #1864 review, 14 Nov)
+
+`run-budget.cjs` meets the five points of Sam's review:
+
+1. **Frozen per-leg allocations.** Before the run starts, each runnable, selected leg is allocated its coaching (saved takes plus probe reserves), its Start presses and its cleanup requests, and the whole run is reserved at once. A run whose allocations don't fit is refused before anything is sent. A lowered coaching ceiling drops whole legs before the start, last first, with any leg that needs a dropped one; they report NOT RUN. The allocations are frozen.
+2. **Atomic reservation.** `reserve` checks and counts in one synchronous step, and `send` reserves before it awaits the action, so racing sends can't both take the last unit, and a refused action never starts.
+3. **No retry borrowing.** A leg draws only on its own allocation and nothing is ever given back. A retry past the allocation is refused, fails the leg's budget row, and stops that leg's ordinary work; other legs, the same journey's included, keep their allocations.
+4. **Worst case for the probe.** J1.e's expired-token coaching probe is reserved as one coaching request (3 provider calls), though the server should refuse it. That raises the all-legs coaching ceiling from #1864's 31 to 32 (provider calls 93 to 96); today stays 30, because J1.e is gated.
+5. **Protected cleanup.** Cleanup comes from a separate per-leg pool that ordinary reservations can't reach, and a leg that overran its ordinary budget can still clean up. A cleanup that needs more than its allocation fails the leg. A leg with no cleanup allocation leaves the run unbudgeted rather than guessed; the allocations come from the baseline.
+
+And in `leg-verdicts.cjs`: a FAIL the leg recorded, or an overrun of its allocation, survives a later NOT RUN or HOLD, and `VerdictLedger` keeps the worse of two verdicts for the same leg.
 
 ## Phases
 

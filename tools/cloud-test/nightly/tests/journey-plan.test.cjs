@@ -52,9 +52,10 @@ describe('nightly plan structure (#1864 design)', () => {
         expect(Object.fromEntries(ALL_LEGS.map((l) => [l.id, l.coachingRequests])))
             .toEqual(Object.fromEntries(ALL_LEGS.map((l) => [l.id, expected(l.id)])));
     });
-    it('sets the design run budget to 31 coaching requests', () => {
-        expect(Object.fromEntries(JOURNEYS.map((j) => [j.id, j.coachingMax]))).toEqual({ J1: 4, J2: 0, J3: 11, J4: 4, J5: 5, J6: 2, J7: 3, J8: 2, J9: 0 });
-        expect(DESIGN_RUN_COACHING_CAP).toBe(31);
+    it('sets the design run budget to 32 coaching requests: 31 saved takes plus J1.e\'s probe at its worst case', () => {
+        expect(Object.fromEntries(JOURNEYS.map((j) => [j.id, j.coachingMax]))).toEqual({ J1: 5, J2: 0, J3: 11, J4: 4, J5: 5, J6: 2, J7: 3, J8: 2, J9: 0 });
+        expect(DESIGN_RUN_COACHING_CAP).toBe(32);
+        expect(Object.fromEntries(ALL_LEGS.filter((l) => l.coachingProbes > 0).map((l) => [l.id, l.coachingProbes]))).toEqual({ 'J1.e': 1 });
     });
     it('keeps the design dependencies: J1.b-d need J1.a, J1.f needs J1.e, J8.c needs J8.b, J1.e needs nothing', () => {
         const needs = Object.fromEntries(ALL_LEGS.filter((l) => l.needs.length > 0).map((l) => [l.id, l.needs]));

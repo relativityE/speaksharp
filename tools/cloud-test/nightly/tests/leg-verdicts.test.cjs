@@ -1,8 +1,9 @@
 "use strict";
-// Nightly AHT suite: NOT RUN and HOLD are never PASS; a dependent leg is NOT RUN when its dependency did not pass.
+// Nightly AHT suite: NOT RUN and HOLD are never PASS; a dependent leg is NOT RUN when its dependency did not pass;
+// a FAIL is never hidden by a later NOT RUN.
 const { describe, expect, it } = require('./expect-lite.cjs');
 const { ALL_LEGS, rowsForLeg } = require('../journey-plan.cjs');
-const { legVerdict, runVerdict, verdictLine } = require('../leg-verdicts.cjs');
+const { VerdictLedger, legVerdict, runVerdict, verdictLine } = require('../leg-verdicts.cjs');
 const ALL_GATES = new Set(['canary-claim-ack', 'unqualified', 'disabled-until-reviewed', 'test-mode-fixture', 'no-safe-production-proof', 'no-harness-case']);
 const NO_GATES = new Set();
 const results = (leg, o = 'PASS') => Object.fromEntries(rowsForLeg(leg).map((r) => [r, o]));
@@ -67,9 +68,58 @@ describe('leg verdict', () => {
         expect(v.outcome).toBe('NOT RUN');
         expect(v.reason).toContain('reviewed cleanup');
     });
-    it('makes a coaching leg NOT RUN once the run cap is reached, but not a leg without coaching', () => {
-        expect(legVerdict('J3.b', { prior: new Map(), satisfiedGates: ALL_GATES, results: results('J3.b'), stoppedForBudget: true }).outcome).toBe('NOT RUN');
-        expect(legVerdict('J7.d', { prior: new Map(), satisfiedGates: ALL_GATES, results: results('J7.d'), stoppedForBudget: true }).outcome).toBe('PASS');
+    it('makes a leg NOT RUN when it got no budget allocation before the run', () => {
+        const v = legVerdict('J3.b', { prior: new Map(), satisfiedGates: ALL_GATES, results: undefined, budget: { allocated: false, reason: 'left out', overrun: [] } });
+        expect(v.outcome).toBe('NOT RUN');
+        expect(v.reason).toContain('no budget allocation');
+        expect(legVerdict('J3.b', { prior: new Map(), satisfiedGates: ALL_GATES, results: results('J3.b'), budget: { allocated: true, overrun: [] } }).outcome).toBe('PASS');
+    });
+});
+describe('a FAIL survives a later NOT RUN', () => {
+    const failedRows = (leg) => {
+        const r = results(leg);
+        r[Object.keys(r)[0]] = 'FAIL';
+        return r;
+    };
+    const failedA = () => legVerdict('J1.a', { prior: new Map(), satisfiedGates: ALL_GATES, results: results('J1.a', 'FAIL') });
+    it('keeps a recorded FAIL when the dependency did not pass', () => {
+        const v = legVerdict('J1.b', { prior: prior(failedA()), satisfiedGates: ALL_GATES, results: failedRows('J1.b') });
+        expect(v.outcome).toBe('FAIL');
+        expect(v.reason).toContain('needs J1.a');
+    });
+    it('keeps a recorded FAIL when a gate is unmet, HOLD gates included', () => {
+        expect(legVerdict('J7.a', { prior: new Map(), satisfiedGates: NO_GATES, results: failedRows('J7.a') }).outcome).toBe('FAIL');
+        expect(legVerdict('J1.e', { prior: new Map(), satisfiedGates: NO_GATES, results: failedRows('J1.e') }).outcome).toBe('FAIL');
+    });
+    it('keeps a recorded FAIL when the leg had no budget allocation', () => {
+        const v = legVerdict('J6', { prior: new Map(), satisfiedGates: ALL_GATES, results: failedRows('J6'), budget: { allocated: false, reason: 'left out', overrun: [] } });
+        expect(v.outcome).toBe('FAIL');
+    });
+    it('fails a leg that overran its frozen allocation, whatever its rows, gates or dependencies say', () => {
+        const overran = { allocated: true, overrun: ['coaching'] };
+        expect(legVerdict('J6', { prior: new Map(), satisfiedGates: ALL_GATES, results: results('J6'), budget: overran }).outcome).toBe('FAIL');
+        expect(legVerdict('J6', { prior: new Map(), satisfiedGates: ALL_GATES, results: undefined, budget: overran }).outcome).toBe('FAIL');
+        expect(legVerdict('J7.a', { prior: new Map(), satisfiedGates: NO_GATES, results: results('J7.a'), budget: overran }).outcome).toBe('FAIL');
+        const v = legVerdict('J1.b', { prior: prior(failedA()), satisfiedGates: ALL_GATES, results: results('J1.b'), budget: overran });
+        expect(v.outcome).toBe('FAIL');
+        expect(v.reason).toContain('frozen coaching allocation');
+    });
+    it('keeps the worse of two verdicts for one leg in the run ledger, so a FAIL is never overwritten', () => {
+        const ledger = new VerdictLedger();
+        const fail = legVerdict('J6', { prior: new Map(), satisfiedGates: ALL_GATES, results: failedRows('J6') });
+        ledger.record(fail);
+        expect(ledger.record({ ...fail, outcome: 'NOT RUN' }).outcome).toBe('FAIL');
+        expect(ledger.record({ ...fail, outcome: 'PASS' }).outcome).toBe('FAIL');
+        ledger.record({ ...fail, leg: 'J4.a', outcome: 'NOT RUN' });
+        expect(ledger.record({ ...fail, leg: 'J4.a', outcome: 'FAIL' }).outcome).toBe('FAIL');
+        ledger.record({ ...fail, leg: 'J4.b', outcome: 'PASS' });
+        expect(ledger.record({ ...fail, leg: 'J4.b', outcome: 'HOLD' }).outcome).toBe('HOLD');
+        expect(runVerdict(ledger.verdicts()).outcome).toBe('FAIL');
+    });
+    it('refuses a verdict with no leg or an unknown outcome', () => {
+        const ledger = new VerdictLedger();
+        expect(() => ledger.record({ leg: 'J6', outcome: 'GREEN' })).toThrow();
+        expect(() => ledger.record({ outcome: 'PASS' })).toThrow();
     });
 });
 describe('proof scope', () => {

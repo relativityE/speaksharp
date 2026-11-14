@@ -14,8 +14,8 @@
       "id": "P1-dependency-ignored",
       "guards": "a dependent leg is NOT RUN when its dependency did not pass",
       "file": "leg-verdicts.cjs",
-      "find": "for (const dep of plan.needs) {",
-      "replace": "for (const dep of []) {",
+      "find": "const failedDep = plan.needs.find(",
+      "replace": "const failedDep = [].find(",
       "test": "tests/leg-verdicts.test.cjs"
     },
     {
@@ -43,22 +43,6 @@
       "test": "tests/leg-verdicts.test.cjs"
     },
     {
-      "id": "P1-cap-above-minimum-accepted",
-      "guards": "the cap can be lowered, never raised above the calculated minimum",
-      "file": "coaching-budget.cjs",
-      "find": "if (cap > minimum) {",
-      "replace": "if (cap > minimum * 2) {",
-      "test": "tests/coaching-budget.test.cjs"
-    },
-    {
-      "id": "P1-minimum-counts-gated-legs",
-      "guards": "a held or not-run leg adds no coaching to its journey's cap",
-      "file": "coaching-budget.cjs",
-      "find": "ALL_LEGS.filter((l) => selected.includes(l.id) && l.gates.every((g) => satisfiedGates.has(g.kind)))",
-      "replace": "ALL_LEGS.filter((l) => selected.includes(l.id))",
-      "test": "tests/coaching-budget.test.cjs"
-    },
-    {
       "id": "P1-sandbox-unlabelled",
       "guards": "a sandbox result is never reported as production billing proof",
       "file": "journey-plan.cjs",
@@ -73,38 +57,6 @@
       "find": "gates: [{ kind: 'no-safe-production-proof', outcome: 'NOT RUN',",
       "replace": "gates: [{ kind: 'test-mode-fixture', outcome: 'NOT RUN',",
       "test": "tests/leg-verdicts.test.cjs"
-    },
-    {
-      "id": "P1-request-past-journey-cap",
-      "guards": "no coaching request is sent past a journey's cap",
-      "file": "coaching-budget.cjs",
-      "find": "if (sent >= cap) {",
-      "replace": "if (sent > cap) {",
-      "test": "tests/coaching-budget.test.cjs"
-    },
-    {
-      "id": "P1-shared-pool",
-      "guards": "a journey's retry can never use another journey's allowance (per-journey, not a run pool)",
-      "file": "coaching-budget.cjs",
-      "find": "const cap = this.capOf(journey);",
-      "replace": "const cap = this.runCap;",
-      "test": "tests/coaching-budget.test.cjs"
-    },
-    {
-      "id": "P1-over-cap-passes-budget-row",
-      "guards": "a journey that tries to send past its cap fails its budget row",
-      "file": "coaching-budget.cjs",
-      "find": "outcome: overCap > 0 || sent > max ? 'FAIL' : 'PASS'",
-      "replace": "outcome: sent > max ? 'FAIL' : 'PASS'",
-      "test": "tests/coaching-budget.test.cjs"
-    },
-    {
-      "id": "P1-lowered-cap-blames-journey",
-      "guards": "a deliberately lowered run cap turns legs NOT RUN without failing the journey's budget row",
-      "file": "coaching-budget.cjs",
-      "find": "            this.stopped.add(journey);\n            return { admitted: false, reason: `the run's lowered",
-      "replace": "            this.overCapBy.set(journey, 1);\n            this.stopped.add(journey);\n            return { admitted: false, reason: `the run's lowered",
-      "test": "tests/coaching-budget.test.cjs"
     },
     {
       "id": "P2-trial-not-thirty-days",
@@ -417,6 +369,150 @@
       "guards": "each coaching request can make 3 provider calls",
       "find": "const PROVIDER_CALLS_PER_COACHING_REQUEST = 3;",
       "replace": "const PROVIDER_CALLS_PER_COACHING_REQUEST = 1;"
+    },
+    {
+      "id": "P4-ceiling-raised-from-env",
+      "guards": "a coaching ceiling can be lowered, never raised above what the legs need",
+      "file": "run-budget.cjs",
+      "find": "    if (cap > minimum)\n        throw",
+      "replace": "    if (cap > minimum * 2)\n        throw",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P4-ceiling-above-need",
+      "guards": "a planned ceiling above the legs' need is refused",
+      "file": "run-budget.cjs",
+      "find": "if (ceiling > need)\n",
+      "replace": "if (ceiling > need * 2)\n",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P4-gated-leg-allocated",
+      "guards": "a gated leg gets no allocation",
+      "file": "run-budget.cjs",
+      "find": "else if (!runnable(l, satisfiedGates))",
+      "replace": "else if (false)",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P4-allocation-not-frozen",
+      "guards": "allocations are frozen once the run starts",
+      "file": "run-budget.cjs",
+      "find": "const frozen = Object.freeze({ coaching: a.coaching, starts: a.starts, [CLEANUP]: a[CLEANUP] });",
+      "replace": "const frozen = ({ coaching: a.coaching, starts: a.starts, [CLEANUP]: a[CLEANUP] });",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P4-probe-not-reserved",
+      "guards": "J1.e's expired-token probe is reserved at its worst case before the run",
+      "file": "run-budget.cjs",
+      "find": "allocations.set(l.id, { coaching: l.coachingReserve,",
+      "replace": "allocations.set(l.id, { coaching: l.coachingRequests,",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P4-missing-cleanup-guessed",
+      "guards": "a leg without a cleanup allocation leaves the run unbudgeted, never guessed",
+      "file": "run-budget.cjs",
+      "find": "const c = cleanup.get(l.id);",
+      "replace": "const c = cleanup.get(l.id) ?? 10;",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P4-lowered-ceiling-keeps-dependents",
+      "guards": "a leg whose dependency got no allocation gets none either",
+      "file": "run-budget.cjs",
+      "find": "const missing = l.needs.find((d) => notAllocated.has(d));",
+      "replace": "const missing = undefined;",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P4-check-then-await-then-count",
+      "guards": "reservation is atomic: the check and the count happen before the action is awaited",
+      "file": "run-budget.cjs",
+      "find": "        const r = kind === CLEANUP ? this.reserveCleanup(legId) : this.reserve(legId, kind);\n        if (!r.granted)\n            return { sent: false, reason: r.reason };\n        return { sent: true, value: await action(r.token) };",
+      "replace": "        const a = this.#alloc.get(legId);\n        const u = this.#used.get(legId);\n        if (!a || u[kind] >= a[kind])\n            return { sent: false, reason: 'refused' };\n        const value = await action(null);\n        const r = kind === CLEANUP ? this.reserveCleanup(legId) : this.reserve(legId, kind);\n        return { sent: r.granted, value };",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P4-retry-allowance",
+      "guards": "a retry past the leg's allocation is refused: no retry allowance",
+      "file": "run-budget.cjs",
+      "find": "if (used[kind] >= a[kind]) {",
+      "replace": "if (used[kind] >= a[kind] + 1) {",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P4-retry-borrows-cleanup",
+      "guards": "ordinary work never borrows the leg's cleanup capacity",
+      "file": "run-budget.cjs",
+      "find": "if (used[kind] >= a[kind]) {",
+      "replace": "if (used[kind] >= a[kind] + (kind === CLEANUP ? 0 : a[CLEANUP] - used[CLEANUP])) {",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P4-overrun-does-not-stop",
+      "guards": "a leg that overran stops its ordinary work",
+      "file": "run-budget.cjs",
+      "find": "        if (!r.granted)\n            this.#stopped.add(legId);",
+      "replace": "",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P4-cleanup-reachable-by-ordinary",
+      "guards": "ordinary reservations can't reach the cleanup pool",
+      "file": "run-budget.cjs",
+      "find": "if (!ORDINARY_KINDS.includes(kind))",
+      "replace": "if (false)",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P4-stopped-leg-blocks-cleanup",
+      "guards": "a leg that overran ordinary work can still clean up",
+      "file": "run-budget.cjs",
+      "find": "        const r = this.#take(legId, CLEANUP);",
+      "replace": "        if (this.#stopped.has(legId))\n            return { granted: false, reason: 'stopped' };\n        const r = this.#take(legId, CLEANUP);",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P4-cleanup-overrun-passes",
+      "guards": "a cleanup past its allocation fails the leg's budget row",
+      "file": "run-budget.cjs",
+      "find": "const overrun = Object.keys(refused).filter((k) => refused[k] > 0);",
+      "replace": "const overrun = Object.keys(refused).filter((k) => k !== CLEANUP && refused[k] > 0);",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P4-later-not-run-hides-fail",
+      "guards": "a recorded FAIL survives a later NOT RUN (dependency, gate, no allocation)",
+      "file": "leg-verdicts.cjs",
+      "find": "if (recorded && recorded.outcome === 'FAIL')",
+      "replace": "if (false)",
+      "test": "tests/leg-verdicts.test.cjs"
+    },
+    {
+      "id": "P4-overrun-ignored",
+      "guards": "a leg that overran its frozen allocation is FAIL",
+      "file": "leg-verdicts.cjs",
+      "find": "if (budget.overrun.length > 0) {",
+      "replace": "if (false) {",
+      "test": "tests/leg-verdicts.test.cjs"
+    },
+    {
+      "id": "P4-no-allocation-ignored",
+      "guards": "a leg left out before the run is NOT RUN, never PASS",
+      "file": "leg-verdicts.cjs",
+      "find": "    if (!budget.allocated)\n        return",
+      "replace": "    if (false)\n        return",
+      "test": "tests/leg-verdicts.test.cjs"
+    },
+    {
+      "id": "P4-ledger-overwrites-fail",
+      "guards": "the run ledger keeps the worse verdict: a FAIL is never overwritten",
+      "file": "leg-verdicts.cjs",
+      "find": "if (!had || SEVERITY[v.outcome] > SEVERITY[had.outcome])",
+      "replace": "if (true)",
+      "test": "tests/leg-verdicts.test.cjs"
     }
   ]
 }

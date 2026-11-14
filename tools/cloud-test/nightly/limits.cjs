@@ -35,14 +35,16 @@ function runnableJourneys(satisfiedGates) {
 }
 /**
  * The counted limits for the legs that can run, given the gate kinds the runner has established as met.
- * With every gate satisfied this is #1864's all-legs column (8, 31, 43, 31, 18, 93 calls, $0); with none it is
- * today's column (7, 30, 40, 30, 16, 90 calls, $0).
+ * With every gate satisfied: 8 sign-ups, 31 takes, 43 starts, 32 coaching, 18 identity reads, 96 provider calls, $0
+ * (#1864's all-legs column, plus J1.e's probe reserved at its worst case, Sam's review). With none it is today's column
+ * (7, 30, 40, 30, 16, 90 calls, $0): J1.e is gated today, so its probe reserves nothing.
  */
 function countedLimits(satisfiedGates = new Set()) {
     const legs = ALL_LEGS.filter((l) => isProduction(l) && runnable(l, satisfiedGates));
     const journeys = runnableJourneys(satisfiedGates);
     const sum = (f) => legs.reduce((n, l) => n + f(l), 0);
-    const coachingRequests = sum((l) => l.coachingRequests);
+    // Coaching counts every leg's reserve: its saved takes plus the worst case of a probe the server should refuse.
+    const coachingRequests = sum((l) => l.coachingReserve);
     return Object.freeze({
         legs: legs.map((l) => l.id),
         notRun: ALL_LEGS.filter((l) => !legs.includes(l)).map((l) => l.id),
