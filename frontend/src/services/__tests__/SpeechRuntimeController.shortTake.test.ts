@@ -161,6 +161,40 @@ describe('G5 — a take under the minimum duration is discarded by the real cont
         expect(completions('completed')).toHaveLength(0);
     });
 
+    it('an unsettled discard survives a post-start failure check and a hard reset clears it', async () => {
+        engine(3);
+        vi.mocked(completeSession).mockResolvedValueOnce({ success: false } as never);
+        await controller.stopRecording({ belowMinimumDuration: true });
+        expect(controller.hasUnsettledDiscard()).toBe(true);
+
+        // A later failure path must not resolve (unlock) a take whose row is still unsettled.
+        priv().recordingStartedUnresolved = true;
+        (controller as unknown as { ensurePostStartFailureIsActionable: () => void }).ensurePostStartFailureIsActionable();
+        expect(priv().recordingStartedUnresolved, 'Try again still owns this take').toBe(true);
+        expect(controller.pendingResolutionKind()).toBe('discard');
+
+        // A hard reset (sign-out, account switch) retires it like every other recovery slot.
+        controller.reset('account_switch');
+        expect(controller.hasUnsettledDiscard()).toBe(false);
+        expect(controller.pendingResolutionKind()).toBeNull();
+    });
+
+    it('a hard reset during the pending failed mark does not re-arm Try again for the successor', async () => {
+        engine(3);
+        let finishMark!: (v: unknown) => void;
+        vi.mocked(completeSession).mockImplementationOnce(() => new Promise((resolve) => { finishMark = resolve; }) as never);
+        const stopping = controller.stopRecording({ belowMinimumDuration: true }).catch(() => null);
+        await vi.waitFor(() => expect(finishMark).toBeTypeOf('function'));
+
+        controller.reset('account_switch');
+        finishMark({ success: false });
+        await stopping;
+
+        expect(controller.hasUnsettledDiscard(), 'the superseded stop arms nothing').toBe(false);
+        expect(controller.pendingResolutionKind()).toBeNull();
+        expect(completions('completed')).toHaveLength(0);
+    });
+
     it('positive control: the same take stopped without the verdict is completed (the harness can see a save)', async () => {
         engine(5);
         await controller.stopRecording();

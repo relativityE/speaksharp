@@ -1396,6 +1396,10 @@ export class SpeechRuntimeController {
             || this.pendingDiscardSettlement !== null
             || this.recordingStartedUnresolved;
     }
+    /** G5 (#1861): true while a discarded take's `failed` mark is unconfirmed and awaits Try again — whatever else is pending. */
+    public hasUnsettledDiscard(): boolean {
+        return this.pendingDiscardSettlement !== null;
+    }
     /** #1033: true while a completed recording's attribution write OR full save is awaiting Retry Save. */
     public hasPendingAttribution(): boolean {
         return this.pendingAttributionRetry !== null || this.pendingFullSaveRetry !== null;
@@ -1839,7 +1843,8 @@ export class SpeechRuntimeController {
 
     private ensurePostStartFailureIsActionable(): void {
         if (!this.recordingStartedUnresolved) return;
-        if (this.pendingFullSaveRetry || this.pendingAttributionRetry) return; // a specific retry already exists
+        // A specific retry already exists (G5: including an unsettled discard's Try again).
+        if (this.pendingFullSaveRetry || this.pendingAttributionRetry || this.pendingDiscardSettlement) return;
 
         // #1033 (2): resolve recovery ONLY by the CURRENT session id + the authenticated owner. Never read
         // the unscoped global draft — without both identities we could otherwise consume a stale draft that
@@ -4328,8 +4333,8 @@ export class SpeechRuntimeController {
             refuseStart(startGateMessage(startGate) ?? 'Recording is unavailable right now.');
             return;
         }
-        if (this.pendingAttributionRetry || this.pendingFullSaveRetry || this.recordingStartedUnresolved) {
-            logger.warn({ pendingSession: (this.pendingFullSaveRetry ?? this.pendingAttributionRetry)?.sessionId ?? null, kind: this.pendingResolutionKind(), unresolved: this.recordingStartedUnresolved }, '[controller] startRecording blocked: prior recording unresolved (#1033)');
+        if (this.pendingAttributionRetry || this.pendingFullSaveRetry || this.pendingDiscardSettlement || this.recordingStartedUnresolved) {
+            logger.warn({ pendingSession: (this.pendingFullSaveRetry ?? this.pendingAttributionRetry ?? this.pendingDiscardSettlement)?.sessionId ?? null, kind: this.pendingResolutionKind(), unresolved: this.recordingStartedUnresolved }, '[controller] startRecording blocked: prior recording unresolved (#1033)');
             refuseStart('Finish saving your previous recording before starting a new one.');
             return;
         }
@@ -5959,7 +5964,12 @@ export class SpeechRuntimeController {
                                 logger.warn({ discardError, sessionId }, '[DEBUG-STOP] completeSession failed-status threw');
                             }
                             if (!discardSettled) {
-                                if (!this.pendingDiscardSettlement || this.pendingDiscardSettlement.sessionId === sessionId) {
+                                // Only the stop that still owns the runtime may arm Try again. A hard reset or account
+                                // switch during the awaited mark already retired this take; arming afterwards would lock
+                                // the next owner behind a row it cannot settle (reviewer on 523e682).
+                                if (!this.stopStillOwnsSharedState(stopAuthority, token)) {
+                                    logger.error({ sessionId }, '[SESSION_SAVE_GUARD] discard NOT settled and the stop was superseded — not arming Try again for the successor (G5)');
+                                } else if (!this.pendingDiscardSettlement || this.pendingDiscardSettlement.sessionId === sessionId) {
                                     this.pendingDiscardSettlement = { sessionId, reason: discardReason };
                                 } else {
                                     logger.error({ existing: this.pendingDiscardSettlement.sessionId, sessionId }, '[controller] discard settlement slot held by another session — failing closed, not overwriting (G5)');

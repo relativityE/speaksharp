@@ -434,7 +434,7 @@ export const useSessionLifecycle = () => {
                     await speechRuntimeController.stopRecording({ belowMinimumDuration: true });
                     // G5 (Sam on 3a91a20): the discard counts only once its `failed` mark was confirmed. Otherwise the
                     // controller keeps the take unresolved and the page offers Try again; it is not reported discarded.
-                    discardSettled = speechRuntimeController.pendingResolutionKind?.() !== 'discard';
+                    discardSettled = speechRuntimeController.hasUnsettledDiscard?.() !== true;
                     saveLatency.settle(discardSettled ? 'discarded' : 'failed');
                     reviewLatency.settle('unavailable');
                     reviewLatencyRef.current = null;
@@ -467,7 +467,8 @@ export const useSessionLifecycle = () => {
                 const stopResult = await speechRuntimeController.stopRecording();
 
                 if (!stopResult) {
-                    saveLatency.settle('discarded');
+                    // G5: a no-speech discard whose `failed` mark was not confirmed is not a discard yet.
+                    saveLatency.settle(speechRuntimeController.hasUnsettledDiscard?.() === true ? 'failed' : 'discarded');
                     reviewLatency.settle('unavailable');
                     reviewLatencyRef.current = null;
                     setShowAnalyticsPrompt(false);

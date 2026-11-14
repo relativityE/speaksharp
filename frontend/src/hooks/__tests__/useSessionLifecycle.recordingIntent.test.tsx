@@ -732,6 +732,16 @@ describe('#1258 C10 — start-attempt identity through the real hook', () => {
         expect(speechRuntimeController.stopRecording).toHaveBeenLastCalledWith({ belowMinimumDuration: true });
     });
 
+    it('G5: a short Stop that throws does not leave the control refusing every later press', async () => {
+        vi.mocked(speechRuntimeController.stopRecording).mockRejectedValueOnce(new Error('stop failed'));
+        const { result, store } = mountWith({ runtimeState: 'RECORDING', isListening: true, elapsedTime: 2, startTime: Date.now() - 3_000 });
+        await act(async () => { await expect(result.current.handleStartStop()).rejects.toThrow('stop failed'); });
+        // The runtime is back at READY; the next press is a Start, which the processing guard would refuse if left set.
+        act(() => { store.setState({ runtimeState: 'READY', isListening: false, startTime: null }); });
+        await act(async () => { await result.current.handleStartStop(); });
+        expect(speechRuntimeController.startRecording, 'the next Start reaches the controller').toHaveBeenCalledTimes(1);
+    });
+
     it('a Start-only call never stops a recording', async () => {
         const { result } = mountWith({ runtimeState: 'RECORDING', isListening: true, elapsedTime: 30 });
         await act(async () => { await result.current.handleStartStop({ startOnly: true }); });
