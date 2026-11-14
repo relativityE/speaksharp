@@ -26,6 +26,7 @@ import { PRIV_STT } from '@/services/transcription/sttConstants';
 import { buildPolicyForUser, type TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 import { isPrivateModelBlockingStart } from '@/services/transcription/privateModelStartBlock';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
+import type { SttStatus } from '@/types/transcription';
 import { ENV } from '@/config/TestFlags';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import {
@@ -447,16 +448,21 @@ export const useSessionLifecycle = () => {
                     throw error;
                 }
                 setShowAnalyticsPrompt(false);
-                setSTTStatus(discardSettled
-                    ? {
-                        type: 'info',
-                        message: `⚠️ Session too short (${elapsedAtStop}s). Minimum ${MIN_SESSION_DURATION_SECONDS}s required.`
-                    }
-                    : {
+                const tooShortStatus: SttStatus = {
+                    type: 'info',
+                    message: `⚠️ Session too short (${elapsedAtStop}s). Minimum ${MIN_SESSION_DURATION_SECONDS}s required.`
+                };
+                if (discardSettled) {
+                    setSTTStatus(tooShortStatus);
+                } else {
+                    setSTTStatus({
                         type: 'warning',
                         message: `⚠️ Session too short (${elapsedAtStop}s). It wasn't saved, but we couldn't finish clearing it.`,
                         detail: 'Use Try again to finish.',
                     });
+                    // A confirmed Try again later replaces this warning with the too-short message (Codex P2 on a58a348).
+                    speechRuntimeController.noteUnsettledDiscardWarning?.(tooShortStatus);
+                }
                 isProcessingRef.current = false;
                 return;
             }

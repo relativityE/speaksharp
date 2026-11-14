@@ -1281,7 +1281,16 @@ export class SpeechRuntimeController {
      * expiry never settles it). The take stays unresolved and locked, and the page offers Try again, which re-runs the
      * same `failed` mark for the same row. Never a duplicate row, never a completion.
      */
-    private pendingDiscardSettlement: { sessionId: string; reason: string } | null = null;
+    private pendingDiscardSettlement: {
+        sessionId: string;
+        reason: string;
+        /**
+         * The warning this take left on screen (the exact stored status object) and the status a settled discard would
+         * have shown. When the `failed` mark is later confirmed, `shown` is replaced by `settled` — only while it is
+         * still the one on screen, so anything published since is left alone (Codex P2 on a58a348).
+         */
+        warning: { shown: SttStatus; settled: SttStatus } | null;
+    } | null = null;
     /**
      * #1258 RWT round 2 C — the EXACT status object a failed Stop left on screen for the session whose full save
      * it armed for Retry Save. A recovered save settles that status and nothing else: identity, not wording, so a
@@ -1399,6 +1408,22 @@ export class SpeechRuntimeController {
     /** G5 (#1861): true while a discarded take's `failed` mark is unconfirmed and awaits Try again — whatever else is pending. */
     public hasUnsettledDiscard(): boolean {
         return this.pendingDiscardSettlement !== null;
+    }
+    /**
+     * G5 (#1861): the page published its own "couldn't finish clearing it" warning for the unsettled discard. Record the
+     * status now on screen as that warning, with the status to show once the discard is settled, so a later confirmed
+     * settlement retires it. No-op when no discard is pending.
+     */
+    public noteUnsettledDiscardWarning(settled: SttStatus): void {
+        if (!this.pendingDiscardSettlement) return;
+        this.pendingDiscardSettlement.warning = { shown: useSessionStore.getState().sttStatus, settled };
+    }
+    /** Replaces a settled discard's own warning, and only that exact status object, with its settled status. */
+    private retireDiscardWarning(slot: NonNullable<SpeechRuntimeController['pendingDiscardSettlement']>): void {
+        const warning = slot.warning;
+        if (warning && useSessionStore.getState().sttStatus === warning.shown) {
+            useSessionStore.getState().setSTTStatus(warning.settled);
+        }
     }
     /** #1033: true while a completed recording's attribution write OR full save is awaiting Retry Save. */
     public hasPendingAttribution(): boolean {
@@ -1529,6 +1554,8 @@ export class SpeechRuntimeController {
             if (!settled) return false; // still unsettled; stays locked and retryable
             if (this.pendingDiscardSettlement === discard) {
                 this.pendingDiscardSettlement = null;
+                // Retire this take's own warning before unlocking, so no successor's status can be on screen yet.
+                this.retireDiscardWarning(discard);
                 this.markRecordingResolved();
             }
             logger.info({ sessionId: discard.sessionId }, '[controller] discarded take settled on retry → unlocked (G5)');
@@ -1909,6 +1936,7 @@ export class SpeechRuntimeController {
         // Points brief was kept through recovery. The context and authority are captured before the await and the
         // retirement is fenced after it, like every other shared write.
         const recoveryContext = this.pendingFullSaveRetry?.progressContext ?? this.pendingAttributionRetry?.progressContext ?? null;
+        const discardSlot = this.pendingDiscardSettlement;
         const discardAuthority = this.captureStopAuthority(this.lifecycleVersion, this.service, sessionId);
         const discardToken = { cancelled: false, version: discardAuthority.lifecycleVersion };
 
@@ -1938,6 +1966,7 @@ export class SpeechRuntimeController {
 
         this.pendingFullSaveRetry = null;
         this.pendingAttributionRetry = null;
+        if (discardSlot && this.pendingDiscardSettlement === discardSlot) this.retireDiscardWarning(discardSlot);
         this.pendingDiscardSettlement = null;
         this.retireObjectiveBriefAfterSettlement(recoveryContext, () => this.stopStillOwnsSharedState(discardAuthority, discardToken));
         this.markRecordingResolved();
@@ -5970,7 +5999,7 @@ export class SpeechRuntimeController {
                                 if (!this.stopStillOwnsSharedState(stopAuthority, token)) {
                                     logger.error({ sessionId }, '[SESSION_SAVE_GUARD] discard NOT settled and the stop was superseded — not arming Try again for the successor (G5)');
                                 } else if (!this.pendingDiscardSettlement || this.pendingDiscardSettlement.sessionId === sessionId) {
-                                    this.pendingDiscardSettlement = { sessionId, reason: discardReason };
+                                    this.pendingDiscardSettlement = { sessionId, reason: discardReason, warning: null };
                                 } else {
                                     logger.error({ existing: this.pendingDiscardSettlement.sessionId, sessionId }, '[controller] discard settlement slot held by another session — failing closed, not overwriting (G5)');
                                 }
@@ -5994,12 +6023,21 @@ export class SpeechRuntimeController {
 
                             // G5: a too-short take's message is the page's own (it measured the take and says so).
                             if (!discardSettled && !belowMinimumDuration) {
+                                // Its message differs from the settled one on purpose: the store ignores a status that
+                                // changes only its detail, so Try again could not otherwise replace it.
                                 guardedStopStatus = {
                                     type: 'warning',
-                                    message: "We didn't detect enough speech to save this session.",
-                                    detail: "It wasn't saved, but we couldn't finish clearing it. Use Try again.",
+                                    message: "We didn't detect enough speech to save this session, and couldn't finish clearing it.",
+                                    detail: 'Use Try again to finish.',
                                 };
                                 store.setSTTStatus(guardedStopStatus);
+                                if (this.pendingDiscardSettlement?.sessionId === sessionId) {
+                                    this.noteUnsettledDiscardWarning({
+                                        type: 'warning',
+                                        message: "We didn't detect enough speech to save this session.",
+                                        detail: 'Try recording again and speak for at least a few seconds.',
+                                    });
+                                }
                             } else if (!belowMinimumDuration) {
                                 guardedStopStatus = {
                                     type: 'warning',

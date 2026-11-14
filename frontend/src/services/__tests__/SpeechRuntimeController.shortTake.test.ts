@@ -32,6 +32,7 @@ const DECODED_DURING_FINALIZING = 'and um that is why we should start next week'
 type Priv = {
     state: string; initialized: boolean; isEngineReady: boolean; isEmissionsSafe: boolean; sessionId: string | null; service: unknown;
     pendingDiscardSettlement: unknown; recordingStartedUnresolved: boolean;
+    pendingAttributionRetry?: unknown; pendingFullSaveRetry?: unknown;
 };
 
 describe('G5 — a take under the minimum duration is discarded by the real controller', () => {
@@ -204,4 +205,39 @@ describe('G5 — a take under the minimum duration is discarded by the real cont
         expect(completed[0]?.[1]?.duration).toBe(5);
         expect(completions('failed')).toHaveLength(0);
     });
+
+    // Codex P2 on a58a348: the no-speech discard shares the branch. A confirmed Try again must retire its own
+    // "couldn't finish clearing it" warning, and only that one.
+    it('a no-speech discard settled by Try again replaces its own warning, and leaves a later status alone', async () => {
+        // The positive control above completes a take whose attribution write is unmocked; clear what it left armed.
+        Object.assign(priv(), { pendingAttributionRetry: null, pendingFullSaveRetry: null });
+        useSessionStore.getState().updateTranscript('', '');
+        engine(8);
+        vi.mocked(completeSession).mockResolvedValueOnce({ success: false } as never);
+        await controller.stopRecording();
+        expect(controller.pendingResolutionKind()).toBe('discard');
+        expect(useSessionStore.getState().sttStatus.message).toMatch(/couldn't finish clearing it/i);
+
+        await expect(controller.retryRecordingSave()).resolves.toBe(true);
+        expect(controller.pendingResolutionKind()).toBeNull();
+        expect(useSessionStore.getState().sttStatus).toEqual({
+            type: 'warning',
+            message: "We didn't detect enough speech to save this session.",
+            detail: 'Try recording again and speak for at least a few seconds.',
+        });
+        expect(completions('completed')).toHaveLength(0);
+
+        // A second unsettled no-speech discard, then another status before Try again: that status stays.
+        Object.assign(priv(), { state: 'RECORDING', sessionId: 'test-sess-2' });
+        useSessionStore.getState().setRuntimeState('RECORDING');
+        engine(8);
+        vi.mocked(completeSession).mockResolvedValueOnce({ success: false } as never);
+        await controller.stopRecording();
+        expect(controller.pendingResolutionKind()).toBe('discard');
+        const later = { type: 'error' as const, message: 'Microphone disconnected.' };
+        useSessionStore.getState().setSTTStatus(later);
+        await expect(controller.retryRecordingSave()).resolves.toBe(true);
+        expect(useSessionStore.getState().sttStatus).toBe(later);
+    });
+
 });

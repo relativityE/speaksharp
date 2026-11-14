@@ -155,6 +155,33 @@ describe('G5 INTEGRATED — page Stop under the minimum → real controller → 
         expect(store.getState().sessionSaved).toBe(false);
     });
 
+    // Codex P2 on a58a348: once Try again settles the discard, the page must not keep saying clearing failed.
+    it('a confirmed Try again replaces the "couldn\'t finish clearing it" warning with the too-short message', async () => {
+        const { result } = recordingFor(3_000);
+        vi.mocked(completeSession).mockResolvedValueOnce({ success: false } as never);
+        await act(async () => { await result.current.handleStartStop(); });
+        expect(store.getState().sttStatus.message).toMatch(/couldn't finish clearing it/i);
+
+        await act(async () => { expect(await controller.retryRecordingSave()).toBe(true); });
+
+        expect(controller.pendingResolutionKind()).toBeNull();
+        expect(store.getState().sttStatus).toEqual({ type: 'info', message: '⚠️ Session too short (3s). Minimum 5s required.' });
+        expect(completions('failed'), 'the same row marked failed twice, never completed').toHaveLength(2);
+        expect(completions('completed')).toHaveLength(0);
+    });
+
+    it('a confirmed Try again leaves alone a status published after the warning', async () => {
+        const { result } = recordingFor(3_000);
+        vi.mocked(completeSession).mockResolvedValueOnce({ success: false } as never);
+        await act(async () => { await result.current.handleStartStop(); });
+        const later = { type: 'error' as const, message: 'Microphone disconnected.' };
+        act(() => { store.getState().setSTTStatus(later); });
+
+        await act(async () => { expect(await controller.retryRecordingSave()).toBe(true); });
+
+        expect(store.getState().sttStatus).toBe(later);
+    });
+
     it('positive control: a 5 s take is not refused and is completed', async () => {
         const { result } = recordingFor(5_000);
         await act(async () => { await result.current.handleStartStop(); });
