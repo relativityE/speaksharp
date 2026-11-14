@@ -65,7 +65,7 @@ export interface SessionState {
      *  controller so the selector UI can never disagree with the runtime about whether it may change. */
     engineSelectionLocked: boolean;
     /** #1033 Part-2b: which recovery the user can act on, or null. Drives Retry Save / Discard UI. */
-    pendingResolutionKind: 'initial_save' | 'full_save' | 'attribution' | null;
+    pendingResolutionKind: 'initial_save' | 'full_save' | 'attribution' | 'discard' | null;
     isLockHeldByOther: boolean;
     isListening: boolean;
     /**
@@ -213,7 +213,7 @@ interface SessionActions {
     setRuntimeState: (state: RuntimeState) => void;
     setStartupWaitStartedAt: (startedAt: number | null) => void;
     setCaptureLive: (captureLive: boolean) => void;
-    setEngineSelectionLock: (locked: boolean, pendingResolutionKind: 'initial_save' | 'full_save' | 'attribution' | null) => void;
+    setEngineSelectionLock: (locked: boolean, pendingResolutionKind: 'initial_save' | 'full_save' | 'attribution' | 'discard' | null) => void;
     startSession: () => void;
     stopSession: () => void;
     setReady: (ready: boolean) => void;

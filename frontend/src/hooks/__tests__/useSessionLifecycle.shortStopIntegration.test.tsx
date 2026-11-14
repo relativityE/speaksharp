@@ -71,7 +71,10 @@ import { completeSession } from '@/lib/storage';
 // Synthetic fixture text: meaningful words, so the existing no-speech guard does NOT apply.
 const SPOKEN = 'So um I want to make um three points um about the rollout plan';
 
-type Priv = { state: string; initialized: boolean; isEngineReady: boolean; isEmissionsSafe: boolean; sessionId: string | null; service: unknown };
+type Priv = {
+    state: string; initialized: boolean; isEngineReady: boolean; isEmissionsSafe: boolean; sessionId: string | null; service: unknown;
+    pendingDiscardSettlement: unknown; recordingStartedUnresolved: boolean;
+};
 
 describe('G5 INTEGRATED — page Stop under the minimum → real controller → no completed session', () => {
     let controller: SpeechRuntimeController;
@@ -112,6 +115,7 @@ describe('G5 INTEGRATED — page Stop under the minimum → real controller → 
         localStorage.clear();
         vi.mocked(useProfile).mockReturnValue({ profile: { id: 'u', subscription_status: 'free', email: 'e@e.com' }, isVerified: true } as never);
         controller = SpeechRuntimeController.getInstance();
+        Object.assign(controller as unknown as Priv, { pendingDiscardSettlement: null, recordingStartedUnresolved: false });
     });
 
     afterEach(() => {
@@ -131,6 +135,23 @@ describe('G5 INTEGRATED — page Stop under the minimum → real controller → 
         expect(completions('failed'), 'the row created at Start is resolved as failed').toHaveLength(1);
         expect(controller.getState()).toBe('READY');
         expect(store.getState().isTranscriptFinalizing).toBe(false);
+        expect(store.getState().sessionSaved).toBe(false);
+    });
+
+    // Sam on 3a91a20: the page must not report a clean discard when the row's `failed` mark was not confirmed.
+    it('a 3 s take whose failed mark is not confirmed is not reported discarded; Try again is offered', async () => {
+        const { result } = recordingFor(3_000);
+        vi.mocked(completeSession).mockResolvedValueOnce({ success: false } as never);
+        await act(async () => { await result.current.handleStartStop(); });
+
+        expect(completions('completed')).toHaveLength(0);
+        expect(controller.pendingResolutionKind(), 'the take is an explicit unsettled discard').toBe('discard');
+        const lockCalls = vi.mocked(store.getState().setEngineSelectionLock).mock.calls;
+        expect(lockCalls[lockCalls.length - 1], 'the page is told to show Try again')
+            .toEqual([true, 'discard']);
+        expect(statusesShown().some((m) => /couldn't finish clearing it/i.test(m))).toBe(true);
+        expect(statusesShown().some((m) => /Minimum 5s required/i.test(m)), 'no clean-discard message').toBe(false);
+        expect(controller.getState()).toBe('READY');
         expect(store.getState().sessionSaved).toBe(false);
     });
 

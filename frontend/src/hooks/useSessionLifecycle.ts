@@ -427,24 +427,36 @@ export const useSessionLifecycle = () => {
             const liveStart = useSessionStore.getState().startTime;
             const elapsedAtStop = liveStart ? Math.floor((Date.now() - liveStart) / 1000) : elapsedTime;
             if (elapsedAtStop < MIN_SESSION_DURATION_SECONDS && !options?.stopReason) {
+                let discardSettled = false;
                 try {
                     // G5 (#1861): this take is reported as too short below, so the controller must discard it, not
                     // complete it. An ordinary Stop here saved a completed session the user was told was not saved.
                     await speechRuntimeController.stopRecording({ belowMinimumDuration: true });
-                    saveLatency.settle('discarded');
+                    // G5 (Sam on 3a91a20): the discard counts only once its `failed` mark was confirmed. Otherwise the
+                    // controller keeps the take unresolved and the page offers Try again; it is not reported discarded.
+                    discardSettled = speechRuntimeController.pendingResolutionKind?.() !== 'discard';
+                    saveLatency.settle(discardSettled ? 'discarded' : 'failed');
                     reviewLatency.settle('unavailable');
                     reviewLatencyRef.current = null;
                 } catch (error) {
                     saveLatency.settle('failed');
                     reviewLatency.settle('unavailable');
                     reviewLatencyRef.current = null;
+                    // A failed stop must not leave the control refusing every later press.
+                    isProcessingRef.current = false;
                     throw error;
                 }
                 setShowAnalyticsPrompt(false);
-                setSTTStatus({
-                    type: 'info',
-                    message: `⚠️ Session too short (${elapsedAtStop}s). Minimum ${MIN_SESSION_DURATION_SECONDS}s required.`
-                });
+                setSTTStatus(discardSettled
+                    ? {
+                        type: 'info',
+                        message: `⚠️ Session too short (${elapsedAtStop}s). Minimum ${MIN_SESSION_DURATION_SECONDS}s required.`
+                    }
+                    : {
+                        type: 'warning',
+                        message: `⚠️ Session too short (${elapsedAtStop}s). It wasn't saved, but we couldn't finish clearing it.`,
+                        detail: 'Use Try again to finish.',
+                    });
                 isProcessingRef.current = false;
                 return;
             }

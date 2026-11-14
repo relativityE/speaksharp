@@ -1272,6 +1272,17 @@ export class SpeechRuntimeController {
         subject?: RecordingSubject | null;
     } | null = null;
     /**
+     * G5 (#1861, Sam on 3a91a20) — A DISCARD THAT DID NOT SETTLE IS NOT A DISCARD.
+     *
+     * A discarded take (no meaningful speech, or stopped under the minimum duration) is closed by marking its row
+     * `failed`, which is also what settles the lease's save obligation. Storage reports `{ success: false }` on an RPC
+     * error or an invalid response; a throw is the same. In that case the take was not saved, but the row and its
+     * obligation are NOT confirmed settled (an unsettled obligation blocks account deletion, and lease release or
+     * expiry never settles it). The take stays unresolved and locked, and the page offers Try again, which re-runs the
+     * same `failed` mark for the same row. Never a duplicate row, never a completion.
+     */
+    private pendingDiscardSettlement: { sessionId: string; reason: string } | null = null;
+    /**
      * #1258 RWT round 2 C — the EXACT status object a failed Stop left on screen for the session whose full save
      * it armed for Retry Save. A recovered save settles that status and nothing else: identity, not wording, so a
      * later status (a microphone error, a new take's copy) is never cleared by an old recovery.
@@ -1382,6 +1393,7 @@ export class SpeechRuntimeController {
             || SpeechRuntimeController.RECORDING_LIFECYCLE_STATES.has(this.state)
             || this.pendingAttributionRetry !== null
             || this.pendingFullSaveRetry !== null
+            || this.pendingDiscardSettlement !== null
             || this.recordingStartedUnresolved;
     }
     /** #1033: true while a completed recording's attribution write OR full save is awaiting Retry Save. */
@@ -1390,13 +1402,14 @@ export class SpeechRuntimeController {
     }
     /** #1033 (item 2): what the current Retry Save would re-attempt — the ACTUAL failed op, or none. A full
      *  save failure outranks an attribution failure (it is the more severe, less-persisted state). */
-    public pendingResolutionKind(): 'initial_save' | 'full_save' | 'attribution' | null {
+    public pendingResolutionKind(): 'initial_save' | 'full_save' | 'attribution' | 'discard' | null {
         if (this.pendingFullSaveRetry) {
             return this.pendingFullSaveRetry.initialSave && !this.pendingFullSaveRetry.sessionId
                 ? 'initial_save'
                 : 'full_save';
         }
         if (this.pendingAttributionRetry) return 'attribution';
+        if (this.pendingDiscardSettlement) return 'discard';
         return null;
     }
 
@@ -1499,6 +1512,24 @@ export class SpeechRuntimeController {
     }
 
     private async settleRecordingSave(): Promise<boolean> {
+        // G5: an unsettled discard retries exactly what failed — the `failed` mark on the same row — and nothing else.
+        const discard = this.pendingDiscardSettlement;
+        if (discard && !this.pendingFullSaveRetry && !this.pendingAttributionRetry) {
+            let settled = false;
+            try {
+                const res = await completeSession(discard.sessionId, { status: 'failed', reason: discard.reason });
+                settled = Boolean(res?.success);
+            } catch (e) {
+                logger.warn({ e, sessionId: discard.sessionId }, '[controller] discard settlement retry threw (G5)');
+            }
+            if (!settled) return false; // still unsettled; stays locked and retryable
+            if (this.pendingDiscardSettlement === discard) {
+                this.pendingDiscardSettlement = null;
+                this.markRecordingResolved();
+            }
+            logger.info({ sessionId: discard.sessionId }, '[controller] discarded take settled on retry → unlocked (G5)');
+            return true;
+        }
         const fullSave = this.pendingFullSaveRetry;
         if (fullSave) {
             let targetSessionId = fullSave.sessionId;
@@ -1867,7 +1898,8 @@ export class SpeechRuntimeController {
      *    should surface the failure and offer retry.
      */
     public async discardUnresolvedRecording(): Promise<{ outcome: 'discarded' | 'retryable'; sessionId: string | null }> {
-        const sessionId = this.pendingFullSaveRetry?.sessionId ?? this.pendingAttributionRetry?.sessionId ?? this.sessionId ?? null;
+        const sessionId = this.pendingFullSaveRetry?.sessionId ?? this.pendingAttributionRetry?.sessionId
+            ?? this.pendingDiscardSettlement?.sessionId ?? this.sessionId ?? null;
         // #1433 RETURN `5636795476` item 1 — a confirmed discard is the terminal settlement of the take whose Focus
         // Points brief was kept through recovery. The context and authority are captured before the await and the
         // retirement is fenced after it, like every other shared write.
@@ -1901,6 +1933,7 @@ export class SpeechRuntimeController {
 
         this.pendingFullSaveRetry = null;
         this.pendingAttributionRetry = null;
+        this.pendingDiscardSettlement = null;
         this.retireObjectiveBriefAfterSettlement(recoveryContext, () => this.stopStillOwnsSharedState(discardAuthority, discardToken));
         this.markRecordingResolved();
         logger.info({ sessionId, state: this.state }, '[controller] unresolved recording discarded → unlocked (#1033 B)');
@@ -5120,6 +5153,7 @@ export class SpeechRuntimeController {
         this.markRecordingResolved();
         this.pendingAttributionRetry = null;
         this.pendingFullSaveRetry = null;
+        this.pendingDiscardSettlement = null;
         // #1258 R1: a hard reset drops queued commands and starts a new lifecycle; no earlier Stop carries over.
         this.stopAcceptedForRecordingId = null;
         this.recordingProgressMode = { mode: 'unknown' };
@@ -5911,13 +5945,28 @@ export class SpeechRuntimeController {
                                 finalTranscriptLength: finalTranscript.length,
                                 meaningfulWordCount,
                             }, '[DEBUG-STOP] completeSession failed-status starting');
-                            await completeSession(sessionId, {
-                                status: 'failed',
-                                reason: belowMinimumDuration
-                                    ? 'Session was shorter than the minimum duration; session was not saved to history.'
-                                    : 'No meaningful speech detected; session was not saved to history.'
-                            });
-                            logger.info({ sessionId }, '[DEBUG-STOP] completeSession failed-status done');
+                            const discardReason = belowMinimumDuration
+                                ? 'Session was shorter than the minimum duration; session was not saved to history.'
+                                : 'No meaningful speech detected; session was not saved to history.';
+                            // G5 (Sam on 3a91a20): the discard is settled only when the `failed` mark is CONFIRMED.
+                            // `{ success: false }` (RPC error, invalid response) or a throw leaves the row and its
+                            // lease obligation unsettled: arm Try again and keep the take unresolved.
+                            let discardSettled = false;
+                            try {
+                                const discardMark = await completeSession(sessionId, { status: 'failed', reason: discardReason });
+                                discardSettled = Boolean(discardMark?.success);
+                            } catch (discardError) {
+                                logger.warn({ discardError, sessionId }, '[DEBUG-STOP] completeSession failed-status threw');
+                            }
+                            if (!discardSettled) {
+                                if (!this.pendingDiscardSettlement || this.pendingDiscardSettlement.sessionId === sessionId) {
+                                    this.pendingDiscardSettlement = { sessionId, reason: discardReason };
+                                } else {
+                                    logger.error({ existing: this.pendingDiscardSettlement.sessionId, sessionId }, '[controller] discard settlement slot held by another session — failing closed, not overwriting (G5)');
+                                }
+                                logger.error({ sessionId, belowMinimumDuration }, '[SESSION_SAVE_GUARD] discard NOT settled — row could not be marked failed; take stays unresolved for Try again (G5)');
+                            }
+                            logger.info({ sessionId, discardSettled }, '[DEBUG-STOP] completeSession failed-status done');
                             if (token.cancelled) {
                                 logger.warn({
                                     mode: service.getMode?.() ?? stopEntryMode,
@@ -5934,7 +5983,14 @@ export class SpeechRuntimeController {
                             }
 
                             // G5: a too-short take's message is the page's own (it measured the take and says so).
-                            if (!belowMinimumDuration) {
+                            if (!discardSettled && !belowMinimumDuration) {
+                                guardedStopStatus = {
+                                    type: 'warning',
+                                    message: "We didn't detect enough speech to save this session.",
+                                    detail: "It wasn't saved, but we couldn't finish clearing it. Use Try again.",
+                                };
+                                store.setSTTStatus(guardedStopStatus);
+                            } else if (!belowMinimumDuration) {
                                 guardedStopStatus = {
                                     type: 'warning',
                                     message: "We didn't detect enough speech to save this session.",
@@ -6545,7 +6601,7 @@ export class SpeechRuntimeController {
                 // resolved, so release the post-start engine-selection lock. Covers EVERY non-error stop terminal
                 // uniformly; the error path (catch below) transitions to FAILED and deliberately stays locked so
                 // the recovery draft can be saved. This is the single authoritative unlock for a completed stop.
-                if (!this.pendingFullSaveRetry && !this.pendingAttributionRetry) {
+                if (!this.pendingFullSaveRetry && !this.pendingAttributionRetry && !this.pendingDiscardSettlement) {
                     this.markRecordingResolved();
                 }
                 if (sessionCompleted) {

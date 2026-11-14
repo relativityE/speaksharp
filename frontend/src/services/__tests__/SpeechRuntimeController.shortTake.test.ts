@@ -29,7 +29,10 @@ vi.mock('../../lib/supabaseClient', () => ({
 const BEFORE_STOP = 'So um I want to make um three points um about the rollout plan';
 const DECODED_DURING_FINALIZING = 'and um that is why we should start next week';
 
-type Priv = { state: string; initialized: boolean; isEngineReady: boolean; isEmissionsSafe: boolean; sessionId: string | null; service: unknown };
+type Priv = {
+    state: string; initialized: boolean; isEngineReady: boolean; isEmissionsSafe: boolean; sessionId: string | null; service: unknown;
+    pendingDiscardSettlement: unknown; recordingStartedUnresolved: boolean;
+};
 
 describe('G5 — a take under the minimum duration is discarded by the real controller', () => {
     let controller: SpeechRuntimeController;
@@ -61,7 +64,10 @@ describe('G5 — a take under the minimum duration is discarded by the real cont
     beforeEach(() => {
         localStorage.clear();
         controller = SpeechRuntimeController.getInstance();
-        Object.assign(priv(), { state: 'RECORDING', initialized: true, isEngineReady: true, isEmissionsSafe: true, sessionId: 'test-sess' });
+        Object.assign(priv(), {
+            state: 'RECORDING', initialized: true, isEngineReady: true, isEmissionsSafe: true, sessionId: 'test-sess',
+            pendingDiscardSettlement: null, recordingStartedUnresolved: false,
+        });
         useSessionStore.getState().resetSession();
         useSessionStore.getState().setRuntimeState('RECORDING');
         useSessionStore.getState().updateTranscript(BEFORE_STOP, '');
@@ -107,6 +113,52 @@ describe('G5 — a take under the minimum duration is discarded by the real cont
         expect(result).toBeNull();
         expect(controller.getState()).toBe('READY');
         expect(useSessionStore.getState().sessionSaved).toBe(false);
+    });
+
+    // Sam on 3a91a20: storage reports `{ success: false }` on an RPC error or an invalid response. The `failed` mark,
+    // and with it the lease's save obligation, is then NOT settled, so the take must not be reported discarded.
+    it.each([
+        ['returns { success: false }', () => vi.mocked(completeSession).mockResolvedValueOnce({ success: false } as never)],
+        ['throws', () => vi.mocked(completeSession).mockRejectedValueOnce(new Error('network'))],
+    ])('when marking the too-short take failed %s, the take stays unresolved with Try again, never reported discarded', async (_label, failOnce) => {
+        engine(3);
+        failOnce();
+        const result = await controller.stopRecording({ belowMinimumDuration: true });
+
+        expect(completions('completed')).toHaveLength(0);
+        expect(result).toBeNull();
+        expect(controller.getState()).toBe('READY');
+        expect(controller.pendingResolutionKind(), 'an unconfirmed discard is an explicit unsettled outcome').toBe('discard');
+        expect(controller.isEngineSelectionLocked(), 'the take stays unresolved until its row is settled').toBe(true);
+        expect(useSessionStore.getState().pendingResolutionKind).toBe('discard');
+        expect(useSessionStore.getState().sessionSaved).toBe(false);
+
+        // Try again re-runs exactly the failed op: the same row, marked failed, never completed.
+        vi.mocked(completeSession).mockResolvedValueOnce({ success: false } as never);
+        await expect(controller.retryRecordingSave(), 'a second failure stays retryable').resolves.toBe(false);
+        expect(controller.pendingResolutionKind()).toBe('discard');
+
+        await expect(controller.retryRecordingSave()).resolves.toBe(true);
+        const failed = completions('failed');
+        expect(failed).toHaveLength(3);
+        expect(failed.every((call) => call[0] === 'test-sess')).toBe(true);
+        expect(String(failed[2]?.[1]?.reason)).toMatch(/minimum duration/i);
+        expect(completions('completed')).toHaveLength(0);
+        expect(controller.pendingResolutionKind()).toBeNull();
+        expect(controller.isEngineSelectionLocked()).toBe(false);
+        expect(useSessionStore.getState().pendingResolutionKind).toBeNull();
+    });
+
+    it('a confirmed Discard also settles an unconfirmed discard on the same row', async () => {
+        engine(3);
+        vi.mocked(completeSession).mockResolvedValueOnce({ success: false } as never);
+        await controller.stopRecording({ belowMinimumDuration: true });
+        expect(controller.pendingResolutionKind()).toBe('discard');
+
+        await expect(controller.discardUnresolvedRecording()).resolves.toEqual({ outcome: 'discarded', sessionId: 'test-sess' });
+        expect(controller.pendingResolutionKind()).toBeNull();
+        expect(controller.isEngineSelectionLocked()).toBe(false);
+        expect(completions('completed')).toHaveLength(0);
     });
 
     it('positive control: the same take stopped without the verdict is completed (the harness can see a save)', async () => {

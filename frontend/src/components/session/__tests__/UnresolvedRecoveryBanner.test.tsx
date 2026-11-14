@@ -18,7 +18,7 @@ const deferred = <T,>() => {
 let onRetry: ReturnType<typeof vi.fn>;
 let onDiscard: ReturnType<typeof vi.fn>;
 
-const setup = (kind: 'initial_save' | 'full_save' | 'attribution' | null, hasWords = true) => {
+const setup = (kind: 'initial_save' | 'full_save' | 'attribution' | 'discard' | null, hasWords = true) => {
     render(
         <UnresolvedRecoveryBanner
             pendingResolutionKind={kind}
@@ -50,6 +50,19 @@ describe('#1033 A3/A4 unresolved-recording recovery surface', () => {
         // #1474: an UNCONFIRMED outcome — the server may already hold the take (a lost response), so never a definite loss.
         expect(screen.getByTestId('session-unresolved-message')).toHaveTextContent(/couldn’t confirm that your last recording was fully saved/i);
         expect(screen.getByTestId('session-unresolved-message')).not.toHaveTextContent(/not (fully )?saved/i);
+    });
+
+    it('G5: an unsettled discard offers only Try again, says nothing was saved, and retries the failed mark', async () => {
+        onRetry.mockResolvedValueOnce(false);
+        setup('discard', false);
+        expect(screen.getByTestId('session-unresolved-message')).toHaveTextContent(/wasn’t saved, but we couldn’t finish clearing it/i);
+        expect(screen.queryByTestId('session-discard')).not.toBeInTheDocument();
+        const retry = screen.getByTestId('session-retry-discard');
+        expect(retry).toHaveTextContent('Try again');
+        await userEvent.click(retry);
+        await waitFor(() => expect(screen.getByTestId('session-unresolved-message')).toHaveTextContent(/clearing it failed again/i));
+        expect(onRetry).toHaveBeenCalledTimes(1);
+        expect(onDiscard).not.toHaveBeenCalled();
     });
 
     it('3. attribution renders Retry verification and states the transcript IS saved', () => {
