@@ -80,6 +80,17 @@ describe('#1054 CI change classifier', () => {
                 'tools/cloud-test/nightly/negative-controls/breaks.json',
                 'tools/cloud-test/nightly/README.md',
                 'tools/cloud-test/nightlyish/limits.cjs',
+                // Sam's review of 740bb8d7: filename-style Python/shell tests, nested __tests__, and other languages.
+                'tools/cloud-test/nightly/test_limits.py',
+                'tools/cloud-test/nightly/limits_test.py',
+                'tools/cloud-test/nightly/oracles/test_payment_wall.py',
+                'tools/cloud-test/nightly/limits.test.sh',
+                'tools/cloud-test/nightly/run_tests.sh',
+                'tools/cloud-test/nightly/__tests__/limits.cjs',
+                'tools/cloud-test/nightly/oracles/__tests__/payment-wall.cjs',
+                'tools/cloud-test/nightly/limits.mjs',
+                'tools/cloud-test/nightly/limits.ts',
+                'tools/cloud-test/nightly/limits.py',
             ])('%s is NOT matched as executable nightly code, so it cannot make a PR implementation', (file) => {
                 expect(FULL_LANE_PATTERNS.some((pattern: RegExp) => pattern.test(file))).toBe(false);
                 expect(isSubstantiveImplementationFile(file)).toBe(false);

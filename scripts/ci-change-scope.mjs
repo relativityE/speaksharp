@@ -22,9 +22,10 @@ export const FULL_LANE_PATTERNS = [
     // candidate contains substantive implementation by themselves.
     /^tools\/cloud-test\/(?:harness-adapter|harness\/bundle\/harness|report|scripts)\/(?!fixtures?\/)(?!.*\/fixtures?\/).*\.(?:cjs|mjs|js|ts|py|sh)$/,
     // The nightly AHT suite's executable code (#1864/#1865): its oracles, budget, cleanup and limits modules and
-    // the negative-control runner. Its tests (`tests/`, `*.test.*`, `*.spec.*`), fixtures and data stay outside,
-    // under the same rule as above.
-    /^tools\/cloud-test\/nightly\/(?!(?:.*\/)?(?:tests?|fixtures?)\/)(?!.*\.(?:test|spec)\.[cm]?[jt]s$).*\.(?:cjs|mjs|js|ts|py|sh)$/,
+    // the negative-control runner. Narrowed to `.cjs`, the only language those modules use (Sam's review), so a
+    // filename-style Python or shell test can't count. Tests (`tests/`, `__tests__/`, `*.test.cjs`, `*.spec.cjs`),
+    // fixtures and data stay outside, under the same rule as above.
+    /^tools\/cloud-test\/nightly\/(?!(?:.*\/)?(?:__tests__|tests?|fixtures?)\/)(?!.*\.(?:test|spec)\.cjs$).*\.cjs$/,
     // dependency + workspace manifests (root AND package-level)
     /(^|\/)package\.json$/,
     /(^|\/)pnpm-lock\.yaml$/,
