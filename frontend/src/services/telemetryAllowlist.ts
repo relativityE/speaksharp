@@ -373,6 +373,8 @@ export const EVENT_SCHEMAS = Object.freeze({
             // The completion chain. Seven stages, never one total — see LatencyStage.
             'stop_intent', 'recording_terminated', 'final_transcript', 'evaluation_complete',
             'session_saved', 'practice_loop_ready', 'review_rendered',
+            // The split inside recording_terminated (Private Whisper only). See finalizeBreakdown.
+            'stop_finalize_wait', 'stop_finalize_prep', 'stop_finalize_decode',
         ]),
         duration_ms: { kind: 'int', min: 0, max: 86_400_000 } as FieldRule,
     },

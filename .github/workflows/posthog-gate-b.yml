@@ -38,6 +38,7 @@ concurrency:
 
 jobs:
   targeting-proof:
+    environment: trusted-main-credentials
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

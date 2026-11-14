@@ -56,7 +56,12 @@ export type LatencyStage =
     | 'evaluation_complete'
     | 'session_saved'
     | 'practice_loop_ready'
-    | 'review_rendered';
+    | 'review_rendered'
+    // Inside `recording_terminated`: where the Stop-to-terminated wait goes on Private Whisper. Emitted
+    // beside the chain, never part of it, so the chain's intervals stay a strict sequence.
+    | 'stop_finalize_wait'
+    | 'stop_finalize_prep'
+    | 'stop_finalize_decode';
 
 let readyAt: number | null = null;
 let lastIntentAt: number | null = null;

@@ -131,6 +131,7 @@ jobs:
           fi
 
   canary-check:
+    environment: trusted-main-credentials
     name: canary-check (${{ matrix.lane }})
     needs: [release-binding, migration-readiness]
     if: ${{ needs.migration-readiness.outputs.ready == 'true' }}
