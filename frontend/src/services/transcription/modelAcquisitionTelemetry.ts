@@ -45,6 +45,8 @@ export type AcquisitionErrorCode =
     | 'aborted'
     | 'storage'
     | 'timeout'
+    /** #1858: a teardown cancelled the load, and the engine's release FAILED or did not settle within its bound. */
+    | 'release_uncertain'
     | 'unknown';
 
 export interface AcquisitionSubject {

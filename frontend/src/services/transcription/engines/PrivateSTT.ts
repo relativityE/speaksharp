@@ -58,7 +58,7 @@ import { buildV4LifecycleProps, emitV4Ready, emitV4Fallback, emitV4Error, emitV4
 import { buildEngineVersion, type EngineVariant } from '../privateTelemetry';
 import {
     probeCache, recordAcquisitionStart, recordAcquisitionSuccess, recordAcquisitionFailure, recordAcquisitionCancelled,
-    classifyAcquisitionError, type AcquisitionSubject, type PinnedAssetRef,
+    classifyAcquisitionError, type AcquisitionSubject, type CacheResult, type PinnedAssetRef,
 } from '../modelAcquisitionTelemetry';
 import type { Candidate } from '../candidateRegistry';
 import { acquisitionComponentGroupsFor, assetRequestsFor, acquisitionScopeFor, resolveCandidateAssetUrl } from '../candidateAssetRequests';
@@ -196,6 +196,11 @@ function getConfiguredPrivateEngine(): PrivateEngineType {
  *  past this bound we treat it as a failure and fall back to v2-base. Kept comfortably under the
  *  app-path proof's first-text window so the v2 re-transcribe still fits inside it. */
 const V4_AUTO_DECODE_TIMEOUT_MS = 40_000;
+/**
+ * #1858: how long a cancelled acquisition waits for its teardown to confirm the engine release before reporting the
+ * release as uncertain (a fatal failure event). A child terminate is a worker termination plus bounded cleanup.
+ */
+export const CANCELLED_RELEASE_SETTLE_BOUND_MS = 10_000;
 
 interface EngineLifetime {
     generation: number;
@@ -811,6 +816,36 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         return generation !== this.lifecycleGeneration || this.isTerminated;
     }
 
+    /**
+     * #1858: a cancelled acquisition is reported only once the teardown that cancelled it has settled, because only that
+     * teardown knows whether the engine was released. The cancelling init cannot rely on anyone else to surface a failed
+     * release — TranscriptionService.destroy logs and swallows the teardown's rejection — so:
+     *   - teardown settled, every release confirmed   → `private_model_acquisition_cancelled` (a lifecycle outcome);
+     *   - teardown rejected / a release failure retained → `private_model_acquisition_failure{release_uncertain}`;
+     *   - teardown still unsettled after the bound       → `private_model_acquisition_failure{release_uncertain}`.
+     * Exactly one event per acquisition. Non-blocking: the init returns its outcome immediately; the teardown never
+     * waits on this report, so there is no ordering dependency between the two.
+     */
+    private reportCancelledAcquisition(subject: AcquisitionSubject, cacheResult: CacheResult, totalMs: number): void {
+        let reported = false;
+        const uncertain = () => {
+            if (reported) return;
+            reported = true;
+            recordAcquisitionFailure(subject, cacheResult, 'release_uncertain', totalMs);
+        };
+        const bound = setTimeout(uncertain, CANCELLED_RELEASE_SETTLE_BOUND_MS);
+        void this.teardownReleaseOutcome().then(
+            failure => {
+                clearTimeout(bound);
+                if (failure) return uncertain();
+                if (reported) return;
+                reported = true;
+                recordAcquisitionCancelled(subject, cacheResult, totalMs);
+            },
+            () => { clearTimeout(bound); uncertain(); },
+        );
+    }
+
     /** `released` only when THIS init verified the release; otherwise the cancelling teardown reports it. */
     private cancelledInitError(released: boolean): Error {
         return new InitCancelledError(released
@@ -1129,15 +1164,15 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             } else if (isInitCancelledError(outcome.error)) {
                 // AHT-01/04 (runs 43583228045, 43586395706): a teardown (destroy/terminate) abandoned this load — the user
                 // left the page. That is a lifecycle outcome, not a model failure; reporting it as `failure`/`unknown` is
-                // what stopped those journeys. A cancel whose release FAILED is a different error and stays a failure.
-                recordAcquisitionCancelled(subject, cacheResult, totalMs);
+                // what stopped those journeys. But only a CONFIRMED release makes it a clean cancel (#1858).
+                this.reportCancelledAcquisition(subject, cacheResult, totalMs);
             } else {
                 recordAcquisitionFailure(subject, cacheResult, classifyAcquisitionError(outcome.error), totalMs);
             }
             return outcome;
         } catch (err) {
             if (isInitCancelledError(err)) {
-                recordAcquisitionCancelled(subject, cacheResult, Math.round(performance.now() - acquisitionStartedAt));
+                this.reportCancelledAcquisition(subject, cacheResult, Math.round(performance.now() - acquisitionStartedAt));
             } else {
                 recordAcquisitionFailure(subject, cacheResult, classifyAcquisitionError(err),
                     Math.round(performance.now() - acquisitionStartedAt));

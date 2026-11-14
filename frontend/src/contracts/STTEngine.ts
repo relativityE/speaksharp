@@ -297,6 +297,24 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
   }
 
   /**
+   * #1858: the release outcome of the teardown that cancelled an init — null only when that teardown settled with every
+   * release confirmed; otherwise the failure (a rejected teardown, or a release failure retained before or during it).
+   * An init cancelled by destroy/terminate cannot see its engine's release from inside its own continuation: callers
+   * (e.g. TranscriptionService.destroy) may swallow the teardown's rejection, so the init must observe it here.
+   */
+  protected async teardownReleaseOutcome(): Promise<Error | null> {
+    const teardown = this.teardownInFlight ?? this.lastTeardown;
+    if (teardown) {
+      try {
+        await teardown;
+      } catch (error) {
+        return this.teardownFailure ?? (error instanceof Error ? error : new Error(String(error)));
+      }
+    }
+    return this.teardownFailure;
+  }
+
+  /**
    * Abstract hook for engine-specific initialization
    */
   protected abstract onInit(timeoutMs?: number, isMock?: boolean): Promise<Result<void, Error>>;
