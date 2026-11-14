@@ -9,6 +9,7 @@ import { accessSync, constants, mkdtempSync, mkdirSync, readFileSync, realpathSy
 import { tmpdir } from 'node:os';
 import { delimiter, isAbsolute, join, resolve } from 'node:path';
 import process from 'node:process';
+import console from 'node:console';
 
 const CHAIN = [
   '20260605080000_user_issue_reports.sql',
@@ -48,7 +49,12 @@ test('feedback fence exact pre/postflight over the real report chain', async (t)
   let receiptIndex = 0;
   const run = (mode, receipt) => spawnSync(process.execPath, [cli, mode, '20261114100000', receipt], { env, encoding: 'utf8', timeout: 60000 });
   const freshReceipt = () => join(root, `receipt-${++receiptIndex}.json`);
-  const ok = (result) => { assert.equal(result.status, 0, result.stderr); return JSON.parse(result.stdout.trim().split('\n').at(-1)); };
+  // Sam (#1859): a refusal's reason reaches the evidence log too (the native reporter omits assertion messages).
+  const ok = (result) => {
+    if (result.status !== 0) console.log(`feedback fence postflight refused: ${result.stderr.trim()}`);
+    assert.equal(result.status, 0, result.stderr);
+    return JSON.parse(result.stdout.trim().split('\n').at(-1));
+  };
   const refused = (result, pattern) => { assert.notEqual(result.status, 0); assert.match(result.stderr, pattern); };
   let started = false;
   try {
@@ -65,6 +71,8 @@ test('feedback fence exact pre/postflight over the real report chain', async (t)
       CREATE SCHEMA supabase_migrations; CREATE TABLE supabase_migrations.schema_migrations(version text PRIMARY KEY);
       INSERT INTO supabase_migrations.schema_migrations VALUES ('20261110173548'),('20261112133000');`);
     for (const file of CHAIN) sql(readFileSync(file, 'utf8'));
+    // Sam (#1859): the server version is recorded, so a version-specific catalog difference is verified, never inferred.
+    console.log(`feedback fence postflight proof: PostgreSQL ${sql('SHOW server_version;')}`);
 
     let before;
     await t.test('before: target absent, prerequisite applied, withheld pending; records the report triggers', () => {

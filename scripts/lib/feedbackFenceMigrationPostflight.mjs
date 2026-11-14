@@ -143,7 +143,14 @@ export function assertFeedbackFenceSnapshot(contract, rows, prior) {
     }
     // Codex P2 on 5d8070ad: the table's STRUCTURE is exact too (columns, defaults, every constraint, every index). Without the
     // owner_uid uniqueness an account could hold two fences, and the trigger would record its reports in only one of them.
-    if (JSON.stringify(table.structure) !== JSON.stringify(FENCE_TABLE_STRUCTURE)) throw new Error('feedback fence table structure differs');
+    if (JSON.stringify(table.structure) !== JSON.stringify(FENCE_TABLE_STRUCTURE)) {
+      // Name exactly what differs (catalog definitions only: no report, account or credential data), so a refusal is diagnosable.
+      const diff = ['columns', 'constraints', 'indexes'].flatMap((part) => {
+        const got = table.structure?.[part] ?? [], want = FENCE_TABLE_STRUCTURE[part];
+        return [...got.filter((x) => !want.includes(x)).map((x) => `+${part}: ${x}`), ...want.filter((x) => !got.includes(x)).map((x) => `-${part}: ${x}`)];
+      });
+      throw new Error(`feedback fence table structure differs (${diff.join(' | ') || 'order'})`);
+    }
     // BEFORE INSERT FOR EACH ROW (tgtype 7 = ROW|BEFORE|INSERT), enabled, calling the exact trigger function, and
     // UNCONDITIONAL: no WHEN predicate, no column list, no arguments (Codex P2 on 881b5c53: a `WHEN (false)` twin would
     // otherwise pass as exact while no insert ever runs the fence).
