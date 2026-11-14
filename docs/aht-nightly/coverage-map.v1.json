@@ -99,7 +99,7 @@
    "assertion": "same-target-numeric",
    "newHome": "J1.b",
    "status": "strengthen",
-   "note": "Also compare the saved filler count with the fixture's known reference (rwtFillerReference.ts), so the row has an oracle independent of the code under test. Today the snapshot preflight makes the whole case NOT RUN when Progress code changes in an upgrade (design \u00a76 item 10, G11)."
+   "note": "Also compare the saved filler count with the fixture's known reference (rwtFillerReference.ts), so the row has an oracle independent of the code under test. Today the snapshot preflight makes the whole case NOT RUN when Progress code changes in an upgrade (G11 in design \u00a74)."
   },
   {
    "case": "AHT-01",
@@ -267,7 +267,7 @@
    "assertion": "same-target-numeric",
    "newHome": "J3.a",
    "status": "strengthen",
-   "note": "Same fixture-reference oracle as J1.b; the snapshot gate moves out of the case preflight (design \u00a76 item 10)."
+   "note": "Same fixture-reference oracle as J1.b; the snapshot gate moves out of the case preflight (G11 in design \u00a74)."
   },
   {
    "case": "AHT-02",

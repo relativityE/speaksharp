@@ -30,14 +30,14 @@ for r in ["fresh-first-session","saved-once","grounded-coaching","review-reopen"
     o("AHT-01",r,"J1.a","kept","")
 for r in ["same-target-repeat","analytics-repeat-opens-product","rapid-repeat-gate","rapid-repeat-release","next-start","next-start-release"]:
     o("AHT-01",r,"J1.b","kept","")
-o("AHT-01","same-target-numeric","J1.b","strengthen","Also compare the saved filler count with the fixture's known reference (rwtFillerReference.ts), so the row has an oracle independent of the code under test. Today the snapshot preflight makes the whole case NOT RUN when Progress code changes in an upgrade (design §6 item 10, G11).")
+o("AHT-01","same-target-numeric","J1.b","strengthen","Also compare the saved filler count with the fixture's known reference (rwtFillerReference.ts), so the row has an oracle independent of the code under test. Today the snapshot preflight makes the whole case NOT RUN when Progress code changes in an upgrade (G11 in design §4).")
 o("AHT-01","probe-save-isolation","J1.c","strengthen","Paired with the new short-stop-no-save row; failed on 14 Nov (AHT-03) until the short-Stop fix lands (G5).")
 # AHT-03 duplicates consolidated
 for r in ["rapid-repeat-gate","rapid-repeat-release","next-start","next-start-release","probe-save-isolation","same-target-numeric"]:
     o("AHT-03",r,"J1.b/J1.c and J3.a","consolidated","Same check on the same code already runs in J1 (Open Mic) and J3.a (Focus, full fixture); the partial fixture adds nothing to it. Needs the owner's disposition under finite-aht-denominator.json before the row leaves AHT-03's denominator.")
 for r in ["same-target-repeat","analytics-repeat-opens-product"]:
     o("AHT-03",r,"J3.b","kept","Kept on the partial fixture: the only repeat that starts from a take with missed points, so it is the only check that missed points reset to pending.")
-o("AHT-02","same-target-numeric","J3.a","strengthen","Same fixture-reference oracle as J1.b; the snapshot gate moves out of the case preflight (design §6 item 10).")
+o("AHT-02","same-target-numeric","J3.a","strengthen","Same fixture-reference oracle as J1.b; the snapshot gate moves out of the case preflight (G11 in design §4).")
 o("AHT-04","pending-leave-no-session","J5.a","kept","")
 o("AHT-10","leave-released","J5.c","strengthen","Keep the R5 observer and add the R4C-comparable observer with the same leave action, tab-close variant reported separately, as the gap ledger requires for GAP-05 (14 Nov HOLD).")
 o("AHT-10","recording-before-leave","J5.c","kept","")
