@@ -1,0 +1,1286 @@
+{
+  "schema": "speaksharp.aht-nightly.negative-controls.v2",
+  "note": "Each entry seeds one break in the nightly suite's own code and names the node:test file that must fail on it and pass once it is restored. Paths are relative to tools/cloud-test/nightly. run.cjs applies each break, runs the test, restores the file byte for byte, and runs the test again.",
+  "breaks": [
+    {
+      "id": "P1-row-without-home",
+      "guards": "coverage drift: every catalog row has a home",
+      "file": "journey-plan.cjs",
+      "find": "    { caseId: 'AHT-15', assertion: 'return-signed-out', legs: ['J1.d'], change: 'moved' },\n",
+      "replace": "",
+      "test": "tests/journey-plan.test.cjs"
+    },
+    {
+      "id": "P1-dependency-ignored",
+      "guards": "a dependent leg is not PASS when its dependency did not pass",
+      "file": "leg-verdicts.cjs",
+      "find": "for (const dep of plan.needs) {",
+      "replace": "for (const dep of []) {",
+      "test": "tests/leg-verdicts.test.cjs"
+    },
+    {
+      "id": "P1-not-run-folds-green",
+      "guards": "a NOT RUN row keeps its leg from passing",
+      "file": "leg-verdicts.cjs",
+      "find": "PASS: 0, 'NOT RUN': 1, HOLD: 2, FAIL: 3",
+      "replace": "PASS: 0, 'NOT RUN': -1, HOLD: 2, FAIL: 3",
+      "test": "tests/leg-verdicts.test.cjs"
+    },
+    {
+      "id": "P1-run-green-with-hold",
+      "guards": "a run with a HOLD or NOT RUN leg is not green",
+      "file": "leg-verdicts.cjs",
+      "find": "        if (v.outcome !== 'PASS')\n            notGreen.push(",
+      "replace": "        if (v.outcome === 'FAIL')\n            notGreen.push(",
+      "test": "tests/leg-verdicts.test.cjs"
+    },
+    {
+      "id": "P1-gate-ignored",
+      "guards": "an unmet gate (canary claim, unqualified, disabled, test-mode fixture, no safe production proof) is reported, never passed",
+      "file": "leg-verdicts.cjs",
+      "find": "return gates.filter((g) => NEVER_SATISFIED.includes(g.kind) || !satisfied.has(g.kind));",
+      "replace": "return gates.filter(() => false);",
+      "test": "tests/leg-verdicts.test.cjs"
+    },
+    {
+      "id": "P1-sandbox-unlabelled",
+      "guards": "a sandbox result is never reported as production billing proof",
+      "file": "journey-plan.cjs",
+      "find": "                proofScope: 'stripe-test-mode-sandbox',\n",
+      "replace": "",
+      "test": "tests/leg-verdicts.test.cjs"
+    },
+    {
+      "id": "P1-production-j9-runs",
+      "guards": "the production J9 leg stays NOT RUN without a safe, approved proof",
+      "file": "journey-plan.cjs",
+      "find": "gates: [{ kind: 'no-safe-production-proof', outcome: 'NOT RUN',",
+      "replace": "gates: [{ kind: 'test-mode-fixture', outcome: 'NOT RUN',",
+      "test": "tests/leg-verdicts.test.cjs"
+    },
+    {
+      "id": "P2-trial-not-thirty-days",
+      "guards": "trial-length-thirty-days: only exactly 30 days passes",
+      "file": "oracles/trial-window.cjs",
+      "find": "    if (length !== THIRTY_DAYS_MS)\n        return",
+      "replace": "    if (Math.abs(length - THIRTY_DAYS_MS) > 2 * 86_400_000)\n        return",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P2-trial-service-role-read",
+      "guards": "trial-length-thirty-days: read with the account's own token",
+      "file": "oracles/trial-window.cjs",
+      "find": "    if (read.via !== 'own-token')\n        return",
+      "replace": "    if (read.via === 'none')\n        return",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P2-trial-end-without-canary",
+      "guards": "trial end only on an account with the server-issued canary claim",
+      "file": "oracles/canary-trial-end.cjs",
+      "find": "    if (user.appMetadata.canary !== true)\n        throw",
+      "replace": "    if (user.appMetadata.canary === false)\n        throw",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P2-trial-end-other-account",
+      "guards": "trial end changes exactly this account",
+      "file": "oracles/canary-trial-end.cjs",
+      "find": "if (updatedIds.length !== 1 || updatedIds[0] !== req.uid) {",
+      "replace": "if (updatedIds.length === 0) {",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P2-signout-403-counted-as-failure",
+      "guards": "sign-out rows: a 403 or 401 denial is a correct answer, not a failure",
+      "file": "oracles/sign-out.cjs",
+      "find": "    if (o.ownedIdentifiersRendered > 0)\n        problems.push(",
+      "replace": "    if (refused > 0)\n        problems.push('denied requests around sign-out');\n    if (o.ownedIdentifiersRendered > 0)\n        problems.push(",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P2-wall-shows-history",
+      "guards": "payment wall: no past data",
+      "file": "oracles/payment-wall.cjs",
+      "find": "    if (w.historyVisible)\n        problems.push('History is reachable');\n",
+      "replace": "",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P2-wall-promotes-delete",
+      "guards": "payment wall: delete available, not promoted",
+      "file": "oracles/payment-wall.cjs",
+      "find": "    if (w.deletePromoted)\n        problems.push('deleting the account is promoted over paying');\n",
+      "replace": "",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P2-server-error-counts-as-refusal",
+      "guards": "trial-expired-server-refuses: a 5xx is not a refusal",
+      "file": "oracles/payment-wall.cjs",
+      "find": "!REFUSAL_STATUSES.includes(p.status)",
+      "replace": "!(p.status >= 400)",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P2-short-stop-row-saved",
+      "guards": "short-stop-no-save: a take saved as completed FAILs",
+      "file": "oracles/payment-wall.cjs",
+      "find": "if (saved > 0)",
+      "replace": "if (saved > 1)",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P2-portal-url-logged",
+      "guards": "J9 portal: the bearer address is never logged",
+      "file": "oracles/billing-portal.cjs",
+      "find": "log(`portal: ${portalShown ? 'shown' : 'not shown'}`);",
+      "replace": "ports.log(`portal: ${url}`);",
+      "test": "tests/billing.test.cjs"
+    },
+    {
+      "id": "P2-portal-live-opened",
+      "guards": "J9 portal: only a Stripe test-mode portal is opened",
+      "file": "oracles/billing-portal.cjs",
+      "find": "if (!TEST_MODE_PORTAL_RE.test(url)) {",
+      "replace": "if (!url.startsWith('https://billing.stripe.com/')) {",
+      "test": "tests/billing.test.cjs"
+    },
+    {
+      "id": "P2-billing-promises-zero",
+      "guards": "J9 cleanup: retained billing rows are reconciled, not promised away",
+      "file": "oracles/billing-portal.cjs",
+      "find": "const unreviewed = rows.filter((r) => r.count > 0 && !reviewedRetainedTables.includes(r.table));",
+      "replace": "const unreviewed = rows.filter((r) => r.count > 0);",
+      "test": "tests/billing.test.cjs"
+    },
+    {
+      "id": "P2-billing-foreign-rows",
+      "guards": "J9 cleanup: another account's billing rows fail",
+      "file": "oracles/billing-portal.cjs",
+      "find": "    if (foreign.length > 0)\n        return",
+      "replace": "    if (foreign.length > 1)\n        return",
+      "test": "tests/billing.test.cjs"
+    },
+    {
+      "id": "P2-fixture-live-key",
+      "guards": "J9.a fixture: Stripe test-mode key only",
+      "file": "oracles/paid-account-fixture.cjs",
+      "find": "/^(sk|rk)_test_/",
+      "replace": "/^(sk|rk)_/",
+      "test": "tests/billing.test.cjs"
+    },
+    {
+      "id": "P2-fixture-live-object",
+      "guards": "J9.a fixture: no live-mode Stripe object",
+      "file": "oracles/paid-account-fixture.cjs",
+      "find": "if (customer.livemode !== false || subscription.livemode !== false)",
+      "replace": "if (customer.livemode === undefined)",
+      "test": "tests/billing.test.cjs"
+    },
+    {
+      "id": "P2-unauthorized-read-passes",
+      "guards": "signout-no-unauthorized-read: data returned without a valid session fails",
+      "file": "oracles/sign-out.cjs",
+      "find": "const reads = o.requests.filter((r) => ok(r.status) && r.ownedIdentifiersInBody > 0 && !hadValidSession(o, r));",
+      "replace": "const reads = o.requests.filter((r) => ok(r.status) && r.ownedIdentifiersInBody > 0 && r.bearerDigest !== null && !hadValidSession(o, r));",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P2-stale-request-only-if-success",
+      "guards": "signout-no-stale-request: any request with the old session after sign-out fails, whatever the answer",
+      "file": "oracles/sign-out.cjs",
+      "find": "const stale = o.requests.filter((r) => r.sentAfterSignOutCompleted && sessionToken(o, r));",
+      "replace": "const stale = o.requests.filter((r) => ok(r.status) && r.sentAfterSignOutCompleted && sessionToken(o, r));",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P2-signout-page-leak",
+      "guards": "signout-no-unauthorized-read: saved data on the signed-out page fails",
+      "file": "oracles/sign-out.cjs",
+      "find": "    if (o.ownedIdentifiersRendered > 0)\n        problems.push(",
+      "replace": "    if (o.ownedIdentifiersRendered > 99)\n        problems.push(",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P2-reopen-sends-coaching",
+      "guards": "old-sessions-no-new-coaching: a coaching request on reopening fails",
+      "file": "oracles/upgrade-continuity.cjs",
+      "find": "    if (seen.coachingRequests > 0)\n        problems.push(",
+      "replace": "    if (seen.coachingRequests > 1)\n        problems.push(",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P2-reopen-missing-store-fails",
+      "guards": "old-sessions-no-new-coaching: a session with no stored coaching before the release is HOLD, not a false FAIL",
+      "file": "oracles/upgrade-continuity.cjs",
+      "find": "if (pre.withStoredCoaching < pre.keptSessions) {",
+      "replace": "if (pre.withStoredCoaching < 0) {",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P3-unplaced-row-dropped",
+      "file": "case-results.cjs",
+      "test": "tests/harness-mapping.test.cjs",
+      "guards": "a case row the plan places nowhere fails the legs of its case",
+      "find": "        if (!placed)\n            for",
+      "replace": "        if (false)\n            for"
+    },
+    {
+      "id": "P3-harness-not-run-passes",
+      "file": "case-results.cjs",
+      "test": "tests/harness-mapping.test.cjs",
+      "guards": "the harness's NOT_RUN reads as NOT RUN, never PASS",
+      "find": "    if (result === 'NOT_RUN')\n        return 'NOT RUN';",
+      "replace": "    if (result === 'NOT_RUN')\n        return 'PASS';"
+    },
+    {
+      "id": "P3-unknown-result-passes",
+      "file": "case-results.cjs",
+      "test": "tests/harness-mapping.test.cjs",
+      "guards": "an unknown harness result is a FAIL",
+      "find": "return OUTCOMES.has(result) ? result : 'FAIL';",
+      "replace": "return OUTCOMES.has(result) ? result : 'PASS';"
+    },
+    {
+      "id": "P3-duplicate-row-better-wins",
+      "file": "case-results.cjs",
+      "test": "tests/harness-mapping.test.cjs",
+      "guards": "a row reported twice keeps its worse outcome",
+      "find": "rank[outcome] > rank[r[row]]",
+      "replace": "rank[outcome] < rank[r[row]]"
+    },
+    {
+      "id": "P3-wrong-case-accepted",
+      "file": "case-results.cjs",
+      "test": "tests/harness-mapping.test.cjs",
+      "guards": "a case result is only read for its own case",
+      "find": "if (!caseResult || caseResult.caseId !== caseId)",
+      "replace": "if (!caseResult)"
+    },
+    {
+      "id": "P3-no-case-gate-dropped",
+      "file": "journey-plan.cjs",
+      "test": "tests/harness-mapping.test.cjs",
+      "guards": "a leg with no harness case is NOT RUN",
+      "find": "...(harnessCase(id)[0] === null ? [NO_HARNESS_CASE] : [])",
+      "replace": "...([])"
+    },
+    {
+      "id": "P3-short-stop-press-dropped",
+      "file": "journey-plan.cjs",
+      "test": "tests/harness-mapping.test.cjs",
+      "guards": "J1.c's short Stop is budgeted as a Start press",
+      "find": "'J1.c': ['AHT-01', 1]",
+      "replace": "'J1.c': ['AHT-01', 0]"
+    },
+    {
+      "id": "P3-limits-count-gated-legs",
+      "file": "limits.cjs",
+      "test": "tests/limits.test.cjs",
+      "guards": "a leg that can't run counts toward no limit",
+      "find": "return leg.gates.every((g) => !NEVER_SATISFIED.includes(g.kind) && satisfiedGates.has(g.kind));",
+      "replace": "return leg.gates.every((g) => !NEVER_SATISFIED.includes(g.kind));"
+    },
+    {
+      "id": "P3-limits-j9-production-counted",
+      "file": "limits.cjs",
+      "test": "tests/limits.test.cjs",
+      "guards": "J9.b, NOT RUN by design, never counts",
+      "find": "return leg.gates.every((g) => !NEVER_SATISFIED.includes(g.kind) && satisfiedGates.has(g.kind));",
+      "replace": "return leg.gates.every((g) => satisfiedGates.has(g.kind));"
+    },
+    {
+      "id": "P3-limits-sandbox-counted",
+      "file": "limits.cjs",
+      "test": "tests/limits.test.cjs",
+      "guards": "the J9.a sandbox leg counts against no production limit",
+      "find": "const isProduction = (l) => l.proofScope === 'deployed-production';",
+      "replace": "const isProduction = (l) => l.proofScope !== '';"
+    },
+    {
+      "id": "P3-limits-flat-percentage",
+      "file": "limits.cjs",
+      "test": "tests/limits.test.cjs",
+      "guards": "no flat margin: the proposed margins come from measured evidence",
+      "find": "requests: Object.freeze({ pct: 11,",
+      "replace": "requests: Object.freeze({ pct: 20,"
+    },
+    {
+      "id": "P3-limits-margin-never-lowered",
+      "file": "limits.cjs",
+      "test": "tests/limits.test.cjs",
+      "guards": "two closer baselines lower the margin to their spread",
+      "find": "        if (spreadPct < proposal.pct) {",
+      "replace": "        if (false) {"
+    },
+    {
+      "id": "P3-limits-margin-raised-by-spread",
+      "file": "limits.cjs",
+      "test": "tests/limits.test.cjs",
+      "guards": "a wider spread never raises the margin without the product owner",
+      "find": "        if (spreadPct < proposal.pct) {",
+      "replace": "        if (spreadPct !== proposal.pct) {"
+    },
+    {
+      "id": "P3-limits-incomplete-run-counted",
+      "file": "limits.cjs",
+      "test": "tests/limits.test.cjs",
+      "guards": "only complete baseline runs set a measured limit",
+      "find": "r && r.complete === true &&",
+      "replace": "r &&"
+    },
+    {
+      "id": "P3-limits-partial-baseline-summed",
+      "guards": "a journey without a baseline leaves the run limit unset",
+      "file": "limits.cjs",
+      "find": "const perRun = missing.length > 0 || noReserve.length > 0 ? null :",
+      "replace": "const perRun = noReserve.length > 0 ? null :",
+      "test": "tests/limits.test.cjs"
+    },
+    {
+      "id": "P3-limits-minutes-not-rounded-per-journey",
+      "file": "limits.cjs",
+      "test": "tests/limits.test.cjs",
+      "guards": "time rounds up to whole minutes per journey",
+      "find": "kind === 'minutes' ? Math.ceil(raw / 60)",
+      "replace": "kind === 'minutes' ? raw / 60"
+    },
+    {
+      "id": "P3-limits-paid-account-signed-up",
+      "file": "limits.cjs",
+      "test": "tests/limits.test.cjs",
+      "guards": "the shared-account target counts only fresh run-owned journeys",
+      "find": "journeys.filter((j) => j.account === 'fresh-run-owned').length",
+      "replace": "journeys.length + 1"
+    },
+    {
+      "id": "P3-limits-identity-reads-per-leg",
+      "file": "limits.cjs",
+      "test": "tests/limits.test.cjs",
+      "guards": "identity reads are the harness's 2 per case plus 2, not per leg",
+      "find": "identityReads: 2 * caseUnits(legs) + 2,",
+      "replace": "identityReads: 2 * legs.length + 2,"
+    },
+    {
+      "id": "P3-limits-provider-retries-uncounted",
+      "file": "limits.cjs",
+      "test": "tests/limits.test.cjs",
+      "guards": "each coaching request can make 3 provider calls",
+      "find": "const PROVIDER_CALLS_PER_COACHING_REQUEST = 3;",
+      "replace": "const PROVIDER_CALLS_PER_COACHING_REQUEST = 1;"
+    },
+    {
+      "id": "P4-ceiling-fraction-accepted",
+      "guards": "a coaching ceiling from the environment must be a whole number",
+      "file": "run-budget.cjs",
+      "find": "if (!/^\\d+$/.test(raw.trim()))",
+      "replace": "if (false)",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P4-ceiling-above-need",
+      "guards": "a planned ceiling above the named legs' need is refused",
+      "file": "run-budget.cjs",
+      "find": "if (coachingCeiling > need)",
+      "replace": "if (coachingCeiling > need * 2)",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P4-gated-leg-allocated",
+      "guards": "a gated leg gets no allocation",
+      "file": "run-budget.cjs",
+      "find": "else if (!runnable(l, satisfiedGates))",
+      "replace": "else if (false)",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P4-allocation-not-frozen",
+      "guards": "allocations are frozen once the run starts",
+      "file": "run-budget.cjs",
+      "find": "legs[id] = Object.freeze({ coaching: a.coaching, starts: a.starts });",
+      "replace": "legs[id] = ({ coaching: a.coaching, starts: a.starts });",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P4-probe-not-reserved",
+      "guards": "J1.e's expired-token probe is reserved at its worst case before the run",
+      "file": "run-budget.cjs",
+      "find": "legAlloc[l.id] = { coaching: l.coachingReserve,",
+      "replace": "legAlloc[l.id] = { coaching: l.coachingRequests,",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P4-missing-cleanup-guessed",
+      "guards": "a journey with no defined cleanup step refuses the run, never a guessed reserve",
+      "file": "run-budget.cjs",
+      "find": "throw new RunRefused(`${j} has no cleanup reserve: ${e.message}`);",
+      "replace": "cleanup[j] = { requests: 10, seconds: 100 };",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P4-lowered-ceiling-keeps-dependents",
+      "guards": "a named leg whose dependency got no allocation gets none either",
+      "file": "run-budget.cjs",
+      "find": "const missing = l.needs.find((d) => notAllocated.has(d));",
+      "replace": "const missing = undefined;",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P4-check-then-await-then-count",
+      "guards": "reservation is atomic: the check and the count happen before the action is awaited",
+      "file": "run-budget.cjs",
+      "find": "        const r = kind === CLEANUP ? this.reserveCleanup(legId) : this.reserve(legId, kind);\n        if (!r.granted)\n            return { sent: false, reason: r.reason };\n        return { sent: true, value: await action(r.token) };",
+      "replace": "        const a = this.#alloc.get(legId);\n        const u = this.#used.get(legId);\n        if (!a || u[kind] >= a[kind])\n            return { sent: false, reason: 'refused' };\n        const value = await action(null);\n        const r = kind === CLEANUP ? this.reserveCleanup(legId) : this.reserve(legId, kind);\n        return { sent: r.granted, value };",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P4-retry-allowance",
+      "guards": "a retry past the leg's allocation is refused: no retry allowance",
+      "file": "run-budget.cjs",
+      "find": "if (used >= a[kind])",
+      "replace": "if (used >= a[kind] + 1)",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P4-retry-borrows-cleanup",
+      "guards": "ordinary work past its allocation never borrows the journey's cleanup reserve",
+      "file": "run-budget.cjs",
+      "find": "    const used = state.used.get(legId)?.[kind] ?? 0;\n",
+      "replace": "    const used = state.used.get(legId)?.[kind] ?? 0;\n    if (used >= a[kind] && (state.cleanupUsed.get(legById(legId).journey) ?? 0) < plan.cleanup[legById(legId).journey].requests)\n        return { event: { t: 'grant', leg: legId, kind: CLEANUP }, result: { granted: true, token: Object.freeze({ legId, kind }) } };\n",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P4-overrun-does-not-stop",
+      "guards": "a leg that overran stops its ordinary work",
+      "file": "run-budget.cjs",
+      "find": "        if (e.kind !== CLEANUP)\n            state.stopped.add(e.leg);\n",
+      "replace": "",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P4-cleanup-reachable-by-ordinary",
+      "guards": "ordinary reservations can't reach the cleanup pool",
+      "file": "run-budget.cjs",
+      "find": "if (!ORDINARY_KINDS.includes(kind))",
+      "replace": "if (false)",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P4-stopped-leg-blocks-cleanup",
+      "guards": "a leg that overran ordinary work can still clean up",
+      "file": "run-budget.cjs",
+      "find": "    if (kind === CLEANUP) {\n        const j = legById(legId).journey;",
+      "replace": "    if (kind === CLEANUP) {\n        if (state.stopped.has(legId))\n            return { event: null, result: { granted: false, reason: 'stopped' } };\n        const j = legById(legId).journey;",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P4-cleanup-overrun-passes",
+      "guards": "a cleanup past its allocation fails the leg's budget row",
+      "file": "run-budget.cjs",
+      "find": "const overrun = Object.keys(refused).filter((k) => refused[k] > 0);",
+      "replace": "const overrun = Object.keys(refused).filter((k) => k !== CLEANUP && refused[k] > 0);",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P4-later-not-run-hides-fail",
+      "guards": "a recorded FAIL survives a later NOT RUN (dependency, gate, no allocation)",
+      "file": "leg-verdicts.cjs",
+      "find": "if (recorded && recorded.outcome === 'FAIL')",
+      "replace": "if (false)",
+      "test": "tests/leg-verdicts.test.cjs"
+    },
+    {
+      "id": "P4-overrun-ignored",
+      "guards": "a leg that overran its frozen allocation is FAIL",
+      "file": "leg-verdicts.cjs",
+      "find": "if (budget.overrun.length > 0) {",
+      "replace": "if (false) {",
+      "test": "tests/leg-verdicts.test.cjs"
+    },
+    {
+      "id": "P4-no-allocation-ignored",
+      "guards": "a leg left out before the run is NOT RUN, never PASS",
+      "file": "leg-verdicts.cjs",
+      "find": "if (!budget.allocated)\n        notRunCauses.push(",
+      "replace": "if (false)\n        notRunCauses.push(",
+      "test": "tests/leg-verdicts.test.cjs"
+    },
+    {
+      "id": "P4-ledger-overwrites-fail",
+      "guards": "the run ledger keeps the worse verdict: a FAIL is never overwritten",
+      "file": "leg-verdicts.cjs",
+      "find": "if (!had || SEVERITY[v.outcome] > SEVERITY[had.outcome])",
+      "replace": "if (true)",
+      "test": "tests/leg-verdicts.test.cjs"
+    },
+    {
+      "id": "P5-unknown-row-outcome-passes",
+      "guards": "a row outcome the plan doesn't know (NOT_RUN, ERROR) is never PASS",
+      "file": "leg-verdicts.cjs",
+      "find": "rows[r] = r in results ? outcomeOf(results[r]) : 'NOT RUN';",
+      "replace": "rows[r] = results[r] ?? 'NOT RUN';",
+      "test": "tests/leg-verdicts.test.cjs"
+    },
+    {
+      "id": "P5-start-cap-signal-ignored",
+      "guards": "a Start press stopped at the harness cap fails start-press-budget on the case's legs",
+      "file": "case-results.cjs",
+      "find": "if (caseResult.executionSignals?.startPressCapExceeded === true)",
+      "replace": "if (false)",
+      "test": "tests/harness-mapping.test.cjs"
+    },
+    {
+      "id": "P5-production-gate-claimable",
+      "guards": "J9.b's production gate stays unmet whatever the runner claims",
+      "file": "leg-verdicts.cjs",
+      "find": "NEVER_SATISFIED.includes(g.kind) || !satisfied.has(g.kind)",
+      "replace": "!satisfied.has(g.kind)",
+      "test": "tests/leg-verdicts.test.cjs"
+    },
+    {
+      "id": "P5-missing-budget-allocated",
+      "guards": "a leg with no budget facts is NOT RUN, never PASS",
+      "file": "leg-verdicts.cjs",
+      "find": "allocated: false, reason: 'the run budget gave no facts for this leg'",
+      "replace": "allocated: true, reason: 'the run budget gave no facts for this leg'",
+      "test": "tests/leg-verdicts.test.cjs"
+    },
+    {
+      "id": "P5-any-4xx-refusal",
+      "guards": "only 402 and 403 count as the server refusing an expired account",
+      "file": "oracles/payment-wall.cjs",
+      "find": "const REFUSAL_STATUSES = Object.freeze([402, 403]);",
+      "replace": "const REFUSAL_STATUSES = Object.freeze([400, 401, 402, 403, 404, 405, 409, 429]);",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P5-provider-work-unobserved-passes",
+      "guards": "a probe with provider work not observed holds",
+      "file": "oracles/payment-wall.cjs",
+      "find": "if (unobserved.length > 0)\n        return { outcome: 'HOLD'",
+      "replace": "if (false)\n        return { outcome: 'HOLD'",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P5-wall-missing-field-passes",
+      "guards": "a wall field the spec didn't map holds, never passes",
+      "file": "oracles/payment-wall.cjs",
+      "find": "    if (missing.length > 0)\n        return { outcome: 'HOLD', detail: `not observed: ${missing.join(', ')}` };\n    const problems = [];\n    if (!w.wallShown)",
+      "replace": "    const problems = [];\n    if (!w.wallShown)",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P5-refreshed-token-missed",
+      "guards": "every token issued to the session before sign-out counts as the session's",
+      "file": "oracles/sign-out.cjs",
+      "find": "o.signedInBearerDigests.includes(r.bearerDigest)",
+      "replace": "o.signedInBearerDigests[0] === r.bearerDigest",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P5-signout-unobserved-request-passes",
+      "guards": "a sign-out request not fully observed holds both rows",
+      "file": "oracles/sign-out.cjs",
+      "find": "if (unread.length > 0)\n        return { outcome: 'HOLD'",
+      "replace": "if (false)\n        return { outcome: 'HOLD'",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P5-portal-pattern-needs-scheme",
+      "guards": "portal addresses are redacted without a scheme, in any case, encoded or on any host",
+      "file": "oracles/billing-portal.cjs",
+      "find": "const PORTAL_URL_RE = new RegExp(`(?:https?:${SLASH}${SLASH})?[a-z0-9.-]*${SLASH}p${SLASH}session${SLASH}[a-z0-9_]+[^\\\\s\"'<>]*`, 'gi');",
+      "replace": "const PORTAL_URL_RE = /https?:\\/\\/billing\\.stripe\\.com\\/p\\/session\\/[A-Za-z0-9_]+[^\\s\"'<>]*/g;",
+      "test": "tests/billing.test.cjs"
+    },
+    {
+      "id": "P5-portal-known-value-ignored",
+      "guards": "the exact portal address and its session token are redacted in any shape",
+      "file": "oracles/billing-portal.cjs",
+      "find": "for (const v of known) {",
+      "replace": "for (const v of []) {",
+      "test": "tests/billing.test.cjs"
+    },
+    {
+      "id": "P5-portal-created-before-test-mode",
+      "guards": "no portal session is created before the Stripe test-mode check passes",
+      "file": "oracles/billing-portal.cjs",
+      "find": "const checked = await withTimeout(new Promise((resolve) => resolve(ports.assertTestMode())), timeoutMs);",
+      "replace": "const checked = true;",
+      "test": "tests/billing.test.cjs"
+    },
+    {
+      "id": "P5-billing-empty-read-passes",
+      "guards": "an empty billing read holds, never passes",
+      "file": "oracles/billing-portal.cjs",
+      "find": "if (!Array.isArray(rows) || rows.length === 0)",
+      "replace": "if (!Array.isArray(rows))",
+      "test": "tests/billing.test.cjs"
+    },
+    {
+      "id": "P5-stop-counted-as-overrun",
+      "guards": "a reservation refused after the leg stopped is not a new overrun",
+      "file": "run-budget.cjs",
+      "find": "return { event: { t: 'refuse-after-stop', leg: legId, kind }",
+      "replace": "return { event: { t: 'refuse', leg: legId, kind }",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P5-token-rejection-counts-as-refusal",
+      "guards": "a 401 (token rejected) is not the wall refusing the account",
+      "file": "oracles/payment-wall.cjs",
+      "find": "const REFUSAL_STATUSES = Object.freeze([402, 403]);",
+      "replace": "const REFUSAL_STATUSES = Object.freeze([401, 402, 403]);",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P5-portal-check-not-awaited",
+      "guards": "an async test-mode check that rejects stops the portal session being created",
+      "file": "oracles/billing-portal.cjs",
+      "find": "const checked = await withTimeout(new Promise((resolve) => resolve(ports.assertTestMode())), timeoutMs);",
+      "replace": "const checked = ports.assertTestMode() instanceof Promise ? true : await withTimeout(new Promise((resolve) => resolve(ports.assertTestMode())), timeoutMs);",
+      "test": "tests/billing.test.cjs"
+    },
+    {
+      "id": "P2-reopen-unobserved-passes",
+      "guards": "old-sessions-no-new-coaching: a counter not observed after the release is HOLD, never PASS",
+      "file": "oracles/upgrade-continuity.cjs",
+      "find": "    if (notSeen.length > 0)\n        return { outcome: 'HOLD'",
+      "replace": "    if (notSeen.length > 9)\n        return { outcome: 'HOLD'",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P2-reopen-unchecked-baseline-passes",
+      "guards": "old-sessions-no-new-coaching: a missing pre-release counter is HOLD, never PASS",
+      "file": "oracles/upgrade-continuity.cjs",
+      "find": "    if (notChecked.length > 0)\n        return { outcome: 'HOLD'",
+      "replace": "    if (notChecked.length > 9)\n        return { outcome: 'HOLD'",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P1-trial-ids-unrecorded-pass",
+      "guards": "trial-length-thirty-days: missing profile or account ids are HOLD, never a match",
+      "file": "oracles/trial-window.cjs",
+      "find": "    if (!isId(read.profileId) || !isId(window.accountId))",
+      "replace": "    if (false)",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P1-signout-request-facts-unchecked",
+      "guards": "sign-out rows: a request without a recorded digest or status holds both rows",
+      "file": "oracles/sign-out.cjs",
+      "find": "        || !(r.bearerDigest === null || (typeof r.bearerDigest === 'string' && DIGEST.test(r.bearerDigest)))\n        || !(r.status === null || Number.isInteger(r.status)));",
+      "replace": ");",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P1-signout-completed-truthy",
+      "guards": "sign-out rows: only a recorded true counts as sign-out completed",
+      "file": "oracles/sign-out.cjs",
+      "find": "    if (o.signOutCompletedObserved !== true)",
+      "replace": "    if (!o.signOutCompletedObserved)",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P6-count-accepts-nan",
+      "guards": "a count is a nonnegative finite integer: NaN, fractions and text never count",
+      "file": "counts.cjs",
+      "find": "Number.isInteger(n) && n >= 0",
+      "replace": "typeof n === 'number' && n >= 0",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P6-count-accepts-negative",
+      "guards": "a count is a nonnegative integer: a negative value never counts as zero",
+      "file": "counts.cjs",
+      "find": "Number.isInteger(n) && n >= 0",
+      "replace": "Number.isInteger(n)",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P6-short-stop-unsettled-passes",
+      "guards": "short-stop-no-save: a row still open after the page settled HOLDs",
+      "file": "oracles/payment-wall.cjs",
+      "find": "if (unsettled > 0)",
+      "replace": "if (unsettled > 99)",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P6-short-stop-failed-row-rejected",
+      "guards": "short-stop-no-save: a confirmed failed-row settlement is allowed",
+      "file": "oracles/payment-wall.cjs",
+      "find": ".filter((s) => s !== SAVED_TAKE && s !== SETTLED_DISCARD).length",
+      "replace": ".filter((s) => s !== SAVED_TAKE).length",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P6-short-stop-vanished-passes",
+      "guards": "short-stop-no-save: a row that vanished HOLDs",
+      "file": "oracles/payment-wall.cjs",
+      "find": "if (vanished > 0)",
+      "replace": "if (false)",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P6-short-stop-warning-ignored",
+      "guards": "short-stop-no-save: the page's unsettled-discard warning HOLDs",
+      "file": "oracles/payment-wall.cjs",
+      "find": "if (r.unsettledDiscardShown)\n        open.push(",
+      "replace": "if (false)\n        open.push(",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P6-short-stop-completing-save-ignored",
+      "guards": "short-stop-no-save: an accepted request to complete the take FAILs",
+      "file": "oracles/payment-wall.cjs",
+      "find": "if (r.acceptedCompletingSaves > 0)",
+      "replace": "if (false)",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P6-short-stop-saved-message-ignored",
+      "guards": "short-stop-no-save: the page saying the take was saved FAILs",
+      "file": "oracles/payment-wall.cjs",
+      "find": "if (r.savedConfirmationShown)\n        problems.push(",
+      "replace": "if (false)\n        problems.push(",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P6-short-stop-failed-mark-unshown",
+      "guards": "short-stop-no-save: an accepted failed mark no row shows HOLDs",
+      "file": "oracles/payment-wall.cjs",
+      "find": "if (r.acceptedFailedMarks > 0 && touched.length === 0)",
+      "replace": "if (false)",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P6-short-stop-counts-unchecked",
+      "guards": "short-stop-no-save: malformed or missing counts HOLD",
+      "file": "oracles/payment-wall.cjs",
+      "find": "...notCounts(r, ['acceptedCompletingSaves', 'acceptedFailedMarks']),",
+      "replace": "",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P6-signout-rendered-count-unchecked",
+      "guards": "sign-out: a malformed rendered-identifier count is not zero",
+      "file": "oracles/sign-out.cjs",
+      "find": "!isCount(o.ownedIdentifiersRendered)",
+      "replace": "typeof o.ownedIdentifiersRendered !== 'number'",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P6-signout-body-count-unchecked",
+      "guards": "sign-out: a malformed per-request identifier count is not zero",
+      "file": "oracles/sign-out.cjs",
+      "find": "!isCount(r?.ownedIdentifiersInBody)",
+      "replace": "typeof r?.ownedIdentifiersInBody !== 'number'",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P6-billing-reconcile-count-unchecked",
+      "guards": "billing reconcile: a malformed row count is unread, not zero",
+      "file": "oracles/billing-portal.cjs",
+      "find": "!isCount(r.count) || !isCount(r.otherAccountRows)",
+      "replace": "typeof r.count !== 'number' || typeof r.otherAccountRows !== 'number'",
+      "test": "tests/billing.test.cjs"
+    },
+    {
+      "id": "P6-portal-test-mode-unbounded",
+      "guards": "billing portal: a test-mode check that times out FAILs and creates no session",
+      "file": "oracles/billing-portal.cjs",
+      "find": "if (checked === 'timeout') {",
+      "replace": "if (false) {",
+      "test": "tests/billing.test.cjs"
+    },
+    {
+      "id": "P6-hold-gate-folded-to-not-run",
+      "guards": "a dependent leg with a HOLD gate is HOLD, not NOT RUN",
+      "file": "leg-verdicts.cjs",
+      "find": "...unmet.map((g) => g.outcome),",
+      "replace": "...unmet.map(() => 'NOT RUN'),",
+      "test": "tests/leg-verdicts.test.cjs"
+    },
+    {
+      "id": "P6-hold-rows-folded-to-not-run",
+      "guards": "a dependent leg that recorded HOLD rows keeps HOLD",
+      "file": "leg-verdicts.cjs",
+      "find": "...(recorded && recorded.outcome === 'HOLD' ? ['HOLD'] : []),",
+      "replace": "",
+      "test": "tests/leg-verdicts.test.cjs"
+    },
+    {
+      "id": "P6-held-dependency-counts-pass",
+      "guards": "a PASS recorded without a passed dependency is not counted",
+      "file": "leg-verdicts.cjs",
+      "find": "if (!d || d.outcome !== 'PASS')",
+      "replace": "if (!d)",
+      "test": "tests/leg-verdicts.test.cjs"
+    },
+    {
+      "id": "P6-scope-pass-with-not-run",
+      "guards": "the runnable-legs summary never reads PASS with a selected leg NOT RUN",
+      "file": "leg-verdicts.cjs",
+      "find": "outcomes.every((o) => o === 'PASS') ? 'PASS'",
+      "replace": "outcomes.every((o) => o !== 'HOLD') ? 'PASS'",
+      "test": "tests/leg-verdicts.test.cjs"
+    },
+    {
+      "id": "P6-scope-lifts-suite",
+      "guards": "the runnable-legs summary never changes the full-suite verdict",
+      "file": "leg-verdicts.cjs",
+      "find": "return { outcome, reason, notGreen, scope: scopeVerdict(verdicts, scopeLegs, outcome) };",
+      "replace": "const scope = scopeVerdict(verdicts, scopeLegs, outcome);\n    return { outcome: scope?.outcome === 'PASS' ? 'PASS' : outcome, reason, notGreen, scope };",
+      "test": "tests/leg-verdicts.test.cjs"
+    },
+    {
+      "id": "P6-scope-counts-unrun-legs",
+      "guards": "the runnable-legs summary counts only the selected legs that ran",
+      "file": "leg-verdicts.cjs",
+      "find": "const run = outcomes.filter((o) => o !== 'NOT RUN').length;",
+      "replace": "const run = outcomes.length;",
+      "test": "tests/leg-verdicts.test.cjs"
+    },
+    {
+      "id": "P6-scope-hides-exclusions",
+      "guards": "the runnable-legs summary names every planned leg left out",
+      "file": "leg-verdicts.cjs",
+      "find": "const excluded = ALL_LEGS.filter((l) => !legs.includes(l.id))",
+      "replace": "const excluded = [].filter((l) => !legs.includes(l.id))",
+      "test": "tests/leg-verdicts.test.cjs"
+    },
+    {
+      "id": "P6-selection-missing-needs",
+      "guards": "a leg named without a leg it needs is refused",
+      "file": "run-budget.cjs",
+      "find": "if (missing.length > 0)\n            throw new RunRefused(",
+      "replace": "if (false)\n            throw new RunRefused(",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P6-selection-unnamed-allocated",
+      "guards": "a leg the run request does not name gets no allocation",
+      "file": "run-budget.cjs",
+      "find": "if (!selected.includes(l.id))\n            notAllocated.set(",
+      "replace": "if (false)\n            notAllocated.set(",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P6-selection-chosen-by-budget",
+      "guards": "a run request that names no legs is refused; the budget never picks them",
+      "file": "run-budget.cjs",
+      "find": "if (!Array.isArray(selected) || selected.length === 0)\n        throw new RunRefused(",
+      "replace": "if (!Array.isArray(selected))\n        throw new RunRefused(",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P6-ceiling-below-need-runs",
+      "guards": "a lower ceiling that does not cover the named legs is refused, never trimmed",
+      "file": "run-budget.cjs",
+      "find": "if (coachingCeiling < need)",
+      "replace": "if (false)",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P6-cleanup-pool-unbounded",
+      "guards": "cleanup stops at the journey's structural reserve",
+      "file": "run-budget.cjs",
+      "find": "if (used >= plan.cleanup[j].requests)",
+      "replace": "if (false)",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P6-cleanup-exhaustion-unreported",
+      "guards": "a cleanup that asked past its reserve is reported exhausted",
+      "file": "run-budget.cjs",
+      "find": "return this.#read((s) => ALL_LEGS.some((l) => l.journey === journeyId",
+      "replace": "return this.#read((s) => false && ALL_LEGS.some((l) => l.journey === journeyId",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P6-shared-lock-skipped",
+      "guards": "workers in separate processes take the journal lock for every step",
+      "file": "run-budget.cjs",
+      "find": "            const token = acquire();\n            if (token === null)",
+      "replace": "            const token = 'unlocked';\n            if (token === null)",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P6-shared-live-lock-broken",
+      "guards": "a live worker's lock is never broken",
+      "file": "run-budget.cjs",
+      "find": "return o !== null && o.token === seen.token && o.host === os.hostname() && Number.isInteger(o.pid) && !alive(o.pid);",
+      "replace": "return o !== null;",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P6-shared-partial-line-accepted",
+      "guards": "a write cut short by a crash is repaired into a torn event, never read past",
+      "file": "run-budget.cjs",
+      "find": "if (end < text.length) {",
+      "replace": "if (false) {",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P6-shared-unavailable-lets-through",
+      "guards": "a reservation that cannot be decided is refused, never let through",
+      "file": "run-budget.cjs",
+      "find": "return { granted: false, reason: e.message };",
+      "replace": "return { granted: true, token: Object.freeze({ legId, kind }) };",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P6-shared-plan-digest-unchecked",
+      "guards": "an altered shared plan is refused",
+      "file": "run-budget.cjs",
+      "find": "if (sha256(JSON.stringify(doc.plan)) !== doc.sha256)",
+      "replace": "if (false)",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P6-shared-plan-rewritten",
+      "guards": "the shared plan is written once per run directory",
+      "file": "run-budget.cjs",
+      "find": "JSON.parse(body) }), { flag: 'wx' });",
+      "replace": "JSON.parse(body) }), { flag: 'w' });",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P6-admit-killed-run",
+      "guards": "admission refuses after a run that started and left no evidence",
+      "file": "cleanup-evidence.cjs",
+      "find": "blocking.push(`${runId}: started with no cleanup evidence (killed or still running)`);",
+      "replace": "",
+      "test": "tests/cleanup.test.cjs"
+    },
+    {
+      "id": "P6-admit-incomplete-cleanup",
+      "guards": "admission refuses after incomplete cleanup until recovery is recorded",
+      "file": "cleanup-evidence.cjs",
+      "find": "if (doc.cleanup !== 'complete')",
+      "replace": "if (false)",
+      "test": "tests/cleanup.test.cjs"
+    },
+    {
+      "id": "P6-admit-unreadable-evidence",
+      "guards": "admission refuses when evidence cannot be read",
+      "file": "cleanup-evidence.cjs",
+      "find": "blocking.push(`${runId}: cleanup evidence unreadable`);",
+      "replace": "",
+      "test": "tests/cleanup.test.cjs"
+    },
+    {
+      "id": "P6-admit-missing-directory",
+      "guards": "admission refuses when the evidence directory is missing",
+      "file": "cleanup-evidence.cjs",
+      "find": "return { admitted: false, reason: 'the cleanup evidence directory is missing",
+      "replace": "return { admitted: true, reason: 'the cleanup evidence directory is missing",
+      "test": "tests/cleanup.test.cjs"
+    },
+    {
+      "id": "P6-evidence-overwritten",
+      "guards": "cleanup evidence is never overwritten, even by a racing writer",
+      "file": "cleanup-evidence.cjs",
+      "find": "fs.linkSync(tmp, file);",
+      "replace": "fs.renameSync(tmp, file);",
+      "test": "tests/cleanup.test.cjs"
+    },
+    {
+      "id": "P6-evidence-exhausted-complete",
+      "guards": "a cleanup reserve that ran out leaves cleanup incomplete",
+      "file": "cleanup-evidence.cjs",
+      "find": "checked.filter((j) => j.reserveExhausted || j.left.length > 0",
+      "replace": "checked.filter((j) => j.left.length > 0",
+      "test": "tests/cleanup.test.cjs"
+    },
+    {
+      "id": "P6-evidence-email-ref",
+      "guards": "evidence holds opaque references, never an email",
+      "file": "cleanup-evidence.cjs",
+      "find": "const REF = /^[A-Za-z0-9._:-]{1,120}$/;",
+      "replace": "const REF = /^.{1,120}$/;",
+      "test": "tests/cleanup.test.cjs"
+    },
+    {
+      "id": "P6-recovery-without-ref",
+      "guards": "a recovery names the recovery run",
+      "file": "cleanup-evidence.cjs",
+      "find": "if (typeof ref !== 'string' || !REF.test(ref))",
+      "replace": "if (false)",
+      "test": "tests/cleanup.test.cjs"
+    },
+    {
+      "id": "P6-reserve-drifts-from-code",
+      "guards": "the cleanup reserve is re-read from the cleanup code and fails on drift",
+      "file": "cleanup-plan.cjs",
+      "find": "residueChecks: 22,",
+      "replace": "residueChecks: 21,",
+      "test": "tests/cleanup.test.cjs"
+    },
+    {
+      "id": "P6-reserve-ignores-open-takes",
+      "guards": "the reserve closes every take the journey can open",
+      "file": "cleanup-plan.cjs",
+      "find": "requests: o.requests * accounts + (o.perOpenTake ?? 0) * openTakes",
+      "replace": "requests: o.requests * accounts",
+      "test": "tests/cleanup.test.cjs"
+    },
+    {
+      "id": "P6-reserve-ignores-fences",
+      "guards": "the reserve covers each fenced case's close, clean and verify",
+      "file": "cleanup-plan.cjs",
+      "find": "for (const c of fenced)",
+      "replace": "for (const c of [])",
+      "test": "tests/cleanup.test.cjs"
+    },
+    {
+      "id": "P6-reserve-guessed-for-j2",
+      "guards": "a journey whose cleanup step is not written gets no reserve",
+      "file": "cleanup-plan.cjs",
+      "find": "if (UNDEFINED_CLEANUP[journeyId])\n        throw new CleanupUndefined(",
+      "replace": "if (false)\n        throw new CleanupUndefined(",
+      "test": "tests/cleanup.test.cjs"
+    },
+    {
+      "id": "P6-reserve-time-not-ceiling",
+      "guards": "the time reserve is requests times the per-request deadline",
+      "file": "cleanup-plan.cjs",
+      "find": "seconds: requests * CLEANUP_REQUEST_DEADLINE_S",
+      "replace": "seconds: requests",
+      "test": "tests/cleanup.test.cjs"
+    },
+    {
+      "id": "P6-limits-reserve-dropped",
+      "guards": "measured limits add each journey's cleanup reserve",
+      "file": "limits.cjs",
+      "find": "const cleanup = r === null ? null : kind === 'minutes' ? reserveMinutes(r) : r.requests;",
+      "replace": "const cleanup = r === null ? null : 0;",
+      "test": "tests/limits.test.cjs"
+    },
+    {
+      "id": "P6-limits-missing-reserve-summed",
+      "guards": "a journey without a cleanup reserve leaves the run limit unset",
+      "file": "limits.cjs",
+      "find": "const perRun = missing.length > 0 || noReserve.length > 0 ? null :",
+      "replace": "const perRun = missing.length > 0 ? null :",
+      "test": "tests/limits.test.cjs"
+    },
+    {
+      "id": "P7-stale-break-unverified",
+      "guards": "a stale lock is broken only after its owner is read again under the break lock",
+      "file": "run-budget.cjs",
+      "find": "            if (staleNow(seen))\n                fs.rmSync(lock, { recursive: true, force: true });",
+      "replace": "            fs.rmSync(lock, { recursive: true, force: true });",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P7-release-foreign-lock",
+      "guards": "a step never removes a lock it does not hold",
+      "file": "run-budget.cjs",
+      "find": "if (readOwner()?.token === token)",
+      "replace": "if (true)",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P7-torn-not-counted-against-cleanup",
+      "guards": "a torn write counts against every journey's cleanup reserve",
+      "file": "run-budget.cjs",
+      "find": "const used = (state.cleanupUsed.get(j) ?? 0) + state.torn;",
+      "replace": "const used = (state.cleanupUsed.get(j) ?? 0);",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P7-torn-still-sends-test-work",
+      "guards": "after a torn write no more test work is sent",
+      "file": "run-budget.cjs",
+      "find": "if (state.torn > 0)\n        return { event: null",
+      "replace": "if (false)\n        return { event: null",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P7-unreadable-cleanup-reads-complete",
+      "guards": "cleanup reads as incomplete when the budget cannot be read",
+      "file": "run-budget.cjs",
+      "find": "ALL_LEGS.some((l) => l.journey === journeyId && (s.refused.get(l.id)?.[CLEANUP] ?? 0) > 0), () => true);",
+      "replace": "ALL_LEGS.some((l) => l.journey === journeyId && (s.refused.get(l.id)?.[CLEANUP] ?? 0) > 0), () => false);",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P7-lock-refused-cleanup-unrecorded",
+      "guards": "a cleanup refused for want of the lock is recorded",
+      "file": "run-budget.cjs",
+      "find": "this.#store.markCleanupRefused(legById(legId).journey);",
+      "replace": "void 0;",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P7-unreadable-budget-row-passes",
+      "guards": "a leg is HOLD when the run budget cannot be read",
+      "file": "run-budget.cjs",
+      "find": "overrun: Object.freeze([]), hold: `the run budget could not be read: ${e.message}` }",
+      "replace": "overrun: Object.freeze([]), hold: null }",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P7-evidence-journeys-unchecked",
+      "guards": "cleanup evidence must name exactly the journeys the run started with",
+      "file": "cleanup-evidence.cjs",
+      "find": "if (JSON.stringify(named) !== JSON.stringify(started.journeys))",
+      "replace": "if (false)",
+      "test": "tests/cleanup.test.cjs"
+    },
+    {
+      "id": "P7-evidence-exhaustion-ignored",
+      "guards": "the run budget's exhausted reserve marks a journey incomplete",
+      "file": "cleanup-evidence.cjs",
+      "find": "reserveExhausted: j.reserveExhausted || cleanupExhausted(j.journey) !== false",
+      "replace": "reserveExhausted: j.reserveExhausted",
+      "test": "tests/cleanup.test.cjs"
+    },
+    {
+      "id": "P7-portal-test-mode-unproven",
+      "guards": "only an explicit true proves test mode before a portal session",
+      "file": "oracles/billing-portal.cjs",
+      "find": "if (checked !== true) {",
+      "replace": "if (false) {",
+      "test": "tests/billing.test.cjs"
+    },
+    {
+      "id": "P7-short-stop-duplicate-ids",
+      "guards": "short-stop-no-save: a read listing a row twice HOLDs",
+      "file": "oracles/payment-wall.cjs",
+      "find": "if (!uniqueIds(r.rowsBefore) || !uniqueIds(r.rowsAfter))",
+      "replace": "if (false)",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P7-short-stop-saved-take-changed",
+      "guards": "short-stop-no-save: an earlier saved take that changed FAILs",
+      "file": "oracles/payment-wall.cjs",
+      "find": "if (changedSaved > 0)",
+      "replace": "if (false)",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P7-short-stop-many-settled",
+      "guards": "short-stop-no-save: one short Stop settles at most one row",
+      "file": "oracles/payment-wall.cjs",
+      "find": "if (settledAsFailed.length > 1)",
+      "replace": "if (false)",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P7-short-stop-other-change",
+      "guards": "short-stop-no-save: a change a discard does not explain HOLDs",
+      "file": "oracles/payment-wall.cjs",
+      "find": "if (otherChange > 0)",
+      "replace": "if (false)",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P7-short-stop-placeholder-only",
+      "guards": "short-stop-no-save: only a new row or a placeholder may settle as failed",
+      "file": "oracles/payment-wall.cjs",
+      "find": "(!before.has(id) || PLACEHOLDER.has(before.get(id)))",
+      "replace": "true",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P7-reserve-one-account-per-journey",
+      "guards": "the reserve deletes one account per harness case, as the harness signs up today",
+      "file": "cleanup-plan.cjs",
+      "find": "const accounts = runOwnedAccounts(j);",
+      "replace": "const accounts = 1;",
+      "test": "tests/cleanup.test.cjs"
+    },
+    {
+      "id": "P7-dependent-rows-overwritten",
+      "guards": "a dependent leg's recorded rows stand",
+      "file": "leg-verdicts.cjs",
+      "find": "rows: recorded ? recorded.rows : allRows(legId, outcome) };",
+      "replace": "rows: allRows(legId, outcome) };",
+      "test": "tests/leg-verdicts.test.cjs"
+    },
+    {
+      "id": "P8-unreadable-budget-reads-not-run",
+      "guards": "an unreadable run budget journal holds the leg, never NOT RUN or PASS",
+      "file": "leg-verdicts.cjs",
+      "find": "    if (budget.allocated && budget.hold)\n        notRunCauses.push(budget.hold);\n",
+      "replace": "",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P8-torn-budget-passes",
+      "guards": "a torn run budget journal keeps every leg from passing",
+      "file": "run-budget.cjs",
+      "find": "const hold = s.torn > 0 ?",
+      "replace": "const hold = false ?",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P8-portal-truthy-shown",
+      "guards": "only an explicit true counts as the portal shown",
+      "file": "oracles/billing-portal.cjs",
+      "find": "const portalShown = shown?.portalShown === true;",
+      "replace": "const portalShown = Boolean(shown?.portalShown);",
+      "test": "tests/billing.test.cjs"
+    },
+    {
+      "id": "P8-short-stop-not-exercised",
+      "guards": "a short Stop that was never exercised holds, never passes",
+      "file": "oracles/payment-wall.cjs",
+      "find": "    if (!r.stopPressedWhileRecording)\n        return",
+      "replace": "    if (false)\n        return",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P8-short-stop-silent-page",
+      "guards": "a short Stop whose page never says the take was not saved fails",
+      "file": "oracles/payment-wall.cjs",
+      "find": "    if (!r.notSavedShown && !r.unsettledDiscardShown)\n",
+      "replace": "    if (false)\n",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P8-cleanup-throw-unmarked",
+      "guards": "a cleanup reservation that throws marks its journey refused",
+      "file": "run-budget.cjs",
+      "find": "            if (kind === CLEANUP)\n                this.#store.markCleanupRefused(legById(legId).journey);\n            if (e instanceof BudgetUnavailable)\n                return",
+      "replace": "            if (e instanceof BudgetUnavailable)\n                return",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P8-admission-not-atomic",
+      "guards": "admission and the start record are one step, so two runners can't both be admitted",
+      "file": "cleanup-evidence.cjs",
+      "find": "        const a = admitRun(dir);\n        if (!a.admitted)",
+      "replace": "        const a = { admitted: true };\n        if (!a.admitted)",
+      "test": "tests/cleanup.test.cjs"
+    },
+    {
+      "id": "P8-signups-per-journey",
+      "guards": "sign-ups follow today's per-case account lifecycle, not one per journey",
+      "file": "limits.cjs",
+      "find": "        freshSignUps: signedUpAccounts(legs.filter(isFresh)),",
+      "replace": "        freshSignUps: journeys.filter((j) => j.account === 'fresh-run-owned').length,",
+      "test": "tests/limits.test.cjs"
+    },
+    {
+      "id": "P8-maintained-case-signed-up",
+      "guards": "a case on a maintained account (AHT-15) is neither signed up nor deleted",
+      "file": "cleanup-plan.cjs",
+      "find": "    .filter((c) => caseAccountMode(c) === 'maintained-read-only').sort());",
+      "replace": "    .filter(() => false).sort());",
+      "test": "tests/limits.test.cjs"
+    },
+    {
+      "id": "P8-caseless-legs-no-account",
+      "guards": "legs with no harness case yet add one account to their journey",
+      "file": "cleanup-plan.cjs",
+      "find": "    return cases.size + caseless.size;\n}\n\nconst CLEANUP_REQUEST_DEADLINE_S",
+      "replace": "    return cases.size;\n}\n\nconst CLEANUP_REQUEST_DEADLINE_S",
+      "test": "tests/cleanup.test.cjs"
+    }
+  ]
+}

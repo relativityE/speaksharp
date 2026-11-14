@@ -1,0 +1,322 @@
+"use strict";
+// Nightly AHT suite: the new rows' oracles. Each one passes the healthy behaviour and fails the broken one.
+const { createHash } = require('node:crypto');
+const { describe, it } = require('node:test');
+const { expect } = require('./expect-lite.cjs');
+const { THIRTY_DAYS_MS, trialLengthVerdict } = require('../oracles/trial-window.cjs');
+const { ENDED_AGO_MS, TrialEndRefused, endRunOwnedTrial } = require('../oracles/canary-trial-end.cjs');
+const { staleRequestVerdict, unauthorizedReadVerdict } = require('../oracles/sign-out.cjs');
+const { oldSessionsNoNewCoachingVerdict } = require('../oracles/upgrade-continuity.cjs');
+const { paymentWallVerdict, serverRefusesVerdict, shortStopVerdict } = require('../oracles/payment-wall.cjs');
+const T0 = Date.parse('2026-11-14T16:00:00.000Z');
+const UID = '0b6f3c1e-5d1a-4c2b-9e1f-2a3b4c5d6e7f';
+const OTHER = '9f8e7d6c-5b4a-4321-8765-0fedcba98765';
+const sha = (t) => createHash('sha256').update(t).digest('hex');
+describe('trial-length-thirty-days', () => {
+    const window = { accountId: UID, startedAtMs: T0, endedAtMs: T0 + 20_000 };
+    const read = (o = {}) => ({
+        via: 'own-token', profileId: UID,
+        trialStartedAt: new Date(T0 + 5_000).toISOString(), trialExpiresAt: new Date(T0 + 5_000 + THIRTY_DAYS_MS).toISOString(), ...o,
+    });
+    it('passes a trial that started at signup and ends exactly 30 days later', () => {
+        expect(trialLengthVerdict(read(), window).outcome).toBe('PASS');
+    });
+    it('fails 29 days, 31 days, a calendar month and one hour off', () => {
+        const start = T0 + 5_000;
+        for (const end of [start + 29 * 86_400_000, start + 31 * 86_400_000, Date.parse('2026-12-14T16:00:05.000Z') + 3_600_000, start + THIRTY_DAYS_MS + 3_600_000]) {
+            expect(trialLengthVerdict(read({ trialExpiresAt: new Date(end).toISOString() }), window).outcome).toBe('FAIL');
+        }
+    });
+    it('fails a trial that started outside the signup window', () => {
+        const start = T0 - 3 * 60_000;
+        expect(trialLengthVerdict(read({ trialStartedAt: new Date(start).toISOString(), trialExpiresAt: new Date(start + THIRTY_DAYS_MS).toISOString() }), window).outcome).toBe('FAIL');
+    });
+    it('fails a service-role read, another account, and a missing stamp', () => {
+        expect(trialLengthVerdict(read({ via: 'service-role' }), window).outcome).toBe('FAIL');
+        expect(trialLengthVerdict(read({ profileId: OTHER }), window).outcome).toBe('FAIL');
+        expect(trialLengthVerdict(read({ trialExpiresAt: null }), window).outcome).toBe('FAIL');
+    });
+    it('holds, never passes, when the profile id or the run\'s account id was not recorded', () => {
+        expect(trialLengthVerdict(read({ profileId: undefined }), { ...window, accountId: undefined }).outcome).toBe('HOLD');
+        expect(trialLengthVerdict(read({ profileId: undefined }), window).outcome).toBe('HOLD');
+        expect(trialLengthVerdict(read({ profileId: '' }), { ...window, accountId: '' }).outcome).toBe('HOLD');
+    });
+});
+describe('ending a run-owned trial (canary-tagged, fail closed)', () => {
+    const ports = (o = {}) => {
+        const writes = [];
+        const p = {
+            getUser: async () => ({ email: o.email ?? 'rwt-journey-abc@example.test', appMetadata: 'canary' in o ? { canary: o.canary } : { canary: true } }),
+            setTrialExpiresAt: async (uid, at) => { writes.push({ uid, at }); return { updatedIds: o.updated ?? [uid] }; },
+        };
+        return { p, writes };
+    };
+    const req = { uid: UID, email: 'rwt-journey-abc@example.test', runPrefix: 'rwt-journey-', ackGranted: true, nowMs: T0 };
+    it('ends the trial of a tagged run-owned account, in the past, on that account only', async () => {
+        const { p, writes } = ports();
+        await expect(endRunOwnedTrial(p, req)).resolves.toEqual({ expiresAt: new Date(T0 - ENDED_AGO_MS).toISOString() });
+        expect(writes).toEqual([{ uid: UID, at: new Date(T0 - ENDED_AGO_MS).toISOString() }]);
+    });
+    it('writes nothing without the acknowledgement, the run prefix, the canary claim, or a matching email', async () => {
+        const cases = [
+            [{ ackGranted: false }, {}],
+            [{ email: 'someone@example.test' }, { email: 'someone@example.test' }],
+            [{}, { canary: undefined }],
+            [{}, { canary: 'true' }],
+            [{}, { email: 'rwt-journey-other@example.test' }],
+            [{ uid: `${UID},${OTHER}` }, {}],
+        ];
+        for (const [r, o] of cases) {
+            const { p, writes } = ports(o);
+            await expect(endRunOwnedTrial(p, { ...req, ...r })).rejects.toBeInstanceOf(TrialEndRefused);
+            expect(writes).toEqual([]);
+        }
+    });
+    it('fails closed when the write touched no row, another row, or more than one', async () => {
+        for (const updated of [[], [OTHER], [UID, OTHER]]) {
+            await expect(endRunOwnedTrial(ports({ updated }).p, req)).rejects.toBeInstanceOf(TrialEndRefused);
+        }
+    });
+});
+describe('sign-out rows (a 403 denial is a correct answer)', () => {
+    const token = sha('access-token');
+    const req = (o = {}) => ({
+        method: 'GET', path: '/rest/v1/sessions', status: 200, bearerDigest: token, sentAfterSignOutCompleted: false, ownedIdentifiersInBody: 0, ...o,
+    });
+    const obs = (o = {}) => ({
+        signOutCompletedObserved: true, signedInBearerDigests: [token], ownedIdentifiersRendered: 0,
+        requests: [
+            req({ ownedIdentifiersInBody: 3 }),
+            req({ status: 401, bearerDigest: null, sentAfterSignOutCompleted: true }),
+            req({ path: '/rest/v1/user_profiles', status: 403, bearerDigest: sha('anon'), sentAfterSignOutCompleted: true }),
+            req({ path: '/assets/app.js', bearerDigest: null, sentAfterSignOutCompleted: true }),
+        ],
+        ...o,
+    });
+    it('passes both rows when later requests are denied: 401 and 403 are correct answers', () => {
+        expect(unauthorizedReadVerdict(obs()).outcome).toBe('PASS');
+        expect(staleRequestVerdict(obs()).outcome).toBe('PASS');
+    });
+    it('fails no-unauthorized-read on a read that returns the account\'s data without a valid session', () => {
+        for (const r of [req({ bearerDigest: null, ownedIdentifiersInBody: 1 }), req({ sentAfterSignOutCompleted: true, bearerDigest: sha('anon'), ownedIdentifiersInBody: 2 })]) {
+            expect(unauthorizedReadVerdict(obs({ requests: [r] })).outcome).toBe('FAIL');
+        }
+    });
+    it('fails no-unauthorized-read on data left on the signed-out page', () => {
+        expect(unauthorizedReadVerdict(obs({ ownedIdentifiersRendered: 1 })).outcome).toBe('FAIL');
+    });
+    it('fails no-stale-request on any request with the old session after sign-out, whatever the answer', () => {
+        for (const status of [200, 401, 403, null]) {
+            expect(staleRequestVerdict(obs({ requests: [req({ status, sentAfterSignOutCompleted: true })] })).outcome).toBe('FAIL');
+        }
+    });
+    it('keeps the two rows separate: a stale request that was denied fails only the stale row', () => {
+        const o = obs({ requests: [req({ status: 403, sentAfterSignOutCompleted: true })] });
+        expect(unauthorizedReadVerdict(o).outcome).toBe('PASS');
+        expect(staleRequestVerdict(o).outcome).toBe('FAIL');
+    });
+    it('holds both rows when sign-out completing or the token digest was not observed', () => {
+        for (const o of [obs({ signOutCompletedObserved: false }), obs({ signedInBearerDigests: [] }), obs({ signedInBearerDigests: [''] })]) {
+            expect(unauthorizedReadVerdict(o).outcome).toBe('HOLD');
+            expect(staleRequestVerdict(o).outcome).toBe('HOLD');
+        }
+    });
+    it('counts a refreshed token as the session\'s: a stale request with it fails, a read with it before sign-out passes', () => {
+        const refreshed = sha('refreshed-access-token');
+        const o = obs({ signedInBearerDigests: [token, refreshed], requests: [req({ bearerDigest: refreshed, ownedIdentifiersInBody: 2 })] });
+        expect(unauthorizedReadVerdict(o).outcome).toBe('PASS');
+        expect(staleRequestVerdict(obs({ signedInBearerDigests: [token, refreshed], requests: [req({ bearerDigest: refreshed, sentAfterSignOutCompleted: true, status: 401 })] })).outcome).toBe('FAIL');
+    });
+    it('holds both rows when a request or the page was not fully observed', () => {
+        for (const o of [
+            obs({ requests: [req({ ownedIdentifiersInBody: undefined })] }), obs({ ownedIdentifiersRendered: undefined }), obs({ requests: undefined }),
+            obs({ ownedIdentifiersRendered: Number.NaN }), obs({ ownedIdentifiersRendered: -1 }), obs({ requests: [req({ ownedIdentifiersInBody: Number.NaN })] }),
+            obs({ requests: [req({ ownedIdentifiersInBody: -2 })] }),
+            obs({ requests: [req({ bearerDigest: undefined, sentAfterSignOutCompleted: true })] }),
+            obs({ requests: [req({ bearerDigest: 'not-a-digest' })] }),
+            obs({ requests: [req({ status: undefined, ownedIdentifiersInBody: 3, bearerDigest: null })] }),
+            obs({ requests: [req({ status: '200' })] }),
+            obs({ signOutCompletedObserved: 'false' }),
+        ]) {
+            expect(unauthorizedReadVerdict(o).outcome).toBe('HOLD');
+            expect(staleRequestVerdict(o).outcome).toBe('HOLD');
+        }
+    });
+});
+describe('old-sessions-no-new-coaching (J9.a)', () => {
+    const pre = { keptSessions: 3, withStoredCoaching: 3 };
+    const seen = { sessionsOpened: 3, coachingRequests: 0, storedCoachingRendered: 3 };
+    it('passes when every kept session reads its stored coaching with no request', () => {
+        expect(oldSessionsNoNewCoachingVerdict(pre, seen).outcome).toBe('PASS');
+    });
+    it('fails a coaching request, unread stored coaching, or sessions not opened', () => {
+        expect(oldSessionsNoNewCoachingVerdict(pre, { ...seen, coachingRequests: 1 }).outcome).toBe('FAIL');
+        expect(oldSessionsNoNewCoachingVerdict(pre, { ...seen, storedCoachingRendered: 2 }).outcome).toBe('FAIL');
+        expect(oldSessionsNoNewCoachingVerdict(pre, { ...seen, sessionsOpened: 2, storedCoachingRendered: 2 }).outcome).toBe('FAIL');
+    });
+    it('holds when a kept session had no stored coaching before the release, or there was no pre-release check', () => {
+        expect(oldSessionsNoNewCoachingVerdict({ keptSessions: 3, withStoredCoaching: 2 }, { ...seen, coachingRequests: 1 }).outcome).toBe('HOLD');
+        expect(oldSessionsNoNewCoachingVerdict(null, seen).outcome).toBe('HOLD');
+        expect(oldSessionsNoNewCoachingVerdict({ keptSessions: 0, withStoredCoaching: 0 }, seen).outcome).toBe('HOLD');
+    });
+    it('holds, never passes, when a counter before or after the release was not observed as a whole number', () => {
+        expect(oldSessionsNoNewCoachingVerdict(pre, {}).outcome).toBe('HOLD');
+        expect(oldSessionsNoNewCoachingVerdict({}, seen).outcome).toBe('HOLD');
+        expect(oldSessionsNoNewCoachingVerdict(pre, undefined).outcome).toBe('HOLD');
+        for (const key of Object.keys(seen))
+            for (const bad of [undefined, null, -1, 1.5, '3', NaN]) {
+                expect(oldSessionsNoNewCoachingVerdict(pre, { ...seen, [key]: bad }).outcome).toBe('HOLD');
+            }
+        for (const key of Object.keys(pre))
+            expect(oldSessionsNoNewCoachingVerdict({ ...pre, [key]: undefined }, seen).outcome).toBe('HOLD');
+    });
+});
+describe('payment wall', () => {
+    const wall = (o = {}) => ({
+        wallShown: true, payActionVisible: true, deleteOffered: true, deletePromoted: false,
+        historyVisible: false, progressVisible: false, pdfVisible: false, exportVisible: false, recordStartEnabled: false, ...o,
+    });
+    it('passes a wall that offers paying and deletion, not promoted, with no past data', () => {
+        expect(paymentWallVerdict(wall()).outcome).toBe('PASS');
+    });
+    it('fails each broken wall', () => {
+        const broken = [
+            { wallShown: false }, { payActionVisible: false }, { deleteOffered: false }, { deletePromoted: true },
+            { historyVisible: true }, { progressVisible: true }, { pdfVisible: true }, { exportVisible: true }, { recordStartEnabled: true },
+        ];
+        for (const b of broken)
+            expect(paymentWallVerdict(wall(b)).outcome).toBe('FAIL');
+    });
+    it('holds a wall with any field not observed, never passing it', () => {
+        for (const f of ['historyVisible', 'pdfVisible', 'exportVisible', 'recordStartEnabled', 'deletePromoted', 'wallShown']) {
+            const w = wall();
+            delete w[f];
+            const v = paymentWallVerdict(w);
+            expect(v.outcome).toBe('HOLD');
+            expect(v.detail).toContain(f);
+        }
+        expect(paymentWallVerdict(wall({ historyVisible: 'no' })).outcome).toBe('HOLD');
+    });
+});
+describe('trial-expired-server-refuses', () => {
+    const required = ['start', 'save', 'coaching'];
+    const probes = (o = {}) => required.map((name) => ({ name, status: o[name]?.status ?? 403, providerWorkObserved: o[name]?.providerWorkObserved ?? false }));
+    it('passes when every endpoint refuses the expired account', () => {
+        expect(serverRefusesVerdict(probes(), required).outcome).toBe('PASS');
+    });
+    it('fails an accepted request, a server error, provider work, or an unprobed endpoint', () => {
+        expect(serverRefusesVerdict(probes({ coaching: { status: 200 } }), required).outcome).toBe('FAIL');
+        expect(serverRefusesVerdict(probes({ save: { status: 502 } }), required).outcome).toBe('FAIL');
+        expect(serverRefusesVerdict(probes({ coaching: { providerWorkObserved: true } }), required).outcome).toBe('FAIL');
+        expect(serverRefusesVerdict(probes().slice(1), required).outcome).toBe('FAIL');
+        expect(serverRefusesVerdict([], []).outcome).toBe('FAIL');
+    });
+    it('accepts only 402 and 403 as a refusal: a rejected token, a moved path, a bad probe or a rate limit proves nothing', () => {
+        expect(serverRefusesVerdict(probes({ start: { status: 402 } }), required).outcome).toBe('PASS');
+        for (const status of [400, 401, 404, 405, 409, 429])
+            expect(serverRefusesVerdict(probes({ start: { status } }), required).outcome).toBe('FAIL');
+    });
+    it('holds when provider work was not observed for a probe', () => {
+        const p = probes();
+        delete p[2].providerWorkObserved;
+        expect(serverRefusesVerdict(p, required).outcome).toBe('HOLD');
+    });
+});
+describe('short-stop-no-save', () => {
+    // #1861 settles a short Stop's discard by marking the take's row failed, so a row can exist and still save nothing.
+    const read = (o = {}) => ({
+        settled: true, rowsBefore: [{ id: 'old', status: 'completed' }], rowsAfter: [{ id: 'old', status: 'completed' }],
+        stopPressedWhileRecording: true, acceptedCompletingSaves: 0, acceptedFailedMarks: 0, savedConfirmationShown: false,
+        notSavedShown: true, unsettledDiscardShown: false, ...o,
+    });
+    it('holds when the short Stop was never exercised, and never passes on a missing flag', () => {
+        expect(shortStopVerdict(read({ stopPressedWhileRecording: false })).outcome).toBe('HOLD');
+        expect(shortStopVerdict(read({ stopPressedWhileRecording: undefined })).outcome).toBe('HOLD');
+        expect(shortStopVerdict(read({ notSavedShown: 'yes' })).outcome).toBe('HOLD');
+    });
+    it('fails when the page does not tell the user the take was not saved', () => {
+        expect(shortStopVerdict(read({ notSavedShown: false })).outcome).toBe('FAIL');
+        // The page's own "not settled" warning is the HOLD case, not a silent page.
+        expect(shortStopVerdict(read({ notSavedShown: false, unsettledDiscardShown: true })).outcome).toBe('HOLD');
+    });
+    it('passes when a short Stop leaves no new row', () => {
+        expect(shortStopVerdict(read()).outcome).toBe('PASS');
+    });
+    it('passes when the placeholder row Start created settles as failed', () => {
+        const r = read({ rowsBefore: [{ id: 'old', status: 'completed' }, { id: 'take', status: 'active' }],
+            rowsAfter: [{ id: 'old', status: 'completed' }, { id: 'take', status: 'failed' }], acceptedFailedMarks: 1 });
+        expect(shortStopVerdict(r).outcome).toBe('PASS');
+    });
+    it('passes when the take\'s row is created late and settles as failed', () => {
+        const r = read({ rowsAfter: [{ id: 'old', status: 'completed' }, { id: 'late', status: 'failed' }], acceptedFailedMarks: 1 });
+        expect(shortStopVerdict(r).outcome).toBe('PASS');
+    });
+    it('fails a take saved as completed, new or from the placeholder', () => {
+        expect(shortStopVerdict(read({ rowsAfter: [{ id: 'old', status: 'completed' }, { id: 'new', status: 'completed' }] })).outcome).toBe('FAIL');
+        expect(shortStopVerdict(read({ rowsBefore: [{ id: 'take', status: 'active' }], rowsAfter: [{ id: 'take', status: 'completed' }] })).outcome).toBe('FAIL');
+    });
+    it('fails an accepted request to complete the take, or a saved message', () => {
+        expect(shortStopVerdict(read({ acceptedCompletingSaves: 1 })).outcome).toBe('FAIL');
+        expect(shortStopVerdict(read({ savedConfirmationShown: true })).outcome).toBe('FAIL');
+    });
+    it('fails a saved take even when another row is also unsettled', () => {
+        const r = read({ rowsAfter: [{ id: 'old', status: 'completed' }, { id: 'a', status: 'completed' }, { id: 'b', status: 'active' }] });
+        expect(shortStopVerdict(r).outcome).toBe('FAIL');
+    });
+    it('holds a discard that has not settled: a row still active, a null status, a vanished row, or the page\'s warning', () => {
+        expect(shortStopVerdict(read({ rowsBefore: [{ id: 'take', status: 'active' }], rowsAfter: [{ id: 'take', status: 'active' }] })).outcome).toBe('HOLD');
+        expect(shortStopVerdict(read({ rowsAfter: [{ id: 'old', status: 'completed' }, { id: 'late', status: 'active' }] })).outcome).toBe('HOLD');
+        expect(shortStopVerdict(read({ rowsAfter: [{ id: 'old', status: 'completed' }, { id: 'late', status: null }] })).outcome).toBe('HOLD');
+        expect(shortStopVerdict(read({ rowsAfter: [] })).outcome).toBe('HOLD');
+        expect(shortStopVerdict(read({ unsettledDiscardShown: true })).outcome).toBe('HOLD');
+        expect(shortStopVerdict(read({ settled: false })).outcome).toBe('HOLD');
+    });
+    it('fails a short Stop that changes an earlier saved take, even to failed', () => {
+        const r = read({ rowsAfter: [{ id: 'old', status: 'failed' }] });
+        expect(shortStopVerdict(r).outcome).toBe('FAIL');
+        expect(shortStopVerdict(r).detail).toContain('earlier saved take');
+    });
+    it('holds a read that lists a row twice, so a completed row can\'t hide behind a failed one', () => {
+        expect(shortStopVerdict(read({ rowsAfter: [{ id: 'old', status: 'completed' }, { id: 'n', status: 'completed' }, { id: 'n', status: 'failed' }] })).outcome).toBe('HOLD');
+        expect(shortStopVerdict(read({ rowsBefore: [{ id: 'old', status: 'completed' }, { id: 'old', status: 'completed' }] })).outcome).toBe('HOLD');
+    });
+    it('holds more than one row settled by one short Stop, and a change a discard does not explain', () => {
+        expect(shortStopVerdict(read({ rowsAfter: [{ id: 'old', status: 'completed' }, { id: 'a', status: 'failed' }, { id: 'b', status: 'failed' }] })).outcome).toBe('HOLD');
+        // Only a new row or a placeholder may become failed: a row in any other state that became failed is not a discard.
+        expect(shortStopVerdict(read({ rowsBefore: [{ id: 'old', status: 'completed' }, { id: 'f', status: 'archived' }], rowsAfter: [{ id: 'old', status: 'completed' }, { id: 'f', status: 'failed' }] })).outcome).toBe('HOLD');
+    });
+    it('allows a pending or null placeholder to settle as failed', () => {
+        for (const status of ['pending', null]) {
+            const r = read({ rowsBefore: [{ id: 'old', status: 'completed' }, { id: 'take', status }], rowsAfter: [{ id: 'old', status: 'completed' }, { id: 'take', status: 'failed' }], acceptedFailedMarks: 1 });
+            expect(shortStopVerdict(r).outcome).toBe('PASS');
+        }
+    });
+    it('holds an accepted failed mark that no row shows: the discard is not confirmed', () => {
+        expect(shortStopVerdict(read({ acceptedFailedMarks: 1 })).outcome).toBe('HOLD');
+    });
+    it('holds malformed counts: NaN, negative, fractional, infinite or text never pass', () => {
+        for (const bad of [Number.NaN, -1, 0.5, Infinity, '0', null]) {
+            expect(shortStopVerdict(read({ acceptedCompletingSaves: bad })).outcome).toBe('HOLD');
+            expect(shortStopVerdict(read({ acceptedFailedMarks: bad })).outcome).toBe('HOLD');
+        }
+    });
+    it('holds a read with a field not observed or a row without an id, never passing it', () => {
+        for (const f of ['rowsBefore', 'rowsAfter', 'acceptedCompletingSaves', 'acceptedFailedMarks', 'savedConfirmationShown', 'unsettledDiscardShown', 'settled']) {
+            const r = read();
+            delete r[f];
+            expect(shortStopVerdict(r).outcome).toBe('HOLD');
+        }
+        expect(shortStopVerdict(read({ rowsAfter: [{ status: 'failed' }] })).outcome).toBe('HOLD');
+        expect(shortStopVerdict(read({ rowsBefore: ['old'] })).outcome).toBe('HOLD');
+    });
+});
+describe('what counts as an observed count', () => {
+    const { isCount, notCounts } = require('../counts.cjs');
+    it('takes only whole numbers, zero or more', () => {
+        for (const ok of [0, 1, 42])
+            expect(isCount(ok)).toBe(true);
+        for (const bad of [Number.NaN, -1, 0.5, Infinity, -Infinity, '0', null, undefined, true])
+            expect(isCount(bad)).toBe(false);
+        expect(notCounts({ a: 0, b: Number.NaN, c: -1 }, ['a', 'b', 'c', 'd'])).toEqual(['b', 'c', 'd']);
+    });
+});

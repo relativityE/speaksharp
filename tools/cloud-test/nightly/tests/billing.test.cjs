@@ -1,0 +1,144 @@
+"use strict";
+// Nightly AHT suite, J9.a: bounded portal check, the portal address never leaves the check, test mode only,
+// billing rows reconciled rather than promised away.
+const { describe, it } = require('node:test');
+const { expect, fn } = require('./expect-lite.cjs');
+const { portalOpensVerdict, reconcileBillingRows, redactPortalUrls } = require('../oracles/billing-portal.cjs');
+const { FixtureNotBuilt, LiveModeRefused, assertTestModeFixture, loadPaidAccountFixture } = require('../oracles/paid-account-fixture.cjs');
+const TEST_URL = 'https://billing.stripe.com/p/session/test_YWNjdF8xUXlTZWNyZXQ';
+const LIVE_URL = 'https://billing.stripe.com/p/session/live_YWNjdF8xUXlTZWNyZXQ';
+function ports(o = {}) {
+    const lines = [];
+    const opened = [];
+    const p = {
+        assertTestMode: 'assertTestMode' in o ? o.assertTestMode : () => true,
+        createSession: o.create ?? fn(async () => ({ url: o.url ?? TEST_URL })),
+        openAndConfirm: o.open ?? (async (u) => { opened.push(u); return { portalShown: o.shown ?? true }; }),
+        log: (l) => lines.push(l),
+    };
+    return { p, lines, opened };
+}
+const TOKEN = 'test_YWNjdF8xUXlTZWNyZXQ';
+const leaks = (lines, v) => [...lines, JSON.stringify(v)].some((l) => /p(\/|%2f|\\\/)session/i.test(l) || l.includes(TOKEN) || l.includes('YWNjdF8xUXlTZWNyZXQ'));
+describe('billing portal check', () => {
+    it('passes when the test-mode portal opens, and the address appears in no log line or verdict', async () => {
+        const { p, lines, opened } = ports();
+        const v = await portalOpensVerdict(p);
+        expect(v.outcome).toBe('PASS');
+        expect(opened).toEqual([TEST_URL]);
+        expect(leaks(lines, v)).toBe(false);
+    });
+    it('refuses to open a portal address that is not a test-mode session', async () => {
+        const { p, opened, lines } = ports({ url: LIVE_URL });
+        const v = await portalOpensVerdict(p);
+        expect(v.outcome).toBe('FAIL');
+        expect(opened).toEqual([]);
+        expect(leaks(lines, v)).toBe(false);
+    });
+    it('keeps the address out of the log when an error message carries it', async () => {
+        const { p, lines } = ports({ open: async (u) => { throw new Error(`navigation to ${u} failed`); } });
+        const v = await portalOpensVerdict(p);
+        expect(v.outcome).toBe('FAIL');
+        expect(leaks(lines, v)).toBe(false);
+    });
+    it('is bounded: one attempt, failed on timeout', async () => {
+        const create = fn(() => new Promise(() => undefined));
+        const { p } = ports({ create });
+        // Real timers with a short bound: the leg gives up after the bound, with one attempt and no retry.
+        await expect(portalOpensVerdict(p, 20)).resolves.toMatchObject({ outcome: 'FAIL' });
+        expect(create).toHaveBeenCalledTimes(1);
+    });
+    it('fails when the portal page is not shown', async () => {
+        expect((await portalOpensVerdict(ports({ shown: false }).p)).outcome).toBe('FAIL');
+        // Only an explicit true counts as shown.
+        expect((await portalOpensVerdict(ports({ shown: 'no' }).p)).outcome).toBe('FAIL');
+        expect((await portalOpensVerdict(ports({ shown: 1 }).p)).outcome).toBe('FAIL');
+    });
+    it('redacts every portal address in a text', () => {
+        expect(redactPortalUrls(`a ${TEST_URL}?x=1 b ${LIVE_URL}`)).toBe('a [billing-portal-url] b [billing-portal-url]');
+    });
+    it('redacts the address without its scheme, in capitals, encoded, JSON-escaped, on a custom domain, or as a bare token', () => {
+        const shapes = [
+            `net::ERR at billing.stripe.com/p/session/${TOKEN}`, TEST_URL.toUpperCase(), encodeURIComponent(TEST_URL), JSON.stringify({ u: TEST_URL }),
+            `https://billing.example.com/p/session/${TOKEN}?x`, `token ${TOKEN} alone`,
+        ];
+        for (const t of shapes)
+            expect(leaks([redactPortalUrls(t, [TEST_URL])], {})).toBe(false);
+    });
+    it('keeps the address out of the log in any shape an error message carries it', async () => {
+        for (const shape of [(u) => u.replace('https://', ''), (u) => u.toUpperCase(), (u) => encodeURIComponent(u), (u) => JSON.stringify({ u })]) {
+            const { p, lines } = ports({ open: async (u) => { throw new Error(`navigation to ${shape(u)} failed`); } });
+            const v = await portalOpensVerdict(p);
+            expect(v.outcome).toBe('FAIL');
+            expect(leaks(lines, v)).toBe(false);
+        }
+    });
+    it('creates no portal session without a passing Stripe test-mode check first', async () => {
+        const refuse = () => { throw new LiveModeRefused('the Stripe key is not a test-mode key'); };
+        for (const assertTestMode of [undefined, refuse, async () => refuse()]) {
+            const { p, opened } = ports({ assertTestMode });
+            const v = await portalOpensVerdict(p);
+            expect(v.outcome).toBe('FAIL');
+            expect(p.createSession).toHaveBeenCalledTimes(0);
+            expect(opened).toEqual([]);
+        }
+    });
+    it('creates no portal session when the test-mode check does not return true: not throwing is not proof', async () => {
+        for (const assertTestMode of [() => undefined, () => false, async () => undefined, () => 'true', () => ({ testMode: true })]) {
+            const { p, opened } = ports({ assertTestMode });
+            const v = await portalOpensVerdict(p);
+            expect(v.outcome).toBe('FAIL');
+            expect(v.detail).toContain('did not prove test mode');
+            expect(p.createSession).toHaveBeenCalledTimes(0);
+            expect(opened).toEqual([]);
+        }
+    });
+    it('fails, not hangs, when the test-mode check never answers, and creates no session after it', async () => {
+        const { p, opened } = ports({ assertTestMode: () => new Promise(() => {}) });
+        const v = await portalOpensVerdict(p, 20);
+        expect(v.outcome).toBe('FAIL');
+        expect(v.detail).toContain('timed out');
+        expect(p.createSession).toHaveBeenCalledTimes(0);
+        expect(opened).toEqual([]);
+    });
+});
+describe('billing cleanup reconciliation (no promise of zero rows)', () => {
+    it('reports rows retained by design as PASS', () => {
+        const r = reconcileBillingRows([{ table: 'stripe_customers', count: 1, otherAccountRows: 0 }, { table: 'checkout_operations', count: 0, otherAccountRows: 0 }], ['stripe_customers']);
+        expect(r).toMatchObject({ outcome: 'PASS', retained: ['stripe_customers=1'] });
+    });
+    it('fails when another account\'s rows were touched, and holds rows in an unreviewed table', () => {
+        expect(reconcileBillingRows([{ table: 'stripe_customers', count: 1, otherAccountRows: 1 }], ['stripe_customers']).outcome).toBe('FAIL');
+        expect(reconcileBillingRows([{ table: 'new_table', count: 2, otherAccountRows: 0 }], ['stripe_customers']).outcome).toBe('HOLD');
+    });
+    it('holds an empty read or a row without its counts, never passing it', () => {
+        expect(reconcileBillingRows([], ['stripe_customers']).outcome).toBe('HOLD');
+        for (const bad of [Number.NaN, -1, 0.5]) {
+            expect(reconcileBillingRows([{ table: 'stripe_customers', count: bad, otherAccountRows: 0 }], ['stripe_customers']).outcome).toBe('HOLD');
+            expect(reconcileBillingRows([{ table: 'stripe_customers', count: 1, otherAccountRows: bad }], ['stripe_customers']).outcome).toBe('HOLD');
+        }
+        expect(reconcileBillingRows(undefined, ['stripe_customers']).outcome).toBe('HOLD');
+        expect(reconcileBillingRows([{ table: 'stripe_customers', count: 1 }], ['stripe_customers']).outcome).toBe('HOLD');
+        expect(reconcileBillingRows([{ table: 'stripe_customers', otherAccountRows: 0 }], ['stripe_customers']).outcome).toBe('HOLD');
+    });
+});
+describe('J9.a paid account fixture: Stripe test mode only', () => {
+    const f = { accountEmail: 'rwt-journey-paid@example.test', stripeMode: 'test', customerId: 'cus_1', subscriptionId: 'sub_1', recordedOnRelease: 'a'.repeat(40) };
+    const cus = { id: 'cus_1', livemode: false };
+    const sub = { id: 'sub_1', livemode: false };
+    it('accepts a test-mode key, customer and subscription', () => {
+        expect(assertTestModeFixture(f, 'sk_test_x', cus, sub)).toBe(true);
+        expect(() => assertTestModeFixture(f, 'rk_test_x', cus, sub)).not.toThrow();
+    });
+    it('refuses a live key, a live object, a missing key, other objects or no named release', () => {
+        expect(() => assertTestModeFixture(f, 'sk_live_x', cus, sub)).toThrow(LiveModeRefused);
+        expect(() => assertTestModeFixture(f, undefined, cus, sub)).toThrow(LiveModeRefused);
+        expect(() => assertTestModeFixture(f, 'sk_test_x', { ...cus, livemode: true }, sub)).toThrow(LiveModeRefused);
+        expect(() => assertTestModeFixture(f, 'sk_test_x', cus, { ...sub, livemode: true })).toThrow(LiveModeRefused);
+        expect(() => assertTestModeFixture(f, 'sk_test_x', { id: 'cus_2', livemode: false }, sub)).toThrow(LiveModeRefused);
+        expect(() => assertTestModeFixture({ ...f, recordedOnRelease: 'main' }, 'sk_test_x', cus, sub)).toThrow(LiveModeRefused);
+    });
+    it('is not built yet, and says so instead of returning an account', () => {
+        expect(() => loadPaidAccountFixture()).toThrow(FixtureNotBuilt);
+    });
+});
