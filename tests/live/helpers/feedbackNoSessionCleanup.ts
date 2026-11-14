@@ -17,6 +17,7 @@
  * Case-only helper: nothing AHT-01 loads imports it.
  */
 import type { WriteUncertainty } from './feedbackReportCleanup';
+import { classifyInsertBody } from './feedbackDiagnosticRef';
 
 /** What the submit's insert observer saw, snapshotted when the submit ends (also when it throws). */
 export interface NoSessionInsertSnapshot { keys: readonly string[]; insertRequests: number; unattributedInserts: number }
@@ -32,4 +33,26 @@ export function noSessionWriteUncertainty(input: {
     const certain = !!i && i.keys.length === 1 && i.unattributedInserts === 0 && i.insertRequests >= 1
         && typeof input.reportId === 'string' && input.reportId.length > 0 && input.storedRows === 1;
     return { pending: 0, uncertain: certain ? [] : [1] };
+}
+
+/**
+ * AHT-08's pre-send bounds (ported from #1857 at Sam's #1860 review: a database key cap limits COMMITTED keys, not network
+ * attempts). The no-session journey makes ONE insert carrying ONE key (a same-key Retry allowed), so a non-insert, an unkeyed,
+ * unreadable or multi-key body, a second distinct key or a third attempt is aborted, never sent. Layered UNDER the fence.
+ */
+export const NO_SESSION_ATTEMPT_CAP = 2;
+export const NO_SESSION_KEY_CAP = 1;
+
+/** The route's decision for one write, made at entry before anything is sent. Pure; `keysSeen` is the keys admitted so far. */
+export function noSessionWriteDecision(input: { method: string; body: () => unknown; ordinal: number; keysSeen: readonly string[] }):
+    { action: 'forward' | 'cap-abort'; keys: string[]; reason: 'not-an-insert' | 'attempt-cap' | 'unattributed-insert' | 'report-cap' | null } {
+    if (input.method !== 'POST') return { action: 'cap-abort', keys: [], reason: 'not-an-insert' };
+    let body: unknown;
+    try { body = input.body(); } catch { body = undefined; }
+    const { keys, unattributed } = classifyInsertBody(body);
+    if (input.ordinal > NO_SESSION_ATTEMPT_CAP) return { action: 'cap-abort', keys, reason: 'attempt-cap' };
+    if (unattributed > 0 || keys.length !== 1) return { action: 'cap-abort', keys, reason: 'unattributed-insert' };
+    const distinct = new Set([...input.keysSeen, ...keys]);
+    if (distinct.size > NO_SESSION_KEY_CAP) return { action: 'cap-abort', keys, reason: 'report-cap' };
+    return { action: 'forward', keys, reason: null };
 }

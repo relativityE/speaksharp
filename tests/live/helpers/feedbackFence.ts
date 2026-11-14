@@ -122,30 +122,6 @@ export function fenceCleanupVerdict(closed: FenceClose | null, cleaned: FenceCle
     return { verdict: 'PASS', detail: `fence closed with ${closed.reports} recorded report(s); ${cleaned.deleted} removed, zero remain` };
 }
 
-export interface FenceRecovery { fences: number; deleted: number; residue: number; foreign: number }
-
-/**
- * Recovery for a runner lost mid-journey: close and clean every fence this run binding could have opened (one per case
- * label; close and clean are idempotent, and an unknown run key — `P0002` — means that case opened none). Run BEFORE the
- * account deletion, so the account's reports are still owned. Counts only.
- */
-export async function recoverRunFences(admin: FenceRpcClient, binding: Pick<RunBinding, 'runId' | 'runAttempt'>): Promise<FenceRecovery> {
-    const total: FenceRecovery = { fences: 0, deleted: 0, residue: 0, foreign: 0 };
-    for (const fenceCase of FENCE_CASES) {
-        const runKey = fenceRunKey(binding, fenceCase);
-        const closed = await admin.rpc('close_rwt_feedback_fence_v1', { p_run_key: runKey });
-        if (closed.error?.code === 'P0002') continue;
-        if (closed.error) throw failure('recovery close', closed.error);
-        const { cleaned, readback } = await cleanAndVerifyFeedbackFence(admin, runKey);
-        total.fences += 1;
-        total.deleted += cleaned.deleted;
-        // The independent readback decides: a fence it cannot see, or one still holding reports, is residue.
-        total.residue += Math.max(cleaned.residue, readback.exists ? (readback.remaining ?? 1) : 1);
-        total.foreign += Math.max(cleaned.foreign, readback.foreign ?? 0);
-    }
-    return total;
-}
-
 /** The receipt sink this module writes to (the journeys' RwtReceipt satisfies it). */
 export interface FenceReceiptSink { row(name: string, verdict: 'PASS' | 'FAIL' | 'HOLD', detail: string, evidence?: Record<string, unknown>): void }
 

@@ -32,6 +32,7 @@ import {
     withoutFaultLegSubmits, writeFeedbackAttemptRows, writeFeedbackLegRows,
 } from './helpers/feedbackAttemptLedger';
 import { ZERO_RESIDUE_ROW } from './helpers/feedbackReportCleanup';
+import { NO_SESSION_ATTEMPT_CAP, noSessionWriteDecision } from './helpers/feedbackNoSessionCleanup';
 import { HarnessParityTap, START_CONTROLS } from './helpers/rwtHarnessParity';
 import { JourneyFeedbackFence } from './helpers/feedbackFence';
 import { currentRunBinding } from './helpers/runBinding';
@@ -60,6 +61,8 @@ test.use({
 test.describe.configure({ mode: 'serial', retries: 0 });
 /** #1811: AHT-07's fence key cap equals its route's distinct-key cap (four), so the route always refuses first. */
 const AHT07_FENCE_KEY_CAP = 4;
+/** #1811: the bounds step reads in-process counts. */
+const FEEDBACK_FENCE_STEP_MS = 10_000;
 
 type Owner = { email: string; uid: string };
 
@@ -235,6 +238,43 @@ async function submitOpenDialog(
     const diagnosticRef = readStoredDiagnosticRef(metadata);
     return { id: row ? String(row.id) : null, sessionId: storedSession, diagnosticRef, storedRows: rows.length,
         insertKeys: keys.length, insertRequests: inserts.insertRequests, unattributedInserts: inserts.unattributedInserts, acknowledged };
+}
+
+/**
+ * AHT-08 pre-send bounds (ported from #1857; Sam's #1860 review): ONE route on the no-session journey's context sees every write
+ * to `user_issue_reports`. Each is decided at entry (`noSessionWriteDecision`: one insert, one key, one same-key Retry) and sent
+ * only while the fence is writable; anything else is aborted, never sent. The fence below it records what commits.
+ */
+async function installNoSessionWriteRoute(page: Page, fence: JourneyFeedbackFence): Promise<{ pending: () => number; refused: () => number }> {
+    let ordinal = 0;
+    let inFlight = 0;
+    let refused = 0;
+    const keysSeen: string[] = [];
+    await page.context().route(FEEDBACK_INSERT_URL, async (route: Route) => {
+        const request = route.request();
+        if (['GET', 'HEAD', 'OPTIONS'].includes(request.method())) return route.fallback();
+        inFlight += 1;
+        ordinal += 1;
+        const decision = noSessionWriteDecision({ method: request.method(), body: () => request.postDataJSON(), ordinal, keysSeen });
+        try {
+            if (!fence.writable || decision.action === 'cap-abort') {
+                refused += 1;
+                return await route.abort('failed');
+            }
+            for (const key of decision.keys) if (!keysSeen.includes(key)) keysSeen.push(key);
+            let response: APIResponse;
+            try { response = await route.fetch(); } catch {
+                // An unanswered forward may still have committed: the fence recorded it if so, and close serializes with it.
+                return await route.abort('failed');
+            }
+            return await route.fulfill({ response });
+        } catch {
+            return undefined; // the page closed under the route
+        } finally {
+            inFlight -= 1;
+        }
+    });
+    return { pending: () => inFlight, refused: () => refused };
 }
 
 /**
@@ -608,6 +648,7 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
         // #1811 (Sam, #1859 review): AHT-08's feedback fence. Its key cap of ONE is enforced by the database itself, so the one
         // submit is bounded without a route, and a lost runner's report stays recorded for the recovery dispatch.
         let feedbackFence: JourneyFeedbackFence | null = null;
+        let writeRoute: { pending: () => number; refused: () => number } | null = null;
         // #1593 (Sam, #1662 RETURN control 1): ONE owned finalization — the body's finally and the suite's afterEach
         // (which Playwright runs after a timeout) run this same memoized closure exactly once.
         const finish = finalizer.once(async () => {
@@ -635,8 +676,20 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
                 zeroStartPressRow(aliveReceipt(receipt, alive), parity);
             });
             await steps.step('owned pages closed', (alive) => parity.ownedPagesClosedRow(aliveReceipt(receipt, alive)), PARITY_CLOSE_STEP_MS);
-            // #1811: every owned page is closed; close the fence (acknowledged) before any cleanup. Close waits for an in-flight
-            // insert and refuses every later one, so the submit's report — even one whose answer was lost — is now recorded.
+            // #1811: every owned page is closed. Stop the writer and report the route's bounds (in-flight handlers and refused
+            // writes are reported, never ignored), then close the fence (acknowledged) before any cleanup. Close waits for an
+            // in-flight insert and refuses every later one, so the submit's report — even one whose answer was lost — is recorded.
+            feedbackFence?.stopWriter();
+            const route = writeRoute;
+            if (route) {
+                await steps.step('feedback write bounds', (alive) => {
+                    const pending = route.pending(), refused = route.refused();
+                    aliveReceipt(receipt, alive).row('feedback write bounds', pending === 0 && refused === 0 ? 'PASS' : refused > 0 ? 'FAIL' : 'HOLD',
+                        refused > 0 ? `${refused} write(s) refused before sending (over the ${NO_SESSION_ATTEMPT_CAP}-attempt / one-key bound, or not an insert)`
+                            : pending > 0 ? `${pending} write(s) still in flight; the fence close records any that commit`
+                                : 'one insert and at most one same-key Retry; nothing was refused or left in flight', { pending, refused });
+                }, FEEDBACK_FENCE_STEP_MS);
+            }
             const fence = feedbackFence;
             if (fence) await steps.step('feedback fence close', async (alive) => { await fence.close(aliveReceipt(receipt, alive)); });
             // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion. With a report, the retention proof deletes through it;
@@ -671,6 +724,7 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
                 return;
             }
             feedbackFence.openRow(receipt);
+            writeRoute = await installNoSessionWriteRoute(page, feedbackFence);
             const stored = await submitFeedback(page, tap, owner.uid, 'no_session', null, undefined, {
                 onSubmitted: (submitted) => { submitWindow = submitted; },
                 onFreshAcknowledgment: (observation) => writeFreshAcknowledgmentRow(receipt, observation),

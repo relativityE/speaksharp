@@ -10,9 +10,9 @@
  * malformed or ambiguous (judged over the whole listing); the listing is bounded, requires a real users array on every page and
  * fails closed. Idempotent: a second run finds nothing to recover. The report is content-safe — counts and a status only.
  */
-import { recoverRunFences, type FenceRecovery, type FenceRpcClient } from './feedbackFence';
+import { FENCE_CASES, cleanAndVerifyFeedbackFence, closeFeedbackFence, fenceRunKey, type FenceRpcClient } from './feedbackFence';
 import { currentRunBinding, sameRunBinding, type RunBinding } from './runBinding';
-import { RUN_OWNED_PREFIX_RE, cleanupRunOwnedAccount } from './runOwnedCleanup';
+import { RUN_OWNED_PREFIX_RE, cleanupRunOwnedAccount, runAttemptsTerminal } from './runOwnedCleanup';
 
 /** The delete acknowledgement, bound to one exact commit: `RWT-INTERRUPTED-RUN-RECOVERY-DELETE@<40-hex sha>`. */
 export const RECOVERY_DELETE_ACK_PREFIX = 'RWT-INTERRUPTED-RUN-RECOVERY-DELETE';
@@ -182,11 +182,40 @@ export async function listAuthUsersBounded(admin: AdminLike, perPage = 200, maxP
     return { users, complete: false };
 }
 
-export type RecoveryStatus = 'HOLD_NO_DOMAIN' | 'HOLD_NO_ACK' | 'HOLD_INCOMPLETE_LISTING' | 'HOLD_RECOVERY_ELIGIBILITY' | 'NOTHING_TO_RECOVER' | 'RECOVERED' | 'FAILED';
+export type RecoveryStatus = 'HOLD_NO_DOMAIN' | 'HOLD_NO_ACK' | 'HOLD_INCOMPLETE_LISTING' | 'HOLD_RECOVERY_ELIGIBILITY' | 'HOLD_ACTIVE_RUN' | 'NOTHING_TO_RECOVER' | 'RECOVERED' | 'FAILED';
+/**
+ * #1811 feedback fences of interrupted runs (counts only). Found by the database's own unresolved-fence listing — never through
+ * the account, which a normal journey deletes BEFORE its fence cleanup (Sam, #1860 review) — and cleaned only once the original
+ * run attempt is verified TERMINAL. `held`: the run is still active or its state could not be verified (nothing touched).
+ * `unproven`: the fence's binding is not this repository's rc-gates run, or is the current run (nothing touched).
+ */
+export interface FeedbackFenceRecovery { listed: number; fences: number; deleted: number; residue: number; foreign: number; held: number; unproven: number }
 export interface RecoveryReport extends SelectionCounts {
     status: RecoveryStatus; deleted: number; minAgeMinutes: number;
-    /** #1811: feedback fences of the recovered runs, closed and cleaned before each account deletion (counts only). */
-    feedback: FenceRecovery;
+    feedback: FeedbackFenceRecovery;
+}
+
+/**
+ * The state of the run that owns a fence: only `terminal` permits a close or clean. The default reader is the SAME check the
+ * account deletion uses (`runAttemptsTerminal`: the owning attempt AND the latest attempt are the same completed attempt).
+ */
+export type RunAttemptState = 'terminal' | 'active' | 'unverifiable';
+export type RunAttemptStateReader = (binding: RunBinding) => Promise<RunAttemptState>;
+
+interface ListedFence { run_key?: unknown; state?: unknown; binding?: unknown; opened_at?: unknown }
+
+/** A listed fence's binding, accepted only as another, earlier run of THIS repository's rc-gates workflow. */
+function fenceBinding(raw: unknown, key: unknown): RunBinding | null {
+    const b = raw as Partial<RunBinding> | null;
+    if (!b || typeof b !== 'object') return null;
+    const parsed = currentRunBinding({ GITHUB_ACTIONS: 'true', GITHUB_REPOSITORY: b.repository, GITHUB_WORKFLOW_REF: b.workflow,
+        GITHUB_RUN_ID: b.runId, GITHUB_RUN_ATTEMPT: b.runAttempt });
+    const mine = currentRunBinding();
+    if (!parsed || !mine || !sameRunBinding({ ct_run: raw }, parsed) || parsed.repository !== mine.repository
+        || !parsed.workflow.startsWith(`${mine.repository}/.github/workflows/rc-gates.yml@refs/`) || parsed.runId === mine.runId) return null;
+    // The run key must be the one the database derives from this very binding for one of the fence's case labels.
+    if (typeof key !== 'string' || !FENCE_CASES.some((c) => fenceRunKey(parsed, c) === key)) return null;
+    return parsed;
 }
 
 type Cleanup = typeof cleanupRunOwnedAccount;
@@ -198,9 +227,11 @@ type Cleanup = typeof cleanupRunOwnedAccount;
 export async function recoverInterruptedRuns(params: {
     admin: AdminLike; nowMs: number; ack: string; sha: string; domain: string | null;
     cleanup?: Cleanup; minAgeMs?: number; perPage?: number; maxPages?: number;
+    /** #1811: how a fence's run is proven terminal; default `runAttemptsTerminal`, shared with the account deletion. */
+    runState?: RunAttemptStateReader;
 }): Promise<RecoveryReport> {
     const minAgeMs = params.minAgeMs ?? MIN_AGE_MS;
-    const feedback: FenceRecovery = { fences: 0, deleted: 0, residue: 0, foreign: 0 };
+    const feedback: FeedbackFenceRecovery = { listed: 0, fences: 0, deleted: 0, residue: 0, foreign: 0, held: 0, unproven: 0 };
     const report = (status: RecoveryStatus, counts: SelectionCounts, deleted = 0): RecoveryReport =>
         ({ status, deleted, minAgeMinutes: Math.round(minAgeMs / 60_000), ...counts, feedback: { ...feedback } });
     // No explicit domain still DETECTS and reports (legacy items included); it can never delete.
@@ -209,23 +240,44 @@ export async function recoverInterruptedRuns(params: {
     const { eligible, counts } = selectInterruptedRunAccounts(users, params.nowMs, domain, minAgeMs);
     if (!complete) return report('HOLD_INCOMPLETE_LISTING', counts);
     if (!domain) return report('HOLD_NO_DOMAIN', counts);
-    if (eligible.length === 0) return report('NOTHING_TO_RECOVER', counts);
+    // #1811 phase 1: unresolved feedback fences, listed by the database (independent of any account) and older than the same
+    // age floor. A deployment without the fence migration has none to list.
+    let fences: ListedFence[] = [];
+    const rpc = params.admin.rpc ? { rpc: params.admin.rpc.bind(params.admin) } as FenceRpcClient : null;
+    if (rpc) {
+        const { data, error } = await rpc.rpc('list_unresolved_rwt_feedback_fences_v1', { p_min_age_seconds: Math.ceil(minAgeMs / 1000) });
+        if (error && error.code !== 'PGRST202') return report('FAILED', counts);
+        if (!error) {
+            if (!Array.isArray(data)) return report('FAILED', counts);
+            fences = data as ListedFence[];
+        }
+    }
+    feedback.listed = fences.length;
+    if (eligible.length === 0 && fences.length === 0) return report('NOTHING_TO_RECOVER', counts);
     if (!SHA_RE.test(params.sha) || params.ack !== recoveryDeleteAck(params.sha)) return report('HOLD_NO_ACK', counts);
+    const runState: RunAttemptStateReader = params.runState ?? (async (b) => (await runAttemptsTerminal(b) ? 'terminal' : 'unverifiable'));
+    const heldRuns = new Set<string>();
+    for (const listed of fences) {
+        const binding = fenceBinding(listed.binding, listed.run_key);
+        if (!binding) { feedback.unproven += 1; continue; }
+        // Sam, #1860 review: nothing is closed or deleted before the original run attempt is verified terminal.
+        if (await runState(binding) !== 'terminal') { feedback.held += 1; heldRuns.add(`${binding.runId}-${binding.runAttempt}`); continue; }
+        try {
+            await closeFeedbackFence(rpc!, listed.run_key as string);
+            const { cleaned, readback } = await cleanAndVerifyFeedbackFence(rpc!, listed.run_key as string);
+            feedback.fences += 1; feedback.deleted += cleaned.deleted;
+            feedback.residue += Math.max(cleaned.residue, readback.exists ? (readback.remaining ?? 1) : 1);
+            feedback.foreign += Math.max(cleaned.foreign, readback.foreign ?? 0);
+        } catch {
+            return report('FAILED', counts);
+        }
+        if (feedback.residue !== 0 || feedback.foreign !== 0) return report('FAILED', counts);
+    }
     const cleanup = params.cleanup ?? cleanupRunOwnedAccount;
     let deleted = 0;
     for (const account of eligible) {
-        // #1811: the run's feedback fences first, while the account's reports are still owned. A fence that cannot be closed
-        // and read back to zero (or records another account's report) stops recovery before the account is deleted.
-        if (account.binding && params.admin.rpc) {
-            try {
-                const fences = await recoverRunFences({ rpc: params.admin.rpc.bind(params.admin) }, account.binding);
-                feedback.fences += fences.fences; feedback.deleted += fences.deleted;
-                feedback.residue += fences.residue; feedback.foreign += fences.foreign;
-                if (fences.residue !== 0 || fences.foreign !== 0) return report('FAILED', counts, deleted);
-            } catch {
-                return report('FAILED', counts, deleted);
-            }
-        }
+        // A run whose fence is held (active or unverifiable) keeps its account too: nothing of that run is touched.
+        if (account.binding && heldRuns.has(`${account.binding.runId}-${account.binding.runAttempt}`)) continue;
         try {
             await cleanup({ admin: params.admin as never, capturedUid: account.id, createdEmail: account.email, runOwnedPrefix: account.prefix,
                 ...(account.binding ? { recovery: { originalBinding: account.binding, dispatchSha: params.sha, deleteAck: params.ack, minAgeMs } } : {}) });
@@ -235,7 +287,7 @@ export async function recoverInterruptedRuns(params: {
         }
         deleted += 1;
     }
-    return report('RECOVERED', counts, deleted);
+    return report(feedback.held > 0 ? 'HOLD_ACTIVE_RUN' : 'RECOVERED', counts, deleted);
 }
 
 /** The one content-safe line a run prints. */
@@ -243,5 +295,6 @@ export function recoveryReportLine(r: RecoveryReport): string {
     return `RWT_INTERRUPTED_RUN_RECOVERY status=${r.status} scanned=${r.scanned} run_owned=${r.runOwned} `
         + `ownership_unproven=${r.ownershipUnproven} legacy_unqualified=${r.legacyUnqualified} eligible=${r.eligible} fresh=${r.fresh} malformed=${r.malformed} `
         + `ambiguous=${r.ambiguous} deleted=${r.deleted} min_age_min=${r.minAgeMinutes}`
-        + ` feedback_fences=${r.feedback.fences} feedback_deleted=${r.feedback.deleted} feedback_residue=${r.feedback.residue} feedback_foreign=${r.feedback.foreign}`;
+        + ` feedback_listed=${r.feedback.listed} feedback_fences=${r.feedback.fences} feedback_deleted=${r.feedback.deleted} feedback_residue=${r.feedback.residue}`
+        + ` feedback_foreign=${r.feedback.foreign} feedback_held=${r.feedback.held} feedback_unproven=${r.feedback.unproven}`;
 }

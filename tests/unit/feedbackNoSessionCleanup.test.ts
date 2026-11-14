@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { noSessionWriteUncertainty, type NoSessionInsertSnapshot } from '../live/helpers/feedbackNoSessionCleanup';
+import { NO_SESSION_ATTEMPT_CAP, noSessionWriteDecision, noSessionWriteUncertainty, type NoSessionInsertSnapshot } from '../live/helpers/feedbackNoSessionCleanup';
 import { type ReportCleanupAdmin, captureRunReports, cleanupRunReports, zeroResidueNotRun } from '../live/helpers/feedbackReportCleanup';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -170,5 +170,48 @@ describe('the old in-run limit, kept as a documented property of the helper', ()
         expect(byUidOnly.ids).toEqual([]);
         const byKey = await captureRunReports(fakeAdmin(s), USER, [KEY], null);
         expect(byKey.ids).toEqual(['r1']);
+    });
+});
+
+// Ported from #1857 (Sam's #1860 review): AHT-08's request/retry bounds sit UNDER the fence — a database key cap limits committed
+// keys, not network attempts, unkeyed or malformed bodies, or non-insert methods.
+describe('noSessionWriteDecision (AHT-08 pre-send bounds)', () => {
+    const body = (rows: unknown) => () => rows;
+    it('forwards the one keyed insert and a same-key Retry', () => {
+        expect(noSessionWriteDecision({ method: 'POST', body: body([{ idempotency_key: KEY }]), ordinal: 1, keysSeen: [] }))
+            .toEqual({ action: 'forward', keys: [KEY], reason: null });
+        expect(noSessionWriteDecision({ method: 'POST', body: body({ idempotency_key: KEY }), ordinal: 2, keysSeen: [KEY] }).action).toBe('forward');
+    });
+    it.each([
+        ['a non-insert write', { method: 'PATCH', body: body([{ idempotency_key: KEY }]), ordinal: 1, keysSeen: [] }, 'not-an-insert'],
+        ['an unkeyed insert', { method: 'POST', body: body([{ description: 'x' }]), ordinal: 1, keysSeen: [] }, 'unattributed-insert'],
+        ['a two-key body', { method: 'POST', body: body([{ idempotency_key: KEY }, { idempotency_key: OTHER_KEY }]), ordinal: 1, keysSeen: [] }, 'unattributed-insert'],
+        ['an unreadable body', { method: 'POST', body: () => { throw new Error('no json'); }, ordinal: 1, keysSeen: [] }, 'unattributed-insert'],
+        ['a second distinct key', { method: 'POST', body: body([{ idempotency_key: OTHER_KEY }]), ordinal: 2, keysSeen: [KEY] }, 'report-cap'],
+        ['an attempt past the cap', { method: 'POST', body: body([{ idempotency_key: KEY }]), ordinal: NO_SESSION_ATTEMPT_CAP + 1, keysSeen: [KEY] }, 'attempt-cap'],
+    ])('aborts %s before it is sent', (_n, input, reason) => {
+        expect(noSessionWriteDecision(input)).toMatchObject({ action: 'cap-abort', reason });
+    });
+});
+
+describe('AHT-08 route wiring (bounds under the fence)', () => {
+    const test08 = spec.slice(spec.indexOf("test('No session feedback stores no take or coaching link'"));
+    it('the route is installed after the confirmed open and before the one submit; it sends only while the fence is writable', () => {
+        const hold = test08.indexOf("receipt.halt('feedback fence open',");
+        const install = test08.indexOf('writeRoute = await installNoSessionWriteRoute(page, feedbackFence);');
+        const submit = test08.indexOf("const stored = await submitFeedback(page, tap, owner.uid, 'no_session', null, undefined, {");
+        expect([hold > 0, install > hold, submit > install]).toEqual([true, true, true]);
+        const fn = spec.slice(spec.indexOf('async function installNoSessionWriteRoute('), spec.indexOf('async function installFeedbackWriteRoute('));
+        const decide = fn.indexOf('const decision = noSessionWriteDecision(');
+        const gate = fn.indexOf("if (!fence.writable || decision.action === 'cap-abort') {");
+        expect([decide > 0, gate > decide, fn.indexOf('route.fetch()') > gate]).toEqual([true, true, true]);
+    });
+    it('the writer stops and its bounds are reported before the fence closes', () => {
+        const fin = test08.slice(test08.indexOf('const finish = finalizer.once('), test08.indexOf('        try {'));
+        const order = ["await steps.step('owned pages closed'", 'feedbackFence?.stopWriter();', "await steps.step('feedback write bounds'",
+            "await steps.step('feedback fence close'"];
+        const idx = order.map((n) => fin.indexOf(n));
+        expect(idx.every((i) => i >= 0)).toBe(true);
+        for (let i = 1; i < idx.length; i += 1) expect(idx[i - 1]).toBeLessThan(idx[i]);
     });
 });

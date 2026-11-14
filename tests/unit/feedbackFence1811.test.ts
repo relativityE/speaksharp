@@ -97,9 +97,10 @@ describe('#1811 feedback fence helper', () => {
 });
 
 // ── Runner integration over a stateful fake of the fence RPCs (Sam, #1859 review: lost open/close responses, interrupted cleanup) ──
-import { JourneyFeedbackFence, recoverRunFences } from '../live/helpers/feedbackFence';
+import { JourneyFeedbackFence } from '../live/helpers/feedbackFence';
+import { recoverInterruptedRuns, recoveryDeleteAck, type RunAttemptState } from '../live/helpers/rwtInterruptedRunRecovery';
 
-type Fence = { owner: string; case: string; state: 'open' | 'closed' | 'cleaned'; reports: string[] };
+type Fence = { owner: string; case: string; state: 'open' | 'closed' | 'cleaned'; reports: string[]; binding: unknown };
 /** A fake database: open/close/clean/verify with the migration's semantics; `lose` drops the NEXT answer of a function after it ran. */
 function fakeDb() {
     const fences = new Map<string, Fence>();
@@ -109,11 +110,15 @@ function fakeDb() {
     const rpc = vi.fn(async (fn: string, a: Record<string, unknown>) => {
         if (fail.has(fn)) { fail.delete(fn); throw new Error('connection reset'); }
         let reply: { data: unknown; error: { code?: string } | null };
-        const key = String(a.p_run_key ?? `${(a.p_binding as RunBinding).runId}-${(a.p_binding as RunBinding).runAttempt}-${a.p_case}`);
+        const key = a.p_run_key !== undefined ? String(a.p_run_key)
+            : a.p_binding ? `${(a.p_binding as RunBinding).runId}-${(a.p_binding as RunBinding).runAttempt}-${a.p_case}` : '';
         const f = fences.get(key);
         if (fn === 'open_rwt_feedback_fence_v1') {
             if (f || [...fences.values()].some((x) => x.owner === a.p_owner)) reply = { data: null, error: { code: '23505' } };
-            else { fences.set(key, { owner: String(a.p_owner), case: String(a.p_case), state: 'open', reports: [] }); reply = { data: key, error: null }; }
+            else { fences.set(key, { owner: String(a.p_owner), case: String(a.p_case), state: 'open', reports: [], binding: a.p_binding }); reply = { data: key, error: null }; }
+        } else if (fn === 'list_unresolved_rwt_feedback_fences_v1') {
+            reply = { data: [...fences.entries()].filter(([, x]) => x.state !== 'cleaned')
+                .map(([run_key, x]) => ({ run_key, state: x.state, binding: x.binding, opened_at: '2026-11-14T00:00:00Z' })), error: null };
         } else if (!f) reply = fn === 'verify_rwt_feedback_fence_v1' ? { data: { exists: false }, error: null } : { data: null, error: { code: 'P0002' } };
         else if (fn === 'close_rwt_feedback_fence_v1') { if (f.state === 'open') f.state = 'closed'; reply = { data: { state: f.state, reports: f.reports.length, keys: f.reports.length }, error: null }; }
         else if (fn === 'clean_rwt_feedback_fence_v1') {
@@ -142,6 +147,18 @@ function fakeDb() {
     return { admin: { rpc } as unknown as FenceRpcClient, rpc, fences, reports, lose, fail, write };
 }
 const rows = () => { const list: Array<[string, string]> = []; return { list, sink: { row: (n: string, v: string) => { list.push([n, v]); } } }; };
+const SHA = 'a'.repeat(40);
+/** The governed recovery, from a LATER run, with NO run-owned account left to list: fences are found by the database's own listing. */
+async function recover(db: ReturnType<typeof fakeDb>, state: RunAttemptState = 'terminal') {
+    for (const [k, v] of Object.entries({ GITHUB_ACTIONS: 'true', GITHUB_REPOSITORY: BINDING.repository, GITHUB_WORKFLOW_REF: BINDING.workflow,
+        GITHUB_RUN_ID: '49999999999', GITHUB_RUN_ATTEMPT: '1' })) vi.stubEnv(k, v);
+    const runState = vi.fn(async () => state);
+    const listUsers = vi.fn(async () => ({ data: { users: [] }, error: null }));
+    const report = await recoverInterruptedRuns({ admin: { auth: { admin: { listUsers } }, rpc: db.rpc } as never, nowMs: Date.now(),
+        ack: recoveryDeleteAck(SHA), sha: SHA, domain: 'rwt.example.org', minAgeMs: 0, runState });
+    vi.unstubAllEnvs();
+    return { report, runState };
+}
 
 describe('#1811 JourneyFeedbackFence — the runner sequence', () => {
     it('the designed run: open → write → close → account deletion (report ownerless) → clean → independent zero', async () => {
@@ -190,7 +207,8 @@ describe('#1811 JourneyFeedbackFence — the runner sequence', () => {
         expect(db.write(OWNER, 'late')).toBe(false); // the close DID run: later writes are refused
         expect(await fence.cleanRow(r.sink)).toBe('FAIL');
         expect(db.reports.size).toBe(2); // nothing deleted without an acknowledged close
-        expect(await recoverRunFences(db.admin, BINDING)).toEqual({ fences: 1, deleted: 2, residue: 0, foreign: 0 });
+        const { report } = await recover(db);
+        expect(report).toMatchObject({ status: 'RECOVERED', feedback: { listed: 1, fences: 1, deleted: 2, residue: 0, foreign: 0, held: 0 } });
         expect(db.reports.size).toBe(0);
     });
     it('an INTERRUPTED cleanup FAILs (never PASS on clean\'s own word); recovery finishes it and the readback reads zero', async () => {
@@ -202,8 +220,12 @@ describe('#1811 JourneyFeedbackFence — the runner sequence', () => {
         db.lose.add('clean_rwt_feedback_fence_v1'); // the delete ran, its answer was lost
         expect(await fence.cleanRow(r.sink, 'zero residue')).toBe('FAIL');
         expect(r.list.at(-1)).toEqual(['zero residue', 'FAIL']);
-        const again = await recoverRunFences(db.admin, BINDING);
-        expect(again).toMatchObject({ fences: 1, residue: 0, foreign: 0 });
+        // The clean DID run (only its answer was lost): the fence is cleaned, so recovery lists nothing to do, and the
+        // independent read-only readback confirms zero remaining.
+        const { report } = await recover(db);
+        expect(report).toMatchObject({ status: 'NOTHING_TO_RECOVER', feedback: { listed: 0, fences: 0 } });
+        const { verifyFeedbackFence } = await import('../live/helpers/feedbackFence');
+        expect(await verifyFeedbackFence(db.admin, '43583228045-1-AHT-07')).toMatchObject({ exists: true, state: 'cleaned', remaining: 0, foreign: 0 });
     });
     it('a recorded report now owned by ANOTHER account is never deleted, and FAILs both the run and recovery', async () => {
         const db = fakeDb(); const r = rows();
@@ -214,6 +236,38 @@ describe('#1811 JourneyFeedbackFence — the runner sequence', () => {
         db.reports.set('r1', '22222222-2222-4222-8222-222222222222');
         expect(await fence.cleanRow(r.sink)).toBe('FAIL');
         expect(db.reports.get('r1')).toBe('22222222-2222-4222-8222-222222222222');
-        expect((await recoverRunFences(db.admin, BINDING)).foreign).toBeGreaterThan(0);
+        const { report } = await recover(db);
+        expect(report.status).toBe('FAILED');
+        expect(report.feedback.foreign).toBeGreaterThan(0);
+        expect(db.reports.get('r1')).toBe('22222222-2222-4222-8222-222222222222');
+    });
+    it('THE POST-DELETION WINDOW (Sam, #1860): committed → closed → account deleted → runner lost → a separate recovery cleans only those ids', async () => {
+        const db = fakeDb(); const r = rows();
+        const fence = new JourneyFeedbackFence(db.admin, 'AHT-02', 1);
+        await fence.open(OWNER, BINDING);
+        db.write(OWNER, 'r1');
+        db.reports.set('someone-elses', '22222222-2222-4222-8222-222222222222'); // never recorded by this fence
+        await fence.close(r.sink);
+        db.reports.set('r1', null); // the journey deletes its account (ON DELETE SET NULL) ...
+        // ... and the runner is lost before fence.cleanRow. The account no longer exists to be listed.
+        const { report, runState } = await recover(db);
+        expect(runState).toHaveBeenCalledTimes(1); // the run attempt was checked BEFORE anything was touched
+        expect(report).toMatchObject({ status: 'RECOVERED', eligible: 0, feedback: { listed: 1, fences: 1, deleted: 1, residue: 0, foreign: 0 } });
+        expect([...db.reports.keys()]).toEqual(['someone-elses']);
+        expect([...db.fences.values()][0].state).toBe('cleaned');
+    });
+    it.each(['active', 'unverifiable'] as const)('a %s run attempt: NOTHING is closed or deleted, and the run is reported held', async (state) => {
+        const db = fakeDb(); const r = rows();
+        const fence = new JourneyFeedbackFence(db.admin, 'AHT-07', 4);
+        await fence.open(OWNER, BINDING);
+        db.write(OWNER, 'r1');
+        void r;
+        const before = db.rpc.mock.calls.length;
+        const { report } = await recover(db, state);
+        expect(report).toMatchObject({ status: 'HOLD_ACTIVE_RUN', feedback: { listed: 1, fences: 0, deleted: 0, held: 1 } });
+        const after = db.rpc.mock.calls.slice(before).map(([fn]) => fn);
+        expect(after).toEqual(['list_unresolved_rwt_feedback_fences_v1']); // no close, clean or verify
+        expect([...db.fences.values()][0].state).toBe('open');
+        expect(db.reports.has('r1')).toBe(true);
     });
 });
