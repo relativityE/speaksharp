@@ -200,6 +200,22 @@ test('feedback fence exact pre/postflight over the real report chain', async (t)
       ok(run('after', before));
     });
 
+    await t.test('PostgreSQL 18+: a NOT VALID or NO INHERIT not-null is refused (validation state is not lost); earlier servers: NOT RUN', () => {
+      const major = Number(sql('SHOW server_version_num;')) / 10000;
+      if (major < 18) { console.log(`feedback fence postflight proof: NOT RUN on PostgreSQL ${Math.floor(major)} (no NOT VALID not-null)`); return; }
+      for (const [change, restore] of [
+        ['ALTER TABLE public.rwt_feedback_fences ALTER COLUMN key_cap DROP NOT NULL; ALTER TABLE public.rwt_feedback_fences ADD CONSTRAINT key_cap_nn NOT NULL key_cap NOT VALID',
+          'ALTER TABLE public.rwt_feedback_fences DROP CONSTRAINT key_cap_nn; ALTER TABLE public.rwt_feedback_fences ALTER COLUMN key_cap SET NOT NULL'],
+        ['ALTER TABLE public.rwt_feedback_fences ALTER COLUMN key_cap DROP NOT NULL; ALTER TABLE public.rwt_feedback_fences ADD CONSTRAINT key_cap_nn NOT NULL key_cap NO INHERIT',
+          'ALTER TABLE public.rwt_feedback_fences DROP CONSTRAINT key_cap_nn; ALTER TABLE public.rwt_feedback_fences ALTER COLUMN key_cap SET NOT NULL'],
+      ]) {
+        sql(change);
+        refused(run('after', before), /table structure differs/);
+        sql(restore);
+      }
+      ok(run('after', before));
+    });
+
     await t.test('after refuses a missing prior receipt', () => {
       refused(run('after', join(root, 'absent.json')), /could not execute/);
     });

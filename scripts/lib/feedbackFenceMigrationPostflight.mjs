@@ -93,9 +93,10 @@ export function feedbackFenceSnapshotQuery() {
             FROM pg_attribute a LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum
             WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped),
           -- Exact definitions (deferrability, NOT VALID / NOT ENFORCED, expressions). PostgreSQL 18 also records each NOT NULL as a
-          -- pg_constraint row (contype 'n'); nullability is compared exactly per column above, so those rows are not repeated here.
+          -- pg_constraint row (contype 'n'). Only the STANDARD form (validated, inheritable) is left out — nullability itself is
+          -- compared per column above. A NOT VALID or NO INHERIT not-null (PG18) stays in and is refused (Sam, #1859, 11:19).
           'constraints',(SELECT json_agg(k.contype::text||' '||pg_get_constraintdef(k.oid) ORDER BY k.contype::text, pg_get_constraintdef(k.oid))
-            FROM pg_constraint k WHERE k.conrelid=c.oid AND k.contype <> 'n'),
+            FROM pg_constraint k WHERE k.conrelid=c.oid AND NOT (k.contype = 'n' AND k.convalidated AND NOT k.connoinherit)),
           -- Exact definitions (method, ordered key columns, expressions, predicate) plus validity, which the definition omits.
           'indexes',(SELECT json_agg(pg_get_indexdef(i.indexrelid)||' valid='||i.indisvalid::text||' ready='||i.indisready::text
               ||' live='||i.indislive::text ORDER BY pg_get_indexdef(i.indexrelid)) FROM pg_index i WHERE i.indrelid=c.oid)))
