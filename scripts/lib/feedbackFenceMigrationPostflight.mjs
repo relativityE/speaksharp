@@ -48,8 +48,8 @@ export const FENCE_TABLE_STRUCTURE = Object.freeze({
       "u UNIQUE (owner_uid)"
     ],
     "indexes": [
-      "CREATE UNIQUE INDEX rwt_feedback_fences_owner_uid_key ON public.rwt_feedback_fences USING btree (owner_uid)",
-      "CREATE UNIQUE INDEX rwt_feedback_fences_pkey ON public.rwt_feedback_fences USING btree (run_key)"
+      "CREATE UNIQUE INDEX rwt_feedback_fences_owner_uid_key ON public.rwt_feedback_fences USING btree (owner_uid) valid=true ready=true live=true",
+      "CREATE UNIQUE INDEX rwt_feedback_fences_pkey ON public.rwt_feedback_fences USING btree (run_key) valid=true ready=true live=true"
     ]
   });
 const literal = value => `'${String(value).replaceAll("'", "''")}'`;
@@ -92,9 +92,13 @@ export function feedbackFenceSnapshotQuery() {
               ||COALESCE(' DEFAULT '||pg_get_expr(d.adbin,d.adrelid),'') ORDER BY a.attnum)
             FROM pg_attribute a LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum
             WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped),
+          -- Exact definitions (deferrability, NOT VALID / NOT ENFORCED, expressions). PostgreSQL 18 also records each NOT NULL as a
+          -- pg_constraint row (contype 'n'); nullability is compared exactly per column above, so those rows are not repeated here.
           'constraints',(SELECT json_agg(k.contype::text||' '||pg_get_constraintdef(k.oid) ORDER BY k.contype::text, pg_get_constraintdef(k.oid))
-            FROM pg_constraint k WHERE k.conrelid=c.oid),
-          'indexes',(SELECT json_agg(pg_get_indexdef(i.indexrelid) ORDER BY pg_get_indexdef(i.indexrelid)) FROM pg_index i WHERE i.indrelid=c.oid)))
+            FROM pg_constraint k WHERE k.conrelid=c.oid AND k.contype <> 'n'),
+          -- Exact definitions (method, ordered key columns, expressions, predicate) plus validity, which the definition omits.
+          'indexes',(SELECT json_agg(pg_get_indexdef(i.indexrelid)||' valid='||i.indisvalid::text||' ready='||i.indisready::text
+              ||' live='||i.indislive::text ORDER BY pg_get_indexdef(i.indexrelid)) FROM pg_index i WHERE i.indrelid=c.oid)))
       FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname=${literal(TABLE)}),
       json_build_object('exists',false))::text;`,
     `SELECT COALESCE(json_agg(json_build_object('name',t.tgname,'function',p.pronamespace::regnamespace::text||'.'||p.proname||'('||pg_get_function_identity_arguments(p.oid)||')','type',t.tgtype,'enabled',t.tgenabled::text,

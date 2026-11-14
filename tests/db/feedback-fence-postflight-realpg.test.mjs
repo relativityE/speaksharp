@@ -161,7 +161,7 @@ test('feedback fence exact pre/postflight over the real report chain', async (t)
       ok(run('after', before));
     });
 
-    await t.test('after refuses a changed table structure: the owner uniqueness dropped, a CHECK dropped, a default changed (Codex P2 on 5d8070ad)', () => {
+    await t.test('after refuses a changed table structure: uniqueness dropped/deferrable/partial/widened, a CHECK dropped/changed/NOT VALID, a default changed', () => {
       for (const [change, restore] of [
         ['ALTER TABLE public.rwt_feedback_fences DROP CONSTRAINT rwt_feedback_fences_owner_uid_key',
           'ALTER TABLE public.rwt_feedback_fences ADD CONSTRAINT rwt_feedback_fences_owner_uid_key UNIQUE (owner_uid)'],
@@ -169,6 +169,21 @@ test('feedback fence exact pre/postflight over the real report chain', async (t)
           'ALTER TABLE public.rwt_feedback_fences ADD CONSTRAINT rwt_feedback_fences_key_cap_check CHECK (key_cap BETWEEN 1 AND 8)'],
         ["ALTER TABLE public.rwt_feedback_fences ALTER COLUMN state SET DEFAULT 'closed'",
           "ALTER TABLE public.rwt_feedback_fences ALTER COLUMN state SET DEFAULT 'open'"],
+        // Sam (#1859, 10:28): semantics that a looser comparison would miss.
+        // the owner uniqueness made DEFERRABLE (no longer enforced at each insert);
+        ['ALTER TABLE public.rwt_feedback_fences DROP CONSTRAINT rwt_feedback_fences_owner_uid_key; ALTER TABLE public.rwt_feedback_fences ADD CONSTRAINT rwt_feedback_fences_owner_uid_key UNIQUE (owner_uid) DEFERRABLE INITIALLY DEFERRED',
+          'ALTER TABLE public.rwt_feedback_fences DROP CONSTRAINT rwt_feedback_fences_owner_uid_key; ALTER TABLE public.rwt_feedback_fences ADD CONSTRAINT rwt_feedback_fences_owner_uid_key UNIQUE (owner_uid)'],
+        // the owner uniqueness replaced by a PARTIAL unique index (a predicate) of the same name and column;
+        ["ALTER TABLE public.rwt_feedback_fences DROP CONSTRAINT rwt_feedback_fences_owner_uid_key; CREATE UNIQUE INDEX rwt_feedback_fences_owner_uid_key ON public.rwt_feedback_fences (owner_uid) WHERE state = 'open'",
+          'DROP INDEX public.rwt_feedback_fences_owner_uid_key; ALTER TABLE public.rwt_feedback_fences ADD CONSTRAINT rwt_feedback_fences_owner_uid_key UNIQUE (owner_uid)'],
+        // the owner uniqueness widened to a composite key (different ordered key columns);
+        ['ALTER TABLE public.rwt_feedback_fences DROP CONSTRAINT rwt_feedback_fences_owner_uid_key; ALTER TABLE public.rwt_feedback_fences ADD CONSTRAINT rwt_feedback_fences_owner_uid_key UNIQUE (owner_uid, run_key)',
+          'ALTER TABLE public.rwt_feedback_fences DROP CONSTRAINT rwt_feedback_fences_owner_uid_key; ALTER TABLE public.rwt_feedback_fences ADD CONSTRAINT rwt_feedback_fences_owner_uid_key UNIQUE (owner_uid)'],
+        // a CHECK with the same name but different semantics (cap 9), and the right CHECK re-added NOT VALID.
+        ['ALTER TABLE public.rwt_feedback_fences DROP CONSTRAINT rwt_feedback_fences_key_cap_check; ALTER TABLE public.rwt_feedback_fences ADD CONSTRAINT rwt_feedback_fences_key_cap_check CHECK (key_cap BETWEEN 1 AND 9)',
+          'ALTER TABLE public.rwt_feedback_fences DROP CONSTRAINT rwt_feedback_fences_key_cap_check; ALTER TABLE public.rwt_feedback_fences ADD CONSTRAINT rwt_feedback_fences_key_cap_check CHECK (key_cap BETWEEN 1 AND 8)'],
+        ['ALTER TABLE public.rwt_feedback_fences DROP CONSTRAINT rwt_feedback_fences_key_cap_check; ALTER TABLE public.rwt_feedback_fences ADD CONSTRAINT rwt_feedback_fences_key_cap_check CHECK (key_cap BETWEEN 1 AND 8) NOT VALID',
+          'ALTER TABLE public.rwt_feedback_fences DROP CONSTRAINT rwt_feedback_fences_key_cap_check; ALTER TABLE public.rwt_feedback_fences ADD CONSTRAINT rwt_feedback_fences_key_cap_check CHECK (key_cap BETWEEN 1 AND 8)'],
       ]) {
         sql(change);
         refused(run('after', before), /table structure differs/);
