@@ -32,10 +32,11 @@ function paymentWallVerdict(w) {
     return problems.length > 0 ? { outcome: 'FAIL', detail: problems.join('; ') } : { outcome: 'PASS', detail: 'walled: pay offered, delete available but not promoted, no past data' };
 }
 /**
- * The answers that mean "refused for lack of entitlement": 401, 402 or 403. Any other 4xx (404 for a moved path, 400 for
- * a bad probe body, 429 for a rate limit) proves nothing about the wall, so it fails the row.
+ * The answers that mean "refused for lack of entitlement": 402 or 403. A 401 means the token itself was rejected (stale,
+ * expired or malformed), so it says nothing about the wall; neither does any other 4xx (404 for a moved path, 400 for a
+ * bad probe body, 429 for a rate limit). Each fails the row.
  */
-const REFUSAL_STATUSES = Object.freeze([401, 402, 403]);
+const REFUSAL_STATUSES = Object.freeze([402, 403]);
 /** `trial-expired-server-refuses`: every named deployed endpoint refuses the expired account's own token. */
 function serverRefusesVerdict(probes, required) {
     const missing = required.filter((n) => !probes.some((p) => p.name === n));

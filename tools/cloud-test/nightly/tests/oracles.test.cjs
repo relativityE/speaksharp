@@ -185,10 +185,9 @@ describe('trial-expired-server-refuses', () => {
         expect(serverRefusesVerdict(probes().slice(1), required).outcome).toBe('FAIL');
         expect(serverRefusesVerdict([], []).outcome).toBe('FAIL');
     });
-    it('accepts only 401, 402 and 403 as a refusal: a moved path, a bad probe or a rate limit proves nothing', () => {
-        for (const status of [401, 402])
-            expect(serverRefusesVerdict(probes({ start: { status } }), required).outcome).toBe('PASS');
-        for (const status of [400, 404, 405, 409, 429])
+    it('accepts only 402 and 403 as a refusal: a rejected token, a moved path, a bad probe or a rate limit proves nothing', () => {
+        expect(serverRefusesVerdict(probes({ start: { status: 402 } }), required).outcome).toBe('PASS');
+        for (const status of [400, 401, 404, 405, 409, 429])
             expect(serverRefusesVerdict(probes({ start: { status } }), required).outcome).toBe('FAIL');
     });
     it('holds when provider work was not observed for a probe', () => {

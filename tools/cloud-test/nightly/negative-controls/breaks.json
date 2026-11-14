@@ -548,9 +548,9 @@
     },
     {
       "id": "P5-any-4xx-refusal",
-      "guards": "only 401, 402 and 403 count as the server refusing an expired account",
+      "guards": "only 402 and 403 count as the server refusing an expired account",
       "file": "oracles/payment-wall.cjs",
-      "find": "const REFUSAL_STATUSES = Object.freeze([401, 402, 403]);",
+      "find": "const REFUSAL_STATUSES = Object.freeze([402, 403]);",
       "replace": "const REFUSAL_STATUSES = Object.freeze([400, 401, 402, 403, 404, 405, 409, 429]);",
       "test": "tests/oracles.test.cjs"
     },
@@ -606,7 +606,7 @@
       "id": "P5-portal-created-before-test-mode",
       "guards": "no portal session is created before the Stripe test-mode check passes",
       "file": "oracles/billing-portal.cjs",
-      "find": "    try {\n        ports.assertTestMode();\n    }",
+      "find": "    try {\n        await ports.assertTestMode();\n    }",
       "replace": "    try {\n    }",
       "test": "tests/billing.test.cjs"
     },
@@ -625,6 +625,22 @@
       "find": "this.#afterStop.set(legId, (this.#afterStop.get(legId) ?? 0) + 1);",
       "replace": "this.#refused.get(legId)[kind] += 1;",
       "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P5-token-rejection-counts-as-refusal",
+      "guards": "a 401 (token rejected) is not the wall refusing the account",
+      "file": "oracles/payment-wall.cjs",
+      "find": "const REFUSAL_STATUSES = Object.freeze([402, 403]);",
+      "replace": "const REFUSAL_STATUSES = Object.freeze([401, 402, 403]);",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P5-portal-check-not-awaited",
+      "guards": "an async test-mode check that rejects stops the portal session being created",
+      "file": "oracles/billing-portal.cjs",
+      "find": "        await ports.assertTestMode();",
+      "replace": "        ports.assertTestMode();",
+      "test": "tests/billing.test.cjs"
     }
   ]
 }

@@ -27,7 +27,7 @@ Each leg below reports NOT RUN (gate `no-harness-case`) until its adapter lands.
 
 | Leg | Rows | Gate that still applies after the adapter lands |
 |---|---|---|
-| J1.e | `trial-expired-wall-on-open-session`, `trial-expired-payment-wall`, `trial-expired-server-refuses` | Canary claim acknowledged (`RWT_CANARY_CLAIM_ACK` and the server-issued claim), via `nightly/oracles/canary-trial-end.cjs`. Each server probe records its status (only 401, 402 or 403 counts as refused) and `providerWorkObserved` as a boolean; the coaching probe is reserved with `reserve('J1.e', 'coaching')` before it is sent. Every payment-wall field is mapped as a boolean, or the row holds |
+| J1.e | `trial-expired-wall-on-open-session`, `trial-expired-payment-wall`, `trial-expired-server-refuses` | Canary claim acknowledged (`RWT_CANARY_CLAIM_ACK` and the server-issued claim), via `nightly/oracles/canary-trial-end.cjs`. Each server probe records its status (only 402 or 403 counts as refused; a 401 means the token was rejected) and `providerWorkObserved` as a boolean; the coaching probe is reserved with `reserve('J1.e', 'coaching')` before it is sent. Every payment-wall field is mapped as a boolean, or the row holds |
 | J1.f | `account-delete-from-wall` (needs J1.e) | Canary claim; a mailbox the harness can read for the run-owned address |
 | J2 | `paid-wall-before-payment`, `checkout-opens-for-expired-user`, `abandoned-checkout-stays-walled`, `deployed-webhook-ready` | Canary claim, and disabled until a reviewed cleanup expires the Checkout Session and settles the checkout operation |
 | J7.d | `account-delete-during-trial` | A mailbox the harness can read |
@@ -57,7 +57,7 @@ Each leg below reports NOT RUN (gate `no-harness-case`) until its adapter lands.
 
 ## 5. Checks in CI
 
-`tests/test_nightly_suite.py` (in #1865) runs the 136 node:test tests inside `package-unit-tests`, so `scripts/run_offline_checks.py` covers them. The 78 negative controls (`nightly/negative-controls/run.cjs`) rewrite files while they run, so they are not part of that suite; wiring them into CI as a separate step is for the reviewer to decide.
+`tests/test_nightly_suite.py` (in #1865) runs the 136 node:test tests inside `package-unit-tests`, so `scripts/run_offline_checks.py` covers them. The 80 negative controls (`nightly/negative-controls/run.cjs`) rewrite files while they run, so they are not part of that suite; wiring them into CI as a separate step is for the reviewer to decide.
 
 ## Order
 

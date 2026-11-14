@@ -70,7 +70,8 @@ describe('billing portal check', () => {
         }
     });
     it('creates no portal session without a passing Stripe test-mode check first', async () => {
-        for (const assertTestMode of [undefined, () => { throw new LiveModeRefused('the Stripe key is not a test-mode key'); }]) {
+        const refuse = () => { throw new LiveModeRefused('the Stripe key is not a test-mode key'); };
+        for (const assertTestMode of [undefined, refuse, async () => refuse()]) {
             const { p, opened } = ports({ assertTestMode });
             const v = await portalOpensVerdict(p);
             expect(v.outcome).toBe('FAIL');

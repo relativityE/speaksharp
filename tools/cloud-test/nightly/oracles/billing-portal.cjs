@@ -36,7 +36,7 @@ function withTimeout(p, ms) {
 }
 /**
  * One bounded attempt. The address never leaves this function: not in the verdict, not in a log line, not in an error.
- * `ports.assertTestMode` (assertTestModeFixture on the fixture, key and objects) must pass before any session is
+ * `ports.assertTestMode` (assertTestModeFixture on the fixture, key and objects, sync or async) must pass before any session is
  * created, so a live key never creates a live portal session.
  */
 async function portalOpensVerdict(ports, timeoutMs = PORTAL_TIMEOUT_MS) {
@@ -47,7 +47,7 @@ async function portalOpensVerdict(ports, timeoutMs = PORTAL_TIMEOUT_MS) {
         return { outcome: 'FAIL', detail: 'no Stripe test-mode check before creating the portal session' };
     }
     try {
-        ports.assertTestMode();
+        await ports.assertTestMode();
     }
     catch {
         log('portal session: the test-mode check refused; not created');
