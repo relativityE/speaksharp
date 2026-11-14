@@ -24,7 +24,7 @@ file, in the harness handoff in the description of #1865, for the owners of thos
 | `limits.cjs` | The lowest limits that give a truthful result: exact counts for sign-ups, takes, starts, coaching (probe reserves included), identity reads and provider calls; request and time limits per journey from complete baselines plus the evidence-based margins (11% and 14%), plus each journey's cleanup reserve; dollar caps from a supplied price |
 | `oracles/*.cjs` | The new rows' checks: 30-day trial, ending a canary-tagged run-owned trial, sign-out (no unauthorized read, no stale request), payment wall and server refusal, short Stop saves nothing (HOLD unless Stop was pressed while recording; FAIL unless the page says the take wasn't saved; a new row or placeholder settled as failed is allowed, a completed or changed saved take FAILs, an unsettled discard, a duplicate row or any other change HOLDs), billing portal opens (only an explicit true counts as shown; the test-mode check and every step bounded; only an explicit true proves test mode, so a timeout or anything else FAILs with no session created; URL never logged), billing-row reconciliation, the test-mode paid fixture, kept sessions send no new coaching |
 | `tests/*.test.cjs` | node:test files (198 tests), run by `../tests/test_nightly_suite.py` inside the package unit tests |
-| `negative-controls/` | 157 seeded breaks: each must make its test fail and pass again once restored |
+| `negative-controls/` | 158 seeded breaks: each must make its test fail and pass again once restored |
 
 ## Rules the code enforces
 

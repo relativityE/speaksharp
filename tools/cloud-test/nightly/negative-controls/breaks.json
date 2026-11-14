@@ -1257,6 +1257,14 @@
       "find": "        const a = admitRun(dir);\n        if (!a.admitted)",
       "replace": "        const a = { admitted: true };\n        if (!a.admitted)",
       "test": "tests/cleanup.test.cjs"
+    },
+    {
+      "id": "P8-signups-per-journey",
+      "guards": "sign-ups follow today's per-case account lifecycle, not one per journey",
+      "file": "limits.cjs",
+      "find": "        freshSignUps: accountUnits(legs.filter(isFresh)),",
+      "replace": "        freshSignUps: journeys.filter((j) => j.account === 'fresh-run-owned').length,",
+      "test": "tests/limits.test.cjs"
     }
   ]
 }
