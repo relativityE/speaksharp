@@ -222,6 +222,29 @@ describe('#1863 payment wall: guarded RPCs, table guard and open surfaces', () =
         });
     });
 
+    it('expiry mid-recording: a take admitted in trial is refused at save after expiry, stores nothing, and its lease still releases', async () => {
+        const { uid, lease: setupLease } = await fixture();
+        await asUser(uid, () => db.query('SELECT public.release_recording_lease($1)', [setupLease]));
+        const lease = randomUUID();
+        // The take starts while the trial is live: the server admits it with a recording lease.
+        const admitted = await asUser(uid, async () => (await db.query<{ r: { acquired: boolean } }>(
+            "SELECT public.acquire_recording_lease($1::uuid,'payment-wall-mid-take',false) AS r", [lease])).rows[0].r);
+        expect(admitted).toMatchObject({ acquired: true });
+        const count = async () => Number((await db.query<{ n: string }>('SELECT count(*) AS n FROM public.sessions WHERE user_id=$1', [uid])).rows[0].n);
+        const before = await count();
+        // The trial ends while recording; Stop then asks the server to save the take.
+        await expire(uid);
+        const saved = await asUser(uid, async () => (await db.query<{ r: Record<string, unknown> }>(
+            "SELECT public.create_session_and_update_usage($1::jsonb,'private') AS r",
+            [JSON.stringify({ title: 'synthetic mid-take', duration: 42, total_words: 0, lease_id: lease })])).rows[0].r);
+        expect(saved.new_session ?? null).toBeNull();
+        expect(saved).toMatchObject({ usage_exceeded: true, error: 'trial_expired' });
+        expect(await count()).toBe(before);
+        await asUser(uid, async () => {
+            await expect(db.query('SELECT public.release_recording_lease($1)', [lease])).resolves.toBeTruthy();
+        });
+    });
+
     it('keeps the account, usage answer, deletion status and lease release open after expiry', async () => {
         const { uid, lease } = await fixture();
         await expire(uid);
