@@ -35,7 +35,7 @@ for r in ["fresh-first-session","saved-once","grounded-coaching","review-reopen"
 for r in ["same-target-repeat","analytics-repeat-opens-product","rapid-repeat-gate","rapid-repeat-release","next-start","next-start-release"]:
     o("AHT-01",r,"J1.b","kept","")
 o("AHT-01","same-target-numeric","J1.b","strengthen","Also compare the saved filler count with the fixture's known reference (rwtFillerReference.ts), so the row has an oracle independent of the code under test. Today the snapshot preflight makes the whole case NOT RUN when Progress code changes in an upgrade (G11 in design §4).")
-o("AHT-01","probe-save-isolation","J1.c","strengthen","Paired with the new short-stop-no-save row; failed on 14 Nov (AHT-03) until the short-Stop fix lands (G5).")
+o("AHT-01","probe-save-isolation","J1.c","strengthen","Paired with the new short-stop-no-save row. AHT-03's copy failed on 14 Nov; that take's duration was not measured, so a short Stop (G5) is a likely cause, not a proven one.")
 # AHT-03 rows that repeat J1 and J3.a stay live until a replacement is proven
 for r in ["rapid-repeat-gate","rapid-repeat-release","next-start","next-start-release","probe-save-isolation","same-target-numeric"]:
     o("AHT-03",r,"J3.b","kept","Stays live on the partial fixture until reviewed proof shows J1, J3.a or a faster test fails on the same break. probe-save-isolation is the row that failed here on 14 Nov, so the copy is not shown to be redundant.")
@@ -68,10 +68,14 @@ for case,v in cat["cases"].items():
             leg,st,note = case_leg[case], "kept", ""
         rows.append({"case":case,"assertion":r,"newHome":leg,"status":st,"note":note})
 
+NEG_CONTROL = ("Each new or strengthened row counts only once it is validated on its own: a negative control "
+               "makes it fail on the deliberately broken behaviour, and it passes when that is restored. "
+               "A schema or 204-row validator pass does not prove it.")
 new_rows = [
  ("J1.a","trial-length-thirty-days","On the deployed build, read with the account's own token, the trial started within the signup window and ends exactly 30 days later (product owner, 14 Nov). The DB test checks this only on the original trigger body.","row new"),
  ("J1.c","short-stop-no-save","A Stop under 5 s saves nothing: no completed sessions row, no history entry (G5).","needs short-Stop fix PR"),
- ("J1.d","signout-no-forbidden-read","No authenticated read returns 403 around sign-out (GAP-04; first seen on the maintained account, so comparability on a fresh account is unproven).","row new"),
+ ("J1.d","signout-no-unauthorized-read","Around sign-out, no read succeeds without a valid session and no saved data reaches the signed-out page. A 403 denial is a correct answer, not a failure (GAP-04; first seen on the maintained account, so comparability on a fresh account is unproven).","row new"),
+ ("J1.d","signout-no-stale-request","After sign-out completes, the page issues no further authenticated request with the old session (GAP-04). Reported separately from signout-no-unauthorized-read.","row new"),
  ("J1.e","trial-expired-wall-on-open-session","With the browser still signed in, a reload or navigation after the trial ends lands on the payment page (G3).","needs payment-wall PR"),
  ("J1.e","trial-expired-payment-wall","A fresh sign-in after expiry lands on the payment page; Practice, History, Progress, PDF export and deep links are not reachable (G3).","needs payment-wall PR"),
  ("J1.e","trial-expired-server-refuses","On the deployed build, direct calls with the expired account's own token (Start, save, coaching, history read) are refused. Checks the deployed bodies; the logic itself is in DB and contract tests (G1, G2).","needs payment-wall PR"),
@@ -82,9 +86,9 @@ new_rows = [
  ("J2","deployed-webhook-ready","The deployed webhook rejects an unsigned event and is configured (existing stripe-webhook-readiness).","exists"),
  ("J7.d","account-delete-during-trial","An in-trial user deletes the account from the Account page; sign-in fails afterwards and run cleanup finds nothing left.","needs deletion flow confirmed shippable"),
  ("J8.c","no-session-choice-with-takes","With takes listed, choosing No session stores feedback with no session link.","new"),
- ("J9","pre-upgrade-history-opens","Sessions the long-lived account recorded through the product on a named earlier release, and kept, still open with their metrics and coaching after the latest release.","needs long-lived paid account set up"),
+ ("J9","pre-upgrade-history-opens","Sessions the long-lived account recorded through the product on a named earlier release, and kept, still open with their metrics and coaching after the latest release.","needs paid-account decision"),
  ("J9","pre-upgrade-progress-opens","Progress over that kept history renders the same comparisons it did before the release.","new"),
- ("J9","entitlement-survives-upgrade","The paid entitlement holds and the billing portal opens after the release.","new"),
+ ("J9","entitlement-survives-upgrade","The paid entitlement holds and the billing portal opens after the release. Opening the portal creates a Stripe portal session; its address works for anyone holding it, so it is never logged or kept.","needs paid-account decision"),
 ]
 unused = set(ov) - used
 if unused:
@@ -102,7 +106,8 @@ if clash:
 if len({b for _, b, _, _ in new_rows}) != len(new_rows):
     fail("duplicate new row names")
 out={"schema":"speaksharp.aht-nightly.coverage-map.v1","date":"2026-11-14","catalogTotal":cat["totalAssertions"],
-     "rows":rows,"newRows":[{"leg":a,"assertion":b,"what":c,"status":d} for a,b,c,d in new_rows]}
+     "rows":rows,"newRows":[{"leg":a,"assertion":b,"what":c,"status":d} for a,b,c,d in new_rows],
+     "rowAcceptance":NEG_CONTROL}
 
 # Optional export in #1862's schema. Every row stays live: nothing is demoted without
 # reviewed replacement proof, so no row uses demote-with-reviewed-proof.
@@ -141,7 +146,7 @@ JOURNEYS = [
   "Feedback stored once per send with the right session link or none."),
  ("J9", [], "Existing paying customer after an upgrade",
   "Only a long-lived account shows that old data and a paid entitlement survive a migration.",
-  "Long-lived paid account, signed up and paid through the product, read-only; history recorded through the product on a named release and kept, never seeded.",
+  "Long-lived paid account, signed up and paid through the product; records no takes, but opening the billing portal creates a portal session whose address is never logged. History recorded through the product on a named release and kept, never seeded. Disabled until the product owner decides how a production paid account is paid; no real charge until then.",
   "Kept sessions and Progress open as before; entitlement and billing portal hold."),
 ]
 export = None
@@ -175,7 +180,7 @@ if len(sys.argv) == 5:
        "acceptance": "Expired unpaid account is walled on the open session and after sign-in, the deployed endpoints refuse it, and it can delete the account. Paid restoration is proven in #1795's sandbox suite, not live in J1.",
        "differsFrom1862": "#1862 accepts approved paid restoration live in J01 with a safe paid-restoration fixture; this design proves restoration in the sandbox suite, as the product owner chose on 14 Nov, and adds J2 for production checkout."},
       {"id": "checkout-from-wall", "journey": "J2", "status": "blocked",
-       "prerequisites": ["Payment wall", "Reviewed checkout cleanup with zero billing residue", "Trial ended early only on the test-created account carrying the canary tag, failing closed without it"],
+       "prerequisites": ["Payment wall", "Reviewed checkout cleanup that expires the session through Stripe and reconciles every outstanding checkout operation to a settled state, keeping the audit records the billing code needs", "Trial ended early only on the test-created account carrying the canary tag, failing closed without it"],
        "acceptance": "Hosted Checkout opens for the right price and account and an abandoned checkout leaves the account walled."},
       {"id": "device-human-proof", "journey": None, "status": "human-required",
        "acceptance": "Physical microphone and mobile Stop visibility; transcript accuracy and coaching usefulness."},
@@ -204,7 +209,8 @@ if len(sys.argv) == 5:
         extra += [f"{r['case']}/{r['assertion']} strengthened: {r['note']}" for r in rows
                   if r["status"] == "strengthen" and r["newHome"].split(".")[0] == j]
         export["additionalRequirements"].append({"id": f"design-rows-{j}", "journey": j, "status": "proposed",
-            "acceptance": " | ".join(extra)})
+            "acceptance": " | ".join(extra),
+            "implementationAcceptance": NEG_CONTROL})
 
 with open(sys.argv[2], "w") as fh:
     json.dump(out, fh, indent=1)

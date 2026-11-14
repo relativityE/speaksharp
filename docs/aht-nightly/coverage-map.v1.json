@@ -92,7 +92,7 @@
    "assertion": "probe-save-isolation",
    "newHome": "J1.c",
    "status": "strengthen",
-   "note": "Paired with the new short-stop-no-save row; failed on 14 Nov (AHT-03) until the short-Stop fix lands (G5)."
+   "note": "Paired with the new short-stop-no-save row. AHT-03's copy failed on 14 Nov; that take's duration was not measured, so a short Stop (G5) is a likely cause, not a proven one."
   },
   {
    "case": "AHT-01",
@@ -1447,8 +1447,14 @@
   },
   {
    "leg": "J1.d",
-   "assertion": "signout-no-forbidden-read",
-   "what": "No authenticated read returns 403 around sign-out (GAP-04; first seen on the maintained account, so comparability on a fresh account is unproven).",
+   "assertion": "signout-no-unauthorized-read",
+   "what": "Around sign-out, no read succeeds without a valid session and no saved data reaches the signed-out page. A 403 denial is a correct answer, not a failure (GAP-04; first seen on the maintained account, so comparability on a fresh account is unproven).",
+   "status": "row new"
+  },
+  {
+   "leg": "J1.d",
+   "assertion": "signout-no-stale-request",
+   "what": "After sign-out completes, the page issues no further authenticated request with the old session (GAP-04). Reported separately from signout-no-unauthorized-read.",
    "status": "row new"
   },
   {
@@ -1515,7 +1521,7 @@
    "leg": "J9",
    "assertion": "pre-upgrade-history-opens",
    "what": "Sessions the long-lived account recorded through the product on a named earlier release, and kept, still open with their metrics and coaching after the latest release.",
-   "status": "needs long-lived paid account set up"
+   "status": "needs paid-account decision"
   },
   {
    "leg": "J9",
@@ -1526,8 +1532,9 @@
   {
    "leg": "J9",
    "assertion": "entitlement-survives-upgrade",
-   "what": "The paid entitlement holds and the billing portal opens after the release.",
-   "status": "new"
+   "what": "The paid entitlement holds and the billing portal opens after the release. Opening the portal creates a Stripe portal session; its address works for anyone holding it, so it is never logged or kept.",
+   "status": "needs paid-account decision"
   }
- ]
+ ],
+ "rowAcceptance": "Each new or strengthened row counts only once it is validated on its own: a negative control makes it fail on the deliberately broken behaviour, and it passes when that is restored. A schema or 204-row validator pass does not prove it."
 }
