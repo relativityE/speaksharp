@@ -115,4 +115,14 @@ describe('measured limits', () => {
         expect(dollarCap(null, 0.01)).toBe(null);
         expect(limitsTable(new Set(), {}, { providerPerCallUsd: 0.02 }).providerUsd).toBe(1.8);
     });
+    // Codex P2 on 589e5882: a cap is never below the cost of its own counted work.
+    it('rounds a fractional-cent cost UP to whole cents, so the cap covers its own counted work', () => {
+        expect(limitsTable(new Set(), {}, { providerPerCallUsd: 0.00049 }).providerUsd).toBe(0.05);
+        expect(dollarCap(90, 0.00005)).toBe(0.01);
+        expect(dollarCap(1, 0.001)).toBe(0.01);
+        expect(dollarCap(0, 0.02)).toBe(0);
+        expect(dollarCap(90, 0.02)).toBe(1.8);
+        for (const [n, p] of [[90, 0.00049], [90, 0.00005], [93, 0.0137], [7, 0.333]])
+            expect(dollarCap(n, p) + 1e-12 >= n * p).toBe(true);
+    });
 });

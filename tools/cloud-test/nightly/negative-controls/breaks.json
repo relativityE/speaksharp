@@ -1345,6 +1345,14 @@
       "find": "    && Object.keys(b).length === Object.keys(BINDING_SHAPE).length\n",
       "replace": "",
       "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P10-dollar-cap-rounds-down",
+      "guards": "a dollar cap is rounded up, never below its counted work (Codex P2 589e5882)",
+      "file": "limits.cjs",
+      "find": "    return Math.ceil(Number((count * pricePerUnitUsd * 100).toFixed(6))) / 100;\n",
+      "replace": "    return Math.round(count * pricePerUnitUsd * 100) / 100;\n",
+      "test": "tests/limits.test.cjs"
     }
   ]
 }

@@ -140,11 +140,16 @@ function measuredLimit(kind, satisfiedGates, baseline = {}) {
             : 'sum over the runnable journeys of the test-work allowance plus the protected cleanup reserve; a journey that needs more stops there and its remaining legs report NOT RUN';
     return { limit: kind, perJourney, perRun, perPeriod: perRun === null ? null : perRun * RUNS_PER_PERIOD.runs, basis };
 }
-/** A dollar cap: a count times a unit price the product owner supplies. No margin of its own; unset without a price. */
+/**
+ * A dollar cap: a count times a unit price the product owner supplies. No margin of its own; unset without a price.
+ * Rounded UP to whole cents (Codex P2 on 589e5882), so a cap is never below the cost of its own counted work: nearest-cent
+ * rounding made 90 calls at $0.00049 ($0.0441) a $0.04 cap, and $0.00005 a zero cap. The cents are first rounded to six
+ * places, so binary noise (90 × $0.02 = 180.00000000000003 cents) doesn't add a cent.
+ */
 function dollarCap(count, pricePerUnitUsd) {
     if (count === null || !Number.isFinite(pricePerUnitUsd) || pricePerUnitUsd < 0)
         return null;
-    return Math.round(count * pricePerUnitUsd * 100) / 100;
+    return Math.ceil(Number((count * pricePerUnitUsd * 100).toFixed(6))) / 100;
 }
 /** The full table for one night. */
 function limitsTable(satisfiedToday = new Set(), baseline = {}, prices = {}) {
