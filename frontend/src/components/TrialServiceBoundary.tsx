@@ -45,6 +45,7 @@ export function TrialServiceBoundary({ children, allowTakeToFinish = false }: { 
     // A take is live from RECORDING through STOPPING, so its stop and save outcome stays visible on the page.
     const takeLive = useSessionStore(s => s.runtimeState === 'RECORDING' || s.runtimeState === 'STOPPING');
     const expiryRefetchedFor = useRef<number | null>(null);
+    const [tick, setTick] = useState(0);
 
     useEffect(() => {
         if (data?.can_start !== true || data.trial_active !== true) return;
@@ -66,18 +67,19 @@ export function TrialServiceBoundary({ children, allowTakeToFinish = false }: { 
             }
             return;
         }
-        const timers: number[] = [];
-        if (Number.isFinite(remaining)) {
-            timers.push(window.setTimeout(() => {
+        // One timer, never longer than RECHECK_MS: browser timers overflow above 2^31-1 ms (about 24.9 days) and
+        // would fire at once for a fresh 30-day trial. Each wake rechecks the server and re-arms this effect
+        // (tick), so the close lands within RECHECK_MS of the deadline even when the deadline is weeks away.
+        const timer = window.setTimeout(() => {
+            if (at !== null && performance.now() >= at) {
                 setExpiredAnswer(dataUpdatedAt);
                 expiryRefetchedFor.current = dataUpdatedAt;
-                void refetch();
-            }, remaining));
-        }
-        // Re-armed after every failed attempt too (errorUpdatedAt), so one failure never stops the checks.
-        if (remaining > RECHECK_MS) timers.push(window.setTimeout(() => { void refetch(); }, RECHECK_MS));
-        return () => timers.forEach(t => window.clearTimeout(t));
-    }, [data, dataUpdatedAt, errorUpdatedAt, refetch]);
+            }
+            void refetch();
+            setTick(t => t + 1);
+        }, Math.min(remaining, RECHECK_MS));
+        return () => window.clearTimeout(timer);
+    }, [data, dataUpdatedAt, errorUpdatedAt, refetch, tick]);
 
     // Mirrors ProtectedRoute's E2E-only no-session probe path (ENV.isE2E is false in production builds).
     // With no session there is no entitlement question to ask; the server still refuses every product call.

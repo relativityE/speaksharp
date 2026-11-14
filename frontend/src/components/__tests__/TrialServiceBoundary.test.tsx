@@ -223,6 +223,32 @@ describe('trial service payment wall', () => {
         expect(screen.getByTestId('trial-payment-wall')).toBeInTheDocument();
     });
 
+    it('a fresh 30-day trial stays open: no timer is scheduled past the browser limit (Codex P1)', async () => {
+        const setTimeoutSpy = vi.spyOn(window, 'setTimeout');
+        state.query.data = { ...permit, trial_active: true, trial_seconds_remaining: 30 * 24 * 60 * 60 };
+        render(tree());
+        await act(async () => { vi.advanceTimersByTime(1); });
+        expect(screen.getByText('PRIVATE SAVED WORK')).toBeInTheDocument();
+        for (let minute = 0; minute < 3; minute += 1) {
+            await act(async () => { vi.advanceTimersByTime(60_000); });
+        }
+        expect(screen.getByText('PRIVATE SAVED WORK')).toBeInTheDocument();
+        expect(state.refetch).toHaveBeenCalledTimes(3);
+        const delays = setTimeoutSpy.mock.calls.map(([, ms]) => ms ?? 0);
+        expect(Math.max(...delays)).toBeLessThanOrEqual(2_147_483_647);
+        setTimeoutSpy.mockRestore();
+    });
+
+    it('a trial that ends while the page is open closes on time, not up to a minute late', async () => {
+        state.query.data = { ...permit, trial_active: true, trial_seconds_remaining: 150 };
+        render(tree());
+        await act(async () => { vi.advanceTimersByTime(149_000); });
+        expect(screen.getByText('PRIVATE SAVED WORK')).toBeInTheDocument();
+        await act(async () => { vi.advanceTimersByTime(1_000); });
+        expect(screen.queryByText('PRIVATE SAVED WORK')).not.toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Your free trial has ended' })).toBeInTheDocument();
+    });
+
     it('a successful answer without can_start true is a refusal, even on a confirmed page', () => {
         state.query.data = permit;
         const view = render(tree());
