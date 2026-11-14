@@ -266,8 +266,8 @@
    "case": "AHT-02",
    "assertion": "same-target-numeric",
    "newHome": "J3.a",
-   "status": "kept",
-   "note": ""
+   "status": "strengthen",
+   "note": "Same fixture-reference oracle as J1.b; the snapshot gate moves out of the case preflight (design \u00a76 item 10)."
   },
   {
    "case": "AHT-02",
@@ -419,58 +419,58 @@
   {
    "case": "AHT-03",
    "assertion": "same-target-repeat",
-   "newHome": "J1.b/J1.c and J3.a",
-   "status": "consolidated",
-   "note": "Same check on the same code already runs in J1 (Open Mic) and J3.a (Focus, full fixture); the partial fixture adds nothing to it. Not dropped as a behaviour."
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": "Kept on the partial fixture: the only repeat that starts from a take with missed points, so it is the only check that missed points reset to pending."
   },
   {
    "case": "AHT-03",
    "assertion": "analytics-repeat-opens-product",
-   "newHome": "J1.b/J1.c and J3.a",
-   "status": "consolidated",
-   "note": "Same check on the same code already runs in J1 (Open Mic) and J3.a (Focus, full fixture); the partial fixture adds nothing to it. Not dropped as a behaviour."
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": "Kept on the partial fixture: the only repeat that starts from a take with missed points, so it is the only check that missed points reset to pending."
   },
   {
    "case": "AHT-03",
    "assertion": "rapid-repeat-gate",
    "newHome": "J1.b/J1.c and J3.a",
    "status": "consolidated",
-   "note": "Same check on the same code already runs in J1 (Open Mic) and J3.a (Focus, full fixture); the partial fixture adds nothing to it. Not dropped as a behaviour."
+   "note": "Same check on the same code already runs in J1 (Open Mic) and J3.a (Focus, full fixture); the partial fixture adds nothing to it. Needs the owner's disposition under finite-aht-denominator.json before the row leaves AHT-03's denominator."
   },
   {
    "case": "AHT-03",
    "assertion": "rapid-repeat-release",
    "newHome": "J1.b/J1.c and J3.a",
    "status": "consolidated",
-   "note": "Same check on the same code already runs in J1 (Open Mic) and J3.a (Focus, full fixture); the partial fixture adds nothing to it. Not dropped as a behaviour."
+   "note": "Same check on the same code already runs in J1 (Open Mic) and J3.a (Focus, full fixture); the partial fixture adds nothing to it. Needs the owner's disposition under finite-aht-denominator.json before the row leaves AHT-03's denominator."
   },
   {
    "case": "AHT-03",
    "assertion": "next-start",
    "newHome": "J1.b/J1.c and J3.a",
    "status": "consolidated",
-   "note": "Same check on the same code already runs in J1 (Open Mic) and J3.a (Focus, full fixture); the partial fixture adds nothing to it. Not dropped as a behaviour."
+   "note": "Same check on the same code already runs in J1 (Open Mic) and J3.a (Focus, full fixture); the partial fixture adds nothing to it. Needs the owner's disposition under finite-aht-denominator.json before the row leaves AHT-03's denominator."
   },
   {
    "case": "AHT-03",
    "assertion": "next-start-release",
    "newHome": "J1.b/J1.c and J3.a",
    "status": "consolidated",
-   "note": "Same check on the same code already runs in J1 (Open Mic) and J3.a (Focus, full fixture); the partial fixture adds nothing to it. Not dropped as a behaviour."
+   "note": "Same check on the same code already runs in J1 (Open Mic) and J3.a (Focus, full fixture); the partial fixture adds nothing to it. Needs the owner's disposition under finite-aht-denominator.json before the row leaves AHT-03's denominator."
   },
   {
    "case": "AHT-03",
    "assertion": "probe-save-isolation",
    "newHome": "J1.b/J1.c and J3.a",
    "status": "consolidated",
-   "note": "Same check on the same code already runs in J1 (Open Mic) and J3.a (Focus, full fixture); the partial fixture adds nothing to it. Not dropped as a behaviour."
+   "note": "Same check on the same code already runs in J1 (Open Mic) and J3.a (Focus, full fixture); the partial fixture adds nothing to it. Needs the owner's disposition under finite-aht-denominator.json before the row leaves AHT-03's denominator."
   },
   {
    "case": "AHT-03",
    "assertion": "same-target-numeric",
    "newHome": "J1.b/J1.c and J3.a",
    "status": "consolidated",
-   "note": "Same check on the same code already runs in J1 (Open Mic) and J3.a (Focus, full fixture); the partial fixture adds nothing to it. Not dropped as a behaviour."
+   "note": "Same check on the same code already runs in J1 (Open Mic) and J3.a (Focus, full fixture); the partial fixture adds nothing to it. Needs the owner's disposition under finite-aht-denominator.json before the row leaves AHT-03's denominator."
   },
   {
    "case": "AHT-03",
@@ -589,7 +589,7 @@
    "assertion": "cold-pending-observed",
    "newHome": "J5.a",
    "status": "kept",
-   "note": "Needs #1858 deployed (14 Nov FAIL: cancelled load reported as a model failure)."
+   "note": "Needs #1858 deployed (14 Nov FAIL: cancelled load reported as a model failure). Also the GAP-06 stimulus row (model requests > 0)."
   },
   {
    "case": "AHT-04",
@@ -1051,7 +1051,7 @@
    "assertion": "leave-released",
    "newHome": "J5.c",
    "status": "strengthen",
-   "note": "Closed-tab release must be observed from an independent page or the server lease row, not by the closed tab (GAP-05; 14 Nov HOLD)."
+   "note": "Keep the R5 observer and add the R4C-comparable observer with the same leave action, tab-close variant reported separately, as the gap ledger requires for GAP-05 (14 Nov HOLD)."
   },
   {
    "case": "AHT-10",
@@ -1442,19 +1442,25 @@
   {
    "leg": "J1.d",
    "assertion": "signout-no-forbidden-read",
-   "what": "No authenticated read returns 403 around sign-out (GAP-04).",
-   "status": "exists as product gap; row new"
+   "what": "No authenticated read returns 403 around sign-out (GAP-04; first seen on the maintained account, so comparability on a fresh account is unproven).",
+   "status": "row new"
+  },
+  {
+   "leg": "J1.e",
+   "assertion": "trial-expired-wall-on-open-session",
+   "what": "With the browser still signed in, a reload or navigation after the trial ends lands on the payment page (G3).",
+   "status": "needs payment-wall PR"
   },
   {
    "leg": "J1.e",
    "assertion": "trial-expired-payment-wall",
-   "what": "After the run-owned trial is ended (service role), next sign-in lands on the payment page; Practice, History, Progress and deep links are not reachable (G3).",
+   "what": "A fresh sign-in after expiry lands on the payment page; Practice, History, Progress and deep links are not reachable (G3).",
    "status": "needs payment-wall PR"
   },
   {
    "leg": "J1.e",
    "assertion": "trial-expired-server-refuses",
-   "what": "With the wall bypassed in the browser, the server refuses Start, save, coaching and history reads for the expired account (G1, G2).",
+   "what": "On the deployed build, direct calls with the expired account's own token (Start, save, coaching, history read) are refused. Checks the deployed bodies; the logic itself is in DB and contract tests (G1, G2).",
    "status": "needs payment-wall PR"
   },
   {
@@ -1464,63 +1470,57 @@
    "status": "needs deletion flow confirmed shippable"
   },
   {
-   "leg": "J2.a",
+   "leg": "J2",
    "assertion": "paid-wall-before-payment",
-   "what": "Expired trial shows the wall before checkout.",
+   "what": "A run-owned expired account sees the wall with a way to pay.",
    "status": "needs payment-wall PR"
   },
   {
-   "leg": "J2.b",
-   "assertion": "checkout-entitlement-by-webhook",
-   "what": "Test-mode checkout completes and the entitlement arrives through the real webhook, not a synthetic post.",
-   "status": "needs test-mode environment decision"
-  },
-  {
-   "leg": "J2.b",
-   "assertion": "access-restored-with-history",
-   "what": "After payment the user's pre-expiry take is visible again and Practice opens.",
-   "status": "needs payment-wall PR"
-  },
-  {
-   "leg": "J2.c",
-   "assertion": "paid-take-saved",
-   "what": "A paid user records, saves once and gets coaching.",
-   "status": "exists in parts (stripe-paid-soft-launch-runtime)"
-  },
-  {
-   "leg": "J2.d",
-   "assertion": "billing-portal-opens",
-   "what": "Billing portal opens for the paying user.",
-   "status": "exists (stripe-billing-portal-readiness)"
-  },
-  {
-   "leg": "J2.e",
-   "assertion": "cancel-ends-access",
-   "what": "Cancelling ends access at the period end (test clock) and the wall returns.",
+   "leg": "J2",
+   "assertion": "checkout-opens-for-expired-user",
+   "what": "The wall's pay action opens hosted Checkout for the $10 monthly price, bound to this account, with no trial; not completed.",
    "status": "new"
   },
   {
-   "leg": "J2.f",
-   "assertion": "paid-delete-cancels-subscription",
-   "what": "Deleting a paying account cancels the subscription; no further invoice is scheduled.",
-   "status": "new; needs deletion + billing ownership"
+   "leg": "J2",
+   "assertion": "abandoned-checkout-stays-walled",
+   "what": "Returning from Checkout without paying leaves the account walled and unpaid.",
+   "status": "new"
+  },
+  {
+   "leg": "J2",
+   "assertion": "deployed-webhook-ready",
+   "what": "The deployed webhook rejects an unsigned event and is configured (existing stripe-webhook-readiness).",
+   "status": "exists"
+  },
+  {
+   "leg": "J7.d",
+   "assertion": "account-delete-during-trial",
+   "what": "An in-trial user deletes the account from the Account page; sign-in fails afterwards and run cleanup finds nothing left.",
+   "status": "needs deletion flow confirmed shippable"
+  },
+  {
+   "leg": "J8.c",
+   "assertion": "no-session-choice-with-takes",
+   "what": "With takes listed, choosing No session stores feedback with no session link.",
+   "status": "new"
   },
   {
    "leg": "J9",
    "assertion": "pre-upgrade-history-opens",
-   "what": "A long-lived paid account's sessions saved before the latest release still open, with transcript state and coaching as saved.",
-   "status": "new; needs long-lived account decision"
+   "what": "Pinned seed sessions saved on a named earlier release still open with their metrics and coaching after the latest release.",
+   "status": "needs long-lived account decision"
   },
   {
    "leg": "J9",
-   "assertion": "pre-upgrade-progress-comparison",
-   "what": "A new take compares against pre-upgrade history (same target, same mode) with an honest comparison.",
+   "assertion": "pre-upgrade-progress-opens",
+   "what": "Progress over the pinned seed history renders the same comparisons it did before the release.",
    "status": "new"
   },
   {
    "leg": "J9",
    "assertion": "entitlement-survives-upgrade",
-   "what": "The paid entitlement and billing portal still work after the release.",
+   "what": "The paid entitlement holds and the billing portal opens after the release.",
    "status": "new"
   }
  ]
