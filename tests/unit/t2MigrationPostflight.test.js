@@ -12,6 +12,7 @@ import { assertT2Sources, assertT2Catalog, t2CatalogQuery, T2_VERSIONS, T2_INVEN
   t2KnownAbsentQuery, t2EdgeReleaseContract } from '../../scripts/lib/t2MigrationPostflight.mjs';
 import { EXACT_MIGRATION_ALLOWLIST } from '../../scripts/lib/exactMigrationGate.mjs';
 import { ABANDONMENT_CATALOG_DELTA } from '../../scripts/lib/abandonmentCatalogPins.mjs';
+import { FEEDBACK_FENCE_CATALOG_DELTA } from '../../scripts/lib/feedbackFenceCatalogPins.mjs';
 import { retirementContract, retirementSnapshotQuery, assertRetirementSnapshot } from '../../scripts/lib/retirementMigrationPostflight.mjs';
 
 const read = name => readFileSync(name, 'utf8');
@@ -202,8 +203,8 @@ console.log(query.includes('objects AS')?rows.join('\\n'):rows[0]);});\n`);
     expect(contract.profile).toBe('post-1643-abandonment');
     expect(contract.stage).toBe(4);
     expect(contract.pins.map(pin => pin.version)).toEqual(ledger);
-    expect(contract.knownAbsent.families).toEqual(['settle_account_completion_billing_v1']);
-    expect(contract.knownAbsent.tables).toEqual([]);
+    expect(contract.knownAbsent.families).toEqual(['settle_account_completion_billing_v1', '_rwt_feedback_fence_v1', 'clean_rwt_feedback_fence_v1', 'close_rwt_feedback_fence_v1', 'open_rwt_feedback_fence_v1']);
+    expect(contract.knownAbsent.tables).toEqual(['rwt_feedback_fences']);
     expect(contract.inventory.functions).toContain('abandon_recording_start_v1');
     expect(contract.inventory.tables).toContain('recording_start_abandonments');
     for (const [key, digest] of Object.entries(ABANDONMENT_CATALOG_DELTA)) expect(contract.expected[key]).toBe(digest);
@@ -288,13 +289,87 @@ console.log(query.includes('objects AS')?rows.join('\\n'):rows[0]);});\n`);
       } finally { await db.close(); }
     }
   }, 60_000);
+  it('selects only the exact ledger-11 feedback-fence successor; refuses billing129, refund and unknown or reordered ledgers', () => {
+    const ledger = [...T2_VERSIONS, ...c1Versions, '20261110173548', '20261112133000', '20261114100000'];
+    const contract = t2ReleaseContract(process.cwd(), ledger);
+    expect(contract.profile).toBe('post-1811-feedback-fence');
+    expect(contract.stage).toBe(5);
+    expect(contract.pins.map(pin => pin.version)).toEqual(ledger);
+    expect(contract.knownAbsent.families).toEqual(['settle_account_completion_billing_v1']);
+    expect(contract.knownAbsent.tables).toEqual([]);
+    for (const fn of ['_rwt_feedback_fence_v1', 'clean_rwt_feedback_fence_v1', 'close_rwt_feedback_fence_v1', 'open_rwt_feedback_fence_v1']) expect(contract.inventory.functions).toContain(fn);
+    expect(contract.inventory.tables).toContain('rwt_feedback_fences');
+    expect(contract.inventory.triggers).toContain('zz_rwt_feedback_fence');
+    expect(Object.keys(FEEDBACK_FENCE_CATALOG_DELTA)).toHaveLength(6);
+    for (const [key, digest] of Object.entries(FEEDBACK_FENCE_CATALOG_DELTA)) expect(contract.expected[key]).toBe(digest);
+    for (const [key, digest] of Object.entries(ABANDONMENT_CATALOG_DELTA)) expect(contract.expected[key]).toBe(digest);
+    expect(t2EdgeReleaseContract(process.cwd(), ledger).profile).toBe('post-1811-feedback-fence');
+    for (const bad of [
+      [...ledger, '20261114100001'],                                    // twelve entries
+      [...ledger.slice(0, -1), '20261112130000', ledger.at(-1)],        // the withheld refund applied
+      [...ledger.slice(0, -1), '20261027192550', ledger.at(-1)],        // the withheld billing129 applied
+      [...ledger.slice(0, -2), ledger.at(-1), ledger.at(-2)],           // reordered successors
+      [...ledger.slice(0, -2), ledger.at(-1)],                          // the fence without the abandonment
+    ]) expect(() => t2ReleaseContract(process.cwd(), bad)).toThrow('ledger');
+  });
+  it('attests the installed ledger-11 feedback-fence catalog and refuses widened grants, a disabled trigger and wrong-stage snapshots', async () => {
+    for (const platformFunctionDefaults of [false, true]) {
+      const context = platformFunctionDefaults ? 'native-replay' : 'retained-production';
+      const db = await fixture({ platformFunctionDefaults });
+      const rows = async query => (await db.exec(query)).filter(value => value.rows?.length)
+        .map(value => String(Object.values(value.rows[0])[0]));
+      try {
+        await db.exec('CREATE SCHEMA supabase_migrations; CREATE TABLE supabase_migrations.schema_migrations(version text PRIMARY KEY)');
+        const ten = [...T2_VERSIONS, ...c1Versions, '20261110173548', '20261112133000'];
+        for (const v of ten) await db.exec(`SET ROLE closure_owner;
+          ${source(EXACT_MIGRATION_ALLOWLIST.find(row => row.version === v).file)} RESET ROLE;
+          INSERT INTO supabase_migrations.schema_migrations VALUES('${v}')`);
+        // The scoped fixture already carries the report table the fence guards (id, user_id); the trigger binds to it.
+        const abandoned = t2ReleaseContract(process.cwd(), ten, { catalogContext: context });
+        const tenRows = await rows(t2ReleaseSnapshotQuery(abandoned));
+        expect(assertT2ReleaseSnapshot(abandoned, tenRows).profile).toBe('post-1643-abandonment');
+        await db.exec(`SET ROLE closure_owner; ${source('20261114100000_rwt_feedback_fence_1811.sql')} RESET ROLE;`);
+        // Installed objects without their ledger entry cannot pass as the abandonment profile.
+        const unrecorded = await rows(t2ReleaseSnapshotQuery(abandoned));
+        expect(() => assertT2ReleaseSnapshot(abandoned, unrecorded)).toThrow();
+        await db.exec("INSERT INTO supabase_migrations.schema_migrations VALUES('20261114100000')");
+        const eleven = [...ten, '20261114100000'];
+        const contract = t2ReleaseContract(process.cwd(), eleven, { catalogContext: context });
+        const installed = await rows(t2ReleaseSnapshotQuery(contract));
+        expect(JSON.parse(installed[0])).toEqual(eleven);
+        expect(assertT2ReleaseSnapshot(contract, installed).profile).toBe('post-1811-feedback-fence');
+        // The Edge contract is the retained-production context only.
+        if (context === 'retained-production') {
+          expect(assertT2ReleaseSnapshot(t2EdgeReleaseContract(process.cwd(), installed[0]), installed).passed).toBe(true);
+        }
+        // The ledger-10 contract refuses the ledger-11 database, and vice versa.
+        expect(() => assertT2ReleaseSnapshot(abandoned, installed)).toThrow();
+        expect(() => assertT2ReleaseSnapshot(contract, tenRows)).toThrow();
+        const snapshot = t2ReleaseSnapshotQuery(contract).replace(/^BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;/, '').replace(/COMMIT;\s*$/, '');
+        for (const mutation of [
+          'GRANT EXECUTE ON FUNCTION public.open_rwt_feedback_fence_v1(uuid,jsonb,text,integer) TO authenticated',
+          'GRANT EXECUTE ON FUNCTION public._rwt_feedback_fence_v1() TO anon',
+          'REVOKE EXECUTE ON FUNCTION public.clean_rwt_feedback_fence_v1(text) FROM service_role',
+          'GRANT SELECT ON public.rwt_feedback_fences TO authenticated',
+          'ALTER TABLE public.rwt_feedback_fences DISABLE ROW LEVEL SECURITY',
+          'ALTER FUNCTION public.close_rwt_feedback_fence_v1(text) SECURITY INVOKER',
+          'ALTER FUNCTION public._rwt_feedback_fence_v1() RESET search_path',
+          'ALTER TABLE public.user_issue_reports DISABLE TRIGGER zz_rwt_feedback_fence',
+        ]) {
+          const changed = await rows(`BEGIN; ${mutation}; ${snapshot} ROLLBACK;`);
+          expect(() => assertT2ReleaseSnapshot(contract, changed), mutation).toThrow();
+        }
+        expect(await rows(t2ReleaseSnapshotQuery(contract))).toEqual(installed);
+      } finally { await db.close(); }
+    }
+  }, 90_000);
   it('selects only the exact retirement successor without admitting billing129 or unknown successors', () => {
     const ledger = [...T2_VERSIONS, ...c1Versions, '20261110173548'];
     const contract = t2ReleaseContract(process.cwd(), ledger);
     expect(contract.profile).toBe('post-128-retirement');
     expect(contract.pins).toHaveLength(9);
-    expect(contract.knownAbsent.families).toEqual(['settle_account_completion_billing_v1', 'abandon_recording_start_v1']);
-    expect(contract.knownAbsent.tables).toEqual(['recording_start_abandonments']);
+    expect(contract.knownAbsent.families).toEqual(['settle_account_completion_billing_v1', 'abandon_recording_start_v1', '_rwt_feedback_fence_v1', 'clean_rwt_feedback_fence_v1', 'close_rwt_feedback_fence_v1', 'open_rwt_feedback_fence_v1']);
+    expect(contract.knownAbsent.tables).toEqual(['recording_start_abandonments', 'rwt_feedback_fences']);
     expect(t2EdgeReleaseContract(process.cwd(), ledger).profile).toBe('post-128-retirement');
     for (const count of [6, 7, 8]) expect(() => t2EdgeReleaseContract(process.cwd(), ledger.slice(0, count)))
       .toThrow('requires installed coaching retirement successor');

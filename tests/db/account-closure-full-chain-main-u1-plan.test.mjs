@@ -130,7 +130,10 @@ const START_ABANDONMENT=Object.freeze({name:'20261112133000_recording_start_aban
 // #1829's refund follow-up table: outside the account-closure chain, pinned here independently of the planner.
 const REFUND=Object.freeze({name:'20261112130000_stripe_refund_followups.sql',version:'20261112130000',
   sha256:'47fce28446a1e8f56c27dd10a6bb92e803a5907db0fd9d7fa67cbf11f9701fe8'});
-const physical=repositoryPhysical.filter(row=>![WITHHELD.name,START_ABANDONMENT.name,REFUND.name].includes(row.name));
+// #1811 feedback fence: repository inventory only for every profile before main-feedback-fence-131.
+const FEEDBACK_FENCE=Object.freeze({name:'20261114100000_rwt_feedback_fence_1811.sql',
+  version:'20261114100000',sha256:'802798d5801366c9cb1e83beb4431093935cbf143bbc1a20d7b6f95721ab8bde'});
+const physical=repositoryPhysical.filter(row=>![WITHHELD.name,START_ABANDONMENT.name,REFUND.name,FEEDBACK_FENCE.name].includes(row.name));
 const main = physical.filter(row => ![U1.name, ANALYTICS.name, ...ACCOUNT.map(row=>row.name), FENCE.name, RETENTION.name, BILLING.name].includes(row.name));
 const receiving = [...main, U1].sort((a, b) => a.name.localeCompare(b.name, 'en'));
 const analyticsReceiving=[...receiving,ANALYTICS].sort((a,b)=>a.name.localeCompare(b.name,'en'));
@@ -159,8 +162,31 @@ test('reviewed withheld retirement is repository inventory, never historical rep
   // Adding the exact withheld pin does not let an old profile accept later applied members.
   assert.throws(()=>buildMainU1ReplayPlan(repositoryPhysical,'main-t2-retention-128'),/unreviewed migration/);
   const plan=buildMainU1ReplayPlan(repositoryPhysical,'main-completion-billing-129');
-  assert.equal(plan.migrations,129);assert.equal(plan.repositoryMigrations,132);
-  assert.deepEqual(plan.withheld.map(row=>row.name),[WITHHELD.name,REFUND.name,START_ABANDONMENT.name]);
+  assert.equal(plan.migrations,129);assert.equal(plan.repositoryMigrations,133);
+  assert.deepEqual(plan.withheld.map(row=>row.name),[WITHHELD.name,REFUND.name,START_ABANDONMENT.name,FEEDBACK_FENCE.name]);
+});
+// Repository registration is NOT an installed-schema or release attestation.
+test('the feedback fence is pinned and excluded from every profile before main-feedback-fence-131',()=>{
+  assert.deepEqual(repositoryPhysical.find(row=>row.name===FEEDBACK_FENCE.name),FEEDBACK_FENCE);
+  for(const [profile,rows] of [['main-120',main],['main-u1-121',receiving],['main-analytics-u1-122',analyticsReceiving],
+    ['main-t2-account-126',fullReceiving],['main-t2-fence-127',fenceReceiving],['main-t2-retention-128',retentionReceiving],
+    ['main-completion-billing-129',billingReceiving]]) {
+    const before=buildMainU1ReplayPlan(rows,profile);
+    const plan=buildMainU1ReplayPlan([...rows,FEEDBACK_FENCE],profile);
+    assert.deepEqual(plan.stages,before.stages);
+    assert.deepEqual(plan.replayFiles,before.replayFiles);
+    assert.equal(plan.migrations,before.migrations);
+    assert.equal(plan.repositoryMigrations,before.repositoryMigrations+1);
+    assert.deepEqual(plan.withheld.find(row=>row.name===FEEDBACK_FENCE.name),{...FEEDBACK_FENCE,status:'NOT REPLAYED'});
+    assert.ok(plan.stages.every(stage=>!stage.versions.includes(FEEDBACK_FENCE.version)));
+    assert.throws(()=>buildMainU1ReplayPlan([...rows,{...FEEDBACK_FENCE,sha256:'0'.repeat(64)}],profile),/withheld migration digest changed/);
+    assert.throws(()=>buildMainU1ReplayPlan([...rows,{...FEEDBACK_FENCE,name:FEEDBACK_FENCE.version+'_alias.sql'}],profile),/unreviewed migration/);
+  }
+  for(const profile of ['main-coaching-retirement-129','main-start-abandonment-130']) {
+    const plan=buildMainU1ReplayPlan(repositoryPhysical,profile);
+    assert.deepEqual(plan.withheld.find(row=>row.name===FEEDBACK_FENCE.name),{...FEEDBACK_FENCE,status:'NOT REPLAYED'},profile);
+    assert.ok(plan.stages.every(stage=>!stage.versions.includes(FEEDBACK_FENCE.version)),profile);
+  }
 });
 test('the refund follow-up migration is pinned inventory that no profile replays',()=>{
   assert.deepEqual(repositoryPhysical.find(row=>row.name===REFUND.name),REFUND);
@@ -178,8 +204,8 @@ test('the refund follow-up migration is pinned inventory that no profile replays
     assert.throws(()=>buildMainU1ReplayPlan([...rows,{...REFUND,sha256:'0'.repeat(64)}],profile),/withheld migration digest changed/);
   }
   const plan=buildMainU1ReplayPlan(repositoryPhysical,'main-coaching-retirement-129');
-  assert.equal(plan.migrations,129);assert.equal(plan.repositoryMigrations,132);
-  assert.deepEqual(plan.withheld.map(row=>row.name),[BILLING.name,REFUND.name,START_ABANDONMENT.name]);
+  assert.equal(plan.migrations,129);assert.equal(plan.repositoryMigrations,133);
+  assert.deepEqual(plan.withheld.map(row=>row.name),[BILLING.name,REFUND.name,START_ABANDONMENT.name,FEEDBACK_FENCE.name]);
 });
 test('runtime stages only replay members and checks withheld ledger/catalog absence',()=>{
   const driver=read('tests/db/account-closure-full-chain.mjs');
@@ -347,7 +373,7 @@ test('retention128 is staged after the fence with catalog and non-activation evi
     'retention_content_free_compatible()', 'retention-catalog.json', 'retention catalog/ACL',
     'completion must remain disabled after retention', 'CONTENT-FREE RETENTION FULL-CHAIN CATALOG PASSED'])
     assert.ok(tail.includes(token),token);
-  assert.ok(driver.includes('MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name,RETIREMENT_MIGRATION.name,START_ABANDONMENT_MIGRATION.name].includes(name)'));
+  assert.ok(driver.includes('MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name,RETIREMENT_MIGRATION.name,START_ABANDONMENT_MIGRATION.name,FEEDBACK_FENCE_MIGRATION.name].includes(name)'));
 });
 test('fence127 runtime applies the fence only after the completion proof and native catalog finish',()=>{
   const driver=read('tests/db/account-closure-full-chain.mjs');
@@ -466,7 +492,7 @@ for (const { path, sha256 } of unchangedProofs) test('original proof/helper unch
 test('U1 is excluded from initial staging and all four final proof layers remain explicit', () => {
   const driver = read('tests/db/account-closure-full-chain.mjs');
   const replay = driver.indexOf("if (args.profile !== 'main-120')");
-  assert.ok(driver.includes('![candidate,recovery,MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name,RETIREMENT_MIGRATION.name,START_ABANDONMENT_MIGRATION.name].includes(name)'));
+  assert.ok(driver.includes('![candidate,recovery,MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name,RETIREMENT_MIGRATION.name,START_ABANDONMENT_MIGRATION.name,FEEDBACK_FENCE_MIGRATION.name].includes(name)'));
   const final = driver.slice(replay, driver.indexOf('} catch (error)', replay));
   assert.ok(replay > driver.indexOf("console.log('CHECKOUT REJECTION RECOVERY INVARIANTS PASSED')"));
   for (const token of [
@@ -484,12 +510,12 @@ test('U1 is excluded from initial staging and all four final proof layers remain
   assert.ok(driver.includes('if (primaryError || cleanupError) throw primaryError ?? cleanupError'));
 });
 
-test('existing workflow collects Node tests and explicitly selects the exact129 and ledger-10 profiles on replay AND cleanup', () => {
+test('existing workflow collects Node tests and explicitly selects the exact129, ledger-10 and ledger-11 profiles on replay AND cleanup', () => {
   const workflow = read('.github/workflows/account-closure-full-chain-proof.yml');
   const collection = workflow.indexOf('run: node --test tests/db/account-closure-full-chain-main-u1-plan.test.mjs');
   assert.ok(collection > workflow.indexOf('actions/setup-node@v6'));
   assert.ok(collection < workflow.indexOf('supabase/setup-cli@v2'));
-  assert.ok(workflow.includes('profile: [main-completion-billing-129, main-coaching-retirement-129, main-start-abandonment-130]'));
+  assert.ok(workflow.includes('profile: [main-completion-billing-129, main-coaching-retirement-129, main-start-abandonment-130, main-feedback-fence-131]'));
   assert.ok(workflow.includes('run: node tests/db/account-closure-full-chain.mjs --profile=${{ matrix.profile }}'));
   assert.ok(workflow.includes('run: node tests/db/account-closure-full-chain.mjs --cleanup --profile=${{ matrix.profile }}'));
   assert.ok(!workflow.includes('--profile=main-t2-retention-128'),'the billing file makes retention128 refuse the real tree');
