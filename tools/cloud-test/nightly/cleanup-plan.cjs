@@ -19,7 +19,30 @@
 // Time: every cleanup request has its own deadline, CLEANUP_REQUEST_DEADLINE_S, which the harness handoff must enforce
 // on each call (the repo's existing bound for a cleanup-side read, runAttemptsTerminal's AbortSignal.timeout(10_000)).
 // A journey's time reserve is its requests times that deadline, so it is a ceiling, not an estimate.
+const fs = require('node:fs');
+const path = require('node:path');
 const { JOURNEYS } = require('./journey-plan.cjs');
+
+/**
+ * Harness cases that run on a maintained, long-lived account instead of signing one up: read from each case's harness
+ * template (`account.mode`), so a case that changes mode changes the count. AHT-15 needs an account with history.
+ */
+const CASE_TEMPLATES = path.join(__dirname, '..', 'harness', 'bundle', 'config', 'cases');
+const caseAccountMode = (caseId) => JSON.parse(fs.readFileSync(path.join(CASE_TEMPLATES, `${caseId}.TEMPLATE.json`), 'utf8')).account?.mode;
+const MAINTAINED_CASES = Object.freeze([...new Set(JOURNEYS.flatMap((j) => j.legs.map((l) => l.caseId)).filter(Boolean))]
+    .filter((c) => caseAccountMode(c) === 'maintained-read-only').sort());
+/**
+ * The run-owned accounts a set of legs signs up, as the harness is today: every harness case signs up its own account
+ * (prepareRunOwnedAccount in each spec) except a case on a maintained account, and a journey's legs that have no
+ * harness case yet add one account between them (their adapter signs up at least one). J8.c needs J8.b's takes, so it
+ * may well reuse AHT-07's account: counting one for it errs high, never low. It falls to one per journey once the
+ * harness handoff shares one signup across a journey's cases.
+ */
+function signedUpAccounts(legs) {
+    const cases = new Set(legs.map((l) => l.caseId).filter((c) => c !== null && !MAINTAINED_CASES.includes(c)));
+    const caseless = new Set(legs.filter((l) => l.caseId === null).map((l) => l.journey));
+    return cases.size + caseless.size;
+}
 
 const CLEANUP_REQUEST_DEADLINE_S = 10;
 /** Cases whose run writes feedback behind a fence (#1859, #1860): each needs its fence closed, cleaned and verified. */
@@ -51,12 +74,8 @@ const UNDEFINED_CLEANUP = Object.freeze({
     J2: 'expiring the Checkout Session and settling the checkout operation has no reviewed cleanup step yet',
 });
 class CleanupUndefined extends Error {}
-/**
- * The run-owned accounts a journey can leave, as the harness is today: every harness case signs up its own account
- * (prepareRunOwnedAccount in each spec), so a journey whose legs run as three cases has three. It falls to one per
- * journey once the harness handoff shares one signup across a journey's cases.
- */
-const runOwnedAccounts = (j) => Math.max(1, new Set(j.legs.map((l) => l.caseId).filter(Boolean)).size);
+/** The run-owned accounts a journey can leave, every leg counted (signedUpAccounts), so a gate opening never outruns it. */
+const runOwnedAccounts = (j) => Math.max(1, signedUpAccounts(j.legs));
 
 /**
  * The structural worst case of one journey's cleanup: { requests, seconds, steps }. J9 reads a long-lived account and
@@ -87,5 +106,5 @@ const reserveMinutes = (r) => Math.ceil(r.seconds / 60);
 
 module.exports = {
     ACCOUNT_DELETION, CLEANUP_REQUEST_DEADLINE_S, CleanupUndefined, FENCED_CASES, SOURCE_COUNTS, UNDEFINED_CLEANUP,
-    cleanupReserve, reserveMinutes, runOwnedAccounts,
+    MAINTAINED_CASES, cleanupReserve, reserveMinutes, runOwnedAccounts, signedUpAccounts,
 };

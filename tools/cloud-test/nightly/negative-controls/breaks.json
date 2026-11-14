@@ -350,7 +350,7 @@
       "id": "P3-limits-paid-account-signed-up",
       "file": "limits.cjs",
       "test": "tests/limits.test.cjs",
-      "guards": "only fresh run-owned journeys are sign-ups",
+      "guards": "the shared-account target counts only fresh run-owned journeys",
       "find": "journeys.filter((j) => j.account === 'fresh-run-owned').length",
       "replace": "journeys.length + 1"
     },
@@ -358,8 +358,8 @@
       "id": "P3-limits-identity-reads-per-leg",
       "file": "limits.cjs",
       "test": "tests/limits.test.cjs",
-      "guards": "identity is read once at the start and once at the end of each journey, plus admission and final",
-      "find": "identityReads: 2 * journeys.length + 2,",
+      "guards": "identity reads are the harness's 2 per case plus 2, not per leg",
+      "find": "identityReads: 2 * caseUnits(legs) + 2,",
       "replace": "identityReads: 2 * legs.length + 2,"
     },
     {
@@ -1262,9 +1262,25 @@
       "id": "P8-signups-per-journey",
       "guards": "sign-ups follow today's per-case account lifecycle, not one per journey",
       "file": "limits.cjs",
-      "find": "        freshSignUps: accountUnits(legs.filter(isFresh)),",
+      "find": "        freshSignUps: signedUpAccounts(legs.filter(isFresh)),",
       "replace": "        freshSignUps: journeys.filter((j) => j.account === 'fresh-run-owned').length,",
       "test": "tests/limits.test.cjs"
+    },
+    {
+      "id": "P8-maintained-case-signed-up",
+      "guards": "a case on a maintained account (AHT-15) is neither signed up nor deleted",
+      "file": "cleanup-plan.cjs",
+      "find": "    .filter((c) => caseAccountMode(c) === 'maintained-read-only').sort());",
+      "replace": "    .filter(() => false).sort());",
+      "test": "tests/limits.test.cjs"
+    },
+    {
+      "id": "P8-caseless-legs-no-account",
+      "guards": "legs with no harness case yet add one account to their journey",
+      "file": "cleanup-plan.cjs",
+      "find": "    return cases.size + caseless.size;\n}\n\nconst CLEANUP_REQUEST_DEADLINE_S",
+      "replace": "    return cases.size;\n}\n\nconst CLEANUP_REQUEST_DEADLINE_S",
+      "test": "tests/cleanup.test.cjs"
     }
   ]
 }

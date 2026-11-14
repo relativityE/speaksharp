@@ -14,7 +14,7 @@
 // complete baseline leaves the whole limit unset rather than guessed. J9 runs on the billing sandbox, so it counts
 // against none of the production limits. Nothing here applies a limit: the product owner accepts them.
 const { ALL_LEGS, JOURNEYS } = require('./journey-plan.cjs');
-const { cleanupReserve, reserveMinutes } = require('./cleanup-plan.cjs');
+const { cleanupReserve, signedUpAccounts, reserveMinutes } = require('./cleanup-plan.cjs');
 /** A journey's protected cleanup reserve, or null when its cleanup step isn't defined yet (J2). */
 function reserveOf(journeyId) {
     try {
@@ -44,13 +44,11 @@ function runnableJourneys(satisfiedGates) {
     return JOURNEYS.filter((j) => j.legs.some((l) => isProduction(l) && runnable(l, satisfiedGates)));
 }
 /**
- * The accounts a set of legs signs up, under today's account lifecycle: each harness case signs up its own account
- * (`prepareRunOwnedAccount` per case, as in tests/live/rwt-save-retry-recovery.live.spec.ts; cleanup-plan.cjs sizes
- * deletion the same way), so it is one per runnable harness case, plus one per journey whose runnable legs have no
- * harness case yet (their adapter adds at least one account). One account per journey (#1864's 8 and 7) is the target
- * once the account-sharing handoff lands; it is reported apart and never used as the limit until then.
+ * Harness cases a set of legs runs, for the harness's identity-read formula (2 per case plus 2): one per runnable
+ * harness case, maintained or not, plus one per journey whose runnable legs have no harness case yet, assuming each
+ * such group lands as one case. Identity reads check the deployed release, so sharing accounts does not change them.
  */
-function accountUnits(legs) {
+function caseUnits(legs) {
     const cases = new Set(legs.filter((l) => l.caseId !== null).map((l) => l.caseId));
     const caseless = new Set(legs.filter((l) => l.caseId === null).map((l) => l.journey));
     return cases.size + caseless.size;
@@ -58,10 +56,11 @@ function accountUnits(legs) {
 const isFresh = (l) => JOURNEYS.find((j) => j.id === l.journey).account === 'fresh-run-owned';
 /**
  * The counted limits for the legs that can run, given the gate kinds the runner has established as met.
- * With every gate satisfied: 19 sign-ups, 31 takes, 43 starts, 32 coaching, 40 identity reads, 96 provider calls, $0
- * (J1.e's probe reserved at its worst case, Sam's review). With none it is today's column (14, 30, 40, 30, 30, 90 calls,
- * $0): J1.e is gated today, so its probe reserves nothing. Sign-ups and identity reads follow today's per-case account
- * lifecycle (accountUnits); #1864's per-journey 8/7 and 18/16 are reported as `sharedAccountTarget`.
+ * With every gate satisfied: 18 sign-ups, 31 takes, 43 starts, 32 coaching, 40 identity reads, 96 provider calls, $0
+ * (J1.e's probe reserved at its worst case, Sam's review). With none it is today's column (13, 30, 40, 30, 30, 90 calls,
+ * $0): J1.e is gated today, so its probe reserves nothing. Sign-ups follow today's per-case accounts (signedUpAccounts in
+ * cleanup-plan.cjs, AHT-15's maintained account excluded); #1864's one per journey (8 and 7) is `sharedAccountTarget`.
+ * Identity reads are per harness case (caseUnits).
  */
 function countedLimits(satisfiedGates = new Set()) {
     const legs = ALL_LEGS.filter((l) => isProduction(l) && runnable(l, satisfiedGates));
@@ -73,16 +72,14 @@ function countedLimits(satisfiedGates = new Set()) {
         legs: legs.map((l) => l.id),
         notRun: ALL_LEGS.filter((l) => !legs.includes(l)).map((l) => l.id),
         journeys: journeys.map((j) => j.id),
-        freshSignUps: accountUnits(legs.filter(isFresh)),
+        freshSignUps: signedUpAccounts(legs.filter(isFresh)),
         takes: sum((l) => l.coachingRequests),
         startPresses: sum((l) => l.startPresses),
         coachingRequests,
-        // The harness's 2 per case plus 2 (admission and final), per account the run signs up.
-        identityReads: 2 * accountUnits(legs) + 2,
-        // #1864's per-journey figures, once journeys share one account. Not a limit until that handoff lands.
-        sharedAccountTarget: Object.freeze({
-            freshSignUps: journeys.filter((j) => j.account === 'fresh-run-owned').length, identityReads: 2 * journeys.length + 2,
-        }),
+        // The harness's formula (campaign-core.cjs requiredIdentityCap): 2 per harness case plus 2 (admission and final).
+        identityReads: 2 * caseUnits(legs) + 2,
+        // #1864's one sign-up per journey, once journeys share one account. Not a limit until that handoff lands.
+        sharedAccountTarget: Object.freeze({ freshSignUps: journeys.filter((j) => j.account === 'fresh-run-owned').length }),
         providerCalls: coachingRequests * PROVIDER_CALLS_PER_COACHING_REQUEST,
         paidActionsUsd: 0,
         // The protected cleanup reserves of the journeys that run (cleanup-plan.cjs, structural worst case). Counted

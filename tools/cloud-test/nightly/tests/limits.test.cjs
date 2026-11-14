@@ -10,14 +10,15 @@ const counted = (l) => [l.freshSignUps, l.takes, l.startPresses, l.coachingReque
 const run = (value, complete = true) => ({ complete, value });
 
 describe('counted limits', () => {
-    it('matches the all-legs column with J1.e\'s probe reserved: 19 sign-ups, 31 takes, 43 starts, 32 coaching, 40 identity reads, 96 provider calls, $0', () => {
-        expect(counted(countedLimits(allGateKinds()))).toEqual([19, 31, 43, 32, 40, 96, 0]);
-        expect(countedLimits(allGateKinds()).sharedAccountTarget).toEqual({ freshSignUps: 8, identityReads: 18 });
+    it('matches the all-legs column with J1.e\'s probe reserved: 18 sign-ups, 31 takes, 43 starts, 32 coaching, 40 identity reads, 96 provider calls, $0', () => {
+        expect(counted(countedLimits(allGateKinds()))).toEqual([18, 31, 43, 32, 40, 96, 0]);
+        expect(countedLimits(allGateKinds()).sharedAccountTarget).toEqual({ freshSignUps: 8 });
     });
-    it("matches today's column: 14 sign-ups, 30 takes, 40 starts, 30 coaching, 30 identity reads, 90 provider calls, $0", () => {
-        // One account per runnable harness case today (14 cases), not one per journey (7): the per-case lifecycle.
-        expect(counted(countedLimits(new Set()))).toEqual([14, 30, 40, 30, 30, 90, 0]);
-        expect(countedLimits(new Set()).sharedAccountTarget).toEqual({ freshSignUps: 7, identityReads: 16 });
+    it("matches today's column: 13 sign-ups, 30 takes, 40 starts, 30 coaching, 30 identity reads, 90 provider calls, $0", () => {
+        // One account per runnable harness case today, not one per journey (7), except AHT-15 on its maintained account;
+        // identity reads stay 2 per harness case (14 cases) plus 2.
+        expect(counted(countedLimits(new Set()))).toEqual([13, 30, 40, 30, 30, 90, 0]);
+        expect(countedLimits(new Set()).sharedAccountTarget).toEqual({ freshSignUps: 7 });
     });
     it('counts nothing for a leg that cannot run, and names it NOT RUN', () => {
         const today = countedLimits(new Set());

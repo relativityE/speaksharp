@@ -8,7 +8,7 @@ const { describe, it } = require('node:test');
 const { expect } = require('./expect-lite.cjs');
 const { JOURNEYS } = require('../journey-plan.cjs');
 const {
-    ACCOUNT_DELETION, CLEANUP_REQUEST_DEADLINE_S, CleanupUndefined, SOURCE_COUNTS, cleanupReserve, reserveMinutes, runOwnedAccounts,
+    ACCOUNT_DELETION, CLEANUP_REQUEST_DEADLINE_S, CleanupUndefined, SOURCE_COUNTS, cleanupReserve, MAINTAINED_CASES, reserveMinutes, runOwnedAccounts,
 } = require('../cleanup-plan.cjs');
 const { ADMISSION_LOCK, AdmissionRefused, admitRun, beginRun, recordRecovery, writeCleanupEvidence } = require('../cleanup-evidence.cjs');
 
@@ -60,11 +60,15 @@ describe('cleanup reserve: structural worst case, read from the cleanup code', (
         const starts = (j) => JOURNEYS.find((x) => x.id === j).legs.reduce((n, l) => n + l.startPresses, 0);
         expect(runOwnedAccounts(JOURNEYS.find((x) => x.id === 'J6'))).toBe(1);
         expect(runOwnedAccounts(JOURNEYS.find((x) => x.id === 'J5'))).toBe(3);
-        expect(runOwnedAccounts(JOURNEYS.find((x) => x.id === 'J7'))).toBe(3);
+        // J7: AHT-12, 13 and 14 plus one for J7.d, which has no harness case yet. J1: AHT-01 plus one for J1.e/J1.f;
+        // AHT-15 runs on a maintained account the run neither signs up nor deletes.
+        expect(runOwnedAccounts(JOURNEYS.find((x) => x.id === 'J7'))).toBe(4);
+        expect(runOwnedAccounts(JOURNEYS.find((x) => x.id === 'J1'))).toBe(2);
+        expect(MAINTAINED_CASES).toEqual(['AHT-15']);
         expect(cleanupReserve('J6').requests).toBe(perAccount + starts('J6'));
         expect(cleanupReserve('J5').requests).toBe(3 * perAccount + starts('J5'));
         expect(cleanupReserve('J1').requests).toBe(2 * perAccount + starts('J1') + 3);
-        expect(cleanupReserve('J8').requests).toBe(2 * perAccount + starts('J8') + 6);
+        expect(cleanupReserve('J8').requests).toBe(3 * perAccount + starts('J8') + 6);
         expect(cleanupReserve('J9').requests).toBe(0);
     });
     it('reads one signup per harness case from the specs as they are', () => {
