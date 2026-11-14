@@ -1,0 +1,2121 @@
+{
+  "schema": "speaksharp.aht-rationalization.v1",
+  "status": "proposal-not-executable",
+  "sourceCatalog": "tools/cloud-test/config/assertion-catalog.json",
+  "sourceBaseline": "adc70cd23765f13c7a2c7ce04e6e80a30abb7009",
+  "journeys": [
+    {
+      "id": "J01",
+      "cases": [
+        "AHT-01",
+        "AHT-15"
+      ],
+      "title": "Join, practise, return and reach billing",
+      "uniqueRisk": "Actual deployed signup, owner-bound save/provider response and authenticated return cannot be established by pure functions.",
+      "isolation": "Expiry is terminal before verified deletion; no production expiry mutation or payment implied.",
+      "passEvidence": "Bound saved row and coaching; exact rendered deep link; mic off; approved expiry denial and deletion readback."
+    },
+    {
+      "id": "J02",
+      "cases": [
+        "AHT-02",
+        "AHT-03"
+      ],
+      "title": "Full and partial Focus",
+      "uniqueRisk": "Streaming recognition, rendered point evidence and durable take identity can disagree across real boundaries.",
+      "isolation": "Independent full/partial fixtures; reset target state; feedback recovery prerequisite.",
+      "passEvidence": "Known matched/unmatched points agree live, saved and reopened; no invented evidence."
+    },
+    {
+      "id": "J03",
+      "cases": [
+        "AHT-04"
+      ],
+      "title": "Leave during cold Start",
+      "uniqueRisk": "Actual browser teardown during model and mic acquisition.",
+      "isolation": "Own cold context; prove pending state before navigation.",
+      "passEvidence": "No mic or unintended session; no automatic resume; deliberate recovery saves."
+    },
+    {
+      "id": "J04",
+      "cases": [
+        "AHT-05",
+        "AHT-06"
+      ],
+      "title": "Save across request and response loss",
+      "uniqueRisk": "Request never committed and committed response lost have different network/database behavior.",
+      "isolation": "Separate fault legs; reset interceptors, drafts and leases.",
+      "passEvidence": "Exact fault exercised; attempt counts; one durable save; independent next take."
+    },
+    {
+      "id": "J05",
+      "cases": [
+        "AHT-07",
+        "AHT-08"
+      ],
+      "title": "Report with and without context",
+      "uniqueRisk": "Receiving-store acknowledgment and persisted association can diverge from UI.",
+      "isolation": "Fence and recovery required; virgin-account interpretation requires separate account leg.",
+      "passEvidence": "Correct older IDs or null associations; receiving proof; bounded writes; verified recovery."
+    },
+    {
+      "id": "J06",
+      "cases": [
+        "AHT-09",
+        "AHT-10"
+      ],
+      "title": "Navigate and close a recording tab",
+      "uniqueRisk": "Document destruction differs from route navigation and may lose callbacks.",
+      "isolation": "Independent surviving observer; per-leg document identity and finalization.",
+      "passEvidence": "Recording-before-leave; release and no auto-resume; next-take isolation; source provenance."
+    },
+    {
+      "id": "J07",
+      "cases": [
+        "AHT-11"
+      ],
+      "title": "Competing contexts and takeover",
+      "uniqueRisk": "Independent contexts race against deployed authority.",
+      "isolation": "Separate contexts; preserve both take identities.",
+      "passEvidence": "Refusal before model work; old owner fenced; no cross-take mutation."
+    },
+    {
+      "id": "J08",
+      "cases": [
+        "AHT-12"
+      ],
+      "title": "Microphone denial and recovery",
+      "uniqueRisk": "Actual browser permission boundary cannot be proven by mocked errors.",
+      "isolation": "File-level deny launch; fresh-browser recovery is not same-context permission proof.",
+      "passEvidence": "Press-bound denial; no recording; explicit recovery saves and reopens."
+    },
+    {
+      "id": "J09",
+      "cases": [
+        "AHT-13"
+      ],
+      "title": "Model asset request failure",
+      "uniqueRisk": "Real cold asset path is absent from mocked E2E build.",
+      "isolation": "Fresh cold context; actual own-origin asset refusal.",
+      "passEvidence": "Fault observed; truthful Retry; no fallback; restored request saves and reopens."
+    },
+    {
+      "id": "J10",
+      "cases": [
+        "AHT-14"
+      ],
+      "title": "Offline during model transfer",
+      "uniqueRisk": "Partial real transfer and interruption differ from initial request rejection.",
+      "isolation": "Go offline only after received bytes; no bytes means HOLD.",
+      "passEvidence": "Transfer bytes observed; truthful failure; reconnect and retry saves and reopens."
+    }
+  ],
+  "rows": [
+    {
+      "caseId": "AHT-01",
+      "assertion": "owner-bound",
+      "journey": "J01",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-01",
+      "assertion": "fresh-first-session",
+      "journey": "J01",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-01",
+      "assertion": "saved-once",
+      "journey": "J01",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-01",
+      "assertion": "grounded-coaching",
+      "journey": "J01",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-01",
+      "assertion": "review-reopen",
+      "journey": "J01",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-01",
+      "assertion": "pdf-owner-take",
+      "journey": "J01",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-01",
+      "assertion": "same-target-repeat",
+      "journey": "J01",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-01",
+      "assertion": "analytics-repeat-opens-product",
+      "journey": "J01",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-01",
+      "assertion": "rapid-repeat-gate",
+      "journey": "J01",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/services/__tests__/SpeechRuntimeController.progressGate.test.ts",
+        "frontend/src/services/__tests__/SpeechRuntimeController.progressRetryGate.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-01",
+      "assertion": "rapid-repeat-release",
+      "journey": "J01",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/services/__tests__/SpeechRuntimeController.progressGate.test.ts",
+        "frontend/src/services/__tests__/SpeechRuntimeController.progressRetryGate.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-01",
+      "assertion": "next-start",
+      "journey": "J01",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/services/__tests__/SpeechRuntimeController.progressGate.test.ts",
+        "frontend/src/services/__tests__/SpeechRuntimeController.progressRetryGate.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-01",
+      "assertion": "next-start-release",
+      "journey": "J01",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/services/__tests__/SpeechRuntimeController.progressGate.test.ts",
+        "frontend/src/services/__tests__/SpeechRuntimeController.progressRetryGate.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-01",
+      "assertion": "probe-save-isolation",
+      "journey": "J01",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-01",
+      "assertion": "same-target-numeric",
+      "journey": "J01",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/utils/__tests__/aggregateProgress.test.ts",
+        "tests/config/progress-metric-consistency.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-01",
+      "assertion": "open-mic-review-presentation",
+      "journey": "J01",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/components/session/__tests__/CoachingCard.test.tsx",
+        "frontend/src/services/review/__tests__/savedSessionReview.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-01",
+      "assertion": "open-mic-coaching-length",
+      "journey": "J01",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/components/session/__tests__/CoachingCard.test.tsx",
+        "frontend/src/services/review/__tests__/savedSessionReview.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-01",
+      "assertion": "open-mic-coaching-distinct",
+      "journey": "J01",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/components/session/__tests__/CoachingCard.test.tsx",
+        "frontend/src/services/review/__tests__/savedSessionReview.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-01",
+      "assertion": "start-press-budget",
+      "journey": "J01",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-01",
+      "assertion": "no-cloud-stt",
+      "journey": "J01",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-01",
+      "assertion": "owned-pages-closed",
+      "journey": "J01",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-02",
+      "assertion": "owner-bound",
+      "journey": "J02",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-02",
+      "assertion": "focus-final",
+      "journey": "J02",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-02",
+      "assertion": "focus-live-durable",
+      "journey": "J02",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-02",
+      "assertion": "saved-once",
+      "journey": "J02",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-02",
+      "assertion": "grounded-coaching",
+      "journey": "J02",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-02",
+      "assertion": "review-reopen",
+      "journey": "J02",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-02",
+      "assertion": "same-target-repeat",
+      "journey": "J02",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-02",
+      "assertion": "focus-edit-cancel-save",
+      "journey": "J02",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-02",
+      "assertion": "focus-new-set",
+      "journey": "J02",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-02",
+      "assertion": "open-mic-isolation",
+      "journey": "J02",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-02",
+      "assertion": "focus-back-reload",
+      "journey": "J02",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-02",
+      "assertion": "analytics-repeat-opens-product",
+      "journey": "J02",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-02",
+      "assertion": "rapid-repeat-gate",
+      "journey": "J02",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/services/__tests__/SpeechRuntimeController.progressGate.test.ts",
+        "frontend/src/services/__tests__/SpeechRuntimeController.progressRetryGate.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-02",
+      "assertion": "rapid-repeat-release",
+      "journey": "J02",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/services/__tests__/SpeechRuntimeController.progressGate.test.ts",
+        "frontend/src/services/__tests__/SpeechRuntimeController.progressRetryGate.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-02",
+      "assertion": "next-start",
+      "journey": "J02",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/services/__tests__/SpeechRuntimeController.progressGate.test.ts",
+        "frontend/src/services/__tests__/SpeechRuntimeController.progressRetryGate.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-02",
+      "assertion": "next-start-release",
+      "journey": "J02",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/services/__tests__/SpeechRuntimeController.progressGate.test.ts",
+        "frontend/src/services/__tests__/SpeechRuntimeController.progressRetryGate.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-02",
+      "assertion": "probe-save-isolation",
+      "journey": "J02",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-02",
+      "assertion": "same-target-numeric",
+      "journey": "J02",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/utils/__tests__/aggregateProgress.test.ts",
+        "tests/config/progress-metric-consistency.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-02",
+      "assertion": "focus-switch-isolation",
+      "journey": "J02",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-02",
+      "assertion": "focus-presentation-contract",
+      "journey": "J02",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/components/session/__tests__/FocusPointsRail.test.tsx",
+        "frontend/src/utils/__tests__/focusCoverage.test.ts",
+        "frontend/src/utils/__tests__/focusPace.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-02",
+      "assertion": "focus-pace-guide",
+      "journey": "J02",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/components/session/__tests__/FocusPointsRail.test.tsx",
+        "frontend/src/utils/__tests__/focusCoverage.test.ts",
+        "frontend/src/utils/__tests__/focusPace.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-02",
+      "assertion": "focus-rail-before",
+      "journey": "J02",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/components/session/__tests__/FocusPointsRail.test.tsx",
+        "frontend/src/utils/__tests__/focusCoverage.test.ts",
+        "frontend/src/utils/__tests__/focusPace.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-02",
+      "assertion": "focus-rail-legend",
+      "journey": "J02",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/components/session/__tests__/FocusPointsRail.test.tsx",
+        "frontend/src/utils/__tests__/focusCoverage.test.ts",
+        "frontend/src/utils/__tests__/focusPace.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-02",
+      "assertion": "focus-pending-labelled",
+      "journey": "J02",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/components/session/__tests__/FocusPointsRail.test.tsx",
+        "frontend/src/utils/__tests__/focusCoverage.test.ts",
+        "frontend/src/utils/__tests__/focusPace.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-02",
+      "assertion": "focus-next-point-marked",
+      "journey": "J02",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/components/session/__tests__/FocusPointsRail.test.tsx",
+        "frontend/src/utils/__tests__/focusCoverage.test.ts",
+        "frontend/src/utils/__tests__/focusPace.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-02",
+      "assertion": "focus-no-red-before-stop",
+      "journey": "J02",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/components/session/__tests__/FocusPointsRail.test.tsx",
+        "frontend/src/utils/__tests__/focusCoverage.test.ts",
+        "frontend/src/utils/__tests__/focusPace.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-02",
+      "assertion": "focus-not-detected-explained",
+      "journey": "J02",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/components/session/__tests__/FocusPointsRail.test.tsx",
+        "frontend/src/utils/__tests__/focusCoverage.test.ts",
+        "frontend/src/utils/__tests__/focusPace.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-02",
+      "assertion": "focus-coverage-count",
+      "journey": "J02",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/components/session/__tests__/FocusPointsRail.test.tsx",
+        "frontend/src/utils/__tests__/focusCoverage.test.ts",
+        "frontend/src/utils/__tests__/focusPace.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-02",
+      "assertion": "focus-average-per-point",
+      "journey": "J02",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/components/session/__tests__/FocusPointsRail.test.tsx",
+        "frontend/src/utils/__tests__/focusCoverage.test.ts",
+        "frontend/src/utils/__tests__/focusPace.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-02",
+      "assertion": "focus-final-rail-colours-words",
+      "journey": "J02",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/components/session/__tests__/FocusPointsRail.test.tsx",
+        "frontend/src/utils/__tests__/focusCoverage.test.ts",
+        "frontend/src/utils/__tests__/focusPace.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-02",
+      "assertion": "start-press-budget",
+      "journey": "J02",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-02",
+      "assertion": "no-cloud-stt",
+      "journey": "J02",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-02",
+      "assertion": "owned-pages-closed",
+      "journey": "J02",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-03",
+      "assertion": "owner-bound",
+      "journey": "J02",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-03",
+      "assertion": "focus-final",
+      "journey": "J02",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-03",
+      "assertion": "focus-live-durable",
+      "journey": "J02",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-03",
+      "assertion": "saved-once",
+      "journey": "J02",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-03",
+      "assertion": "grounded-coaching",
+      "journey": "J02",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-03",
+      "assertion": "review-reopen",
+      "journey": "J02",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-03",
+      "assertion": "same-target-repeat",
+      "journey": "J02",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-03",
+      "assertion": "analytics-repeat-opens-product",
+      "journey": "J02",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-03",
+      "assertion": "rapid-repeat-gate",
+      "journey": "J02",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/services/__tests__/SpeechRuntimeController.progressGate.test.ts",
+        "frontend/src/services/__tests__/SpeechRuntimeController.progressRetryGate.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-03",
+      "assertion": "rapid-repeat-release",
+      "journey": "J02",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/services/__tests__/SpeechRuntimeController.progressGate.test.ts",
+        "frontend/src/services/__tests__/SpeechRuntimeController.progressRetryGate.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-03",
+      "assertion": "next-start",
+      "journey": "J02",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/services/__tests__/SpeechRuntimeController.progressGate.test.ts",
+        "frontend/src/services/__tests__/SpeechRuntimeController.progressRetryGate.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-03",
+      "assertion": "next-start-release",
+      "journey": "J02",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/services/__tests__/SpeechRuntimeController.progressGate.test.ts",
+        "frontend/src/services/__tests__/SpeechRuntimeController.progressRetryGate.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-03",
+      "assertion": "probe-save-isolation",
+      "journey": "J02",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-03",
+      "assertion": "same-target-numeric",
+      "journey": "J02",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/utils/__tests__/aggregateProgress.test.ts",
+        "tests/config/progress-metric-consistency.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-03",
+      "assertion": "focus-back-reload",
+      "journey": "J02",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-03",
+      "assertion": "focus-presentation-contract",
+      "journey": "J02",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/components/session/__tests__/FocusPointsRail.test.tsx",
+        "frontend/src/utils/__tests__/focusCoverage.test.ts",
+        "frontend/src/utils/__tests__/focusPace.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-03",
+      "assertion": "focus-pace-guide",
+      "journey": "J02",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/components/session/__tests__/FocusPointsRail.test.tsx",
+        "frontend/src/utils/__tests__/focusCoverage.test.ts",
+        "frontend/src/utils/__tests__/focusPace.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-03",
+      "assertion": "focus-rail-before",
+      "journey": "J02",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/components/session/__tests__/FocusPointsRail.test.tsx",
+        "frontend/src/utils/__tests__/focusCoverage.test.ts",
+        "frontend/src/utils/__tests__/focusPace.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-03",
+      "assertion": "focus-rail-legend",
+      "journey": "J02",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/components/session/__tests__/FocusPointsRail.test.tsx",
+        "frontend/src/utils/__tests__/focusCoverage.test.ts",
+        "frontend/src/utils/__tests__/focusPace.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-03",
+      "assertion": "focus-pending-labelled",
+      "journey": "J02",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/components/session/__tests__/FocusPointsRail.test.tsx",
+        "frontend/src/utils/__tests__/focusCoverage.test.ts",
+        "frontend/src/utils/__tests__/focusPace.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-03",
+      "assertion": "focus-next-point-marked",
+      "journey": "J02",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/components/session/__tests__/FocusPointsRail.test.tsx",
+        "frontend/src/utils/__tests__/focusCoverage.test.ts",
+        "frontend/src/utils/__tests__/focusPace.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-03",
+      "assertion": "focus-no-red-before-stop",
+      "journey": "J02",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/components/session/__tests__/FocusPointsRail.test.tsx",
+        "frontend/src/utils/__tests__/focusCoverage.test.ts",
+        "frontend/src/utils/__tests__/focusPace.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-03",
+      "assertion": "focus-not-detected-explained",
+      "journey": "J02",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/components/session/__tests__/FocusPointsRail.test.tsx",
+        "frontend/src/utils/__tests__/focusCoverage.test.ts",
+        "frontend/src/utils/__tests__/focusPace.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-03",
+      "assertion": "focus-coverage-count",
+      "journey": "J02",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/components/session/__tests__/FocusPointsRail.test.tsx",
+        "frontend/src/utils/__tests__/focusCoverage.test.ts",
+        "frontend/src/utils/__tests__/focusPace.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-03",
+      "assertion": "focus-average-per-point",
+      "journey": "J02",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/components/session/__tests__/FocusPointsRail.test.tsx",
+        "frontend/src/utils/__tests__/focusCoverage.test.ts",
+        "frontend/src/utils/__tests__/focusPace.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-03",
+      "assertion": "focus-final-rail-colours-words",
+      "journey": "J02",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "frontend/src/components/session/__tests__/FocusPointsRail.test.tsx",
+        "frontend/src/utils/__tests__/focusCoverage.test.ts",
+        "frontend/src/utils/__tests__/focusPace.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-03",
+      "assertion": "start-press-budget",
+      "journey": "J02",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-03",
+      "assertion": "no-cloud-stt",
+      "journey": "J02",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-03",
+      "assertion": "owned-pages-closed",
+      "journey": "J02",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-04",
+      "assertion": "owner-bound",
+      "journey": "J03",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-04",
+      "assertion": "cold-pending-observed",
+      "journey": "J03",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-04",
+      "assertion": "pending-leave-no-mic",
+      "journey": "J03",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-04",
+      "assertion": "pending-leave-no-session",
+      "journey": "J03",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-04",
+      "assertion": "return-no-resume",
+      "journey": "J03",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-04",
+      "assertion": "deliberate-recovery-saved",
+      "journey": "J03",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-04",
+      "assertion": "start-press-budget",
+      "journey": "J03",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-04",
+      "assertion": "no-cloud-stt",
+      "journey": "J03",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-04",
+      "assertion": "owned-pages-closed",
+      "journey": "J03",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-05",
+      "assertion": "owner-bound",
+      "journey": "J04",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-05",
+      "assertion": "fault-exercised",
+      "journey": "J04",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-05",
+      "assertion": "recovery-truthful",
+      "journey": "J04",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-05",
+      "assertion": "retry-saved-once",
+      "journey": "J04",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-05",
+      "assertion": "review-reopen",
+      "journey": "J04",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-05",
+      "assertion": "next-take-isolated",
+      "journey": "J04",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-05",
+      "assertion": "completion-attempts",
+      "journey": "J04",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-05",
+      "assertion": "start-press-budget",
+      "journey": "J04",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-05",
+      "assertion": "no-cloud-stt",
+      "journey": "J04",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-05",
+      "assertion": "owned-pages-closed",
+      "journey": "J04",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-06",
+      "assertion": "owner-bound",
+      "journey": "J04",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-06",
+      "assertion": "fault-exercised",
+      "journey": "J04",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-06",
+      "assertion": "recovery-truthful",
+      "journey": "J04",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-06",
+      "assertion": "retry-saved-once",
+      "journey": "J04",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-06",
+      "assertion": "review-reopen",
+      "journey": "J04",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-06",
+      "assertion": "next-take-isolated",
+      "journey": "J04",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-06",
+      "assertion": "completion-attempts",
+      "journey": "J04",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-06",
+      "assertion": "start-press-budget",
+      "journey": "J04",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-06",
+      "assertion": "no-cloud-stt",
+      "journey": "J04",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-06",
+      "assertion": "owned-pages-closed",
+      "journey": "J04",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-07",
+      "assertion": "owner-bound",
+      "journey": "J05",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-07",
+      "assertion": "fresh-acknowledgment",
+      "journey": "J05",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-07",
+      "assertion": "feedback-stored-once",
+      "journey": "J05",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-07",
+      "assertion": "older-take-association",
+      "journey": "J05",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-07",
+      "assertion": "older-coaching-association",
+      "journey": "J05",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-07",
+      "assertion": "received-feedback-proof",
+      "journey": "J05",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-07",
+      "assertion": "feedback-failure-retry-form",
+      "journey": "J05",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-07",
+      "assertion": "feedback-transport-form-retry",
+      "journey": "J05",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "tests/db/share-feedback-redesign.integration.test.ts",
+        "tests/db/feedback-kind-severity-contract.integration.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-07",
+      "assertion": "feedback-rejection-form-retry",
+      "journey": "J05",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "tests/db/share-feedback-redesign.integration.test.ts",
+        "tests/db/feedback-kind-severity-contract.integration.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-07",
+      "assertion": "feedback-response-lost-form-retry",
+      "journey": "J05",
+      "disposition": "fast-first-retain-live-until-proven",
+      "candidateFastTests": [
+        "tests/db/share-feedback-redesign.integration.test.ts",
+        "tests/db/feedback-kind-severity-contract.integration.test.ts"
+      ],
+      "replacementProof": null,
+      "reason": "Move boundary permutations to behavioral tests; retain live wiring until equivalent proof is reviewed."
+    },
+    {
+      "caseId": "AHT-07",
+      "assertion": "feedback-attempts",
+      "journey": "J05",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-07",
+      "assertion": "feedback-readback-preflight",
+      "journey": "J05",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-07",
+      "assertion": "start-press-budget",
+      "journey": "J05",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-07",
+      "assertion": "no-cloud-stt",
+      "journey": "J05",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-07",
+      "assertion": "owned-pages-closed",
+      "journey": "J05",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-08",
+      "assertion": "owner-bound",
+      "journey": "J05",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-08",
+      "assertion": "fresh-acknowledgment",
+      "journey": "J05",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-08",
+      "assertion": "feedback-stored-once",
+      "journey": "J05",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-08",
+      "assertion": "no-session-association",
+      "journey": "J05",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-08",
+      "assertion": "no-coaching-association",
+      "journey": "J05",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-08",
+      "assertion": "received-feedback-proof",
+      "journey": "J05",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-08",
+      "assertion": "start-press-budget",
+      "journey": "J05",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-08",
+      "assertion": "no-cloud-stt",
+      "journey": "J05",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-08",
+      "assertion": "owned-pages-closed",
+      "journey": "J05",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-09",
+      "assertion": "owner-bound",
+      "journey": "J06",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-09",
+      "assertion": "recording-before-leave",
+      "journey": "J06",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-09",
+      "assertion": "leave-released",
+      "journey": "J06",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-09",
+      "assertion": "return-no-resume",
+      "journey": "J06",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-09",
+      "assertion": "recovery-truthful",
+      "journey": "J06",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-09",
+      "assertion": "left-take-saved-once",
+      "journey": "J06",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-09",
+      "assertion": "next-take-isolated",
+      "journey": "J06",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-09",
+      "assertion": "lease-fenced",
+      "journey": "J06",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-09",
+      "assertion": "start-press-budget",
+      "journey": "J06",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-09",
+      "assertion": "no-cloud-stt",
+      "journey": "J06",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-09",
+      "assertion": "owned-pages-closed",
+      "journey": "J06",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-09",
+      "assertion": "navigation-ready",
+      "journey": "J06",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-10",
+      "assertion": "owner-bound",
+      "journey": "J06",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-10",
+      "assertion": "recording-before-leave",
+      "journey": "J06",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-10",
+      "assertion": "leave-released",
+      "journey": "J06",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-10",
+      "assertion": "return-no-resume",
+      "journey": "J06",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-10",
+      "assertion": "recovery-truthful",
+      "journey": "J06",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-10",
+      "assertion": "next-take-isolated",
+      "journey": "J06",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-10",
+      "assertion": "lease-fenced",
+      "journey": "J06",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-10",
+      "assertion": "start-press-budget",
+      "journey": "J06",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-10",
+      "assertion": "no-cloud-stt",
+      "journey": "J06",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-10",
+      "assertion": "owned-pages-closed",
+      "journey": "J06",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-11",
+      "assertion": "owner-bound",
+      "journey": "J07",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-11",
+      "assertion": "same-browser-refused",
+      "journey": "J07",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-11",
+      "assertion": "independent-context-refused",
+      "journey": "J07",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-11",
+      "assertion": "lease-before-model-window",
+      "journey": "J07",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-11",
+      "assertion": "takeover-fences-old-owner",
+      "journey": "J07",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-11",
+      "assertion": "two-takes-isolated",
+      "journey": "J07",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-11",
+      "assertion": "start-press-budget",
+      "journey": "J07",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-11",
+      "assertion": "no-cloud-stt",
+      "journey": "J07",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-11",
+      "assertion": "owned-pages-closed",
+      "journey": "J07",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-12",
+      "assertion": "owner-bound",
+      "journey": "J08",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-12",
+      "assertion": "press-bound-denial",
+      "journey": "J08",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-12",
+      "assertion": "denial-truthful-no-mic",
+      "journey": "J08",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-12",
+      "assertion": "allowed-recovery-saved",
+      "journey": "J08",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-12",
+      "assertion": "review-reopen",
+      "journey": "J08",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-12",
+      "assertion": "start-press-budget",
+      "journey": "J08",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-12",
+      "assertion": "no-cloud-stt",
+      "journey": "J08",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-12",
+      "assertion": "owned-pages-closed",
+      "journey": "J08",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-13",
+      "assertion": "owner-bound",
+      "journey": "J09",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-13",
+      "assertion": "download-fault-exercised",
+      "journey": "J09",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-13",
+      "assertion": "download-failure-truthful",
+      "journey": "J09",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-13",
+      "assertion": "deliberate-recovery-saved",
+      "journey": "J09",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-13",
+      "assertion": "review-reopen",
+      "journey": "J09",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-13",
+      "assertion": "start-press-budget",
+      "journey": "J09",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-13",
+      "assertion": "no-cloud-stt",
+      "journey": "J09",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-13",
+      "assertion": "owned-pages-closed",
+      "journey": "J09",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-14",
+      "assertion": "owner-bound",
+      "journey": "J10",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-14",
+      "assertion": "download-fault-exercised",
+      "journey": "J10",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-14",
+      "assertion": "download-failure-truthful",
+      "journey": "J10",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-14",
+      "assertion": "deliberate-recovery-saved",
+      "journey": "J10",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-14",
+      "assertion": "review-reopen",
+      "journey": "J10",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-14",
+      "assertion": "start-press-budget",
+      "journey": "J10",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-14",
+      "assertion": "no-cloud-stt",
+      "journey": "J10",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-14",
+      "assertion": "owned-pages-closed",
+      "journey": "J10",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-15",
+      "assertion": "owner-bound",
+      "journey": "J01",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-15",
+      "assertion": "history-preserved",
+      "journey": "J01",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-15",
+      "assertion": "switches-mic-off",
+      "journey": "J01",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-15",
+      "assertion": "signed-out",
+      "journey": "J01",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-15",
+      "assertion": "return-owner-preserved",
+      "journey": "J01",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-15",
+      "assertion": "no-recording-or-session-write",
+      "journey": "J01",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-15",
+      "assertion": "start-press-budget",
+      "journey": "J01",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-15",
+      "assertion": "no-cloud-stt",
+      "journey": "J01",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-15",
+      "assertion": "owned-pages-closed",
+      "journey": "J01",
+      "disposition": "keep-safety",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Actual run safety evidence remains required even when helper logic has unit tests."
+    },
+    {
+      "caseId": "AHT-15",
+      "assertion": "return-entry-mic-off",
+      "journey": "J01",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-15",
+      "assertion": "deep-link-exact-return",
+      "journey": "J01",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-15",
+      "assertion": "deep-link-rendered-own-detail",
+      "journey": "J01",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-15",
+      "assertion": "deep-link-mic-off",
+      "journey": "J01",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    },
+    {
+      "caseId": "AHT-15",
+      "assertion": "return-signed-out",
+      "journey": "J01",
+      "disposition": "keep-live",
+      "candidateFastTests": [],
+      "replacementProof": null,
+      "reason": "Retain deployed integration assertion with its case-specific fixture and independent oracle."
+    }
+  ],
+  "additionalRequirements": [
+    {
+      "id": "billing-expiry-restoration",
+      "journey": "J01",
+      "status": "blocked",
+      "prerequisites": [
+        "Server-enforced payment wall with retained deletion",
+        "Scoped approval for synthetic expiry mutation",
+        "Safe paid-restoration fixture, no implied charge"
+      ],
+      "acceptance": "Approved expired unpaid account cannot start or read service data; payment route shown; deletion allowed; approved paid restoration restores access."
+    },
+    {
+      "id": "device-human-proof",
+      "journey": null,
+      "status": "human-required",
+      "acceptance": "Physical microphone permission/capture and mobile Stop visibility; perceptual transcript accuracy and coaching usefulness."
+    }
+  ]
+}
