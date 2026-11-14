@@ -126,6 +126,7 @@ jobs:
         run: pnpm rc:gate:2:sast
 
   gate-3-dast:
+    environment: trusted-main-credentials
     name: Gate 3 - DAST / Running App
     if: ${{ github.event.inputs.gate == 'all' || github.event.inputs.gate == 'gate-3-dast' }}
     # Pinned (AHT-01 run 43413270234): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build

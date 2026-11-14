@@ -124,6 +124,17 @@ export function isCanonicalProductReleaseDocument(file) {
 }
 
 /**
+ * Human-test protocols and worksheets are reviewable evidence documentation, not implementation.
+ * Admit only Markdown in this explicit evidence subtree, with canonical relative path segments.
+ * This adds a scope, not an exemption: exact-head review, findings and freshness still apply.
+ */
+export function isHumanTestEvidenceDocument(file) {
+  return typeof file === 'string'
+    && file === file.trim()
+    && /^product_release\/evidence\/human-test\/(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*\/)*[A-Za-z0-9_-][A-Za-z0-9_.-]*\.md$/.test(file);
+}
+
+/**
  * A scope-only finding document is not implementation. Keep this predicate deliberately narrow:
  * release-qualification code must change an executable source, workflow, or repository configuration.
  *
@@ -227,6 +238,7 @@ export function evaluateReviewQualification({
   const documentationFiles = files.filter(isCanonicalProductReleaseDocument);
   const canonicalDocumentationOnly = files.length > 0 && documentationFiles.length === files.length;
   const testIntegrityOnly = files.length > 0 && files.every(isTestIntegrityFile);
+  const humanTestEvidenceOnly = files.length > 0 && files.every(isHumanTestEvidenceDocument);
   const namedDocumentationCarrier = documentationEvidenceAdmission(repository, pullRequestNumber) !== null;
   const pinnedDocumentation = isPinnedDocumentationEvidence({ repository, pullRequestNumber,
     currentSha: normalizedCurrent, baseSha, changedFiles: files, documentationEvidence });
@@ -235,7 +247,8 @@ export function evaluateReviewQualification({
     : substantiveFiles.length > 0
     ? 'implementation'
     : canonicalDocumentationOnly ? 'canonical_product_release_documentation'
-      : testIntegrityOnly ? 'test_integrity' : null;
+      : testIntegrityOnly ? 'test_integrity'
+        : humanTestEvidenceOnly ? 'human_test_evidence_documentation' : null;
   if (reviewScope === null) reasons.push('no_substantive_implementation');
   if (namedDocumentationCarrier && !pinnedDocumentation) reasons.push('pinned_documentation_postimages_unverified');
 
@@ -279,7 +292,9 @@ export function formatReviewQualification(result) {
     ? 'pinned product-release documentation/evidence'
     : result.reviewScope === 'canonical_product_release_documentation'
     ? 'canonical product-release documentation'
-    : result.reviewScope === 'test_integrity' ? 'test-integrity' : 'implementation';
+    : result.reviewScope === 'test_integrity' ? 'test-integrity'
+    : result.reviewScope === 'human_test_evidence_documentation' ? 'human-test evidence documentation'
+    : 'implementation';
   return result.qualified
     ? `REVIEW-QUALIFIED: completed zero-finding review covers current ${subject} head ${result.currentSha}`
     : `NOT REVIEW-QUALIFIED: ${result.reasons.join(', ')}`;

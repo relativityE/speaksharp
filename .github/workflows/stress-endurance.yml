@@ -18,6 +18,7 @@ on:
 
 jobs:
   run-stress-endurance:
+    environment: trusted-main-credentials
     runs-on: ubuntu-latest
     timeout-minutes: 45
 

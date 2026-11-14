@@ -4,6 +4,7 @@ import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2"
 import { ErrorCodes, createErrorResponse, createSuccessResponse } from "../_shared/errors.ts"
 import { corsGuard, corsHeaders as buildCorsHeaders } from "../_shared/cors.ts"
 import { accountClosureConfigProbe, readAccountClosureEffectiveConfig, stripeKeyMode, type StripeMode } from '../_shared/accountClosureConfigProbe.ts';
+import { isApprovedLocalBillingSandbox } from './localSandbox.ts';
 
 // Port configuration for local development fallback (inlined to avoid bundler issues)
 const DEV_PORT = 5174;
@@ -158,7 +159,12 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
     const paymentsExplicitlyEnabled = normalized.paymentsEnabled;
     const secretKey = getEnv("STRIPE_SECRET_KEY");
     const hasLiveSecret = typeof secretKey === "string" && secretKey.startsWith("sk_live_");
-    if (!paymentsExplicitlyEnabled || !hasLiveSecret || (capturedMode !== 'unknown' && !normalized.stripeModeMatches)) {
+    // The one non-live exception: a disposable local stack in the approval-gated billing workflow
+    // (see localSandbox.ts). It also requires the captured client to be a matching TEST client.
+    const localSandbox = isApprovedLocalBillingSandbox(getEnv, req)
+      && normalized.configuredStripeMode === 'test' && normalized.stripeModeMatches;
+    if (!paymentsExplicitlyEnabled || !(hasLiveSecret || localSandbox)
+      || (capturedMode !== 'unknown' && !normalized.stripeModeMatches)) {
       console.warn("[Stripe Checkout] ⛔ payments disabled — refusing checkout (fail-closed beta)");
       return createErrorResponse(
         ErrorCodes.PAYMENTS_DISABLED,

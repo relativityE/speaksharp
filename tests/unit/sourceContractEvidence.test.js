@@ -3,9 +3,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {CASE07_APPLY,CASE07_ROLLBACK,SOURCE_CONTRACTS,SOURCE_CONSUMER,SOURCE_ASSERTION,inspectSourceContract,sourceContractBinding,
+import {BILLING_SPEC,BILLING_TARGET,BILLING_README,CASE07_APPLY,CASE07_ROLLBACK,SOURCE_CONTRACTS,SOURCE_CONSUMER,SOURCE_ASSERTION,inspectSourceContract,sourceContractBinding,
   consumeSourceContracts,validateSourceContractWitness} from '../../scripts/lib/sourceContractEvidence.mjs';
 import {executionRoute,selectExecutionContracts} from '../../scripts/lib/testExecutionEvidence.mjs';
+import {registeredHelper} from '../../scripts/lib/helperExecutionEvidence.mjs';
 const {test}=process.env.NODE_TEST_CONTEXT?await import('node:test'):await import('vitest');
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 const canary=`import {collectCanaryStopSave,isOwnedStopSettledInPage,startOwnerId} from './canaryStopSaveOracle';
@@ -40,6 +41,77 @@ await expect(link).toHaveText('Delete account');
 await expect(link).toHaveAttribute('href', '/account/delete');
 expect(closureCalls, 'opening Account issues no account-closure request').toEqual([]);`;
 const ROUTES=[[SOURCE_CONTRACTS[3],products,1],[SOURCE_CONTRACTS[4],recording,2],[SOURCE_CONTRACTS[5],pageContext,3],[SOURCE_CONTRACTS[6],deleteEntry,8]];
+
+test('billing registrations require the actual helper consumer and seven executed callable bodies',()=>{
+  const helper='tests/billing/user-journey/contract.ts';
+  assert.deepEqual(registeredHelper(helper),{helperFile:helper,testFile:'tests/billing/user-journey/contract.test.ts',
+    callables:['requireFact','safeFailureReason','receipt','assertTestPrice','assertInvoice','isCorrelatedDelivery','assertSandboxConfiguration']});
+  assert.equal(executionRoute(helper,root).runner,'vitest-helper');
+  assert.equal(executionRoute(helper,root).applicable,true);
+  assert.equal(executionRoute('tests/billing/user-journey/unregistered.ts',root),null);
+});
+
+test('billing source contract consumes genuine-delivery and cleanup wires without claiming runtime execution',()=>{
+  const source=fs.readFileSync(path.join(root,BILLING_SPEC),'utf8');
+  const proof=inspectSourceContract(root,BILLING_SPEC,source);
+  assert.equal(proof.liveExecution,'NOT RUN');
+  assert.equal(proof.checks,17);assert.equal(proof.detectedFaults,17);
+  assert.equal(executionRoute(BILLING_SPEC,root).runner,'vitest-source-contract');
+  for(const [from,to] of [
+    ['assertSandboxConfiguration(env, committedTarget)','assertSandboxConfiguration(env, arbitraryTarget)'],
+    ["env.BILLING_SANDBOX_TARGET === 'local-disposable-stack'","env.BILLING_SANDBOX_TARGET !== undefined"],
+    ["balance.livemode === false","balance.livemode === true"],
+    ['isCorrelatedDelivery(event, { type, objectId, customer: this.customer }, data) && extra(event)','true'],
+    [".eq('event_id', event.id)",".eq('event_id', unrelated.id)"],
+    ["await this.delivery('invoice.payment_failed', failedInvoice);","await this.delivery('invoice.payment_failed', anotherInvoice);"],
+    ['readback.count !== 0','readback.count > 0'],
+    ["result.result === 'PASSED'","result.result !== 'PASSED'"],
+    ["from './contract'","from './untrusted-contract'"],
+  ]) {
+    const mutant=source.replace(from,to);assert.notEqual(mutant,source);
+    assert.throws(()=>inspectSourceContract(root,BILLING_SPEC,mutant),/Source wiring contract failed/);
+  }
+  assert.throws(()=>inspectSourceContract(root,BILLING_SPEC,`/* ${source} */`),/Source wiring contract failed/);
+});
+
+test('billing target source consumer refuses any unreviewed activation, target or extra field',()=>{
+  const source=fs.readFileSync(path.join(root,BILLING_TARGET),'utf8');
+  const target=JSON.parse(source);
+  assert.equal(inspectSourceContract(root,BILLING_TARGET,source).liveExecution,'NOT RUN');
+  for(const mutant of [{...target,status:'REVIEWED_ISOLATED_SANDBOX'},
+    {...target,apiOrigin:'https://unreviewed.example.invalid'}, {...target,appOrigin:'https://unreviewed.example.invalid'},
+    {...target,productionApiOrigin:'https://unreviewed.example.invalid'}, {...target,allowFallback:true}]) {
+    assert.throws(()=>inspectSourceContract(root,BILLING_TARGET,JSON.stringify(mutant)),/must remain explicitly unconfigured/);
+  }
+});
+
+test('billing documentation consumption preserves separate practice and broader paid acceptance limits',()=>{
+  const source=fs.readFileSync(path.join(root,BILLING_README),'utf8');
+  const proof=inspectSourceContract(root,BILLING_README,source);
+  assert.equal(proof.liveExecution,'NOT RUN');assert.equal(proof.checks,7);
+  for(const [from,to] of [['the 15 practice journeys','the 18 practice journeys'],
+    ['not full `PAID-01` or `PAID-04` acceptance','full `PAID-01` and `PAID-04` acceptance'],
+    ['NOT PROVEN by this draft','PROVEN by this draft'],
+    ['No webhook signing secret is accepted.','A webhook signing secret is accepted.']]) {
+    const mutant=source.replace(from,to);assert.notEqual(mutant,source);
+    assert.throws(()=>inspectSourceContract(root,BILLING_README,mutant),/documentation scope contract failed/);
+  }
+  assert.throws(()=>inspectSourceContract(root,BILLING_README,`<!-- ${source} -->`),/documentation scope contract failed/);
+});
+
+test('billing source witness binds all three exact inputs and rejects invented live credit',()=>{
+  const files=[BILLING_SPEC,BILLING_TARGET,BILLING_README];
+  const binding={phaseId:'billing-offline-control',cwd:root,testFile:path.join(root,SOURCE_CONSUMER),
+    sourceContract:{files,sourceBinding:sourceContractBinding(root,files),
+      witnessFile:path.join(root,'.source-contract-billing-offline-control.json')}};
+  const witness=consumeSourceContracts(root,binding);
+  const report={testResults:[{assertionResults:[{fullName:SOURCE_ASSERTION,status:'passed'}]}]};
+  const envelope={finished:{files:[{tasks:[{type:'test',name:SOURCE_ASSERTION,result:{state:'pass'}}]}]}};
+  assert.deepEqual(validateSourceContractWitness(witness,binding,root,report,envelope),files);
+  for(const proof of witness.proofs)assert.equal(proof.liveExecution,'NOT RUN');
+  const forged=structuredClone(witness);forged.proofs[0].liveExecution='PASSED';
+  assert.throws(()=>validateSourceContractWitness(forged,binding,root,report,envelope),/fake live credit/);
+});
 
 test('canary source rejects a negated saved matcher on the actual outcome',()=>{
   const negated=canary.replace("expect(outcome.kind).toBe('saved')","expect(outcome.kind, diagnostic).not.toBe('saved')");
@@ -420,4 +492,27 @@ test('#1811 browser drivers select source-only contracts, detect verdict and bin
     assert.notEqual(importsRemoved,source);
     assert.throws(()=>inspectSourceContract(root,file,importsRemoved),/Source wiring contract failed/);
   }
+});
+
+ test('billing stack registrations bind paid helper bodies and source-only runner inputs without live credit',()=>{
+assert.equal(executionRoute("tests/billing/user-journey/paidValueLoop.ts",root).runner,'vitest-helper');
+assert.equal(executionRoute("tests/billing/user-journey/paidValueLoop.ts",root).applicable,true);
+assert.equal(executionRoute("tests/billing/user-journey/localStackResources.mjs",root).runner,'vitest-helper');
+assert.equal(executionRoute("tests/billing/user-journey/localStackResources.mjs",root).applicable,true);
+assert.equal(executionRoute("tests/billing/user-journey/localStackReceipt.mjs",root).runner,'vitest-helper');
+assert.equal(executionRoute("tests/billing/user-journey/localStackReceipt.mjs",root).applicable,true);
+assert.equal(executionRoute("tests/billing/user-journey/runnerPlan.mjs",root).runner,'vitest-helper');
+assert.equal(executionRoute("tests/billing/user-journey/runnerPlan.mjs",root).applicable,true);
+assert.equal(executionRoute("tests/billing/user-journey/runnerPreflight.mjs",root).runner,'vitest-helper');
+assert.equal(executionRoute("tests/billing/user-journey/runnerPreflight.mjs",root).applicable,true);
+{const file="tests/billing/user-journey/paid-value-loop.billing.spec.ts";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
+{const file="tests/billing/user-journey/journeySteps.mjs";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
+{const file="tests/billing/user-journey/paidLoopSteps.mjs";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
+{const file="tests/billing/user-journey/sandbox-target.local.json";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
+{const file="tests/billing/user-journey/journeySteps.d.mts";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
+{const file="tests/billing/user-journey/localStackReceipt.d.mts";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
+{const file="tests/billing/user-journey/localStackResources.d.mts";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
+{const file="tests/billing/user-journey/paidLoopSteps.d.mts";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
+{const file="tests/billing/user-journey/runnerPlan.d.mts";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
+{const file="tests/billing/user-journey/runnerPreflight.d.mts";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
 });
