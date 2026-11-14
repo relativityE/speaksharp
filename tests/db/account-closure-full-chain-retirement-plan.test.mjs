@@ -6,6 +6,7 @@ import { URL } from 'node:url';
 import { buildMainU1ReplayPlan, parseMainProofArguments } from './account-closure-full-chain.mjs';
 import { functionDefinitions } from '../../scripts/lib/c1MigrationPostflight.mjs';
 import { RETIREMENT_CATALOG_DELTA } from '../../scripts/lib/retirementCatalogPins.mjs';
+import { ABANDONMENT_CATALOG_DELTA } from '../../scripts/lib/abandonmentCatalogPins.mjs';
 
 const directory = new URL('../../backend/supabase/migrations/', import.meta.url);
 const rows = readdirSync(directory).filter(name => name.endsWith('.sql')).map(name => ({
@@ -59,4 +60,38 @@ test('retirement profile refuses changed installed or withheld bytes and unknown
   assert.throws(() => buildMainU1ReplayPlan([...rows, {
     name: '20261111120000_unknown.sql', version: '20261111120000', sha256: '0'.repeat(64),
   }], profile), /unreviewed migration/);
+});
+
+const abandonmentProfile = 'main-start-abandonment-130';
+
+test('abandonment delta covers exactly its source-defined functions and created table', () => {
+  const source = readFileSync(new URL('20261112133000_recording_start_abandonment_1643.sql', directory), 'utf8');
+  const keys = functionDefinitions(source).map(fn => `function:${fn.signature.replaceAll(',', ', ')}`);
+  assert.equal(keys.length, 3);
+  keys.push(...[...source.matchAll(/CREATE TABLE public\.([a-z_0-9]+)/g)].map(match => `table:public.${match[1]}`));
+  assert.deepEqual(Object.keys(ABANDONMENT_CATALOG_DELTA).sort(), keys.sort());
+});
+
+test('installed abandonment profile replays retirement then 20261112133000, withholding billing129 and the refund', () => {
+  assert.equal(parseMainProofArguments([`--profile=${abandonmentProfile}`]).profile, abandonmentProfile);
+  const plan = buildMainU1ReplayPlan(rows, abandonmentProfile);
+  assert.equal(plan.migrations, 130);
+  assert.deepEqual(plan.withheld.map(row => [row.version, row.status]), [[billing, 'NOT REPLAYED'], [refund, 'NOT REPLAYED']]);
+  assert.equal(plan.stages.at(-1).name, 'start-abandonment');
+  assert.equal(plan.stages.at(-2).name, 'coaching-local-retirement');
+  assert.deepEqual(plan.stages.at(-1).versions, [...plan.stages.at(-2).versions, abandonment]);
+  assert.deepEqual(plan.stages.at(-2).versions, buildMainU1ReplayPlan(rows, profile).stages.at(-1).versions);
+  assert.ok(plan.stages.every(stage => !stage.versions.includes(billing) && !stage.versions.includes(refund)));
+  assert.ok(plan.stages.slice(0, -1).every(stage => !stage.versions.includes(abandonment)));
+  assert.equal(plan.executed, false);
+});
+
+test('abandonment profile refuses changed installed or withheld bytes and unknown successors', () => {
+  for (const version of [abandonment, retirement, billing, refund]) {
+    assert.throws(() => buildMainU1ReplayPlan(rows.map(row => row.version === version
+      ? { ...row, sha256: '0'.repeat(64) } : row), abandonmentProfile), /digest changed/);
+  }
+  assert.throws(() => buildMainU1ReplayPlan([...rows, {
+    name: '20261113120000_unknown.sql', version: '20261113120000', sha256: '0'.repeat(64),
+  }], abandonmentProfile), /unreviewed migration/);
 });

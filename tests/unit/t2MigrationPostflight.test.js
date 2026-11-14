@@ -11,6 +11,7 @@ import { assertT2Sources, assertT2Catalog, t2CatalogQuery, T2_VERSIONS, T2_INVEN
   t2ReleaseLedgerQuery, t2ReleaseContract, t2ReleaseSnapshotQuery, assertT2ReleaseSnapshot,
   t2KnownAbsentQuery, t2EdgeReleaseContract } from '../../scripts/lib/t2MigrationPostflight.mjs';
 import { EXACT_MIGRATION_ALLOWLIST } from '../../scripts/lib/exactMigrationGate.mjs';
+import { ABANDONMENT_CATALOG_DELTA } from '../../scripts/lib/abandonmentCatalogPins.mjs';
 import { retirementContract, retirementSnapshotQuery, assertRetirementSnapshot } from '../../scripts/lib/retirementMigrationPostflight.mjs';
 
 const read = name => readFileSync(name, 'utf8');
@@ -195,12 +196,105 @@ console.log(query.includes('objects AS')?rows.join('\\n'):rows[0]);});\n`);
       } finally { await db.close(); }
     }
   }, 30_000);
+  it('selects only the exact ledger-10 start-abandonment successor; refuses billing129, refund and unknown or reordered ledgers', () => {
+    const ledger = [...T2_VERSIONS, ...c1Versions, '20261110173548', '20261112133000'];
+    const contract = t2ReleaseContract(process.cwd(), ledger);
+    expect(contract.profile).toBe('post-1643-abandonment');
+    expect(contract.stage).toBe(4);
+    expect(contract.pins.map(pin => pin.version)).toEqual(ledger);
+    expect(contract.knownAbsent.families).toEqual(['settle_account_completion_billing_v1']);
+    expect(contract.knownAbsent.tables).toEqual([]);
+    expect(contract.inventory.functions).toContain('abandon_recording_start_v1');
+    expect(contract.inventory.tables).toContain('recording_start_abandonments');
+    for (const [key, digest] of Object.entries(ABANDONMENT_CATALOG_DELTA)) expect(contract.expected[key]).toBe(digest);
+    expect(t2EdgeReleaseContract(process.cwd(), ledger).profile).toBe('post-1643-abandonment');
+    for (const count of [6, 7, 8]) expect(() => t2EdgeReleaseContract(process.cwd(), ledger.slice(0, count)))
+      .toThrow('requires installed coaching retirement successor');
+    for (const bad of [
+      [...ledger, '20261112140000'],                                    // eleven entries
+      [...ledger.slice(0, -1), '20261112130000', ledger.at(-1)],        // the withheld refund applied
+      [...ledger.slice(0, -1), '20261027192550', ledger.at(-1)],        // the withheld billing129 applied
+      [...ledger.slice(0, -2), ledger.at(-1), ledger.at(-2)],           // reordered successors
+      [...ledger.slice(0, -2), ledger.at(-1), '20261112133001'],         // abandonment without the retirement
+    ]) expect(() => t2ReleaseContract(process.cwd(), bad)).toThrow('ledger');
+  });
+  it('attests the installed ledger-10 abandonment catalog and refuses widened grants, old bodies and wrong-stage snapshots', async () => {
+    for (const platformFunctionDefaults of [false, true]) {
+      const context = platformFunctionDefaults ? 'native-replay' : 'retained-production';
+      const db = await fixture({ platformFunctionDefaults });
+      const rows = async query => (await db.exec(query)).filter(value => value.rows?.length)
+        .map(value => String(Object.values(value.rows[0])[0]));
+      try {
+        await db.exec('CREATE SCHEMA supabase_migrations; CREATE TABLE supabase_migrations.schema_migrations(version text PRIMARY KEY)');
+        const nine = [...T2_VERSIONS, ...c1Versions, '20261110173548'];
+        for (const v of nine) await db.exec(`SET ROLE closure_owner;
+          ${source(EXACT_MIGRATION_ALLOWLIST.find(row => row.version === v).file)} RESET ROLE;
+          INSERT INTO supabase_migrations.schema_migrations VALUES('${v}')`);
+        const retired = t2ReleaseContract(process.cwd(), nine, { catalogContext: context });
+        const nineRows = await rows(t2ReleaseSnapshotQuery(retired));
+        expect(assertT2ReleaseSnapshot(retired, nineRows).profile).toBe('post-128-retirement');
+        await db.exec(`SET ROLE closure_owner; ${source('20261112133000_recording_start_abandonment_1643.sql')} RESET ROLE;`);
+        // Installed objects without their ledger entry cannot pass as the retirement profile.
+        const unrecorded = await rows(t2ReleaseSnapshotQuery(retired));
+        expect(() => assertT2ReleaseSnapshot(retired, unrecorded)).toThrow();
+        await db.exec("INSERT INTO supabase_migrations.schema_migrations VALUES('20261112133000')");
+        const ten = [...nine, '20261112133000'];
+        const contract = t2ReleaseContract(process.cwd(), ten, { catalogContext: context });
+        const installed = await rows(t2ReleaseSnapshotQuery(contract));
+        expect(JSON.parse(installed[0])).toEqual(ten);
+        expect(assertT2ReleaseSnapshot(contract, installed).profile).toBe('post-1643-abandonment');
+        function verifyEdgeCli() {
+          expect(assertT2ReleaseSnapshot(t2EdgeReleaseContract(process.cwd(), installed[0]), installed).passed).toBe(true);
+          // The actual deploy-workflow executable, with real readbacks; only the psql transport is substituted.
+          const dir = mkdtempSync(join(process.cwd(), '.abandonment-edge-cli-'));
+          try {
+            writeFileSync(join(dir, 'psql'), `#!/usr/bin/env node\nimport('node:fs').then(fs=>{
+const rows=JSON.parse(fs.readFileSync(process.env.T2_TEST_ROWS,'utf8'));
+const query=process.argv.at(-1);
+if(!query.includes('READ ONLY')||!process.env.PGOPTIONS.includes('default_transaction_read_only=on'))process.exit(9);
+console.log(query.includes('objects AS')?rows.join('\\n'):rows[0]);});\n`);
+            chmodSync(join(dir, 'psql'), 0o700);
+            const invoke = (readbacks, mode) => {
+              writeFileSync(join(dir, 'rows.json'), JSON.stringify(readbacks));
+              return spawnSync(process.execPath, ['scripts/t2-migration-postflight.mjs', 'verify', mode], {
+                encoding: 'utf8', timeout: 10_000,
+                env: { ...process.env, PATH: dir + ':' + process.env.PATH, T2_TEST_ROWS: join(dir, 'rows.json') },
+              });
+            };
+            expect(invoke(installed, 'edge-release').status).toBe(0);
+            expect(invoke(installed, 'release').status).toBe(0);
+            expect(invoke([installed[0], '{}', ...installed.slice(2)], 'edge-release').status).toBe(1);
+            expect(invoke([JSON.stringify([...ten, '20261112140000']), ...installed.slice(1)], 'edge-release').status).toBe(1);
+          } finally { rmSync(dir, { recursive: true, force: true }); }
+        }
+        if (!platformFunctionDefaults) verifyEdgeCli();
+        // The ledger-9 contract refuses the ledger-10 database, and vice versa.
+        expect(() => assertT2ReleaseSnapshot(retired, installed)).toThrow();
+        expect(() => assertT2ReleaseSnapshot(contract, nineRows)).toThrow();
+        const snapshot = t2ReleaseSnapshotQuery(contract).replace(/^BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;/, '').replace(/COMMIT;\s*$/, '');
+        for (const mutation of [
+          'GRANT EXECUTE ON FUNCTION public.abandon_recording_start_v1(uuid) TO anon',
+          'GRANT EXECUTE ON FUNCTION public.abandon_recording_start_v1(uuid) TO service_role',
+          'GRANT SELECT ON public.recording_start_abandonments TO authenticated',
+          'ALTER TABLE public.recording_start_abandonments DISABLE ROW LEVEL SECURITY',
+          'ALTER FUNCTION public.abandon_recording_start_v1(uuid) SECURITY INVOKER',
+          'ALTER FUNCTION public.abandon_recording_start_v1(uuid) RESET search_path',
+          `SET ROLE closure_owner; ${source('20261020230653_account_pending_completion_journal_1643.sql').match(/CREATE FUNCTION public\._account_save_lease_obligation_v1\(\)[\s\S]*?\$\$;/)[0].replace('CREATE FUNCTION', 'CREATE OR REPLACE FUNCTION')} RESET ROLE`,
+        ]) {
+          const changed = await rows(`BEGIN; ${mutation}; ${snapshot} ROLLBACK;`);
+          expect(() => assertT2ReleaseSnapshot(contract, changed)).toThrow();
+        }
+        expect(await rows(t2ReleaseSnapshotQuery(contract))).toEqual(installed);
+      } finally { await db.close(); }
+    }
+  }, 60_000);
   it('selects only the exact retirement successor without admitting billing129 or unknown successors', () => {
     const ledger = [...T2_VERSIONS, ...c1Versions, '20261110173548'];
     const contract = t2ReleaseContract(process.cwd(), ledger);
     expect(contract.profile).toBe('post-128-retirement');
     expect(contract.pins).toHaveLength(9);
-    expect(contract.knownAbsent.families).toEqual(['settle_account_completion_billing_v1']);
+    expect(contract.knownAbsent.families).toEqual(['settle_account_completion_billing_v1', 'abandon_recording_start_v1']);
+    expect(contract.knownAbsent.tables).toEqual(['recording_start_abandonments']);
     expect(t2EdgeReleaseContract(process.cwd(), ledger).profile).toBe('post-128-retirement');
     for (const count of [6, 7, 8]) expect(() => t2EdgeReleaseContract(process.cwd(), ledger.slice(0, count)))
       .toThrow('requires installed coaching retirement successor');
