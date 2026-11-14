@@ -50,6 +50,9 @@ describe('billing portal check', () => {
     });
     it('fails when the portal page is not shown', async () => {
         expect((await portalOpensVerdict(ports({ shown: false }).p)).outcome).toBe('FAIL');
+        // Only an explicit true counts as shown.
+        expect((await portalOpensVerdict(ports({ shown: 'no' }).p)).outcome).toBe('FAIL');
+        expect((await portalOpensVerdict(ports({ shown: 1 }).p)).outcome).toBe('FAIL');
     });
     it('redacts every portal address in a text', () => {
         expect(redactPortalUrls(`a ${TEST_URL}?x=1 b ${LIVE_URL}`)).toBe('a [billing-portal-url] b [billing-portal-url]');

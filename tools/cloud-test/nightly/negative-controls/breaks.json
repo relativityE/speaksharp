@@ -134,7 +134,7 @@
       "id": "P2-portal-url-logged",
       "guards": "J9 portal: the bearer address is never logged",
       "file": "oracles/billing-portal.cjs",
-      "find": "log(`portal: ${shown.portalShown ? 'shown' : 'not shown'}`);",
+      "find": "log(`portal: ${portalShown ? 'shown' : 'not shown'}`);",
       "replace": "ports.log(`portal: ${url}`);",
       "test": "tests/billing.test.cjs"
     },
@@ -1116,10 +1116,10 @@
     },
     {
       "id": "P7-unreadable-budget-row-passes",
-      "guards": "a leg's budget row is HOLD when the budget cannot be read",
+      "guards": "a leg is HOLD when the run budget cannot be read",
       "file": "run-budget.cjs",
-      "find": "if (b.reason.startsWith('the run budget could not be read'))\n            return { outcome: 'HOLD'",
-      "replace": "if (false)\n            return { outcome: 'HOLD'",
+      "find": "overrun: Object.freeze([]), hold: `the run budget could not be read: ${e.message}` }",
+      "replace": "overrun: Object.freeze([]), hold: null }",
       "test": "tests/run-budget.test.cjs"
     },
     {
@@ -1201,6 +1201,62 @@
       "find": "rows: recorded ? recorded.rows : allRows(legId, outcome) };",
       "replace": "rows: allRows(legId, outcome) };",
       "test": "tests/leg-verdicts.test.cjs"
+    },
+    {
+      "id": "P8-unreadable-budget-reads-not-run",
+      "guards": "an unreadable run budget journal holds the leg, never NOT RUN or PASS",
+      "file": "leg-verdicts.cjs",
+      "find": "    if (budget.allocated && budget.hold)\n        notRunCauses.push(budget.hold);\n",
+      "replace": "",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P8-torn-budget-passes",
+      "guards": "a torn run budget journal keeps every leg from passing",
+      "file": "run-budget.cjs",
+      "find": "const hold = s.torn > 0 ?",
+      "replace": "const hold = false ?",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P8-portal-truthy-shown",
+      "guards": "only an explicit true counts as the portal shown",
+      "file": "oracles/billing-portal.cjs",
+      "find": "const portalShown = shown?.portalShown === true;",
+      "replace": "const portalShown = Boolean(shown?.portalShown);",
+      "test": "tests/billing.test.cjs"
+    },
+    {
+      "id": "P8-short-stop-not-exercised",
+      "guards": "a short Stop that was never exercised holds, never passes",
+      "file": "oracles/payment-wall.cjs",
+      "find": "    if (!r.stopPressedWhileRecording)\n        return",
+      "replace": "    if (false)\n        return",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P8-short-stop-silent-page",
+      "guards": "a short Stop whose page never says the take was not saved fails",
+      "file": "oracles/payment-wall.cjs",
+      "find": "    if (!r.notSavedShown && !r.unsettledDiscardShown)\n",
+      "replace": "    if (false)\n",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P8-cleanup-throw-unmarked",
+      "guards": "a cleanup reservation that throws marks its journey refused",
+      "file": "run-budget.cjs",
+      "find": "            if (kind === CLEANUP)\n                this.#store.markCleanupRefused(legById(legId).journey);\n            if (e instanceof BudgetUnavailable)\n                return",
+      "replace": "            if (e instanceof BudgetUnavailable)\n                return",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P8-admission-not-atomic",
+      "guards": "admission and the start record are one step, so two runners can't both be admitted",
+      "file": "cleanup-evidence.cjs",
+      "find": "        const a = admitRun(dir);\n        if (!a.admitted)",
+      "replace": "        const a = { admitted: true };\n        if (!a.admitted)",
+      "test": "tests/cleanup.test.cjs"
     }
   ]
 }

@@ -20,6 +20,7 @@ const TODAY = new Set();
 const ALL_IDS = ALL_LEGS.map((l) => l.id);
 const NO_J2 = ALL_IDS.filter((id) => id !== 'J2');
 const plan = (o = {}) => planRunBudget({ satisfiedGates: TODAY, selected: ALL_IDS, ...o });
+const results = (leg, o = 'PASS') => Object.fromEntries(rowsForLeg(leg).map((r) => [r, o]));
 const sumReserves = (journeys) => journeys.reduce((n, j) => n + cleanupReserve(j).requests, 0);
 
 describe('frozen allocations, reserved before the run', () => {
@@ -315,7 +316,11 @@ describe('one budget shared across workers', () => {
             granted += b.reserveCleanup('J6').granted ? 1 : 0;
         expect(granted).toBe(n - 1);
         expect(b.cleanupExhausted('J6')).toBe(true);
-        expect(b.legBudgetRow('J4.a').outcome).toBe('PASS');
+        // A torn write may have hidden an overrun: no leg's budget is clean, so none can PASS, and none reads NOT RUN.
+        expect(b.legBudgetRow('J4.a').outcome).toBe('HOLD');
+        expect(b.legBudget('J4.a').hold).toContain('cut short');
+        const v = legVerdict('J4.a', { prior: new Map(), satisfiedGates: EVERY_GATE, results: results('J4.a'), budget: b.legBudget('J4.a') });
+        expect(v.outcome).toBe('HOLD');
     });
     it('refuses a journal line it cannot read, and a plan that was altered', () => {
         const dir = shared();
@@ -327,8 +332,13 @@ describe('one budget shared across workers', () => {
         expect(r.reason).toContain('unreadable');
         // Reads that can't be made fail closed: cleanup reads as incomplete and the leg's budget as not known.
         expect(b.cleanupExhausted('J4')).toBe(true);
-        expect(b.legBudget('J4.a').allocated).toBe(false);
+        expect(b.legBudget('J4.a').hold).toContain('could not be read');
         expect(b.legBudgetRow('J4.a').outcome).toBe('HOLD');
+        // An unreadable journal can hide an overrun: the leg is HOLD, never NOT RUN or PASS, and a recorded FAIL stands.
+        const v = legVerdict('J4.a', { prior: new Map(), satisfiedGates: EVERY_GATE, results: results('J4.a'), budget: b.legBudget('J4.a') });
+        expect(v.outcome).toBe('HOLD');
+        const failed = Object.fromEntries(Object.keys(results('J4.a')).map((k) => [k, 'FAIL']));
+        expect(legVerdict('J4.a', { prior: new Map(), satisfiedGates: EVERY_GATE, results: failed, budget: b.legBudget('J4.a') }).outcome).toBe('FAIL');
         expect(b.journalTorn()).toBe(null);
         const dir2 = shared();
         const f = path.join(dir2, 'budget-plan.json');
@@ -336,6 +346,16 @@ describe('one budget shared across workers', () => {
         doc.plan.legs.J6.coaching = 50;
         fs.writeFileSync(f, JSON.stringify(doc));
         expect(() => openSharedRunBudget(dir2)).toThrow(RunRefused);
+    });
+    it('marks the journey refused when a cleanup reservation throws for any reason, not only an unreachable budget', () => {
+        // An append that fails with an ordinary error (disk full, fsync), not BudgetUnavailable.
+        const refused = new Set();
+        const b = new RunBudget(plan().plan(), {
+            transact: () => { throw new Error('ENOSPC: no space left on device'); },
+            markCleanupRefused: (j) => refused.add(j), cleanupRefused: () => new Set(refused),
+        });
+        expect(() => b.reserveCleanup('J6')).toThrow();
+        expect(b.cleanupExhausted('J6')).toBe(true);
     });
     it('records a cleanup refused for want of the lock, so the journey reads as incomplete', () => {
         const dir = shared();
@@ -397,7 +417,6 @@ describe('one budget shared across workers', () => {
     });
 });
 describe('budget facts in the verdicts', () => {
-    const results = (leg, o = 'PASS') => Object.fromEntries(rowsForLeg(leg).map((r) => [r, o]));
     it('fails an overrunning leg and the run, even though its rows passed', () => {
         const b = plan();
         b.reserve('J6', 'coaching');

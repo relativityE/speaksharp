@@ -10,7 +10,7 @@ const { JOURNEYS } = require('../journey-plan.cjs');
 const {
     ACCOUNT_DELETION, CLEANUP_REQUEST_DEADLINE_S, CleanupUndefined, SOURCE_COUNTS, cleanupReserve, reserveMinutes, runOwnedAccounts,
 } = require('../cleanup-plan.cjs');
-const { admitRun, beginRun, recordRecovery, writeCleanupEvidence } = require('../cleanup-evidence.cjs');
+const { ADMISSION_LOCK, AdmissionRefused, admitRun, beginRun, recordRecovery, writeCleanupEvidence } = require('../cleanup-evidence.cjs');
 
 const REPO = path.resolve(__dirname, '../../../..');
 const read = (rel) => fs.readFileSync(path.join(REPO, rel), 'utf8');
@@ -156,6 +156,17 @@ describe('durable cleanup evidence and admission', () => {
         const doc = writeCleanupEvidence(d, 'run-1', [clean('J1'), clean('J6')], { cleanupExhausted: (j) => j === 'J6' });
         expect(doc.incompleteJourneys).toEqual(['J6']);
         expect(admitRun(d).admitted).toBe(false);
+    });
+    it('admits and begins as one step: a second runner is refused, and so is any runner while the admission lock is held', () => {
+        const d = dir();
+        beginRun(d, 'run-1', ['J6']);
+        expect(() => beginRun(d, 'run-2', ['J6'])).toThrow(AdmissionRefused);
+        expect(fs.existsSync(path.join(d, 'run-2.started.json'))).toBe(false);
+        const e = dir();
+        fs.writeFileSync(path.join(e, ADMISSION_LOCK), '{"pid":1}');
+        expect(() => beginRun(e, 'run-1', ['J6'])).toThrow(AdmissionRefused);
+        expect(fs.existsSync(path.join(e, 'run-1.started.json'))).toBe(false);
+        expect(() => beginRun(path.join(os.tmpdir(), 'nightly-evidence-does-not-exist-9f3'), 'run-1', ['J6'])).toThrow(AdmissionRefused);
     });
     it('refuses admission when the evidence directory is missing', () => {
         expect(admitRun(path.join(os.tmpdir(), 'nightly-evidence-does-not-exist-9f2')).admitted).toBe(false);

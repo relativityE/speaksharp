@@ -68,6 +68,9 @@ function legVerdict(legId, input) {
         notRunCauses.push(...unmet.map((g) => g.reason));
     if (!budget.allocated)
         notRunCauses.push(`no budget allocation: ${budget.reason}`);
+    // A budget that can't be called clean (unreadable or torn journal) can hide an overrun: HOLD at least, never PASS.
+    if (budget.allocated && budget.hold)
+        notRunCauses.push(budget.hold);
     const later = notRunCauses.length > 0 ? `; also ${notRunCauses.join('; ')}` : '';
     if (budget.overrun.length > 0) {
         const rows = recorded ? recorded.rows : allRows(legId, 'NOT RUN');
@@ -83,6 +86,7 @@ function legVerdict(legId, input) {
             ...plan.needs.filter((dep) => !input.prior.get(dep) || input.prior.get(dep).outcome !== 'PASS').map(() => 'NOT RUN'),
             ...unmet.map((g) => g.outcome),
             ...(budget.allocated ? [] : ['NOT RUN']),
+            ...(budget.allocated && budget.hold ? ['HOLD'] : []),
             ...(recorded && recorded.outcome === 'HOLD' ? ['HOLD'] : []),
         ];
         const outcome = fold(outcomes);

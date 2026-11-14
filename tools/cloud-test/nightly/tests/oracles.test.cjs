@@ -226,7 +226,18 @@ describe('short-stop-no-save', () => {
     // #1861 settles a short Stop's discard by marking the take's row failed, so a row can exist and still save nothing.
     const read = (o = {}) => ({
         settled: true, rowsBefore: [{ id: 'old', status: 'completed' }], rowsAfter: [{ id: 'old', status: 'completed' }],
-        acceptedCompletingSaves: 0, acceptedFailedMarks: 0, savedConfirmationShown: false, unsettledDiscardShown: false, ...o,
+        stopPressedWhileRecording: true, acceptedCompletingSaves: 0, acceptedFailedMarks: 0, savedConfirmationShown: false,
+        notSavedShown: true, unsettledDiscardShown: false, ...o,
+    });
+    it('holds when the short Stop was never exercised, and never passes on a missing flag', () => {
+        expect(shortStopVerdict(read({ stopPressedWhileRecording: false })).outcome).toBe('HOLD');
+        expect(shortStopVerdict(read({ stopPressedWhileRecording: undefined })).outcome).toBe('HOLD');
+        expect(shortStopVerdict(read({ notSavedShown: 'yes' })).outcome).toBe('HOLD');
+    });
+    it('fails when the page does not tell the user the take was not saved', () => {
+        expect(shortStopVerdict(read({ notSavedShown: false })).outcome).toBe('FAIL');
+        // The page's own "not settled" warning is the HOLD case, not a silent page.
+        expect(shortStopVerdict(read({ notSavedShown: false, unsettledDiscardShown: true })).outcome).toBe('HOLD');
     });
     it('passes when a short Stop leaves no new row', () => {
         expect(shortStopVerdict(read()).outcome).toBe('PASS');

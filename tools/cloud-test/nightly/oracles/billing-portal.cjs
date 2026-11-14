@@ -88,8 +88,10 @@ async function portalOpensVerdict(ports, timeoutMs = PORTAL_TIMEOUT_MS) {
             log('portal: timed out');
             return { outcome: 'FAIL', detail: 'the portal did not open in time' };
         }
-        log(`portal: ${shown.portalShown ? 'shown' : 'not shown'}`);
-        return shown.portalShown ? { outcome: 'PASS', detail: 'the test-mode billing portal opened' } : { outcome: 'FAIL', detail: 'the portal page was not shown' };
+        // Only an explicit true counts: a value the spec forgot to map, or mapped to a string, is never read as shown.
+        const portalShown = shown?.portalShown === true;
+        log(`portal: ${portalShown ? 'shown' : 'not shown'}`);
+        return portalShown ? { outcome: 'PASS', detail: 'the test-mode billing portal opened' } : { outcome: 'FAIL', detail: 'the portal page was not shown' };
     }
     catch (e) {
         log(`portal: failed (${e instanceof Error ? e.message : String(e)})`);

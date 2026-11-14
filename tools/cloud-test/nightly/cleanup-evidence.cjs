@@ -59,17 +59,46 @@ const checkRunId = (runId) => {
         throw new Error('a run id is letters, digits, dot, dash or underscore');
 };
 
+/** A run that admission refused: nothing was recorded and nothing may be sent. */
+class AdmissionRefused extends Error {
+}
+const ADMISSION_LOCK = 'admission.lock';
 /**
- * Records that a run has started, and which journeys it must account for on cleanup (the journeys with a cleanup
- * reserve in its budget plan: `Object.keys(budget.plan().cleanup)`). Call it right after admission and before the
- * first send.
+ * Admits the run and records that it has started, as one step under an exclusive lock, so two runners started at the
+ * same moment can't both be admitted: the second sees the first's start record and is refused. It records which
+ * journeys the run must account for on cleanup (the journeys with a cleanup reserve in its budget plan:
+ * `Object.keys(budget.plan().cleanup)`). Call it before the first send. A lock left by a runner killed inside this step
+ * refuses every later run (fail closed) until someone who has checked no runner is admitting removes it.
  */
 function beginRun(dir, runId, journeys, at = new Date().toISOString()) {
     checkRunId(runId);
     const known = new Set(JOURNEYS.map((j) => j.id));
     if (!Array.isArray(journeys) || !journeys.every((j) => known.has(j)) || new Set(journeys).size !== journeys.length)
         throw new Error('beginRun needs the run\'s journeys, each once');
-    durableWrite(runFile(dir, runId, 'started'), { runId, startedAt: at, journeys: [...journeys].sort() });
+    const lock = path.join(dir, ADMISSION_LOCK);
+    let fd;
+    try {
+        fd = fs.openSync(lock, 'wx');
+    }
+    catch (e) {
+        if (e.code === 'EEXIST')
+            throw new AdmissionRefused(`another runner holds ${ADMISSION_LOCK} (or one was killed holding it): admission refused`);
+        if (e.code === 'ENOENT')
+            throw new AdmissionRefused('the cleanup evidence directory is missing; admission cannot tell what earlier runs left');
+        throw e;
+    }
+    try {
+        fs.writeSync(fd, JSON.stringify({ pid: process.pid, runId }));
+        const a = admitRun(dir);
+        if (!a.admitted)
+            throw new AdmissionRefused(a.reason);
+        durableWrite(runFile(dir, runId, 'started'), { runId, startedAt: at, journeys: [...journeys].sort() });
+        return a;
+    }
+    finally {
+        fs.closeSync(fd);
+        fs.rmSync(lock, { force: true });
+    }
 }
 /**
  * Writes the run's cleanup evidence, once. `journeys` is [{ journey, reserveExhausted, steps: [{ kind, ref, action,
@@ -162,4 +191,4 @@ function admitRun(dir) {
         : { admitted: true, reason: 'every earlier run cleaned up or was recovered', blocking };
 }
 
-module.exports = { RESOURCE_KINDS, admitRun, beginRun, recordRecovery, writeCleanupEvidence };
+module.exports = { ADMISSION_LOCK, AdmissionRefused, RESOURCE_KINDS, admitRun, beginRun, recordRecovery, writeCleanupEvidence };

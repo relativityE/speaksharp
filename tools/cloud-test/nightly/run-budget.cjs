@@ -259,11 +259,11 @@ class RunBudget {
         catch (e) {
             // Fail closed: a reservation that can't be decided is refused, and nothing is sent. A refused cleanup leaves
             // its journey's cleanup incomplete, so it is recorded outside the journal (which it couldn't reach).
-            if (e instanceof BudgetUnavailable) {
-                if (kind === CLEANUP)
-                    this.#store.markCleanupRefused(legById(legId).journey);
+            // Any error, not only an unreachable budget, leaves the cleanup undecided, so the journey is marked first.
+            if (kind === CLEANUP)
+                this.#store.markCleanupRefused(legById(legId).journey);
+            if (e instanceof BudgetUnavailable)
                 return { granted: false, reason: e.message };
-            }
             throw e;
         }
     }
@@ -304,28 +304,36 @@ class RunBudget {
     }
     /** How many writes to the journal were cut short (null when it can't be read). Any is a reason the run isn't green. */
     journalTorn() { return this.#read((s) => s.torn, () => null); }
-    /** What leg-verdicts.cjs needs: whether the leg had an allocation and which kinds it overran. */
+    /**
+     * What leg-verdicts.cjs needs: whether the leg had an allocation, which kinds it overran, and `hold`, the reason its
+     * budget can't be called clean (the journal couldn't be read, or a write to it was cut short), or null. A leg with a
+     * `hold` is never PASS and never NOT RUN: an unreadable or torn journal can hide an overrun, so it is HOLD at least.
+     */
     legBudget(legId) {
         legById(legId);
         if (!this.#plan.legs[legId])
-            return Object.freeze({ allocated: false, reason: this.#plan.notAllocated[legId] ?? 'not planned', overrun: Object.freeze([]) });
+            return Object.freeze({ allocated: false, reason: this.#plan.notAllocated[legId] ?? 'not planned', overrun: Object.freeze([]), hold: null });
         return this.#read((s) => {
             const refused = s.refused.get(legId) ?? {};
             const overrun = Object.keys(refused).filter((k) => refused[k] > 0);
-            return Object.freeze({ allocated: true, reason: 'allocated before the run', overrun: Object.freeze(overrun) });
-        }, (e) => Object.freeze({ allocated: false, reason: `the run budget could not be read: ${e.message}`, overrun: Object.freeze([]) }));
+            const hold = s.torn > 0 ? `${s.torn} write(s) to the run budget journal were cut short` : null;
+            return Object.freeze({ allocated: true, reason: 'allocated before the run', overrun: Object.freeze(overrun), hold });
+        }, (e) => Object.freeze({ allocated: true, reason: 'allocated before the run', overrun: Object.freeze([]), hold: `the run budget could not be read: ${e.message}` }));
     }
-    /** The leg's budget row: FAIL when it asked for more than its allocation of any kind, cleanup included. */
+    /**
+     * The leg's budget row: FAIL when it asked for more than its allocation of any kind, cleanup included; HOLD when the
+     * journal can't be read or a write to it was cut short; NOT RUN when it had no allocation.
+     */
     legBudgetRow(legId) {
         const b = this.legBudget(legId);
-        if (b.reason.startsWith('the run budget could not be read'))
-            return { outcome: 'HOLD', reason: b.reason };
         if (!b.allocated)
             return { outcome: 'NOT RUN', reason: b.reason };
+        if (b.overrun.length === 0 && b.hold && b.hold.startsWith('the run budget could not be read'))
+            return { outcome: 'HOLD', reason: b.hold };
         return this.#read((s) => {
             const j = legById(legId).journey;
             return {
-                outcome: b.overrun.length > 0 ? 'FAIL' : 'PASS',
+                outcome: b.overrun.length > 0 ? 'FAIL' : b.hold ? 'HOLD' : 'PASS', ...(b.hold ? { reason: b.hold } : {}),
                 allocated: this.#plan.legs[legId], used: { coaching: 0, starts: 0, ...s.used.get(legId) },
                 refused: { coaching: 0, starts: 0, [CLEANUP]: 0, ...s.refused.get(legId) }, refusedAfterStop: s.afterStop.get(legId) ?? 0,
                 journeyCleanup: { reserve: this.#plan.cleanup[j].requests, used: s.cleanupUsed.get(j) ?? 0 },

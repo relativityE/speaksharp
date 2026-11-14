@@ -68,6 +68,10 @@ function serverRefusesVerdict(probes, required) {
  * before and is gone after, or any other change is not explained by a discard: HOLD. An accepted request that asked to
  * complete the take is a save: FAIL. The page's own "not settled" warning (#1861) means the discard is unresolved: HOLD,
  * and so does an accepted request to mark the take failed that no row reflects.
+ *
+ * The leg must show it exercised the case: `stopPressedWhileRecording` true (recording started and Stop was pressed
+ * before the minimum length), or nothing happened and the row is HOLD, never PASS. The page must also tell the user
+ * nothing was saved (`notSavedShown`); a page that says neither that nor "not settled" FAILs.
  */
 const SETTLED_DISCARD = 'failed';
 const SAVED_TAKE = 'completed';
@@ -82,10 +86,12 @@ function shortStopVerdict(r) {
         ...(Array.isArray(r.rowsBefore) && r.rowsBefore.every(isRow) ? [] : ['rowsBefore']),
         ...(Array.isArray(r.rowsAfter) && r.rowsAfter.every(isRow) ? [] : ['rowsAfter']),
         ...notCounts(r, ['acceptedCompletingSaves', 'acceptedFailedMarks']),
-        ...notObserved(r, ['savedConfirmationShown', 'unsettledDiscardShown'], 'boolean'),
+        ...notObserved(r, ['stopPressedWhileRecording', 'savedConfirmationShown', 'notSavedShown', 'unsettledDiscardShown'], 'boolean'),
     ];
     if (missing.length > 0)
         return { outcome: 'HOLD', detail: `not observed: ${missing.join(', ')}` };
+    if (!r.stopPressedWhileRecording)
+        return { outcome: 'HOLD', detail: 'recording never started or Stop was not pressed while recording: the short Stop was not exercised' };
     // A read that names a row twice can hide one state behind the other: it can't be judged.
     if (!uniqueIds(r.rowsBefore) || !uniqueIds(r.rowsAfter))
         return { outcome: 'HOLD', detail: 'a session row is listed twice in the read' };
@@ -110,6 +116,8 @@ function shortStopVerdict(r) {
         problems.push(`${r.acceptedCompletingSaves} request(s) to complete the take accepted`);
     if (r.savedConfirmationShown)
         problems.push('the page said the take was saved');
+    if (!r.notSavedShown && !r.unsettledDiscardShown)
+        problems.push('the page did not tell the user the take was not saved');
     if (problems.length > 0)
         return { outcome: 'FAIL', detail: problems.join('; ') };
     const open = [];
