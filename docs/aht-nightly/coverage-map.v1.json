@@ -1434,6 +1434,12 @@
  ],
  "newRows": [
   {
+   "leg": "J1.a",
+   "assertion": "trial-length-thirty-days",
+   "what": "On the deployed build, the new account's trial ends exactly 30 days after it started (product owner, 14 Nov). The DB test checks this only on the original trigger body.",
+   "status": "row new"
+  },
+  {
    "leg": "J1.c",
    "assertion": "short-stop-no-save",
    "what": "A Stop under 5 s saves nothing: no completed sessions row, no history entry (G5).",
