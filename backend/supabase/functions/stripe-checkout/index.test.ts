@@ -634,3 +634,53 @@ Deno.test("stripe-checkout edge function", async (t) => {
     assertEquals(stripe.called(), false);
   });
 });
+
+// Outcome 7 D1 / outcome 8: the disposable local billing stack is the ONLY non-live checkout path.
+const localSandboxEnv = envWith({
+  STRIPE_SECRET_KEY: 'sk_test_synthetic', SUPABASE_URL: 'http://kong:8000', SITE_URL: 'http://localhost:5173',
+  BILLING_LOCAL_SANDBOX: 'ISOLATED-TEST-MODE-ONLY',
+});
+const localRequest = (origin?: string) => new Request('http://127.0.0.1:54321/functions/v1/stripe-checkout', {
+  method: 'POST', body: JSON.stringify({ plan: 'pro' }),
+  headers: { Authorization: 'Bearer valid-token', 'Content-Type': 'application/json', ...(origin ? { Origin: origin } : {}) },
+});
+
+Deno.test('local billing sandbox opens test-mode checkout and returns to the local app only', async () => {
+  let params: Record<string, unknown> = {};
+  const client = stripeWith({ sessions: { create: async (p) => { params = p; return { id: 'cs_test_local', url: 'https://checkout.stripe.com/c/pay/cs_test_local' }; } } });
+  for (const origin of [undefined, 'http://localhost:5173']) {
+    const res = await handler(localRequest(origin), { getEnv: localSandboxEnv, createSupabase: createSupabase(),
+      createAdmin, stripeClient: client, stripeClientMode: 'test' });
+    assertEquals(res.status, 200);
+    assertEquals(String(params.success_url).startsWith('http://localhost:5173/'), true);
+    assertEquals(String(params.cancel_url).startsWith('http://localhost:5173/'), true);
+  }
+});
+
+Deno.test('local billing sandbox is refused for hosted projects, loose flags, wrong origins and mode mismatch', async () => {
+  const cases: Array<[string, Record<string, string | undefined>, string | undefined, 'test' | 'live' | 'unknown']> = [
+    ['production project', { SUPABASE_URL: 'https://yxlapjuovrsvjswkwnrk.supabase.co' }, undefined, 'test'],
+    ['any hosted project', { SUPABASE_URL: 'https://sandbox.supabase.co' }, undefined, 'test'],
+    ['boolean flag', { BILLING_LOCAL_SANDBOX: 'true' }, undefined, 'test'],
+    ['flag missing', { BILLING_LOCAL_SANDBOX: undefined }, undefined, 'test'],
+    ['payments off', { PAYMENTS_ENABLED: undefined }, undefined, 'test'],
+    ['production site', { SITE_URL: 'https://speaksharp-public.vercel.app' }, undefined, 'test'],
+    ['site with path', { SITE_URL: 'http://localhost:5173/' }, undefined, 'test'],
+    ['https local api', { SUPABASE_URL: 'https://127.0.0.1:54321' }, undefined, 'test'],
+    ['credentialed api', { SUPABASE_URL: 'http://user:pw@kong:8000' }, undefined, 'test'],
+    ['other local port', { SUPABASE_URL: 'http://127.0.0.1:5432' }, undefined, 'test'],
+    ['invalid key', { STRIPE_SECRET_KEY: 'rk_test_synthetic' }, undefined, 'test'],
+    ['other browser origin', {}, 'http://localhost:5174', 'test'],
+    ['captured live client', {}, undefined, 'live'],
+    ['captured mode unknown', {}, undefined, 'unknown'],
+  ];
+  for (const [name, overrides, origin, mode] of cases) {
+    const stripe = neverCallStripe();
+    const base = localSandboxEnv;
+    const getEnv = (key: string) => key in overrides ? overrides[key] : base(key);
+    const res = await handler(localRequest(origin), { getEnv, createSupabase: createSupabase(), createAdmin,
+      stripeClient: stripe.client, stripeClientMode: mode });
+    assertEquals(res.status, 403, name);
+    assertEquals(stripe.called(), false, name);
+  }
+});
