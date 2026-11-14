@@ -6,7 +6,7 @@
 class LiveModeRefused extends Error {
     constructor(reason) { super(`J9 refuses anything outside Stripe test mode: ${reason}`); this.name = 'LiveModeRefused'; }
 }
-/** Fails closed unless the key, the customer and the subscription are all Stripe test mode. */
+/** Fails closed unless the key, the customer and the subscription are all Stripe test mode; returns true when they are. */
 function assertTestModeFixture(f, stripeKey, customer, subscription) {
     if (f.stripeMode !== 'test')
         throw new LiveModeRefused('the fixture is not marked test mode');
@@ -18,6 +18,8 @@ function assertTestModeFixture(f, stripeKey, customer, subscription) {
         throw new LiveModeRefused('a Stripe object is live mode');
     if (!/^[0-9a-f]{40}$/.test(f.recordedOnRelease))
         throw new LiveModeRefused('the fixture does not name the exact release it was recorded on');
+    // The proof the portal check requires: only an explicit true lets a session be created.
+    return true;
 }
 class FixtureNotBuilt extends Error {
     constructor() { super('the J9.a test-mode paid account fixture is not built yet (flagged): J9.a is NOT RUN'); this.name = 'FixtureNotBuilt'; }

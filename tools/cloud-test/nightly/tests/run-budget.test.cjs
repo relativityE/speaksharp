@@ -296,19 +296,100 @@ describe('one budget shared across workers', () => {
         expect(r.reason).toContain('lock was not available');
         fs.rmSync(path.join(dir, 'budget.lock'), { recursive: true });
     });
-    it('refuses every reservation once the journal has a partial line, and a plan that was altered', () => {
+    it('after a write cut short by a crash, sends no more test work but still cleans up, counting the torn write against the reserve', () => {
         const dir = shared();
         openSharedRunBudget(dir).reserve('J6', 'coaching');
         fs.appendFileSync(path.join(dir, 'budget-journal.jsonl'), '{"t":"grant","leg":"J6"');
-        const r = openSharedRunBudget(dir).reserve('J4.a', 'coaching');
+        const b = openSharedRunBudget(dir);
+        const r = b.reserve('J4.a', 'coaching');
+        expect(r.granted).toBe(false);
+        expect(r.reason).toContain('cut short');
+        expect(b.journalTorn()).toBe(1);
+        // The journal is whole again: the partial line is replaced by one torn event.
+        const lines = fs.readFileSync(path.join(dir, 'budget-journal.jsonl'), 'utf8').split('\n');
+        expect(lines.pop()).toBe('');
+        expect(JSON.parse(lines[lines.length - 1])).toEqual({ t: 'torn' });
+        const n = cleanupReserve('J6').requests;
+        let granted = 0;
+        for (let i = 0; i < n + 2; i += 1)
+            granted += b.reserveCleanup('J6').granted ? 1 : 0;
+        expect(granted).toBe(n - 1);
+        expect(b.cleanupExhausted('J6')).toBe(true);
+        expect(b.legBudgetRow('J4.a').outcome).toBe('PASS');
+    });
+    it('refuses a journal line it cannot read, and a plan that was altered', () => {
+        const dir = shared();
+        openSharedRunBudget(dir).reserve('J6', 'coaching');
+        fs.appendFileSync(path.join(dir, 'budget-journal.jsonl'), '{"t":\n');
+        const b = openSharedRunBudget(dir);
+        const r = b.reserve('J4.a', 'coaching');
         expect(r.granted).toBe(false);
         expect(r.reason).toContain('unreadable');
+        // Reads that can't be made fail closed: cleanup reads as incomplete and the leg's budget as not known.
+        expect(b.cleanupExhausted('J4')).toBe(true);
+        expect(b.legBudget('J4.a').allocated).toBe(false);
+        expect(b.legBudgetRow('J4.a').outcome).toBe('HOLD');
+        expect(b.journalTorn()).toBe(null);
         const dir2 = shared();
         const f = path.join(dir2, 'budget-plan.json');
         const doc = JSON.parse(fs.readFileSync(f, 'utf8'));
         doc.plan.legs.J6.coaching = 50;
         fs.writeFileSync(f, JSON.stringify(doc));
         expect(() => openSharedRunBudget(dir2)).toThrow(RunRefused);
+    });
+    it('records a cleanup refused for want of the lock, so the journey reads as incomplete', () => {
+        const dir = shared();
+        fs.mkdirSync(path.join(dir, 'budget.lock'));
+        fs.writeFileSync(path.join(dir, 'budget.lock', 'owner.json'), JSON.stringify({ pid: process.pid, host: os.hostname(), token: 'held' }));
+        const b = openSharedRunBudget(dir, { lockTimeoutMs: 30 });
+        expect(b.reserveCleanup('J6').granted).toBe(false);
+        fs.rmSync(path.join(dir, 'budget.lock'), { recursive: true });
+        expect(b.cleanupExhausted('J6')).toBe(true);
+        expect(openSharedRunBudget(dir).cleanupExhausted('J6')).toBe(true);
+        expect(openSharedRunBudget(dir).cleanupExhausted('J5')).toBe(false);
+    });
+    it('never removes a lock it does not hold when it releases', () => {
+        const dir = shared();
+        const lockDir = path.join(dir, 'budget.lock');
+        const b = openSharedRunBudget(dir);
+        // Another worker takes the lock over while this step holds it (as a wrongly broken lock would be).
+        const { _fileStore } = require('../run-budget.cjs');
+        const store = _fileStore(dir);
+        store.transact(() => {
+            fs.writeFileSync(path.join(lockDir, 'owner.json'), JSON.stringify({ pid: process.pid, host: os.hostname(), token: 'someone-else' }));
+            return { result: null };
+        });
+        expect(fs.existsSync(lockDir)).toBe(true);
+        fs.rmSync(lockDir, { recursive: true });
+        expect(b.reserve('J6', 'coaching').granted).toBe(true);
+    });
+    it('never breaks a lock that a live worker took after another worker judged the old one stale', () => {
+        const dir = shared();
+        const lockDir = path.join(dir, 'budget.lock');
+        const { _fileStore } = require('../run-budget.cjs');
+        const store = _fileStore(dir);
+        // A worker read a dead owner, and before it could break the lock, a live worker took a fresh lock.
+        const dead = { pid: 2 ** 22 + 54321, host: os.hostname(), token: 'dead' };
+        fs.mkdirSync(lockDir);
+        fs.writeFileSync(path.join(lockDir, 'owner.json'), JSON.stringify({ pid: process.pid, host: os.hostname(), token: 'live' }));
+        store._breakIfStale(dead);
+        expect(fs.existsSync(lockDir)).toBe(true);
+        expect(fs.existsSync(path.join(dir, 'budget.lock.break'))).toBe(false);
+        // The dead owner itself is broken.
+        fs.writeFileSync(path.join(lockDir, 'owner.json'), JSON.stringify(dead));
+        store._breakIfStale(dead);
+        expect(fs.existsSync(lockDir)).toBe(false);
+    });
+    it('lets exactly the allocation through when separate processes race to break the same dead owner\'s lock', async () => {
+        for (let round = 0; round < 3; round += 1) {
+            const dir = shared();
+            fs.mkdirSync(path.join(dir, 'budget.lock'));
+            fs.writeFileSync(path.join(dir, 'budget.lock', 'owner.json'), JSON.stringify({ pid: 2 ** 22 + 54321, host: os.hostname(), token: 'dead' }));
+            const granted = await Promise.all(Array.from({ length: 8 }, () => worker(dir, 'J6', 'coaching')));
+            expect(granted.filter(Boolean)).toHaveLength(2);
+            expect(openSharedRunBudget(dir).legBudgetRow('J6').used.coaching).toBe(2);
+            expect(fs.existsSync(path.join(dir, 'budget.lock'))).toBe(false);
+        }
     });
     it('writes the plan once: a run directory is never reused', () => {
         const dir = shared();

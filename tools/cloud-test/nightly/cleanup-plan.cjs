@@ -5,7 +5,8 @@
 //
 // The operations are the ones the existing cleanup code makes, read from it (a drift test in
 // tests/cleanup.test.cjs fails if the code changes under these counts):
-//   - deleting a run-owned account: tests/live/helpers/runOwnedCleanup.ts cleanupRunOwnedAccount;
+//   - deleting each run-owned account: tests/live/helpers/runOwnedCleanup.ts cleanupRunOwnedAccount, once per harness
+//     case in the journey, because each case signs up its own account today;
 //   - settling its stopped takes first: settleRunOwnedTakes (three reads of sessions + leases, one close per open take);
 //   - the feedback fence of a case that writes feedback (AHT-01/02/07/08, #1859/#1860): close, clean, verify.
 // Each operation is one attempt: the cleanup code fails closed rather than retrying.
@@ -50,6 +51,12 @@ const UNDEFINED_CLEANUP = Object.freeze({
     J2: 'expiring the Checkout Session and settling the checkout operation has no reviewed cleanup step yet',
 });
 class CleanupUndefined extends Error {}
+/**
+ * The run-owned accounts a journey can leave, as the harness is today: every harness case signs up its own account
+ * (prepareRunOwnedAccount in each spec), so a journey whose legs run as three cases has three. It falls to one per
+ * journey once the harness handoff shares one signup across a journey's cases.
+ */
+const runOwnedAccounts = (j) => Math.max(1, new Set(j.legs.map((l) => l.caseId).filter(Boolean)).size);
 
 /**
  * The structural worst case of one journey's cleanup: { requests, seconds, steps }. J9 reads a long-lived account and
@@ -65,8 +72,9 @@ function cleanupReserve(journeyId) {
     if (j.account === 'fresh-run-owned') {
         // Each Start press can open at most one take, so the journey's Start presses bound the takes left to close.
         const openTakes = j.legs.reduce((n, l) => n + l.startPresses, 0);
+        const accounts = runOwnedAccounts(j);
         for (const o of ACCOUNT_DELETION)
-            steps.push({ op: o.op, requests: o.requests + (o.perOpenTake ?? 0) * openTakes });
+            steps.push({ op: accounts > 1 ? `${o.op}, ${accounts} accounts` : o.op, requests: o.requests * accounts + (o.perOpenTake ?? 0) * openTakes });
     }
     const fenced = [...new Set(j.legs.map((l) => l.caseId).filter((c) => FENCED_CASES.includes(c)))];
     for (const c of fenced)
@@ -79,5 +87,5 @@ const reserveMinutes = (r) => Math.ceil(r.seconds / 60);
 
 module.exports = {
     ACCOUNT_DELETION, CLEANUP_REQUEST_DEADLINE_S, CleanupUndefined, FENCED_CASES, SOURCE_COUNTS, UNDEFINED_CLEANUP,
-    cleanupReserve, reserveMinutes,
+    cleanupReserve, reserveMinutes, runOwnedAccounts,
 };

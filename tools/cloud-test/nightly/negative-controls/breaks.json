@@ -607,7 +607,7 @@
       "guards": "no portal session is created before the Stripe test-mode check passes",
       "file": "oracles/billing-portal.cjs",
       "find": "const checked = await withTimeout(new Promise((resolve) => resolve(ports.assertTestMode())), timeoutMs);",
-      "replace": "const checked = 'ok';",
+      "replace": "const checked = true;",
       "test": "tests/billing.test.cjs"
     },
     {
@@ -638,8 +638,8 @@
       "id": "P5-portal-check-not-awaited",
       "guards": "an async test-mode check that rejects stops the portal session being created",
       "file": "oracles/billing-portal.cjs",
-      "find": "const checked = await withTimeout(",
-      "replace": "const checked = withTimeout(",
+      "find": "const checked = await withTimeout(new Promise((resolve) => resolve(ports.assertTestMode())), timeoutMs);",
+      "replace": "const checked = ports.assertTestMode() instanceof Promise ? true : await withTimeout(new Promise((resolve) => resolve(ports.assertTestMode())), timeoutMs);",
       "test": "tests/billing.test.cjs"
     },
     {
@@ -902,24 +902,24 @@
       "id": "P6-shared-lock-skipped",
       "guards": "workers in separate processes take the journal lock for every step",
       "file": "run-budget.cjs",
-      "find": "if (!acquire())\n                throw new BudgetUnavailable(",
-      "replace": "if (false)\n                throw new BudgetUnavailable(",
+      "find": "            const token = acquire();\n            if (token === null)",
+      "replace": "            const token = 'unlocked';\n            if (token === null)",
       "test": "tests/run-budget.test.cjs"
     },
     {
       "id": "P6-shared-live-lock-broken",
       "guards": "a live worker's lock is never broken",
       "file": "run-budget.cjs",
-      "find": "stale = o.host === os.hostname() && Number.isInteger(o.pid) && !alive(o.pid);",
-      "replace": "stale = true;",
+      "find": "return o !== null && o.token === seen.token && o.host === os.hostname() && Number.isInteger(o.pid) && !alive(o.pid);",
+      "replace": "return o !== null;",
       "test": "tests/run-budget.test.cjs"
     },
     {
       "id": "P6-shared-partial-line-accepted",
-      "guards": "a journal with a partial line refuses everything",
+      "guards": "a write cut short by a crash is repaired into a torn event, never read past",
       "file": "run-budget.cjs",
-      "find": "if (lines.pop() !== '')\n            throw new Error('budget journal has a partial last line');",
-      "replace": "lines.pop();",
+      "find": "if (end < text.length) {",
+      "replace": "if (false) {",
       "test": "tests/run-budget.test.cjs"
     },
     {
@@ -942,8 +942,8 @@
       "id": "P6-shared-plan-rewritten",
       "guards": "the shared plan is written once per run directory",
       "file": "run-budget.cjs",
-      "find": "{ flag: 'wx' }",
-      "replace": "{ flag: 'w' }",
+      "find": "JSON.parse(body) }), { flag: 'wx' });",
+      "replace": "JSON.parse(body) }), { flag: 'w' });",
       "test": "tests/run-budget.test.cjs"
     },
     {
@@ -980,18 +980,18 @@
     },
     {
       "id": "P6-evidence-overwritten",
-      "guards": "cleanup evidence is never overwritten",
+      "guards": "cleanup evidence is never overwritten, even by a racing writer",
       "file": "cleanup-evidence.cjs",
-      "find": "if (exclusive && fs.existsSync(file)) {",
-      "replace": "if (false) {",
+      "find": "fs.linkSync(tmp, file);",
+      "replace": "fs.renameSync(tmp, file);",
       "test": "tests/cleanup.test.cjs"
     },
     {
       "id": "P6-evidence-exhausted-complete",
       "guards": "a cleanup reserve that ran out leaves cleanup incomplete",
       "file": "cleanup-evidence.cjs",
-      "find": "journeys.filter((j) => j.reserveExhausted || j.left.length > 0",
-      "replace": "journeys.filter((j) => j.left.length > 0",
+      "find": "checked.filter((j) => j.reserveExhausted || j.left.length > 0",
+      "replace": "checked.filter((j) => j.left.length > 0",
       "test": "tests/cleanup.test.cjs"
     },
     {
@@ -1022,8 +1022,8 @@
       "id": "P6-reserve-ignores-open-takes",
       "guards": "the reserve closes every take the journey can open",
       "file": "cleanup-plan.cjs",
-      "find": "requests: o.requests + (o.perOpenTake ?? 0) * openTakes",
-      "replace": "requests: o.requests",
+      "find": "requests: o.requests * accounts + (o.perOpenTake ?? 0) * openTakes",
+      "replace": "requests: o.requests * accounts",
       "test": "tests/cleanup.test.cjs"
     },
     {
@@ -1065,6 +1065,142 @@
       "find": "const perRun = missing.length > 0 || noReserve.length > 0 ? null :",
       "replace": "const perRun = missing.length > 0 ? null :",
       "test": "tests/limits.test.cjs"
+    },
+    {
+      "id": "P7-stale-break-unverified",
+      "guards": "a stale lock is broken only after its owner is read again under the break lock",
+      "file": "run-budget.cjs",
+      "find": "            if (staleNow(seen))\n                fs.rmSync(lock, { recursive: true, force: true });",
+      "replace": "            fs.rmSync(lock, { recursive: true, force: true });",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P7-release-foreign-lock",
+      "guards": "a step never removes a lock it does not hold",
+      "file": "run-budget.cjs",
+      "find": "if (readOwner()?.token === token)",
+      "replace": "if (true)",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P7-torn-not-counted-against-cleanup",
+      "guards": "a torn write counts against every journey's cleanup reserve",
+      "file": "run-budget.cjs",
+      "find": "const used = (state.cleanupUsed.get(j) ?? 0) + state.torn;",
+      "replace": "const used = (state.cleanupUsed.get(j) ?? 0);",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P7-torn-still-sends-test-work",
+      "guards": "after a torn write no more test work is sent",
+      "file": "run-budget.cjs",
+      "find": "if (state.torn > 0)\n        return { event: null",
+      "replace": "if (false)\n        return { event: null",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P7-unreadable-cleanup-reads-complete",
+      "guards": "cleanup reads as incomplete when the budget cannot be read",
+      "file": "run-budget.cjs",
+      "find": "ALL_LEGS.some((l) => l.journey === journeyId && (s.refused.get(l.id)?.[CLEANUP] ?? 0) > 0), () => true);",
+      "replace": "ALL_LEGS.some((l) => l.journey === journeyId && (s.refused.get(l.id)?.[CLEANUP] ?? 0) > 0), () => false);",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P7-lock-refused-cleanup-unrecorded",
+      "guards": "a cleanup refused for want of the lock is recorded",
+      "file": "run-budget.cjs",
+      "find": "this.#store.markCleanupRefused(legById(legId).journey);",
+      "replace": "void 0;",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P7-unreadable-budget-row-passes",
+      "guards": "a leg's budget row is HOLD when the budget cannot be read",
+      "file": "run-budget.cjs",
+      "find": "if (b.reason.startsWith('the run budget could not be read'))\n            return { outcome: 'HOLD'",
+      "replace": "if (false)\n            return { outcome: 'HOLD'",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P7-evidence-journeys-unchecked",
+      "guards": "cleanup evidence must name exactly the journeys the run started with",
+      "file": "cleanup-evidence.cjs",
+      "find": "if (JSON.stringify(named) !== JSON.stringify(started.journeys))",
+      "replace": "if (false)",
+      "test": "tests/cleanup.test.cjs"
+    },
+    {
+      "id": "P7-evidence-exhaustion-ignored",
+      "guards": "the run budget's exhausted reserve marks a journey incomplete",
+      "file": "cleanup-evidence.cjs",
+      "find": "reserveExhausted: j.reserveExhausted || cleanupExhausted(j.journey) !== false",
+      "replace": "reserveExhausted: j.reserveExhausted",
+      "test": "tests/cleanup.test.cjs"
+    },
+    {
+      "id": "P7-portal-test-mode-unproven",
+      "guards": "only an explicit true proves test mode before a portal session",
+      "file": "oracles/billing-portal.cjs",
+      "find": "if (checked !== true) {",
+      "replace": "if (false) {",
+      "test": "tests/billing.test.cjs"
+    },
+    {
+      "id": "P7-short-stop-duplicate-ids",
+      "guards": "short-stop-no-save: a read listing a row twice HOLDs",
+      "file": "oracles/payment-wall.cjs",
+      "find": "if (!uniqueIds(r.rowsBefore) || !uniqueIds(r.rowsAfter))",
+      "replace": "if (false)",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P7-short-stop-saved-take-changed",
+      "guards": "short-stop-no-save: an earlier saved take that changed FAILs",
+      "file": "oracles/payment-wall.cjs",
+      "find": "if (changedSaved > 0)",
+      "replace": "if (false)",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P7-short-stop-many-settled",
+      "guards": "short-stop-no-save: one short Stop settles at most one row",
+      "file": "oracles/payment-wall.cjs",
+      "find": "if (settledAsFailed.length > 1)",
+      "replace": "if (false)",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P7-short-stop-other-change",
+      "guards": "short-stop-no-save: a change a discard does not explain HOLDs",
+      "file": "oracles/payment-wall.cjs",
+      "find": "if (otherChange > 0)",
+      "replace": "if (false)",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P7-short-stop-placeholder-only",
+      "guards": "short-stop-no-save: only a new row or a placeholder may settle as failed",
+      "file": "oracles/payment-wall.cjs",
+      "find": "(!before.has(id) || PLACEHOLDER.has(before.get(id)))",
+      "replace": "true",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P7-reserve-one-account-per-journey",
+      "guards": "the reserve deletes one account per harness case, as the harness signs up today",
+      "file": "cleanup-plan.cjs",
+      "find": "const accounts = runOwnedAccounts(j);",
+      "replace": "const accounts = 1;",
+      "test": "tests/cleanup.test.cjs"
+    },
+    {
+      "id": "P7-dependent-rows-overwritten",
+      "guards": "a dependent leg's recorded rows stand",
+      "file": "leg-verdicts.cjs",
+      "find": "rows: recorded ? recorded.rows : allRows(legId, outcome) };",
+      "replace": "rows: allRows(legId, outcome) };",
+      "test": "tests/leg-verdicts.test.cjs"
     }
   ]
 }

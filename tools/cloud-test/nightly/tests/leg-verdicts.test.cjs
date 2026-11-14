@@ -79,9 +79,11 @@ describe('leg verdict', () => {
             delete require.cache[require.resolve('../leg-verdicts.cjs')];
         }
     });
-    it('does not count a PASS recorded by a dependent leg whose dependency did not pass', () => {
+    it('does not count a PASS recorded by a dependent leg whose dependency did not pass, but keeps its recorded rows', () => {
         const heldA = legVerdict('J1.a', { prior: new Map(), satisfiedGates: ALL_GATES, results: results('J1.a', 'HOLD') });
-        expect(legVerdict('J1.d', { prior: prior(heldA), satisfiedGates: ALL_GATES, results: results('J1.d') }).outcome).toBe('NOT RUN');
+        const v = legVerdict('J1.d', { prior: prior(heldA), satisfiedGates: ALL_GATES, results: results('J1.d') });
+        expect(v.outcome).toBe('NOT RUN');
+        expect(Object.values(v.rows).every((o) => o === 'PASS')).toBe(true);
     });
     it('makes a dependent leg NOT RUN when its dependency has no verdict', () => {
         expect(legVerdict('J8.c', { prior: new Map(), satisfiedGates: ALL_GATES, results: results('J8.c') }).outcome).toBe('NOT RUN');

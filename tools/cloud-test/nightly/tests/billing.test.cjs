@@ -11,7 +11,7 @@ function ports(o = {}) {
     const lines = [];
     const opened = [];
     const p = {
-        assertTestMode: 'assertTestMode' in o ? o.assertTestMode : () => undefined,
+        assertTestMode: 'assertTestMode' in o ? o.assertTestMode : () => true,
         createSession: o.create ?? fn(async () => ({ url: o.url ?? TEST_URL })),
         openAndConfirm: o.open ?? (async (u) => { opened.push(u); return { portalShown: o.shown ?? true }; }),
         log: (l) => lines.push(l),
@@ -80,6 +80,16 @@ describe('billing portal check', () => {
             expect(opened).toEqual([]);
         }
     });
+    it('creates no portal session when the test-mode check does not return true: not throwing is not proof', async () => {
+        for (const assertTestMode of [() => undefined, () => false, async () => undefined, () => 'true', () => ({ testMode: true })]) {
+            const { p, opened } = ports({ assertTestMode });
+            const v = await portalOpensVerdict(p);
+            expect(v.outcome).toBe('FAIL');
+            expect(v.detail).toContain('did not prove test mode');
+            expect(p.createSession).toHaveBeenCalledTimes(0);
+            expect(opened).toEqual([]);
+        }
+    });
     it('fails, not hangs, when the test-mode check never answers, and creates no session after it', async () => {
         const { p, opened } = ports({ assertTestMode: () => new Promise(() => {}) });
         const v = await portalOpensVerdict(p, 20);
@@ -114,7 +124,7 @@ describe('J9.a paid account fixture: Stripe test mode only', () => {
     const cus = { id: 'cus_1', livemode: false };
     const sub = { id: 'sub_1', livemode: false };
     it('accepts a test-mode key, customer and subscription', () => {
-        expect(() => assertTestModeFixture(f, 'sk_test_x', cus, sub)).not.toThrow();
+        expect(assertTestModeFixture(f, 'sk_test_x', cus, sub)).toBe(true);
         expect(() => assertTestModeFixture(f, 'rk_test_x', cus, sub)).not.toThrow();
     });
     it('refuses a live key, a live object, a missing key, other objects or no named release', () => {

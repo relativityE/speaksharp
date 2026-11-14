@@ -12,7 +12,8 @@
 //    one step with the check and the record together. In one process that step is synchronous. Across processes
 //    (pages, workers) `openSharedRunBudget` puts the journal in a directory and takes an exclusive lock around each
 //    step, so two workers can never both take the last unit. A worker that can't get the lock in time is refused
-//    (nothing is sent), never let through.
+//    (nothing is sent), never let through. A write cut short by a crash is repaired under the lock into a `torn`
+//    event: no more test work is sent, and it is counted against every journey's cleanup reserve.
 // 4. No release. A reservation is final: an unknown outcome keeps it, and a retry needs a unit of its own. Past the
 //    leg's allocation the reservation is refused, the leg's budget row FAILs and its ordinary work stops.
 // 5. Protected cleanup. Cleanup draws only on its journey's reserve, which ordinary work can't touch; a leg whose
@@ -21,7 +22,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { createHash } = require('node:crypto');
+const { createHash, randomBytes } = require('node:crypto');
 const { ALL_LEGS, legById } = require('./journey-plan.cjs');
 const { runnable } = require('./limits.cjs');
 const { cleanupReserve } = require('./cleanup-plan.cjs');
@@ -117,13 +118,19 @@ function planRunBudget({ satisfiedGates, selected, coachingCeiling } = {}) {
 
 // ---------------------------------------------------------------------------------------------------------------
 // The journal. State is folded from events, so one process and many share the same rules.
-const emptyState = () => ({ used: new Map(), cleanupUsed: new Map(), refused: new Map(), stopped: new Set(), afterStop: new Map() });
+const emptyState = () => ({ used: new Map(), cleanupUsed: new Map(), refused: new Map(), stopped: new Set(), afterStop: new Map(), torn: 0 });
 const counter = (m, k, init) => {
     if (!m.has(k))
         m.set(k, init());
     return m.get(k);
 };
 function apply(state, plan, e) {
+    // A write cut short by a crash (fileStore repairs it under the lock): its caller never got an answer, but it may
+    // have been any grant, so it is counted against everything (see decide).
+    if (e.t === 'torn') {
+        state.torn += 1;
+        return;
+    }
     const leg = legById(e.leg);
     if (!plan.legs[e.leg])
         throw new Error(`journal names ${e.leg}, which has no allocation`);
@@ -152,11 +159,15 @@ function decide(state, plan, legId, kind) {
         return { event: null, result: { granted: false, reason: `${legId} has no allocation: ${plan.notAllocated[legId] ?? 'not planned'}` } };
     if (kind === CLEANUP) {
         const j = legById(legId).journey;
-        const used = state.cleanupUsed.get(j) ?? 0;
+        // A torn write may have been one of this journey's cleanup grants: it is counted as one.
+        const used = (state.cleanupUsed.get(j) ?? 0) + state.torn;
         if (used >= plan.cleanup[j].requests)
             return { event: { t: 'refuse', leg: legId, kind }, result: { granted: false, reason: `${j} has used its cleanup reserve of ${plan.cleanup[j].requests}` } };
         return { event: { t: 'grant', leg: legId, kind }, result: { granted: true, token: Object.freeze({ legId, kind, journey: j, n: used + 1 }) } };
     }
+    // After a torn write no one can say what was granted, so no more test work is sent; cleanup still runs.
+    if (state.torn > 0)
+        return { event: null, result: { granted: false, reason: 'a write to the run budget journal was cut short, so no more test work is sent' } };
     if (state.stopped.has(legId))
         return { event: { t: 'refuse-after-stop', leg: legId, kind }, result: { granted: false, reason: `${legId}'s ordinary work was stopped after it exceeded its allocation` } };
     const used = state.used.get(legId)?.[kind] ?? 0;
@@ -168,7 +179,12 @@ function decide(state, plan, legId, kind) {
 /** In one process: the journal is an array and every step is synchronous. */
 function memoryStore() {
     const events = [];
-    return { transact: (fn) => { const { result, append } = fn(events); if (append) events.push(append); return result; } };
+    const refusedCleanup = new Set();
+    return {
+        transact: (fn) => { const { result, append } = fn(events); if (append) events.push(append); return result; },
+        markCleanupRefused: (j) => refusedCleanup.add(j),
+        cleanupRefused: () => new Set(refusedCleanup),
+    };
 }
 
 function freezePlan(p) {
@@ -241,9 +257,13 @@ class RunBudget {
             });
         }
         catch (e) {
-            // Fail closed: a reservation that can't be decided is refused, and nothing is sent.
-            if (e instanceof BudgetUnavailable)
+            // Fail closed: a reservation that can't be decided is refused, and nothing is sent. A refused cleanup leaves
+            // its journey's cleanup incomplete, so it is recorded outside the journal (which it couldn't reach).
+            if (e instanceof BudgetUnavailable) {
+                if (kind === CLEANUP)
+                    this.#store.markCleanupRefused(legById(legId).journey);
                 return { granted: false, reason: e.message };
+            }
             throw e;
         }
     }
@@ -262,11 +282,28 @@ class RunBudget {
             return { sent: false, reason: r.reason };
         return { sent: true, value: await action(r.token) };
     }
-    #read(fn) { return this.#store.transact((events) => ({ result: fn(this.#state(events)) })); }
-    /** Whether the journey's cleanup asked for more than its reserve: its cleanup is then incomplete. */
-    cleanupExhausted(journeyId) {
-        return this.#read((s) => ALL_LEGS.some((l) => l.journey === journeyId && (s.refused.get(l.id)?.[CLEANUP] ?? 0) > 0));
+    /** A read of the journal; `unavailable` is returned when it can't be read (lock not had in time, unreadable). */
+    #read(fn, unavailable) {
+        try {
+            return this.#store.transact((events) => ({ result: fn(this.#state(events)) }));
+        }
+        catch (e) {
+            if (e instanceof BudgetUnavailable)
+                return unavailable(e);
+            throw e;
+        }
     }
+    /**
+     * Whether the journey's cleanup was refused any request (past its reserve, or because the budget couldn't be
+     * reached): its cleanup is then incomplete. When the budget can't be read, the answer is yes.
+     */
+    cleanupExhausted(journeyId) {
+        if (this.#store.cleanupRefused().has(journeyId))
+            return true;
+        return this.#read((s) => ALL_LEGS.some((l) => l.journey === journeyId && (s.refused.get(l.id)?.[CLEANUP] ?? 0) > 0), () => true);
+    }
+    /** How many writes to the journal were cut short (null when it can't be read). Any is a reason the run isn't green. */
+    journalTorn() { return this.#read((s) => s.torn, () => null); }
     /** What leg-verdicts.cjs needs: whether the leg had an allocation and which kinds it overran. */
     legBudget(legId) {
         legById(legId);
@@ -276,11 +313,13 @@ class RunBudget {
             const refused = s.refused.get(legId) ?? {};
             const overrun = Object.keys(refused).filter((k) => refused[k] > 0);
             return Object.freeze({ allocated: true, reason: 'allocated before the run', overrun: Object.freeze(overrun) });
-        });
+        }, (e) => Object.freeze({ allocated: false, reason: `the run budget could not be read: ${e.message}`, overrun: Object.freeze([]) }));
     }
     /** The leg's budget row: FAIL when it asked for more than its allocation of any kind, cleanup included. */
     legBudgetRow(legId) {
         const b = this.legBudget(legId);
+        if (b.reason.startsWith('the run budget could not be read'))
+            return { outcome: 'HOLD', reason: b.reason };
         if (!b.allocated)
             return { outcome: 'NOT RUN', reason: b.reason };
         return this.#read((s) => {
@@ -291,7 +330,7 @@ class RunBudget {
                 refused: { coaching: 0, starts: 0, [CLEANUP]: 0, ...s.refused.get(legId) }, refusedAfterStop: s.afterStop.get(legId) ?? 0,
                 journeyCleanup: { reserve: this.#plan.cleanup[j].requests, used: s.cleanupUsed.get(j) ?? 0 },
             };
-        });
+        }, (e) => ({ outcome: 'HOLD', reason: `the run budget could not be read: ${e.message}` }));
     }
 }
 
@@ -312,45 +351,87 @@ const alive = (pid) => {
     }
 };
 /**
- * The lock is a directory (mkdir is atomic) holding its owner's pid and host. A lock whose owner on this host is gone,
- * or one that never got an owner within `staleMs`, is broken; a live owner's lock is waited for until `lockTimeoutMs`,
- * and then the step is refused.
+ * The lock is a directory (mkdir is atomic) holding its owner's pid, host and a random token. A worker waits for a live
+ * owner until `lockTimeoutMs` and is then refused. A lock is stale when its owner on this host is gone, or when it never
+ * got an owner within `staleMs`. Breaking one is itself done under a second lock (`budget.lock.break`), and only after
+ * reading the owner again under it: two workers that both saw the same dead owner can't both break, and neither can
+ * break a lock a third worker took in between. Releasing removes the lock only while its owner file still holds this
+ * step's token, so a step never removes a lock it doesn't hold.
  */
 function fileStore(dir, { lockTimeoutMs = 5000, staleMs = 10000 } = {}) {
     const lock = path.join(dir, LOCK_DIR);
+    const breaker = path.join(dir, `${LOCK_DIR}.break`);
     const journal = path.join(dir, JOURNAL_FILE);
     const owner = path.join(lock, 'owner.json');
+    const readOwner = () => {
+        try {
+            return JSON.parse(fs.readFileSync(owner, 'utf8'));
+        }
+        catch {
+            return null;
+        }
+    };
+    const ageOf = (p) => {
+        try {
+            return Date.now() - fs.statSync(p).mtimeMs;
+        }
+        catch {
+            return null;
+        }
+    };
+    // Stale: a dead owner on this host, or no owner long after the lock was made. `seen` is what the caller read.
+    const staleNow = (seen) => {
+        const o = readOwner();
+        if (seen === null)
+            return o === null && (ageOf(lock) ?? 0) > staleMs;
+        return o !== null && o.token === seen.token && o.host === os.hostname() && Number.isInteger(o.pid) && !alive(o.pid);
+    };
+    const tryBreak = (seen) => {
+        try {
+            fs.mkdirSync(breaker);
+        }
+        catch (e) {
+            if (e.code !== 'EEXIST')
+                throw e;
+            // A breaker that died mid-break leaves its lock; it holds nothing else, so an old one is removed.
+            if ((ageOf(breaker) ?? 0) > staleMs)
+                fs.rmSync(breaker, { recursive: true, force: true });
+            return;
+        }
+        try {
+            // Read again under the break lock: break only the very lock the caller judged stale.
+            if (staleNow(seen))
+                fs.rmSync(lock, { recursive: true, force: true });
+        }
+        finally {
+            fs.rmSync(breaker, { recursive: true, force: true });
+        }
+    };
     const acquire = () => {
         const deadline = Date.now() + lockTimeoutMs;
+        const token = randomBytes(16).toString('hex');
         for (;;) {
             try {
                 fs.mkdirSync(lock);
-                fs.writeFileSync(owner, JSON.stringify({ pid: process.pid, host: os.hostname() }));
-                return true;
+                fs.writeFileSync(owner, JSON.stringify({ pid: process.pid, host: os.hostname(), token }));
+                return token;
             }
             catch (e) {
                 if (e.code !== 'EEXIST')
                     throw e;
             }
-            let stale = false;
-            try {
-                const o = JSON.parse(fs.readFileSync(owner, 'utf8'));
-                stale = o.host === os.hostname() && Number.isInteger(o.pid) && !alive(o.pid);
-            }
-            catch {
-                try {
-                    stale = Date.now() - fs.statSync(lock).mtimeMs > staleMs;
-                }
-                catch { /* the lock went away: try again */ }
-            }
-            if (stale) {
-                fs.rmSync(lock, { recursive: true, force: true });
-                continue;
-            }
-            if (Date.now() >= deadline)
-                return false;
-            sleepSync(5);
+            const seen = readOwner();
+            if (staleNow(seen))
+                tryBreak(seen);
+            else if (Date.now() >= deadline)
+                return null;
+            else
+                sleepSync(5);
         }
+    };
+    const release = (token) => {
+        if (readOwner()?.token === token)
+            fs.rmSync(lock, { recursive: true, force: true });
     };
     const readEvents = () => {
         let text = '';
@@ -361,14 +442,31 @@ function fileStore(dir, { lockTimeoutMs = 5000, staleMs = 10000 } = {}) {
             if (e.code !== 'ENOENT')
                 throw e;
         }
-        const lines = text.split('\n');
-        if (lines.pop() !== '')
-            throw new Error('budget journal has a partial last line');
-        return lines.map((l) => JSON.parse(l));
+        // A partial last line is a write cut short by a crash; its caller never got an answer. Under the lock it is cut
+        // off and replaced by a `torn` event, which counts against everything (decide), so the run can still clean up.
+        const end = text.lastIndexOf('\n') + 1;
+        if (end < text.length) {
+            fs.truncateSync(journal, end);
+            appendLine({ t: 'torn' });
+            text = `${text.slice(0, end)}${JSON.stringify({ t: 'torn' })}\n`;
+        }
+        return text.split('\n').slice(0, -1).map((l) => JSON.parse(l));
     };
+    const appendLine = (event) => {
+        const fd = fs.openSync(journal, 'a');
+        try {
+            fs.writeSync(fd, `${JSON.stringify(event)}\n`);
+            fs.fsyncSync(fd);
+        }
+        finally {
+            fs.closeSync(fd);
+        }
+    };
+    const markerPrefix = 'cleanup-refused.';
     return {
         transact(fn) {
-            if (!acquire())
+            const token = acquire();
+            if (token === null)
                 throw new BudgetUnavailable('the run budget lock was not available in time; nothing was sent');
             try {
                 let events;
@@ -379,22 +477,23 @@ function fileStore(dir, { lockTimeoutMs = 5000, staleMs = 10000 } = {}) {
                     throw new BudgetUnavailable(`the run budget journal is unreadable (${e.message}); nothing more is sent`);
                 }
                 const { result, append } = fn(events);
-                if (append) {
-                    const fd = fs.openSync(journal, 'a');
-                    try {
-                        fs.writeSync(fd, `${JSON.stringify(append)}\n`);
-                        fs.fsyncSync(fd);
-                    }
-                    finally {
-                        fs.closeSync(fd);
-                    }
-                }
+                if (append)
+                    appendLine(append);
                 return result;
             }
             finally {
-                fs.rmSync(lock, { recursive: true, force: true });
+                release(token);
             }
         },
+        // Written without the lock (it is used when the lock can't be had): one uniquely named file per refusal.
+        markCleanupRefused(journeyId) {
+            fs.writeFileSync(path.join(dir, `${markerPrefix}${journeyId}.${process.pid}.${randomBytes(6).toString('hex')}`), '', { flag: 'wx' });
+        },
+        cleanupRefused() {
+            return new Set(fs.readdirSync(dir).filter((n) => n.startsWith(markerPrefix)).map((n) => n.slice(markerPrefix.length).split('.')[0]));
+        },
+        // For tests: break the lock if the owner `seen` is still the stale owner, as acquire does.
+        _breakIfStale: tryBreak,
     };
 }
 /** Writes the run's frozen plan into an empty run directory, once. Every worker opens the budget from it. */
@@ -413,4 +512,6 @@ function openSharedRunBudget(dir, options) {
 module.exports = {
     BudgetUnavailable, CLEANUP, COACHING_CEILING_ENV, ORDINARY_KINDS, RunBudget, RunRefused, coachingCeilingFromEnv, openSharedRunBudget,
     planRunBudget, writeSharedPlan,
+    /** For tests only: the shared journal store. */
+    _fileStore: fileStore,
 };

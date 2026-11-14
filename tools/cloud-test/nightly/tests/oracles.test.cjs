@@ -260,6 +260,26 @@ describe('short-stop-no-save', () => {
         expect(shortStopVerdict(read({ unsettledDiscardShown: true })).outcome).toBe('HOLD');
         expect(shortStopVerdict(read({ settled: false })).outcome).toBe('HOLD');
     });
+    it('fails a short Stop that changes an earlier saved take, even to failed', () => {
+        const r = read({ rowsAfter: [{ id: 'old', status: 'failed' }] });
+        expect(shortStopVerdict(r).outcome).toBe('FAIL');
+        expect(shortStopVerdict(r).detail).toContain('earlier saved take');
+    });
+    it('holds a read that lists a row twice, so a completed row can\'t hide behind a failed one', () => {
+        expect(shortStopVerdict(read({ rowsAfter: [{ id: 'old', status: 'completed' }, { id: 'n', status: 'completed' }, { id: 'n', status: 'failed' }] })).outcome).toBe('HOLD');
+        expect(shortStopVerdict(read({ rowsBefore: [{ id: 'old', status: 'completed' }, { id: 'old', status: 'completed' }] })).outcome).toBe('HOLD');
+    });
+    it('holds more than one row settled by one short Stop, and a change a discard does not explain', () => {
+        expect(shortStopVerdict(read({ rowsAfter: [{ id: 'old', status: 'completed' }, { id: 'a', status: 'failed' }, { id: 'b', status: 'failed' }] })).outcome).toBe('HOLD');
+        // Only a new row or a placeholder may become failed: a row in any other state that became failed is not a discard.
+        expect(shortStopVerdict(read({ rowsBefore: [{ id: 'old', status: 'completed' }, { id: 'f', status: 'archived' }], rowsAfter: [{ id: 'old', status: 'completed' }, { id: 'f', status: 'failed' }] })).outcome).toBe('HOLD');
+    });
+    it('allows a pending or null placeholder to settle as failed', () => {
+        for (const status of ['pending', null]) {
+            const r = read({ rowsBefore: [{ id: 'old', status: 'completed' }, { id: 'take', status }], rowsAfter: [{ id: 'old', status: 'completed' }, { id: 'take', status: 'failed' }], acceptedFailedMarks: 1 });
+            expect(shortStopVerdict(r).outcome).toBe('PASS');
+        }
+    });
     it('holds an accepted failed mark that no row shows: the discard is not confirmed', () => {
         expect(shortStopVerdict(read({ acceptedFailedMarks: 1 })).outcome).toBe('HOLD');
     });

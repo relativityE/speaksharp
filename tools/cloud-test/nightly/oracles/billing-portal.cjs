@@ -37,7 +37,7 @@ function withTimeout(p, ms) {
 }
 /**
  * One bounded attempt. The address never leaves this function: not in the verdict, not in a log line, not in an error.
- * `ports.assertTestMode` (assertTestModeFixture on the fixture, key and objects, sync or async) must pass before any session is
+ * `ports.assertTestMode` (assertTestModeFixture on the fixture, key and objects, sync or async) must return exactly true before any session is
  * created, so a live key never creates a live portal session.
  */
 async function portalOpensVerdict(ports, timeoutMs = PORTAL_TIMEOUT_MS) {
@@ -55,6 +55,11 @@ async function portalOpensVerdict(ports, timeoutMs = PORTAL_TIMEOUT_MS) {
         if (checked === 'timeout') {
             log('portal session: the test-mode check timed out; not created');
             return { outcome: 'FAIL', detail: 'the Stripe test-mode check timed out, so no portal session was created' };
+        }
+        // Not throwing is not proof: only an explicit true proves test mode.
+        if (checked !== true) {
+            log('portal session: the test-mode check did not prove test mode; not created');
+            return { outcome: 'FAIL', detail: 'the Stripe test-mode check did not prove test mode, so no portal session was created' };
         }
     }
     catch {

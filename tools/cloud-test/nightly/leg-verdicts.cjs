@@ -87,7 +87,8 @@ function legVerdict(legId, input) {
         ];
         const outcome = fold(outcomes);
         const reasons = recorded && recorded.outcome === 'HOLD' ? [...notRunCauses, recorded.reason] : notRunCauses;
-        return { ...base, outcome, reason: reasons.join('; '), rows: allRows(legId, outcome) };
+        // Recorded rows stand as recorded (a PASS row stays PASS, a HOLD row HOLD); rows that never ran take the outcome.
+        return { ...base, outcome, reason: reasons.join('; '), rows: recorded ? recorded.rows : allRows(legId, outcome) };
     }
     if (!recorded)
         return { ...base, outcome: 'NOT RUN', reason: 'the leg did not run', rows: allRows(legId, 'NOT RUN') };
