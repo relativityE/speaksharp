@@ -139,6 +139,11 @@ describe('G5 INTEGRATED — page Stop under the minimum → real controller → 
         expect(completions('failed')).toHaveLength(0);
     });
 
+    // KNOWN GAP, left for Sam to decide (not changed by G5): leaving the page ("Stop and save this session before
+    // leaving?"), route-exit teardown and a revoked lease call the controller's Stop directly, with no verdict, so a
+    // take under the minimum is still completed on those paths.
+    it.todo('KNOWN GAP: leaving the page during a take under the minimum saves no completed session');
+
     it('an external stop (a stop reason) still saves a take under the minimum, as before', async () => {
         const { result } = recordingFor(3_000);
         await act(async () => { await result.current.handleStartStop({ stopReason: 'Usage limit reached.' }); });
