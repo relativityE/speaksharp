@@ -429,10 +429,15 @@ export const useSessionLifecycle = () => {
             const elapsedAtStop = liveStart ? Math.floor((Date.now() - liveStart) / 1000) : elapsedTime;
             if (elapsedAtStop < MIN_SESSION_DURATION_SECONDS && !options?.stopReason) {
                 let discardSettled = false;
+                // The take whose unsettled discard THIS stop armed, if any; the warning below is registered only for it.
+                let armedDiscardSessionId: string | null = null;
                 try {
                     // G5 (#1861): this take is reported as too short below, so the controller must discard it, not
                     // complete it. An ordinary Stop here saved a completed session the user was told was not saved.
-                    await speechRuntimeController.stopRecording({ belowMinimumDuration: true });
+                    await speechRuntimeController.stopRecording({
+                        belowMinimumDuration: true,
+                        onUnsettledDiscard: (id: string) => { armedDiscardSessionId = id; },
+                    });
                     // G5 (Sam on 3a91a20): the discard counts only once its `failed` mark was confirmed. Otherwise the
                     // controller keeps the take unresolved and the page offers Try again; it is not reported discarded.
                     discardSettled = speechRuntimeController.hasUnsettledDiscard?.() !== true;
@@ -461,7 +466,9 @@ export const useSessionLifecycle = () => {
                         detail: 'Use Try again to finish.',
                     });
                     // A confirmed Try again later replaces this warning with the too-short message (Codex P2 on a58a348).
-                    speechRuntimeController.noteUnsettledDiscardWarning?.(tooShortStatus);
+                    if (armedDiscardSessionId) {
+                        speechRuntimeController.noteUnsettledDiscardWarning?.(tooShortStatus, armedDiscardSessionId);
+                    }
                 }
                 isProcessingRef.current = false;
                 return;

@@ -406,6 +406,8 @@ export type RuntimeState =
  */
 export interface StopRecordingOptions {
     belowMinimumDuration?: boolean;
+    /** G5: called with the session id when THIS stop arms Try again for its unsettled discard. */
+    onUnsettledDiscard?: (sessionId: string) => void;
 }
 
 export interface LifecycleToken {
@@ -1417,8 +1419,10 @@ export class SpeechRuntimeController {
      * status now on screen as that warning, with the status to show once the discard is settled, so a later confirmed
      * settlement retires it. No-op when no discard is pending.
      */
-    public noteUnsettledDiscardWarning(settled: SttStatus): void {
+    public noteUnsettledDiscardWarning(settled: SttStatus, sessionId?: string): void {
         if (!this.pendingDiscardSettlement) return;
+        // The page names the take whose warning it showed, so it never attaches to another take's slot (review on b41b52b).
+        if (sessionId !== undefined && this.pendingDiscardSettlement.sessionId !== sessionId) return;
         this.pendingDiscardSettlement.warning = { shown: useSessionStore.getState().sttStatus, settled };
     }
     /** Replaces a settled discard's own warning, and only that exact status object, with its settled status. */
@@ -6031,6 +6035,11 @@ export class SpeechRuntimeController {
                                     logger.error({ sessionId }, '[SESSION_SAVE_GUARD] discard NOT settled and the stop was superseded — not arming Try again for the successor (G5)');
                                 } else if (!this.pendingDiscardSettlement || this.pendingDiscardSettlement.sessionId === sessionId) {
                                     this.pendingDiscardSettlement = { sessionId, reason: discardReason, ownerId: discardOwner, warning: null };
+                                    try {
+                                        options?.onUnsettledDiscard?.(sessionId);
+                                    } catch {
+                                        /* the caller's note is best effort; the slot is armed either way */
+                                    }
                                 } else {
                                     logger.error({ existing: this.pendingDiscardSettlement.sessionId, sessionId }, '[controller] discard settlement slot held by another session — failing closed, not overwriting (G5)');
                                 }

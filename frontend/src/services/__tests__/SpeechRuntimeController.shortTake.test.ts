@@ -241,6 +241,29 @@ describe('G5 — a take under the minimum duration is discarded by the real cont
         expect(useSessionStore.getState().sttStatus).toBe(later);
     });
 
+    // Review on b41b52b: the page registers its warning only for the take its own Stop armed.
+    it('a below-minimum stop names the take it armed, and a warning for another take is not registered', async () => {
+        engine(3);
+        vi.mocked(completeSession).mockResolvedValueOnce({ success: false } as never);
+        const armed: string[] = [];
+        await controller.stopRecording({ belowMinimumDuration: true, onUnsettledDiscard: (id) => armed.push(id) });
+        expect(armed).toEqual(['test-sess']);
+
+        const shown = { type: 'warning' as const, message: 'page warning for another take' };
+        useSessionStore.getState().setSTTStatus(shown);
+        controller.noteUnsettledDiscardWarning({ type: 'info', message: 'settled text' }, 'some-other-take');
+        await expect(controller.retryRecordingSave()).resolves.toBe(true);
+        expect(useSessionStore.getState().sttStatus).toBe(shown);
+
+        // A confirmed mark arms nothing, so the stop names no take.
+        Object.assign(priv(), { state: 'RECORDING', sessionId: 'test-sess-3' });
+        useSessionStore.getState().setRuntimeState('RECORDING');
+        engine(3);
+        const none: string[] = [];
+        await controller.stopRecording({ belowMinimumDuration: true, onUnsettledDiscard: (id) => none.push(id) });
+        expect(none).toEqual([]);
+    });
+
 
     // Sam on a58a348: the slot is memory only. A reload, hard reset or sign-out must not lose the only way to settle the
     // row's save obligation; the owner's return re-arms Try again for the same row, and no one else's does.

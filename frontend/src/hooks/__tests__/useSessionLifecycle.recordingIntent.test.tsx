@@ -729,7 +729,7 @@ describe('#1258 C10 — start-attempt identity through the real hook', () => {
         await act(async () => { await short.result.current.handleStartStop(); });
         expect(String(short.store.getState().sttStatus.message ?? '')).toMatch(/too short \(3s\)/i);
         // G5 (#1861): the take the user is told is too short is stopped to be DISCARDED, not completed.
-        expect(speechRuntimeController.stopRecording).toHaveBeenLastCalledWith({ belowMinimumDuration: true });
+        expect(speechRuntimeController.stopRecording).toHaveBeenLastCalledWith(expect.objectContaining({ belowMinimumDuration: true }));
     });
 
     it('G5: a short Stop that throws does not leave the control refusing every later press', async () => {
