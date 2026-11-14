@@ -195,13 +195,80 @@ server" and "the transcript is never stored" are different statements, and neith
 | Raw audio leaves the device | **Never** | No audio upload path; `ARCHITECTURE.md` §"Retention boundary" |
 | Transcript text leaves the device | **Yes, on save** | `lib/storage.ts` sends `p_final_transcript` to `complete_session_v2`; a `failed`/discarded session sends `null` |
 | Transcript text is stored server-side | **Yes, bounded** | `sessions.transcript`, retained only for the newest transcript-bearing saved session; every older transcript expires |
-| Transcript text reaches a third party | **Yes, on user request** | `get-ai-suggestions` reads the saved transcript and sends it to Google Gemini; a Focus Points take also sends its saved topic and point labels, and its disclosure says so (#1538); user-initiated, and refused unless `transcript_state = 'available'` |
+| Transcript text reaches a third party | **Yes, coaching can start automatically after save** | `AISuggestions.tsx` can invoke `get-ai-suggestions` on review readiness; the handler reads the saved transcript and sends it to Google Gemini. A Focus Points take also sends its saved topic and point labels (#1538). Availability checks and disclosure are not an opt-in gate. |
 | Derived metrics are stored | **Yes** | Word counts, filler counts, clarity score, WPM, pause metrics |
 
 Customer copy may say that **audio** never leaves the device. It may **not** say or imply that nothing leaves the
 device, that the transcript stays local, or that all processing is local.
 
 Retention duration and schema details belong to `ARCHITECTURE.md`; customer-facing disclosures must match the actual deployed contract.
+
+
+### 7.2 Transcript storage and coaching consent — proposed contract (F03)
+
+**Design review, not implemented behavior.** The framework review of 12 November
+identifies five distinct missing controls: storage opt-in, AI-send opt-in, separate
+choices, a settings surface, and self-serve revocation/deletion. Honest disclosure
+(#1820) is not consent and does not implement these controls. The present completed
+session path saves automatically and coaching can start automatically after save.
+
+The proposed first-version dependency is two distinct choices: transcript saving
+and AI coaching, with coaching unavailable unless saving is enabled. This proposal
+does not authorize silently treating an existing account, saved transcript,
+previous coaching request, or absence of a preference as affirmative consent.
+
+The implementation must cover the entire boundary, not only checkbox presentation:
+
+- **Saving:** enforce the selected storage policy at the completion boundary
+  (`SpeechRuntimeController` → `completeSession` → `complete_session_v2`).
+  Define the non-saving completion result without corrupting take/lease settlement,
+  retry, billing, or account-deletion obligations. Do not manufacture a saved row
+  or claim a save succeeded when it did not.
+- **AI transfer:** the UI and the authenticated `get-ai-suggestions` boundary must
+  both apply the selected coaching policy before quota consumption/provider work.
+  A disabled button alone is not enforcement. Include direct invocation, automatic
+  post-save invocation, retry, cached responses, and stale in-flight requests.
+- **Choices and settings:** explain Supabase storage separately from Gemini
+  processing; expose the effective state, pending update, refusal and failure.
+  Persist only the selected scope and bind preferences to the authenticated owner.
+  Resolve multi-tab/device updates and account changes without stale permission.
+- **Revocation and deletion:** distinguish stopping future saves, stopping future
+  AI requests, deleting already-stored transcripts/derived coaching, and deleting
+  the whole account. State what can and cannot be recalled from an already-sent
+  provider request. Do not promise remote deletion without a verified mechanism.
+- **Trust:** never send audio, transcript text, consent-content payloads or raw
+  provider output to telemetry. Privacy wording must match the actual enabled
+  behavior and the verified terms for the production Gemini service tier.
+
+#### Decisions still open before feature completion
+
+The design review must resolve control placement and wording; initial/default and
+existing-account states; account-wide versus per-session scope; persistence and
+consent-version records; behavior when storage is declined; derived-metric/history
+retention; revocation semantics for pending requests and existing data; deletion
+scope, retention and recovery; and verified provider handling. These are not
+silently decided by this requirements increment. Changing production behavior
+requires the corresponding reviewed implementation and release approval.
+
+#### Required acceptance evidence
+
+1. Exercise all storage/coaching combinations, including absent, malformed, stale
+   and unknown consent. Reject inconsistent coaching-without-saving states under
+   the selected dependency rather than converting them to permission.
+2. Assert actual outgoing requests and persisted rows: no forbidden transcript
+   save or Gemini transfer, including direct server calls. Merely hiding controls
+   or mocking an allowed flag is insufficient.
+3. Cover retry, reload, logout/account switch, multi-tab preference changes,
+   revocation racing provider dispatch, and interrupted/failed preference saves.
+4. Prove same-owner access and cross-account denial for preference reads, updates
+   and deletions; repeat deletion must be safe without broadening its scope.
+5. Preserve completion/lease settlement and recoverable unsaved work, and verify
+   transcript/derived-data retention against the selected policy.
+6. Separately verify raw-audio locality with network-observed Start/Stop/retry/
+   failure paths. An architectural assertion is not that acceptance evidence.
+
+This section defines review and evidence requirements. It is not a claim that
+consent controls, settings, revocation, deletion, or audio-locality proof have shipped.
 
 ---
 
