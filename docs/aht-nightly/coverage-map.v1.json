@@ -1521,7 +1521,7 @@
    "leg": "J9",
    "assertion": "pre-upgrade-history-opens",
    "what": "Sessions the long-lived account recorded through the product on a named earlier release, and kept, still open with their metrics and coaching after the latest release.",
-   "status": "needs paid-account decision"
+   "status": "sandbox, disabled until runnable"
   },
   {
    "leg": "J9",
@@ -1533,7 +1533,7 @@
    "leg": "J9",
    "assertion": "entitlement-survives-upgrade",
    "what": "The paid entitlement holds and the billing portal opens after the release. Opening the portal creates a Stripe portal session; its address works for anyone holding it, so it is never logged, traced, captured in a screenshot or kept.",
-   "status": "needs paid-account decision"
+   "status": "sandbox, disabled until runnable"
   }
  ],
  "rowAcceptance": "Each new or strengthened row counts only once it is validated on its own: a negative control makes it fail on the deliberately broken behaviour, and it passes when that is restored. A schema or 204-row validator pass does not prove it."

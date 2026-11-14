@@ -86,9 +86,9 @@ new_rows = [
  ("J2","deployed-webhook-ready","The deployed webhook rejects an unsigned event and is configured (existing stripe-webhook-readiness).","exists"),
  ("J7.d","account-delete-during-trial","An in-trial user deletes the account from the Account page; sign-in fails afterwards and run cleanup finds nothing left.","needs deletion flow confirmed shippable"),
  ("J8.c","no-session-choice-with-takes","With takes listed, choosing No session stores feedback with no session link.","new"),
- ("J9","pre-upgrade-history-opens","Sessions the long-lived account recorded through the product on a named earlier release, and kept, still open with their metrics and coaching after the latest release.","needs paid-account decision"),
+ ("J9","pre-upgrade-history-opens","Sessions the long-lived account recorded through the product on a named earlier release, and kept, still open with their metrics and coaching after the latest release.","sandbox, disabled until runnable"),
  ("J9","pre-upgrade-progress-opens","Progress over that kept history renders the same comparisons it did before the release.","new"),
- ("J9","entitlement-survives-upgrade","The paid entitlement holds and the billing portal opens after the release. Opening the portal creates a Stripe portal session; its address works for anyone holding it, so it is never logged, traced, captured in a screenshot or kept.","needs paid-account decision"),
+ ("J9","entitlement-survives-upgrade","The paid entitlement holds and the billing portal opens after the release. Opening the portal creates a Stripe portal session; its address works for anyone holding it, so it is never logged, traced, captured in a screenshot or kept.","sandbox, disabled until runnable"),
 ]
 unused = set(ov) - used
 if unused:
@@ -146,7 +146,7 @@ JOURNEYS = [
   "Feedback stored once per send with the right session link or none."),
  ("J9", [], "Existing paying customer after an upgrade",
   "Only a long-lived account shows that old data and a paid entitlement survive a migration.",
-  "Long-lived paid account, signed up and paid through the product; records no takes, but opening the billing portal creates a portal session whose address is never logged, traced, captured in a screenshot or kept. History recorded through the product on a named release and kept, never seeded. Disabled until the product owner decides how a production paid account is paid; no real charge until then.",
+  "Long-lived paid account on the billing sandbox, signed up and paid through the product with a Stripe test-mode card; records no takes, but opening the billing portal creates a portal session whose address is never logged, traced, captured in a screenshot or kept. History recorded through the product on a named release and kept, never seeded. No test account is charged for real (product owner, 14 Nov 16:36Z), so J9 runs on the sandbox, upgraded with each release, and is disabled until that sandbox is runnable.",
   "Kept sessions and Progress open as before; entitlement and billing portal hold."),
 ]
 export = None
