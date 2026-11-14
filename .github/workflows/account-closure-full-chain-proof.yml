@@ -14,6 +14,7 @@ on:
       # postflight consumes it; the offline tests echo the pins back and cannot catch a wrong one (Codex P2 4363567722).
       - 'scripts/lib/t2MigrationPostflight.mjs'
       - 'scripts/lib/retirementCatalogPins.mjs'
+      - 'scripts/lib/abandonmentCatalogPins.mjs'
       - 'scripts/lib/retirementMigrationPostflight.mjs'
       - 'scripts/retirement-migration-postflight.mjs'
       - 'scripts/t2-migration-postflight.mjs'
@@ -69,7 +70,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        profile: [main-completion-billing-129, main-coaching-retirement-129]
+        profile: [main-completion-billing-129, main-coaching-retirement-129, main-start-abandonment-130]
     # Pinned with #1839/#1841/#1845: on ubuntu-26.04 the historical Supabase replay refuses ('running image configuration
     # differs from immutable pin', run 43467911148); the last green proof ran on ubuntu-24.04. Remove with #1840.
     runs-on: ubuntu-24.04

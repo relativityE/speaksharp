@@ -347,7 +347,7 @@ test('retention128 is staged after the fence with catalog and non-activation evi
     'retention_content_free_compatible()', 'retention-catalog.json', 'retention catalog/ACL',
     'completion must remain disabled after retention', 'CONTENT-FREE RETENTION FULL-CHAIN CATALOG PASSED'])
     assert.ok(tail.includes(token),token);
-  assert.ok(driver.includes('MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name,RETIREMENT_MIGRATION.name].includes(name)'));
+  assert.ok(driver.includes('MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name,RETIREMENT_MIGRATION.name,START_ABANDONMENT_MIGRATION.name].includes(name)'));
 });
 test('fence127 runtime applies the fence only after the completion proof and native catalog finish',()=>{
   const driver=read('tests/db/account-closure-full-chain.mjs');
@@ -466,7 +466,7 @@ for (const { path, sha256 } of unchangedProofs) test('original proof/helper unch
 test('U1 is excluded from initial staging and all four final proof layers remain explicit', () => {
   const driver = read('tests/db/account-closure-full-chain.mjs');
   const replay = driver.indexOf("if (args.profile !== 'main-120')");
-  assert.ok(driver.includes('![candidate,recovery,MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name,RETIREMENT_MIGRATION.name].includes(name)'));
+  assert.ok(driver.includes('![candidate,recovery,MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name,RETIREMENT_MIGRATION.name,START_ABANDONMENT_MIGRATION.name].includes(name)'));
   const final = driver.slice(replay, driver.indexOf('} catch (error)', replay));
   assert.ok(replay > driver.indexOf("console.log('CHECKOUT REJECTION RECOVERY INVARIANTS PASSED')"));
   for (const token of [
@@ -484,12 +484,12 @@ test('U1 is excluded from initial staging and all four final proof layers remain
   assert.ok(driver.includes('if (primaryError || cleanupError) throw primaryError ?? cleanupError'));
 });
 
-test('existing workflow collects Node tests and explicitly selects both exact129 profiles on replay AND cleanup', () => {
+test('existing workflow collects Node tests and explicitly selects the exact129 and ledger-10 profiles on replay AND cleanup', () => {
   const workflow = read('.github/workflows/account-closure-full-chain-proof.yml');
   const collection = workflow.indexOf('run: node --test tests/db/account-closure-full-chain-main-u1-plan.test.mjs');
   assert.ok(collection > workflow.indexOf('actions/setup-node@v6'));
   assert.ok(collection < workflow.indexOf('supabase/setup-cli@v2'));
-  assert.ok(workflow.includes('profile: [main-completion-billing-129, main-coaching-retirement-129]'));
+  assert.ok(workflow.includes('profile: [main-completion-billing-129, main-coaching-retirement-129, main-start-abandonment-130]'));
   assert.ok(workflow.includes('run: node tests/db/account-closure-full-chain.mjs --profile=${{ matrix.profile }}'));
   assert.ok(workflow.includes('run: node tests/db/account-closure-full-chain.mjs --cleanup --profile=${{ matrix.profile }}'));
   assert.ok(!workflow.includes('--profile=main-t2-retention-128'),'the billing file makes retention128 refuse the real tree');
