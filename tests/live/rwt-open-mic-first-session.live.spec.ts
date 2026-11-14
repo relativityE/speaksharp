@@ -122,6 +122,8 @@ import {
     type PanelObservation, type ServerEvidence,
 } from './helpers/repeatMetricWording';
 
+/** #1811: each fence step is two or three service-role RPCs; bounded tightly so the declared finalizer worst case stays in budget. */
+const FEEDBACK_FENCE_STEP_MS = 10_000;
 const SUITE = 'open-mic-first-session';
 /** Smoke item 2 (run 38654466793): the first take's save-time families the readback held as never received. */
 const FIRST_TAKE_SAVE_FAMILIES = ['session_saved', 'transcript_authority', 'filler_measurement', 'model_attribution_receipt'] as const;
@@ -435,7 +437,7 @@ test.describe('RWT — Open Mic first session @live', () => {
             await steps.step('owned pages closed', (alive) => parity.ownedPagesClosedRow(aliveReceipt(receipt, alive)), PARITY_CLOSE_STEP_MS);
             // #1811: every owned page is closed, so no feedback write can still come from a page: close the fence (acknowledged).
             const fence = feedbackFence;
-            if (fence) await steps.step('feedback fence close', async (alive) => { await fence.close(aliveReceipt(receipt, alive)); });
+            if (fence) await steps.step('feedback fence close', async (alive) => { await fence.close(aliveReceipt(receipt, alive)); }, FEEDBACK_FENCE_STEP_MS);
             // Only the run-owned account is deleted (PM contract #1258 §3). The feedback report is retained by product policy
             // (user_issue_reports.user_id is SET NULL on account deletion), so retention is proven only after the account is
             // deleted (#1532 Codex P1 r4105978630).
@@ -450,7 +452,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                     : undefined);
             }
             // #1811: AFTER the retention proof, delete exactly the fence-recorded reports and verify zero independently.
-            if (fence) await steps.step('feedback fence cleanup', async (alive) => { await fence.cleanRow(aliveReceipt(receipt, alive)); });
+            if (fence) await steps.step('feedback fence cleanup', async (alive) => { await fence.cleanRow(aliveReceipt(receipt, alive)); }, FEEDBACK_FENCE_STEP_MS);
             // Last, so it covers every row above, including cleanup.
             await steps.step('receipt content check', () => {
                 const leaks = receiptContentLeaks(receipt, [createdEmail, SERVICE_ROLE, shownWell, shownNext, savedWell, savedNext].filter(Boolean));

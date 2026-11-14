@@ -100,6 +100,8 @@ import {
     type PanelObservation, type ServerEvidence,
 } from './repeatMetricWording';
 
+/** #1811: each fence step is two or three service-role RPCs; bounded tightly so the declared finalizer worst case stays in budget. */
+const FEEDBACK_FENCE_STEP_MS = 10_000;
 const JOURNEY = 'focus_points';
 export const WEBGPU = process.env.RWT_WEBGPU === '1';
 /** The pace guide the script sets (1:00 per point). The measured average must NOT simply echo it. */
@@ -394,7 +396,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         await steps.step('owned pages closed', (alive) => parity.ownedPagesClosedRow(aliveReceipt(receipt, alive)), PARITY_CLOSE_STEP_MS);
         // #1811: every owned page is closed, so no feedback write can still come from a page: close the fence (acknowledged).
         const fence = feedbackFence;
-        if (fence) await steps.step('feedback fence close', async (alive) => { await fence.close(aliveReceipt(receipt, alive)); });
+        if (fence) await steps.step('feedback fence close', async (alive) => { await fence.close(aliveReceipt(receipt, alive)); }, FEEDBACK_FENCE_STEP_MS);
         // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion. The full run's retention proof and the partial run's own
         // cleanup verdict (#1532 Codex P1 r4126745141) both delete through it; the deletion's own settlement then decides —
         // a stalled readback never deletes again, and a body that ended early still has its account deleted, here only.
@@ -410,7 +412,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             if (await finalizeOwnedCleanup(steps, receipt, cleanup, proof) === 'deleted') { owner.uid = ''; owner.email = ''; }
         }
         // #1811: AFTER the retention proof, delete exactly the fence-recorded reports and verify zero independently.
-        if (fence) await steps.step('feedback fence cleanup', async (alive) => { await fence.cleanRow(aliveReceipt(receipt, alive)); });
+        if (fence) await steps.step('feedback fence cleanup', async (alive) => { await fence.cleanRow(aliveReceipt(receipt, alive)); }, FEEDBACK_FENCE_STEP_MS);
         // Last, so it covers every row above, including cleanup.
         await steps.step('receipt content check', () => {
             // Point text and topic are the person's content: they must never reach the receipt.
