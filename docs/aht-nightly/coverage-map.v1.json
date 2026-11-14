@@ -1518,31 +1518,31 @@
    "status": "new"
   },
   {
-   "leg": "J9",
+   "leg": "J9.a",
    "assertion": "pre-upgrade-history-opens",
    "what": "Sessions the long-lived account recorded through the product on a named earlier release, and kept, still open with their metrics and coaching after the latest release.",
    "status": "sandbox, disabled until runnable"
   },
   {
-   "leg": "J9",
+   "leg": "J9.a",
    "assertion": "pre-upgrade-progress-opens",
    "what": "Progress over that kept history renders the same comparisons it did before the release.",
    "status": "sandbox, disabled until runnable"
   },
   {
-   "leg": "J9",
+   "leg": "J9.a",
    "assertion": "old-sessions-no-new-coaching",
    "what": "Opening the kept sessions after the release sends no coaching request (budget 0): the stored coaching still reads. A request means the stored format no longer parses after the upgrade, which fails this row.",
    "status": "sandbox, disabled until runnable"
   },
   {
-   "leg": "J9",
+   "leg": "J9.b",
    "assertion": "production-entitlement-after-upgrade",
    "what": "A real paid account's entitlement and kept data after a production upgrade. Reported NOT RUN on every run until there is a safe, approved way to hold a paid account on production; a sandbox result never stands in for it.",
    "status": "NOT RUN by design"
   },
   {
-   "leg": "J9",
+   "leg": "J9.a",
    "assertion": "entitlement-survives-upgrade",
    "what": "The paid entitlement holds and the billing portal opens after the release. Opening the portal creates a Stripe portal session; its address works for anyone holding it, so it is never logged, traced, captured in a screenshot or kept.",
    "status": "sandbox, disabled until runnable"
