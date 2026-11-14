@@ -14,12 +14,20 @@ on:
       # postflight consumes it; the offline tests echo the pins back and cannot catch a wrong one (Codex P2 4363567722).
       - 'scripts/lib/t2MigrationPostflight.mjs'
       - 'scripts/lib/retirementCatalogPins.mjs'
+      - 'scripts/lib/abandonmentCatalogPins.mjs'
       - 'scripts/lib/retirementMigrationPostflight.mjs'
       - 'scripts/retirement-migration-postflight.mjs'
       - 'scripts/t2-migration-postflight.mjs'
       - 'scripts/lib/exactMigrationGate.mjs'
+      - 'tests/db/recording-start-abandonment-realpg.test.mjs'
+      - 'tests/db/recording-start-abandonment.integration.test.ts'
       - 'tests/db/account-closure-concurrency-realpg.mjs'
       - 'tests/db/account-closure-attestation-realpg.mjs'
+      - 'tests/db/account-closure-pending-realpg.mjs'
+      - 'tests/db/account-closure-schema-realpg.mjs'
+      - 'tests/db/account-coaching-admission-realpg.mjs'
+      - 'tests/db/account-completion-realpg.test.mjs'
+      - 'tests/db/account-recording-admission-realpg.mjs'
       - 'tests/db/account-closure-tokens.integration.test.ts'
       - 'tests/db/account-closure-enforcement-full-chain.sql'
       - 'tests/db/account-closure-denial-control.sql'
@@ -62,8 +70,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        profile: [main-completion-billing-129, main-coaching-retirement-129]
-    runs-on: ubuntu-latest
+        profile: [main-completion-billing-129, main-coaching-retirement-129, main-start-abandonment-130]
+    # Pinned with #1839/#1841/#1845: on ubuntu-26.04 the historical Supabase replay refuses ('running image configuration
+    # differs from immutable pin', run 43467911148); the last green proof ran on ubuntu-24.04. Remove with #1840.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       DOCKER_HOST: unix:///var/run/docker.sock
@@ -110,6 +120,15 @@ jobs:
           node tests/db/account-coaching-fence.realpg.mjs
           # Separate native retirement fixture proof; historical replay below stops at 129.
           node tests/db/account-coaching-local-fence.realpg.mjs
+          # Separate missing-Start fixture proof, not an extension of either historical catalog.
+          node tests/db/recording-start-abandonment-realpg.test.mjs
+          # #1843 item 4: native #1643 suites that no workflow ran (closure pending/schema, coaching and recording
+          # admission, completion). Each owns a disposable cluster; none touches a hosted database.
+          node tests/db/account-closure-pending-realpg.mjs
+          node tests/db/account-closure-schema-realpg.mjs
+          node tests/db/account-coaching-admission-realpg.mjs
+          node tests/db/account-completion-realpg.test.mjs
+          node tests/db/account-recording-admission-realpg.mjs
       - name: Replay actual baseline and closure migration; prove invariants
         run: node tests/db/account-closure-full-chain.mjs --profile=${{ matrix.profile }}
       - name: Recover owned disposable resources after interruption
@@ -124,5 +143,6 @@ jobs:
             artifacts/account-closure-full-chain/*.json
             artifacts/account-coaching-fence/*.json
             artifacts/account-coaching-local-fence/receipts.json
+            artifacts/recording-start-abandonment/receipts.json
           if-no-files-found: error
           retention-days: 1

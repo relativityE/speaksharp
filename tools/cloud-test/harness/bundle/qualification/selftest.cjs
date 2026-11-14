@@ -24,6 +24,8 @@ const { operationDigest } = require(path.join(H, 'fault-contract.cjs'));
 let approvedOracle;
 const { startFixtures } = require('./fixtures.cjs');
 const {runFeedbackControls}=require('./feedback-controls.cjs');
+const QD=require(path.join(H,'qualification-diagnostic.cjs'));
+const diag=QD.createState();
 
 const a = {}; const argv = process.argv.slice(2);
 for (let i = 0; i < argv.length; i += 2) a[argv[i].replace(/^--/, '')] = argv[i + 1];
@@ -46,7 +48,9 @@ try {
 } catch {}
 // Owner policy: record and qualify this installed compatibility tuple, never enforce obsolete pins
 // or silently select a different browser. Admission binds the same observed tuple to the campaign.
-if (!/^v[0-9]+\.[0-9]+\.[0-9]+/.test(process.version) || !installedPlaywright || installedPlaywright!==browserInfo.playwrightVersion || !installedChromiumRevision || installedChromiumRevision!==browserInfo.revision || !expectedExecutable || !fs.existsSync(expectedExecutable)) {
+if (!/^v[0-9]+\.[0-9]+\.[0-9]+/.test(process.version) || !installedPlaywright || installedPlaywright!==browserInfo.playwrightVersion || !installedChromiumRevision || installedChromiumRevision!==browserInfo.revision || !expectedExecutable
+    // R10: the executable that must exist is the bound copy the wrapper launches (launch-boundary.boundBrowserProblem), not Playwright's download.
+    || require(path.join(H, 'launch-boundary.cjs')).boundBrowserProblem(browserInfo) !== null) {
   console.error('BLOCKED_SETUP: observed Node/Playwright/installed expected Chromium tuple is missing or differs from browser discovery'); process.exit(78);
 }
 assertSecurityApproval({ securityApprovalFile: a['security-approval'] }, { hosts: { 'a.test': {}, 'c.test': {}, 'd.test': {} } });
@@ -56,7 +60,8 @@ const readbackBinding = { host:'a.test', method:'GET', pathname:'/saved', search
 approvedOracle = loadReviewedOracle({ ...reviewOptions, oracleFile:path.join(__dirname,'durable-oracle.cjs'), sourceId:'fixture-independent-durable-readback', readbackBinding });
 const launchGuarded = async opts => {
   if(stoppingRequested)throw new Error('qualification stopping; no new browser launch');
-  const pending=rawLaunchGuarded({ ...opts, securityApprovalFile:a['security-approval'], privateMediaParent:a['private-media-parent'], readbackOracle:approvedOracle });
+  const onPhase=p=>{if(diag.phase!=='test-body'){diag.phase=p;}if(typeof opts.onPhase==='function')opts.onPhase(p);};
+  const pending=rawLaunchGuarded({ ...opts, onPhase, securityApprovalFile:a['security-approval'], privateMediaParent:a['private-media-parent'], readbackOracle:approvedOracle });
   pendingLaunches.add(pending);
   try { const handle=await pending; liveHandles.add(handle); if(stoppingRequested)throw new Error('qualification stopped during launch'); return handle; }
   finally {pendingLaunches.delete(pending);}
@@ -106,13 +111,11 @@ function reconcile(id, glog, mark, hosts = ['a.test', 'c.test']) {
 async function withGuard(id, pol, fn, ledgerFile) {
   const dir = path.join(OUT, 'runs', String(++runN).padStart(2, '0') + '-' + id);
   const mark = fxMark();
-  const h = await launchGuarded({ browserJson: a.browser, policy: pol, runDir: dir, ledgerFile: ledgerFile || path.join(dir, 'ledger.json'), logFile: path.join(dir, 'guard.jsonl') });
-  const page = await h.context.newPage();
   let err = null;
-  try { await fn({ ...h, page, dir }); } catch (e) { err = e; }
-  h.guard.cancelAll('test-end');
-  await h.browser.close();
-  const summary = await h.guard.close('test-end'); h.cleanupMedia(); liveHandles.delete(h);
+  const { h, summary } = await QD.guardedRun(diag, { id,
+    launch: onPhase => launchGuarded({ browserJson: a.browser, policy: pol, runDir: dir, ledgerFile: ledgerFile || path.join(dir, 'ledger.json'), logFile: path.join(dir, 'guard.jsonl'), onPhase }),
+    fn: hp => fn({ ...hp, dir }), onBodyError: e => { err = e; } });
+  h.cleanupMedia(); liveHandles.delete(h);
   const glog = readJsonl(path.join(dir, 'guard.jsonl'));
   if (err) check(id + '.no-exception', 'test body ran without harness exception', false, String(err.stack || err).slice(0, 400));
   return { summary, glog, mark, dir };
@@ -164,6 +167,7 @@ async function stopQualification(reason,code,error) {
   stopPromise=(async()=>{
     stoppingRequested=true;clearTimeout(qualificationTimer);clearInterval(parentWatch);
     const cleanup=await closeOwned(reason);
+    try{fs.writeFileSync(path.join(OUT,'qualification-diagnostic.json'),JSON.stringify(QD.buildDiagnostic(diag,{reason,error,results,shutdownErrorCount:Array.isArray(cleanup&&cleanup.cleanupErrors)?cleanup.cleanupErrors.length:0}))+'\n',{mode:0o600});}catch{}
     fs.writeFileSync(path.join(OUT,'qualification-error.json'),JSON.stringify({result:'FAIL',reason,error:error?String(error.message||error):null,results,startedAt:QUAL_STARTED_AT,endedAt:new Date().toISOString(),...cleanup},null,2)+'\n',{mode:0o600});
     console.error('QUALIFICATION STOPPED '+reason);process.exit(code);
   })();return stopPromise;
@@ -174,7 +178,9 @@ const parentWatch=setInterval(()=>{if(process.ppid!==parentAtStart)stopQualifica
 for(const [signal,number] of [['SIGTERM',15],['SIGINT',2],['SIGHUP',1]])process.on(signal,()=>stopQualification('signal:'+signal,128+number));
 
 (async () => {
+  diag.phase = 'fixture-start';
   FX = await startFixtures(path.join(OUT, 'fixtures'));
+  diag.phase = 'between-runs';
   const env = { node: process.version, browser: JSON.parse(fs.readFileSync(a.browser, 'utf8')) };
   check('S0.precondition', 'no harness Chromium running before the self-test', chromePids().length === 0, chromePids());
 
@@ -365,10 +371,13 @@ for(const [signal,number] of [['SIGTERM',15],['SIGINT',2],['SIGHUP',1]])process.
     check('S6.upstream-error-logged', 'upstream-error logged with sent:false', ue && ue.outcome === 'upstream-error' && ue.sent === false, ue);
     reconcile('S6c', r.glog, r.mark, ['a.test']);
   }
-  r = await withGuard('campaign-deadline', policy({ requestTimeoutMs: 30000, deadlineAt: new Date(Date.now() + 9000).toISOString() }), async ({ page }) => {
+  // The deadline is fixed when the guard starts, before the browser launches and navigates: 20 s leaves a slow hosted launch room to have
+  // /hang in flight before it, and the wait is measured from the deadline itself, not from when /hang was sent.
+  const campaignDeadlineMs = Date.now() + 20000;
+  r = await withGuard('campaign-deadline', policy({ requestTimeoutMs: 30000, deadlineAt: new Date(campaignDeadlineMs).toISOString() }), async ({ page }) => {
     await nav(page, 'https://a.test/page');
     const hang = evalFetch(page, '/hang');
-    await sleep(Math.max(0, 9500 - 0));
+    await sleep(Math.max(0, campaignDeadlineMs + 500 - Date.now()));
     const okBefore = FX.logs.a.read().filter((e) => e.path === '/ok').length;
     const x = await evalFetch(page, '/ok');
     const okAfter = FX.logs.a.read().filter((e) => e.path === '/ok').length;
@@ -597,7 +606,7 @@ for(const [signal,number] of [['SIGTERM',15],['SIGINT',2],['SIGHUP',1]])process.
       const plan = { version: 1, campaignId: 'QUAL-GATE-NOT-A-RUN', runtime: 'Claude SpeakSharp R4', targetUrl: 'https://speaksharp-public.vercel.app/', costCeilingUsd: 0, sourceSha: commit, servedSha: commit, admissionConfigFile: 'q.json', admissionConfigSha256: hash, stepRoot: 'q', stepManifestFile: 's.json', stepManifestSha256: hash, campaignLedger: 'l.json', identityLedger: 'i.json', identityCap: 32, runRoot: 'q', deadlineAt: '2026-10-27T13:00:00Z', cleanupReserveMs: 1000, cases: core.IDS.map((id) => ({ id, driverFile: id + '.cjs', driverSha256: hash, configFile: id + '.json', configSha256: hash, maxMs: 100 })) };
       const gate = async (sumUsed, cmdUsed) => {
         const b = runnerMod.evaluateCaseBoundary(res, sumUsed, cmdUsed); const calls = [];
-        const io = { now: () => t0, save: async () => {}, preflightCase: async () => {}, admit: async () => ({ result: 'ADMISSION PASS' }), identity: async () => ({ result: 'MATCH', servedSha: commit }), caseConfig: async (c) => ({ caseId: c.id, sourceSha: commit, servedSha: commit, targetUrl: 'https://speaksharp-public.vercel.app/', requiredAssertions: ['pre-pass', 'pre-upstream-failure', 'pre-genuine-fail', 'post-save-denied', 'post-coach-denied', 'post-pass', 'post-fail'] }), runCase: async (c) => { calls.push(c.id); return c.id === 'AHT-01' ? { ...b, assertions: res.assertions, reason: b.reason } : { assertions: [{ id: 'pre-pass', result: 'PASS', detail: 'gate fixture', evidenceRefs: ['q.json'] }] }; } };
+        const io = { now: () => t0, save: async () => {}, preflightCase: async () => {}, admit: async () => ({ result: 'ADMISSION PASS' }), identity: async () => ({ result: 'MATCH', servedSha: commit }), caseConfig: async (c) => ({ caseId: c.id, sourceSha: commit, servedSha: commit, targetUrl: 'https://speaksharp-public.vercel.app/', requiredAssertions: ['pre-pass', 'pre-upstream-failure', 'pre-genuine-fail', 'post-save-denied', 'post-coach-denied', 'post-pass', 'post-fail'] }), runCase: async (c) => { calls.push(c.id); const cleanupEvidence = {schema:'speaksharp.cloud-test.case-cleanup-evidence.v1',ownedProcessesRemaining:0,launchCleanupFailure:false,mediaCleanupFailure:false,stopError:false,browserCloseError:false,guardClosed:true,cleanupIncomplete:false}; return c.id === 'AHT-01' ? { ...b, assertions: res.assertions, reason: b.reason, cleanupEvidence } : { assertions: [{ id: 'pre-pass', result: 'PASS', detail: 'gate fixture', evidenceRefs: ['q.json'] }], cleanupEvidence }; } };
         const r = await core.runCampaign(plan, io, { executeR0: true }); return { calls, row: r.report.cases[0], stopped: r.report.safetyStopped };
       };
       const ok = await gate(sum, cmd);
@@ -686,6 +695,7 @@ for(const [signal,number] of [['SIGTERM',15],['SIGINT',2],['SIGHUP',1]])process.
   check('S13.native-node-scope-review','external named hash-bound trusted-code review supplied; this is NOT a native Node sandbox',reviewed.verified && reviewed.networkIsolation==='NOT_PROVIDED',{reviewer:reviewed.reviewer,manifestSha256:reviewed.manifestSha256});
   const finalIntegrity=require(path.join(H,'preflight.cjs')).verifyManifest(path.resolve(H,'..'),'CODE.sha256');
   check('S13.final-code-integrity','qualified source bytes still match reviewed CODE manifest at completion',finalIntegrity.result==='PASS',finalIntegrity);
+  diag.phase = 'verdict';
   const failed = results.filter((x) => x.ok===false);
   const verdict=summarizeQualification(results,lighthouseSelection);
   fs.writeFileSync(path.join(OUT, 'selftest-results.json'), JSON.stringify({ when: new Date().toISOString(), env, ...verdict, results }, null, 2) + '\n');
@@ -702,6 +712,7 @@ for(const [signal,number] of [['SIGTERM',15],['SIGINT',2],['SIGHUP',1]])process.
   const receipt={...verdict,capabilities,lighthouseCliSha256:lighthouseSelection==='required'?a['lighthouse-cli-sha256']:null,runtime:selectedRuntime,node:process.version.slice(1),playwright:installedPlaywright,chromiumRevision:installedChromiumRevision,codeManifestSha256:sha256(fs.readFileSync(path.join(H,'..','CODE.sha256'))),checks,scope:'approved-loopback-fixtures-only',productTraffic:false,summarySha256:sha256(fs.readFileSync(summaryFile)),startedAt:QUAL_STARTED_AT,endedAt:new Date().toISOString()};
   fs.writeFileSync(path.join(OUT,'qualification-receipt.json'),JSON.stringify(receipt,null,2)+'\n',{mode:0o600});
   console.log(`SELFTEST ${verdict.result}: ${verdict.passed} PASS / ${verdict.failed} FAIL / ${verdict.notRun} NOT_RUN; scope=${verdict.qualifiedScope}`);
+  if(verdict.result!=='PASS')fs.writeFileSync(path.join(OUT,'qualification-diagnostic.json'),JSON.stringify(QD.buildDiagnostic(diag,{reason:'verdict-fail',error:null,results,shutdownErrorCount:shutdown.cleanupErrors.length}))+'\n',{mode:0o600});
   clearTimeout(qualificationTimer); clearInterval(parentWatch);
   process.exit(verdict.result==='PASS'?0:1);
 })().catch(e => stopQualification('qualification-error',2,e));

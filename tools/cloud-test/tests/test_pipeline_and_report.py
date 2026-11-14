@@ -97,7 +97,7 @@ class Pipeline(unittest.TestCase):
 
 
 class NightlyHistoryThroughTheRealPipeline(unittest.TestCase):
-    """G7 (Sam 1793576632.959179): the verified carried-forward history drives the REAL pipeline's derived summary and rendered report. A
+    """G7 : the verified carried-forward history drives the REAL pipeline's derived summary and rendered report. A
     row whose last comparable verdict is FAIL is reported as carried; once a later night PASSES it, the real outputs change."""
     @classmethod
     def setUpClass(cls):
@@ -166,7 +166,7 @@ class NightlyHistoryThroughTheRealPipeline(unittest.TestCase):
         self.assertNotIn("Cases carrying a comparable FAIL", html_p)
 
     def test_all_retained_rows_passing_without_a_fresh_full_run_is_limited_never_ready(self):
-        # RETURN 1793578066.007679: carried history never grants READY / PROCEED by itself; the real pipeline completes and the report validates.
+        # RETURN : carried history never grants READY / PROCEED by itself; the real pipeline completes and the report validates.
         d = tempfile.mkdtemp(prefix="ct-nh-all-")
         r, out = pipeline(["--prior-state", self.all_pass_state(d)])
         self.assertEqual(r.returncode, 0, r.stdout[-1500:] + r.stderr[-1500:])
@@ -190,7 +190,7 @@ class NightlyHistoryThroughTheRealPipeline(unittest.TestCase):
         self.assertEqual((held["status"], held["recommendation"]), ("BLOCKED", "HOLD"))  # a safety HOLD is never overridden
 
     def test_the_headline_never_contradicts_the_carried_nightly_outcome(self):
-        # RETURN 1793577431.476549: the headline is derived from the retained nightly evidence; the bootstrap is labelled historical.
+        # RETURN : the headline is derived from the retained nightly evidence; the bootstrap is labelled historical.
         failing, _, _ = self.outputs(["P", "F"])
         self.assertEqual((failing["status"], failing["recommendation"]), ("BLOCKED", "FIX AND RETEST"))  # a retest stays the recommendation
         self.assertIn("still FAIL", failing["customerImpact"])
@@ -384,7 +384,7 @@ class SummaryRules(unittest.TestCase):
 
 class WorkflowFixtureBuilder(unittest.TestCase):
     """The workflow's control-plane step builds its SYNTHETIC history only for the one selected fixture and only with this job's proof
-    (Sam 1793404770): any other request, or a missing proof, is refused, never reinterpreted as a synthetic success."""
+    : any other request, or a missing proof, is refused, never reinterpreted as a synthetic success."""
     def build(self, request, proof=True):
         d = tempfile.mkdtemp(prefix="ct-wf-fixture-")
         p = os.path.join(d, "offline-proof.json")

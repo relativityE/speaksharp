@@ -5,7 +5,7 @@ requests, identity reads, Starts, takes, coaching calls and GitHub runner minute
 + OPEN RESERVATIONS (runs that reserved their caps and are not sealed yet or were never sealed: counted at the reserved caps until sealed or released)
 + this run's ask.
 A cap is exhausted when usage + ask exceeds it in ANY category: the run is refused even if every other category has room.
-check_caps() returns the list of reasons (empty means the run may proceed); usage() returns the figures."""
+check_caps returns the list of reasons (empty means the run may proceed); usage returns the figures."""
 import os
 import sys
 
@@ -72,7 +72,7 @@ def snapshot_chain(doc):
 
 
 def journal_usage(approval, chain, exclude_run=None):
-    """G11 period usage from the VERIFIED state-ref journal (RETURN 1793572741.370569: one journal for reservation, G11 and continuity):
+    """G11 period usage from the VERIFIED state-ref journal (RETURN : one journal for reservation, G11 and continuity):
     every event inside the approval period folds per (campaign, run, attempt); a settle replaces its reservation with the settled allocation,
     a release removes it, and an open reservation counts at its reserved caps. Runs are the distinct nightly campaigns reserved in the period
     (the Case 10 observation's own `<campaign>.case10-observation` reservations count as usage, never as runs)."""

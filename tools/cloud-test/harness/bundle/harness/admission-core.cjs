@@ -5,8 +5,11 @@ const {selection,validateSelectionApproval,verifyCapabilityReceipt}=require('./q
 const SHA40=/^[a-f0-9]{40}$/,SHA64=/^[a-f0-9]{64}$/;
 const RUNTIME='Claude SpeakSharp R4';
 const runtimeSelection=require('./runtime-selection.cjs');
+const {validateDiagnostic}=require('./qualification-diagnostic.cjs');
 const QUALIFICATION_CHECKS=['sandboxProcesses','defaultDenyAllBrowserMechanisms','independentFixtureReconciliation','redirectChains','nativeNodeScopeReview','durableOperationFaults','errorStatusNegativeControl','privateMediaLifecycle','deadlinesCancellationAndCleanup','modelDownloadFaults','cumulativeCapsLedgerAndLocks','environmentProxyDns','feedbackOperationFaults'];
 const PAIRS={throwaway:['THROWAWAY_TEST_EMAIL','THROWAWAY_TEST_PASSWORD'],free:['FREE_TEST_EMAIL','FREE_TEST_PASSWORD'],pro:['PRO_TEST_EMAIL','PRO_TEST_PASSWORD']};
+// The route probe's per-host closed results: ok, or a guard upstream reason (guard-proxy.cjs UPSTREAM_REASONS).
+const ROUTE_RESULTS=new Set(['ok','proxy-not-configured','proxy-invalid','proxy-connect-status','test-only-trust','no-test-override','aborted','dns','connect-refused','timeout','reset','tls','other']);
 const STAGES=['A0.config','A1.bundle','A2.source','A3.tools','A4.credentials','A5.browser','A6.guard-selftest','A7.identity'];
 const BASE_POLICY_HOSTS=['speaksharp-public.vercel.app','yxlapjuovrsvjswkwnrk.supabase.co'];
 const TELEMETRY_POLICY_HOSTS=['us-assets.i.posthog.com','us.i.posthog.com'];
@@ -88,6 +91,19 @@ function verifyQualification(receipt,{codeManifestSha256,startedAt,endedBy,evide
   const capabilities=verifyCapabilityReceipt(receipt,{expectedSelection,ownerApprovalReference,requiredCapability,verifyEvidence});
   return {result:'PASS',checks:QUALIFICATION_CHECKS.length,codeManifestSha256,...capabilities};
 }
+// R10 A6 : only a strictly re-validated, closed-set, content-free stop location may enter the receipt.
+// R10 run 42386714252 : A7's helper stderr was discarded, so a no-receipt stop could not be located. Keep only its exit
+// status and a closed, content-free class of its stderr (never the text: it can carry paths or URLs); unknown text is `other`.
+const IDENTITY_HELPER_CLASSES=[['private-ownership',/private directory required|private file required/],['ledger-lock',/EEXIST/],
+ ['ledger-state',/identity ledger corrupt|campaign binding changed|lock ownership changed|unknown or completed reservation|ledger closed/],
+ ['not-authorized',/NOT AUTHORIZED/],['binding',/identity binding requires|expected SHA must be|ledger and integer cap required|arguments require explicit values|unknown or repeated argument/],
+ ['filesystem',/ENOENT|EACCES|EPERM/]];
+// the supervisor (admission.cjs supervisedCommand) reports its own stops as `reason`; only its closed reasons are kept.
+const SUPERVISOR_STOPS=['command-deadline','signal:SIGTERM','signal:SIGINT','signal:SIGHUP','parent-lost','command-output-limit','owned-descendants-remain','spawn-error','admission-cancelled'];
+function identityHelperDiagnostic(r){const text=String((r&&r.stderr)||'');const hit=IDENTITY_HELPER_CLASSES.find(([,re])=>re.test(text));const reason=r&&r.reason;
+ return {exitCode:Number.isSafeInteger(r&&r.status)?r.status:null,timedOut:reason==='command-deadline',supervisorStop:SUPERVISOR_STOPS.includes(reason)?reason:(reason?'other':null),
+  stderrClass:text.trim()===''?'none':hit?hit[0]:'other',contentFree:true};}
+function readQualificationDiagnostic(io,file){let raw;try{raw=io.readJson(file);}catch{return {result:'ABSENT'};}try{return {result:'RECORDED',...validateDiagnostic(raw)};}catch{return {result:'REFUSED'};}}
 async function runAdmission(options,io){
   const now=()=>io.now();
   if(options.executeR0!==true){const offline=await io.offlinePreflight(options.bundle);return {exitCode:78,receipt:{result:'BLOCKED_SETUP',stage:'OFFLINE_ONLY',offline,productionTrafficSent:0,credentials:'NOT_INSPECTED',reason:'Default is offline only. Explicit R0 execution requires actual Claude task provenance and complete bindings.'}};}
@@ -121,19 +137,39 @@ async function runAdmission(options,io){
     const browserFile=path.join(OUT,'browser.json');
     await step('A5.browser',async()=>{const r=await recordedCommand('A5.browser',io.nodeExecutable,[path.join(B,'harness/browser-setup.cjs'),'--playwright',runtimeVariant.playwright,'--revision',runtimeVariant.chromiumRevision,'--existing-browser',browserIdentity.path,'--existing-browser-sha256',browserIdentity.sha256,'--security-approval',c.securityApprovalFile,'--out',browserFile],{timeout:180000});if(r.status!==0||r.cleanupIncomplete)throw new Error('approved browser discovery/wrapper check failed: exit '+r.status+' '+(r.reason||'')+'; see private command evidence; no fallback/install');const b=io.readJson(browserFile);if(b.playwrightVersion!==runtimeVariant.playwright||b.revision!==runtimeVariant.chromiumRevision||b.sourceExecutable!==browserIdentity.path||b.chromeSha256!==browserIdentity.sha256||!SHA64.test(b.wrapperSha256||'')||b.runAsUid!==65534)throw new Error('live browser differs from the bound existing-browser identity');Object.assign(runtimeVariant,{chromeSha256:b.chromeSha256,wrapperSha256:b.wrapperSha256,chromeVersion:b.chromeVersion||null});receipt.binding.browserArtifactSha256=io.hashFile(browserFile);return {playwrightVersion:b.playwrightVersion,revision:b.revision,chromeSha256:b.chromeSha256,wrapperSha256:b.wrapperSha256,runAsUid:b.runAsUid};});
     const qualificationOut=path.join(OUT,'qualification'),qualificationFile=path.join(qualificationOut,'qualification-receipt.json');
-    await step('A6.guard-selftest',async()=>{if(remaining(c.qualificationMaxMs)<c.qualificationMaxMs)throw new Error('full approved qualification duration plus cleanup no longer fits; no shortened run');const started=now();const r=await recordedCommand('A6.guard-selftest',io.nodeExecutable,[path.join(B,'qualification/selftest.cjs'),'--browser',browserFile,'--out',qualificationOut,'--security-approval',c.securityApprovalFile,'--private-media-parent',c.privateMediaParent,'--lighthouse-selection',c.lighthouseSelection,...(c.lighthouseSelection==='required'?['--lighthouse-cli',c.lighthouseCli,'--lighthouse-cli-sha256',runtimeVariant.lighthouseCliSha256]:[]),'--step-manifest',c.qualificationStepManifest,'--step-manifest-sha256',c.qualificationStepManifestSha256],{timeout:c.qualificationMaxMs});if(r.status!==0||r.cleanupIncomplete)throw new Error('current R0 qualification failed: exit '+r.status+' '+(r.reason||'')+'; see private command evidence; identity GET remains NOT_RUN');const result=verifyQualification(io.readJson(qualificationFile),{codeManifestSha256:codeHash,startedAt:started,endedBy:now(),expectedRuntime:runtimeVariant,expectedRuntimeName:c.runtime,expectedSelection:c.lighthouseSelection,ownerApprovalReference:c.ownerApprovalReference,evidence:relative=>io.hashSafeEvidence(qualificationOut,relative)});receipt.runtimeQualificationReceipt=qualificationFile;receipt.runtimeQualificationSha256=io.hashFile(qualificationFile);receipt.binding.campaignLedgerIdentity=io.initializeCampaignLedger(c.campaignLedger,policy.caps);return result;});
+    await step('A6.guard-selftest',async()=>{if(remaining(c.qualificationMaxMs)<c.qualificationMaxMs)throw new Error('full approved qualification duration plus cleanup no longer fits; no shortened run');const started=now();const r=await recordedCommand('A6.guard-selftest',io.nodeExecutable,[path.join(B,'qualification/selftest.cjs'),'--browser',browserFile,'--out',qualificationOut,'--security-approval',c.securityApprovalFile,'--private-media-parent',c.privateMediaParent,'--lighthouse-selection',c.lighthouseSelection,...(c.lighthouseSelection==='required'?['--lighthouse-cli',c.lighthouseCli,'--lighthouse-cli-sha256',runtimeVariant.lighthouseCliSha256]:[]),'--step-manifest',c.qualificationStepManifest,'--step-manifest-sha256',c.qualificationStepManifestSha256],{timeout:c.qualificationMaxMs});if(r.status!==0||r.cleanupIncomplete){receipt.qualificationDiagnostic=readQualificationDiagnostic(io,path.join(qualificationOut,'qualification-diagnostic.json'));throw new Error('current R0 qualification failed: exit '+r.status+' '+(r.reason||'')+'; content-free stop location in qualificationDiagnostic; exception text stays private; identity GET remains NOT_RUN');}const result=verifyQualification(io.readJson(qualificationFile),{codeManifestSha256:codeHash,startedAt:started,endedBy:now(),expectedRuntime:runtimeVariant,expectedRuntimeName:c.runtime,expectedSelection:c.lighthouseSelection,ownerApprovalReference:c.ownerApprovalReference,evidence:relative=>io.hashSafeEvidence(qualificationOut,relative)});receipt.runtimeQualificationReceipt=qualificationFile;receipt.runtimeQualificationSha256=io.hashFile(qualificationFile);receipt.binding.campaignLedgerIdentity=io.initializeCampaignLedger(c.campaignLedger,policy.caps);return result;});
     await step('A7.identity',async()=>{
       if(remaining(25000)<25000)throw new Error('insufficient approved time for bounded identity GET plus cleanup');
       if(io.verifyCode(B).result!=='PASS'||io.hashFile(path.join(B,'CODE.sha256'))!==codeHash||io.hashFile(c.policyFile)!==c.policySha256)throw new Error('helper/policy bytes changed during qualification');
       for(const [args,expected]of [[['rev-parse','--verify','HEAD'],c.sourceSha],[['rev-parse','--verify','HEAD^{tree}'],c.sourceTree],[['status','--porcelain'],'']]){const r=await command('git',['-C',c.checkoutDir,...args]);if(r.status!==0||String(r.stdout||'').trim()!==expected)throw new Error('source changed during qualification');}
       if(io.hashFile(path.join(c.checkoutDir,'pnpm-lock.yaml'))!==c.lockSha256)throw new Error('source lock changed during qualification');
+      // Consultant P0-2: before any identity dispatch, prove the route a case uses. One TLS handshake per production policy host through the
+      // guard's own upstreamSocket() and the real environment; nothing is written to an application. A failed route stops here with
+      // identityDispatch NOT_RUN and productionTrafficSent 0.
+      const probe=await recordedCommand('A7.route-probe',io.nodeExecutable,[path.join(B,'harness/route-probe.cjs'),'--policy',c.policyFile],{timeout:60000});
+      let routed;try{routed=JSON.parse(String(probe.stdout||'').trim().split('\n').pop());}catch{routed=null;}
+      // Review of 50647108: the receiver itself requires complete, unique coverage of exactly the admitted policy's hosts, each with a
+      // closed result; a missing, extra, duplicated or malformed host row, or any non-ok result, blocks.
+      const expectedHosts=Object.keys(policy.hosts).sort();
+      const rows=Array.isArray(routed?.hosts)?routed.hosts:[];
+      const rowHosts=rows.map(h=>h&&typeof h.host==='string'?h.host:null);
+      const covered=rows.length===expectedHosts.length&&rowHosts.every(h=>h!==null)&&new Set(rowHosts).size===rowHosts.length
+        &&JSON.stringify([...rowHosts].sort())===JSON.stringify(expectedHosts)&&rows.every(h=>ROUTE_RESULTS.has(h.result));
+      const hostResults=rows.filter(h=>h&&ROUTE_RESULTS.has(h.result)).map(h=>h.result);
+      // ...and the probe process itself ended cleanly (no supervisor stop, signal or incomplete cleanup) before the identity dispatch.
+      const cleaned=probe.status===0&&!probe.signal&&!probe.reason&&probe.cleanupIncomplete!==true;
+      const passed=covered&&cleaned&&routed?.schema==='speaksharp.cloud-test.route-probe.v1'&&routed?.result==='PASS'&&hostResults.every(r=>r==='ok');
+      receipt.routeProbe={schema:'speaksharp.cloud-test.route-probe.v1',result:passed?'PASS':'BLOCKED',coverage:covered?'complete':'incomplete',hostCount:expectedHosts.length,results:[...new Set(hostResults)].sort()};
+      await save();
+      if(!passed)throw new Error('route probe failed before the identity read: '+(!covered?'host-coverage-incomplete':!cleaned?'probe-not-cleanly-ended':(receipt.routeProbe.results.filter(r=>r!=='ok').join(',')||'not-pass')));
+      if(remaining(25000)<25000)throw new Error('insufficient approved time for bounded identity GET plus cleanup');
       receipt.identityDispatch='ATTEMPTED_OR_AMBIGUOUS';receipt.productionTrafficSent='UNKNOWN_PENDING_IDENTITY_RECEIPT';await save();
       const r=await command(io.nodeExecutable,[path.join(B,'harness/identity-check.cjs'),'--authorize-identity-read','true','--url',c.identityUrl,'--expect-sha',c.expectedServedSha,'--ledger',c.identityLedger,'--cap',String(c.identityCap),'--phase','admission'],{timeout:25000});
-      let id;try{id=JSON.parse(String(r.stdout||'').trim().split('\n').pop());}catch{throw new Error('identity receipt unavailable; outcome ambiguous; no automatic retry');}receipt.identityReceipt=id;
+      let id;try{id=JSON.parse(String(r.stdout||'').trim().split('\n').pop());}catch{receipt.identityHelperDiagnostic=identityHelperDiagnostic(r);await save();throw new Error('identity receipt unavailable; outcome ambiguous; no automatic retry');}receipt.identityReceipt=id;
       if(r.status!==0||id.result!=='MATCH'||id.servedSha!==c.expectedServedSha)throw new Error('served identity mismatch; no product journeys admitted');
       receipt.identityDispatch='MATCH';receipt.productionTrafficSent=1;return id;
     });
     receipt.result='ADMISSION PASS';receipt.endedAt=new Date(now()).toISOString();receipt.productAcceptance='NOT_TESTED; admission is not product GO';await save();return {exitCode:0,receipt};
   }catch(e){receipt.result='BLOCKED_SETUP';if(!receipt.stage){receipt.stage='receipt-write';receipt.reason=String(e.message);}receipt.endedAt=new Date(now()).toISOString();return {exitCode:78,receipt};}
 }
-module.exports={runAdmission,validateConfig,validateRuntimeSelection,checkCredentials,validateBrowserIdentity,validateCampaignPolicy,verifyQualification,usableRuntime,QUALIFICATION_CHECKS,STAGES};
+module.exports={runAdmission,readQualificationDiagnostic,identityHelperDiagnostic,validateConfig,validateRuntimeSelection,checkCredentials,validateBrowserIdentity,validateCampaignPolicy,verifyQualification,usableRuntime,QUALIFICATION_CHECKS,STAGES};

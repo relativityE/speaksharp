@@ -51,7 +51,7 @@ describe('C1 ordered exact-operation enforcement', () => {
         expect(index).toBeLessThan(job.steps.findIndex(step => step.uses?.startsWith('supabase/setup-cli@')));
         expect(index).toBeLessThan(job.steps.findIndex(step => /\bsupabase\s/.test(step.run ?? '')));
         const guard = job.steps[index];
-        expect(guard.if).toBe("${{ inputs.target_version == '20261024083000' || inputs.target_version == '20261025021046' || inputs.target_version == '20261110173548' }}");
+        expect(guard.if).toBe("${{ inputs.target_version == '20261024083000' || inputs.target_version == '20261025021046' || inputs.target_version == '20261110173548' || inputs.target_version == '20261112133000' }}");
         expect(guard['continue-on-error']).toBeUndefined();
         expect(guard.env).toBeUndefined();
         expect(job.env.SUPABASE_DB_PASSWORD).toBe('${{ secrets.SUPABASE_DB_PASSWORD }}');
@@ -484,10 +484,17 @@ describe('exact migration gate', () => {
         const dependencyViolations = [];
         for (const [targetIndex, target] of EXACT_MIGRATION_ALLOWLIST.entries()) {
             const config = resolveExactMigrationConfig({ SELECTED_TARGET_VERSION: target.version });
-            const withheld = target.version === '20261110173548' ? [{
+            const billing = {
                 version: '20261027192550', file: '20261027192550_account_completion_billing_settlement.sql',
                 sha256: '398aa50b8db168acc0cee68a11a433b40bd3101af03e3051dcdc2c87b2bef45d', mustRemainPending: true,
-            }] : [];
+            };
+            // #1831 start abandonment also leaves the #1829 refund follow-up pending (PO hold).
+            const refund = {
+                version: '20261112130000', file: '20261112130000_stripe_refund_followups.sql',
+                sha256: '47fce28446a1e8f56c27dd10a6bb92e803a5907db0fd9d7fa67cbf11f9701fe8', mustRemainPending: true,
+            };
+            const withheld = target.version === '20261110173548' ? [billing]
+                : target.version === '20261112133000' ? [billing, refund] : [];
             expect(config.requiresIncludeAll).toBe(targetIndex === 0);
             expect(config.requiredAppliedVersions).toEqual([
                 '20260812002000',
