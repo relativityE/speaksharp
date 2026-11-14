@@ -35,6 +35,11 @@ describe('trial-length-thirty-days', () => {
         expect(trialLengthVerdict(read({ profileId: OTHER }), window).outcome).toBe('FAIL');
         expect(trialLengthVerdict(read({ trialExpiresAt: null }), window).outcome).toBe('FAIL');
     });
+    it('holds, never passes, when the profile id or the run\'s account id was not recorded', () => {
+        expect(trialLengthVerdict(read({ profileId: undefined }), { ...window, accountId: undefined }).outcome).toBe('HOLD');
+        expect(trialLengthVerdict(read({ profileId: undefined }), window).outcome).toBe('HOLD');
+        expect(trialLengthVerdict(read({ profileId: '' }), { ...window, accountId: '' }).outcome).toBe('HOLD');
+    });
 });
 describe('ending a run-owned trial (canary-tagged, fail closed)', () => {
     const ports = (o = {}) => {
@@ -122,7 +127,14 @@ describe('sign-out rows (a 403 denial is a correct answer)', () => {
         expect(staleRequestVerdict(obs({ signedInBearerDigests: [token, refreshed], requests: [req({ bearerDigest: refreshed, sentAfterSignOutCompleted: true, status: 401 })] })).outcome).toBe('FAIL');
     });
     it('holds both rows when a request or the page was not fully observed', () => {
-        for (const o of [obs({ requests: [req({ ownedIdentifiersInBody: undefined })] }), obs({ ownedIdentifiersRendered: undefined }), obs({ requests: undefined })]) {
+        for (const o of [
+            obs({ requests: [req({ ownedIdentifiersInBody: undefined })] }), obs({ ownedIdentifiersRendered: undefined }), obs({ requests: undefined }),
+            obs({ requests: [req({ bearerDigest: undefined, sentAfterSignOutCompleted: true })] }),
+            obs({ requests: [req({ bearerDigest: 'not-a-digest' })] }),
+            obs({ requests: [req({ status: undefined, ownedIdentifiersInBody: 3, bearerDigest: null })] }),
+            obs({ requests: [req({ status: '200' })] }),
+            obs({ signOutCompletedObserved: 'false' }),
+        ]) {
             expect(unauthorizedReadVerdict(o).outcome).toBe('HOLD');
             expect(staleRequestVerdict(o).outcome).toBe('HOLD');
         }

@@ -657,6 +657,30 @@
       "find": "    if (notChecked.length > 0)\n        return { outcome: 'HOLD'",
       "replace": "    if (notChecked.length > 9)\n        return { outcome: 'HOLD'",
       "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P1-trial-ids-unrecorded-pass",
+      "guards": "trial-length-thirty-days: missing profile or account ids are HOLD, never a match",
+      "file": "oracles/trial-window.cjs",
+      "find": "    if (!isId(read.profileId) || !isId(window.accountId))",
+      "replace": "    if (false)",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P1-signout-request-facts-unchecked",
+      "guards": "sign-out rows: a request without a recorded digest or status holds both rows",
+      "file": "oracles/sign-out.cjs",
+      "find": "        || !(r.bearerDigest === null || (typeof r.bearerDigest === 'string' && DIGEST.test(r.bearerDigest)))\n        || !(r.status === null || Number.isInteger(r.status)));",
+      "replace": ");",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P1-signout-completed-truthy",
+      "guards": "sign-out rows: only a recorded true counts as sign-out completed",
+      "file": "oracles/sign-out.cjs",
+      "find": "    if (o.signOutCompletedObserved !== true)",
+      "replace": "    if (!o.signOutCompletedObserved)",
+      "test": "tests/oracles.test.cjs"
     }
   ]
 }

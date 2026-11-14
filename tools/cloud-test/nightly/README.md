@@ -19,8 +19,8 @@ file, in the harness handoff in the description of #1865, for the owners of thos
 | `run-budget.cjs` | The run budget to Sam's #1864 review: every runnable leg's coaching, Start presses and cleanup allocated and reserved in full before the run, then frozen; synchronous reservation before each send; no release, so a retry can't borrow; J1.e's expired-token probe reserved at its worst case; cleanup from a protected per-leg pool ordinary work can't reach |
 | `limits.cjs` | The lowest limits that give a truthful result: exact counts for sign-ups, takes, starts, coaching (probe reserves included), identity reads and provider calls; request and time limits per journey from complete baselines plus the evidence-based margins (11% and 14%); dollar caps from a supplied price |
 | `oracles/*.cjs` | The new rows' checks: 30-day trial, ending a canary-tagged run-owned trial, sign-out (no unauthorized read, no stale request), payment wall and server refusal, short Stop saves nothing, billing portal opens (bounded, URL never logged), billing-row reconciliation, the test-mode paid fixture, kept sessions send no new coaching |
-| `tests/*.test.cjs` | node:test files (137 tests), run by `../tests/test_nightly_suite.py` inside the package unit tests |
-| `negative-controls/` | 82 seeded breaks: each must make its test fail and pass again once restored |
+| `tests/*.test.cjs` | node:test files (138 tests), run by `../tests/test_nightly_suite.py` inside the package unit tests |
+| `negative-controls/` | 85 seeded breaks: each must make its test fail and pass again once restored |
 
 ## Rules the code enforces
 

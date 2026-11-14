@@ -15,6 +15,9 @@ const parse = (iso) => {
 function trialLengthVerdict(read, window) {
     if (read.via !== 'own-token')
         return { outcome: 'FAIL', detail: 'the trial was read with the service role, not the account\'s own token' };
+    const isId = (v) => typeof v === 'string' && v.length > 0;
+    if (!isId(read.profileId) || !isId(window.accountId))
+        return { outcome: 'HOLD', detail: 'the profile id or the run\'s account id was not recorded' };
     if (read.profileId !== window.accountId)
         return { outcome: 'FAIL', detail: 'the profile read is not this run\'s account' };
     if (!(window.endedAtMs >= window.startedAtMs))

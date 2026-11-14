@@ -12,14 +12,17 @@
 const ok = (s) => s !== null && s >= 200 && s < 300;
 const DIGEST = /^[0-9a-f]{64}$/;
 function precondition(o) {
-    if (!o.signOutCompletedObserved)
+    if (o.signOutCompletedObserved !== true)
         return { outcome: 'HOLD', detail: 'the signed-out state was not observed' };
     const digests = o.signedInBearerDigests;
     if (!Array.isArray(digests) || digests.length === 0 || !digests.every((d) => DIGEST.test(d)))
         return { outcome: 'HOLD', detail: 'the signed-in token digests were not recorded' };
     if (!Array.isArray(o.requests) || typeof o.ownedIdentifiersRendered !== 'number')
         return { outcome: 'HOLD', detail: 'the requests or the signed-out page were not observed' };
-    const unread = o.requests.filter((r) => typeof r.ownedIdentifiersInBody !== 'number' || typeof r.sentAfterSignOutCompleted !== 'boolean');
+    // Every request must carry its own facts: a digest (or null for no bearer), a status (or null for no response).
+    const unread = o.requests.filter((r) => typeof r?.ownedIdentifiersInBody !== 'number' || typeof r.sentAfterSignOutCompleted !== 'boolean'
+        || !(r.bearerDigest === null || (typeof r.bearerDigest === 'string' && DIGEST.test(r.bearerDigest)))
+        || !(r.status === null || Number.isInteger(r.status)));
     if (unread.length > 0)
         return { outcome: 'HOLD', detail: `${unread.length} request(s) not fully observed` };
     return null;
