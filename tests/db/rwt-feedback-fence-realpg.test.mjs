@@ -25,6 +25,7 @@ const FENCE = resolve('backend/supabase/migrations/20261114100000_rwt_feedback_f
 const OWNER = '11111111-1111-4111-8111-111111111111';
 const REAL_USER = '22222222-2222-4222-8222-222222222222';
 const OTHER = '33333333-3333-4333-8333-333333333333';
+const RACER = '44444444-4444-4444-8444-444444444444';
 const BINDING = { repository: 'relativityE/speaksharp', workflow: 'relativityE/speaksharp/.github/workflows/rc-gates.yml@refs/heads/main',
   runId: '43583228045', runAttempt: '1', role: 'rwt-journey' };
 const key = (n) => `aaaaaaaa-aaaa-4aaa-8aaa-${String(n).padStart(12, '0')}`;
@@ -79,7 +80,7 @@ test('rwt feedback fence: open, record, cap, close-serializes, clean — on the 
       GRANT EXECUTE ON FUNCTION auth.uid() TO anon, authenticated, service_role;
       CREATE TABLE public.sessions(id uuid PRIMARY KEY, user_id uuid);
       INSERT INTO auth.users VALUES (${lit(OWNER)}, ${lit(JSON.stringify({ ct_run: BINDING }))}::jsonb),
-        (${lit(REAL_USER)}, '{}'), (${lit(OTHER)}, '{}');`);
+        (${lit(REAL_USER)}, '{}'), (${lit(OTHER)}, '{}'), (${lit(RACER)}, ${lit(JSON.stringify({ ct_run: { ...BINDING, runId: '9' } }))}::jsonb);`);
     for (const file of CHAIN) sql(readFileSync(file, 'utf8'));
     sql(`GRANT SELECT, DELETE ON public.user_issue_reports TO service_role;`);
     sql(readFileSync(FENCE, 'utf8'));
@@ -150,6 +151,30 @@ test('rwt feedback fence: open, record, cap, close-serializes, clean — on the 
     sql(as(OTHER, report(key(10))));
     fails(as(OTHER, report(key(11))), /key cap reached/);
     fails(service(`SELECT public.clean_rwt_feedback_fence_v1(${lit(otherKey)});`), /close before cleaning/);
+
+    // The check-then-close race, staged deterministically: a holder takes the fence row lock; close queues behind it FIRST,
+    // then an insert queues behind close. Because the trigger reads the fence FOR UPDATE, the insert re-reads the row after
+    // close commits and is refused. (Without that lock the insert would read the stale 'open' and record a write after
+    // close — the mutant this assertion kills.)
+    const raceKey = sql(service(`SELECT public.open_rwt_feedback_fence_v1(${lit(RACER)}::uuid, ${lit(JSON.stringify({ ...BINDING, runId: '9' }))}::jsonb, 'AHT-08', 2);`)).split('\n').at(-1);
+    const run = (text) => new Promise((done) => {
+      const child = spawn(bin.psql, [...args, '-c', text], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+      let err = ''; child.stderr.on('data', (d) => { err += d; });
+      child.on('exit', (code) => done({ code, err }));
+    });
+    const holder = run(`BEGIN; SELECT 1 FROM public.rwt_feedback_fences WHERE run_key = ${lit(raceKey)} FOR UPDATE; SELECT pg_sleep(1.5); COMMIT;`);
+    await new Promise((r) => setTimeout(r, 300));
+    const closer = run(`BEGIN; ${service(`SELECT public.close_rwt_feedback_fence_v1(${lit(raceKey)});`)} COMMIT;`);
+    await new Promise((r) => setTimeout(r, 300));
+    const writer = run(`BEGIN; ${as(RACER, report(key(20)))} COMMIT;`);
+    const [h, c, w] = await Promise.all([holder, closer, writer]);
+    assert.equal(h.code, 0, h.err);
+    assert.equal(c.code, 0, c.err);
+    assert.notEqual(w.code, 0, 'an insert that queued behind close must be refused, not recorded after it');
+    assert.match(w.err, /fence is closed/);
+    const raced = JSON.parse(sql(`SELECT row_to_json(f) FROM public.rwt_feedback_fences f WHERE run_key = ${lit(raceKey)};`));
+    assert.equal(raced.state, 'closed');
+    assert.equal(raced.report_ids.length, 0);
   } finally {
     if (started) { try { execFileSync(bin.pg_ctl, ['-D', data, '-m', 'immediate', 'stop'], { env, encoding: 'utf8' }); } catch { /* best effort */ } }
     rmSync(root, { recursive: true, force: true });
