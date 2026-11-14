@@ -212,4 +212,3 @@ if export is not None:
     with open(sys.argv[3], "w") as fh:
         json.dump(export, fh, indent=1)
 print(len(rows), Counter(r["status"] for r in rows))
-
