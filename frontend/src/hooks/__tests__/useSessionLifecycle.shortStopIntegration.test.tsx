@@ -79,6 +79,9 @@ describe('G5 INTEGRATED — page Stop under the minimum → real controller → 
 
     /** A recording take that went live `ms` ago, on the page clock and the engine clock alike. */
     const recordingFor = (ms: number) => {
+        // The page clock is frozen, so the 4.999 s edge cannot drift to 5 s while the hook renders.
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date('2026-11-14T12:00:00Z'));
         const startedAt = Date.now() - ms;
         store = createTestSessionStore({ runtimeState: 'RECORDING', isListening: true, startTime: startedAt, elapsedTime: Math.floor(ms / 1000) });
         (useSessionStore as unknown as { mockImplementation: (f: unknown) => void }).mockImplementation(store);
@@ -113,6 +116,7 @@ describe('G5 INTEGRATED — page Stop under the minimum → real controller → 
 
     afterEach(() => {
         (controller as unknown as Priv).service = null;
+        vi.useRealTimers();
     });
 
     it.each([

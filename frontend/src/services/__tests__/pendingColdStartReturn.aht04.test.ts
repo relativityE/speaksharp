@@ -263,6 +263,12 @@ describe('AHT-04 — leaving a cold Start mid-download, then returning, still re
         expect(controller.getState(), `after pressing ${describeControl(back)}`).toBe('RECORDING');
         expect(engine.startCalls).toBe(1);
 
+        // G5 (#1861): a take under the five-second minimum is discarded, never saved. This journey is about a take that
+        // records and saves, so its live clock is moved past the minimum before Stop rather than lowering the minimum.
+        const liveStart = useSessionStore.getState().startTime;
+        expect(liveStart, 'the take has a live clock').not.toBeNull();
+        useSessionStore.getState().setStartTime((liveStart as number) - 6_000);
+
         await back.stop();
         expect(controller.getState()).toBe('READY');
         expect(db.rpcCalls.filter((n) => n === 'create_session_and_update_usage'), 'one row created').toHaveLength(1);

@@ -77,6 +77,7 @@ describe('G5 — a take under the minimum duration is discarded by the real cont
         expect(completions('failed')).toHaveLength(1);
         expect(vi.mocked(completeSession).mock.calls[0][0]).toBe('test-sess');
         expect(String(completions('failed')[0]?.[1]?.reason)).toMatch(/minimum duration/i);
+        expect(String(useSessionStore.getState().sttStatus.message ?? ''), 'the page owns the too-short message').not.toMatch(/enough speech/i);
         expect(result, 'the stop reports no saved result').toBeNull();
         // Terminal cleanup: the engine is released and the take is resolved, not left finalizing or locked.
         expect(svc.destroy).toHaveBeenCalled();
@@ -93,13 +94,16 @@ describe('G5 — a take under the minimum duration is discarded by the real cont
         expect(completions('failed')).toHaveLength(1);
     });
 
-    it('a too-short take with no row yet creates none at Stop and completes nothing', async () => {
+    it('a too-short take with no row yet gets its row at Stop only to mark it failed (settling the lease obligation)', async () => {
         priv().sessionId = null;
         engine(3);
         const result = await controller.stopRecording({ belowMinimumDuration: true });
 
-        expect(vi.mocked(saveSession), 'no late session create for a discarded take').not.toHaveBeenCalled();
-        expect(vi.mocked(completeSession)).not.toHaveBeenCalled();
+        // The late create binds the take's lease; marking that row failed is what settles the save obligation.
+        expect(vi.mocked(saveSession)).toHaveBeenCalledTimes(1);
+        expect(completions('completed')).toHaveLength(0);
+        expect(completions('failed')).toHaveLength(1);
+        expect(vi.mocked(completeSession).mock.calls[0]?.[0]).toBe('test-sess');
         expect(result).toBeNull();
         expect(controller.getState()).toBe('READY');
         expect(useSessionStore.getState().sessionSaved).toBe(false);

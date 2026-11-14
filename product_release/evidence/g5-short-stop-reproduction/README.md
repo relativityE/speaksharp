@@ -19,10 +19,11 @@ was retired once its assertions moved into the canonical suite below.
 ## Fix
 
 The page passes its verdict: `stopRecording({ belowMinimumDuration: true })`. The
-controller then resolves the take by discard: a row created at Start is marked
-`failed` ("shorter than the minimum duration"), no row is created at Stop when none
-exists, nothing is completed, and the runtime returns to READY with finalizing
-released and no saved marker. The threshold stays where it was decided before: the
+controller then resolves the take by discard: its row (created at Start, or late at
+Stop like any take without one) is marked `failed` ("shorter than the minimum
+duration"), which also settles the lease's save obligation; nothing is completed,
+and the runtime returns to READY with finalizing released and no saved marker. The
+page shows its own "Session too short" message. The threshold stays where it was decided before: the
 page's live clock and `MIN_SESSION_DURATION_SECONDS` (5). External stops (a stop
 reason: usage limit, maximum length, inactivity) are unchanged and still save.
 
@@ -33,10 +34,26 @@ reason: usage limit, maximum length, inactivity) are unchanged and still save.
   nothing; 5 s completes; a 3 s external stop still completes.
 - `frontend/src/services/__tests__/SpeechRuntimeController.shortTake.test.ts`: real
   controller. Marked failed, never completed; words decoded during finalization do
-  not change that; no late row at Stop; READY, finalizing released, not saved;
-  positive control without the verdict completes.
+  not change that; a take with no row gets one at Stop only to mark it failed;
+  READY, finalizing released, not saved; positive control without the verdict
+  completes.
+- `frontend/src/services/__tests__/pendingColdStartReturn.aht04.test.ts`: its
+  record-and-save journey stopped after about 60 ms and expected a completed save,
+  i.e. it asserted the defect. Its live clock is now moved past the minimum before
+  Stop; the minimum itself is not lowered.
 - `frontend/src/hooks/__tests__/useSessionLifecycle.recordingIntent.test.tsx`: the
   short branch passes the verdict, a 5.3 s take does not.
+
+## Known gaps (not fixed here, for review)
+
+- Leaving the page ("Stop and save this session before leaving?"), route-exit
+  teardown and a revoked lease call the controller's Stop with no verdict, so a take
+  under five seconds still completes on those paths. Pending test:
+  "KNOWN GAP: leaving the page during a take under the minimum saves no completed
+  session" in the integration suite.
+- A stop without the verdict that is queued just before the user's short Stop (for
+  example a lease revocation) can complete the take; the user's Stop then finds
+  READY and the page still says "Session too short". Pre-existing and narrow.
 
 No live database write, AHT run or probe-duration claim for AHT-03 run 43585559387 is
 made here. Fixture text is synthetic.

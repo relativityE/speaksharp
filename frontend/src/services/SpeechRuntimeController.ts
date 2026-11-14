@@ -398,9 +398,10 @@ export type RuntimeState =
  * G5 (#1861) — options for `stopRecording()`.
  *
  * `belowMinimumDuration`: the caller measured the take on the live clock the user sees, found it under the
- * minimum and told the user it is too short. The controller then resolves the take by discard (any row it
- * already created is marked failed, no row is created at Stop) instead of completing it. Callers that stop
- * for an external reason (tier limit, maximum length, inactivity, page leave) do not set it.
+ * minimum and told the user it is too short. The controller then resolves the take by discard (its row,
+ * created at Start or late at Stop like any take, is marked failed, which also settles the lease's save
+ * obligation) instead of completing it. The page owns the user-facing message. Callers that stop for an
+ * external reason (tier limit, maximum length, inactivity, page leave) do not set it.
  */
 export interface StopRecordingOptions {
     belowMinimumDuration?: boolean;
@@ -5661,8 +5662,9 @@ export class SpeechRuntimeController {
                         });
                     }
 
-                    // G5: a take below the minimum creates no row at all; there is nothing to save it into.
-                    if (result && !sessionId && !belowMinimumDuration) {
+                    // G5: a take below the minimum still gets its row here when it has none, so the lease's save
+                    // obligation is settled when the row is marked failed below (as for the no-speech discard).
+                    if (result && !sessionId) {
                         const supabase = getSupabaseClient();
                         const { data: { session } } = await supabase.auth.getSession();
                         const userId = session?.user?.id || this.capturedUserId;
@@ -5713,18 +5715,6 @@ export class SpeechRuntimeController {
                             service.setSessionId?.(sessionId);
                             logger.warn({ sessionId, mode }, '[DEBUG-STOP] Recovered missing sessionId with late session create');
                         }
-                    }
-
-                    if (result && !sessionId && belowMinimumDuration) {
-                        // G5: no row exists and none is created, so there is nothing to mark failed. Resolve the
-                        // take by discard exactly like the row-backed path below: no saved marker, no result.
-                        logger.warn({ mode: service.getMode?.() ?? stopEntryMode }, '[SESSION_SAVE_GUARD] Session below the minimum duration discarded before any row was created');
-                        guardedStopStatus = { type: 'info', message: '⚠️ Session too short to save.' };
-                        this.publishIfStopOwner(stopAuthority, token, 'discard_markers', () => {
-                            this.updateSessionPersisted(false);
-                            useSessionStore.getState().setSessionSaved(false);
-                        });
-                        result = null;
                     }
 
                     logger.info({
@@ -5943,17 +5933,15 @@ export class SpeechRuntimeController {
                                 }, '[DEBUG-STOP] Lifecycle changed after failed-session completion; preserving user-facing warning');
                             }
 
-                            guardedStopStatus = belowMinimumDuration
-                                ? {
-                                    type: 'info',
-                                    message: '⚠️ Session too short to save.',
-                                }
-                                : {
+                            // G5: a too-short take's message is the page's own (it measured the take and says so).
+                            if (!belowMinimumDuration) {
+                                guardedStopStatus = {
                                     type: 'warning',
                                     message: "We didn't detect enough speech to save this session.",
                                     detail: 'Try recording again and speak for at least a few seconds.'
                                 };
-                            store.setSTTStatus(guardedStopStatus);
+                                store.setSTTStatus(guardedStopStatus);
+                            }
                             this.publishIfStopOwner(stopAuthority, token, 'discard_markers', () => {
                                 this.updateSessionPersisted(false);
                                 store.setSessionSaved(false);
