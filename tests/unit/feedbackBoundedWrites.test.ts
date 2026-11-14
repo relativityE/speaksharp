@@ -627,14 +627,15 @@ describe('the AHT-07 spec wiring (source order)', () => {
 });
 
 describe('AHT-08 (no session) is untouched, and the new helpers stay case-only', () => {
-    it('the No-session scenario uses none of the bounded-write wiring', () => {
-        // AHT-08 report cleanup (feedbackNoSessionCleanup.ts) reuses ONLY the race-safe cleanup steps: no write route, ledger,
-        // fault leg or recovery inventory; whether its one write's outcome is known comes from the submit's own observation.
+    it('the No-session scenario uses none of the AHT-07 ledger or fault wiring (its own durable inventory route only)', () => {
+        // AHT-08 reuses the race-safe cleanup steps and, since 2026-11-14, AHT-07's recovery inventory through its OWN pre-send
+        // route (installNoSessionWriteRoute); it never uses AHT-07's ledger, fault legs or write route.
         for (const name of ['installFeedbackWriteRoute', 'FeedbackAttemptLedger', 'runFeedbackFaultLeg', 'ledger.', 'FEEDBACK_FAULT_LEGS', 'observedLedger',
-            'writeUncertainty(', 'FeedbackRecoveryInventory', 'inventory']) {
+            'writeUncertainty(']) {
             expect({ name, used: none.includes(name) }).toEqual({ name, used: false });
         }
-        for (const name of ['captureRunReports', 'cleanupRunReports', 'writeZeroResidueRow', 'noSessionWriteUncertainty(']) {
+        for (const name of ['captureRunReports', 'cleanupRunReports', 'writeZeroResidueRow', 'noSessionWriteUncertainty(', 'installNoSessionWriteRoute(page, inventory)',
+            'FeedbackRecoveryInventory.open(']) {
             expect({ name, used: none.includes(name) }).toEqual({ name, used: true });
         }
         expect(none).toMatch(/const stored = await submitFeedback\(page, tap, owner\.uid, 'no_session', null, undefined, \{/);
@@ -711,7 +712,8 @@ describe('a verified recovery store that survives runner loss, before any produc
         expect(at('}, storeCheck.store);', olderStart)).toBeLessThan(at('await installFeedbackWriteRoute(page, ledger, inventory);', olderStart));
         expect(RECOVERY_STORE_STEP).toBe('feedback recovery store');
         expect(older).not.toContain('recoveryDir(');
-        expect(none).not.toContain('verifyRecoveryStore');
+        // AHT-08 has the same gate, before its own account creation (feedbackNoSessionCleanup.test.ts pins its order).
+        expect(none).toContain('verifyRecoveryStore(process.env)');
     });
 });
 

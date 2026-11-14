@@ -181,7 +181,7 @@ const REQUIRED_IMPORTS=Object.freeze({
   'tests/live/rwt-abandon-and-two-tabs.live.spec.ts':{module:'./helpers/rwtTwoPlaces',names:['displacedFenceVerdict','sameBrowserRefusedVerdict']},
   'tests/live/rwt-adverse-mic-denied.live.spec.ts':{module:'./helpers/rwtAdverseJourney',names:['finalizer','fixture','runVariant']},
   'tests/live/rwt-adverse-mic-model.live.spec.ts':{module:'./helpers/rwtAdverseJourney',names:['finalizer','fixture','runVariant']},
-  'tests/live/rwt-feedback-association-boundaries.live.spec.ts':{module:'./helpers/feedbackNoSessionCleanup',names:['noSessionWriteUncertainty']},
+  'tests/live/rwt-feedback-association-boundaries.live.spec.ts':{module:'./helpers/feedbackNoSessionCleanup',names:['noSessionWriteDecision','noSessionWriteUncertainty']},
   'tests/live/rwt-pending-start-navigation.live.spec.ts':{module:'./helpers/rwtPendingStartRecovery',names:['recoveryTakePlan','recoveryTakeVerdict']},
   'tests/live/rwt-save-retry-recovery.live.spec.ts':{module:'./helpers/rwtSaveRetryAttempts',names:['completionAttemptsVerdict']},
   'tests/live/helpers/rwtFocusPointsJourney.ts':{module:'./rwtHarnessParity',names:['probeSaveIsolationRow','numericComparisonRow','readRepeatEligibility']},

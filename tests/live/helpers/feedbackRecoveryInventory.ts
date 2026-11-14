@@ -96,8 +96,10 @@ export function verifyRecoveryStore(env: NodeJS.ProcessEnv = process.env): Store
 export interface RecoveryBinding { runId: string; runAttempt: string; testId: string; ownerUid: string }
 
 const part = (value: string): string => value.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64) || '_';
-export function recoveryFileName(b: RecoveryBinding): string {
-    return `aht07-${part(b.runId)}-${part(b.runAttempt)}-${part(b.testId)}-${part(b.ownerUid)}.jsonl`;
+/** The case that owns an inventory file: AHT-07 (default) or AHT-08 (no-session), so one store holds both without collision. */
+export type RecoveryCase = 'aht07' | 'aht08';
+export function recoveryFileName(b: RecoveryBinding, caseTag: RecoveryCase = 'aht07'): string {
+    return `${caseTag}-${part(b.runId)}-${part(b.runAttempt)}-${part(b.testId)}-${part(b.ownerUid)}.jsonl`;
 }
 
 function bindingProblem(b: RecoveryBinding): string | null {
@@ -130,11 +132,11 @@ export class FeedbackRecoveryInventory {
     private constructor(readonly file: string) {}
 
     /** The file and its run line, in a verified store only. Throws when the binding or the write fails. */
-    static open(binding: RecoveryBinding, store: VerifiedStore): FeedbackRecoveryInventory {
+    static open(binding: RecoveryBinding, store: VerifiedStore, caseTag: RecoveryCase = 'aht07'): FeedbackRecoveryInventory {
         const problem = bindingProblem(binding);
         if (problem) throw new Error(`recovery inventory not opened: ${problem}`);
         mkdirSync(store.dir, { recursive: true, mode: 0o700 });
-        const file = path.join(store.dir, recoveryFileName(binding));
+        const file = path.join(store.dir, recoveryFileName(binding, caseTag));
         appendDurably(file, { schema: RECOVERY_SCHEMA, type: 'run', storeId: store.storeId, ...binding, createdAt: new Date().toISOString() });
         chmodSync(file, 0o600);
         return new FeedbackRecoveryInventory(file);

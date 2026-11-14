@@ -34,7 +34,7 @@ import {
 import {
     type CapturedReports, captureRunReports, cleanupRunReports, writeUncertainty, writeZeroResidueRow, zeroResidueNotRun,
 } from './helpers/feedbackReportCleanup';
-import { noSessionWriteUncertainty, type NoSessionInsertSnapshot } from './helpers/feedbackNoSessionCleanup';
+import { noSessionWriteDecision, noSessionWriteUncertainty, type NoSessionInsertSnapshot } from './helpers/feedbackNoSessionCleanup';
 import {
     FeedbackRecoveryInventory, RECOVERY_STORE_STEP, recordDurably, settleRecoveryInventory, verifyRecoveryStore,
 } from './helpers/feedbackRecoveryInventory';
@@ -240,6 +240,50 @@ async function submitOpenDialog(
     const diagnosticRef = readStoredDiagnosticRef(metadata);
     return { id: row ? String(row.id) : null, sessionId: storedSession, diagnosticRef, storedRows: rows.length,
         insertKeys: keys.length, insertRequests: inserts.insertRequests, unattributedInserts: inserts.unattributedInserts, acknowledged };
+}
+
+/**
+ * AHT-08 durable pre-send inventory (2026-11-14, Sam's bar 1): ONE route on the no-session journey's context sees every write to
+ * `user_issue_reports`. Each is decided at entry (`noSessionWriteDecision`: one insert, one key, one same-key Retry) and its key is
+ * fsynced into the recovery inventory BEFORE `route.fetch()`; a write that cannot be recorded, or arrives after the writer stopped,
+ * is aborted, never sent. The settle line follows the server's answer. `pending` counts handlers still in flight, so the
+ * writer-stopped record is written only after a drain that found none.
+ */
+async function installNoSessionWriteRoute(page: Page, inventory: FeedbackRecoveryInventory): Promise<{ pending: () => number }> {
+    let ordinal = 0;
+    let inFlight = 0;
+    const keysSeen: string[] = [];
+    await page.context().route(FEEDBACK_INSERT_URL, async (route: Route) => {
+        const request = route.request();
+        if (['GET', 'HEAD', 'OPTIONS'].includes(request.method())) return route.fallback();
+        inFlight += 1;
+        ordinal += 1;
+        const decision = noSessionWriteDecision({ method: request.method(), body: () => request.postDataJSON(), ordinal, keysSeen });
+        const attempt = { ordinal, action: decision.action, keys: decision.keys };
+        try {
+            if (!recordDurably(inventory, attempt)) {
+                return await route.abort('failed');
+            }
+            if (decision.action === 'cap-abort') {
+                inventory.recordSettle({ ordinal, status: null, forwarded: false });
+                return await route.abort('failed');
+            }
+            for (const key of decision.keys) if (!keysSeen.includes(key)) keysSeen.push(key);
+            let response: APIResponse;
+            try { response = await route.fetch(); } catch {
+                inventory.recordSettle({ ordinal, status: null, forwarded: null });
+                return await route.abort('failed');
+            }
+            inventory.recordSettle({ ordinal, status: response.status(), forwarded: true });
+            return await route.fulfill({ response });
+        } catch {
+            // The page closed under the route: the attempt line is already durable.
+            return undefined;
+        } finally {
+            inFlight -= 1;
+        }
+    });
+    return { pending: () => inFlight };
 }
 
 /**
@@ -624,6 +668,9 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
         // AHT-08 report cleanup: the submit's observed inserts (its idempotency key) and its stored-row read.
         let insertSnapshot: NoSessionInsertSnapshot | null = null;
         let storedRows: number | null = null;
+        // AHT-08 durable pre-send inventory: opened after the canary claim, before the route (no write without its binding).
+        let inventory: FeedbackRecoveryInventory | null = null;
+        let writeRoute: { pending: () => number } | null = null;
         // #1593 (Sam, #1662 RETURN control 1): ONE owned finalization — the body's finally and the suite's afterEach
         // (which Playwright runs after a timeout) run this same memoized closure exactly once.
         const finish = finalizer.once(async () => {
@@ -651,12 +698,17 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
                 zeroStartPressRow(aliveReceipt(receipt, alive), parity);
             });
             await steps.step('owned pages closed', (alive) => parity.ownedPagesClosedRow(aliveReceipt(receipt, alive)), PARITY_CLOSE_STEP_MS);
+            // Every owned page is closed: stop the writer, then record its stopped state only if no route handler is in flight.
+            if (inventory) {
+                inventory.stop();
+                inventory.recordWriterStopped(writeRoute ? writeRoute.pending() : null);
+            }
             // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion. With a report, the retention proof deletes through it;
             // the deletion's own settlement then decides the row — a stalled readback never deletes again.
             // AHT-08 report cleanup (feedbackNoSessionCleanup.ts), AHT-07's race-safe steps unchanged. Step 1, after every owned page
             // closed and BEFORE the account deletion: capture the owner's reports UNION those under the submit's observed key.
-            // In-run only: the key and report id are held in memory, with no durable record and no verified store, so a lost runner
-            // leaves the report behind (Sam, #1811 RETURN on d1487bdb, item 2).
+            // The submit's key is also durable in the recovery inventory (fsynced before it was sent), so a lost runner's report
+            // stays recoverable by `recoverFromInventory`; this in-run cleanup is the normal-exit path.
             const runKeys = insertSnapshot?.keys ?? [];
             let capturedReports: CapturedReports | null = null;
             if (owner.uid) {
@@ -676,10 +728,10 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
                     const uncertainty = noSessionWriteUncertainty({ submitted: submitWindow !== null, inserts: insertSnapshot, reportId, storedRows });
                     const verdict = await cleanupRunReports(admin as never, owner.uid, runKeys, capturedReports, uncertainty);
                     if (!alive()) return false;
-                    writeZeroResidueRow(receipt, verdict);
+                    writeZeroResidueRow(receipt, settleRecoveryInventory(verdict, inventory));
                     return true;
                 }, FINALIZE_CLEANUP_MS);
-                if (written !== true) writeZeroResidueRow(receipt, zeroResidueNotRun(capturedReports));
+                if (written !== true) writeZeroResidueRow(receipt, settleRecoveryInventory(zeroResidueNotRun(capturedReports), inventory));
             }
             await finishReceipt(receipt, testInfo, tap, claimed, steps);
         });
@@ -687,9 +739,20 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             // BEFORE the first navigation (the click recorder is an init script).
             await parity.attach(page.context());
             await suppressPageSnapshot(testInfo);
+            // A verified recovery store that survives runner loss, before the first Production write (the account), or HOLD,
+            // exactly as AHT-07. Never created here: provisioning it is the store owner's act.
+            const storeCheck = verifyRecoveryStore(process.env);
+            if (!storeCheck.ok) {
+                receipt.halt(RECOVERY_STORE_STEP, `HOLD before Production writes: no verified recovery store (${storeCheck.reason})`);
+                return;
+            }
             const ready = await prepareDisposable(page, receipt, owner);
             claimed = ready;
             if (!ready) return;
+            inventory = FeedbackRecoveryInventory.open({
+                runId: process.env.GITHUB_RUN_ID || 'local', runAttempt: process.env.GITHUB_RUN_ATTEMPT || '1', testId: testInfo.testId, ownerUid: owner.uid,
+            }, storeCheck.store, 'aht08');
+            writeRoute = await installNoSessionWriteRoute(page, inventory);
             const stored = await submitFeedback(page, tap, owner.uid, 'no_session', null, undefined, {
                 onSubmitted: (submitted) => { submitWindow = submitted; },
                 onFreshAcknowledgment: (observation) => writeFreshAcknowledgmentRow(receipt, observation),

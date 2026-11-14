@@ -117,7 +117,7 @@ export const HELPER_CONTRACTS = Object.freeze([{
   callables:["readStoredDiagnosticRef","noSessionBindingVerdict","olderTakeBindingVerdict","classifyInsertBody","writeNoSessionReportRows","writeOlderTakeReportRows","writeOlderTakeBindingRow"],
 }, {
   helperFile:'tests/live/helpers/feedbackNoSessionCleanup.ts',testFile:'tests/unit/feedbackNoSessionCleanup.test.ts',
-  callables:["noSessionWriteUncertainty"],
+  callables:["noSessionWriteUncertainty","noSessionWriteDecision"],
 }, {
   helperFile:'tests/live/helpers/feedbackRecoveryInventory.ts',testFile:'tests/unit/feedbackBoundedWrites.test.ts',
   callables:["verifyRecoveryStore","recoveryFileName","recordDurably","settleRecoveryInventory","readRecoveryInventory","unresolvedAttempts","recoverFromInventory"],

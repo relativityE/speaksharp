@@ -1,10 +1,12 @@
 // AHT-08 report cleanup (board item "report cleanup (S)"): the no-session scenario now removes its one report with AHT-07's
 // race-safe steps, and its own submit observation decides whether that write's outcome is known. Fail closed.
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { noSessionWriteUncertainty, type NoSessionInsertSnapshot } from '../live/helpers/feedbackNoSessionCleanup';
+import { NO_SESSION_ATTEMPT_CAP, noSessionWriteDecision, noSessionWriteUncertainty, type NoSessionInsertSnapshot } from '../live/helpers/feedbackNoSessionCleanup';
+import { FeedbackRecoveryInventory, recordDurably, recoverFromInventory, recoveryFileName, type VerifiedStore } from '../live/helpers/feedbackRecoveryInventory';
 import { type ReportCleanupAdmin, captureRunReports, cleanupRunReports, zeroResidueNotRun } from '../live/helpers/feedbackReportCleanup';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -148,36 +150,112 @@ describe('AHT-08 spec wiring', () => {
         expect(cleanup).toBeGreaterThan(deletion);
         expect(test08.indexOf('finishReceipt(')).toBeGreaterThan(cleanup);
         expect(test08).toContain('noSessionWriteUncertainty({ submitted: submitWindow !== null, inserts: insertSnapshot, reportId, storedRows })');
-        expect(test08).toContain('if (written !== true) writeZeroResidueRow(receipt, zeroResidueNotRun(capturedReports));');
+        expect(test08).toContain('if (written !== true) writeZeroResidueRow(receipt, settleRecoveryInventory(zeroResidueNotRun(capturedReports), inventory));');
     });
     it('the capture and cleanup come after every owned page closed', () => {
         expect(test08.indexOf("steps.step('feedback report capture'")).toBeGreaterThan(test08.indexOf("steps.step('owned pages closed'"));
     });
 });
 
-// Sam, #1811 RETURN on d1487bdb, item 2: AHT-08's cleanup is in-run source behavior only. Its key and report id live in memory;
-// it has no durable inventory and no verified-store gate. These controls keep the claim honest and show why a lost runner's report
-// is not recoverable today: after the account deletion nulls `user_id`, only the submit's key finds the report.
-describe('AHT-08 recovery scope (in-run only)', () => {
+// Sam, #1811 RETURN on d1487bdb item 2 / 2026-11-14 bar 1: AHT-08 records every write durably BEFORE it is sent, in AHT-07's
+// recovery inventory (case tag `aht08`), behind the same verified-store gate, so a lost runner's report stays locatable by key.
+describe('noSessionWriteDecision (AHT-08 pre-send bounds)', () => {
+    const body = (rows: unknown) => () => rows;
+    it('forwards the one keyed insert and a same-key Retry', () => {
+        expect(noSessionWriteDecision({ method: 'POST', body: body([{ idempotency_key: KEY }]), ordinal: 1, keysSeen: [] }))
+            .toEqual({ action: 'forward', keys: [KEY], reason: null });
+        expect(noSessionWriteDecision({ method: 'POST', body: body({ idempotency_key: KEY }), ordinal: 2, keysSeen: [KEY] }).action).toBe('forward');
+    });
+    it.each([
+        ['a non-insert write', { method: 'PATCH', body: body([{ idempotency_key: KEY }]), ordinal: 1, keysSeen: [] }, 'not-an-insert'],
+        ['an unkeyed insert', { method: 'POST', body: body([{ description: 'x' }]), ordinal: 1, keysSeen: [] }, 'unattributed-insert'],
+        ['a two-key body', { method: 'POST', body: body([{ idempotency_key: KEY }, { idempotency_key: OTHER_KEY }]), ordinal: 1, keysSeen: [] }, 'unattributed-insert'],
+        ['an unreadable body', { method: 'POST', body: () => { throw new Error('no json'); }, ordinal: 1, keysSeen: [] }, 'unattributed-insert'],
+        ['a second distinct key', { method: 'POST', body: body([{ idempotency_key: OTHER_KEY }]), ordinal: 2, keysSeen: [KEY] }, 'report-cap'],
+        ['an attempt past the cap', { method: 'POST', body: body([{ idempotency_key: KEY }]), ordinal: NO_SESSION_ATTEMPT_CAP + 1, keysSeen: [KEY] }, 'attempt-cap'],
+    ])('aborts %s before it is sent', (_n, input, reason) => {
+        expect(noSessionWriteDecision(input)).toMatchObject({ action: 'cap-abort', reason });
+    });
+});
+
+describe('AHT-08 durable inventory wiring', () => {
     const helper = readFileSync(path.join(here, '../live/helpers/feedbackNoSessionCleanup.ts'), 'utf8');
     const test08 = spec.slice(spec.indexOf("test('No session feedback stores no take or coaching link'"));
-    it('the helper and the spec say in-run only and memory-only, and claim no recovery', () => {
-        expect(helper).toMatch(/IN-RUN cleanup only/);
-        expect(helper).toMatch(/in memory only; it has no durable inventory and no verified-store gate/);
-        expect(test08).toMatch(/In-run only: the key and report id are held in memory, with no durable record and no verified store/);
-        expect(helper).not.toMatch(/waits on the same recovery store/);
-        expect(test08).not.toMatch(/waits on the same recovery store/);
+    const routeFn = spec.slice(spec.indexOf('async function installNoSessionWriteRoute'), spec.indexOf('async function installFeedbackWriteRoute'));
+    it('no longer claims memory-only; the helper names the durable pre-send inventory', () => {
+        expect(helper).not.toMatch(/in memory only; it has no durable inventory/);
+        expect(test08).not.toMatch(/In-run only: the key and report id are held in memory/);
+        expect(helper).toMatch(/BEFORE it is sent, behind the same\n \* verified-store gate/);
     });
-    it('the no-session test has no store gate, inventory or recovery path (so it must not claim one)', () => {
-        for (const name of ['verifyRecoveryStore', 'FeedbackRecoveryInventory', 'recoverFromInventory', 'settleRecoveryInventory', 'RECOVERY_STORE_STEP', 'RWT_RECOVERY_DIR']) {
-            expect({ name, present: test08.includes(name) }).toEqual({ name, present: false });
-        }
+    it('verifies the store BEFORE the account is created, and HOLDs without one', () => {
+        const gate = test08.indexOf('verifyRecoveryStore(process.env)');
+        expect(gate).toBeGreaterThan(0);
+        expect(test08.indexOf('prepareDisposable(page, receipt, owner)')).toBeGreaterThan(gate);
+        expect(test08).toContain('receipt.halt(RECOVERY_STORE_STEP, `HOLD before Production writes: no verified recovery store (${storeCheck.reason})`);');
     });
-    it('after the account deletion a second executor with only the uid finds nothing; only the lost key finds the report', async () => {
+    it('opens the aht08 inventory and installs the route BEFORE the submit', () => {
+        const open = test08.indexOf("}, storeCheck.store, 'aht08');");
+        const route = test08.indexOf('writeRoute = await installNoSessionWriteRoute(page, inventory);');
+        const submit = test08.indexOf("const stored = await submitFeedback(page, tap, owner.uid, 'no_session'");
+        expect(open).toBeGreaterThan(test08.indexOf('prepareDisposable(page, receipt, owner)'));
+        expect(route).toBeGreaterThan(open);
+        expect(submit).toBeGreaterThan(route);
+    });
+    it('the route records the attempt durably before route.fetch(), and aborts what it cannot record or the cap refuses', () => {
+        const record = routeFn.indexOf('if (!recordDurably(inventory, attempt))');
+        const fetch = routeFn.indexOf('await route.fetch()');
+        expect(record).toBeGreaterThan(0);
+        expect(fetch).toBeGreaterThan(record);
+        expect(routeFn.indexOf("if (decision.action === 'cap-abort')")).toBeLessThan(fetch);
+        expect(routeFn).toContain("inventory.recordSettle({ ordinal, status: response.status(), forwarded: true });");
+    });
+    it('stops the writer and records it after every owned page closed, BEFORE the capture; settles the file on the zero-residue row', () => {
+        const closed = test08.indexOf("steps.step('owned pages closed'");
+        const stopped = test08.indexOf('inventory.recordWriterStopped(writeRoute ? writeRoute.pending() : null);');
+        expect(stopped).toBeGreaterThan(closed);
+        expect(test08.indexOf("steps.step('feedback report capture'")).toBeGreaterThan(stopped);
+        expect(test08).toContain('writeZeroResidueRow(receipt, settleRecoveryInventory(verdict, inventory));');
+    });
+});
+
+describe('AHT-08 recovery after a lost runner (the inventory, not memory, locates the report)', () => {
+    const storeAt = (): VerifiedStore => ({ dir: mkdtempSync(path.join(os.tmpdir(), 'aht08-recovery-')), storeId: 'store-1' });
+    const binding = { runId: '42', runAttempt: '1', testId: 't-08', ownerUid: USER };
+    it('names its file with the aht08 tag, never colliding with AHT-07', () => {
+        expect(recoveryFileName(binding, 'aht08')).toMatch(/^aht08-42-1-t-08-/);
+        expect(recoveryFileName(binding)).toMatch(/^aht07-/);
+    });
+    it('writer stopped and the forward answered: a second executor deletes the ownerless report by its recorded key; PASS, file retired', async () => {
+        const store = storeAt();
+        const inv = FeedbackRecoveryInventory.open(binding, store, 'aht08');
+        expect(recordDurably(inv, { ordinal: 1, action: 'forward', keys: [KEY] })).toBe(true);
+        inv.recordSettle({ ordinal: 1, status: 201, forwarded: true });
+        inv.stop();
+        expect(inv.recordWriterStopped(0)).toBe(true);
+        // The runner is lost after the account deletion nulled user_id; only the recorded key can find the report.
+        const s: State = { reports: [{ id: 'r1', idempotency_key: KEY, user_id: null }, { id: 'other', idempotency_key: OTHER_KEY, user_id: 'someone-else' }],
+            sessions: 0, profiles: 0, authUser: false, deletes: [] };
+        const result = await recoverFromInventory(fakeAdmin(s), store, path.basename(inv.file));
+        expect(result.verdict.verdict).toBe('PASS');
+        expect(s.deletes).toEqual([['r1']]);
+        expect(s.reports.map((r) => r.id)).toEqual(['other']);
+        expect(result.retired).toBe(true);
+        expect(existsSync(inv.file)).toBe(false);
+    });
+    it('no writer-stopped record (the runner died mid-journey): HOLD, nothing deleted, the file kept naming the run', async () => {
+        const store = storeAt();
+        const inv = FeedbackRecoveryInventory.open(binding, store, 'aht08');
+        recordDurably(inv, { ordinal: 1, action: 'forward', keys: [KEY] });
         const s: State = { reports: [{ id: 'r1', idempotency_key: KEY, user_id: null }], sessions: 0, profiles: 0, authUser: false, deletes: [] };
-        const byUidOnly = await captureRunReports(fakeAdmin(s), USER, [], null);
-        expect(byUidOnly.ids).toEqual([]);
-        const byKey = await captureRunReports(fakeAdmin(s), USER, [KEY], null);
-        expect(byKey.ids).toEqual(['r1']);
+        const result = await recoverFromInventory(fakeAdmin(s), store, path.basename(inv.file));
+        expect(result.verdict.verdict).toBe('HOLD');
+        expect(s.deletes).toEqual([]);
+        expect(existsSync(inv.file)).toBe(true);
+    });
+    it('a write the inventory could not record is never sent (the writer stopped first)', () => {
+        const inv = FeedbackRecoveryInventory.open(binding, storeAt(), 'aht08');
+        inv.stop();
+        expect(recordDurably(inv, { ordinal: 1, action: 'forward', keys: [KEY] })).toBe(false);
+        expect(inv.failures).toBe(1);
     });
 });
