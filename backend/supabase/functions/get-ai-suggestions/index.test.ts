@@ -1776,9 +1776,9 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
   });
 
   /*
-   * #1258 (PM 5952231855) — THE COACHING INPUT CONTRACT: only the reliable signals, asserted on what is SENT.
+   * Framework review M6/M7: selected saved aggregate evidence, asserted on what is SENT.
    */
-  await t.step('#1258: Open Mic sends transcript + finalized fillers + WPM, and NOT clarity, pauses, total words or duration', async () => {
+  await t.step('framework M6/M7: Open Mic sends validated clarity and pauses alongside transcript, fillers and WPM', async () => {
     resetProvider();
     const saved = {
       transcript: 'We launch on Monday because the support rota is finally covered.',
@@ -1790,6 +1790,9 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertStringIncludes(lastPrompt, saved.transcript);
     assertStringIncludes(lastPrompt, `Words Per Minute (WPM): ${saved.wpm}`);
     assertStringIncludes(lastPrompt, `Filler Words: ${JSON.stringify(saved.filler_counts)}`);
+    assertStringIncludes(lastPrompt, 'Clarity heuristic: 82/100');
+    assertStringIncludes(lastPrompt, 'Pause count: 7');
+    assertStringIncludes(lastPrompt, 'Extended pause count: 1');
     for (const excluded of ['Clarity Score', 'Pause Metrics', 'Total Words', 'Duration:', '"totalPauses"', '82%']) {
       assertEquals(lastPrompt.includes(excluded), false, `${excluded} must not be a coaching input`);
     }
@@ -1817,10 +1820,12 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     for (const text of [fillersChosen, paceChosen]) {
       for (const excluded of ['Clarity', 'Pause', 'Total Words', 'Duration']) assertEquals(text.includes(excluded), false);
     }
-    // Open Mic, for contrast: both direct delivery signals, nothing else.
+    // Open Mic includes the additional validated saved aggregates; Focus retains its one-signal contract.
     const openMic = buildDeliverySignals({ ...base, next_action_signal: { metric: 'filler_rate' } }, { kind: 'none' });
     assertStringIncludes(openMic, 'Words Per Minute (WPM): 171');
     assertStringIncludes(openMic, 'Filler Words: {"um":6}');
+    assertStringIncludes(openMic, 'Clarity heuristic: 82/100');
+    assertStringIncludes(openMic, 'Pause count: 7');
   });
 
   await t.step('coaching a user ALREADY received stays readable after the budget lands', async () => {
@@ -1920,11 +1925,14 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     // 3. The expected prompt is built INDEPENDENTLY from the contract — this test's own substitution over
     //    `contract.promptTemplate`, with the fabricated transcript and a metrics block assembled here —
     //    and compared for EQUALITY. Reordering it, or appending an instruction, changes the string.
-    // #1258 (PM 5952231855): the Open Mic input contract — the two direct delivery signals, nothing derived.
+    // Framework M6/M7: independent oracle includes the selected saved aggregates.
     const expectedMetrics = `
       Delivery signals:
       - Words Per Minute (WPM): ${fabricated.wpm}
       - Filler Words: ${JSON.stringify(fabricated.filler_words)}
+      - Clarity heuristic: 88/100 (delivery diagnostic, not a presentation grade)
+- Extended pause count: 2
+- Use these as supporting delivery evidence, not proof of content quality or improvement; do not recite scores.
     `;
     const expectedPrompt = coachingContract.promptTemplate.replace(
       /\{\{(TRANSCRIPT|METRICS)\}\}/g,
@@ -2518,7 +2526,8 @@ Deno.test('LLM evaluator parity: the handler sends exactly the evaluator prompt 
     for (const item of openMic) {
       resetProvider();
       const mock = mockSupabase({
-        session: savedSession({ transcript: item.transcript, wpm: item.wpm, filler_counts: item.filler_counts, filler_words: null }),
+        session: savedSession({ transcript: item.transcript, wpm: item.wpm, filler_counts: item.filler_counts, filler_words: null,
+          clarity_score: null, pause_metrics: null }),
         focus: { objective: null },
       });
       assertEquals((await handler(request(), mock.create)).status, 200, item.id);

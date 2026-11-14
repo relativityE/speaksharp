@@ -1,3 +1,4 @@
+import { buildClarityPauseSignals } from './clarityPauseSignals.ts';
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { corsGuard, corsHeaders as buildCorsHeaders } from '../_shared/cors.ts';
@@ -404,6 +405,7 @@ export function buildDeliverySignals(session: SessionEvidence, focusContext: Foc
       Delivery signals:
       ${pace}
       ${fillers}
+      ${buildClarityPauseSignals(session.clarity_score, session.pause_metrics)}
     `;
   }
   const metric = (session.next_action_signal as { metric?: unknown } | null | undefined)?.metric;
