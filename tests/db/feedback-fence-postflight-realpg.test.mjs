@@ -161,6 +161,22 @@ test('feedback fence exact pre/postflight over the real report chain', async (t)
       ok(run('after', before));
     });
 
+    await t.test('after refuses a changed table structure: the owner uniqueness dropped, a CHECK dropped, a default changed (Codex P2 on 5d8070ad)', () => {
+      for (const [change, restore] of [
+        ['ALTER TABLE public.rwt_feedback_fences DROP CONSTRAINT rwt_feedback_fences_owner_uid_key',
+          'ALTER TABLE public.rwt_feedback_fences ADD CONSTRAINT rwt_feedback_fences_owner_uid_key UNIQUE (owner_uid)'],
+        ['ALTER TABLE public.rwt_feedback_fences DROP CONSTRAINT rwt_feedback_fences_key_cap_check',
+          'ALTER TABLE public.rwt_feedback_fences ADD CONSTRAINT rwt_feedback_fences_key_cap_check CHECK (key_cap BETWEEN 1 AND 8)'],
+        ["ALTER TABLE public.rwt_feedback_fences ALTER COLUMN state SET DEFAULT 'closed'",
+          "ALTER TABLE public.rwt_feedback_fences ALTER COLUMN state SET DEFAULT 'open'"],
+      ]) {
+        sql(change);
+        refused(run('after', before), /table structure differs/);
+        sql(restore);
+      }
+      ok(run('after', before));
+    });
+
     await t.test('after refuses a missing prior receipt', () => {
       refused(run('after', join(root, 'absent.json')), /could not execute/);
     });

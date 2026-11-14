@@ -19,6 +19,39 @@ const FUNCTIONS = Object.freeze([TRIGGER_FUNCTION, ...RPCS]);
 const TABLE = 'rwt_feedback_fences';
 const TRIGGER = 'zz_rwt_feedback_fence';
 const API_ROLES = Object.freeze(['anon', 'authenticated', 'service_role']);
+/** The reviewed fence table, exactly as PostgreSQL 17 renders it (derived from the exact migration bytes on native PG17). */
+export const FENCE_TABLE_STRUCTURE = Object.freeze({
+    "columns": [
+      "run_key text NOT NULL",
+      "owner_uid uuid NOT NULL",
+      "case_id text NOT NULL",
+      "run_binding jsonb NOT NULL",
+      "key_cap integer NOT NULL",
+      "report_ids uuid[] NOT NULL DEFAULT '{}'::uuid[]",
+      "report_keys uuid[] NOT NULL DEFAULT '{}'::uuid[]",
+      "refused_writes integer NOT NULL DEFAULT 0",
+      "state text NOT NULL DEFAULT 'open'::text",
+      "opened_at timestamp with time zone NOT NULL DEFAULT clock_timestamp()",
+      "closed_at timestamp with time zone",
+      "cleaned_at timestamp with time zone"
+    ],
+    "constraints": [
+      "c CHECK (((key_cap >= 1) AND (key_cap <= 8)))",
+      "c CHECK (((state = 'cleaned'::text) = (cleaned_at IS NOT NULL)))",
+      "c CHECK (((state = 'open'::text) = (closed_at IS NULL)))",
+      "c CHECK ((case_id = ANY (ARRAY['AHT-01'::text, 'AHT-02'::text, 'AHT-07'::text, 'AHT-08'::text, 'AHT-01+AHT-02'::text, 'AHT-01+AHT-07'::text, 'AHT-01+AHT-08'::text, 'AHT-02+AHT-07'::text, 'AHT-02+AHT-08'::text, 'AHT-07+AHT-08'::text, 'AHT-01+AHT-02+AHT-07'::text, 'AHT-01+AHT-02+AHT-08'::text, 'AHT-01+AHT-07+AHT-08'::text, 'AHT-02+AHT-07+AHT-08'::text, 'AHT-01+AHT-02+AHT-07+AHT-08'::text])))",
+      "c CHECK ((jsonb_typeof(run_binding) = 'object'::text))",
+      "c CHECK ((refused_writes >= 0))",
+      "c CHECK ((run_key ~ '^[0-9]{1,20}-[0-9]{1,4}-AHT-0[1278](\\+AHT-0[1278]){0,3}$'::text))",
+      "c CHECK ((state = ANY (ARRAY['open'::text, 'closed'::text, 'cleaned'::text])))",
+      "p PRIMARY KEY (run_key)",
+      "u UNIQUE (owner_uid)"
+    ],
+    "indexes": [
+      "CREATE UNIQUE INDEX rwt_feedback_fences_owner_uid_key ON public.rwt_feedback_fences USING btree (owner_uid)",
+      "CREATE UNIQUE INDEX rwt_feedback_fences_pkey ON public.rwt_feedback_fences USING btree (run_key)"
+    ]
+  });
 const literal = value => `'${String(value).replaceAll("'", "''")}'`;
 
 export function feedbackFenceContract(root, mode, version) {
@@ -53,7 +86,15 @@ export function feedbackFenceSnapshotQuery() {
     `SELECT COALESCE((SELECT json_build_object('exists',true,'rls',c.relrowsecurity,
         'apiPrivileges',(SELECT COALESCE(json_agg(DISTINCT pg_get_userbyid(a.grantee) ORDER BY pg_get_userbyid(a.grantee)),'[]'::json)
           FROM aclexplode(COALESCE(c.relacl,acldefault('r',c.relowner))) a WHERE a.grantee<>0 AND pg_get_userbyid(a.grantee) IN (${API_ROLES.map(literal).join(',')})),
-        'publicPrivileges',(SELECT count(*) FROM aclexplode(COALESCE(c.relacl,acldefault('r',c.relowner))) a WHERE a.grantee=0))
+        'publicPrivileges',(SELECT count(*) FROM aclexplode(COALESCE(c.relacl,acldefault('r',c.relowner))) a WHERE a.grantee=0),
+        'structure',json_build_object(
+          'columns',(SELECT json_agg(a.attname||' '||format_type(a.atttypid,a.atttypmod)||CASE WHEN a.attnotnull THEN ' NOT NULL' ELSE '' END
+              ||COALESCE(' DEFAULT '||pg_get_expr(d.adbin,d.adrelid),'') ORDER BY a.attnum)
+            FROM pg_attribute a LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum
+            WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped),
+          'constraints',(SELECT json_agg(k.contype::text||' '||pg_get_constraintdef(k.oid) ORDER BY k.contype::text, pg_get_constraintdef(k.oid))
+            FROM pg_constraint k WHERE k.conrelid=c.oid),
+          'indexes',(SELECT json_agg(pg_get_indexdef(i.indexrelid) ORDER BY pg_get_indexdef(i.indexrelid)) FROM pg_index i WHERE i.indrelid=c.oid)))
       FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname=${literal(TABLE)}),
       json_build_object('exists',false))::text;`,
     `SELECT COALESCE(json_agg(json_build_object('name',t.tgname,'function',p.pronamespace::regnamespace::text||'.'||p.proname||'('||pg_get_function_identity_arguments(p.oid)||')','type',t.tgtype,'enabled',t.tgenabled::text,
@@ -96,6 +137,9 @@ export function assertFeedbackFenceSnapshot(contract, rows, prior) {
     if (table.exists !== true || table.rls !== true || table.apiPrivileges.length !== 0 || table.publicPrivileges !== 0) {
       throw new Error('feedback fence table shape differs');
     }
+    // Codex P2 on 5d8070ad: the table's STRUCTURE is exact too (columns, defaults, every constraint, every index). Without the
+    // owner_uid uniqueness an account could hold two fences, and the trigger would record its reports in only one of them.
+    if (JSON.stringify(table.structure) !== JSON.stringify(FENCE_TABLE_STRUCTURE)) throw new Error('feedback fence table structure differs');
     // BEFORE INSERT FOR EACH ROW (tgtype 7 = ROW|BEFORE|INSERT), enabled, calling the exact trigger function, and
     // UNCONDITIONAL: no WHEN predicate, no column list, no arguments (Codex P2 on 881b5c53: a `WHEN (false)` twin would
     // otherwise pass as exact while no insert ever runs the fence).

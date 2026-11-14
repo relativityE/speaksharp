@@ -1,6 +1,7 @@
 // @vitest-environment node
 // Bounded PostgreSQL-WASM catalog controls, not native126 or production proof.
-import { describe, it, expect } from 'vitest';
+import { afterAll, describe, it, expect } from 'vitest';
+import { createHash } from 'node:crypto';
 import { PGlite } from '@electric-sql/pglite';
 import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, chmodSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -13,6 +14,17 @@ import { assertT2Sources, assertT2Catalog, t2CatalogQuery, T2_VERSIONS, T2_INVEN
 import { EXACT_MIGRATION_ALLOWLIST } from '../../scripts/lib/exactMigrationGate.mjs';
 import { ABANDONMENT_CATALOG_DELTA } from '../../scripts/lib/abandonmentCatalogPins.mjs';
 import { FEEDBACK_FENCE_CATALOG_DELTA } from '../../scripts/lib/feedbackFenceCatalogPins.mjs';
+
+// #1811 execution-evidence witness (scripts/lib/nativeTestExecutionEvidence.mjs SQL_CONTRACTS): this file is the registered
+// executing consumer of the feedback fence migration. Written only when the quality run binds it, naming the exact bytes that ran.
+const FENCE_MIGRATION = 'backend/supabase/migrations/20261114100000_rwt_feedback_fence_1811.sql';
+const fenceExecuted = new Map();
+afterAll(() => {
+  const binding = JSON.parse(process.env.TEST_EFFICACY_BINDING ?? 'null');
+  if (binding?.sql) writeFileSync(binding.sql.witnessFile, JSON.stringify({ schemaVersion: 1,
+    phaseId: binding.phaseId, bindingSha256: createHash('sha256').update(JSON.stringify(binding)).digest('hex'),
+    consumer: 'tests/unit/t2MigrationPostflight.test.js', consumed: [...fenceExecuted.values()] }));
+});
 import { retirementContract, retirementSnapshotQuery, assertRetirementSnapshot } from '../../scripts/lib/retirementMigrationPostflight.mjs';
 
 const read = name => readFileSync(name, 'utf8');
@@ -328,7 +340,11 @@ console.log(query.includes('objects AS')?rows.join('\\n'):rows[0]);});\n`);
         const abandoned = t2ReleaseContract(process.cwd(), ten, { catalogContext: context });
         const tenRows = await rows(t2ReleaseSnapshotQuery(abandoned));
         expect(assertT2ReleaseSnapshot(abandoned, tenRows).profile).toBe('post-1643-abandonment');
-        await db.exec(`SET ROLE closure_owner; ${source('20261114100000_rwt_feedback_fence_1811.sql')} RESET ROLE;`);
+        const fenceBytes = readFileSync(FENCE_MIGRATION), fenceBefore = createHash('sha256').update(fenceBytes).digest('hex');
+        await db.exec(`SET ROLE closure_owner; ${fenceBytes.toString('utf8')} RESET ROLE;`);
+        const fenceAfter = createHash('sha256').update(readFileSync(FENCE_MIGRATION)).digest('hex');
+        if (fenceAfter !== fenceBefore) throw new Error('SQL bytes changed across actual execution');
+        fenceExecuted.set(FENCE_MIGRATION, { file: FENCE_MIGRATION, sha256: fenceBefore, beforeSha256: fenceBefore, afterSha256: fenceAfter });
         // Installed objects without their ledger entry cannot pass as the abandonment profile.
         const unrecorded = await rows(t2ReleaseSnapshotQuery(abandoned));
         expect(() => assertT2ReleaseSnapshot(abandoned, unrecorded)).toThrow();
