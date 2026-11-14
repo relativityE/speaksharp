@@ -951,7 +951,7 @@ const MAIN_RECOVERY = '20261017200000_checkout_rejection_recovery.sql';
 const START_ABANDONMENT_MIGRATION=Object.freeze({name:'20261112133000_recording_start_abandonment_1643.sql',
   version:'20261112133000',sha256:'37bbfd561ef825cae92fa6787adc87f786a97a6c219fc1941572a6dd714e158e'});
 const FEEDBACK_FENCE_MIGRATION=Object.freeze({name:'20261114100000_rwt_feedback_fence_1811.sql',
-  version:'20261114100000',sha256:'802798d5801366c9cb1e83beb4431093935cbf143bbc1a20d7b6f95721ab8bde'});
+  version:'20261114100000',sha256:'0d58b3e008f374fb8c5ca09cf1c3bff7e02121f49ba79be9035c97a1429dd459'});
 // Reviewed migrations outside the account-closure chain, newer than every profile here: pinned repository
 // inventory that no profile replays, stages or records, the installed retirement profile included.
 export const REVIEWED_UNRELATED_MIGRATIONS=Object.freeze([

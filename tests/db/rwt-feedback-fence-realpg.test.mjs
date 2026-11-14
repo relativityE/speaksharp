@@ -1,5 +1,5 @@
 // Native, owned disposable PostgreSQL. No hosted database, provider or model calls.
-// #1811 AHT-02/07/08: the transactional run fence on user_issue_reports (20261114100000), over the real user_issue_reports
+// #1811 AHT-01/02/07/08: the transactional run fence on user_issue_reports (20261114100000), over the real user_issue_reports
 // migration chain. Proves: run-owned open only; committed report ⇔ recorded id; key cap / unkeyed / closed refusals; close waits
 // for an in-flight insert then refuses later ones; clean deletes exactly the recorded ids (owned or ownerless), never another
 // account's, and reads back to zero; real users untouched; no API access to the table or the RPCs.
@@ -28,6 +28,7 @@ const OTHER = '33333333-3333-4333-8333-333333333333';
 const RACER = '44444444-4444-4444-8444-444444444444';
 const AHT02 = '55555555-5555-4555-8555-555555555555';
 const COMBINED = '66666666-6666-4666-8666-666666666666';
+const AHT01 = '77777777-7777-4777-8777-777777777777';
 const BINDING = { repository: 'relativityE/speaksharp', workflow: 'relativityE/speaksharp/.github/workflows/rc-gates.yml@refs/heads/main',
   runId: '43583228045', runAttempt: '1', role: 'rwt-journey' };
 const key = (n) => `aaaaaaaa-aaaa-4aaa-8aaa-${String(n).padStart(12, '0')}`;
@@ -84,7 +85,8 @@ test('rwt feedback fence: open, record, cap, close-serializes, clean — on the 
       INSERT INTO auth.users VALUES (${lit(OWNER)}, ${lit(JSON.stringify({ ct_run: BINDING }))}::jsonb),
         (${lit(REAL_USER)}, '{}'), (${lit(OTHER)}, '{}'), (${lit(RACER)}, ${lit(JSON.stringify({ ct_run: { ...BINDING, runId: '9' } }))}::jsonb),
         (${lit(AHT02)}, ${lit(JSON.stringify({ ct_run: { ...BINDING, runId: '11' } }))}::jsonb),
-        (${lit(COMBINED)}, ${lit(JSON.stringify({ ct_run: { ...BINDING, runId: '13' } }))}::jsonb);`);
+        (${lit(COMBINED)}, ${lit(JSON.stringify({ ct_run: { ...BINDING, runId: '13' } }))}::jsonb),
+        (${lit(AHT01)}, ${lit(JSON.stringify({ ct_run: { ...BINDING, runId: '15' } }))}::jsonb);`);
     for (const file of CHAIN) sql(readFileSync(file, 'utf8'));
     sql(`GRANT SELECT, DELETE ON public.user_issue_reports TO service_role;`);
     sql(readFileSync(FENCE, 'utf8'));
@@ -93,6 +95,10 @@ test('rwt feedback fence: open, record, cap, close-serializes, clean — on the 
     fails(as(OWNER, 'SELECT count(*) FROM public.rwt_feedback_fences;'), /permission denied/);
     fails(as(OWNER, `SELECT public.close_rwt_feedback_fence_v1('1-1-AHT-08');`), /permission denied/);
     fails(service('SELECT count(*) FROM public.rwt_feedback_fences;'), /permission denied/);
+    fails(as(OWNER, `SELECT public.verify_rwt_feedback_fence_v1('1-1-AHT-08');`), /permission denied/);
+    const verify = (k) => JSON.parse(sql(service(`SELECT public.verify_rwt_feedback_fence_v1(${lit(k)});`)).split('\n').at(-1));
+    // Verify, before any open: an uncertain open is recovered by its deterministic key, never by reopening.
+    assert.deepEqual(verify('43583228045-1-AHT-08'), { exists: false });
 
     // A real (unfenced) user is untouched: insert succeeds, nothing recorded anywhere.
     sql(as(REAL_USER, report(key(900))));
@@ -104,12 +110,20 @@ test('rwt feedback fence: open, record, cap, close-serializes, clean — on the 
     const runKey = sql(service(`SELECT public.open_rwt_feedback_fence_v1(${lit(OWNER)}::uuid, ${lit(JSON.stringify(BINDING))}::jsonb, 'AHT-08', 3);`)).split('\n').at(-1);
     assert.equal(runKey, '43583228045-1-AHT-08');
     fails(service(`SELECT public.open_rwt_feedback_fence_v1(${lit(OWNER)}::uuid, ${lit(JSON.stringify(BINDING))}::jsonb, 'AHT-07', 2);`), /duplicate key|unique/);
+    // The same open again is NOT idempotent (it refuses); the runner recovers a lost open response through verify instead.
+    fails(service(`SELECT public.open_rwt_feedback_fence_v1(${lit(OWNER)}::uuid, ${lit(JSON.stringify(BINDING))}::jsonb, 'AHT-08', 3);`), /duplicate key|unique/);
+    assert.deepEqual(verify(runKey), { exists: true, state: 'open', owner: OWNER, case: 'AHT-08', recorded: 0, keys: 0, remaining: 0, foreign: 0 });
 
     // Record: committed report ⇔ recorded id; an ownerless report from the fenced actor is still recorded.
     sql(as(OWNER, report(key(1))));
     sql(as(OWNER, report(key(2), 'NULL')));
     let f = fence();
     assert.equal(f.report_ids.length, 2);
+    // Verify is read-only: the same readback twice, and the fence row is unchanged by it.
+    const before = JSON.stringify(fence());
+    assert.deepEqual(verify(runKey), verify(runKey));
+    assert.equal(verify(runKey).remaining, 2);
+    assert.equal(JSON.stringify(fence()), before);
     assert.deepEqual(f.report_keys, [key(1), key(2)]);
     // A same-key replay fails on the unique index and its record rolls back with it.
     fails(as(OWNER, report(key(1))), /duplicate key|unique/);
@@ -147,6 +161,8 @@ test('rwt feedback fence: open, record, cap, close-serializes, clean — on the 
     cleaned = JSON.parse(sql(service(`SELECT public.clean_rwt_feedback_fence_v1(${lit(runKey)});`)).split('\n').at(-1));
     assert.deepEqual(cleaned, { deleted: 1, residue: 0, foreign: 0, state: 'cleaned' });
     assert.equal(fence().state, 'cleaned');
+    // The runner's INDEPENDENT zero check: a separate read-only readback after clean.
+    assert.deepEqual(verify(runKey), { exists: true, state: 'cleaned', owner: OWNER, case: 'AHT-08', recorded: 3, keys: 3, remaining: 0, foreign: 0 });
     assert.equal(sql(`SELECT count(*) FROM public.user_issue_reports WHERE user_id = ${lit(REAL_USER)}::uuid;`), '1');
 
     // A second fence: the key cap (1) refuses a second distinct key; a same-key replay is not a new key; clean refuses an open fence.
@@ -172,10 +188,14 @@ test('rwt feedback fence: open, record, cap, close-serializes, clean — on the 
 
     // A consolidated journey (one account running several cases) holds ONE fence, labelled with its cases in order.
     fails(service(`SELECT public.open_rwt_feedback_fence_v1(${lit(COMBINED)}::uuid, ${lit(JSON.stringify({ ...BINDING, runId: '13' }))}::jsonb, 'AHT-03', 1);`), /check constraint/);
+    fails(service(`SELECT public.open_rwt_feedback_fence_v1(${lit(COMBINED)}::uuid, ${lit(JSON.stringify({ ...BINDING, runId: '13' }))}::jsonb, 'AHT-08+AHT-01', 1);`), /check constraint/);
     fails(service(`SELECT public.open_rwt_feedback_fence_v1(${lit(COMBINED)}::uuid, ${lit(JSON.stringify({ ...BINDING, runId: '13' }))}::jsonb, 'AHT-08+AHT-07', 1);`), /check constraint/);
     fails(service(`SELECT public.open_rwt_feedback_fence_v1(${lit(COMBINED)}::uuid, ${lit(JSON.stringify({ ...BINDING, runId: '13' }))}::jsonb, 'AHT-07+AHT-07', 1);`), /check constraint/);
     assert.equal(sql(service(`SELECT public.open_rwt_feedback_fence_v1(${lit(COMBINED)}::uuid, ${lit(JSON.stringify({ ...BINDING, runId: '13' }))}::jsonb, 'AHT-07+AHT-08', 2);`)).split('\n').at(-1),
       '13-1-AHT-07+AHT-08');
+    // AHT-01 (the open-mic journey also submits feedback; Sam, #1859 review).
+    assert.equal(sql(service(`SELECT public.open_rwt_feedback_fence_v1(${lit(AHT01)}::uuid, ${lit(JSON.stringify({ ...BINDING, runId: '15' }))}::jsonb, 'AHT-01', 1);`)).split('\n').at(-1),
+      '15-1-AHT-01');
 
     // The check-then-close race, staged deterministically: a holder takes the fence row lock; close queues behind it FIRST,
     // then an insert queues behind close. Because the trigger reads the fence FOR UPDATE, the insert re-reads the row after

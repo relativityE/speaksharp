@@ -132,7 +132,7 @@ const REFUND=Object.freeze({name:'20261112130000_stripe_refund_followups.sql',ve
   sha256:'47fce28446a1e8f56c27dd10a6bb92e803a5907db0fd9d7fa67cbf11f9701fe8'});
 // #1811 feedback fence: repository inventory only for every profile before main-feedback-fence-131.
 const FEEDBACK_FENCE=Object.freeze({name:'20261114100000_rwt_feedback_fence_1811.sql',
-  version:'20261114100000',sha256:'802798d5801366c9cb1e83beb4431093935cbf143bbc1a20d7b6f95721ab8bde'});
+  version:'20261114100000',sha256:'0d58b3e008f374fb8c5ca09cf1c3bff7e02121f49ba79be9035c97a1429dd459'});
 const physical=repositoryPhysical.filter(row=>![WITHHELD.name,START_ABANDONMENT.name,REFUND.name,FEEDBACK_FENCE.name].includes(row.name));
 const main = physical.filter(row => ![U1.name, ANALYTICS.name, ...ACCOUNT.map(row=>row.name), FENCE.name, RETENTION.name, BILLING.name].includes(row.name));
 const receiving = [...main, U1].sort((a, b) => a.name.localeCompare(b.name, 'en'));

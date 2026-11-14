@@ -296,7 +296,7 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
         // remain mandatory. No application caller: only the service role reaches its RPCs.
         version: '20261114100000',
         file: '20261114100000_rwt_feedback_fence_1811.sql',
-        sha256: '802798d5801366c9cb1e83beb4431093935cbf143bbc1a20d7b6f95721ab8bde',
+        sha256: '0d58b3e008f374fb8c5ca09cf1c3bff7e02121f49ba79be9035c97a1429dd459',
         classification: 'staged',
     }),
     Object.freeze({
