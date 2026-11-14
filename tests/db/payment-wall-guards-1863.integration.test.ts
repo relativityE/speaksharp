@@ -46,7 +46,10 @@ describe('#1863 payment wall: guarded RPCs, table guard and open surfaces', () =
         assert.equal(consumed.length, 1, 'the payment-wall migration was executed');
         // Emulates Supabase's default table grants to API roles (PGlite has none), so the row-level policies decide.
         await db.exec(`GRANT SELECT ON public.user_profiles TO authenticated;
-            GRANT SELECT, INSERT, UPDATE, DELETE ON public.user_filler_words TO authenticated;`);
+            GRANT SELECT, INSERT, UPDATE, DELETE ON public.user_filler_words TO authenticated;
+            GRANT SELECT, INSERT, UPDATE ON public.user_goals TO authenticated; GRANT SELECT ON public.user_goals TO anon;
+            GRANT SELECT ON public.progress_recommendations, public.progress_recommendation_attempts,
+                public.session_progress_evaluations, public.user_filler_words TO anon;`);
     }, 120_000);
     afterAll(async () => {
         await db?.close();
@@ -56,7 +59,7 @@ describe('#1863 payment wall: guarded RPCs, table guard and open surfaces', () =
             consumer: 'tests/db/payment-wall-guards-1863.integration.test.ts', consumed }));
     });
 
-    async function asRole<T>(role: 'authenticated' | 'service_role', uid: string | null, work: () => Promise<T>): Promise<T> {
+    async function asRole<T>(role: 'anon' | 'authenticated' | 'service_role', uid: string | null, work: () => Promise<T>): Promise<T> {
         await db.query("SELECT set_config('request.jwt.claim.sub',$1,false)", [uid ?? '']);
         await db.query("SELECT set_config('request.jwt.claim.role',$1,false)", [role]);
         await db.exec(`SET ROLE ${role}`);
@@ -189,6 +192,34 @@ describe('#1863 payment wall: guarded RPCs, table guard and open surfaces', () =
         expect(await outcome(uid, "INSERT INTO public.user_filler_words(user_id,word) VALUES($1,'literally')", [uid])).toMatch(/row-level security/);
         await pay(uid);
         expect(await words()).toHaveLength(1);
+    });
+
+    it('closes practice-goal writes after expiry and restores them on payment', async () => {
+        const { uid } = await fixture();
+        expect(await outcome(uid, 'INSERT INTO public.user_goals(user_id,weekly_goal) VALUES($1,5)', [uid])).toBe('ok');
+        const goals = () => asUser(uid, async () => (await db.query('SELECT weekly_goal FROM public.user_goals WHERE user_id=$1', [uid])).rows);
+        expect(await goals()).toEqual([{ weekly_goal: 5 }]);
+        await expire(uid);
+        expect(await goals()).toEqual([]);
+        // An UPDATE whose USING hides the row changes nothing; read it back as the owner after paying.
+        expect(await outcome(uid, 'UPDATE public.user_goals SET weekly_goal=9 WHERE user_id=$1', [uid])).toBe('ok');
+        const other = randomUUID();
+        await db.query('INSERT INTO auth.users(id,email) VALUES($1,$2)', [other, `guard-${other}@example.test`]);
+        await expire(other);
+        expect(await outcome(other, 'INSERT INTO public.user_goals(user_id,weekly_goal) VALUES($1,5)', [other])).toMatch(/row-level security/);
+        await pay(uid);
+        expect(await goals()).toEqual([{ weekly_goal: 5 }]);
+        expect(await outcome(uid, 'UPDATE public.user_goals SET weekly_goal=9 WHERE user_id=$1', [uid])).toBe('ok');
+        expect(await goals()).toEqual([{ weekly_goal: 9 }]);
+    });
+
+    it('signed-out reads of walled tables return nothing instead of raising', async () => {
+        await asRole('anon', null, async () => {
+            for (const table of ['user_goals', 'progress_recommendations', 'progress_recommendation_attempts',
+                'session_progress_evaluations', 'user_filler_words']) {
+                expect((await db.query(`SELECT 1 FROM public.${table}`)).rows).toEqual([]);
+            }
+        });
     });
 
     it('keeps the account, usage answer, deletion status and lease release open after expiry', async () => {

@@ -132,12 +132,12 @@ USING ((auth.uid() = user_id) AND (SELECT public.current_account_has_product_acc
 
 DROP POLICY IF EXISTS "prec_att_select_own" ON public.progress_recommendation_attempts;
 CREATE POLICY "prec_att_select_own" ON public.progress_recommendation_attempts
-FOR SELECT TO public
+FOR SELECT TO authenticated
 USING ((auth.uid() = user_id) AND (SELECT public.current_account_has_product_access()));
 
 DROP POLICY IF EXISTS "prec_select_own" ON public.progress_recommendations;
 CREATE POLICY "prec_select_own" ON public.progress_recommendations
-FOR SELECT TO public
+FOR SELECT TO authenticated
 USING ((auth.uid() = user_id) AND (SELECT public.current_account_has_product_access()));
 
 DROP POLICY IF EXISTS "session_attribution_authority_select_own" ON public.session_attribution_authority;
@@ -157,18 +157,31 @@ USING ((auth.uid() = user_id) AND (SELECT public.current_account_has_product_acc
 
 DROP POLICY IF EXISTS "spe_select_own" ON public.session_progress_evaluations;
 CREATE POLICY "spe_select_own" ON public.session_progress_evaluations
-FOR SELECT TO public
+FOR SELECT TO authenticated
 USING ((auth.uid() = user_id) AND (SELECT public.current_account_has_product_access()));
 
 DROP POLICY IF EXISTS "Users can view own goals" ON public.user_goals;
 CREATE POLICY "Users can view own goals" ON public.user_goals
-FOR SELECT TO public
+FOR SELECT TO authenticated
 USING ((auth.uid() = user_id) AND (SELECT public.current_account_has_product_access()));
+
+-- Practice goals are product data: writes need access too (reads are closed above). These policies previously applied
+-- TO public; anon has no goals, so TO authenticated keeps signed-out reads returning nothing instead of an error.
+DROP POLICY IF EXISTS "Users can insert own goals" ON public.user_goals;
+CREATE POLICY "Users can insert own goals" ON public.user_goals
+FOR INSERT TO authenticated
+WITH CHECK ((auth.uid() = user_id) AND (SELECT public.current_account_has_product_access()));
+
+DROP POLICY IF EXISTS "Users can update own goals" ON public.user_goals;
+CREATE POLICY "Users can update own goals" ON public.user_goals
+FOR UPDATE TO authenticated
+USING ((auth.uid() = user_id) AND (SELECT public.current_account_has_product_access()))
+WITH CHECK ((auth.uid() = user_id) AND (SELECT public.current_account_has_product_access()));
 
 -- The custom filler-word vocabulary is a product feature: reads and writes need access.
 DROP POLICY IF EXISTS "Users can manage own vocabulary" ON public.user_filler_words;
 CREATE POLICY "Users can manage own vocabulary" ON public.user_filler_words
-FOR ALL TO public
+FOR ALL TO authenticated
 USING ((auth.uid() = user_id) AND (SELECT public.current_account_has_product_access()))
 WITH CHECK ((auth.uid() = user_id) AND (SELECT public.current_account_has_product_access()));
 

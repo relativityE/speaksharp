@@ -135,7 +135,7 @@ const FEEDBACK_FENCE=Object.freeze({name:'20261114100000_rwt_feedback_fence_1811
   version:'20261114100000',sha256:'9aa48a5642765beb1c36f305ed62482bca67928d97bd5c1efeb1296e0c79176c'});
 // #1863 payment wall: repository inventory only for every profile until its own ledger-12 stage exists.
 const PAYMENT_WALL=Object.freeze({name:'20261114170000_payment_wall_product_access_1863.sql',
-  version:'20261114170000',sha256:'267cd56d0fb94c20b970b4c4d0c3bbc617be93b4d3eca2eeb03525e53a3f8bd0'});
+  version:'20261114170000',sha256:'d5c251c83f8e0d669a6a66b645254306085345f449fc589d1be1c11f6c5f4805'});
 const physical=repositoryPhysical.filter(row=>![WITHHELD.name,START_ABANDONMENT.name,REFUND.name,FEEDBACK_FENCE.name,PAYMENT_WALL.name].includes(row.name));
 const main = physical.filter(row => ![U1.name, ANALYTICS.name, ...ACCOUNT.map(row=>row.name), FENCE.name, RETENTION.name, BILLING.name].includes(row.name));
 const receiving = [...main, U1].sort((a, b) => a.name.localeCompare(b.name, 'en'));
