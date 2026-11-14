@@ -641,6 +641,22 @@
       "find": "        await ports.assertTestMode();",
       "replace": "        ports.assertTestMode();",
       "test": "tests/billing.test.cjs"
+    },
+    {
+      "id": "P2-reopen-unobserved-passes",
+      "guards": "old-sessions-no-new-coaching: a counter not observed after the release is HOLD, never PASS",
+      "file": "oracles/upgrade-continuity.cjs",
+      "find": "    if (notSeen.length > 0)\n        return { outcome: 'HOLD'",
+      "replace": "    if (notSeen.length > 9)\n        return { outcome: 'HOLD'",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P2-reopen-unchecked-baseline-passes",
+      "guards": "old-sessions-no-new-coaching: a missing pre-release counter is HOLD, never PASS",
+      "file": "oracles/upgrade-continuity.cjs",
+      "find": "    if (notChecked.length > 0)\n        return { outcome: 'HOLD'",
+      "replace": "    if (notChecked.length > 9)\n        return { outcome: 'HOLD'",
+      "test": "tests/oracles.test.cjs"
     }
   ]
 }

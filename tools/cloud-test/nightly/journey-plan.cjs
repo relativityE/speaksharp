@@ -15,7 +15,7 @@ const CANARY_GATE = Object.freeze({
 });
 // Where each leg runs in the existing harness (tools/cloud-test/harness/draft-adapters/AHT-NN.cjs) and how many
 // Start presses it spends there. A leg with caseId null has no harness case yet: its adapter is part of the
-// exact-file handoff (docs/aht-nightly/harness-handoff-2026-11-14.md), and until it lands the leg reports NOT RUN.
+// exact-file harness handoff (in the description of #1865), and until it lands the leg reports NOT RUN.
 // The Start presses sum to 43: the 42 of the catalog's cases plus J1.c's short Stop.
 const HARNESS_CASES = Object.freeze({
     'J1.a': ['AHT-01', 4], 'J1.b': ['AHT-01', 0], 'J1.c': ['AHT-01', 1], 'J1.d': ['AHT-15', 0],

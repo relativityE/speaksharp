@@ -144,6 +144,17 @@ describe('old-sessions-no-new-coaching (J9.a)', () => {
         expect(oldSessionsNoNewCoachingVerdict(null, seen).outcome).toBe('HOLD');
         expect(oldSessionsNoNewCoachingVerdict({ keptSessions: 0, withStoredCoaching: 0 }, seen).outcome).toBe('HOLD');
     });
+    it('holds, never passes, when a counter before or after the release was not observed as a whole number', () => {
+        expect(oldSessionsNoNewCoachingVerdict(pre, {}).outcome).toBe('HOLD');
+        expect(oldSessionsNoNewCoachingVerdict({}, seen).outcome).toBe('HOLD');
+        expect(oldSessionsNoNewCoachingVerdict(pre, undefined).outcome).toBe('HOLD');
+        for (const key of Object.keys(seen))
+            for (const bad of [undefined, null, -1, 1.5, '3', NaN]) {
+                expect(oldSessionsNoNewCoachingVerdict(pre, { ...seen, [key]: bad }).outcome).toBe('HOLD');
+            }
+        for (const key of Object.keys(pre))
+            expect(oldSessionsNoNewCoachingVerdict({ ...pre, [key]: undefined }, seen).outcome).toBe('HOLD');
+    });
 });
 describe('payment wall', () => {
     const wall = (o = {}) => ({
