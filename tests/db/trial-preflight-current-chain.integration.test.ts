@@ -68,7 +68,9 @@ describe('current-chain trial preflight regression', () => {
     await db.exec('BEGIN');
     try {
       await db.query('UPDATE public.user_profiles SET trial_expires_at=now() WHERE id=$1', [uid]);
-      assertDenied(await preflight());
+      expect(await preflight()).toMatchObject({
+        can_start: false, error: 'trial_expired', is_pro: false, trial_active: false, trial_seconds_remaining: 0,
+      });
     } finally { await db.exec('ROLLBACK'); }
   });
 
