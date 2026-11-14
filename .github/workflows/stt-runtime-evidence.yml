@@ -44,7 +44,9 @@ env:
 jobs:
   private-v2-production-worker:
     name: private-v2-production-worker-one-thread-request-config
-    runs-on: ubuntu-latest
+    # `pnpm pw:install` below installs Playwright 1.57's Chromium, which has no ubuntu-26.04 build, and
+    # ubuntu-latest now resolves to 26.04 (#1848's run 43470896171). Pinned until the Playwright upgrade (#1840).
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
       # This isolated drop-in never initializes auth and blocks all non-local

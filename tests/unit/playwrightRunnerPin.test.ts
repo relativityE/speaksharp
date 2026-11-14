@@ -4,7 +4,8 @@
  *   - AHT-01 run 43413270234: rc-gates `setup-environment` failed before any gate ran;
  *   - main CI 43413866919: ci.yml `deps-prep` got no `install-deps --dry-run` list and every apt-bundle consumer failed;
  *   - #1839's own run 43418320824: the #1047 U3 cross-page workflow's own `deps-prep` failed the same way;
- *   - canary run 43428299133: canary-check's Setup Environment failed before any lane ran.
+ *   - canary run 43428299133: canary-check's Setup Environment failed before any lane ran;
+ *   - #1848's run 43470896171: STT Runtime Evidence's `pnpm pw:install` failed before the worker proof ran.
  * Until the Playwright upgrade (#1840), every job that sets up the environment runs on ubuntu-24.04. The one deliberate exception is
  * ci.yml `full-evidence`, which needs the system Chrome >=156 that only the ubuntu-26.04 images ship (nativeTestExecutionEvidence).
  */
@@ -13,13 +14,14 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 
-type Step = { uses?: string; with?: Record<string, unknown> };
+type Step = { uses?: string; run?: string; with?: Record<string, unknown> };
 type Job = { 'runs-on': string; steps?: Step[] };
 const ROOT = resolve(__dirname, '../..');
 const load = (file: string) => parse(readFileSync(resolve(ROOT, file), 'utf8')) as { jobs: Record<string, Job> };
 const setsUpEnvironment = (job: Job) => (job.steps ?? []).some((s) => s.uses === './.github/actions/setup-environment');
 const installsPlaywright = (job: Job) =>
     (job.steps ?? []).some((s) => s.uses === './.github/actions/setup-environment' && String(s.with?.['install-playwright']) === 'true');
+const runsPlaywrightInstall = (job: Job) => (job.steps ?? []).some((s) => /\bpnpm pw:install\b|\bplaywright install\b/.test(String(s.run ?? '')));
 const EXCEPTIONS: Record<string, string> = { 'full-evidence': 'ubuntu-26.04' };
 const offPin = (jobs: Record<string, Job>, select: (job: Job) => boolean) =>
     Object.entries(jobs).filter(([name, job]) => select(job) && job['runs-on'] !== (EXCEPTIONS[name] ?? 'ubuntu-24.04')).map(([name]) => name);
@@ -51,8 +53,14 @@ describe('Playwright-dependent jobs run on a runner image the pinned Playwright 
         expect(offPin(jobs, installsPlaywright)).toEqual([]);
     });
 
+    it('STT runtime evidence: the worker proof job, the only one that runs pnpm pw:install, is on ubuntu-24.04', () => {
+        const { jobs } = load('.github/workflows/stt-runtime-evidence.yml');
+        expect(Object.keys(jobs).filter((name) => runsPlaywrightInstall(jobs[name])).sort()).toEqual(['private-v2-production-worker']);
+        expect(offPin(jobs, runsPlaywrightInstall)).toEqual([]);
+    });
+
     it('negative controls: a job moved back to a floating or unsupported label is reported', () => {
-        for (const [file, job, select] of [['.github/workflows/rc-gates.yml', 'gate-3-dast', installsPlaywright], ['.github/workflows/ci.yml', 'deps-prep', setsUpEnvironment], ['.github/workflows/1047-u3-cross-page.yml', 'cross-page-evidence', setsUpEnvironment], ['.github/workflows/canary.yml', 'canary-check', installsPlaywright]] as const) {
+        for (const [file, job, select] of [['.github/workflows/rc-gates.yml', 'gate-3-dast', installsPlaywright], ['.github/workflows/ci.yml', 'deps-prep', setsUpEnvironment], ['.github/workflows/1047-u3-cross-page.yml', 'cross-page-evidence', setsUpEnvironment], ['.github/workflows/canary.yml', 'canary-check', installsPlaywright], ['.github/workflows/stt-runtime-evidence.yml', 'private-v2-production-worker', runsPlaywrightInstall]] as const) {
             for (const label of ['ubuntu-latest', 'ubuntu-26.04']) {
                 const { jobs } = load(file);
                 jobs[job]['runs-on'] = label;
