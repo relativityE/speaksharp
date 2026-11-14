@@ -297,6 +297,23 @@ describe('one budget shared across workers', () => {
         expect(r.reason).toContain('lock was not available');
         fs.rmSync(path.join(dir, 'budget.lock'), { recursive: true });
     });
+    // Codex P2 on e13ab8d8: a lost journal must never replenish the run's allocations, cleanup use or overruns.
+    it('creates the journal with the plan, and refuses everything once an established journal is missing', () => {
+        const dir = shared();
+        expect(fs.readFileSync(path.join(dir, 'budget-journal.jsonl'), 'utf8')).toBe('');
+        const first = openSharedRunBudget(dir);
+        expect(first.reserve('J6', 'coaching').granted).toBe(true);
+        expect(first.reserve('J6', 'coaching').granted).toBe(true);
+        fs.rmSync(path.join(dir, 'budget-journal.jsonl'));
+        const b = openSharedRunBudget(dir);
+        const r = b.reserve('J6', 'coaching');
+        expect(r.granted).toBe(false);
+        expect(r.reason).toContain('journal is missing');
+        expect(b.reserveCleanup('J6').granted).toBe(false);
+        expect(b.cleanupExhausted('J6')).toBe(true);
+        expect(b.legBudgetRow('J6').outcome).toBe('HOLD');
+        expect(fs.existsSync(path.join(dir, 'budget-journal.jsonl'))).toBe(false);
+    });
     it('after a write cut short by a crash, sends no more test work but still cleans up, counting the torn write against the reserve', () => {
         const dir = shared();
         openSharedRunBudget(dir).reserve('J6', 'coaching');
