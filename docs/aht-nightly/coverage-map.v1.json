@@ -99,7 +99,7 @@
    "assertion": "same-target-numeric",
    "newHome": "J1.b",
    "status": "strengthen",
-   "note": "Also compare the saved filler count with the fixture's known reference (rwtFillerReference.ts), so the row has an oracle independent of the code under test and no longer HOLDs when Progress code changes in an upgrade (G11)."
+   "note": "Also compare the saved filler count with the fixture's known reference (rwtFillerReference.ts), so the row has an oracle independent of the code under test. Today the snapshot preflight makes the whole case NOT RUN when Progress code changes in an upgrade (design \u00a76 item 10, G11)."
   },
   {
    "case": "AHT-01",
@@ -1191,7 +1191,7 @@
    "assertion": "allowed-recovery-saved",
    "newHome": "J7.a",
    "status": "strengthen",
-   "note": "Permission granted on the SAME page after denial, then Start records and saves; the fresh-browser stand-in no longer counts (14 Nov partial)."
+   "note": "Permission granted in the same browser context after denial, then Start records and saves; the fresh-browser stand-in no longer counts (14 Nov partial)."
   },
   {
    "case": "AHT-12",
