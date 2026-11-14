@@ -339,9 +339,10 @@ console.log(query.includes('objects AS')?rows.join('\\n'):rows[0]);});\n`);
         expect(JSON.parse(installed[0])).toEqual(eleven);
         expect(assertT2ReleaseSnapshot(contract, installed).profile).toBe('post-1811-feedback-fence');
         // The Edge contract is the retained-production context only.
-        if (context === 'retained-production') {
+        function verifyEdgeContract() {
           expect(assertT2ReleaseSnapshot(t2EdgeReleaseContract(process.cwd(), installed[0]), installed).passed).toBe(true);
         }
+        if (!platformFunctionDefaults) verifyEdgeContract();
         // The ledger-10 contract refuses the ledger-11 database, and vice versa.
         expect(() => assertT2ReleaseSnapshot(abandoned, installed)).toThrow();
         expect(() => assertT2ReleaseSnapshot(contract, tenRows)).toThrow();
@@ -357,7 +358,7 @@ console.log(query.includes('objects AS')?rows.join('\\n'):rows[0]);});\n`);
           'ALTER TABLE public.user_issue_reports DISABLE TRIGGER zz_rwt_feedback_fence',
         ]) {
           const changed = await rows(`BEGIN; ${mutation}; ${snapshot} ROLLBACK;`);
-          expect(() => assertT2ReleaseSnapshot(contract, changed), mutation).toThrow();
+          expect(() => assertT2ReleaseSnapshot(contract, changed)).toThrow();
         }
         expect(await rows(t2ReleaseSnapshotQuery(contract))).toEqual(installed);
       } finally { await db.close(); }
