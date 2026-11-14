@@ -33,7 +33,14 @@ A discard counts only when its `failed` mark is confirmed. If storage returns
 `{ success: false }` or throws, the take was not saved but its row and lease obligation
 are not confirmed settled: the take stays unresolved and locked, the page says so, and
 Try again re-runs the same `failed` mark on the same row (a confirmed Discard settles it
-too). The no-speech discard shares that branch and gets the same handling.
+too). Once it is settled, its "couldn't finish clearing it" warning is replaced by the
+message a settled discard shows, and a status published after the warning is left alone.
+The no-speech discard shares that branch and gets the same handling.
+
+The unsettled row is also recorded on this device for its owner (session id, owner and
+the fixed reason; no content). A reload, hard reset or sign-out drops the in-memory Try
+again; the same owner's return re-arms it for the same row, and no other account sees
+it. A confirmed retry or Discard clears the record.
 
 ## Canonical regressions
 
@@ -46,7 +53,12 @@ too). The no-speech discard shares that branch and gets the same handling.
   not change that; a take with no row gets one at Stop only to mark it failed;
   READY, finalizing released, not saved; `{ success: false }` and a throw each leave
   the take unresolved, a repeat failure stays retryable and Try again settles the same
-  row; a confirmed Discard settles it; positive control without the verdict completes.
+  row; a confirmed Discard settles it; a settled retry replaces only its own warning;
+  after a hard reset the owner's return re-arms Try again for the same row and another
+  account's does not; a superseded stop still records the row for its owner; a
+  confirmed mark or Discard leaves no record and an ownerless take writes none; an
+  account change retires the departing owner's re-armed slot and keeps the record;
+  positive control without the verdict completes.
 - `frontend/src/components/session/__tests__/UnresolvedRecoveryBanner.test.tsx`: the
   unsettled-discard banner offers only Try again.
 - `frontend/src/services/__tests__/pendingColdStartReturn.aht04.test.ts`: its
@@ -55,6 +67,8 @@ too). The no-speech discard shares that branch and gets the same handling.
   Stop; the minimum itself is not lowered.
 - `frontend/src/hooks/__tests__/useSessionLifecycle.recordingIntent.test.tsx`: the
   short branch passes the verdict, a 5.3 s take does not.
+- `tests/e2e/signal-contract.e2e.spec.ts`: its saved-take contract stopped at once and
+  waited for a saved session, relying on the defect; it now records past the minimum.
 
 ## Known gaps (not fixed here, for review)
 
@@ -66,8 +80,10 @@ too). The no-speech discard shares that branch and gets the same handling.
 - A stop without the verdict that is queued just before the user's short Stop (for
   example a lease revocation) can complete the take; the user's Stop then finds
   READY and the page still says "Session too short". Pre-existing and narrow.
-- An unsettled discard is held in memory only: a reload or hard reset drops Try again
-  and the row's save obligation stays unsettled.
+- The record of an unsettled discard lives on the device that recorded the take. The
+  owner signing in on another device, or clearing site data, does not see Try again
+  there; the row's obligation then stays unsettled until it is retried on the original
+  device. A take with no known owner is not recorded.
 
 No live database write, AHT run or probe-duration claim for AHT-03 run 43585559387 is
 made here. Fixture text is synthetic.
