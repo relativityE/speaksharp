@@ -1990,6 +1990,7 @@ export class SpeechRuntimeController {
      * Returns true when a draft for this user was rehydrated. No-op (returns false) when there is none for them.
      */
     public rehydrateUnresolvedRecording(userId: string | null | undefined): boolean {
+        this.releaseOtherOwnersDiscard(userId);
         const draft = getRecoverableDraftForUser(userId);
         // #1306: only a FINALIZED draft can be re-armed for completion. An active_interrupted draft has no final
         // metrics and must never rehydrate into a completable save.
@@ -2056,6 +2057,22 @@ export class SpeechRuntimeController {
      * same slot, so the take is locked again and Try again re-runs the same `failed` mark on the same row. Never for
      * another account, never over a recording, and never over a slot already held.
      */
+    /**
+     * G5 (review on a95ca10) — a live unsettled-discard slot left by ANOTHER account (a sign-out remounts the page without
+     * a reload, so nothing retired it) must not lock the account now signed in. It is released only when its owner's
+     * durable record names the same row, so that owner gets Try again back on return; otherwise it is kept.
+     */
+    private releaseOtherOwnersDiscard(userId: string | null | undefined): void {
+        const slot = this.pendingDiscardSettlement;
+        if (!userId || !slot?.ownerId || slot.ownerId === userId) return;
+        if (SpeechRuntimeController.RECORDING_LIFECYCLE_STATES.has(this.state)) return;
+        if (getUnsettledDiscardRecordForUser(slot.ownerId)?.sessionId !== slot.sessionId) return;
+        this.pendingDiscardSettlement = null;
+        if (this.rehydratedFor === slot.ownerId) this.rehydratedFor = null;
+        this.publishLockState();
+        logger.info('[controller] released another account\'s unsettled discard on sign-in; its record stays for that owner (G5)');
+    }
+
     private rehydrateUnsettledDiscard(userId: string | null | undefined): boolean {
         const record = getUnsettledDiscardRecordForUser(userId);
         if (!record || !userId) return false;
@@ -5592,6 +5609,9 @@ export class SpeechRuntimeController {
              * "may this stop still publish?" answerable after each one, instead of a warn-and-continue.
              */
             const stopAuthority = this.captureStopAuthority(token.version, this.service, this.sessionId);
+            // G5 (review on a95ca10): the owner of THIS take, captured with its authority. A successor's Start rewrites
+            // `capturedUserId` during the awaits below, and an unsettled discard must never be recorded for that account.
+            const stopOwner = this.capturedUserId ?? null;
             /**
              * #1431 P1 — set ONLY when the rightful owner performs its own terminal lifecycle advance.
              *
@@ -6015,7 +6035,7 @@ export class SpeechRuntimeController {
                             // `{ success: false }` (RPC error, invalid response) or a throw leaves the row and its
                             // lease obligation unsettled: arm Try again and keep the take unresolved.
                             let discardSettled = false;
-                            const discardOwner = this.capturedUserId ?? null; // captured before the await, like the stop's authority
+                            const discardOwner = stopOwner; // the take's owner from stop entry, never a successor's
                             try {
                                 const discardMark = await completeSession(sessionId, { status: 'failed', reason: discardReason });
                                 discardSettled = Boolean(discardMark?.success);

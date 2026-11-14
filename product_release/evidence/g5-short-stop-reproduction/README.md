@@ -55,7 +55,9 @@ it. A confirmed retry or Discard clears the record.
   the take unresolved, a repeat failure stays retryable and Try again settles the same
   row; a confirmed Discard settles it; a settled retry replaces only its own warning;
   after a hard reset the owner's return re-arms Try again for the same row and another
-  account's does not; a superseded stop still records the row for its owner; a
+  account's does not; the owner recorded is the take's own, never a successor's that
+  starts during the stop; a failed Try again keeps the record; another account's live
+  slot is released on sign-in only when its owner's record keeps it recoverable; a superseded stop still records the row for its owner; a
   confirmed mark or Discard leaves no record and an ownerless take writes none; an
   account change retires the departing owner's re-armed slot and keeps the record;
   positive control without the verdict completes.
@@ -83,7 +85,10 @@ it. A confirmed retry or Discard clears the record.
 - The record of an unsettled discard lives on the device that recorded the take. The
   owner signing in on another device, or clearing site data, does not see Try again
   there; the row's obligation then stays unsettled until it is retried on the original
-  device. A take with no known owner is not recorded.
+  device. A take with no known owner is not recorded. The record is re-armed for 24 hours
+  at most, so a failure that can never succeed (the row or profile is gone, or the trial
+  has lapsed) cannot lock the owner on that browser indefinitely; after that the row's
+  obligation is left to the server. The bound is a proposal for Sam to confirm.
 
 No live database write, AHT run or probe-duration claim for AHT-03 run 43585559387 is
 made here. Fixture text is synthetic.

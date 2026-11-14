@@ -351,6 +351,70 @@ describe('G5 — a take under the minimum duration is discarded by the real cont
             expect(controller.isEngineSelectionLocked(), 'the next account is not locked behind it').toBe(false);
             expect(getUnsettledDiscardRecordForUser(OWNER)?.sessionId).toBe('test-sess');
         });
+
+        // Review on a95ca10: the owner is the take's own, from stop entry. A successor account that starts during the
+        // stop's awaits must never be recorded as this row's owner, or it is locked behind a row it cannot settle.
+        it('a successor account that starts while the stop is finalizing is never recorded as the row\'s owner', async () => {
+            priv().capturedUserId = OWNER;
+            const svc = engine(3);
+            let finishStop!: () => void;
+            svc.stopTranscription = vi.fn(() => new Promise((resolve) => {
+                finishStop = () => resolve({ transcript: '', stats: { accuracy: 0.95, total_words: 20, filler_words: {} } });
+            })) as never;
+            failOnce();
+            const stopping = controller.stopRecording({ belowMinimumDuration: true }).catch(() => null);
+            await vi.waitFor(() => expect(finishStop).toBeTypeOf('function'));
+            controller.reset('account_switch');
+            priv().capturedUserId = 'owner-b'; // the successor's Start
+            finishStop();
+            await stopping;
+
+            expect(getUnsettledDiscardRecordForUser('owner-b')).toBeNull();
+            expect(controller.rehydrateUnresolvedRecording('owner-b')).toBe(false);
+            expect(completions('failed').map((call) => call[0])).toEqual(['test-sess']);
+            expect(getUnsettledDiscardRecordForUser(OWNER)?.sessionId, 'recorded for its own owner').toBe('test-sess');
+        });
+
+        it('a failed Try again keeps the record; a rehydrate is refused while recording or over a held slot', async () => {
+            priv().capturedUserId = OWNER;
+            engine(3);
+            failOnce();
+            await controller.stopRecording({ belowMinimumDuration: true });
+            controller.reset('account_switch');
+            expect(controller.rehydrateUnresolvedRecording(OWNER)).toBe(true);
+            failOnce();
+            await expect(controller.retryRecordingSave()).resolves.toBe(false);
+            expect(getUnsettledDiscardRecordForUser(OWNER)?.sessionId, 'still unsettled, so still recoverable').toBe('test-sess');
+
+            controller.reset('account_switch');
+            Object.assign(priv(), { state: 'RECORDING' });
+            expect(controller.rehydrateUnresolvedRecording(OWNER), 'never over a live take').toBe(false);
+            Object.assign(priv(), { state: 'READY', pendingAttributionRetry: { sessionId: 'other' } });
+            expect(controller.rehydrateUnresolvedRecording(OWNER), 'never over a held slot').toBe(false);
+            expect(controller.hasUnsettledDiscard()).toBe(false);
+            Object.assign(priv(), { pendingAttributionRetry: null });
+        });
+
+        // Review on a95ca10: a sign-out remounts the page without a reload, so the departing owner's LIVE slot was never
+        // retired and locked the next account. It is released when that owner's record keeps the row recoverable.
+        it('the next account is not locked behind another owner\'s live slot, which stays recoverable for that owner', async () => {
+            priv().capturedUserId = OWNER;
+            engine(3);
+            failOnce();
+            await controller.stopRecording({ belowMinimumDuration: true });
+            expect(controller.hasUnsettledDiscard()).toBe(true);
+
+            controller.rehydrateUnresolvedRecording('owner-b');
+            expect(controller.hasUnsettledDiscard()).toBe(false);
+            expect(controller.isEngineSelectionLocked()).toBe(false);
+            expect(getUnsettledDiscardRecordForUser(OWNER)?.sessionId).toBe('test-sess');
+            expect(controller.rehydrateUnresolvedRecording(OWNER)).toBe(true);
+
+            // Without that owner's record the slot is the only way back, so it is kept.
+            localStorage.clear();
+            controller.rehydrateUnresolvedRecording('owner-b');
+            expect(controller.hasUnsettledDiscard()).toBe(true);
+        });
     });
 
 });

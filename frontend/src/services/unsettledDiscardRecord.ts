@@ -23,6 +23,19 @@ const isBoundedString = (v: unknown): v is string =>
 const MAX_OWNERS = 20;
 
 /**
+ * Review on a95ca10: some failures never succeed (the row is gone, the profile is gone, the trial has lapsed), and the
+ * banner offers no Discard for this kind. A record older than this is no longer re-armed, so it cannot lock the owner on
+ * this browser indefinitely. Proposed bound, for review.
+ */
+export const UNSETTLED_DISCARD_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
+
+const isFresh = (savedAt: string, now: number): boolean => {
+    const at = Date.parse(savedAt);
+    return Number.isFinite(at) && at <= now + MAX_CLOCK_SKEW_MS && now - at <= UNSETTLED_DISCARD_MAX_AGE_MS;
+};
+
+/**
  * One record per owner, so one account's unsettled discard never overwrites another's on a shared browser. Within an
  * owner there is at most one: Start is refused while that owner's discard is unsettled.
  */
@@ -33,11 +46,13 @@ function readAll(): Record<string, UnsettledDiscardRecord> {
         const parsed: unknown = JSON.parse(raw);
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return Object.create(null);
         const out: Record<string, UnsettledDiscardRecord> = Object.create(null);
+        const now = Date.now();
         for (const [owner, value] of Object.entries(parsed as Record<string, unknown>)) {
             if (!value || typeof value !== 'object') continue;
             const { sessionId, userId, reason, savedAt } = value as Record<string, unknown>;
             if (!isBoundedString(sessionId) || !isBoundedString(userId) || !isBoundedString(reason) || userId !== owner) continue;
-            out[owner] = { sessionId, userId, reason, savedAt: typeof savedAt === 'string' ? savedAt : '' };
+            if (typeof savedAt !== 'string' || !isFresh(savedAt, now)) continue; // expired or undated: dropped on the next write
+            out[owner] = { sessionId, userId, reason, savedAt };
         }
         return out;
     } catch {
@@ -54,12 +69,18 @@ function writeAll(records: Record<string, UnsettledDiscardRecord>): void {
     }
 }
 
-/** Records an unsettled discard for its owner. An ownerless take is never recorded (it could not be re-armed safely). */
+/**
+ * Records an unsettled discard for its owner. An ownerless take is never recorded (it could not be re-armed safely). An
+ * owner's existing record for ANOTHER row is kept, not overwritten (review on a95ca10): it is the older obligation, and
+ * Start is normally refused while it is unsettled.
+ */
 export function saveUnsettledDiscardRecord(record: { sessionId: string; userId: string | null; reason: string }): void {
     const { sessionId, userId, reason } = record;
     if (!isBoundedString(userId) || !isBoundedString(sessionId) || !isBoundedString(reason)) return;
     const records = readAll();
-    if (!Object.prototype.hasOwnProperty.call(records, userId) && Object.keys(records).length >= MAX_OWNERS) return;
+    const existing = Object.prototype.hasOwnProperty.call(records, userId) ? records[userId] : undefined;
+    if (existing && existing.sessionId !== sessionId) return;
+    if (!existing && Object.keys(records).length >= MAX_OWNERS) return;
     records[userId] = { sessionId, userId, reason, savedAt: new Date().toISOString() };
     writeAll(records);
 }
