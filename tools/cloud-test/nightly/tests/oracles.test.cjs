@@ -1,5 +1,6 @@
 "use strict";
 // Nightly AHT suite: the new rows' oracles. Each one passes the healthy behaviour and fails the broken one.
+const assert = require('node:assert/strict');
 const { createHash } = require('node:crypto');
 const { describe, it } = require('node:test');
 const { expect } = require('./expect-lite.cjs');
@@ -43,15 +44,21 @@ describe('trial-length-thirty-days', () => {
     });
 });
 describe('ending a run-owned trial (canary-tagged, fail closed)', () => {
+    const BINDING = Object.freeze({
+        repository: 'relativityE/speaksharp', workflow: 'relativityE/speaksharp/.github/workflows/rc-gates.yml@refs/heads/main',
+        runId: '43600000001', runAttempt: '1', role: 'rwt-journey',
+    });
     const ports = (o = {}) => {
         const writes = [];
+        const meta = { canary: 'canary' in o ? o.canary : true, ...('ctRun' in o ? (o.ctRun === undefined ? {} : { ct_run: o.ctRun }) : { ct_run: { ...BINDING } }) };
+        if (meta.canary === undefined) delete meta.canary;
         const p = {
-            getUser: async () => ({ email: o.email ?? 'rwt-journey-abc@example.test', appMetadata: 'canary' in o ? { canary: o.canary } : { canary: true } }),
+            getUser: async () => ({ email: o.email ?? 'rwt-journey-abc@example.test', appMetadata: meta }),
             setTrialExpiresAt: async (uid, at) => { writes.push({ uid, at }); return { updatedIds: o.updated ?? [uid] }; },
         };
         return { p, writes };
     };
-    const req = { uid: UID, email: 'rwt-journey-abc@example.test', runPrefix: 'rwt-journey-', ackGranted: true, nowMs: T0 };
+    const req = { uid: UID, email: 'rwt-journey-abc@example.test', runPrefix: 'rwt-journey-', ackGranted: true, nowMs: T0, runBinding: { ...BINDING } };
     it('ends the trial of a tagged run-owned account, in the past, on that account only', async () => {
         const { p, writes } = ports();
         await expect(endRunOwnedTrial(p, req)).resolves.toEqual({ expiresAt: new Date(T0 - ENDED_AGO_MS).toISOString() });
@@ -75,6 +82,38 @@ describe('ending a run-owned trial (canary-tagged, fail closed)', () => {
     it('fails closed when the write touched no row, another row, or more than one', async () => {
         for (const updated of [[], [OTHER], [UID, OTHER]]) {
             await expect(endRunOwnedTrial(ports({ updated }).p, req)).rejects.toBeInstanceOf(TrialEndRefused);
+        }
+    });
+    // Codex P1 on 4abcb42f: the shared prefix and the canary claim also match another interrupted run's account; only the
+    // server-written ct_run binding, equal to this run's, proves ownership.
+    it('writes nothing to a tagged account of ANOTHER run, or one whose ownership is unproven', async () => {
+        const accountSide = [
+            ['another run', { ...BINDING, runId: '43600000002' }],
+            ['another attempt of this run', { ...BINDING, runAttempt: '2' }],
+            ['another workflow', { ...BINDING, workflow: 'relativityE/speaksharp/.github/workflows/cloud-test-live.yml@refs/heads/main' }],
+            ['another role', { ...BINDING, role: 'canary' }],
+            ['an extra key', { ...BINDING, extra: 'x' }],
+            ['a missing key', (({ role, ...rest }) => rest)(BINDING)],
+            ['no binding at all', undefined],
+            ['a non-object binding', 'relativityE/speaksharp'],
+        ];
+        const refusal = async (promise) => { try { await promise; return null; } catch (e) { return e; } };
+        for (const [label, ctRun] of accountSide) {
+            const { p, writes } = ports({ ctRun });
+            const err = await refusal(endRunOwnedTrial(p, req));
+            assert.ok(err instanceof TrialEndRefused && /not bound to this run/.test(err.message), `${label}: ${err}`);
+            assert.deepStrictEqual(writes, [], label);
+        }
+        const runSide = [
+            ['a local run (no binding)', null],
+            ['an unusable binding', { ...BINDING, runId: '0' }],
+            ['a binding with an extra key', { ...BINDING, extra: 'x' }],
+        ];
+        for (const [label, runBinding] of runSide) {
+            const { p, writes } = ports();
+            const err = await refusal(endRunOwnedTrial(p, { ...req, runBinding }));
+            assert.ok(err instanceof TrialEndRefused && /no usable run binding/.test(err.message), `${label}: ${err}`);
+            assert.deepStrictEqual(writes, [], label);
         }
     });
 });

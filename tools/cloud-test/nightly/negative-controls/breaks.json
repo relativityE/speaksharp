@@ -990,8 +990,8 @@
       "id": "P6-evidence-exhausted-complete",
       "guards": "a cleanup reserve that ran out leaves cleanup incomplete",
       "file": "cleanup-evidence.cjs",
-      "find": "checked.filter((j) => j.reserveExhausted || j.left.length > 0",
-      "replace": "checked.filter((j) => j.left.length > 0",
+      "find": "    if (j.reserveExhausted)\n        reasons.push('cleanup reserve exhausted');\n",
+      "replace": "",
       "test": "tests/cleanup.test.cjs"
     },
     {
@@ -1281,6 +1281,70 @@
       "find": "    return cases.size + caseless.size;\n}\n\nconst CLEANUP_REQUEST_DEADLINE_S",
       "replace": "    return cases.size;\n}\n\nconst CLEANUP_REQUEST_DEADLINE_S",
       "test": "tests/cleanup.test.cjs"
+    },
+    {
+      "id": "P9-evidence-unverified-complete",
+      "guards": "cleanup with no residue verification stays incomplete (Codex P1 4abcb42f)",
+      "file": "cleanup-evidence.cjs",
+      "find": "        reasons.push('no residue verification recorded');\n",
+      "replace": "",
+      "test": "tests/cleanup.test.cjs"
+    },
+    {
+      "id": "P9-evidence-residue-ignored",
+      "guards": "a residue query that found a leftover keeps cleanup incomplete",
+      "file": "cleanup-evidence.cjs",
+      "find": "            else if (q.count !== 0)\n",
+      "replace": "            else if (false)\n",
+      "test": "tests/cleanup.test.cjs"
+    },
+    {
+      "id": "P9-evidence-unobserved-count",
+      "guards": "an unobserved residue count is never read as zero",
+      "file": "cleanup-evidence.cjs",
+      "find": "            if (!isCount(q.count))\n",
+      "replace": "            if (false)\n",
+      "test": "tests/cleanup.test.cjs"
+    },
+    {
+      "id": "P9-evidence-unqueried-kind",
+      "guards": "every resource kind cleaned up needs its own residue query",
+      "file": "cleanup-evidence.cjs",
+      "find": "                reasons.push(`no residue query for ${kind}`);\n",
+      "replace": "                void kind;\n",
+      "test": "tests/cleanup.test.cjs"
+    },
+    {
+      "id": "P9-evidence-nothing-created-contradicted",
+      "guards": "a nothing-created claim contradicted by recorded steps stays incomplete",
+      "file": "cleanup-evidence.cjs",
+      "find": "            reasons.push('nothing-created claimed, but cleanup steps or leftovers were recorded');\n",
+      "replace": "            void 0;\n",
+      "test": "tests/cleanup.test.cjs"
+    },
+    {
+      "id": "P9-trial-end-foreign-run",
+      "guards": "the trial-end write refuses an account bound to another run (Codex P1 4abcb42f)",
+      "file": "oracles/canary-trial-end.cjs",
+      "find": "    if (!sameBinding(user.appMetadata.ct_run, req.runBinding))\n",
+      "replace": "    if (false)\n",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P9-trial-end-unbound-run",
+      "guards": "the trial-end write refuses a run with no usable binding",
+      "file": "oracles/canary-trial-end.cjs",
+      "find": "    if (!isBinding(req.runBinding))\n",
+      "replace": "    if (false)\n",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P9-trial-end-loose-binding",
+      "guards": "the run binding must match exactly: no extra or missing key",
+      "file": "oracles/canary-trial-end.cjs",
+      "find": "    && Object.keys(b).length === Object.keys(BINDING_SHAPE).length\n",
+      "replace": "",
+      "test": "tests/oracles.test.cjs"
     }
   ]
 }

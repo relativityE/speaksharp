@@ -1,6 +1,7 @@
 "use strict";
 // Nightly AHT suite: the cleanup reserve is the structural worst case of the cleanup code as it is, and a run that
 // leaves anything behind, or is killed before it can say, keeps the next run out until it is recovered.
+const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -93,8 +94,55 @@ describe('cleanup reserve: structural worst case, read from the cleanup code', (
 
 describe('durable cleanup evidence and admission', () => {
     const dir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'nightly-evidence-'));
-    const clean = (journey) => ({ journey, reserveExhausted: false, steps: [{ kind: 'account', ref: `acct-${journey}`, action: 'delete', outcome: 'done' }], left: [] });
+    const zero = (journey, kinds = ['account']) => ({ kind: 'zero-residue', queries: kinds.map((kind) => ({ kind, scope: `run-1:${journey}`, count: 0 })) });
+    const clean = (journey) => ({ journey, reserveExhausted: false, steps: [{ kind: 'account', ref: `acct-${journey}`, action: 'delete', outcome: 'done' }], left: [], verification: zero(journey) });
     const BUDGET = { cleanupExhausted: () => false };
+    // Codex P1 on 4abcb42f: an attempt is not proof. Cleanup is complete only with an observed, scoped zero-residue
+    // verification, or a verified "nothing created" record; missing or contradictory evidence keeps admission closed.
+    it('never admits after evidence with no residue verification: the finding\'s reproduction (J6, no steps, nothing left)', () => {
+        const d = dir();
+        beginRun(d, 'run-1', ['J6']);
+        const doc = writeCleanupEvidence(d, 'run-1', [{ journey: 'J6', reserveExhausted: false, steps: [], left: [] }], BUDGET);
+        expect(doc.cleanup).toBe('incomplete');
+        expect(doc.incompleteReasons.J6).toEqual(['no residue verification recorded']);
+        expect(admitRun(d).admitted).toBe(false);
+    });
+    it('keeps cleanup incomplete for every unproven verification', () => {
+        const unproven = [
+            ['deleted, but never verified', { ...clean('J6'), verification: undefined }, 'no residue verification recorded'],
+            ['a residue query found a leftover', { ...clean('J6'), verification: { kind: 'zero-residue', queries: [{ kind: 'account', scope: 'run-1:J6', count: 1 }] } }, 'found 1'],
+            ['a count that was not observed', { ...clean('J6'), verification: { kind: 'zero-residue', queries: [{ kind: 'account', scope: 'run-1:J6', count: -1 }] } }, 'was not observed'],
+            ['a count that was never read', { ...clean('J6'), verification: { kind: 'zero-residue', queries: [{ kind: 'account', scope: 'run-1:J6' }] } }, 'was not observed'],
+            ['a fractional count', { ...clean('J6'), verification: { kind: 'zero-residue', queries: [{ kind: 'account', scope: 'run-1:J6', count: 0.5 }] } }, 'was not observed'],
+            ['no query at all', { ...clean('J6'), verification: { kind: 'zero-residue', queries: [] } }, 'ran no query'],
+            ['a cleaned kind left unqueried', { ...clean('J6'), steps: [...clean('J6').steps, { kind: 'feedback-fence', ref: 'fence-1', action: 'clean', outcome: 'done' }] }, 'no residue query for feedback-fence'],
+            ['nothing-created, contradicted by a step', { ...clean('J6'), verification: { kind: 'nothing-created' } }, 'nothing-created claimed'],
+        ];
+        for (const [label, j, reason] of unproven) {
+            const d = dir();
+            beginRun(d, 'run-1', ['J1', 'J6']);
+            const doc = writeCleanupEvidence(d, 'run-1', [clean('J1'), j], BUDGET);
+            assert.deepStrictEqual(doc.incompleteJourneys, ['J6'], label);
+            assert.ok((doc.incompleteReasons.J6 ?? []).some((r) => r.includes(reason)), `${label}: ${JSON.stringify(doc.incompleteReasons)}`);
+            assert.strictEqual(admitRun(d).admitted, false, label);
+        }
+    });
+    it('admits after a verified zero-residue cleanup or a verified nothing-created journey', () => {
+        const d = dir();
+        beginRun(d, 'run-1', ['J1', 'J6']);
+        const fenced = { ...clean('J1'), steps: [...clean('J1').steps, { kind: 'feedback-fence', ref: 'fence-1', action: 'clean', outcome: 'done' }], verification: zero('J1', ['account', 'feedback-fence']) };
+        const doc = writeCleanupEvidence(d, 'run-1', [fenced, { journey: 'J6', reserveExhausted: false, steps: [], left: [], verification: { kind: 'nothing-created' } }], BUDGET);
+        expect(doc.cleanup).toBe('complete');
+        expect(admitRun(d).admitted).toBe(true);
+    });
+    it('refuses to write a malformed verification rather than read it as proof', () => {
+        for (const verification of [null, 'verified', { kind: 'trust-me' }, { kind: 'zero-residue' }, { kind: 'zero-residue', queries: [{ kind: 'user', scope: 'run-1', count: 0 }] }, { kind: 'zero-residue', queries: [{ kind: 'account', scope: 'someone@example.com', count: 0 }] }]) {
+            const d = dir();
+            beginRun(d, 'run-1', ['J6']);
+            assert.throws(() => writeCleanupEvidence(d, 'run-1', [{ ...clean('J6'), verification }], BUDGET), /malformed/, JSON.stringify(verification));
+            assert.strictEqual(admitRun(d).admitted, false);
+        }
+    });
     it('admits the first run, and the next after a complete cleanup', () => {
         const d = dir();
         expect(admitRun(d).admitted).toBe(true);
