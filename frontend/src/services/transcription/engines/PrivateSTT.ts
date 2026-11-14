@@ -221,6 +221,8 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     /** Init owns these before adoption; teardown must reach their acquisition cancellation now. */
     private readonly acquiringEngines = new Set<IPrivateSTTEngine>();
     private readonly engineReleases = new WeakMap<IPrivateSTTEngine, EngineLifetime>();
+    /** #1858: the children the most recent teardown released (see reportCancelledAcquisition). */
+    private teardownChildren: IPrivateSTTEngine[] = [];
     // True ONLY when the AUTO (flag) path successfully initialized v4. Gates the
     // decode-time fallback to v2-base; the strict explicit-override path never sets it.
 
@@ -763,8 +765,10 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         const engineType = this._engineType;
         this.engine = null;
         this._engineType = null;
-        const failures = await Promise.all([...new Set([...acquiring, ...(engine ? [engine] : [])])]
-            .map(child => this.releaseEngine(child)));
+        const children = [...new Set([...acquiring, ...(engine ? [engine] : [])])];
+        // #1858: a cancelled acquisition's report also waits on these children's own deferred releases.
+        this.teardownChildren = children;
+        const failures = await Promise.all(children.map(child => this.releaseEngine(child)));
         const failure = failures.find(value => value !== null);
         if (failure) {
             // The shared teardown rejects, so public destroy() and every concurrent waiter see it.
@@ -820,7 +824,8 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
      * #1858: a cancelled acquisition is reported only once the teardown that cancelled it has settled, because only that
      * teardown knows whether the engine was released. The cancelling init cannot rely on anyone else to surface a failed
      * release — TranscriptionService.destroy logs and swallows the teardown's rejection — so:
-     *   - teardown settled, every release confirmed   → `private_model_acquisition_cancelled` (a lifecycle outcome);
+     *   - teardown settled and every release confirmed, including each released child's deferred disposal
+     *                                                  → `private_model_acquisition_cancelled` (a lifecycle outcome);
      *   - teardown rejected / a release failure retained → `private_model_acquisition_failure{release_uncertain}`;
      *   - teardown still unsettled after the bound       → `private_model_acquisition_failure{release_uncertain}`.
      * Exactly one event per acquisition. Non-blocking: the init returns its outcome immediately; the teardown never
@@ -834,7 +839,18 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             recordAcquisitionFailure(subject, cacheResult, 'release_uncertain', totalMs);
         };
         const bound = setTimeout(uncertain, CANCELLED_RELEASE_SETTLE_BOUND_MS);
-        void this.teardownReleaseOutcome().then(
+        // The facade's teardown, then each released child's own outcome: a child may dispose its pipeline only after an
+        // in-flight warm-up settles (Codex P2 on 703aa9d5), which the facade's teardown does not wait for.
+        const settled = async (): Promise<Error | null> => {
+            const own = await this.teardownReleaseOutcome();
+            if (own) return own;
+            for (const child of this.teardownChildren) {
+                const outcome = await (child as { teardownReleaseOutcome?: () => Promise<Error | null> }).teardownReleaseOutcome?.();
+                if (outcome) return outcome;
+            }
+            return null;
+        };
+        void settled().then(
             failure => {
                 clearTimeout(bound);
                 if (failure) return uncertain();

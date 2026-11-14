@@ -96,6 +96,21 @@ export function isInitCancelledError(err: unknown): boolean {
   return err instanceof Error && err.name === 'InitCancelledError';
 }
 
+/**
+ * #1858 (Codex P2 on 703aa9d5): the rejection a teardown hands to a still-pending worker request ("worker destroyed").
+ * Typed so a superseded load can tell its own teardown apart from a genuine worker fault, which stays a failure.
+ */
+export class TeardownRejectionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'TeardownRejectionError';
+  }
+}
+
+export function isTeardownRejection(err: unknown): boolean {
+  return err instanceof Error && err.name === 'TeardownRejectionError';
+}
+
 export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngine {
 
   public abstract readonly type: EngineType;
@@ -127,6 +142,11 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
    * that needs the engine back must create a new one. A genuinely successful teardown never sets it.
    */
   private teardownFailure: Error | null = null;
+  /**
+   * #1858: releases a teardown started but deliberately did not wait for (e.g. a pipeline disposed only after an in-flight
+   * warm-up settles). A failure is retained like any failed release; `teardownReleaseOutcome` waits for every one.
+   */
+  private readonly deferredReleases = new Set<Promise<void>>();
 
   protected options: TranscriptionModeOptions | EngineCallbacks = {};
 
@@ -302,7 +322,7 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
    * An init cancelled by destroy/terminate cannot see its engine's release from inside its own continuation: callers
    * (e.g. TranscriptionService.destroy) may swallow the teardown's rejection, so the init must observe it here.
    */
-  protected async teardownReleaseOutcome(): Promise<Error | null> {
+  public async teardownReleaseOutcome(): Promise<Error | null> {
     const teardown = this.teardownInFlight ?? this.lastTeardown;
     if (teardown) {
       try {
@@ -311,7 +331,18 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
         return this.teardownFailure ?? (error instanceof Error ? error : new Error(String(error)));
       }
     }
+    // A release the teardown deferred is still this teardown's release: its outcome is known only once it settles.
+    await Promise.allSettled([...this.deferredReleases]);
     return this.teardownFailure;
+  }
+
+  /** #1858: run a release the teardown does not wait for; a failure is retained (sticky) instead of being logged away. */
+  protected deferRelease(release: () => Promise<void>): void {
+    const settled: Promise<void> = release().then(
+      () => undefined,
+      (error: unknown) => { this.recordReleaseFailure(error instanceof Error ? error : new Error(String(error))); },
+    ).finally(() => { this.deferredReleases.delete(settled); });
+    this.deferredReleases.add(settled);
   }
 
   /**

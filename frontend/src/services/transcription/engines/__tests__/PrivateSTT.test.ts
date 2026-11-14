@@ -587,6 +587,29 @@ describe('PrivateSTT (Routing Logic)', () => {
             expect(events.map((e) => e.name)).toEqual(['private_model_acquisition_start', 'private_model_acquisition_failure']);
             expect(events[1]).toMatchObject({ outcome: 'failure', error_code: 'release_uncertain' });
         });
+        it('#1858 (Codex P2 on 703aa9d5): a released child whose deferred disposal FAILS turns the cancel into failure{release_uncertain}', async () => {
+            const telemetry = await import('../../modelAcquisitionTelemetry');
+            telemetry.__resetAcquisitionTelemetry();
+            telemetryPushed.length = 0;
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+            const pending = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            // The facade's own teardown succeeds; only the child knows its pipeline's disposal (deferred behind a run) failed.
+            let failDeferred!: (error: Error) => void;
+            vi.spyOn(created[0] as unknown as { teardownReleaseOutcome: () => Promise<Error | null> }, 'teardownReleaseOutcome')
+                .mockImplementation(() => new Promise(resolve => { failDeferred = resolve; }));
+            await pstt.destroy();
+            gates[0](Result.ok(undefined));
+            expect((await pending).isOk).toBe(false);
+            await vi.waitFor(() => expect(failDeferred).toBeTypeOf('function'));
+            expect((await acquisitionEvents()).map((e) => e.name)).toEqual(['private_model_acquisition_start']); // still waiting
+            failDeferred(new Error('[TransformersJS] disposing the main-thread pipeline at teardown FAILED (release uncertain): x'));
+            await vi.waitFor(async () => expect((await acquisitionEvents()).length).toBe(2));
+            const events = await acquisitionEvents();
+            expect(events.map((e) => e.name)).toEqual(['private_model_acquisition_start', 'private_model_acquisition_failure']);
+            expect(events[1]).toMatchObject({ outcome: 'failure', error_code: 'release_uncertain' });
+        });
         it('NEGATIVE: a load that genuinely fails (not a teardown) still emits a failure', async () => {
             const telemetry = await import('../../modelAcquisitionTelemetry');
             telemetry.__resetAcquisitionTelemetry();

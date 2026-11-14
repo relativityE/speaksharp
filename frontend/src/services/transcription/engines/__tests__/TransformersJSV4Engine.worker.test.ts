@@ -40,7 +40,8 @@ vi.mock('@xenova/transformers', () => ({
 vi.mock('../../capabilitySnapshot', () => ({ captureCapabilities: vi.fn(async () => Object.freeze({ webgpuAvailable: true, capturedAt: '2026-10-30T00:00:00Z', reason: 'detected' })) }));
 vi.mock('posthog-js', () => ({ default: { isFeatureEnabled: vi.fn() } }));
 
-type FakeWorkerMode = 'ready' | 'silent' | 'transcribe-result' | 'transcribe-error';
+// 'init-silent': the model load never answers, but destroy does (a load still pending when the page tears down).
+type FakeWorkerMode = 'ready' | 'silent' | 'init-silent' | 'transcribe-result' | 'transcribe-error';
 
 let fakeWorkerMode: FakeWorkerMode = 'ready';
 // When set, the fake worker emits a 'loaded' message (carrying this resolved device) before 'ready',
@@ -54,6 +55,7 @@ class FakeWorker {
     onerror: ((event: ErrorEvent) => void) | null = null;
     postMessage = vi.fn((message: { id: number; type: string; model?: string; device?: string; decodeOptions?: unknown }) => {
         if (fakeWorkerMode === 'silent') return;
+        if (fakeWorkerMode === 'init-silent' && message.type === 'init') return;
 
         queueMicrotask(() => {
             if (message.type === 'transcribe' && fakeWorkerMode === 'transcribe-result') {
@@ -511,6 +513,85 @@ describe('TransformersJSV4Engine worker message contract', () => {
         });
     });
 
+    // #1858 (Codex P2s on 703aa9d5, confirmed by Sam). (1) A teardown rejects a still-pending worker load ("worker destroyed");
+    // the superseded catch returned it unchanged, so a clean leave reported `unknown`. Only that typed teardown rejection is a
+    // cancellation; a genuine worker fault after the teardown stays a failure. (2) A pipeline whose disposal the teardown
+    // deferred behind an in-flight run was disposed in the background and a failure only logged.
+    describe('#1858 worker teardown rejection and deferred disposal (v2 and v4)', () => {
+        const engines = [
+            { label: 'v4', load: async () => (await import('../TransformersJSV4Engine')).TransformersJSV4Engine, mock: () => mockPipeline },
+            { label: 'v2', load: async () => (await import('../TransformersJSEngine')).TransformersJSEngine, mock: () => mockXenovaPipeline },
+        ] as const;
+        type WorkerRequest = (message: { type: string }, ...rest: unknown[]) => Promise<unknown>;
+
+        it.each(engines)('$label: a load pending in the worker when the teardown lands is a typed cancellation, not a failure', async ({ load }) => {
+            const { isInitCancelledError } = await import('@/contracts/STTEngine');
+            fakeWorkerMode = 'init-silent';
+            const Engine = await load();
+            const engine = new Engine({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() });
+            const pending = engine.init();
+            await vi.waitFor(() => expect(fakeWorkerInstances[fakeWorkerInstances.length - 1]?.postMessage)
+                .toHaveBeenCalledWith(expect.objectContaining({ type: 'init' }), expect.anything()));
+            await engine.destroy(); // rejects the pending load with the teardown's own "worker destroyed"
+            const result = await pending;
+            expect(result.isOk).toBe(false);
+            expect(isInitCancelledError(result.isOk ? null : result.error)).toBe(true);
+            expect(await engine.teardownReleaseOutcome()).toBeNull();
+        });
+
+        it.each(engines)('$label: NEGATIVE — a genuine worker fault that arrives after the teardown stays an ordinary failure', async ({ load }) => {
+            const { isInitCancelledError } = await import('@/contracts/STTEngine');
+            const Engine = await load();
+            const engine = new Engine({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() });
+            const internals = engine as unknown as { sendWorkerRequest: WorkerRequest };
+            const original = internals.sendWorkerRequest.bind(engine);
+            let crash!: (error: Error) => void;
+            vi.spyOn(internals, 'sendWorkerRequest').mockImplementation((message, ...rest) => (message.type === 'init'
+                ? new Promise((_resolve, reject) => { crash = reject; })
+                : original(message, ...rest)));
+            const pending = engine.init();
+            await vi.waitFor(() => expect(crash).toBeTypeOf('function'));
+            await engine.destroy();
+            crash(new Error('worker crashed: out of memory'));
+            const result = await pending;
+            expect(result.isOk).toBe(false);
+            expect(isInitCancelledError(result.isOk ? null : result.error)).toBe(false);
+            expect(result.isOk ? '' : result.error.message).toBe('worker crashed: out of memory');
+        });
+
+        it.each(engines.flatMap(engine => [{ ...engine, dispose: 'rejects' as const }, { ...engine, dispose: 'resolves' as const }]))(
+            '$label: a disposal deferred behind an in-flight run that $dispose is awaited and its failure retained', async ({ load, mock, dispose }) => {
+            (globalThis as { Worker?: unknown }).Worker = undefined;
+            const Engine = await load();
+            const published = Object.assign(vi.fn(async () => ({ text: '' })), {
+                dispose: vi.fn(dispose === 'rejects' ? async () => { throw new Error('dispose rejected'); } : async () => undefined),
+            });
+            mock().mockResolvedValueOnce(published);
+            const engine = new Engine({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() });
+            expect((await engine.init()).isOk).toBe(true);
+            let finishRun!: () => void;
+            published.mockImplementationOnce(() => new Promise(resolve => { finishRun = () => resolve({ text: '' }); }));
+            const running = engine.transcribe(new Float32Array(16000));
+            await vi.waitFor(() => expect(finishRun).toBeTypeOf('function'));
+            await engine.destroy(); // the teardown defers the disposal behind the in-flight run
+            expect(published.dispose).not.toHaveBeenCalled();
+            let outcome: Error | null | undefined;
+            const observing = engine.teardownReleaseOutcome().then(value => { outcome = value; });
+            for (let i = 0; i < 20; i += 1) await Promise.resolve();
+            expect(outcome).toBeUndefined(); // not known until the deferred disposal settles
+            finishRun();
+            await running;
+            await observing;
+            expect(published.dispose).toHaveBeenCalledTimes(1);
+            expect(outcome === null).toBe(dispose === 'resolves');
+            expect(String(outcome?.message).includes('FAILED (release uncertain): dispose rejected')).toBe(dispose === 'rejects');
+            mock().mockResolvedValueOnce(Object.assign(vi.fn(async () => ({ text: '' })), { dispose: vi.fn(async () => undefined) }));
+            // Retained only on failure: an uncertain release refuses the next lifetime; a clean one allows it.
+            expect((await engine.init()).isOk).toBe(dispose === 'resolves');
+            await engine.destroy().catch(() => undefined);
+        });
+    });
+
     // The same fence on the v2 (Xenova) main-thread engine, which happy-dom always runs on the main thread.
     describe('v2 main-thread pipeline completing after teardown', () => {
         const latePipeline = () => Object.assign(vi.fn(async () => ({ text: '' })), { dispose: vi.fn(async () => undefined) });
@@ -778,7 +859,10 @@ describe('TransformersJSV4Engine worker message contract', () => {
             });
 
             // App-developer review of 12552563 (P3): teardown released the published main-thread pipeline by dropping the reference only.
-            it(`${name}: teardown disposes the published main-thread pipeline, and a failing dispose does not fail teardown`, async () => {
+            // #1858 (Codex P2 on 703aa9d5) supersedes the earlier "a failing dispose does not fail teardown": a failed dispose is a
+            // failed release, reported as uncertain (as #1476 did for engine termination) and retained on THIS instance. Production
+            // builds a new engine per acquisition (PrivateSTT), so the retention never blocks a later acquisition.
+            it(`${name}: teardown disposes the published main-thread pipeline, and a failing dispose is an uncertain, retained release`, async () => {
                 const { TransformersJSEngine } = await import('../TransformersJSEngine');
                 const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
                 const Ctor = (name === 'v2' ? TransformersJSEngine : TransformersJSV4Engine) as unknown as new (o: unknown) => Engine;
@@ -792,11 +876,11 @@ describe('TransformersJSV4Engine worker message contract', () => {
                 const failing = Object.assign(vi.fn(async () => ({ text: '' })), { dispose: vi.fn(async () => { throw new Error('dispose failed'); }) });
                 mock.mockResolvedValueOnce(failing);
                 expect((await engine.init()).isOk).toBe(true);
-                await expect(engine.destroy()).resolves.toBeUndefined();
+                await expect(engine.destroy()).rejects.toThrow(/FAILED \(release uncertain\): dispose failed/);
                 expect(failing.dispose).toHaveBeenCalledTimes(1);
-                mock.mockResolvedValueOnce(pipe());
-                expect((await engine.init()).isOk).toBe(true); // a failed dispose leaves no sticky teardown failure
-                await engine.destroy();
+                const again = await engine.init(); // retained: this instance's release is uncertain
+                expect(again.isOk).toBe(false);
+                expect((again as { error?: Error }).error?.message ?? '').toMatch(/release uncertain/);
             });
 
             // Independent review of c8b04e5f: disposing at teardown must not release the session under a run still using it.
