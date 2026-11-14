@@ -9,6 +9,7 @@ import { accessSync, constants, mkdtempSync, mkdirSync, readFileSync, realpathSy
 import { tmpdir } from 'node:os';
 import { delimiter, isAbsolute, join, resolve } from 'node:path';
 import process from 'node:process';
+import console from 'node:console';
 
 const CHAIN = [
   '20260605080000_user_issue_reports.sql',
@@ -48,7 +49,12 @@ test('feedback fence exact pre/postflight over the real report chain', async (t)
   let receiptIndex = 0;
   const run = (mode, receipt) => spawnSync(process.execPath, [cli, mode, '20261114100000', receipt], { env, encoding: 'utf8', timeout: 60000 });
   const freshReceipt = () => join(root, `receipt-${++receiptIndex}.json`);
-  const ok = (result) => { assert.equal(result.status, 0, result.stderr); return JSON.parse(result.stdout.trim().split('\n').at(-1)); };
+  // Sam (#1859): a refusal's reason reaches the evidence log too (the native reporter omits assertion messages).
+  const ok = (result) => {
+    if (result.status !== 0) console.log(`feedback fence postflight refused: ${result.stderr.trim()}`);
+    assert.equal(result.status, 0, result.stderr);
+    return JSON.parse(result.stdout.trim().split('\n').at(-1));
+  };
   const refused = (result, pattern) => { assert.notEqual(result.status, 0); assert.match(result.stderr, pattern); };
   let started = false;
   try {
@@ -65,6 +71,8 @@ test('feedback fence exact pre/postflight over the real report chain', async (t)
       CREATE SCHEMA supabase_migrations; CREATE TABLE supabase_migrations.schema_migrations(version text PRIMARY KEY);
       INSERT INTO supabase_migrations.schema_migrations VALUES ('20261110173548'),('20261112133000');`);
     for (const file of CHAIN) sql(readFileSync(file, 'utf8'));
+    // Sam (#1859): the server version is recorded, so a version-specific catalog difference is verified, never inferred.
+    console.log(`feedback fence postflight proof: PostgreSQL ${sql('SHOW server_version;')}`);
 
     let before;
     await t.test('before: target absent, prerequisite applied, withheld pending; records the report triggers', () => {
@@ -161,7 +169,7 @@ test('feedback fence exact pre/postflight over the real report chain', async (t)
       ok(run('after', before));
     });
 
-    await t.test('after refuses a changed table structure: the owner uniqueness dropped, a CHECK dropped, a default changed (Codex P2 on 5d8070ad)', () => {
+    await t.test('after refuses a changed table structure: uniqueness dropped/deferrable/partial/widened, a CHECK dropped/changed/NOT VALID, a default changed', () => {
       for (const [change, restore] of [
         ['ALTER TABLE public.rwt_feedback_fences DROP CONSTRAINT rwt_feedback_fences_owner_uid_key',
           'ALTER TABLE public.rwt_feedback_fences ADD CONSTRAINT rwt_feedback_fences_owner_uid_key UNIQUE (owner_uid)'],
@@ -169,6 +177,37 @@ test('feedback fence exact pre/postflight over the real report chain', async (t)
           'ALTER TABLE public.rwt_feedback_fences ADD CONSTRAINT rwt_feedback_fences_key_cap_check CHECK (key_cap BETWEEN 1 AND 8)'],
         ["ALTER TABLE public.rwt_feedback_fences ALTER COLUMN state SET DEFAULT 'closed'",
           "ALTER TABLE public.rwt_feedback_fences ALTER COLUMN state SET DEFAULT 'open'"],
+        // Sam (#1859, 10:28): semantics that a looser comparison would miss.
+        // the owner uniqueness made DEFERRABLE (no longer enforced at each insert);
+        ['ALTER TABLE public.rwt_feedback_fences DROP CONSTRAINT rwt_feedback_fences_owner_uid_key; ALTER TABLE public.rwt_feedback_fences ADD CONSTRAINT rwt_feedback_fences_owner_uid_key UNIQUE (owner_uid) DEFERRABLE INITIALLY DEFERRED',
+          'ALTER TABLE public.rwt_feedback_fences DROP CONSTRAINT rwt_feedback_fences_owner_uid_key; ALTER TABLE public.rwt_feedback_fences ADD CONSTRAINT rwt_feedback_fences_owner_uid_key UNIQUE (owner_uid)'],
+        // the owner uniqueness replaced by a PARTIAL unique index (a predicate) of the same name and column;
+        ["ALTER TABLE public.rwt_feedback_fences DROP CONSTRAINT rwt_feedback_fences_owner_uid_key; CREATE UNIQUE INDEX rwt_feedback_fences_owner_uid_key ON public.rwt_feedback_fences (owner_uid) WHERE state = 'open'",
+          'DROP INDEX public.rwt_feedback_fences_owner_uid_key; ALTER TABLE public.rwt_feedback_fences ADD CONSTRAINT rwt_feedback_fences_owner_uid_key UNIQUE (owner_uid)'],
+        // the owner uniqueness widened to a composite key (different ordered key columns);
+        ['ALTER TABLE public.rwt_feedback_fences DROP CONSTRAINT rwt_feedback_fences_owner_uid_key; ALTER TABLE public.rwt_feedback_fences ADD CONSTRAINT rwt_feedback_fences_owner_uid_key UNIQUE (owner_uid, run_key)',
+          'ALTER TABLE public.rwt_feedback_fences DROP CONSTRAINT rwt_feedback_fences_owner_uid_key; ALTER TABLE public.rwt_feedback_fences ADD CONSTRAINT rwt_feedback_fences_owner_uid_key UNIQUE (owner_uid)'],
+        // a CHECK with the same name but different semantics (cap 9), and the right CHECK re-added NOT VALID.
+        ['ALTER TABLE public.rwt_feedback_fences DROP CONSTRAINT rwt_feedback_fences_key_cap_check; ALTER TABLE public.rwt_feedback_fences ADD CONSTRAINT rwt_feedback_fences_key_cap_check CHECK (key_cap BETWEEN 1 AND 9)',
+          'ALTER TABLE public.rwt_feedback_fences DROP CONSTRAINT rwt_feedback_fences_key_cap_check; ALTER TABLE public.rwt_feedback_fences ADD CONSTRAINT rwt_feedback_fences_key_cap_check CHECK (key_cap BETWEEN 1 AND 8)'],
+        ['ALTER TABLE public.rwt_feedback_fences DROP CONSTRAINT rwt_feedback_fences_key_cap_check; ALTER TABLE public.rwt_feedback_fences ADD CONSTRAINT rwt_feedback_fences_key_cap_check CHECK (key_cap BETWEEN 1 AND 8) NOT VALID',
+          'ALTER TABLE public.rwt_feedback_fences DROP CONSTRAINT rwt_feedback_fences_key_cap_check; ALTER TABLE public.rwt_feedback_fences ADD CONSTRAINT rwt_feedback_fences_key_cap_check CHECK (key_cap BETWEEN 1 AND 8)'],
+      ]) {
+        sql(change);
+        refused(run('after', before), /table structure differs/);
+        sql(restore);
+      }
+      ok(run('after', before));
+    });
+
+    await t.test('PostgreSQL 18+: a NOT VALID or NO INHERIT not-null is refused (validation state is not lost); earlier servers: NOT RUN', () => {
+      const major = Number(sql('SHOW server_version_num;')) / 10000;
+      if (major < 18) { console.log(`feedback fence postflight proof: NOT RUN on PostgreSQL ${Math.floor(major)} (no NOT VALID not-null)`); return; }
+      for (const [change, restore] of [
+        ['ALTER TABLE public.rwt_feedback_fences ALTER COLUMN key_cap DROP NOT NULL; ALTER TABLE public.rwt_feedback_fences ADD CONSTRAINT key_cap_nn NOT NULL key_cap NOT VALID',
+          'ALTER TABLE public.rwt_feedback_fences DROP CONSTRAINT key_cap_nn; ALTER TABLE public.rwt_feedback_fences ALTER COLUMN key_cap SET NOT NULL'],
+        ['ALTER TABLE public.rwt_feedback_fences ALTER COLUMN key_cap DROP NOT NULL; ALTER TABLE public.rwt_feedback_fences ADD CONSTRAINT key_cap_nn NOT NULL key_cap NO INHERIT',
+          'ALTER TABLE public.rwt_feedback_fences DROP CONSTRAINT key_cap_nn; ALTER TABLE public.rwt_feedback_fences ALTER COLUMN key_cap SET NOT NULL'],
       ]) {
         sql(change);
         refused(run('after', before), /table structure differs/);

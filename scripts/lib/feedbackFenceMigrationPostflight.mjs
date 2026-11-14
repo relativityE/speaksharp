@@ -48,8 +48,8 @@ export const FENCE_TABLE_STRUCTURE = Object.freeze({
       "u UNIQUE (owner_uid)"
     ],
     "indexes": [
-      "CREATE UNIQUE INDEX rwt_feedback_fences_owner_uid_key ON public.rwt_feedback_fences USING btree (owner_uid)",
-      "CREATE UNIQUE INDEX rwt_feedback_fences_pkey ON public.rwt_feedback_fences USING btree (run_key)"
+      "CREATE UNIQUE INDEX rwt_feedback_fences_owner_uid_key ON public.rwt_feedback_fences USING btree (owner_uid) valid=true ready=true live=true",
+      "CREATE UNIQUE INDEX rwt_feedback_fences_pkey ON public.rwt_feedback_fences USING btree (run_key) valid=true ready=true live=true"
     ]
   });
 const literal = value => `'${String(value).replaceAll("'", "''")}'`;
@@ -92,9 +92,14 @@ export function feedbackFenceSnapshotQuery() {
               ||COALESCE(' DEFAULT '||pg_get_expr(d.adbin,d.adrelid),'') ORDER BY a.attnum)
             FROM pg_attribute a LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum
             WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped),
+          -- Exact definitions (deferrability, NOT VALID / NOT ENFORCED, expressions). PostgreSQL 18 also records each NOT NULL as a
+          -- pg_constraint row (contype 'n'). Only the STANDARD form (validated, inheritable) is left out — nullability itself is
+          -- compared per column above. A NOT VALID or NO INHERIT not-null (PG18) stays in and is refused (Sam, #1859, 11:19).
           'constraints',(SELECT json_agg(k.contype::text||' '||pg_get_constraintdef(k.oid) ORDER BY k.contype::text, pg_get_constraintdef(k.oid))
-            FROM pg_constraint k WHERE k.conrelid=c.oid),
-          'indexes',(SELECT json_agg(pg_get_indexdef(i.indexrelid) ORDER BY pg_get_indexdef(i.indexrelid)) FROM pg_index i WHERE i.indrelid=c.oid)))
+            FROM pg_constraint k WHERE k.conrelid=c.oid AND NOT (k.contype = 'n' AND k.convalidated AND NOT k.connoinherit)),
+          -- Exact definitions (method, ordered key columns, expressions, predicate) plus validity, which the definition omits.
+          'indexes',(SELECT json_agg(pg_get_indexdef(i.indexrelid)||' valid='||i.indisvalid::text||' ready='||i.indisready::text
+              ||' live='||i.indislive::text ORDER BY pg_get_indexdef(i.indexrelid)) FROM pg_index i WHERE i.indrelid=c.oid)))
       FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname=${literal(TABLE)}),
       json_build_object('exists',false))::text;`,
     `SELECT COALESCE(json_agg(json_build_object('name',t.tgname,'function',p.pronamespace::regnamespace::text||'.'||p.proname||'('||pg_get_function_identity_arguments(p.oid)||')','type',t.tgtype,'enabled',t.tgenabled::text,
@@ -139,7 +144,14 @@ export function assertFeedbackFenceSnapshot(contract, rows, prior) {
     }
     // Codex P2 on 5d8070ad: the table's STRUCTURE is exact too (columns, defaults, every constraint, every index). Without the
     // owner_uid uniqueness an account could hold two fences, and the trigger would record its reports in only one of them.
-    if (JSON.stringify(table.structure) !== JSON.stringify(FENCE_TABLE_STRUCTURE)) throw new Error('feedback fence table structure differs');
+    if (JSON.stringify(table.structure) !== JSON.stringify(FENCE_TABLE_STRUCTURE)) {
+      // Name exactly what differs (catalog definitions only: no report, account or credential data), so a refusal is diagnosable.
+      const diff = ['columns', 'constraints', 'indexes'].flatMap((part) => {
+        const got = table.structure?.[part] ?? [], want = FENCE_TABLE_STRUCTURE[part];
+        return [...got.filter((x) => !want.includes(x)).map((x) => `+${part}: ${x}`), ...want.filter((x) => !got.includes(x)).map((x) => `-${part}: ${x}`)];
+      });
+      throw new Error(`feedback fence table structure differs (${diff.join(' | ') || 'order'})`);
+    }
     // BEFORE INSERT FOR EACH ROW (tgtype 7 = ROW|BEFORE|INSERT), enabled, calling the exact trigger function, and
     // UNCONDITIONAL: no WHEN predicate, no column list, no arguments (Codex P2 on 881b5c53: a `WHEN (false)` twin would
     // otherwise pass as exact while no insert ever runs the fence).
