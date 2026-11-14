@@ -338,6 +338,19 @@ export function recordAcquisitionFailure(
 }
 
 /**
+ * The load was abandoned by a page teardown (the user left), not failed. A lifecycle outcome: never a failure event,
+ * so a journey that leaves a page mid-load is not read as a model failure (AHT-01/04, 2026-11-14). Content-free.
+ */
+export function recordAcquisitionCancelled(subject: AcquisitionSubject, cacheResult: CacheResult, totalMs: number): void {
+    emit('private_model_acquisition_cancelled', {
+        ...subjectProps(subject),
+        cache_result: cacheResult,
+        total_ms: totalMs,
+        outcome: 'cancelled',
+    });
+}
+
+/**
  * Reduce any thrown value to a bounded code. A raw message may contain an asset URL, a filesystem path,
  * or text the user typed, none of which may enter telemetry.
  */

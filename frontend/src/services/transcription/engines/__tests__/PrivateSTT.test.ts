@@ -20,6 +20,9 @@ import { PRIV_STT_V4_VARIANTS } from '../../sttConstants';
 
 // Mock underlying libraries to avoid resolution errors
 vi.mock('@xenova/transformers', () => ({}));
+// AHT-01/04: the acquisition lifecycle events this facade emits, captured at the analytics boundary.
+const telemetryPushed = vi.hoisted(() => [] as Array<{ name: string; props: Record<string, unknown> }>);
+vi.mock('@/services/AnalyticsBuffer', () => ({ analyticsBuffer: { push: (name: string, props: Record<string, unknown>) => { telemetryPushed.push({ name, props }); } } }));
 
 // Inject dynamic ENV mock to bypass static IIFE in TestFlags.ts
 vi.mock('@/config/TestFlags', async (importOriginal) => {
@@ -468,6 +471,44 @@ describe('PrivateSTT (Routing Logic)', () => {
             });
         });
         afterEach(() => { mockTJInit.mockReset(); mockTJInit.mockResolvedValue({ isOk: true, data: undefined }); });
+
+        // AHT-01 (run 43583228045) / AHT-04 (run 43586395706): leaving a page mid-load reported `failure`/`unknown`, and the
+        // watchdog stopped both journeys. Reproduced on adc70cd2 with this exact harness before the fix.
+        const acquisitionEvents = async () => {
+            const telemetry = await import('../../modelAcquisitionTelemetry');
+            telemetry.markIdentitySettled();
+            return telemetryPushed.filter((e) => e.name.startsWith('private_model_acquisition_'))
+                .map((e) => ({ name: e.name, outcome: e.props.outcome ?? null, error_code: e.props.error_code ?? null }));
+        };
+        it.each(['destroy', 'terminate'] as const)('a %s during the load emits a CANCELLED lifecycle outcome, never a failure', async (teardown) => {
+            const telemetry = await import('../../modelAcquisitionTelemetry');
+            telemetry.__resetAcquisitionTelemetry();
+            telemetryPushed.length = 0;
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+            const pending = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            await pstt[teardown]();
+            gates[0](Result.ok(undefined));
+            expect((await pending).isOk).toBe(false);
+            const events = await acquisitionEvents();
+            expect(events.map((e) => e.name)).toEqual(['private_model_acquisition_start', 'private_model_acquisition_cancelled']);
+            expect(events[1]).toMatchObject({ outcome: 'cancelled', error_code: null });
+        });
+        it('NEGATIVE: a load that genuinely fails (not a teardown) still emits a failure', async () => {
+            const telemetry = await import('../../modelAcquisitionTelemetry');
+            telemetry.__resetAcquisitionTelemetry();
+            telemetryPushed.length = 0;
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+            const pending = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            gates[0](Result.err(new Error('NetworkError when attempting to fetch resource')));
+            expect((await pending).isOk).toBe(false);
+            const events = await acquisitionEvents();
+            expect(events.map((e) => e.name)).toEqual(['private_model_acquisition_start', 'private_model_acquisition_failure']);
+            expect(events[1]).toMatchObject({ outcome: 'failure', error_code: 'network' });
+        });
 
         it.each(['destroy', 'terminate'] as const)('a %s during the model load releases the acquired engine exactly once and never adopts it', async (teardown) => {
             const { PrivateSTT } = await import('../PrivateSTT');

@@ -79,6 +79,23 @@ export function validateEngine(engine: unknown): asserts engine is IPrivateSTTEn
 
 }
 
+/**
+ * An init abandoned because a destroy/terminate began while it was in flight (the user left the page). Not a load failure:
+ * telemetry reports it as a cancelled acquisition, never `private_model_acquisition_failure` (AHT-01/04, 2026-11-14).
+ * Typed so every engine's cancel is recognised structurally, not by matching message text.
+ */
+export class InitCancelledError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InitCancelledError';
+  }
+}
+
+/** Structural check (by name, not `instanceof`): holds across duplicated module instances and worker boundaries. */
+export function isInitCancelledError(err: unknown): boolean {
+  return err instanceof Error && err.name === 'InitCancelledError';
+}
+
 export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngine {
 
   public abstract readonly type: EngineType;
@@ -171,7 +188,7 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
       try { await this.teardownInFlight; } catch { /* a teardown failure is reported to its own caller */ }
     }
     if (generation !== this.lifecycleGeneration) {
-      return Result.err(new Error(`[STTEngine] ${this.type} init cancelled by destroy/terminate.`));
+      return Result.err(new InitCancelledError(`[STTEngine] ${this.type} init cancelled by destroy/terminate.`));
     }
     // Settling is not success: an init that waited on a FAILED teardown must not proceed as if the release worked.
     if (this.teardownFailure) {
@@ -196,7 +213,7 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
     // A destroy/terminate that began while this init awaited owns the engine now: never mark it initialised.
     if (generation !== this.lifecycleGeneration || this.isTerminated) {
       // Keep a subclass's own, more precise failure (e.g. an uncertain release); only a success is replaced.
-      return result.isOk ? Result.err(new Error(`[STTEngine] ${this.type} init cancelled by destroy/terminate.`)) : result;
+      return result.isOk ? Result.err(new InitCancelledError(`[STTEngine] ${this.type} init cancelled by destroy/terminate.`)) : result;
     }
     // A release failure recorded WHILE this init was pending (e.g. a stale acquisition whose cleanup failed): the
     // facade's release is uncertain, so it must not newly become ready.

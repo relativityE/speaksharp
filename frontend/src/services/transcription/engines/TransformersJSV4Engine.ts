@@ -20,7 +20,7 @@ import { ENV } from '@/config/TestFlags';
 import logger from '@/lib/logger';
 import { redactTranscript } from '@/lib/logRedaction';
 import { readPrivateDecodeOptionsOverride } from '@/services/transcription/engines/whisperDecodeOptions';
-import { STTEngine } from '@/contracts/STTEngine';
+import { STTEngine, InitCancelledError } from '@/contracts/STTEngine';
 import { PRIV_CLOUD_AUDIO, PRIV_STT_V4, PRIV_STT_V4_VARIANTS, PRIV_STT_V4_DEFAULT_VARIANT, type PrivSttV4VariantId, samplesToSeconds } from '../sttConstants';
 import { buildWhisperDecodeOptions } from '../decodeOptions';
 import v4WorkerUrl from './transformers-js-v4.worker.ts?worker&url';
@@ -152,7 +152,7 @@ export class TransformersJSV4Engine extends STTEngine {
         const result = await this.loadModel(ENV.isE2E);
         if (!result.isOk) return result;
         if (generation !== this.lifecycleGeneration || this.isTerminated) {
-            return Result.err(new Error('[TransformersJSV4] init cancelled by destroy/terminate.'));
+            return Result.err(new InitCancelledError('[TransformersJSV4] init cancelled by destroy/terminate.'));
         }
         (this.options as TranscriptionModeOptions).onReady?.();
         return Result.ok(undefined);
@@ -164,7 +164,7 @@ export class TransformersJSV4Engine extends STTEngine {
         // runs the shared failure cleanup, which by then may belong to the attempt that followed.
         const generation = this.lifecycleGeneration;
         const superseded = () => generation !== this.lifecycleGeneration || this.isTerminated;
-        const cancelled = () => Result.err(new Error('[TransformersJSV4] init cancelled by destroy/terminate.'));
+        const cancelled = () => Result.err(new InitCancelledError('[TransformersJSV4] init cancelled by destroy/terminate.'));
         // Independent review of 12552563: each init reports its own download from the start; the previous run's floor never carries over.
         this.lastModelProgress = -1;
         const options = (this.options || {}) as TranscriptionModeOptions;

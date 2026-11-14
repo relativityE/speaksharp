@@ -21,7 +21,7 @@ import { MicStream } from '@/services/transcription/utils/types';
 import { ENV } from '@/config/TestFlags';
 import logger from '@/lib/logger';
 import { redactTranscript } from '@/lib/logRedaction';
-import { STTEngine } from '@/contracts/STTEngine';
+import { STTEngine, InitCancelledError } from '@/contracts/STTEngine';
 import { PRIV_CLOUD_AUDIO, PRIV_STT, samplesToSeconds } from '../sttConstants';
 import { publishPrivateModelTelemetry } from '../utils/privateModelFlag';
 import workerUrl from './transformers-js.worker.ts?worker&url';
@@ -255,7 +255,7 @@ export class TransformersJSEngine extends STTEngine {
         const result = await this.loadModel(ENV.isE2E);
         if (!result.isOk) return result;
         if (generation !== this.lifecycleGeneration || this.isTerminated) {
-            return Result.err(new Error('[TransformersJS] init cancelled by destroy/terminate.'));
+            return Result.err(new InitCancelledError('[TransformersJS] init cancelled by destroy/terminate.'));
         }
         (this.options as TranscriptionModeOptions).onReady?.();
         return Result.ok(undefined);
@@ -267,7 +267,7 @@ export class TransformersJSEngine extends STTEngine {
         // runs the shared failure cleanup, which by then may belong to the attempt that followed.
         const generation = this.lifecycleGeneration;
         const superseded = () => generation !== this.lifecycleGeneration || this.isTerminated;
-        const cancelled = () => Result.err(new Error('[TransformersJS] init cancelled by destroy/terminate.'));
+        const cancelled = () => Result.err(new InitCancelledError('[TransformersJS] init cancelled by destroy/terminate.'));
         const options = (this.options || {}) as TranscriptionModeOptions;
         if (this.transcriber || this.worker) {
             logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJS] Engine already initialized, skipping.');

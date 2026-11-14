@@ -34,7 +34,7 @@
 import { TranscriptionModeOptions, Result, ITranscriptionEngine } from '@/services/transcription/modes/types';
 import { IPrivateSTTEngine, EngineType } from '@/contracts/IPrivateSTTEngine';
 import type { LiveResultKind, PrivateRuntimeEvidence } from '@/contracts/IPrivateSTTEngine';
-import { STTEngine, validateEngine, assertEngineCanDecode } from '@/contracts/STTEngine';
+import { STTEngine, InitCancelledError, isInitCancelledError, validateEngine, assertEngineCanDecode } from '@/contracts/STTEngine';
 import { PrivateSTTInitOptions } from '@/contracts/IPrivateSTT';
 import logger from '@/lib/logger';
 import { ModelManager } from '@/services/transcription/ModelManager';
@@ -57,7 +57,7 @@ import { resolvePrivateRuntimePath, type PrivateRuntimeDecision } from '../utils
 import { buildV4LifecycleProps, emitV4Ready, emitV4Fallback, emitV4Error, emitV4Telemetry, V4_TELEMETRY_EVENTS } from '../privateV4Telemetry';
 import { buildEngineVersion, type EngineVariant } from '../privateTelemetry';
 import {
-    probeCache, recordAcquisitionStart, recordAcquisitionSuccess, recordAcquisitionFailure,
+    probeCache, recordAcquisitionStart, recordAcquisitionSuccess, recordAcquisitionFailure, recordAcquisitionCancelled,
     classifyAcquisitionError, type AcquisitionSubject, type PinnedAssetRef,
 } from '../modelAcquisitionTelemetry';
 import type { Candidate } from '../candidateRegistry';
@@ -813,7 +813,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
 
     /** `released` only when THIS init verified the release; otherwise the cancelling teardown reports it. */
     private cancelledInitError(released: boolean): Error {
-        return new Error(released
+        return new InitCancelledError(released
             ? '[PrivateSTT] init cancelled by destroy/terminate; the acquired engine was released.'
             : '[PrivateSTT] init cancelled by destroy/terminate; the engine release belongs to that teardown.');
     }
@@ -1126,13 +1126,22 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                     downloadMs: observed.downloadMs,
                     totalMs,
                 });
+            } else if (isInitCancelledError(outcome.error)) {
+                // AHT-01/04 (runs 43583228045, 43586395706): a teardown (destroy/terminate) abandoned this load — the user
+                // left the page. That is a lifecycle outcome, not a model failure; reporting it as `failure`/`unknown` is
+                // what stopped those journeys. A cancel whose release FAILED is a different error and stays a failure.
+                recordAcquisitionCancelled(subject, cacheResult, totalMs);
             } else {
                 recordAcquisitionFailure(subject, cacheResult, classifyAcquisitionError(outcome.error), totalMs);
             }
             return outcome;
         } catch (err) {
-            recordAcquisitionFailure(subject, cacheResult, classifyAcquisitionError(err),
-                Math.round(performance.now() - acquisitionStartedAt));
+            if (isInitCancelledError(err)) {
+                recordAcquisitionCancelled(subject, cacheResult, Math.round(performance.now() - acquisitionStartedAt));
+            } else {
+                recordAcquisitionFailure(subject, cacheResult, classifyAcquisitionError(err),
+                    Math.round(performance.now() - acquisitionStartedAt));
+            }
             throw err;
         }
     }
