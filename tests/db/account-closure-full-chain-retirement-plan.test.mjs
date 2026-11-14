@@ -22,6 +22,8 @@ const abandonment = '20261112133000';
 const refund = '20261112130000';
 // #1811 AHT-02/07/08 feedback fence (ledger 11): withheld by every profile before main-feedback-fence-131.
 const feedbackFence = '20261114100000';
+// #1863 payment wall: pinned repository inventory, withheld from every profile until its ledger-12 stage exists.
+const paymentWall = '20261114170000';
 
 test('successor delta covers every source-defined function and changed table exactly', () => {
   const source = readFileSync(new URL('20261110173548_account_coaching_local_retirement.sql', directory), 'utf8');
@@ -36,10 +38,11 @@ test('successor delta covers every source-defined function and changed table exa
 test('installed retirement profile replays exact128 then retirement, withholding billing129', () => {
   assert.equal(parseMainProofArguments([`--profile=${profile}`]).profile, profile);
   const plan = buildMainU1ReplayPlan(rows, profile);
-  assert.equal(plan.repositoryMigrations, 133);
+  assert.equal(plan.repositoryMigrations, 134);
   assert.equal(plan.migrations, 129);
   assert.deepEqual(plan.withheld.map(row => [row.version, row.status]),
-    [[billing, 'NOT REPLAYED'], [refund, 'NOT REPLAYED'], [abandonment, 'NOT REPLAYED'], [feedbackFence, 'NOT REPLAYED']]);
+    [[billing, 'NOT REPLAYED'], [refund, 'NOT REPLAYED'], [abandonment, 'NOT REPLAYED'], [feedbackFence, 'NOT REPLAYED'],
+      [paymentWall, 'NOT REPLAYED']]);
   assert.equal(plan.stages.at(-1).name, 'coaching-local-retirement');
   assert.equal(plan.stages.at(-2).name, 'content-free-retention');
   assert.deepEqual(plan.stages.at(-1).versions, [...plan.stages.at(-2).versions, retirement]);
@@ -50,7 +53,7 @@ test('installed retirement profile replays exact128 then retirement, withholding
 
 test('historical billing129 stays unchanged and retirement bytes remain separately withheld', () => {
   const historical = buildMainU1ReplayPlan(rows, 'main-completion-billing-129');
-  assert.deepEqual(historical.withheld.map(row => row.version), [retirement, refund, abandonment, feedbackFence]);
+  assert.deepEqual(historical.withheld.map(row => row.version), [retirement, refund, abandonment, feedbackFence, paymentWall]);
   assert.equal(historical.stages.at(-1).name, 'completion-billing');
   assert.ok(historical.stages.every(stage => !stage.versions.includes(retirement)));
 });
@@ -80,7 +83,7 @@ test('installed abandonment profile replays retirement then 20261112133000, with
   const plan = buildMainU1ReplayPlan(rows, abandonmentProfile);
   assert.equal(plan.migrations, 130);
   assert.deepEqual(plan.withheld.map(row => [row.version, row.status]),
-    [[billing, 'NOT REPLAYED'], [refund, 'NOT REPLAYED'], [feedbackFence, 'NOT REPLAYED']]);
+    [[billing, 'NOT REPLAYED'], [refund, 'NOT REPLAYED'], [feedbackFence, 'NOT REPLAYED'], [paymentWall, 'NOT REPLAYED']]);
   assert.equal(plan.stages.at(-1).name, 'start-abandonment');
   assert.equal(plan.stages.at(-2).name, 'coaching-local-retirement');
   assert.deepEqual(plan.stages.at(-1).versions, [...plan.stages.at(-2).versions, abandonment]);
@@ -116,7 +119,8 @@ test('installed feedback-fence profile replays the abandonment then 202611141000
   assert.equal(parseMainProofArguments([`--profile=${feedbackFenceProfile}`]).profile, feedbackFenceProfile);
   const plan = buildMainU1ReplayPlan(rows, feedbackFenceProfile);
   assert.equal(plan.migrations, 131);
-  assert.deepEqual(plan.withheld.map(row => [row.version, row.status]), [[billing, 'NOT REPLAYED'], [refund, 'NOT REPLAYED']]);
+  assert.deepEqual(plan.withheld.map(row => [row.version, row.status]), [[billing, 'NOT REPLAYED'], [refund, 'NOT REPLAYED'],
+    [paymentWall, 'NOT REPLAYED']]);
   assert.equal(plan.stages.at(-1).name, 'feedback-fence');
   assert.equal(plan.stages.at(-2).name, 'start-abandonment');
   assert.deepEqual(plan.stages.at(-1).versions, [...plan.stages.at(-2).versions, feedbackFence]);

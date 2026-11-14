@@ -693,17 +693,47 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(mock.state.authorityArgs, { p_session_id: 'session-a', p_user_id: 'pro-user' });
   });
 
-  await t.step('keeps cached coaching readable for an expired account without new analysis', async () => {
+  // PO 2026-11-14 payment wall: an expired, unpaid account has no access to saved work, cached coaching included.
+  await t.step('payment wall: refuses cached coaching to an expired unpaid account; nothing replayed, receipted or spent', async () => {
     resetProvider();
     const mock = mockSupabase({
       profile: 'free',
       session: savedSession({ ai_suggestions: suggestionA }),
     });
     const res = await handler(request(), mock.create);
+    assertEquals(res.status, 403);
+    const body = await res.json();
+    assertEquals(body.suggestions, undefined);
+    assertEquals(body.code, 'payment_required');
+    assertEquals(fetchCount, 0);
+    assertEquals(mock.state.rpcCount, 0);
+    assertEquals(mock.state.authorityRpcCount, 0);
+    assertEquals(mock.state.authorityReadCount, 0);
+  });
+
+  await t.step('payment wall: an unverifiable entitlement fails closed on the cached path too (503, nothing replayed)', async () => {
+    resetProvider();
+    const mock = mockSupabase({
+      session: savedSession({ ai_suggestions: suggestionA }),
+      entitlementError: { message: 'database unavailable' },
+    });
+    const res = await handler(request(), mock.create);
+    assertEquals(res.status, 503);
+    assertEquals((await res.json()).suggestions, undefined);
+    assertEquals(mock.state.authorityRpcCount, 0);
+  });
+
+  await t.step('payment wall CONTROL: confirmed paid or active-trial access replays the same retained coaching', async () => {
+    resetProvider();
+    const mock = mockSupabase({
+      profile: 'free',
+      entitlement: { can_start: true, is_pro: true, trial_active: false },
+      session: savedSession({ ai_suggestions: suggestionA }),
+    });
+    const res = await handler(request(), mock.create);
     assertEquals(res.status, 200);
     assertEquals((await res.json()).suggestions, suggestionA);
     assertEquals(fetchCount, 0);
-    assertEquals(mock.state.rpcCount, 0);
     assertEquals(mock.state.authorityRpcCount, 1);
   });
 

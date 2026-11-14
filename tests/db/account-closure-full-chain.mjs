@@ -952,6 +952,10 @@ const START_ABANDONMENT_MIGRATION=Object.freeze({name:'20261112133000_recording_
   version:'20261112133000',sha256:'37bbfd561ef825cae92fa6787adc87f786a97a6c219fc1941572a6dd714e158e'});
 const FEEDBACK_FENCE_MIGRATION=Object.freeze({name:'20261114100000_rwt_feedback_fence_1811.sql',
   version:'20261114100000',sha256:'9aa48a5642765beb1c36f305ed62482bca67928d97bd5c1efeb1296e0c79176c'});
+// #1863 payment wall (product access guard): reviewed and pinned, withheld from every profile here until its own ledger-12
+// stage is added. No profile replays, stages or records it yet; a byte change must update this pin.
+const PAYMENT_WALL_MIGRATION=Object.freeze({name:'20261114170000_payment_wall_product_access_1863.sql',
+  version:'20261114170000',sha256:'d5c251c83f8e0d669a6a66b645254306085345f449fc589d1be1c11f6c5f4805'});
 // Reviewed migrations outside the account-closure chain, newer than every profile here: pinned repository
 // inventory that no profile replays, stages or records, the installed retirement profile included.
 export const REVIEWED_UNRELATED_MIGRATIONS=Object.freeze([
@@ -962,6 +966,7 @@ export const REVIEWED_UNRELATED_MIGRATIONS=Object.freeze([
 export const REVIEWED_WITHHELD_MIGRATIONS=Object.freeze([
   START_ABANDONMENT_MIGRATION,
   FEEDBACK_FENCE_MIGRATION,
+  PAYMENT_WALL_MIGRATION,
   Object.freeze({name:'20261110173548_account_coaching_local_retirement.sql',version:'20261110173548',
     sha256:'cc3ee4369dec74d2926557128a06265fb3019077b018cdc5dc848f055a6f8e04'}),
   ...REVIEWED_UNRELATED_MIGRATIONS,
@@ -993,9 +998,9 @@ export function buildMainU1ReplayPlan(rows, profile = 'main-120') {
   const repositoryVersioned = actual.filter(row => row.version !== null);
   assert.equal(new Set(repositoryVersioned.map(row => row.version)).size, repositoryVersioned.length, 'duplicate migration version');
   const withheldPins=profile===RETIREMENT_PROFILE
-    ?[MAIN_COMPLETION_BILLING_MIGRATION,START_ABANDONMENT_MIGRATION,FEEDBACK_FENCE_MIGRATION,...REVIEWED_UNRELATED_MIGRATIONS]
-    :profile===ABANDONMENT_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION,FEEDBACK_FENCE_MIGRATION,...REVIEWED_UNRELATED_MIGRATIONS]
-    :profile===FEEDBACK_FENCE_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION,...REVIEWED_UNRELATED_MIGRATIONS]
+    ?[MAIN_COMPLETION_BILLING_MIGRATION,START_ABANDONMENT_MIGRATION,FEEDBACK_FENCE_MIGRATION,PAYMENT_WALL_MIGRATION,...REVIEWED_UNRELATED_MIGRATIONS]
+    :profile===ABANDONMENT_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION,FEEDBACK_FENCE_MIGRATION,PAYMENT_WALL_MIGRATION,...REVIEWED_UNRELATED_MIGRATIONS]
+    :profile===FEEDBACK_FENCE_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION,PAYMENT_WALL_MIGRATION,...REVIEWED_UNRELATED_MIGRATIONS]
     :REVIEWED_WITHHELD_MIGRATIONS;
   const withheld=actual.filter(row=>withheldPins.some(pin=>pin.name===row.name));
   for(const row of withheld) assert.equal(row.sha256,withheldPins.find(pin=>pin.name===row.name).sha256,

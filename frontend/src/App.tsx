@@ -4,6 +4,9 @@ import { Toaster } from '@/components/ui/sonner';
 import { useCheckoutNotifications } from '@/hooks/useCheckoutNotifications';
 import Navigation from './components/Navigation';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { TrialServiceBoundary } from './components/TrialServiceBoundary';
+import { useCachedUsageLimit } from '@/hooks/useUsageLimit';
+import { useAuthProvider } from '@/contexts/AuthProvider';
 import { PostAuthContinue } from './components/practice/practiceRouting';
 import { AuthIndexRedirect } from './components/AuthIndexRedirect';
 import { canonicalProgressPath } from './lib/sessionRoute';
@@ -63,6 +66,17 @@ const RouteReadinessManager: React.FC = () => {
  * nothing.
  */
 const ProgressReconciler: React.FC = () => {
+  // PO 2026-11-14 payment wall: reconciliation reads saved sessions and writes evaluations, so it runs only
+  // while the server's latest entitlement answer permits product access (never for an expired, unpaid account).
+  // Cache-only: it reuses the answer a walled route fetched and adds no server call of its own.
+  // Signed out it still mounts: the hook then only publishes the resolved anonymous Start gate ('').
+  const { user } = useAuthProvider();
+  const access = useCachedUsageLimit();
+  const permitted = access.data?.can_start === true && !access.error;
+  return !user || permitted ? <ProgressReconcilerRun /> : null;
+};
+
+const ProgressReconcilerRun: React.FC = () => {
   useProgressReconciliation();
   return null;
 };
@@ -460,30 +474,42 @@ const App: React.FC = () => {
                   {/* PUBLIC authenticated-continuation target for magic-link returns: waits for the
                       recovered session, then runs the same post-auth rollout decision as password sign-in. */}
                   <Route path="/auth/continue" element={<PageTransition><PostAuthContinue /></PageTransition>} />
+                  {/* PO 2026-11-14 payment wall: every product and saved-work route sits behind TrialServiceBoundary, which
+                      mounts the page only on a fresh server entitlement answer. An expired, unpaid account sees the
+                      payment page instead. /account, /account/delete and /pricing stay outside it so billing and
+                      deletion remain reachable. The database enforces the same rule independently. */}
                   <Route path="/practice" element={
                     <ProtectedRoute>
-                      <PageTransition><PracticePage /></PageTransition>
+                      <TrialServiceBoundary>
+                        <PageTransition><PracticePage /></PageTransition>
+                      </TrialServiceBoundary>
                     </ProtectedRoute>
                   } />
                   <Route path="/session" element={
                     <ProtectedRoute>
-                      <TranscriptionProvider>
-                        <PageTransition><SessionPage /></PageTransition>
-                      </TranscriptionProvider>
+                      <TrialServiceBoundary allowTakeToFinish>
+                        <TranscriptionProvider>
+                          <PageTransition><SessionPage /></PageTransition>
+                        </TranscriptionProvider>
+                      </TrialServiceBoundary>
                     </ProtectedRoute>
                   } />
                   <Route path="/progress" element={
                     <ProtectedRoute>
-                      <TranscriptionProvider>
-                        <PageTransition><AnalyticsPage /></PageTransition>
-                      </TranscriptionProvider>
+                      <TrialServiceBoundary>
+                        <TranscriptionProvider>
+                          <PageTransition><AnalyticsPage /></PageTransition>
+                        </TranscriptionProvider>
+                      </TrialServiceBoundary>
                     </ProtectedRoute>
                   } />
                   <Route path="/progress/:sessionId" element={
                     <ProtectedRoute>
-                      <TranscriptionProvider>
-                        <PageTransition><AnalyticsPage /></PageTransition>
-                      </TranscriptionProvider>
+                      <TrialServiceBoundary>
+                        <TranscriptionProvider>
+                          <PageTransition><AnalyticsPage /></PageTransition>
+                        </TranscriptionProvider>
+                      </TrialServiceBoundary>
                     </ProtectedRoute>
                   } />
                   <Route path="/analytics" element={<LegacyProgressRedirect />} />
