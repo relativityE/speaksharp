@@ -78,9 +78,9 @@ is written again on release). A confirmed retry or Discard clears the record.
 
 - Leaving the page ("Stop and save this session before leaving?"), route-exit
   teardown and a revoked lease call the controller's Stop with no verdict, so a take
-  under five seconds still completes on those paths. Pending test:
-  "KNOWN GAP: leaving the page during a take under the minimum saves no completed
-  session" in the integration suite.
+  under five seconds still completes on those paths. No test covers these paths yet;
+  the integration suite carries a KNOWN GAP comment instead of a pending test, because
+  the changed-test execution evidence accepts only tests that run.
 - A stop without the verdict that is queued just before the user's short Stop (for
   example a lease revocation) can complete the take; the user's Stop then finds
   READY and the page still says "Session too short". Pre-existing and narrow.
