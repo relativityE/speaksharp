@@ -21,6 +21,10 @@ export const FULL_LANE_PATTERNS = [
     // test sources outside this pattern; those artifacts cannot establish that a
     // candidate contains substantive implementation by themselves.
     /^tools\/cloud-test\/(?:harness-adapter|harness\/bundle\/harness|report|scripts)\/(?!fixtures?\/)(?!.*\/fixtures?\/).*\.(?:cjs|mjs|js|ts|py|sh)$/,
+    // The nightly AHT suite's executable code (#1864/#1865): its oracles, budget, cleanup and limits modules and
+    // the negative-control runner. Its tests (`tests/`, `*.test.*`, `*.spec.*`), fixtures and data stay outside,
+    // under the same rule as above.
+    /^tools\/cloud-test\/nightly\/(?!(?:.*\/)?(?:tests?|fixtures?)\/)(?!.*\.(?:test|spec)\.[cm]?[jt]s$).*\.(?:cjs|mjs|js|ts|py|sh)$/,
     // dependency + workspace manifests (root AND package-level)
     /(^|\/)package\.json$/,
     /(^|\/)pnpm-lock\.yaml$/,

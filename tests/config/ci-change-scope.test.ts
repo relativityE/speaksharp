@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error - plain ESM script, no types
-import { classifyChanges } from '../../scripts/ci-change-scope.mjs';
+import { classifyChanges, FULL_LANE_PATTERNS } from '../../scripts/ci-change-scope.mjs';
+// @ts-expect-error - plain ESM script, no types
+import { isSubstantiveImplementationFile } from '../../scripts/review-qualification.mjs';
 
 const draft = { isDraft: true, eventName: 'pull_request' as const };
 
@@ -53,6 +55,40 @@ describe('#1054 CI change classifier', () => {
             'vercel.json',
         ])('control path %s forces full', (file) => {
             expect(classifyChanges([file], draft).full_required).toBe(true);
+        });
+
+        describe('the nightly AHT suite (tools/cloud-test/nightly): executable code is implementation, its tests and data are not', () => {
+            it.each([
+                'tools/cloud-test/nightly/limits.cjs',
+                'tools/cloud-test/nightly/cleanup-plan.cjs',
+                'tools/cloud-test/nightly/oracles/payment-wall.cjs',
+                'tools/cloud-test/nightly/negative-controls/run.cjs',
+            ])('%s is a full-lane control path and substantive implementation', (file) => {
+                expect(FULL_LANE_PATTERNS.some((pattern: RegExp) => pattern.test(file))).toBe(true);
+                expect(isSubstantiveImplementationFile(file)).toBe(true);
+                expect(classifyChanges([file], draft).full_required).toBe(true);
+            });
+
+            it.each([
+                'tools/cloud-test/nightly/tests/limits.test.cjs',
+                'tools/cloud-test/nightly/tests/expect-lite.cjs',
+                'tools/cloud-test/nightly/oracles/tests/x.cjs',
+                'tools/cloud-test/nightly/oracles/payment-wall.test.cjs',
+                'tools/cloud-test/nightly/oracles/payment-wall.spec.mjs',
+                'tools/cloud-test/nightly/fixtures/run.cjs',
+                'tools/cloud-test/nightly/negative-controls/fixture/x.cjs',
+                'tools/cloud-test/nightly/negative-controls/breaks.json',
+                'tools/cloud-test/nightly/README.md',
+                'tools/cloud-test/nightlyish/limits.cjs',
+            ])('%s is NOT matched as executable nightly code, so it cannot make a PR implementation', (file) => {
+                expect(FULL_LANE_PATTERNS.some((pattern: RegExp) => pattern.test(file))).toBe(false);
+                expect(isSubstantiveImplementationFile(file)).toBe(false);
+            });
+
+            it('a nightly PR with executable code is substantive even when most files are tests', () => {
+                const files = ['tools/cloud-test/nightly/tests/limits.test.cjs', 'tools/cloud-test/nightly/limits.cjs'];
+                expect(files.filter((file) => isSubstantiveImplementationFile(file))).toEqual(['tools/cloud-test/nightly/limits.cjs']);
+            });
         });
 
         it.each([
