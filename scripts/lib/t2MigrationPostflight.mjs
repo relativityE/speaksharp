@@ -17,10 +17,10 @@ export const RETIREMENT_TABLES = Object.freeze(['account_coaching_expiry_fences'
 export const ABANDONMENT_VERSION = '20261112133000';
 export const ABANDONMENT_FUNCTIONS = Object.freeze(['abandon_recording_start_v1']);
 export const ABANDONMENT_TABLES = Object.freeze(['recording_start_abandonments']);
-// #1811 AHT-01/02/07/08 feedback fence (ledger 11): one table, a write trigger on user_issue_reports and five functions.
+// #1811 AHT-01/02/07/08 feedback fence (ledger 11): one table, a write trigger on user_issue_reports and six functions.
 export const FEEDBACK_FENCE_VERSION = '20261114100000';
 export const FEEDBACK_FENCE_FUNCTIONS = Object.freeze(['_rwt_feedback_fence_v1', 'clean_rwt_feedback_fence_v1',
-  'close_rwt_feedback_fence_v1', 'open_rwt_feedback_fence_v1', 'verify_rwt_feedback_fence_v1']);
+  'close_rwt_feedback_fence_v1', 'list_unresolved_rwt_feedback_fences_v1', 'open_rwt_feedback_fence_v1', 'verify_rwt_feedback_fence_v1']);
 export const FEEDBACK_FENCE_TABLES = Object.freeze(['rwt_feedback_fences']);
 
 export const T2_VERSIONS = Object.freeze([
