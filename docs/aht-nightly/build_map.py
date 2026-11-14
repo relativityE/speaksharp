@@ -72,7 +72,7 @@ new_rows = [
  ("J1.c","short-stop-no-save","A Stop under 5 s saves nothing: no completed sessions row, no history entry (G5).","needs short-Stop fix PR"),
  ("J1.d","signout-no-forbidden-read","No authenticated read returns 403 around sign-out (GAP-04; first seen on the maintained account, so comparability on a fresh account is unproven).","row new"),
  ("J1.e","trial-expired-wall-on-open-session","With the browser still signed in, a reload or navigation after the trial ends lands on the payment page (G3).","needs payment-wall PR"),
- ("J1.e","trial-expired-payment-wall","A fresh sign-in after expiry lands on the payment page; Practice, History, Progress and deep links are not reachable (G3).","needs payment-wall PR"),
+ ("J1.e","trial-expired-payment-wall","A fresh sign-in after expiry lands on the payment page; Practice, History, Progress, PDF export and deep links are not reachable (G3).","needs payment-wall PR"),
  ("J1.e","trial-expired-server-refuses","On the deployed build, direct calls with the expired account's own token (Start, save, coaching, history read) are refused. Checks the deployed bodies; the logic itself is in DB and contract tests (G1, G2).","needs payment-wall PR"),
  ("J1.f","account-delete-from-wall","The expired, unpaid user can still delete the account from the wall; account and saved data are gone afterwards.","needs deletion flow confirmed shippable"),
  ("J2","paid-wall-before-payment","A run-owned expired account sees the wall with a way to pay.","needs payment-wall PR"),
@@ -81,8 +81,8 @@ new_rows = [
  ("J2","deployed-webhook-ready","The deployed webhook rejects an unsigned event and is configured (existing stripe-webhook-readiness).","exists"),
  ("J7.d","account-delete-during-trial","An in-trial user deletes the account from the Account page; sign-in fails afterwards and run cleanup finds nothing left.","needs deletion flow confirmed shippable"),
  ("J8.c","no-session-choice-with-takes","With takes listed, choosing No session stores feedback with no session link.","new"),
- ("J9","pre-upgrade-history-opens","Pinned seed sessions saved on a named earlier release still open with their metrics and coaching after the latest release.","needs long-lived account decision"),
- ("J9","pre-upgrade-progress-opens","Progress over the pinned seed history renders the same comparisons it did before the release.","new"),
+ ("J9","pre-upgrade-history-opens","Sessions the long-lived account recorded through the product on a named earlier release, and kept, still open with their metrics and coaching after the latest release.","needs long-lived paid account set up"),
+ ("J9","pre-upgrade-progress-opens","Progress over that kept history renders the same comparisons it did before the release.","new"),
  ("J9","entitlement-survives-upgrade","The paid entitlement holds and the billing portal opens after the release.","new"),
 ]
 unused = set(ov) - used
@@ -108,7 +108,7 @@ out={"schema":"speaksharp.aht-nightly.coverage-map.v1","date":"2026-11-14","cata
 JOURNEYS = [
  ("J1", ["AHT-01","AHT-15"], "New user's first month",
   "Real signup, model, owner-bound save, coaching, sign-out return and the deployed payment wall together on the deployed build.",
-  "Fresh run-owned account; expiry is the last practice leg and deletion follows it; trial ending only on that account and only with the product owner's approval.",
+  "Fresh run-owned account; expiry is the last practice leg and deletion follows it; the trial is ended early only on that test-created, tagged account, with exact-account safeguards and cleanup.",
   "Bound saved takes and coaching, exact deep-link return with mic off, no save for a short Stop, wall on the open session and after sign-in, deployed refusal, deletion readback."),
  ("J2", [], "Hitting the wall and going to pay",
   "Wall to hosted Checkout crosses the deployed app, the deployed checkout function and Stripe's live configuration.",
@@ -140,8 +140,8 @@ JOURNEYS = [
   "Feedback stored once per send with the right session link or none."),
  ("J9", [], "Existing paying customer after an upgrade",
   "Only a long-lived account shows that old data and a paid entitlement survive a migration.",
-  "Long-lived paid account, read-only, seed history pinned on a named release; needs the product owner's decision.",
-  "Seed sessions and Progress open as before; entitlement and billing portal hold."),
+  "Long-lived paid account, signed up and paid through the product, read-only; history recorded through the product on a named release and kept, never seeded.",
+  "Kept sessions and Progress open as before; entitlement and billing portal hold."),
 ]
 export = None
 if len(sys.argv) == 5:
@@ -168,11 +168,11 @@ if len(sys.argv) == 5:
      "additionalRequirements": [
       {"id": "billing-expiry-restoration", "journey": "J1", "status": "blocked",
        "prerequisites": ["Server-enforced payment wall with retained deletion",
-                         "Product owner's approval to end the trial on run-owned accounts",
+                         "Trial ended early only on the test-created, tagged account, with exact-account safeguards and cleanup",
                          "Requirements updated to the no-service-after-trial rule",
                          "Paid lifecycle in #1795's sandbox suite, no production charge"],
        "acceptance": "Expired unpaid account is walled on the open session and after sign-in, the deployed endpoints refuse it, and it can delete the account. Paid restoration is proven in #1795's sandbox suite, not live in J1.",
-       "differsFrom1862": "#1862 accepts approved paid restoration live in J01 with a safe paid-restoration fixture; this design proves restoration in the sandbox suite and adds J2 for production checkout. Open for the reviewer to decide."},
+       "differsFrom1862": "#1862 accepts approved paid restoration live in J01 with a safe paid-restoration fixture; this design proves restoration in the sandbox suite, as the product owner chose on 14 Nov, and adds J2 for production checkout."},
       {"id": "checkout-from-wall", "journey": "J2", "status": "blocked",
        "prerequisites": ["Payment wall", "Reviewed checkout cleanup with zero billing residue"],
        "acceptance": "Hosted Checkout opens for the right price and account and an abandoned checkout leaves the account walled."},

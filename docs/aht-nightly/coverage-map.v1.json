@@ -1454,7 +1454,7 @@
   {
    "leg": "J1.e",
    "assertion": "trial-expired-payment-wall",
-   "what": "A fresh sign-in after expiry lands on the payment page; Practice, History, Progress and deep links are not reachable (G3).",
+   "what": "A fresh sign-in after expiry lands on the payment page; Practice, History, Progress, PDF export and deep links are not reachable (G3).",
    "status": "needs payment-wall PR"
   },
   {
@@ -1508,13 +1508,13 @@
   {
    "leg": "J9",
    "assertion": "pre-upgrade-history-opens",
-   "what": "Pinned seed sessions saved on a named earlier release still open with their metrics and coaching after the latest release.",
-   "status": "needs long-lived account decision"
+   "what": "Sessions the long-lived account recorded through the product on a named earlier release, and kept, still open with their metrics and coaching after the latest release.",
+   "status": "needs long-lived paid account set up"
   },
   {
    "leg": "J9",
    "assertion": "pre-upgrade-progress-opens",
-   "what": "Progress over the pinned seed history renders the same comparisons it did before the release.",
+   "what": "Progress over that kept history renders the same comparisons it did before the release.",
    "status": "new"
   },
   {
