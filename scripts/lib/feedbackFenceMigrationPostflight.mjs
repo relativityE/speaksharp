@@ -13,7 +13,8 @@ const REQUIRED_APPLIED = Object.freeze(['20261112133000']);
 const MUST_REMAIN_PENDING = Object.freeze(['20261027192550', '20261112130000']);
 const TRIGGER_FUNCTION = 'public._rwt_feedback_fence_v1()';
 const RPCS = Object.freeze(['public.open_rwt_feedback_fence_v1(uuid,jsonb,text,integer)',
-  'public.close_rwt_feedback_fence_v1(text)', 'public.clean_rwt_feedback_fence_v1(text)', 'public.verify_rwt_feedback_fence_v1(text)']);
+  'public.close_rwt_feedback_fence_v1(text)', 'public.clean_rwt_feedback_fence_v1(text)', 'public.verify_rwt_feedback_fence_v1(text)',
+  'public.list_unresolved_rwt_feedback_fences_v1(integer)']);
 const FUNCTIONS = Object.freeze([TRIGGER_FUNCTION, ...RPCS]);
 const TABLE = 'rwt_feedback_fences';
 const TRIGGER = 'zz_rwt_feedback_fence';
@@ -38,7 +39,7 @@ export function feedbackFenceContract(root, mode, version) {
   return { mode, version, targetSha256: pin.sha256, functions };
 }
 
-/** Four rows, each one JSON value: ledger, the five functions, the fence table, every trigger on user_issue_reports. */
+/** Four rows, each one JSON value: ledger, the six functions, the fence table, every trigger on user_issue_reports. */
 export function feedbackFenceSnapshotQuery() {
   const versions = [...REQUIRED_APPLIED, ...MUST_REMAIN_PENDING, FEEDBACK_FENCE_VERSION].map(literal).join(',');
   const fn = signature => `COALESCE((SELECT json_build_object('exists',true,'md5',md5(p.prosrc),'definer',p.prosecdef,
@@ -56,7 +57,8 @@ export function feedbackFenceSnapshotQuery() {
       FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname=${literal(TABLE)}),
       json_build_object('exists',false))::text;`,
     `SELECT COALESCE(json_agg(json_build_object('name',t.tgname,'function',p.pronamespace::regnamespace::text||'.'||p.proname||'('||pg_get_function_identity_arguments(p.oid)||')','type',t.tgtype,'enabled',t.tgenabled::text,
-        'conditional',t.tgqual IS NOT NULL,'columns',cardinality(t.tgattr::int2[]),'args',t.tgnargs)
+        'conditional',t.tgqual IS NOT NULL,'columns',cardinality(t.tgattr::int2[]),'args',t.tgnargs,
+        'definition',pg_get_triggerdef(t.oid,false))
         ORDER BY t.tgname),'[]'::json)::text
       FROM pg_trigger t JOIN pg_proc p ON p.oid=t.tgfoid WHERE NOT t.tgisinternal AND t.tgrelid=to_regclass('public.user_issue_reports');`,
   ].join('\n');
@@ -105,7 +107,8 @@ export function assertFeedbackFenceSnapshot(contract, rows, prior) {
     if (!prior || prior.version !== contract.version || prior.targetSha256 !== contract.targetSha256 || !Array.isArray(prior.rows)) {
       throw new Error('feedback fence prior receipt missing or mismatched');
     }
-    // Every other report trigger (ownership guard, kind/severity contract, ...) is exactly the predecessor's.
+    // Every other report trigger (ownership guard, kind/severity contract, ...) is exactly the predecessor's — by its COMPLETE
+    // definition (events, column identities, timing, predicate, arguments), not counts (Sam, #1859 review on c9c70ade).
     const others = JSON.stringify(triggers.filter(t => t.name !== TRIGGER));
     if (others !== JSON.stringify(JSON.parse(prior.rows[3]))) throw new Error('feedback fence changed another report trigger');
   }

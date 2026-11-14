@@ -10,7 +10,9 @@
 --   * close — takes the same row lock, so it waits for every in-flight insert of that account, then refuses all later ones;
 --   * clean — deletes exactly the recorded report ids (still owned by the account or ownerless), then reads them back to zero;
 --   * verify — a READ-ONLY readback of one fence (exists/state/owner/recorded/remaining/foreign), for the runner's independent
---             zero check and to recover an uncertain open by its deterministic key instead of reopening (open is not idempotent).
+--             zero check and to recover an uncertain open by its deterministic key instead of reopening (open is not idempotent);
+--   * list   — a READ-ONLY list of fences not yet cleaned and older than an age floor (run key, state, binding, opened_at only),
+--             so recovery finds a lost run's fence even after that run deleted its account (Sam, #1860 review).
 --             Ownerless covers AHT-02: the product keeps feedback after account deletion (user_id ON DELETE SET NULL), so the
 --             run's own reports survive its account; the fence still names them, and only them.
 -- Accounts without a fence (every real user) are untouched: one indexed lookup, no lock, no change.
@@ -152,11 +154,23 @@ BEGIN
     'remaining', v_remaining, 'foreign', v_foreign);
 END $$;
 
+-- List: read-only. Unresolved (not cleaned) fences at least p_min_age_seconds old, oldest first; never report or account data.
+CREATE FUNCTION public.list_unresolved_rwt_feedback_fences_v1(p_min_age_seconds integer)
+RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+  SELECT COALESCE(jsonb_agg(jsonb_build_object('run_key', f.run_key, 'state', f.state, 'binding', f.run_binding,
+           'opened_at', f.opened_at) ORDER BY f.opened_at, f.run_key), '[]'::jsonb)
+    FROM public.rwt_feedback_fences f
+   WHERE f.state <> 'cleaned' AND p_min_age_seconds >= 0
+     AND f.opened_at <= clock_timestamp() - make_interval(secs => p_min_age_seconds);
+$$;
+
 REVOKE ALL ON FUNCTION public.open_rwt_feedback_fence_v1(uuid, jsonb, text, integer) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.close_rwt_feedback_fence_v1(text) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.clean_rwt_feedback_fence_v1(text) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.verify_rwt_feedback_fence_v1(text) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.list_unresolved_rwt_feedback_fences_v1(integer) FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.open_rwt_feedback_fence_v1(uuid, jsonb, text, integer) TO service_role;
 GRANT EXECUTE ON FUNCTION public.close_rwt_feedback_fence_v1(text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.clean_rwt_feedback_fence_v1(text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.verify_rwt_feedback_fence_v1(text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.list_unresolved_rwt_feedback_fences_v1(integer) TO service_role;

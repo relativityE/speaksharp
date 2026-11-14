@@ -96,6 +96,9 @@ test('rwt feedback fence: open, record, cap, close-serializes, clean — on the 
     fails(as(OWNER, `SELECT public.close_rwt_feedback_fence_v1('1-1-AHT-08');`), /permission denied/);
     fails(service('SELECT count(*) FROM public.rwt_feedback_fences;'), /permission denied/);
     fails(as(OWNER, `SELECT public.verify_rwt_feedback_fence_v1('1-1-AHT-08');`), /permission denied/);
+    fails(as(OWNER, 'SELECT public.list_unresolved_rwt_feedback_fences_v1(0);'), /permission denied/);
+    const unresolved = (age) => JSON.parse(sql(service(`SELECT public.list_unresolved_rwt_feedback_fences_v1(${age});`)).split('\n').at(-1));
+    assert.deepEqual(unresolved(0), []);
     const verify = (k) => JSON.parse(sql(service(`SELECT public.verify_rwt_feedback_fence_v1(${lit(k)});`)).split('\n').at(-1));
     // Verify, before any open: an uncertain open is recovered by its deterministic key, never by reopening.
     assert.deepEqual(verify('43583228045-1-AHT-08'), { exists: false });
@@ -161,6 +164,8 @@ test('rwt feedback fence: open, record, cap, close-serializes, clean — on the 
     cleaned = JSON.parse(sql(service(`SELECT public.clean_rwt_feedback_fence_v1(${lit(runKey)});`)).split('\n').at(-1));
     assert.deepEqual(cleaned, { deleted: 1, residue: 0, foreign: 0, state: 'cleaned' });
     assert.equal(fence().state, 'cleaned');
+    // List (recovery, independent of the account): a cleaned fence is resolved and never listed again.
+    assert.ok(!unresolved(0).some((f) => f.run_key === runKey), 'a cleaned fence is not unresolved');
     // The runner's INDEPENDENT zero check: a separate read-only readback after clean.
     assert.deepEqual(verify(runKey), { exists: true, state: 'cleaned', owner: OWNER, case: 'AHT-08', recorded: 3, keys: 3, remaining: 0, foreign: 0 });
     assert.equal(sql(`SELECT count(*) FROM public.user_issue_reports WHERE user_id = ${lit(REAL_USER)}::uuid;`), '1');
@@ -172,6 +177,15 @@ test('rwt feedback fence: open, record, cap, close-serializes, clean — on the 
     fails(as(OTHER, report(key(11))), /key cap reached/);
     fails(service(`SELECT public.clean_rwt_feedback_fence_v1(${lit(otherKey)});`), /close before cleaning/);
 
+    // List: the still-open/closed fences, oldest first, only run key/state/binding/opened_at; an age floor in the future lists none;
+    // a negative age lists none.
+    const listed = unresolved(0);
+    assert.ok(listed.length >= 1);
+    for (const f of listed) assert.deepEqual(Object.keys(f).sort(), ['binding', 'opened_at', 'run_key', 'state']);
+    assert.ok(listed.every((f) => f.state !== 'cleaned'));
+    assert.deepEqual(unresolved(86400), []);
+    assert.deepEqual(unresolved(-1), []);
+
     // AHT-02: the journey checks that feedback SURVIVES account deletion. A REAL auth.users delete (the FK's ON DELETE SET
     // NULL, not a simulated update) leaves the run's report ownerless; the fence still names it, and clean removes only it.
     const aht02Key = sql(service(`SELECT public.open_rwt_feedback_fence_v1(${lit(AHT02)}::uuid, ${lit(JSON.stringify({ ...BINDING, runId: '11' }))}::jsonb, 'AHT-02', 1);`)).split('\n').at(-1);
@@ -179,12 +193,17 @@ test('rwt feedback fence: open, record, cap, close-serializes, clean — on the 
     sql(as(AHT02, report(key(30))));
     sql(service(`SELECT public.close_rwt_feedback_fence_v1(${lit(aht02Key)});`));
     sql(`DELETE FROM auth.users WHERE id = ${lit(AHT02)}::uuid;`);
+    // The post-deletion window (Sam, #1860 review): committed → closed → account deleted → runner lost. The account is gone, yet a
+    // separate recovery still FINDS the fence by listing unresolved fences (never by the account), with only key/state/binding.
+    const found = unresolved(0).find((f) => f.run_key === aht02Key);
+    assert.deepEqual({ state: found?.state, runId: found?.binding?.runId }, { state: 'closed', runId: '11' });
     const aht02Fence = JSON.parse(sql(`SELECT row_to_json(f) FROM public.rwt_feedback_fences f WHERE run_key = ${lit(aht02Key)};`));
     assert.equal(sql(`SELECT count(*) FROM public.user_issue_reports WHERE id = ${lit(aht02Fence.report_ids[0])}::uuid AND user_id IS NULL;`), '1');
     const realBefore = sql(`SELECT count(*) FROM public.user_issue_reports;`);
     assert.deepEqual(JSON.parse(sql(service(`SELECT public.clean_rwt_feedback_fence_v1(${lit(aht02Key)});`)).split('\n').at(-1)),
       { deleted: 1, residue: 0, foreign: 0, state: 'cleaned' });
     assert.equal(sql(`SELECT count(*) FROM public.user_issue_reports;`), String(Number(realBefore) - 1)); // exactly that one row
+    assert.ok(!unresolved(0).some((f) => f.run_key === aht02Key), 'resolved once cleaned');
 
     // A consolidated journey (one account running several cases) holds ONE fence, labelled with its cases in order.
     fails(service(`SELECT public.open_rwt_feedback_fence_v1(${lit(COMBINED)}::uuid, ${lit(JSON.stringify({ ...BINDING, runId: '13' }))}::jsonb, 'AHT-03', 1);`), /check constraint/);

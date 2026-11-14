@@ -108,6 +108,8 @@ test('feedback fence exact pre/postflight over the real report chain', async (t)
           'REVOKE EXECUTE ON FUNCTION public.clean_rwt_feedback_fence_v1(text) FROM PUBLIC', /RPC ACL differs/],
         ['REVOKE EXECUTE ON FUNCTION public.close_rwt_feedback_fence_v1(text) FROM service_role',
           'GRANT EXECUTE ON FUNCTION public.close_rwt_feedback_fence_v1(text) TO service_role', /RPC ACL differs/],
+        ['GRANT EXECUTE ON FUNCTION public.list_unresolved_rwt_feedback_fences_v1(integer) TO authenticated',
+          'REVOKE EXECUTE ON FUNCTION public.list_unresolved_rwt_feedback_fences_v1(integer) FROM authenticated', /RPC ACL differs/],
         ['GRANT EXECUTE ON FUNCTION public.verify_rwt_feedback_fence_v1(text) TO anon',
           'REVOKE EXECUTE ON FUNCTION public.verify_rwt_feedback_fence_v1(text) FROM anon', /RPC ACL differs/],
         ['GRANT EXECUTE ON FUNCTION public._rwt_feedback_fence_v1() TO authenticated',
@@ -143,6 +145,19 @@ test('feedback fence exact pre/postflight over the real report chain', async (t)
       sql(`DROP TRIGGER zz_rwt_feedback_fence ON public.user_issue_reports;
         CREATE TRIGGER zz_rwt_feedback_fence BEFORE INSERT ON public.user_issue_reports FOR EACH ROW
           EXECUTE FUNCTION public._rwt_feedback_fence_v1();`);
+      ok(run('after', before));
+    });
+
+    await t.test('after refuses a same-count column substitution and a predicate change on another report trigger (full definition)', () => {
+      const ownership = (events, when = '') => `DROP TRIGGER trg_enforce_report_session_ownership ON public.user_issue_reports;
+        CREATE TRIGGER trg_enforce_report_session_ownership BEFORE INSERT OR UPDATE OF ${events} ON public.user_issue_reports
+          FOR EACH ROW ${when} EXECUTE FUNCTION public.enforce_report_session_ownership();`;
+      // Same type, same column COUNT (2), same function, unconditional: only the column identities differ.
+      sql(ownership('title, description'));
+      refused(run('after', before), /changed another report trigger/);
+      sql(ownership('session_id, user_id', 'WHEN (NEW.user_id IS NOT NULL)'));
+      refused(run('after', before), /changed another report trigger/);
+      sql(ownership('session_id, user_id'));
       ok(run('after', before));
     });
 
