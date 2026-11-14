@@ -34,6 +34,7 @@ permissions:
 # #1390's job — so the cold/warm proof moves there rather than being approximated here.
 jobs:
   live-custom-words:
+    environment: trusted-main-credentials
     if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'custom-words' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -133,6 +134,7 @@ jobs:
           retention-days: 14
 
   live-stripe-billing-portal-readiness:
+    environment: trusted-main-credentials
     if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'stripe-billing-portal-readiness' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -166,6 +168,7 @@ jobs:
           retention-days: 14
 
   live-stripe-paid-soft-launch-runtime:
+    environment: trusted-main-credentials
     if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'stripe-paid-soft-launch-runtime' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
