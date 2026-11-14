@@ -942,8 +942,8 @@
       "id": "P6-shared-plan-rewritten",
       "guards": "the shared plan is written once per run directory",
       "file": "run-budget.cjs",
-      "find": "JSON.parse(body) }), { flag: 'wx' });",
-      "replace": "JSON.parse(body) }), { flag: 'w' });",
+      "find": "        const fd = fs.openSync(path.join(dir, file), 'wx');\n",
+      "replace": "        const fd = fs.openSync(path.join(dir, file), 'w');\n",
       "test": "tests/run-budget.test.cjs"
     },
     {
@@ -1353,6 +1353,22 @@
       "find": "    return Math.ceil(Number((count * pricePerUnitUsd * 100).toFixed(6))) / 100;\n",
       "replace": "    return Math.round(count * pricePerUnitUsd * 100) / 100;\n",
       "test": "tests/limits.test.cjs"
+    },
+    {
+      "id": "P10-journal-missing-reset",
+      "guards": "a missing established journal refuses everything, never resets the allocations (Codex P2 e13ab8d8)",
+      "file": "run-budget.cjs",
+      "find": "            if (requireJournal)\n                throw new BudgetUnavailable('the run budget journal is missing; its reservations cannot be re-established from the plan');\n",
+      "replace": "",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P10-journal-not-created",
+      "guards": "the journal is created with the shared plan",
+      "file": "run-budget.cjs",
+      "find": "    create(JOURNAL_FILE, '');\n",
+      "replace": "",
+      "test": "tests/run-budget.test.cjs"
     }
   ]
 }

@@ -365,8 +365,13 @@ const alive = (pid) => {
  * reading the owner again under it: two workers that both saw the same dead owner can't both break, and neither can
  * break a lock a third worker took in between. Releasing removes the lock only while its owner file still holds this
  * step's token, so a step never removes a lock it doesn't hold.
+ *
+ * `requireJournal` (set by openSharedRunBudget): the journal of an established shared run is created with its plan, so
+ * a missing journal later is lost evidence, not an empty run. Reading it then is unavailable (nothing more is granted,
+ * cleanup reads as exhausted, every leg's budget holds), never a silent reset that would replenish every allocation,
+ * forget cleanup use and erase recorded overruns (Codex P2 on e13ab8d8).
  */
-function fileStore(dir, { lockTimeoutMs = 5000, staleMs = 10000 } = {}) {
+function fileStore(dir, { lockTimeoutMs = 5000, staleMs = 10000, requireJournal = false } = {}) {
     const lock = path.join(dir, LOCK_DIR);
     const breaker = path.join(dir, `${LOCK_DIR}.break`);
     const journal = path.join(dir, JOURNAL_FILE);
@@ -449,6 +454,8 @@ function fileStore(dir, { lockTimeoutMs = 5000, staleMs = 10000 } = {}) {
         catch (e) {
             if (e.code !== 'ENOENT')
                 throw e;
+            if (requireJournal)
+                throw new BudgetUnavailable('the run budget journal is missing; its reservations cannot be re-established from the plan');
         }
         // A partial last line is a write cut short by a crash; its caller never got an answer. Under the lock it is cut
         // off and replaced by a `torn` event, which counts against everything (decide), so the run can still clean up.
@@ -504,17 +511,31 @@ function fileStore(dir, { lockTimeoutMs = 5000, staleMs = 10000 } = {}) {
         _breakIfStale: tryBreak,
     };
 }
-/** Writes the run's frozen plan into an empty run directory, once. Every worker opens the budget from it. */
+/**
+ * Writes the run's frozen plan into an empty run directory, once, with its empty journal beside it (both flushed), so
+ * a journal that later goes missing is known to be lost. Every worker opens the budget from it.
+ */
 function writeSharedPlan(dir, budget) {
     const body = JSON.stringify(budget.plan());
-    fs.writeFileSync(path.join(dir, PLAN_FILE), JSON.stringify({ sha256: sha256(body), plan: JSON.parse(body) }), { flag: 'wx' });
+    const create = (file, text) => {
+        const fd = fs.openSync(path.join(dir, file), 'wx');
+        try {
+            fs.writeSync(fd, text);
+            fs.fsyncSync(fd);
+        }
+        finally {
+            fs.closeSync(fd);
+        }
+    };
+    create(PLAN_FILE, JSON.stringify({ sha256: sha256(body), plan: JSON.parse(body) }));
+    create(JOURNAL_FILE, '');
 }
-/** Opens the run's shared budget from its directory, checking the plan was not altered. */
+/** Opens the run's shared budget from its directory, checking the plan was not altered. Its journal must exist. */
 function openSharedRunBudget(dir, options) {
     const doc = JSON.parse(fs.readFileSync(path.join(dir, PLAN_FILE), 'utf8'));
     if (sha256(JSON.stringify(doc.plan)) !== doc.sha256)
         throw new RunRefused('the shared budget plan does not match its digest');
-    return new RunBudget(doc.plan, fileStore(dir, options));
+    return new RunBudget(doc.plan, fileStore(dir, { ...options, requireJournal: true }));
 }
 
 module.exports = {
