@@ -52,6 +52,37 @@ describe('leg verdict', () => {
             expect(v.reason).toContain('needs J1.a');
         }
     });
+    it('keeps HOLD above NOT RUN for a dependent leg: its HOLD rows are HOLD even when its dependency did not pass', () => {
+        const failedA = legVerdict('J1.a', { prior: new Map(), satisfiedGates: ALL_GATES, results: results('J1.a', 'FAIL') });
+        const v = legVerdict('J1.b', { prior: prior(failedA), satisfiedGates: ALL_GATES, results: results('J1.b', 'HOLD') });
+        expect(v.outcome).toBe('HOLD');
+        expect(v.reason).toContain('needs J1.a');
+    });
+    it('keeps HOLD above NOT RUN for a dependent leg with a HOLD gate', () => {
+        const failedA = legVerdict('J1.a', { prior: new Map(), satisfiedGates: ALL_GATES, results: results('J1.a', 'FAIL') });
+        const holdGate = { kind: 'unqualified', outcome: 'HOLD', reason: 'not qualified' };
+        const { legById } = require('../journey-plan.cjs');
+        const b = legById('J1.b');
+        const orig = b.gates;
+        // The plan is frozen, so the HOLD gate is added on a copy of the leg the verdict reads through legById.
+        const plan = require('../journey-plan.cjs');
+        const saved = plan.legById;
+        plan.legById = (id) => (id === 'J1.b' ? { ...b, gates: [...orig, holdGate] } : saved(id));
+        try {
+            delete require.cache[require.resolve('../leg-verdicts.cjs')];
+            const fresh = require('../leg-verdicts.cjs');
+            const v = fresh.legVerdict('J1.b', { budget: ALLOCATED, prior: prior(failedA), satisfiedGates: new Set(['canary-claim-ack']) });
+            expect(v.outcome).toBe('HOLD');
+        }
+        finally {
+            plan.legById = saved;
+            delete require.cache[require.resolve('../leg-verdicts.cjs')];
+        }
+    });
+    it('does not count a PASS recorded by a dependent leg whose dependency did not pass', () => {
+        const heldA = legVerdict('J1.a', { prior: new Map(), satisfiedGates: ALL_GATES, results: results('J1.a', 'HOLD') });
+        expect(legVerdict('J1.d', { prior: prior(heldA), satisfiedGates: ALL_GATES, results: results('J1.d') }).outcome).toBe('NOT RUN');
+    });
     it('makes a dependent leg NOT RUN when its dependency has no verdict', () => {
         expect(legVerdict('J8.c', { prior: new Map(), satisfiedGates: ALL_GATES, results: results('J8.c') }).outcome).toBe('NOT RUN');
     });
@@ -175,19 +206,53 @@ describe('run verdict', () => {
         expect(runVerdict(allPass()).outcome).toBe('PASS');
     });
     it('is INCOMPLETE on a night where everything else passed, because J9.b is NOT RUN by design', () => {
-        expect(runVerdict(everyLegRun())).toEqual({ outcome: 'INCOMPLETE', notGreen: ['J9.b NOT RUN'] });
+        const r = runVerdict(everyLegRun());
+        expect(r.outcome).toBe('INCOMPLETE');
+        expect(r.notGreen).toEqual(['J9.b NOT RUN']);
+        expect(r.scope).toBe(null);
+        // It says why, and says it is not a full PASS.
+        expect(r.reason).toContain('not a full PASS');
+        expect(r.reason).toContain('J9.b NOT RUN (NOT RUN by design');
     });
     it('is never green with a NOT RUN or HOLD leg', () => {
         for (const o of ['NOT RUN', 'HOLD']) {
             const m = allPass();
             m.set('J5.c', { ...m.get('J5.c'), outcome: o });
-            expect(runVerdict(m)).toEqual({ outcome: 'INCOMPLETE', notGreen: [`J5.c ${o}`] });
+            expect(runVerdict(m).outcome).toBe('INCOMPLETE');
+            expect(runVerdict(m).notGreen).toEqual([`J5.c ${o}`]);
         }
     });
     it('is not green with a planned leg missing', () => {
         const m = allPass();
         m.delete('J9.b');
         expect(runVerdict(m).outcome).toBe('INCOMPLETE');
+    });
+    it('labels a selected scope apart: every scope leg passed reads as a scope PASS while the full suite stays INCOMPLETE', () => {
+        const m = everyLegRun();
+        const scope = ALL_LEGS.map((l) => l.id).filter((id) => id !== 'J9.b');
+        const r = runVerdict(m, scope);
+        expect(r.outcome).toBe('INCOMPLETE');
+        expect(r.scope.outcome).toBe('PASS');
+        expect(r.scope.run).toBe(scope.length);
+        expect(r.scope.excluded.map((e) => e.leg)).toEqual(['J9.b']);
+        expect(r.scope.summary).toBe(`All runnable legs passed: ${scope.length} of ${ALL_LEGS.length} planned legs run; excluded: J9.b NOT RUN. Full suite: INCOMPLETE.`);
+        expect(r.scope.excluded[0].reason).toContain('NOT RUN by design');
+    });
+    it('never reads a scope as passed when a scope leg is missing, NOT RUN or HOLD, and fails it on a FAIL', () => {
+        const scope = ['J1.a', 'J3.a'];
+        const m = everyLegRun();
+        m.set('J3.a', { ...m.get('J3.a'), outcome: 'HOLD' });
+        expect(runVerdict(m, scope).scope.outcome).toBe('INCOMPLETE');
+        m.delete('J3.a');
+        expect(runVerdict(m, scope).scope.outcome).toBe('INCOMPLETE');
+        // A selected leg that never ran is not counted as run.
+        expect(runVerdict(m, scope).scope.run).toBe(1);
+        expect(runVerdict(m, scope).scope.selected).toBe(2);
+        expect(runVerdict(m, scope).scope.summary).toContain('1 of 24 planned legs run (2 selected)');
+        m.set('J3.a', { leg: 'J3.a', outcome: 'FAIL', reason: '', rows: {} });
+        expect(runVerdict(m, scope).scope.outcome).toBe('FAIL');
+        expect(runVerdict(m, scope).outcome).toBe('FAIL');
+        expect(() => runVerdict(m, ['J10'])).toThrow();
     });
     it('is FAIL with any failed leg, or an unknown leg', () => {
         const m = allPass();

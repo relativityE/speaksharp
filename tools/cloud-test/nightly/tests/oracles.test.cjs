@@ -130,6 +130,8 @@ describe('sign-out rows (a 403 denial is a correct answer)', () => {
     it('holds both rows when a request or the page was not fully observed', () => {
         for (const o of [
             obs({ requests: [req({ ownedIdentifiersInBody: undefined })] }), obs({ ownedIdentifiersRendered: undefined }), obs({ requests: undefined }),
+            obs({ ownedIdentifiersRendered: Number.NaN }), obs({ ownedIdentifiersRendered: -1 }), obs({ requests: [req({ ownedIdentifiersInBody: Number.NaN })] }),
+            obs({ requests: [req({ ownedIdentifiersInBody: -2 })] }),
             obs({ requests: [req({ bearerDigest: undefined, sentAfterSignOutCompleted: true })] }),
             obs({ requests: [req({ bearerDigest: 'not-a-digest' })] }),
             obs({ requests: [req({ status: undefined, ownedIdentifiersInBody: 3, bearerDigest: null })] }),
@@ -221,21 +223,69 @@ describe('trial-expired-server-refuses', () => {
     });
 });
 describe('short-stop-no-save', () => {
-    const read = { sessionIdsBefore: ['a'], sessionIdsAfter: ['a'], acceptedSaveRequests: 0, savedConfirmationShown: false, settled: true };
-    it('passes when a short Stop saves nothing', () => {
-        expect(shortStopVerdict(read).outcome).toBe('PASS');
+    // #1861 settles a short Stop's discard by marking the take's row failed, so a row can exist and still save nothing.
+    const read = (o = {}) => ({
+        settled: true, rowsBefore: [{ id: 'old', status: 'completed' }], rowsAfter: [{ id: 'old', status: 'completed' }],
+        acceptedCompletingSaves: 0, acceptedFailedMarks: 0, savedConfirmationShown: false, unsettledDiscardShown: false, ...o,
     });
-    it('fails a new row, an accepted save, or a saved message; holds an unsettled page', () => {
-        expect(shortStopVerdict({ ...read, sessionIdsAfter: ['a', 'b'] }).outcome).toBe('FAIL');
-        expect(shortStopVerdict({ ...read, acceptedSaveRequests: 1 }).outcome).toBe('FAIL');
-        expect(shortStopVerdict({ ...read, savedConfirmationShown: true }).outcome).toBe('FAIL');
-        expect(shortStopVerdict({ ...read, settled: false }).outcome).toBe('HOLD');
+    it('passes when a short Stop leaves no new row', () => {
+        expect(shortStopVerdict(read()).outcome).toBe('PASS');
     });
-    it('holds a read with a field not observed, never passing it', () => {
-        for (const f of ['sessionIdsBefore', 'sessionIdsAfter', 'acceptedSaveRequests', 'savedConfirmationShown', 'settled']) {
-            const r = { ...read };
+    it('passes when the placeholder row Start created settles as failed', () => {
+        const r = read({ rowsBefore: [{ id: 'old', status: 'completed' }, { id: 'take', status: 'active' }],
+            rowsAfter: [{ id: 'old', status: 'completed' }, { id: 'take', status: 'failed' }], acceptedFailedMarks: 1 });
+        expect(shortStopVerdict(r).outcome).toBe('PASS');
+    });
+    it('passes when the take\'s row is created late and settles as failed', () => {
+        const r = read({ rowsAfter: [{ id: 'old', status: 'completed' }, { id: 'late', status: 'failed' }], acceptedFailedMarks: 1 });
+        expect(shortStopVerdict(r).outcome).toBe('PASS');
+    });
+    it('fails a take saved as completed, new or from the placeholder', () => {
+        expect(shortStopVerdict(read({ rowsAfter: [{ id: 'old', status: 'completed' }, { id: 'new', status: 'completed' }] })).outcome).toBe('FAIL');
+        expect(shortStopVerdict(read({ rowsBefore: [{ id: 'take', status: 'active' }], rowsAfter: [{ id: 'take', status: 'completed' }] })).outcome).toBe('FAIL');
+    });
+    it('fails an accepted request to complete the take, or a saved message', () => {
+        expect(shortStopVerdict(read({ acceptedCompletingSaves: 1 })).outcome).toBe('FAIL');
+        expect(shortStopVerdict(read({ savedConfirmationShown: true })).outcome).toBe('FAIL');
+    });
+    it('fails a saved take even when another row is also unsettled', () => {
+        const r = read({ rowsAfter: [{ id: 'old', status: 'completed' }, { id: 'a', status: 'completed' }, { id: 'b', status: 'active' }] });
+        expect(shortStopVerdict(r).outcome).toBe('FAIL');
+    });
+    it('holds a discard that has not settled: a row still active, a null status, a vanished row, or the page\'s warning', () => {
+        expect(shortStopVerdict(read({ rowsBefore: [{ id: 'take', status: 'active' }], rowsAfter: [{ id: 'take', status: 'active' }] })).outcome).toBe('HOLD');
+        expect(shortStopVerdict(read({ rowsAfter: [{ id: 'old', status: 'completed' }, { id: 'late', status: 'active' }] })).outcome).toBe('HOLD');
+        expect(shortStopVerdict(read({ rowsAfter: [{ id: 'old', status: 'completed' }, { id: 'late', status: null }] })).outcome).toBe('HOLD');
+        expect(shortStopVerdict(read({ rowsAfter: [] })).outcome).toBe('HOLD');
+        expect(shortStopVerdict(read({ unsettledDiscardShown: true })).outcome).toBe('HOLD');
+        expect(shortStopVerdict(read({ settled: false })).outcome).toBe('HOLD');
+    });
+    it('holds an accepted failed mark that no row shows: the discard is not confirmed', () => {
+        expect(shortStopVerdict(read({ acceptedFailedMarks: 1 })).outcome).toBe('HOLD');
+    });
+    it('holds malformed counts: NaN, negative, fractional, infinite or text never pass', () => {
+        for (const bad of [Number.NaN, -1, 0.5, Infinity, '0', null]) {
+            expect(shortStopVerdict(read({ acceptedCompletingSaves: bad })).outcome).toBe('HOLD');
+            expect(shortStopVerdict(read({ acceptedFailedMarks: bad })).outcome).toBe('HOLD');
+        }
+    });
+    it('holds a read with a field not observed or a row without an id, never passing it', () => {
+        for (const f of ['rowsBefore', 'rowsAfter', 'acceptedCompletingSaves', 'acceptedFailedMarks', 'savedConfirmationShown', 'unsettledDiscardShown', 'settled']) {
+            const r = read();
             delete r[f];
             expect(shortStopVerdict(r).outcome).toBe('HOLD');
         }
+        expect(shortStopVerdict(read({ rowsAfter: [{ status: 'failed' }] })).outcome).toBe('HOLD');
+        expect(shortStopVerdict(read({ rowsBefore: ['old'] })).outcome).toBe('HOLD');
+    });
+});
+describe('what counts as an observed count', () => {
+    const { isCount, notCounts } = require('../counts.cjs');
+    it('takes only whole numbers, zero or more', () => {
+        for (const ok of [0, 1, 42])
+            expect(isCount(ok)).toBe(true);
+        for (const bad of [Number.NaN, -1, 0.5, Infinity, -Infinity, '0', null, undefined, true])
+            expect(isCount(bad)).toBe(false);
+        expect(notCounts({ a: 0, b: Number.NaN, c: -1 }, ['a', 'b', 'c', 'd'])).toEqual(['b', 'c', 'd']);
     });
 });

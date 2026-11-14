@@ -1,6 +1,7 @@
 "use strict";
 // Nightly AHT suite: the lowest limits that still give a truthful result (#1864 at 2c72705, Akin 14 Nov 17:31Z).
 const { describe, it } = require('node:test');
+const { cleanupReserve, reserveMinutes } = require('../cleanup-plan.cjs');
 const { expect } = require('./expect-lite.cjs');
 const {
     PROPOSED_MARGIN_PCT, allGateKinds, countedLimits, dollarCap, journeyAllowance, limitsTable, measuredLimit, runnableJourneys,
@@ -72,8 +73,30 @@ describe('measured limits', () => {
         const baseline = Object.fromEntries(ids.map((id) => [id, [run(61)]]));
         const m = measuredLimit('minutes', new Set(), baseline);
         expect(m.perJourney.map((p) => p.allowance)).toEqual(ids.map(() => 2));
-        expect(m.perRun).toBe(2 * ids.length);
-        expect(m.perPeriod).toBe(2 * ids.length * 30);
+        const reserve = ids.reduce((n, id) => n + reserveMinutes(cleanupReserve(id)), 0);
+        expect(m.perRun).toBe(2 * ids.length + reserve);
+        expect(m.perPeriod).toBe((2 * ids.length + reserve) * 30);
+    });
+    it('adds each runnable journey\'s protected cleanup reserve once, on top of its test-work baseline', () => {
+        const ids = runnableJourneys(new Set()).map((j) => j.id);
+        const baseline = Object.fromEntries(ids.map((id) => [id, [run(100)]]));
+        const m = measuredLimit('requests', new Set(), baseline);
+        for (const p of m.perJourney) {
+            expect(p.cleanupReserve).toBe(cleanupReserve(p.journey).requests);
+            expect(p.total).toBe(111 + p.cleanupReserve);
+        }
+        expect(m.perRun).toBe(ids.length * 111 + ids.reduce((n, id) => n + cleanupReserve(id).requests, 0));
+        expect(countedLimits(new Set()).cleanupRequests).toBe(ids.reduce((n, id) => n + cleanupReserve(id).requests, 0));
+    });
+    it('leaves the limits unset while a runnable journey has no defined cleanup step (J2)', () => {
+        const gates = new Set([...allGateKinds()]);
+        const ids = runnableJourneys(gates).map((j) => j.id);
+        expect(ids).toContain('J2');
+        const baseline = Object.fromEntries(ids.map((id) => [id, [run(100)]]));
+        const m = measuredLimit('requests', gates, baseline);
+        expect(m.perRun).toBe(null);
+        expect(m.basis).toContain('no cleanup reserve for J2');
+        expect(countedLimits(gates).cleanupRequests).toBe(null);
     });
     it('stays unset while any runnable journey lacks a complete baseline, and names it', () => {
         const ids = runnableJourneys(new Set()).map((j) => j.id);

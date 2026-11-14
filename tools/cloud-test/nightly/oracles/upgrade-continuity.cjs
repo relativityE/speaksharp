@@ -4,7 +4,7 @@
 // no longer parses after the upgrade, which fails the row. Setup checks before the release that every kept session has
 // stored coaching and the row is HOLD if one doesn't, so a session whose coaching never stored can't fail it falsely.
 // Every count must be observed as a whole number, or the row is HOLD: a missing counter never passes it.
-const isCount = (n) => Number.isInteger(n) && n >= 0;
+const { isCount } = require('../counts.cjs');
 const unobserved = (o, keys) => keys.filter((k) => !isCount(o?.[k]));
 function oldSessionsNoNewCoachingVerdict(pre, seen) {
     const notChecked = unobserved(pre, ['keptSessions', 'withStoredCoaching']);

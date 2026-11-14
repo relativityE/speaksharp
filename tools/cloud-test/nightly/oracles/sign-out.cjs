@@ -9,6 +9,7 @@
 // the account's own identifiers (session ids, user id, transcript digests) the body held. Bodies and tokens are never stored.
 // The session's token can refresh during the leg, so the spec records the digest of every token issued to the session
 // before sign-out (`signedInBearerDigests`), and a request with any of them counts as the session's.
+const { isCount } = require('../counts.cjs');
 const ok = (s) => s !== null && s >= 200 && s < 300;
 const DIGEST = /^[0-9a-f]{64}$/;
 function precondition(o) {
@@ -17,10 +18,10 @@ function precondition(o) {
     const digests = o.signedInBearerDigests;
     if (!Array.isArray(digests) || digests.length === 0 || !digests.every((d) => DIGEST.test(d)))
         return { outcome: 'HOLD', detail: 'the signed-in token digests were not recorded' };
-    if (!Array.isArray(o.requests) || typeof o.ownedIdentifiersRendered !== 'number')
+    if (!Array.isArray(o.requests) || !isCount(o.ownedIdentifiersRendered))
         return { outcome: 'HOLD', detail: 'the requests or the signed-out page were not observed' };
     // Every request must carry its own facts: a digest (or null for no bearer), a status (or null for no response).
-    const unread = o.requests.filter((r) => typeof r?.ownedIdentifiersInBody !== 'number' || typeof r.sentAfterSignOutCompleted !== 'boolean'
+    const unread = o.requests.filter((r) => !isCount(r?.ownedIdentifiersInBody) || typeof r.sentAfterSignOutCompleted !== 'boolean'
         || !(r.bearerDigest === null || (typeof r.bearerDigest === 'string' && DIGEST.test(r.bearerDigest)))
         || !(r.status === null || Number.isInteger(r.status)));
     if (unread.length > 0)

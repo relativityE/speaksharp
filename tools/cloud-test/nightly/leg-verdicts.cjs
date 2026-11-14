@@ -75,17 +75,20 @@ function legVerdict(legId, input) {
     }
     if (recorded && recorded.outcome === 'FAIL')
         return { ...base, outcome: 'FAIL', reason: `${recorded.reason}${later}`, rows: recorded.rows };
-    const failedDep = plan.needs.find((dep) => !input.prior.get(dep) || input.prior.get(dep).outcome !== 'PASS');
-    if (failedDep !== undefined) {
-        const d = input.prior.get(failedDep);
-        return { ...base, outcome: 'NOT RUN', reason: `needs ${failedDep}, which ${d ? `was ${d.outcome}` : 'has no verdict'}`, rows: allRows(legId, 'NOT RUN') };
+    // Everything else that keeps the leg from passing is folded by severity, so HOLD outranks NOT RUN wherever it comes
+    // from: a dependent leg with a HOLD gate, or HOLD rows, is HOLD, not NOT RUN (design §1: HOLD over NOT RUN). A
+    // dependency that did not pass still keeps the leg from PASS: a PASS recorded without it is not counted.
+    if (notRunCauses.length > 0) {
+        const outcomes = [
+            ...plan.needs.filter((dep) => !input.prior.get(dep) || input.prior.get(dep).outcome !== 'PASS').map(() => 'NOT RUN'),
+            ...unmet.map((g) => g.outcome),
+            ...(budget.allocated ? [] : ['NOT RUN']),
+            ...(recorded && recorded.outcome === 'HOLD' ? ['HOLD'] : []),
+        ];
+        const outcome = fold(outcomes);
+        const reasons = recorded && recorded.outcome === 'HOLD' ? [...notRunCauses, recorded.reason] : notRunCauses;
+        return { ...base, outcome, reason: reasons.join('; '), rows: allRows(legId, outcome) };
     }
-    if (unmet.length > 0) {
-        const outcome = fold(unmet.map((g) => g.outcome));
-        return { ...base, outcome, reason: unmet.map((g) => g.reason).join('; '), rows: allRows(legId, outcome) };
-    }
-    if (!budget.allocated)
-        return { ...base, outcome: 'NOT RUN', reason: `no budget allocation: ${budget.reason}`, rows: allRows(legId, 'NOT RUN') };
     if (!recorded)
         return { ...base, outcome: 'NOT RUN', reason: 'the leg did not run', rows: allRows(legId, 'NOT RUN') };
     return { ...base, outcome: recorded.outcome, reason: recorded.reason, rows: recorded.rows };
@@ -108,8 +111,17 @@ class VerdictLedger {
     /** A copy, for runVerdict and as the `prior` of later legs. */
     verdicts() { return new Map(this.#verdicts); }
 }
-/** PASS only when every planned leg PASSed. Any FAIL is FAIL. Anything else (HOLD, NOT RUN, missing) is INCOMPLETE. */
-function runVerdict(verdicts) {
+/**
+ * The full suite's result: PASS only when every planned leg PASSed. Any FAIL is FAIL. Anything else (HOLD, NOT RUN,
+ * missing) is INCOMPLETE. J9.b is NOT RUN by design, so the full suite reads INCOMPLETE every night; that is the truth
+ * and stays the headline.
+ *
+ * `scopeLegs` (optional) names the legs the run request selected and the run budget allocated. Their result is
+ * labelled apart, as the selected scope, so a night where every one of them passed is visible without calling the
+ * whole suite green: `scope.outcome` is PASS only when every scope leg PASSed, FAIL when one failed, and INCOMPLETE
+ * otherwise. The scope never changes `outcome`.
+ */
+function runVerdict(verdicts, scopeLegs = []) {
     const notGreen = [];
     let failed = false;
     for (const l of ALL_LEGS) {
@@ -128,7 +140,41 @@ function runVerdict(verdicts) {
         failed = true;
         notGreen.push(...extra.map((k) => `${k} unknown leg`));
     }
-    return { outcome: failed ? 'FAIL' : notGreen.length > 0 ? 'INCOMPLETE' : 'PASS', notGreen };
+    const outcome = failed ? 'FAIL' : notGreen.length > 0 ? 'INCOMPLETE' : 'PASS';
+    const why = (id) => verdicts.get(id)?.reason ?? 'no verdict';
+    const short = (t) => (t.length > 160 ? `${t.slice(0, 157)}...` : t);
+    const notGreenWhy = ALL_LEGS.filter((l) => verdicts.get(l.id)?.outcome !== 'PASS').map((l) => `${l.id} ${verdicts.get(l.id)?.outcome ?? 'NOT RUN'} (${short(why(l.id))})`);
+    const reason = outcome === 'PASS' ? 'every planned leg passed'
+        : outcome === 'FAIL' ? `a leg failed: ${notGreen.filter((n) => / FAIL$| unknown leg$/.test(n)).join(', ')}`
+            : `not every planned leg passed, so this is not a full PASS: ${notGreenWhy.join('; ')}`;
+    return { outcome, reason, notGreen, scope: scopeVerdict(verdicts, scopeLegs, outcome) };
+}
+/**
+ * The runnable legs' summary, kept apart from the full-suite result. "All runnable legs passed" only when every leg
+ * the run request named and the budget allocated PASSed; it names how many ran and every planned leg left out, with
+ * why, and it never changes the full-suite outcome.
+ */
+function scopeVerdict(verdicts, scopeLegs, suite) {
+    if (!Array.isArray(scopeLegs) || scopeLegs.length === 0)
+        return null;
+    for (const id of scopeLegs)
+        legById(id);
+    const legs = [...new Set(scopeLegs)];
+    const outcomes = legs.map((id) => verdicts.get(id)?.outcome ?? 'NOT RUN');
+    const outcome = outcomes.includes('FAIL') ? 'FAIL' : outcomes.every((o) => o === 'PASS') ? 'PASS' : 'INCOMPLETE';
+    const excluded = ALL_LEGS.filter((l) => !legs.includes(l.id)).map((l) => {
+        const v = verdicts.get(l.id);
+        return Object.freeze({ leg: l.id, outcome: v?.outcome ?? 'NOT RUN', reason: v?.reason ?? 'not selected for this run' });
+    });
+    // "Run" counts the scope legs that reached a result; a selected leg that never ran is NOT RUN and is not counted.
+    const run = outcomes.filter((o) => o !== 'NOT RUN').length;
+    const head = outcome === 'PASS' ? 'All runnable legs passed'
+        : outcome === 'FAIL' ? 'A runnable leg failed' : 'Not every runnable leg passed';
+    const ex = excluded.length > 0 ? `; excluded: ${excluded.map((e) => `${e.leg} ${e.outcome}`).join(', ')}` : '; nothing excluded';
+    return {
+        outcome, legs, selected: legs.length, run, excluded,
+        summary: `${head}: ${run} of ${ALL_LEGS.length} planned legs run${run === legs.length ? '' : ` (${legs.length} selected)`}${ex}. Full suite: ${suite}.`,
+    };
 }
 /** One report line per leg. A sandbox result names its scope, so it can't be read as production billing proof. */
 function verdictLine(v) {

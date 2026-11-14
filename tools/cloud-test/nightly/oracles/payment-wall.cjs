@@ -1,4 +1,5 @@
 "use strict";
+const { notCounts } = require('../counts.cjs');
 // Nightly AHT suite, the payment wall after the trial ends (J1.e, J1.f, J2). Product rules (Akin, 14 Nov): "No payment,
 // no service or access to their past data. They have the option to delete account, not encouraged (conversion funnel),
 // but available." So the wall offers paying, offers deletion without promoting it, and shows no History, PDF or export
@@ -51,25 +52,64 @@ function serverRefusesVerdict(probes, required) {
     }
     return { outcome: 'PASS', detail: `${probes.length} endpoint(s) refused the expired account` };
 }
-/** J1.c `short-stop-no-save` (G5): a Stop pressed too early saves nothing and says nothing was saved. */
+/**
+ * J1.c `short-stop-no-save` (G5): a Stop pressed too early saves no take and says nothing was saved.
+ *
+ * Discarding a short take is not "no row". The take's row may already exist when Stop is pressed (Start creates it), or
+ * be created late, and #1861 settles the discard by marking that row `failed` through the save path. So the spec reads
+ * every session row of the account, with its status, before the take and after the page settles, and counts the
+ * accepted save requests by the status they asked for. Then, for each row that is new or whose status changed:
+ *   - `completed` is a saved take: FAIL.
+ *   - `failed` is the confirmed settlement of the discard: allowed.
+ *   - any row left in another state (still `active`, null, unknown), new or not, is a discard that has not settled:
+ *     HOLD, never PASS.
+ * A row that was there before and is gone after is not explained by a discard: HOLD. An accepted request that asked to
+ * complete the take is a save: FAIL. The page's own "not settled" warning (#1861) means the discard is unresolved: HOLD,
+ * and so does an accepted request to mark the take failed that no row reflects.
+ */
+const SETTLED_DISCARD = 'failed';
+const SAVED_TAKE = 'completed';
+const isRow = (r) => typeof r?.id === 'string' && r.id.length > 0 && (r.status === null || typeof r.status === 'string');
 function shortStopVerdict(r) {
     if (r?.settled !== true)
         return { outcome: 'HOLD', detail: 'the page did not settle after Stop' };
     const missing = [
-        ...(Array.isArray(r.sessionIdsBefore) ? [] : ['sessionIdsBefore']), ...(Array.isArray(r.sessionIdsAfter) ? [] : ['sessionIdsAfter']),
-        ...notObserved(r, ['acceptedSaveRequests'], 'number'), ...notObserved(r, ['savedConfirmationShown'], 'boolean'),
+        ...(Array.isArray(r.rowsBefore) && r.rowsBefore.every(isRow) ? [] : ['rowsBefore']),
+        ...(Array.isArray(r.rowsAfter) && r.rowsAfter.every(isRow) ? [] : ['rowsAfter']),
+        ...notCounts(r, ['acceptedCompletingSaves', 'acceptedFailedMarks']),
+        ...notObserved(r, ['savedConfirmationShown', 'unsettledDiscardShown'], 'boolean'),
     ];
     if (missing.length > 0)
         return { outcome: 'HOLD', detail: `not observed: ${missing.join(', ')}` };
-    const added = r.sessionIdsAfter.filter((id) => !r.sessionIdsBefore.includes(id));
+    const before = new Map(r.rowsBefore.map((x) => [x.id, x.status]));
+    const after = new Map(r.rowsAfter.map((x) => [x.id, x.status]));
+    const touched = [...after].filter(([id, status]) => !before.has(id) || before.get(id) !== status);
+    const saved = touched.filter(([, s]) => s === SAVED_TAKE).length;
+    // Any row still open after the page settled, new or not, is a take nobody settled.
+    const unsettled = [...after.values()].filter((s) => s !== SAVED_TAKE && s !== SETTLED_DISCARD).length;
+    const vanished = [...before.keys()].filter((id) => !after.has(id)).length;
     const problems = [];
-    if (added.length > 0)
-        problems.push(`${added.length} session row(s) saved`);
-    if (r.acceptedSaveRequests > 0)
-        problems.push(`${r.acceptedSaveRequests} save request(s) accepted`);
+    if (saved > 0)
+        problems.push(`${saved} take(s) saved as completed`);
+    if (r.acceptedCompletingSaves > 0)
+        problems.push(`${r.acceptedCompletingSaves} request(s) to complete the take accepted`);
     if (r.savedConfirmationShown)
         problems.push('the page said the take was saved');
-    return problems.length > 0 ? { outcome: 'FAIL', detail: problems.join('; ') } : { outcome: 'PASS', detail: 'nothing saved after a short Stop' };
+    if (problems.length > 0)
+        return { outcome: 'FAIL', detail: problems.join('; ') };
+    const open = [];
+    if (unsettled > 0)
+        open.push(`${unsettled} row(s) neither completed nor marked failed: the discard has not settled`);
+    if (vanished > 0)
+        open.push(`${vanished} row(s) present before are gone`);
+    if (r.unsettledDiscardShown)
+        open.push('the page says the discard has not settled');
+    if (r.acceptedFailedMarks > 0 && touched.length === 0)
+        open.push(`${r.acceptedFailedMarks} request(s) to mark the take failed accepted, but no row shows it`);
+    if (open.length > 0)
+        return { outcome: 'HOLD', detail: open.join('; ') };
+    const failedRows = touched.length;
+    return { outcome: 'PASS', detail: failedRows > 0 ? `nothing saved after a short Stop; ${failedRows} row(s) settled as failed` : 'nothing saved after a short Stop' };
 }
 
 module.exports = { REFUSAL_STATUSES, paymentWallVerdict, serverRefusesVerdict, shortStopVerdict };

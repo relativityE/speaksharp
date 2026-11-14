@@ -3,6 +3,7 @@
 // BOUNDED (one attempt, a hard timeout), the portal's bearer URL is NEVER logged, stored or attached (a portal session
 // works for anyone holding the link), and cleanup is RECONCILED without promising zero billing rows. J9.a runs in Stripe
 // test mode only, so a portal address that is not a test-mode session is refused before it is opened.
+const { isCount } = require('../counts.cjs');
 const PORTAL_TIMEOUT_MS = 20_000;
 // Any portal-session path, on any host (custom portal domains included), with or without the scheme, in any case, and
 // with its slashes plain, percent-encoded or JSON-escaped.
@@ -46,8 +47,15 @@ async function portalOpensVerdict(ports, timeoutMs = PORTAL_TIMEOUT_MS) {
         log('portal session: no test-mode check; not created');
         return { outcome: 'FAIL', detail: 'no Stripe test-mode check before creating the portal session' };
     }
+    // The check is bounded like every other step: one that never answers fails the leg instead of hanging it, and no
+    // session is created after a check that did not pass in time.
     try {
-        await ports.assertTestMode();
+        // Wrapped in a promise so a check that throws synchronously is a refusal too.
+        const checked = await withTimeout(new Promise((resolve) => resolve(ports.assertTestMode())), timeoutMs);
+        if (checked === 'timeout') {
+            log('portal session: the test-mode check timed out; not created');
+            return { outcome: 'FAIL', detail: 'the Stripe test-mode check timed out, so no portal session was created' };
+        }
     }
     catch {
         log('portal session: the test-mode check refused; not created');
@@ -92,7 +100,7 @@ function reconcileBillingRows(rows, reviewedRetainedTables) {
     // An empty read, or a row without its counts, proves nothing: it holds rather than passing.
     if (!Array.isArray(rows) || rows.length === 0)
         return { outcome: 'HOLD', retained: [], detail: 'no billing table was read' };
-    const unread = rows.filter((r) => typeof r?.table !== 'string' || !Number.isInteger(r.count) || !Number.isInteger(r.otherAccountRows));
+    const unread = rows.filter((r) => typeof r?.table !== 'string' || !isCount(r.count) || !isCount(r.otherAccountRows));
     if (unread.length > 0)
         return { outcome: 'HOLD', retained: [], detail: `${unread.length} billing row count(s) not read` };
     const retained = rows.filter((r) => r.count > 0).map((r) => `${r.table}=${r.count}`);

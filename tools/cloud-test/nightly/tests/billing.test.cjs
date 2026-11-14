@@ -80,6 +80,14 @@ describe('billing portal check', () => {
             expect(opened).toEqual([]);
         }
     });
+    it('fails, not hangs, when the test-mode check never answers, and creates no session after it', async () => {
+        const { p, opened } = ports({ assertTestMode: () => new Promise(() => {}) });
+        const v = await portalOpensVerdict(p, 20);
+        expect(v.outcome).toBe('FAIL');
+        expect(v.detail).toContain('timed out');
+        expect(p.createSession).toHaveBeenCalledTimes(0);
+        expect(opened).toEqual([]);
+    });
 });
 describe('billing cleanup reconciliation (no promise of zero rows)', () => {
     it('reports rows retained by design as PASS', () => {
@@ -92,6 +100,10 @@ describe('billing cleanup reconciliation (no promise of zero rows)', () => {
     });
     it('holds an empty read or a row without its counts, never passing it', () => {
         expect(reconcileBillingRows([], ['stripe_customers']).outcome).toBe('HOLD');
+        for (const bad of [Number.NaN, -1, 0.5]) {
+            expect(reconcileBillingRows([{ table: 'stripe_customers', count: bad, otherAccountRows: 0 }], ['stripe_customers']).outcome).toBe('HOLD');
+            expect(reconcileBillingRows([{ table: 'stripe_customers', count: 1, otherAccountRows: bad }], ['stripe_customers']).outcome).toBe('HOLD');
+        }
         expect(reconcileBillingRows(undefined, ['stripe_customers']).outcome).toBe('HOLD');
         expect(reconcileBillingRows([{ table: 'stripe_customers', count: 1 }], ['stripe_customers']).outcome).toBe('HOLD');
         expect(reconcileBillingRows([{ table: 'stripe_customers', otherAccountRows: 0 }], ['stripe_customers']).outcome).toBe('HOLD');

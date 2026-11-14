@@ -14,6 +14,16 @@
 // complete baseline leaves the whole limit unset rather than guessed. J9 runs on the billing sandbox, so it counts
 // against none of the production limits. Nothing here applies a limit: the product owner accepts them.
 const { ALL_LEGS, JOURNEYS } = require('./journey-plan.cjs');
+const { cleanupReserve, reserveMinutes } = require('./cleanup-plan.cjs');
+/** A journey's protected cleanup reserve, or null when its cleanup step isn't defined yet (J2). */
+function reserveOf(journeyId) {
+    try {
+        return cleanupReserve(journeyId);
+    }
+    catch {
+        return null;
+    }
+}
 const RUNS_PER_PERIOD = Object.freeze({ runs: 30, days: 30 });
 /** Each coaching request can make up to 3 provider calls (MAX_PROVIDER_ATTEMPTS). */
 const PROVIDER_CALLS_PER_COACHING_REQUEST = 3;
@@ -58,6 +68,9 @@ function countedLimits(satisfiedGates = new Set()) {
         identityReads: 2 * journeys.length + 2,
         providerCalls: coachingRequests * PROVIDER_CALLS_PER_COACHING_REQUEST,
         paidActionsUsd: 0,
+        // The protected cleanup reserves of the journeys that run (cleanup-plan.cjs, structural worst case). Counted
+        // apart from test work; null while any of them has no defined cleanup step.
+        cleanupRequests: journeys.some((j) => reserveOf(j.id) === null) ? null : journeys.reduce((n, j) => n + reserveOf(j.id).requests, 0),
         runsPerPeriod: RUNS_PER_PERIOD,
     });
 }
@@ -98,13 +111,20 @@ function journeyAllowance(kind, runs) {
  * complete baseline. `baseline` maps a journey id to its runs. The period cap is the run cap times the runs per period.
  */
 function measuredLimit(kind, satisfiedGates, baseline = {}) {
-    const perJourney = runnableJourneys(satisfiedGates).map((j) => ({ journey: j.id, ...journeyAllowance(kind, baseline[j.id]) }));
+    // A baseline measures test work only; the cleanup reserve is added once, here, so it is never counted twice.
+    const perJourney = runnableJourneys(satisfiedGates).map((j) => {
+        const a = journeyAllowance(kind, baseline[j.id]);
+        const r = reserveOf(j.id);
+        const cleanup = r === null ? null : kind === 'minutes' ? reserveMinutes(r) : r.requests;
+        return { journey: j.id, ...a, cleanupReserve: cleanup, total: a.allowance === null || cleanup === null ? null : a.allowance + cleanup };
+    });
     const missing = perJourney.filter((p) => p.allowance === null).map((p) => p.journey);
-    const perRun = missing.length > 0 ? null : perJourney.reduce((n, p) => n + p.allowance, 0);
-    return {
-        limit: kind, perJourney, perRun, perPeriod: perRun === null ? null : perRun * RUNS_PER_PERIOD.runs,
-        basis: missing.length > 0 ? `not set: no complete baseline for ${missing.join(', ')}` : 'sum of the runnable journeys\' allowances; a journey that needs more stops there and its remaining legs report NOT RUN',
-    };
+    const noReserve = perJourney.filter((p) => p.cleanupReserve === null).map((p) => p.journey);
+    const perRun = missing.length > 0 || noReserve.length > 0 ? null : perJourney.reduce((n, p) => n + p.total, 0);
+    const basis = missing.length > 0 ? `not set: no complete baseline for ${missing.join(', ')}`
+        : noReserve.length > 0 ? `not set: no cleanup reserve for ${noReserve.join(', ')}`
+            : 'sum over the runnable journeys of the test-work allowance plus the protected cleanup reserve; a journey that needs more stops there and its remaining legs report NOT RUN';
+    return { limit: kind, perJourney, perRun, perPeriod: perRun === null ? null : perRun * RUNS_PER_PERIOD.runs, basis };
 }
 /** A dollar cap: a count times a unit price the product owner supplies. No margin of its own; unset without a price. */
 function dollarCap(count, pricePerUnitUsd) {
@@ -124,7 +144,7 @@ function limitsTable(satisfiedToday = new Set(), baseline = {}, prices = {}) {
         githubRunnerMinutes: minutes.perRun,
         providerUsd: dollarCap(today.providerCalls, prices.providerPerCallUsd),
         githubUsd: dollarCap(minutes.perRun, prices.githubPerMinuteUsd),
-        rule: 'counted limits are exact; measured limits come from complete baselines plus evidence-based margins; anything left out is NOT RUN, never PASS',
+        rule: 'counted limits are exact; measured limits come from complete baselines of test work plus evidence-based margins, plus each journey\'s protected cleanup reserve; anything left out is NOT RUN, never PASS',
     };
 }
 
