@@ -1532,7 +1532,7 @@
   {
    "leg": "J9.a",
    "assertion": "old-sessions-no-new-coaching",
-   "what": "Opening the kept sessions after the release sends no coaching request (budget 0): the stored coaching still reads. A request means the stored format no longer parses after the upgrade, which fails this row.",
+   "what": "Opening the kept sessions after the release sends no coaching request (budget 0): the stored coaching still reads. A request means the stored format no longer parses after the upgrade, which fails this row. Setup checks before the release that every kept session has stored coaching, and reports HOLD if one doesn't, so a session whose coaching never stored can't fail it falsely.",
    "status": "sandbox, disabled until runnable"
   },
   {
