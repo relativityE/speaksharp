@@ -191,6 +191,17 @@ describe('#1811 JourneyFeedbackFence — the runner sequence', () => {
         expect(r.list).toEqual([['feedback fence open', 'HOLD']]);
         expect(none.fences.size).toBe(0);
     });
+    it('stopWriter() stops writes while the fence stays open, so close still runs and records the drained writer', async () => {
+        const db = fakeDb(); const r = rows();
+        const fence = new JourneyFeedbackFence(db.admin, 'AHT-07', 4);
+        expect(await fence.open(OWNER, BINDING)).toBe(true);
+        expect(fence.writable).toBe(true);
+        fence.stopWriter();
+        expect(fence.writable).toBe(false);
+        expect(fence.isOpen).toBe(true);
+        expect((await fence.close(r.sink))?.reports).toBe(0);
+        expect(r.list).toEqual([['feedback fence close', 'PASS']]);
+    });
     it('no run binding (a local run) never opens and never writes', async () => {
         const db = fakeDb();
         const fence = new JourneyFeedbackFence(db.admin, 'AHT-01', 1);
