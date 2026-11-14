@@ -149,7 +149,7 @@ export function nativeCommand(binding) {
   return binding.runtime.runner==='deno'
     ?[binding.runtime.execPath,'test','--config','backend/supabase/functions/deno.json','--cached-only','--frozen',
       '--lock=backend/supabase/functions/deno.lock','--node-modules-dir=none','--no-prompt','--deny-net',
-      ...(nativeDenoPolicy(file).environment.names.length?['--allow-env=GEMINI_API_KEY']:['--deny-env']),
+      ...(nativeDenoPolicy(file).environment.names.length?[`--allow-env=${nativeDenoPolicy(file).environment.names.join(',')}`]:['--deny-env']),
       '--deny-read','--deny-write','--deny-run',
       '--reporter=junit',file]
     :[binding.runtime.execPath,...(typedHelper?['--experimental-strip-types']:[]),
@@ -157,9 +157,13 @@ export function nativeCommand(binding) {
 }
 export function nativeWarmupCommand(binding) {
   if(binding.runtime.runner!=='deno')fail('Only Deno has an import warmup');
-  return nativeCommand(binding).map(arg=>arg==='--allow-env=GEMINI_API_KEY'?'--deny-env':arg)
+  return nativeCommand(binding).map(arg=>arg.startsWith('--allow-env=')?'--deny-env':arg)
     .filter(arg=>arg!=='--cached-only').toSpliced(2,0,'--no-run');
 }
+// Checkout reads this name at import time. The rebuilt child environment never
+// supplies its value; permission only lets the module observe absence. Network,
+// files, child processes and all other environment names remain denied.
+const checkoutTest='backend/supabase/functions/stripe-checkout/index.test.ts';
 const coachingTest='backend/supabase/functions/get-ai-suggestions/index.test.ts';
 const coachingClosure=Object.freeze({
   'backend/supabase/functions/_shared/cors.ts':'74ab664c710d733534d8e0af433b0c4c48110a2dec1d5436f04f55147225e608',
@@ -282,7 +286,7 @@ const coachingProfiles=Object.freeze([
     'backend/supabase/functions/get-ai-suggestions/evaluation/transcripts.json':'a4db4fdac8c4e2bd6c113d83c87ed458eac6197d99b1ccc747822bfad52b9a1a'}},
 ]);
 export function nativeDenoPolicy(file) {
-  return {schemaVersion:1,testFile:file,environment:{names:file===coachingTest?['GEMINI_API_KEY']:[],
+  return {schemaVersion:1,testFile:file,environment:{names:file===coachingTest?['GEMINI_API_KEY']:file===checkoutTest?['STRIPE_SECRET_KEY']:[],
     initial:'absent',inherit:false,syntheticValue:file===coachingTest?'test-key':null,reinject:false},
     network:'denied',read:'denied',write:'denied',run:'denied',prompt:'denied',warmupEnvironment:'denied'};
 }

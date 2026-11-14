@@ -1,5 +1,6 @@
 import path from 'node:path';
 import fs from 'node:fs';
+import {transformWithEsbuild} from 'vite';
 import base from '../frontend/vitest.config.mjs';
 import {helperCoverageOptions} from './lib/helperExecutionEvidence.mjs';
 
@@ -16,6 +17,13 @@ if (JSON.stringify(setup) !== JSON.stringify(binding.helper.sourceBinding.setupF
 }
 export default {
   ...base,
+  plugins: [...(base.plugins || []), {
+    name: 'helper-mjs-source-map', enforce: 'pre',
+    transform(code, id) {
+      if (!binding.helper.helperFile.endsWith('.mjs') || id.split('?')[0] !== path.join(root, binding.helper.helperFile)) return null;
+      return transformWithEsbuild(code, id, {loader: 'js', sourcemap: true, target: 'esnext'});
+    },
+  }],
   test: {...base.test, root, include: [binding.helper.testFile], fileParallelism: false, maxWorkers: 1, minWorkers: 1,
     coverage: helperCoverageOptions(root, binding)},
 };

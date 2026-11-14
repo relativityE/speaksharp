@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.live.json",
+  "include": ["playwright.billing-journey.config.ts", "tests/billing/user-journey/**/*.ts",
+    "frontend/src/types/global.d.ts", "frontend/src/config/appRuntimeConfig.ts"]
+}
