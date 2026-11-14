@@ -10,8 +10,9 @@
 //    them, so concurrent senders can never both take the last unit. `send` reserves first and only then awaits the
 //    action, so a refused action never starts.
 // 3. No retry borrowing. A leg draws only on its own allocation. A reservation is final (there is no release), so a
-//    retry needs a unit of its own; past the allocation it is refused, the leg's budget row FAILs and the leg sends
-//    nothing more of that kind. It can't draw on another leg, another journey or the cleanup capacity.
+//    retry needs a unit of its own; past the allocation it is refused, the leg's budget row FAILs and the leg sends no
+//    more ordinary work of any kind (cleanup stays available). It can't draw on another leg, another journey or the
+//    cleanup capacity.
 // 4. Worst case for probes. J1.e's expired-token coaching probe is reserved as one coaching request (up to 3 provider
 //    calls) before the run starts, though the server should refuse it before any provider work.
 // 5. Protected cleanup. Cleanup requests come from a separate per-leg pool that ordinary work can't reserve from, and
@@ -23,19 +24,17 @@ const COACHING_CEILING_ENV = 'NIGHTLY_COACHING_CAP';
 const ORDINARY_KINDS = Object.freeze(['coaching', 'starts']);
 const CLEANUP = 'cleanup';
 const isWhole = (n) => Number.isInteger(n) && n >= 0;
-/** Reads an optional lower coaching ceiling. Missing means the calculated minimum; it may be lowered, never raised. */
-function coachingCeilingFromEnv(env, minimum) {
-    if (!isWhole(minimum))
-        throw new Error(`invalid calculated minimum ${minimum}`);
+/**
+ * Reads an optional lower coaching ceiling for planRunBudget: undefined when unset (the legs' own need), otherwise a
+ * whole number. planRunBudget refuses one above what the runnable, selected legs need, so it can be lowered, never raised.
+ */
+function coachingCeilingFromEnv(env) {
     const raw = env[COACHING_CEILING_ENV];
     if (raw === undefined || raw === '')
-        return minimum;
+        return undefined;
     if (!/^\d+$/.test(raw.trim()))
         throw new Error(`${COACHING_CEILING_ENV} must be a whole number, got ${JSON.stringify(raw)}`);
-    const cap = Number(raw.trim());
-    if (cap > minimum)
-        throw new Error(`${COACHING_CEILING_ENV}=${cap} is above the ${minimum} requests this run's legs need; a higher cap buys no signal`);
-    return cap;
+    return Number(raw.trim());
 }
 /**
  * The allocations for one run, fixed before it starts.
@@ -106,7 +105,8 @@ class RunBudget {
     #used = new Map();
     #refused = new Map();
     #stopped = new Set();
-    #cleanupOverrun = new Set();
+    /** Ordinary reservations refused because the leg had already overrun: counted apart, not as a new overrun. */
+    #afterStop = new Map();
     #seq = 0;
     constructor(allocations, notAllocated = new Map()) {
         const alloc = new Map();
@@ -161,7 +161,7 @@ class RunBudget {
         if (!this.#alloc.has(legId))
             return { granted: false, reason: `${legId} has no allocation: ${this.#notAllocated.get(legId) ?? 'not planned'}` };
         if (this.#stopped.has(legId)) {
-            this.#refused.get(legId)[kind] += 1;
+            this.#afterStop.set(legId, (this.#afterStop.get(legId) ?? 0) + 1);
             return { granted: false, reason: `${legId}'s ordinary work was stopped after it exceeded its allocation` };
         }
         const r = this.#take(legId, kind);
@@ -174,10 +174,7 @@ class RunBudget {
         legById(legId);
         if (!this.#alloc.has(legId))
             return { granted: false, reason: `${legId} has no allocation: ${this.#notAllocated.get(legId) ?? 'not planned'}` };
-        const r = this.#take(legId, CLEANUP);
-        if (!r.granted)
-            this.#cleanupOverrun.add(legId);
-        return r;
+        return this.#take(legId, CLEANUP);
     }
     /** Reserves, then runs the action. A refused action is never started. */
     async send(legId, kind, action) {
@@ -203,6 +200,7 @@ class RunBudget {
         return {
             outcome: b.overrun.length > 0 ? 'FAIL' : 'PASS',
             allocated: this.#alloc.get(legId), used: { ...this.#used.get(legId) }, refused: { ...this.#refused.get(legId) },
+            refusedAfterStop: this.#afterStop.get(legId) ?? 0,
         };
     }
 }

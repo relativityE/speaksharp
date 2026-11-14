@@ -3,7 +3,10 @@
 // a FAIL is never hidden by a later NOT RUN.
 const { describe, expect, it } = require('./expect-lite.cjs');
 const { ALL_LEGS, rowsForLeg } = require('../journey-plan.cjs');
-const { VerdictLedger, legVerdict, runVerdict, verdictLine } = require('../leg-verdicts.cjs');
+const { VerdictLedger, legVerdict: rawLegVerdict, runVerdict, verdictLine } = require('../leg-verdicts.cjs');
+const ALLOCATED = Object.freeze({ allocated: true, overrun: [] });
+// Most tests are about rows, gates and dependencies, so each leg has its allocation unless a test says otherwise.
+const legVerdict = (id, input) => rawLegVerdict(id, { budget: ALLOCATED, ...input });
 const ALL_GATES = new Set(['canary-claim-ack', 'unqualified', 'disabled-until-reviewed', 'test-mode-fixture', 'no-safe-production-proof', 'no-harness-case']);
 const NO_GATES = new Set();
 const results = (leg, o = 'PASS') => Object.fromEntries(rowsForLeg(leg).map((r) => [r, o]));
@@ -67,6 +70,23 @@ describe('leg verdict', () => {
         const v = legVerdict('J2', { prior: new Map(), satisfiedGates: new Set(['canary-claim-ack', 'no-harness-case']), results: results('J2') });
         expect(v.outcome).toBe('NOT RUN');
         expect(v.reason).toContain('reviewed cleanup');
+    });
+    it('makes a leg NOT RUN when the run budget gave no facts for it, never PASS', () => {
+        const v = rawLegVerdict('J6', { prior: new Map(), satisfiedGates: ALL_GATES, results: results('J6') });
+        expect(v.outcome).toBe('NOT RUN');
+        expect(v.reason).toContain('no budget allocation');
+    });
+    it("reads the harness's NOT_RUN as NOT RUN and any unknown outcome as FAIL, never PASS", () => {
+        for (const [given, want] of [['NOT_RUN', 'NOT RUN'], ['ERROR', 'FAIL'], ['pass', 'FAIL'], [undefined, 'FAIL']]) {
+            const r = results('J3.a');
+            r[Object.keys(r)[0]] = given;
+            expect(legVerdict('J3.a', { prior: new Map(), satisfiedGates: ALL_GATES, results: r }).outcome).toBe(want);
+        }
+    });
+    it('keeps J9.b NOT RUN even when a runner claims every gate, its production gate included', () => {
+        const v = legVerdict('J9.b', { prior: new Map(), satisfiedGates: ALL_GATES, results: results('J9.b') });
+        expect(v.outcome).toBe('NOT RUN');
+        expect(v.reason).toContain('NOT RUN by design');
     });
     it('makes a leg NOT RUN when it got no budget allocation before the run', () => {
         const v = legVerdict('J3.b', { prior: new Map(), satisfiedGates: ALL_GATES, results: undefined, budget: { allocated: false, reason: 'left out', overrun: [] } });
@@ -138,14 +158,23 @@ describe('proof scope', () => {
     });
 });
 describe('run verdict', () => {
-    const allPass = () => {
+    const everyLegRun = () => {
         const m = new Map();
         for (const l of ALL_LEGS)
             m.set(l.id, legVerdict(l.id, { prior: m, satisfiedGates: ALL_GATES, results: results(l.id) }));
         return m;
     };
+    // J9.b is NOT RUN by design on every run, so to test the run rule itself this stands in a PASS for it.
+    const allPass = () => {
+        const m = everyLegRun();
+        m.set('J9.b', { ...m.get('J9.b'), outcome: 'PASS' });
+        return m;
+    };
     it('is PASS only when every planned leg passed', () => {
         expect(runVerdict(allPass()).outcome).toBe('PASS');
+    });
+    it('is INCOMPLETE on a night where everything else passed, because J9.b is NOT RUN by design', () => {
+        expect(runVerdict(everyLegRun())).toEqual({ outcome: 'INCOMPLETE', notGreen: ['J9.b NOT RUN'] });
     });
     it('is never green with a NOT RUN or HOLD leg', () => {
         for (const o of ['NOT RUN', 'HOLD']) {

@@ -8,7 +8,8 @@
 // - a row named after one of the four invariants also fills `invariant:X` on every leg of that case;
 // - a row named after a new row of the design becomes `new:X` on that new row's leg (once the handoff adds it).
 // A row the plan places nowhere is not dropped: it lands as `unplaced:X` on every leg of the case, which legVerdict
-// fails as a row outside the plan, so a renamed or missing row can never pass silently.
+// fails as a row outside the plan, so a renamed or missing row can never pass silently. A Start press the harness
+// stopped at its cap fails start-press-budget on every leg of the case.
 const { ALL_LEGS, CATALOG_ROW_HOMES, LEG_INVARIANTS, NEW_ROWS } = require('./journey-plan.cjs');
 const OUTCOMES = new Set(['PASS', 'FAIL', 'NOT RUN', 'HOLD']);
 /** The harness writes NOT_RUN in some error paths; anything else unknown is a FAIL, never a PASS. */
@@ -67,6 +68,12 @@ function splitCaseResult(caseId, caseResult) {
             for (const leg of legs)
                 put(leg, `unplaced:${id || '(no id)'}`, outcome);
     }
+    // The harness stops a Start press past the case's cap and writes start-press-budget as NOT RUN with
+    // executionSignals.startPressCapExceeded. For the nightly that is an overrun of a frozen allocation: FAIL on every leg
+    // of the case, which no later NOT RUN can hide.
+    if (caseResult.executionSignals?.startPressCapExceeded === true)
+        for (const leg of legs)
+            put(leg, 'invariant:start-press-budget', 'FAIL');
     return out;
 }
 

@@ -4,8 +4,8 @@
 // signal; propose a margin only where the evidence justifies it. Anything skipped must be NOT RUN.").
 //
 // Counted limits (fresh sign-ups, takes, Start presses, coaching requests, identity reads, provider calls, paid
-// actions) follow exactly from the legs that can run. They carry no margin: a retry that needs more fails its row and
-// the guard refuses the extra action, so the leg reports NOT RUN instead of spending more.
+// actions) follow exactly from the legs that can run. They carry no margin: a retry that needs more is refused before it
+// is sent, and the leg that asked fails its budget row (run-budget.cjs) rather than spending more.
 //
 // Measured limits (requests, run minutes) are set per production journey from a baseline run in which every runnable
 // leg executed, plus the margin the evidence supports: requests 11%, time 14% (the largest differences between the two

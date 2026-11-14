@@ -38,7 +38,7 @@
       "id": "P1-gate-ignored",
       "guards": "an unmet gate (canary claim, unqualified, disabled, test-mode fixture, no safe production proof) is reported, never passed",
       "file": "leg-verdicts.cjs",
-      "find": "return gates.filter((g) => !satisfied.has(g.kind));",
+      "find": "return gates.filter((g) => NEVER_SATISFIED.includes(g.kind) || !satisfied.has(g.kind));",
       "replace": "return gates.filter(() => false);",
       "test": "tests/leg-verdicts.test.cjs"
     },
@@ -118,7 +118,7 @@
       "id": "P2-server-error-counts-as-refusal",
       "guards": "trial-expired-server-refuses: a 5xx is not a refusal",
       "file": "oracles/payment-wall.cjs",
-      "find": "!(p.status >= 400 && p.status < 500)",
+      "find": "!REFUSAL_STATUSES.includes(p.status)",
       "replace": "!(p.status >= 400)",
       "test": "tests/oracles.test.cjs"
     },
@@ -190,8 +190,8 @@
       "id": "P2-stale-request-only-if-success",
       "guards": "signout-no-stale-request: any request with the old session after sign-out fails, whatever the answer",
       "file": "oracles/sign-out.cjs",
-      "find": "const stale = o.requests.filter((r) => r.sentAfterSignOutCompleted && r.bearerDigest === o.signedInBearerDigest);",
-      "replace": "const stale = o.requests.filter((r) => ok(r.status) && r.sentAfterSignOutCompleted && r.bearerDigest === o.signedInBearerDigest);",
+      "find": "const stale = o.requests.filter((r) => r.sentAfterSignOutCompleted && sessionToken(o, r));",
+      "replace": "const stale = o.requests.filter((r) => ok(r.status) && r.sentAfterSignOutCompleted && sessionToken(o, r));",
       "test": "tests/oracles.test.cjs"
     },
     {
@@ -371,11 +371,11 @@
       "replace": "const PROVIDER_CALLS_PER_COACHING_REQUEST = 1;"
     },
     {
-      "id": "P4-ceiling-raised-from-env",
-      "guards": "a coaching ceiling can be lowered, never raised above what the legs need",
+      "id": "P4-ceiling-fraction-accepted",
+      "guards": "a coaching ceiling from the environment must be a whole number",
       "file": "run-budget.cjs",
-      "find": "    if (cap > minimum)\n        throw",
-      "replace": "    if (cap > minimum * 2)\n        throw",
+      "find": "if (!/^\\d+$/.test(raw.trim()))",
+      "replace": "if (false)",
       "test": "tests/run-budget.test.cjs"
     },
     {
@@ -470,8 +470,8 @@
       "id": "P4-stopped-leg-blocks-cleanup",
       "guards": "a leg that overran ordinary work can still clean up",
       "file": "run-budget.cjs",
-      "find": "        const r = this.#take(legId, CLEANUP);",
-      "replace": "        if (this.#stopped.has(legId))\n            return { granted: false, reason: 'stopped' };\n        const r = this.#take(legId, CLEANUP);",
+      "find": "        return this.#take(legId, CLEANUP);",
+      "replace": "        if (this.#stopped.has(legId))\n            return { granted: false, reason: 'stopped' };\n        return this.#take(legId, CLEANUP);",
       "test": "tests/run-budget.test.cjs"
     },
     {
@@ -513,6 +513,118 @@
       "find": "if (!had || SEVERITY[v.outcome] > SEVERITY[had.outcome])",
       "replace": "if (true)",
       "test": "tests/leg-verdicts.test.cjs"
+    },
+    {
+      "id": "P5-unknown-row-outcome-passes",
+      "guards": "a row outcome the plan doesn't know (NOT_RUN, ERROR) is never PASS",
+      "file": "leg-verdicts.cjs",
+      "find": "rows[r] = r in results ? outcomeOf(results[r]) : 'NOT RUN';",
+      "replace": "rows[r] = results[r] ?? 'NOT RUN';",
+      "test": "tests/leg-verdicts.test.cjs"
+    },
+    {
+      "id": "P5-start-cap-signal-ignored",
+      "guards": "a Start press stopped at the harness cap fails start-press-budget on the case's legs",
+      "file": "case-results.cjs",
+      "find": "if (caseResult.executionSignals?.startPressCapExceeded === true)",
+      "replace": "if (false)",
+      "test": "tests/harness-mapping.test.cjs"
+    },
+    {
+      "id": "P5-production-gate-claimable",
+      "guards": "J9.b's production gate stays unmet whatever the runner claims",
+      "file": "leg-verdicts.cjs",
+      "find": "NEVER_SATISFIED.includes(g.kind) || !satisfied.has(g.kind)",
+      "replace": "!satisfied.has(g.kind)",
+      "test": "tests/leg-verdicts.test.cjs"
+    },
+    {
+      "id": "P5-missing-budget-allocated",
+      "guards": "a leg with no budget facts is NOT RUN, never PASS",
+      "file": "leg-verdicts.cjs",
+      "find": "allocated: false, reason: 'the run budget gave no facts for this leg'",
+      "replace": "allocated: true, reason: 'the run budget gave no facts for this leg'",
+      "test": "tests/leg-verdicts.test.cjs"
+    },
+    {
+      "id": "P5-any-4xx-refusal",
+      "guards": "only 401, 402 and 403 count as the server refusing an expired account",
+      "file": "oracles/payment-wall.cjs",
+      "find": "const REFUSAL_STATUSES = Object.freeze([401, 402, 403]);",
+      "replace": "const REFUSAL_STATUSES = Object.freeze([400, 401, 402, 403, 404, 405, 409, 429]);",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P5-provider-work-unobserved-passes",
+      "guards": "a probe with provider work not observed holds",
+      "file": "oracles/payment-wall.cjs",
+      "find": "if (unobserved.length > 0)\n        return { outcome: 'HOLD'",
+      "replace": "if (false)\n        return { outcome: 'HOLD'",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P5-wall-missing-field-passes",
+      "guards": "a wall field the spec didn't map holds, never passes",
+      "file": "oracles/payment-wall.cjs",
+      "find": "    if (missing.length > 0)\n        return { outcome: 'HOLD', detail: `not observed: ${missing.join(', ')}` };\n    const problems = [];\n    if (!w.wallShown)",
+      "replace": "    const problems = [];\n    if (!w.wallShown)",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P5-refreshed-token-missed",
+      "guards": "every token issued to the session before sign-out counts as the session's",
+      "file": "oracles/sign-out.cjs",
+      "find": "o.signedInBearerDigests.includes(r.bearerDigest)",
+      "replace": "o.signedInBearerDigests[0] === r.bearerDigest",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P5-signout-unobserved-request-passes",
+      "guards": "a sign-out request not fully observed holds both rows",
+      "file": "oracles/sign-out.cjs",
+      "find": "if (unread.length > 0)\n        return { outcome: 'HOLD'",
+      "replace": "if (false)\n        return { outcome: 'HOLD'",
+      "test": "tests/oracles.test.cjs"
+    },
+    {
+      "id": "P5-portal-pattern-needs-scheme",
+      "guards": "portal addresses are redacted without a scheme, in any case, encoded or on any host",
+      "file": "oracles/billing-portal.cjs",
+      "find": "const PORTAL_URL_RE = new RegExp(`(?:https?:${SLASH}${SLASH})?[a-z0-9.-]*${SLASH}p${SLASH}session${SLASH}[a-z0-9_]+[^\\\\s\"'<>]*`, 'gi');",
+      "replace": "const PORTAL_URL_RE = /https?:\\/\\/billing\\.stripe\\.com\\/p\\/session\\/[A-Za-z0-9_]+[^\\s\"'<>]*/g;",
+      "test": "tests/billing.test.cjs"
+    },
+    {
+      "id": "P5-portal-known-value-ignored",
+      "guards": "the exact portal address and its session token are redacted in any shape",
+      "file": "oracles/billing-portal.cjs",
+      "find": "for (const v of known) {",
+      "replace": "for (const v of []) {",
+      "test": "tests/billing.test.cjs"
+    },
+    {
+      "id": "P5-portal-created-before-test-mode",
+      "guards": "no portal session is created before the Stripe test-mode check passes",
+      "file": "oracles/billing-portal.cjs",
+      "find": "    try {\n        ports.assertTestMode();\n    }",
+      "replace": "    try {\n    }",
+      "test": "tests/billing.test.cjs"
+    },
+    {
+      "id": "P5-billing-empty-read-passes",
+      "guards": "an empty billing read holds, never passes",
+      "file": "oracles/billing-portal.cjs",
+      "find": "if (!Array.isArray(rows) || rows.length === 0)",
+      "replace": "if (!Array.isArray(rows))",
+      "test": "tests/billing.test.cjs"
+    },
+    {
+      "id": "P5-stop-counted-as-overrun",
+      "guards": "a reservation refused after the leg stopped is not a new overrun",
+      "file": "run-budget.cjs",
+      "find": "this.#afterStop.set(legId, (this.#afterStop.get(legId) ?? 0) + 1);",
+      "replace": "this.#refused.get(legId)[kind] += 1;",
+      "test": "tests/run-budget.test.cjs"
     }
   ]
 }

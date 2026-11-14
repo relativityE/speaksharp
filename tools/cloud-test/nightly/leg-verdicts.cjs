@@ -7,6 +7,8 @@
 // A FAIL is never hidden: a leg that recorded a FAIL or overran its frozen allocation is FAIL, whatever NOT RUN or HOLD
 // comes after, and the run's ledger keeps the worse of two verdicts for the same leg.
 const { ALL_LEGS, legById, rowsForLeg } = require('./journey-plan.cjs');
+const { outcomeOf } = require('./case-results.cjs');
+const { NEVER_SATISFIED } = require('./limits.cjs');
 /** Severity order used to fold rows into a leg: one FAIL fails the leg; otherwise one HOLD holds it; otherwise one NOT RUN. */
 const SEVERITY = Object.freeze({ PASS: 0, 'NOT RUN': 1, HOLD: 2, FAIL: 3 });
 function fold(outcomes) {
@@ -15,16 +17,20 @@ function fold(outcomes) {
     return outcomes.reduce((worst, o) => (SEVERITY[o] > SEVERITY[worst] ? o : worst), 'PASS');
 }
 const allRows = (legId, o) => Object.fromEntries(rowsForLeg(legId).map((r) => [r, o]));
-/** Gates that are unmet, from facts the runner established before the leg (never from the leg's own results). */
+/**
+ * Gates that are unmet, from facts the runner established before the leg (never from the leg's own results). A gate no
+ * runner can satisfy (J9.b's production proof) stays unmet whatever the runner claims.
+ */
 function unmetGates(gates, satisfied) {
-    return gates.filter((g) => !satisfied.has(g.kind));
+    return gates.filter((g) => NEVER_SATISFIED.includes(g.kind) || !satisfied.has(g.kind));
 }
 /** The rows a leg reported, checked against the plan: missing rows are NOT RUN, unknown rows FAIL the leg. */
 function recordedRows(legId, results) {
     const required = rowsForLeg(legId);
     const rows = {};
+    // Outcomes are normalised as case-results does: the harness's NOT_RUN is NOT RUN, and anything unknown is FAIL.
     for (const r of required)
-        rows[r] = results[r] ?? 'NOT RUN';
+        rows[r] = r in results ? outcomeOf(results[r]) : 'NOT RUN';
     const unexpected = Object.keys(results).filter((r) => !required.includes(r));
     if (unexpected.length > 0) {
         // A row the plan doesn't know about can't be counted; reporting it would hide a missing one.
@@ -41,6 +47,7 @@ function recordedRows(legId, results) {
  * - `satisfiedGates`: gate kinds the runner established as met.
  * - `results`: row outcomes the leg reported, or undefined when the leg did not run.
  * - `budget`: the leg's run-budget facts (RunBudget.legBudget): whether it had an allocation, and which kinds it overran.
+ *   Without them the leg is NOT RUN: a leg the run budget never saw has no allocation.
  *
  * A FAIL the leg recorded, or an overrun of its frozen allocation, is FAIL whatever else is true: a NOT RUN or HOLD
  * reached later (a dependency, a gate, no allocation) never hides it (Sam's #1864 review).
@@ -49,7 +56,7 @@ function legVerdict(legId, input) {
     const plan = legById(legId);
     const base = { leg: legId, proofScope: plan.proofScope };
     const recorded = input.results ? recordedRows(legId, input.results) : null;
-    const budget = input.budget ?? { allocated: true, overrun: [] };
+    const budget = input.budget ?? { allocated: false, reason: 'the run budget gave no facts for this leg', overrun: [] };
     const notRunCauses = [];
     for (const dep of plan.needs) {
         const d = input.prior.get(dep);

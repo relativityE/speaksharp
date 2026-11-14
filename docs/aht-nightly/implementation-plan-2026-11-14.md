@@ -13,7 +13,7 @@ The vendored packet (`harness/bundle`, `harness/draft-adapters`) is hash-pinned,
 - **Offline only.** Nothing in this PR deploys, applies a migration, touches Stripe live mode or production, or runs a live AHT. Nightly activation is not part of this PR.
 - **New files only, outside the pinned packet.** No open PR touches `tools/cloud-test`. Shared and pinned files change only through the handoff.
 - **Existing live AHT rows stay.** The 15 cases and their 204 rows stay live and unchanged. A row moves to the nightly suite only once its replacement is independently proven to fail on the same break and pass when restored.
-- **Every new or strengthened check has a negative control.** A seeded break makes its test fail; restoring it makes the test pass. All 64 are recorded.
+- **Every new or strengthened check has a negative control.** A seeded break makes its test fail; restoring it makes the test pass. All 78 are recorded.
 - **NOT RUN and HOLD are never PASS.** A run with any NOT RUN or HOLD leg can't be green.
 - **A FAIL is never hidden.** A leg that recorded a FAIL, or asked for more than its allocation, is FAIL whatever NOT RUN or HOLD comes after; the run's ledger keeps the worse of two verdicts for a leg.
 - **#1857 is left alone.**
@@ -48,8 +48,8 @@ Each case spends exactly its catalog Start presses and takes; AHT-01 spends one 
 | `tools/cloud-test/nightly/run-budget.cjs` | The run budget: frozen per-leg allocations, atomic reservation, no retry borrowing, the probe reserve, protected cleanup |
 | `tools/cloud-test/nightly/limits.cjs` | The nightly limits (below) |
 | `tools/cloud-test/nightly/oracles/*.cjs` | The new rows' checks: trial length, canary trial end, sign-out (two rows), payment wall, server refusal, short Stop, billing portal, billing-row reconciliation, test-mode paid fixture, kept sessions send no new coaching |
-| `tools/cloud-test/nightly/tests/*.test.cjs` | 121 node:test tests, including the coverage drift test against the catalog |
-| `tools/cloud-test/nightly/negative-controls/breaks.json`, `run.cjs` | 64 seeded breaks and their runner |
+| `tools/cloud-test/nightly/tests/*.test.cjs` | 136 node:test tests, including the coverage drift test against the catalog |
+| `tools/cloud-test/nightly/negative-controls/breaks.json`, `run.cjs` | 78 seeded breaks and their runner |
 | `tools/cloud-test/nightly/README.md` | What the folder holds and how to run it |
 | `tools/cloud-test/tests/test_nightly_suite.py` | Runs the node:test files inside the package unit tests, failing on any failure or skip |
 

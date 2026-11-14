@@ -78,7 +78,7 @@ describe('sign-out rows (a 403 denial is a correct answer)', () => {
         method: 'GET', path: '/rest/v1/sessions', status: 200, bearerDigest: token, sentAfterSignOutCompleted: false, ownedIdentifiersInBody: 0, ...o,
     });
     const obs = (o = {}) => ({
-        signOutCompletedObserved: true, signedInBearerDigest: token, ownedIdentifiersRendered: 0,
+        signOutCompletedObserved: true, signedInBearerDigests: [token], ownedIdentifiersRendered: 0,
         requests: [
             req({ ownedIdentifiersInBody: 3 }),
             req({ status: 401, bearerDigest: null, sentAfterSignOutCompleted: true }),
@@ -110,7 +110,19 @@ describe('sign-out rows (a 403 denial is a correct answer)', () => {
         expect(staleRequestVerdict(o).outcome).toBe('FAIL');
     });
     it('holds both rows when sign-out completing or the token digest was not observed', () => {
-        for (const o of [obs({ signOutCompletedObserved: false }), obs({ signedInBearerDigest: '' })]) {
+        for (const o of [obs({ signOutCompletedObserved: false }), obs({ signedInBearerDigests: [] }), obs({ signedInBearerDigests: [''] })]) {
+            expect(unauthorizedReadVerdict(o).outcome).toBe('HOLD');
+            expect(staleRequestVerdict(o).outcome).toBe('HOLD');
+        }
+    });
+    it('counts a refreshed token as the session\'s: a stale request with it fails, a read with it before sign-out passes', () => {
+        const refreshed = sha('refreshed-access-token');
+        const o = obs({ signedInBearerDigests: [token, refreshed], requests: [req({ bearerDigest: refreshed, ownedIdentifiersInBody: 2 })] });
+        expect(unauthorizedReadVerdict(o).outcome).toBe('PASS');
+        expect(staleRequestVerdict(obs({ signedInBearerDigests: [token, refreshed], requests: [req({ bearerDigest: refreshed, sentAfterSignOutCompleted: true, status: 401 })] })).outcome).toBe('FAIL');
+    });
+    it('holds both rows when a request or the page was not fully observed', () => {
+        for (const o of [obs({ requests: [req({ ownedIdentifiersInBody: undefined })] }), obs({ ownedIdentifiersRendered: undefined }), obs({ requests: undefined })]) {
             expect(unauthorizedReadVerdict(o).outcome).toBe('HOLD');
             expect(staleRequestVerdict(o).outcome).toBe('HOLD');
         }
@@ -149,6 +161,16 @@ describe('payment wall', () => {
         for (const b of broken)
             expect(paymentWallVerdict(wall(b)).outcome).toBe('FAIL');
     });
+    it('holds a wall with any field not observed, never passing it', () => {
+        for (const f of ['historyVisible', 'pdfVisible', 'exportVisible', 'recordStartEnabled', 'deletePromoted', 'wallShown']) {
+            const w = wall();
+            delete w[f];
+            const v = paymentWallVerdict(w);
+            expect(v.outcome).toBe('HOLD');
+            expect(v.detail).toContain(f);
+        }
+        expect(paymentWallVerdict(wall({ historyVisible: 'no' })).outcome).toBe('HOLD');
+    });
 });
 describe('trial-expired-server-refuses', () => {
     const required = ['start', 'save', 'coaching'];
@@ -163,6 +185,17 @@ describe('trial-expired-server-refuses', () => {
         expect(serverRefusesVerdict(probes().slice(1), required).outcome).toBe('FAIL');
         expect(serverRefusesVerdict([], []).outcome).toBe('FAIL');
     });
+    it('accepts only 401, 402 and 403 as a refusal: a moved path, a bad probe or a rate limit proves nothing', () => {
+        for (const status of [401, 402])
+            expect(serverRefusesVerdict(probes({ start: { status } }), required).outcome).toBe('PASS');
+        for (const status of [400, 404, 405, 409, 429])
+            expect(serverRefusesVerdict(probes({ start: { status } }), required).outcome).toBe('FAIL');
+    });
+    it('holds when provider work was not observed for a probe', () => {
+        const p = probes();
+        delete p[2].providerWorkObserved;
+        expect(serverRefusesVerdict(p, required).outcome).toBe('HOLD');
+    });
 });
 describe('short-stop-no-save', () => {
     const read = { sessionIdsBefore: ['a'], sessionIdsAfter: ['a'], acceptedSaveRequests: 0, savedConfirmationShown: false, settled: true };
@@ -174,5 +207,12 @@ describe('short-stop-no-save', () => {
         expect(shortStopVerdict({ ...read, acceptedSaveRequests: 1 }).outcome).toBe('FAIL');
         expect(shortStopVerdict({ ...read, savedConfirmationShown: true }).outcome).toBe('FAIL');
         expect(shortStopVerdict({ ...read, settled: false }).outcome).toBe('HOLD');
+    });
+    it('holds a read with a field not observed, never passing it', () => {
+        for (const f of ['sessionIdsBefore', 'sessionIdsAfter', 'acceptedSaveRequests', 'savedConfirmationShown', 'settled']) {
+            const r = { ...read };
+            delete r[f];
+            expect(shortStopVerdict(r).outcome).toBe('HOLD');
+        }
     });
 });

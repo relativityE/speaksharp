@@ -58,14 +58,17 @@ describe('frozen per-leg allocations, reserved before the run', () => {
         expect(() => plan({ coachingCeiling: 2.5 })).toThrow();
         expect(() => new RunBudget(new Map([['J6', { coaching: -1, starts: 0, [CLEANUP]: 0 }]]))).toThrow();
     });
-    it('reads a lower ceiling from the environment, never a higher one', () => {
-        expect(coachingCeilingFromEnv({}, 30)).toBe(30);
-        expect(coachingCeilingFromEnv({ [COACHING_CEILING_ENV]: '' }, 12)).toBe(12);
-        expect(coachingCeilingFromEnv({ [COACHING_CEILING_ENV]: '12' }, 30)).toBe(12);
-        expect(coachingCeilingFromEnv({ [COACHING_CEILING_ENV]: '0' }, 30)).toBe(0);
-        for (const bad of ['31', '1000', '3.5', '-1', 'abc', '1e3'])
-            expect(() => coachingCeilingFromEnv({ [COACHING_CEILING_ENV]: bad }, 30)).toThrow();
-        expect(() => coachingCeilingFromEnv({}, -1)).toThrow();
+    it('reads a lower ceiling from the environment as a whole number, and the plan refuses a higher one', () => {
+        expect(coachingCeilingFromEnv({})).toBe(undefined);
+        expect(coachingCeilingFromEnv({ [COACHING_CEILING_ENV]: '' })).toBe(undefined);
+        expect(coachingCeilingFromEnv({ [COACHING_CEILING_ENV]: '12' })).toBe(12);
+        expect(coachingCeilingFromEnv({ [COACHING_CEILING_ENV]: ' 0 ' })).toBe(0);
+        for (const bad of ['3.5', '-1', 'abc', '1e3'])
+            expect(() => coachingCeilingFromEnv({ [COACHING_CEILING_ENV]: bad })).toThrow();
+        expect(plan({ coachingCeiling: coachingCeilingFromEnv({}) }).totals().coaching).toBe(30);
+        expect(plan({ coachingCeiling: coachingCeilingFromEnv({ [COACHING_CEILING_ENV]: '28' }) }).totals().coaching).toBe(28);
+        for (const high of ['31', '1000'])
+            expect(() => plan({ coachingCeiling: coachingCeilingFromEnv({ [COACHING_CEILING_ENV]: high }) })).toThrow();
     });
 });
 describe('J1.e probe reserved at its worst case', () => {
@@ -106,6 +109,9 @@ describe('no retry borrowing', () => {
         expect(b.reserve('J6', 'coaching').granted).toBe(false);
         expect(b.reserve('J6', 'starts').granted).toBe(false);
         expect(b.legBudgetRow('J6').outcome).toBe('FAIL');
+        // The later Start press is refused because the leg stopped, not counted as a Start overrun of its own.
+        expect(b.legBudget('J6').overrun).toEqual(['coaching']);
+        expect(b.legBudgetRow('J6').refusedAfterStop).toBe(1);
         expect([1, 2].map(() => b.reserve('J4.a', 'coaching').granted)).toEqual([true, true]);
         expect(b.legBudgetRow('J4.a').outcome).toBe('PASS');
         expect(b.allocationOf('J4.b').coaching).toBe(2);

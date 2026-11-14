@@ -10,13 +10,15 @@ function ports(o = {}) {
     const lines = [];
     const opened = [];
     const p = {
-        createSession: o.create ?? (async () => ({ url: o.url ?? TEST_URL })),
+        assertTestMode: 'assertTestMode' in o ? o.assertTestMode : () => undefined,
+        createSession: o.create ?? fn(async () => ({ url: o.url ?? TEST_URL })),
         openAndConfirm: o.open ?? (async (u) => { opened.push(u); return { portalShown: o.shown ?? true }; }),
         log: (l) => lines.push(l),
     };
     return { p, lines, opened };
 }
-const leaks = (lines, v) => [...lines, JSON.stringify(v)].some((l) => l.includes('billing.stripe.com/p/session/'));
+const TOKEN = 'test_YWNjdF8xUXlTZWNyZXQ';
+const leaks = (lines, v) => [...lines, JSON.stringify(v)].some((l) => /p(\/|%2f|\\\/)session/i.test(l) || l.includes(TOKEN) || l.includes('YWNjdF8xUXlTZWNyZXQ'));
 describe('billing portal check', () => {
     it('passes when the test-mode portal opens, and the address appears in no log line or verdict', async () => {
         const { p, lines, opened } = ports();
@@ -51,6 +53,31 @@ describe('billing portal check', () => {
     it('redacts every portal address in a text', () => {
         expect(redactPortalUrls(`a ${TEST_URL}?x=1 b ${LIVE_URL}`)).toBe('a [billing-portal-url] b [billing-portal-url]');
     });
+    it('redacts the address without its scheme, in capitals, encoded, JSON-escaped, on a custom domain, or as a bare token', () => {
+        const shapes = [
+            `net::ERR at billing.stripe.com/p/session/${TOKEN}`, TEST_URL.toUpperCase(), encodeURIComponent(TEST_URL), JSON.stringify({ u: TEST_URL }),
+            `https://billing.example.com/p/session/${TOKEN}?x`, `token ${TOKEN} alone`,
+        ];
+        for (const t of shapes)
+            expect(leaks([redactPortalUrls(t, [TEST_URL])], {})).toBe(false);
+    });
+    it('keeps the address out of the log in any shape an error message carries it', async () => {
+        for (const shape of [(u) => u.replace('https://', ''), (u) => u.toUpperCase(), (u) => encodeURIComponent(u), (u) => JSON.stringify({ u })]) {
+            const { p, lines } = ports({ open: async (u) => { throw new Error(`navigation to ${shape(u)} failed`); } });
+            const v = await portalOpensVerdict(p);
+            expect(v.outcome).toBe('FAIL');
+            expect(leaks(lines, v)).toBe(false);
+        }
+    });
+    it('creates no portal session without a passing Stripe test-mode check first', async () => {
+        for (const assertTestMode of [undefined, () => { throw new LiveModeRefused('the Stripe key is not a test-mode key'); }]) {
+            const { p, opened } = ports({ assertTestMode });
+            const v = await portalOpensVerdict(p);
+            expect(v.outcome).toBe('FAIL');
+            expect(p.createSession).toHaveBeenCalledTimes(0);
+            expect(opened).toEqual([]);
+        }
+    });
 });
 describe('billing cleanup reconciliation (no promise of zero rows)', () => {
     it('reports rows retained by design as PASS', () => {
@@ -60,6 +87,12 @@ describe('billing cleanup reconciliation (no promise of zero rows)', () => {
     it('fails when another account\'s rows were touched, and holds rows in an unreviewed table', () => {
         expect(reconcileBillingRows([{ table: 'stripe_customers', count: 1, otherAccountRows: 1 }], ['stripe_customers']).outcome).toBe('FAIL');
         expect(reconcileBillingRows([{ table: 'new_table', count: 2, otherAccountRows: 0 }], ['stripe_customers']).outcome).toBe('HOLD');
+    });
+    it('holds an empty read or a row without its counts, never passing it', () => {
+        expect(reconcileBillingRows([], ['stripe_customers']).outcome).toBe('HOLD');
+        expect(reconcileBillingRows(undefined, ['stripe_customers']).outcome).toBe('HOLD');
+        expect(reconcileBillingRows([{ table: 'stripe_customers', count: 1 }], ['stripe_customers']).outcome).toBe('HOLD');
+        expect(reconcileBillingRows([{ table: 'stripe_customers', otherAccountRows: 0 }], ['stripe_customers']).outcome).toBe('HOLD');
     });
 });
 describe('J9.a paid account fixture: Stripe test mode only', () => {

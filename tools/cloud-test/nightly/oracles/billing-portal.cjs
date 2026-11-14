@@ -4,11 +4,29 @@
 // works for anyone holding the link), and cleanup is RECONCILED without promising zero billing rows. J9.a runs in Stripe
 // test mode only, so a portal address that is not a test-mode session is refused before it is opened.
 const PORTAL_TIMEOUT_MS = 20_000;
-const PORTAL_URL_RE = /https?:\/\/billing\.stripe\.com\/p\/session\/[A-Za-z0-9_]+[^\s"'<>]*/g;
+// Any portal-session path, on any host (custom portal domains included), with or without the scheme, in any case, and
+// with its slashes plain, percent-encoded or JSON-escaped.
+const SLASH = '(?:/|%2f|\\\\/)';
+const PORTAL_URL_RE = new RegExp(`(?:https?:${SLASH}${SLASH})?[a-z0-9.-]*${SLASH}p${SLASH}session${SLASH}[a-z0-9_]+[^\\s"'<>]*`, 'gi');
+const MARKER = '[billing-portal-url]';
 const TEST_MODE_PORTAL_RE = /^https:\/\/billing\.stripe\.com\/p\/session\/test_[A-Za-z0-9_]+(?:[/?#][^\s"'<>]*)?$/;
-/** Replaces every billing-portal address in a text with a fixed marker. Every log line from this module goes through it. */
-function redactPortalUrls(text) {
-    return text.replace(PORTAL_URL_RE, '[billing-portal-url]');
+/**
+ * Replaces every billing-portal address in a text with a fixed marker. Every log line from this module goes through it.
+ * `known` holds the addresses this check created: each one, its encoded forms and its bare session token are removed
+ * exactly, whatever shape the text puts them in, after the pattern has caught every portal path.
+ */
+function redactPortalUrls(text, known = []) {
+    let out = String(text).replace(PORTAL_URL_RE, MARKER);
+    for (const v of known) {
+        if (typeof v !== 'string' || v === '')
+            continue;
+        const token = /\/p\/session\/([A-Za-z0-9_]+)/i.exec(v)?.[1];
+        for (const form of new Set([v, encodeURIComponent(v), JSON.stringify(v).slice(1, -1), token].filter(Boolean))) {
+            const re = new RegExp(form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+            out = out.replace(re, MARKER);
+        }
+    }
+    return out;
 }
 // The timer is cleared once the attempt settles, so a finished leg never leaves a pending timer behind.
 function withTimeout(p, ms) {
@@ -16,20 +34,35 @@ function withTimeout(p, ms) {
     const bound = new Promise((r) => { timer = setTimeout(() => r('timeout'), ms); });
     return Promise.race([p, bound]).finally(() => clearTimeout(timer));
 }
-/** One bounded attempt. The address never leaves this function: not in the verdict, not in a log line, not in an error. */
+/**
+ * One bounded attempt. The address never leaves this function: not in the verdict, not in a log line, not in an error.
+ * `ports.assertTestMode` (assertTestModeFixture on the fixture, key and objects) must pass before any session is
+ * created, so a live key never creates a live portal session.
+ */
 async function portalOpensVerdict(ports, timeoutMs = PORTAL_TIMEOUT_MS) {
-    const log = (line) => ports.log(redactPortalUrls(line));
     let url;
+    const log = (line) => ports.log(redactPortalUrls(line, url ? [url] : []));
+    if (typeof ports.assertTestMode !== 'function') {
+        log('portal session: no test-mode check; not created');
+        return { outcome: 'FAIL', detail: 'no Stripe test-mode check before creating the portal session' };
+    }
+    try {
+        ports.assertTestMode();
+    }
+    catch {
+        log('portal session: the test-mode check refused; not created');
+        return { outcome: 'FAIL', detail: 'the Stripe test-mode check refused, so no portal session was created' };
+    }
     try {
         const created = await withTimeout(ports.createSession(), timeoutMs);
         if (created === 'timeout') {
             log('portal session: timed out');
             return { outcome: 'FAIL', detail: 'creating the portal session timed out' };
         }
-        url = created.url;
+        url = typeof created?.url === 'string' ? created.url : '';
     }
     catch (e) {
-        log(`portal session: refused (${redactPortalUrls(e instanceof Error ? e.message : String(e))})`);
+        log(`portal session: refused (${e instanceof Error ? e.message : String(e)})`);
         return { outcome: 'FAIL', detail: 'creating the portal session failed' };
     }
     if (!TEST_MODE_PORTAL_RE.test(url)) {
@@ -46,7 +79,7 @@ async function portalOpensVerdict(ports, timeoutMs = PORTAL_TIMEOUT_MS) {
         return shown.portalShown ? { outcome: 'PASS', detail: 'the test-mode billing portal opened' } : { outcome: 'FAIL', detail: 'the portal page was not shown' };
     }
     catch (e) {
-        log(`portal: failed (${redactPortalUrls(e instanceof Error ? e.message : String(e))})`);
+        log(`portal: failed (${e instanceof Error ? e.message : String(e)})`);
         return { outcome: 'FAIL', detail: 'opening the portal failed' };
     }
 }
@@ -56,6 +89,12 @@ async function portalOpensVerdict(ports, timeoutMs = PORTAL_TIMEOUT_MS) {
  * and holds when a table is not on the reviewed list, so a new kind of row is looked at before it is accepted.
  */
 function reconcileBillingRows(rows, reviewedRetainedTables) {
+    // An empty read, or a row without its counts, proves nothing: it holds rather than passing.
+    if (!Array.isArray(rows) || rows.length === 0)
+        return { outcome: 'HOLD', retained: [], detail: 'no billing table was read' };
+    const unread = rows.filter((r) => typeof r?.table !== 'string' || !Number.isInteger(r.count) || !Number.isInteger(r.otherAccountRows));
+    if (unread.length > 0)
+        return { outcome: 'HOLD', retained: [], detail: `${unread.length} billing row count(s) not read` };
     const retained = rows.filter((r) => r.count > 0).map((r) => `${r.table}=${r.count}`);
     const foreign = rows.filter((r) => r.otherAccountRows > 0);
     if (foreign.length > 0)

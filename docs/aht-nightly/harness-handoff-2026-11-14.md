@@ -16,7 +16,7 @@ These rows sit on legs that already have a case. Until the case emits them, `cas
 | File | Change |
 |---|---|
 | `harness/draft-adapters/source-adapters.cjs` (`CONTRACTS['AHT-01']`, `run`) | Emit `trial-length-thirty-days` (J1.a: read with the account's own token, oracle `nightly/oracles/trial-window.cjs`) and `short-stop-no-save` (J1.c: one extra Start press, a Stop before the minimum take length, no session row saved, oracle `shortStopVerdict` in `nightly/oracles/payment-wall.cjs`) |
-| `harness/draft-adapters/source-adapters.cjs` (`CONTRACTS['AHT-15']`, `run`) | Emit `signout-no-unauthorized-read` and `signout-no-stale-request` as two rows (J1.d, oracle `nightly/oracles/sign-out.cjs`). A 401 or 403 after sign-out is a correct answer and fails neither row |
+| `harness/draft-adapters/source-adapters.cjs` (`CONTRACTS['AHT-15']`, `run`) | Emit `signout-no-unauthorized-read` and `signout-no-stale-request` as two rows (J1.d, oracle `nightly/oracles/sign-out.cjs`). A 401 or 403 after sign-out is a correct answer and fails neither row. The spec records the digest of every token issued to the session before sign-out (`signedInBearerDigests`, refreshes included) and, per request, `ownedIdentifiersInBody` and `sentAfterSignOutCompleted`; a field not recorded holds both rows |
 | `harness/draft-adapters/contracts.json` | The same rows in `cases.AHT-01.requiredAssertions` and `cases.AHT-15.requiredAssertions`; `minimumAuthorizedStartPresses` for AHT-01 goes from 4 to 5 |
 | `tests/live/rwt-open-mic-first-session.live.spec.ts` (on main since #1860) | `AHT01_START_PRESS_BUDGET.total` goes from 4 to 5 for J1.c's short Stop, and the comment above `startPressRow` that still says "plus 2 presses of headroom" is corrected: the budget is exact. The short-Stop take must write no feedback, so it needs no change to the run fence #1860 opens for AHT-01 |
 | `config/assertion-catalog.json` | Regenerated with `scripts/derive_assertion_catalog.py --out config/assertion-catalog.json`, and the next `config/history/catalogs/vN.json` added, so the catalog stays additive |
@@ -27,12 +27,12 @@ Each leg below reports NOT RUN (gate `no-harness-case`) until its adapter lands.
 
 | Leg | Rows | Gate that still applies after the adapter lands |
 |---|---|---|
-| J1.e | `trial-expired-wall-on-open-session`, `trial-expired-payment-wall`, `trial-expired-server-refuses` | Canary claim acknowledged (`RWT_CANARY_CLAIM_ACK` and the server-issued claim), via `nightly/oracles/canary-trial-end.cjs` |
+| J1.e | `trial-expired-wall-on-open-session`, `trial-expired-payment-wall`, `trial-expired-server-refuses` | Canary claim acknowledged (`RWT_CANARY_CLAIM_ACK` and the server-issued claim), via `nightly/oracles/canary-trial-end.cjs`. Each server probe records its status (only 401, 402 or 403 counts as refused) and `providerWorkObserved` as a boolean; the coaching probe is reserved with `reserve('J1.e', 'coaching')` before it is sent. Every payment-wall field is mapped as a boolean, or the row holds |
 | J1.f | `account-delete-from-wall` (needs J1.e) | Canary claim; a mailbox the harness can read for the run-owned address |
 | J2 | `paid-wall-before-payment`, `checkout-opens-for-expired-user`, `abandoned-checkout-stays-walled`, `deployed-webhook-ready` | Canary claim, and disabled until a reviewed cleanup expires the Checkout Session and settles the checkout operation |
 | J7.d | `account-delete-during-trial` | A mailbox the harness can read |
 | J8.c | `no-session-choice-with-takes` (needs J8.b) | None |
-| J9.a | `pre-upgrade-history-opens`, `pre-upgrade-progress-opens`, `old-sessions-no-new-coaching`, `entitlement-survives-upgrade` | The billing sandbox is runnable; the account is paid once through the product with a Stripe test-mode card (`nightly/oracles/paid-account-fixture.cjs` refuses any live key or object). Result labelled "Stripe test-mode sandbox: not production billing proof" |
+| J9.a | `pre-upgrade-history-opens`, `pre-upgrade-progress-opens`, `old-sessions-no-new-coaching`, `entitlement-survives-upgrade` | The billing sandbox is runnable; the account is paid once through the product with a Stripe test-mode card (`nightly/oracles/paid-account-fixture.cjs` refuses any live key or object). Result labelled "Stripe test-mode sandbox: not production billing proof". The portal check gets an `assertTestMode` port that runs `assertTestModeFixture` before any portal session is created; billing rows are read with both counts for every reviewed table |
 | J9.b | `production-entitlement-after-upgrade` | NOT RUN by design: no adapter is wanted until there is a safe, approved way to hold a paid account on production |
 
 ## 3. Per-journey limits in the runner
@@ -57,7 +57,7 @@ Each leg below reports NOT RUN (gate `no-harness-case`) until its adapter lands.
 
 ## 5. Checks in CI
 
-`tests/test_nightly_suite.py` (in #1865) runs the 121 node:test tests inside `package-unit-tests`, so `scripts/run_offline_checks.py` covers them. The 64 negative controls (`nightly/negative-controls/run.cjs`) rewrite files while they run, so they are not part of that suite; wiring them into CI as a separate step is for the reviewer to decide.
+`tests/test_nightly_suite.py` (in #1865) runs the 136 node:test tests inside `package-unit-tests`, so `scripts/run_offline_checks.py` covers them. The 78 negative controls (`nightly/negative-controls/run.cjs`) rewrite files while they run, so they are not part of that suite; wiring them into CI as a separate step is for the reviewer to decide.
 
 ## Order
 

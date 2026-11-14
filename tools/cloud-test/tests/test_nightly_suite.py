@@ -13,7 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 NIGHTLY = ROOT / "nightly"
-EXPECTED_TESTS = 121
+EXPECTED_TESTS = 136
 
 
 class NightlySuite(unittest.TestCase):

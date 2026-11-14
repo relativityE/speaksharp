@@ -5,7 +5,9 @@ const path = require('node:path');
 const { describe, expect, it } = require('./expect-lite.cjs');
 const { ALL_LEGS, CATALOG_ROW_HOMES, DESIGN_RUN_START_PRESSES, HARNESS_CASES, legById, rowsForLeg } = require('../journey-plan.cjs');
 const { legsForCase, outcomeOf, splitCaseResult } = require('../case-results.cjs');
-const { legVerdict } = require('../leg-verdicts.cjs');
+const { legVerdict: rawLegVerdict } = require('../leg-verdicts.cjs');
+// These tests are about the case split, so every leg has its allocation.
+const legVerdict = (id, input) => rawLegVerdict(id, { budget: { allocated: true, overrun: [] }, ...input });
 const catalog = JSON.parse(readFileSync(path.resolve(__dirname, '../../config/assertion-catalog.json'), 'utf8'));
 const ALL_GATES = new Set(['canary-claim-ack', 'unqualified', 'disabled-until-reviewed', 'test-mode-fixture', 'no-safe-production-proof', 'no-harness-case']);
 /** A case result that reports every row the plan homes to the case's legs, plus the given new rows. */
@@ -84,6 +86,18 @@ describe('splitting a case result into legs', () => {
         expect(outcomeOf('PASS')).toBe('PASS');
         for (const odd of ['pass', 'SKIPPED', undefined, null, 1])
             expect(outcomeOf(odd)).toBe('FAIL');
+    });
+    it('fails start-press-budget on every leg of the case when the harness stopped a press at its cap', () => {
+        const res = caseResult('AHT-01');
+        res.assertions = res.assertions.map((a) => (a.id === 'start-press-budget' ? { ...a, result: 'NOT RUN' } : a));
+        res.executionSignals = { startPressCapExceeded: true };
+        const split = splitCaseResult('AHT-01', res);
+        for (const leg of split.keys()) {
+            expect(split.get(leg)['invariant:start-press-budget']).toBe('FAIL');
+            expect(legVerdict(leg, { prior: new Map([['J1.a', { outcome: 'PASS' }]]), satisfiedGates: ALL_GATES, results: split.get(leg) }).outcome).toBe('FAIL');
+        }
+        res.executionSignals = { startPressCapExceeded: false };
+        expect(splitCaseResult('AHT-01', res).get('J1.a')['invariant:start-press-budget']).toBe('NOT RUN');
     });
     it('keeps the worse outcome of a row reported twice', () => {
         const res = caseResult('AHT-08');
