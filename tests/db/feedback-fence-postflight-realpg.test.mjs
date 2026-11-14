@@ -135,6 +135,17 @@ test('feedback fence exact pre/postflight over the real report chain', async (t)
       ok(run('after', before));
     });
 
+    await t.test('after refuses a conditional twin of the write trigger (WHEN (false)), then accepts the reviewed one again', () => {
+      sql(`DROP TRIGGER zz_rwt_feedback_fence ON public.user_issue_reports;
+        CREATE TRIGGER zz_rwt_feedback_fence BEFORE INSERT ON public.user_issue_reports FOR EACH ROW WHEN (false)
+          EXECUTE FUNCTION public._rwt_feedback_fence_v1();`);
+      refused(run('after', before), /write trigger differs/);
+      sql(`DROP TRIGGER zz_rwt_feedback_fence ON public.user_issue_reports;
+        CREATE TRIGGER zz_rwt_feedback_fence BEFORE INSERT ON public.user_issue_reports FOR EACH ROW
+          EXECUTE FUNCTION public._rwt_feedback_fence_v1();`);
+      ok(run('after', before));
+    });
+
     await t.test('after refuses a missing prior receipt', () => {
       refused(run('after', join(root, 'absent.json')), /could not execute/);
     });

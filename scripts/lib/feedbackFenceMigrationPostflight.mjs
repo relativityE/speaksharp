@@ -55,7 +55,8 @@ export function feedbackFenceSnapshotQuery() {
         'publicPrivileges',(SELECT count(*) FROM aclexplode(COALESCE(c.relacl,acldefault('r',c.relowner))) a WHERE a.grantee=0))
       FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname=${literal(TABLE)}),
       json_build_object('exists',false))::text;`,
-    `SELECT COALESCE(json_agg(json_build_object('name',t.tgname,'function',p.pronamespace::regnamespace::text||'.'||p.proname||'('||pg_get_function_identity_arguments(p.oid)||')','type',t.tgtype,'enabled',t.tgenabled::text)
+    `SELECT COALESCE(json_agg(json_build_object('name',t.tgname,'function',p.pronamespace::regnamespace::text||'.'||p.proname||'('||pg_get_function_identity_arguments(p.oid)||')','type',t.tgtype,'enabled',t.tgenabled::text,
+        'conditional',t.tgqual IS NOT NULL,'columns',cardinality(t.tgattr::int2[]),'args',t.tgnargs)
         ORDER BY t.tgname),'[]'::json)::text
       FROM pg_trigger t JOIN pg_proc p ON p.oid=t.tgfoid WHERE NOT t.tgisinternal AND t.tgrelid=to_regclass('public.user_issue_reports');`,
   ].join('\n');
@@ -93,9 +94,12 @@ export function assertFeedbackFenceSnapshot(contract, rows, prior) {
     if (table.exists !== true || table.rls !== true || table.apiPrivileges.length !== 0 || table.publicPrivileges !== 0) {
       throw new Error('feedback fence table shape differs');
     }
-    // BEFORE INSERT FOR EACH ROW (tgtype 7 = ROW|BEFORE|INSERT), enabled, calling the exact trigger function.
-    if (fenceTriggers.length !== 1 || fenceTriggers[0].name !== TRIGGER || fenceTriggers[0].function !== TRIGGER_FUNCTION
-      || fenceTriggers[0].type !== 7 || fenceTriggers[0].enabled !== 'O') {
+    // BEFORE INSERT FOR EACH ROW (tgtype 7 = ROW|BEFORE|INSERT), enabled, calling the exact trigger function, and
+    // UNCONDITIONAL: no WHEN predicate, no column list, no arguments (Codex P2 on 881b5c53: a `WHEN (false)` twin would
+    // otherwise pass as exact while no insert ever runs the fence).
+    const t = fenceTriggers[0];
+    if (fenceTriggers.length !== 1 || t.name !== TRIGGER || t.function !== TRIGGER_FUNCTION || t.type !== 7 || t.enabled !== 'O'
+      || t.conditional !== false || t.columns !== 0 || t.args !== 0) {
       throw new Error('feedback fence write trigger differs');
     }
     if (!prior || prior.version !== contract.version || prior.targetSha256 !== contract.targetSha256 || !Array.isArray(prior.rows)) {
