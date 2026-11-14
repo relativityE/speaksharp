@@ -587,7 +587,10 @@ describe('PrivateSTT (Routing Logic)', () => {
             expect(events.map((e) => e.name)).toEqual(['private_model_acquisition_start', 'private_model_acquisition_failure']);
             expect(events[1]).toMatchObject({ outcome: 'failure', error_code: 'release_uncertain' });
         });
-        it('#1858 (Codex P2 on 703aa9d5): a released child whose deferred disposal FAILS turns the cancel into failure{release_uncertain}', async () => {
+        // #1858 (Codex P2 on 703aa9d5; Sam on 26b49b8c): a child's terminate() may resolve while its pipeline disposal is still
+        // deferred behind an in-flight run. The facade's teardown waits for that, inside THE SAME teardown, so neither a caller
+        // nor a later lifetime can treat the engine as off, and a later lifetime can never substitute its own children.
+        const heldChildDeferral = async () => {
             const telemetry = await import('../../modelAcquisitionTelemetry');
             telemetry.__resetAcquisitionTelemetry();
             telemetryPushed.length = 0;
@@ -595,20 +598,77 @@ describe('PrivateSTT (Routing Logic)', () => {
             pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
             const pending = pstt.init();
             await vi.waitFor(() => expect(gates).toHaveLength(1));
-            // The facade's own teardown succeeds; only the child knows its pipeline's disposal (deferred behind a run) failed.
-            let failDeferred!: (error: Error) => void;
+            const deferral: { settle?: (outcome: Error | null) => void } = {};
             vi.spyOn(created[0] as unknown as { teardownReleaseOutcome: () => Promise<Error | null> }, 'teardownReleaseOutcome')
-                .mockImplementation(() => new Promise(resolve => { failDeferred = resolve; }));
-            await pstt.destroy();
+                .mockImplementation(() => new Promise(resolve => { deferral.settle = resolve; }));
+            let tornDown = false;
+            const tearingDown = pstt.destroy().then(() => null, (error: unknown) => error as Error).finally(() => { tornDown = true; });
             gates[0](Result.ok(undefined));
             expect((await pending).isOk).toBe(false);
-            await vi.waitFor(() => expect(failDeferred).toBeTypeOf('function'));
-            expect((await acquisitionEvents()).map((e) => e.name)).toEqual(['private_model_acquisition_start']); // still waiting
-            failDeferred(new Error('[TransformersJS] disposing the main-thread pipeline at teardown FAILED (release uncertain): x'));
+            await vi.waitFor(() => expect(deferral.settle).toBeTypeOf('function'));
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(tornDown).toBe(false); // the facade's teardown is NOT engine-off while the child's disposal is held
+            expect((await acquisitionEvents()).map((e) => e.name)).toEqual(['private_model_acquisition_start']);
+            return { deferral, tearingDown };
+        };
+        it('#1858: a released child whose deferred disposal FAILS fails the facade teardown and turns the cancel into failure{release_uncertain}', async () => {
+            const { deferral, tearingDown } = await heldChildDeferral();
+            deferral.settle?.(new Error('[TransformersJS] disposing the main-thread pipeline at teardown FAILED (release uncertain): x'));
+            expect(await tearingDown).toEqual(expect.objectContaining({ message: expect.stringMatching(/release uncertain/) }));
             await vi.waitFor(async () => expect((await acquisitionEvents()).length).toBe(2));
             const events = await acquisitionEvents();
             expect(events.map((e) => e.name)).toEqual(['private_model_acquisition_start', 'private_model_acquisition_failure']);
             expect(events[1]).toMatchObject({ outcome: 'failure', error_code: 'release_uncertain' });
+            pstt = null; // its release is uncertain by design; afterEach must not replay it
+        });
+        it('#1858: a released child whose deferred disposal CONFIRMS lets the teardown settle as a clean cancel', async () => {
+            const { deferral, tearingDown } = await heldChildDeferral();
+            deferral.settle?.(null);
+            expect(await tearingDown).toBeNull();
+            await vi.waitFor(async () => expect((await acquisitionEvents()).length).toBe(2));
+            expect((await acquisitionEvents())[1]).toMatchObject({ outcome: 'cancelled', error_code: null });
+        });
+        it('#1858 (Sam on 26b49b8c): two lifetimes, out of order — a successor cannot start, or hide the earlier failure, while the deferral is held', async () => {
+            const { deferral, tearingDown } = await heldChildDeferral();
+            const successor = pstt!.init(); // a later lifetime asks for an engine while the first teardown is still held
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(gates).toHaveLength(1); // it acquires nothing until that teardown settles
+            deferral.settle?.(new Error('deferred dispose rejected (release uncertain)'));
+            expect(await tearingDown).toEqual(expect.objectContaining({ message: expect.stringMatching(/release uncertain/) }));
+            const second = await successor;
+            expect(second.isOk).toBe(false); // an uncertain release never permits a successor on this facade
+            expect(second.isOk ? '' : second.error.message).toMatch(/release uncertain/);
+            expect(gates).toHaveLength(1);
+            await vi.waitFor(async () => expect((await acquisitionEvents()).length).toBe(2));
+            expect((await acquisitionEvents()).map((e) => e.name)).toEqual(['private_model_acquisition_start', 'private_model_acquisition_failure']);
+            pstt = null;
+        });
+        it('#1858: a deferral that never settles fails the facade teardown at its bound as an uncertain release', async () => {
+            const { CHILD_DEFERRED_RELEASE_BOUND_MS } = await import('../PrivateSTT');
+            vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+            try {
+                const telemetry = await import('../../modelAcquisitionTelemetry');
+                telemetry.__resetAcquisitionTelemetry();
+                telemetryPushed.length = 0;
+                const { PrivateSTT } = await import('../PrivateSTT');
+                pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+                const pending = pstt.init();
+                for (let i = 0; i < 100 && gates.length < 1; i += 1) await Promise.resolve();
+                expect(gates).toHaveLength(1);
+                vi.spyOn(created[0] as unknown as { teardownReleaseOutcome: () => Promise<Error | null> }, 'teardownReleaseOutcome')
+                    .mockImplementation(() => new Promise(() => undefined));
+                const tearingDown = pstt.destroy().then(() => null, (error: unknown) => error as Error);
+                gates[0](Result.ok(undefined));
+                expect((await pending).isOk).toBe(false);
+                await vi.advanceTimersByTimeAsync(CHILD_DEFERRED_RELEASE_BOUND_MS);
+                expect(await tearingDown).toEqual(expect.objectContaining({ message: expect.stringMatching(/did not settle within/) }));
+                const events = await acquisitionEvents();
+                expect(events.map((e) => e.name)).toEqual(['private_model_acquisition_start', 'private_model_acquisition_failure']);
+                expect(events[1]).toMatchObject({ error_code: 'release_uncertain' });
+            } finally {
+                vi.useRealTimers();
+                pstt = null;
+            }
         });
         it('NEGATIVE: a load that genuinely fails (not a teardown) still emits a failure', async () => {
             const telemetry = await import('../../modelAcquisitionTelemetry');

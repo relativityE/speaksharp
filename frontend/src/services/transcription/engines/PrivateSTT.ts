@@ -201,6 +201,12 @@ const V4_AUTO_DECODE_TIMEOUT_MS = 40_000;
  * release as uncertain (a fatal failure event). A child terminate is a worker termination plus bounded cleanup.
  */
 export const CANCELLED_RELEASE_SETTLE_BOUND_MS = 10_000;
+/**
+ * #1858: how long this facade's teardown waits for a released child's deferred release (a pipeline disposed only after an
+ * in-flight decode/warm-up settles). Shorter than the acquisition report's bound, so a stuck disposal is reported by the
+ * teardown itself as an uncertain release.
+ */
+export const CHILD_DEFERRED_RELEASE_BOUND_MS = 8_000;
 
 interface EngineLifetime {
     generation: number;
@@ -221,8 +227,6 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     /** Init owns these before adoption; teardown must reach their acquisition cancellation now. */
     private readonly acquiringEngines = new Set<IPrivateSTTEngine>();
     private readonly engineReleases = new WeakMap<IPrivateSTTEngine, EngineLifetime>();
-    /** #1858: the children the most recent teardown released (see reportCancelledAcquisition). */
-    private teardownChildren: IPrivateSTTEngine[] = [];
     // True ONLY when the AUTO (flag) path successfully initialized v4. Gates the
     // decode-time fallback to v2-base; the strict explicit-override path never sets it.
 
@@ -766,14 +770,22 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         this.engine = null;
         this._engineType = null;
         const children = [...new Set([...acquiring, ...(engine ? [engine] : [])])];
-        // #1858: a cancelled acquisition's report also waits on these children's own deferred releases.
-        this.teardownChildren = children;
         const failures = await Promise.all(children.map(child => this.releaseEngine(child)));
         const failure = failures.find(value => value !== null);
         if (failure) {
             // The shared teardown rejects, so public destroy() and every concurrent waiter see it.
             logger.warn({ error: failure, engineType }, '[PrivateSTT] Engine release failed during Private STT teardown');
             throw new Error(`[PrivateSTT] engine release FAILED during teardown (release uncertain): ${failure.message}`);
+        }
+        // #1858 (Sam on 26b49b8c): a child's terminate() may resolve while its pipeline disposal is still deferred behind an
+        // in-flight run. This facade's teardown is the engine-off proof its callers rely on (TranscriptionService marks
+        // termination confirmed when it resolves), so it settles only once every released child has confirmed its deferred
+        // releases too — bounded, and a failure or non-settlement is an uncertain release, never engine-off. Computed inside
+        // THIS teardown, so a later lifetime can never substitute its own children.
+        const deferred = await this.childDeferredReleaseFailure(children);
+        if (deferred) {
+            logger.warn({ error: deferred, engineType }, '[PrivateSTT] A released engine did not confirm its deferred release');
+            throw new Error(`[PrivateSTT] engine release FAILED during teardown (release uncertain): ${deferred.message}`);
         }
         this.selection = null;
     }
@@ -824,7 +836,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
      * #1858: a cancelled acquisition is reported only once the teardown that cancelled it has settled, because only that
      * teardown knows whether the engine was released. The cancelling init cannot rely on anyone else to surface a failed
      * release — TranscriptionService.destroy logs and swallows the teardown's rejection — so:
-     *   - teardown settled and every release confirmed, including each released child's deferred disposal
+     *   - teardown settled, every release confirmed (including each child's deferred disposal, see onDestroy)
      *                                                  → `private_model_acquisition_cancelled` (a lifecycle outcome);
      *   - teardown rejected / a release failure retained → `private_model_acquisition_failure{release_uncertain}`;
      *   - teardown still unsettled after the bound       → `private_model_acquisition_failure{release_uncertain}`.
@@ -839,18 +851,8 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             recordAcquisitionFailure(subject, cacheResult, 'release_uncertain', totalMs);
         };
         const bound = setTimeout(uncertain, CANCELLED_RELEASE_SETTLE_BOUND_MS);
-        // The facade's teardown, then each released child's own outcome: a child may dispose its pipeline only after an
-        // in-flight warm-up settles (Codex P2 on 703aa9d5), which the facade's teardown does not wait for.
-        const settled = async (): Promise<Error | null> => {
-            const own = await this.teardownReleaseOutcome();
-            if (own) return own;
-            for (const child of this.teardownChildren) {
-                const outcome = await (child as { teardownReleaseOutcome?: () => Promise<Error | null> }).teardownReleaseOutcome?.();
-                if (outcome) return outcome;
-            }
-            return null;
-        };
-        void settled().then(
+        // The facade's teardown includes each released child's deferred releases (see onDestroy), so its outcome is complete.
+        void this.teardownReleaseOutcome().then(
             failure => {
                 clearTimeout(bound);
                 if (failure) return uncertain();
@@ -860,6 +862,22 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             },
             () => { clearTimeout(bound); uncertain(); },
         );
+    }
+
+    /** #1858: the first deferred-release failure among `children`, or a non-settlement within the bound; null when all confirm. */
+    private async childDeferredReleaseFailure(children: IPrivateSTTEngine[]): Promise<Error | null> {
+        const outcomes = Promise.all(children.map(child =>
+            (child as { teardownReleaseOutcome?: () => Promise<Error | null> }).teardownReleaseOutcome?.() ?? Promise.resolve(null)));
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const bound = new Promise<Array<Error | null>>(resolve => {
+            timer = setTimeout(() => resolve([new Error(
+                `an engine's deferred release did not settle within ${CHILD_DEFERRED_RELEASE_BOUND_MS} ms`)]), CHILD_DEFERRED_RELEASE_BOUND_MS);
+        });
+        try {
+            return (await Promise.race([outcomes, bound])).find(Boolean) ?? null;
+        } finally {
+            clearTimeout(timer);
+        }
     }
 
     /** `released` only when THIS init verified the release; otherwise the cancelling teardown reports it. */
