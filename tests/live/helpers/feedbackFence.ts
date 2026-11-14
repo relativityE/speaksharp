@@ -145,3 +145,84 @@ export async function recoverRunFences(admin: FenceRpcClient, binding: Pick<RunB
     }
     return total;
 }
+
+/** The receipt sink this module writes to (the journeys' RwtReceipt satisfies it). */
+export interface FenceReceiptSink { row(name: string, verdict: 'PASS' | 'FAIL' | 'HOLD', detail: string, evidence?: Record<string, unknown>): void }
+
+/**
+ * One journey's fence, end to end, in the order Sam's #1859 review requires:
+ *   open (confirmed, before the first feedback write) → writer stopped → close (acknowledged) → the journey's own account
+ *   deletion and retention-after-deletion proof → clean → INDEPENDENT zero readback.
+ * `writable` is the only gate a journey's feedback write may pass: false before a confirmed open, and false again once the
+ * writer is stopped. Every row is content-free (counts and states; the run key never leaves the process).
+ */
+export class JourneyFeedbackFence {
+    private runKey: string | null = null;
+    private stopped = false;
+    private closed: FenceClose | null = null;
+    private held: string | null = null;
+
+    constructor(private readonly admin: FenceRpcClient, readonly fenceCase: FenceCase, readonly keyCap: number) {}
+
+    /** Before the first feedback write. True only when the fence is confirmed open for this run-owned account. */
+    async open(owner: string, binding: RunBinding | null): Promise<boolean> {
+        if (!binding) { this.held = 'no run binding (a local run binds nothing)'; return false; }
+        try {
+            this.runKey = await openFeedbackFence(this.admin, owner, binding, this.fenceCase, this.keyCap);
+            return true;
+        } catch (error) {
+            this.held = error instanceof Error ? error.message : 'open failed';
+            return false;
+        }
+    }
+
+    get writable(): boolean { return this.runKey !== null && !this.stopped; }
+    get isOpen(): boolean { return this.runKey !== null; }
+    /** Why no fence is open (for a HOLD row), or null. */
+    get heldReason(): string | null { return this.held; }
+
+    /** The open's own row: PASS when confirmed; HOLD otherwise, and the journey then writes no feedback. */
+    openRow(sink: FenceReceiptSink): void {
+        if (this.isOpen) sink.row('feedback fence open', 'PASS', `the run's feedback fence is confirmed open (cap ${this.keyCap} key(s)) before any feedback write`);
+        else sink.row('feedback fence open', 'HOLD', `HOLD before any feedback write: ${this.held ?? 'not opened'}`);
+    }
+
+    /** The writer is stopped (every owned page closed, in-flight route handlers drained): no later write may be sent. */
+    stopWriter(): void { this.stopped = true; }
+
+    /** Close, acknowledged. Waits in the database for every in-flight insert of the account, then refuses all later ones. */
+    async close(sink: FenceReceiptSink): Promise<FenceClose | null> {
+        this.stopped = true;
+        if (!this.runKey) return null;
+        try {
+            this.closed = await closeFeedbackFence(this.admin, this.runKey);
+            sink.row('feedback fence close', 'PASS', `closed with ${this.closed.reports} recorded report(s) under ${this.closed.keys} key(s)`,
+                { reports: this.closed.reports, keys: this.closed.keys });
+        } catch (error) {
+            sink.row('feedback fence close', 'FAIL', `close was not acknowledged (${error instanceof Error ? error.message : 'error'}); cleanup is not attempted`);
+        }
+        return this.closed;
+    }
+
+    /**
+     * After the journey's account deletion (and its retention-after-deletion proof): delete exactly the fence-recorded reports,
+     * then verify zero with a separate read-only readback. Never runs without an acknowledged close.
+     */
+    async cleanRow(sink: FenceReceiptSink, rowName = 'feedback fence cleanup'): Promise<'PASS' | 'FAIL' | 'HOLD'> {
+        if (!this.runKey) { sink.row(rowName, 'HOLD', 'no fence was opened, so no feedback was written'); return 'HOLD'; }
+        if (!this.closed) {
+            sink.row(rowName, 'FAIL', 'the fence was not acknowledged closed; cleanup was not attempted (recovery closes and cleans it by run key)');
+            return 'FAIL';
+        }
+        try {
+            const { cleaned, readback } = await cleanAndVerifyFeedbackFence(this.admin, this.runKey);
+            const v = fenceCleanupVerdict(this.closed, cleaned, readback);
+            sink.row(rowName, v.verdict, v.detail,
+                { recorded: this.closed.reports, deleted: cleaned.deleted, remaining: readback.remaining ?? null, foreign: readback.foreign ?? null });
+            return v.verdict;
+        } catch (error) {
+            sink.row(rowName, 'FAIL', `cleanup could not be verified (${error instanceof Error ? error.message : 'error'}); recovery closes and cleans it by run key`);
+            return 'FAIL';
+        }
+    }
+}
