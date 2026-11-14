@@ -81,6 +81,7 @@ describe('current-chain save replay integrity and causal controls', () => {
         }
     }
     const assertConflict = (result: Awaited<ReturnType<typeof conflict>>) => expect(result.code).toBe('40003');
+    const assertHidden = (result: SaveResult) => expect(result).toEqual({ success: false, error: 'session_not_found' });
 
     it('identical replay is a no-op; changed WPM or total words conflicts without changing the saved row', async () => {
         const id = await createTake();
@@ -97,9 +98,34 @@ describe('current-chain save replay integrity and causal controls', () => {
         const victim = await createTake();
         const before = await snapshot(victim);
         await createTake(); // distinct real signup; switches JWT subject to the other user
-        expect(await save(victim)).toEqual({ success: false, error: 'session_not_found' });
+        assertHidden(await save(victim));
         expect(await save(randomUUID())).toEqual({ success: false, error: 'session_not_found' });
         expect(await snapshot(victim)).toEqual(before);
+    });
+
+    it('causal control: removing the ownership lookup fails the same refusal assertion', async () => {
+        const victim = await createTake();
+        const before = await snapshot(victim);
+        await createTake();
+        assertHidden(await save(victim));
+        const predicate = 'WHERE id = p_session_id AND user_id = auth.uid() FOR UPDATE;';
+        expect(original.split(predicate)).toHaveLength(2);
+        await db.exec('BEGIN');
+        try {
+            await db.exec(original.replace(predicate, 'WHERE id = p_session_id FOR UPDATE;'));
+            expect((await db.query<{ ok: boolean }>('SELECT public.retention_content_free_compatible() AS ok')).rows[0].ok).toBe(false);
+            const changed = await db.query<{ signature: string }>(
+                'UPDATE public.transcript_retention_function_pins SET definition_md5=md5(pg_get_functiondef($1::regprocedure)) WHERE signature=$1 RETURNING signature', [SIGNATURE]);
+            expect(changed.rows).toEqual([{ signature: SIGNATURE }]);
+            const result = await save(victim); // unexpected SQL/setup errors fail, not count as a kill
+            expect(result.success).toBe(true);
+            expect(() => assertHidden(result)).toThrow();
+            // Other ownership predicates still prevent writes. This mutant proves refusal, not cross-user mutation.
+            expect(await snapshot(victim)).toEqual(before);
+        } finally { await db.exec('ROLLBACK'); }
+        assertHidden(await save(victim));
+        expect(await snapshot(victim)).toEqual(before);
+        expect((await db.query<{ definition: string }>('SELECT pg_get_functiondef($1::regprocedure) AS definition', [SIGNATURE])).rows[0].definition).toBe(original);
     });
 
     for (const mutant of [
