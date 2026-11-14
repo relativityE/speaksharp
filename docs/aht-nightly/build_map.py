@@ -69,7 +69,7 @@ for case,v in cat["cases"].items():
         rows.append({"case":case,"assertion":r,"newHome":leg,"status":st,"note":note})
 
 new_rows = [
- ("J1.a","trial-length-thirty-days","On the deployed build, the new account's trial ends exactly 30 days after it started (product owner, 14 Nov). The DB test checks this only on the original trigger body.","row new"),
+ ("J1.a","trial-length-thirty-days","On the deployed build, read with the account's own token, the trial started within the signup window and ends exactly 30 days later (product owner, 14 Nov). The DB test checks this only on the original trigger body.","row new"),
  ("J1.c","short-stop-no-save","A Stop under 5 s saves nothing: no completed sessions row, no history entry (G5).","needs short-Stop fix PR"),
  ("J1.d","signout-no-forbidden-read","No authenticated read returns 403 around sign-out (GAP-04; first seen on the maintained account, so comparability on a fresh account is unproven).","row new"),
  ("J1.e","trial-expired-wall-on-open-session","With the browser still signed in, a reload or navigation after the trial ends lands on the payment page (G3).","needs payment-wall PR"),
@@ -107,7 +107,7 @@ out={"schema":"speaksharp.aht-nightly.coverage-map.v1","date":"2026-11-14","cata
 # Optional export in #1862's schema. Every row stays live: nothing is demoted without
 # reviewed replacement proof, so no row uses demote-with-reviewed-proof.
 JOURNEYS = [
- ("J1", ["AHT-01","AHT-15"], "New user's first month",
+ ("J1", ["AHT-01","AHT-15"], "New user's first 30 days",
   "Real signup, model, owner-bound save, coaching, sign-out return and the deployed payment wall together on the deployed build.",
   "Fresh run-owned account; expiry is the last practice leg and deletion follows it; the trial is ended early only on that test-created account carrying the canary tag, failing closed without it, with exact-account checks and cleanup.",
   "Bound saved takes and coaching, exact deep-link return with mic off, no save for a short Stop, wall on the open session and after sign-in, deployed refusal, deletion readback."),

@@ -1436,7 +1436,7 @@
   {
    "leg": "J1.a",
    "assertion": "trial-length-thirty-days",
-   "what": "On the deployed build, the new account's trial ends exactly 30 days after it started (product owner, 14 Nov). The DB test checks this only on the original trigger body.",
+   "what": "On the deployed build, read with the account's own token, the trial started within the signup window and ends exactly 30 days later (product owner, 14 Nov). The DB test checks this only on the original trigger body.",
    "status": "row new"
   },
   {
