@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """Regenerate the AHT nightly coverage map from the assertion catalog.
 
-Usage: python3 docs/aht-nightly/build_map.py <repo-root> <output-json>
+Usage: python3 docs/aht-nightly/build_map.py <repo-root> <output-json> [<rationalization-json> <1862-mapping-json>]
+The optional pair also writes the design in the speaksharp.aht-rationalization.v1 schema
+from #1862, so that PR's validator (tools/aht-rationalization/validate.mjs) can check it.
+Rows #1862 marks fast-first-retain-live-until-proven keep that disposition and its candidate
+tests; this design adds journeys, grouping and the extra rows as additionalRequirements.
 Exits non-zero if an override names no catalog row, a (case, row) pair repeats,
 a new row reuses a catalog row's name, or the row count differs from the catalog."""
 import json, sys
@@ -10,8 +14,8 @@ from collections import Counter
 def fail(msg):
     sys.exit(f"build_map: {msg}")
 
-if len(sys.argv) != 3:
-    fail("usage: build_map.py <repo-root> <output-json>")
+if len(sys.argv) not in (3, 5):
+    fail("usage: build_map.py <repo-root> <output-json> [<rationalization-json> <1862-mapping-json>]")
 repo = sys.argv[1]
 with open(f"{repo}/tools/cloud-test/config/assertion-catalog.json") as fh:
     cat = json.load(fh)
@@ -32,9 +36,9 @@ for r in ["same-target-repeat","analytics-repeat-opens-product","rapid-repeat-ga
     o("AHT-01",r,"J1.b","kept","")
 o("AHT-01","same-target-numeric","J1.b","strengthen","Also compare the saved filler count with the fixture's known reference (rwtFillerReference.ts), so the row has an oracle independent of the code under test. Today the snapshot preflight makes the whole case NOT RUN when Progress code changes in an upgrade (G11 in design §4).")
 o("AHT-01","probe-save-isolation","J1.c","strengthen","Paired with the new short-stop-no-save row; failed on 14 Nov (AHT-03) until the short-Stop fix lands (G5).")
-# AHT-03 duplicates consolidated
+# AHT-03 rows that repeat J1 and J3.a stay live until a replacement is proven
 for r in ["rapid-repeat-gate","rapid-repeat-release","next-start","next-start-release","probe-save-isolation","same-target-numeric"]:
-    o("AHT-03",r,"J1.b/J1.c and J3.a","consolidated","Same check on the same code already runs in J1 (Open Mic) and J3.a (Focus, full fixture); the partial fixture adds nothing to it. Needs the owner's disposition under finite-aht-denominator.json before the row leaves AHT-03's denominator.")
+    o("AHT-03",r,"J3.b","kept","Stays live on the partial fixture until reviewed proof shows J1, J3.a or a faster test fails on the same break. probe-save-isolation is the row that failed here on 14 Nov, so the copy is not shown to be redundant.")
 for r in ["same-target-repeat","analytics-repeat-opens-product"]:
     o("AHT-03",r,"J3.b","kept","Kept on the partial fixture: the only repeat that starts from a take with missed points, so it is the only check that missed points reset to pending.")
 o("AHT-02","same-target-numeric","J3.a","strengthen","Same fixture-reference oracle as J1.b; the snapshot gate moves out of the case preflight (G11 in design §4).")
@@ -43,7 +47,7 @@ o("AHT-10","leave-released","J5.c","strengthen","Keep the R5 observer and add th
 o("AHT-10","recording-before-leave","J5.c","kept","")
 o("AHT-12","press-bound-denial","J7.a","kept","")
 o("AHT-12","denial-truthful-no-mic","J7.a","strengthen","Must show the blocked-microphone guidance (GAP-03).")
-o("AHT-12","allowed-recovery-saved","J7.a","strengthen","Permission granted in the same browser context after denial, then Start records and saves; the fresh-browser stand-in no longer counts (14 Nov partial).")
+o("AHT-12","allowed-recovery-saved","J7.a","strengthen","Permission granted after the denial within the same deny-launched browser, then Start records and saves; the fresh-browser stand-in no longer counts (14 Nov partial). Until a qualified way to grant it exists, the leg is HOLD, as the harness requires.")
 o("AHT-14","download-fault-exercised","J7.c","strengthen","Proof that model bytes were received before the connection dropped (byte count > 0 and < total), else the leg is HOLD, not PASS (14 Nov HOLD).")
 o("AHT-13","download-fault-exercised","J7.b","strengthen","Proof that the model request failed before any byte arrived; distinct from J7.c (GAP-06).")
 o("AHT-04","cold-pending-observed","J5.a","kept","Needs #1858 deployed (14 Nov FAIL: cancelled load reported as a model failure). Also the GAP-06 stimulus row (model requests > 0).")
@@ -98,6 +102,113 @@ if len({b for _, b, _, _ in new_rows}) != len(new_rows):
     fail("duplicate new row names")
 out={"schema":"speaksharp.aht-nightly.coverage-map.v1","date":"2026-11-14","catalogTotal":cat["totalAssertions"],
      "rows":rows,"newRows":[{"leg":a,"assertion":b,"what":c,"status":d} for a,b,c,d in new_rows]}
+
+# Optional export in #1862's schema. Every row stays live: nothing is demoted without
+# reviewed replacement proof, so no row uses demote-with-reviewed-proof.
+JOURNEYS = [
+ ("J1", ["AHT-01","AHT-15"], "New user's first month",
+  "Real signup, model, owner-bound save, coaching, sign-out return and the deployed payment wall together on the deployed build.",
+  "Fresh run-owned account; expiry is the last practice leg and deletion follows it; trial ending only on that account and only with the product owner's approval.",
+  "Bound saved takes and coaching, exact deep-link return with mic off, no save for a short Stop, wall on the open session and after sign-in, deployed refusal, deletion readback."),
+ ("J2", [], "Hitting the wall and going to pay",
+  "Wall to hosted Checkout crosses the deployed app, the deployed checkout function and Stripe's live configuration.",
+  "Fresh run-owned expired account; payment never completed; disabled until a reviewed cleanup expires the session and proves no billing residue.",
+  "Checkout opens for the right price and account; abandoning it leaves the account walled; deployed webhook rejects an unsigned event."),
+ ("J3", ["AHT-02","AHT-03"], "Focus practice",
+  "Durable Focus evidence from real speech, with back and reload mid-Focus.",
+  "Fresh run-owned account; full fixture then partial fixture; feedback writes fenced (#1859).",
+  "Coverage, rails and per-point results saved and reopened; partial repeat resets missed points to pending."),
+ ("J4", ["AHT-05","AHT-06"], "Save under a bad connection",
+  "Retry and recovery UI over a real lost request and a real lost response.",
+  "Fresh run-owned account; each fault reset before the next leg; next take isolated.",
+  "Exactly one saved take per fault and an isolated next take."),
+ ("J5", ["AHT-04","AHT-09","AHT-10"], "Leaving mid-flow",
+  "Page teardown and lease release during a cold Start, a navigation and a tab close happen only in a real browser.",
+  "Fresh run-owned account; the cold-Start leg runs first in its own context with a cold model cache; lease released and verified, interceptors and drafts reset between legs; tab-close reported separately.",
+  "No session or mic after the cold-Start leave; lease released with both GAP-05 observers."),
+ ("J6", ["AHT-11"], "Two places at once",
+  "Competing tabs and an independent context against the server lease.",
+  "Fresh run-owned account; two real browser contexts.",
+  "Second tab and second browser refused; takeover fences the old owner."),
+ ("J7", ["AHT-12","AHT-13","AHT-14"], "First-time setup goes wrong",
+  "Actual permission denial then grant, a model request failing before any byte, and a disconnect after bytes arrive.",
+  "One signup. The denial leg runs in its own browser launch with the file-level deny flag and signs in again; the two model-fault legs each use a fresh context with a cold model cache. Each leg asserts its own take by session id.",
+  "Blocked-mic guidance and same-context recovery; each fault proven at its point (before any byte, after bytes received); deletion during the trial."),
+ ("J8", ["AHT-08","AHT-07"], "Telling us something",
+  "Feedback with no session needs an account with no takes; retries over real transport faults.",
+  "Fresh run-owned account; the no-session leg first; feedback writes fenced (#1859, #1860).",
+  "Feedback stored once per send with the right session link or none."),
+ ("J9", [], "Existing paying customer after an upgrade",
+  "Only a long-lived account shows that old data and a paid entitlement survive a migration.",
+  "Long-lived paid account, read-only, seed history pinned on a named release; needs the product owner's decision.",
+  "Seed sessions and Progress open as before; entitlement and billing portal hold."),
+]
+export = None
+if len(sys.argv) == 5:
+    with open(sys.argv[4]) as fh:
+        sam = json.load(fh)
+    if sam.get("schema") != "speaksharp.aht-rationalization.v1":
+        fail("fourth path is not a #1862 mapping")
+    sam_rows = {(r["caseId"], r["assertion"]): r for r in sam["rows"]}
+    owner = {c: j for j, cs, *_ in JOURNEYS for c in cs}
+    missing = set(cat["cases"]) - set(owner)
+    if missing:
+        fail(f"cases with no journey: {sorted(missing)}")
+    for r in rows:
+        if owner[r["case"]] != r["newHome"].split(".")[0].split("-")[0].split("/")[0]:
+            fail(f"{r['case']}/{r['assertion']} home {r['newHome']} is outside {owner[r['case']]}")
+    export = {
+     "schema": "speaksharp.aht-rationalization.v1",
+     "status": "proposal-not-executable",
+     "sourceCatalog": "tools/cloud-test/config/assertion-catalog.json",
+     "sourceBaseline": "897117ba5c2be219fe5d0e9007ccc96861349903",
+     "journeys": [{"id": j, "cases": cs, "title": t, "uniqueRisk": u, "isolation": i, "passEvidence": p}
+                  for j, cs, t, u, i, p in JOURNEYS],
+     "rows": [],
+     "additionalRequirements": [
+      {"id": "billing-expiry-restoration", "journey": "J1", "status": "blocked",
+       "prerequisites": ["Server-enforced payment wall with retained deletion",
+                         "Product owner's approval to end the trial on run-owned accounts",
+                         "Requirements updated to the no-service-after-trial rule",
+                         "Paid lifecycle in #1795's sandbox suite, no production charge"],
+       "acceptance": "Expired unpaid account is walled on the open session and after sign-in, the deployed endpoints refuse it, and it can delete the account. Paid restoration is proven in #1795's sandbox suite, not live in J1.",
+       "differsFrom1862": "#1862 accepts approved paid restoration live in J01 with a safe paid-restoration fixture; this design proves restoration in the sandbox suite and adds J2 for production checkout. Open for the reviewer to decide."},
+      {"id": "checkout-from-wall", "journey": "J2", "status": "blocked",
+       "prerequisites": ["Payment wall", "Reviewed checkout cleanup with zero billing residue"],
+       "acceptance": "Hosted Checkout opens for the right price and account and an abandoned checkout leaves the account walled."},
+      {"id": "device-human-proof", "journey": None, "status": "human-required",
+       "acceptance": "Physical microphone and mobile Stop visibility; transcript accuracy and coaching usefulness."},
+     ],
+    }
+    for r in rows:
+        key = (r["case"], r["assertion"])
+        theirs = sam_rows.get(key)
+        if theirs is None:
+            fail(f"#1862 mapping lacks {key}")
+        if r["assertion"] in CROSS:
+            disp, cand = "keep-safety", []
+        elif theirs["disposition"] == "fast-first-retain-live-until-proven":
+            disp, cand = theirs["disposition"], theirs["candidateFastTests"]
+        else:
+            disp, cand = "keep-live", []
+        export["rows"].append({"caseId": r["case"], "assertion": r["assertion"], "journey": owner[r["case"]],
+            "disposition": disp, "candidateFastTests": cand, "replacementProof": None,
+            "reason": " ".join(x for x in [r["note"] or f"Live in {r['newHome']}.",
+                      "Candidate tests from #1862; stays live until proven." if cand else ""] if x)})
+    if len(sam_rows) != len(rows):
+        fail(f"#1862 mapping has {len(sam_rows)} rows, catalog map has {len(rows)}")
+    for j in sorted({a.split(".")[0] for a, _, _, _ in new_rows} |
+                    {r["newHome"].split(".")[0] for r in rows if r["status"] == "strengthen"}):
+        extra = [f"{b}: {c}" for a, b, c, _ in new_rows if a.split(".")[0] == j]
+        extra += [f"{r['case']}/{r['assertion']} strengthened: {r['note']}" for r in rows
+                  if r["status"] == "strengthen" and r["newHome"].split(".")[0] == j]
+        export["additionalRequirements"].append({"id": f"design-rows-{j}", "journey": j, "status": "proposed",
+            "acceptance": " | ".join(extra)})
+
 with open(sys.argv[2], "w") as fh:
     json.dump(out, fh, indent=1)
+if export is not None:
+    with open(sys.argv[3], "w") as fh:
+        json.dump(export, fh, indent=1)
 print(len(rows), Counter(r["status"] for r in rows))
+

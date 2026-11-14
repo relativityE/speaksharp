@@ -433,44 +433,44 @@
   {
    "case": "AHT-03",
    "assertion": "rapid-repeat-gate",
-   "newHome": "J1.b/J1.c and J3.a",
-   "status": "consolidated",
-   "note": "Same check on the same code already runs in J1 (Open Mic) and J3.a (Focus, full fixture); the partial fixture adds nothing to it. Needs the owner's disposition under finite-aht-denominator.json before the row leaves AHT-03's denominator."
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": "Stays live on the partial fixture until reviewed proof shows J1, J3.a or a faster test fails on the same break. probe-save-isolation is the row that failed here on 14 Nov, so the copy is not shown to be redundant."
   },
   {
    "case": "AHT-03",
    "assertion": "rapid-repeat-release",
-   "newHome": "J1.b/J1.c and J3.a",
-   "status": "consolidated",
-   "note": "Same check on the same code already runs in J1 (Open Mic) and J3.a (Focus, full fixture); the partial fixture adds nothing to it. Needs the owner's disposition under finite-aht-denominator.json before the row leaves AHT-03's denominator."
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": "Stays live on the partial fixture until reviewed proof shows J1, J3.a or a faster test fails on the same break. probe-save-isolation is the row that failed here on 14 Nov, so the copy is not shown to be redundant."
   },
   {
    "case": "AHT-03",
    "assertion": "next-start",
-   "newHome": "J1.b/J1.c and J3.a",
-   "status": "consolidated",
-   "note": "Same check on the same code already runs in J1 (Open Mic) and J3.a (Focus, full fixture); the partial fixture adds nothing to it. Needs the owner's disposition under finite-aht-denominator.json before the row leaves AHT-03's denominator."
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": "Stays live on the partial fixture until reviewed proof shows J1, J3.a or a faster test fails on the same break. probe-save-isolation is the row that failed here on 14 Nov, so the copy is not shown to be redundant."
   },
   {
    "case": "AHT-03",
    "assertion": "next-start-release",
-   "newHome": "J1.b/J1.c and J3.a",
-   "status": "consolidated",
-   "note": "Same check on the same code already runs in J1 (Open Mic) and J3.a (Focus, full fixture); the partial fixture adds nothing to it. Needs the owner's disposition under finite-aht-denominator.json before the row leaves AHT-03's denominator."
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": "Stays live on the partial fixture until reviewed proof shows J1, J3.a or a faster test fails on the same break. probe-save-isolation is the row that failed here on 14 Nov, so the copy is not shown to be redundant."
   },
   {
    "case": "AHT-03",
    "assertion": "probe-save-isolation",
-   "newHome": "J1.b/J1.c and J3.a",
-   "status": "consolidated",
-   "note": "Same check on the same code already runs in J1 (Open Mic) and J3.a (Focus, full fixture); the partial fixture adds nothing to it. Needs the owner's disposition under finite-aht-denominator.json before the row leaves AHT-03's denominator."
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": "Stays live on the partial fixture until reviewed proof shows J1, J3.a or a faster test fails on the same break. probe-save-isolation is the row that failed here on 14 Nov, so the copy is not shown to be redundant."
   },
   {
    "case": "AHT-03",
    "assertion": "same-target-numeric",
-   "newHome": "J1.b/J1.c and J3.a",
-   "status": "consolidated",
-   "note": "Same check on the same code already runs in J1 (Open Mic) and J3.a (Focus, full fixture); the partial fixture adds nothing to it. Needs the owner's disposition under finite-aht-denominator.json before the row leaves AHT-03's denominator."
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": "Stays live on the partial fixture until reviewed proof shows J1, J3.a or a faster test fails on the same break. probe-save-isolation is the row that failed here on 14 Nov, so the copy is not shown to be redundant."
   },
   {
    "case": "AHT-03",
@@ -1191,7 +1191,7 @@
    "assertion": "allowed-recovery-saved",
    "newHome": "J7.a",
    "status": "strengthen",
-   "note": "Permission granted in the same browser context after denial, then Start records and saves; the fresh-browser stand-in no longer counts (14 Nov partial)."
+   "note": "Permission granted after the denial within the same deny-launched browser, then Start records and saves; the fresh-browser stand-in no longer counts (14 Nov partial). Until a qualified way to grant it exists, the leg is HOLD, as the harness requires."
   },
   {
    "case": "AHT-12",
