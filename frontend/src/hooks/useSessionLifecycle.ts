@@ -428,7 +428,9 @@ export const useSessionLifecycle = () => {
             const elapsedAtStop = liveStart ? Math.floor((Date.now() - liveStart) / 1000) : elapsedTime;
             if (elapsedAtStop < MIN_SESSION_DURATION_SECONDS && !options?.stopReason) {
                 try {
-                    await speechRuntimeController.stopRecording();
+                    // G5 (#1861): this take is reported as too short below, so the controller must discard it, not
+                    // complete it. An ordinary Stop here saved a completed session the user was told was not saved.
+                    await speechRuntimeController.stopRecording({ belowMinimumDuration: true });
                     saveLatency.settle('discarded');
                     reviewLatency.settle('unavailable');
                     reviewLatencyRef.current = null;

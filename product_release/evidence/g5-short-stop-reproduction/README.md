@@ -1,53 +1,42 @@
 # G5: short Stop requests completed persistence
 
-Reproduction-only checkpoint. **Not a fix and not merge-ready.**
+## Defect (reproduced, now fixed)
 
-## Exact observed source and result
-
-On `adc70cd23765f13c7a2c7ce04e6e80a30abb7009`, the actual
-`SpeechRuntimeController.stopRecording()` receives an engine start time three
-seconds earlier and meaningful transcript text. The storage-boundary spy observes:
+On `adc70cd23765f13c7a2c7ce04e6e80a30abb7009`, the page measured a take on the live
+clock, found it under the five-second minimum and told the user "Session too short",
+but stopped it with the ordinary controller Stop (`useSessionLifecycle.ts`, the
+minimum-duration branch). The real `SpeechRuntimeController.stopRecording()` had only
+an empty/non-speech guard, so a three-second take with meaningful words reached the
+storage boundary as:
 
 ```json
 [{"status":"completed","duration":3}]
 ```
 
-The assertion requires zero completed calls and fails: expected 0, received 1.
-Engine and storage boundaries are mocked; the controller is real. This establishes
-an incorrect completed-persistence request, not a production database write. It
-does not establish the duration of AHT-03 run 43585559387's offending probe.
+The standalone diagnostic that showed this (expected 0 completed calls, received 1)
+was retired once its assertions moved into the canonical suite below.
 
-## Reproduce
+## Fix
 
-Use the repository-pinned pnpm and installed lockfile dependencies, from repo root:
+The page passes its verdict: `stopRecording({ belowMinimumDuration: true })`. The
+controller then resolves the take by discard: a row created at Start is marked
+`failed` ("shorter than the minimum duration"), no row is created at Stop when none
+exists, nothing is completed, and the runtime returns to READY with finalizing
+released and no saved marker. The threshold stays where it was decided before: the
+page's live clock and `MIN_SESSION_DURATION_SECONDS` (5). External stops (a stop
+reason: usage limit, maximum length, inactivity) are unchanged and still save.
 
-```sh
-pnpm exec node scripts/host-interlock.mjs hold local -- pnpm exec vitest run --config product_release/evidence/g5-short-stop-reproduction/vitest.config.mjs
-```
+## Canonical regressions
 
-Expected on the source above: one failed test with `G5_COMPLETION` as above.
-The standalone configuration intentionally does not run coverage: this is a
-focused diagnostic, not a claim that full quality or release gates pass. No
-production account, network service, model download or live AHT is required.
-Fixture text is synthetic and inherited from the existing controller test harness.
+- `frontend/src/hooks/__tests__/useSessionLifecycle.shortStopIntegration.test.tsx`:
+  real hook and real controller. 3 s and 4.999 s are told too short and complete
+  nothing; 5 s completes; a 3 s external stop still completes.
+- `frontend/src/services/__tests__/SpeechRuntimeController.shortTake.test.ts`: real
+  controller. Marked failed, never completed; words decoded during finalization do
+  not change that; no late row at Stop; READY, finalizing released, not saved;
+  positive control without the verdict completes.
+- `frontend/src/hooks/__tests__/useSessionLifecycle.recordingIntent.test.tsx`: the
+  short branch passes the verdict, a 5.3 s take does not.
 
-## Why the normal hook test misses it
-
-`useSessionLifecycle.ts:429–447` calls ordinary controller Stop for a take below
-the five-second minimum, then reports discarded. Controller Stop measures duration
-but only its empty/non-speech guard prevents completed persistence. The hook's
-existing three-second test mocks the controller and asserts the displayed message.
-The existing `fillerAfterFinalize` controller fixture passes 7/7; this diagnostic
-uses that same boundary arrangement with a three-second start time.
-
-## Implementation remains separate
-
-No controller, hook, existing test, workflow or release file is changed here.
-Exact-file ownership clearance is still required before implementing the fix or
-adding the canonical regression. This evidence directory does not transfer that
-ownership. Preserve the active release binding.
-
-Next acceptance: real-controller rejection for nonempty 3s and 4.999s takes,
-5s positive control, delayed-finalization independence, terminal cleanup and lease
-release, and preservation of intentional external-stop behavior. Move the useful
-assertions into the canonical suite with the fix after ownership is settled.
+No live database write, AHT run or probe-duration claim for AHT-03 run 43585559387 is
+made here. Fixture text is synthetic.

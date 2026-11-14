@@ -394,6 +394,18 @@ export type RuntimeState =
     | 'FAILED_VISIBLE'
     | 'TERMINATED';
 
+/**
+ * G5 (#1861) — options for `stopRecording()`.
+ *
+ * `belowMinimumDuration`: the caller measured the take on the live clock the user sees, found it under the
+ * minimum and told the user it is too short. The controller then resolves the take by discard (any row it
+ * already created is marked failed, no row is created at Stop) instead of completing it. Callers that stop
+ * for an external reason (tier limit, maximum length, inactivity, page leave) do not set it.
+ */
+export interface StopRecordingOptions {
+    belowMinimumDuration?: boolean;
+}
+
 export interface LifecycleToken {
     version: number;
     cancelled: boolean;
@@ -5429,7 +5441,9 @@ export class SpeechRuntimeController {
         useReadinessStore.getState().resetRouterReady();
     }
 
-    public async stopRecording(): Promise<unknown> {
+    public async stopRecording(options?: StopRecordingOptions): Promise<unknown> {
+        // G5 (#1861): the caller already told the user this take is too short to save, so it must not be completed.
+        const belowMinimumDuration = options?.belowMinimumDuration === true;
         // #891 Phase 5.7: the shadow engine is torn down AFTER finalize (see below), not here, so its
         // snapshot includes the committed final transcript before parity is measured. A leftover engine
         // is always disposed by the next startShadowMetricsEngine.
@@ -5647,7 +5661,8 @@ export class SpeechRuntimeController {
                         });
                     }
 
-                    if (result && !sessionId) {
+                    // G5: a take below the minimum creates no row at all; there is nothing to save it into.
+                    if (result && !sessionId && !belowMinimumDuration) {
                         const supabase = getSupabaseClient();
                         const { data: { session } } = await supabase.auth.getSession();
                         const userId = session?.user?.id || this.capturedUserId;
@@ -5698,6 +5713,18 @@ export class SpeechRuntimeController {
                             service.setSessionId?.(sessionId);
                             logger.warn({ sessionId, mode }, '[DEBUG-STOP] Recovered missing sessionId with late session create');
                         }
+                    }
+
+                    if (result && !sessionId && belowMinimumDuration) {
+                        // G5: no row exists and none is created, so there is nothing to mark failed. Resolve the
+                        // take by discard exactly like the row-backed path below: no saved marker, no result.
+                        logger.warn({ mode: service.getMode?.() ?? stopEntryMode }, '[SESSION_SAVE_GUARD] Session below the minimum duration discarded before any row was created');
+                        guardedStopStatus = { type: 'info', message: '⚠️ Session too short to save.' };
+                        this.publishIfStopOwner(stopAuthority, token, 'discard_markers', () => {
+                            this.updateSessionPersisted(false);
+                            useSessionStore.getState().setSessionSaved(false);
+                        });
+                        result = null;
                     }
 
                     logger.info({
@@ -5877,14 +5904,17 @@ export class SpeechRuntimeController {
                             preview: finalTranscript.slice(0, 80),
                         });
 
-                        if (meaningfulWordCount === 0) {
+                        if (meaningfulWordCount === 0 || belowMinimumDuration) {
                             logger.warn({
                                 sessionId,
                                 transcriptLength: finalTranscript.length,
                                 duration,
                                 mode: modeForFinalization,
                                 meaningfulWordCount,
-                            }, '[SESSION_SAVE_GUARD] Empty or non-speech session discarded');
+                                belowMinimumDuration,
+                            }, belowMinimumDuration
+                                ? '[SESSION_SAVE_GUARD] Session below the minimum duration discarded'
+                                : '[SESSION_SAVE_GUARD] Empty or non-speech session discarded');
 
                             logger.info({
                                 sessionId,
@@ -5893,7 +5923,9 @@ export class SpeechRuntimeController {
                             }, '[DEBUG-STOP] completeSession failed-status starting');
                             await completeSession(sessionId, {
                                 status: 'failed',
-                                reason: 'No meaningful speech detected; session was not saved to history.'
+                                reason: belowMinimumDuration
+                                    ? 'Session was shorter than the minimum duration; session was not saved to history.'
+                                    : 'No meaningful speech detected; session was not saved to history.'
                             });
                             logger.info({ sessionId }, '[DEBUG-STOP] completeSession failed-status done');
                             if (token.cancelled) {
@@ -5911,11 +5943,16 @@ export class SpeechRuntimeController {
                                 }, '[DEBUG-STOP] Lifecycle changed after failed-session completion; preserving user-facing warning');
                             }
 
-                            guardedStopStatus = {
-                                type: 'warning',
-                                message: "We didn't detect enough speech to save this session.",
-                                detail: 'Try recording again and speak for at least a few seconds.'
-                            };
+                            guardedStopStatus = belowMinimumDuration
+                                ? {
+                                    type: 'info',
+                                    message: '⚠️ Session too short to save.',
+                                }
+                                : {
+                                    type: 'warning',
+                                    message: "We didn't detect enough speech to save this session.",
+                                    detail: 'Try recording again and speak for at least a few seconds.'
+                                };
                             store.setSTTStatus(guardedStopStatus);
                             this.publishIfStopOwner(stopAuthority, token, 'discard_markers', () => {
                                 this.updateSessionPersisted(false);
