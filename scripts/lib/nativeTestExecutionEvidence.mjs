@@ -29,6 +29,10 @@ export const SQL_CONTRACTS=Object.freeze([
   // PG17 proofs (rwt-feedback-fence-realpg, feedback-fence-postflight-realpg) run in the full-chain proof workflow.
   Object.freeze({consumer:'tests/unit/t2MigrationPostflight.test.js',
     files:Object.freeze(['backend/supabase/migrations/20261114100000_rwt_feedback_fence_1811.sql'])}),
+  // #1863 payment wall: the guard suite executes the exact migration over the full PGlite chain and writes its witness;
+  // the native database is NOT RUN (no ledger-12 full-chain stage yet).
+  Object.freeze({consumer:'tests/db/payment-wall-guards-1863.integration.test.ts',
+    files:Object.freeze(['backend/supabase/migrations/20261114170000_payment_wall_product_access_1863.sql'])}),
 ]);
 export const sqlContract=file=>SQL_CONTRACTS.find(item=>item.files.includes(file));
 export const NATIVE_HELPERS=Object.freeze([
@@ -281,6 +285,21 @@ const coachingProfiles=Object.freeze([
     'backend/supabase/functions/get-ai-suggestions/index.ts':'a0d5d30397c08440831f1d25022754886bc16cce75e76309014c435a9096196e',
     'backend/supabase/functions/get-ai-suggestions/providerDecode.ts':'ecc8034bd53bd6b3b88dcbb981a6bf29be8c85d08cd031d0483e2d083e10d2a2',
     [coachingTest]:'5b7fc6eddc9e179dc45f478369b2c322ceee199a95c4d8445cc0edeb5c5147be',
+    'backend/supabase/functions/get-ai-suggestions/contract.json':'70c3099769cf24ac4faf3b4c191e322e50a0f1b34228a3aa72199a8f06adbe1b',
+    'backend/supabase/functions/get-ai-suggestions/providers/catalog.ts':'59d4a83989239a71085415d9fc3eaa8b3145786db085c8de8abe35cd052eaac1',
+    'backend/supabase/functions/get-ai-suggestions/providers/gemini.ts':'dac0b17ee31b82dcbeaf01b7496013e093246843af56bb7382ae5d40f6f3f963',
+    'backend/supabase/functions/get-ai-suggestions/providers/registry.ts':'e5744505a502ecc525a3604dfa8fa687a03dc18a33b9ef9aa9080d4df12571f7',
+    'backend/supabase/functions/get-ai-suggestions/providers/types.ts':'f401085b1542bc07b514f793e1b557886ab11f72442313e8c85d89823999d0cb',
+    'backend/supabase/functions/get-ai-suggestions/evaluation/prompt.ts':'16d40c6b1500b535bf45e0d1d07699ab509f68879c39586cf8ebd4363c7f92ee',
+    'backend/supabase/functions/get-ai-suggestions/evaluation/transcripts.json':'a4db4fdac8c4e2bd6c113d83c87ed458eac6197d99b1ccc747822bfad52b9a1a'}},
+  // #1863 payment wall: a saved coaching pair is replayed only after the same check_usage_limit entitlement as new analysis
+  // (expired unpaid: 403 payment_required; unverifiable: 503). Only the handler and its test change; every other pin is 15s-1802's.
+  {id:'coaching-payment-wall-1863',files:{...coachingClosure,
+    'backend/supabase/functions/get-ai-suggestions/providerRetry.ts':'eda8685f3f005e3cb774c54cadf8a04e43bb483d68c7a31130fd268b06ff7820',
+    'package.json':'afaad509e196b4cf0d784a55b47d3f17e51409dcd91d9d7f6a2e341b175eb0ed',
+    'backend/supabase/functions/get-ai-suggestions/index.ts':'2d1dee328adeef474a8409c58471f2d1040420bdb6d829bda80e6f1917ad0e05',
+    'backend/supabase/functions/get-ai-suggestions/providerDecode.ts':'ecc8034bd53bd6b3b88dcbb981a6bf29be8c85d08cd031d0483e2d083e10d2a2',
+    [coachingTest]:'a7a0112484f4c673b8b9486859b0f7a1b7f51c7e003e366498a6c4ead7da3be3',
     'backend/supabase/functions/get-ai-suggestions/contract.json':'70c3099769cf24ac4faf3b4c191e322e50a0f1b34228a3aa72199a8f06adbe1b',
     'backend/supabase/functions/get-ai-suggestions/providers/catalog.ts':'59d4a83989239a71085415d9fc3eaa8b3145786db085c8de8abe35cd052eaac1',
     'backend/supabase/functions/get-ai-suggestions/providers/gemini.ts':'dac0b17ee31b82dcbeaf01b7496013e093246843af56bb7382ae5d40f6f3f963',

@@ -133,7 +133,10 @@ const REFUND=Object.freeze({name:'20261112130000_stripe_refund_followups.sql',ve
 // #1811 feedback fence: repository inventory only for every profile before main-feedback-fence-131.
 const FEEDBACK_FENCE=Object.freeze({name:'20261114100000_rwt_feedback_fence_1811.sql',
   version:'20261114100000',sha256:'9aa48a5642765beb1c36f305ed62482bca67928d97bd5c1efeb1296e0c79176c'});
-const physical=repositoryPhysical.filter(row=>![WITHHELD.name,START_ABANDONMENT.name,REFUND.name,FEEDBACK_FENCE.name].includes(row.name));
+// #1863 payment wall: repository inventory only for every profile until its own ledger-12 stage exists.
+const PAYMENT_WALL=Object.freeze({name:'20261114170000_payment_wall_product_access_1863.sql',
+  version:'20261114170000',sha256:'267cd56d0fb94c20b970b4c4d0c3bbc617be93b4d3eca2eeb03525e53a3f8bd0'});
+const physical=repositoryPhysical.filter(row=>![WITHHELD.name,START_ABANDONMENT.name,REFUND.name,FEEDBACK_FENCE.name,PAYMENT_WALL.name].includes(row.name));
 const main = physical.filter(row => ![U1.name, ANALYTICS.name, ...ACCOUNT.map(row=>row.name), FENCE.name, RETENTION.name, BILLING.name].includes(row.name));
 const receiving = [...main, U1].sort((a, b) => a.name.localeCompare(b.name, 'en'));
 const analyticsReceiving=[...receiving,ANALYTICS].sort((a,b)=>a.name.localeCompare(b.name,'en'));
@@ -162,8 +165,8 @@ test('reviewed withheld retirement is repository inventory, never historical rep
   // Adding the exact withheld pin does not let an old profile accept later applied members.
   assert.throws(()=>buildMainU1ReplayPlan(repositoryPhysical,'main-t2-retention-128'),/unreviewed migration/);
   const plan=buildMainU1ReplayPlan(repositoryPhysical,'main-completion-billing-129');
-  assert.equal(plan.migrations,129);assert.equal(plan.repositoryMigrations,133);
-  assert.deepEqual(plan.withheld.map(row=>row.name),[WITHHELD.name,REFUND.name,START_ABANDONMENT.name,FEEDBACK_FENCE.name]);
+  assert.equal(plan.migrations,129);assert.equal(plan.repositoryMigrations,134);
+  assert.deepEqual(plan.withheld.map(row=>row.name),[WITHHELD.name,REFUND.name,START_ABANDONMENT.name,FEEDBACK_FENCE.name,PAYMENT_WALL.name]);
 });
 // Repository registration is NOT an installed-schema or release attestation.
 test('the feedback fence is pinned and excluded from every profile before main-feedback-fence-131',()=>{
@@ -188,6 +191,28 @@ test('the feedback fence is pinned and excluded from every profile before main-f
     assert.ok(plan.stages.every(stage=>!stage.versions.includes(FEEDBACK_FENCE.version)),profile);
   }
 });
+test('the payment wall is pinned and excluded from every profile (no ledger-12 stage yet)',()=>{
+  assert.deepEqual(repositoryPhysical.find(row=>row.name===PAYMENT_WALL.name),PAYMENT_WALL);
+  for(const [profile,rows] of [['main-120',main],['main-u1-121',receiving],['main-analytics-u1-122',analyticsReceiving],
+    ['main-t2-account-126',fullReceiving],['main-t2-fence-127',fenceReceiving],['main-t2-retention-128',retentionReceiving],
+    ['main-completion-billing-129',billingReceiving]]) {
+    const before=buildMainU1ReplayPlan(rows,profile);
+    const plan=buildMainU1ReplayPlan([...rows,PAYMENT_WALL],profile);
+    assert.deepEqual(plan.stages,before.stages);
+    assert.deepEqual(plan.replayFiles,before.replayFiles);
+    assert.equal(plan.migrations,before.migrations);
+    assert.equal(plan.repositoryMigrations,before.repositoryMigrations+1);
+    assert.deepEqual(plan.withheld.find(row=>row.name===PAYMENT_WALL.name),{...PAYMENT_WALL,status:'NOT REPLAYED'});
+    assert.throws(()=>buildMainU1ReplayPlan([...rows,{...PAYMENT_WALL,sha256:'0'.repeat(64)}],profile),/withheld migration digest changed/);
+    assert.throws(()=>buildMainU1ReplayPlan([...rows,{...PAYMENT_WALL,name:PAYMENT_WALL.version+'_alias.sql'}],profile),/unreviewed migration/);
+  }
+  for(const profile of ['main-coaching-retirement-129','main-start-abandonment-130','main-feedback-fence-131']) {
+    const plan=buildMainU1ReplayPlan(repositoryPhysical,profile);
+    assert.deepEqual(plan.withheld.find(row=>row.name===PAYMENT_WALL.name),{...PAYMENT_WALL,status:'NOT REPLAYED'},profile);
+    assert.ok(plan.stages.every(stage=>!stage.versions.includes(PAYMENT_WALL.version)),profile);
+    assert.ok(!plan.replayFiles.includes(PAYMENT_WALL.name),profile);
+  }
+});
 test('the refund follow-up migration is pinned inventory that no profile replays',()=>{
   assert.deepEqual(repositoryPhysical.find(row=>row.name===REFUND.name),REFUND);
   const retirement=[...billingReceiving.filter(row=>row.name!==BILLING.name),WITHHELD,BILLING];
@@ -204,8 +229,8 @@ test('the refund follow-up migration is pinned inventory that no profile replays
     assert.throws(()=>buildMainU1ReplayPlan([...rows,{...REFUND,sha256:'0'.repeat(64)}],profile),/withheld migration digest changed/);
   }
   const plan=buildMainU1ReplayPlan(repositoryPhysical,'main-coaching-retirement-129');
-  assert.equal(plan.migrations,129);assert.equal(plan.repositoryMigrations,133);
-  assert.deepEqual(plan.withheld.map(row=>row.name),[BILLING.name,REFUND.name,START_ABANDONMENT.name,FEEDBACK_FENCE.name]);
+  assert.equal(plan.migrations,129);assert.equal(plan.repositoryMigrations,134);
+  assert.deepEqual(plan.withheld.map(row=>row.name),[BILLING.name,REFUND.name,START_ABANDONMENT.name,FEEDBACK_FENCE.name,PAYMENT_WALL.name]);
 });
 test('runtime stages only replay members and checks withheld ledger/catalog absence',()=>{
   const driver=read('tests/db/account-closure-full-chain.mjs');
