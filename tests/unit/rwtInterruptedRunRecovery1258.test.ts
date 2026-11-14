@@ -327,6 +327,66 @@ describe('recovery', () => {
 
 
 afterEach(() => vi.unstubAllEnvs());
+describe('#1811 feedback fences of a recovered run', () => {
+    const repository = 'relativityE/speaksharp';
+    const workflow = `${repository}/.github/workflows/rc-gates.yml@refs/heads/main`;
+    const binding = { repository, workflow, runId: '38000000001', runAttempt: '1', role: 'rwt-journey' as const };
+    const stubRun = () => {
+        for (const [k, v] of Object.entries({ GITHUB_ACTIONS: 'true', GITHUB_REPOSITORY: repository,
+            GITHUB_WORKFLOW_REF: workflow, GITHUB_RUN_ID: '39000000001', GITHUB_RUN_ATTEMPT: '1' })) vi.stubEnv(k, v);
+    };
+    /** A fence exists only for `openCases`; close is P0002 for every other case label. */
+    const withFences = (f: ReturnType<typeof fakeAdmin>, openCases: Record<string, { deleted: number; residue: number; foreign: number }>) => {
+        const calls: string[] = [];
+        const rpc = vi.fn(async (fn: string, args: { p_run_key: string }) => {
+            calls.push(`${fn}:${args.p_run_key}`);
+            const fenceCase = args.p_run_key.replace('38000000001-1-', '');
+            const open = openCases[fenceCase];
+            if (!open) return { data: null, error: { code: 'P0002' } };
+            if (fn === 'close_rwt_feedback_fence_v1') return { data: { state: 'closed', reports: open.deleted + open.residue, keys: 1 }, error: null };
+            return { data: { ...open, state: open.residue || open.foreign ? 'closed' : 'cleaned' }, error: null };
+        });
+        Object.assign(f.admin as object, { rpc });
+        return { rpc, calls };
+    };
+    it('closes and cleans every fence the run opened BEFORE deleting its account, and reports counts only', async () => {
+        stubRun();
+        const f = fakeAdmin([{ ...user(1, journey(1), old), app_metadata: { ct_run: binding } }]);
+        const fences = withFences(f, { 'AHT-08': { deleted: 1, residue: 0, foreign: 0 } });
+        const order: string[] = [];
+        fences.rpc.mockImplementationOnce(async (...args) => { order.push('fence'); return (fences.rpc.getMockImplementation() as never as (...a: unknown[]) => unknown)?.(...args) as never; });
+        f.cleanup.mockImplementationOnce(async ({ capturedUid }) => { order.push('account'); return capturedUid; });
+        const r = await recover(f);
+        expect(r.status).toBe('RECOVERED');
+        expect(r.feedback).toEqual({ fences: 1, deleted: 1, residue: 0, foreign: 0 });
+        expect(order).toEqual(['fence', 'account']);
+        expect(fences.calls).toContain('clean_rwt_feedback_fence_v1:38000000001-1-AHT-08');
+        expect(fences.calls.filter((c) => c.startsWith('close_'))).toHaveLength(4); // every case label is tried
+        const line = recoveryReportLine(r);
+        expect(line).toContain('feedback_fences=1 feedback_deleted=1 feedback_residue=0 feedback_foreign=0');
+        expect(line).not.toContain('AHT-08');
+    });
+    it('a fence that cannot read back to zero, or records another account\'s report, stops recovery before the account delete', async () => {
+        stubRun();
+        for (const open of [{ deleted: 0, residue: 1, foreign: 0 }, { deleted: 0, residue: 0, foreign: 1 }]) {
+            const f = fakeAdmin([{ ...user(1, journey(1), old), app_metadata: { ct_run: binding } }]);
+            withFences(f, { 'AHT-07': open });
+            expect(await recover(f)).toMatchObject({ status: 'FAILED', deleted: 0 });
+            expect(f.cleanup).not.toHaveBeenCalled();
+        }
+        const errored = fakeAdmin([{ ...user(1, journey(1), old), app_metadata: { ct_run: binding } }]);
+        Object.assign(errored.admin as object, { rpc: vi.fn(async () => ({ data: null, error: { code: '42501' } })) });
+        expect(await recover(errored)).toMatchObject({ status: 'FAILED', deleted: 0 });
+        expect(errored.cleanup).not.toHaveBeenCalled();
+    });
+    it('an unbound (legacy) account and a run that opened no fence recover exactly as before', async () => {
+        stubRun();
+        const none = fakeAdmin([{ ...user(1, journey(1), old), app_metadata: { ct_run: binding } }]);
+        withFences(none, {});
+        expect(await recover(none)).toMatchObject({ status: 'RECOVERED', deleted: 1, feedback: { fences: 0, deleted: 0, residue: 0, foreign: 0 } });
+    });
+});
+
 describe('bound interrupted account recovery', () => {
     it('carries the validated original binding to cleanup, refusing malformed/foreign/current-run identities', async () => {
         const repository = 'relativityE/speaksharp';

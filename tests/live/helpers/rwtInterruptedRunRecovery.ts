@@ -10,6 +10,7 @@
  * malformed or ambiguous (judged over the whole listing); the listing is bounded, requires a real users array on every page and
  * fails closed. Idempotent: a second run finds nothing to recover. The report is content-safe — counts and a status only.
  */
+import { recoverRunFences, type FenceRecovery, type FenceRpcClient } from './feedbackFence';
 import { currentRunBinding, sameRunBinding, type RunBinding } from './runBinding';
 import { RUN_OWNED_PREFIX_RE, cleanupRunOwnedAccount } from './runOwnedCleanup';
 
@@ -159,6 +160,8 @@ export function recoveryAuthority(p: { ref: string; sha: string; head: string; d
 
 export interface AdminLike {
     auth: { admin: { listUsers: (o: { page: number; perPage: number }) => Promise<{ data: { users?: AuthUserLike[] } | null; error: { code?: string } | null }> } };
+    /** #1811: the service-role RPC surface the feedback-fence recovery uses (the real client always has it). */
+    rpc?: FenceRpcClient['rpc'];
 }
 
 /** Bounded, fail-closed listing. `complete=false` when the page cap was reached with a full page (more may exist). */
@@ -180,7 +183,11 @@ export async function listAuthUsersBounded(admin: AdminLike, perPage = 200, maxP
 }
 
 export type RecoveryStatus = 'HOLD_NO_DOMAIN' | 'HOLD_NO_ACK' | 'HOLD_INCOMPLETE_LISTING' | 'HOLD_RECOVERY_ELIGIBILITY' | 'NOTHING_TO_RECOVER' | 'RECOVERED' | 'FAILED';
-export interface RecoveryReport extends SelectionCounts { status: RecoveryStatus; deleted: number; minAgeMinutes: number }
+export interface RecoveryReport extends SelectionCounts {
+    status: RecoveryStatus; deleted: number; minAgeMinutes: number;
+    /** #1811: feedback fences of the recovered runs, closed and cleaned before each account deletion (counts only). */
+    feedback: FenceRecovery;
+}
 
 type Cleanup = typeof cleanupRunOwnedAccount;
 
@@ -193,8 +200,9 @@ export async function recoverInterruptedRuns(params: {
     cleanup?: Cleanup; minAgeMs?: number; perPage?: number; maxPages?: number;
 }): Promise<RecoveryReport> {
     const minAgeMs = params.minAgeMs ?? MIN_AGE_MS;
+    const feedback: FenceRecovery = { fences: 0, deleted: 0, residue: 0, foreign: 0 };
     const report = (status: RecoveryStatus, counts: SelectionCounts, deleted = 0): RecoveryReport =>
-        ({ status, deleted, minAgeMinutes: Math.round(minAgeMs / 60_000), ...counts });
+        ({ status, deleted, minAgeMinutes: Math.round(minAgeMs / 60_000), ...counts, feedback: { ...feedback } });
     // No explicit domain still DETECTS and reports (legacy items included); it can never delete.
     const domain = deletionDomain(params.domain);
     const { users, complete } = await listAuthUsersBounded(params.admin, params.perPage, params.maxPages);
@@ -206,6 +214,18 @@ export async function recoverInterruptedRuns(params: {
     const cleanup = params.cleanup ?? cleanupRunOwnedAccount;
     let deleted = 0;
     for (const account of eligible) {
+        // #1811: the run's feedback fences first, while the account's reports are still owned. A fence that cannot be closed
+        // and read back to zero (or records another account's report) stops recovery before the account is deleted.
+        if (account.binding && params.admin.rpc) {
+            try {
+                const fences = await recoverRunFences({ rpc: params.admin.rpc.bind(params.admin) }, account.binding);
+                feedback.fences += fences.fences; feedback.deleted += fences.deleted;
+                feedback.residue += fences.residue; feedback.foreign += fences.foreign;
+                if (fences.residue !== 0 || fences.foreign !== 0) return report('FAILED', counts, deleted);
+            } catch {
+                return report('FAILED', counts, deleted);
+            }
+        }
         try {
             await cleanup({ admin: params.admin as never, capturedUid: account.id, createdEmail: account.email, runOwnedPrefix: account.prefix,
                 ...(account.binding ? { recovery: { originalBinding: account.binding, dispatchSha: params.sha, deleteAck: params.ack, minAgeMs } } : {}) });
@@ -222,5 +242,6 @@ export async function recoverInterruptedRuns(params: {
 export function recoveryReportLine(r: RecoveryReport): string {
     return `RWT_INTERRUPTED_RUN_RECOVERY status=${r.status} scanned=${r.scanned} run_owned=${r.runOwned} `
         + `ownership_unproven=${r.ownershipUnproven} legacy_unqualified=${r.legacyUnqualified} eligible=${r.eligible} fresh=${r.fresh} malformed=${r.malformed} `
-        + `ambiguous=${r.ambiguous} deleted=${r.deleted} min_age_min=${r.minAgeMinutes}`;
+        + `ambiguous=${r.ambiguous} deleted=${r.deleted} min_age_min=${r.minAgeMinutes}`
+        + ` feedback_fences=${r.feedback.fences} feedback_deleted=${r.feedback.deleted} feedback_residue=${r.feedback.residue} feedback_foreign=${r.feedback.foreign}`;
 }
