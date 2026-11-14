@@ -1,0 +1,1552 @@
+{
+ "schema": "speaksharp.aht-nightly.coverage-map.v1",
+ "date": "2026-11-14",
+ "catalogTotal": 204,
+ "rows": [
+  {
+   "case": "AHT-01",
+   "assertion": "owner-bound",
+   "newHome": "J1.a-J1.c",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-01",
+   "assertion": "fresh-first-session",
+   "newHome": "J1.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-01",
+   "assertion": "saved-once",
+   "newHome": "J1.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-01",
+   "assertion": "grounded-coaching",
+   "newHome": "J1.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-01",
+   "assertion": "review-reopen",
+   "newHome": "J1.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-01",
+   "assertion": "pdf-owner-take",
+   "newHome": "J1.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-01",
+   "assertion": "same-target-repeat",
+   "newHome": "J1.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-01",
+   "assertion": "analytics-repeat-opens-product",
+   "newHome": "J1.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-01",
+   "assertion": "rapid-repeat-gate",
+   "newHome": "J1.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-01",
+   "assertion": "rapid-repeat-release",
+   "newHome": "J1.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-01",
+   "assertion": "next-start",
+   "newHome": "J1.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-01",
+   "assertion": "next-start-release",
+   "newHome": "J1.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-01",
+   "assertion": "probe-save-isolation",
+   "newHome": "J1.c",
+   "status": "strengthen",
+   "note": "Paired with the new short-stop-no-save row. AHT-03's copy failed on 14 Nov; that take's duration was not measured, so a short Stop (G5) is a likely cause, not a proven one."
+  },
+  {
+   "case": "AHT-01",
+   "assertion": "same-target-numeric",
+   "newHome": "J1.b",
+   "status": "strengthen",
+   "note": "Also compare the saved filler count with the fixture's known reference (rwtFillerReference.ts), so the row has an oracle independent of the code under test. Today the snapshot preflight makes the whole case NOT RUN when Progress code changes in an upgrade (G11 in design \u00a74)."
+  },
+  {
+   "case": "AHT-01",
+   "assertion": "open-mic-review-presentation",
+   "newHome": "J1.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-01",
+   "assertion": "open-mic-coaching-length",
+   "newHome": "J1.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-01",
+   "assertion": "open-mic-coaching-distinct",
+   "newHome": "J1.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-01",
+   "assertion": "start-press-budget",
+   "newHome": "J1.a-J1.c",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-01",
+   "assertion": "no-cloud-stt",
+   "newHome": "J1.a-J1.c",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-01",
+   "assertion": "owned-pages-closed",
+   "newHome": "J1.a-J1.c",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-02",
+   "assertion": "owner-bound",
+   "newHome": "J3.a",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-02",
+   "assertion": "focus-final",
+   "newHome": "J3.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-02",
+   "assertion": "focus-live-durable",
+   "newHome": "J3.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-02",
+   "assertion": "saved-once",
+   "newHome": "J3.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-02",
+   "assertion": "grounded-coaching",
+   "newHome": "J3.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-02",
+   "assertion": "review-reopen",
+   "newHome": "J3.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-02",
+   "assertion": "same-target-repeat",
+   "newHome": "J3.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-02",
+   "assertion": "focus-edit-cancel-save",
+   "newHome": "J3.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-02",
+   "assertion": "focus-new-set",
+   "newHome": "J3.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-02",
+   "assertion": "open-mic-isolation",
+   "newHome": "J3.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-02",
+   "assertion": "focus-back-reload",
+   "newHome": "J3.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-02",
+   "assertion": "analytics-repeat-opens-product",
+   "newHome": "J3.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-02",
+   "assertion": "rapid-repeat-gate",
+   "newHome": "J3.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-02",
+   "assertion": "rapid-repeat-release",
+   "newHome": "J3.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-02",
+   "assertion": "next-start",
+   "newHome": "J3.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-02",
+   "assertion": "next-start-release",
+   "newHome": "J3.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-02",
+   "assertion": "probe-save-isolation",
+   "newHome": "J3.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-02",
+   "assertion": "same-target-numeric",
+   "newHome": "J3.a",
+   "status": "strengthen",
+   "note": "Same fixture-reference oracle as J1.b; the snapshot gate moves out of the case preflight (G11 in design \u00a74)."
+  },
+  {
+   "case": "AHT-02",
+   "assertion": "focus-switch-isolation",
+   "newHome": "J3.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-02",
+   "assertion": "focus-presentation-contract",
+   "newHome": "J3.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-02",
+   "assertion": "focus-pace-guide",
+   "newHome": "J3.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-02",
+   "assertion": "focus-rail-before",
+   "newHome": "J3.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-02",
+   "assertion": "focus-rail-legend",
+   "newHome": "J3.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-02",
+   "assertion": "focus-pending-labelled",
+   "newHome": "J3.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-02",
+   "assertion": "focus-next-point-marked",
+   "newHome": "J3.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-02",
+   "assertion": "focus-no-red-before-stop",
+   "newHome": "J3.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-02",
+   "assertion": "focus-not-detected-explained",
+   "newHome": "J3.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-02",
+   "assertion": "focus-coverage-count",
+   "newHome": "J3.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-02",
+   "assertion": "focus-average-per-point",
+   "newHome": "J3.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-02",
+   "assertion": "focus-final-rail-colours-words",
+   "newHome": "J3.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-02",
+   "assertion": "start-press-budget",
+   "newHome": "J3.a",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-02",
+   "assertion": "no-cloud-stt",
+   "newHome": "J3.a",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-02",
+   "assertion": "owned-pages-closed",
+   "newHome": "J3.a",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-03",
+   "assertion": "owner-bound",
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-03",
+   "assertion": "focus-final",
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-03",
+   "assertion": "focus-live-durable",
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-03",
+   "assertion": "saved-once",
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-03",
+   "assertion": "grounded-coaching",
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-03",
+   "assertion": "review-reopen",
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-03",
+   "assertion": "same-target-repeat",
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": "Kept on the partial fixture: the only repeat that starts from a take with missed points, so it is the only check that missed points reset to pending."
+  },
+  {
+   "case": "AHT-03",
+   "assertion": "analytics-repeat-opens-product",
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": "Kept on the partial fixture: the only repeat that starts from a take with missed points, so it is the only check that missed points reset to pending."
+  },
+  {
+   "case": "AHT-03",
+   "assertion": "rapid-repeat-gate",
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": "Stays live on the partial fixture until reviewed proof shows J1, J3.a or a faster test fails on the same break. probe-save-isolation is the row that failed here on 14 Nov, so the copy is not shown to be redundant."
+  },
+  {
+   "case": "AHT-03",
+   "assertion": "rapid-repeat-release",
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": "Stays live on the partial fixture until reviewed proof shows J1, J3.a or a faster test fails on the same break. probe-save-isolation is the row that failed here on 14 Nov, so the copy is not shown to be redundant."
+  },
+  {
+   "case": "AHT-03",
+   "assertion": "next-start",
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": "Stays live on the partial fixture until reviewed proof shows J1, J3.a or a faster test fails on the same break. probe-save-isolation is the row that failed here on 14 Nov, so the copy is not shown to be redundant."
+  },
+  {
+   "case": "AHT-03",
+   "assertion": "next-start-release",
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": "Stays live on the partial fixture until reviewed proof shows J1, J3.a or a faster test fails on the same break. probe-save-isolation is the row that failed here on 14 Nov, so the copy is not shown to be redundant."
+  },
+  {
+   "case": "AHT-03",
+   "assertion": "probe-save-isolation",
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": "Stays live on the partial fixture until reviewed proof shows J1, J3.a or a faster test fails on the same break. probe-save-isolation is the row that failed here on 14 Nov, so the copy is not shown to be redundant."
+  },
+  {
+   "case": "AHT-03",
+   "assertion": "same-target-numeric",
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": "Stays live on the partial fixture until reviewed proof shows J1, J3.a or a faster test fails on the same break. probe-save-isolation is the row that failed here on 14 Nov, so the copy is not shown to be redundant."
+  },
+  {
+   "case": "AHT-03",
+   "assertion": "focus-back-reload",
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-03",
+   "assertion": "focus-presentation-contract",
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-03",
+   "assertion": "focus-pace-guide",
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-03",
+   "assertion": "focus-rail-before",
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-03",
+   "assertion": "focus-rail-legend",
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-03",
+   "assertion": "focus-pending-labelled",
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-03",
+   "assertion": "focus-next-point-marked",
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-03",
+   "assertion": "focus-no-red-before-stop",
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-03",
+   "assertion": "focus-not-detected-explained",
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-03",
+   "assertion": "focus-coverage-count",
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-03",
+   "assertion": "focus-average-per-point",
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-03",
+   "assertion": "focus-final-rail-colours-words",
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-03",
+   "assertion": "start-press-budget",
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-03",
+   "assertion": "no-cloud-stt",
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-03",
+   "assertion": "owned-pages-closed",
+   "newHome": "J3.b",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-04",
+   "assertion": "owner-bound",
+   "newHome": "J5.a",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-04",
+   "assertion": "cold-pending-observed",
+   "newHome": "J5.a",
+   "status": "kept",
+   "note": "Needs #1858 deployed (14 Nov FAIL: cancelled load reported as a model failure). Also the GAP-06 stimulus row (model requests > 0)."
+  },
+  {
+   "case": "AHT-04",
+   "assertion": "pending-leave-no-mic",
+   "newHome": "J5.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-04",
+   "assertion": "pending-leave-no-session",
+   "newHome": "J5.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-04",
+   "assertion": "return-no-resume",
+   "newHome": "J5.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-04",
+   "assertion": "deliberate-recovery-saved",
+   "newHome": "J5.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-04",
+   "assertion": "start-press-budget",
+   "newHome": "J5.a",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-04",
+   "assertion": "no-cloud-stt",
+   "newHome": "J5.a",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-04",
+   "assertion": "owned-pages-closed",
+   "newHome": "J5.a",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-05",
+   "assertion": "owner-bound",
+   "newHome": "J4.a",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-05",
+   "assertion": "fault-exercised",
+   "newHome": "J4.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-05",
+   "assertion": "recovery-truthful",
+   "newHome": "J4.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-05",
+   "assertion": "retry-saved-once",
+   "newHome": "J4.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-05",
+   "assertion": "review-reopen",
+   "newHome": "J4.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-05",
+   "assertion": "next-take-isolated",
+   "newHome": "J4.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-05",
+   "assertion": "completion-attempts",
+   "newHome": "J4.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-05",
+   "assertion": "start-press-budget",
+   "newHome": "J4.a",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-05",
+   "assertion": "no-cloud-stt",
+   "newHome": "J4.a",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-05",
+   "assertion": "owned-pages-closed",
+   "newHome": "J4.a",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-06",
+   "assertion": "owner-bound",
+   "newHome": "J4.b",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-06",
+   "assertion": "fault-exercised",
+   "newHome": "J4.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-06",
+   "assertion": "recovery-truthful",
+   "newHome": "J4.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-06",
+   "assertion": "retry-saved-once",
+   "newHome": "J4.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-06",
+   "assertion": "review-reopen",
+   "newHome": "J4.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-06",
+   "assertion": "next-take-isolated",
+   "newHome": "J4.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-06",
+   "assertion": "completion-attempts",
+   "newHome": "J4.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-06",
+   "assertion": "start-press-budget",
+   "newHome": "J4.b",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-06",
+   "assertion": "no-cloud-stt",
+   "newHome": "J4.b",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-06",
+   "assertion": "owned-pages-closed",
+   "newHome": "J4.b",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-07",
+   "assertion": "owner-bound",
+   "newHome": "J8.b",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-07",
+   "assertion": "fresh-acknowledgment",
+   "newHome": "J8.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-07",
+   "assertion": "feedback-stored-once",
+   "newHome": "J8.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-07",
+   "assertion": "older-take-association",
+   "newHome": "J8.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-07",
+   "assertion": "older-coaching-association",
+   "newHome": "J8.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-07",
+   "assertion": "received-feedback-proof",
+   "newHome": "J8.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-07",
+   "assertion": "feedback-failure-retry-form",
+   "newHome": "J8.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-07",
+   "assertion": "feedback-transport-form-retry",
+   "newHome": "J8.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-07",
+   "assertion": "feedback-rejection-form-retry",
+   "newHome": "J8.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-07",
+   "assertion": "feedback-response-lost-form-retry",
+   "newHome": "J8.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-07",
+   "assertion": "feedback-attempts",
+   "newHome": "J8.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-07",
+   "assertion": "feedback-readback-preflight",
+   "newHome": "J8.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-07",
+   "assertion": "start-press-budget",
+   "newHome": "J8.b",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-07",
+   "assertion": "no-cloud-stt",
+   "newHome": "J8.b",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-07",
+   "assertion": "owned-pages-closed",
+   "newHome": "J8.b",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-08",
+   "assertion": "owner-bound",
+   "newHome": "J8.a",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-08",
+   "assertion": "fresh-acknowledgment",
+   "newHome": "J8.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-08",
+   "assertion": "feedback-stored-once",
+   "newHome": "J8.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-08",
+   "assertion": "no-session-association",
+   "newHome": "J8.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-08",
+   "assertion": "no-coaching-association",
+   "newHome": "J8.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-08",
+   "assertion": "received-feedback-proof",
+   "newHome": "J8.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-08",
+   "assertion": "start-press-budget",
+   "newHome": "J8.a",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-08",
+   "assertion": "no-cloud-stt",
+   "newHome": "J8.a",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-08",
+   "assertion": "owned-pages-closed",
+   "newHome": "J8.a",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-09",
+   "assertion": "owner-bound",
+   "newHome": "J5.b",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-09",
+   "assertion": "recording-before-leave",
+   "newHome": "J5.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-09",
+   "assertion": "leave-released",
+   "newHome": "J5.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-09",
+   "assertion": "return-no-resume",
+   "newHome": "J5.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-09",
+   "assertion": "recovery-truthful",
+   "newHome": "J5.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-09",
+   "assertion": "left-take-saved-once",
+   "newHome": "J5.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-09",
+   "assertion": "next-take-isolated",
+   "newHome": "J5.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-09",
+   "assertion": "lease-fenced",
+   "newHome": "J5.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-09",
+   "assertion": "start-press-budget",
+   "newHome": "J5.b",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-09",
+   "assertion": "no-cloud-stt",
+   "newHome": "J5.b",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-09",
+   "assertion": "owned-pages-closed",
+   "newHome": "J5.b",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-09",
+   "assertion": "navigation-ready",
+   "newHome": "J5.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-10",
+   "assertion": "owner-bound",
+   "newHome": "J5.c",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-10",
+   "assertion": "recording-before-leave",
+   "newHome": "J5.c",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-10",
+   "assertion": "leave-released",
+   "newHome": "J5.c",
+   "status": "strengthen",
+   "note": "Keep the R5 observer and add the R4C-comparable observer with the same leave action, tab-close variant reported separately, as the gap ledger requires for GAP-05 (14 Nov HOLD)."
+  },
+  {
+   "case": "AHT-10",
+   "assertion": "return-no-resume",
+   "newHome": "J5.c",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-10",
+   "assertion": "recovery-truthful",
+   "newHome": "J5.c",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-10",
+   "assertion": "next-take-isolated",
+   "newHome": "J5.c",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-10",
+   "assertion": "lease-fenced",
+   "newHome": "J5.c",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-10",
+   "assertion": "start-press-budget",
+   "newHome": "J5.c",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-10",
+   "assertion": "no-cloud-stt",
+   "newHome": "J5.c",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-10",
+   "assertion": "owned-pages-closed",
+   "newHome": "J5.c",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-11",
+   "assertion": "owner-bound",
+   "newHome": "J6",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-11",
+   "assertion": "same-browser-refused",
+   "newHome": "J6",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-11",
+   "assertion": "independent-context-refused",
+   "newHome": "J6",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-11",
+   "assertion": "lease-before-model-window",
+   "newHome": "J6",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-11",
+   "assertion": "takeover-fences-old-owner",
+   "newHome": "J6",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-11",
+   "assertion": "two-takes-isolated",
+   "newHome": "J6",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-11",
+   "assertion": "start-press-budget",
+   "newHome": "J6",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-11",
+   "assertion": "no-cloud-stt",
+   "newHome": "J6",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-11",
+   "assertion": "owned-pages-closed",
+   "newHome": "J6",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-12",
+   "assertion": "owner-bound",
+   "newHome": "J7.a",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-12",
+   "assertion": "press-bound-denial",
+   "newHome": "J7.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-12",
+   "assertion": "denial-truthful-no-mic",
+   "newHome": "J7.a",
+   "status": "strengthen",
+   "note": "Must show the blocked-microphone guidance (GAP-03)."
+  },
+  {
+   "case": "AHT-12",
+   "assertion": "allowed-recovery-saved",
+   "newHome": "J7.a",
+   "status": "strengthen",
+   "note": "Permission granted after the denial within the same deny-launched browser, then Start records and saves; the fresh-browser stand-in no longer counts (14 Nov partial). Until a qualified way to grant it exists, the leg is HOLD, as the harness requires."
+  },
+  {
+   "case": "AHT-12",
+   "assertion": "review-reopen",
+   "newHome": "J7.a",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-12",
+   "assertion": "start-press-budget",
+   "newHome": "J7.a",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-12",
+   "assertion": "no-cloud-stt",
+   "newHome": "J7.a",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-12",
+   "assertion": "owned-pages-closed",
+   "newHome": "J7.a",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-13",
+   "assertion": "owner-bound",
+   "newHome": "J7.b",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-13",
+   "assertion": "download-fault-exercised",
+   "newHome": "J7.b",
+   "status": "strengthen",
+   "note": "Proof that the model request failed before any byte arrived; distinct from J7.c (GAP-06)."
+  },
+  {
+   "case": "AHT-13",
+   "assertion": "download-failure-truthful",
+   "newHome": "J7.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-13",
+   "assertion": "deliberate-recovery-saved",
+   "newHome": "J7.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-13",
+   "assertion": "review-reopen",
+   "newHome": "J7.b",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-13",
+   "assertion": "start-press-budget",
+   "newHome": "J7.b",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-13",
+   "assertion": "no-cloud-stt",
+   "newHome": "J7.b",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-13",
+   "assertion": "owned-pages-closed",
+   "newHome": "J7.b",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-14",
+   "assertion": "owner-bound",
+   "newHome": "J7.c",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-14",
+   "assertion": "download-fault-exercised",
+   "newHome": "J7.c",
+   "status": "strengthen",
+   "note": "Proof that model bytes were received before the connection dropped (byte count > 0 and < total), else the leg is HOLD, not PASS (14 Nov HOLD)."
+  },
+  {
+   "case": "AHT-14",
+   "assertion": "download-failure-truthful",
+   "newHome": "J7.c",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-14",
+   "assertion": "deliberate-recovery-saved",
+   "newHome": "J7.c",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-14",
+   "assertion": "review-reopen",
+   "newHome": "J7.c",
+   "status": "kept",
+   "note": ""
+  },
+  {
+   "case": "AHT-14",
+   "assertion": "start-press-budget",
+   "newHome": "J7.c",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-14",
+   "assertion": "no-cloud-stt",
+   "newHome": "J7.c",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-14",
+   "assertion": "owned-pages-closed",
+   "newHome": "J7.c",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-15",
+   "assertion": "owner-bound",
+   "newHome": "J1.d",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-15",
+   "assertion": "history-preserved",
+   "newHome": "J1.d",
+   "status": "moved",
+   "note": "Runs on J1's run-owned account (real history from J1.a-c), not the shared Free account that expired on 14 Nov (G4)."
+  },
+  {
+   "case": "AHT-15",
+   "assertion": "switches-mic-off",
+   "newHome": "J1.d",
+   "status": "moved",
+   "note": "Runs on J1's run-owned account (real history from J1.a-c), not the shared Free account that expired on 14 Nov (G4)."
+  },
+  {
+   "case": "AHT-15",
+   "assertion": "signed-out",
+   "newHome": "J1.d",
+   "status": "moved",
+   "note": "Runs on J1's run-owned account (real history from J1.a-c), not the shared Free account that expired on 14 Nov (G4)."
+  },
+  {
+   "case": "AHT-15",
+   "assertion": "return-owner-preserved",
+   "newHome": "J1.d",
+   "status": "moved",
+   "note": "Runs on J1's run-owned account (real history from J1.a-c), not the shared Free account that expired on 14 Nov (G4)."
+  },
+  {
+   "case": "AHT-15",
+   "assertion": "no-recording-or-session-write",
+   "newHome": "J1.d",
+   "status": "moved",
+   "note": "Runs on J1's run-owned account (real history from J1.a-c), not the shared Free account that expired on 14 Nov (G4)."
+  },
+  {
+   "case": "AHT-15",
+   "assertion": "start-press-budget",
+   "newHome": "J1.d",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-15",
+   "assertion": "no-cloud-stt",
+   "newHome": "J1.d",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-15",
+   "assertion": "owned-pages-closed",
+   "newHome": "J1.d",
+   "status": "kept",
+   "note": "Cross-cutting invariant, asserted in every leg."
+  },
+  {
+   "case": "AHT-15",
+   "assertion": "return-entry-mic-off",
+   "newHome": "J1.d",
+   "status": "moved",
+   "note": "Runs on J1's run-owned account (real history from J1.a-c), not the shared Free account that expired on 14 Nov (G4)."
+  },
+  {
+   "case": "AHT-15",
+   "assertion": "deep-link-exact-return",
+   "newHome": "J1.d",
+   "status": "moved",
+   "note": "Runs on J1's run-owned account (real history from J1.a-c), not the shared Free account that expired on 14 Nov (G4)."
+  },
+  {
+   "case": "AHT-15",
+   "assertion": "deep-link-rendered-own-detail",
+   "newHome": "J1.d",
+   "status": "moved",
+   "note": "Runs on J1's run-owned account (real history from J1.a-c), not the shared Free account that expired on 14 Nov (G4)."
+  },
+  {
+   "case": "AHT-15",
+   "assertion": "deep-link-mic-off",
+   "newHome": "J1.d",
+   "status": "moved",
+   "note": "Runs on J1's run-owned account (real history from J1.a-c), not the shared Free account that expired on 14 Nov (G4)."
+  },
+  {
+   "case": "AHT-15",
+   "assertion": "return-signed-out",
+   "newHome": "J1.d",
+   "status": "moved",
+   "note": "Runs on J1's run-owned account (real history from J1.a-c), not the shared Free account that expired on 14 Nov (G4)."
+  }
+ ],
+ "newRows": [
+  {
+   "leg": "J1.a",
+   "assertion": "trial-length-thirty-days",
+   "what": "On the deployed build, read with the account's own token, the trial started within the signup window and ends exactly 30 days later (product owner, 14 Nov). The DB test checks this only on the original trigger body.",
+   "status": "row new"
+  },
+  {
+   "leg": "J1.c",
+   "assertion": "short-stop-no-save",
+   "what": "A Stop under 5 s saves nothing: no completed sessions row, no history entry (G5).",
+   "status": "needs short-Stop fix PR"
+  },
+  {
+   "leg": "J1.d",
+   "assertion": "signout-no-unauthorized-read",
+   "what": "Around sign-out, no read succeeds without a valid session and no saved data reaches the signed-out page. A 403 denial is a correct answer, not a failure (GAP-04; first seen on the maintained account, so comparability on a fresh account is unproven).",
+   "status": "row new"
+  },
+  {
+   "leg": "J1.d",
+   "assertion": "signout-no-stale-request",
+   "what": "After sign-out completes, the page issues no further authenticated request with the old session (GAP-04). Reported separately from signout-no-unauthorized-read.",
+   "status": "row new"
+  },
+  {
+   "leg": "J1.e",
+   "assertion": "trial-expired-wall-on-open-session",
+   "what": "With the browser still signed in, a reload or navigation after the trial ends lands on the payment page (G3).",
+   "status": "needs payment-wall PR"
+  },
+  {
+   "leg": "J1.e",
+   "assertion": "trial-expired-payment-wall",
+   "what": "A fresh sign-in after expiry lands on the payment page; Practice, History, Progress, PDF export and deep links are not reachable (G3).",
+   "status": "needs payment-wall PR"
+  },
+  {
+   "leg": "J1.e",
+   "assertion": "trial-expired-server-refuses",
+   "what": "On the deployed build, direct calls with the expired account's own token (Start, save, coaching, history read) are refused. Checks the deployed bodies; the logic itself is in DB and contract tests (G1, G2).",
+   "status": "needs payment-wall PR"
+  },
+  {
+   "leg": "J1.f",
+   "assertion": "account-delete-from-wall",
+   "what": "The expired, unpaid user can still delete the account from the wall; account and saved data are gone afterwards.",
+   "status": "needs deletion flow confirmed shippable"
+  },
+  {
+   "leg": "J2",
+   "assertion": "paid-wall-before-payment",
+   "what": "A run-owned expired account sees the wall with a way to pay.",
+   "status": "needs payment-wall PR"
+  },
+  {
+   "leg": "J2",
+   "assertion": "checkout-opens-for-expired-user",
+   "what": "The wall's pay action opens hosted Checkout for the $10 monthly price, bound to this account, with no trial; not completed. The session address is never logged, traced, captured in a screenshot or kept.",
+   "status": "new"
+  },
+  {
+   "leg": "J2",
+   "assertion": "abandoned-checkout-stays-walled",
+   "what": "Returning from Checkout without paying leaves the account walled and unpaid.",
+   "status": "new"
+  },
+  {
+   "leg": "J2",
+   "assertion": "deployed-webhook-ready",
+   "what": "The deployed webhook rejects an unsigned event and is configured (existing stripe-webhook-readiness).",
+   "status": "exists"
+  },
+  {
+   "leg": "J7.d",
+   "assertion": "account-delete-during-trial",
+   "what": "An in-trial user deletes the account from the Account page; sign-in fails afterwards and run cleanup finds nothing left.",
+   "status": "needs deletion flow confirmed shippable"
+  },
+  {
+   "leg": "J8.c",
+   "assertion": "no-session-choice-with-takes",
+   "what": "With takes listed, choosing No session stores feedback with no session link.",
+   "status": "new"
+  },
+  {
+   "leg": "J9.a",
+   "assertion": "pre-upgrade-history-opens",
+   "what": "Sessions the long-lived account recorded through the product on a named earlier release, and kept, still open with their metrics and coaching after the latest release.",
+   "status": "sandbox, disabled until runnable"
+  },
+  {
+   "leg": "J9.a",
+   "assertion": "pre-upgrade-progress-opens",
+   "what": "Progress over that kept history renders the same comparisons it did before the release.",
+   "status": "sandbox, disabled until runnable"
+  },
+  {
+   "leg": "J9.a",
+   "assertion": "old-sessions-no-new-coaching",
+   "what": "Opening the kept sessions after the release sends no coaching request (budget 0): the stored coaching still reads. A request means the stored format no longer parses after the upgrade, which fails this row. Setup checks before the release that every kept session has stored coaching, and reports HOLD if one doesn't, so a session whose coaching never stored can't fail it falsely.",
+   "status": "sandbox, disabled until runnable"
+  },
+  {
+   "leg": "J9.b",
+   "assertion": "production-entitlement-after-upgrade",
+   "what": "A real paid account's entitlement and kept data after a production upgrade. Reported NOT RUN on every run until there is a safe, approved way to hold a paid account on production; a sandbox result never stands in for it.",
+   "status": "NOT RUN by design"
+  },
+  {
+   "leg": "J9.a",
+   "assertion": "entitlement-survives-upgrade",
+   "what": "The paid entitlement holds and the billing portal opens after the release. Opening the portal creates a Stripe portal session; its address works for anyone holding it, so it is never logged, traced, captured in a screenshot or kept.",
+   "status": "sandbox, disabled until runnable"
+  }
+ ],
+ "rowAcceptance": "Each new or strengthened row counts only once it is validated on its own: a negative control makes it fail on the deliberately broken behaviour, and it passes when that is restored. A schema or 204-row validator pass does not prove it."
+}
