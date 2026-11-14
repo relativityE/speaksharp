@@ -57,7 +57,8 @@ it. A confirmed retry or Discard clears the record.
   after a hard reset the owner's return re-arms Try again for the same row and another
   account's does not; the owner recorded is the take's own, never a successor's that
   starts during the stop; a failed Try again keeps the record; another account's live
-  slot is released on sign-in only when its owner's record keeps it recoverable; a superseded stop still records the row for its owner; a
+  live slot is released on sign-in together with its lock, as a reload would release it,
+  and its owner's record is written first; a superseded stop still records the row for its owner; a
   confirmed mark or Discard leaves no record and an ownerless take writes none; an
   account change retires the departing owner's re-armed slot and keeps the record;
   positive control without the verdict completes.
@@ -87,8 +88,11 @@ it. A confirmed retry or Discard clears the record.
   there; the row's obligation then stays unsettled until it is retried on the original
   device. A take with no known owner is not recorded. The record is re-armed for 24 hours
   at most, so a failure that can never succeed (the row or profile is gone, or the trial
-  has lapsed) cannot lock the owner on that browser indefinitely; after that the row's
-  obligation is left to the server. The bound is a proposal for Sam to confirm.
+  has lapsed) cannot lock the owner on that browser indefinitely. Past that bound the
+  row's admitted save obligation stays unsettled with no client path to settle it (no
+  timer or lease delete settles a save, per the #1643 journal), which blocks account
+  completion. The bound trades an indefinite lock for that; Sam to decide whether to keep
+  it, lengthen it, or keep the record without locking Start.
 
 No live database write, AHT run or probe-duration claim for AHT-03 run 43585559387 is
 made here. Fixture text is synthetic.

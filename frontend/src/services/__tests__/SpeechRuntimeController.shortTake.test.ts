@@ -398,22 +398,39 @@ describe('G5 — a take under the minimum duration is discarded by the real cont
         // Review on a95ca10: a sign-out remounts the page without a reload, so the departing owner's LIVE slot was never
         // retired and locked the next account. It is released when that owner's record keeps the row recoverable.
         it('the next account is not locked behind another owner\'s live slot, which stays recoverable for that owner', async () => {
-            priv().capturedUserId = OWNER;
+            // A take that really reached recording: its unresolved flag is what keeps Start refused.
+            Object.assign(priv(), { capturedUserId: OWNER, recordingStartedUnresolved: true });
             engine(3);
             failOnce();
             await controller.stopRecording({ belowMinimumDuration: true });
-            expect(controller.hasUnsettledDiscard()).toBe(true);
+            expect(controller.pendingResolutionKind()).toBe('discard');
+            expect(controller.isEngineSelectionLocked()).toBe(true);
 
+            // The same owner's sign-in keeps the very slot (and its warning registration).
+            const held = priv().pendingDiscardSettlement;
+            controller.rehydrateUnresolvedRecording(OWNER);
+            expect(priv().pendingDiscardSettlement).toBe(held);
+
+            // While a take is recording, nothing is released.
+            Object.assign(priv(), { state: 'RECORDING' });
             controller.rehydrateUnresolvedRecording('owner-b');
-            expect(controller.hasUnsettledDiscard()).toBe(false);
-            expect(controller.isEngineSelectionLocked()).toBe(false);
-            expect(getUnsettledDiscardRecordForUser(OWNER)?.sessionId).toBe('test-sess');
-            expect(controller.rehydrateUnresolvedRecording(OWNER)).toBe(true);
+            expect(priv().pendingDiscardSettlement).toBe(held);
+            Object.assign(priv(), { state: 'READY' });
 
-            // Without that owner's record the slot is the only way back, so it is kept.
+            // Even with no record left (storage cleared), the next account is released, as a reload would release it,
+            // and that owner's record is written again where storage allows.
             localStorage.clear();
             controller.rehydrateUnresolvedRecording('owner-b');
-            expect(controller.hasUnsettledDiscard()).toBe(true);
+            expect(controller.hasUnsettledDiscard()).toBe(false);
+            expect(controller.pendingResolutionKind(), 'no banner left behind').toBeNull();
+            expect(controller.isEngineSelectionLocked(), 'and no hidden lock either').toBe(false);
+            expect(useSessionStore.getState().pendingResolutionKind).toBeNull();
+            expect(getUnsettledDiscardRecordForUser(OWNER)?.sessionId).toBe('test-sess');
+            expect(getUnsettledDiscardRecordForUser('owner-b')).toBeNull();
+
+            controller.reset('account_switch');
+            expect(controller.rehydrateUnresolvedRecording(OWNER)).toBe(true);
+            expect(controller.pendingResolutionKind()).toBe('discard');
         });
     });
 

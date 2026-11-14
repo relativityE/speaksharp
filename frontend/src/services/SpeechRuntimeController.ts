@@ -2058,19 +2058,24 @@ export class SpeechRuntimeController {
      * another account, never over a recording, and never over a slot already held.
      */
     /**
-     * G5 (review on a95ca10) — a live unsettled-discard slot left by ANOTHER account (a sign-out remounts the page without
-     * a reload, so nothing retired it) must not lock the account now signed in. It is released only when its owner's
-     * durable record names the same row, so that owner gets Try again back on return; otherwise it is kept.
+     * G5 (review on a95ca10, 07d3af5) — a live unsettled-discard slot left by ANOTHER account (a sign-out remounts the
+     * page without a reload, so nothing retired it) must not lock the account now signed in. It is released exactly as a
+     * reload would drop it: the departing owner's record is written first (best effort), so that owner gets Try again
+     * back on return where the record holds, and the take's unresolved lock goes with the slot, so the new account is
+     * neither locked nor left without a banner. Never while a take is recording, never for the same owner, and never
+     * for an ownerless slot.
      */
     private releaseOtherOwnersDiscard(userId: string | null | undefined): void {
         const slot = this.pendingDiscardSettlement;
         if (!userId || !slot?.ownerId || slot.ownerId === userId) return;
         if (SpeechRuntimeController.RECORDING_LIFECYCLE_STATES.has(this.state)) return;
-        if (getUnsettledDiscardRecordForUser(slot.ownerId)?.sessionId !== slot.sessionId) return;
+        saveUnsettledDiscardRecord({ sessionId: slot.sessionId, userId: slot.ownerId, reason: slot.reason });
         this.pendingDiscardSettlement = null;
         if (this.rehydratedFor === slot.ownerId) this.rehydratedFor = null;
-        this.publishLockState();
-        logger.info('[controller] released another account\'s unsettled discard on sign-in; its record stays for that owner (G5)');
+        if (this.sessionId === slot.sessionId) this.sessionId = null;
+        logger.info('[controller] released another account\'s unsettled discard on sign-in; its record stays for that owner where it holds (G5)');
+        if (!this.pendingFullSaveRetry && !this.pendingAttributionRetry) this.markRecordingResolved();
+        else this.publishLockState();
     }
 
     private rehydrateUnsettledDiscard(userId: string | null | undefined): boolean {
