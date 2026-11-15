@@ -330,6 +330,17 @@ export function unprovenRestoreVerdict(next: 'stop-and-save' | 'recovery-press')
         : 'the network restoration was not proven (the page did not report itself online), so no recovery control was pressed; the journey stopped fail-closed' };
 }
 
+/**
+ * Sam, 2026-11-15 on f326a7b0: when the offline fault was applied but its failure was not proven (the failure row is not PASS), no
+ * recovery control is pressed. A take the cold press may still record is stopped and saved through Stop (`coldTakeSettledVerdict`
+ * decides FAIL for recorded-but-unsaved or unknown); otherwise HOLD, never PASS: Retry was not judged.
+ */
+export function faultUnprovenRecoveryVerdict(o: { recorded: boolean | null; savedId: string | null }): Verdict {
+    const cold = coldTakeSettledVerdict(o);
+    if (cold.status === 'FAIL') return cold;
+    return { status: 'HOLD', detail: `the download failure was not proven, so no recovery control was pressed${o.recorded ? '; the take that recorded was stopped and saved' : ''}` };
+}
+
 /** The failure row when no mid-download fault was exercised: HOLD for a proven, benign miss; FAIL when it failed closed. Never PASS. */
 export function offlineNotExercisedVerdict(outcome: Exclude<OfflineFaultOutcome, { kind: 'exercised' }>): Verdict {
     if (outcome.kind === 'fail-closed') {

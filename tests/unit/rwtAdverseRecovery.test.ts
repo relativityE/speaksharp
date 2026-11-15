@@ -9,7 +9,7 @@ import {
     AHT12_CATALOG_CASE_OPEN, AHT12_STAND_IN_LABEL,
     RECOVERY_CONTROLS, type OfflineFaultIo, type OfflineFaultOutcome, type RecoveryAttempt, type ReopenObservation, attemptPhase,
     coldTakeSettledVerdict, isRecoveryControl, midDownloadFailureVerdict, modelBytesSeen, offlineInjectionGate, offlineNotExercisedVerdict,
-    runOfflineFault, SETUP_RUNTIME_STATE, downloadingNow, unprovenRestoreVerdict,
+    runOfflineFault, SETUP_RUNTIME_STATE, downloadingNow, unprovenRestoreVerdict, faultUnprovenRecoveryVerdict,
     recoverySavedVerdict, retrySetupOutcome, reviewReopenVerdict, savedTranscriptDigest,
 } from '../live/helpers/rwtAdverseRecovery';
 import { mapToRuntimeState } from '../../frontend/src/lib/forensicAnchors';
@@ -588,6 +588,27 @@ describe('AHT-14 callers: nothing that can write a take runs without the page pr
     });
 });
 
+describe('AHT-14: no Retry without a proven fault (Sam on f326a7b0)', () => {
+    it('verdict: HOLD when nothing recorded or the take was saved; FAIL when a recorded take is unsaved or the attempt unknown', () => {
+        expect(faultUnprovenRecoveryVerdict({ recorded: false, savedId: null })).toEqual({ status: 'HOLD', detail: 'the download failure was not proven, so no recovery control was pressed' });
+        expect(faultUnprovenRecoveryVerdict({ recorded: true, savedId: 's1' }).status).toBe('HOLD');
+        expect(faultUnprovenRecoveryVerdict({ recorded: true, savedId: null }).status).toBe('FAIL');
+        expect(faultUnprovenRecoveryVerdict({ recorded: null, savedId: null }).status).toBe('FAIL');
+    });
+    it('regression: an unproven failure row returns before saveRecoveredTake (no Retry press); only Stop through settleColdTake', () => {
+        const src = aj();
+        const online = src.indexOf("unprovenRestoreVerdict('recovery-press')");
+        const guard = src.indexOf("if (variant === 'offline-mid-download' && failure.status !== 'PASS') {", online);
+        const settle = src.indexOf('await settleColdTake(page, `adverse-${variant}-cold`, takes, pressIndex);', guard);
+        const verdict = src.indexOf('faultUnprovenRecoveryVerdict(cold)', settle);
+        const ret = src.indexOf('return;', verdict);
+        const press = src.indexOf('const recovered = await saveRecoveredTake(page, variant, failure.status', ret);
+        for (const [a, b] of [[online, guard], [guard, settle], [settle, verdict], [verdict, ret], [ret, press]]) { expect(a).toBeGreaterThan(-1); expect(b).toBeGreaterThan(a); }
+        const branch = src.slice(guard, ret);
+        expect(branch).not.toMatch(/mic-retry|saveRecoveredTake|pressRecovery/);
+    });
+});
+
 describe('AHT-14 — the cold take is judged from the attempt, never "nothing to recover" when it recorded', () => {
     it('recorded and saved: HOLD (Retry not judged); recorded but unsaved: FAIL; unknown: FAIL; no recording: HOLD', () => {
         expect(coldTakeSettledVerdict({ recorded: true, savedId: 's1' }).status).toBe('HOLD');
@@ -599,7 +620,7 @@ describe('AHT-14 — the cold take is judged from the attempt, never "nothing to
     });
     it('the journey: log index read before the press; the controller decides; the cold take reads the attempt, not the current state', () => {
         const src = aj();
-        const index = src.indexOf('const pressIndex = (await page.evaluate(readRuntimeStateLog)');
+        const index = src.indexOf('pressIndex = (await page.evaluate(readRuntimeStateLog)');
         const press = src.indexOf("await page.getByTestId('mic-download').click();", index);
         const gate = src.indexOf('atOffline = await waitForTransfer(page, () => transfer.snapshot());', press);
         const run = src.indexOf('const offlineOutcome = await runOfflineFault({', gate);

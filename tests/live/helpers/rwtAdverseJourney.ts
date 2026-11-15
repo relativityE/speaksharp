@@ -32,7 +32,7 @@ import type { SessionRowFacts } from './rwtSaveRetry';
 import {
     AHT12_CATALOG_CASE_OPEN, AHT12_STAND_IN_LABEL, type ModelBytesRead, type RecoveryAttempt, type RecoveryControl, type ReopenObservation, RECOVERY_CONTROLS, isRecoveryControl,
     type AttemptPhase, type TransferSnapshot, attemptPhase, coldTakeSettledVerdict, downloadingNow, midDownloadFailureVerdict, offlineInjectionGate,
-    offlineNotExercisedVerdict, runOfflineFault, unprovenRestoreVerdict,
+    faultUnprovenRecoveryVerdict, offlineNotExercisedVerdict, runOfflineFault, unprovenRestoreVerdict,
     recoverySavedVerdict, retrySetupOutcome, reviewReopenVerdict, savedTranscriptDigest,
 } from './rwtAdverseRecovery';
 
@@ -321,10 +321,10 @@ async function reopenRow(receipt: RwtReceipt, page: Page, recovered: { savedId: 
  *   the harness's same-context Allow → Start route, which this two-browser design does not take (a `=deny` browser never
  *   grants; see the mic-denied branch).
  *  AHT-13 download fails — exactly 3:
- *   1. `mic-download` with the model route aborted (rwtAdverseJourney.ts:484);
+ *   1. `mic-download` with the model route aborted (rwtAdverseJourney.ts:486);
  *   2. `mic-retry` once the cause is removed (rwtAdverseJourney.ts:199);
  *   3. `mic-start` only after Retry's setup published `ready` (rwtAdverseJourney.ts:205).
- *  AHT-14 offline mid-download — exactly 3: `mic-download` (rwtAdverseJourney.ts:498), then the same `mic-retry` and
+ *  AHT-14 offline mid-download — exactly 3: `mic-download` (rwtAdverseJourney.ts:500), then the same `mic-retry` and
  *   `mic-start` as AHT-13 (rwtAdverseJourney.ts:199, :205).
  */
 const AHT12_START_PRESS_BUDGET: StartPressBudget = { total: 2, perControl: { 'mic-download': 2, 'mic-start': 2 } };
@@ -474,6 +474,8 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
             let modelResponsesBeforeOffline: number | null = null;
             // AHT-14 only: this attempt's network transfer at the gate (bodies in flight).
             let transferAtGate: TransferSnapshot | null = null;
+            // AHT-14 only: the runtime-state log index read at the cold press (every phase of this attempt is read from it).
+            let pressIndex = 0;
             if (variant === 'download-fails') {
                 // Codex P1 r on f527a033: the phase opens BEFORE the fault is injected, so a failure the injection causes is
                 // always captured inside it (events are judged by their own capture time).
@@ -492,7 +494,7 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
                 context.on('response', (r) => transfer.onResponse(r.request()));
                 context.on('requestfinished', (r) => transfer.onFinished(r));
                 context.on('requestfailed', (r) => transfer.onFailed(r));
-                const pressIndex = (await page.evaluate(readRuntimeStateLog).catch(() => ({ token: null, states: [] as string[] }))).states.length;
+                pressIndex = (await page.evaluate(readRuntimeStateLog).catch(() => ({ token: null, states: [] as string[] }))).states.length;
                 fault.startAttempt();
                 transfer.startAttempt();
                 await page.getByTestId('mic-download').click();
@@ -572,6 +574,16 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
             if (variant === 'offline-mid-download' && (await page.evaluate(() => navigator.onLine).catch(() => null)) !== true) {
                 const stopped = unprovenRestoreVerdict('recovery-press');
                 receipt.row('Retry downloads the model and a take saves', stopped.status, stopped.detail, { restoredOnline: false });
+                await reopenRow(receipt, page, { savedId: null, savedDigest: null });
+                return;
+            }
+            // Sam, 2026-11-15 on f326a7b0: AHT-14 presses Retry ONLY after the fault is proven (the failure row PASSed). Otherwise no
+            // recovery control is pressed; a take the cold press may still record is stopped and saved through Stop, or FAILs.
+            if (variant === 'offline-mid-download' && failure.status !== 'PASS') {
+                const cold = await settleColdTake(page, `adverse-${variant}-cold`, takes, pressIndex);
+                const unproven = faultUnprovenRecoveryVerdict(cold);
+                receipt.row('Retry downloads the model and a take saves', unproven.status, unproven.detail,
+                    { faultProven: false, coldTakeRecorded: cold.recorded, coldTakeSaved: cold.savedId !== null, mode: await sttMode(page) });
                 await reopenRow(receipt, page, { savedId: null, savedDigest: null });
                 return;
             }
