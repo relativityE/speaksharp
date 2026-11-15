@@ -7,7 +7,8 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
     AHT12_CATALOG_CASE_OPEN, AHT12_STAND_IN_LABEL,
-    RECOVERY_CONTROLS, type RecoveryAttempt, type ReopenObservation, isRecoveryControl, midDownloadFailureVerdict, modelBytesSeen,
+    RECOVERY_CONTROLS, type RecoveryAttempt, type ReopenObservation, coldTakeSettledVerdict, isRecoveryControl, midDownloadFailureVerdict,
+    modelBytesSeen, offlineFaultLanded, offlineInjectionGate, offlineNotExercisedVerdict,
     recoverySavedVerdict, retrySetupOutcome, reviewReopenVerdict, savedTranscriptDigest,
 } from '../live/helpers/rwtAdverseRecovery';
 import type { SessionRowFacts } from '../live/helpers/rwtSaveRetry';
@@ -288,6 +289,83 @@ describe('AHT-14 — offline only after model bytes were received, mid-transfer'
         const wait = src.slice(src.indexOf('async function waitForModelBytes('), src.indexOf('\n}\n', src.indexOf('async function waitForModelBytes(')));
         expect(wait).toContain('[data-testid="mic-progress"]');
         expect(wait).toContain('polling: 50');
+    });
+});
+
+describe('AHT-14 — the fault goes in only during a confirmed download; a missed or refused fault strands nothing (Sam, 2026-11-15)', () => {
+    // rc-gates run 43740031821: the read settled on `ready` (the model status of RECORDING too), the journey went offline anyway,
+    // the cold press was already recording, its take could not be written, and the run-owned account kept an unsettled save.
+    const mid = { pct: 40, status: 'loading', runtimeState: 'DOWNLOADING' };
+    it('injects only when the runtime is exactly DOWNLOADING and bytes were received mid-transfer', () => {
+        expect(offlineInjectionGate(mid)).toEqual({ inject: true });
+    });
+    it('the run 43740031821 shape is refused: model status `ready` while the runtime is RECORDING', () => {
+        const g = offlineInjectionGate({ pct: null, status: 'ready', runtimeState: 'RECORDING' });
+        expect(g).toEqual({ inject: false, reason: expect.stringMatching(/runtime state was RECORDING, not DOWNLOADING/) });
+    });
+    it.each([
+        ['DOWNLOAD_COMPLETE', 'loading', 99], ['ENGINE_INITIALIZING', 'loading', 50], ['READY', 'ready', null],
+        ['INIT_FAILED', 'init-failed', 40], ['FAILED', 'error', 40], ['DOWNLOAD_REQUIRED', 'download-required', null],
+    ])('refuses runtime %s even with a loading status or a mid percent', (runtimeState, status, pct) => {
+        expect(offlineInjectionGate({ pct, status, runtimeState }).inject).toBe(false);
+    });
+    it('refuses DOWNLOADING without received bytes (0 %, 100 %, unreadable), an unreadable runtime, and no read', () => {
+        for (const pct of [0, 100, null]) expect(offlineInjectionGate({ ...mid, pct }).inject).toBe(false);
+        expect(offlineInjectionGate({ pct: 40, status: 'loading' }).inject).toBe(false); // no runtime read: never assumed
+        expect(offlineInjectionGate({ ...mid, runtimeState: null }).inject).toBe(false);
+        expect(offlineInjectionGate(null)).toEqual({ inject: false, reason: 'the page state was unreadable' });
+    });
+    it('the fault landed only if, right after going offline, the runtime is still DOWNLOADING or its setup already failed', () => {
+        for (const s of ['DOWNLOADING', 'INIT_FAILED', 'FAILED']) expect(offlineFaultLanded(s)).toBe(true);
+        for (const s of ['DOWNLOAD_COMPLETE', 'ENGINE_INITIALIZING', 'READY', 'RECORDING', 'IDLE', '']) expect(offlineFaultLanded(s)).toBe(false);
+        expect(offlineFaultLanded(null)).toBe(false);
+    });
+    it('no exercised fault is HOLD, never PASS', () => {
+        expect(offlineNotExercisedVerdict('x')).toEqual({ status: 'HOLD', detail: expect.stringMatching(/not kept offline mid-download \(x\)/) });
+    });
+    it('the cold take: recorded and saved is HOLD (Retry not judged); recorded but unsaved is FAIL; not recorded is HOLD', () => {
+        expect(coldTakeSettledVerdict({ recorded: true, savedId: 's1' }).status).toBe('HOLD');
+        expect(coldTakeSettledVerdict({ recorded: true, savedId: null })).toEqual({ status: 'FAIL', detail: expect.stringMatching(/save may be unsettled/) });
+        expect(coldTakeSettledVerdict({ recorded: false, savedId: null }).status).toBe('HOLD');
+    });
+    it('the journey: gate before arming; landing read right after offline; a miss restores the network before anything else', () => {
+        const src = aj();
+        const read = src.indexOf('atOffline = await waitForModelBytes(page);', src.indexOf('let modelResponses = 0;'));
+        const gate = src.indexOf('const gate = offlineInjectionGate(atOffline);', read);
+        const refused = src.indexOf('if (!gate.inject) {', gate);
+        const arm = src.indexOf('fault.armFault();', gate);
+        const offline = src.indexOf('injected = await context.setOffline(true)', arm);
+        const landing = src.indexOf('afterOffline = await readModelBytes(page);', offline);
+        const miss = src.indexOf("if (!injected || !offlineFaultLanded(afterOffline?.runtimeState ?? null)) {", landing);
+        const restore = src.indexOf('await context.setOffline(false);', miss);
+        const disarm = src.indexOf('fault.disarm();', restore);
+        for (const [a, b] of [[read, gate], [gate, refused], [refused, arm], [arm, offline], [offline, landing], [landing, miss], [miss, restore], [restore, disarm]]) {
+            expect(a).toBeGreaterThan(-1);
+            expect(b).toBeGreaterThan(a);
+        }
+        // Nothing is awaited between the landing read and the restore: the decision is synchronous.
+        expect(src.slice(landing, restore).match(/await /g)).toHaveLength(1);
+    });
+    it('no exercised fault: no failure wait, no Retry press; the cold take is settled through Stop and the journey returns', () => {
+        const src = aj();
+        const branch = src.slice(src.indexOf('if (notExercised !== null) {'), src.indexOf('await failedState(page, 300_000);'));
+        expect(branch).toContain('offlineNotExercisedVerdict(notExercised)');
+        expect(branch).toContain('await settleColdTake(page,');
+        expect(branch).toContain('coldTakeSettledVerdict(cold)');
+        expect(branch).toContain('return;');
+        expect(branch).not.toContain('mic-retry');
+        expect(branch).not.toContain('saveRecoveredTake');
+        const settle = src.slice(src.indexOf('async function settleColdTake('), src.indexOf('\n}\n', src.indexOf('async function settleColdTake(')));
+        expect(settle).toContain('stopBenchmarkRecording(page, label, 180_000)');
+        expect(settle).toContain("toHaveAttribute('data-session-persisted', 'true'");
+        expect(settle).not.toMatch(/getByTestId\('mic-(start|download|retry)'\)/); // no Start press
+    });
+    it('the bytes wait reads the exact runtime state and settles once the runtime has left the download', () => {
+        const src = aj();
+        const wait = src.slice(src.indexOf('async function waitForModelBytes('), src.indexOf('\n}\n', src.indexOf('async function waitForModelBytes(')));
+        expect(wait).toContain("getAttribute('data-runtime-state')");
+        expect(wait).toContain("runtimeState === 'DOWNLOADING' && status === 'loading'");
+        for (const s of ['DOWNLOAD_COMPLETE', 'ENGINE_INITIALIZING', 'READY', 'RECORDING']) expect(wait).toContain(`'${s}'`);
     });
 });
 

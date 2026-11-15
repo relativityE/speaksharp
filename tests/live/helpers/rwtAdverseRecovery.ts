@@ -135,9 +135,62 @@ export function reviewReopenVerdict(o: ReopenObservation & { savedId: string | n
  * the model worker; the store keeps it as a percent), so a rendered 1–99 % while `loading` is bytes seen, mid-transfer — and it
  * is read in the page, whether or not the worker's fetches reach Playwright's network events. 100 % is a finished transfer.
  */
-export type ModelBytesRead = { pct: number | null; status: string | null };
+export type ModelBytesRead = { pct: number | null; status: string | null; runtimeState?: string | null };
 export function modelBytesSeen(read: ModelBytesRead | null): boolean {
     return read !== null && read.status === 'loading' && typeof read.pct === 'number' && read.pct >= 1 && read.pct < 100;
+}
+
+/**
+ * AHT-14 injection gate (Sam, 2026-11-15, after rc-gates run 43740031821). The browser goes offline ONLY while the product's own
+ * state machine (`data-runtime-state`, the exact TranscriptionService state) is DOWNLOADING and the page shows received bytes
+ * mid-transfer. The model status alone cannot say that: TranscriptionService publishes `ready` for READY and for RECORDING, and
+ * `loading` for DOWNLOAD_COMPLETE and ENGINE_INITIALIZING too. In that run the journey went offline after its read had settled,
+ * the cold `Download & start recording` press was already recording, the take's session could not be written, and the account
+ * kept an admitted save that no timer, lease release or cleanup may settle (#1643), so the run-owned account could not be deleted.
+ * Anything but a proven mid-transfer download is no injection: the fault is never put on a page that may be recording.
+ */
+export const DOWNLOAD_RUNTIME_STATE = 'DOWNLOADING';
+export type OfflineInjectionGate = { inject: true } | { inject: false; reason: string };
+export function offlineInjectionGate(read: ModelBytesRead | null): OfflineInjectionGate {
+    if (read === null) return { inject: false, reason: 'the page state was unreadable' };
+    if (read.runtimeState !== DOWNLOAD_RUNTIME_STATE) {
+        return { inject: false, reason: `the runtime state was ${read.runtimeState ?? 'unreadable'}, not ${DOWNLOAD_RUNTIME_STATE}` };
+    }
+    if (!modelBytesSeen(read)) return { inject: false, reason: 'no model bytes were seen mid-transfer' };
+    return { inject: true };
+}
+
+/**
+ * Read once, right after `setOffline(true)` resolved: the fault landed during the download only if the runtime is still
+ * DOWNLOADING, or its setup has already failed (INIT_FAILED / FAILED). Any other state (DOWNLOAD_COMPLETE, ENGINE_INITIALIZING,
+ * READY, RECORDING, unreadable) means the transfer may have finished before the fault applied, so the journey restores the
+ * network at once, before the recording a cold press starts can try to write its take. A FAILED read here cannot be a recording's
+ * save failure: that needs DOWNLOADING → … → RECORDING → FAILED between two reads, and the gate saw DOWNLOADING just before.
+ */
+export const OFFLINE_FAULT_LANDED_STATES = ['DOWNLOADING', 'INIT_FAILED', 'FAILED'] as const;
+export function offlineFaultLanded(runtimeState: string | null): boolean {
+    return runtimeState !== null && (OFFLINE_FAULT_LANDED_STATES as readonly string[]).includes(runtimeState);
+}
+
+/** The failure row when no mid-download fault was exercised (the gate refused, or the fault missed the download): never PASS. */
+export function offlineNotExercisedVerdict(reason: string): Verdict {
+    return { status: 'HOLD', detail: `the browser was not kept offline mid-download (${reason}), so no download failure was exercised` };
+}
+
+/**
+ * The recovery row when no fault was exercised. The cold press goes on to download and record ONLINE; the journey stops that take
+ * through the product's own Stop and waits for its save, so the account never keeps a recorded take with no saved row. Retry is
+ * not judged (there was nothing to retry): HOLD at best. A take that recorded but whose save was not confirmed is FAIL, because
+ * the account may then hold an unsettled save; the cleanup row reports whether deletion settled.
+ */
+export function coldTakeSettledVerdict(o: { recorded: boolean; savedId: string | null }): Verdict {
+    if (o.recorded && o.savedId === null) {
+        return { status: 'FAIL', detail: 'no fault was exercised; the cold take recorded online but its save was not confirmed, so a save may be unsettled' };
+    }
+    if (o.recorded) {
+        return { status: 'HOLD', detail: 'no fault was exercised, so Retry was not judged; the cold take that recorded online was stopped and saved' };
+    }
+    return { status: 'HOLD', detail: 'no fault was exercised and the cold press did not record, so there was nothing to recover' };
 }
 
 /**
