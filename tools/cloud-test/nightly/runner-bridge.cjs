@@ -21,7 +21,7 @@
 const fs = require('node:fs');
 const { CLEANUP, RunRefused, openSharedRunBudget, planRunBudget, writeSharedPlan } = require('./run-budget.cjs');
 const { CleanupUndefined, cleanupReserve } = require('./cleanup-plan.cjs');
-const { beginRun, writeCleanupEvidence } = require('./cleanup-evidence.cjs');
+const { beginRun, unprovenCleanup, writeCleanupEvidence } = require('./cleanup-evidence.cjs');
 const { legsForCase, splitCaseResult } = require('./case-results.cjs');
 const { VerdictLedger, legVerdict, runVerdict } = require('./leg-verdicts.cjs');
 const { legById } = require('./journey-plan.cjs');
@@ -31,16 +31,31 @@ function casesForLegs(legs) {
     return [...new Set(legs.map((l) => legById(l).caseId).filter(Boolean))];
 }
 
-/** Combines the cleanup a journey's cases reported: any case with no verification leaves the journey unverified. */
+const VERIFICATION_SHAPE = (v) => v === undefined || (!!v && typeof v === 'object'
+    && (v.kind === 'nothing-created' || (v.kind === 'zero-residue' && Array.isArray(v.queries))));
+/**
+ * Combines the cleanup a journey's cases reported. Each case's proof is first checked against that case's OWN steps,
+ * leftovers and created resources (Codex P2 on 2ba59540): a zero-residue query from one case must not stand in for
+ * another case's missing or empty check. Every case's reasons are kept (`unproven`), so the journey stays incomplete.
+ * Any case with no verification also leaves the combined journey unverified.
+ */
 function combineCleanup(parts) {
     const steps = parts.flatMap((p) => p.steps ?? []);
     const left = parts.flatMap((p) => p.left ?? []);
-    if (parts.length === 0 || parts.some((p) => p.verification === undefined))
-        return { steps, left };
-    if (parts.every((p) => p.verification?.kind === 'nothing-created'))
-        return { steps, left, verification: { kind: 'nothing-created' } };
-    const queries = parts.flatMap((p) => (p.verification?.kind === 'zero-residue' ? p.verification.queries : []));
-    return { steps, left, verification: { kind: 'zero-residue', queries } };
+    const unproven = parts.flatMap((p, i) => {
+        const who = p.caseId ?? `case ${i + 1}`;
+        if (!VERIFICATION_SHAPE(p.verification))
+            return [`${who}: its residue verification is malformed`];
+        return unprovenCleanup({ reserveExhausted: false, steps: p.steps ?? [], left: p.left ?? [], created: p.created ?? [], verification: p.verification })
+            .map((r) => `${who}: ${r}`);
+    });
+    const withUnproven = (o) => (unproven.length > 0 ? { ...o, unproven } : o);
+    if (parts.length === 0 || parts.some((p) => p.verification === undefined || !VERIFICATION_SHAPE(p.verification)))
+        return withUnproven({ steps, left });
+    if (parts.every((p) => p.verification.kind === 'nothing-created'))
+        return withUnproven({ steps, left, verification: { kind: 'nothing-created' } });
+    const queries = parts.flatMap((p) => (p.verification.kind === 'zero-residue' ? p.verification.queries : []));
+    return withUnproven({ steps, left, verification: { kind: 'zero-residue', queries } });
 }
 
 /**
@@ -94,6 +109,7 @@ function nightlyAdapter(io, opts) {
                 if (!legs.includes(leg))
                     throw new Error(`nightly: ${c.id} cannot send for ${leg}`);
             };
+            const createdHere = [];
             const nightly = Object.freeze({
                 legs: [...legs],
                 send: async (leg, kind, action) => { own(leg); return budget.send(leg, kind, action); },
@@ -103,7 +119,9 @@ function nightlyAdapter(io, opts) {
                 created: (leg, resource) => {
                     own(leg);
                     const journey = legById(leg).journey;
-                    createdByJourney.set(journey, [...(createdByJourney.get(journey) ?? []), { kind: resource?.kind, ref: resource?.ref }]);
+                    const r = { kind: resource?.kind, ref: resource?.ref };
+                    createdHere.push(r);
+                    createdByJourney.set(journey, [...(createdByJourney.get(journey) ?? []), r]);
                 },
             });
             let ran;
@@ -125,7 +143,7 @@ function nightlyAdapter(io, opts) {
             finally {
                 // Each journey's cleanup is accounted from what the case reported; a case that threw reported nothing.
                 const journey = legById(legs[0]).journey;
-                const part = ran?.nightlyCleanup ?? { steps: [], left: [] };
+                const part = { ...(ran?.nightlyCleanup ?? { steps: [], left: [] }), caseId: c.id, created: [...createdHere] };
                 cleanupParts.set(journey, [...(cleanupParts.get(journey) ?? []), part]);
             }
             let split = null;

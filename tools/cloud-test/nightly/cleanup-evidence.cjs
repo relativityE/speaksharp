@@ -193,6 +193,8 @@ function writeCleanupEvidence(dir, runId, journeys, { cleanupExhausted, runFault
             throw new Error(`${j.journey}: a cleanup step is malformed`);
         if (!j.left.every(res))
             throw new Error(`${j.journey}: a resource left behind is malformed`);
+        if (j.unproven !== undefined && (!Array.isArray(j.unproven) || !j.unproven.every((r) => typeof r === 'string' && r.length > 0)))
+            throw new Error(`${j.journey}: unproven reasons are malformed`);
         if (j.created !== undefined && (!Array.isArray(j.created) || !j.created.every(res)))
             throw new Error(`${j.journey}: a created resource is malformed`);
         const v = j.verification;
@@ -205,7 +207,7 @@ function writeCleanupEvidence(dir, runId, journeys, { cleanupExhausted, runFault
     if (JSON.stringify(named) !== JSON.stringify(started.journeys))
         throw new Error(`cleanup evidence names ${named.join(', ') || 'no journey'}, but the run started with ${(started.journeys ?? []).join(', ') || 'none'}`);
     const checked = journeys.map((j) => ({ ...j, reserveExhausted: j.reserveExhausted || cleanupExhausted(j.journey) !== false }));
-    const reasons = Object.fromEntries(checked.map((j) => [j.journey, [...runFaults, ...unprovenCleanup(j)]]).filter(([, r]) => r.length > 0));
+    const reasons = Object.fromEntries(checked.map((j) => [j.journey, [...runFaults, ...(j.unproven ?? []), ...unprovenCleanup(j)]]).filter(([, r]) => r.length > 0));
     const incomplete = checked.filter((j) => reasons[j.journey]);
     const doc = {
         runId, writtenAt: at, cleanup: incomplete.length > 0 ? 'incomplete' : 'complete',

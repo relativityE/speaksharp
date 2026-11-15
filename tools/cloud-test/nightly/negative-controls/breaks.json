@@ -1427,14 +1427,6 @@
       "test": "tests/runner-bridge.test.cjs"
     },
     {
-      "id": "P10-bridge-unverified-journey-assumed",
-      "guards": "a journey no case accounted for is written unverified, never complete",
-      "file": "runner-bridge.cjs",
-      "find": "    if (parts.length === 0 || parts.some((p) => p.verification === undefined))\n",
-      "replace": "    if (parts.length === 0)\n",
-      "test": "tests/runner-bridge.test.cjs"
-    },
-    {
       "id": "P10-bridge-no-evidence",
       "guards": "the run's cleanup evidence is written on save",
       "file": "runner-bridge.cjs",
@@ -1446,8 +1438,8 @@
       "id": "P10-evidence-run-fault-ignored",
       "guards": "a run fault marks every journey incomplete",
       "file": "cleanup-evidence.cjs",
-      "find": "[j.journey, [...runFaults, ...unprovenCleanup(j)]]",
-      "replace": "[j.journey, [...unprovenCleanup(j)]]",
+      "find": "[j.journey, [...runFaults, ...(j.unproven ?? []), ...unprovenCleanup(j)]]",
+      "replace": "[j.journey, [...(j.unproven ?? []), ...unprovenCleanup(j)]]",
       "test": "tests/runner-bridge.test.cjs"
     },
     {
@@ -1476,10 +1468,10 @@
     },
     {
       "id": "P10-bridge-created-not-recorded",
-      "guards": "the runner's creation record, not the teardown report, is written to the evidence",
+      "guards": "the runner records what it created (per case and per journey), so an omitted resource cannot look clean",
       "file": "runner-bridge.cjs",
-      "find": "                created: createdByJourney.get(journey) ?? [],\n",
-      "replace": "",
+      "find": "                    createdHere.push(r);\n                    createdByJourney.set(journey, [...(createdByJourney.get(journey) ?? []), r]);\n",
+      "replace": "                    void journey;\n",
       "test": "tests/runner-bridge.test.cjs"
     },
     {
@@ -1520,6 +1512,22 @@
       "file": "runner-bridge.cjs",
       "find": "        if (!completed) {\n",
       "replace": "        if (false) {\n",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-bridge-cases-merged",
+      "guards": "each case's cleanup proof is validated on its own before combining (Codex P2 2ba59540)",
+      "file": "runner-bridge.cjs",
+      "find": "    const withUnproven = (o) => (unproven.length > 0 ? { ...o, unproven } : o);\n",
+      "replace": "    const withUnproven = (o) => o;\n",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-evidence-unproven-ignored",
+      "guards": "a case's unproven cleanup keeps its journey incomplete",
+      "file": "cleanup-evidence.cjs",
+      "find": "[j.journey, [...runFaults, ...(j.unproven ?? []), ...unprovenCleanup(j)]]",
+      "replace": "[j.journey, [...runFaults, ...unprovenCleanup(j)]]",
       "test": "tests/runner-bridge.test.cjs"
     }
   ]

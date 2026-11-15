@@ -86,7 +86,8 @@ function fakeIo(scenario, wire) {
                     steps: scenario.omitSteps ? [] : [{ kind: 'account', ref: `acct-unit-${c.id}`, action: 'delete', outcome: del.sent ? 'done' : 'not attempted' }],
                     left: scenario.leftFor?.[c.id] ?? (j6 ? scenario.left : undefined) ?? [],
                     ...(scenario.claimNothingCreated ? { verification: { kind: 'nothing-created' } }
-                        : query.sent ? { verification: { kind: 'zero-residue', queries: [{ kind: 'account', scope: `unit-run:${c.id}`, count: query.value }] } } : {}),
+                        : scenario.emptyQueriesFor === c.id ? { verification: { kind: 'zero-residue', queries: [] } }
+                            : query.sent ? { verification: { kind: 'zero-residue', queries: [{ kind: 'account', scope: `unit-run:${c.id}`, count: query.value }] } } : {}),
                 },
             };
         },
@@ -211,6 +212,14 @@ describe('nightly runner bridge: one journey (J6) through the real harness runne
         const later = await nightlyRun(d, 'r1', { legs: ['J4.a', 'J4.b'], leftFor: { 'AHT-06': [{ kind: 'account', ref: 'acct-unit-AHT-06' }] } });
         assert.equal(later.outcome.cleanup.result, 'incomplete', 'the second case\'s leftover is in the journey\'s evidence');
         assert.deepEqual(later.outcome.cleanup.incompleteJourneys, ['J4']);
+        assert.equal((await nightlyRun(d, 'r2', { legs: ['J4.a', 'J4.b'] })).outcome.admitted, false);
+    });
+    // Codex P2 on 2ba59540: one case's residue query must not stand in for another case's missing proof.
+    it('validates each case\'s cleanup proof on its own: J4 with an empty check in its second case stays incomplete', async () => {
+        const d = dirs();
+        const run = await nightlyRun(d, 'r1', { legs: ['J4.a', 'J4.b'], emptyQueriesFor: 'AHT-06' });
+        assert.equal(run.outcome.cleanup.result, 'incomplete');
+        assert.ok(run.outcome.cleanup.reasons.J4.some((r) => r.startsWith('AHT-06:') && r.includes('ran no query')), JSON.stringify(run.outcome.cleanup.reasons));
         assert.equal((await nightlyRun(d, 'r2', { legs: ['J4.a', 'J4.b'] })).outcome.admitted, false);
     });
     // Codex P2 on a09d4da8: a PASS the harness rejected afterwards must not stand in the nightly summary.
