@@ -314,24 +314,31 @@ class RunBudget {
         if (!this.#plan.legs[legId])
             return Object.freeze({ allocated: false, reason: this.#plan.notAllocated[legId] ?? 'not planned', overrun: Object.freeze([]), hold: null });
         return this.#read((s) => {
-            const refused = s.refused.get(legId) ?? {};
-            const overrun = Object.keys(refused).filter((k) => refused[k] > 0);
-            const hold = s.torn > 0 ? `${s.torn} write(s) to the run budget journal were cut short` : null;
+            const { overrun, hold } = this.#facts(legId, s);
             return Object.freeze({ allocated: true, reason: 'allocated before the run', overrun: Object.freeze(overrun), hold });
         }, (e) => Object.freeze({ allocated: true, reason: 'allocated before the run', overrun: Object.freeze([]), hold: `the run budget could not be read: ${e.message}` }));
     }
+    /** A leg's overrun kinds and hold reason, from ONE journal snapshot `s`. */
+    #facts(legId, s) {
+        const refused = s.refused.get(legId) ?? {};
+        return {
+            overrun: Object.keys(refused).filter((k) => refused[k] > 0),
+            hold: s.torn > 0 ? `${s.torn} write(s) to the run budget journal were cut short` : null,
+        };
+    }
     /**
      * The leg's budget row: FAIL when it asked for more than its allocation of any kind, cleanup included; HOLD when the
-     * journal can't be read or a write to it was cut short; NOT RUN when it had no allocation.
+     * journal can't be read or a write to it was cut short; NOT RUN when it had no allocation. The outcome, hold reason
+     * and counters all come from one locked snapshot, so a row can never pair a PASS with an overrun or torn write
+     * another worker recorded between two reads (Codex P2 on 8f34e619).
      */
     legBudgetRow(legId) {
-        const b = this.legBudget(legId);
-        if (!b.allocated)
-            return { outcome: 'NOT RUN', reason: b.reason };
-        if (b.overrun.length === 0 && b.hold && b.hold.startsWith('the run budget could not be read'))
-            return { outcome: 'HOLD', reason: b.hold };
+        legById(legId);
+        if (!this.#plan.legs[legId])
+            return { outcome: 'NOT RUN', reason: this.#plan.notAllocated[legId] ?? 'not planned' };
         return this.#read((s) => {
             const j = legById(legId).journey;
+            const b = this.#facts(legId, s);
             return {
                 outcome: b.overrun.length > 0 ? 'FAIL' : b.hold ? 'HOLD' : 'PASS', ...(b.hold ? { reason: b.hold } : {}),
                 allocated: this.#plan.legs[legId], used: { coaching: 0, starts: 0, ...s.used.get(legId) },
@@ -459,11 +466,35 @@ function fileStore(dir, { lockTimeoutMs = 5000, staleMs = 10000, requireJournal 
         }
         // A partial last line is a write cut short by a crash; its caller never got an answer. Under the lock it is cut
         // off and replaced by a `torn` event, which counts against everything (decide), so the run can still clean up.
+        // The repair is crash-safe (Codex P2 on 8f34e619): the repaired journal is written whole to a temporary file,
+        // flushed, and renamed over the journal in one step. A crash or failure before the rename leaves the original
+        // partial line in place, so the next read finds it torn again; it never leaves a journal that reads clean.
         const end = text.lastIndexOf('\n') + 1;
         if (end < text.length) {
-            fs.truncateSync(journal, end);
-            appendLine({ t: 'torn' });
-            text = `${text.slice(0, end)}${JSON.stringify({ t: 'torn' })}\n`;
+            const repaired = `${text.slice(0, end)}${JSON.stringify({ t: 'torn' })}\n`;
+            const tmp = `${journal}.repair.${process.pid}.${randomBytes(6).toString('hex')}`;
+            try {
+                const fd = fs.openSync(tmp, 'wx');
+                try {
+                    fs.writeSync(fd, repaired);
+                    fs.fsyncSync(fd);
+                }
+                finally {
+                    fs.closeSync(fd);
+                }
+                fs.renameSync(tmp, journal);
+            }
+            finally {
+                fs.rmSync(tmp, { force: true });
+            }
+            const dfd = fs.openSync(dir, 'r');
+            try {
+                fs.fsyncSync(dfd);
+            }
+            finally {
+                fs.closeSync(dfd);
+            }
+            text = repaired;
         }
         return text.split('\n').slice(0, -1).map((l) => JSON.parse(l));
     };

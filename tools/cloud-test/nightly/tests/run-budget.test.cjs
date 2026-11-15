@@ -314,6 +314,51 @@ describe('one budget shared across workers', () => {
         expect(b.legBudgetRow('J6').outcome).toBe('HOLD');
         expect(fs.existsSync(path.join(dir, 'budget-journal.jsonl'))).toBe(false);
     });
+    // Codex P2 on 8f34e619: a repair that fails part-way must never leave a journal that reads clean.
+    it('keeps the torn-write evidence when the repair itself fails, so the next reader still finds it torn', () => {
+        const dir = shared();
+        openSharedRunBudget(dir).reserve('J6', 'coaching');
+        fs.appendFileSync(path.join(dir, 'budget-journal.jsonl'), '{"t":"grant","leg":"J6"');
+        const rename = fs.renameSync;
+        fs.renameSync = () => { throw Object.assign(new Error('injected: crash before the repaired journal is in place'), { code: 'EIO' }); };
+        let first;
+        try {
+            first = openSharedRunBudget(dir).reserve('J6', 'coaching');
+        }
+        finally {
+            fs.renameSync = rename;
+        }
+        expect(first.granted).toBe(false);
+        expect(fs.readFileSync(path.join(dir, 'budget-journal.jsonl'), 'utf8').endsWith('{"t":"grant","leg":"J6"')).toBe(true);
+        const b = openSharedRunBudget(dir);
+        expect(b.journalTorn()).toBe(1);
+        expect(b.reserve('J6', 'coaching').granted).toBe(false);
+        expect(b.legBudgetRow('J6').outcome).toBe('HOLD');
+        expect(fs.readdirSync(dir).filter((n) => n.includes('.repair.'))).toEqual([]);
+    });
+    // Codex P2 on 8f34e619: the row's outcome and counters come from one snapshot, never from two reads.
+    it('derives a budget row from one journal snapshot: an overrun recorded concurrently is never paired with PASS', () => {
+        const dir = shared();
+        const { _fileStore } = require('../run-budget.cjs');
+        const store = _fileStore(dir, { requireJournal: true });
+        const other = openSharedRunBudget(dir);
+        let reads = 0;
+        const racing = {
+            ...store,
+            transact: (fn) => {
+                const r = store.transact(fn);
+                reads += 1;
+                if (reads === 1)
+                    for (let i = 0; i < 3; i += 1) other.reserve('J6', 'coaching');
+                return r;
+            },
+        };
+        const b = new RunBudget(JSON.parse(fs.readFileSync(path.join(dir, 'budget-plan.json'), 'utf8')).plan, racing);
+        const row = b.legBudgetRow('J6');
+        expect(reads).toBe(1);
+        expect(row.outcome === 'PASS' && row.refused.coaching > 0).toBe(false);
+        expect(b.legBudgetRow('J6').outcome).toBe('FAIL');
+    });
     it('after a write cut short by a crash, sends no more test work but still cleans up, counting the torn write against the reserve', () => {
         const dir = shared();
         openSharedRunBudget(dir).reserve('J6', 'coaching');
