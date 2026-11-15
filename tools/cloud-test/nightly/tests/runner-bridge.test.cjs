@@ -67,9 +67,11 @@ function fakeIo(scenario, wire) {
                 throw new Error('injected case failure after its sends');
             const del = await nightly.cleanup(leg, async () => { wire.push('cleanup:delete-account'); return true; });
             const query = scenario.skipVerify ? { sent: false } : await nightly.cleanup(leg, async () => { wire.push('cleanup:residue-query'); return scenario.residue ?? 0; });
-            const assertions = J6_ROWS.map((id) => ({ id, result: 'PASS', detail: 'offline fake', evidenceRefs: ['unit.json'] }));
+            const assertions = J6_ROWS.map((id) => ({ id, result: scenario.harnessCapStop && id === 'start-press-budget' ? 'NOT RUN' : 'PASS', detail: 'offline fake', evidenceRefs: ['unit.json'] }));
             return {
                 assertions, cleanupEvidence: POSITIVE, refused,
+                // The harness's own Start-press cap stop (source-adapters.cjs): start-press-budget NOT RUN plus this signal.
+                ...(scenario.harnessCapStop ? { executionSignals: { startPressCapExceeded: true } } : {}),
                 nightlyCleanup: {
                     steps: scenario.omitSteps ? [] : [{ kind: 'account', ref: 'acct-unit-J6', action: 'delete', outcome: del.sent ? 'done' : 'not attempted' }],
                     left: scenario.left ?? [],
@@ -183,6 +185,12 @@ describe('nightly runner bridge: one journey (J6) through the real harness runne
         // killed here: save never runs
         assert.equal(admitRun(d.evidenceDir).admitted, false);
         assert.equal((await nightlyRun(d, 'r2')).outcome.admitted, false);
+    });
+    // Codex P2 on 1d2bb043: the harness's own cap stop arrives as an execution signal, and the bridge must forward it.
+    it('the harness\'s Start-press cap stop (start-press-budget NOT RUN + startPressCapExceeded) is FAIL through the bridge', async () => {
+        const { outcome } = await nightlyRun(dirs(), 'r1', { harnessCapStop: true });
+        assert.equal(outcome.legs.J6.outcome, 'FAIL');
+        assert.equal(outcome.run.scope.outcome, 'FAIL');
     });
     // Codex P2 on f01e9768: a case that throws after overrunning must not hide the overrun.
     it('a case that throws still records its legs: an established overrun is FAIL, otherwise HOLD, never PASS', async () => {

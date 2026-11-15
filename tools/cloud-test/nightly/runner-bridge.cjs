@@ -129,7 +129,9 @@ function nightlyAdapter(io, opts) {
             let split = null;
             let splitError = null;
             try {
-                split = splitCaseResult(c.id, { caseId: c.id, assertions: ran.assertions ?? [] });
+                // The whole case result goes to the splitter, so the harness's execution signals (a Start press stopped
+                // at the cap: executionSignals.startPressCapExceeded) still make the case's legs FAIL (Codex P2 on 1d2bb043).
+                split = splitCaseResult(c.id, { ...ran, caseId: c.id, assertions: ran.assertions ?? [] });
             }
             catch (e) {
                 splitError = e.message;

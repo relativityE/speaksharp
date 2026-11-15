@@ -1489,6 +1489,14 @@
       "find": "                for (const leg of legs) {\n                    const b = budget.legBudget(leg);\n",
       "replace": "                for (const leg of []) {\n                    const b = budget.legBudget(leg);\n",
       "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-bridge-signals-dropped",
+      "guards": "the harness execution signals reach the splitter, so a cap stop is FAIL (Codex P2 1d2bb043)",
+      "file": "runner-bridge.cjs",
+      "find": "                split = splitCaseResult(c.id, { ...ran, caseId: c.id, assertions: ran.assertions ?? [] });\n",
+      "replace": "                split = splitCaseResult(c.id, { caseId: c.id, assertions: ran.assertions ?? [] });\n",
+      "test": "tests/runner-bridge.test.cjs"
     }
   ]
 }
