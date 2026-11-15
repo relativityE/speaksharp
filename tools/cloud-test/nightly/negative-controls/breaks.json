@@ -478,8 +478,8 @@
       "id": "P4-cleanup-overrun-passes",
       "guards": "a cleanup past its allocation fails the leg's budget row",
       "file": "run-budget.cjs",
-      "find": "const overrun = Object.keys(refused).filter((k) => refused[k] > 0);",
-      "replace": "const overrun = Object.keys(refused).filter((k) => k !== CLEANUP && refused[k] > 0);",
+      "find": "overrun: Object.keys(refused).filter((k) => refused[k] > 0),",
+      "replace": "overrun: Object.keys(refused).filter((k) => k !== CLEANUP && refused[k] > 0),",
       "test": "tests/run-budget.test.cjs"
     },
     {
@@ -1214,8 +1214,8 @@
       "id": "P8-torn-budget-passes",
       "guards": "a torn run budget journal keeps every leg from passing",
       "file": "run-budget.cjs",
-      "find": "const hold = s.torn > 0 ?",
-      "replace": "const hold = false ?",
+      "find": "hold: s.torn > 0 ?",
+      "replace": "hold: false ?",
       "test": "tests/run-budget.test.cjs"
     },
     {
@@ -1368,6 +1368,22 @@
       "file": "run-budget.cjs",
       "find": "    create(JOURNAL_FILE, '');\n",
       "replace": "",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P10-torn-repair-not-crash-safe",
+      "guards": "a failed torn-journal repair keeps the torn evidence (Codex P2 8f34e619)",
+      "file": "run-budget.cjs",
+      "find": "                fs.renameSync(tmp, journal);\n",
+      "replace": "                fs.truncateSync(journal, end);\n                fs.renameSync(tmp, journal);\n",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P10-row-two-snapshots",
+      "guards": "a budget row takes its outcome and counters from one snapshot (Codex P2 8f34e619)",
+      "file": "run-budget.cjs",
+      "find": "    legBudgetRow(legId) {\n        legById(legId);\n        if (!this.#plan.legs[legId])\n            return { outcome: 'NOT RUN', reason: this.#plan.notAllocated[legId] ?? 'not planned' };\n        return this.#read((s) => {\n            const j = legById(legId).journey;\n            const b = this.#facts(legId, s);\n",
+      "replace": "    legBudgetRow(legId) {\n        legById(legId);\n        if (!this.#plan.legs[legId])\n            return { outcome: 'NOT RUN', reason: this.#plan.notAllocated[legId] ?? 'not planned' };\n        const early = this.legBudget(legId);\n        return this.#read((s) => {\n            const j = legById(legId).journey;\n            const b = early;\n",
       "test": "tests/run-budget.test.cjs"
     }
   ]
