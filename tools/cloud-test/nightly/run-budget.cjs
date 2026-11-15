@@ -443,7 +443,11 @@ function fileStore(dir, { lockTimeoutMs = 5000, staleMs = 10000, requireJournal 
     const acquire = () => {
         const deadline = Date.now() + lockTimeoutMs;
         const token = randomBytes(16).toString('hex');
-        for (;;) {
+        // The first attempt always tries; every RETRY checks the deadline first (Sam's review of 2bd99121): a lock that
+        // clears just after the deadline, after the back-off or a break, must not be taken late.
+        for (let attempt = 0; ; attempt += 1) {
+            if (attempt > 0 && Date.now() >= deadline)
+                return null;
             try {
                 fs.mkdirSync(lock);
                 fs.writeFileSync(owner, JSON.stringify({ pid: process.pid, host: os.hostname(), token }));

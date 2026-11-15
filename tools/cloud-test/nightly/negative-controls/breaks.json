@@ -1395,11 +1395,11 @@
       "test": "tests/run-budget.test.cjs"
     },
     {
-      "id": "P10-stale-lock-unbounded",
-      "guards": "stale-lock recovery is bounded by the lock deadline (Codex P2 ae3ce981)",
+      "id": "P10-lock-retry-after-deadline",
+      "guards": "a lock retry checks the deadline before trying the lock again (Sam, 2bd99121)",
       "file": "run-budget.cjs",
-      "find": "            if (staleNow(seen) && tryBreak(seen))\n                continue;\n",
-      "replace": "            if (staleNow(seen)) {\n                tryBreak(seen);\n                continue;\n            }\n",
+      "find": "            if (attempt > 0 && Date.now() >= deadline)\n                return null;\n",
+      "replace": "",
       "test": "tests/run-budget.test.cjs"
     }
   ]

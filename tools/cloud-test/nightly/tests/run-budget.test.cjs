@@ -318,6 +318,35 @@ describe('one budget shared across workers', () => {
         fs.rmSync(path.join(dir, 'budget.lock.break'), { recursive: true });
         expect(openSharedRunBudget(dir).reserve('J6', 'coaching').granted).toBe(true);
     });
+    // Sam's review of 2bd99121: a retry must check the deadline BEFORE trying the lock again.
+    it('never takes the lock on a retry after the deadline, even if the lock clears at that moment', () => {
+        const dir = shared();
+        const lock = path.join(dir, 'budget.lock');
+        fs.mkdirSync(lock);
+        fs.writeFileSync(path.join(lock, 'owner.json'), JSON.stringify({ pid: process.pid, host: os.hostname() }));
+        const realMkdir = fs.mkdirSync;
+        const realNow = Date.now;
+        const t0 = realNow();
+        let lockTries = 0;
+        let nowCalls = 0;
+        // The live owner releases the lock exactly when the waiter retries, and by then the deadline has passed.
+        fs.mkdirSync = (p, ...rest) => {
+            if (p === lock && (lockTries += 1) === 2)
+                fs.rmSync(lock, { recursive: true, force: true });
+            return realMkdir.call(fs, p, ...rest);
+        };
+        Date.now = () => ((nowCalls += 1) <= 2 ? t0 : t0 + 60_000);
+        let r;
+        try {
+            r = openSharedRunBudget(dir, { lockTimeoutMs: 20 }).reserve('J6', 'coaching');
+        }
+        finally {
+            fs.mkdirSync = realMkdir;
+            Date.now = realNow;
+        }
+        expect(r.granted).toBe(false);
+        expect(r.reason).toContain('lock was not available');
+    });
     it('breaks a lock left by a dead process, but refuses rather than waits forever on a live one', () => {
         const dir = shared();
         fs.mkdirSync(path.join(dir, 'budget.lock'));
