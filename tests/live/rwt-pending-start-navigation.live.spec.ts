@@ -21,8 +21,9 @@ import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
 import { openProductsItem } from './helpers/productsMenu';
 import { RETURN_SETTLE_DEFAULTS, returnControlSample, settleReturnControlState, type ReturnControlState } from './helpers/rwtReturnControlState';
 import {
-    preparePrivateModelIfPrompted, selectBenchmarkMode, startBenchmarkRecording, stopBenchmarkRecording, waitForPrivateEngineReady,
+    preparePrivateModelIfPrompted, selectBenchmarkMode, startBenchmarkRecording, stopBenchmarkRecording,
 } from './helpers/benchmark-utils';
+import { isRecording } from './helpers/rwtPageState';
 import { nextTakeIdArrived, type SessionRowFacts } from './helpers/rwtSaveRetry';
 import { recoveryTakePlan, recoveryTakeVerdict } from './helpers/rwtPendingStartRecovery';
 import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
@@ -329,9 +330,16 @@ test('leaving during a cold Start does not leave a recording or session behind @
         } else {
             const priorIds = await readSessionIds(uid);
             const setup = await preparePrivateModelIfPrompted(page, 900_000);
-            if (!setup.recordingAlreadyStarted) {
-                await waitForPrivateEngineReady(page, 600_000);
-                await startBenchmarkRecording(page, 'pending-start-recovery');
+            // Sam, 2026-11-15 (AHT-04 run 43732453926): the return settled on an idle model with an enabled Start, and the
+            // Private engine becomes ready only AFTER Start is pressed, so waiting for engine-ready first pressed nothing and
+            // timed out. The recovery now presses Start exactly once (no engine-ready wait before it), then waits for the take
+            // to record. A take that never records is a FAIL row, never a harness timeout.
+            if (!setup.recordingAlreadyStarted) await startBenchmarkRecording(page, 'pending-start-recovery', 600_000);
+            const recordingBegan = setup.recordingAlreadyStarted || await isRecording(page, 600_000);
+            if (!recordingBegan) {
+                receipt.row('deliberate recovery take saved', 'FAIL', 'Start was pressed once for the recovery take, but the take never began recording',
+                    { returnControl: plan.control, setupStartedTake: setup.recordingAlreadyStarted, recordingBegan: false });
+                return;
             }
             await page.waitForTimeout(Math.round((fixture.entry.speechSeconds + 4) * 1000));
             await stopBenchmarkRecording(page, 'pending-start-recovery', 180_000);

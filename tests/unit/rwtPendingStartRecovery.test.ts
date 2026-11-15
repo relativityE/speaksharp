@@ -56,14 +56,28 @@ describe('the AHT-04 spec wiring', () => {
         const returnRow = spec.indexOf("receipt.row('return does not resume abandoned recording'");
         const faultOff = spec.indexOf('watch.setFaultPhase(false);');
         const plan = spec.indexOf('recoveryTakePlan(returned.settled');
-        const take = spec.indexOf("startBenchmarkRecording(page, 'pending-start-recovery')");
+        const take = spec.indexOf("startBenchmarkRecording(page, 'pending-start-recovery', 600_000)");
         const verdict = spec.indexOf('recoveryTakeVerdict(priorIds, rows, recoveryId)');
         expect(returnRow).toBeGreaterThan(0);
         expect(returnRow).toBeLessThan(faultOff);
         expect(faultOff).toBeLessThan(plan);
         expect(plan).toBeLessThan(take);
         expect(take).toBeLessThan(verdict);
-        expect(spec.match(/'deliberate recovery take saved'/g)).toHaveLength(2);
+        expect(spec.match(/'deliberate recovery take saved'/g)).toHaveLength(3);
+    });
+    it('AHT-04 run 43732453926: Start is pressed once BEFORE any readiness wait, then the take must begin recording', () => {
+        const recovery = spec.slice(spec.indexOf('const setup = await preparePrivateModelIfPrompted(page, 900_000);'),
+            spec.indexOf('recoveryTakeVerdict(priorIds, rows, recoveryId)'));
+        // The old ordering waited for engine-ready before Start; the engine readies only after Start.
+        expect(recovery).not.toContain('waitForPrivateEngineReady');
+        expect(spec).not.toContain('waitForPrivateEngineReady');
+        const press = recovery.indexOf("if (!setup.recordingAlreadyStarted) await startBenchmarkRecording(page, 'pending-start-recovery', 600_000);");
+        const began = recovery.indexOf('const recordingBegan = setup.recordingAlreadyStarted || await isRecording(page, 600_000);');
+        const failRow = recovery.indexOf("'Start was pressed once for the recovery take, but the take never began recording'");
+        const speak = recovery.indexOf('await page.waitForTimeout(Math.round((fixture.entry.speechSeconds + 4) * 1000));');
+        for (const [a, b] of [[press, began], [began, failRow], [failRow, speak]]) { expect(a).toBeGreaterThan(-1); expect(b).toBeGreaterThan(a); }
+        // Exactly one Start press in the recovery: the budget stays at one mic-start.
+        expect(recovery.match(/startBenchmarkRecording\(/g)).toHaveLength(1);
     });
     it('raises the Start budget to the two designed presses and lets only the recovery session ask for coaching', () => {
         expect(spec).toContain("{ total: 2, perControl: { 'mic-download': 2, 'mic-start': 1 } }");
