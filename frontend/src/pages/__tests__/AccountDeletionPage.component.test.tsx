@@ -86,7 +86,7 @@ describe('explicit pending completion — real page and effect/status transports
     });
     renderPage();
     await screen.findByText(/A practice session is still being saved/);
-    expect(screen.getByText(/was not saved and is holding up deletion/)).toBeInTheDocument();
+    expect(screen.getByText(/may not have been saved and is holding up deletion/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Discard unsaved recording' }));
     await screen.findByText(/Earlier work is settled/);
     expect(mocks.rpc).toHaveBeenCalledOnce();

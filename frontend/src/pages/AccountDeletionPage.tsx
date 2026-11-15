@@ -419,7 +419,7 @@ export default function AccountDeletionPage({ completionReadiness = unavailableR
         ? <div data-testid="account-completion-status"><AccountCompletionStatusNotice status={shownCompletion} /></div>
         : <p role="status" className="mt-6">Your deletion request is pending. Your account has not been deleted. Outstanding checkout operations: {currentStatus.value.checkoutPending}. No deletion will be retried from this page.</p>)}
       {shownCompletion?.outcome === 'pending' && shownCompletion.reason === 'save_unsettled' && <div className="mt-6 space-y-4">
-        <p>If a recording was interrupted, for example because your free trial ended before you stopped it, it was not saved and is holding up deletion. Discarding it lets deletion continue. It cannot be saved afterwards.</p>
+        <p>If a recording was interrupted, for example because your free trial ended before you stopped it, it may not have been saved and is holding up deletion. Discarding it lets deletion continue. It cannot be saved afterwards.</p>
         <Button variant="outline" disabled={discard?.ownerId === user.id && discard.busy} onClick={() => { void discardUnsaved(); }}>
           Discard unsaved recording
         </Button>

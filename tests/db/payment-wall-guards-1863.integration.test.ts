@@ -50,6 +50,8 @@ describe('#1863 payment wall: guarded RPCs, table guard and open surfaces', () =
             GRANT SELECT, INSERT, UPDATE ON public.user_goals TO authenticated; GRANT SELECT ON public.user_goals TO anon;
             GRANT SELECT ON public.progress_recommendations, public.progress_recommendation_attempts,
                 public.session_progress_evaluations, public.user_filler_words TO anon;`);
+        // Hosted Auth has this column; the bootstrap does not. The closure path and the J1.f discard require it.
+        await db.exec('ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS email_confirmed_at timestamptz');
     }, 120_000);
     afterAll(async () => {
         await db?.close();
@@ -259,8 +261,6 @@ describe('#1863 payment wall: guarded RPCs, table guard and open surfaces', () =
         };
         async function confirmDeletion(uid: string) {
             const hash = createHash('sha256').update(uid).digest('hex');
-            // The bootstrap's auth.users has no confirmation column; the closure path requires a confirmed email.
-            await db.exec('ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS email_confirmed_at timestamptz');
             await db.query('UPDATE auth.users SET email_confirmed_at=now() WHERE id=$1', [uid]);
             await asRole('service_role', null, async () => {
                 await db.query('SELECT public.issue_account_closure_pending_token($1,$2)', [uid, hash]);
@@ -305,12 +305,12 @@ describe('#1863 payment wall: guarded RPCs, table guard and open surfaces', () =
             expect((await db.query('SELECT outcome FROM public.recording_start_abandonments WHERE user_id=$1 AND lease_id=$2', [uid, lease])).rows)
                 .toEqual([{ outcome: 'discarded_not_saved' }]);
             expect((await db.query<{ status: string }>('SELECT status FROM public.sessions WHERE id=$1', [session])).rows[0].status).not.toBe('completed');
-            // Refused at the table triggers, whatever path tries it (the pending deletion and the abandonment fence each
-            // refuse): the discarded take can never be completed or recorded again.
+            // Refused at the table triggers, whatever path tries it: the abandonment fence refuses completing the row,
+            // and a new lease for the identity is refused (by the pending deletion, and by the fence behind it).
             const raw = async (text: string, params: unknown[]) => {
                 try { await db.query(text, params); return 'ok'; } catch (e) { return (e as Error).message; }
             };
-            expect(await raw("UPDATE public.sessions SET status='completed' WHERE id=$1", [session])).toMatch(/abandoned recording identity|account closure pending/);
+            expect(await raw("UPDATE public.sessions SET status='completed' WHERE id=$1", [session])).toMatch(/abandoned recording identity cannot be bound/);
             expect(await raw("INSERT INTO public.active_recording_lease(user_id,lease_id,holder_label,started_at,heartbeat_at) VALUES($1,$2,'j1f-reuse',now(),now())",
                 [uid, lease])).toMatch(/abandoned recording identity|account closure pending/);
             // Repeating it changes nothing, and the account can now be deleted.

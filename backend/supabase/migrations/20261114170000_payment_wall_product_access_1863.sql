@@ -493,25 +493,31 @@ BEGIN
   IF NOT FOUND THEN RETURN jsonb_build_object('discarded', 0, 'reason', 'account_unavailable'); END IF;
   PERFORM pg_advisory_xact_lock(hashtextextended('account-billing:' || v_uid::text, 0));
   PERFORM pg_advisory_xact_lock(hashtextextended('ss_recording_lease_1476:' || v_uid::text, 0));
+  -- The same pending-deletion predicate the closure status reads: attempt and billing fence pending, and the account's
+  -- email still confirmed and equal to the email the deletion was claimed for.
   IF NOT EXISTS (
     SELECT 1 FROM public.account_closure_attempts a
     JOIN public.account_billing_fences f ON f.user_id = a.user_id AND f.request_id = a.request_id AND f.phase = 'pending'
+    JOIN auth.users u ON u.id = a.user_id AND u.email_confirmed_at IS NOT NULL AND lower(btrim(u.email)) = a.claimed_email
     WHERE a.user_id = v_uid AND a.phase = 'pending'
   ) THEN
     RETURN jsonb_build_object('discarded', 0, 'reason', 'no_pending_deletion');
   END IF;
-  -- A take that is still heartbeating (same liveness as #1476) is never discarded; it settles on its own.
+  -- A take that is still heartbeating (same liveness as #1476) is never discarded; it settles on its own. Heartbeats
+  -- update the lease row without the advisory lock, so liveness is decided on the row locked here, and only a row
+  -- that is still stale under that lock is removed.
+  PERFORM 1 FROM public.active_recording_lease WHERE user_id = v_uid FOR UPDATE;
   IF EXISTS (SELECT 1 FROM public.active_recording_lease
              WHERE user_id = v_uid AND heartbeat_at >= now() - interval '15 seconds') THEN
     RETURN jsonb_build_object('discarded', 0, 'reason', 'recording_live');
   END IF;
-  DELETE FROM public.active_recording_lease WHERE user_id = v_uid;
+  DELETE FROM public.active_recording_lease WHERE user_id = v_uid AND heartbeat_at < now() - interval '15 seconds';
   FOR o IN SELECT lease_id FROM public.account_save_obligations
            WHERE user_id = v_uid AND phase <> 'completed' ORDER BY lease_id FOR UPDATE LOOP
     DELETE FROM public.account_save_obligations WHERE user_id = v_uid AND lease_id = o.lease_id;
     INSERT INTO public.recording_start_abandonments(user_id, lease_id, outcome)
       VALUES (v_uid, o.lease_id, 'discarded_not_saved') ON CONFLICT (user_id, lease_id) DO NOTHING;
-    v_count := v_count + 1;
+    IF FOUND THEN v_count := v_count + 1; END IF;
   END LOOP;
   RETURN jsonb_build_object('discarded', v_count, 'outcome', 'discarded_not_saved');
 END;
