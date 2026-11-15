@@ -218,6 +218,22 @@ function nightlyAdapter(io, opts) {
         }
     }
     /**
+     * Re-reads every recorded leg's budget facts at the end (Codex P2 on 01607310): an overrun found now is FAIL, and a
+     * journal torn or unreadable after the leg recorded PASS (a later case, the final identity read) makes that PASS
+     * HOLD, because it can hide an overrun. An established FAIL stays FAIL.
+     */
+    function reconcileBudget() {
+        for (const [leg, v] of ledger.verdicts()) {
+            const b = budget.legBudget(leg);
+            if (!b.allocated)
+                continue;
+            if (b.overrun.length > 0 && v.outcome !== 'FAIL')
+                ledger.record({ ...v, outcome: 'FAIL', reason: `asked for more than its frozen ${b.overrun.join(' and ')} allocation (found at the end of the run)` });
+            else if (b.hold && v.outcome === 'PASS')
+                ledger.record({ ...v, outcome: 'HOLD', reason: `${b.hold} (found at the end of the run)` });
+        }
+    }
+    /**
      * Call once, after runCampaign returns, with its report: reconciles the verdicts, writes the run's cleanup evidence
      * (every journey, with the runner's record of what it created; a torn or unreadable journal is a run fault) and saves
      * the final report. A runner that dies before this leaves its start record with no evidence, so admission stays shut.
@@ -228,6 +244,7 @@ function nightlyAdapter(io, opts) {
         finished = true;
         if (budget && journeys) {
             reconcile(report);
+            reconcileBudget();
             const entries = journeys.map((journey) => ({
                 journey, reserveExhausted: false, ...combineCleanup(cleanupParts.get(journey) ?? []),
                 created: createdByJourney.get(journey) ?? [],

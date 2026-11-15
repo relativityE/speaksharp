@@ -51,6 +51,8 @@ function fakeIo(scenario, wire) {
         admit: async () => { calls.push('admit'); return { result: 'ADMISSION PASS' }; },
         identity: async (phase) => {
             calls.push(`identity:${phase}`);
+            if (phase === scenario.tearJournalAt)
+                fs.appendFileSync(path.join(scenario.runDir, 'budget-journal.jsonl'), '{"t":"grant","leg":"J6"');
             return { result: 'MATCH', servedSha: phase === scenario.identityMismatchAt ? 'c'.repeat(40) : commit };
         },
         caseConfig: async (c) => ({ caseId: c.id, sourceSha: commit, servedSha: commit, targetUrl: 'https://speaksharp-public.vercel.app/', requiredAssertions: rowsFor(c.id) }),
@@ -230,6 +232,16 @@ describe('nightly runner bridge: one journey (J6) through the real harness runne
         assert.equal(later.outcome.cleanup.result, 'incomplete', 'the second case\'s leftover is in the journey\'s evidence');
         assert.deepEqual(later.outcome.cleanup.incompleteJourneys, ['J4']);
         assert.equal((await nightlyRun(d, 'r2', { legs: ['J4.a', 'J4.b'] })).outcome.admitted, false);
+    });
+    // Codex P2 on 01607310: a journal torn after a leg recorded PASS must reach that leg's final verdict.
+    it('a journal torn after the leg recorded PASS (at the campaign-end identity read) turns the final PASS into HOLD', async () => {
+        const { outcome, report } = await nightlyRun(dirs(), 'r1', { tearJournalAt: 'campaign-end' });
+        assert.equal(outcome.journalTorn, 1);
+        assert.equal(outcome.legs.J6.outcome, 'HOLD', outcome.legs.J6.reason);
+        assert.match(outcome.legs.J6.reason, /cut short \(found at the end of the run\)/);
+        assert.notEqual(outcome.run.scope.outcome, 'PASS');
+        assert.equal(report.nightly.legs.J6.outcome, 'HOLD');
+        assert.equal(outcome.cleanup.result, 'incomplete');
     });
     // Codex P2 on 2ba59540: one case's residue query must not stand in for another case's missing proof.
     it('validates each case\'s cleanup proof on its own: J4 with an empty check in its second case stays incomplete', async () => {

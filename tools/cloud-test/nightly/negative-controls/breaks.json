@@ -1537,6 +1537,14 @@
       "find": "            if (now + workMs + cleanupMs > deadline)\n",
       "replace": "            if (now + workMs > deadline)\n",
       "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-bridge-final-budget-unread",
+      "guards": "a budget fault found at the end of the run reaches the recorded leg verdicts (Codex P2 01607310)",
+      "file": "runner-bridge.cjs",
+      "find": "            reconcileBudget();\n",
+      "replace": "",
+      "test": "tests/runner-bridge.test.cjs"
     }
   ]
 }
