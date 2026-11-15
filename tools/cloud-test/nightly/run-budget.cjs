@@ -318,12 +318,22 @@ class RunBudget {
             return Object.freeze({ allocated: true, reason: 'allocated before the run', overrun: Object.freeze(overrun), hold });
         }, (e) => Object.freeze({ allocated: true, reason: 'allocated before the run', overrun: Object.freeze([]), hold: `the run budget could not be read: ${e.message}` }));
     }
-    /** A leg's overrun kinds and hold reason, from ONE journal snapshot `s`. */
+    /**
+     * A leg's overrun kinds and hold reason, from ONE journal snapshot `s`, plus the cleanup refusals recorded OUTSIDE the
+     * journal (Codex P2 on 251b0f7f): a cleanup reservation refused because the lock wasn't had in time is written as a
+     * marker file, not a journal event, so the journal alone would read clean once the lock is back. Its journey's legs
+     * hold, as cleanupExhausted and admission already do.
+     */
     #facts(legId, s) {
         const refused = s.refused.get(legId) ?? {};
+        const journey = legById(legId).journey;
+        const holds = [
+            ...(s.torn > 0 ? [`${s.torn} write(s) to the run budget journal were cut short`] : []),
+            ...(this.#store.cleanupRefused().has(journey) ? [`a cleanup request for ${journey} was refused outside the journal (the budget lock was not had in time)`] : []),
+        ];
         return {
             overrun: Object.keys(refused).filter((k) => refused[k] > 0),
-            hold: s.torn > 0 ? `${s.torn} write(s) to the run budget journal were cut short` : null,
+            hold: holds.length > 0 ? holds.join('; ') : null,
         };
     }
     /**

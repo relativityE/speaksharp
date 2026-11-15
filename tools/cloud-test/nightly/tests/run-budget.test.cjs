@@ -285,6 +285,24 @@ describe('one budget shared across workers', () => {
         expect(openSharedRunBudget(dir).reserve('J6', 'coaching').granted).toBe(true);
         expect(openSharedRunBudget(dir).reserve('J6', 'coaching').granted).toBe(false);
     });
+    // Codex P2 on 251b0f7f: a cleanup refused outside the journal (lock timeout) must not read PASS once the lock is back.
+    it('a cleanup refused while the lock was held holds its journey\'s legs, even after the lock is released', () => {
+        const dir = shared();
+        fs.mkdirSync(path.join(dir, 'budget.lock'));
+        fs.writeFileSync(path.join(dir, 'budget.lock', 'owner.json'), JSON.stringify({ pid: process.pid, host: os.hostname() }));
+        const r = openSharedRunBudget(dir, { lockTimeoutMs: 50 }).reserveCleanup('J6');
+        expect(r.granted).toBe(false);
+        fs.rmSync(path.join(dir, 'budget.lock'), { recursive: true });
+        const b = openSharedRunBudget(dir);
+        expect(b.cleanupExhausted('J6')).toBe(true);
+        expect(b.legBudget('J6').hold).toContain('refused outside the journal');
+        const row = b.legBudgetRow('J6');
+        expect(row.outcome).toBe('HOLD');
+        expect(row.reason).toContain('refused outside the journal');
+        const v = legVerdict('J6', { prior: new Map(), satisfiedGates: EVERY_GATE, results: results('J6'), budget: b.legBudget('J6') });
+        expect(v.outcome).toBe('HOLD');
+        expect(b.legBudgetRow('J4.a').outcome).toBe('PASS');
+    });
     it('breaks a lock left by a dead process, but refuses rather than waits forever on a live one', () => {
         const dir = shared();
         fs.mkdirSync(path.join(dir, 'budget.lock'));
