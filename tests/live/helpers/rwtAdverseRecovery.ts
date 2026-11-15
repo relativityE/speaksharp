@@ -141,20 +141,28 @@ export function modelBytesSeen(read: ModelBytesRead | null): boolean {
 }
 
 /**
- * AHT-14 injection gate (Sam, 2026-11-15, after rc-gates run 43740031821). The browser goes offline ONLY while the product's own
- * state machine (`data-runtime-state`, the exact TranscriptionService state) is DOWNLOADING and the page shows received bytes
- * mid-transfer. The model status alone cannot say that: TranscriptionService publishes `ready` for READY and for RECORDING, and
- * `loading` for DOWNLOAD_COMPLETE and ENGINE_INITIALIZING too. In that run the journey went offline after its read had settled,
- * the cold `Download & start recording` press was already recording, the take's session could not be written, and the account
- * kept an admitted save that no timer, lease release or cleanup may settle (#1643), so the run-owned account could not be deleted.
- * Anything but a proven mid-transfer download is no injection: the fault is never put on a page that may be recording.
+ * AHT-14 injection gate (Sam, 2026-11-15, after rc-gates run 43740031821; Codex P1 on df4db146). In that run the journey went
+ * offline after its read had settled on model status `ready`, which TranscriptionService also publishes while RECORDING; the cold
+ * `Download & start recording` press was already recording, its take could not be written, and the run-owned account kept an
+ * admitted save that no timer, lease release or cleanup may settle (#1643), so it could not be deleted.
+ *
+ * WHAT THE PAGE ACTUALLY PUBLISHES (pinned by tests/unit/rwtAdverseRecovery.test.ts against the product's own mapper):
+ * `data-runtime-state` is `mapToRuntimeState(fsm)` (forensicAnchors.ts), not the raw FSM. The cold download runs INSIDE the raw
+ * ENGINE_INITIALIZING state (the service requests engine init from DOWNLOAD_REQUIRED; the raw DOWNLOADING state is mapped to
+ * ENGINE_INITIALIZING too), so no published state says "downloading". The only truthful mid-transfer signal is the conjunction:
+ * runtime ENGINE_INITIALIZING, model status `loading`, and the product's own aggregated byte percent at 1–99 (`modelBytesSeen`).
+ * Once the bytes reach 100 % (or the percent is gone) the same state is engine initialization: not a download.
  */
-export const DOWNLOAD_RUNTIME_STATE = 'DOWNLOADING';
+export const SETUP_RUNTIME_STATE = 'ENGINE_INITIALIZING';
 export type OfflineInjectionGate = { inject: true } | { inject: false; reason: string };
+/** Bytes are arriving mid-transfer in this snapshot: the gate's (and every poll's) definition of "downloading". */
+export function downloadingNow(read: ModelBytesRead | null): boolean {
+    return read !== null && read.runtimeState === SETUP_RUNTIME_STATE && modelBytesSeen(read);
+}
 export function offlineInjectionGate(read: ModelBytesRead | null): OfflineInjectionGate {
     if (read === null) return { inject: false, reason: 'the page state was unreadable' };
-    if (read.runtimeState !== DOWNLOAD_RUNTIME_STATE) {
-        return { inject: false, reason: `the runtime state was ${read.runtimeState ?? 'unreadable'}, not ${DOWNLOAD_RUNTIME_STATE}` };
+    if (read.runtimeState !== SETUP_RUNTIME_STATE) {
+        return { inject: false, reason: `the runtime state was ${read.runtimeState ?? 'unreadable'}, not ${SETUP_RUNTIME_STATE}` };
     }
     if (!modelBytesSeen(read)) return { inject: false, reason: 'no model bytes were seen mid-transfer' };
     return { inject: true };
@@ -162,42 +170,49 @@ export function offlineInjectionGate(read: ModelBytesRead | null): OfflineInject
 
 /**
  * Sam, 2026-11-15 (#1868 HOLD on f62e94c3): a single snapshot cannot say what one attempt did. The attempt's phase is decided from
- * the COMPLETE runtime-state log (`armRuntimeStateLog`) from the index read at its press:
- *  - `recorded`: RECORDING (or PAUSED / STOPPING) appeared — a take may exist, whatever came after (a later FAILED included);
- *  - `past-download`: the transfer finished (DOWNLOAD_COMPLETE, ENGINE_INITIALIZING or READY) and no recording yet;
- *  - `setup-failed`: INIT_FAILED or FAILED reached from THIS attempt's DOWNLOADING, with nothing past the download before it.
- *    Only that order binds a failure to the setup; a bare FAILED is never read as one;
- *  - `unattributed-failure`: INIT_FAILED or FAILED without this attempt's DOWNLOADING before it;
- *  - `downloading` / `pre-download`: the last state is DOWNLOADING / nothing decisive yet;
- *  - `unobserved`: no log in this document (replaced document), or an index beyond the log.
+ * the COMPLETE published runtime-state log (`armRuntimeStateLog`) from the index read at its press, over the states the page
+ * actually publishes (IDLE, INITIATING, DOWNLOAD_REQUIRED, ENGINE_INITIALIZING, READY, RECORDING, STOPPING, FAILED, FAILED_VISIBLE,
+ * TERMINATED):
+ *  - `recorded`: RECORDING (raw RECORDING or PAUSED) or STOPPING appeared — a take may exist, whatever came after (a FAILED too);
+ *  - `setup-failed`: FAILED / FAILED_VISIBLE reached from THIS attempt's ENGINE_INITIALIZING, with no READY before it. Only that
+ *    order binds a failure to the attempt's setup; a bare FAILED is never read as one;
+ *  - `unattributed-failure`: FAILED / FAILED_VISIBLE without this attempt's ENGINE_INITIALIZING before it;
+ *  - `left-setup`: the engine became READY, or the runtime left setup without failing (IDLE / TERMINATED after it): no download;
+ *  - `in-setup`: the last state is ENGINE_INITIALIZING. Download OR engine init — only the byte percent can tell (`downloadingNow`);
+ *  - `pre-setup`: nothing decisive yet; `unobserved`: no log in this document (replaced document), or an index beyond the log.
  */
-export const RECORDING_RUNTIME_STATES = ['RECORDING', 'PAUSED', 'STOPPING'] as const;
-export const PAST_DOWNLOAD_RUNTIME_STATES = ['DOWNLOAD_COMPLETE', 'ENGINE_INITIALIZING', 'READY'] as const;
-const SETUP_FAILED_RUNTIME_STATES = ['INIT_FAILED', 'FAILED'];
+export const RECORDING_RUNTIME_STATES = ['RECORDING', 'STOPPING'] as const;
+const FAILED_RUNTIME_STATES = ['FAILED', 'FAILED_VISIBLE'];
+const LEFT_SETUP_RUNTIME_STATES = ['READY', 'IDLE', 'TERMINATED'];
 export type RuntimeStateLog = { observed: boolean; states: readonly string[] };
-export type AttemptPhase = 'unobserved' | 'pre-download' | 'downloading' | 'past-download' | 'recorded' | 'setup-failed' | 'unattributed-failure';
+export type AttemptPhase = 'unobserved' | 'pre-setup' | 'in-setup' | 'left-setup' | 'recorded' | 'setup-failed' | 'unattributed-failure';
 export function attemptPhase(log: RuntimeStateLog | null, fromIndex: number): AttemptPhase {
     if (!log || !log.observed || !Number.isInteger(fromIndex) || fromIndex < 0 || fromIndex > log.states.length) return 'unobserved';
     const states = log.states.slice(fromIndex);
     if (states.some((s) => (RECORDING_RUNTIME_STATES as readonly string[]).includes(s))) return 'recorded';
-    const failedAt = states.findIndex((s) => SETUP_FAILED_RUNTIME_STATES.includes(s));
-    const pastAt = states.findIndex((s) => (PAST_DOWNLOAD_RUNTIME_STATES as readonly string[]).includes(s));
-    if (failedAt >= 0 && (pastAt < 0 || pastAt > failedAt)) {
-        return states.slice(0, failedAt).includes(DOWNLOAD_RUNTIME_STATE) ? 'setup-failed' : 'unattributed-failure';
+    const setupAt = states.indexOf(SETUP_RUNTIME_STATE);
+    const failedAt = states.findIndex((s) => FAILED_RUNTIME_STATES.includes(s));
+    const readyAt = states.indexOf('READY');
+    if (failedAt >= 0 && (readyAt < 0 || readyAt > failedAt)) {
+        return setupAt >= 0 && setupAt < failedAt ? 'setup-failed' : 'unattributed-failure';
     }
-    if (pastAt >= 0) return 'past-download';
-    if (states[states.length - 1] === DOWNLOAD_RUNTIME_STATE) return 'downloading';
-    return 'pre-download';
+    if (readyAt >= 0) return 'left-setup';
+    if (setupAt < 0) return 'pre-setup';
+    const last = states[states.length - 1];
+    if (last === SETUP_RUNTIME_STATE) return 'in-setup';
+    return LEFT_SETUP_RUNTIME_STATES.includes(last) ? 'left-setup' : 'pre-setup';
 }
 
 /**
  * The page and context the offline fault drives, injected so every interleaving is unit-tested without a browser. `phase()` reads
- * the attempt's phase from the complete log; `isOnline()` is the page's own `navigator.onLine` (null: unreadable); `armFault`
- * and `disarmFault` open and close the watchdog's fault phase and the attempt's failure counter around the offline window.
+ * the attempt's phase from the complete log; `bytes()` is one snapshot of the runtime state, model status and byte percent;
+ * `isOnline()` is the page's own `navigator.onLine` (null: unreadable); `armFault` and `disarmFault` open and close the watchdog's
+ * fault phase and the attempt's failure counter around the offline window.
  */
 export interface OfflineFaultIo {
     setOffline(offline: boolean): Promise<boolean>;
     phase(): Promise<AttemptPhase>;
+    bytes(): Promise<ModelBytesRead | null>;
     isOnline(): Promise<boolean | null>;
     armFault(): void;
     disarmFault(): void;
@@ -206,9 +221,10 @@ export interface OfflineFaultIo {
 }
 
 /**
- * - `exercised`: the browser went offline during this attempt's confirmed download, and the setup then failed from that download
- *   with no recording (`settled: true`), or was still downloading offline at the bound (`settled: false`, judged by the failure
- *   verdict as before). The network is still offline: the caller states the failure, then removes the cause.
+ * - `exercised`: the browser went offline while this attempt's bytes were arriving mid-transfer, and the setup then failed from
+ *   this attempt's ENGINE_INITIALIZING with no READY or recording (`settled: true`), or was still mid-transfer offline at the bound
+ *   (`settled: false`, judged by the failure verdict as before). The network is still offline: the caller states the failure,
+ *   then removes the cause.
  * - `not-exercised`: no fault reached a download; the network was never taken offline, or its restoration was PROVEN (the page
  *   reports `navigator.onLine`) before any recording was seen. Never PASS.
  * - `fail-closed`: a recording appeared under the fault, the attempt was unobserved, a failure could not be bound to this
@@ -220,26 +236,36 @@ export type OfflineFaultOutcome =
     | { kind: 'fail-closed'; reason: string; restored: boolean };
 
 /**
- * AHT-14's offline window, as one bounded controller (Sam, 2026-11-15, #1868 HOLD). Offline only after the gate (runtime exactly
- * DOWNLOADING with bytes mid-transfer) AND the attempt's own log say downloading; then the log is polled for the whole window:
- * a transition during `setOffline(true)` is caught by the first read after it, and one just after any read by the next. Any sight
- * of the download finishing restores the network at once and requires the page to report itself online; any sight of a
- * recording, an unobserved attempt or a failure not bound to this attempt restores and fails closed.
+ * AHT-14's offline window, as one bounded controller (Sam, 2026-11-15, #1868 HOLD; Codex P1 on df4db146). Offline only after the
+ * gate snapshot AND the attempt's own log say bytes are arriving in this attempt's setup; then every poll re-reads both: a
+ * transition during `setOffline(true)` is caught by the first read after it, and one just after any read by the next. The moment
+ * the bytes are no longer proven mid-transfer (100 %, gone, unreadable) or the runtime leaves setup, the network is restored at
+ * once and the page must report itself online; a recording, an unobserved attempt or a failure not bound to this attempt restores
+ * and fails closed. Restoring early is always the safe side: it costs an exercised fault (HOLD), never a stranded save.
  */
 export async function runOfflineFault(io: OfflineFaultIo, gateRead: ModelBytesRead | null,
     opts: { boundMs: number; pollMs: number }): Promise<OfflineFaultOutcome> {
     const gate = offlineInjectionGate(gateRead);
     if (!gate.inject) return { kind: 'not-exercised', reason: gate.reason, restored: true };
     const before = await io.phase();
-    if (before !== 'downloading') {
+    if (before !== 'in-setup') {
         return before === 'recorded' || before === 'unobserved' || before === 'unattributed-failure'
             ? { kind: 'fail-closed', reason: `the attempt was ${before} before going offline`, restored: true }
-            : { kind: 'not-exercised', reason: `the attempt was ${before}, not downloading, at the gate`, restored: true };
+            : { kind: 'not-exercised', reason: `the attempt was ${before}, not in setup, at the gate`, restored: true };
     }
     const restore = async (): Promise<boolean> => {
         const ok = await io.setOffline(false).catch(() => false);
         io.disarmFault();
         return ok && (await io.isOnline().catch(() => null)) === true;
+    };
+    const benignOrClosed = async (why: string): Promise<OfflineFaultOutcome> => {
+        const restored = await restore();
+        // A recording may have begun while the network came back: re-read; only a proven, still unrecorded restore is benign.
+        const after = await io.phase();
+        if (restored && after !== 'recorded' && after !== 'unobserved' && after !== 'unattributed-failure') {
+            return { kind: 'not-exercised', reason: `${why}; the network was restored before any recording`, restored };
+        }
+        return { kind: 'fail-closed', reason: restored ? `${why}, and the attempt was ${after} when the network came back` : `${why}, and the page did not report itself online again`, restored };
     };
     io.armFault();
     if (!(await io.setOffline(true).catch(() => false))) {
@@ -252,18 +278,20 @@ export async function runOfflineFault(io: OfflineFaultIo, gateRead: ModelBytesRe
     for (;;) {
         const phase = await io.phase();
         if (phase === 'setup-failed') return { kind: 'exercised', settled: true };
-        if (phase === 'past-download') {
-            const restored = await restore();
-            // A recording may have begun while the network came back: re-read; only a proven, still unrecorded restore is benign.
-            const after = await io.phase();
-            if (restored && after !== 'recorded' && after !== 'unobserved') {
-                return { kind: 'not-exercised', reason: 'the download finished before the fault reached it; the network was restored before any recording', restored };
-            }
-            return { kind: 'fail-closed', reason: restored ? `the attempt was ${after} when the network came back` : 'the download finished under the fault and the page did not report itself online again', restored };
-        }
         if (phase === 'recorded' || phase === 'unobserved' || phase === 'unattributed-failure') {
             const restored = await restore();
             return { kind: 'fail-closed', reason: `the attempt was ${phase} under the fault`, restored };
+        }
+        if (phase !== 'in-setup') return benignOrClosed(`the attempt was ${phase} under the fault, not downloading`);
+        if (!downloadingNow(await io.bytes())) {
+            // The snapshot may have moved on since the phase read: decide from the log again before calling it a benign miss.
+            const again = await io.phase();
+            if (again === 'setup-failed') return { kind: 'exercised', settled: true };
+            if (again === 'recorded' || again === 'unobserved' || again === 'unattributed-failure') {
+                const restored = await restore();
+                return { kind: 'fail-closed', reason: `the attempt was ${again} under the fault`, restored };
+            }
+            return benignOrClosed('the bytes were no longer proven mid-transfer under the fault');
         }
         if (io.now() >= deadline) return { kind: 'exercised', settled: false };
         await io.sleep(opts.pollMs);

@@ -114,9 +114,10 @@ async function offeredRecoveryControl(page: Page): Promise<RecoveryControl | nul
  * own byte count; see `modelBytesSeen`) — or the state it settled in instead (ready / failed), or the last read at the bound.
  * Polled every 50 ms so the transfer is still running when the browser goes offline. Read in the page, so it does not depend on
  * whether the model worker's fetches reach Playwright's network events.
- * Sam, 2026-11-15 (run 43740031821): mid-transfer also requires the exact runtime state DOWNLOADING, and the read settles as soon
- * as the runtime has left the download (DOWNLOAD_COMPLETE onward), because the model status shows `ready` while RECORDING too.
- * `offlineInjectionGate` decides from this read whether the browser may go offline at all.
+ * Sam, 2026-11-15 (run 43740031821; Codex P1 on df4db146): mid-transfer also requires the PUBLISHED runtime state the download
+ * runs in (ENGINE_INITIALIZING: the page never publishes a separate downloading state; see `downloadingNow`), and the read settles
+ * as soon as the attempt is past its bytes (100 %), ready, recording or failed, because the model status shows `ready` while
+ * RECORDING too. `offlineInjectionGate` decides from this read whether the browser may go offline at all.
  */
 async function waitForModelBytes(page: Page): Promise<ModelBytesRead | null> {
     const decided = await page.waitForFunction(() => {
@@ -124,10 +125,10 @@ async function waitForModelBytes(page: Page): Promise<ModelBytesRead | null> {
         const status = root.getAttribute('data-model-status');
         const runtimeState = root.getAttribute('data-runtime-state');
         const pct = Number.parseInt(document.querySelector('[data-testid="mic-progress"]')?.textContent ?? '', 10);
-        const midTransfer = runtimeState === 'DOWNLOADING' && status === 'loading' && Number.isFinite(pct) && pct >= 1 && pct < 100;
-        const pastDownload = ['DOWNLOAD_COMPLETE', 'ENGINE_INITIALIZING', 'READY', 'RECORDING', 'PAUSED', 'STOPPING', 'INIT_FAILED', 'FAILED']
-            .includes(runtimeState ?? '');
-        return midTransfer || pastDownload || status === 'ready' || status === 'error' || status === 'init-failed'
+        const midTransfer = runtimeState === 'ENGINE_INITIALIZING' && status === 'loading' && Number.isFinite(pct) && pct >= 1 && pct < 100;
+        const pastBytes = (Number.isFinite(pct) && pct >= 100)
+            || ['READY', 'RECORDING', 'STOPPING', 'FAILED', 'FAILED_VISIBLE', 'TERMINATED'].includes(runtimeState ?? '');
+        return midTransfer || pastBytes || status === 'ready' || status === 'error' || status === 'init-failed'
             ? { pct: Number.isFinite(pct) ? pct : null, status, runtimeState } : false;
     }, undefined, { timeout: MODEL_BYTES_MS, polling: 50 }).then((h) => h.jsonValue(), () => null);
     if (decided) return decided;
@@ -158,6 +159,7 @@ const attemptPhaseOf = async (page: Page, fromIndex: number): Promise<AttemptPha
 async function settleColdTake(page: Page, label: string, takes: string[], fromIndex: number): Promise<{ recorded: boolean | null; savedId: string | null }> {
     const phase = await attemptPhaseOf(page, fromIndex);
     if (phase === 'unobserved' || phase === 'unattributed-failure') return { recorded: null, savedId: null };
+    // Only a setup failure bound to this attempt (FAILED from its own ENGINE_INITIALIZING, never READY) skips the wait.
     const recordingNow = phase !== 'setup-failed' && await isRecording(page, phase === 'recorded' ? 5_000 : RECORDING_MS);
     if (!recordingNow) {
         const final = await attemptPhaseOf(page, fromIndex);
@@ -318,18 +320,18 @@ async function reopenRow(receipt: RwtReceipt, page: Page, recovered: { savedId: 
  * the recovery (`pressRecovery`) then presses only its variant's designed control (`RECOVERY_CONTROLS`), never in a loop, and
  * presses nothing when the page offers anything else. Each press, by its line:
  *  AHT-12 mic denied — at most 2:
- *   1. the denied press, `mic-download` or `mic-start` (whichever is offered): `await control.click()` (rwtAdverseJourney.ts:428);
+ *   1. the denied press, `mic-download` or `mic-start` (whichever is offered): `await control.click()` (rwtAdverseJourney.ts:430);
  *   2. the allowing browser's ONE recovery press of its offered `mic-download` (cold: download, then recording) or `mic-start`:
- *      `await control.click()` (rwtAdverseJourney.ts:215). No Retry: a `mic-retry` offer there is a FAIL, not pressed.
+ *      `await control.click()` (rwtAdverseJourney.ts:217). No Retry: a `mic-retry` offer there is a FAIL, not pressed.
  *   So `mic-download` and `mic-start` may each take both presses; `mic-retry` none. The catalog's minimumStarts 3 assumes
  *   the harness's same-context Allow → Start route, which this two-browser design does not take (a `=deny` browser never
  *   grants; see the mic-denied branch).
  *  AHT-13 download fails — exactly 3:
- *   1. `mic-download` with the model route aborted (rwtAdverseJourney.ts:486);
- *   2. `mic-retry` once the cause is removed (rwtAdverseJourney.ts:203);
- *   3. `mic-start` only after Retry's setup published `ready` (rwtAdverseJourney.ts:209).
- *  AHT-14 offline mid-download — exactly 3: `mic-download` (rwtAdverseJourney.ts:493), then the same `mic-retry` and
- *   `mic-start` as AHT-13 (rwtAdverseJourney.ts:203, :209).
+ *   1. `mic-download` with the model route aborted (rwtAdverseJourney.ts:488);
+ *   2. `mic-retry` once the cause is removed (rwtAdverseJourney.ts:205);
+ *   3. `mic-start` only after Retry's setup published `ready` (rwtAdverseJourney.ts:211).
+ *  AHT-14 offline mid-download — exactly 3: `mic-download` (rwtAdverseJourney.ts:495), then the same `mic-retry` and
+ *   `mic-start` as AHT-13 (rwtAdverseJourney.ts:205, :211).
  */
 const AHT12_START_PRESS_BUDGET: StartPressBudget = { total: 2, perControl: { 'mic-download': 2, 'mic-start': 2 } };
 const AHT13_START_PRESS_BUDGET: StartPressBudget = { total: 3, perControl: { 'mic-download': 1, 'mic-retry': 1, 'mic-start': 1 } };
@@ -492,16 +494,18 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
                 fault.startAttempt();
                 await page.getByTestId('mic-download').click();
                 // "Mid-download" (review AHT-14): offline only once the page has RECEIVED model bytes, never merely when a request
-                // is issued, and (Sam, 2026-11-15) only while the runtime is exactly DOWNLOADING and this attempt's own log
-                // says downloading. `runOfflineFault` then polls the attempt's log for the whole window: a finished download
-                // restores the network at once and requires the page to report itself online; a recording, an unobserved
-                // attempt or a failure not bound to this attempt restores and fails closed. The watchdog is unchanged.
+                // is issued, and (Sam, 2026-11-15; Codex P1 on df4db146) only while the published runtime is in this attempt's
+                // setup (ENGINE_INITIALIZING, the state the download runs in) with the bytes 1–99 %. `runOfflineFault` re-reads the
+                // attempt's log and bytes on every poll: bytes no longer proven mid-transfer restore the network at once and
+                // require the page to report itself online; a recording, an unobserved attempt or a failure not bound to this
+                // attempt restores and fails closed. The watchdog is unchanged.
                 atOffline = await waitForModelBytes(page);
                 modelResponsesBeforeOffline = modelResponses;
                 // Sam, 2026-11-15 (#1868 HOLD on f62e94c3): every phase of this attempt is read from its log index at the press.
                 const offlineOutcome = await runOfflineFault({
                     setOffline: (offline) => context.setOffline(offline).then(() => true, () => false),
                     phase: () => attemptPhaseOf(page, pressIndex),
+                    bytes: () => readModelBytes(page),
                     isOnline: () => page.evaluate(() => navigator.onLine).catch(() => null),
                     armFault: () => { watch.setFaultPhase(true); fault.armFault(); },
                     disarmFault: () => { fault.disarm(); watch.setFaultPhase(false); },
