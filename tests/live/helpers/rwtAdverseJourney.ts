@@ -25,12 +25,15 @@ import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, fina
 import { HarnessParityTap, type StartPressBudget } from './rwtHarnessParity';
 import {
     ADVERSE_SUITE, type AdverseVariant, MIC_BLOCKED_COPY, MODEL_ASSETS, MODEL_FAILED_STATES, downloadFailureVerdict, armModelStatusLog, readModelStatusLog, AttemptFaultCounter,
+    armRuntimeStateLog, readRuntimeStateLog, ModelTransferTracker,
     deniedAfterPress, micDeniedVerdict,
 } from './rwtAdverse';
 import type { SessionRowFacts } from './rwtSaveRetry';
 import {
     AHT12_CATALOG_CASE_OPEN, AHT12_STAND_IN_LABEL, type ModelBytesRead, type RecoveryAttempt, type RecoveryControl, type ReopenObservation, RECOVERY_CONTROLS, isRecoveryControl,
-    midDownloadFailureVerdict, modelBytesSeen, recoverySavedVerdict, retrySetupOutcome, reviewReopenVerdict, savedTranscriptDigest,
+    type AttemptPhase, type TransferSnapshot, attemptPhase, coldTakeSettledVerdict, downloadingNow, midDownloadFailureVerdict, offlineInjectionGate,
+    faultUnprovenRecoveryVerdict, offlineNotExercisedVerdict, runOfflineFault, unprovenRestoreVerdict,
+    recoverySavedVerdict, retrySetupOutcome, reviewReopenVerdict, savedTranscriptDigest,
 } from './rwtAdverseRecovery';
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
@@ -76,6 +79,8 @@ const micPermissionState = (page: Page) => page.evaluate(async () =>
  * page's document by a token. `observed` false (no log in this document) is a lost observation, never "never ready".
  */
 const modelStatusToken = `ms-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+/** The runtime-state log's document token (rwtAdverse `armRuntimeStateLog`), armed beside the model-status log. */
+const runtimeStateToken = `rs-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 const modelStatuses = async (page: Page): Promise<{ observed: boolean; statuses: string[] }> => {
     const log = await page.evaluate(readModelStatusLog).catch(() => ({ token: null, statuses: [] as string[] }));
     return { observed: log.token === modelStatusToken, statuses: log.statuses };
@@ -106,25 +111,62 @@ async function offeredRecoveryControl(page: Page): Promise<RecoveryControl | nul
 }
 
 /**
- * AHT-14: the first moment the page shows RECEIVED model bytes mid-transfer — `mic-progress` 1–99 % while `loading` (the product's
- * own byte count; see `modelBytesSeen`) — or the state it settled in instead (ready / failed), or the last read at the bound.
- * Polled every 50 ms so the transfer is still running when the browser goes offline. Read in the page, so it does not depend on
- * whether the model worker's fetches reach Playwright's network events.
+ * AHT-14: the first moment a body of this attempt is in flight while the page is in its published setup with counted bytes
+ * (`downloadingNow`: Sam, 2026-11-15 on 887a76f6 — the percent alone cannot prove a transfer, since the real aggregator holds
+ * 100 % while a later file downloads and a retained 1–99 % proves nothing moving), or the state it settled in instead (ready,
+ * recording or failed), or the last read at the bound. Polled every 50 ms, from the page (published state, model status, percent)
+ * and from the network (`ModelTransferTracker`). `offlineInjectionGate` decides from this read whether the browser may go offline.
  */
-async function waitForModelBytes(page: Page): Promise<ModelBytesRead | null> {
-    const decided = await page.waitForFunction(() => {
-        const status = document.documentElement.getAttribute('data-model-status');
-        const pct = Number.parseInt(document.querySelector('[data-testid="mic-progress"]')?.textContent ?? '', 10);
-        const midTransfer = status === 'loading' && Number.isFinite(pct) && pct >= 1 && pct < 100;
-        return midTransfer || status === 'ready' || status === 'error' || status === 'init-failed'
-            ? { pct: Number.isFinite(pct) ? pct : null, status } : false;
-    }, undefined, { timeout: MODEL_BYTES_MS, polling: 50 }).then((h) => h.jsonValue(), () => null);
-    if (decided) return decided;
-    // The bound ended undecided: the last read, so the receipt says what the page showed when the browser went offline.
-    return page.evaluate(() => {
-        const pct = Number.parseInt(document.querySelector('[data-testid="mic-progress"]')?.textContent ?? '', 10);
-        return { pct: Number.isFinite(pct) ? pct : null, status: document.documentElement.getAttribute('data-model-status') };
-    }).catch(() => null);
+async function waitForTransfer(page: Page, transfer: () => TransferSnapshot): Promise<ModelBytesRead | null> {
+    const deadline = Date.now() + MODEL_BYTES_MS;
+    let read: ModelBytesRead | null = null;
+    for (;;) {
+        read = await readModelBytes(page);
+        if (downloadingNow(read, transfer())) return read;
+        const settled = read !== null && (['ready', 'error', 'init-failed'].includes(read.status ?? '')
+            || ['READY', 'RECORDING', 'STOPPING', 'FAILED', 'FAILED_VISIBLE', 'TERMINATED'].includes(read.runtimeState ?? ''));
+        if (settled || Date.now() >= deadline) return read;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+}
+
+/** One immediate read of the published runtime state, model status and byte percent. */
+const readModelBytes = (page: Page): Promise<ModelBytesRead | null> => page.evaluate(() => {
+    const pct = Number.parseInt(document.querySelector('[data-testid="mic-progress"]')?.textContent ?? '', 10);
+    const root = document.documentElement;
+    return { pct: Number.isFinite(pct) ? pct : null, status: root.getAttribute('data-model-status'), runtimeState: root.getAttribute('data-runtime-state') };
+}).catch(() => null);
+
+/** This attempt's phase, from the complete runtime-state log from the index read at its press (`attemptPhase`). */
+const attemptPhaseOf = async (page: Page, fromIndex: number): Promise<AttemptPhase> => {
+    const log = await page.evaluate(readRuntimeStateLog).catch(() => ({ token: null, states: [] as string[] }));
+    return attemptPhase({ observed: log.token === runtimeStateToken, states: log.states }, fromIndex);
+};
+
+/**
+ * Sam, 2026-11-15 (run 43740031821; #1868 HOLD on f62e94c3): when no mid-download fault was exercised, the cold `Download & start
+ * recording` press goes on to record. That take is stopped through the product's own Stop (the same bounded stop and persisted
+ * wait as a recovery take; no Start press), so the account never keeps a recorded take with no saved row. Whether it recorded
+ * comes from the attempt's COMPLETE log, never the current state: a take that recorded and then FAILED is recorded (and unsaved:
+ * FAIL), and an unobserved attempt is unknown (FAIL). Only a setup failure bound to this attempt skips the wait for a recording.
+ */
+async function settleColdTake(page: Page, label: string, takes: string[], fromIndex: number): Promise<{ recorded: boolean | null; savedId: string | null }> {
+    const phase = await attemptPhaseOf(page, fromIndex);
+    if (phase === 'unobserved' || phase === 'unattributed-failure') return { recorded: null, savedId: null };
+    // Only a setup failure bound to this attempt (FAILED from its own ENGINE_INITIALIZING, never READY) skips the wait.
+    const recordingNow = phase !== 'setup-failed' && await isRecording(page, phase === 'recorded' ? 5_000 : RECORDING_MS);
+    if (!recordingNow) {
+        const final = await attemptPhaseOf(page, fromIndex);
+        if (final === 'unobserved' || final === 'unattributed-failure') return { recorded: null, savedId: null };
+        return { recorded: final === 'recorded', savedId: null };
+    }
+    const recorded = true;
+    await page.waitForTimeout(Math.round((fixture.entry.speechSeconds + 4) * 1000));
+    await stopBenchmarkRecording(page, label, 180_000);
+    await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 180_000 }).catch(() => undefined);
+    const savedId = await persistedId(page);
+    if (savedId) takes.push(savedId);
+    return { recorded, savedId };
 }
 
 /**
@@ -272,18 +314,18 @@ async function reopenRow(receipt: RwtReceipt, page: Page, recovered: { savedId: 
  * the recovery (`pressRecovery`) then presses only its variant's designed control (`RECOVERY_CONTROLS`), never in a loop, and
  * presses nothing when the page offers anything else. Each press, by its line:
  *  AHT-12 mic denied — at most 2:
- *   1. the denied press, `mic-download` or `mic-start` (whichever is offered): `await control.click()` (rwtAdverseJourney.ts:381);
+ *   1. the denied press, `mic-download` or `mic-start` (whichever is offered): `await control.click()` (rwtAdverseJourney.ts:424);
  *   2. the allowing browser's ONE recovery press of its offered `mic-download` (cold: download, then recording) or `mic-start`:
- *      `await control.click()` (rwtAdverseJourney.ts:169). No Retry: a `mic-retry` offer there is a FAIL, not pressed.
+ *      `await control.click()` (rwtAdverseJourney.ts:211). No Retry: a `mic-retry` offer there is a FAIL, not pressed.
  *   So `mic-download` and `mic-start` may each take both presses; `mic-retry` none. The catalog's minimumStarts 3 assumes
  *   the harness's same-context Allow → Start route, which this two-browser design does not take (a `=deny` browser never
  *   grants; see the mic-denied branch).
  *  AHT-13 download fails — exactly 3:
- *   1. `mic-download` with the model route aborted (rwtAdverseJourney.ts:439);
- *   2. `mic-retry` once the cause is removed (rwtAdverseJourney.ts:157);
- *   3. `mic-start` only after Retry's setup published `ready` (rwtAdverseJourney.ts:163).
- *  AHT-14 offline mid-download — exactly 3: `mic-download` (rwtAdverseJourney.ts:444), then the same `mic-retry` and
- *   `mic-start` as AHT-13 (rwtAdverseJourney.ts:157, :163).
+ *   1. `mic-download` with the model route aborted (rwtAdverseJourney.ts:486);
+ *   2. `mic-retry` once the cause is removed (rwtAdverseJourney.ts:199);
+ *   3. `mic-start` only after Retry's setup published `ready` (rwtAdverseJourney.ts:205).
+ *  AHT-14 offline mid-download — exactly 3: `mic-download` (rwtAdverseJourney.ts:500), then the same `mic-retry` and
+ *   `mic-start` as AHT-13 (rwtAdverseJourney.ts:199, :205).
  */
 const AHT12_START_PRESS_BUDGET: StartPressBudget = { total: 2, perControl: { 'mic-download': 2, 'mic-start': 2 } };
 const AHT13_START_PRESS_BUDGET: StartPressBudget = { total: 3, perControl: { 'mic-download': 1, 'mic-retry': 1, 'mic-start': 1 } };
@@ -364,6 +406,7 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
         await page.waitForURL(/\/session/, { timeout: 45_000 });
         await selectBenchmarkMode(page, 'private');
         await page.evaluate(armModelStatusLog, modelStatusToken);
+        await page.evaluate(armRuntimeStateLog, runtimeStateToken);
 
         if (variant === 'mic-denied') {
             await setSiteMicrophone(page, browser, 'denied');
@@ -429,6 +472,10 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
             // seen by then (a diagnostic only: the model worker's fetches may not reach Playwright's network events).
             let atOffline: ModelBytesRead | null = null;
             let modelResponsesBeforeOffline: number | null = null;
+            // AHT-14 only: this attempt's network transfer at the gate (bodies in flight).
+            let transferAtGate: TransferSnapshot | null = null;
+            // AHT-14 only: the runtime-state log index read at the cold press (every phase of this attempt is read from it).
+            let pressIndex = 0;
             if (variant === 'download-fails') {
                 // Codex P1 r on f527a033: the phase opens BEFORE the fault is injected, so a failure the injection causes is
                 // always captured inside it (events are judged by their own capture time).
@@ -437,20 +484,66 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
                 injected = await context.route(MODEL_ASSETS, (route) => route.abort('failed')).then(() => true, () => false);
                 fault.startAttempt();
                 await page.getByTestId('mic-download').click();
+                await failedState(page, 300_000);
             } else {
                 let modelResponses = 0;
                 context.on('response', (r) => { if (MODEL_PATH.test(r.url())) modelResponses += 1; });
+                // Sam, 2026-11-15 (#1868 on 887a76f6): the transfer itself, from the network — bodies of this attempt in flight.
+                const transfer = new ModelTransferTracker<object>();
+                context.on('request', (r) => transfer.onRequest(r, r.url()));
+                context.on('response', (r) => transfer.onResponse(r.request()));
+                context.on('requestfinished', (r) => transfer.onFinished(r));
+                context.on('requestfailed', (r) => transfer.onFailed(r));
+                pressIndex = (await page.evaluate(readRuntimeStateLog).catch(() => ({ token: null, states: [] as string[] }))).states.length;
                 fault.startAttempt();
+                transfer.startAttempt();
                 await page.getByTestId('mic-download').click();
                 // "Mid-download" (review AHT-14): offline only once the page has RECEIVED model bytes, never merely when a request
-                // is issued. If no bytes show within the bound it still goes offline, and the failure row is HOLD, never PASS.
-                atOffline = await waitForModelBytes(page);
+                // is issued, and (Sam, 2026-11-15; Codex P1 on df4db146; Sam on 887a76f6) only while the published runtime is in
+                // this attempt's setup (ENGINE_INITIALIZING, the state the download runs in), the product has counted bytes, and a
+                // body of this attempt is in flight on the network. `runOfflineFault` re-reads the attempt's log and transfer on
+                // every poll: a transfer that ended before the fault reached it restores the network at once and requires the page
+                // to report itself online; a recording, an unobserved attempt or a failure not bound to this attempt restores and
+                // fails closed. The watchdog is unchanged.
+                atOffline = await waitForTransfer(page, () => transfer.snapshot());
+                transferAtGate = transfer.snapshot();
                 modelResponsesBeforeOffline = modelResponses;
-                watch.setFaultPhase(true); // opened before going offline: the offline transition itself fails the download
-                fault.armFault();
-                injected = await context.setOffline(true).then(() => true, () => false);
+                // Sam, 2026-11-15 (#1868 HOLD on f62e94c3): every phase of this attempt is read from its log index at the press.
+                const offlineOutcome = await runOfflineFault({
+                    setOffline: (offline) => context.setOffline(offline).then(() => true, () => false),
+                    phase: () => attemptPhaseOf(page, pressIndex),
+                    transfer: () => transfer.snapshot(),
+                    isOnline: () => page.evaluate(() => navigator.onLine).catch(() => null),
+                    armFault: () => { watch.setFaultPhase(true); fault.armFault(); transfer.armFault(); },
+                    disarmFault: () => { transfer.disarm(); fault.disarm(); watch.setFaultPhase(false); },
+                    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+                    now: () => Date.now(),
+                }, atOffline, { boundMs: 300_000, pollMs: 50 });
+                injected = offlineOutcome.kind === 'exercised';
+                if (offlineOutcome.kind !== 'exercised') {
+                    // No mid-download fault reached a download: never PASS. The cold take is stopped and saved, or FAILs.
+                    const failure = offlineNotExercisedVerdict(offlineOutcome);
+                    receipt.row('model download failure is stated truthfully', failure.status, failure.detail, {
+                        faultInjected: false, offlineOutcome: offlineOutcome.kind, restoredOnline: offlineOutcome.restored,
+                        gatePassed: offlineInjectionGate(atOffline, transferAtGate).inject, openInBodyAtGate: transferAtGate?.openInBody ?? null,
+                        progressAtGate: atOffline?.pct ?? null,
+                        statusAtGate: atOffline?.status ?? null, runtimeStateAtGate: atOffline?.runtimeState ?? null, modelResponsesBeforeOffline,
+                    });
+                    if (!offlineOutcome.restored) {
+                        // Sam, 2026-11-15 on 481ae722: no Stop/save while the page has not reported itself online.
+                        const stopped = unprovenRestoreVerdict('stop-and-save');
+                        receipt.row('Retry downloads the model and a take saves', stopped.status, stopped.detail, { faultExercised: false, restoredOnline: false });
+                        await reopenRow(receipt, page, { savedId: null, savedDigest: null });
+                        return;
+                    }
+                    const cold = await settleColdTake(page, `adverse-${variant}-cold`, takes, pressIndex);
+                    const settled = coldTakeSettledVerdict(cold);
+                    receipt.row('Retry downloads the model and a take saves', settled.status, settled.detail,
+                        { faultExercised: false, coldTakeRecorded: cold.recorded, coldTakeSaved: cold.savedId !== null, mode: await sttMode(page) });
+                    await reopenRow(receipt, page, { savedId: null, savedDigest: null });
+                    return;
+                }
             }
-            await failedState(page, 300_000);
             const history = await modelStatuses(page);
             const failureFacts = {
                 exercised: injected && fault.failures > 0,
@@ -460,12 +553,14 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
                 retryOffered: await page.getByTestId('mic-retry').isVisible().catch(() => false),
                 mode: await sttMode(page),
             };
-            const bytesSeenBeforeOffline = modelBytesSeen(atOffline);
+            // AHT-14: "bytes seen before offline" is the gate itself (counted bytes AND a body in flight), never the percent alone.
+            const bytesSeenBeforeOffline = offlineInjectionGate(atOffline, transferAtGate).inject;
             const failure = variant === 'offline-mid-download'
                 ? midDownloadFailureVerdict({ ...failureFacts, bytesSeenBeforeOffline })
                 : downloadFailureVerdict(failureFacts);
             const midDownload: Record<string, string | number | boolean | null> = variant === 'offline-mid-download'
-                ? { bytesSeenBeforeOffline, progressAtOffline: atOffline?.pct ?? null, statusAtOffline: atOffline?.status ?? null, modelResponsesBeforeOffline }
+                ? { bytesSeenBeforeOffline, progressAtOffline: atOffline?.pct ?? null, statusAtOffline: atOffline?.status ?? null,
+                    runtimeStateAtOffline: atOffline?.runtimeState ?? null, openInBodyAtOffline: transferAtGate?.openInBody ?? null, modelResponsesBeforeOffline }
                 : {};
             receipt.row('model download failure is stated truthfully', failure.status, failure.detail,
                 { faultInjected: injected, modelWeightFailuresAfterFault: fault.failures, statusesObserved: history.observed, statusChanges: history.statuses.length,
@@ -475,6 +570,23 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
             else await context.setOffline(false);
             fault.disarm();
             watch.setFaultPhase(false);
+            // Sam, 2026-11-15 on 481ae722: AHT-14 presses no recovery control until the page itself reports it is online again.
+            if (variant === 'offline-mid-download' && (await page.evaluate(() => navigator.onLine).catch(() => null)) !== true) {
+                const stopped = unprovenRestoreVerdict('recovery-press');
+                receipt.row('Retry downloads the model and a take saves', stopped.status, stopped.detail, { restoredOnline: false });
+                await reopenRow(receipt, page, { savedId: null, savedDigest: null });
+                return;
+            }
+            // Sam, 2026-11-15 on f326a7b0: AHT-14 presses Retry ONLY after the fault is proven (the failure row PASSed). Otherwise no
+            // recovery control is pressed; a take the cold press may still record is stopped and saved through Stop, or FAILs.
+            if (variant === 'offline-mid-download' && failure.status !== 'PASS') {
+                const cold = await settleColdTake(page, `adverse-${variant}-cold`, takes, pressIndex);
+                const unproven = faultUnprovenRecoveryVerdict(cold);
+                receipt.row('Retry downloads the model and a take saves', unproven.status, unproven.detail,
+                    { faultProven: false, coldTakeRecorded: cold.recorded, coldTakeSaved: cold.savedId !== null, mode: await sttMode(page) });
+                await reopenRow(receipt, page, { savedId: null, savedDigest: null });
+                return;
+            }
             // Retry is judged only after a failed download was stated with Retry; otherwise there is nothing to recover from.
             const recovered = await saveRecoveredTake(page, variant, failure.status === 'PASS', accountRows, `adverse-${variant}`, takes);
             const after = await modelStatuses(page);
