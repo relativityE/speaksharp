@@ -1422,8 +1422,8 @@
       "id": "P10-bridge-torn-not-fault",
       "guards": "a torn budget journal makes every journey's cleanup incomplete",
       "file": "runner-bridge.cjs",
-      "find": "                    : torn > 0 ? [`${torn} run budget journal write(s) were cut short`] : [];\n",
-      "replace": "                    : [];\n",
+      "find": "                : torn > 0 ? [`${torn} run budget journal write(s) were cut short`] : [];\n",
+      "replace": "                : [];\n",
       "test": "tests/runner-bridge.test.cjs"
     },
     {
@@ -1438,8 +1438,8 @@
       "id": "P10-bridge-no-evidence",
       "guards": "the run's cleanup evidence is written on save",
       "file": "runner-bridge.cjs",
-      "find": "                evidence = writeCleanupEvidence(opts.evidenceDir, opts.runId, entries, { cleanupExhausted: (j) => budget.cleanupExhausted(j), runFaults });\n",
-      "replace": "                evidence = { cleanup: 'complete', incompleteJourneys: [], incompleteReasons: {} };\n",
+      "find": "            evidence = writeCleanupEvidence(opts.evidenceDir, opts.runId, entries, { cleanupExhausted: (j) => budget.cleanupExhausted(j), runFaults });\n",
+      "replace": "            evidence = { cleanup: 'complete', incompleteJourneys: [], incompleteReasons: {} };\n",
       "test": "tests/runner-bridge.test.cjs"
     },
     {
@@ -1478,7 +1478,7 @@
       "id": "P10-bridge-created-not-recorded",
       "guards": "the runner's creation record, not the teardown report, is written to the evidence",
       "file": "runner-bridge.cjs",
-      "find": "                    created: createdByJourney.get(journey) ?? [],\n",
+      "find": "                created: createdByJourney.get(journey) ?? [],\n",
       "replace": "",
       "test": "tests/runner-bridge.test.cjs"
     },
@@ -1496,6 +1496,30 @@
       "file": "runner-bridge.cjs",
       "find": "                split = splitCaseResult(c.id, { ...ran, caseId: c.id, assertions: ran.assertions ?? [] });\n",
       "replace": "                split = splitCaseResult(c.id, { caseId: c.id, assertions: ran.assertions ?? [] });\n",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-bridge-evidence-at-checkpoint",
+      "guards": "cleanup evidence is published once after the campaign, never at a checkpoint save (Codex P1 a09d4da8)",
+      "file": "runner-bridge.cjs",
+      "find": "            if (report && typeof report === 'object')\n                report.nightly = { ...outcome(), interim: !finished };\n",
+      "replace": "            if (!finished && budget)\n                return finish(report);\n            if (report && typeof report === 'object')\n                report.nightly = { ...outcome(), interim: !finished };\n",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-bridge-no-reconcile",
+      "guards": "the verdicts are reconciled with the harness results before publishing (Codex P2 a09d4da8)",
+      "file": "runner-bridge.cjs",
+      "find": "            reconcile(report);\n",
+      "replace": "",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-bridge-terminal-ignored",
+      "guards": "an incomplete harness run turns PASS legs into HOLD",
+      "file": "runner-bridge.cjs",
+      "find": "        if (!completed) {\n",
+      "replace": "        if (false) {\n",
       "test": "tests/runner-bridge.test.cjs"
     }
   ]

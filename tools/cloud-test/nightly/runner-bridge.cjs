@@ -12,8 +12,10 @@
 //     decides what the journey's cleanup must cover (an omitted resource can't look clean). It returns its usual
 //     result plus `nightlyCleanup` for its journey ({ steps, left, verification }, see cleanup-evidence.cjs). Its rows
 //     become leg verdicts with the leg's budget facts;
-//   - save: the cleanup evidence is written once (a journey no case accounted for is written with no verification, so it
-//     is incomplete), and the leg and run verdicts join the report.
+//   - save (called by runCampaign after every case): attaches an interim nightly summary only;
+//   - finish (called ONCE by the nightly runner after runCampaign returns): reconciles the leg verdicts with the
+//     harness's own case and terminal results, writes the cleanup evidence once (a journey no case accounted for is
+//     written with no verification, so it is incomplete), and saves the final report.
 // The harness case process does not route its sends through `nightly` yet: that is the next step of #1865's harness
 // handoff (§3). Until then this bridge is proven offline only and must not be given a live run.
 const fs = require('node:fs');
@@ -145,22 +147,67 @@ function nightlyAdapter(io, opts) {
             }
             return ran;
         },
+        // runCampaign saves after every case (a checkpoint), so save only attaches an interim summary. The cleanup evidence
+        // is written once, by `finish`, after the whole campaign (Codex P1 on a09d4da8): a checkpoint must never publish a
+        // journey as complete before its later cases ran, nor seal a not-yet-run journey as incomplete.
         async save(report) {
-            if (budget && journeys && !evidence) {
-                const entries = journeys.map((journey) => ({
-                    journey, reserveExhausted: false, ...combineCleanup(cleanupParts.get(journey) ?? []),
-                    created: createdByJourney.get(journey) ?? [],
-                }));
-                const torn = budget.journalTorn();
-                const runFaults = torn === null ? ['the run budget journal could not be read']
-                    : torn > 0 ? [`${torn} run budget journal write(s) were cut short`] : [];
-                evidence = writeCleanupEvidence(opts.evidenceDir, opts.runId, entries, { cleanupExhausted: (j) => budget.cleanupExhausted(j), runFaults });
-            }
             if (report && typeof report === 'object')
-                report.nightly = outcome();
+                report.nightly = { ...outcome(), interim: !finished };
             return io.save(report);
         },
     };
+    let finished = false;
+    /**
+     * Reconciles the leg verdicts with what the harness accepted (Codex P2 on a09d4da8): a leg recorded PASS whose case
+     * the harness invalidated or did not pass (a failed post-case identity read, a safety stop), or any PASS leg of a
+     * run the harness did not complete (result NOT RUN: the final identity unproven), becomes HOLD. A FAIL stays FAIL.
+     */
+    function reconcile(report) {
+        for (const row of Array.isArray(report?.cases) ? report.cases : []) {
+            const rejected = row?.executionInvalid === true || (row?.result !== undefined && row.result !== 'PASS');
+            if (!rejected)
+                continue;
+            for (const leg of legsForCase(row.caseId)) {
+                if (ledger.get(leg)?.outcome === 'PASS')
+                    ledger.record({ ...ledger.get(leg), outcome: 'HOLD', reason: `the harness did not accept ${row.caseId}'s run: ${row.reason ?? row.result}` });
+            }
+        }
+        // A selected run's own result is `selectedResult` (`result` counts all 15 cases, so it is NOT RUN by design). The
+        // run is complete only with a verified final identity, no safety stop, and a selected result of PASS or FAIL.
+        const terminal = report?.selection ? report.selectedResult : report?.result;
+        const completed = report?.finalIdentity === 'MATCH' && report?.safetyStopped !== true && (terminal === 'PASS' || terminal === 'FAIL');
+        if (!completed) {
+            const why = `final identity ${report?.finalIdentity ?? 'missing'}, result ${terminal ?? 'missing'}${report?.safetyStopped ? ', safety stop' : ''}${report?.reason ? `: ${report.reason}` : ''}`;
+            for (const [, v] of ledger.verdicts()) {
+                if (v.outcome === 'PASS')
+                    ledger.record({ ...v, outcome: 'HOLD', reason: `the harness did not complete the run (${why})` });
+            }
+        }
+    }
+    /**
+     * Call once, after runCampaign returns, with its report: reconciles the verdicts, writes the run's cleanup evidence
+     * (every journey, with the runner's record of what it created; a torn or unreadable journal is a run fault) and saves
+     * the final report. A runner that dies before this leaves its start record with no evidence, so admission stays shut.
+     */
+    async function finish(report) {
+        if (finished)
+            throw new Error('nightly: the run was already finished');
+        finished = true;
+        if (budget && journeys) {
+            reconcile(report);
+            const entries = journeys.map((journey) => ({
+                journey, reserveExhausted: false, ...combineCleanup(cleanupParts.get(journey) ?? []),
+                created: createdByJourney.get(journey) ?? [],
+            }));
+            const torn = budget.journalTorn();
+            const runFaults = torn === null ? ['the run budget journal could not be read']
+                : torn > 0 ? [`${torn} run budget journal write(s) were cut short`] : [];
+            evidence = writeCleanupEvidence(opts.evidenceDir, opts.runId, entries, { cleanupExhausted: (j) => budget.cleanupExhausted(j), runFaults });
+        }
+        if (report && typeof report === 'object')
+            report.nightly = { ...outcome(), interim: false };
+        return io.save(report);
+    }
     function outcome() {
         const verdicts = ledger.verdicts();
         return {
@@ -171,7 +218,7 @@ function nightlyAdapter(io, opts) {
             run: runVerdict(verdicts, budget ? budget.allocatedLegs() : []),
         };
     }
-    return { io: wrapped, outcome };
+    return { io: wrapped, outcome, finish };
 }
 
 module.exports = { casesForLegs, combineCleanup, nightlyAdapter };

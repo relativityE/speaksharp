@@ -12,6 +12,7 @@ const { IDS, runCampaign } = require('../../harness/bundle/harness/campaign-core
 const { admitRun } = require('../cleanup-evidence.cjs');
 const { cleanupReserve } = require('../cleanup-plan.cjs');
 const { rowsForLeg } = require('../journey-plan.cjs');
+const { legsForCase } = require('../case-results.cjs');
 const { casesForLegs, combineCleanup, nightlyAdapter } = require('../runner-bridge.cjs');
 
 const hash = 'a'.repeat(64);
@@ -35,29 +36,38 @@ function campaignPlan(legs) {
  * A fake harness adapter whose only case is AHT-11. `scenario`: starts and coaching it asks to send, `residue` (count
  * its residue query returns), `left` (resources it reports left), `tearJournal` (a write cut short mid-case), `skipVerify`.
  */
+/** The raw row ids a case reports for the legs it covers (its own and the invariants). */
+const rowsFor = (caseId) => [...new Set(legsForCase(caseId).flatMap((l) => rowsForLeg(l))
+    .filter((r) => r.startsWith(`${caseId}:`) || r.startsWith('invariant:')).map((r) => r.split(':')[1]))];
 function fakeIo(scenario, wire) {
     const calls = [];
+    const evidenceAtSave = [];
     return {
         calls,
+        evidenceAtSave,
         now: () => NOW,
-        save: async () => {},
+        save: async () => { evidenceAtSave.push(scenario.evidenceFile ? fs.existsSync(scenario.evidenceFile) : null); },
         preflightCase: async () => {},
         admit: async () => { calls.push('admit'); return { result: 'ADMISSION PASS' }; },
-        identity: async (phase) => { calls.push(`identity:${phase}`); return { result: 'MATCH', servedSha: commit }; },
-        caseConfig: async (c) => ({ caseId: c.id, sourceSha: commit, servedSha: commit, targetUrl: 'https://speaksharp-public.vercel.app/', requiredAssertions: J6_ROWS }),
+        identity: async (phase) => {
+            calls.push(`identity:${phase}`);
+            return { result: 'MATCH', servedSha: phase === scenario.identityMismatchAt ? 'c'.repeat(40) : commit };
+        },
+        caseConfig: async (c) => ({ caseId: c.id, sourceSha: commit, servedSha: commit, targetUrl: 'https://speaksharp-public.vercel.app/', requiredAssertions: rowsFor(c.id) }),
         runCase: async (c, _plan, _admission, { nightly }) => {
             calls.push(`run:${c.id}`);
             const leg = nightly.legs[0];
             const refused = [];
+            const j6 = c.id === 'AHT-11';
             // The runner records what it creates BEFORE the creating send; the teardown's report can't erase it.
-            nightly.created(leg, { kind: 'account', ref: 'acct-unit-J6' });
+            nightly.created(leg, { kind: 'account', ref: `acct-unit-${c.id}` });
             if (scenario.createFence)
                 nightly.created(leg, { kind: 'feedback-fence', ref: 'fence-unit-J6' });
-            for (let i = 0; i < scenario.starts; i += 1) {
+            for (let i = 0; i < (j6 ? scenario.starts : 0); i += 1) {
                 const r = await nightly.send(leg, 'starts', async () => wire.push('starts'));
                 if (!r.sent) refused.push('starts');
             }
-            for (let i = 0; i < scenario.coaching; i += 1) {
+            for (let i = 0; i < (j6 ? scenario.coaching : 0); i += 1) {
                 const r = await nightly.send(leg, 'coaching', async () => wire.push('coaching'));
                 if (!r.sent) refused.push('coaching');
             }
@@ -67,16 +77,16 @@ function fakeIo(scenario, wire) {
                 throw new Error('injected case failure after its sends');
             const del = await nightly.cleanup(leg, async () => { wire.push('cleanup:delete-account'); return true; });
             const query = scenario.skipVerify ? { sent: false } : await nightly.cleanup(leg, async () => { wire.push('cleanup:residue-query'); return scenario.residue ?? 0; });
-            const assertions = J6_ROWS.map((id) => ({ id, result: scenario.harnessCapStop && id === 'start-press-budget' ? 'NOT RUN' : 'PASS', detail: 'offline fake', evidenceRefs: ['unit.json'] }));
+            const assertions = rowsFor(c.id).map((id) => ({ id, result: scenario.harnessCapStop && id === 'start-press-budget' ? 'NOT RUN' : 'PASS', detail: 'offline fake', evidenceRefs: ['unit.json'] }));
             return {
                 assertions, cleanupEvidence: POSITIVE, refused,
                 // The harness's own Start-press cap stop (source-adapters.cjs): start-press-budget NOT RUN plus this signal.
                 ...(scenario.harnessCapStop ? { executionSignals: { startPressCapExceeded: true } } : {}),
                 nightlyCleanup: {
-                    steps: scenario.omitSteps ? [] : [{ kind: 'account', ref: 'acct-unit-J6', action: 'delete', outcome: del.sent ? 'done' : 'not attempted' }],
-                    left: scenario.left ?? [],
+                    steps: scenario.omitSteps ? [] : [{ kind: 'account', ref: `acct-unit-${c.id}`, action: 'delete', outcome: del.sent ? 'done' : 'not attempted' }],
+                    left: scenario.leftFor?.[c.id] ?? (j6 ? scenario.left : undefined) ?? [],
                     ...(scenario.claimNothingCreated ? { verification: { kind: 'nothing-created' } }
-                        : query.sent ? { verification: { kind: 'zero-residue', queries: [{ kind: 'account', scope: 'unit-run:J6', count: query.value }] } } : {}),
+                        : query.sent ? { verification: { kind: 'zero-residue', queries: [{ kind: 'account', scope: `unit-run:${c.id}`, count: query.value }] } } : {}),
                 },
             };
         },
@@ -92,10 +102,13 @@ const dirs = () => {
 async function nightlyRun(d, runId, { legs = ['J6'], coachingCeiling, ...scenario } = {}) {
     const wire = [];
     const runDir = d.runDir(runId);
-    const raw = fakeIo({ starts: 4, coaching: 2, runDir, ...scenario }, wire);
-    const { io, outcome } = nightlyAdapter(raw, { runDir, evidenceDir: d.evidenceDir, runId, selected: legs, satisfiedGates: [], coachingCeiling });
+    const evidenceFile = path.join(d.evidenceDir, `${runId}.cleanup.json`);
+    const raw = fakeIo({ starts: 4, coaching: 2, runDir, evidenceFile, ...scenario }, wire);
+    const { io, outcome, finish } = nightlyAdapter(raw, { runDir, evidenceDir: d.evidenceDir, runId, selected: legs, satisfiedGates: [], coachingCeiling });
     const r = await runCampaign(campaignPlan(legs.filter((l) => l !== 'J2')), io, { executeR0: true });
-    return { r, wire, calls: raw.calls, outcome: outcome(), report: r.report };
+    // As the nightly runner does: finish once, after the whole campaign.
+    await finish(r.report);
+    return { r, wire, calls: raw.calls, evidenceAtSave: raw.evidenceAtSave, outcome: outcome(), report: r.report };
 }
 
 describe('nightly runner bridge: one journey (J6) through the real harness runner, offline', () => {
@@ -153,7 +166,7 @@ describe('nightly runner bridge: one journey (J6) through the real harness runne
             ['a residue query that found one', { residue: 1 }, 'found 1'],
             ['no residue check', { skipVerify: true }, 'no residue verification'],
             // Sam, 14 Nov: tied to what the runner created, so an omitted resource can't look clean.
-            ['a teardown report that omits the created account', { omitSteps: true }, 'created account acct-unit-J6 has no completed cleanup step'],
+            ['a teardown report that omits the created account', { omitSteps: true }, 'created account acct-unit-AHT-11 has no completed cleanup step'],
             ['"nothing created" after the runner created an account', { omitSteps: true, claimNothingCreated: true }, 'the runner recorded creating 1 resource'],
             ['a created feedback fence the residue check never queried', { createFence: true }, 'no residue query for feedback-fence'],
         ]) {
@@ -185,6 +198,32 @@ describe('nightly runner bridge: one journey (J6) through the real harness runne
         // killed here: save never runs
         assert.equal(admitRun(d.evidenceDir).admitted, false);
         assert.equal((await nightlyRun(d, 'r2')).outcome.admitted, false);
+    });
+    // Codex P1 on a09d4da8: runCampaign saves after every case; cleanup evidence must be published once, after them all.
+    it('a two-case journey (J4) writes no evidence at any checkpoint save, and a later case\'s leftover still counts', async () => {
+        const ok = await nightlyRun(dirs(), 'r1', { legs: ['J4.a', 'J4.b'] });
+        assert.deepEqual(ok.calls.filter((c) => c.startsWith('run:')), ['run:AHT-05', 'run:AHT-06']);
+        assert.ok(ok.evidenceAtSave.length >= 3, `saves: ${ok.evidenceAtSave}`);
+        assert.ok(ok.evidenceAtSave.slice(0, -1).every((x) => x === false), `no checkpoint save saw evidence: ${ok.evidenceAtSave}`);
+        assert.equal(ok.evidenceAtSave.at(-1), true, 'the final save (finish) comes after the evidence');
+        assert.equal(ok.outcome.cleanup.result, 'complete');
+        const d = dirs();
+        const later = await nightlyRun(d, 'r1', { legs: ['J4.a', 'J4.b'], leftFor: { 'AHT-06': [{ kind: 'account', ref: 'acct-unit-AHT-06' }] } });
+        assert.equal(later.outcome.cleanup.result, 'incomplete', 'the second case\'s leftover is in the journey\'s evidence');
+        assert.deepEqual(later.outcome.cleanup.incompleteJourneys, ['J4']);
+        assert.equal((await nightlyRun(d, 'r2', { legs: ['J4.a', 'J4.b'] })).outcome.admitted, false);
+    });
+    // Codex P2 on a09d4da8: a PASS the harness rejected afterwards must not stand in the nightly summary.
+    it('a post-case identity mismatch, or an unverified campaign end, turns the leg\'s PASS into HOLD', async () => {
+        for (const phase of ['after-AHT-11', 'campaign-end']) {
+            const { outcome, report } = await nightlyRun(dirs(), 'r1', { identityMismatchAt: phase });
+            assert.notEqual(report.result, 'PASS', phase);
+            assert.equal(outcome.legs.J6.outcome, 'HOLD', `${phase}: ${outcome.legs.J6.reason}`);
+            assert.match(outcome.legs.J6.reason, /the harness did not/, phase);
+            assert.notEqual(outcome.run.scope.outcome, 'PASS', phase);
+            assert.equal(report.nightly.legs.J6.outcome, 'HOLD', phase);
+            assert.equal(report.nightly.interim, false, phase);
+        }
     });
     // Codex P2 on 1d2bb043: the harness's own cap stop arrives as an execution signal, and the bridge must forward it.
     it('the harness\'s Start-press cap stop (start-press-budget NOT RUN + startPressCapExceeded) is FAIL through the bridge', async () => {
