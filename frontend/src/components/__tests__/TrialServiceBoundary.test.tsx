@@ -133,17 +133,17 @@ describe('trial service payment wall', () => {
 
     it('on the recording route, a take live while confirmed finishes at expiry, then the wall shows', () => {
         state.query.data = permit;
-        state.take = { runtimeState: 'RECORDING', engineSelectionLocked: true, pendingResolutionKind: null };
+        state.take = { runtimeState: 'RECORDING', engineSelectionLocked: true, pendingResolutionKind: null, completedSessionId: null };
         const view = render(sessionTree());
         state.query = { ...state.query, data: { can_start: false, error: 'trial_expired' }, dataUpdatedAt: 2 };
         view.rerender(sessionTree());
         expect(screen.getByText('PRIVATE SAVED WORK')).toBeInTheDocument();
         // Stopping is still the take: its stop and save outcome stays on the page.
-        state.take = { runtimeState: 'STOPPING', engineSelectionLocked: true, pendingResolutionKind: null };
+        state.take = { runtimeState: 'STOPPING', engineSelectionLocked: true, pendingResolutionKind: null, completedSessionId: null };
         view.rerender(sessionTree());
         expect(screen.getByText('PRIVATE SAVED WORK')).toBeInTheDocument();
         // A leftover save retry or engine lock is not a live take: once the take settles, the wall shows.
-        state.take = { runtimeState: 'IDLE', engineSelectionLocked: true, pendingResolutionKind: 'full_save' };
+        state.take = { runtimeState: 'IDLE', engineSelectionLocked: true, pendingResolutionKind: 'full_save', completedSessionId: null };
         view.rerender(sessionTree());
         expect(screen.queryByText('PRIVATE SAVED WORK')).not.toBeInTheDocument();
         expect(screen.getByTestId('trial-payment-wall')).toBeInTheDocument();
@@ -189,7 +189,7 @@ describe('trial service payment wall', () => {
 
     it('a live take keeps no other route open after a refusal', () => {
         state.query.data = permit;
-        state.take = { runtimeState: 'RECORDING', engineSelectionLocked: true, pendingResolutionKind: 'full_save' };
+        state.take = { runtimeState: 'RECORDING', engineSelectionLocked: true, pendingResolutionKind: 'full_save', completedSessionId: null };
         const view = render(tree());
         state.query = { ...state.query, data: { can_start: false, error: 'trial_expired' }, dataUpdatedAt: 2 };
         view.rerender(tree());
@@ -203,14 +203,14 @@ describe('trial service payment wall', () => {
         state.query = { ...state.query, data: { can_start: false, error: 'trial_expired' }, dataUpdatedAt: 2 };
         view.rerender(sessionTree());
         expect(screen.queryByText('PRIVATE SAVED WORK')).not.toBeInTheDocument();
-        state.take = { runtimeState: 'RECORDING', engineSelectionLocked: true, pendingResolutionKind: null };
+        state.take = { runtimeState: 'RECORDING', engineSelectionLocked: true, pendingResolutionKind: null, completedSessionId: null };
         view.rerender(sessionTree());
         expect(screen.queryByText('PRIVATE SAVED WORK')).not.toBeInTheDocument();
         expect(screen.getByTestId('trial-payment-wall')).toBeInTheDocument();
     });
 
     it('a live take never opens a page that was not confirmed on this mount', () => {
-        state.take = { runtimeState: 'RECORDING', engineSelectionLocked: true, pendingResolutionKind: 'full_save' };
+        state.take = { runtimeState: 'RECORDING', engineSelectionLocked: true, pendingResolutionKind: 'full_save', completedSessionId: null };
         state.query.data = { can_start: false, error: 'trial_expired' };
         render(sessionTree());
         expect(state.mounted).not.toHaveBeenCalled();
