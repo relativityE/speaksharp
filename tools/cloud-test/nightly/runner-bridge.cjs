@@ -21,6 +21,7 @@
 const fs = require('node:fs');
 const { CLEANUP, RunRefused, openSharedRunBudget, planRunBudget, writeSharedPlan } = require('./run-budget.cjs');
 const { CleanupUndefined, cleanupReserve } = require('./cleanup-plan.cjs');
+const { caseWorstCaseMs } = require('../harness/bundle/harness/campaign-core.cjs');
 const { beginRun, unprovenCleanup, writeCleanupEvidence } = require('./cleanup-evidence.cjs');
 const { legsForCase, splitCaseResult } = require('./case-results.cjs');
 const { VerdictLedger, legVerdict, runVerdict } = require('./leg-verdicts.cjs');
@@ -90,6 +91,20 @@ function nightlyAdapter(io, opts) {
             const planned = planRunBudget({ satisfiedGates, selected: opts.selected, coachingCeiling: opts.coachingCeiling });
             if (Object.keys(planned.plan().legs).length === 0)
                 throw new RunRefused('no named leg is runnable, so there is nothing to run');
+            // Time (Sam, 14 Nov): the run's ordinary work AND every journey's protected cleanup reserve must fit before
+            // the deadline, so cleanup is never squeezed out by work that fits on its own. Work is the harness's own
+            // per-case worst case (identity reads, the bounded case, its teardown); cleanup is each journey's frozen
+            // reserve time. Checked before anything is planned on disk, recorded or sent.
+            const campaign = args[0];
+            const deadline = Date.parse(campaign?.deadlineAt ?? '');
+            if (!Number.isFinite(deadline) || !Array.isArray(campaign?.cases))
+                throw new RunRefused('the run has no usable deadline to check its work and cleanup reserve against');
+            const runCases = casesForLegs(Object.keys(planned.plan().legs));
+            const workMs = campaign.cases.filter((c) => runCases.includes(c.id)).reduce((n, c) => n + caseWorstCaseMs(campaign, c), 0);
+            const cleanupMs = Object.values(planned.plan().cleanup).reduce((n, r) => n + r.seconds * 1000, 0);
+            const now = typeof io.now === 'function' ? io.now() : Date.now();
+            if (now + workMs + cleanupMs > deadline)
+                throw new RunRefused(`work (${Math.ceil(workMs / 1000)} s) plus the cleanup reserve (${Math.ceil(cleanupMs / 1000)} s) does not fit before the deadline (${Math.floor((deadline - now) / 1000)} s left)`);
             fs.mkdirSync(opts.runDir, { recursive: true });
             writeSharedPlan(opts.runDir, planned);
             const shared = openSharedRunBudget(opts.runDir);

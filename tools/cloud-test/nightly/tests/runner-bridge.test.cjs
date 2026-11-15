@@ -21,12 +21,12 @@ const NOW = Date.parse('2026-11-14T12:00:00Z');
 const J6_ROWS = [...new Set(rowsForLeg('J6').map((r) => r.split(':')[1]))];
 const POSITIVE = { schema: 'speaksharp.cloud-test.case-cleanup-evidence.v1', ownedProcessesRemaining: 0, launchCleanupFailure: false, mediaCleanupFailure: false, stopError: false, browserCloseError: false, guardClosed: true, cleanupIncomplete: false };
 
-function campaignPlan(legs) {
+function campaignPlan(legs, deadlineAt = '2026-11-14T13:00:00Z') {
     return {
         version: 1, campaignId: 'UNIT-NIGHTLY-NOT-A-RUN', runtime: 'Claude SpeakSharp R4', targetUrl: 'https://speaksharp-public.vercel.app/', costCeilingUsd: 0,
         sourceSha: commit, servedSha: commit, admissionConfigFile: 'unit.json', admissionConfigSha256: hash, stepRoot: 'unit', stepManifestFile: 'steps.json',
         stepManifestSha256: hash, campaignLedger: 'ledger.json', identityLedger: 'identity.json', identityCap: 32, runRoot: 'unit',
-        deadlineAt: '2026-11-14T13:00:00Z', cleanupReserveMs: 1000,
+        deadlineAt, cleanupReserveMs: 1000,
         cases: IDS.map((id) => ({ id, driverFile: `${id}.cjs`, driverSha256: hash, configFile: `${id}.json`, configSha256: hash, maxMs: 100 })),
         selection: { ids: casesForLegs(legs), ownerApprovalReference: 'unit-offline-proof-not-a-run', reason: 'nightly runner bridge offline proof' },
     };
@@ -106,7 +106,7 @@ async function nightlyRun(d, runId, { legs = ['J6'], coachingCeiling, ...scenari
     const evidenceFile = path.join(d.evidenceDir, `${runId}.cleanup.json`);
     const raw = fakeIo({ starts: 4, coaching: 2, runDir, evidenceFile, ...scenario }, wire);
     const { io, outcome, finish } = nightlyAdapter(raw, { runDir, evidenceDir: d.evidenceDir, runId, selected: legs, satisfiedGates: [], coachingCeiling });
-    const r = await runCampaign(campaignPlan(legs.filter((l) => l !== 'J2')), io, { executeR0: true });
+    const r = await runCampaign(campaignPlan(legs.filter((l) => l !== 'J2'), scenario.deadlineAt), io, { executeR0: true });
     // As the nightly runner does: finish once, after the whole campaign.
     await finish(r.report);
     return { r, wire, calls: raw.calls, evidenceAtSave: raw.evidenceAtSave, outcome: outcome(), report: r.report };
@@ -133,6 +133,23 @@ describe('nightly runner bridge: one journey (J6) through the real harness runne
         assert.equal(outcome.admitted, false);
         assert.equal(fs.existsSync(path.join(d.evidenceDir, 'r1.started.json')), false);
         assert.equal(admitRun(d.evidenceDir).admitted, true, 'a refused run leaves nothing to recover');
+    });
+    // Sam, 14 Nov: the time boundary. Work that fits on its own is refused when work plus the cleanup reserve does not.
+    it('stops: work that fits the deadline alone is refused when work plus the cleanup reserve does not', async () => {
+        const { caseWorstCaseMs } = require('../../harness/bundle/harness/campaign-core.cjs');
+        const work = caseWorstCaseMs(campaignPlan(['J6']), campaignPlan(['J6']).cases.find((c) => c.id === 'AHT-11'));
+        const reserve = cleanupReserve('J6').seconds * 1000;
+        const tight = new Date(NOW + work + reserve - 1000).toISOString();
+        assert.ok(work < reserve, 'the case\'s own worst case fits; only the reserve does not');
+        const d = dirs();
+        const { wire, calls, outcome } = await nightlyRun(d, 'r1', { deadlineAt: tight });
+        assert.deepEqual(wire, []);
+        assert.equal(calls.length, 0, 'not even the harness admission ran');
+        assert.equal(outcome.admitted, false);
+        assert.equal(fs.existsSync(path.join(d.evidenceDir, 'r1.started.json')), false);
+        const enough = await nightlyRun(dirs(), 'r1', { deadlineAt: new Date(NOW + work + reserve + 1000).toISOString() });
+        assert.equal(enough.outcome.admitted, true);
+        assert.equal(enough.outcome.legs.J6.outcome, 'PASS');
     });
     it('stops: a run naming J2 (no reviewed checkout cleanup) is refused, even beside a runnable leg', async () => {
         for (const legs of [['J2'], ['J6', 'J2']]) {

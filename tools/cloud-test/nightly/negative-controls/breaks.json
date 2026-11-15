@@ -1529,6 +1529,14 @@
       "find": "[j.journey, [...runFaults, ...(j.unproven ?? []), ...unprovenCleanup(j)]]",
       "replace": "[j.journey, [...runFaults, ...unprovenCleanup(j)]]",
       "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-bridge-time-ignores-cleanup",
+      "guards": "admission refuses a run whose work plus cleanup reserve does not fit before the deadline (Sam, 14 Nov)",
+      "file": "runner-bridge.cjs",
+      "find": "            if (now + workMs + cleanupMs > deadline)\n",
+      "replace": "            if (now + workMs > deadline)\n",
+      "test": "tests/runner-bridge.test.cjs"
     }
   ]
 }
