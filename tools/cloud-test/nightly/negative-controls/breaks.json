@@ -1070,8 +1070,8 @@
       "id": "P7-stale-break-unverified",
       "guards": "a stale lock is broken only after its owner is read again under the break lock",
       "file": "run-budget.cjs",
-      "find": "            if (staleNow(seen))\n                fs.rmSync(lock, { recursive: true, force: true });",
-      "replace": "            fs.rmSync(lock, { recursive: true, force: true });",
+      "find": "            if (staleNow(seen)) {\n                fs.rmSync(lock, { recursive: true, force: true });\n                return true;\n            }\n            return false;",
+      "replace": "            fs.rmSync(lock, { recursive: true, force: true });\n            return true;",
       "test": "tests/run-budget.test.cjs"
     },
     {
@@ -1214,8 +1214,8 @@
       "id": "P8-torn-budget-passes",
       "guards": "a torn run budget journal keeps every leg from passing",
       "file": "run-budget.cjs",
-      "find": "hold: s.torn > 0 ?",
-      "replace": "hold: false ?",
+      "find": "            ...(s.torn > 0 ? [`${s.torn} write(s) to the run budget journal were cut short`] : []),\n",
+      "replace": "",
       "test": "tests/run-budget.test.cjs"
     },
     {
@@ -1545,6 +1545,22 @@
       "find": "            reconcileBudget();\n",
       "replace": "",
       "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-cleanup-refusal-outside-journal",
+      "guards": "a cleanup refused outside the journal (lock timeout) holds its journey's legs (Codex P2 251b0f7f)",
+      "file": "run-budget.cjs",
+      "find": "            ...(this.#store.cleanupRefused().has(journey) ? [`a cleanup request for ${journey} was refused outside the journal (the budget lock was not had in time)`] : []),\n",
+      "replace": "",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P10-lock-retry-after-deadline",
+      "guards": "a lock retry checks the deadline before trying the lock again (Sam, 2bd99121)",
+      "file": "run-budget.cjs",
+      "find": "            if (attempt > 0 && Date.now() >= deadline)\n                return null;\n",
+      "replace": "",
+      "test": "tests/run-budget.test.cjs"
     }
   ]
 }

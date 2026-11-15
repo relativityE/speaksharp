@@ -318,12 +318,22 @@ class RunBudget {
             return Object.freeze({ allocated: true, reason: 'allocated before the run', overrun: Object.freeze(overrun), hold });
         }, (e) => Object.freeze({ allocated: true, reason: 'allocated before the run', overrun: Object.freeze([]), hold: `the run budget could not be read: ${e.message}` }));
     }
-    /** A leg's overrun kinds and hold reason, from ONE journal snapshot `s`. */
+    /**
+     * A leg's overrun kinds and hold reason, from ONE journal snapshot `s`, plus the cleanup refusals recorded OUTSIDE the
+     * journal (Codex P2 on 251b0f7f): a cleanup reservation refused because the lock wasn't had in time is written as a
+     * marker file, not a journal event, so the journal alone would read clean once the lock is back. Its journey's legs
+     * hold, as cleanupExhausted and admission already do.
+     */
     #facts(legId, s) {
         const refused = s.refused.get(legId) ?? {};
+        const journey = legById(legId).journey;
+        const holds = [
+            ...(s.torn > 0 ? [`${s.torn} write(s) to the run budget journal were cut short`] : []),
+            ...(this.#store.cleanupRefused().has(journey) ? [`a cleanup request for ${journey} was refused outside the journal (the budget lock was not had in time)`] : []),
+        ];
         return {
             overrun: Object.keys(refused).filter((k) => refused[k] > 0),
-            hold: s.torn > 0 ? `${s.torn} write(s) to the run budget journal were cut short` : null,
+            hold: holds.length > 0 ? holds.join('; ') : null,
         };
     }
     /**
@@ -416,12 +426,15 @@ function fileStore(dir, { lockTimeoutMs = 5000, staleMs = 10000, requireJournal 
             // A breaker that died mid-break leaves its lock; it holds nothing else, so an old one is removed.
             if ((ageOf(breaker) ?? 0) > staleMs)
                 fs.rmSync(breaker, { recursive: true, force: true });
-            return;
+            return false;
         }
         try {
             // Read again under the break lock: break only the very lock the caller judged stale.
-            if (staleNow(seen))
+            if (staleNow(seen)) {
                 fs.rmSync(lock, { recursive: true, force: true });
+                return true;
+            }
+            return false;
         }
         finally {
             fs.rmSync(breaker, { recursive: true, force: true });
@@ -430,7 +443,11 @@ function fileStore(dir, { lockTimeoutMs = 5000, staleMs = 10000, requireJournal 
     const acquire = () => {
         const deadline = Date.now() + lockTimeoutMs;
         const token = randomBytes(16).toString('hex');
-        for (;;) {
+        // The first attempt always tries; every RETRY checks the deadline first (Sam's review of 2bd99121): a lock that
+        // clears just after the deadline, after the back-off or a break, must not be taken late.
+        for (let attempt = 0; ; attempt += 1) {
+            if (attempt > 0 && Date.now() >= deadline)
+                return null;
             try {
                 fs.mkdirSync(lock);
                 fs.writeFileSync(owner, JSON.stringify({ pid: process.pid, host: os.hostname(), token }));
@@ -440,13 +457,15 @@ function fileStore(dir, { lockTimeoutMs = 5000, staleMs = 10000, requireJournal 
                 if (e.code !== 'EEXIST')
                     throw e;
             }
+            // Only a stale lock actually broken is retried at once. Every other path, including a stale lock whose break is
+            // blocked by another breaker, is bounded by the same deadline and back-off (Codex P2 on ae3ce981: a fresh
+            // breaker left by a dead worker made this branch spin past lockTimeoutMs and then grant work).
             const seen = readOwner();
-            if (staleNow(seen))
-                tryBreak(seen);
-            else if (Date.now() >= deadline)
+            if (staleNow(seen) && tryBreak(seen))
+                continue;
+            if (Date.now() >= deadline)
                 return null;
-            else
-                sleepSync(5);
+            sleepSync(5);
         }
     };
     const release = (token) => {

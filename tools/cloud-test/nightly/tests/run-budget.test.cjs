@@ -285,6 +285,68 @@ describe('one budget shared across workers', () => {
         expect(openSharedRunBudget(dir).reserve('J6', 'coaching').granted).toBe(true);
         expect(openSharedRunBudget(dir).reserve('J6', 'coaching').granted).toBe(false);
     });
+    // Codex P2 on 251b0f7f: a cleanup refused outside the journal (lock timeout) must not read PASS once the lock is back.
+    it('a cleanup refused while the lock was held holds its journey\'s legs, even after the lock is released', () => {
+        const dir = shared();
+        fs.mkdirSync(path.join(dir, 'budget.lock'));
+        fs.writeFileSync(path.join(dir, 'budget.lock', 'owner.json'), JSON.stringify({ pid: process.pid, host: os.hostname() }));
+        const r = openSharedRunBudget(dir, { lockTimeoutMs: 50 }).reserveCleanup('J6');
+        expect(r.granted).toBe(false);
+        fs.rmSync(path.join(dir, 'budget.lock'), { recursive: true });
+        const b = openSharedRunBudget(dir);
+        expect(b.cleanupExhausted('J6')).toBe(true);
+        expect(b.legBudget('J6').hold).toContain('refused outside the journal');
+        const row = b.legBudgetRow('J6');
+        expect(row.outcome).toBe('HOLD');
+        expect(row.reason).toContain('refused outside the journal');
+        const v = legVerdict('J6', { prior: new Map(), satisfiedGates: EVERY_GATE, results: results('J6'), budget: b.legBudget('J6') });
+        expect(v.outcome).toBe('HOLD');
+        expect(b.legBudgetRow('J4.a').outcome).toBe('PASS');
+    });
+    // Codex P2 on ae3ce981: a dead worker's lock plus a fresh breaker must still be refused within lockTimeoutMs.
+    it('refuses within the lock timeout when a stale lock\'s break is blocked by a fresh breaker, and sends nothing', () => {
+        const dir = shared();
+        fs.mkdirSync(path.join(dir, 'budget.lock'));
+        fs.writeFileSync(path.join(dir, 'budget.lock', 'owner.json'), JSON.stringify({ pid: 2 ** 22 + 12345, host: os.hostname() }));
+        fs.mkdirSync(path.join(dir, 'budget.lock.break'));
+        const started = Date.now();
+        const r = openSharedRunBudget(dir, { lockTimeoutMs: 20, staleMs: 300 }).reserve('J6', 'coaching');
+        const took = Date.now() - started;
+        expect(r.granted).toBe(false);
+        expect(r.reason).toContain('lock was not available');
+        expect(took).toBeLessThan(200);
+        fs.rmSync(path.join(dir, 'budget.lock.break'), { recursive: true });
+        expect(openSharedRunBudget(dir).reserve('J6', 'coaching').granted).toBe(true);
+    });
+    // Sam's review of 2bd99121: a retry must check the deadline BEFORE trying the lock again.
+    it('never takes the lock on a retry after the deadline, even if the lock clears at that moment', () => {
+        const dir = shared();
+        const lock = path.join(dir, 'budget.lock');
+        fs.mkdirSync(lock);
+        fs.writeFileSync(path.join(lock, 'owner.json'), JSON.stringify({ pid: process.pid, host: os.hostname() }));
+        const realMkdir = fs.mkdirSync;
+        const realNow = Date.now;
+        const t0 = realNow();
+        let lockTries = 0;
+        let nowCalls = 0;
+        // The live owner releases the lock exactly when the waiter retries, and by then the deadline has passed.
+        fs.mkdirSync = (p, ...rest) => {
+            if (p === lock && (lockTries += 1) === 2)
+                fs.rmSync(lock, { recursive: true, force: true });
+            return realMkdir.call(fs, p, ...rest);
+        };
+        Date.now = () => ((nowCalls += 1) <= 2 ? t0 : t0 + 60_000);
+        let r;
+        try {
+            r = openSharedRunBudget(dir, { lockTimeoutMs: 20 }).reserve('J6', 'coaching');
+        }
+        finally {
+            fs.mkdirSync = realMkdir;
+            Date.now = realNow;
+        }
+        expect(r.granted).toBe(false);
+        expect(r.reason).toContain('lock was not available');
+    });
     it('breaks a lock left by a dead process, but refuses rather than waits forever on a live one', () => {
         const dir = shared();
         fs.mkdirSync(path.join(dir, 'budget.lock'));
