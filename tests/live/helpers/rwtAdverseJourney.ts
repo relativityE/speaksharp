@@ -32,7 +32,7 @@ import type { SessionRowFacts } from './rwtSaveRetry';
 import {
     AHT12_CATALOG_CASE_OPEN, AHT12_STAND_IN_LABEL, type ModelBytesRead, type RecoveryAttempt, type RecoveryControl, type ReopenObservation, RECOVERY_CONTROLS, isRecoveryControl,
     type AttemptPhase, type TransferSnapshot, attemptPhase, coldTakeSettledVerdict, downloadingNow, midDownloadFailureVerdict, offlineInjectionGate,
-    offlineNotExercisedVerdict, runOfflineFault,
+    offlineNotExercisedVerdict, runOfflineFault, unprovenRestoreVerdict,
     recoverySavedVerdict, retrySetupOutcome, reviewReopenVerdict, savedTranscriptDigest,
 } from './rwtAdverseRecovery';
 
@@ -527,6 +527,13 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
                         progressAtGate: atOffline?.pct ?? null,
                         statusAtGate: atOffline?.status ?? null, runtimeStateAtGate: atOffline?.runtimeState ?? null, modelResponsesBeforeOffline,
                     });
+                    if (!offlineOutcome.restored) {
+                        // Sam, 2026-11-15 on 481ae722: no Stop/save while the page has not reported itself online.
+                        const stopped = unprovenRestoreVerdict('stop-and-save');
+                        receipt.row('Retry downloads the model and a take saves', stopped.status, stopped.detail, { faultExercised: false, restoredOnline: false });
+                        await reopenRow(receipt, page, { savedId: null, savedDigest: null });
+                        return;
+                    }
                     const cold = await settleColdTake(page, `adverse-${variant}-cold`, takes, pressIndex);
                     const settled = coldTakeSettledVerdict(cold);
                     receipt.row('Retry downloads the model and a take saves', settled.status, settled.detail,
@@ -561,6 +568,13 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
             else await context.setOffline(false);
             fault.disarm();
             watch.setFaultPhase(false);
+            // Sam, 2026-11-15 on 481ae722: AHT-14 presses no recovery control until the page itself reports it is online again.
+            if (variant === 'offline-mid-download' && (await page.evaluate(() => navigator.onLine).catch(() => null)) !== true) {
+                const stopped = unprovenRestoreVerdict('recovery-press');
+                receipt.row('Retry downloads the model and a take saves', stopped.status, stopped.detail, { restoredOnline: false });
+                await reopenRow(receipt, page, { savedId: null, savedDigest: null });
+                return;
+            }
             // Retry is judged only after a failed download was stated with Retry; otherwise there is nothing to recover from.
             const recovered = await saveRecoveredTake(page, variant, failure.status === 'PASS', accountRows, `adverse-${variant}`, takes);
             const after = await modelStatuses(page);

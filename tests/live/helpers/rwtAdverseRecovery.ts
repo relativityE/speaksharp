@@ -282,6 +282,11 @@ export async function runOfflineFault(io: OfflineFaultIo, gateRead: ModelBytesRe
         }
         return { kind: 'fail-closed', reason: restored ? `${why}, and the attempt was ${after} when the network came back` : `${why}, and the page did not report itself online again`, restored };
     };
+    // Sam, 2026-11-15 on 481ae722: the phase read above is awaited, so a body can finish in that gap while the phase still says
+    // setup. Re-check the transfer synchronously, immediately before arming and going offline; nothing is awaited in between.
+    if (io.transfer().openInBody === 0) {
+        return { kind: 'not-exercised', reason: 'the transfer ended between the gate and going offline', restored: true };
+    }
     io.armFault();
     if (!(await io.setOffline(true).catch(() => false))) {
         const restored = await restore();
@@ -312,6 +317,17 @@ export async function runOfflineFault(io: OfflineFaultIo, gateRead: ModelBytesRe
         if (io.now() >= deadline) return { kind: 'exercised', settled: false };
         await io.sleep(opts.pollMs);
     }
+}
+
+/**
+ * Sam, 2026-11-15 on 481ae722: nothing that can write a take (Stop/save of the cold take, or the recovery press) runs unless the
+ * page itself reported `navigator.onLine` after the network was restored. Unproven restoration stops the journey fail-closed here;
+ * the finalizer still restores the network and the cleanup row reports whether deletion settled.
+ */
+export function unprovenRestoreVerdict(next: 'stop-and-save' | 'recovery-press'): Verdict {
+    return { status: 'FAIL', detail: next === 'stop-and-save'
+        ? 'the network restoration was not proven (the page did not report itself online), so the cold take was not stopped or saved; the journey stopped fail-closed'
+        : 'the network restoration was not proven (the page did not report itself online), so no recovery control was pressed; the journey stopped fail-closed' };
 }
 
 /** The failure row when no mid-download fault was exercised: HOLD for a proven, benign miss; FAIL when it failed closed. Never PASS. */

@@ -9,7 +9,7 @@ import {
     AHT12_CATALOG_CASE_OPEN, AHT12_STAND_IN_LABEL,
     RECOVERY_CONTROLS, type OfflineFaultIo, type OfflineFaultOutcome, type RecoveryAttempt, type ReopenObservation, attemptPhase,
     coldTakeSettledVerdict, isRecoveryControl, midDownloadFailureVerdict, modelBytesSeen, offlineInjectionGate, offlineNotExercisedVerdict,
-    runOfflineFault, SETUP_RUNTIME_STATE, downloadingNow,
+    runOfflineFault, SETUP_RUNTIME_STATE, downloadingNow, unprovenRestoreVerdict,
     recoverySavedVerdict, retrySetupOutcome, reviewReopenVerdict, savedTranscriptDigest,
 } from '../live/helpers/rwtAdverseRecovery';
 import { mapToRuntimeState } from '../../frontend/src/lib/forensicAnchors';
@@ -544,11 +544,47 @@ describe('AHT-14 — runOfflineFault: deterministic interleavings (Sam, #1868 HO
         foreign.io.phase = (() => { let n = 0; return async () => (++n === 1 ? 'in-setup' : 'unattributed-failure'); })();
         expect(await runOfflineFault(foreign.io, gateOk, bound)).toMatchObject({ kind: 'fail-closed', restored: true });
     });
+    it('GAP (Sam on 481ae722): the body finishes while the pre-offline phase read is awaited → re-checked, never taken offline', async () => {
+        const t = scriptedIo({ afterRead: { 1: { openInBody: 0 } } }); // the gate saw a body; it ends during the first (awaited) phase read
+        const out = await runOfflineFault(t.io, gateOk, bound);
+        expect(out).toEqual({ kind: 'not-exercised', reason: 'the transfer ended between the gate and going offline', restored: true });
+        expect(t.calls).not.toContain('setOffline(true)');
+        expect(t.calls).not.toContain('arm');
+        // The re-check is the last thing before arming: phase, transfer, then arm and offline (nothing awaited in between).
+        const ok = scriptedIo({});
+        await runOfflineFault(ok.io, gateOk, bound);
+        expect(ok.calls.slice(0, 5)).toEqual(['transfer', 'phase', 'transfer', 'arm', 'setOffline(true)']);
+    });
     it('the fault reached the transfer but the setup has not failed by the bound: exercised, unsettled; the poll sleeps', async () => {
         const t = scriptedIo({ onOffline: { openInBody: 0, failedUnderFault: 1 } });
         expect(await runOfflineFault(t.io, gateOk, bound)).toEqual({ kind: 'exercised', settled: false });
         expect(t.calls.filter((c) => c === 'phase').length).toBe(1 + bound.boundMs / bound.pollMs + 1);
         expect(t.calls).not.toContain('setOffline(false)');
+    });
+});
+
+describe('AHT-14 callers: nothing that can write a take runs without the page proven online (Sam on 481ae722)', () => {
+    it('the verdicts are FAIL and say nothing was stopped, saved or pressed', () => {
+        expect(unprovenRestoreVerdict('stop-and-save')).toEqual({ status: 'FAIL', detail: expect.stringMatching(/not proven.*not stopped or saved/) });
+        expect(unprovenRestoreVerdict('recovery-press')).toEqual({ status: 'FAIL', detail: expect.stringMatching(/not proven.*no recovery control was pressed/) });
+    });
+    it('caller 1: a not-exercised outcome with restored:false returns before settleColdTake (no Stop/save)', () => {
+        const src = aj();
+        const branch = src.slice(src.indexOf("if (offlineOutcome.kind !== 'exercised') {"), src.indexOf('const history = await modelStatuses(page);'));
+        const guard = branch.indexOf('if (!offlineOutcome.restored) {');
+        const verdict = branch.indexOf("unprovenRestoreVerdict('stop-and-save')", guard);
+        const ret = branch.indexOf('return;', verdict);
+        const settle = branch.indexOf('await settleColdTake(');
+        for (const [a, b] of [[guard, verdict], [verdict, ret], [ret, settle]]) { expect(a).toBeGreaterThan(-1); expect(b).toBeGreaterThan(a); }
+    });
+    it('caller 2: after the exercised fault is removed, AHT-14 checks navigator.onLine and returns before any recovery press', () => {
+        const src = aj();
+        const restore = src.indexOf("else await context.setOffline(false);");
+        const check = src.indexOf("if (variant === 'offline-mid-download' && (await page.evaluate(() => navigator.onLine).catch(() => null)) !== true) {", restore);
+        const verdict = src.indexOf("unprovenRestoreVerdict('recovery-press')", check);
+        const ret = src.indexOf('return;', verdict);
+        const press = src.indexOf('const recovered = await saveRecoveredTake(page, variant, failure.status', ret);
+        for (const [a, b] of [[restore, check], [check, verdict], [verdict, ret], [ret, press]]) { expect(a).toBeGreaterThan(-1); expect(b).toBeGreaterThan(a); }
     });
 });
 

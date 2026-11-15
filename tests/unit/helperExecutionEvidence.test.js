@@ -23,7 +23,7 @@ const AHT1811_HELPERS=[
   ['tests/live/helpers/feedbackRecoveryInventory.ts','tests/unit/feedbackBoundedWrites.test.ts',["verifyRecoveryStore","recoveryFileName","recordDurably","settleRecoveryInventory","readRecoveryInventory","unresolvedAttempts","recoverFromInventory"]],
   ['tests/live/helpers/feedbackReportCleanup.ts','tests/unit/feedbackBoundedWrites.test.ts',["mergeCapture","captureRunReports","writeUncertainty","zeroResidueVerdict","cleanupRunReports","zeroResidueNotRun"]],
   ['tests/live/helpers/rwtAdverseRecovery.ts','tests/unit/rwtAdverseRecovery.test.ts',["isRecoveryControl","retrySetupOutcome","recoverySavedVerdict","savedTranscriptDigest","reviewReopenVerdict","modelBytesSeen","midDownloadFailureVerdict",
-    "bytesCounted","downloadingNow","offlineInjectionGate","attemptPhase","runOfflineFault","offlineNotExercisedVerdict","coldTakeSettledVerdict"]],
+    "bytesCounted","downloadingNow","offlineInjectionGate","attemptPhase","runOfflineFault","offlineNotExercisedVerdict","coldTakeSettledVerdict","unprovenRestoreVerdict"]],
   // AHT-14 (#1868): the attempt's network transfer behind the offline gate.
   ['tests/live/helpers/rwtAdverse.ts','tests/unit/rwtAdverseRecovery.test.ts',["downloadFailureVerdict","ModelTransferTracker#startAttempt","ModelTransferTracker#armFault","ModelTransferTracker#disarm",
     "ModelTransferTracker#onRequest","ModelTransferTracker#onResponse","ModelTransferTracker#onFinished","ModelTransferTracker#onFailed",

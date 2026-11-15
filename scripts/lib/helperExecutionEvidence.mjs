@@ -133,7 +133,7 @@ export const HELPER_CONTRACTS = Object.freeze([{
 }, {
   helperFile:'tests/live/helpers/rwtAdverseRecovery.ts',testFile:'tests/unit/rwtAdverseRecovery.test.ts',
   callables:["isRecoveryControl","retrySetupOutcome","recoverySavedVerdict","savedTranscriptDigest","reviewReopenVerdict","modelBytesSeen","midDownloadFailureVerdict",
-    "bytesCounted","downloadingNow","offlineInjectionGate","attemptPhase","runOfflineFault","offlineNotExercisedVerdict","coldTakeSettledVerdict"],
+    "bytesCounted","downloadingNow","offlineInjectionGate","attemptPhase","runOfflineFault","offlineNotExercisedVerdict","coldTakeSettledVerdict","unprovenRestoreVerdict"],
 }, {
   // AHT-14 (#1868): the attempt's network transfer behind the offline gate, through the same unit consumer.
   helperFile:'tests/live/helpers/rwtAdverse.ts',testFile:'tests/unit/rwtAdverseRecovery.test.ts',
