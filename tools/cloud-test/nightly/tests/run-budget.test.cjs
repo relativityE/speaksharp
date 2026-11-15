@@ -303,6 +303,21 @@ describe('one budget shared across workers', () => {
         expect(v.outcome).toBe('HOLD');
         expect(b.legBudgetRow('J4.a').outcome).toBe('PASS');
     });
+    // Codex P2 on ae3ce981: a dead worker's lock plus a fresh breaker must still be refused within lockTimeoutMs.
+    it('refuses within the lock timeout when a stale lock\'s break is blocked by a fresh breaker, and sends nothing', () => {
+        const dir = shared();
+        fs.mkdirSync(path.join(dir, 'budget.lock'));
+        fs.writeFileSync(path.join(dir, 'budget.lock', 'owner.json'), JSON.stringify({ pid: 2 ** 22 + 12345, host: os.hostname() }));
+        fs.mkdirSync(path.join(dir, 'budget.lock.break'));
+        const started = Date.now();
+        const r = openSharedRunBudget(dir, { lockTimeoutMs: 20, staleMs: 300 }).reserve('J6', 'coaching');
+        const took = Date.now() - started;
+        expect(r.granted).toBe(false);
+        expect(r.reason).toContain('lock was not available');
+        expect(took).toBeLessThan(200);
+        fs.rmSync(path.join(dir, 'budget.lock.break'), { recursive: true });
+        expect(openSharedRunBudget(dir).reserve('J6', 'coaching').granted).toBe(true);
+    });
     it('breaks a lock left by a dead process, but refuses rather than waits forever on a live one', () => {
         const dir = shared();
         fs.mkdirSync(path.join(dir, 'budget.lock'));

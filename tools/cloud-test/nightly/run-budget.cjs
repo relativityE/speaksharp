@@ -426,12 +426,15 @@ function fileStore(dir, { lockTimeoutMs = 5000, staleMs = 10000, requireJournal 
             // A breaker that died mid-break leaves its lock; it holds nothing else, so an old one is removed.
             if ((ageOf(breaker) ?? 0) > staleMs)
                 fs.rmSync(breaker, { recursive: true, force: true });
-            return;
+            return false;
         }
         try {
             // Read again under the break lock: break only the very lock the caller judged stale.
-            if (staleNow(seen))
+            if (staleNow(seen)) {
                 fs.rmSync(lock, { recursive: true, force: true });
+                return true;
+            }
+            return false;
         }
         finally {
             fs.rmSync(breaker, { recursive: true, force: true });
@@ -450,13 +453,15 @@ function fileStore(dir, { lockTimeoutMs = 5000, staleMs = 10000, requireJournal 
                 if (e.code !== 'EEXIST')
                     throw e;
             }
+            // Only a stale lock actually broken is retried at once. Every other path, including a stale lock whose break is
+            // blocked by another breaker, is bounded by the same deadline and back-off (Codex P2 on ae3ce981: a fresh
+            // breaker left by a dead worker made this branch spin past lockTimeoutMs and then grant work).
             const seen = readOwner();
-            if (staleNow(seen))
-                tryBreak(seen);
-            else if (Date.now() >= deadline)
+            if (staleNow(seen) && tryBreak(seen))
+                continue;
+            if (Date.now() >= deadline)
                 return null;
-            else
-                sleepSync(5);
+            sleepSync(5);
         }
     };
     const release = (token) => {

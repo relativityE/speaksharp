@@ -1070,8 +1070,8 @@
       "id": "P7-stale-break-unverified",
       "guards": "a stale lock is broken only after its owner is read again under the break lock",
       "file": "run-budget.cjs",
-      "find": "            if (staleNow(seen))\n                fs.rmSync(lock, { recursive: true, force: true });",
-      "replace": "            fs.rmSync(lock, { recursive: true, force: true });",
+      "find": "            if (staleNow(seen)) {\n                fs.rmSync(lock, { recursive: true, force: true });\n                return true;\n            }\n            return false;",
+      "replace": "            fs.rmSync(lock, { recursive: true, force: true });\n            return true;",
       "test": "tests/run-budget.test.cjs"
     },
     {
@@ -1392,6 +1392,14 @@
       "file": "run-budget.cjs",
       "find": "            ...(this.#store.cleanupRefused().has(journey) ? [`a cleanup request for ${journey} was refused outside the journal (the budget lock was not had in time)`] : []),\n",
       "replace": "",
+      "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P10-stale-lock-unbounded",
+      "guards": "stale-lock recovery is bounded by the lock deadline (Codex P2 ae3ce981)",
+      "file": "run-budget.cjs",
+      "find": "            if (staleNow(seen) && tryBreak(seen))\n                continue;\n",
+      "replace": "            if (staleNow(seen)) {\n                tryBreak(seen);\n                continue;\n            }\n",
       "test": "tests/run-budget.test.cjs"
     }
   ]
