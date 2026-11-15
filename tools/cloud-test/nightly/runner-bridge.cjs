@@ -108,6 +108,18 @@ function nightlyAdapter(io, opts) {
             try {
                 ran = await io.runCase(c, plan, admission, { ...caseOpts, nightly });
             }
+            catch (e) {
+                // A case that throws still records its legs' verdicts before the error goes on (Codex P2 on f01e9768):
+                // an overrun the budget already holds is FAIL, and a leg that started but never reported its rows is
+                // HOLD, never PASS or NOT RUN, so an execution failure can't hide an established overrun.
+                for (const leg of legs) {
+                    const b = budget.legBudget(leg);
+                    ledger.record(b.overrun.length > 0
+                        ? legVerdict(leg, { budget: b, prior: ledger.verdicts(), satisfiedGates })
+                        : { leg, proofScope: legById(leg).proofScope, outcome: 'HOLD', reason: `the case threw before reporting its rows: ${e?.message ?? e}`, rows: {} });
+                }
+                throw e;
+            }
             finally {
                 // Each journey's cleanup is accounted from what the case reported; a case that threw reported nothing.
                 const journey = legById(legs[0]).journey;

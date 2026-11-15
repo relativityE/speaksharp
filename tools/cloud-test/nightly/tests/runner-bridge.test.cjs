@@ -63,6 +63,8 @@ function fakeIo(scenario, wire) {
             }
             if (scenario.tearJournal)
                 fs.appendFileSync(path.join(scenario.runDir, 'budget-journal.jsonl'), '{"t":"grant","leg":"J6"');
+            if (scenario.throwAfterSends)
+                throw new Error('injected case failure after its sends');
             const del = await nightly.cleanup(leg, async () => { wire.push('cleanup:delete-account'); return true; });
             const query = scenario.skipVerify ? { sent: false } : await nightly.cleanup(leg, async () => { wire.push('cleanup:residue-query'); return scenario.residue ?? 0; });
             const assertions = J6_ROWS.map((id) => ({ id, result: 'PASS', detail: 'offline fake', evidenceRefs: ['unit.json'] }));
@@ -181,6 +183,18 @@ describe('nightly runner bridge: one journey (J6) through the real harness runne
         // killed here: save never runs
         assert.equal(admitRun(d.evidenceDir).admitted, false);
         assert.equal((await nightlyRun(d, 'r2')).outcome.admitted, false);
+    });
+    // Codex P2 on f01e9768: a case that throws after overrunning must not hide the overrun.
+    it('a case that throws still records its legs: an established overrun is FAIL, otherwise HOLD, never PASS', async () => {
+        const overran = await nightlyRun(dirs(), 'r1', { starts: 5, throwAfterSends: true });
+        assert.equal(overran.outcome.legs.J6.outcome, 'FAIL');
+        assert.match(overran.outcome.legs.J6.reason, /asked for more than its frozen starts/);
+        assert.equal(overran.outcome.run.scope.outcome, 'FAIL');
+        const threw = await nightlyRun(dirs(), 'r1', { throwAfterSends: true });
+        assert.equal(threw.outcome.legs.J6.outcome, 'HOLD');
+        assert.match(threw.outcome.legs.J6.reason, /the case threw before reporting its rows/);
+        assert.notEqual(threw.outcome.run.scope.outcome, 'PASS');
+        assert.equal(threw.outcome.cleanup.result, 'incomplete', 'a case that threw reported no cleanup, so nothing is proven');
     });
     it('the cleanup reserve is the journey\'s own and is fixed before the run', async () => {
         const d = dirs();
