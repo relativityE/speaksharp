@@ -149,22 +149,35 @@ export function modelBytesSeen(read: ModelBytesRead | null): boolean {
  * WHAT THE PAGE ACTUALLY PUBLISHES (pinned by tests/unit/rwtAdverseRecovery.test.ts against the product's own mapper):
  * `data-runtime-state` is `mapToRuntimeState(fsm)` (forensicAnchors.ts), not the raw FSM. The cold download runs INSIDE the raw
  * ENGINE_INITIALIZING state (the service requests engine init from DOWNLOAD_REQUIRED; the raw DOWNLOADING state is mapped to
- * ENGINE_INITIALIZING too), so no published state says "downloading". The only truthful mid-transfer signal is the conjunction:
- * runtime ENGINE_INITIALIZING, model status `loading`, and the product's own aggregated byte percent at 1–99 (`modelBytesSeen`).
- * Once the bytes reach 100 % (or the percent is gone) the same state is engine initialization: not a download.
+ * ENGINE_INITIALIZING too), so no published state says "downloading".
+ *
+ * Sam, 2026-11-15 (#1868 on 887a76f6): and the byte percent cannot prove the transfer either. The real aggregator
+ * (progressAggregator.ts) holds 100 % while a later model file is still downloading, and a retained 1–99 % does not show bytes
+ * still moving. So "downloading" is the conjunction of the published setup state (ENGINE_INITIALIZING), bytes the product has
+ * counted (1 % or more, 100 % included), and a model-asset response of THIS attempt with its body still in flight
+ * (`ModelTransferTracker`, from the network). Between sequential files, or once the transfer is over, no body is in flight:
+ * not a download, whatever the percent shows.
  */
 export const SETUP_RUNTIME_STATE = 'ENGINE_INITIALIZING';
+export type TransferSnapshot = { openInBody: number; failedUnderFault: number };
 export type OfflineInjectionGate = { inject: true } | { inject: false; reason: string };
-/** Bytes are arriving mid-transfer in this snapshot: the gate's (and every poll's) definition of "downloading". */
-export function downloadingNow(read: ModelBytesRead | null): boolean {
-    return read !== null && read.runtimeState === SETUP_RUNTIME_STATE && modelBytesSeen(read);
+/** The product counted received bytes (any percent from 1, 100 included: the aggregator can hold 100 mid-transfer). */
+export function bytesCounted(read: ModelBytesRead | null): boolean {
+    return read !== null && read.status === 'loading' && typeof read.pct === 'number' && read.pct >= 1;
 }
-export function offlineInjectionGate(read: ModelBytesRead | null): OfflineInjectionGate {
+/** A body of this attempt is in flight right now, in this attempt's published setup, after counted bytes. */
+export function downloadingNow(read: ModelBytesRead | null, transfer: TransferSnapshot | null): boolean {
+    return read !== null && read.runtimeState === SETUP_RUNTIME_STATE && bytesCounted(read) && transfer !== null && transfer.openInBody > 0;
+}
+export function offlineInjectionGate(read: ModelBytesRead | null, transfer: TransferSnapshot | null): OfflineInjectionGate {
     if (read === null) return { inject: false, reason: 'the page state was unreadable' };
     if (read.runtimeState !== SETUP_RUNTIME_STATE) {
         return { inject: false, reason: `the runtime state was ${read.runtimeState ?? 'unreadable'}, not ${SETUP_RUNTIME_STATE}` };
     }
-    if (!modelBytesSeen(read)) return { inject: false, reason: 'no model bytes were seen mid-transfer' };
+    if (!bytesCounted(read)) return { inject: false, reason: 'no model bytes were counted yet' };
+    if (transfer === null || transfer.openInBody === 0) {
+        return { inject: false, reason: 'no model response of this attempt had its body in flight (between files, finished, or unobservable)' };
+    }
     return { inject: true };
 }
 
@@ -178,7 +191,7 @@ export function offlineInjectionGate(read: ModelBytesRead | null): OfflineInject
  *    order binds a failure to the attempt's setup; a bare FAILED is never read as one;
  *  - `unattributed-failure`: FAILED / FAILED_VISIBLE without this attempt's ENGINE_INITIALIZING before it;
  *  - `left-setup`: the engine became READY, or the runtime left setup without failing (IDLE / TERMINATED after it): no download;
- *  - `in-setup`: the last state is ENGINE_INITIALIZING. Download OR engine init — only the byte percent can tell (`downloadingNow`);
+ *  - `in-setup`: the last state is ENGINE_INITIALIZING. Download OR engine init — only the transfer can tell (`downloadingNow`);
  *  - `pre-setup`: nothing decisive yet; `unobserved`: no log in this document (replaced document), or an index beyond the log.
  */
 export const RECORDING_RUNTIME_STATES = ['RECORDING', 'STOPPING'] as const;
@@ -205,14 +218,14 @@ export function attemptPhase(log: RuntimeStateLog | null, fromIndex: number): At
 
 /**
  * The page and context the offline fault drives, injected so every interleaving is unit-tested without a browser. `phase()` reads
- * the attempt's phase from the complete log; `bytes()` is one snapshot of the runtime state, model status and byte percent;
- * `isOnline()` is the page's own `navigator.onLine` (null: unreadable); `armFault` and `disarmFault` open and close the watchdog's
- * fault phase and the attempt's failure counter around the offline window.
+ * the attempt's phase from the complete log; `transfer()` is this attempt's network transfer (`ModelTransferTracker`: bodies in
+ * flight, and failures while the fault is armed); `isOnline()` is the page's own `navigator.onLine` (null: unreadable); `armFault`
+ * and `disarmFault` open and close the watchdog's fault phase and the attempt's failure counters around the offline window.
  */
 export interface OfflineFaultIo {
     setOffline(offline: boolean): Promise<boolean>;
     phase(): Promise<AttemptPhase>;
-    bytes(): Promise<ModelBytesRead | null>;
+    transfer(): TransferSnapshot;
     isOnline(): Promise<boolean | null>;
     armFault(): void;
     disarmFault(): void;
@@ -221,8 +234,8 @@ export interface OfflineFaultIo {
 }
 
 /**
- * - `exercised`: the browser went offline while this attempt's bytes were arriving mid-transfer, and the setup then failed from
- *   this attempt's ENGINE_INITIALIZING with no READY or recording (`settled: true`), or was still mid-transfer offline at the bound
+ * - `exercised`: the browser went offline while a body of this attempt was in flight, and the setup then failed from this
+ *   attempt's ENGINE_INITIALIZING with no READY or recording (`settled: true`), or was still in setup offline at the bound
  *   (`settled: false`, judged by the failure verdict as before). The network is still offline: the caller states the failure,
  *   then removes the cause.
  * - `not-exercised`: no fault reached a download; the network was never taken offline, or its restoration was PROVEN (the page
@@ -236,16 +249,18 @@ export type OfflineFaultOutcome =
     | { kind: 'fail-closed'; reason: string; restored: boolean };
 
 /**
- * AHT-14's offline window, as one bounded controller (Sam, 2026-11-15, #1868 HOLD; Codex P1 on df4db146). Offline only after the
- * gate snapshot AND the attempt's own log say bytes are arriving in this attempt's setup; then every poll re-reads both: a
- * transition during `setOffline(true)` is caught by the first read after it, and one just after any read by the next. The moment
- * the bytes are no longer proven mid-transfer (100 %, gone, unreadable) or the runtime leaves setup, the network is restored at
- * once and the page must report itself online; a recording, an unobserved attempt or a failure not bound to this attempt restores
- * and fails closed. Restoring early is always the safe side: it costs an exercised fault (HOLD), never a stranded save.
+ * AHT-14's offline window, as one bounded controller (Sam, 2026-11-15, #1868 HOLDs; Codex P1 on df4db146). Offline only after the
+ * gate (published setup + counted bytes + a body of this attempt in flight) AND the attempt's own log say so; then every poll
+ * re-reads the log and the transfer: a transition during `setOffline(true)` is caught by the first read after it, and one just
+ * after any read by the next. While the fault holds, the window stays open only as long as a body is still in flight or a request
+ * of this attempt has already failed under the fault (the fault reached the transfer; the setup failure follows). The moment
+ * neither holds (the transfer ended before the fault reached it) or the runtime leaves setup, the network is restored at once and
+ * the page must report itself online; a recording, an unobserved attempt or a failure not bound to this attempt restores and fails
+ * closed. Restoring early is always the safe side: it costs an exercised fault (HOLD), never a stranded save.
  */
 export async function runOfflineFault(io: OfflineFaultIo, gateRead: ModelBytesRead | null,
     opts: { boundMs: number; pollMs: number }): Promise<OfflineFaultOutcome> {
-    const gate = offlineInjectionGate(gateRead);
+    const gate = offlineInjectionGate(gateRead, io.transfer());
     if (!gate.inject) return { kind: 'not-exercised', reason: gate.reason, restored: true };
     const before = await io.phase();
     if (before !== 'in-setup') {
@@ -283,15 +298,16 @@ export async function runOfflineFault(io: OfflineFaultIo, gateRead: ModelBytesRe
             return { kind: 'fail-closed', reason: `the attempt was ${phase} under the fault`, restored };
         }
         if (phase !== 'in-setup') return benignOrClosed(`the attempt was ${phase} under the fault, not downloading`);
-        if (!downloadingNow(await io.bytes())) {
-            // The snapshot may have moved on since the phase read: decide from the log again before calling it a benign miss.
+        const transfer = io.transfer();
+        if (transfer.openInBody === 0 && transfer.failedUnderFault === 0) {
+            // The log may have moved on since the phase read: decide from it again before calling it a benign miss.
             const again = await io.phase();
             if (again === 'setup-failed') return { kind: 'exercised', settled: true };
             if (again === 'recorded' || again === 'unobserved' || again === 'unattributed-failure') {
                 const restored = await restore();
                 return { kind: 'fail-closed', reason: `the attempt was ${again} under the fault`, restored };
             }
-            return benignOrClosed('the bytes were no longer proven mid-transfer under the fault');
+            return benignOrClosed('the transfer ended before the fault reached it');
         }
         if (io.now() >= deadline) return { kind: 'exercised', settled: false };
         await io.sleep(opts.pollMs);

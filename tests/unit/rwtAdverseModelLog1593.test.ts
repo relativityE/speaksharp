@@ -100,7 +100,7 @@ describe('the fault counts only its own attempt\'s failures, armed before induct
         // `setOffline(true)` (its scripted cases in rwtAdverseRecovery.test.ts prove that order); the journey's armFault arms here.
         const offline = spec.indexOf('await runOfflineFault({');
         const armBeforeRoute = spec.lastIndexOf('fault.armFault();', route);
-        const armForOffline = spec.indexOf('armFault: () => { watch.setFaultPhase(true); fault.armFault(); },', offline);
+        const armForOffline = spec.indexOf('armFault: () => { watch.setFaultPhase(true); fault.armFault(); transfer.armFault(); },', offline);
         expect(armBeforeRoute).toBeGreaterThan(-1);
         expect(offline).toBeGreaterThan(route);
         expect(armForOffline).toBeGreaterThan(offline);

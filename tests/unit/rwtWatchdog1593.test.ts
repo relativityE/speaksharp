@@ -689,8 +689,8 @@ describe('#1662 Codex on f527a033 — each fault phase brackets exactly its inje
         // Sam, 2026-11-15 (#1868): going offline runs inside `runOfflineFault`, which calls `armFault` (opening the phase) before
         // `setOffline(true)` and `disarmFault` (closing it) on every restore; rwtAdverseRecovery.test.ts proves that order.
         expect(src).not.toContain('context.setOffline(true)');
-        expect(src).toContain('armFault: () => { watch.setFaultPhase(true); fault.armFault(); },');
-        expect(src).toContain('disarmFault: () => { fault.disarm(); watch.setFaultPhase(false); },');
+        expect(src).toContain('armFault: () => { watch.setFaultPhase(true); fault.armFault(); transfer.armFault(); },');
+        expect(src).toContain('disarmFault: () => { transfer.disarm(); fault.disarm(); watch.setFaultPhase(false); },');
     });
 
     it('P2: the save-fault phase closes BEFORE Retry Save is pressed', () => {

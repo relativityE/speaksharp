@@ -126,6 +126,40 @@ export function readRuntimeStateLog(): { token: string | null; states: string[] 
     return { token: log.token, states: log.states.slice() };
 }
 
+/**
+ * Sam, 2026-11-15 (#1868 on 887a76f6): THE TRANSFER ITSELF, from the network. The product's byte percent cannot prove bytes are
+ * moving: its aggregator holds 100 % while a later model file is still downloading, and a retained 1–99 % does not prove the
+ * transfer is still running. This tracker sees this attempt's model-asset requests through the context's own network events
+ * (the same events AttemptFaultCounter counts; AHT-13 run 43739078107 observed the worker's model requests failing through
+ * them): a request whose response has STARTED and has neither finished nor failed is a body in flight. A failure while the fault
+ * is armed is the fault reaching the transfer. If these events were ever not delivered, `openInBody` stays 0 and the gate never
+ * injects: the unobservable case is no injection, never a stranded save.
+ */
+export class ModelTransferTracker<R = unknown> {
+    private attemptOpen = false;
+    private faultArmed = false;
+    private readonly requested = new Set<R>();
+    private readonly inBody = new Set<R>();
+    private failedUnderFault = 0;
+    /** The person's download press: the requests it starts from now on are this attempt's. */
+    startAttempt(): void { this.attemptOpen = true; }
+    /** Immediately BEFORE the fault is induced. */
+    armFault(): void { this.faultArmed = true; }
+    /** The cause is removed: later requests and failures are not this attempt's fault window. */
+    disarm(): void { this.faultArmed = false; this.attemptOpen = false; }
+    onRequest(request: R, url: string): void { if (this.attemptOpen && MODEL_ASSET.test(url)) this.requested.add(request); }
+    onResponse(request: R): void { if (this.requested.has(request)) this.inBody.add(request); }
+    onFinished(request: R): void { this.inBody.delete(request); this.requested.delete(request); }
+    onFailed(request: R): void {
+        if (!this.requested.has(request)) return;
+        this.inBody.delete(request); this.requested.delete(request);
+        if (this.faultArmed) this.failedUnderFault += 1;
+    }
+    snapshot(): { openInBody: number; failedUnderFault: number } {
+        return { openInBody: this.inBody.size, failedUnderFault: this.failedUnderFault };
+    }
+}
+
 /** A model asset request (weights, config or tokenizer): the download's own traffic. */
 export const MODEL_ASSET = /\/models\//;
 
