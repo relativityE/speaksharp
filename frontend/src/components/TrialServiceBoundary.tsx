@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { useUsageLimit } from '@/hooks/useUsageLimit';
@@ -83,7 +83,7 @@ export function TrialServiceBoundary({ children, allowTakeToFinish = false }: { 
 
     // Mirrors ProtectedRoute's E2E-only no-session probe path (ENV.isE2E is false in production builds).
     // With no session there is no entitlement question to ask; the server still refuses every product call.
-    if (!user && ENV.isE2E) return <>{children}</>;
+    if (!user && ENV.isE2E) return <Admitted>{children}</Admitted>;
 
     const userId = user?.id ?? null;
     const deadlinePassed = expiredAnswer !== null && expiredAnswer === access.dataUpdatedAt;
@@ -101,18 +101,13 @@ export function TrialServiceBoundary({ children, allowTakeToFinish = false }: { 
     if (!takeLive) takeStartedConfirmed.current = false;
     else if (confirmed && !refused) takeStartedConfirmed.current = true;
 
-    if (freshPermit || (confirmed && !refused)) return <>{children}</>;
-    if (allowTakeToFinish && confirmed && takeLive && takeStartedConfirmed.current) return <>{children}</>;
+    if (freshPermit || (confirmed && !refused)) return <Admitted>{children}</Admitted>;
+    if (allowTakeToFinish && confirmed && takeLive && takeStartedConfirmed.current) return <Admitted>{children}</Admitted>;
 
     const expired = deadlinePassed || (refused && access.data?.error === 'trial_expired');
     const checking = access.isPending || access.isFetching;
     if (!refused && checking) {
-        return (
-            <div className="flex h-[50vh] w-full items-center justify-center" data-testid="trial-access-checking"
-                role="status" aria-label="Checking your access">
-                <Loader2 className="h-8 w-8 animate-spin text-signature-text" />
-            </div>
-        );
+        return <AccessChecking />;
     }
     return (
         <main className="mx-auto max-w-xl px-6 pb-16 pt-28" data-testid="trial-payment-wall">
@@ -140,4 +135,24 @@ export function TrialServiceBoundary({ children, allowTakeToFinish = false }: { 
             </div>
         </main>
     );
+}
+
+function AccessChecking() {
+    return (
+        <div className="flex h-[50vh] w-full items-center justify-center" data-testid="trial-access-checking"
+            role="status" aria-label="Checking your access">
+            <Loader2 className="h-8 w-8 animate-spin text-signature-text" />
+        </div>
+    );
+}
+
+/**
+ * The admitted pages are lazy chunks. They are first rendered here, after the access check, by which time the
+ * route's enter animation (App's route-presence-child and PageTransition) is already mounted and running. Without
+ * a boundary of our own, that first suspend reaches App's outer Suspense, which hides the already-shown route
+ * subtree; framer-motion stops the hidden elements' enter animation and never restarts it, so the route stays at
+ * opacity 0. Catching the suspend here keeps it below the animated wrappers.
+ */
+function Admitted({ children }: { children: ReactNode }) {
+    return <Suspense fallback={<AccessChecking />}>{children}</Suspense>;
 }

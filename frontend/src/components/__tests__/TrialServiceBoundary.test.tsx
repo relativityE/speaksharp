@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { Suspense, useLayoutEffect, type ReactNode } from 'react';
 import { TrialServiceBoundary } from '../TrialServiceBoundary';
 
 const state = vi.hoisted(() => ({
@@ -289,5 +290,48 @@ describe('trial service payment wall', () => {
         state.e2e = true;
         view.rerender(tree());
         expect(screen.getByText('PRIVATE SAVED WORK')).toBeInTheDocument();
+    });
+
+    it('keeps a lazy page suspend below the route wrapper once access is confirmed', async () => {
+        // App renders admitted pages as lazy chunks inside an outer Suspense, under the route's enter animation.
+        // That wrapper is already mounted while access is checked. If the page's first suspend reached the outer
+        // Suspense, React would hide the wrapper and detach it, which stops framer-motion's enter fade at opacity 0.
+        const wrapper = { attached: 0, detached: 0 };
+        function RouteWrapper({ children }: { children: ReactNode }) {
+            useLayoutEffect(() => {
+                wrapper.attached += 1;
+                return () => { wrapper.detached += 1; };
+            }, []);
+            return <div data-testid="route-wrapper">{children}</div>;
+        }
+        let release!: () => void;
+        const chunk = new Promise<void>(resolve => { release = resolve; });
+        let loaded = false;
+        function LazyPage() {
+            if (!loaded) throw chunk;
+            return <Service />;
+        }
+        const appTree = () => (
+            <MemoryRouter>
+                <Suspense fallback={<div>OUTER PAGE LOADER</div>}>
+                    <RouteWrapper><TrialServiceBoundary><LazyPage /></TrialServiceBoundary></RouteWrapper>
+                </Suspense>
+            </MemoryRouter>
+        );
+        state.query.isPending = true;
+        const view = render(appTree());
+        expect(wrapper).toEqual({ attached: 1, detached: 0 });
+
+        state.query = { ...state.query, isPending: false, data: permit };
+        view.rerender(appTree());
+        expect(screen.queryByText('OUTER PAGE LOADER')).not.toBeInTheDocument();
+        expect(screen.getByTestId('route-wrapper')).toBeVisible();
+        expect(screen.getByTestId('trial-access-checking')).toBeInTheDocument();
+        expect(wrapper).toEqual({ attached: 1, detached: 0 });
+
+        loaded = true;
+        await act(async () => { release(); await chunk; });
+        expect(screen.getByText('PRIVATE SAVED WORK')).toBeInTheDocument();
+        expect(wrapper).toEqual({ attached: 1, detached: 0 });
     });
 });
