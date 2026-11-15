@@ -96,6 +96,36 @@ export function readModelStatusLog(): { token: string | null; statuses: string[]
     return { token: log.token, statuses: log.statuses.slice() };
 }
 
+/**
+ * Sam, 2026-11-15 (#1868 HOLD on f62e94c3) — THE RUNTIME STATE MACHINE, COMPLETELY: the same complete, token-bound log as the
+ * model status above, of `data-runtime-state` (the exact TranscriptionService state). The model status cannot tell RECORDING
+ * from READY, or a recording's save failure from a setup failure (both publish `error`); this log can, for one attempt, from
+ * the index read at its press. Self-contained page functions (`page.evaluate`).
+ */
+export function armRuntimeStateLog(token: string): boolean {
+    const w = window as unknown as Record<string, unknown>;
+    const root = document.documentElement;
+    const states: string[] = [root.getAttribute('data-runtime-state') ?? 'absent'];
+    const record = (records: MutationRecord[]): void => {
+        records.forEach((_r, i) => {
+            const after = i + 1 < records.length ? records[i + 1].oldValue : root.getAttribute('data-runtime-state');
+            states.push(after ?? 'absent');
+        });
+    };
+    const observer = new MutationObserver(record);
+    observer.observe(root, { attributes: true, attributeFilter: ['data-runtime-state'], attributeOldValue: true });
+    w.__rwtRuntimeStateLog__ = { token, states, observer, record };
+    return true;
+}
+
+export function readRuntimeStateLog(): { token: string | null; states: string[] } {
+    const w = window as unknown as Record<string, unknown>;
+    const log = w.__rwtRuntimeStateLog__ as { token: string; states: string[]; observer: MutationObserver; record: (r: MutationRecord[]) => void } | undefined;
+    if (!log) return { token: null, states: [] };
+    log.record(log.observer.takeRecords());
+    return { token: log.token, states: log.states.slice() };
+}
+
 /** A model asset request (weights, config or tokenizer): the download's own traffic. */
 export const MODEL_ASSET = /\/models\//;
 

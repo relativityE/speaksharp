@@ -161,36 +161,141 @@ export function offlineInjectionGate(read: ModelBytesRead | null): OfflineInject
 }
 
 /**
- * Read once, right after `setOffline(true)` resolved: the fault landed during the download only if the runtime is still
- * DOWNLOADING, or its setup has already failed (INIT_FAILED / FAILED). Any other state (DOWNLOAD_COMPLETE, ENGINE_INITIALIZING,
- * READY, RECORDING, unreadable) means the transfer may have finished before the fault applied, so the journey restores the
- * network at once, before the recording a cold press starts can try to write its take. A FAILED read here cannot be a recording's
- * save failure: that needs DOWNLOADING → … → RECORDING → FAILED between two reads, and the gate saw DOWNLOADING just before.
+ * Sam, 2026-11-15 (#1868 HOLD on f62e94c3): a single snapshot cannot say what one attempt did. The attempt's phase is decided from
+ * the COMPLETE runtime-state log (`armRuntimeStateLog`) from the index read at its press:
+ *  - `recorded`: RECORDING (or PAUSED / STOPPING) appeared — a take may exist, whatever came after (a later FAILED included);
+ *  - `past-download`: the transfer finished (DOWNLOAD_COMPLETE, ENGINE_INITIALIZING or READY) and no recording yet;
+ *  - `setup-failed`: INIT_FAILED or FAILED reached from THIS attempt's DOWNLOADING, with nothing past the download before it.
+ *    Only that order binds a failure to the setup; a bare FAILED is never read as one;
+ *  - `unattributed-failure`: INIT_FAILED or FAILED without this attempt's DOWNLOADING before it;
+ *  - `downloading` / `pre-download`: the last state is DOWNLOADING / nothing decisive yet;
+ *  - `unobserved`: no log in this document (replaced document), or an index beyond the log.
  */
-export const OFFLINE_FAULT_LANDED_STATES = ['DOWNLOADING', 'INIT_FAILED', 'FAILED'] as const;
-export function offlineFaultLanded(runtimeState: string | null): boolean {
-    return runtimeState !== null && (OFFLINE_FAULT_LANDED_STATES as readonly string[]).includes(runtimeState);
-}
-
-/** The failure row when no mid-download fault was exercised (the gate refused, or the fault missed the download): never PASS. */
-export function offlineNotExercisedVerdict(reason: string): Verdict {
-    return { status: 'HOLD', detail: `the browser was not kept offline mid-download (${reason}), so no download failure was exercised` };
+export const RECORDING_RUNTIME_STATES = ['RECORDING', 'PAUSED', 'STOPPING'] as const;
+export const PAST_DOWNLOAD_RUNTIME_STATES = ['DOWNLOAD_COMPLETE', 'ENGINE_INITIALIZING', 'READY'] as const;
+const SETUP_FAILED_RUNTIME_STATES = ['INIT_FAILED', 'FAILED'];
+export type RuntimeStateLog = { observed: boolean; states: readonly string[] };
+export type AttemptPhase = 'unobserved' | 'pre-download' | 'downloading' | 'past-download' | 'recorded' | 'setup-failed' | 'unattributed-failure';
+export function attemptPhase(log: RuntimeStateLog | null, fromIndex: number): AttemptPhase {
+    if (!log || !log.observed || !Number.isInteger(fromIndex) || fromIndex < 0 || fromIndex > log.states.length) return 'unobserved';
+    const states = log.states.slice(fromIndex);
+    if (states.some((s) => (RECORDING_RUNTIME_STATES as readonly string[]).includes(s))) return 'recorded';
+    const failedAt = states.findIndex((s) => SETUP_FAILED_RUNTIME_STATES.includes(s));
+    const pastAt = states.findIndex((s) => (PAST_DOWNLOAD_RUNTIME_STATES as readonly string[]).includes(s));
+    if (failedAt >= 0 && (pastAt < 0 || pastAt > failedAt)) {
+        return states.slice(0, failedAt).includes(DOWNLOAD_RUNTIME_STATE) ? 'setup-failed' : 'unattributed-failure';
+    }
+    if (pastAt >= 0) return 'past-download';
+    if (states[states.length - 1] === DOWNLOAD_RUNTIME_STATE) return 'downloading';
+    return 'pre-download';
 }
 
 /**
- * The recovery row when no fault was exercised. The cold press goes on to download and record ONLINE; the journey stops that take
- * through the product's own Stop and waits for its save, so the account never keeps a recorded take with no saved row. Retry is
- * not judged (there was nothing to retry): HOLD at best. A take that recorded but whose save was not confirmed is FAIL, because
- * the account may then hold an unsettled save; the cleanup row reports whether deletion settled.
+ * The page and context the offline fault drives, injected so every interleaving is unit-tested without a browser. `phase()` reads
+ * the attempt's phase from the complete log; `isOnline()` is the page's own `navigator.onLine` (null: unreadable); `armFault`
+ * and `disarmFault` open and close the watchdog's fault phase and the attempt's failure counter around the offline window.
  */
-export function coldTakeSettledVerdict(o: { recorded: boolean; savedId: string | null }): Verdict {
+export interface OfflineFaultIo {
+    setOffline(offline: boolean): Promise<boolean>;
+    phase(): Promise<AttemptPhase>;
+    isOnline(): Promise<boolean | null>;
+    armFault(): void;
+    disarmFault(): void;
+    sleep(ms: number): Promise<void>;
+    now(): number;
+}
+
+/**
+ * - `exercised`: the browser went offline during this attempt's confirmed download, and the setup then failed from that download
+ *   with no recording (`settled: true`), or was still downloading offline at the bound (`settled: false`, judged by the failure
+ *   verdict as before). The network is still offline: the caller states the failure, then removes the cause.
+ * - `not-exercised`: no fault reached a download; the network was never taken offline, or its restoration was PROVEN (the page
+ *   reports `navigator.onLine`) before any recording was seen. Never PASS.
+ * - `fail-closed`: a recording appeared under the fault, the attempt was unobserved, a failure could not be bound to this
+ *   attempt, or restoration was not proven. Always FAIL; the network has been restored as far as the context allows.
+ */
+export type OfflineFaultOutcome =
+    | { kind: 'exercised'; settled: boolean }
+    | { kind: 'not-exercised'; reason: string; restored: boolean }
+    | { kind: 'fail-closed'; reason: string; restored: boolean };
+
+/**
+ * AHT-14's offline window, as one bounded controller (Sam, 2026-11-15, #1868 HOLD). Offline only after the gate (runtime exactly
+ * DOWNLOADING with bytes mid-transfer) AND the attempt's own log say downloading; then the log is polled for the whole window:
+ * a transition during `setOffline(true)` is caught by the first read after it, and one just after any read by the next. Any sight
+ * of the download finishing restores the network at once and requires the page to report itself online; any sight of a
+ * recording, an unobserved attempt or a failure not bound to this attempt restores and fails closed.
+ */
+export async function runOfflineFault(io: OfflineFaultIo, gateRead: ModelBytesRead | null,
+    opts: { boundMs: number; pollMs: number }): Promise<OfflineFaultOutcome> {
+    const gate = offlineInjectionGate(gateRead);
+    if (!gate.inject) return { kind: 'not-exercised', reason: gate.reason, restored: true };
+    const before = await io.phase();
+    if (before !== 'downloading') {
+        return before === 'recorded' || before === 'unobserved' || before === 'unattributed-failure'
+            ? { kind: 'fail-closed', reason: `the attempt was ${before} before going offline`, restored: true }
+            : { kind: 'not-exercised', reason: `the attempt was ${before}, not downloading, at the gate`, restored: true };
+    }
+    const restore = async (): Promise<boolean> => {
+        const ok = await io.setOffline(false).catch(() => false);
+        io.disarmFault();
+        return ok && (await io.isOnline().catch(() => null)) === true;
+    };
+    io.armFault();
+    if (!(await io.setOffline(true).catch(() => false))) {
+        const restored = await restore();
+        return restored
+            ? { kind: 'not-exercised', reason: 'going offline failed', restored }
+            : { kind: 'fail-closed', reason: 'going offline failed and the page did not report itself online again', restored };
+    }
+    const deadline = io.now() + opts.boundMs;
+    for (;;) {
+        const phase = await io.phase();
+        if (phase === 'setup-failed') return { kind: 'exercised', settled: true };
+        if (phase === 'past-download') {
+            const restored = await restore();
+            // A recording may have begun while the network came back: re-read; only a proven, still unrecorded restore is benign.
+            const after = await io.phase();
+            if (restored && after !== 'recorded' && after !== 'unobserved') {
+                return { kind: 'not-exercised', reason: 'the download finished before the fault reached it; the network was restored before any recording', restored };
+            }
+            return { kind: 'fail-closed', reason: restored ? `the attempt was ${after} when the network came back` : 'the download finished under the fault and the page did not report itself online again', restored };
+        }
+        if (phase === 'recorded' || phase === 'unobserved' || phase === 'unattributed-failure') {
+            const restored = await restore();
+            return { kind: 'fail-closed', reason: `the attempt was ${phase} under the fault`, restored };
+        }
+        if (io.now() >= deadline) return { kind: 'exercised', settled: false };
+        await io.sleep(opts.pollMs);
+    }
+}
+
+/** The failure row when no mid-download fault was exercised: HOLD for a proven, benign miss; FAIL when it failed closed. Never PASS. */
+export function offlineNotExercisedVerdict(outcome: Exclude<OfflineFaultOutcome, { kind: 'exercised' }>): Verdict {
+    if (outcome.kind === 'fail-closed') {
+        return { status: 'FAIL', detail: `the offline fault failed closed (${outcome.reason}; network restoration ${outcome.restored ? 'proven' : 'NOT proven'})` };
+    }
+    return { status: 'HOLD', detail: `the browser was not kept offline mid-download (${outcome.reason}), so no download failure was exercised` };
+}
+
+/**
+ * The recovery row when no fault was exercised. The cold press goes on to download and record; the journey stops that take
+ * through the product's own Stop and waits for its save, so the account never keeps a recorded take with no saved row. `recorded`
+ * comes from the attempt's complete log, never from the current state: a take that recorded and then FAILED is recorded. Retry
+ * is not judged (there was nothing to retry): HOLD at best. Recorded but unsaved, or unknown whether it recorded, is FAIL: the
+ * account may then hold an unsettled save; the cleanup row reports whether deletion settled.
+ */
+export function coldTakeSettledVerdict(o: { recorded: boolean | null; savedId: string | null }): Verdict {
+    if (o.recorded === null) {
+        return { status: 'FAIL', detail: 'whether the cold take recorded is unknown (the attempt was unobserved), so a save may be unsettled' };
+    }
     if (o.recorded && o.savedId === null) {
-        return { status: 'FAIL', detail: 'no fault was exercised; the cold take recorded online but its save was not confirmed, so a save may be unsettled' };
+        return { status: 'FAIL', detail: 'the cold take recorded but its save was not confirmed, so a save may be unsettled' };
     }
     if (o.recorded) {
-        return { status: 'HOLD', detail: 'no fault was exercised, so Retry was not judged; the cold take that recorded online was stopped and saved' };
+        return { status: 'HOLD', detail: 'no fault was exercised, so Retry was not judged; the cold take that recorded was stopped and saved' };
     }
-    return { status: 'HOLD', detail: 'no fault was exercised and the cold press did not record, so there was nothing to recover' };
+    return { status: 'HOLD', detail: 'no fault was exercised and the attempt shows no recording, so there was nothing to recover' };
 }
 
 /**
