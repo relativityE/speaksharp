@@ -478,7 +478,12 @@ jobs:
             coaching_result="${verdicts%.jsonl}.coaching.json"
             rm -f "$coaching_result"
             expectation=$(node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); const row=(r.rows||[]).find((x)=>["feedback diagnostic chain","J8.b: feedback diagnostic chain"].includes(x.step)&&x.evidence&&typeof x.evidence.expectedRequestSha256==="string"); if (row) { const e=row.evidence; process.stdout.write(JSON.stringify({requestSha256:e.expectedRequestSha256, attemptSha256:e.expectedAttemptSha256, product:e.expectedProduct, configuredModel:e.expectedConfiguredModel, outcome:e.expectedOutcome})); }' "$receipt")
-            anchor=$(printf '%s\n' "$bindings" | awk 'NF{print $1; exit}')
+            # J8 (Sam on 45d449e6): the coaching result belongs to J8.b, so its anchor is the ONE journey the receipt's leg map binds
+            # to J8.b, never simply the first binding (J8.a's). Absent, ambiguous or unbound is a HOLD. Other suites: the first.
+            anchor=$(node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); const bound=(r.readback.journeys||[]).map((j)=>String(j.journeyId)); if (r.suite==="feedback-association-boundaries-j8") { const legs=(r.rows||[]).find((x)=>x.step==="J8 leg readback bindings"); const ids=String(((legs||{}).evidence||{})["J8.b"]??"").split(",").filter(Boolean); if (ids.length===1&&bound.filter((j)=>j===ids[0]).length===1) process.stdout.write(ids[0]); } else if (bound.length) process.stdout.write(bound[0]);' "$receipt")
+            if [ -n "$expectation" ] && [ -z "$anchor" ]; then
+              echo "::error::HOLD: received coaching diagnostic chain for $(basename "$receipt"): no single bound journey for the coaching leg"; status=1
+            fi
             if [ -n "$expectation" ] && [ -n "$anchor" ]; then
               cv=HOLD
               for attempt in 1 2 3; do
