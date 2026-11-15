@@ -38,6 +38,30 @@ const MAINTAINED_CASES = Object.freeze([...new Set(JOURNEYS.flatMap((j) => j.leg
  * may well reuse AHT-07's account: counting one for it errs high, never low. It falls to one per journey once the
  * harness handoff shares one signup across a journey's cases.
  */
+/**
+ * Sam, 15 Nov (#1867): the leg that OWNS each sign-up, so the run budget freezes one sign-up per created account on that leg
+ * and none on the sibling legs that reuse its account. Same rule as `signedUpAccounts` (one per non-maintained harness case,
+ * one per journey for its case-less legs), taking the first such leg in plan order; `signupOwnerLegs(l).size` always equals
+ * `signedUpAccounts(l)`.
+ */
+function signupOwnerLegs(legs) {
+    const owners = new Set();
+    const seenCases = new Set();
+    const seenCaseless = new Set();
+    for (const l of legs) {
+        if (l.caseId !== null) {
+            if (MAINTAINED_CASES.includes(l.caseId) || seenCases.has(l.caseId))
+                continue;
+            seenCases.add(l.caseId);
+            owners.add(l.id);
+        }
+        else if (!seenCaseless.has(l.journey)) {
+            seenCaseless.add(l.journey);
+            owners.add(l.id);
+        }
+    }
+    return owners;
+}
 function signedUpAccounts(legs) {
     const cases = new Set(legs.map((l) => l.caseId).filter((c) => c !== null && !MAINTAINED_CASES.includes(c)));
     const caseless = new Set(legs.filter((l) => l.caseId === null).map((l) => l.journey));
@@ -106,5 +130,5 @@ const reserveMinutes = (r) => Math.ceil(r.seconds / 60);
 
 module.exports = {
     ACCOUNT_DELETION, CLEANUP_REQUEST_DEADLINE_S, CleanupUndefined, FENCED_CASES, SOURCE_COUNTS, UNDEFINED_CLEANUP,
-    MAINTAINED_CASES, cleanupReserve, reserveMinutes, runOwnedAccounts, signedUpAccounts,
+    MAINTAINED_CASES, cleanupReserve, reserveMinutes, runOwnedAccounts, signedUpAccounts, signupOwnerLegs,
 };

@@ -9,7 +9,9 @@
 //   - runCase: the case gets `opts.nightly`: its allocated legs, `send(leg, kind, fn)` for every ordinary send (coaching,
 //     Start press), `cleanup(leg, fn)` for every cleanup request, each reserved before it leaves, and `created(leg,
 //     { kind, ref })`, called before any send that creates a resource: that record, not the teardown's own report,
-//     decides what the journey's cleanup must cover (an omitted resource can't look clean). It returns its usual
+//     decides what the journey's cleanup must cover (an omitted resource can't look clean), and `createAccount(leg,
+//     lookupRef, send)`, the ONE guarded route for an account-create request (reserved, recorded durably, then sent;
+//     see below). It returns its usual
 //     result plus `nightlyCleanup` for its journey ({ steps, left, verification }, see cleanup-evidence.cjs). Its rows
 //     become leg verdicts with the leg's budget facts;
 //   - save (called by runCampaign after every case): attaches an interim nightly summary only;
@@ -22,7 +24,9 @@ const fs = require('node:fs');
 const { CLEANUP, RunRefused, openSharedRunBudget, planRunBudget, writeSharedPlan } = require('./run-budget.cjs');
 const { CleanupUndefined, cleanupReserve } = require('./cleanup-plan.cjs');
 const { caseWorstCaseMs } = require('../harness/bundle/harness/campaign-core.cjs');
-const { beginRun, unprovenCleanup, writeCleanupEvidence } = require('./cleanup-evidence.cjs');
+const { answerCreateAttempt, beginRun, recordCreateAttempt, unprovenCleanup, writeCleanupEvidence } = require('./cleanup-evidence.cjs');
+/** The default deadline an account-create transport is held to (it must fit inside LATE_COMPLETION_BOUND_MS). */
+const CREATE_DEADLINE_MS = 60_000;
 const { legsForCase, splitCaseResult } = require('./case-results.cjs');
 const { VerdictLedger, legVerdict, runVerdict } = require('./leg-verdicts.cjs');
 const { legById } = require('./journey-plan.cjs');
@@ -125,18 +129,45 @@ function nightlyAdapter(io, opts) {
                     throw new Error(`nightly: ${c.id} cannot send for ${leg}`);
             };
             const createdHere = [];
+            const record = (leg, resource) => {
+                own(leg);
+                const journey = legById(leg).journey;
+                const r = { kind: resource?.kind, ref: resource?.ref };
+                createdHere.push(r);
+                createdByJourney.set(journey, [...(createdByJourney.get(journey) ?? []), r]);
+            };
             const nightly = Object.freeze({
                 legs: [...legs],
                 send: async (leg, kind, action) => { own(leg); return budget.send(leg, kind, action); },
                 cleanup: async (leg, action) => { own(leg); return budget.send(leg, CLEANUP, action); },
                 // Called BEFORE the send that creates (or may create) a resource, so an attempt whose answer is lost is
                 // still owed cleanup. The runner's record, not the teardown's report, decides what must be cleaned.
-                created: (leg, resource) => {
+                created: (leg, resource) => record(leg, resource),
+                /**
+                 * Sam, 15 Nov (#1867): the one route for an account-create request. In order: the leg's frozen `signups`
+                 * allocation is reserved (a refusal sends nothing); the attempt, with its non-secret lookup reference and
+                 * transport deadline, is written durably to the evidence directory (a failed write sends nothing); the
+                 * account is recorded as created for the journey's cleanup; only then is `send({ token, signal })` called,
+                 * with an abort signal at the deadline. An answer marks the attempt answered. A throw, timeout or restart
+                 * leaves it unanswered, and admission stays refused until that exact account is recovered.
+                 */
+                createAccount: async (leg, lookupRef, send) => {
                     own(leg);
-                    const journey = legById(leg).journey;
-                    const r = { kind: resource?.kind, ref: resource?.ref };
-                    createdHere.push(r);
-                    createdByJourney.set(journey, [...(createdByJourney.get(journey) ?? []), r]);
+                    const deadlineMs = opts.createDeadlineMs ?? CREATE_DEADLINE_MS;
+                    const r = budget.reserve(leg, 'signups');
+                    if (!r.granted)
+                        return { sent: false, reason: r.reason };
+                    const attemptId = `${leg}-${r.token.n}`;
+                    try {
+                        recordCreateAttempt(opts.evidenceDir, opts.runId, { attemptId, leg, lookupRef, transportDeadlineMs: deadlineMs });
+                    }
+                    catch (e) {
+                        return { sent: false, reason: `the account-create attempt could not be recorded, so nothing was sent: ${e.message}` };
+                    }
+                    record(leg, { kind: 'account', ref: lookupRef });
+                    const value = await send({ token: r.token, signal: AbortSignal.timeout(deadlineMs) });
+                    answerCreateAttempt(opts.evidenceDir, opts.runId, attemptId);
+                    return { sent: true, value };
                 },
             });
             let ran;
@@ -271,4 +302,5 @@ function nightlyAdapter(io, opts) {
     return { io: wrapped, outcome, finish };
 }
 
-module.exports = { casesForLegs, combineCleanup, nightlyAdapter };
+module.exports = {
+    CREATE_DEADLINE_MS, casesForLegs, combineCleanup, nightlyAdapter };

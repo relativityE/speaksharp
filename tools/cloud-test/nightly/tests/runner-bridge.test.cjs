@@ -62,7 +62,27 @@ function fakeIo(scenario, wire) {
             const refused = [];
             const j6 = c.id === 'AHT-11';
             // The runner records what it creates BEFORE the creating send; the teardown's report can't erase it.
-            nightly.created(leg, { kind: 'account', ref: `acct-unit-${c.id}` });
+            if (scenario.create) {
+                // Sam, 15 Nov (#1867): the account-create request goes through the ONE guarded route, onto a fake transport.
+                const g = scenario.create;
+                const attemptsBefore = () => fs.readdirSync(scenario.evidenceDir).filter((n) => n.includes('.attempt.') && n.endsWith('.sent.json')).length;
+                const transport = async ({ token, signal }) => {
+                    g.transportCalls.push({ token, signalIsAbortSignal: signal instanceof AbortSignal, attemptRecordedBeforeSend: attemptsBefore() > 0 });
+                    wire.push('create:account');
+                    if (g.transport === 'lost') throw new Error('response lost (restart after send, before response)');
+                    return { userId: 'unit-user' };
+                };
+                if (g.unwritableEvidence) fs.chmodSync(scenario.evidenceDir, 0o500);
+                try {
+                    for (let i = 0; i < (g.times ?? 1); i += 1)
+                        g.results.push(await nightly.createAccount(leg, `acct-unit-${c.id}`, transport));
+                }
+                finally {
+                    if (g.unwritableEvidence) fs.chmodSync(scenario.evidenceDir, 0o700);
+                }
+            }
+            else
+                nightly.created(leg, { kind: 'account', ref: `acct-unit-${c.id}` });
             if (scenario.createFence)
                 nightly.created(leg, { kind: 'feedback-fence', ref: 'fence-unit-J6' });
             for (let i = 0; i < (j6 ? scenario.starts : 0); i += 1) {
@@ -106,7 +126,7 @@ async function nightlyRun(d, runId, { legs = ['J6'], coachingCeiling, ...scenari
     const wire = [];
     const runDir = d.runDir(runId);
     const evidenceFile = path.join(d.evidenceDir, `${runId}.cleanup.json`);
-    const raw = fakeIo({ starts: 4, coaching: 2, runDir, evidenceFile, ...scenario }, wire);
+    const raw = fakeIo({ starts: 4, coaching: 2, runDir, evidenceFile, evidenceDir: d.evidenceDir, ...scenario }, wire);
     const { io, outcome, finish } = nightlyAdapter(raw, { runDir, evidenceDir: d.evidenceDir, runId, selected: legs, satisfiedGates: [], coachingCeiling });
     const r = await runCampaign(campaignPlan(legs.filter((l) => l !== 'J2'), scenario.deadlineAt), io, { executeR0: true });
     // As the nightly runner does: finish once, after the whole campaign.
@@ -293,5 +313,94 @@ describe('nightly runner bridge: one journey (J6) through the real harness runne
         assert.equal(combineCleanup([z(1), { steps: [], left: [] }]).verification, undefined);
         assert.equal(combineCleanup([]).verification, undefined);
         assert.deepEqual(combineCleanup([{ steps: [], left: [], verification: { kind: 'nothing-created' } }]).verification, { kind: 'nothing-created' });
+    });
+});
+
+// Sam, 15 Nov (#1867): an account-create request is reserved and recorded durably before it can leave, and an unanswered one
+// blocks admission until THAT account is proven gone after the request could no longer complete. Real bridge route
+// (`nightly.createAccount`), real budget journal and evidence directory, fake transport.
+describe('nightly runner bridge: the guarded account-create route', () => {
+    const { LATE_COMPLETION_BOUND_MS, recordAttemptRecovery, recordRecovery } = require('../cleanup-evidence.cjs');
+    const guarded = (over = {}) => ({ transport: 'ok', transportCalls: [], results: [], ...over });
+    const attemptStem = (d, runId) => fs.readdirSync(d.evidenceDir).find((n) => n.startsWith(`${runId}.attempt.`) && n.endsWith('.sent.json'));
+    it('reserved, then recorded durably, then sent; an answered create with complete cleanup readmits', async () => {
+        const d = dirs();
+        const create = guarded();
+        const { wire, outcome } = await nightlyRun(d, 'g1', { create });
+        assert.equal(create.transportCalls.length, 1);
+        assert.equal(create.transportCalls[0].attemptRecordedBeforeSend, true, 'the attempt was on disk before the transport was called');
+        assert.equal(create.transportCalls[0].signalIsAbortSignal, true, 'the transport is held to a deadline');
+        assert.equal(create.transportCalls[0].token.kind, 'signups', 'the send carries its granted signups reservation');
+        assert.equal(wire[0], 'create:account');
+        const sent = JSON.parse(fs.readFileSync(path.join(d.evidenceDir, attemptStem(d, 'g1')), 'utf8'));
+        assert.equal(sent.lookupRef, 'acct-unit-AHT-11');
+        assert.equal(fs.existsSync(path.join(d.evidenceDir, attemptStem(d, 'g1').replace('.sent.json', '.answered.json'))), true);
+        const journal = fs.readFileSync(path.join(d.runDir('g1'), 'budget-journal.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+        assert.equal(journal.filter((e) => e.t === 'grant' && e.kind === 'signups').length, 1);
+        assert.equal(outcome.cleanup.result, 'complete');
+        assert.equal(admitRun(d.evidenceDir).admitted, true);
+    });
+    it('a second create on the same leg is past its frozen allocation: refused, and the transport is never called', async () => {
+        const d = dirs();
+        const create = guarded({ times: 2 });
+        await nightlyRun(d, 'g2', { create });
+        assert.equal(create.transportCalls.length, 1);
+        assert.equal(create.results[1].sent, false);
+        assert.match(create.results[1].reason, /signups allocation of 1/);
+    });
+    it('a sibling leg that reuses its journey\'s account has no sign-up to reserve', () => {
+        const { planRunBudget } = require('../run-budget.cjs');
+        const b = planRunBudget({ satisfiedGates: new Set(), selected: ['J1.a', 'J1.b'] });
+        assert.equal(b.allocationOf('J1.a').signups, 1);
+        assert.equal(b.allocationOf('J1.b').signups, 0);
+        assert.equal(b.reserve('J1.b', 'signups').granted, false);
+    });
+    it('failed persistence: the attempt cannot be recorded, so nothing is sent (zero transport calls)', async () => {
+        const d = dirs();
+        const create = guarded({ unwritableEvidence: true });
+        await nightlyRun(d, 'g3', { create });
+        assert.equal(create.transportCalls.length, 0);
+        assert.equal(create.results[0].sent, false);
+        assert.match(create.results[0].reason, /could not be recorded, so nothing was sent/);
+    });
+    it('restart after send, before the response: the next run is refused, and a bare run recovery marker does not reopen it', async () => {
+        const d = dirs();
+        const create = guarded({ transport: 'lost' });
+        await nightlyRun(d, 'g4', { create }).catch(() => undefined);
+        assert.equal(create.transportCalls.length, 1);
+        const stem = attemptStem(d, 'g4');
+        assert.equal(fs.existsSync(path.join(d.evidenceDir, stem.replace('.sent.json', '.answered.json'))), false, 'never answered');
+        const first = admitRun(d.evidenceDir);
+        assert.equal(first.admitted, false);
+        assert.ok(first.blocking.some((b) => /never answered; recover that exact account first/.test(b)));
+        recordRecovery(d.evidenceDir, 'g4', 'unit-bare-run-recovery');
+        const bare = admitRun(d.evidenceDir);
+        assert.equal(bare.admitted, false, 'a run-level marker never clears an unanswered create');
+        assert.ok(bare.blocking.some((b) => /never answered/.test(b)));
+    });
+    it('wrong account, an early zero, an unscoped query or a hand-written marker never readmit; the exact account later does', async () => {
+        const d = dirs();
+        await nightlyRun(d, 'g5', { create: guarded({ transport: 'lost' }) }).catch(() => undefined);
+        recordRecovery(d.evidenceDir, 'g5', 'unit-run-recovery');
+        const stem = attemptStem(d, 'g5');
+        const sent = JSON.parse(fs.readFileSync(path.join(d.evidenceDir, stem), 'utf8'));
+        const attemptId = sent.attemptId;
+        const late = new Date(Date.parse(sent.recordedAt) + LATE_COMPLETION_BOUND_MS).toISOString();
+        const early = new Date(Date.parse(sent.recordedAt) + LATE_COMPLETION_BOUND_MS - 1).toISOString();
+        const zero = (scope) => [{ kind: 'account', scope, count: 0 }];
+        assert.throws(() => recordAttemptRecovery(d.evidenceDir, 'g5', attemptId, { lookupRef: 'acct-other', observedAt: late, queries: zero('acct-other') }), /names another account/);
+        assert.throws(() => recordAttemptRecovery(d.evidenceDir, 'g5', attemptId, { lookupRef: sent.lookupRef, observedAt: early, queries: zero(sent.lookupRef) }), /could still complete/);
+        assert.throws(() => recordAttemptRecovery(d.evidenceDir, 'g5', attemptId, { lookupRef: sent.lookupRef, observedAt: late, queries: zero('acct-other') }), /scoped to the attempted account/);
+        assert.throws(() => recordAttemptRecovery(d.evidenceDir, 'g5', attemptId, { lookupRef: sent.lookupRef, observedAt: late, queries: [{ kind: 'account', scope: sent.lookupRef, count: 1 }] }), /zero count/);
+        assert.throws(() => recordAttemptRecovery(d.evidenceDir, 'g5', attemptId, { lookupRef: sent.lookupRef, observedAt: late, queries: [{ kind: 'session', scope: sent.lookupRef, count: 0 }] }), /does not query the account itself/);
+        assert.equal(admitRun(d.evidenceDir).admitted, false, 'every refused proof left admission closed');
+        // A hand-written recovered marker with no valid proof is re-checked on read and refused.
+        fs.writeFileSync(path.join(d.evidenceDir, stem.replace('.sent.json', '.recovered.json')), JSON.stringify({ runId: 'g5', attemptId }));
+        const forged = admitRun(d.evidenceDir);
+        assert.equal(forged.admitted, false);
+        assert.ok(forged.blocking.some((b) => /recovery not accepted/.test(b)));
+        fs.rmSync(path.join(d.evidenceDir, stem.replace('.sent.json', '.recovered.json')));
+        recordAttemptRecovery(d.evidenceDir, 'g5', attemptId, { lookupRef: sent.lookupRef, observedAt: late, queries: zero(sent.lookupRef) });
+        assert.equal(admitRun(d.evidenceDir).admitted, true, 'the exact account, proven gone after the late-completion bound, readmits');
     });
 });

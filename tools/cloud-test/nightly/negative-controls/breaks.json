@@ -398,8 +398,8 @@
       "id": "P4-allocation-not-frozen",
       "guards": "allocations are frozen once the run starts",
       "file": "run-budget.cjs",
-      "find": "legs[id] = Object.freeze({ coaching: a.coaching, starts: a.starts });",
-      "replace": "legs[id] = ({ coaching: a.coaching, starts: a.starts });",
+      "find": "legs[id] = Object.freeze({ coaching: a.coaching, starts: a.starts, signups: withSignups.signups });",
+      "replace": "legs[id] = ({ coaching: a.coaching, starts: a.starts, signups: withSignups.signups });",
       "test": "tests/run-budget.test.cjs"
     },
     {
@@ -438,8 +438,8 @@
       "id": "P4-retry-allowance",
       "guards": "a retry past the leg's allocation is refused: no retry allowance",
       "file": "run-budget.cjs",
-      "find": "if (used >= a[kind])",
-      "replace": "if (used >= a[kind] + 1)",
+      "find": "|| used >= a[kind])",
+      "replace": "|| used >= a[kind] + 1)",
       "test": "tests/run-budget.test.cjs"
     },
     {
@@ -1470,8 +1470,8 @@
       "id": "P10-bridge-created-not-recorded",
       "guards": "the runner records what it created (per case and per journey), so an omitted resource cannot look clean",
       "file": "runner-bridge.cjs",
-      "find": "                    createdHere.push(r);\n                    createdByJourney.set(journey, [...(createdByJourney.get(journey) ?? []), r]);\n",
-      "replace": "                    void journey;\n",
+      "find": "                createdHere.push(r);\n                createdByJourney.set(journey, [...(createdByJourney.get(journey) ?? []), r]);\n",
+      "replace": "                void journey;\n",
       "test": "tests/runner-bridge.test.cjs"
     },
     {
@@ -1561,6 +1561,54 @@
       "find": "            if (attempt > 0 && Date.now() >= deadline)\n                return null;\n",
       "replace": "",
       "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P10-create-unrecorded-send",
+      "guards": "an account-create attempt is recorded durably before it is sent (Sam, 15 Nov, #1867)",
+      "file": "runner-bridge.cjs",
+      "find": "                        recordCreateAttempt(opts.evidenceDir, opts.runId, { attemptId, leg, lookupRef, transportDeadlineMs: deadlineMs });\n",
+      "replace": "",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-create-persist-failure-sends",
+      "guards": "an attempt that cannot be recorded sends nothing (Sam, 15 Nov, #1867)",
+      "file": "runner-bridge.cjs",
+      "find": "                        return { sent: false, reason: `the account-create attempt could not be recorded, so nothing was sent: ${e.message}` };\n",
+      "replace": "",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-attempt-not-blocking",
+      "guards": "an unanswered account-create attempt blocks admission whatever the run marker says (Sam, 15 Nov, #1867)",
+      "file": "cleanup-evidence.cjs",
+      "find": "    blocking.push(...blockingAttempts(dir, names));\n",
+      "replace": "",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-attempt-wrong-account",
+      "guards": "a recovery proof for another account does not clear the attempt (Sam, 15 Nov, #1867)",
+      "file": "cleanup-evidence.cjs",
+      "find": "    if (proof.lookupRef !== sent.lookupRef)\n        return 'the recovery proof names another account';\n",
+      "replace": "",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-attempt-early-zero",
+      "guards": "a zero taken while the request could still complete does not clear the attempt (Sam, 15 Nov, #1867)",
+      "file": "cleanup-evidence.cjs",
+      "find": "observed < recorded + LATE_COMPLETION_BOUND_MS",
+      "replace": "false",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-signups-sibling-owner",
+      "guards": "only the leg that owns a created account gets a sign-up allocation (Sam, 15 Nov, #1867)",
+      "file": "run-budget.cjs",
+      "find": "signups: owners.has(l.id) ? 1 : 0",
+      "replace": "signups: 1",
+      "test": "tests/runner-bridge.test.cjs"
     }
   ]
 }

@@ -225,9 +225,118 @@ function recordRecovery(dir, runId, ref, at = new Date().toISOString()) {
         throw new Error(`run ${runId} never started; there is nothing to recover`);
     durableWrite(runFile(dir, runId, 'recovered'), { runId, recoveredAt: at, by: ref });
 }
+// ---------------------------------------------------------------------------------------------------------------
+// Account-create attempts (Sam, 15 Nov, #1867). The started marker blocks admission after a crash, but alone it cannot name
+// the account to recover. So every account-create request is recorded, durably and before it is sent, with a non-secret
+// lookup reference for the account it may create. If that write fails, nothing is sent. An attempt that was never answered
+// (throw, timeout, restart) stays unresolved, and admission stays refused until a recovery proves, for that exact account,
+// that the request can no longer complete and that nothing of it is left. A run-level recovery marker never clears it.
+
+/** The longest an account-create request may stay in flight: its transport deadline must fit inside this bound. */
+const LATE_COMPLETION_BOUND_MS = 5 * 60_000;
+const ATTEMPT_ID = /^[A-Za-z0-9._-]{1,60}$/;
+const attemptFile = (dir, runId, attemptId, state) => path.join(dir, `${runId}.attempt.${attemptId}.${state}.json`);
+const ATTEMPT_SENT = '.sent.json';
+
+/** Records an account-create attempt before it is sent. Throws (and the caller sends nothing) if it can't be recorded. */
+function recordCreateAttempt(dir, runId, { attemptId, leg, lookupRef, transportDeadlineMs }, at = new Date().toISOString()) {
+    checkRunId(runId);
+    if (typeof attemptId !== 'string' || !ATTEMPT_ID.test(attemptId))
+        throw new Error('an attempt id is letters, digits, dot, dash or underscore');
+    if (typeof leg !== 'string' || !ATTEMPT_ID.test(leg))
+        throw new Error('an attempt names the leg that owns it');
+    if (typeof lookupRef !== 'string' || !REF.test(lookupRef))
+        throw new Error('an account-create attempt needs a non-secret lookup reference for the account it may create');
+    if (!Number.isInteger(transportDeadlineMs) || transportDeadlineMs <= 0 || transportDeadlineMs > LATE_COMPLETION_BOUND_MS)
+        throw new Error(`an account-create attempt needs a transport deadline within ${LATE_COMPLETION_BOUND_MS} ms`);
+    if (!fs.existsSync(runFile(dir, runId, 'started')))
+        throw new Error(`run ${runId} was never admitted; nothing may be sent`);
+    durableWrite(attemptFile(dir, runId, attemptId, 'sent'), { runId, attemptId, leg, kind: 'account', lookupRef, transportDeadlineMs, recordedAt: at });
+}
+/** The attempt got an answer (created, or refused by the server): the run's own cleanup evidence then governs it. */
+function answerCreateAttempt(dir, runId, attemptId, at = new Date().toISOString()) {
+    const sent = readAttempt(attemptFile(dir, runId, attemptId, 'sent'));
+    if (!sent)
+        throw new Error(`attempt ${attemptId} of run ${runId} was never recorded`);
+    durableWrite(attemptFile(dir, runId, attemptId, 'answered'), { runId, attemptId, answeredAt: at });
+}
+function readAttempt(file) {
+    try {
+        return JSON.parse(fs.readFileSync(file, 'utf8'));
+    }
+    catch {
+        return null;
+    }
+}
+/**
+ * Why a recovery proof does not clear `sent`, or null when it does: it must name the attempt's own lookup reference, be
+ * observed after the request could still have completed, and show a zero count, scoped to that exact account, for the
+ * account itself and for every other query it gives. A bare marker, an unrelated account or an early zero is refused.
+ */
+function attemptRecoveryFault(sent, proof) {
+    if (!proof || typeof proof !== 'object')
+        return 'no recovery proof';
+    if (proof.lookupRef !== sent.lookupRef)
+        return 'the recovery proof names another account';
+    const observed = Date.parse(proof.observedAt);
+    const recorded = Date.parse(sent.recordedAt);
+    if (!Number.isFinite(observed) || !Number.isFinite(recorded) || observed < recorded + LATE_COMPLETION_BOUND_MS)
+        return 'the zero-residue observation was taken while the request could still complete';
+    const queries = Array.isArray(proof.queries) ? proof.queries : [];
+    if (!queries.some((q) => q && q.kind === 'account'))
+        return 'the recovery proof does not query the account itself';
+    if (!queries.every((q) => q && RESOURCE_KINDS.includes(q.kind) && q.scope === sent.lookupRef && isCount(q.count) && q.count === 0))
+        return 'the recovery proof is not a zero count scoped to the attempted account';
+    return null;
+}
+/** Records the protected recovery of one unanswered attempt. Refuses (writes nothing) unless the proof clears it. */
+function recordAttemptRecovery(dir, runId, attemptId, proof, at = new Date().toISOString()) {
+    checkRunId(runId);
+    const sent = readAttempt(attemptFile(dir, runId, attemptId, 'sent'));
+    if (!sent)
+        throw new Error(`attempt ${attemptId} of run ${runId} was never recorded; there is nothing to recover`);
+    const fault = attemptRecoveryFault(sent, proof);
+    if (fault)
+        throw new Error(`attempt ${attemptId} not recovered: ${fault}`);
+    durableWrite(attemptFile(dir, runId, attemptId, 'recovered'), { runId, attemptId, recoveredAt: at, proof });
+}
+/**
+ * The attempts that still block admission: an attempt is cleared only by a recovery proof re-checked here, or by an answer
+ * together with its run's complete cleanup evidence. A run-level recovery marker never clears an attempt.
+ */
+function blockingAttempts(dir, names) {
+    const blocking = [];
+    for (const n of names.filter((x) => x.includes('.attempt.') && x.endsWith(ATTEMPT_SENT))) {
+        const stem = n.slice(0, -ATTEMPT_SENT.length);
+        const sent = readAttempt(path.join(dir, n));
+        if (!sent) {
+            blocking.push(`${stem}: account-create attempt record unreadable`);
+            continue;
+        }
+        if (names.includes(`${stem}.recovered.json`)) {
+            const rec = readAttempt(path.join(dir, `${stem}.recovered.json`));
+            const fault = attemptRecoveryFault(sent, rec?.proof);
+            if (!fault)
+                continue;
+            blocking.push(`${stem}: recovery not accepted (${fault})`);
+            continue;
+        }
+        if (names.includes(`${stem}.answered.json`)) {
+            const cleanup = readAttempt(path.join(dir, `${sent.runId}.cleanup.json`));
+            if (cleanup?.cleanup === 'complete')
+                continue;
+            blocking.push(`${stem}: answered, but its run's cleanup is not proven complete`);
+            continue;
+        }
+        blocking.push(`${stem}: account-create attempt never answered; recover that exact account first`);
+    }
+    return blocking;
+}
+
 /**
  * Admission: the next run is refused while any started run has no cleanup evidence (killed, or still running) or
- * incomplete cleanup, unless its recovery is recorded. Evidence that can't be read refuses too.
+ * incomplete cleanup, unless its recovery is recorded. Evidence that can't be read refuses too. An account-create attempt
+ * blocks on its own terms (`blockingAttempts`), whatever the run's recovery marker says.
  */
 function admitRun(dir) {
     let names;
@@ -259,9 +368,13 @@ function admitRun(dir) {
         if (doc.cleanup !== 'complete')
             blocking.push(`${runId}: cleanup incomplete (${(doc.incompleteJourneys ?? []).join(', ') || 'unknown'})`);
     }
+    blocking.push(...blockingAttempts(dir, names));
     return blocking.length > 0
         ? { admitted: false, reason: `earlier runs must be recovered first: ${blocking.join('; ')}`, blocking }
         : { admitted: true, reason: 'every earlier run cleaned up or was recovered', blocking };
 }
 
-module.exports = { ADMISSION_LOCK, AdmissionRefused, RESOURCE_KINDS, VERIFICATION_KINDS, admitRun, beginRun, recordRecovery, unprovenCleanup, writeCleanupEvidence };
+module.exports = {
+    ADMISSION_LOCK, AdmissionRefused, LATE_COMPLETION_BOUND_MS, RESOURCE_KINDS, VERIFICATION_KINDS, admitRun, answerCreateAttempt, beginRun,
+    recordAttemptRecovery, recordCreateAttempt, recordRecovery, unprovenCleanup, writeCleanupEvidence,
+};

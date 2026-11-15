@@ -24,12 +24,13 @@ file, in the harness handoff in the description of #1865, for the owners of thos
 | `counts.cjs` | One rule for every count a check reads: a nonnegative whole number, or the read is not observed (NaN, negative, fractional or missing is never zero) |
 | `limits.cjs` | The lowest limits that give a truthful result: exact counts for sign-ups, takes, starts, coaching (probe reserves included), identity reads and provider calls; request and time limits per journey from complete baselines plus the evidence-based margins (11% and 14%), plus each journey's cleanup reserve; dollar caps from a supplied price |
 | `oracles/*.cjs` | The new rows' checks: 30-day trial, ending a canary-tagged run-owned trial, sign-out (no unauthorized read, no stale request), payment wall and server refusal, short Stop saves nothing (HOLD unless Stop was pressed while recording; FAIL unless the page says the take wasn't saved; a new row or placeholder settled as failed is allowed, a completed or changed saved take FAILs, an unsettled discard, a duplicate row or any other change HOLDs), billing portal opens (only an explicit true counts as shown; the test-mode check and every step bounded; only an explicit true proves test mode, so a timeout or anything else FAILs with no session created; URL never logged), billing-row reconciliation, the test-mode paid fixture, kept sessions send no new coaching |
-| `tests/*.test.cjs` | node:test files (227 tests), run by `../tests/test_nightly_suite.py` inside the package unit tests |
-| `negative-controls/` | 195 seeded breaks: each must make its test fail and pass again once restored |
+| `tests/*.test.cjs` | node:test files (233 tests), run by `../tests/test_nightly_suite.py` inside the package unit tests |
+| `negative-controls/` | 201 seeded breaks: each must make its test fail and pass again once restored |
 
 ## Rules the code enforces
 
 - A leg PASSes only when every row it must report passed. Anything skipped, gated or not reached is NOT RUN, never PASS.
+- An account-create request goes only through the bridge's `createAccount`: one `signups` reservation on the leg that owns the account, the attempt (lookup reference, deadline) written durably before it is sent (a failed write sends nothing), and an unanswered attempt blocks admission until that exact account is proven gone after the late-completion bound. A run-level recovery marker never clears it.
 - A leg with no harness case yet (J1.e, J1.f, J2, J7.d, J8.c, J9.a, J9.b) is NOT RUN until its adapter lands through the handoff.
 - J9.a is labelled Stripe test-mode sandbox, never production billing proof; J9.b is NOT RUN by design on every run.
 - Counted limits carry no margin. Measured limits stay unset until a baseline run in which every runnable leg executed.
