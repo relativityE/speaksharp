@@ -29,6 +29,19 @@ export function legSink(sink: ReceiptRowSink, leg: J8Leg): ReceiptRowSink {
     return { row: (step, verdict, detail, evidence) => sink.row(`${leg}: ${step}`, verdict, detail, evidence) };
 }
 
+/**
+ * The same leg scoping for helpers that also READ the receipt's rows (e.g. `feedbackDiagnosticChainRow`): it sees only its own
+ * leg's rows, under their unscoped names, so a row another leg wrote can never stand in for this leg's.
+ */
+export function legReceipt<R extends { readonly rows: ReadonlyArray<{ step: string; verdict: string }> } & ReceiptRowSink>(receipt: R, leg: J8Leg):
+    { readonly rows: ReadonlyArray<{ step: string; verdict: string }>; row: ReceiptRowSink['row'] } {
+    const prefix = `${leg}: `;
+    return {
+        get rows() { return receipt.rows.filter((r) => r.step.startsWith(prefix)).map((r) => ({ ...r, step: r.step.slice(prefix.length) })); },
+        row: (step, verdict, detail, evidence) => receipt.row(`${prefix}${step}`, verdict, detail, evidence),
+    };
+}
+
 export type J8WriteDecision =
     | { leg: J8Leg; action: 'forward'; keys: string[] }
     | { leg: 'J8.b'; action: 'ledger' }

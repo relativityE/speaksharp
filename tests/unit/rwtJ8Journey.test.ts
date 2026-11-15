@@ -5,7 +5,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-    J8_FENCE_CASE, J8_FENCE_KEY_CAP, J8_KEY_CAPS, J8WriteGate, legReadback, legSink, mergeLegReadback, takeDigest, takesUnchangedVerdict,
+    J8_FENCE_CASE, J8_FENCE_KEY_CAP, J8_KEY_CAPS, J8WriteGate, legReadback, legReceipt, legSink, mergeLegReadback, takeDigest,
+    takesUnchangedVerdict,
     type J8Leg,
 } from '../live/helpers/rwtJ8Journey';
 import type { ReadbackActionBinding } from '../live/helpers/rwtAcceptance';
@@ -39,6 +40,14 @@ describe('J8 constants: one AHT-07+AHT-08 fence, keys 1/4/1 with no borrowing', 
         expect(J8_FENCE_CASE).toBe('AHT-07+AHT-08');
         expect(J8_KEY_CAPS).toEqual({ 'J8.a': 1, 'J8.b': 4, 'J8.c': 1 });
         expect(J8_FENCE_KEY_CAP).toBe(6);
+    });
+    it('legReceipt reads only its own leg\'s rows, under unscoped names', () => {
+        const rows: { step: string; verdict: string }[] = [{ step: 'J8.a: feedback', verdict: 'PASS' }, { step: 'J8.b: feedback', verdict: 'FAIL' }];
+        const receipt = { rows, row: (step: string, verdict: 'PASS' | 'FAIL' | 'HOLD') => { rows.push({ step, verdict }); } };
+        const b = legReceipt(receipt, 'J8.b');
+        expect(b.rows).toEqual([{ step: 'feedback', verdict: 'FAIL' }]);
+        b.row('feedback diagnostic chain', 'HOLD', 'x');
+        expect(rows.at(-1)).toEqual({ step: 'J8.b: feedback diagnostic chain', verdict: 'HOLD' });
     });
     it('legSink scopes every row to its leg', () => {
         const rows: string[] = [];

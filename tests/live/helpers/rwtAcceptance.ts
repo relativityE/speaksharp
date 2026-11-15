@@ -358,6 +358,7 @@ export function requiredHumanObservations(receipt: ReceiptForFinalization): stri
         // #1594 (PM 6120326867): the supplemental boundary scenarios are fully automated; they carry no human check.
         case FEEDBACK_OLDER_TAKE_SUITE:
         case FEEDBACK_NO_SESSION_SUITE:
+        case FEEDBACK_J8_SUITE:
         case PENDING_START_SUITE:
         case SAVE_RETRY_REQUEST_LOST_SUITE:
         case SAVE_RETRY_RESPONSE_LOST_SUITE:
@@ -512,6 +513,20 @@ const FEEDBACK_NO_SESSION_PRODUCT_ROWS = Object.freeze([
     // AHT-08 (#1811): this submit's own acknowledgement, and one attempted + one storage_ok for it.
     'fresh acknowledgment', 'received feedback',
 ]);
+/**
+ * J8 (nine-journey design; Sam's disposition 2026-11-15): one account, three legs, ONE receipt. Account-level rows stay unscoped;
+ * each leg's rows are the older-take / no-session rows under its own `J8.x: ` prefix, so no leg can pass on another's row.
+ * Literal suite name (this module is loaded by AHT-01, so it imports no case-only helper; rwtJ8Journey.ts's J8_SUITE must equal it).
+ */
+export const FEEDBACK_J8_SUITE = 'feedback-association-boundaries-j8';
+const J8_ACCOUNT_ROWS: ReadonlySet<string> = new Set([...SUPPLEMENTAL_ACCOUNT_ROWS, 'coaching request budget', 'feedback retention', 'zero residue']);
+const j8LegRows = (leg: string, rows: readonly string[]) => rows.filter((r) => !J8_ACCOUNT_ROWS.has(r)).map((r) => `${leg}: ${r}`);
+const FEEDBACK_J8_PRODUCT_ROWS = Object.freeze([
+    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'coaching request budget', 'feedback retention', 'zero residue', 'J8 write windows', 'J8 leg readback bindings',
+    ...j8LegRows('J8.a', FEEDBACK_NO_SESSION_PRODUCT_ROWS), 'J8.a: no coaching before any take',
+    ...j8LegRows('J8.b', FEEDBACK_OLDER_TAKE_PRODUCT_ROWS),
+    ...j8LegRows('J8.c', FEEDBACK_NO_SESSION_PRODUCT_ROWS), 'J8.c: both saved takes unchanged', 'J8.c: no extra Start or coaching',
+]);
 const PENDING_START_PRODUCT_ROWS = Object.freeze([
     ...SUPPLEMENTAL_ACCOUNT_ROWS, 'cold Start is pending', 'Start transition observed', 'abandoned Start settles after leaving',
     'leaving pending Start releases microphone', 'leaving pending Start creates no session',
@@ -596,6 +611,10 @@ export function requiredAutomatedRows(suite: string): { required: readonly strin
             return { required: [...ALWAYS_AUTOMATED_ROWS, ...JOURNEY_READBACK_ROWS], product: FEEDBACK_OLDER_TAKE_PRODUCT_ROWS, absent: ['coaching prompt binding'] };
         case FEEDBACK_NO_SESSION_SUITE:
             return { required: [...ALWAYS_AUTOMATED_ROWS, ...JOURNEY_READBACK_ROWS], product: FEEDBACK_NO_SESSION_PRODUCT_ROWS, absent: NO_COACHING_RESULT_ROWS };
+        case FEEDBACK_J8_SUITE:
+            // J8.a and J8.c carry no coaching result; only J8.b's older take does (its chain row is J8.b-scoped).
+            return { required: [...ALWAYS_AUTOMATED_ROWS, ...JOURNEY_READBACK_ROWS], product: FEEDBACK_J8_PRODUCT_ROWS,
+                absent: ['coaching prompt binding', 'J8.a: feedback diagnostic chain', 'J8.c: feedback diagnostic chain'] };
         case PENDING_START_SUITE:
             return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: PENDING_START_PRODUCT_ROWS,
                 absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };

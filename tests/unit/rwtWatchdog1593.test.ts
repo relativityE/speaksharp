@@ -213,9 +213,11 @@ describe('every RWT journey is armed, and every run-owned cleanup survives a tim
         'feedback-association-boundaries-no-session', 'abandon-and-two-tabs-navigate-away', 'abandon-and-two-tabs-close-tab',
         'abandon-and-two-tabs-take-over', 'adverse-mic-model-mic-denied', 'adverse-mic-model-download-fails',
         'adverse-mic-model-offline-mid-download', 'returning-user-navigation',
+        // J8 (#1870): the nine-journey same-account feedback adapter (J8.a / J8.b / J8.c on one account).
+        'feedback-association-boundaries-j8',
     ];
 
-    it('each of the 15 campaign suites has a declared profile, and nothing else does', async () => {
+    it('each of the 15 campaign suites and the J8 adapter has a declared profile, and nothing else does', async () => {
         const { WATCH_PROFILES } = await import('../live/helpers/rwtWatchdog');
         expect(Object.keys(WATCH_PROFILES).sort()).toEqual([...SUITES].sort());
     });
@@ -273,7 +275,8 @@ describe('every RWT journey is armed, and every run-owned cleanup survives a tim
             const src = read(f);
             // Every finalization closure: from its registration to its report (or the shared helper that reports).
             const closures = src.split('finalizer.once(').slice(1).map((c) => {
-                const ends = ['steps.report(receipt);', 'await finishReceipt(', 'await finishJourney('].map((m) => c.indexOf(m)).filter((i) => i > -1);
+                // J8 (nine-journey adapter) ends its finalizer in finishJ8Receipt, which reports before writing like finishReceipt.
+                const ends = ['steps.report(receipt);', 'await finishReceipt(', 'await finishJourney(', 'await finishJ8Receipt('].map((m) => c.indexOf(m)).filter((i) => i > -1);
                 return c.slice(0, ends.length > 0 ? Math.min(...ends) : undefined);
             });
             expect((src.match(/steps\.step\('watchdog', \(\) => watch\.record\(receipt\)\)/g) ?? []).length, `${f}: the watchdog row is a bounded step`)
@@ -1449,7 +1452,8 @@ describe('Codex P2 on 06fe109b — telemetry settles before the watchdog verdict
                 expect({ file: f, previous: steps[steps.length - 1] }).toEqual({ file: f, previous: 'telemetry settle' });
             }
         }
-        expect(records, 'every finalizer that records a watchdog verdict was checked').toBe(10);
+        // Ten campaign finalizers plus J8's (the nine-journey same-account feedback adapter, #1870).
+        expect(records, 'every finalizer that records a watchdog verdict was checked').toBe(11);
     });
 
     it('Sam 845401a5 #2 + Codex P2 r4316425029: EVERY finalizer settles every attached page, not the first flush', () => {
