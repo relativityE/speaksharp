@@ -77,6 +77,12 @@ describe('the AHT-04 spec wiring', () => {
         const speak = recovery.indexOf('await page.waitForTimeout(Math.round((fixture.entry.speechSeconds + 4) * 1000));');
         for (const [x, y] of [[drive, verdict], [verdict, row], [row, speak]]) { expect(x).toBeGreaterThan(-1); expect(y).toBeGreaterThan(x); }
         expect(recovery).toContain('pressOnce: (control) => pressRecoveryControl(page, control),');
+        // The guard is armed per attempt and ALWAYS disarmed in finally (Sam, #1869 on c0c085ac).
+        const press = spec.slice(spec.indexOf('async function pressRecoveryControl('), spec.indexOf('\n}\n', spec.indexOf('async function pressRecoveryControl(')));
+        expect(press).toContain('await target.evaluate(armRecoveryClickGuard, { id: control, recorderStopId: RECORDER_STOP, token });');
+        const fin = press.indexOf('} finally {');
+        expect(fin).toBeGreaterThan(press.indexOf('target.click('));
+        expect(press.slice(fin)).toContain('await page.evaluate(disarmRecoveryClickGuard, token)');
         expect(recovery).toContain('}, plan.control);');
     });
     it('raises the Start budget to the two designed presses and lets only the recovery session ask for coaching', () => {
@@ -122,6 +128,17 @@ describe('driveRecoveryPress: one observed activation of the planned control, th
             expect(recoveryPressVerdict(out)?.status).toBe('HOLD');
             expect(p.presses).toEqual([]);
         }
+    });
+    it('a recorder that starts between discovery and activation (caught by the click guard) is the same FAIL, not a HOLD', async () => {
+        const presses: RecoveryControl[] = [];
+        const io: RecoveryPressIo = {
+            recorderPresent: async () => false, offeredControl: async () => 'mic-start',
+            pressOnce: async (c) => { presses.push(c); return { activated: false, staleRecorder: true, reason: 'a recorder was running at activation' }; },
+            recordingAfterPress: async () => true,
+        };
+        const out = await driveRecoveryPress(io, 'mic-start');
+        expect(out).toEqual({ kind: 'stale-recorder' });
+        expect(recoveryPressVerdict(out)?.status).toBe('FAIL');
     });
     it('a recorder already running (or an unreadable check) is no deliberate recovery: FAIL, nothing pressed', async () => {
         for (const recorder of [true, 'throws'] as const) {

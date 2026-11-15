@@ -28,7 +28,8 @@ import { activeHumanReflexMs } from './helpers/rwtHumanReflex';
 import { RECORDER_STOP, micControlFor } from '../helpers/micControls';
 import { nextTakeIdArrived, type SessionRowFacts } from './helpers/rwtSaveRetry';
 import {
-    type RecoveryControl, driveRecoveryPress, recoveryPressVerdict, recoveryTakePlan, recoveryTakeVerdict,
+    type RecoveryControl, armRecoveryClickGuard, disarmRecoveryClickGuard, driveRecoveryPress, recoveryPressVerdict, recoveryTakePlan,
+    recoveryTakeVerdict,
 } from './helpers/rwtPendingStartRecovery';
 import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
 import { HarnessParityTap, type StartPressBudget } from './helpers/rwtHarnessParity';
@@ -97,7 +98,7 @@ test.use({
  * that id and is enabled (otherwise the event is stopped before the product sees it). `activated` is true only when the guard
  * observed the click. The human reflex is applied explicitly (ElementHandle actions bypass the RWT locator wrapper).
  */
-async function pressRecoveryControl(page: Page, control: RecoveryControl): Promise<{ activated: boolean; reason?: string }> {
+async function pressRecoveryControl(page: Page, control: RecoveryControl): Promise<{ activated: boolean; reason?: string; staleRecorder?: boolean }> {
     const found = await page.waitForFunction((id: string) => {
         const buttons = document.querySelectorAll<HTMLButtonElement>(`[data-testid="${id}"]`);
         if (buttons.length !== 1) return false;
@@ -109,26 +110,20 @@ async function pressRecoveryControl(page: Page, control: RecoveryControl): Promi
         await found?.dispose().catch(() => undefined);
         return { activated: false, reason: `${control} was not the one enabled control` };
     }
+    // Sam, #1869 on c0c085ac: the guard re-checks the recorder and the unique planned control AT ACTIVATION, belongs to this one
+    // attempt, and is always removed in `finally`, even when the click times out before it is dispatched.
+    const token = `rp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     try {
         const reflexMs = activeHumanReflexMs();
         if (reflexMs > 0) await new Promise((resolve) => setTimeout(resolve, reflexMs));
-        await target.evaluate((node, id) => {
-            const w = window as unknown as { __rwtRecoveryPress?: { accepted: boolean } };
-            w.__rwtRecoveryPress = { accepted: false };
-            const guard = (event: Event) => {
-                document.removeEventListener('click', guard, true);
-                const ok = node.isConnected && node.getAttribute('data-testid') === id && !(node as HTMLButtonElement).disabled
-                    && event.target instanceof Node && node.contains(event.target);
-                if (ok) w.__rwtRecoveryPress = { accepted: true };
-                else { event.preventDefault(); event.stopImmediatePropagation(); }
-            };
-            document.addEventListener('click', guard, true);
-        }, control);
+        await target.evaluate(armRecoveryClickGuard, { id: control, recorderStopId: RECORDER_STOP, token });
         const clicked = await target.click({ timeout: 30_000 }).then(() => true, () => false);
-        const accepted = await page.evaluate(() => (window as unknown as { __rwtRecoveryPress?: { accepted: boolean } }).__rwtRecoveryPress?.accepted === true)
-            .catch(() => false);
-        return clicked && accepted ? { activated: true } : { activated: false, reason: clicked ? 'the click did not reach the planned control' : 'the click did not complete' };
+        const seen = await page.evaluate(disarmRecoveryClickGuard, token).catch(() => null);
+        if (seen?.rejected && seen.reason === 'recorder') return { activated: false, staleRecorder: true, reason: 'a recorder was running at activation' };
+        return clicked && seen?.accepted === true ? { activated: true }
+            : { activated: false, reason: clicked ? 'the click did not reach the planned control at activation' : 'the click did not complete' };
     } finally {
+        await page.evaluate(disarmRecoveryClickGuard, token).catch(() => null);
         await found?.dispose().catch(() => undefined);
     }
 }
