@@ -1582,23 +1582,23 @@
       "id": "P10-attempt-not-blocking",
       "guards": "an unanswered account-create attempt blocks admission whatever the run marker says (Sam, 15 Nov, #1867)",
       "file": "cleanup-evidence.cjs",
-      "find": "    blocking.push(...blockingAttempts(dir, names));\n",
+      "find": "    blocking.push(...blockingAttempts(dir, names, opts));\n",
       "replace": "",
       "test": "tests/runner-bridge.test.cjs"
     },
     {
       "id": "P10-attempt-wrong-account",
-      "guards": "a recovery proof for another account does not clear the attempt (Sam, 15 Nov, #1867)",
+      "guards": "a terminal result not bound to the attempt and its lookup reference is refused (Sam, 15 Nov, #1867)",
       "file": "cleanup-evidence.cjs",
-      "find": "    if (proof.lookupRef !== sent.lookupRef)\n        return 'the recovery proof names another account';\n",
+      "find": "    if (result.attemptId !== sent.attemptId || result.lookupRef !== sent.lookupRef)\n        return 'the result is not bound to this attempt and its lookup reference';\n",
       "replace": "",
       "test": "tests/runner-bridge.test.cjs"
     },
     {
       "id": "P10-attempt-early-zero",
-      "guards": "a zero taken while the request could still complete does not clear the attempt (Sam, 15 Nov, #1867)",
+      "guards": "a zero lookup taken before the documented server deadline does not clear the attempt (Sam on 964f2add)",
       "file": "cleanup-evidence.cjs",
-      "find": "observed < recorded + LATE_COMPLETION_BOUND_MS",
+      "find": "r.observed < recorded + serverDeadline.ms",
       "replace": "false",
       "test": "tests/runner-bridge.test.cjs"
     },
@@ -1608,6 +1608,46 @@
       "file": "run-budget.cjs",
       "find": "signups: owners.has(l.id) ? 1 : 0",
       "replace": "signups: 1",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-answer-late-accepted",
+      "guards": "a result that arrives after the client's abort is not an answer (Sam on 964f2add)",
+      "file": "cleanup-evidence.cjs",
+      "find": "    if (result.beforeAbort !== true)\n        return 'the result did not arrive before the client aborted, so the request may still complete';\n",
+      "replace": "",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-answer-not-revalidated",
+      "guards": "admission re-validates the recorded answer on read (Sam on 964f2add)",
+      "file": "cleanup-evidence.cjs",
+      "find": "            const fault = terminalResultFault(sent, answered?.result);\n            if (fault) {",
+      "replace": "            const fault = null;\n            if (fault) {",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-deadline-route-open",
+      "guards": "with no documented server deadline, a lookup alone never clears an attempt (Sam on 964f2add)",
+      "file": "cleanup-evidence.cjs",
+      "find": "        if (!Number.isInteger(serverDeadline?.ms) || serverDeadline.ms <= 0 || typeof serverDeadline.source !== 'string' || !serverDeadline.source)",
+      "replace": "        if (false)",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-residue-incomplete",
+      "guards": "a recovery lookup must cover every residue check (Sam on 964f2add)",
+      "file": "cleanup-evidence.cjs",
+      "find": "    if (residue.residueChecks !== REQUIRED_RESIDUE_CHECKS || residue.residueNonZero !== 0)",
+      "replace": "    if (false)",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-residue-future",
+      "guards": "a recovery lookup dated in the future is not an observation (Sam on 964f2add)",
+      "file": "cleanup-evidence.cjs",
+      "find": "    if (!Number.isFinite(observed) || observed > now)",
+      "replace": "    if (!Number.isFinite(observed))",
       "test": "tests/runner-bridge.test.cjs"
     }
   ]

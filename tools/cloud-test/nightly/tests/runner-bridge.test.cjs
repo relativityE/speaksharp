@@ -70,7 +70,18 @@ function fakeIo(scenario, wire) {
                     g.transportCalls.push({ token, signalIsAbortSignal: signal instanceof AbortSignal, attemptRecordedBeforeSend: attemptsBefore() > 0 });
                     wire.push('create:account');
                     if (g.transport === 'lost') throw new Error('response lost (restart after send, before response)');
-                    return { userId: 'unit-user' };
+                    if (g.transport === 'late') {
+                        // A callback that resolves only after the client's abort: the request may still complete server-side.
+                        // AbortSignal.timeout's timer is unref'd; a ref'd fallback keeps the loop alive until the abort fires.
+                        await new Promise((resolve) => {
+                            const keepAlive = setTimeout(resolve, 5_000);
+                            signal.addEventListener('abort', () => { clearTimeout(keepAlive); resolve(); }, { once: true });
+                        });
+                        return { outcome: 'created', accountRef: 'acct-server-unit' };
+                    }
+                    if (g.transport === 'ambiguous') return { ok: true };
+                    if (g.transport === 'refused') return { outcome: 'refused', status: 422 };
+                    return { outcome: 'created', accountRef: 'acct-server-unit' };
                 };
                 if (g.unwritableEvidence) fs.chmodSync(scenario.evidenceDir, 0o500);
                 try {
@@ -122,12 +133,12 @@ const dirs = () => {
     fs.mkdirSync(evidenceDir);
     return { root, evidenceDir, runDir: (runId) => path.join(root, `run-${runId}`) };
 };
-async function nightlyRun(d, runId, { legs = ['J6'], coachingCeiling, ...scenario } = {}) {
+async function nightlyRun(d, runId, { legs = ['J6'], coachingCeiling, createDeadlineMs, ...scenario } = {}) {
     const wire = [];
     const runDir = d.runDir(runId);
     const evidenceFile = path.join(d.evidenceDir, `${runId}.cleanup.json`);
     const raw = fakeIo({ starts: 4, coaching: 2, runDir, evidenceFile, evidenceDir: d.evidenceDir, ...scenario }, wire);
-    const { io, outcome, finish } = nightlyAdapter(raw, { runDir, evidenceDir: d.evidenceDir, runId, selected: legs, satisfiedGates: [], coachingCeiling });
+    const { io, outcome, finish } = nightlyAdapter(raw, { runDir, evidenceDir: d.evidenceDir, runId, selected: legs, satisfiedGates: [], coachingCeiling, createDeadlineMs });
     const r = await runCampaign(campaignPlan(legs.filter((l) => l !== 'J2'), scenario.deadlineAt), io, { executeR0: true });
     // As the nightly runner does: finish once, after the whole campaign.
     await finish(r.report);
@@ -320,10 +331,12 @@ describe('nightly runner bridge: one journey (J6) through the real harness runne
 // blocks admission until THAT account is proven gone after the request could no longer complete. Real bridge route
 // (`nightly.createAccount`), real budget journal and evidence directory, fake transport.
 describe('nightly runner bridge: the guarded account-create route', () => {
-    const { LATE_COMPLETION_BOUND_MS, recordAttemptRecovery, recordRecovery } = require('../cleanup-evidence.cjs');
+    const { recordAttemptRecovery, recordRecovery } = require('../cleanup-evidence.cjs');
     const guarded = (over = {}) => ({ transport: 'ok', transportCalls: [], results: [], ...over });
     const attemptStem = (d, runId) => fs.readdirSync(d.evidenceDir).find((n) => n.startsWith(`${runId}.attempt.`) && n.endsWith('.sent.json'));
-    it('reserved, then recorded durably, then sent; an answered create with complete cleanup readmits', async () => {
+    const sentOf = (d, runId) => JSON.parse(fs.readFileSync(path.join(d.evidenceDir, attemptStem(d, runId)), 'utf8'));
+    const answeredPath = (d, runId) => path.join(d.evidenceDir, attemptStem(d, runId).replace('.sent.json', '.answered.json'));
+    it('reserved, then recorded durably, then sent; a validated created result with complete cleanup readmits', async () => {
         const d = dirs();
         const create = guarded();
         const { wire, outcome } = await nightlyRun(d, 'g1', { create });
@@ -331,10 +344,12 @@ describe('nightly runner bridge: the guarded account-create route', () => {
         assert.equal(create.transportCalls[0].attemptRecordedBeforeSend, true, 'the attempt was on disk before the transport was called');
         assert.equal(create.transportCalls[0].signalIsAbortSignal, true, 'the transport is held to a deadline');
         assert.equal(create.transportCalls[0].token.kind, 'signups', 'the send carries its granted signups reservation');
+        assert.equal(create.results[0].answered, true);
         assert.equal(wire[0], 'create:account');
-        const sent = JSON.parse(fs.readFileSync(path.join(d.evidenceDir, attemptStem(d, 'g1')), 'utf8'));
-        assert.equal(sent.lookupRef, 'acct-unit-AHT-11');
-        assert.equal(fs.existsSync(path.join(d.evidenceDir, attemptStem(d, 'g1').replace('.sent.json', '.answered.json'))), true);
+        assert.equal(sentOf(d, 'g1').lookupRef, 'acct-unit-AHT-11');
+        const answered = JSON.parse(fs.readFileSync(answeredPath(d, 'g1'), 'utf8'));
+        assert.equal(answered.result.outcome, 'created');
+        assert.equal(answered.result.beforeAbort, true);
         const journal = fs.readFileSync(path.join(d.runDir('g1'), 'budget-journal.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
         assert.equal(journal.filter((e) => e.t === 'grant' && e.kind === 'signups').length, 1);
         assert.equal(outcome.cleanup.result, 'complete');
@@ -368,39 +383,79 @@ describe('nightly runner bridge: the guarded account-create route', () => {
         const create = guarded({ transport: 'lost' });
         await nightlyRun(d, 'g4', { create }).catch(() => undefined);
         assert.equal(create.transportCalls.length, 1);
-        const stem = attemptStem(d, 'g4');
-        assert.equal(fs.existsSync(path.join(d.evidenceDir, stem.replace('.sent.json', '.answered.json'))), false, 'never answered');
+        assert.equal(fs.existsSync(answeredPath(d, 'g4')), false, 'no terminal result');
         const first = admitRun(d.evidenceDir);
         assert.equal(first.admitted, false);
-        assert.ok(first.blocking.some((b) => /never answered; recover that exact account first/.test(b)));
+        assert.ok(first.blocking.some((b) => /has no terminal result; recover that exact account first/.test(b)));
         recordRecovery(d.evidenceDir, 'g4', 'unit-bare-run-recovery');
-        const bare = admitRun(d.evidenceDir);
-        assert.equal(bare.admitted, false, 'a run-level marker never clears an unanswered create');
-        assert.ok(bare.blocking.some((b) => /never answered/.test(b)));
+        assert.equal(admitRun(d.evidenceDir).admitted, false, 'a run-level marker never clears an unresolved create');
     });
-    it('wrong account, an early zero, an unscoped query or a hand-written marker never readmit; the exact account later does', async () => {
+    it('LATE callback after the abort: the result is not an answer; the attempt stays unresolved and admission blocked', async () => {
+        const d = dirs();
+        const create = guarded({ transport: 'late' });
+        await nightlyRun(d, 'g6', { create, createDeadlineMs: 20 });
+        assert.equal(create.results[0].sent, true);
+        assert.equal(create.results[0].answered, false);
+        assert.match(create.results[0].reason, /before the client aborted/);
+        assert.equal(fs.existsSync(answeredPath(d, 'g6')), false);
+        assert.equal(admitRun(d.evidenceDir).admitted, false);
+    });
+    it('INVALID answer evidence: an ambiguous result is not an answer, and a hand-written answered record is refused on read', async () => {
+        const d = dirs();
+        const create = guarded({ transport: 'ambiguous' });
+        await nightlyRun(d, 'g7', { create });
+        assert.equal(create.results[0].answered, false);
+        assert.match(create.results[0].reason, /not a terminal outcome/);
+        fs.writeFileSync(answeredPath(d, 'g7'), JSON.stringify({ runId: 'g7', result: { outcome: 'refused', status: 422 } }));
+        const forged = admitRun(d.evidenceDir);
+        assert.equal(forged.admitted, false);
+        assert.ok(forged.blocking.some((b) => /answer evidence not valid \(the result is not bound to this attempt/.test(b)));
+    });
+    it('a validated refused result needs no account cleanup: the attempt clears even though nothing was created', async () => {
+        const d = dirs();
+        await nightlyRun(d, 'g8', { create: guarded({ transport: 'refused' }) });
+        assert.equal(JSON.parse(fs.readFileSync(answeredPath(d, 'g8'), 'utf8')).result.outcome, 'refused');
+        assert.equal(admitRun(d.evidenceDir).blocking.some((b) => b.includes('.attempt.')), false);
+    });
+    it('recovery: no documented server deadline, so a lookup alone never readmits; an authoritative terminal result must be valid and complete', async () => {
         const d = dirs();
         await nightlyRun(d, 'g5', { create: guarded({ transport: 'lost' }) }).catch(() => undefined);
         recordRecovery(d.evidenceDir, 'g5', 'unit-run-recovery');
-        const stem = attemptStem(d, 'g5');
-        const sent = JSON.parse(fs.readFileSync(path.join(d.evidenceDir, stem), 'utf8'));
-        const attemptId = sent.attemptId;
-        const late = new Date(Date.parse(sent.recordedAt) + LATE_COMPLETION_BOUND_MS).toISOString();
-        const early = new Date(Date.parse(sent.recordedAt) + LATE_COMPLETION_BOUND_MS - 1).toISOString();
-        const zero = (scope) => [{ kind: 'account', scope, count: 0 }];
-        assert.throws(() => recordAttemptRecovery(d.evidenceDir, 'g5', attemptId, { lookupRef: 'acct-other', observedAt: late, queries: zero('acct-other') }), /names another account/);
-        assert.throws(() => recordAttemptRecovery(d.evidenceDir, 'g5', attemptId, { lookupRef: sent.lookupRef, observedAt: early, queries: zero(sent.lookupRef) }), /could still complete/);
-        assert.throws(() => recordAttemptRecovery(d.evidenceDir, 'g5', attemptId, { lookupRef: sent.lookupRef, observedAt: late, queries: zero('acct-other') }), /scoped to the attempted account/);
-        assert.throws(() => recordAttemptRecovery(d.evidenceDir, 'g5', attemptId, { lookupRef: sent.lookupRef, observedAt: late, queries: [{ kind: 'account', scope: sent.lookupRef, count: 1 }] }), /zero count/);
-        assert.throws(() => recordAttemptRecovery(d.evidenceDir, 'g5', attemptId, { lookupRef: sent.lookupRef, observedAt: late, queries: [{ kind: 'session', scope: sent.lookupRef, count: 0 }] }), /does not query the account itself/);
+        const sent = sentOf(d, 'g5');
+        const after = (ms) => new Date(Date.parse(sent.recordedAt) + ms).toISOString();
+        const residue = (over = {}) => ({ lookupRef: sent.lookupRef, observedAt: after(1), queries: [{ kind: 'account', scope: sent.lookupRef, count: 0 }],
+            residueChecks: 22, residueNonZero: 0, ...over });
+        const terminal = (over = {}) => ({ attemptId: sent.attemptId, lookupRef: sent.lookupRef, outcome: 'created', accountRef: 'acct-server-unit',
+            receivedAt: after(1), beforeAbort: true, ...over });
+        const tryRecover = (proof, opts) => recordAttemptRecovery(d.evidenceDir, 'g5', sent.attemptId, proof, opts);
+        // No documented server-enforced deadline (production): a lookup-only proof is refused however late it is.
+        assert.throws(() => tryRecover({ kind: 'after-server-deadline', residue: residue({ observedAt: after(24 * 3600_000) }) }), /no server-enforced deadline is documented/);
+        // A bare or unknown proof, a wrong account, an invalid terminal result.
+        assert.throws(() => tryRecover({ lookupRef: sent.lookupRef }), /neither an authoritative terminal result/);
+        assert.throws(() => tryRecover({ kind: 'terminal', result: terminal({ lookupRef: 'acct-other' }) }), /not bound to this attempt/);
+        assert.throws(() => tryRecover({ kind: 'terminal', result: terminal({ beforeAbort: false }) }), /may still complete/);
+        // A created terminal result also needs complete zero residue for that account: missing, incomplete, future, nonzero.
+        assert.throws(() => tryRecover({ kind: 'terminal', result: terminal() }), /no residue lookup/);
+        assert.throws(() => tryRecover({ kind: 'terminal', result: terminal(), residue: residue({ residueChecks: 21 }) }), /incomplete/);
+        assert.throws(() => tryRecover({ kind: 'terminal', result: terminal(), residue: residue({ observedAt: new Date(Date.now() + 3600_000).toISOString() }) }), /future time/);
+        assert.throws(() => tryRecover({ kind: 'terminal', result: terminal(), residue: residue({ queries: [{ kind: 'account', scope: sent.lookupRef, count: 1 }] }) }), /zero count/);
         assert.equal(admitRun(d.evidenceDir).admitted, false, 'every refused proof left admission closed');
-        // A hand-written recovered marker with no valid proof is re-checked on read and refused.
-        fs.writeFileSync(path.join(d.evidenceDir, stem.replace('.sent.json', '.recovered.json')), JSON.stringify({ runId: 'g5', attemptId }));
-        const forged = admitRun(d.evidenceDir);
-        assert.equal(forged.admitted, false);
-        assert.ok(forged.blocking.some((b) => /recovery not accepted/.test(b)));
-        fs.rmSync(path.join(d.evidenceDir, stem.replace('.sent.json', '.recovered.json')));
-        recordAttemptRecovery(d.evidenceDir, 'g5', attemptId, { lookupRef: sent.lookupRef, observedAt: late, queries: zero(sent.lookupRef) });
-        assert.equal(admitRun(d.evidenceDir).admitted, true, 'the exact account, proven gone after the late-completion bound, readmits');
+        tryRecover({ kind: 'terminal', result: terminal(), residue: residue() });
+        assert.equal(admitRun(d.evidenceDir).admitted, true, 'an authoritative created result plus complete zero residue readmits');
+    });
+    it('DELAYED create after a zero lookup: with a documented server deadline, a lookup before it is refused; after it, accepted', async () => {
+        const d = dirs();
+        await nightlyRun(d, 'g9', { create: guarded({ transport: 'lost' }) }).catch(() => undefined);
+        recordRecovery(d.evidenceDir, 'g9', 'unit-run-recovery');
+        const sent = sentOf(d, 'g9');
+        const deadline = { ms: 600_000, source: 'unit-test documented server deadline (not production)' };
+        const at = (ms) => new Date(Date.parse(sent.recordedAt) + ms).toISOString();
+        const residue = (observedAt) => ({ lookupRef: sent.lookupRef, observedAt, queries: [{ kind: 'account', scope: sent.lookupRef, count: 0 }], residueChecks: 22, residueNonZero: 0 });
+        const opts = { serverDeadline: deadline, now: Date.parse(sent.recordedAt) + 3600_000 };
+        assert.throws(() => recordAttemptRecovery(d.evidenceDir, 'g9', sent.attemptId, { kind: 'after-server-deadline', residue: residue(at(599_999)) }, opts),
+            /before the server-enforced deadline, so a delayed create could still land/);
+        recordAttemptRecovery(d.evidenceDir, 'g9', sent.attemptId, { kind: 'after-server-deadline', residue: residue(at(600_000)) }, opts);
+        assert.equal(admitRun(d.evidenceDir, opts).admitted, true, 'after the documented deadline, a complete zero readmits');
+        assert.equal(admitRun(d.evidenceDir).admitted, false, 'without a documented deadline (production), the same record stays blocked');
     });
 });

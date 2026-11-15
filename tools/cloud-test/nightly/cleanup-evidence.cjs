@@ -228,15 +228,32 @@ function recordRecovery(dir, runId, ref, at = new Date().toISOString()) {
 // ---------------------------------------------------------------------------------------------------------------
 // Account-create attempts (Sam, 15 Nov, #1867). The started marker blocks admission after a crash, but alone it cannot name
 // the account to recover. So every account-create request is recorded, durably and before it is sent, with a non-secret
-// lookup reference for the account it may create. If that write fails, nothing is sent. An attempt that was never answered
-// (throw, timeout, restart) stays unresolved, and admission stays refused until a recovery proves, for that exact account,
-// that the request can no longer complete and that nothing of it is left. A run-level recovery marker never clears it.
+// lookup reference for the account it may create. If that write fails, nothing is sent.
+//
+// Sam's review of 964f2add: a client-side abort plus a wait does NOT prove the server stopped, and "any resolved callback" is
+// not an answer. So an attempt is resolved only by a VALIDATED TERMINAL RESULT bound to it: received before the client's abort,
+// naming the attempt and its lookup reference, and either `refused` with a definitive 4xx status or `created` with the server's
+// account reference. Anything else (a throw, a timeout, a late callback after the abort, an ambiguous or malformed result, a
+// restart) leaves it unresolved, and admission stays refused. An unresolved attempt is recovered only by (a) an authoritative
+// terminal result from an independent source, with complete zero residue when it says `created`, or (b) an independently
+// observed, complete zero-residue lookup taken after a DOCUMENTED, server-enforced deadline for the create endpoint. No such
+// deadline is documented today (SERVER_CREATE_DEADLINE is null), so (b) refuses every proof and admission stays blocked until (a).
+// A run-level recovery marker never clears an attempt, and every record is re-validated when admission reads it.
 
-/** The longest an account-create request may stay in flight: its transport deadline must fit inside this bound. */
-const LATE_COMPLETION_BOUND_MS = 5 * 60_000;
+/** The client-side cap on a create request's transport deadline. It bounds the client only; it proves nothing about the server. */
+const MAX_TRANSPORT_DEADLINE_MS = 5 * 60_000;
+/**
+ * The server-enforced deadline after which the account-create endpoint can no longer complete a request, with its documentation
+ * source. None is documented for the production auth endpoint, so it is null: recovery by deadline is unavailable (fail closed).
+ * Setting it requires citing the server's documented guarantee in `source`.
+ */
+const SERVER_CREATE_DEADLINE = Object.freeze({ ms: null, source: null });
 const ATTEMPT_ID = /^[A-Za-z0-9._-]{1,60}$/;
 const attemptFile = (dir, runId, attemptId, state) => path.join(dir, `${runId}.attempt.${attemptId}.${state}.json`);
 const ATTEMPT_SENT = '.sent.json';
+const TERMINAL_OUTCOMES = Object.freeze(['created', 'refused']);
+/** The cleanup code's own residue checks (cleanup-plan.cjs SOURCE_COUNTS.residueChecks): a recovery lookup must cover them all. */
+const REQUIRED_RESIDUE_CHECKS = require('./cleanup-plan.cjs').SOURCE_COUNTS.residueChecks;
 
 /** Records an account-create attempt before it is sent. Throws (and the caller sends nothing) if it can't be recorded. */
 function recordCreateAttempt(dir, runId, { attemptId, leg, lookupRef, transportDeadlineMs }, at = new Date().toISOString()) {
@@ -247,18 +264,11 @@ function recordCreateAttempt(dir, runId, { attemptId, leg, lookupRef, transportD
         throw new Error('an attempt names the leg that owns it');
     if (typeof lookupRef !== 'string' || !REF.test(lookupRef))
         throw new Error('an account-create attempt needs a non-secret lookup reference for the account it may create');
-    if (!Number.isInteger(transportDeadlineMs) || transportDeadlineMs <= 0 || transportDeadlineMs > LATE_COMPLETION_BOUND_MS)
-        throw new Error(`an account-create attempt needs a transport deadline within ${LATE_COMPLETION_BOUND_MS} ms`);
+    if (!Number.isInteger(transportDeadlineMs) || transportDeadlineMs <= 0 || transportDeadlineMs > MAX_TRANSPORT_DEADLINE_MS)
+        throw new Error(`an account-create attempt needs a transport deadline within ${MAX_TRANSPORT_DEADLINE_MS} ms`);
     if (!fs.existsSync(runFile(dir, runId, 'started')))
         throw new Error(`run ${runId} was never admitted; nothing may be sent`);
     durableWrite(attemptFile(dir, runId, attemptId, 'sent'), { runId, attemptId, leg, kind: 'account', lookupRef, transportDeadlineMs, recordedAt: at });
-}
-/** The attempt got an answer (created, or refused by the server): the run's own cleanup evidence then governs it. */
-function answerCreateAttempt(dir, runId, attemptId, at = new Date().toISOString()) {
-    const sent = readAttempt(attemptFile(dir, runId, attemptId, 'sent'));
-    if (!sent)
-        throw new Error(`attempt ${attemptId} of run ${runId} was never recorded`);
-    durableWrite(attemptFile(dir, runId, attemptId, 'answered'), { runId, attemptId, answeredAt: at });
 }
 function readAttempt(file) {
     try {
@@ -269,42 +279,105 @@ function readAttempt(file) {
     }
 }
 /**
- * Why a recovery proof does not clear `sent`, or null when it does: it must name the attempt's own lookup reference, be
- * observed after the request could still have completed, and show a zero count, scoped to that exact account, for the
- * account itself and for every other query it gives. A bare marker, an unrelated account or an early zero is refused.
+ * Why `result` is not a validated terminal result for `sent`, or null when it is: bound to the attempt and its lookup reference,
+ * received after the attempt was recorded, before the client's abort, and either `refused` with a definitive 4xx status or
+ * `created` with the server's account reference.
  */
-function attemptRecoveryFault(sent, proof) {
-    if (!proof || typeof proof !== 'object')
-        return 'no recovery proof';
-    if (proof.lookupRef !== sent.lookupRef)
-        return 'the recovery proof names another account';
-    const observed = Date.parse(proof.observedAt);
+function terminalResultFault(sent, result) {
+    if (!result || typeof result !== 'object')
+        return 'no terminal result';
+    if (result.attemptId !== sent.attemptId || result.lookupRef !== sent.lookupRef)
+        return 'the result is not bound to this attempt and its lookup reference';
+    if (!TERMINAL_OUTCOMES.includes(result.outcome))
+        return 'the result is not a terminal outcome';
+    if (result.outcome === 'created' && (typeof result.accountRef !== 'string' || !REF.test(result.accountRef)))
+        return 'a created result carries no server account reference';
+    if (result.outcome === 'refused' && !(Number.isInteger(result.status) && result.status >= 400 && result.status < 500))
+        return 'a refused result carries no definitive 4xx status';
+    const received = Date.parse(result.receivedAt);
     const recorded = Date.parse(sent.recordedAt);
-    if (!Number.isFinite(observed) || !Number.isFinite(recorded) || observed < recorded + LATE_COMPLETION_BOUND_MS)
-        return 'the zero-residue observation was taken while the request could still complete';
-    const queries = Array.isArray(proof.queries) ? proof.queries : [];
-    if (!queries.some((q) => q && q.kind === 'account'))
-        return 'the recovery proof does not query the account itself';
-    if (!queries.every((q) => q && RESOURCE_KINDS.includes(q.kind) && q.scope === sent.lookupRef && isCount(q.count) && q.count === 0))
-        return 'the recovery proof is not a zero count scoped to the attempted account';
+    if (!Number.isFinite(received) || !Number.isFinite(recorded) || received < recorded)
+        return 'the result was not received after the attempt was recorded';
+    if (result.beforeAbort !== true)
+        return 'the result did not arrive before the client aborted, so the request may still complete';
     return null;
 }
-/** Records the protected recovery of one unanswered attempt. Refuses (writes nothing) unless the proof clears it. */
-function recordAttemptRecovery(dir, runId, attemptId, proof, at = new Date().toISOString()) {
+/** Records a validated terminal result for the attempt. Refuses (writes nothing) unless it validates. */
+function answerCreateAttempt(dir, runId, attemptId, result, at = new Date().toISOString()) {
+    checkRunId(runId);
+    const sent = readAttempt(attemptFile(dir, runId, attemptId, 'sent'));
+    if (!sent)
+        throw new Error(`attempt ${attemptId} of run ${runId} was never recorded`);
+    const fault = terminalResultFault(sent, result);
+    if (fault)
+        throw new Error(`attempt ${attemptId} not answered: ${fault}`);
+    durableWrite(attemptFile(dir, runId, attemptId, 'answered'), { runId, attemptId, answeredAt: at, result });
+}
+/** Why a residue lookup is not a complete zero for the attempted account, or null when it is. */
+function residueFault(sent, residue, now) {
+    if (!residue || typeof residue !== 'object')
+        return 'no residue lookup';
+    if (residue.lookupRef !== sent.lookupRef)
+        return 'the residue lookup names another account';
+    const observed = Date.parse(residue.observedAt);
+    if (!Number.isFinite(observed) || observed > now)
+        return 'the residue lookup is not an observation already made (missing or future time)';
+    const queries = Array.isArray(residue.queries) ? residue.queries : [];
+    if (!queries.some((q) => q && q.kind === 'account'))
+        return 'the residue lookup does not query the account itself';
+    if (!queries.every((q) => q && RESOURCE_KINDS.includes(q.kind) && q.scope === sent.lookupRef && isCount(q.count) && q.count === 0))
+        return 'the residue lookup is not a zero count scoped to the attempted account';
+    if (residue.residueChecks !== REQUIRED_RESIDUE_CHECKS || residue.residueNonZero !== 0)
+        return `the residue lookup is incomplete (needs all ${REQUIRED_RESIDUE_CHECKS} residue checks, each zero)`;
+    return { observed };
+}
+/**
+ * Why a recovery proof does not clear the unresolved `sent`, or null when it does. `opts.serverDeadline` and `opts.now` exist for
+ * the offline tests; production uses SERVER_CREATE_DEADLINE (null: no deadline route) and the clock.
+ */
+function attemptRecoveryFault(sent, proof, { serverDeadline = SERVER_CREATE_DEADLINE, now = Date.now() } = {}) {
+    if (!proof || typeof proof !== 'object')
+        return 'no recovery proof';
+    if (proof.kind === 'terminal') {
+        const fault = terminalResultFault(sent, proof.result);
+        if (fault)
+            return `the authoritative result is not valid: ${fault}`;
+        if (proof.result.outcome === 'created') {
+            const r = residueFault(sent, proof.residue, now);
+            if (typeof r === 'string')
+                return `the account was created and ${r}`;
+        }
+        return null;
+    }
+    if (proof.kind === 'after-server-deadline') {
+        if (!Number.isInteger(serverDeadline?.ms) || serverDeadline.ms <= 0 || typeof serverDeadline.source !== 'string' || !serverDeadline.source)
+            return 'no server-enforced deadline is documented for the create endpoint, so a lookup cannot prove the request stopped';
+        const r = residueFault(sent, proof.residue, now);
+        if (typeof r === 'string')
+            return r;
+        const recorded = Date.parse(sent.recordedAt);
+        if (!Number.isFinite(recorded) || r.observed < recorded + serverDeadline.ms)
+            return 'the residue lookup was taken before the server-enforced deadline, so a delayed create could still land';
+        return null;
+    }
+    return 'the recovery proof is neither an authoritative terminal result nor a lookup after a documented server deadline';
+}
+/** Records the protected recovery of one unresolved attempt. Refuses (writes nothing) unless the proof clears it. */
+function recordAttemptRecovery(dir, runId, attemptId, proof, { at = new Date().toISOString(), ...opts } = {}) {
     checkRunId(runId);
     const sent = readAttempt(attemptFile(dir, runId, attemptId, 'sent'));
     if (!sent)
         throw new Error(`attempt ${attemptId} of run ${runId} was never recorded; there is nothing to recover`);
-    const fault = attemptRecoveryFault(sent, proof);
+    const fault = attemptRecoveryFault(sent, proof, opts);
     if (fault)
         throw new Error(`attempt ${attemptId} not recovered: ${fault}`);
     durableWrite(attemptFile(dir, runId, attemptId, 'recovered'), { runId, attemptId, recoveredAt: at, proof });
 }
 /**
- * The attempts that still block admission: an attempt is cleared only by a recovery proof re-checked here, or by an answer
- * together with its run's complete cleanup evidence. A run-level recovery marker never clears an attempt.
+ * The attempts that still block admission, each record re-validated on read: a recovery proof that clears it, or a validated
+ * terminal answer (`refused`, or `created` with its run's complete cleanup evidence). A run-level recovery marker never clears it.
  */
-function blockingAttempts(dir, names) {
+function blockingAttempts(dir, names, opts = {}) {
     const blocking = [];
     for (const n of names.filter((x) => x.includes('.attempt.') && x.endsWith(ATTEMPT_SENT))) {
         const stem = n.slice(0, -ATTEMPT_SENT.length);
@@ -315,20 +388,28 @@ function blockingAttempts(dir, names) {
         }
         if (names.includes(`${stem}.recovered.json`)) {
             const rec = readAttempt(path.join(dir, `${stem}.recovered.json`));
-            const fault = attemptRecoveryFault(sent, rec?.proof);
+            const fault = attemptRecoveryFault(sent, rec?.proof, opts);
             if (!fault)
                 continue;
             blocking.push(`${stem}: recovery not accepted (${fault})`);
             continue;
         }
         if (names.includes(`${stem}.answered.json`)) {
+            const answered = readAttempt(path.join(dir, `${stem}.answered.json`));
+            const fault = terminalResultFault(sent, answered?.result);
+            if (fault) {
+                blocking.push(`${stem}: answer evidence not valid (${fault})`);
+                continue;
+            }
+            if (answered.result.outcome === 'refused')
+                continue;
             const cleanup = readAttempt(path.join(dir, `${sent.runId}.cleanup.json`));
             if (cleanup?.cleanup === 'complete')
                 continue;
-            blocking.push(`${stem}: answered, but its run's cleanup is not proven complete`);
+            blocking.push(`${stem}: created, but its run's cleanup is not proven complete`);
             continue;
         }
-        blocking.push(`${stem}: account-create attempt never answered; recover that exact account first`);
+        blocking.push(`${stem}: account-create attempt has no terminal result; recover that exact account first`);
     }
     return blocking;
 }
@@ -338,7 +419,7 @@ function blockingAttempts(dir, names) {
  * incomplete cleanup, unless its recovery is recorded. Evidence that can't be read refuses too. An account-create attempt
  * blocks on its own terms (`blockingAttempts`), whatever the run's recovery marker says.
  */
-function admitRun(dir) {
+function admitRun(dir, opts = {}) {
     let names;
     try {
         names = fs.readdirSync(dir);
@@ -368,13 +449,13 @@ function admitRun(dir) {
         if (doc.cleanup !== 'complete')
             blocking.push(`${runId}: cleanup incomplete (${(doc.incompleteJourneys ?? []).join(', ') || 'unknown'})`);
     }
-    blocking.push(...blockingAttempts(dir, names));
+    blocking.push(...blockingAttempts(dir, names, opts));
     return blocking.length > 0
         ? { admitted: false, reason: `earlier runs must be recovered first: ${blocking.join('; ')}`, blocking }
         : { admitted: true, reason: 'every earlier run cleaned up or was recovered', blocking };
 }
 
 module.exports = {
-    ADMISSION_LOCK, AdmissionRefused, LATE_COMPLETION_BOUND_MS, RESOURCE_KINDS, VERIFICATION_KINDS, admitRun, answerCreateAttempt, beginRun,
+    ADMISSION_LOCK, AdmissionRefused, MAX_TRANSPORT_DEADLINE_MS, RESOURCE_KINDS, SERVER_CREATE_DEADLINE, VERIFICATION_KINDS, admitRun, answerCreateAttempt, beginRun,
     recordAttemptRecovery, recordCreateAttempt, recordRecovery, unprovenCleanup, writeCleanupEvidence,
 };

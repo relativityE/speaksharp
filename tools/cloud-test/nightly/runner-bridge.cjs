@@ -148,8 +148,10 @@ function nightlyAdapter(io, opts) {
                  * allocation is reserved (a refusal sends nothing); the attempt, with its non-secret lookup reference and
                  * transport deadline, is written durably to the evidence directory (a failed write sends nothing); the
                  * account is recorded as created for the journey's cleanup; only then is `send({ token, signal })` called,
-                 * with an abort signal at the deadline. An answer marks the attempt answered. A throw, timeout or restart
-                 * leaves it unanswered, and admission stays refused until that exact account is recovered.
+                 * with an abort signal at the deadline. `send` resolves to a terminal outcome ({ outcome: 'created', accountRef }
+                 * or { outcome: 'refused', status: 4xx }); only that, received before the abort, marks the attempt answered. A
+                 * throw, a late or ambiguous result, or a restart leaves it unresolved, and admission stays refused until that
+                 * exact account is recovered (cleanup-evidence.cjs).
                  */
                 createAccount: async (leg, lookupRef, send) => {
                     own(leg);
@@ -165,9 +167,21 @@ function nightlyAdapter(io, opts) {
                         return { sent: false, reason: `the account-create attempt could not be recorded, so nothing was sent: ${e.message}` };
                     }
                     record(leg, { kind: 'account', ref: lookupRef });
-                    const value = await send({ token: r.token, signal: AbortSignal.timeout(deadlineMs) });
-                    answerCreateAttempt(opts.evidenceDir, opts.runId, attemptId);
-                    return { sent: true, value };
+                    const signal = AbortSignal.timeout(deadlineMs);
+                    // A throw leaves the attempt unresolved (it propagates). Sam on 964f2add: so does a result that resolves after
+                    // the abort, or one that is not a terminal outcome: only a validated terminal result marks it answered.
+                    const value = await send({ token: r.token, signal });
+                    const result = {
+                        attemptId, lookupRef, outcome: value?.outcome, accountRef: value?.accountRef, status: value?.status,
+                        receivedAt: new Date().toISOString(), beforeAbort: !signal.aborted,
+                    };
+                    try {
+                        answerCreateAttempt(opts.evidenceDir, opts.runId, attemptId, result);
+                    }
+                    catch (e) {
+                        return { sent: true, answered: false, reason: e.message, value };
+                    }
+                    return { sent: true, answered: true, value };
                 },
             });
             let ran;
