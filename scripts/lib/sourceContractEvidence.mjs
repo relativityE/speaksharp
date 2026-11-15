@@ -420,7 +420,9 @@ const wiring={
     // #1811 (Sam, #1859 review): the database feedback fence gates every feedback write and owns the cleanup.
     "feedbackFence = new JourneyFeedbackFence(admin as never, 'AHT-07', AHT07_FENCE_KEY_CAP);",
     "feedbackFence = new JourneyFeedbackFence(admin as never, 'AHT-08', 1);",
-    'if (!fence.writable) {',
+    // The AHT-07 ledger gate and the J8 route's own forward gate: each sends nothing while the fence is not writable.
+    'if (!fence.writable) { ledger.settle(attempt, { status: null, forwarded: false }); outcome = \'aborted-unsent\';',
+    'if (!fence.writable) { outcome = \'aborted-unsent\'; return await route.abort(\'failed\'); }',
     'await installFeedbackWriteRoute(page, ledger, feedbackFence);',
     'await runFeedbackFaultLeg(page, tap, ledger, leg, olderId, owner.uid, legJourneys)',
   ],

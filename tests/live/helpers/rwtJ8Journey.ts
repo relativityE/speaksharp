@@ -10,7 +10,7 @@
  * Receipts stay content-free: verdicts, counts, booleans and non-reversible digests; never ids, transcripts or feedback text.
  */
 import { createHash } from 'node:crypto';
-import type { ReceiptRowSink } from './feedbackDiagnosticRef';
+import { type ReceiptRowSink, classifyInsertBody } from './feedbackDiagnosticRef';
 import { noSessionWriteDecision } from './feedbackNoSessionCleanup';
 import type { ReadbackActionBinding } from './rwtAcceptance';
 import { type ActionCaptureAttempt, type BindingMissReason, type ReadbackPlan, bindReadbackJourneys } from './rwtOracles';
@@ -43,24 +43,42 @@ export function legReceipt<R extends { readonly rows: ReadonlyArray<{ step: stri
 }
 
 export type J8WriteDecision =
-    | { leg: J8Leg; action: 'forward'; keys: string[] }
-    | { leg: 'J8.b'; action: 'ledger' }
-    | { leg: J8Leg | null; action: 'abort'; reason: 'between-windows' | 'prior-write-unresolved' | 'not-an-insert' | 'attempt-cap' | 'unattributed-insert' | 'report-cap' };
+    | { leg: J8Leg; action: 'forward'; keys: string[]; attempt: number }
+    | { leg: 'J8.b'; action: 'ledger'; keys: string[]; attempt: number }
+    | { leg: J8Leg | null; action: 'abort'; reason: 'between-windows' | 'prior-write-unresolved' | 'cross-leg-key' | 'not-an-insert'
+        | 'attempt-cap' | 'unattributed-insert' | 'report-cap' };
+
+/**
+ * How an admitted write ended (Sam on 94fe88d7). `answered`: the server's answer reached the route (whatever its status).
+ * `committed-response-dropped`: the server's commit was OBSERVED (2xx) and only the browser's copy was dropped on purpose (J8.b's
+ * stored-response-lost fault). `aborted-unsent`: refused before sending. `unknown`: the forward failed, so a commit may still be
+ * pending server-side; that attempt stays UNRESOLVED, and no later write and no next leg may proceed past it.
+ */
+export type J8WriteOutcome = 'answered' | 'committed-response-dropped' | 'aborted-unsent' | 'unknown';
 
 /**
  * The one J8 write route's decision, made at route ENTRY and frozen there (Sam): a write outside an open leg window, or while an
- * earlier write is still unresolved, is aborted unsent. J8.a and J8.c each get the no-session bounds on their OWN keys and attempt
- * ordinal (one insert, one key, one same-key Retry); J8.b is handed to the AHT-07 attempt ledger, which applies its own caps.
+ * earlier write is unresolved, is aborted unsent. Every report key has ONE owner leg: a key first seen in one leg is refused in
+ * any other (a late prior-leg request or a cross-leg replay). J8.a and J8.c each get the no-session bounds on their OWN keys and
+ * attempt ordinal (one insert, one key, one same-key Retry); J8.b is handed to the AHT-07 attempt ledger, which applies its caps.
+ * Each admitted write must be settled with its outcome; an `unknown` outcome keeps the gate blocked (no write, no next leg).
  */
 export class J8WriteGate {
     private window: J8Leg | null = null;
-    private inFlight = 0;
+    private readonly inFlight = new Map<number, { leg: J8Leg; keys: string[] }>();
+    private readonly unresolved = new Map<number, { leg: J8Leg; keys: string[] }>();
+    private nextAttempt = 1;
+    private readonly keyOwner = new Map<string, J8Leg>();
     private readonly keys: Record<J8Leg, string[]> = { 'J8.a': [], 'J8.b': [], 'J8.c': [] };
     private readonly ordinals: Record<J8Leg, number> = { 'J8.a': 0, 'J8.b': 0, 'J8.c': 0 };
     readonly refused: Record<J8Leg | 'none', number> = { 'J8.a': 0, 'J8.b': 0, 'J8.c': 0, none: 0 };
 
+    /** Opens a leg's window. Refused while another window is open or any earlier write is in flight or unresolved. */
     open(leg: J8Leg): void {
         if (this.window !== null) throw new Error(`J8 write window ${this.window} is still open`);
+        if (this.inFlight.size > 0 || this.unresolved.size > 0) {
+            throw new Error(`J8 write window ${leg} cannot open: ${this.inFlight.size} write(s) in flight, ${this.unresolved.size} with an unknown outcome`);
+        }
         this.window = leg;
     }
     close(leg: J8Leg): void {
@@ -68,7 +86,10 @@ export class J8WriteGate {
         this.window = null;
     }
     get openLeg(): J8Leg | null { return this.window; }
-    get pending(): number { return this.inFlight; }
+    /** Writes admitted and not yet settled. */
+    get pending(): number { return this.inFlight.size; }
+    /** Writes whose server outcome is unknown: each one blocks every later write and leg. */
+    get unresolvedCount(): number { return this.unresolved.size; }
 
     enter(method: string, body: () => unknown): J8WriteDecision {
         const leg = this.window;
@@ -76,29 +97,67 @@ export class J8WriteGate {
             this.refused.none += 1;
             return { leg: null, action: 'abort', reason: 'between-windows' };
         }
-        if (this.inFlight > 0) {
+        if (this.inFlight.size > 0 || this.unresolved.size > 0) {
             this.refused[leg] += 1;
             return { leg, action: 'abort', reason: 'prior-write-unresolved' };
         }
-        if (leg === 'J8.b') {
-            this.inFlight += 1;
-            return { leg, action: 'ledger' };
-        }
-        this.ordinals[leg] += 1;
-        const d = noSessionWriteDecision({ method, body, ordinal: this.ordinals[leg], keysSeen: this.keys[leg] });
-        if (d.action === 'cap-abort') {
+        let parsed: unknown;
+        try { parsed = body(); } catch { parsed = undefined; }
+        const keys = classifyInsertBody(parsed).keys;
+        if (keys.some((k) => this.keyOwner.has(k) && this.keyOwner.get(k) !== leg)) {
             this.refused[leg] += 1;
-            return { leg, action: 'abort', reason: d.reason ?? 'not-an-insert' };
+            return { leg, action: 'abort', reason: 'cross-leg-key' };
         }
-        for (const k of d.keys) if (!this.keys[leg].includes(k)) this.keys[leg].push(k);
-        this.inFlight += 1;
-        return { leg, action: 'forward', keys: d.keys };
+        if (leg !== 'J8.b') {
+            this.ordinals[leg] += 1;
+            const d = noSessionWriteDecision({ method, body: () => parsed, ordinal: this.ordinals[leg], keysSeen: this.keys[leg] });
+            if (d.action === 'cap-abort') {
+                this.refused[leg] += 1;
+                return { leg, action: 'abort', reason: d.reason ?? 'not-an-insert' };
+            }
+        }
+        for (const k of keys) {
+            this.keyOwner.set(k, leg);
+            if (!this.keys[leg].includes(k)) this.keys[leg].push(k);
+        }
+        const attempt = this.nextAttempt++;
+        this.inFlight.set(attempt, { leg, keys });
+        return leg === 'J8.b' ? { leg, action: 'ledger', keys, attempt } : { leg, action: 'forward', keys, attempt };
     }
-    /** The write admitted at entry has an outcome (answered, aborted or lost): the next one may enter. */
-    settle(): void {
-        if (this.inFlight > 0) this.inFlight -= 1;
+    /** Settles exactly the admitted attempt with its outcome. `unknown` keeps it unresolved (blocking); others release it. */
+    settle(attempt: number, outcome: J8WriteOutcome): void {
+        const w = this.inFlight.get(attempt);
+        if (!w) throw new Error(`J8 write attempt ${attempt} was never admitted or is already settled`);
+        this.inFlight.delete(attempt);
+        if (outcome === 'unknown') this.unresolved.set(attempt, w);
     }
     keysOf(leg: J8Leg): readonly string[] { return [...this.keys[leg]]; }
+}
+
+/**
+ * Sam on 94fe88d7: "no runner, no signup". J8 signs up and writes ONLY under the named nine-journey runner's admission: a record the
+ * runner wrote for THIS run (same run id and attempt) naming the J8 suite and the account-create attempt it recorded BEFORE the
+ * signup (its non-secret lookup reference, which becomes the signup email). Anything else, including discovery by the generic
+ * deployed-live config or a direct invocation, is not admitted, and the test sends nothing.
+ */
+export type J8Admission = { admitted: true; lookupRef: string; attemptId: string } | { admitted: false; reason: string };
+export const J8_ADMISSION_ENV = 'RWT_J8_RUNNER_ADMISSION';
+const LOOKUP_REF = /^rwt-journey-[a-z0-9-]{4,80}@[a-z0-9.-]+\.[a-z]{2,}$/;
+export function j8RunnerAdmission(env: Readonly<Record<string, string | undefined>>, readFile: (p: string) => string): J8Admission {
+    const file = env[J8_ADMISSION_ENV];
+    if (!file) return { admitted: false, reason: `no named-runner admission (${J8_ADMISSION_ENV} is not set); J8 never runs standalone` };
+    let doc: Record<string, unknown>;
+    try { doc = JSON.parse(readFile(file)) as Record<string, unknown>; } catch { return { admitted: false, reason: 'the runner admission record is unreadable' }; }
+    if (doc?.suite !== J8_SUITE) return { admitted: false, reason: 'the runner admission does not name the J8 suite' };
+    if (!env.GITHUB_RUN_ID || doc.runId !== env.GITHUB_RUN_ID || doc.runAttempt !== env.GITHUB_RUN_ATTEMPT) {
+        return { admitted: false, reason: 'the runner admission is not bound to this run and attempt' };
+    }
+    const attempt = doc.createAttempt as { attemptId?: unknown; lookupRef?: unknown; recordedBeforeSend?: unknown } | undefined;
+    if (!attempt || typeof attempt.attemptId !== 'string' || typeof attempt.lookupRef !== 'string' || !LOOKUP_REF.test(attempt.lookupRef)
+        || attempt.recordedBeforeSend !== true) {
+        return { admitted: false, reason: 'the runner admission carries no account-create attempt recorded before the signup' };
+    }
+    return { admitted: true, lookupRef: attempt.lookupRef, attemptId: attempt.attemptId };
 }
 
 /** One leg's evidence window for the readback: its own time window, its own action captures, and fault-leg journeys to drop. */
@@ -109,6 +168,11 @@ export interface J8LegEvidence {
     captures?: readonly ActionCaptureAttempt[];
     /** J8.b's fault legs: their `feedback_submit` events are never this leg's anchor (`withoutFaultLegSubmits`). */
     excludeJourneys?: readonly string[];
+    /**
+     * The leg's OWN independently observed submit proof (Sam on 94fe88d7): exactly one stored report under the submit's own observed
+     * insert key(s). A readback target without it (a capture with no submit, or only a submit from before the action) is not proof.
+     */
+    stored?: { storedRows: number; insertKeys: number } | null;
 }
 type TapEvent = Parameters<typeof bindReadbackJourneys>[0][number];
 
@@ -125,7 +189,18 @@ export function legReadback(events: readonly TapEvent[], ev: J8LegEvidence,
     const own = events.filter((e) => e.event !== 'feedback_submit' || (inWindow(e.at) && !(e.journeyId && exclude.has(e.journeyId))));
     const bindings = ev.bindings.filter((b) => b.stage === 'share_feedback' && inWindow(b.capturedAt));
     const captures = (ev.captures ?? []).filter((c) => c.stage === 'share_feedback' && typeof c.at === 'number' && inWindow(c.at));
-    return bindReadbackJourneys(own, { recording: [], feedback: true, actionBindings: bindings, actionCaptures: captures, ...ctx });
+    const plan = bindReadbackJourneys(own, { recording: [], feedback: true, actionBindings: bindings, actionCaptures: captures, ...ctx });
+    // A target is this leg's ONLY with its own submit AFTER its own capture, on that journey, and its own stored report.
+    const submitAfterCapture = (journeyId: string) => bindings.some((b) => b.journeyId === journeyId
+        && own.some((e) => e.event === 'feedback_submit' && e.journeyId === journeyId && inWindow(e.at) && e.at >= b.capturedAt));
+    const storedOnce = ev.stored?.storedRows === 1 && (ev.stored?.insertKeys ?? 0) >= 1;
+    const proven = plan.journeys.filter((j) => storedOnce && submitAfterCapture(j.journeyId));
+    if (proven.length === plan.journeys.length) return plan;
+    const missing = plan.missingBindings.includes('share_feedback') ? plan.missingBindings : [...plan.missingBindings, 'share_feedback'];
+    return {
+        ...plan, journeys: proven, missingBindings: missing,
+        bindingReasons: { ...(plan.bindingReasons ?? {}), share_feedback: plan.bindingReasons?.share_feedback ?? 'anchor_not_sent' },
+    };
 }
 
 /**
@@ -173,11 +248,21 @@ export const TAKE_PROJECTION_FIELDS = Object.freeze([
     'duration', 'engine', 'idempotency_key', 'created_at', 'updated_at',
 ] as const);
 
-/** A non-reversible digest of a take's projection, computed privately in the test; the row itself never leaves this function. */
-export function takeDigest(row: Record<string, unknown> | null | undefined): string | null {
-    if (!row || typeof row.id !== 'string') return null;
-    const projected = TAKE_PROJECTION_FIELDS.map((f) => [f, row[f] === undefined ? null : row[f]]);
+/**
+ * A non-reversible digest of a take's projection, computed privately in the test; the row itself never leaves this function. Sam on
+ * 936a9a5d: an absent field is NOT a null value. The row must be the owner's (`user_id` equal to `ownerId`) and carry EVERY projected
+ * key (a null value is fine); otherwise the read is incomplete and there is no digest.
+ */
+export function takeDigest(row: Record<string, unknown> | null | undefined, ownerId: string): string | null {
+    if (!row || typeof row.id !== 'string' || row.user_id !== ownerId) return null;
+    if (!TAKE_PROJECTION_FIELDS.every((f) => Object.prototype.hasOwnProperty.call(row, f) && row[f] !== undefined)) return null;
+    const projected = TAKE_PROJECTION_FIELDS.map((f) => [f, row[f]]);
     return createHash('sha256').update(JSON.stringify(projected)).digest('hex');
+}
+
+/** Both saved takes read completely and owner-bound: the precondition for opening J8.c (Sam on 94fe88d7). */
+export function takesReadComplete(takeIds: readonly [string, string], digests: ReadonlyMap<string, string | null>): boolean {
+    return new Set(takeIds).size === 2 && takeIds.every((id) => typeof digests.get(id) === 'string') && digests.size === 2;
 }
 
 /**
@@ -197,7 +282,10 @@ export function takesUnchangedVerdict(takeIds: readonly [string, string],
         rowsBefore: before.size, rowsAfter: after.size,
     };
     if (!evidence.distinctTakes) return { status: 'FAIL', detail: 'the two saved takes are not two distinct identities', evidence };
-    if (pairs.some((p) => p.b === null)) return { status: 'HOLD', detail: 'a saved take could not be read before the No-session submit', evidence };
+    if (pairs.some((p) => p.b === null)) return { status: 'HOLD', detail: 'a saved take could not be read completely before the No-session submit', evidence };
+    // A take ABSENT after the submit was removed (FAIL); one present but read incompletely is not proof either way (HOLD, never PASS).
+    if (takeIds.some((id) => !after.has(id))) return { status: 'FAIL', detail: 'a saved take disappeared across the No-session submit', evidence };
+    if (pairs.some((p) => p.a === null)) return { status: 'HOLD', detail: 'a saved take could not be read completely after the No-session submit', evidence };
     if (evidence.olderUnchanged && evidence.newerUnchanged && before.size === after.size) {
         return { status: 'PASS', detail: 'both saved takes are exactly as they were (same identities, equal saved and coaching fields)', evidence };
     }
