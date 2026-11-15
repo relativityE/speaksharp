@@ -10,7 +10,11 @@ import { describe, expect, it } from 'vitest';
 import {
     evaluateCoachingDiagnosticReceipt, validExpectation, type CoachingDiagnosticExpectation, type ReceivedCoachingRow,
 } from '../../frontend/src/services/telemetry/coachingDiagnosticReceipt';
-import { finalizeReceipt, humanWorksheet, parseHumanWorksheet, requiredAutomatedRows, type ReceiptRow } from '../live/helpers/rwtAcceptance';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import {
+    FEEDBACK_J8_SUITE, feedbackChainRowFor, finalizeReceipt, humanWorksheet, parseHumanWorksheet, requiredAutomatedRows, type ReceiptRow,
+} from '../live/helpers/rwtAcceptance';
 
 const sha = (v: string) => createHash('sha256').update(v, 'utf8').digest('hex');
 const RELEASE = 'b'.repeat(40);
@@ -185,5 +189,55 @@ describe('#1258 H1 finalization settles the feedback diagnostic chain from the r
         const out = finalize(chain({}), { verdict: 'HOLD', reasons: ['diagnostic_not_received'] });
         expect(out).toMatchObject({ status: 'final', finalAcceptance: 'INCOMPLETE', chain: { verdict: 'HOLD' } });
         expect(out.chain!.evidence?.settledByReadback).toBeUndefined();
+    });
+});
+
+/** Codex on #1870 127d6239: J8's chain row is J8.b-scoped; finalization and rc-gates must settle THAT row, and only it. */
+describe('J8: the J8.b-scoped feedback diagnostic chain is the one the received readback settles', () => {
+    const J8_CHAIN = 'J8.b: feedback diagnostic chain';
+    const j8Receipt = (chainRow: ReceiptRow) => {
+        const product = requiredAutomatedRows(FEEDBACK_J8_SUITE)!.product.filter((st) => st !== J8_CHAIN).map(pass);
+        const rows: ReceiptRow[] = [
+            pass('telemetry decodable'), pass('signup-stage telemetry (user class)'), pass('receipt content-free'), hold('signup-stage telemetry received'),
+            pass('journey telemetry (canary class)'), hold('journey telemetry received'), ...product, chainRow,
+        ];
+        return { suite: FEEDBACK_J8_SUITE, release: RELEASE, meta: { fixtureKind: 'synthetic' }, rows,
+            readback: { journeys: [{ journeyId: J, stages: STAGES }], reportedJourneyIds: ['other'], missingBindings: [] } };
+    };
+    const j8Finalize = (chainRow: ReceiptRow, coachingDiagnostic?: unknown) => {
+        const r = j8Receipt(chainRow);
+        const out = finalizeReceipt(r, parseHumanWorksheet(humanWorksheet(FEEDBACK_J8_SUITE, RELEASE, [J, 'other'], r.rows)),
+            { ...readback(coachingDiagnostic), suite: FEEDBACK_J8_SUITE });
+        return { ...out, chain: out.rows.find((x) => x.step === chainRow.step) };
+    };
+
+    it('the chain row is J8.b-scoped for J8 and unchanged for every other suite', () => {
+        expect(feedbackChainRowFor(FEEDBACK_J8_SUITE)).toBe(J8_CHAIN);
+        expect(requiredAutomatedRows(FEEDBACK_J8_SUITE)!.product).toContain(J8_CHAIN);
+        expect(feedbackChainRowFor(SUITE)).toBe('feedback diagnostic chain');
+    });
+    it('GREEN: a received PASS bound to the J8.b row settles it PASS', () => {
+        const out = j8Finalize(chain({ step: J8_CHAIN }), bound('PASS', []));
+        expect(out.chain).toMatchObject({ verdict: 'PASS', evidence: { settledByReadback: true } });
+        expect(out.status).toBe('final');
+    });
+    it('received FAIL → FAIL; no received result keeps it HOLD', () => {
+        expect(j8Finalize(chain({ step: J8_CHAIN }), bound('FAIL', ['attempt_mismatch'])).chain!.verdict).toBe('FAIL');
+        expect(j8Finalize(chain({ step: J8_CHAIN })).chain!.verdict).toBe('HOLD');
+    });
+    it('CONTROL: an unprefixed chain row in a J8 receipt is never settled and the bound result is a binding error', () => {
+        const out = j8Finalize(chain({}), bound('PASS', []));
+        expect(out.status).toBe('binding_error');
+        expect(out.finalAcceptance).not.toBe('PASS');
+        expect(requiredAutomatedRows(FEEDBACK_J8_SUITE)!.absent).toContain('feedback diagnostic chain');
+    });
+    it('CONTROL: a result bound to another request cannot settle the J8.b row', () => {
+        const out = j8Finalize(chain({ step: J8_CHAIN }), bound('PASS', [], { expected: { ...expected, requestSha256: sha(OTHER_REQ) } }));
+        expect(out.status).toBe('binding_error');
+        expect(out.finalAcceptance).not.toBe('PASS');
+    });
+    it('rc-gates reads the expectation from the J8.b row too (the same names finalization settles)', () => {
+        const yml = readFileSync(path.resolve(__dirname, '../../.github/workflows/rc-gates.yml'), 'utf8');
+        expect(yml).toContain(`["${feedbackChainRowFor(SUITE)}","${feedbackChainRowFor(FEEDBACK_J8_SUITE)}"].includes(x.step)`);
     });
 });

@@ -477,7 +477,7 @@ jobs:
             # canary class and the identity of the receipt's first bound journey. exit 0 PASS / 3 FAIL (final, never retried) / 1 HOLD.
             coaching_result="${verdicts%.jsonl}.coaching.json"
             rm -f "$coaching_result"
-            expectation=$(node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); const row=(r.rows||[]).find((x)=>x.step==="feedback diagnostic chain"&&x.evidence&&typeof x.evidence.expectedRequestSha256==="string"); if (row) { const e=row.evidence; process.stdout.write(JSON.stringify({requestSha256:e.expectedRequestSha256, attemptSha256:e.expectedAttemptSha256, product:e.expectedProduct, configuredModel:e.expectedConfiguredModel, outcome:e.expectedOutcome})); }' "$receipt")
+            expectation=$(node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); const row=(r.rows||[]).find((x)=>["feedback diagnostic chain","J8.b: feedback diagnostic chain"].includes(x.step)&&x.evidence&&typeof x.evidence.expectedRequestSha256==="string"); if (row) { const e=row.evidence; process.stdout.write(JSON.stringify({requestSha256:e.expectedRequestSha256, attemptSha256:e.expectedAttemptSha256, product:e.expectedProduct, configuredModel:e.expectedConfiguredModel, outcome:e.expectedOutcome})); }' "$receipt")
             anchor=$(printf '%s\n' "$bindings" | awk 'NF{print $1; exit}')
             if [ -n "$expectation" ] && [ -n "$anchor" ]; then
               cv=HOLD
