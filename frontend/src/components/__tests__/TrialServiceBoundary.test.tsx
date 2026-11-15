@@ -12,7 +12,10 @@ const state = vi.hoisted(() => ({
     mounted: vi.fn(),
     user: { id: 'owner' } as { id: string } | null,
     e2e: false,
-    take: { runtimeState: 'IDLE' as string, engineSelectionLocked: false, pendingResolutionKind: null as string | null },
+    take: {
+        runtimeState: 'IDLE' as string, engineSelectionLocked: false, pendingResolutionKind: null as string | null,
+        completedSessionId: null as string | null,
+    },
 }));
 vi.mock('@/hooks/useUsageLimit', () => ({ useUsageLimit: () => state.query }));
 vi.mock('@/config/appRuntimeConfig', () => ({ arePaymentsEnabled: () => state.payments }));
@@ -39,7 +42,7 @@ beforeEach(() => {
     state.payments = false;
     state.user = { id: 'owner' };
     state.e2e = false;
-    state.take = { runtimeState: 'IDLE', engineSelectionLocked: false, pendingResolutionKind: null };
+    state.take = { runtimeState: 'IDLE', engineSelectionLocked: false, pendingResolutionKind: null, completedSessionId: null };
     state.query = {
         data: undefined, dataUpdatedAt: 1, error: null, isPending: false,
         isFetching: false, isFetchedAfterMount: true, refetch: state.refetch,
@@ -144,6 +147,44 @@ describe('trial service payment wall', () => {
         view.rerender(sessionTree());
         expect(screen.queryByText('PRIVATE SAVED WORK')).not.toBeInTheDocument();
         expect(screen.getByTestId('trial-payment-wall')).toBeInTheDocument();
+    });
+
+    it('J1.e: a take held through expiry whose save was refused says "not saved" on the wall', () => {
+        state.query.data = permit;
+        state.take = { runtimeState: 'RECORDING', engineSelectionLocked: true, pendingResolutionKind: null, completedSessionId: null };
+        const view = render(sessionTree());
+        state.query = { ...state.query, data: { can_start: false, error: 'trial_expired' }, dataUpdatedAt: 2 };
+        view.rerender(sessionTree());
+        state.take = { ...state.take, runtimeState: 'STOPPING' };
+        view.rerender(sessionTree());
+        // The server refused the save: the controller ends the take FAILED and no session id is ever recorded.
+        state.take = { ...state.take, runtimeState: 'FAILED', pendingResolutionKind: 'full_save' };
+        view.rerender(sessionTree());
+        expect(screen.queryByText('PRIVATE SAVED WORK')).not.toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Your free trial has ended' })).toBeInTheDocument();
+        expect(screen.getByTestId('trial-take-not-saved')).toHaveTextContent(
+            'The recording in progress when your free trial ended was not saved.',
+        );
+    });
+
+    it('J1.e control: no "not saved" notice when the held take saved, or when no take was held', () => {
+        state.query.data = permit;
+        state.take = { runtimeState: 'RECORDING', engineSelectionLocked: true, pendingResolutionKind: null, completedSessionId: null };
+        const view = render(sessionTree());
+        state.query = { ...state.query, data: { can_start: false, error: 'trial_expired' }, dataUpdatedAt: 2 };
+        view.rerender(sessionTree());
+        state.take = { ...state.take, runtimeState: 'IDLE', completedSessionId: 'saved-session' };
+        view.rerender(sessionTree());
+        expect(screen.getByTestId('trial-payment-wall')).toBeInTheDocument();
+        expect(screen.queryByTestId('trial-take-not-saved')).not.toBeInTheDocument();
+        cleanup();
+
+        // A plain refusal with no take in progress says nothing about a recording.
+        state.take = { runtimeState: 'FAILED', engineSelectionLocked: false, pendingResolutionKind: null, completedSessionId: null };
+        state.query = { ...state.query, data: { can_start: false, error: 'trial_expired' } };
+        render(sessionTree());
+        expect(screen.getByTestId('trial-payment-wall')).toBeInTheDocument();
+        expect(screen.queryByTestId('trial-take-not-saved')).not.toBeInTheDocument();
     });
 
     it('a live take keeps no other route open after a refusal', () => {

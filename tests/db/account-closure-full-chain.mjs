@@ -955,7 +955,7 @@ const FEEDBACK_FENCE_MIGRATION=Object.freeze({name:'20261114100000_rwt_feedback_
 // #1863 payment wall (product access guard): reviewed and pinned, withheld from every profile here until its own ledger-12
 // stage is added. No profile replays, stages or records it yet; a byte change must update this pin.
 const PAYMENT_WALL_MIGRATION=Object.freeze({name:'20261114170000_payment_wall_product_access_1863.sql',
-  version:'20261114170000',sha256:'d5c251c83f8e0d669a6a66b645254306085345f449fc589d1be1c11f6c5f4805'});
+  version:'20261114170000',sha256:'3e4965785ee8eaafa416de6e89b97a732441aa37b2ff2d286ea5f5fb1903589a'});
 // Reviewed migrations outside the account-closure chain, newer than every profile here: pinned repository
 // inventory that no profile replays, stages or records, the installed retirement profile included.
 export const REVIEWED_UNRELATED_MIGRATIONS=Object.freeze([

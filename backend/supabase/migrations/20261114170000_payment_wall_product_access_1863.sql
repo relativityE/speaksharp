@@ -463,3 +463,58 @@ DROP TRIGGER IF EXISTS ss_payment_wall_evaluation_guard ON public.session_progre
 CREATE TRIGGER ss_payment_wall_evaluation_guard
   BEFORE INSERT OR UPDATE ON public.session_progress_evaluations
   FOR EACH ROW EXECUTE FUNCTION public._ss_payment_wall_evaluation_guard();
+
+-- 4. Deletion after an interrupted save (J1.f, Sam 2026-11-15). A take admitted in trial writes its placeholder row
+--    and an admitted save obligation (20261020230653). If the trial ends before Stop, complete_session_v2 refuses the
+--    row (trial_expired, even for status 'failed'), so the obligation can never settle: the deletion claim reports
+--    save_unsettled and the auth.users delete guard refuses, forever. Inside the owner's own confirmed, pending
+--    deletion, and only when no take is still recording, this moves each unsettled obligation (and stale lease row)
+--    into the terminal, non-saved abandonment record with outcome 'discarded_not_saved'. It never marks an obligation
+--    or a session completed and never writes a take. The existing abandonment fence (20261112133000) then refuses any
+--    later completion, rebind or lease of that identity. It is not behind the payment wall: deletion stays open.
+ALTER TABLE public.recording_start_abandonments DROP CONSTRAINT recording_start_abandonments_outcome_check;
+ALTER TABLE public.recording_start_abandonments ADD CONSTRAINT recording_start_abandonments_outcome_check
+  CHECK (outcome IN ('abandoned_not_recorded', 'discarded_not_saved'));
+
+CREATE OR REPLACE FUNCTION public.discard_unsaved_recordings_for_closure_v1()
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_uid uuid := auth.uid();
+  v_count integer := 0;
+  o record;
+BEGIN
+  IF v_uid IS NULL THEN RETURN jsonb_build_object('discarded', 0, 'reason', 'unauthenticated'); END IF;
+  -- Same order as acquire_recording_lease and abandon_recording_start_v1: profile row, account-billing, recording lock.
+  PERFORM 1 FROM public.user_profiles WHERE id = v_uid FOR UPDATE;
+  IF NOT FOUND THEN RETURN jsonb_build_object('discarded', 0, 'reason', 'account_unavailable'); END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended('account-billing:' || v_uid::text, 0));
+  PERFORM pg_advisory_xact_lock(hashtextextended('ss_recording_lease_1476:' || v_uid::text, 0));
+  IF NOT EXISTS (
+    SELECT 1 FROM public.account_closure_attempts a
+    JOIN public.account_billing_fences f ON f.user_id = a.user_id AND f.request_id = a.request_id AND f.phase = 'pending'
+    WHERE a.user_id = v_uid AND a.phase = 'pending'
+  ) THEN
+    RETURN jsonb_build_object('discarded', 0, 'reason', 'no_pending_deletion');
+  END IF;
+  -- A take that is still heartbeating (same liveness as #1476) is never discarded; it settles on its own.
+  IF EXISTS (SELECT 1 FROM public.active_recording_lease
+             WHERE user_id = v_uid AND heartbeat_at >= now() - interval '15 seconds') THEN
+    RETURN jsonb_build_object('discarded', 0, 'reason', 'recording_live');
+  END IF;
+  DELETE FROM public.active_recording_lease WHERE user_id = v_uid;
+  FOR o IN SELECT lease_id FROM public.account_save_obligations
+           WHERE user_id = v_uid AND phase <> 'completed' ORDER BY lease_id FOR UPDATE LOOP
+    DELETE FROM public.account_save_obligations WHERE user_id = v_uid AND lease_id = o.lease_id;
+    INSERT INTO public.recording_start_abandonments(user_id, lease_id, outcome)
+      VALUES (v_uid, o.lease_id, 'discarded_not_saved') ON CONFLICT (user_id, lease_id) DO NOTHING;
+    v_count := v_count + 1;
+  END LOOP;
+  RETURN jsonb_build_object('discarded', v_count, 'outcome', 'discarded_not_saved');
+END;
+$$;
+REVOKE ALL ON FUNCTION public.discard_unsaved_recordings_for_closure_v1() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.discard_unsaved_recordings_for_closure_v1() TO authenticated;

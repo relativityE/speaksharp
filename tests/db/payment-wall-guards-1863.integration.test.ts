@@ -245,6 +245,91 @@ describe('#1863 payment wall: guarded RPCs, table guard and open surfaces', () =
         });
     });
 
+    // J1.f (Sam, 2026-11-15): an unpaid user can finish account deletion after an interrupted save, and the take is
+    // never marked saved. The take's placeholder row was written in trial; the trial then ended, so the server refuses
+    // to complete the row (complete_session_v2 says trial_expired) and its admitted save obligation can never settle.
+    // Before #1863's discard, that obligation blocked the deletion claim and the auth.users delete forever.
+    describe('J1.f: deletion after an interrupted save', () => {
+        const unsettled = async (uid: string) => (await db.query<{ lease_id: string; phase: string }>(
+            "SELECT lease_id,phase FROM public.account_save_obligations WHERE user_id=$1 AND phase<>'completed'", [uid])).rows;
+        const discard = (uid: string) => asUser(uid, async () => (await db.query<{ r: Record<string, unknown> }>(
+            'SELECT public.discard_unsaved_recordings_for_closure_v1() AS r')).rows[0].r);
+        const deleteUser = async (uid: string) => {
+            try { await db.query('DELETE FROM auth.users WHERE id=$1', [uid]); return 'deleted'; } catch (e) { return (e as Error).message; }
+        };
+        async function confirmDeletion(uid: string) {
+            const hash = createHash('sha256').update(uid).digest('hex');
+            // The bootstrap's auth.users has no confirmation column; the closure path requires a confirmed email.
+            await db.exec('ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS email_confirmed_at timestamptz');
+            await db.query('UPDATE auth.users SET email_confirmed_at=now() WHERE id=$1', [uid]);
+            await asRole('service_role', null, async () => {
+                await db.query('SELECT public.issue_account_closure_pending_token($1,$2)', [uid, hash]);
+                await db.query('SELECT public.begin_account_closure_pending($1,$2,true)', [uid, hash]);
+            });
+            expect((await db.query("SELECT 1 FROM public.account_closure_attempts WHERE user_id=$1 AND phase='pending'", [uid])).rows).toHaveLength(1);
+        }
+        async function interruptedTake() {
+            const uid = randomUUID();
+            await db.query('INSERT INTO auth.users(id,email) VALUES($1,$2)', [uid, `j1f-${uid}@example.test`]);
+            const lease = randomUUID();
+            // Start, in trial: the lease and the take's placeholder row.
+            const session = await asUser(uid, async () => {
+                await db.query("SELECT public.acquire_recording_lease($1::uuid,'j1f-take',false)", [lease]);
+                return (await db.query<{ r: { new_session: { id: string } } }>(
+                    "SELECT public.create_session_and_update_usage($1::jsonb,'private') AS r",
+                    [JSON.stringify({ title: 'synthetic j1f take', duration: 0, total_words: 0, lease_id: lease })])).rows[0].r.new_session.id;
+            });
+            await expire(uid);
+            // Stop, after expiry: the save is refused, then the lease is released. Nothing settles the obligation.
+            const completion = await asUser(uid, async () => (await db.query<{ r: Record<string, unknown> }>(
+                "SELECT public.complete_session_v2($1,'completed',42) AS r", [session])).rows[0].r);
+            expect(completion).toMatchObject({ success: false, error: 'trial_expired' });
+            await asUser(uid, () => db.query('SELECT public.release_recording_lease($1)', [lease]));
+            return { uid, lease, session };
+        }
+
+        it('an expired user finishes deletion: the unsaved take is discarded, never marked saved, and fenced', async () => {
+            const { uid, lease, session } = await interruptedTake();
+            // CONTROL (fails before the fix): the interrupted save blocks deletion.
+            expect(await unsettled(uid)).toEqual([{ lease_id: lease, phase: 'admitted' }]);
+            expect(await deleteUser(uid)).toMatch(/account admitted save unsettled/);
+            // Nothing is discarded outside the owner's own confirmed, pending deletion.
+            expect(await discard(uid)).toMatchObject({ discarded: 0, reason: 'no_pending_deletion' });
+            expect(await unsettled(uid)).toHaveLength(1);
+
+            await confirmDeletion(uid);
+            expect(await discard(uid)).toMatchObject({ discarded: 1, outcome: 'discarded_not_saved' });
+            expect(await unsettled(uid)).toEqual([]);
+            // Recorded as discarded, not saved: no obligation was marked completed, the row is not completed.
+            expect((await db.query('SELECT phase FROM public.account_save_obligations WHERE user_id=$1 AND lease_id=$2', [uid, lease])).rows).toEqual([]);
+            expect((await db.query('SELECT outcome FROM public.recording_start_abandonments WHERE user_id=$1 AND lease_id=$2', [uid, lease])).rows)
+                .toEqual([{ outcome: 'discarded_not_saved' }]);
+            expect((await db.query<{ status: string }>('SELECT status FROM public.sessions WHERE id=$1', [session])).rows[0].status).not.toBe('completed');
+            // Refused at the table triggers, whatever path tries it (the pending deletion and the abandonment fence each
+            // refuse): the discarded take can never be completed or recorded again.
+            const raw = async (text: string, params: unknown[]) => {
+                try { await db.query(text, params); return 'ok'; } catch (e) { return (e as Error).message; }
+            };
+            expect(await raw("UPDATE public.sessions SET status='completed' WHERE id=$1", [session])).toMatch(/abandoned recording identity|account closure pending/);
+            expect(await raw("INSERT INTO public.active_recording_lease(user_id,lease_id,holder_label,started_at,heartbeat_at) VALUES($1,$2,'j1f-reuse',now(),now())",
+                [uid, lease])).toMatch(/abandoned recording identity|account closure pending/);
+            // Repeating it changes nothing, and the account can now be deleted.
+            expect(await discard(uid)).toMatchObject({ discarded: 0 });
+            expect(await deleteUser(uid)).toBe('deleted');
+        });
+
+        it('a take still recording is never discarded', async () => {
+            const uid = randomUUID();
+            await db.query('INSERT INTO auth.users(id,email) VALUES($1,$2)', [uid, `j1f-live-${uid}@example.test`]);
+            // A take started in trial is still heartbeating when the owner confirms deletion.
+            await asUser(uid, () => db.query("SELECT public.acquire_recording_lease($1::uuid,'j1f-live',false)", [randomUUID()]));
+            await confirmDeletion(uid);
+            expect(await discard(uid)).toMatchObject({ discarded: 0, reason: 'recording_live' });
+            expect((await unsettled(uid)).length).toBeGreaterThan(0);
+            expect((await db.query('SELECT 1 FROM public.recording_start_abandonments WHERE user_id=$1', [uid])).rows).toEqual([]);
+        });
+    });
+
     it('keeps the account, usage answer, deletion status and lease release open after expiry', async () => {
         const { uid, lease } = await fixture();
         await expire(uid);

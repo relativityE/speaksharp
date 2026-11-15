@@ -33,6 +33,7 @@ const RECHECK_MS = 60_000;
  * - A failed or in-flight revalidation alone never tears down a page that was already confirmed; it is retried.
  * - With `allowTakeToFinish` (the recording route only), a recording that was already live while access was
  *   confirmed is left to finish after expiry; the wall shows as soon as it ends, and the server refuses its save.
+ *   The wall then says that recording was not saved, unless the take wrote its row (J1.e).
  */
 export function TrialServiceBoundary({ children, allowTakeToFinish = false }: { children: ReactNode; allowTakeToFinish?: boolean }) {
     const { user } = useAuthProvider();
@@ -42,6 +43,10 @@ export function TrialServiceBoundary({ children, allowTakeToFinish = false }: { 
     const deadline = useRef<{ answer: number; at: number | null } | null>(null);
     const confirmedFor = useRef<string | null>(null);
     const takeStartedConfirmed = useRef(false);
+    // J1.e: a take this page kept open past a refusal. Once it ends, the wall replaces the page and its save status
+    // with it, so the wall itself says whether that take was saved (a written row sets completedSessionId).
+    const takeHeldPastRefusal = useRef(false);
+    const takeSaved = useSessionStore(s => s.completedSessionId !== null);
     // A take is live from RECORDING through STOPPING, so its stop and save outcome stays visible on the page.
     const takeLive = useSessionStore(s => s.runtimeState === 'RECORDING' || s.runtimeState === 'STOPPING');
     const expiryRefetchedFor = useRef<number | null>(null);
@@ -94,6 +99,7 @@ export function TrialServiceBoundary({ children, allowTakeToFinish = false }: { 
     if (confirmedFor.current !== userId) {
         confirmedFor.current = null;
         takeStartedConfirmed.current = false;
+        takeHeldPastRefusal.current = false;
     }
     if (freshPermit) confirmedFor.current = userId;
     const confirmed = confirmedFor.current !== null && confirmedFor.current === userId;
@@ -101,8 +107,14 @@ export function TrialServiceBoundary({ children, allowTakeToFinish = false }: { 
     if (!takeLive) takeStartedConfirmed.current = false;
     else if (confirmed && !refused) takeStartedConfirmed.current = true;
 
-    if (freshPermit || (confirmed && !refused)) return <Admitted>{children}</Admitted>;
-    if (allowTakeToFinish && confirmed && takeLive && takeStartedConfirmed.current) return <Admitted>{children}</Admitted>;
+    if (freshPermit || (confirmed && !refused)) {
+        takeHeldPastRefusal.current = false;
+        return <Admitted>{children}</Admitted>;
+    }
+    if (allowTakeToFinish && confirmed && takeLive && takeStartedConfirmed.current) {
+        takeHeldPastRefusal.current = true;
+        return <Admitted>{children}</Admitted>;
+    }
 
     const expired = deadlinePassed || (refused && access.data?.error === 'trial_expired');
     const checking = access.isPending || access.isFetching;
@@ -119,6 +131,11 @@ export function TrialServiceBoundary({ children, allowTakeToFinish = false }: { 
                     ? 'Payment is required to use SpeakSharp or view your saved work. Your account stays inactive until payment is confirmed. You can still delete your account.'
                     : 'Try again, or manage or delete your account below. Your saved work is not loaded until access is confirmed.'}
             </p>
+            {takeHeldPastRefusal.current && !takeSaved && (
+                <p className="mt-4" role="status" data-testid="trial-take-not-saved">
+                    {expired ? 'The recording in progress when your free trial ended was not saved.' : 'The recording in progress was not saved.'}
+                </p>
+            )}
             {expired && !arePaymentsEnabled() && (
                 <p className="mt-4">Paid continuation is not open yet. Your account will remain inactive; no payment can be taken here.</p>
             )}
