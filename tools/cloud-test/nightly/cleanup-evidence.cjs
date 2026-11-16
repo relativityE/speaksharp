@@ -258,6 +258,8 @@ const { resolveUnansweredCreate } = require('./account-reservation.cjs');
 
 /** The journey a leg belongs to (`J8.b` -> `J8`, `J6` -> `J6`): a journey reserves one account. */
 const journeyOf = (leg) => String(leg).split('.')[0];
+/** The journey's one create slot in a run: written once, never overwritten, so concurrent workers cannot both claim it. */
+const createClaimFile = (dir, runId, journey) => path.join(dir, `${runId}.create-claim.${journey}.json`);
 /** The account-create attempts already recorded for a journey in a run (durable, so this survives a restart). */
 function journeyAttempts(dir, runId, journey) {
     let names;
@@ -296,6 +298,19 @@ function recordCreateAttempt(dir, runId, { attemptId, leg, lookupRef, transportD
         throw new Error('the earlier account-create attempts could not be read, so a second create cannot be ruled out');
     if (earlier.length > 0)
         throw new Error(`journey ${journeyOf(leg)} already sent its one account create in run ${runId}; another could land after that account is deleted`);
+    // Codex P2 on 9474d231: two workers can both read no earlier attempt before either writes one. The journey's create slot
+    // is therefore claimed atomically (a hard link that never overwrites): exactly one claim per journey per run succeeds,
+    // and the loser is refused before anything is sent. A claim whose attempt write then fails leaves the journey unable to
+    // create again in this run (fail-closed; nothing was sent).
+    const journey = journeyOf(leg);
+    try {
+        durableWrite(createClaimFile(dir, runId, journey), { runId, journey, attemptId, leg, claimedAt: at });
+    }
+    catch (e) {
+        if (/already exists/.test(e.message))
+            throw new Error(`journey ${journey} already claimed its one account create in run ${runId}; another could land after that account is deleted`);
+        throw e;
+    }
     durableWrite(attemptFile(dir, runId, attemptId, 'sent'), { runId, attemptId, leg, kind: 'account', lookupRef, transportDeadlineMs, recordedAt: at });
 }
 /** The recorded (sent) account-create attempt, or null when it was never recorded or can't be read. */

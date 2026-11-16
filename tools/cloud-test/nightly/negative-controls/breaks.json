@@ -1817,6 +1817,14 @@
       "find": "            if (r.observed < Date.parse(proof.result.receivedAt))\n",
       "replace": "            if (false)\n",
       "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P21-journey-create-not-claimed",
+      "guards": "a journey's one create slot is claimed atomically, so concurrent workers cannot both record a create",
+      "file": "cleanup-evidence.cjs",
+      "find": "        durableWrite(createClaimFile(dir, runId, journey), { runId, journey, attemptId, leg, claimedAt: at });\n",
+      "replace": "",
+      "test": "tests/runner-bridge.test.cjs"
     }
   ]
 }

@@ -535,6 +535,38 @@ describe('nightly runner bridge: one account create per journey reservation, acr
                 /already sent its one account create/);
         assert.equal(fs.readdirSync(d.evidenceDir).filter((n) => n.startsWith('r2.attempt.') && n.endsWith('.sent.json')).length, 1);
     });
+    // Codex P2 on 9474d231: two workers for different legs of one journey can both read "no earlier attempt" before either
+    // writes. The journey's create slot is claimed atomically, so the loser is refused before anything is sent.
+    it('CONTROL: a journey whose create slot another worker already claimed refuses a second create, even with no attempt record yet', async () => {
+        const { d } = await lost('r8');
+        const ev = fresh();
+        // The other worker won the claim for J3 and has not yet written its attempt (the race window).
+        fs.writeFileSync(path.join(d.evidenceDir, 'r8.create-claim.J3.json'), JSON.stringify({ runId: 'r8', journey: 'J3', attemptId: 'J3.a-1', leg: 'J3.a' }));
+        assert.throws(() => ev.recordCreateAttempt(d.evidenceDir, 'r8', { attemptId: 'J3.b-1', leg: 'J3.b', lookupRef: 'acct-unit-j3b', transportDeadlineMs: 1000 }),
+            /already claimed its one account create/);
+        assert.equal(fs.readdirSync(d.evidenceDir).filter((n) => n.startsWith('r8.attempt.J3')).length, 0, 'the loser recorded nothing, so it sent nothing');
+    });
+    it('CONTROL: two worker processes racing to create for J3.a and J3.b: exactly one attempt is recorded', async () => {
+        const { d } = await lost('r10');
+        const { spawn } = require('node:child_process');
+        const go = path.join(d.evidenceDir, 'go');
+        const worker = (leg) => new Promise((resolve) => {
+            const code = `const fs=require('fs');const ev=require(${JSON.stringify(path.join(__dirname, '..', 'cleanup-evidence.cjs'))});`
+                + `while(!fs.existsSync(${JSON.stringify(go)})){}`
+                + `try{ev.recordCreateAttempt(${JSON.stringify(d.evidenceDir)},'r10',{attemptId:'${leg}-1',leg:'${leg}',lookupRef:'acct-unit-${leg.replace('.', '')}',transportDeadlineMs:1000});process.stdout.write('ok')}`
+                + `catch(e){process.stdout.write('refused:'+e.message)}`;
+            const child = spawn(process.execPath, ['-e', code]);
+            let out = '';
+            child.stdout.on('data', (b) => { out += b; });
+            child.on('close', () => resolve(out));
+        });
+        const both = Promise.all([worker('J3.a'), worker('J3.b')]);
+        fs.writeFileSync(go, '');
+        const results = await both;
+        assert.equal(results.filter((r) => r === 'ok').length, 1, `exactly one worker records the create: ${results.join(' | ')}`);
+        assert.equal(results.filter((r) => /already (claimed|sent) its one account create/.test(r)).length, 1, results.join(' | '));
+        assert.equal(fs.readdirSync(d.evidenceDir).filter((n) => n.startsWith('r10.attempt.J3') && n.endsWith('.sent.json')).length, 1);
+    });
     it('CONTROL: a lost reply plus a ZERO lookup still blocks after a restart; absence proves nothing', async () => {
         const { d, sent } = await lost('r3');
         const ev = fresh();
