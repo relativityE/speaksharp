@@ -1126,6 +1126,13 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 const windows = fixture.entry.pointAudioWindows ?? [];
                 // Past point 1's window, short of point 2's start (focus_points_tts: [2.91,6.21] then [11.98,…]).
                 const shortTakeSeconds = windows[1] ? Math.max(8, Math.min(9, windows[1][0] - 2)) : 9;
+                // #1882 diagnostic: was the rail on screen before Start, and what did the controller decide for this take?
+                const railRowsBeforeStart = await page.getByTestId('focus-point-0').count().catch(() => -1);
+                const switchTraceFrom = await page.evaluate(() => {
+                    const w = window as unknown as { __NATIVE_BROWSER_TRACE__?: unknown[] };
+                    w.__NATIVE_BROWSER_TRACE__ = w.__NATIVE_BROWSER_TRACE__ ?? [];
+                    return performance.now();
+                }).catch(() => null);
                 await startBenchmarkRecording(page, `${suite}-switch-focus`);
                 await page.waitForTimeout(shortTakeSeconds * 1000);
                 await stopBenchmarkRecording(page, `${suite}-switch-focus`, 180_000);
@@ -1136,6 +1143,15 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 await expect.poll(async () => (await readRail(page, points.length)).statuses.every((s) => s !== 'pending'), { timeout: 60_000 })
                     .toBe(true).catch(() => undefined);
                 const finalStatuses = (await readRail(page, points.length)).statuses;
+                const switchTrace = switchTraceFrom === null ? null : await page.evaluate((from) => {
+                    const keep = new Set(['controller_progress_mode_snapshot', 'controller_progress_unresolved', 'controller_completed_brief',
+                        'controller_progress_publication_refused', 'controller_brief_retirement_refused']);
+                    const trace = (window as unknown as { __NATIVE_BROWSER_TRACE__?: Array<Record<string, unknown>> }).__NATIVE_BROWSER_TRACE__ ?? [];
+                    return trace.filter((e) => typeof e.t === 'number' && e.t >= from && keep.has(String(e.event)))
+                        .map((e) => [e.event, e.mode, e.reason, e.published].filter((v) => v !== undefined && v !== null).join(':')).join('|');
+                }, switchTraceFrom).catch(() => 'trace-read-failed');
+                const afterRailRows = await page.getByTestId('focus-point-0').count().catch(() => -1);
+                const newSetVisibleAfterSwitch = await page.getByTestId('focus-points-new-set').isVisible().catch(() => false);
                 const savedFocus = focusId && focusId !== openMicId ? await sessionRow(focusId) : unavailable('missing');
                 const savedProduct = savedFocus.state === 'available' && savedFocus.sessionId === focusId && savedFocus.userId === owner.uid ? savedFocus.product : null;
                 const openMicAfter = openMicId && openMicId !== before ? await sessionRow(openMicId) : unavailable('missing');
@@ -1149,6 +1165,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     openMicSaved: Boolean(openMicId && openMicId !== before), openMicUnchanged: openMicBefore.digest !== null && openMicBefore.digest === openMicAfter.digest,
                     openMicRetentionState: openMicAfter.state ?? 'unknown',
                     openMicExpiredAfterWitness: iso.verdict === 'PASS' && openMicAfter.state === 'expired',
+                    railRowsBeforeStart, afterRailRows, newSetVisibleAfterSwitch, switchTrace: switchTrace ?? 'not-armed',
                 });
                 // Read again at the end of the step, so an objective row written late for the Open Mic take is still seen.
                 if (savedOpenMicId) openMicObjectiveRowReads.push(await objectiveRowsFor(savedOpenMicId));
