@@ -132,6 +132,16 @@ describe('leg verdict', () => {
         expect(v.outcome).toBe('NOT RUN');
         expect(v.reason).toContain('NOT RUN by design');
     });
+    // Sam on a90e906a: no reviewed J8 adapter exists, so a caller supplying EVERY gate and an all-PASS receipt cannot make it run.
+    it('CONTROL: keeps J8 NOT RUN when a caller supplies every gate (its adapter gate included) and an all-PASS receipt', () => {
+        const prior = new Map();
+        for (const id of ['J8.a', 'J8.b', 'J8.c']) {
+            const v = legVerdict(id, { prior, satisfiedGates: ALL_GATES, results: results(id) });
+            prior.set(id, v);
+            expect(v.outcome).toBe('NOT RUN');
+            expect(v.reason).toContain('no reviewed harness adapter');
+        }
+    });
     it('makes a leg NOT RUN when it got no budget allocation before the run', () => {
         const v = legVerdict('J3.b', { prior: new Map(), satisfiedGates: ALL_GATES, results: undefined, budget: { allocated: false, reason: 'left out', overrun: [] } });
         expect(v.outcome).toBe('NOT RUN');
@@ -208,19 +218,21 @@ describe('run verdict', () => {
             m.set(l.id, legVerdict(l.id, { prior: m, satisfiedGates: ALL_GATES, results: results(l.id) }));
         return m;
     };
-    // J9.b is NOT RUN by design on every run, so to test the run rule itself this stands in a PASS for it.
+    // J9.b is NOT RUN by design on every run, and J8 is NOT RUN until a reviewed adapter exists (Sam on a90e906a), so to test
+    // the run rule itself this stands in a PASS for them.
+    const NEVER_RUN = ['J8.a', 'J8.b', 'J8.c', 'J9.b'];
     const allPass = () => {
         const m = everyLegRun();
-        m.set('J9.b', { ...m.get('J9.b'), outcome: 'PASS' });
+        for (const id of NEVER_RUN) m.set(id, { ...m.get(id), outcome: 'PASS' });
         return m;
     };
     it('is PASS only when every planned leg passed', () => {
         expect(runVerdict(allPass()).outcome).toBe('PASS');
     });
-    it('is INCOMPLETE on a night where everything else passed, because J9.b is NOT RUN by design', () => {
+    it('is INCOMPLETE on a night where everything else passed, because J8 has no adapter and J9.b is NOT RUN by design', () => {
         const r = runVerdict(everyLegRun());
         expect(r.outcome).toBe('INCOMPLETE');
-        expect(r.notGreen).toEqual(['J9.b NOT RUN']);
+        expect(r.notGreen).toEqual(['J8.a NOT RUN', 'J8.b NOT RUN', 'J8.c NOT RUN', 'J9.b NOT RUN']);
         expect(r.scope).toBe(null);
         // It says why, and says it is not a full PASS.
         expect(r.reason).toContain('not a full PASS');
@@ -241,14 +253,15 @@ describe('run verdict', () => {
     });
     it('labels a selected scope apart: every scope leg passed reads as a scope PASS while the full suite stays INCOMPLETE', () => {
         const m = everyLegRun();
-        const scope = ALL_LEGS.map((l) => l.id).filter((id) => id !== 'J9.b');
+        const scope = ALL_LEGS.map((l) => l.id).filter((id) => !NEVER_RUN.includes(id));
         const r = runVerdict(m, scope);
         expect(r.outcome).toBe('INCOMPLETE');
         expect(r.scope.outcome).toBe('PASS');
         expect(r.scope.run).toBe(scope.length);
-        expect(r.scope.excluded.map((e) => e.leg)).toEqual(['J9.b']);
-        expect(r.scope.summary).toBe(`All runnable legs passed: ${scope.length} of ${ALL_LEGS.length} planned legs run; excluded: J9.b NOT RUN. Full suite: INCOMPLETE.`);
-        expect(r.scope.excluded[0].reason).toContain('NOT RUN by design');
+        expect(r.scope.excluded.map((e) => e.leg)).toEqual(NEVER_RUN);
+        expect(r.scope.summary).toBe(`All runnable legs passed: ${scope.length} of ${ALL_LEGS.length} planned legs run; excluded: J8.a NOT RUN, J8.b NOT RUN, J8.c NOT RUN, J9.b NOT RUN. Full suite: INCOMPLETE.`);
+        expect(r.scope.excluded.find((e) => e.leg === 'J9.b').reason).toContain('NOT RUN by design');
+        expect(r.scope.excluded.find((e) => e.leg === 'J8.b').reason).toContain('no reviewed harness adapter');
     });
     it('never reads a scope as passed when a scope leg is missing, NOT RUN or HOLD, and fails it on a FAIL', () => {
         const scope = ['J1.a', 'J3.a'];

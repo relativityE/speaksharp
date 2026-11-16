@@ -24,10 +24,10 @@ const results = (leg, o = 'PASS') => Object.fromEntries(rowsForLeg(leg).map((r) 
 const sumReserves = (journeys) => journeys.reduce((n, j) => n + cleanupReserve(j).requests, 0);
 
 describe('frozen allocations, reserved before the run', () => {
-    it('reserves the whole run up front: 32 coaching and 43 starts with every leg, 28 and 38 today (J8 gated)', () => {
+    it('reserves the whole run up front: 30 coaching and 41 starts with every satisfiable gate, 28 and 38 today (J8 never)', () => {
         const all = plan({ satisfiedGates: EVERY_GATE, selected: NO_J2 });
-        expect(all.totals().coaching).toBe(32);
-        expect(all.totals().starts).toBe(43);
+        expect(all.totals().coaching).toBe(30);
+        expect(all.totals().starts).toBe(41);
         const today = plan();
         expect(today.totals().coaching).toBe(28);
         expect(today.totals().starts).toBe(38);
@@ -95,25 +95,23 @@ describe('the run request names its legs; the budget never chooses them', () => 
         expect(plan({ selected: ['J1.a', 'J1.b'] }).allocationOf('J1.b')).toEqual({ coaching: 0, starts: 0 });
     });
     it('gives no allocation to a named leg whose dependency is gated, and says why', () => {
-        const b = plan({ satisfiedGates: new Set(['no-harness-case', 'no-j8-harness-adapter']), selected: ['J8.a', 'J8.b', 'J8.c'] });
-        expect(b.allocationOf('J8.b')).toEqual({ coaching: 2, starts: 2 });
         const gated = plan({ selected: ['J1.e', 'J1.f'] });
         expect(gated.allocationOf('J1.f')).toBe(null);
         expect(gated.legBudget('J1.f').reason).toContain('gated');
     });
     it('gives no allocation to a named leg whose dependency got none, even when the leg itself is runnable', () => {
-        // No leg in today's catalog has a gated dependency without sharing its gate, so the gate is put on J8.b alone
+        // No leg in today's catalog has a gated dependency without sharing its gate, so the gate is put on J1.a alone
         // through the runnable check the budget reads, on a fresh copy of the module.
         const limits = require('../limits.cjs');
         const saved = limits.runnable;
-        limits.runnable = (l, g) => l.id !== 'J8.b' && saved(l, g);
+        limits.runnable = (l, g) => l.id !== 'J1.a' && saved(l, g);
         try {
             delete require.cache[require.resolve('../run-budget.cjs')];
             const fresh = require('../run-budget.cjs');
-            const b = fresh.planRunBudget({ satisfiedGates: new Set(['no-harness-case', 'no-j8-harness-adapter']), selected: ['J8.a', 'J8.b', 'J8.c'] });
-            expect(b.allocationOf('J8.a') === null).toBe(false);
-            expect(b.allocationOf('J8.c')).toBe(null);
-            expect(b.legBudget('J8.c').reason).toBe('needs J8.b, which has no allocation');
+            const b = fresh.planRunBudget({ satisfiedGates: TODAY, selected: ['J1.a', 'J1.b', 'J1.c'] });
+            expect(b.allocationOf('J1.a')).toBe(null);
+            expect(b.allocationOf('J1.b')).toBe(null);
+            expect(b.legBudget('J1.b').reason).toBe('needs J1.a, which has no allocation');
         }
         finally {
             limits.runnable = saved;
@@ -210,15 +208,16 @@ describe('protected cleanup reserve', () => {
         expect(b.cleanupReserveOf('J9')).toBe(null);
         expect(b.totals().cleanupRequests).toBe(sumReserves(['J1', 'J3', 'J4', 'J5', 'J6', 'J7']));
     });
-    // Sam on #1870: gated J8 consumes ZERO live budget; once its adapter gate is met it reserves one account deletion and
-    // one fence's close, clean and verify. (An offline budget is not proof of a real account reservation.)
-    it('gives gated J8 no allocation and no cleanup reserve; ungated, one account and one fence', () => {
-        const gated = plan();
-        for (const leg of ['J8.a', 'J8.b', 'J8.c']) expect(gated.allocationOf(leg)).toBe(null);
-        expect(gated.cleanupReserveOf('J8')).toBe(null);
-        const open = plan({ satisfiedGates: new Set(['no-j8-harness-adapter']) });
-        expect(open.cleanupReserveOf('J8')).toEqual({ requests: cleanupReserve('J8').requests, seconds: cleanupReserve('J8').seconds });
-        expect(open.allocationOf('J8.b')).toEqual({ coaching: 2, starts: 2 });
+    // Sam on #1870 / a90e906a: J8 consumes ZERO live budget, whatever the caller supplies; its cleanup estimate (one account
+    // deletion and one fence's close, clean and verify) stays apart and never qualifies a run.
+    it('CONTROL: J8 gets no allocation and no cleanup reserve even when the caller supplies every gate', () => {
+        const every = new Set([...EVERY_GATE, 'no-j8-harness-adapter', 'no-harness-case']);
+        for (const b of [plan(), plan({ satisfiedGates: every, selected: NO_J2 })]) {
+            for (const leg of ['J8.a', 'J8.b', 'J8.c']) expect(b.allocationOf(leg)).toBe(null);
+            expect(b.cleanupReserveOf('J8')).toBe(null);
+        }
+        expect(cleanupReserve('J8').steps.map((st) => st.op).filter((op) => /deleteUser|feedback fence/.test(op)))
+            .toEqual(['delete the account (deleteUser)', 'J8 feedback fence: close, clean, verify']);
     });
     it('refuses a run whose journey has no defined cleanup step (J2), rather than guessing one', () => {
         expect(() => plan({ satisfiedGates: EVERY_GATE })).toThrow(RunRefused);
@@ -237,12 +236,12 @@ describe('protected cleanup reserve', () => {
         expect(b.reserveCleanup('J6').granted).toBe(false);
     });
     it('shares one reserve across a journey\'s legs, so two legs cannot take more than the journey\'s worst case', () => {
-        const b = plan({ satisfiedGates: new Set(['no-j8-harness-adapter']) });
-        const n = cleanupReserve('J8').requests;
+        const b = plan();
+        const n = cleanupReserve('J1').requests;
         for (let i = 0; i < n; i += 1)
-            expect(b.reserveCleanup(i % 2 ? 'J8.a' : 'J8.b').granted).toBe(true);
-        expect(b.reserveCleanup('J8.a').granted).toBe(false);
-        expect(b.cleanupExhausted('J8')).toBe(true);
+            expect(b.reserveCleanup(i % 2 ? 'J1.a' : 'J1.b').granted).toBe(true);
+        expect(b.reserveCleanup('J1.a').granted).toBe(false);
+        expect(b.cleanupExhausted('J1')).toBe(true);
         expect(b.cleanupExhausted('J6')).toBe(false);
     });
     it('fails the budget row of the leg whose cleanup asked past the reserve', () => {

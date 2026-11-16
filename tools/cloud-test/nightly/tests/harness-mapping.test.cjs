@@ -182,7 +182,7 @@ describe('the J8 invocation', () => {
             expect(v.reason).toContain('no reviewed harness adapter');
         }
     });
-    it('J8.c stays NOT RUN when J8.b did not PASS', () => {
+    it('J8.c stays NOT RUN when J8.b did not PASS, and never passes while J8 has no adapter', () => {
         const gates = new Set([...ALL_GATES, 'no-j8-harness-adapter']);
         const split = splitCaseResult('J8', j8Result());
         const bad = { ...split.get('J8.b'), 'AHT-07:older-take-association': 'FAIL' };
@@ -190,7 +190,10 @@ describe('the J8 invocation', () => {
         expect(b.outcome).toBe('FAIL');
         const c = legVerdict('J8.c', { prior: new Map([['J8.b', b]]), satisfiedGates: gates, results: split.get('J8.c') });
         expect(c.outcome).toBe('NOT RUN');
+        expect(c.reason).toContain('needs J8.b');
+        // Sam on a90e906a: even a passing J8.b cannot make J8.c run: the adapter gate is never satisfied yet.
         const okB = legVerdict('J8.b', { prior: new Map(), satisfiedGates: gates, results: split.get('J8.b') });
-        expect(legVerdict('J8.c', { prior: new Map([['J8.b', okB]]), satisfiedGates: gates, results: split.get('J8.c') }).outcome).toBe('PASS');
+        expect(okB.outcome).toBe('NOT RUN');
+        expect(legVerdict('J8.c', { prior: new Map([['J8.b', okB]]), satisfiedGates: gates, results: split.get('J8.c') }).outcome).toBe('NOT RUN');
     });
 });
