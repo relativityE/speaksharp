@@ -237,6 +237,13 @@ export async function guardedMerge({
       const why = (liveReceipt.reasons ?? []).join('|') || 'unqualified';
       holds.push(`${PRE_MERGE_HOLD.LIVE_NOT_QUALIFIED}:${why}`);
     }
+    if (priorReceipt?.reviewEvidence === 'identical_patch' || liveReceipt.reviewEvidence === 'identical_patch') {
+      if (priorReceipt?.reviewedSha !== liveReceipt.reviewedSha
+        || priorReceipt?.reviewCarryForward?.hash !== liveReceipt.reviewCarryForward?.hash
+        || priorReceipt?.reviewCarryForward?.reviewedBaseSha !== liveReceipt.reviewCarryForward?.reviewedBaseSha) {
+        holds.push(`${PRE_MERGE_HOLD.LIVE_NOT_QUALIFIED}:carried_review_proof_mismatch`);
+      }
+    }
   }
 
   /*

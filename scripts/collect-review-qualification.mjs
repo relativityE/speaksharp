@@ -2,7 +2,7 @@
 import { writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { evaluateReviewQualification, formatReviewQualification, documentationEvidenceAdmission } from './review-qualification.mjs';
-import { collectCarryForward, isPilotPullRequest, REVIEW_CARRY_PILOT, carryForwardBound } from './review-carry-forward.mjs';
+import { collectCarryForward, carryForwardBound } from './review-carry-forward.mjs';
 
 const CODEX_LOGINS = new Set(['chatgpt-codex-connector', 'chatgpt-codex-connector[bot]']);
 /**
@@ -323,25 +323,47 @@ function buildExactReviewReceipt({ pullRequest, expectedHeadSha, historical = fa
   };
 }
 
-export function buildReviewReceipt({ pullRequest, expectedHeadSha }) {
-  const exact = buildExactReviewReceipt({ pullRequest, expectedHeadSha });
-  const proof = pullRequest?.reviewCarryForward;
-  if (exact.qualified || !proof || !isPilotPullRequest(pullRequest)) return exact;
+function missingReviewOnly(exact) {
   // No other defect can be hidden by carried review. In particular, a finding,
   // ambiguous/incomplete history, or a workflow/head mismatch stays a hold.
-  if (exact.reviewStatus !== 'missing' || exact.findingCount !== 0
-    || !exact.reasons.includes('reviewed_sha_missing_or_invalid')
-    || !exact.reasons.includes('review_not_completed:missing')
-    || exact.reasons.some(reason => !['reviewed_sha_missing_or_invalid', 'review_not_completed:missing'].includes(reason))) return exact;
-  const { reviewedSha, reviewedBaseSha } = REVIEW_CARRY_PILOT;
+  return exact.reviewStatus === 'missing' && exact.findingCount === 0
+    && exact.reasons.length === 2 && exact.reasons.includes('reviewed_sha_missing_or_invalid')
+    && exact.reasons.includes('review_not_completed:missing');
+}
+
+function originalReviewOf(pullRequest, reviewedSha) {
   if ((pullRequest.reviews?.nodes ?? []).some(review => isCodex(review?.author?.login)
-    && review?.commit?.oid?.toLowerCase?.() === reviewedSha && review.state === 'DISMISSED')) return exact;
+    && review?.commit?.oid?.toLowerCase?.() === reviewedSha && review.state === 'DISMISSED')) return null;
   const original = buildExactReviewReceipt({
-    pullRequest: { ...pullRequest, headRefOid: reviewedSha, baseRefOid: reviewedBaseSha },
+    pullRequest: { ...pullRequest, headRefOid: reviewedSha },
     expectedHeadSha: reviewedSha,
     historical: true,
   });
-  if (!original.qualified || original.reviewEvidence !== 'codex_summary_metadata') return exact;
+  return original.qualified && original.reviewEvidence === 'codex_summary_metadata' ? original : null;
+}
+
+function historicalReview(pullRequest) {
+  const summary = (pullRequest?.comments?.nodes ?? []).filter(c => isCodex(c?.author?.login)
+    && String(c?.body ?? '').includes(SUMMARY_MARKER));
+  if (summary.length !== 1) return null;
+  const body = summary[0].body, matches = [...body.matchAll(SUMMARY_METADATA)];
+  if (matches.length !== 1) return null;
+  let reviewedSha;
+  try { reviewedSha = JSON.parse(matches[0][1])?.headSha; } catch { return null; }
+  if (!/^[a-f0-9]{40}$/.test(reviewedSha ?? '') || reviewedSha === pullRequest.headRefOid
+    || !originalReviewOf(pullRequest, reviewedSha)) return null;
+  const code = completedReviewRow(body, 'Code Review', '📝 **Code Review**');
+  const security = completedReviewRow(body, 'Security Review', '🔒 **Security Review**');
+  return code && security ? { reviewedSha, completedAt: Math.max(code.completedAt, security.completedAt) } : null;
+}
+
+export function buildReviewReceipt({ pullRequest, expectedHeadSha }) {
+  const exact = buildExactReviewReceipt({ pullRequest, expectedHeadSha });
+  const proof = pullRequest?.reviewCarryForward;
+  if (!proof || !missingReviewOnly(exact)) return exact;
+  const { reviewedSha } = proof;
+  const original = originalReviewOf(pullRequest, reviewedSha);
+  if (!original) return exact;
   const carried = { ...exact, qualified: true, reasons: [], reviewedSha,
     reviewStatus: original.reviewStatus, reviewSubmittedAt: original.reviewSubmittedAt,
     advisoryFindingCount: original.advisoryFindingCount + exact.advisoryFindingCount,
@@ -693,10 +715,26 @@ export async function readPullRequest({ repository, number, token, pageCap = ISS
   });
   // #1438 PM RETURN `5639978861` — the branch moves the Ready-trigger binding is checked against.
   pullRequest.headRefHistory = await readHeadRefHistory({ pullRequest, token });
-  if (isPilotPullRequest(pullRequest)) {
-    pullRequest.reviewCarryForward = null;
+  pullRequest.reviewCarryForward = null;
+  const original = missingReviewOnly(buildExactReviewReceipt({
+    pullRequest, expectedHeadSha: pullRequest.headRefOid,
+  })) ? historicalReview(pullRequest) : null;
+  if (original) {
     try {
-      pullRequest.reviewCarryForward = await collectCarryForward(pullRequest, path => githubRequest(path, token));
+      pullRequest.reviewCarryForward = await collectCarryForward(pullRequest, original, async path => {
+        try { return await githubRequest(path, token, { signal: AbortSignal.timeout(10000) }); }
+        catch (error) {
+          // The PR workflow token has no Actions scope. For a public repository,
+          // retrieve the same public run metadata without sending a token.
+          if (!['github_api_403', 'github_api_404'].includes(error.message)) throw error;
+          const res = await fetch(`https://api.github.com${path}`, {
+            redirect: 'error', signal: AbortSignal.timeout(10000),
+            headers: { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' },
+          });
+          if (!res.ok) throw Error('historical_review_base_unavailable');
+          return res.json();
+        }
+      });
     } catch { /* Missing Git evidence never carries a review forward. */ }
   }
   if (documentationEvidenceAdmission(repository, number) !== null) {
