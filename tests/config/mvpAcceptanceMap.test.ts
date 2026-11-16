@@ -40,6 +40,7 @@ type PlanLeg = { id: string; caseId: string | null };
 const plan = createRequire(import.meta.url)('../../tools/cloud-test/nightly/journey-plan.cjs') as {
   ALL_LEGS: PlanLeg[];
   historicalCase: (leg: PlanLeg) => string | null; // the former AHT case a leg carries (J8 runs as one invocation)
+  RETIRED_CASES: readonly string[]; // former cases no leg carries (AHT-15: J1.d has its own rows)
 };
 const retargetHeading = '### Retarget to J1–J9, 16 November 2026';
 // Gaps Sam asked the map to keep explicitly (12 November framework-review reconciliation).
@@ -103,7 +104,9 @@ function violations(document: string): string[] {
   if (legRows.length !== plan.ALL_LEGS.length) errors.push('retarget-leg-count');
   for (let n = 1; n <= 15; n += 1) {
     const id = `AHT-${String(n).padStart(2, '0')}`;
-    if (!legRows.some((row) => row.includes(`| ${id} |`))) errors.push(`retarget-former-case:${id}`);
+    // A retired case is carried by no leg and must not reappear as one's former case; every other former case is carried.
+    const carried = legRows.some((row) => row.includes(`| ${id} |`));
+    if (plan.RETIRED_CASES.includes(id) ? carried : !carried) errors.push(`retarget-former-case:${id}`);
   }
   if (!retarget.includes('NOT RUN never\n  counts as PASS')) errors.push('retarget-not-run-rule');
   const inventoryStart = current.indexOf('### Existing PR inventory to preserve');
@@ -160,7 +163,8 @@ describe('bounded MVP acceptance-map contract', () => {
     { name: 'retarget leg dropped', before: '| J4.a | save request lost, retry, one saved | AHT-05 | NOT RUN |\n', after: '', code: 'retarget-leg:J4.a' },
     { name: 'retarget leg promoted to PASS', before: '| J6 | second tab and second browser refused; takeover fences the old owner | AHT-11 | NOT RUN |', after: '| J6 | second tab and second browser refused; takeover fences the old owner | AHT-11 | PASS |', code: 'retarget-promoted:J6' },
     { name: 'former case detached from its leg', before: '| J7.c | connection drops after bytes arrive, retry | AHT-14 |', after: '| J7.c | connection drops after bytes arrive, retry | none (new row) |', code: 'retarget-case:J7.c' },
-    { name: 'gated leg presented as runnable PASS', before: '| AHT-15 | NOT RUN (gated: signout-recorder-unwired) |', after: '| AHT-15 | PASS |', code: 'retarget-promoted:J1.d' },
+    { name: 'gated leg presented as runnable PASS', before: '| none (new row) | NOT RUN (gated: no-j1d-harness-adapter) |', after: '| none (new row) | PASS |', code: 'retarget-promoted:J1.d' },
+    { name: 'retired case restored as a leg\'s former case', before: '| J1.d | sign out and return, deep link, history preserved | none (new row) |', after: '| J1.d | sign out and return, deep link, history preserved | AHT-15 |', code: 'retarget-case:J1.d' },
     { name: 'NOT RUN-is-not-PASS rule dropped', before: 'NOT RUN never\n  counts as PASS', after: 'NOT RUN may later\n  count', code: 'retarget-not-run-rule' },
     { name: 'false-green register lost', before: '| False-green, mock-fidelity and obsolete-test register |', after: '| Test count summary |', code: 'efficacy-deliverable:False-green, mock-fidelity and obsolete-test register' },
   ];

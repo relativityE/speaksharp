@@ -237,10 +237,11 @@ carried obligations and remaining approvals. Source delivery cannot claim stages
 
 The release route for outcome 5 is the nine-journey suite (J1–J9, 24 legs), not the retired
 R10 cloud-test campaign of 15 single-spec cases (Product Owner, 14 November: the legacy
-15-case run is not executed; the nine-journey suite is the priority). Every former case is
-carried by the leg below that replaces it, so no case ID or closure criterion is dropped; the
-15-case text later in this map is that history. Seven legs have no former case and are new
-rows. The leg list is the runner's own plan (`tools/cloud-test/nightly/journey-plan.cjs` on
+15-case run is not executed; the nine-journey suite is the priority). Every former case except
+the retired AHT-15 is carried by the leg below that replaces it, so no other case ID or closure
+criterion is dropped; the 15-case text later in this map is that history. AHT-15 is retired:
+J1.d owns its sign-out and return rows directly, with no legacy fallback. Eight legs have no
+former case and are new rows. The leg list is the runner's own plan (`tools/cloud-test/nightly/journey-plan.cjs` on
 `main` `90472d5d`, after #1870 made J8 one invocation; former cases come from its
 `historicalCase`).
 
@@ -249,7 +250,7 @@ rows. The leg list is the runner's own plan (`tools/cloud-test/nightly/journey-p
 | J1.a | sign up, trial length, first Open Mic take | AHT-01 | NOT RUN |
 | J1.b | coaching, review, PDF, same-target repeat | AHT-01 | NOT RUN |
 | J1.c | short Stop saves nothing; probe save isolation | AHT-01 | NOT RUN |
-| J1.d | sign out and return, deep link, history preserved | AHT-15 | NOT RUN (gated: signout-recorder-unwired) |
+| J1.d | sign out and return, deep link, history preserved | none (new row) | NOT RUN (gated: no-j1d-harness-adapter) |
 | J1.e | trial ends: wall on the open session, then after a fresh sign-in; server refuses | none (new row) | NOT RUN (gated: canary-claim-ack, no-harness-case) |
 | J1.f | delete the account from the wall | none (new row) | NOT RUN (gated: canary-claim-ack, no-harness-case) |
 | J2 | expired account, wall, hosted Checkout opens, abandon, still walled; webhook configured | none (new row) | NOT RUN (gated: canary-claim-ack, disabled-until-reviewed, no-harness-case) |
@@ -278,7 +279,8 @@ rows. The leg list is the runner's own plan (`tools/cloud-test/nightly/journey-p
   receipt is evidence only and can never report acceptance; no current RWT path earns full
   acceptance. The runner bridge (#1875, merged 16 November) is proven offline only; the
   harness case process does not route through it yet. J8 and J1.d are not wired for a live
-  run: #1870 (merged 16 November) wires J8 offline only, as one gated invocation.
+  run: #1870 (merged 16 November) wires J8 offline only, as one gated invocation; J1.d runs
+  only inside J1.a's worker under the named runner's admission, and its leg stays gated.
 - **Earlier live evidence is partial.** AHT-05 (now J4.a), run 43725359185 on served
   `446e09fa`, ended INCOMPLETE (18 PASS, 2 HOLD); only its save-once, persisted-row and
   reopen observations are reusable, and the adapter inspection may be reused at a newer
