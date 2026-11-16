@@ -10,6 +10,7 @@
  */
 import type { Page, Request } from '@playwright/test';
 import { extractUidFromAuthStorage } from './proofAuthority';
+import { waitForAppVisibleReady } from '../../e2e/helpers';
 import { liveMicTracks, micAcquisitions, signOutThroughProduct } from './rwtJourney';
 import { classifyJourneyWrite, digestOf, pollUntil, type J1dObservations, loadedReviewSessionId, type MicState } from './rwtJ1dJourney';
 import { routeOf, SignOutRecorder } from './rwtSignOutRecorder';
@@ -65,6 +66,8 @@ export async function runJ1dLeg(ctx: J1dLegContext): Promise<J1dObservations> {
     const knownTakeDigests = known.map(digestOf);
     const recorder = new SignOutRecorder<Request>(backendOrigin);
     let anonKey: string | null = null;
+    /** The page sent an authenticated backend request (a bearer that is not the anon key) since arming. */
+    let authenticatedSeen = false;
     let recordingStarts = 0;
     let sessionWrites = 0;
     const context = page.context();
@@ -74,7 +77,12 @@ export async function runJ1dLeg(ctx: J1dLegContext): Promise<J1dObservations> {
         if (url.origin !== backendOrigin) return;
         const headers = r.allHeaders();
         recorder.onRequest(r, r.url(), r.method(), headers);
-        void headers.then((h) => { if (!anonKey && typeof h.apikey === 'string' && h.apikey) anonKey = h.apikey; }, () => undefined);
+        void headers.then((h) => {
+            const key = typeof h.apikey === 'string' && h.apikey ? h.apikey : null;
+            if (!anonKey && key) anonKey = key;
+            const bearer = /^Bearer\s+(.+)$/i.exec(h.authorization ?? '')?.[1] ?? null;
+            if (key && bearer && bearer !== key) authenticatedSeen = true;
+        }, () => undefined);
         const kind = classifyJourneyWrite(r.method(), url.pathname);
         if (kind === 'session-write') sessionWrites += 1;
         if (kind === 'recording-start') recordingStarts += 1;
@@ -118,7 +126,11 @@ export async function runJ1dLeg(ctx: J1dLegContext): Promise<J1dObservations> {
     };
     try {
         // Owner and the paired control (before): the signed-in owner reads the exact take.
+        // Wait for the shared visible-readiness signal and the page's own authenticated traffic (which also yields the anon key),
+        // so the owner control and the click never run before the page has hydrated (Codex, #1883).
         await page.goto('/progress');
+        await waitForAppVisibleReady(page, 45_000).catch(() => undefined);
+        await pollUntil(() => anonKey !== null && authenticatedSeen, (ms) => page.waitForTimeout(ms), 30_000);
         const before = await pageUid(page);
         obs.ownerBefore = before ? digestOf(before) : null;
         if (anonKey && requestedId && before === ownerUid) {
@@ -158,8 +170,13 @@ export async function runJ1dLeg(ctx: J1dLegContext): Promise<J1dObservations> {
             await recorder.settled();
             obs.recorder = recorder.snapshot();
             await ctx.signInOnShownForm();
-            await page.waitForURL((u) => u.pathname !== '/auth/signin' && !u.pathname.startsWith('/auth'), { timeout: 30_000 }).catch(() => undefined);
+            await page.waitForURL((u) => !u.pathname.startsWith('/auth'), { timeout: 30_000 }).catch(() => undefined);
+            await waitForAppVisibleReady(page, 45_000).catch(() => undefined);
             obs.micAtReturnEntry = await micState(page);
+            // The post-auth continue step may pass through another route first: give the return its bounded chance to settle on
+            // the requested link before judging where it landed.
+            const here = () => { const u = new URL(page.url()); return `${u.pathname}${u.search}`; };
+            await pollUntil(() => here() === requested, (ms) => page.waitForTimeout(ms), 15_000);
             const landedUrl = new URL(page.url());
             obs.deepLink = { requested, landed: `${landedUrl.pathname}${landedUrl.search}` };
             const after = await pageUid(page);
@@ -172,6 +189,7 @@ export async function runJ1dLeg(ctx: J1dLegContext): Promise<J1dObservations> {
 
         // History after the return: every known take listed, and each reopens to its own detail.
         await page.goto('/progress');
+        await waitForAppVisibleReady(page, 45_000).catch(() => undefined);
         const listed: string[] = [];
         for (const id of known) {
             const row = page.getByTestId(`download-pdf-btn-${id}`).or(page.getByTestId(`download-pdf-btn-mobile-${id}`)).first();
