@@ -366,7 +366,7 @@ test('reviewed coaching source admits exactly its pinned inputs (handler, provid
   try {
     const admitted=validateSyntheticSource(f.dir,entry);
 
-    assert.equal(admitted.id,'coaching-attempt-15s-1802');
+    assert.equal(admitted.id,'coaching-payment-wall-1863');
     assert.equal(Object.keys(admitted.files).length,16);
     for(const added of ['evaluation/prompt.ts','evaluation/transcripts.json'])
       assert.ok(files.includes(`backend/supabase/functions/get-ai-suggestions/${added}`),added);
@@ -379,7 +379,7 @@ test('reviewed coaching source admits exactly its pinned inputs (handler, provid
       f.write(file,original);
     }
 
-    assert.equal(validateSyntheticSource(f.dir,entry).id,'coaching-attempt-15s-1802');
+    assert.equal(validateSyntheticSource(f.dir,entry).id,'coaching-payment-wall-1863');
   }finally{f.clean();}
 });
 test('owned frozen import warmup is separate and cannot disappear, fail, drift or grant test permissions',()=>{
