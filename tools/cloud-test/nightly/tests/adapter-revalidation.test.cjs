@@ -1,97 +1,135 @@
 "use strict";
 // Nightly AHT suite: the selected adapters' inspection may be reused at a newer served release only when every inspected input
-// is byte-identical there (Sam, 16 Nov). Offline: blobs come from this checkout's git objects or from injected readers.
+// is byte-identical there (Sam, 16 Nov). Hermetic: the deriver and the revalidation run against a small synthetic git
+// repository built here, so no test needs this checkout's history. The committed manifest's match with the deriver at the
+// real sealed source is checked by `node derive-adapter-inputs.cjs --check` (it needs that history).
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { describe, it } = require('node:test');
 const { expect } = require('./expect-lite.cjs');
 const { caseAdmission, gitBlob, revalidate } = require('../adapter-revalidation.cjs');
-const { derive } = require('../derive-adapter-inputs.cjs');
+const { CONFIG_FILES, derive } = require('../derive-adapter-inputs.cjs');
 const manifest = require('../adapter-inputs.json');
 
-const SOURCE = manifest.sourceSha;
-const SERVED = 'c'.repeat(40);
-/** A served release whose blobs are the inspected source's, except the overrides (path -> bytes, or null for missing). */
-const servedLike = (overrides = {}) => (sha, p) => {
-    if (sha !== SERVED) throw new Error('unexpected sha');
-    if (Object.prototype.hasOwnProperty.call(overrides, p)) return overrides[p];
-    return gitBlob(SOURCE, p);
+const ADAPTER = `"use strict";
+const KNOWN_UI_COPY = Object.freeze({ start: 'Start recording' });
+async function run(page) { await page.getByTestId('mic-card').click(); return page.locator('[data-session-state]'); }
+module.exports = { run };
+`;
+const SELECTOR = 'frontend/src/components/MicCard.tsx';
+const DEPENDENCY = 'frontend/src/components/micHelpers.ts';
+const COPY = 'frontend/src/lib/copy.ts';
+const UNRELATED = 'frontend/src/unrelated.ts';
+const SOURCE_FILES = {
+    [SELECTOR]: `import React from 'react';\nimport { helper } from './micHelpers';\nimport { START } from '@/lib/copy';\nexport const MicCard = () => <div data-testid="mic-card" data-session-state="idle">{START}{helper()}</div>;\n`,
+    [DEPENDENCY]: 'export const helper = () => 1;\n',
+    [COPY]: "export const START = 'Start recording';\n",
+    [UNRELATED]: 'export const other = 2;\n',
+    ...Object.fromEntries(CONFIG_FILES.map((p) => [p, `config ${p}\n`])),
 };
-const has = (p) => manifest.inputs.some((i) => i.path === p);
-const text = (p) => gitBlob(SOURCE, p).toString('utf8');
-// A selector file (defines a test id) and a dependency it imports that defines none: Sam's "selector unchanged, dependency changed".
-const selectorFile = manifest.inputs.map((i) => i.path).find((p) => p.endsWith('.tsx') && text(p).includes('data-testid="mic-card"'));
-const dependency = (() => {
-    const src = text(selectorFile);
-    for (const m of src.matchAll(/from\s*['"](@\/[^'"]+|\.{1,2}\/[^'"]+)['"]/g)) {
-        const spec = m[1];
-        const base = spec.startsWith('@/') ? path.posix.join('frontend/src', spec.slice(2)) : path.posix.join(path.posix.dirname(selectorFile), spec);
-        const hit = ['.ts', '.tsx', '/index.ts', '/index.tsx'].map((e) => base + e).find((c) => has(c) && !text(c).includes('data-testid'));
-        if (hit) return hit;
-    }
-    return null;
-})();
 
-describe('the inspected-input manifest', () => {
-    it('binds the adapters\' product dependencies at the sealed source, with nothing unresolved', () => {
-        expect(SOURCE).toBe('5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2');
-        expect(manifest.unresolved).toEqual([]);
-        expect(manifest.inputs.length > 100).toBe(true);
-        for (const p of ['pnpm-lock.yaml', 'frontend/package.json', 'frontend/vite.config.mjs']) expect(has(p)).toBe(true);
-        expect(manifest.tokens.testIds > 50).toBe(true);
+/** A throwaway repository: commits are made in order and each one's full sha is returned. */
+function fixtureRepo() {
+    const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'adapter-reval-'));
+    const git = (...args) => execFileSync('git', ['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', ...args],
+        { cwd: root, stdio: ['ignore', 'pipe', 'ignore'], env: { PATH: process.env.PATH, GIT_CONFIG_NOSYSTEM: '1', HOME: root } }).toString().trim();
+    git('init', '-q');
+    const commit = (files, removed = []) => {
+        for (const [p, body] of Object.entries(files)) {
+            fs.mkdirSync(path.dirname(path.join(root, p)), { recursive: true });
+            fs.writeFileSync(path.join(root, p), body);
+        }
+        for (const p of removed) fs.rmSync(path.join(root, p));
+        git('add', '-A');
+        git('commit', '-q', '--allow-empty', '-m', 'fixture');
+        return git('rev-parse', 'HEAD');
+    };
+    const adapterDir = path.join(root, 'adapters');
+    fs.mkdirSync(adapterDir);
+    fs.writeFileSync(path.join(adapterDir, 'fixture.cjs'), ADAPTER);
+    const source = commit(SOURCE_FILES);
+    const shas = {
+        source,
+        unrelatedChanged: commit({ [UNRELATED]: 'export const other = 3;\n' }),
+        dependencyChanged: commit({ [DEPENDENCY]: 'export const helper = () => 2;\n' }),
+        lockfileChanged: commit({ 'pnpm-lock.yaml': 'changed lockfile\n' }),
+        selectorRemoved: commit({}, [SELECTOR]),
+    };
+    return { root, adapterDir, shas, read: (sha, p) => gitBlob(sha, p, root) };
+}
+const repo = fixtureRepo();
+const fixtureManifest = derive({ sha: repo.shas.source, adapterDir: repo.adapterDir, repoRoot: repo.root });
+const verdict = (servedSha, opts = {}) => revalidate({ servedSha, readBlob: repo.read, manifest: fixtureManifest, ...opts });
+const paths = (m) => m.inputs.map((i) => i.path);
+
+describe('deriving the inspected inputs (synthetic repository)', () => {
+    it('binds the selector file, the dependency it imports, the file defining the adapter\'s copy, and the build configuration', () => {
+        expect(fixtureManifest.sourceSha).toBe(repo.shas.source);
+        expect(fixtureManifest.unresolved).toEqual([]);
+        for (const p of [SELECTOR, DEPENDENCY, COPY, ...CONFIG_FILES]) expect(paths(fixtureManifest).includes(p)).toBe(true);
+        expect(paths(fixtureManifest).includes(UNRELATED)).toBe(false);
+        expect(fixtureManifest.packages).toEqual(['react']);
     });
-    it('is exactly what the deriver produces at the sealed source (no hand edits, no drift)', () => {
-        expect(JSON.stringify(derive())).toBe(JSON.stringify(manifest));
+    it('CONTROL: a test id no product file defines is recorded as unresolved, never dropped', () => {
+        const dir = fs.mkdtempSync(path.join(repo.root, 'adapters-missing-'));
+        fs.writeFileSync(path.join(dir, 'missing.cjs'), "async function run(page) { await page.getByTestId('no-such-id').click(); }\n");
+        const m = derive({ sha: repo.shas.source, adapterDir: dir, repoRoot: repo.root });
+        expect(m.unresolved).toEqual([{ kind: 'test-id', token: 'no-such-id' }]);
+        expect(revalidate({ servedSha: repo.shas.source, readBlob: repo.read, manifest: m }).admissible).toBe(false);
     });
 });
 
-describe('reusing the inspection at a newer served release', () => {
-    it('the inspected source itself is admissible', () => {
-        expect(revalidate({ servedSha: SOURCE }).admissible).toBe(true);
-    });
-    it('a release whose every inspected input is unchanged is admissible', () => {
-        expect(revalidate({ servedSha: SERVED, readBlob: servedLike() })).toMatchObject({ admissible: true, refused: [] });
+describe('reusing the inspection at a newer served release (synthetic repository)', () => {
+    it('the inspected source itself, and a release that changed only an uninspected file, are admissible', () => {
+        expect(verdict(repo.shas.source).admissible).toBe(true);
+        expect(verdict(repo.shas.unrelatedChanged)).toMatchObject({ admissible: true, refused: [] });
     });
     it('CONTROL (Sam): the selector file is unchanged but a dependency it imports changed: refused, naming the dependency', () => {
-        expect(typeof selectorFile).toBe('string');
-        expect(typeof dependency).toBe('string');
-        const v = revalidate({ servedSha: SERVED, readBlob: servedLike({ [dependency]: Buffer.from(`${text(dependency)}\n// changed`) }) });
+        const v = verdict(repo.shas.dependencyChanged);
         expect(v.admissible).toBe(false);
-        expect(v.refused).toEqual([{ path: dependency, reason: 'changed since the inspected source' }]);
+        expect(v.refused).toEqual([{ path: DEPENDENCY, reason: 'changed since the inspected source' }]);
     });
-    it('CONTROL: a changed selector file, lockfile or build config is refused', () => {
-        for (const p of [selectorFile, 'pnpm-lock.yaml', 'frontend/vite.config.mjs']) {
-            const v = revalidate({ servedSha: SERVED, readBlob: servedLike({ [p]: Buffer.from('changed') }) });
-            expect(v.refused.map((r) => r.path)).toEqual([p]);
-        }
+    it('CONTROL: a changed lockfile is refused', () => {
+        expect(verdict(repo.shas.lockfileChanged).refused.map((r) => r.path)).toEqual([DEPENDENCY, 'pnpm-lock.yaml']);
     });
     it('CONTROL: a missing or unreadable input is refused, never skipped', () => {
-        expect(revalidate({ servedSha: SERVED, readBlob: servedLike({ [dependency]: null }) }).refused[0].reason).toContain('missing');
-        const throwing = (sha, p) => { if (p === dependency) throw new Error('no object'); return servedLike()(sha, p); };
-        expect(revalidate({ servedSha: SERVED, readBlob: throwing }).refused[0]).toEqual({ path: dependency, reason: 'missing or unreadable at the served release' });
+        const v = verdict(repo.shas.selectorRemoved);
+        expect(v.admissible).toBe(false);
+        expect(v.refused.find((r) => r.path === SELECTOR)).toEqual({ path: SELECTOR, reason: 'missing or unreadable at the served release' });
+        const nulls = (sha, p) => (p === DEPENDENCY ? null : repo.read(sha, p));
+        expect(verdict(repo.shas.unrelatedChanged, { readBlob: nulls }).refused).toEqual([{ path: DEPENDENCY, reason: 'missing at the served release' }]);
     });
     it('CONTROL: an unresolved dependency in the manifest refuses every case, whatever the served release', () => {
-        const broken = { ...manifest, unresolved: [{ kind: 'import', file: 'frontend/src/x.ts', detail: './gone' }] };
-        for (const servedSha of [SOURCE, SERVED]) expect(revalidate({ servedSha, readBlob: servedLike(), manifest: broken }).admissible).toBe(false);
+        const broken = { ...fixtureManifest, unresolved: [{ kind: 'import', file: 'frontend/src/x.ts', detail: './gone' }] };
+        for (const servedSha of [repo.shas.source, repo.shas.unrelatedChanged]) expect(verdict(servedSha, { manifest: broken }).admissible).toBe(false);
     });
     it('CONTROL: an abbreviated, uppercase or missing served SHA is refused, even by a reader that would serve its blobs', () => {
         // A permissive reader resolves any spelling to the inspected bytes, so only the exact-SHA guard can refuse these.
-        const anySpelling = (_sha, p) => gitBlob(SOURCE, p);
-        for (const servedSha of [SOURCE.slice(0, 12), SOURCE.toUpperCase(), '', undefined]) expect(revalidate({ servedSha, readBlob: anySpelling }).admissible).toBe(false);
-        expect(revalidate({ servedSha: SERVED, readBlob: anySpelling }).admissible).toBe(true);
+        const anySpelling = (_sha, p) => repo.read(repo.shas.source, p);
+        const source = repo.shas.source;
+        for (const servedSha of [source.slice(0, 12), source.toUpperCase(), '', undefined]) expect(verdict(servedSha, { readBlob: anySpelling }).admissible).toBe(false);
+        expect(verdict(repo.shas.unrelatedChanged, { readBlob: anySpelling }).admissible).toBe(true);
     });
     it('a refused verdict makes the case NOT RUN and names what changed; an admissible one never claims a product PASS', () => {
-        const refused = caseAdmission('AHT-05', revalidate({ servedSha: SERVED, readBlob: servedLike({ [dependency]: Buffer.from('x') }) }));
+        const refused = caseAdmission('AHT-05', verdict(repo.shas.dependencyChanged));
         expect(refused.outcome).toBe('NOT RUN');
-        expect(refused.detail).toContain(dependency);
-        expect(caseAdmission('AHT-05', revalidate({ servedSha: SOURCE })).outcome).toBe('ADMISSIBLE');
+        expect(refused.detail).toContain(DEPENDENCY);
+        expect(caseAdmission('AHT-05', verdict(repo.shas.source)).outcome).toBe('ADMISSIBLE');
     });
-    it('today\'s main is not admissible: its changed inputs are named for re-inspection', () => {
-        const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: path.resolve(__dirname, '../../../..') }).toString().trim();
-        if (head === SOURCE) return;
-        const v = revalidate({ servedSha: head });
-        expect(v.admissible).toBe(false);
-        expect(v.refused.every((r) => typeof r.path === 'string' && r.reason.length > 0)).toBe(true);
+});
+
+describe('the committed manifest for the sealed adapters', () => {
+    it('is bound to the sealed source, with nothing unresolved, the build configuration included, and well-formed entries', () => {
+        expect(manifest.sourceSha).toBe('5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2');
+        expect(manifest.unresolved).toEqual([]);
+        expect(manifest.inputs.length > 100).toBe(true);
+        for (const p of CONFIG_FILES) expect(paths(manifest).includes(p)).toBe(true);
+        const sorted = [...paths(manifest)].sort((a, b) => a.localeCompare(b));
+        expect(paths(manifest)).toEqual(sorted);
+        expect(new Set(paths(manifest)).size).toBe(manifest.inputs.length);
+        expect(manifest.inputs.every((i) => /^[0-9a-f]{64}$/.test(i.sha256))).toBe(true);
+        expect(manifest.tokens.testIds > 50).toBe(true);
     });
 });

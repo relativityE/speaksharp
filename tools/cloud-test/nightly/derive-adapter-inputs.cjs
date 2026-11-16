@@ -29,7 +29,7 @@ const CONFIG_FILES = Object.freeze([
 const SOURCE_EXT = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'];
 const ASSET = /\.(css|scss|json|svg|png|jpg|jpeg|gif|webp|wasm|txt|md)(\?.*)?$/;
 const sha256 = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
-const git = (args) => execFileSync('git', args, { cwd: REPO_ROOT, stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 256 * 1024 * 1024 });
+const git = (args, root = REPO_ROOT) => execFileSync('git', args, { cwd: root, stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 256 * 1024 * 1024 });
 
 /** The tokens the adapters reference, from the adapter sources on disk (the sealed copies). */
 function adapterTokens(dir = ADAPTER_DIR) {
@@ -49,12 +49,13 @@ function adapterTokens(dir = ADAPTER_DIR) {
 }
 
 /** Every product source file at the sha, with its bytes: frontend/src only, tests excluded. */
-function productFiles(sha) {
-    const names = git(['ls-tree', '-r', '--name-only', sha, 'frontend/src']).toString().split('\n')
+function productFiles(sha, root = REPO_ROOT) {
+    const names = git(['ls-tree', '-r', '--name-only', sha, 'frontend/src'], root).toString().split('\n')
         .filter((n) => n && !/(^|\/)__tests__\/|\.test\.|\.spec\./.test(n));
     const files = new Map();
-    for (const n of names) files.set(n, git(['show', `${sha}:${n}`]));
+    for (const n of names) files.set(n, git(['show', `${sha}:${n}`], root));
     files.sha = sha;
+    files.root = root;
     return files;
 }
 
@@ -103,7 +104,7 @@ function resolveImport(files, from, spec) {
     if (files.sha && !clean.startsWith('..')) {
         for (const c of candidates) {
             try {
-                files.set(c, git(['show', `${files.sha}:${c}`]));
+                files.set(c, git(['show', `${files.sha}:${c}`], files.root ?? REPO_ROOT));
                 return { file: c };
             }
             catch { /* not this candidate */ }
@@ -138,9 +139,9 @@ function importClosure(files, seeds) {
     return { files: [...seen].sort(), packages: [...packages].sort(), unresolved };
 }
 
-function derive({ sha = SOURCE_SHA, adapterDir = ADAPTER_DIR } = {}) {
+function derive({ sha = SOURCE_SHA, adapterDir = ADAPTER_DIR, repoRoot = REPO_ROOT } = {}) {
     const tokens = adapterTokens(adapterDir);
-    const files = productFiles(sha);
+    const files = productFiles(sha, repoRoot);
     const unresolved = [];
     const seeds = new Set();
     const bind = (kind, token, found) => { if (found.length === 0) unresolved.push({ kind, token }); for (const f of found) seeds.add(f); };
@@ -152,7 +153,7 @@ function derive({ sha = SOURCE_SHA, adapterDir = ADAPTER_DIR } = {}) {
     const closure = importClosure(files, [...seeds]);
     unresolved.push(...closure.unresolved);
     const inputs = [...closure.files.map((p) => ({ path: p, sha256: sha256(files.get(p)) })),
-        ...CONFIG_FILES.map((p) => ({ path: p, sha256: sha256(git(['show', `${sha}:${p}`])) }))]
+        ...CONFIG_FILES.map((p) => ({ path: p, sha256: sha256(git(['show', `${sha}:${p}`], repoRoot)) }))]
         .sort((a, b) => a.path.localeCompare(b.path));
     return {
         schema: 'speaksharp.nightly.adapter-inputs.v1', sourceSha: sha,
@@ -169,4 +170,14 @@ if (require.main === module) {
     const text = `${JSON.stringify(manifest, null, 2)}\n`;
     if (process.argv.includes('--write')) fs.writeFileSync(MANIFEST, text);
     process.stdout.write(`${manifest.inputs.length} inputs, ${manifest.packages.length} packages, ${manifest.unresolved.length} unresolved\n`);
+    // `--check` needs this checkout's git history at SOURCE_SHA (the unit tests are hermetic and cannot): the committed manifest
+    // must be exactly what the deriver produces at the sealed source, with nothing unresolved.
+    if (process.argv.includes('--check')) {
+        const committed = fs.readFileSync(MANIFEST, 'utf8');
+        if (committed !== text || manifest.unresolved.length > 0) {
+            process.stderr.write('adapter-inputs.json is not what the deriver produces at the sealed source, or has unresolved inputs\n');
+            process.exitCode = 1;
+        }
+        else process.stdout.write('adapter-inputs.json matches the deriver at the sealed source\n');
+    }
 }

@@ -13,8 +13,8 @@ const MANIFEST = require('./adapter-inputs.json');
 const REPO_ROOT = path.resolve(__dirname, '../../..');
 const FULL_SHA = /^[0-9a-f]{40}$/;
 const sha256 = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
-/** Git blob bytes of `file` at full commit `sha` in this checkout; throws when absent. */
-const gitBlob = (sha, file) => execFileSync('git', ['show', `${sha}:${file}`], { cwd: REPO_ROOT, stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 * 1024 * 1024 });
+/** Git blob bytes of `file` at full commit `sha` in the repository at `root` (this checkout by default); throws when absent. */
+const gitBlob = (sha, file, root = REPO_ROOT) => execFileSync('git', ['show', `${sha}:${file}`], { cwd: root, stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 * 1024 * 1024 });
 
 /** `{ admissible, refused: [{ path, reason }] }` for reusing the inspection at `servedSha`. */
 function revalidate({ servedSha, readBlob = gitBlob, manifest = MANIFEST }) {
