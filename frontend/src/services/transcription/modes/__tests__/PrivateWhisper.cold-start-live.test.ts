@@ -20,7 +20,7 @@ vi.unmock('../PrivateWhisper');
 import PrivateWhisper from '../PrivateWhisper';
 import { Result } from '../types';
 import { MicStream } from '../../utils/types';
-import { PRIV_CLOUD_AUDIO, PRIV_STT } from '../../sttConstants';
+import { PRIV_CLOUD_AUDIO } from '../../sttConstants';
 
 vi.mock('@xenova/transformers', () => ({}));
 
@@ -81,6 +81,7 @@ function coldStartBacklog(): Float32Array[] {
 describe('Focus Point 1 on a cold start: speech spoken while the model loads reaches live transcription', () => {
   let pw: PrivateWhisper;
   let liveTexts: string[];
+  let committedTexts: string[];
   let stopped: boolean;
 
   beforeEach(async () => {
@@ -97,11 +98,13 @@ describe('Focus Point 1 on a cold start: speech spoken while the model loads rea
     });
 
     liveTexts = [];
+    committedTexts = [];
     stopped = false;
     const onTranscriptUpdate = vi.fn((update: { transcript: { partial?: string; final?: string } }) => {
       if (stopped) return;
       const text = update.transcript.partial ?? update.transcript.final ?? '';
       if (text) liveTexts.push(text);
+      if (update.transcript.final) committedTexts.push(update.transcript.final);
     });
     pw = new PrivateWhisper({ onTranscriptUpdate, onModelLoadProgress: vi.fn(), onReady: vi.fn(), onStatusChange: vi.fn() });
     await pw.init();
@@ -111,13 +114,16 @@ describe('Focus Point 1 on a cold start: speech spoken while the model loads rea
     vi.useRealTimers();
   });
 
-  it('decodes Point 1 live when it was spoken before the model finished loading (no prewarm)', async () => {
+  /** Starts streaming as a cold start does: the engine is ready only now, and the mic replays the opening. */
+  async function coldStartTake(): Promise<{ liveTranscript: string; committedTranscript: string; liveDecodes: Float32Array[] }> {
     const backlog = coldStartBacklog();
+    let frameCb: ((f: Float32Array) => void) | undefined;
     // The real mic (audioUtils.impl.ts) replays its buffered frames synchronously to a late subscriber.
     const mic: MicStream = {
       state: 'ready',
       sampleRate: SR,
       onFrame: vi.fn((cb: (f: Float32Array) => void) => {
+        frameCb = cb;
         for (const f of backlog) cb(f);
         return () => {};
       }),
@@ -125,27 +131,50 @@ describe('Focus Point 1 on a cold start: speech spoken while the model loads rea
     };
     await pw.start(mic);
 
-    // Let live processing run a few ticks, as it would in the seconds after the model is ready.
-    await vi.advanceTimersByTimeAsync(PRIV_STT.PROCESSING_INTERVAL_MS * 10);
+    // The speaker keeps talking (Point 2 continues) while live processing runs, as it would in the seconds
+    // after the model is ready. The first transcript needs more than one decode to be committed, so this
+    // also proves the opening survives that hold rather than only flashing as a provisional partial.
+    for (let i = 0; i < 40; i++) {
+      frameCb!(new Float32Array(FRAME).fill(POINT_2));
+      await vi.advanceTimersByTimeAsync(100);
+    }
 
     const liveDecodes = mocks.transcribe.mock.calls
       .filter((c) => (c[1] as { final?: boolean } | undefined)?.final !== true)
       .map((c) => c[0] as Float32Array);
-    const liveTranscript = liveTexts.join(' ');
-
+    const result = { liveTranscript: liveTexts.join(' '), committedTranscript: committedTexts.join(' '), liveDecodes };
     console.log('[COLD-START-DIAG]', JSON.stringify({
       backlogSeconds: backlog.length / 10,
       liveDecodeSeconds: liveDecodes.map((a) => Number((a.length / SR).toFixed(2))),
       liveDecodesWithPoint1: liveDecodes.filter((a) => contains(a, POINT_1)).length,
-      liveTranscript,
+      liveTranscript: result.liveTranscript,
+      committedTranscript: result.committedTranscript,
     }));
+    stopped = true;
+    await pw.stop();
+    return result;
+  }
+
+  it('decodes Point 1 live when it was spoken before the model finished loading (no prewarm)', async () => {
+    const { liveTranscript, committedTranscript, liveDecodes } = await coldStartTake();
 
     expect(liveDecodes.length, 'sanity: live decoding ran once the model was ready').toBeGreaterThan(0);
     expect(liveTranscript, 'sanity: the newest speech (Point 2) is transcribed live').toContain(POINT_2_WORDS);
     // THE CONTRACT: Point 1, spoken while the model was loading, is in the live transcript before Stop.
     expect(liveTranscript, 'Point 1 must be transcribed live, not only at Stop').toContain(POINT_1_WORDS);
+    expect(committedTranscript, 'Point 1 must be in the committed live transcript, not only a provisional partial').toContain(POINT_1_WORDS);
+  });
 
-    stopped = true;
-    await pw.stop();
+  it('keeps Point 1 when the first live decode is held as too thin to show', async () => {
+    // The first decode comes back too thin to commit (under FIRST_TRANSCRIPT_MIN_WORDS), so PrivateWhisper holds
+    // it and retries with the retained audio. The retry must still reach Point 1, not only the newest window.
+    const decode = mocks.transcribe.getMockImplementation()!;
+    mocks.transcribe.mockImplementationOnce(async () => Result.ok('my'));
+    mocks.transcribe.mockImplementation(decode);
+
+    const { committedTranscript } = await coldStartTake();
+
+    expect(mocks.transcribe.mock.calls.length, 'sanity: the held decode was retried').toBeGreaterThan(1);
+    expect(committedTranscript, 'Point 1 must survive a held first decode').toContain(POINT_1_WORDS);
   });
 });

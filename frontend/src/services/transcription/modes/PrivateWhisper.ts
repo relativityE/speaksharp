@@ -788,9 +788,6 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   // latency. performance.now() ms; null until set this recording.
   private streamStartAtMs: number | null = null;
   private speechStartAtMs: number | null = null;
-  // Cold start: false until this take's first live (non-final) decode, which may take the whole
-  // backlog spoken while the model loaded (COLD_START_BACKLOG_MAX_SAMPLES), not only the newest window.
-  private liveDecodeStarted: boolean = false;
   // Slice 1 timing telemetry (window.__PRIVATE_TIMING__). Diagnostics only.
   private firstProvisionalAtMs: number | null = null;
   private firstFinalAtMs: number | null = null;
@@ -1140,7 +1137,6 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     }
     this.streamStartAtMs = performance.now();
     this.speechStartAtMs = null;
-    this.liveDecodeStarted = false;
     this.retainedUtterancePrerollSamplesAtStart = 0;
     // Reset Slice 1 timing telemetry for the new recording.
     this.firstProvisionalAtMs = null;
@@ -2226,10 +2222,10 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
 
   private capLiveDecodeWindow(audio: Float32Array): Float32Array {
     const hasCommittedTranscript = this.currentTranscript.trim().length > 0;
-    // Cold start: the take's first live decode keeps the backlog spoken while the model loaded, so
-    // the opening (Focus Point 1) is transcribed live rather than dropped for the newest window.
-    const isColdStartBacklog = !hasCommittedTranscript && !this.liveDecodeStarted;
-    this.liveDecodeStarted = true;
+    // Cold start: until the take's first transcript is committed, a live decode keeps up to
+    // COLD_START_BACKLOG_MAX_SAMPLES, so the opening spoken while the model loaded (Focus Point 1) is
+    // decoded live and survives the first-transcript hold (its retry audio is kept, not cut to 3 s).
+    const isColdStartBacklog = !hasCommittedTranscript;
     const maxLiveSamples = hasCommittedTranscript
       ? LIVE_DECODE_WINDOW_SAMPLES
       : Math.max(
