@@ -489,9 +489,10 @@ test.describe('RWT — Open Mic first session @live', () => {
                 await page.goto('/auth/signup');
                 await expect(page.getByTestId('auth-form')).toBeVisible({ timeout: 30_000 });
                 await requireApprovedSurface(page, receipt);
-                // With a J1.d admission, the email is the lookup reference the named runner recorded for J1.a's create.
-                createdEmail = j1dAdmission.admitted ? j1dAdmission.lookupRef : newDisposableEmail('open-mic');
+                createdEmail = newDisposableEmail('open-mic');
                 receipt.forbid(createdEmail);
+                // With a J1.d admission, the email is the lookup reference the named runner recorded for J1.a's create.
+                if (j1dAdmission.admitted) { createdEmail = j1dAdmission.lookupRef; receipt.forbid(createdEmail); }
                 const account = await signUpDisposableAccount(page, createdEmail);
                 capturedUid = account.uid;
                 signInOnShownForm = account.signInOnShownForm;
