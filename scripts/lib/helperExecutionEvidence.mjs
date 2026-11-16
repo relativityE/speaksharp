@@ -154,7 +154,7 @@ export const HELPER_CONTRACTS = Object.freeze([{
 }, {
   helperFile:'tests/live/helpers/rwtSignOutRecorder.ts',testFile:'tests/unit/rwtSignOutRecorder.test.ts',
   callables:["routeOf","signOutUnauthorizedReadVerdict","signOutStaleRequestVerdict","SignOutRecorder#onRequest","SignOutRecorder#onResponse",
-    "SignOutRecorder#onFailed","SignOutRecorder#markClick","SignOutRecorder#designateProbe","SignOutRecorder#recordOwnerRead",
+    "SignOutRecorder#onFailed","SignOutRecorder#onFinished","SignOutRecorder#markClick","SignOutRecorder#designateProbe","SignOutRecorder#recordOwnerRead",
     "SignOutRecorder#recordProbe","SignOutRecorder#markWindowEnd","SignOutRecorder#observeAtLeast","SignOutRecorder#settled","SignOutRecorder#snapshot"],
 }, {
   helperFile:'tests/live/helpers/rwtJ1dLeg.ts',testFile:'tests/unit/rwtJ1dLeg.test.ts',

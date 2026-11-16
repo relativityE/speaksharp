@@ -103,9 +103,11 @@ export async function runJ1dLeg(ctx: J1dLegContext): Promise<J1dObservations> {
         return signedOut || (await pageUid(page)) === null;
     };
     const onFailed = (r: Request) => recorder.onFailed(r);
+    const onFinished = (r: Request) => recorder.onFinished(r);
     context.on('request', onRequest);
     context.on('response', onResponse);
     context.on('requestfailed', onFailed);
+    context.on('requestfinished', onFinished);
     /**
      * Mic acquisitions per document, read before leaving it (the counter is per document). Keyed by the document's time origin, so
      * reading the same document twice never counts it twice.
@@ -231,6 +233,7 @@ export async function runJ1dLeg(ctx: J1dLegContext): Promise<J1dObservations> {
         context.off('request', onRequest);
         context.off('response', onResponse);
         context.off('requestfailed', onFailed);
+        context.off('requestfinished', onFinished);
     }
     return obs;
 }

@@ -32,6 +32,11 @@ export interface SignOutRequestFact {
     sentSeq: number;
     /** When its answer (or transport failure) was observed; null: still unanswered. */
     answeredSeq: number | null;
+    /**
+     * When its response BODY finished downloading (Playwright `requestfinished`): the data reached the page then, not at the header
+     * event (Codex, #1883). null: not finished (still downloading, or failed).
+     */
+    deliveredSeq: number | null;
     method: string;
     path: string;
     /** It carried the signed-out session (a bearer seen on an authenticated request before the click). */
@@ -76,7 +81,7 @@ export interface SignOutObservation {
 
 interface Entry {
     seq: number; method: string; path: string; bearer: string | null; apikey: string | null;
-    headersRead: boolean; status: number | null; failed: boolean; answeredSeq: number | null; probe: boolean;
+    headersRead: boolean; status: number | null; failed: boolean; answeredSeq: number | null; deliveredSeq: number | null; probe: boolean;
 }
 type Headers = Record<string, string | undefined>;
 
@@ -126,7 +131,7 @@ export class SignOutRecorder<R = unknown> {
         if (!this.backendOrigin || parsed.origin !== this.backendOrigin) return;
         const entry: Entry = {
             seq: ++this.seq, method: method.toUpperCase(), path: routeOf(parsed.pathname),
-            bearer: null, apikey: null, headersRead: false, status: null, failed: false, answeredSeq: null, probe: false,
+            bearer: null, apikey: null, headersRead: false, status: null, failed: false, answeredSeq: null, deliveredSeq: null, probe: false,
         };
         this.entries.set(request, entry);
         this.order.push(entry);
@@ -152,11 +157,20 @@ export class SignOutRecorder<R = unknown> {
         this.answered(entry);
     }
 
+    /** The request failed: before its answer (a transport failure), or after its headers while its body downloaded. */
     onFailed(request: R): void {
         const entry = this.entries.get(request);
-        if (!entry || entry.answeredSeq !== null) return;
+        if (!entry || entry.failed || entry.deliveredSeq !== null) return;
         entry.failed = true;
-        this.answered(entry);
+        if (entry.answeredSeq === null) this.answered(entry);
+    }
+
+    /** Playwright `requestfinished`: the response body finished downloading, so its data reached the page now. */
+    onFinished(request: R): void {
+        const entry = this.entries.get(request);
+        if (!entry || entry.failed || entry.deliveredSeq !== null) return;
+        if (entry.answeredSeq === null) this.answered(entry);
+        entry.deliveredSeq = ++this.seq;
     }
 
     private answered(entry: Entry): void {
@@ -226,7 +240,7 @@ export class SignOutRecorder<R = unknown> {
             logout: logoutEntry ? { requestSeq: logoutEntry.seq, completedSeq: this.logoutCompletedSeq, status: logoutEntry.status } : null,
             windowClosed: this.endSeq !== null,
             requests: judged.filter((e) => e !== logoutEntry && !e.probe).map((e) => ({
-                sentSeq: e.seq, answeredSeq: e.answeredSeq, method: e.method, path: e.path,
+                sentSeq: e.seq, answeredSeq: e.answeredSeq, deliveredSeq: e.deliveredSeq, method: e.method, path: e.path,
                 oldSession: e.bearer !== null && e.bearer !== e.apikey && sessions.has(e.bearer),
                 status: e.status, failed: e.failed,
             })),
@@ -274,10 +288,20 @@ function newStale(o: SignOutObservation): SignOutRequestFact[] {
     return o.requests.filter((r) => r.oldSession && r.sentSeq > done);
 }
 
-/** (4) Old-session requests sent BEFORE the logout completed whose 2xx answer arrived after it: data reaching the signed-out page. */
+/**
+ * (4) Old-session 2xx reads sent BEFORE the logout completed whose answer or body arrived after it: data reaching the signed-out
+ * page. Judged by body completion when it is known (headers can arrive before logout and the body after it; Codex, #1883).
+ */
 function lateData(o: SignOutObservation): SignOutRequestFact[] {
     const done = o.logout?.completedSeq ?? Number.POSITIVE_INFINITY;
-    return o.requests.filter((r) => r.oldSession && r.sentSeq < done && r.answeredSeq !== null && r.answeredSeq > done && is2xx(r.status));
+    return o.requests.filter((r) => r.oldSession && r.sentSeq < done && is2xx(r.status) && !r.failed
+        && ((r.answeredSeq !== null && r.answeredSeq > done) || (r.deliveredSeq !== null && r.deliveredSeq > done)));
+}
+
+/** Old-session 2xx reads sent before the logout completed whose body never finished in the window: delivery unknown (HOLD). */
+function undeliveredReads(o: SignOutObservation): SignOutRequestFact[] {
+    const done = o.logout?.completedSeq ?? Number.POSITIVE_INFINITY;
+    return o.requests.filter((r) => r.oldSession && r.sentSeq < done && is2xx(r.status) && !r.failed && r.deliveredSeq === null);
 }
 
 type RowVerdict = Verdict & { evidence: Record<string, number | null> };
@@ -299,6 +323,10 @@ export function signOutUnauthorizedReadVerdict(o: SignOutObservation): RowVerdic
     if (why) return { status: 'HOLD', detail: why, evidence };
     if (read.length > 0) return { status: 'FAIL', detail: `a protected read with the signed-out session succeeded after sign-out (${routes(read)})`, evidence };
     if (late.length > 0) return { status: 'FAIL', detail: `data from the signed-in session reached the page after sign-out completed (${routes(late)})`, evidence };
+    const undelivered = why ? [] : undeliveredReads(o);
+    if (undelivered.length > 0) {
+        return { status: 'HOLD', detail: `${undelivered.length} signed-in read(s) never finished their body in the window, so late data cannot be ruled out (${routes(undelivered)})`, evidence };
+    }
     const p = o.probe;
     if (p === null) return { status: 'HOLD', detail: 'no named protected probe was exercised after sign-out, so the denial is unproven', evidence };
     if (p.status === null) return { status: 'HOLD', detail: 'the protected probe got no terminal answer', evidence };

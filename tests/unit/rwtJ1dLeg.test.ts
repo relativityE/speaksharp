@@ -28,7 +28,7 @@ function silentPage() {
 }
 
 describe('runJ1dLeg fails closed with no evidence', () => {
-    it('a failed sign-in on the shown form reaches the spec (which writes every row HOLD) and still removes all three listeners', async () => {
+    it('a failed sign-in on the shown form reaches the spec (which writes every row HOLD) and still removes all four listeners', async () => {
         const { page, listeners, removed } = silentPage();
         let signIns = 0;
         await expect(runJ1dLeg({
@@ -37,7 +37,7 @@ describe('runJ1dLeg fails closed with no evidence', () => {
         })).rejects.toThrow('no form');
         expect(signIns).toBe(1);
         expect(listeners.size).toBe(0);
-        expect(removed.sort()).toEqual(['request', 'requestfailed', 'response']);
+        expect(removed.sort()).toEqual(['request', 'requestfailed', 'requestfinished', 'response']);
     });
     it('with no saved take it never opens a deep link or signs in, and holds every row', async () => {
         const { page, listeners } = silentPage();

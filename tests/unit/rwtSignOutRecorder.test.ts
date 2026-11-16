@@ -15,11 +15,13 @@ const DENIED: SignOutProbe = { status: 403, dataRows: null };
 let clock = 0;
 const recorder = (origin = ORIGIN) => new SignOutRecorder<object>(origin, () => clock);
 
-function answer(rec: SignOutRecorder<object>, r: object, status: number | 'failed' | 'pending') {
+/** A numeric status answers the headers and finishes the body at once; 'headers' answers 200 with the body still downloading. */
+function answer(rec: SignOutRecorder<object>, r: object, status: number | 'failed' | 'pending' | 'headers') {
     if (status === 'failed') rec.onFailed(r);
-    else if (status !== 'pending') rec.onResponse(r, status);
+    else if (status === 'headers') rec.onResponse(r, 200);
+    else if (status !== 'pending') { rec.onResponse(r, status); rec.onFinished(r); }
 }
-function send(rec: SignOutRecorder<object>, path: string, bearer: string, status: number | 'failed' | 'pending', method = 'GET') {
+function send(rec: SignOutRecorder<object>, path: string, bearer: string, status: number | 'failed' | 'pending' | 'headers', method = 'GET') {
     const r = {};
     rec.onRequest(r, `${ORIGIN}${path}`, method, headers(bearer));
     answer(rec, r, status);
@@ -334,5 +336,43 @@ describe('Sam 2b (16 Nov): an anonymous, well-formed 200 [] is a denial only wit
         const rec = signedOut(armed());
         send(rec, '/rest/v1/sessions', SESSION, 403);
         expect(both(closed(rec, EMPTY))).toEqual({ read: 'PASS', stale: 'FAIL' });
+    });
+});
+
+describe('Codex #1883: late data is judged by body completion, not the header event', () => {
+    const read = (rec: SignOutRecorder<object>) => signOutUnauthorizedReadVerdict(rec.snapshot()).status;
+    it('CONTROL: headers before the logout, body finished after it: data reached the signed-out page (FAIL)', () => {
+        const rec = armed();
+        const r = send(rec, '/rest/v1/sessions', SESSION, 'headers');
+        signedOut(rec);
+        rec.onFinished(r);
+        expect(read(closed(rec))).toBe('FAIL');
+        expect(signOutUnauthorizedReadVerdict(rec.snapshot()).detail).toContain('reached the page after sign-out');
+    });
+    it('headers before the logout, body failed after it: no data reached the page', () => {
+        const rec = armed();
+        const r = send(rec, '/rest/v1/sessions', SESSION, 'headers');
+        signedOut(rec);
+        rec.onFailed(r);
+        expect(read(closed(rec))).toBe('PASS');
+    });
+    it('CONTROL: headers before the logout, body never finished in the window: delivery unknown (HOLD)', () => {
+        const rec = armed();
+        send(rec, '/rest/v1/sessions', SESSION, 'headers');
+        signedOut(rec);
+        expect(read(closed(rec))).toBe('HOLD');
+    });
+    it('headers and body both before the logout: not late', () => {
+        const rec = armed();
+        const r = send(rec, '/rest/v1/sessions', SESSION, 'headers');
+        rec.onFinished(r);
+        expect(read(closed(signedOut(rec)))).toBe('PASS');
+    });
+    it('the stale-request row is unaffected by body timing', () => {
+        const rec = armed();
+        const r = send(rec, '/rest/v1/sessions', SESSION, 'headers');
+        signedOut(rec);
+        rec.onFinished(r);
+        expect(signOutStaleRequestVerdict(closed(rec).snapshot()).status).toBe('PASS');
     });
 });
