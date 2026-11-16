@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
     J8_ADMISSION_ENV, J8_FENCE_CASE, J8_FENCE_KEY_CAP, J8_KEY_CAPS, J8_SUITE, J8WriteGate, TAKE_PROJECTION_FIELDS, j8RunnerAdmission, legReadback,
-    legReceipt, legSink, mergeLegReadback, takeDigest, takesReadComplete, takesUnchangedVerdict,
+    legReceipt, legSink, mergeLegReadback, readTakeDigests, takeDigest, takesReadComplete, takesUnchangedVerdict, writerDrainedVerdict,
     type J8Leg,
 } from '../live/helpers/rwtJ8Journey';
 import type { ReadbackActionBinding } from '../live/helpers/rwtAcceptance';
@@ -286,5 +286,61 @@ describe('takesUnchangedVerdict: exact before/after equality of both takes\' com
         expect(takeDigest(full('older'), 'u')).not.toBe(takeDigest(full('older', { filler_counts: { um: 1 } }), 'u'));
         expect(takeDigest(full('older'), 'u')).toMatch(/^[0-9a-f]{64}$/);
         expect(takeDigest(null, 'u')).toBeNull();
+    });
+});
+
+/** Sam on 7a755749: unreadable evidence is HOLD; only a successful read proves a take went missing (FAIL). */
+describe('the take read keeps "unreadable" apart from "no rows"', () => {
+    const ids = ['older', 'newer'] as const;
+    const row = (id: string) => Object.fromEntries([...TAKE_PROJECTION_FIELDS.map((f) => [f, null]), ['id', id], ['user_id', 'u']]);
+    const both = readTakeDigests({ data: [row('older'), row('newer')], error: null }, 'u');
+    it('a failed query, or no row array, is unreadable (null), never an empty map', () => {
+        expect(readTakeDigests({ data: null, error: { message: 'boom' } }, 'u')).toBeNull();
+        expect(readTakeDigests({ data: [row('older')], error: { message: 'boom' } }, 'u')).toBeNull();
+        expect(readTakeDigests({ data: { rows: [] }, error: null }, 'u')).toBeNull();
+        expect(readTakeDigests({ data: [], error: null }, 'u')).toEqual(new Map());
+    });
+    it('CONTROL: unreadable BEFORE the submit is not complete, so J8.c does not run', () => {
+        expect(takesReadComplete(ids, null)).toBe(false);
+        expect(takesReadComplete(ids, both)).toBe(true);
+    });
+    it('CONTROL: unreadable AFTER the submit is HOLD, never FAIL and never PASS', () => {
+        const v = takesUnchangedVerdict(ids, both, null);
+        expect(v.status).toBe('HOLD');
+        expect(v.detail).toContain('could not be read after');
+        expect(takesUnchangedVerdict(ids, null, both).status).toBe('HOLD');
+    });
+    it('CONTROL: a SUCCESSFUL read that lacks a saved take after the submit FAILs', () => {
+        expect(takesUnchangedVerdict(ids, both, readTakeDigests({ data: [], error: null }, 'u')).status).toBe('FAIL');
+        expect(takesUnchangedVerdict(ids, both, readTakeDigests({ data: [row('older')], error: null }, 'u')).status).toBe('FAIL');
+        expect(takesUnchangedVerdict(ids, both, both).status).toBe('PASS');
+    });
+});
+
+/** Sam on 7a755749: the writer is drained only with nothing in flight AND nothing unresolved. */
+describe('writerDrainedVerdict', () => {
+    it('PASS only when nothing is in flight and nothing is unresolved', () => {
+        expect(writerDrainedVerdict({ inFlight: 0, unresolved: 0 }).status).toBe('PASS');
+    });
+    it('CONTROL: an unresolved write with nothing in flight is HOLD, counted apart', () => {
+        const v = writerDrainedVerdict({ inFlight: 0, unresolved: 1 });
+        expect(v.status).toBe('HOLD');
+        expect(v.evidence).toEqual({ inFlight: 0, unresolved: 1 });
+        expect(v.detail).toContain('unknown server outcome');
+    });
+    it('an in-flight write is HOLD; an uncountable count is HOLD', () => {
+        expect(writerDrainedVerdict({ inFlight: 2, unresolved: 0 }).status).toBe('HOLD');
+        expect(writerDrainedVerdict({ inFlight: Number.NaN, unresolved: 0 }).status).toBe('HOLD');
+        expect(writerDrainedVerdict({ inFlight: 0, unresolved: -1 }).status).toBe('HOLD');
+    });
+    it('the spec writes the drain row from the verdict with the gate\'s unresolved count, and reads takes without an empty-map fallback', () => {
+        const spec = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../live/rwt-feedback-association-boundaries.live.spec.ts'), 'utf8');
+        const flat = spec.replace(/\s+/g, ' ');
+        expect(flat).toContain('writerDrainedVerdict({ inFlight: Math.max(pendingAfterDrain, gate.pending), unresolved: gate.unresolvedCount })');
+        expect(flat).toContain("sink.row('feedback writer drained', drained.status, drained.detail, drained.evidence);");
+        const reader = spec.slice(spec.indexOf('const readTakes = async'), spec.indexOf('const linkedToOlder'));
+        expect(reader).toContain('readTakeDigests(');
+        expect(reader).not.toContain('new Map()');
+        expect(flat).toContain('const before = linkedToOlder ? await readTakes() : null;');
     });
 });

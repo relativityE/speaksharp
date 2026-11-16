@@ -260,9 +260,18 @@ export function takeDigest(row: Record<string, unknown> | null | undefined, owne
     return createHash('sha256').update(JSON.stringify(projected)).digest('hex');
 }
 
-/** Both saved takes read completely and owner-bound: the precondition for opening J8.c (Sam on 94fe88d7). */
-export function takesReadComplete(takeIds: readonly [string, string], digests: ReadonlyMap<string, string | null>): boolean {
-    return new Set(takeIds).size === 2 && takeIds.every((id) => typeof digests.get(id) === 'string') && digests.size === 2;
+/**
+ * Sam on 7a755749: the take read's OWN outcome. A failed query (an error, or no row array) is UNREADABLE (`null`), never an empty
+ * map: an empty map is a successful read that found no rows, which after the submit proves a take went missing.
+ */
+export function readTakeDigests(result: { data: unknown; error: unknown }, ownerId: string): ReadonlyMap<string, string | null> | null {
+    if (result.error || !Array.isArray(result.data)) return null;
+    return new Map((result.data as Record<string, unknown>[]).map((r) => [String(r?.id), takeDigest(r, ownerId)]));
+}
+
+/** Both saved takes read completely and owner-bound: the precondition for opening J8.c (Sam on 94fe88d7). Unreadable is not. */
+export function takesReadComplete(takeIds: readonly [string, string], digests: ReadonlyMap<string, string | null> | null): boolean {
+    return digests !== null && new Set(takeIds).size === 2 && takeIds.every((id) => typeof digests.get(id) === 'string') && digests.size === 2;
 }
 
 /**
@@ -270,8 +279,15 @@ export function takesReadComplete(takeIds: readonly [string, string], digests: R
  * Counts alone could miss a changed or swapped take (Sam), so identity is compared per take, in order.
  */
 export function takesUnchangedVerdict(takeIds: readonly [string, string],
-    before: ReadonlyMap<string, string | null>, after: ReadonlyMap<string, string | null>):
+    beforeRead: ReadonlyMap<string, string | null> | null, afterRead: ReadonlyMap<string, string | null> | null):
     { status: 'PASS' | 'FAIL' | 'HOLD'; detail: string; evidence: Record<string, boolean | number> } {
+    // Sam on 7a755749: an unreadable read is not evidence of anything (HOLD); only a SUCCESSFUL read that lacks a take is a FAIL.
+    if (beforeRead === null || afterRead === null) {
+        return { status: 'HOLD', detail: `the saved takes could not be read ${beforeRead === null ? 'before' : 'after'} the No-session submit`,
+            evidence: { distinctTakes: new Set(takeIds).size === 2, readableBefore: beforeRead !== null, readableAfter: afterRead !== null } };
+    }
+    const before = beforeRead;
+    const after = afterRead;
     const read = (m: ReadonlyMap<string, string | null>, id: string) => (m.has(id) ? m.get(id) ?? null : null);
     const pairs = takeIds.map((id) => ({ b: read(before, id), a: read(after, id) }));
     const evidence = {
@@ -290,4 +306,18 @@ export function takesUnchangedVerdict(takeIds: readonly [string, string],
         return { status: 'PASS', detail: 'both saved takes are exactly as they were (same identities, equal saved and coaching fields)', evidence };
     }
     return { status: 'FAIL', detail: 'a saved take changed, disappeared or was replaced across the No-session submit', evidence };
+}
+
+/**
+ * Sam on 7a755749: the writer is drained only when nothing is in flight AND no write's server outcome is unknown. An unresolved
+ * write may still commit, so it is HOLD (the fence close records it) and counted apart from in-flight writes.
+ */
+export function writerDrainedVerdict(o: { inFlight: number; unresolved: number }):
+    { status: 'PASS' | 'HOLD'; detail: string; evidence: { inFlight: number; unresolved: number } } {
+    const evidence = { inFlight: o.inFlight, unresolved: o.unresolved };
+    const counted = Number.isInteger(o.inFlight) && o.inFlight >= 0 && Number.isInteger(o.unresolved) && o.unresolved >= 0;
+    if (!counted) return { status: 'HOLD', detail: 'the writer\'s in-flight or unresolved writes could not be counted', evidence };
+    if (o.inFlight === 0 && o.unresolved === 0) return { status: 'PASS', detail: 'no feedback write was in flight or unresolved when the writer stopped', evidence };
+    const parts = [o.inFlight > 0 ? `${o.inFlight} write(s) still in flight` : null, o.unresolved > 0 ? `${o.unresolved} write(s) with an unknown server outcome` : null];
+    return { status: 'HOLD', detail: `${parts.filter(Boolean).join(' and ')}; the fence close records any that commit`, evidence };
 }

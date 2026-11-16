@@ -37,7 +37,7 @@ import { HarnessParityTap, START_CONTROLS } from './helpers/rwtHarnessParity';
 import { JourneyFeedbackFence } from './helpers/feedbackFence';
 import {
     J8_FENCE_CASE, J8_FENCE_KEY_CAP, J8_LEGS, J8_SUITE, type J8Leg, J8WriteGate, type J8WriteOutcome, TAKE_PROJECTION_FIELDS, j8RunnerAdmission,
-    legReadback, legReceipt, legSink, mergeLegReadback, takeDigest, takesReadComplete, takesUnchangedVerdict,
+    legReadback, legReceipt, legSink, mergeLegReadback, readTakeDigests, takesReadComplete, takesUnchangedVerdict, writerDrainedVerdict,
 } from './helpers/rwtJ8Journey';
 import { readFileSync } from 'node:fs';
 import { currentRunBinding } from './helpers/runBinding';
@@ -807,10 +807,10 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
                     feedbackFence?.stopWriter();
                     const pendingAfterDrain = await ledger.drain(15_000);
                     const sink = aliveReceipt(receipt, alive);
-                    const pending = pendingAfterDrain + gate.pending;
-                    sink.row('feedback writer drained', pending === 0 ? 'PASS' : 'HOLD',
-                        pending === 0 ? 'no feedback write was still in flight when the writer stopped'
-                            : `${pending} write(s) still in flight; the fence close records any that commit`, { pending });
+                    // Sam on 7a755749: in-flight and unresolved are counted apart; either one keeps the writer HOLD. Every J8 write goes
+                    // through the gate, so the ledger's own count is a subset of it. The fence close and cleanup steps below run either way.
+                    const drained = writerDrainedVerdict({ inFlight: Math.max(pendingAfterDrain, gate.pending), unresolved: gate.unresolvedCount });
+                    sink.row('feedback writer drained', drained.status, drained.detail, drained.evidence);
                     const refused = gate.refused.none + J8_LEGS.reduce((n, leg) => n + gate.refused[leg], 0);
                     sink.row('J8 write windows', refused === 0 ? 'PASS' : 'FAIL',
                         refused === 0 ? 'every feedback write fell inside its own leg window, within its own bounds'
@@ -922,16 +922,18 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             // J8.c — No session with both takes listed. Sam on 94fe88d7: it must EARN its write. Before C opens: J8.b's report is stored
             // exactly once AND linked to the older take, and both saved takes read completely and owner-bound. Otherwise NOT RUN.
             const c = legSink(receipt, 'J8.c');
-            const readTakes = async (): Promise<Map<string, string | null>> => {
-                const { data, error } = await admin!.from('sessions').select(TAKE_PROJECTION_FIELDS.join(',')).eq('user_id', owner.uid).in('id', [olderId, newerId]);
-                if (error || !Array.isArray(data)) return new Map();
-                return new Map((data as unknown as Record<string, unknown>[]).map((r) => [String(r.id), takeDigest(r, owner.uid)]));
+            // Sam on 7a755749: a failed query is UNREADABLE (null), never an empty map: unreadable before the submit keeps J8.c NOT
+            // RUN; after it, HOLD. Only a successful read that lacks a take FAILs.
+            const readTakes = async (): Promise<ReadonlyMap<string, string | null> | null> => {
+                try {
+                    return readTakeDigests(await admin!.from('sessions').select(TAKE_PROJECTION_FIELDS.join(',')).eq('user_id', owner.uid).in('id', [olderId, newerId]), owner.uid);
+                } catch { return null; }
             };
             const linkedToOlder = Boolean(storedB && storedB.storedRows === 1 && storedB.sessionId === olderId);
-            const before = linkedToOlder ? await readTakes() : new Map<string, string | null>();
+            const before = linkedToOlder ? await readTakes() : null;
             if (!bEstablished || !linkedToOlder || !takesReadComplete([olderId, newerId], before)) {
                 c.row('prerequisites', 'HOLD', 'J8.b did not leave one stored report linked to the older take and two completely read, owner-bound saved takes, so J8.c was NOT RUN',
-                    { bEstablished, linkedToOlder, takesReadComplete: takesReadComplete([olderId, newerId], before) });
+                    { bEstablished, linkedToOlder, takesReadable: before !== null, takesReadComplete: takesReadComplete([olderId, newerId], before) });
                 return;
             }
             const startsBefore = parity.startPresses;
