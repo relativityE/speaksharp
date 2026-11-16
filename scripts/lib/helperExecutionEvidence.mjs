@@ -146,6 +146,20 @@ export const HELPER_CONTRACTS = Object.freeze([{
   callables:["legSink","legReceipt","legReadback","mergeLegReadback","takeDigest","readTakeDigests","takesReadComplete","takesUnchangedVerdict","writerDrainedVerdict","j8RunnerAdmission",
     "J8WriteGate#open","J8WriteGate#close","J8WriteGate#enter","J8WriteGate#settle","J8WriteGate#keysOf"],
 }, {
+  // J1.d (#1883): the returning sign-out leg's pure rules, its sign-out recorder, and the browser leg (driven offline, fail-closed).
+  helperFile:'tests/live/helpers/rwtJ1dJourney.ts',testFile:'tests/unit/rwtJ1dJourney.test.ts',
+  callables:["j1dRunnerAdmission","historyPreservedVerdict","returnOwnerPreservedVerdict","noRecordingOrSessionWriteVerdict",
+    "deepLinkExactReturnVerdict","deepLinkRenderedOwnDetailVerdict","j1dVerdicts","j1dCaseAssertions","classifyJourneyWrite",
+    "loadedReviewSessionId","pollUntil","digestOf"],
+}, {
+  helperFile:'tests/live/helpers/rwtSignOutRecorder.ts',testFile:'tests/unit/rwtSignOutRecorder.test.ts',
+  callables:["routeOf","signOutUnauthorizedReadVerdict","signOutStaleRequestVerdict","SignOutRecorder#onRequest","SignOutRecorder#onResponse",
+    "SignOutRecorder#onFailed","SignOutRecorder#markClick","SignOutRecorder#designateProbe","SignOutRecorder#recordOwnerRead",
+    "SignOutRecorder#recordProbe","SignOutRecorder#markWindowEnd","SignOutRecorder#observeAtLeast","SignOutRecorder#settled","SignOutRecorder#snapshot"],
+}, {
+  helperFile:'tests/live/helpers/rwtJ1dLeg.ts',testFile:'tests/unit/rwtJ1dLeg.test.ts',
+  callables:["runJ1dLeg","pageUid","micState"],
+}, {
   helperFile:'tests/live/helpers/rwtFocusEditCancel.ts',testFile:'tests/unit/rwtFocusEditCancel.test.ts',
   callables:["editCancelVerdict"],
 }, {

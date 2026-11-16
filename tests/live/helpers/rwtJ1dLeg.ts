@@ -98,9 +98,9 @@ export async function runJ1dLeg(ctx: J1dLegContext): Promise<J1dObservations> {
         if (finalPhase && r.method() === 'POST' && path === '/auth/v1/logout' && finalLogoutStatus === null) finalLogoutStatus = res.status();
     };
     const signedOutWithin = async (ms: number) => {
-        const until = Date.now() + ms;
-        while (Date.now() < until) { if ((await pageUid(page)) === null) return true; await page.waitForTimeout(250); }
-        return (await pageUid(page)) === null;
+        let signedOut = false;
+        await pollUntil(() => signedOut, async (wait) => { signedOut = (await pageUid(page)) === null; if (!signedOut) await page.waitForTimeout(wait); }, ms);
+        return signedOut || (await pageUid(page)) === null;
     };
     const onFailed = (r: Request) => recorder.onFailed(r);
     context.on('request', onRequest);
@@ -111,11 +111,13 @@ export async function runJ1dLeg(ctx: J1dLegContext): Promise<J1dObservations> {
      * reading the same document twice never counts it twice.
      */
     const acquisitionsByDocument = new Map<number, number>();
+    /** A document whose counter could not be read leaves recording starts unknown: the write row is then HOLD, never PASS. */
+    let acquisitionReadFailed = false;
     const countAcquisitions = async () => {
         const doc = await page.evaluate(() => performance.timeOrigin).catch(() => null);
-        if (doc === null) return;
-        const n = (await micAcquisitions(page).catch(() => [])).length;
-        acquisitionsByDocument.set(doc, Math.max(n, acquisitionsByDocument.get(doc) ?? 0));
+        const list = doc === null ? null : await micAcquisitions(page).catch(() => null);
+        if (doc === null || list === null) { acquisitionReadFailed = true; return; }
+        acquisitionsByDocument.set(doc, Math.max(list.length, acquisitionsByDocument.get(doc) ?? 0));
     };
     const micStarts = () => [...acquisitionsByDocument.values()].reduce((a, b) => a + b, 0);
 
@@ -222,7 +224,9 @@ export async function runJ1dLeg(ctx: J1dLegContext): Promise<J1dObservations> {
             logoutCompleted: finalLogoutStatus === null ? null : finalLogoutStatus >= 200 && finalLogoutStatus < 300,
             sessionAfter: !finallySignedOut,
         };
-        obs.writes = { recordingStarts: recordingStarts + micStarts(), sessionWrites, windowClosed: true };
+        // Writes are judged only when every visited document's mic counter was read (Codex-style fail-closed: unread is not zero).
+        obs.writes = acquisitionReadFailed || acquisitionsByDocument.size === 0
+            ? null : { recordingStarts: recordingStarts + micStarts(), sessionWrites, windowClosed: true };
     } finally {
         context.off('request', onRequest);
         context.off('response', onResponse);
