@@ -161,6 +161,7 @@ describe('payment wall routing on the real App', () => {
         view.rerender(tree());
         expect(screen.getByTestId('session-page')).toBeInTheDocument();
         act(() => { useSessionStore.setState({ runtimeState: 'STOPPING' }); });
+        expect(screen.getByTestId('session-page')).toBeInTheDocument();
         act(() => { useSessionStore.setState({ runtimeState: 'FAILED' }); });
         expect(await screen.findByTestId('trial-payment-wall')).toBeInTheDocument();
         expect(screen.queryByTestId('session-page')).not.toBeInTheDocument();
