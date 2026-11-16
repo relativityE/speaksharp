@@ -224,6 +224,8 @@ jobs:
           BASE_URL: ${{ github.event.inputs.base_url }}
           EXPECTED_RELEASE_SHA: ${{ github.sha }}
           EVIDENCE_SCOPE: canonical-production
+          # Sam, 16 Nov (B): ONLY this full Gate 3 step stamps its RWT receipts `full-gate`; nothing infers it.
+          RWT_RUN_SCOPE: full-gate
           EVIDENCE_ELIGIBILITY_FILE: ${{ runner.temp }}/gate-3-evidence-eligibility.json
           # #960: pass Vercel Protection Bypass so DAST can reach a PROTECTED preview (fix validation /
           # per-commit bisect). No-op against the public prod URL. playwright.deployed-live.config.ts
@@ -355,6 +357,8 @@ jobs:
           COMPARISON_CELL: ${{ github.event.inputs.comparison_cell }}
           PAID_LAUNCH: ${{ github.event.inputs.paid_launch }}
           EVIDENCE_SCOPE: diagnostic
+          # Sam, 16 Nov (B): a diagnostic run's RWT receipts are evidence, never an acceptance PASS.
+          RWT_RUN_SCOPE: diagnostic
           EVIDENCE_ELIGIBILITY_FILE: ${{ runner.temp }}/gate-3-evidence-eligibility.json
           # #960: pass Vercel Protection Bypass so DAST can reach a PROTECTED preview (fix validation /
           # per-commit bisect). No-op against the public prod URL. playwright.deployed-live.config.ts

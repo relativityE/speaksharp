@@ -7,6 +7,7 @@
  * suite, deployed SHA, journey ids and observation set, requires a PASS/FAIL and an observer for every observation,
  * and recomputes acceptance over ALL rows. Content-free throughout: ids, verdicts, SHAs and observer names only.
  */
+import { createHash } from 'node:crypto';
 import { coherentCoachingResult } from '../../../frontend/src/services/telemetry/coachingDiagnosticReceipt';
 import { SAVE_RETRY_SUITE } from './rwtSaveRetry';
 import { ABANDON_SUITE, TWO_TAB_SUITE } from './rwtAbandonTakeover';
@@ -55,6 +56,52 @@ export function runJourneyIds(plan: { journeys: readonly ReadbackBinding[]; repo
 export type Verdict = 'PASS' | 'FAIL' | 'HOLD' | 'HUMAN' | 'EXTERNAL';
 export interface ReceiptRow { step: string; verdict: Verdict; detail: string; evidence?: Record<string, string | number | boolean | null> }
 export type Acceptance = 'PASS' | 'FAIL' | 'INCOMPLETE';
+
+/**
+ * Sam, 16 Nov (B): WHAT KIND OF RUN WROTE THE RECEIPT. Only rc-gates' full Gate 3 step sets `RWT_RUN_SCOPE=full-gate`; the
+ * diagnostic single-spec step sets `diagnostic`. The writer records it in `meta`, and nothing infers it: not a missing input, not
+ * a matching SHA, not all-green rows. Only a clean `full-gate` scope may carry an acceptance PASS. A diagnostic, missing,
+ * malformed or contradictory scope keeps every row (the observations stay useful) and a genuine observed FAIL, but a PASS is
+ * held as INCOMPLETE.
+ */
+export const RUN_SCOPE_ENV = 'RWT_RUN_SCOPE';
+/**
+ * Content-free (Sam on d7068c26): the free-text grep is never recorded, only its SHA-256; the spec only as a plain repository
+ * test path (anything else is recorded as `unrecognized`); the release source as a closed word.
+ */
+export type RunScopeMeta = { runScope: string | null; diagnosticSpec: string | null; diagnosticGrepSha256: string | null; diagnosticReleaseSource: string | null };
+const SPEC_PATH = /^tests\/[A-Za-z0-9_./-]{1,200}\.spec\.ts$/;
+/** The scope fields the receipt writer records from the workflow's environment (no inference). */
+export function runScopeMeta(env: Readonly<Record<string, string | undefined>>): RunScopeMeta {
+    const text = (v: string | undefined) => (typeof v === 'string' && v.length > 0 ? v : null);
+    const spec = text(env.DIAGNOSTIC_SPEC);
+    const grep = text(env.DIAGNOSTIC_GREP);
+    return {
+        runScope: text(env[RUN_SCOPE_ENV]),
+        diagnosticSpec: spec === null ? null : SPEC_PATH.test(spec) && !spec.includes('..') ? spec : 'unrecognized',
+        diagnosticGrepSha256: grep === null ? null : createHash('sha256').update(grep, 'utf8').digest('hex'),
+        diagnosticReleaseSource: text(env.DIAGNOSTIC_RELEASE) ? 'diagnostic_release_sha' : null,
+    };
+}
+/** Whether a receipt's recorded scope may carry an acceptance PASS, with the reason when it may not. */
+export function runScopeVerdict(meta: Record<string, unknown> | undefined): { qualifies: boolean; reason: string } {
+    const m = meta ?? {};
+    const scope = m.runScope;
+    const diagnosticFields = ['diagnosticSpec', 'diagnosticGrepSha256', 'diagnosticReleaseSource'].filter((k) => m[k] !== null && m[k] !== undefined);
+    if (scope === undefined || scope === null)
+        return { qualifies: false, reason: 'no recorded run scope: an old or unscoped receipt cannot qualify as acceptance' };
+    if (scope === 'diagnostic')
+        return { qualifies: false, reason: 'a diagnostic single-spec run: its observations are evidence, not a Gate 3 acceptance' };
+    if (scope !== 'full-gate')
+        return { qualifies: false, reason: 'the recorded run scope is malformed, so it cannot qualify as acceptance' };
+    if (diagnosticFields.length > 0)
+        return { qualifies: false, reason: `the run scope is contradictory: full-gate with diagnostic inputs (${diagnosticFields.join(', ')})` };
+    return { qualifies: true, reason: 'a full Gate 3 run' };
+}
+/** An acceptance under the receipt's scope: a PASS the scope cannot carry is INCOMPLETE; FAIL and INCOMPLETE are unchanged. */
+export function scopedAcceptance(acceptance: Acceptance, scope: { qualifies: boolean }): Acceptance {
+    return acceptance === 'PASS' && !scope.qualifies ? 'INCOMPLETE' : acceptance;
+}
 
 export interface HumanObservationState { id: string; runbookRow: string; result: 'pending' | 'PASS' | 'FAIL' | 'not_exercised' }
 
@@ -762,6 +809,8 @@ export interface FinalizationResult {
     /** PM 6171519534: proved external provider outcomes stay visible after finalization — never folded into PASS or FAIL. */
     external: { step: string; detail: string }[];
     successfulCoachingOutstanding: boolean;
+    /** Sam, 16 Nov (B): whether the receipt's recorded run scope may carry an acceptance PASS, and why not. */
+    runScope?: { qualifies: boolean; reason: string };
 }
 
 /**
@@ -994,8 +1043,10 @@ export function finalizeReceipt(raw: unknown, worksheet: ParsedWorksheet, readba
         return { ...r, verdict, detail: `recorded by the human reviewer: ${verdict}`, evidence: { ...r.evidence!, recorded: verdict, observer: entry.observer } };
     });
     const a = receiptAcceptance(rows);
-    return { status: 'final', finalAcceptance: a.acceptance, errors: [], rows, humanObservations: a.humanObservations, automatedRowsAllPass: a.automatedRowsAllPass,
-        external: a.external, successfulCoachingOutstanding: a.successfulCoachingOutstanding };
+    // Sam, 16 Nov (B): the rows stand as observed; only the acceptance word is bounded by the run's recorded scope.
+    const runScope = runScopeVerdict(receipt.meta);
+    return { status: 'final', finalAcceptance: scopedAcceptance(a.acceptance, runScope), errors: [], rows, humanObservations: a.humanObservations,
+        automatedRowsAllPass: a.automatedRowsAllPass, external: a.external, successfulCoachingOutstanding: a.successfulCoachingOutstanding, runScope };
 }
 
 /**
