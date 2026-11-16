@@ -711,6 +711,17 @@ export async function handler(
       if (focusContext.kind === 'focus') cachedSuggestions = null;
     }
     if (cachedSuggestions) {
+      // PO 2026-11-14 payment wall: an expired, unpaid account has no access to saved work, so a saved coaching pair
+      // is replayed only through the same server entitlement seam as new analysis. Refused before any cache receipt.
+      diagnosticPhase = 'entitlement';
+      const { data: replayEntitlement, error: replayEntitlementError } = await supabaseClient.rpc('check_usage_limit');
+      if (replayEntitlementError) {
+        console.error('Entitlement check failed:', replayEntitlementError);
+        return finish({ error: 'Unable to verify analysis access' }, 503);
+      }
+      if (replayEntitlement?.can_start !== true || replayEntitlement?.is_pro !== true) {
+        return finish({ error: 'Trial has ended', code: 'payment_required' }, 403);
+      }
       diagnosticPhase = 'cache';
       diagnosticSource = 'cache';
       // A cache replay is evidence only when the server-owned receipt records that the request really
@@ -772,7 +783,7 @@ export async function handler(
     diagnosticPhase = 'entitlement';
     // Generating new coaching is an analysis operation, so it uses the same server-authoritative
     // commercial entitlement seam as recording. A marked active trial and a paid subscription both
-    // pass; an expired/unpaid account fails closed. Cached coaching above remains readable after expiry.
+    // pass; an expired/unpaid account fails closed, as it does for the cached replay above.
     const { data: entitlement, error: entitlementError } = await supabaseClient.rpc('check_usage_limit');
     if (entitlementError) {
       console.error('Entitlement check failed:', entitlementError);

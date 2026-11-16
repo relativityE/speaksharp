@@ -8,7 +8,9 @@ import { join } from 'node:path';
 const sha = value => typeof value === 'string' && /^[0-9a-f]{40}$/.test(value);
 const digest = value => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value);
 const repoName = value => typeof value === 'string' && /^[\w.-]+\/[\w.-]+$/.test(value);
-const MAX_RUNS = 30;
+const MAIN_REF = 'refs/heads/main';
+const MAX_ACTIVITY = 100;
+const ADVANCE_TYPES = new Set(['push', 'pr_merge', 'merge_queue_merge']);
 
 function git(cwd, ...args) {
   const result = spawnSync('git', args, { cwd, timeout: 45000, maxBuffer: 4 * 1024 * 1024 });
@@ -51,26 +53,35 @@ function compareGit({ repository, reviewedBaseSha, reviewedSha, headSha, prBaseS
   }
 }
 
-// The old base comes from GitHub's PR-event record, not a branch, author comment, or candidate receipt.
-export function historicalReviewBase(data, { repository, number, reviewedSha, completedAt }) {
-  if (!Number.isInteger(data?.total_count) || data.total_count < 1 || data.total_count > MAX_RUNS
-    || data.workflow_runs?.length !== data.total_count || !Number.isFinite(completedAt)) return null;
-  const bases = new Set();
-  for (const run of data.workflow_runs) {
-    if (run?.head_sha !== reviewedSha || run?.event !== 'pull_request' || run?.path !== '.github/workflows/ci.yml'
-      || run.repository?.full_name !== repository || !Number.isSafeInteger(run.repository.id)) return null;
-    const time = Date.parse(run.created_at ?? '');
-    if (!Number.isFinite(time)) return null;
-    if (time > completedAt) continue;
-    const prs = run.pull_requests?.filter(pr => pr.number === number);
-    if (!prs || prs.length > 1) return null;
-    if (!prs.length) continue;
-    const { head, base } = prs[0];
-    if (head?.sha !== reviewedSha || base?.ref !== 'main' || !sha(base?.sha)
-      || head.repo?.id !== run.repository.id || base.repo?.id !== run.repository.id) return null;
-    bases.add(base.sha);
+// Actions run associations describe the current PR, not its historical base. GitHub's repository
+// activity instead records each main movement's actual before/after, independently of this PR.
+export function historicalReviewBase(activity, { liveBaseSha, mergeSha = null, readyAt, completedAt }) {
+  if (!Array.isArray(activity) || activity.length === 0 || activity.length > MAX_ACTIVITY
+    || !sha(liveBaseSha) || (mergeSha !== null && !sha(mergeSha))
+    || !Number.isFinite(readyAt) || !Number.isFinite(completedAt) || completedAt <= readyAt) return null;
+  // An open candidate's activity must start at the live main read with its PR. A merged
+  // candidate's baseRefOid may be historical; anchor to its recorded squash in the linked prefix.
+  let expected = mergeSha === null ? liveBaseSha : activity[0]?.after;
+  let sawMerge = mergeSha === null;
+  let lastTime = Infinity;
+  const seen = new Set();
+  for (const entry of activity) {
+    const { before, after, ref, activity_type: type, timestamp } = entry ?? {};
+    const time = typeof timestamp === 'string' ? Date.parse(timestamp) : NaN;
+    if (ref !== MAIN_REF || !ADVANCE_TYPES.has(type) || !sha(before) || !sha(after)
+      || before === '0'.repeat(40) || after === '0'.repeat(40) || before === after
+      || after !== expected || !Number.isFinite(time) || time >= lastTime
+      || seen.has(after) || seen.has(before)) return null;
+    seen.add(after);
+    if (after === mergeSha && time > completedAt) sawMerge = true;
+    if (time < readyAt) return sawMerge ? after : null;
+    if (time <= completedAt) return null; // Main moved during the review or in a tied second.
+    expected = before;
+    lastTime = time;
   }
-  return bases.size === 1 ? [...bases][0] : null;
+  // Older pagination can't affect a base already found in this contiguous prefix. Without
+  // that pre-Ready record in the bounded page, there is no historical evidence to use.
+  return null;
 }
 
 export function carryForwardBound(receipt) {
@@ -91,8 +102,10 @@ export async function collectCarryForward(pr, review, github, compare = compareG
     || reviewedSha === pr.headRefOid || !['OPEN', 'MERGED'].includes(pr.state)) return null;
   const mergeSha = pr.state === 'MERGED' ? pr.mergeCommit?.oid : null;
   if (pr.state === 'MERGED' && !sha(mergeSha)) return null;
-  const data = await github(`/repos/${repository}/actions/workflows/ci.yml/runs?head_sha=${reviewedSha}&event=pull_request&per_page=${MAX_RUNS}`);
-  const reviewedBaseSha = historicalReviewBase(data, { repository, number, reviewedSha, completedAt: review.completedAt });
+  const activity = await github(`/repos/${repository}/activity?ref=${encodeURIComponent(MAIN_REF)}&per_page=${MAX_ACTIVITY}&direction=desc`);
+  const reviewedBaseSha = historicalReviewBase(activity, {
+    liveBaseSha: pr.baseRefOid, mergeSha, readyAt: review.readyAt, completedAt: review.completedAt,
+  });
   if (!reviewedBaseSha) return null;
   const binding = { repository, number, reviewedSha, reviewedBaseSha, headSha: pr.headRefOid, prBaseSha: pr.baseRefOid };
   const proof = compare({ ...binding, mergeSha });
