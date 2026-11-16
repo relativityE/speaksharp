@@ -1409,6 +1409,38 @@
       "find": "{ needs: ['J1.a'], gates: [SIGNOUT_RECORDER_UNWIRED] }",
       "replace": "{ needs: ['J1.a'] }",
       "test": "tests/journey-plan.test.cjs"
+    },
+    {
+      "id": "P18-truncated-listing-complete",
+      "guards": "a listing that hits the page cap on a full page is truncated, never complete",
+      "file": "account-lookup.cjs",
+      "find": "    return { complete: false, reason: `the page cap (${maxPages} x ${perPage}) was reached on a full page: the listing is truncated`, users };",
+      "replace": "    return { complete: true, reason: 'capped', users };",
+      "test": "tests/account-lookup.test.cjs"
+    },
+    {
+      "id": "P18-total-disagreement-ignored",
+      "guards": "a reported total that disagrees with the users read is not complete",
+      "file": "account-lookup.cjs",
+      "find": "            if ([...totals].some((t) => t !== users.length))\n",
+      "replace": "            if (false)\n",
+      "test": "tests/account-lookup.test.cjs"
+    },
+    {
+      "id": "P18-match-without-id-reads-zero",
+      "guards": "a matching row without an id is unreadable, never zero",
+      "file": "account-lookup.cjs",
+      "find": "    if (typeof only.id !== 'string' || only.id.length === 0) return { lookup: 'unreadable', reason: 'the matching account has no id' };",
+      "replace": "    if (typeof only.id !== 'string' || only.id.length === 0) return { lookup: 'zero', reason: 'the matching account has no id' };",
+      "test": "tests/account-lookup.test.cjs"
+    },
+    {
+      "id": "P18-incomplete-reads-zero",
+      "guards": "only a complete listing may say zero",
+      "file": "account-lookup.cjs",
+      "find": "    if (!enumeration || enumeration.complete !== true || !Array.isArray(enumeration.users))\n",
+      "replace": "    if (!enumeration || !Array.isArray(enumeration.users))\n",
+      "test": "tests/account-lookup.test.cjs"
     }
   ]
 }
