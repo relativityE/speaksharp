@@ -10,7 +10,14 @@ import { describe, expect, it } from 'vitest';
 import {
     evaluateCoachingDiagnosticReceipt, validExpectation, type CoachingDiagnosticExpectation, type ReceivedCoachingRow,
 } from '../../frontend/src/services/telemetry/coachingDiagnosticReceipt';
-import { finalizeReceipt, humanWorksheet, parseHumanWorksheet, requiredAutomatedRows, type ReceiptRow } from '../live/helpers/rwtAcceptance';
+import { execFileSync } from 'node:child_process';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { parse } from 'yaml';
+import {
+    FEEDBACK_J8_SUITE, feedbackChainRowFor, finalizeReceipt, humanWorksheet, parseHumanWorksheet, requiredAutomatedRows, type ReceiptRow,
+} from '../live/helpers/rwtAcceptance';
 
 const sha = (v: string) => createHash('sha256').update(v, 'utf8').digest('hex');
 const RELEASE = 'b'.repeat(40);
@@ -185,5 +192,116 @@ describe('#1258 H1 finalization settles the feedback diagnostic chain from the r
         const out = finalize(chain({}), { verdict: 'HOLD', reasons: ['diagnostic_not_received'] });
         expect(out).toMatchObject({ status: 'final', finalAcceptance: 'INCOMPLETE', chain: { verdict: 'HOLD' } });
         expect(out.chain!.evidence?.settledByReadback).toBeUndefined();
+    });
+});
+
+/** Codex on #1870 127d6239: J8's chain row is J8.b-scoped; finalization and rc-gates must settle THAT row, and only it. */
+describe('J8: the J8.b-scoped feedback diagnostic chain is the one the received readback settles', () => {
+    const J8_CHAIN = 'J8.b: feedback diagnostic chain';
+    const j8Receipt = (chainRow: ReceiptRow) => {
+        const product = requiredAutomatedRows(FEEDBACK_J8_SUITE)!.product.filter((st) => st !== J8_CHAIN).map(pass);
+        const rows: ReceiptRow[] = [
+            pass('telemetry decodable'), pass('signup-stage telemetry (user class)'), pass('receipt content-free'), hold('signup-stage telemetry received'),
+            pass('journey telemetry (canary class)'), hold('journey telemetry received'), ...product, chainRow,
+        ];
+        return { suite: FEEDBACK_J8_SUITE, release: RELEASE, meta: { fixtureKind: 'synthetic' }, rows,
+            readback: { journeys: [{ journeyId: J, stages: STAGES }], reportedJourneyIds: ['other'], missingBindings: [] } };
+    };
+    const j8Finalize = (chainRow: ReceiptRow, coachingDiagnostic?: unknown) => {
+        const r = j8Receipt(chainRow);
+        const out = finalizeReceipt(r, parseHumanWorksheet(humanWorksheet(FEEDBACK_J8_SUITE, RELEASE, [J, 'other'], r.rows)),
+            { ...readback(coachingDiagnostic), suite: FEEDBACK_J8_SUITE });
+        return { ...out, chain: out.rows.find((x) => x.step === chainRow.step) };
+    };
+
+    it('the chain row is J8.b-scoped for J8 and unchanged for every other suite', () => {
+        expect(feedbackChainRowFor(FEEDBACK_J8_SUITE)).toBe(J8_CHAIN);
+        expect(requiredAutomatedRows(FEEDBACK_J8_SUITE)!.product).toContain(J8_CHAIN);
+        expect(feedbackChainRowFor(SUITE)).toBe('feedback diagnostic chain');
+    });
+    it('GREEN: a received PASS bound to the J8.b row settles it PASS', () => {
+        const out = j8Finalize(chain({ step: J8_CHAIN }), bound('PASS', []));
+        expect(out.chain).toMatchObject({ verdict: 'PASS', evidence: { settledByReadback: true } });
+        expect(out.status).toBe('final');
+    });
+    it('received FAIL → FAIL; no received result keeps it HOLD', () => {
+        expect(j8Finalize(chain({ step: J8_CHAIN }), bound('FAIL', ['attempt_mismatch'])).chain!.verdict).toBe('FAIL');
+        expect(j8Finalize(chain({ step: J8_CHAIN })).chain!.verdict).toBe('HOLD');
+    });
+    it('CONTROL: an unprefixed chain row in a J8 receipt is never settled and the bound result is a binding error', () => {
+        const out = j8Finalize(chain({}), bound('PASS', []));
+        expect(out.status).toBe('binding_error');
+        expect(out.finalAcceptance).not.toBe('PASS');
+        expect(requiredAutomatedRows(FEEDBACK_J8_SUITE)!.absent).toContain('feedback diagnostic chain');
+    });
+    it('CONTROL: a result bound to another request cannot settle the J8.b row', () => {
+        const out = j8Finalize(chain({ step: J8_CHAIN }), bound('PASS', [], { expected: { ...expected, requestSha256: sha(OTHER_REQ) } }));
+        expect(out.status).toBe('binding_error');
+        expect(out.finalAcceptance).not.toBe('PASS');
+    });
+    it('rc-gates reads the expectation from the J8.b row too (the same names finalization settles)', () => {
+        const yml = readFileSync(path.resolve(__dirname, '../../.github/workflows/rc-gates.yml'), 'utf8');
+        expect(yml).toContain(`["${feedbackChainRowFor(SUITE)}","${feedbackChainRowFor(FEEDBACK_J8_SUITE)}"].includes(x.step)`);
+    });
+});
+
+/**
+ * Sam on 45d449e6: the ACTUAL rc-gates readback step must anchor J8's received coaching check to the ONE journey the receipt's
+ * leg map binds to J8.b — not the first binding (J8.a's). Run offline with `pnpm` and `sleep` stubbed; the stub logs each
+ * coaching-mode call's anchor journey.
+ */
+describe('rc-gates anchors the received coaching check to J8.b\'s journey', () => {
+    const workflow = parse(readFileSync(path.resolve(__dirname, '../../.github/workflows/rc-gates.yml'), 'utf8'));
+    const step = Object.values(workflow.jobs as Record<string, { steps?: Array<{ name?: string; run?: string }> }>)
+        .flatMap((job) => job.steps ?? []).find((st) => st.name === 'RWT telemetry readback (PostHog, per journey)');
+    const BINDING = { expectedRequestSha256: sha(REQ), expectedAttemptSha256: sha(ATT), expectedProduct: 'open_mic', expectedConfiguredModel: MODEL, expectedOutcome: 'success' };
+    const J8_JOURNEYS = [{ journeyId: 'JA', stages: ['share_feedback'] }, { journeyId: 'JB', stages: ['share_feedback'] }, { journeyId: 'JC', stages: ['share_feedback'] }];
+    const j8 = (legMap: Record<string, string> | null, suite = FEEDBACK_J8_SUITE, journeys = J8_JOURNEYS) => ({
+        suite,
+        rows: [
+            { step: feedbackChainRowFor(suite), verdict: 'HOLD', detail: 'pending', evidence: { reasons: 'telemetry_not_received', ...BINDING } },
+            ...(legMap ? [{ step: 'J8 leg readback bindings', verdict: 'PASS', detail: 'ok', evidence: legMap }] : []),
+        ],
+        readback: { journeys, reportedJourneyIds: [], missingBindings: [], userStageJourneyIds: [] },
+    });
+    const run = (receipt: unknown) => {
+        const dir = mkdtempSync(path.join(tmpdir(), 'rwt-coaching-anchor-'));
+        const bin = path.join(dir, 'bin');
+        mkdirSync(path.join(dir, 'test-results', 'rwt'), { recursive: true });
+        mkdirSync(bin);
+        writeFileSync(path.join(dir, 'test-results', 'rwt', 'suite.receipt.json'), JSON.stringify(receipt));
+        writeFileSync(path.join(bin, 'pnpm'), '#!/usr/bin/env bash\nj=""; while [ $# -gt 0 ]; do case "$1" in --journey-id) j="$2"; shift;; esac; shift; done\n'
+            + 'if [ "${TELEMETRY_READBACK_COACHING_DIAGNOSTIC:-}" = 1 ]; then echo "$j" >> "$STUB_LOG"; exit 1; fi\nexit 0\n');
+        writeFileSync(path.join(bin, 'sleep'), '#!/usr/bin/env bash\nexit 0\n');
+        chmodSync(path.join(bin, 'pnpm'), 0o755); chmodSync(path.join(bin, 'sleep'), 0o755);
+        const log = path.join(dir, 'coaching.log');
+        writeFileSync(log, '');
+        let out = '';
+        try {
+            out = execFileSync('bash', ['-c', step!.run!], { cwd: dir, env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, STUB_LOG: log, RELEASE_SHA: RELEASE }, stdio: 'pipe' }).toString();
+        } catch (e) { out = String((e as { stdout?: Buffer }).stdout ?? ''); }
+        return { anchors: [...new Set(readFileSync(log, 'utf8').trim().split('\n').filter(Boolean))], out };
+    };
+
+    it('the step exists', () => { expect(step?.run).toBeTruthy(); });
+    it('three legs bound, J8.b not first: the coaching check is anchored to J8.b\'s journey', () => {
+        expect(run(j8({ 'J8.a': 'JA', 'J8.b': 'JB', 'J8.c': 'JC' })).anchors).toEqual(['JB']);
+    });
+    it('J8.b bound last in the readback order is still the anchor', () => {
+        const journeys = [J8_JOURNEYS[2], J8_JOURNEYS[0], J8_JOURNEYS[1]];
+        expect(run(j8({ 'J8.a': 'JA', 'J8.b': 'JB', 'J8.c': 'JC' }, FEEDBACK_J8_SUITE, journeys)).anchors).toEqual(['JB']);
+    });
+    it.each([
+        ['no leg map row', null],
+        ['J8.b bound to no journey', { 'J8.a': 'JA', 'J8.b': '', 'J8.c': 'JC' }],
+        ['J8.b ambiguous (two journeys)', { 'J8.a': 'JA', 'J8.b': 'JB,JC', 'J8.c': 'JC' }],
+        ['J8.b names a journey the readback did not bind', { 'J8.a': 'JA', 'J8.b': 'JX', 'J8.c': 'JC' }],
+    ])('CONTROL: %s → no coaching check is run and the step HOLDs', (_name, legMap) => {
+        const { anchors, out } = run(j8(legMap as Record<string, string> | null));
+        expect(anchors).toEqual([]);
+        expect(out).toContain('no single bound journey for the coaching leg');
+    });
+    it('other suites keep the first binding as the anchor', () => {
+        expect(run(j8(null, 'open-mic-first-session')).anchors).toEqual(['JA']);
     });
 });
