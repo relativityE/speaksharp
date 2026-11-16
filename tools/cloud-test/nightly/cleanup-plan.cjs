@@ -21,7 +21,7 @@
 // A journey's time reserve is its requests times that deadline, so it is a ceiling, not an estimate.
 const fs = require('node:fs');
 const path = require('node:path');
-const { JOURNEYS, isInvocation } = require('./journey-plan.cjs');
+const { JOURNEYS, JOURNEY_INVOCATIONS, isInvocation } = require('./journey-plan.cjs');
 
 /**
  * Harness cases that run on a maintained, long-lived account instead of signing one up: read from each case's harness
@@ -33,6 +33,10 @@ const caseAccountMode = (caseId) => JSON.parse(fs.readFileSync(path.join(CASE_TE
 const MAINTAINED_CASES = Object.freeze([...new Set(JOURNEYS.flatMap((j) => j.legs.map((l) => l.caseId)).filter(Boolean))]
     .filter((c) => !isInvocation(c))
     .filter((c) => caseAccountMode(c) === 'maintained-read-only').sort());
+// An invocation that reuses another leg's run-owned account (J1D on J1.a's, Sam 16 Nov) signs up nothing of its own.
+const REUSING_INVOCATIONS = Object.freeze(Object.keys(JOURNEY_INVOCATIONS)
+    .filter((c) => String(JOURNEY_INVOCATIONS[c].account).startsWith('reuses:')).sort());
+const signsUpNothing = (caseId) => MAINTAINED_CASES.includes(caseId) || REUSING_INVOCATIONS.includes(caseId);
 /**
  * The run-owned accounts a set of legs signs up, as the harness is today: every harness case signs up its own account
  * (prepareRunOwnedAccount in each spec) except a case on a maintained account, and a journey's legs that have no
@@ -51,7 +55,7 @@ function signupOwnerLegs(legs) {
     const seenCaseless = new Set();
     for (const l of legs) {
         if (l.caseId !== null) {
-            if (MAINTAINED_CASES.includes(l.caseId) || seenCases.has(l.caseId))
+            if (signsUpNothing(l.caseId) || seenCases.has(l.caseId))
                 continue;
             seenCases.add(l.caseId);
             owners.add(l.id);
@@ -64,7 +68,7 @@ function signupOwnerLegs(legs) {
     return owners;
 }
 function signedUpAccounts(legs) {
-    const cases = new Set(legs.map((l) => l.caseId).filter((c) => c !== null && !MAINTAINED_CASES.includes(c)));
+    const cases = new Set(legs.map((l) => l.caseId).filter((c) => c !== null && !signsUpNothing(c)));
     const caseless = new Set(legs.filter((l) => l.caseId === null).map((l) => l.journey));
     return cases.size + caseless.size;
 }

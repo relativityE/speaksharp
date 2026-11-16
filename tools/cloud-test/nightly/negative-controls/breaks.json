@@ -6,7 +6,7 @@
       "id": "P1-row-without-home",
       "guards": "coverage drift: every catalog row has a home",
       "file": "journey-plan.cjs",
-      "find": "    { caseId: 'AHT-15', assertion: 'return-signed-out', legs: ['J1.d'], change: 'moved' },\n",
+      "find": "    { caseId: 'AHT-15', retired: true, assertion: 'return-signed-out', legs: ['J1.d'], change: 'moved' },\n",
       "replace": "",
       "test": "tests/journey-plan.test.cjs"
     },
@@ -1267,14 +1267,6 @@
       "test": "tests/limits.test.cjs"
     },
     {
-      "id": "P8-maintained-case-signed-up",
-      "guards": "a case on a maintained account (AHT-15) is neither signed up nor deleted",
-      "file": "cleanup-plan.cjs",
-      "find": "    .filter((c) => caseAccountMode(c) === 'maintained-read-only').sort());",
-      "replace": "    .filter(() => false).sort());",
-      "test": "tests/limits.test.cjs"
-    },
-    {
       "id": "P8-caseless-legs-no-account",
       "guards": "legs with no harness case yet add one account to their journey",
       "file": "cleanup-plan.cjs",
@@ -1404,10 +1396,10 @@
     },
     {
       "id": "P12-j1d-gate-dropped",
-      "guards": "J1.d stays NOT RUN until the sign-out recorder is wired",
+      "guards": "J1.d stays NOT RUN behind its own never-satisfied invocation adapter gate (Sam, 16 Nov)",
       "file": "journey-plan.cjs",
-      "find": "{ needs: ['J1.a'], gates: [SIGNOUT_RECORDER_UNWIRED] }",
-      "replace": "{ needs: ['J1.a'] }",
+      "find": "const INVOCATION_ADAPTER_GATES = Object.freeze({ J8: NO_INVOCATION_ADAPTER, J1D: NO_J1D_ADAPTER });",
+      "replace": "const INVOCATION_ADAPTER_GATES = Object.freeze({ J8: NO_INVOCATION_ADAPTER, J1D: Object.freeze({ kind: 'no-harness-case', outcome: 'NOT RUN', reason: 'x' }) });",
       "test": "tests/journey-plan.test.cjs"
     },
     {
@@ -1854,7 +1846,7 @@
       "id": "P13-j8-adapter-gate-dropped",
       "guards": "J8 stays NOT RUN until its reviewed one-invocation adapter lands",
       "file": "journey-plan.cjs",
-      "find": "        ...(isInvocation(harnessCase(id)[0]) ? [NO_INVOCATION_ADAPTER] : [])]),",
+      "find": "        ...(isInvocation(harnessCase(id)[0]) ? [INVOCATION_ADAPTER_GATES[harnessCase(id)[0]]] : [])]),",
       "replace": "        ...([])]),",
       "test": "tests/harness-mapping.test.cjs"
     },
@@ -1894,8 +1886,8 @@
       "id": "P14-j8-adapter-gate-satisfiable",
       "guards": "J8 stays NOT RUN with zero live allocation even when a caller supplies every gate and an all-PASS receipt",
       "file": "limits.cjs",
-      "find": "const NEVER_SATISFIED = Object.freeze(['no-safe-production-proof', 'no-j8-harness-adapter']);",
-      "replace": "const NEVER_SATISFIED = Object.freeze(['no-safe-production-proof']);",
+      "find": "const NEVER_SATISFIED = Object.freeze(['no-safe-production-proof', 'no-j8-harness-adapter', 'no-j1d-harness-adapter']);",
+      "replace": "const NEVER_SATISFIED = Object.freeze(['no-safe-production-proof', 'no-j1d-harness-adapter']);",
       "test": "tests/leg-verdicts.test.cjs"
     },
     {
@@ -2009,6 +2001,38 @@
       "find": "const SOURCE_EXT = ['.mjs', '.js', '.mts', '.ts', '.jsx', '.tsx', '.json', '.cjs'];",
       "replace": "const SOURCE_EXT = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'];",
       "test": "tests/adapter-revalidation.test.cjs"
+    },
+    {
+      "id": "P27-j1d-adapter-gate-satisfiable",
+      "guards": "no caller-supplied gate can make J1.d run or count before its reviewed adapter",
+      "file": "limits.cjs",
+      "find": "const NEVER_SATISFIED = Object.freeze(['no-safe-production-proof', 'no-j8-harness-adapter', 'no-j1d-harness-adapter']);",
+      "replace": "const NEVER_SATISFIED = Object.freeze(['no-safe-production-proof', 'no-j8-harness-adapter']);",
+      "test": "tests/limits.test.cjs"
+    },
+    {
+      "id": "P27-retired-case-rows-routed",
+      "guards": "a retired case's catalog rows are archival only and route to no leg (J1.d owns its rows natively)",
+      "file": "journey-plan.cjs",
+      "find": "    const homed = CATALOG_ROW_HOMES.filter((r) => r.legs.includes(legId) && !RETIRED_CASES.includes(r.caseId))",
+      "replace": "    const homed = CATALOG_ROW_HOMES.filter((r) => r.legs.includes(legId))",
+      "test": "tests/journey-plan.test.cjs"
+    },
+    {
+      "id": "P27-native-row-on-another-leg",
+      "guards": "a native row lands only on the leg that owns it",
+      "file": "case-results.cjs",
+      "find": "    if (id.startsWith(`${leg}:`) && (NATIVE_LEG_ROWS[leg] ?? []).includes(id.slice(leg.length + 1)))",
+      "replace": "    if (Object.values(NATIVE_LEG_ROWS).flat().includes(id.slice(id.indexOf(':') + 1)))",
+      "test": "tests/harness-mapping.test.cjs"
+    },
+    {
+      "id": "P27-reused-account-signs-up",
+      "guards": "an invocation that reuses another leg's account signs up nothing of its own",
+      "file": "cleanup-plan.cjs",
+      "find": "const signsUpNothing = (caseId) => MAINTAINED_CASES.includes(caseId) || REUSING_INVOCATIONS.includes(caseId);",
+      "replace": "const signsUpNothing = (caseId) => MAINTAINED_CASES.includes(caseId);",
+      "test": "tests/cleanup.test.cjs"
     }
   ]
 }

@@ -12,7 +12,7 @@
 // stopped at its cap fails start-press-budget on every leg of the case.
 // A journey invocation (J8) reports a catalog row as `${home}:X` for the legacy case it is homed by (AHT-07 and AHT-08 share
 // row names), so each lands only on its own leg; its plain rows are invariants or new rows as for a case.
-const { ALL_LEGS, CATALOG_ROW_HOMES, JOURNEY_INVOCATIONS, LEG_INVARIANTS, NEW_ROWS, isInvocation } = require('./journey-plan.cjs');
+const { ALL_LEGS, CATALOG_ROW_HOMES, JOURNEY_INVOCATIONS, LEG_INVARIANTS, NATIVE_LEG_ROWS, NEW_ROWS, isInvocation } = require('./journey-plan.cjs');
 const OUTCOMES = new Set(['PASS', 'FAIL', 'NOT RUN', 'HOLD']);
 /** The harness writes NOT_RUN in some error paths; anything else unknown is a FAIL, never a PASS. */
 function outcomeOf(result) {
@@ -68,6 +68,9 @@ function placeInvocationRow(caseId, legs, a, put) {
     const home = CATALOG_ROW_HOMES.find((h) => homes.includes(h.caseId) && `${h.caseId}:${h.assertion}` === id);
     if (home)
         return home.legs.includes(leg) ? put(leg, id, outcome) : unplaced();
+    // A row the leg owns natively (J1.d, Sam 16 Nov) is reported as `${leg}:${assertion}` and lands only on that leg.
+    if (id.startsWith(`${leg}:`) && (NATIVE_LEG_ROWS[leg] ?? []).includes(id.slice(leg.length + 1)))
+        return put(leg, id, outcome);
     if (LEG_INVARIANTS.includes(id))
         return put(leg, `invariant:${id}`, outcome);
     const fresh = NEW_ROWS.find((n) => n.assertion === id && n.leg === leg);

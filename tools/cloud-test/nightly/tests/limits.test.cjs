@@ -10,10 +10,10 @@ const counted = (l) => [l.freshSignUps, l.takes, l.startPresses, l.coachingReque
 const run = (value, complete = true) => ({ complete, value });
 
 describe('counted limits', () => {
-    it('matches the all-legs column with J1.e\'s probe reserved: 15 sign-ups, 29 takes, 41 starts, 30 coaching, 34 identity reads, 90 provider calls, $0', () => {
-        // J8 never counts for now (Sam on a90e906a): no reviewed adapter, so even the all-legs column leaves it out, like J9.b.
-        // Its own estimate stays apart (cleanupReserve('J8')) and never qualifies a run.
-        expect(counted(countedLimits(allGateKinds()))).toEqual([15, 29, 41, 30, 34, 90, 0]);
+    it('matches the all-legs column with J1.e\'s probe reserved: 15 sign-ups, 29 takes, 41 starts, 30 coaching, 32 identity reads, 90 provider calls, $0', () => {
+        // J8 and J1.d never count for now (Sam on a90e906a; Sam 16 Nov): neither invocation has a reviewed adapter, so even the
+        // all-legs column leaves them out, like J9.b. J1.d's two identity reads leave it (34 -> 32); it adds no take or start.
+        expect(counted(countedLimits(allGateKinds()))).toEqual([15, 29, 41, 30, 32, 90, 0]);
         expect(countedLimits(allGateKinds()).sharedAccountTarget).toEqual({ freshSignUps: 7 });
     });
     it("matches today's column: 11 sign-ups, 28 takes, 38 starts, 28 coaching, 24 identity reads, 84 provider calls, $0", () => {
@@ -29,12 +29,12 @@ describe('counted limits', () => {
         for (const id of today.notRun)
             expect(today.legs.includes(id)).toBe(false);
     });
-    it('never counts J9 or J8: the J9 sandbox leg is outside production limits, J9.b is NOT RUN by design, J8 has no adapter', () => {
-        // A caller supplying every gate, J8's adapter gate and J9.b's production gate included, changes nothing.
-        const all = countedLimits(new Set([...allGateKinds(), 'no-safe-production-proof', 'no-j8-harness-adapter']));
+    it('never counts J9, J8 or J1.d: the J9 sandbox leg is outside production limits, J9.b is NOT RUN by design, J8 and J1.d have no adapter', () => {
+        // A caller supplying every gate, the J8 and J1.d adapter gates and J9.b's production gate included, changes nothing.
+        const all = countedLimits(new Set([...allGateKinds(), 'no-safe-production-proof', 'no-j8-harness-adapter', 'no-j1d-harness-adapter']));
         expect(all.journeys.includes('J9')).toBe(false);
         expect(all.journeys.includes('J8')).toBe(false);
-        expect(all.notRun).toEqual(['J8.a', 'J8.b', 'J8.c', 'J9.a', 'J9.b']);
+        expect(all.notRun).toEqual(['J1.d', 'J8.a', 'J8.b', 'J8.c', 'J9.a', 'J9.b']);
     });
     it('allows 30 runs in 30 days and no paid action', () => {
         const l = countedLimits(allGateKinds());
