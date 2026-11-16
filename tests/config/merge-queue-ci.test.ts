@@ -22,9 +22,14 @@ describe('#1501 — merge-queue CI support', () => {
     });
 
     it('the scope step resolves a base for a queue candidate, which carries no pull_request object', () => {
-        const classify = ci.jobs.scope.steps?.find((step) => step.env && 'BASE_SHA' in step.env);
-        expect(classify?.env?.BASE_SHA).toBe('${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}');
+        // #1837 split diff resolution from classification (the docs-lane guard runs between them); both still
+        // see the queue candidate: the diff resolves against merge_group.base_sha, the classifier sees the event.
+        const resolve = ci.jobs.scope.steps?.find((step) => step.env && 'BASE_SHA' in step.env);
+        expect(resolve?.env?.BASE_SHA).toBe('${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}');
+        expect(resolve?.run).toContain('git diff --no-renames --name-only "$BASE_SHA"...HEAD > "$RUNNER_TEMP/changed.txt"');
+        const classify = ci.jobs.scope.steps?.find((step) => step.id === 'classify');
         expect(classify?.env?.EVENT_NAME).toBe('${{ github.event_name }}');
+        expect(classify?.run).toContain('node scripts/ci-change-scope.mjs "$RUNNER_TEMP/changed.txt"');
     });
 
     it('`report` — the check the queue will require — cannot pass without every full-lane job', () => {
@@ -32,12 +37,12 @@ describe('#1501 — merge-queue CI support', () => {
         expect(report.name).toBe('report');
         expect(report.if).toBe('always() && !cancelled()');
         const needs = Array.isArray(report.needs) ? report.needs : [report.needs];
-        for (const job of ['scope', 'unit-coverage-merge', 'edge-tests', 'build', 'health-check', 'e2e', 'full-evidence']) {
+        for (const job of ['scope', 'quality', 'unit-coverage-merge', 'edge-tests', 'build', 'health-check', 'e2e', 'full-evidence']) {
             expect(needs, `report needs ${job}`).toContain(job);
         }
         const run = report.steps?.map((step) => step.run ?? '').join('\n') ?? '';
         // Fail closed on a failed classification, and require success from each full-lane result.
         expect(run).toMatch(/SCOPE_RESULT" != "success"[\s\S]*exit 1/);
-        expect(run).toMatch(/for r in "\$UNIT_RESULT" "\$EDGE_RESULT" "\$BUILD_RESULT" "\$HEALTH_RESULT" "\$E2E_RESULT" "\$EVIDENCE_RESULT"/);
+        expect(run).toMatch(/for r in "\$QUALITY_RESULT" "\$UNIT_RESULT" "\$EDGE_RESULT" "\$BUILD_RESULT" "\$HEALTH_RESULT" "\$E2E_RESULT" "\$EVIDENCE_RESULT"/);
     });
 });

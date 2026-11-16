@@ -16,12 +16,17 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{1
 const SHA40 = /^[0-9a-f]{40}$/;
 const REF = /^[A-Za-z0-9][A-Za-z0-9._:@/#-]{2,159}$/;
 const RUN_ID = 'R10-3b040043-smoke15';
-const OCCURRENCE_WINDOW_MS = 80 * 60 * 1000;  // init_run_inputs.SMOKE_OCCURRENCE_WINDOW_MINUTES
+const OCCURRENCE_WINDOW_MS = 100 * 60 * 1000;  // init_run_inputs.SMOKE_OCCURRENCE_WINDOW_MINUTES (pinned equal by test_window_constants_agree)
 const REQUEST_TIMEOUT_MS = 10000;
 const UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
+const CASE = /^AHT-(0[1-9]|1[0-5])$/;
+// AHT-01 is the fresh-account first session: the driver marks it NOT RUN when the existing-disposable account already holds a session
+// (source-adapters.cjs `fresh account precondition not met`), so a selection that includes it cannot PASS (every selected required row must).
+const FRESH_ACCOUNT_CASE = 'AHT-01', FRESH_ACCOUNT_ROLE = 'existing-disposable';
 // The one clock every deadline check reads; tests replace clock.now, production never does.
 const clock = {now: () => Date.now()};
 
+const SESSION_STATUSES = new Set(['pending', 'active', 'recording', 'processing', 'completed', 'failed', 'abandoned']);
 function refuse(code) { const error = new Error(code); error.code = 'BLOCKED_SETUP'; throw error; }
 function plain(value) { return value && typeof value === 'object' && !Array.isArray(value); }
 function sha(bytes) { return crypto.createHash('sha256').update(bytes).digest('hex'); }
@@ -69,7 +74,7 @@ function originFor(bundle) {
 }
 function authorizedOccurrence(file, expectedSha) {
   // The occurrence the run was authorized for: exactly the bytes record-begin selected (by digest), the one-off R10 run, its creation
-  // equal to its window start, and the reviewed 80-minute window.
+  // equal to its window start, and the reviewed occurrence window (init_run_inputs.SMOKE_OCCURRENCE_WINDOW_MINUTES).
   let raw;
   try {
     const stat = fs.lstatSync(file);
@@ -84,7 +89,10 @@ function authorizedOccurrence(file, expectedSha) {
       || !UTC.test(window.startUtc || '') || !UTC.test(window.endUtc || '')) refuse('occurrence-shape');
   const start = Date.parse(window.startUtc), end = Date.parse(window.endUtc);
   if (end - start !== OCCURRENCE_WINDOW_MS) refuse('occurrence-window');
-  return {start, end};
+  // The selected cases are part of those same digest-bound bytes (init_run_inputs.materialize_smoke_occurrence copies the request's selection).
+  const selected = Array.isArray(occurrence.selection) ? occurrence.selection.map(row => (plain(row) ? row.case : null)) : [];
+  if (!selected.length || selected.some(id => !CASE.test(id || '')) || new Set(selected).size !== selected.length) refuse('occurrence-selection');
+  return {start, end, selected};
 }
 function requireDeadline(deadline) {
   // Before the first request and before every later one: the authorized window must be open, and the whole bounded request (its
@@ -128,16 +136,27 @@ async function inspectRole(origin, anon, role, account, otherId, deadline) {
   // The cross-profile read is a controlled denial: every account's own profile is proven visible to itself (the positive control), so an
   // empty result here is RLS, not absence. A cross-session empty result is only controlled when the other account has its own sessions.
   if (ownProfile.length !== 1 || ownProfile[0]?.id !== account.accountId || otherProfile.length !== 0 || otherSessions.length !== 0) refuse('rls-isolation');
-  const internalTester = auth.body.user.app_metadata?.internal_tester === true;
-  if (!internalTester) refuse('analytics-classification');
+  // Analytics exclusion is the product's own server-issued traffic class (frontend/src/services/telemetry/trafficType.ts), read from
+  // app_metadata only, never user-writable user_metadata. Automated qualification is `canary` (the RWT journeys' run-owned claim);
+  // `internal_test` is a human dogfood session. Same precedence as the product: canary before internal_test. Anything else is `user`,
+  // the customer funnel, and refuses before any Start (run 42094874240: the #1784 check accepted only internal_tester).
+  const claims = auth.body.user.app_metadata;
+  const trafficClass = claims?.canary === true ? 'canary' : claims?.internal_tester === true ? 'internal_test' : null;
+  if (!trafficClass) refuse('analytics-classification');
   return {authenticated: true, ownProfileVisible: true, crossProfileDenied: true, ownSessionRead: true, ownSessionCount: ownSessions.length,
-    crossSessionEmpty: true, completedSessionPresent: ownSessions.some(row => row?.status === 'completed'), internalTester: true};
+    crossSessionEmpty: true, completedSessionPresent: ownSessions.some(row => row?.status === 'completed'), trafficClass,
+    ownSessionStatuses: [...new Set(ownSessions.map(row => (SESSION_STATUSES.has(row?.status) ? row.status : 'other')))].sort()};
 }
 function args(argv) {
   const command = argv.shift(); const out = {};
   if (!['prepare', 'charge'].includes(command)) refuse('command');
   while (argv.length) { const key = argv.shift(), value = argv.shift(); if (!key?.startsWith('--') || value === undefined || out[key]) refuse('arguments'); out[key] = value; }
   return {command, out};
+}
+function freshAccountReceipt(accountId, count, statuses) {
+  const bucket = count === 0 ? '0' : count === 1 ? '1' : '2+';
+  const seen = Array.isArray(statuses) && statuses.length ? statuses.filter(s => SESSION_STATUSES.has(s) || s === 'other').join(',') : 'none';
+  return `fresh-account receipt: role=${FRESH_ACCOUNT_ROLE} account=${sha(String(accountId)).slice(0, 12)} own-sessions=${bucket} statuses=${seen} verdict=${count === 0 ? 'fresh' : 'not-fresh'}`;
 }
 async function prepare(values) {
   for (const key of ['--facts', '--out-dir', '--run-id', '--source-sha', '--occurrence-file', '--occurrence-sha256']) if (!values[key]) refuse('arguments');
@@ -163,6 +182,17 @@ async function prepare(values) {
   for (const role of ROLES) {
     const otherRole = ROLES.find(candidate => candidate !== role);
     observations[role].crossSessionDenial = observations[otherRole].ownSessionCount > 0 ? 'controlled' : 'uncontrolled-other-has-no-sessions';
+  }
+  // Refuse before any Start, from the own-session read already made and charged above (no extra query, no lease read, no
+  // deletion; the ten-request charge is unchanged). The driver's own `fresh-first-session` check is unchanged and still decides the case
+  // when this passes. Before deciding, one public fresh-account receipt line lets anyone verify the precondition independently of a
+  // manual database read: the account's id digest (first 12 hex of sha256 of the bundle accountId, comparable with the id an operator
+  // reset), a count bucket (0, 1 or 2+; the read is limited to 2), the closed session statuses seen, and the verdict. Never an id, email,
+  // row or value.
+  if (deadline.selected.includes(FRESH_ACCOUNT_CASE)) {
+    const fresh = observations[FRESH_ACCOUNT_ROLE];
+    process.stdout.write(freshAccountReceipt(bundle.accounts[FRESH_ACCOUNT_ROLE].accountId, fresh.ownSessionCount, fresh.ownSessionStatuses) + '\n');
+    if (fresh.ownSessionCount !== 0) refuse('aht01-fresh-account-precondition');
   }
   const receipt = {schema: 'speaksharp.cloud-test.prerequisite-preflight.v1', runId: values['--run-id'], sourceSha: values['--source-sha'],
     observedAt: new Date().toISOString(), mutationCount: 0, charges: {auth: 2, signedIn: 8, total: 10}, observations};
@@ -194,6 +224,6 @@ async function main(argv = process.argv.slice(2)) {
   try { const parsed = args([...argv]); if (parsed.command === 'prepare') await prepare(parsed.out); else charge(parsed.out); return 0; }
   catch (error) { process.stderr.write(`BLOCKED_SETUP: ${error?.message || 'prerequisite-preflight'}\n`); return 78; }
 }
-// Exports first, then the CLI entry: R10 run 42059286564 ran main() while module.exports was still empty.
-module.exports = {main, prepare, charge, canonical, bytes, clock};
+// Exports first, then the CLI entry: R10 run 42059286564 ran main while module.exports was still empty.
+module.exports = {main, prepare, charge, canonical, bytes, clock, freshAccountReceipt};
 if (require.main === module) main().then(code => { process.exitCode = code; });

@@ -5,24 +5,25 @@ accounting settle (manual_reservation.py `settle-unexecuted`), the record retire
 workflow's digest hand-off between them. The document's sha256 is the settle's `evidence-sha256:` provenance, so the settle's journal commit is
 a deterministic function of it.
 
-Any reserved attempt qualifies (Sam 1793881491.714239), never a pinned list: the run identity comes from GitHub's run, the reserve from the
+Any reserved attempt qualifies , never a pinned list: the run identity comes from GitHub's run, the reserve from the
 journal (its open last event), and the credential-bearing steps from that run's OWN workflow at its head (fetched by commit SHA; its sha256 is in
 the document), parsed by credential_steps. The record job holds no `contents` permission, so the caller supplies that workflow text.
 
 What is proved, all required (any miss, ambiguity or active job refuses):
   * the run is `completed` and `failure`, and every job carries this run id, attempt and head;
   * the reserve job and the record, settle and complete jobs are `success`; the nightly gate is `skipped`; the live job `failure`, completed;
-  * the live job failed at exactly one step, before every credential-bearing step, and each of those is `skipped` (the product-capable
-    stage-runner run step must be among them): a product-capable step cannot run without a credential;
+  * the live job failed at one step, before every credential-bearing step, and each of those is `skipped` (the product-capable
+    stage-runner run step must be among them): a product-capable step cannot run without a credential. Any OTHER failed step must be a
+    consequence (run 42142985744): after the first failure, an `always` step of the same workflow, holding no secret at all;
   * the journal, freshly validated from the pinned reviewed root, ends with this run's one `reserve`: no settle or release follows it.
 Usage is DERIVED, never read: requests, identity reads, Starts, takes and coaching are 0 (no credential step ran) and runner minutes are the live
 job's measured seconds (started to completed) rounded up to whole minutes, the job the reserved runner minutes (live minutes) cover. The other jobs
 are listed in the document and sit outside the campaign allocation. `atUtc` is the latest job completion, a fixed fact.
 
 Nothing here opens a socket: callers pass GitHub's run JSON and jobs JSON (with steps) and the validated journal chain.
-CLI: unexecuted_attempt_evidence.py collect --run RUN.json --jobs JOBS.json --workflow WORKFLOW.yml --out EVIDENCE.json   (reads the journal)
-     unexecuted_attempt_evidence.py check --evidence EVIDENCE.json                                (prints the sha256 and the settle time)
-     unexecuted_attempt_evidence.py pending   (prints the run whose reserve is the journal's open last event, or nothing; reads the journal)
+CLI: unexecuted_attempt_evidence.py collect --run RUN.json --jobs JOBS.json --workflow WORKFLOW.yml --out EVIDENCE.json (reads the journal)
+     unexecuted_attempt_evidence.py check --evidence EVIDENCE.json (prints the sha256 and the settle time)
+     unexecuted_attempt_evidence.py pending (prints the run whose reserve is the journal's open last event, or nothing; reads the journal)
 Exit 78 (BLOCKED_SETUP) on every refusal.
 """
 import argparse
@@ -37,13 +38,13 @@ from datetime import datetime, timezone
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _netguard  # noqa: F401,E402  (this module opens no socket itself; the one journal fetch is state_ref_writer's `git` subprocess)
 
-SCHEMA = "speaksharp.cloud-test.unexecuted-attempt-evidence.v3"
+SCHEMA = "speaksharp.cloud-test.unexecuted-attempt-evidence.v4"
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 SHA64 = re.compile(r"^[0-9a-f]{64}$")
 UTC = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
 SECRET = re.compile(r"secrets\.([A-Za-z_][A-Za-z0-9_]*)")
 PRODUCT_KEYS = ("requests", "identityReads", "starts", "takes", "coachingRequests")
-# Accounting by what the credential-bearing steps of the live job did (Sam 1793897345.841829 / 1793897309.565819; PO 11-05):
+# Accounting by what the credential-bearing steps of the live job did (PO 11-05):
 #   none            - every credential-bearing step skipped: nothing product-capable ran, zero product usage;
 #   preflight-bound - the prerequisite preflight is the ONLY credential-bearing step that ran (it failed, or succeeded before a later
 #                     non-credential failure) and every later one is skipped: at most its fixed charge, PREFLIGHT_REQUESTS campaign requests
@@ -51,8 +52,38 @@ PRODUCT_KEYS = ("requests", "identityReads", "starts", "takes", "coachingRequest
 #   capped          - any other credential-bearing step ran: its usage is unknown, so it settles at the reserved caps (never less).
 PREFLIGHT_STEP = "Prove the selected accounts' bounded first-use prerequisites"
 PREFLIGHT_REQUESTS = 10
-ACCOUNTING = ("none", "preflight-bound", "capped")
+ACCOUNTING = ("none", "preflight-bound", "capped", "terminated-capped")
+# a reserved run that was CANCELLED or TIMED OUT (the run's or the live job's conclusion) has no settle input, so its reservation
+# stayed open, and the failure-only rules below refused it, blocking every later dispatch. It settles conservatively at its reserved caps
+# ("terminated-capped": every product counter at the held allocation, runner minutes measured), never as no-usage, whatever its steps show.
+TERMINATED = ("cancelled", "timed_out")
+# The measured runner minutes of a terminated run are bounded by the live job's own largest enforced timeout (nightly 340; manual 85).
+RUNNER_MINUTES_MAX = 340
+# Owner dispositions (PO, recorded ): a named run whose accounting the owner decided, admitted ONLY when the run's actual
+# steps match the decided facts exactly; anything else stays at the rule's own classification. Never a pattern, never another run.
+STAGE_SETUP_STEP = "Stage runner (install-tools, plans, stimulus preflight, gates)"
+INIT_STEP = "Select the committed request and bind this run's inputs"
+OWNER_DISPOSITIONS = {
+    # R10 run 42142985744: the preflight passed (its fixed 10 requests), input binding ran, and the stage-runner setup refused in the
+    # bootstrap at 01:24:53Z before any network call (BP_HOST_DB unset; fixed in 0237db34). The case-runner step never ran.
+    "42142985744": {"attempt": 1, "headSha": "79ce7d6cf68428c2007d3bd27f8dea47432a0958",   # exact attempt and head
+                    "accounting": "preflight-bound", "approvalRef": "slack:1793965143.063589", "failedStep": STAGE_SETUP_STEP,
+                    "ran": (PREFLIGHT_STEP, INIT_STEP, STAGE_SETUP_STEP)},
+    # R10 run 42226498611: the preflight passed (its fixed 2 auth + 8 signed-in requests, receipt 68b2ba4c...), input binding ran, and the
+    # stage-runner setup refused in the plan builder at 13:40:59Z before any further network call (dispatch facts had no `backend`; fixed by
+    # facts-backend-missing). The case-runner step never ran. PO disposition 2026-11-06 (the reviewer's recommendation, "YES").
+    "42226498611": {"attempt": 1, "headSha": "cbfd39ff5295674356edacfd330a937a837a1e54",
+                    "accounting": "preflight-bound", "approvalRef": "slack:1793990863.439579", "failedStep": STAGE_SETUP_STEP,
+                    "ran": (PREFLIGHT_STEP, INIT_STEP, STAGE_SETUP_STEP)},
+}
 LIVE_JOB_PREFIX = "Selected live journeys"
+# R10 run 42406851270 (PO: a run that failed before it ran anything must never block the next one): a PRE-RUN FAILURE. The
+# live job completed `failure` with an EXPLICITLY EMPTY step list and no runner allocated (runner id 0, no runner name, group 0), bound to
+# this run's own job id and check run. Nothing ran and no secret reached it, so it settles like `none` (zero product usage, measured runner
+# minutes). No failed step is synthesized (`failedStep` is null) and no rejection reason is claimed. Missing steps or any assigned-runner
+# data stay unknown and refuse.
+CHECK_RUN_URL = "https://api.github.com/repos/relativityE/speaksharp/check-runs/%d"
+PRE_RUN_LIVE_KEYS = {"jobId", "runnerId", "runnerName", "runnerGroupId", "checkRunUrl"}
 JOB_PREFIXES = (("record", "Record the attempt", "success"), ("gate", "Nightly gate", "skipped"),
                 ("reserve", "Reserve the run on the state-ref journal", "success"), ("live", LIVE_JOB_PREFIX, "failure"),
                 ("settle", "Settle the run's reservation", "success"), ("complete", "Complete or interrupt the attempt", "success"))
@@ -82,10 +113,9 @@ def _scalar(raw):
     return raw
 
 
-def credential_steps(workflow_text):
-    """[(job name, step name)] for every credential-bearing step, read from the workflow TEXT (no YAML dependency: the hosted record job has
-    none). A job whose header (everything before `steps:`) mentions a secret makes every one of its steps credential-bearing. An unnamed
-    step that mentions a secret refuses: it could not be matched to GitHub's record of it."""
+def _workflow_steps(workflow_text):
+    """[(job name, step name or None, step text, job header has a secret)] for every step, read from the workflow TEXT (no YAML dependency:
+    the hosted record job has none)."""
     _need(isinstance(workflow_text, str) and workflow_text.strip() != "", "unexecuted-workflow")
     lines = workflow_text.split("\n")
     _need("jobs:" in lines, "unexecuted-workflow")
@@ -111,7 +141,7 @@ def credential_steps(workflow_text):
         elif line.strip() and not re.match(r"^ {6,}", line):
             current["in_steps"] = False
             current["header"].append(line)
-    found = []
+    out = []
     for job in jobs:
         header = "\n".join(job["header"])
         names = [_scalar(m.group(1)) for m in re.finditer(r"^    name:\s*(.+)$", header, re.M)]
@@ -120,10 +150,33 @@ def credential_steps(workflow_text):
         for block in job["steps"]:
             text = "\n".join(block)
             m = re.search(r"^(?:      - |        )name:\s*(.+)$", text, re.M)
-            step_name = _scalar(m.group(1)) if m else None
-            if header_secret or any(s.group(1) != "GITHUB_TOKEN" for s in SECRET.finditer(text)):
-                _need(step_name is not None, "unexecuted-unnamed-credential-step")
-                found.append((job_name, step_name))
+            out.append((job_name, _scalar(m.group(1)) if m else None, text, header_secret))
+    return out
+
+
+def _has_secret(text, header_secret):
+    return header_secret or any(s.group(1) != "GITHUB_TOKEN" for s in SECRET.finditer(text))
+
+
+def credential_steps(workflow_text):
+    """[(job name, step name)] for every credential-bearing step. A job whose header (everything before `steps:`) mentions a secret makes
+    every one of its steps credential-bearing. An unnamed step that mentions a secret refuses: it could not be matched to GitHub's record."""
+    found = []
+    for job_name, step_name, text, header_secret in _workflow_steps(workflow_text):
+        if _has_secret(text, header_secret):
+            _need(step_name is not None, "unexecuted-unnamed-credential-step")
+            found.append((job_name, step_name))
+    return found
+
+
+def consequential_steps(workflow_text):
+    """[(job name, step name)] of every step that may fail only AS A CONSEQUENCE of an earlier failure: its condition starts with `always`
+    and it holds no secret at all (a credential-free collection/projection step that runs even after the failure it reports on)."""
+    found = []
+    for job_name, step_name, text, header_secret in _workflow_steps(workflow_text):
+        cond = re.search(r"^(?:      - |        )if:\s*(.+)$", text, re.M)
+        if step_name is not None and cond and _scalar(cond.group(1)).startswith("always()") and not _has_secret(text, header_secret):
+            found.append((job_name, step_name))
     return found
 
 
@@ -138,8 +191,15 @@ def _shape_jobs(jobs_doc):
             job = {"name": j.get("name"), "status": j.get("status"), "conclusion": j.get("conclusion"), "startedAt": j.get("started_at"),
                    "completedAt": j.get("completed_at"), "runId": str(j.get("run_id")), "attempt": j.get("run_attempt"), "headSha": j.get("head_sha")}
             if isinstance(job["name"], str) and job["name"].startswith(LIVE_JOB_PREFIX):
+                raw = j.get("steps")
+                _need(isinstance(raw, list) and all(isinstance(s, dict) for s in raw), "unexecuted-steps")   # never missing/null/false/0/"" as []
                 job["steps"] = [{"number": s.get("number"), "name": s.get("name"), "status": s.get("status"), "conclusion": s.get("conclusion")}
-                                for s in (j.get("steps") or [])]
+                                for s in raw]
+                if not raw:
+                    # a pre-run failure is proved only by GitHub's own fields, all present: a missing one stays unknown, never "no runner"
+                    _need(all(k in j for k in ("id", "runner_id", "runner_name", "runner_group_id", "check_run_url")), "unexecuted-pre-run-job")
+                    job.update(jobId=j.get("id"), runnerId=j.get("runner_id"), runnerName=j.get("runner_name"),
+                               runnerGroupId=j.get("runner_group_id"), checkRunUrl=j.get("check_run_url"))
             out.append(job)
     return out
 
@@ -156,11 +216,53 @@ def _seconds(job):
     return int((end - start).total_seconds())
 
 
+def _terminated(run, jobs):
+    live = [j for j in jobs if isinstance(j.get("name"), str) and j["name"].startswith(LIVE_JOB_PREFIX)]
+    return run.get("conclusion") in TERMINATED or (len(live) == 1 and live[0].get("conclusion") in TERMINATED)
+
+
+def _terminated_rules(doc):
+    """A cancelled or timed-out reserved run: completed, every job of THIS run, the record and reserve jobs succeeded and the gate skipped (a
+    reservation was really made), every other job completed in any conclusion, nothing appended for it after its reserve. Usage is the held
+    allocation for every product counter (unknown usage is charged in full, never inferred zero) and the live job's measured runner minutes."""
+    ident, run, jobs, journal = doc["identity"], doc["run"], doc["jobs"], doc["journal"]
+    _need(run["status"] == "completed", "unexecuted-run-not-completed")
+    _utc(run["startedAt"], "unexecuted-run-time")
+    _need(_utc(run["updatedAt"], "unexecuted-run-time") >= _utc(run["startedAt"], "unexecuted-run-time"), "unexecuted-run-time")
+    _need(all((j["runId"], j["attempt"], j["headSha"]) == (run["runId"], run["attempt"], run["headSha"]) for j in jobs), "unexecuted-job-not-of-the-run")
+    _need(len(jobs) == len(JOB_PREFIXES), "unexecuted-jobs")
+    wanted = {"record": ("success",), "gate": ("skipped",), "reserve": ("success",), "live": ("cancelled", "timed_out", "failure"),
+              "settle": ("success", "failure", "cancelled", "skipped"), "complete": ("success", "failure", "cancelled", "skipped")}
+    for key, prefix, _failure_rule in JOB_PREFIXES:
+        found = [j for j in jobs if isinstance(j["name"], str) and j["name"].startswith(prefix)]
+        _need(len(found) == 1 and found[0]["status"] == "completed" and found[0]["conclusion"] in wanted[key], "unexecuted-job-" + key)
+    _need(doc["accounting"] == "terminated-capped" and doc["dispositionRef"] is None and doc["failedStep"] is None, "unexecuted-accounting")
+    # the live job's steps are the closed shape and none is still active; a terminal run never races an active job or step
+    steps = _live(jobs).get("steps")
+    _need(isinstance(steps, list) and len(steps) <= 128 and all(isinstance(s, dict) and set(s) == {"number", "name", "status", "conclusion"}
+                                                               for s in steps), "unexecuted-steps")
+    _need(all(s["status"] == "completed" for s in steps), "unexecuted-step-active")
+    reserve = journal.get("reserve")
+    _need(SHA40.match(str(journal.get("rootSha"))) and SHA40.match(str(journal.get("headSha"))) and isinstance(reserve, dict)
+          and reserve.get("type") == "reserve" and reserve.get("runId") == ident["runId"] and reserve.get("attempt") == ident["attempt"]
+          and isinstance(reserve.get("allocation"), dict), "unexecuted-journal")
+    held = reserve["allocation"]
+    _need(all(type(held.get(k)) is int and held[k] >= 0 for k in PRODUCT_KEYS), "unexecuted-journal")
+    usage = {k: held[k] for k in PRODUCT_KEYS}      # a conservative charge of the full held allocation, NOT measured usage
+    usage["runnerMinutes"] = max(1, int(math.ceil(_seconds(_live(jobs)) / 60.0)))   # measured from GitHub's job times, checked below
+    _need(usage["runnerMinutes"] <= RUNNER_MINUTES_MAX, "unexecuted-runner-minutes")
+    ended = max(_utc(j["completedAt"], "unexecuted-job-time") for j in jobs if j["conclusion"] != "skipped")
+    return usage, ended.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def _rules(doc):
-    """The deterministic verification of the shaped document. Returns (usage, atUtc). Sam 1793881491.714239: ANY reserved attempt that stopped in
+    """The deterministic verification of the shaped document. Returns (usage, atUtc). ANY reserved attempt that stopped in
     setup, not a pinned list. Its credential-bearing steps are those of its OWN workflow at its head (workflowSha256), parsed by credential_steps."""
     ident, run, jobs, journal = doc["identity"], doc["run"], doc["jobs"], doc["journal"]
     _need((run["runId"], run["attempt"], run["headSha"]) == (ident["runId"], ident["attempt"], ident["headSha"]), "unexecuted-run-differs")
+    if _terminated(run, jobs):
+        return _terminated_rules(doc)
+    _need(doc["accounting"] != "terminated-capped", "unexecuted-accounting")
     _need(run["status"] == "completed" and run["conclusion"] == "failure", "unexecuted-run-not-failed")
     _utc(run["startedAt"], "unexecuted-run-time")
     _need(_utc(run["updatedAt"], "unexecuted-run-time") >= _utc(run["startedAt"], "unexecuted-run-time"), "unexecuted-run-time")
@@ -171,15 +273,32 @@ def _rules(doc):
         found = [j for j in jobs if isinstance(j["name"], str) and j["name"].startswith(prefix)]
         _need(len(found) == 1 and found[0]["status"] == "completed" and found[0]["conclusion"] == wanted, "unexecuted-job-" + key)
     live = _live(jobs)
-    steps = live["steps"]
-    _need(0 < len(steps) <= 128 and all(isinstance(s, dict) and set(s) == {"number", "name", "status", "conclusion"} for s in steps), "unexecuted-steps")
-    failed = [s for s in steps if s["conclusion"] == "failure"]
-    _need(len(failed) == 1 and doc["failedStep"] == failed[0]["name"], "unexecuted-failed-step")
+    steps = live.get("steps")
+    # the validator re-checks the TYPE too; {} or "" would otherwise read as zero steps
+    _need(isinstance(steps, list) and len(steps) <= 128 and all(isinstance(s, dict) and set(s) == {"number", "name", "status", "conclusion"} for s in steps), "unexecuted-steps")
+    failed = sorted((s for s in steps if s["conclusion"] == "failure"), key=lambda s: s["number"])
+    base_live = {"name", "status", "conclusion", "startedAt", "completedAt", "runId", "attempt", "headSha", "steps"}
+    if not steps:
+        # pre-run failure: an explicitly empty step list and no runner, bound to this run's own job and check run; no reason is claimed
+        _need(doc["failedStep"] is None, "unexecuted-pre-run")
+        _need(set(live) == base_live | PRE_RUN_LIVE_KEYS and type(live["jobId"]) is int and live["jobId"] > 0 and live["runnerId"] == 0
+              and live["runnerName"] in ("", None) and live["runnerGroupId"] == 0 and live["checkRunUrl"] == CHECK_RUN_URL % live["jobId"],
+              "unexecuted-pre-run-job")
+        _need(doc["credentialSteps"] and any(step.startswith("Stage runner (run)") for _job, step in doc["credentialSteps"])
+              and all(job == live["name"] for job, _step in doc["credentialSteps"]), "unexecuted-credential-steps")
+    else:
+        _need(set(live) == base_live, "unexecuted-pre-run-job")
+        _need(failed and doc["failedStep"] == failed[0]["name"], "unexecuted-failed-step")
+    # Any further failure is a consequence of the first: a later, secret-free always step of the run's own workflow (run 42142985744).
+    allowed = {tuple(p) for p in doc["consequentialSteps"]}
+    for later in failed[1:]:
+        _need(later["number"] > failed[0]["number"] and (live["name"], later["name"]) in allowed, "unexecuted-failed-step")
+    _need(not ({tuple(p) for p in doc["credentialSteps"]} & allowed), "unexecuted-consequential-steps")
     _need(all(s["status"] == "completed" for s in steps), "unexecuted-step-active")
     # the product-capable step must be among the credential-bearing ones, so a mis-parsed workflow cannot yield an empty or partial list
     _need(doc["credentialSteps"] and any(step.startswith("Stage runner (run)") for _job, step in doc["credentialSteps"]), "unexecuted-credential-steps")
     ran = []
-    for job_name, step_name in doc["credentialSteps"]:
+    for job_name, step_name in (doc["credentialSteps"] if steps else []):    # no step started: no credential-bearing step can have run
         _need(job_name == live["name"], "unexecuted-credential-job")
         found = [s for s in steps if s["name"] == step_name]
         _need(len(found) == 1, "unexecuted-credential-step-missing")       # missing or duplicated is uncertain, never skipped
@@ -190,7 +309,14 @@ def _rules(doc):
         _need(step["number"] <= failed[0]["number"] and step["conclusion"] in ("success", "failure"), "unexecuted-credential-step-ran")
         ran.append(step_name)
     accounting = "none" if not ran else "preflight-bound" if ran == [PREFLIGHT_STEP] else "capped"
-    _need(doc["accounting"] == accounting, "unexecuted-accounting")
+    disposition = None
+    owner = OWNER_DISPOSITIONS.get(ident["runId"])
+    run_step = [s for s in steps if s["name"].startswith("Stage runner (run)")]
+    if (accounting == "capped" and owner is not None and ident["attempt"] == owner["attempt"] and ident["headSha"] == owner["headSha"]
+            and doc["failedStep"] == owner["failedStep"] and sorted(ran) == sorted(owner["ran"])
+            and len(run_step) == 1 and run_step[0]["conclusion"] == "skipped"):
+        accounting, disposition = owner["accounting"], owner["approvalRef"]
+    _need(doc["accounting"] == accounting and doc["dispositionRef"] == disposition, "unexecuted-accounting")
     # the journal: freshly validated; its LAST event is this run's reserve (nothing after it settles or releases it)
     reserve = journal.get("reserve")
     _need(SHA40.match(str(journal.get("rootSha"))) and SHA40.match(str(journal.get("headSha"))) and isinstance(reserve, dict)
@@ -210,7 +336,8 @@ def _rules(doc):
 
 
 def _check_shape(doc):
-    keys = {"schema", "identity", "run", "jobs", "failedStep", "credentialSteps", "workflowSha256", "accounting", "journal", "usage", "atUtc"}
+    keys = {"schema", "identity", "run", "jobs", "failedStep", "credentialSteps", "consequentialSteps", "workflowSha256", "accounting",
+            "dispositionRef", "journal", "usage", "atUtc"}
     _need(isinstance(doc, dict) and set(doc) == keys and doc["schema"] == SCHEMA, "unexecuted-shape")
     ident = doc["identity"]
     _need(isinstance(ident, dict) and set(ident) == {"runId", "attempt", "headSha"} and isinstance(ident["runId"], str)
@@ -218,16 +345,20 @@ def _check_shape(doc):
           and SHA40.match(str(ident["headSha"])), "unexecuted-identity")
     _need(isinstance(doc["workflowSha256"], str) and SHA64.match(doc["workflowSha256"]), "unexecuted-shape")
     _need(doc["accounting"] in ACCOUNTING, "unexecuted-shape")
-    _need(isinstance(doc["failedStep"], str), "unexecuted-shape")
+    _need(doc["dispositionRef"] is None or (isinstance(doc["dispositionRef"], str) and re.fullmatch(r"slack:\d+\.\d+|approval-[0-9a-f]{32}", doc["dispositionRef"])),
+          "unexecuted-shape")
+    _need(isinstance(doc["failedStep"], str) or doc["failedStep"] is None, "unexecuted-shape")     # null only for a pre-run failure (_rules)
     run = doc["run"]
     _need(isinstance(run, dict) and set(run) == {"runId", "attempt", "headSha", "status", "conclusion", "startedAt", "updatedAt"}, "unexecuted-shape")
     jobs = doc["jobs"]
     _need(isinstance(jobs, list) and 0 < len(jobs) <= 16 and all(isinstance(j, dict) for j in jobs), "unexecuted-jobs")
     for j in jobs:
         base = {"name", "status", "conclusion", "startedAt", "completedAt", "runId", "attempt", "headSha"}
-        _need(set(j) in (base, base | {"steps"}) and isinstance(j["name"], str), "unexecuted-jobs")
+        _need(set(j) in (base, base | {"steps"}, base | {"steps"} | PRE_RUN_LIVE_KEYS) and isinstance(j["name"], str), "unexecuted-jobs")
     _need(isinstance(doc["credentialSteps"], list) and all(isinstance(p, list) and len(p) == 2 and all(isinstance(x, str) for x in p)
                                                          for p in doc["credentialSteps"]), "unexecuted-shape")
+    _need(isinstance(doc["consequentialSteps"], list) and all(isinstance(p, list) and len(p) == 2 and all(isinstance(x, str) for x in p)
+                                                            for p in doc["consequentialSteps"]), "unexecuted-shape")
     journal = doc["journal"]
     _need(isinstance(journal, dict) and set(journal) == {"rootSha", "headSha", "reserve"} and isinstance(journal["reserve"], dict), "unexecuted-shape")
     u = doc["usage"]
@@ -252,12 +383,17 @@ def open_reserve(chain):
     return last if isinstance(last, dict) and last.get("type") == "reserve" else None
 
 
-def _derive_accounting(jobs, cred):
-    """The accounting mode the steps imply (re-verified by _rules); "capped" whenever it is not clearly none or preflight-bound."""
-    live = _live(jobs)
-    names = {step: [s for s in live.get("steps") or [] if s.get("name") == step] for _job, step in cred}
-    ran = [step for step, found in names.items() if len(found) == 1 and found[0].get("conclusion") != "skipped"]
-    return "none" if not ran else "preflight-bound" if ran == [PREFLIGHT_STEP] else "capped"
+def _derive_accounting(doc):
+    """(accounting, dispositionRef) the steps imply, by the same rule _rules re-verifies; refusals surface from _rules."""
+    for accounting in ACCOUNTING:
+        for ref in [None] + sorted({o["approvalRef"] for o in OWNER_DISPOSITIONS.values()}):
+            try:
+                _rules(dict(doc, accounting=accounting, dispositionRef=ref))
+                return accounting, ref
+            except Refused as err:
+                if str(err) != "unexecuted-accounting":
+                    raise
+    return "capped", None
 
 
 def build_evidence(run, jobs_doc, chain, workflow_text):
@@ -271,15 +407,22 @@ def build_evidence(run, jobs_doc, chain, workflow_text):
     jobs = _shape_jobs(jobs_doc)
     _need(len(jobs) == len(JOB_PREFIXES), "unexecuted-jobs")
     live = _live(jobs)
-    failed = [s for s in live.get("steps") or [] if s.get("conclusion") == "failure"]
-    _need(len(failed) == 1, "unexecuted-failed-step")
+    failed = sorted((s for s in live["steps"] if s.get("conclusion") == "failure"), key=lambda s: s.get("number") or 0)
+    pre_run = live["steps"] == []
+    terminated = _terminated({"conclusion": run.get("conclusion")}, jobs)
+    _need(terminated or pre_run or failed, "unexecuted-failed-step")
+    if terminated:
+        pre_run, failed = True, []      # no failed step is claimed for a cancelled or timed-out run; it settles at its caps
     doc = {"schema": SCHEMA, "identity": {"runId": run_id, "attempt": run.get("run_attempt"), "headSha": run.get("head_sha")},
            "run": {"runId": run_id, "attempt": run.get("run_attempt"), "headSha": run.get("head_sha"), "status": run.get("status"),
                    "conclusion": run.get("conclusion"), "startedAt": run.get("run_started_at"), "updatedAt": run.get("updated_at")},
-           "jobs": jobs, "failedStep": failed[0]["name"], "credentialSteps": [list(p) for p in credential_steps(workflow_text)],
+           "jobs": jobs, "failedStep": None if pre_run else failed[0]["name"],
+           "credentialSteps": [list(p) for p in credential_steps(workflow_text)],
+           "consequentialSteps": [list(p) for p in consequential_steps(workflow_text)],
            "workflowSha256": hashlib.sha256(workflow_text.encode("utf-8")).hexdigest(),
-           "accounting": _derive_accounting(jobs, credential_steps(workflow_text)),
+           "accounting": "capped", "dispositionRef": None,
            "journal": {"rootSha": chain[0][0], "headSha": chain[-1][0], "reserve": reserve}, "usage": {}, "atUtc": "1970-01-01T00:00:00Z"}
+    doc["accounting"], doc["dispositionRef"] = _derive_accounting(doc)
     doc["usage"], doc["atUtc"] = _rules(doc)
     check_evidence(doc)
     return doc
@@ -302,7 +445,7 @@ def fetch_chain():
 
 
 def pending_run(chain):
-    """Sam 1793881260.206739 / 1793881491.714239: the settle is keyed on the JOURNAL, not the record. The run whose reserve is the chain's open
+    """the settle is keyed on the JOURNAL, not the record. The run whose reserve is the chain's open
     last event, or None. A dispatch interrupted after a retirement but before its settle leaves exactly this state, and the next dispatch must
     still reach the settle. Whether that run really did not execute is decided only by build_evidence on GitHub's report of it."""
     reserve = open_reserve(chain)

@@ -1,11 +1,11 @@
-"""The closed settle input the read-only live job hands to journal-settle (Sam 1793580806.654369), in place of the collector's full run record.
+"""The closed settle input the read-only live job hands to journal-settle , in place of the collector's full run record.
 
 The repository is public, so the hand-off artifact carries only what settling needs, all of it content-free: the run record's campaign and
 execution identity (campaign, GitHub run, attempt, admitted request digest), its measured G5 spend counts, the full record's digest as
 evidence, and the Case 10 observation record's digest (or null). No case result, account, row, transcript, credential or path. Both sides
 apply the same closed validation: `project` in the live job, `validate` in journal-settle before any use. The settle event is computed by
 manual_reservation.usage_from_record, which reads exactly these fields, so the settled usage is the same as from the full record.
-Usage: settle_input.py project --record RUN_RECORD --out OUT [--case10-observation RECORD] | validate --input IN    exit 78 on refusal.
+Usage: settle_input.py project --record RUN_RECORD --out OUT [--case10-observation RECORD] | validate --input IN exit 78 on refusal.
 """
 import argparse
 import hashlib
@@ -47,8 +47,10 @@ def check(doc):
           and isinstance(p, dict) and set(p) == PROVENANCE_KEYS and p["campaignId"] == doc["runId"]
           and isinstance(p["runId"], str) and RUN.fullmatch(p["runId"]) is not None and type(p["attempt"]) is int and p["attempt"] >= 1
           and isinstance(p["requestSha256"], str) and SHA64.fullmatch(p["requestSha256"]) is not None, "settle-input-identity")
-    _need(isinstance(spend, dict) and set(spend) == set(G5_KEYS)
-          and all(v is None or (type(v) is int and v >= 0) for v in spend.values()), "settle-input-spend")
+    # coachingRequests appears only as the collector's verified pre-identity 0 (P1-4); usage_from_record re-checks it against its siblings.
+    _need(isinstance(spend, dict) and set(spend) in (set(G5_KEYS), set(G5_KEYS) | {"coachingRequests"})
+          and all(v is None or (type(v) is int and v >= 0) for v in spend.values())
+          and spend.get("coachingRequests", 0) == 0, "settle-input-spend")
     _need(isinstance(doc["recordSha256"], str) and SHA64.fullmatch(doc["recordSha256"]) is not None
           and (doc["case10ObservationSha256"] is None
                or (isinstance(doc["case10ObservationSha256"], str) and SHA64.fullmatch(doc["case10ObservationSha256"]) is not None)),
@@ -65,8 +67,20 @@ def project(record_raw, observation_raw=None):
         raise Refused("settle-input-record")
     _need(isinstance(rec, dict) and isinstance(rec.get("executionProvenance"), dict) and isinstance(rec.get("spend"), dict), "settle-input-record")
     prov = rec["executionProvenance"]
+    spend = {k: rec["spend"].get(k) for k in G5_KEYS}
+    # Only the collector's verified pre-identity form crosses with coaching (exactly 0 beside zero identity reads, Starts and takes); any
+    # other coaching field stays behind, as before, and that coaching settles at the reserved cap. Review of 50647108: a claimed 0 is checked
+    # against EVERY field of the full record BEFORE projection (the projection drops byCategory), exactly as usage_from_record checks it, so
+    # the direct and the projected settle can never disagree: a contradictory claim refuses here.
+    claimed = rec["spend"].get("coachingRequests")
+    if type(claimed) is int and claimed == 0:
+        categories = rec["spend"].get("byCategory")
+        coaching_seen = categories.get("coaching") if isinstance(categories, dict) else None
+        _need(all(type(spend[k]) is int and spend[k] == 0 for k in ("identityReads", "starts", "takes")) and coaching_seen in (None, 0),
+              "settle-input-usage-contradictory")
+        spend["coachingRequests"] = 0
     doc = {"schema": rec.get("schema"), "runId": rec.get("runId"),
-           "executionProvenance": {k: prov.get(k) for k in PROVENANCE_KEYS}, "spend": {k: rec["spend"].get(k) for k in G5_KEYS},
+           "executionProvenance": {k: prov.get(k) for k in PROVENANCE_KEYS}, "spend": spend,
            "recordSha256": hashlib.sha256(record_raw).hexdigest(),
            "case10ObservationSha256": None if observation_raw is None else hashlib.sha256(observation_raw).hexdigest()}
     raw = canon(check(doc))

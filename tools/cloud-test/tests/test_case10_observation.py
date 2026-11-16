@@ -1,4 +1,4 @@
-"""Case 10 nightly current-state observation (Sam 1793570217.800529, design A), offline only. Every reader here is SYNTHETIC and trusted only
+"""Case 10 nightly current-state observation (design A), offline only. Every reader here is SYNTHETIC and trusted only
 through the test-only override; production trusts no reader, so every record refuses."""
 import copy
 import hashlib
@@ -123,7 +123,7 @@ import state_ref_writer as W  # noqa: E402
 
 
 class ReserveBeforeRead(Journal):
-    """Sam 1793570557.244339: no read until the SAME journal accepted the reserve; a failed or partial read stays counted. A synthetic bare
+    """no read until the SAME journal accepted the reserve; a failed or partial read stays counted. A synthetic bare
     repository journal stands in for the state ref; nothing remote is written and no real reader exists."""
     HEADROOM = {"requests": 1000, "identityReads": 10}
 
@@ -238,7 +238,7 @@ class ReserveBeforeRead(Journal):
             self.propose(settle)  # a settle is never replayed
 
     def test_the_read_only_half_reads_only_against_an_open_reserve_of_exactly_this_request(self):
-        """Sam 1793580806.654369: the live job holds no write access. It reads only when the verified chain already holds this observation's
+        """the live job holds no write access. It reads only when the verified chain already holds this observation's
         open reserve at exactly the contract budget; it never appends."""
         read = lambda events: O.read_reserved(self.reader, events, self.req, REQUEST_SHA, "101", 1, ACCOUNT, NOW)
         refused(self, "case10-observation-reserve-not-held", read, self.chain()[-1][1])
@@ -257,7 +257,7 @@ class ReserveBeforeRead(Journal):
         self.assertEqual(len(self.calls), 1)
 
     def test_a_lost_push_response_reconciles_from_the_persisted_chain_and_never_reappends(self):
-        """Recovery (Sam 1793575063.458039): the writer's response is lost. One fresh chain read decides: landed on exactly the leased head ->
+        """Recovery : the writer's response is lost. One fresh chain read decides: landed on exactly the leased head ->
         the read proceeds with no receipt; not landed -> refuse, nothing re-appended, the reader never invoked."""
         base = self.journal()
 

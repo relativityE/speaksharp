@@ -21,7 +21,7 @@ import { MicStream } from '@/services/transcription/utils/types';
 import { ENV } from '@/config/TestFlags';
 import logger from '@/lib/logger';
 import { redactTranscript } from '@/lib/logRedaction';
-import { STTEngine } from '@/contracts/STTEngine';
+import { STTEngine, InitCancelledError, TeardownRejectionError, isTeardownRejection } from '@/contracts/STTEngine';
 import { PRIV_CLOUD_AUDIO, PRIV_STT, samplesToSeconds } from '../sttConstants';
 import { publishPrivateModelTelemetry } from '../utils/privateModelFlag';
 import workerUrl from './transformers-js.worker.ts?worker&url';
@@ -255,7 +255,7 @@ export class TransformersJSEngine extends STTEngine {
         const result = await this.loadModel(ENV.isE2E);
         if (!result.isOk) return result;
         if (generation !== this.lifecycleGeneration || this.isTerminated) {
-            return Result.err(new Error('[TransformersJS] init cancelled by destroy/terminate.'));
+            return Result.err(new InitCancelledError('[TransformersJS] init cancelled by destroy/terminate.'));
         }
         (this.options as TranscriptionModeOptions).onReady?.();
         return Result.ok(undefined);
@@ -267,7 +267,7 @@ export class TransformersJSEngine extends STTEngine {
         // runs the shared failure cleanup, which by then may belong to the attempt that followed.
         const generation = this.lifecycleGeneration;
         const superseded = () => generation !== this.lifecycleGeneration || this.isTerminated;
-        const cancelled = () => Result.err(new Error('[TransformersJS] init cancelled by destroy/terminate.'));
+        const cancelled = () => Result.err(new InitCancelledError('[TransformersJS] init cancelled by destroy/terminate.'));
         const options = (this.options || {}) as TranscriptionModeOptions;
         if (this.transcriber || this.worker) {
             logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJS] Engine already initialized, skipping.');
@@ -404,6 +404,13 @@ export class TransformersJSEngine extends STTEngine {
                 } catch (disposeError) {
                     logger.warn({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, err: disposeError },
                         '[TransformersJS] Disposing a pipeline that completed after teardown failed.');
+                    // #1858 (Codex P2): the teardown already reported success, so this late failure is the ONLY record that
+                    // a pipeline is still alive. It is retained (sticky, like every failed release) and returned as an
+                    // ordinary failure, never as a clean cancellation. The successor's `transcriber` is not touched.
+                    const failure = new Error('[TransformersJS] init cancelled, and disposing the pipeline that completed after '
+                        + `teardown FAILED (release uncertain): ${disposeError instanceof Error ? disposeError.message : String(disposeError)}`);
+                    this.recordReleaseFailure(failure);
+                    return Result.err(failure);
                 }
                 return cancelled();
             }
@@ -448,7 +455,9 @@ export class TransformersJSEngine extends STTEngine {
         } catch (error) {
             const e = error instanceof Error ? error : new Error(String(error));
             // A superseded attempt's teardown already ran; the fetch hook, worker and requests now belong to its successor.
-            if (superseded()) return Result.err(e);
+            // #1858 (Codex P2 on 703aa9d5): only the teardown's own rejection of this pending load is a cancellation; a
+            // genuine worker fault that merely arrived after the teardown is still a failure.
+            if (superseded()) return isTeardownRejection(e) ? cancelled() : Result.err(e);
             this.restorePackageFetch?.(); this.restorePackageFetch = null;
 
             // Check for common SPA 404 error (HTML returned instead of JSON)
@@ -517,6 +526,9 @@ export class TransformersJSEngine extends STTEngine {
             const inFlight = [...this.mainThreadRuns];
             // Release review of 403e2cda: this lifetime's runs leave with it, so a later lifetime's dispose never waits for them.
             this.mainThreadRuns.clear();
+            // #1858 (Codex P2 on 703aa9d5): a failed dispose is a failed release. It is retained (sticky) whether it ran
+            // inside the teardown or was deferred behind an in-flight warm-up, never only logged; the reference is gone
+            // either way, but the session may not be.
             const release = async () => {
                 await Promise.allSettled(inFlight);
                 try {
@@ -524,9 +536,15 @@ export class TransformersJSEngine extends STTEngine {
                 } catch (disposeError) {
                     logger.warn({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, err: disposeError },
                         '[TransformersJS] Disposing the main-thread pipeline at teardown failed.');
+                    throw new Error('[TransformersJS] disposing the main-thread pipeline at teardown FAILED (release uncertain): '
+                        + (disposeError instanceof Error ? disposeError.message : String(disposeError)));
                 }
             };
-            if (inFlight.length) void release(); else await release();
+            if (inFlight.length) {
+                this.deferRelease(release);
+            } else {
+                try { await release(); } catch (failure) { this.recordReleaseFailure(failure as Error); }
+            }
         }
         if (this.worker) {
             try {
@@ -544,7 +562,7 @@ export class TransformersJSEngine extends STTEngine {
         }
         this.pendingWorkerRequests.forEach(({ reject, timeoutId }) => {
             clearTimeout(timeoutId);
-            reject(new Error('TransformersJS worker destroyed.'));
+            reject(new TeardownRejectionError('TransformersJS worker destroyed.'));
         });
         this.pendingWorkerRequests.clear();
     }

@@ -189,7 +189,7 @@ def safety_state(latest, spend, alerts, isolation, req):
     """The safety verdict of the latest run. blocks: a failed safety check (isolation failed, usage over a cap, a critical alert, a blocking high alert, stale evidence).
     blocksReady: anything that stops READY, including isolation that is merely not proven and evidence whose freshness is unknown for a nightly run."""
     if not latest:
-        # Sam 1793618201.181979: a KNOWN failure stays authoritative while latest is PENDING (failed isolation, usage over a cap); freshness
+        # a KNOWN failure stays authoritative while latest is PENDING (failed isolation, usage over a cap); freshness
         # and alerts belong to a latest run and stay unassessed. Without a known failure the result is exactly as before.
         iso_failed = (isolation or {}).get("status") == "failed"
         over = (spend or {}).get("withinCap") is False
@@ -221,7 +221,7 @@ def total_words(f):
 
 
 def nightly_history(baselines):
-    """The carried-forward nightly history as the summary reports it (G7, Sam 1793576632.959179): how many retained occurrences, how many
+    """The carried-forward nightly history as the summary reports it (G7): how many retained occurrences, how many
     rows are comparable with this run, which rows still carry a comparable FAIL from an earlier night, and which journeys have no
     last-known-good. Derived only from select_baselines.py --history-state output."""
     if not baselines or baselines.get("source") != "carried-forward-history":
@@ -236,7 +236,7 @@ def nightly_history(baselines):
 
 
 def nightly_headline(f, nh, gates, limit=None):
-    """With qualified retained nightly evidence (RETURN 1793577431.476549), the headline is derived from it, never from the fixed R4C/R5
+    """With qualified retained nightly evidence (RETURN ), the headline is derived from it, never from the fixed R4C/R5
     bootstrap comparison, which is kept only as a labelled historical field. A comparable row still FAILing in the latest retained evidence
     makes the headline BLOCKED / FIX AND RETEST (a retest stays possible); otherwise the gate decision decides."""
     if not nh or not nh.get("occurrences"):
@@ -254,7 +254,7 @@ def nightly_headline(f, nh, gates, limit=None):
         f["readiness"] = "Not ready: the retained nightly evidence carries a FAIL in %s." % cases
         f["status"], f["recommendation"] = "BLOCKED", "FIX AND RETEST"
     else:
-        # RETURN 1793578066.007679: carried history can only LOWER the headline. Without a carried FAIL, the status, readiness and
+        # RETURN : carried history can only LOWER the headline. Without a carried FAIL, the status, readiness and
         # recommendation derived from the fresh-full-run and safety conditions stand (never promoted to READY/PROCEED by history, never a
         # safety HOLD overridden); only a FIX AND RETEST that rested on the historical bootstrap failures becomes HOLD.
         f["customerImpact"] = "No comparable row carries a FAIL in the latest retained nightly evidence (%d of %d rows comparable)." % (

@@ -225,6 +225,31 @@ describe('#1282 trial/expiry + Private-only journey (executed in PGlite)', () =>
     await expired.close();
   });
 
+  // #1844 (test-efficacy review P1, mutant E4): removing the Stripe-subscription condition from the canonical resolver
+  // survived every DB test. These rows separate the two ways to full access, so neither can stand in for the other:
+  // PAID needs status 'pro' AND a non-blank Stripe subscription id; the one-month TRIAL needs the immutable grant marker
+  // AND an unexpired server window, and never a Stripe id.
+  it.each([
+    ['paid: pro with a real Stripe subscription', `'pro', NULL, NULL, 'sub_paid'`, 'pro'],
+    ['pro status with a NULL Stripe subscription id and no trial', `'pro', NULL, NULL, NULL`, 'free'],
+    ['pro status with a blank Stripe subscription id and no trial', `'pro', NULL, NULL, '   '`, 'free'],
+    ['pro status without Stripe, legacy subscription_id only (deprecated, never read)', `'pro', NULL, NULL, NULL, 'legacy_sub'`, 'free'],
+    ['pro status without Stripe but with an ACTIVE trial grant (the trial branch grants it)', `'pro', now() + interval '25 days', now() - interval '5 days', NULL`, 'pro'],
+    ['active one-month trial with NO Stripe subscription', `'free', now() + interval '25 days', now() - interval '5 days', NULL`, 'pro'],
+    ['expired trial with no Stripe subscription', `'free', now() - interval '1 second', now() - interval '31 days', NULL`, 'free'],
+    ['future window WITHOUT the grant marker (legacy/forged window)', `'free', now() + interval '25 days', NULL, NULL`, 'free'],
+    ['a Stripe id alone without pro status', `'free', NULL, NULL, 'sub_paid'`, 'free'],
+  ])('entitlement boundary: %s', async (_label, values, expected) => {
+    const cols = values.split(',').length === 5
+      ? 'subscription_status, trial_expires_at, commercial_trial_granted_at, stripe_subscription_id, subscription_id'
+      : 'subscription_status, trial_expires_at, commercial_trial_granted_at, stripe_subscription_id';
+    const db = await make(`INSERT INTO public.user_profiles (id, ${cols}) VALUES ('${USER}', ${values})`);
+    expect(await tier(db)).toBe(expected);
+    // Recording authority follows the same resolver: pro records via Private, free (trial/paid lost) is refused.
+    const error = await record(db, 'private');
+    expect({ tier: expected, recorded: error === null }).toEqual({ tier: expected, recorded: expected === 'pro' });
+  });
+
   it("the enforcement migration restricts tier_configs.pro to Private-only (no cloud/browser/native)", async () => {
     const db = await make(TRIAL_ACTIVE);
     const engines = (await db.query<{ allowed_engines: string[] }>(

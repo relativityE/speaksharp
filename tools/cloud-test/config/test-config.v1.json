@@ -1,7 +1,7 @@
 {
  "aggregateReceiver": {
   "activated": true,
-    "manifestSha256": "358753042fd3b9549bafe6d309349a8622199579dacd13a90e1366aa037f68c2",
+    "manifestSha256": "21aa3fd629365bac9349569e459459d33688345f9ff027c904f39f5a2d1047f3",
   "bundleRootSha256": "f6b59edbfcc20593cd13a87f362a6c68f5a37cfe424da87c0671881584afed19",
   "note": "Active fail-closed receiver for the reviewed retained four-file aggregate. Current request, served-release identity, journal head and reconciliation remain occurrence-bound runtime evidence and are never admitted from this retained bundle."
  },
@@ -32,10 +32,10 @@
   ],
   "harness": {
     "packetDir": "tools/cloud-test/harness",
-    "expectedCodeManifestSha256": "2a20f24c3e9bfea45b6e4716b957555635ff9da984f40efd25919b2edd0eccf2",
+    "expectedCodeManifestSha256": "d2926261e3c6253168c694b306f4d0bbe8a7fc2ea2295a3c39a25f3635b3319c",
     "note": "r15 candidate hash, pending Product Owner approval. Vendor the packet (README section 3); the execute job recomputes CODE.sha256 and refuses to run on any difference. Changing this value is a versioned config change.",
     "planBuilder": "tools/cloud-test/harness-adapter/build_plan.py",
-    "expectedPacketManifestSha256": "7de14f9ba37d3ed751fe80a75bb91a85b877961a1d9c6633d3f4f51d0c9b9bf7"
+    "expectedPacketManifestSha256": "09b602a3d94731ae9358aa4e58501dfe24326d99ba58b514a1ccf43bd6ee263f"
   },
   "credentials": {
     "note": "Names only. The GitHub control plane (preflight and report) uses NO credentials and its workflow references none. The credentials below exist only in the run environment (the Claude task environment where the harness admission accepts the runtime attestation), and each stage receives only what it needs. Values are never written to this package.",
@@ -250,22 +250,22 @@
       "requiresOwnerDecision": true,
       "limits": {
         "maxSelectedCases": 15,
-        "maxRunCapRequests": 3000,
+        "maxRunCapRequests": 3350,
         "maxIdentityReadsPerRun": 32,
-        "maxWindowMinutes": 40,
+        "maxWindowMinutes": 60,
         "note": "All 15 journeys, reduced recording windows and a smoke-only assertion denominator. These are structural maxima, not execution approval."
       },
     "assertionCatalog": {
       "file": "config/smoke-assertion-catalog.json",
-      "sha256": "8eb37451129fb14b4c43b8bb6569cd3dcdb243ebb0f842b584e1fb429f6b573d",
-      "totalAssertions": 139,
+      "sha256": "2ea996bd9a7edc414618269e87d88495c45474007c6d8e53167440e275f32e44",
+      "totalAssertions": 142,
       "rule": "A smoke result executes every listed smoke row as PASS or FAIL. NOT RUN is incomplete. Smoke never counts as full live acceptance.",
       "version": 1
     },
     "window": {
       "admissionExpectedMinutes": 1,
-      "admissionMaxMinutes": 2,
-      "interCaseAndReportMinutes": 3,
+      "admissionMaxMinutes": 5,
+      "interCaseAndReportMinutes": 20,
       "cleanupReserveMinutes": 2
     },
       "recordingWindowMs": {
@@ -282,7 +282,7 @@
         "AHT-10": 166000, "AHT-11": 92000, "AHT-12": 73000,
         "AHT-13": 45000, "AHT-14": 45000, "AHT-15": 17000
       },
-      "timingBasis": "Completed-case maxima retain the prior R5/R9 wall-time basis. AHT-01 reserves 35 seconds for the unchanged 30-second/75-word eligibility gate. AHT-13/14 use provisional 30-second diagnostic transition ceilings plus bounded Retry observation; these are not measured product runtimes. Whole smoke is capped at 40 minutes."
+      "timingBasis": "Completed-case maxima retain the prior R5/R9 wall-time basis. AHT-01 reserves 35 seconds for the unchanged 30-second/75-word eligibility gate. AHT-13/14 use provisional 30-second diagnostic transition ceilings plus bounded Retry observation; these are not measured product runtimes. Whole smoke is capped at 60 minutes (owner 60-minute signal run): case maxima 33 + admission A0-A5/A7 5 + 31 identity reads at their supervised 35 s worst case and per-case reporting 20 + cleanup 2. A6's 20-minute qualification ceiling is not covered: a practical signal run, not a worst-case guarantee."
     },
     "full": {
       "label": "FULL COVERAGE",

@@ -1,4 +1,4 @@
-"""Accepted-rollup receiving mode (Sam 1793553421.029269), offline: a SYNTHETIC bootstrap accepted through test-only pins, and the real
+"""Accepted-rollup receiving mode , offline: a SYNTHETIC bootstrap accepted through test-only pins, and the real
 state-ref writer on a temporary bare repository. Anchor, period, predecessor and replay negatives; unresolved usage is never zeroed."""
 import copy
 import hashlib
@@ -43,7 +43,7 @@ def bootstrap(**over):
     """Historical usage only: no period, no ceiling. Coaching and runner minutes are unknown (null), never 0."""
     doc = {"schema": R.SCHEMA, "asOfUtc": "2026-11-01T17:00:00Z", "sourceRecords": [SHA_REF],
            "usage": {"requests": 7956, "identityReads": 122, "starts": 64, "takes": 38, "coachingRequests": None, "runnerMinutes": None},
-           "authority": {"approvalRef": "slack:1793553421.029269", "expired": True},
+           "authority": {"approvalRef": "slack:1000000001.000001", "expired": True},
            "unresolved": [{"kind": "diagnostic", "ref": "sha256:" + "b" * 64, "disposition": "MEASURED",
                            "usage": {"requests": 40, "identityReads": 2, "starts": 1, "takes": 0, "coachingRequests": 0, "runnerMinutes": 12}}]}
     doc.update(over)
@@ -64,7 +64,7 @@ def bounded_bootstrap(items=None, results=None, source_records=None, **over):
 
 def scope(**over):
     """An explicitly approved period scope (synthetic): its own period, ceilings and carryover rule."""
-    s = {"schema": R.SCOPE_SCHEMA, "approvalRef": "slack:1793555433.084449", "periodStartUtc": "2026-11-02T00:00:00Z",
+    s = {"schema": R.SCOPE_SCHEMA, "approvalRef": "slack:1000000002.000002", "periodStartUtc": "2026-11-02T00:00:00Z",
          "periodEndUtc": "2026-12-02T00:00:00Z", "carryover": "none",
          "ceilings": {"requests": 12000, "protectedReserveRequests": 300, "identityReads": 200, "starts": 120, "takes": 80}}
     s.update(over)
@@ -101,7 +101,7 @@ class Journal(unittest.TestCase):
     def chain(self):
         return W.validate_chain(self.repo, W.fetch_head(self.repo, self.remote, self.remote), self.root)
 
-    def append(self, kind, run, allocation, at="2026-11-02T04:00:00Z", provenance="approval:slack-1793553421.029269", campaign="R10-manual"):
+    def append(self, kind, run, allocation, at="2026-11-02T04:00:00Z", provenance="approval:slack-1000000001.000001", campaign="R10-manual"):
         head = W.fetch_head(self.repo, self.remote, self.remote)
         e = {"type": kind, "campaignId": campaign, "runId": run, "attempt": 1, "allocation": dict(allocation),
              "provenance": provenance, "atUtc": at}
@@ -343,7 +343,7 @@ class Rollup(Journal):
             refused(self, "rollup-unresolved", R.parse_bootstrap, raw)
 
     def test_a_github_run_id_is_only_a_locator_for_an_unresolved_item(self):
-        # Sam 1793556731.837039: the six later R9 runs are located by run id, never accepted; their usage stays null.
+        # the six later R9 runs are located by run id, never accepted; their usage stays null.
         runs = ("41071743003", "41115876890", "41134025368", "41231659142", "41322870182", "41325698722")
         located = [{"kind": "diagnostic", "ref": "gha-run:" + r, "disposition": "UNRESOLVED", "usage": None} for r in runs]
         self.assertEqual([i["ref"] for i in R.parse_bootstrap(bootstrap(unresolved=located))["unresolved"]], ["gha-run:" + r for r in runs])

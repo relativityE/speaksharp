@@ -1,14 +1,14 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { BarChart3, FileDown, FileText, UserRound } from 'lucide-react';
+import { BarChart3, UserRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { TRIAL_ENDED_COPY, type TrialEndedKeep } from './trialStatus';
 
-const KEEP_ICONS = { history: BarChart3, transcript: FileText, export: FileDown, account: UserRound } as const satisfies Record<TrialEndedKeep, unknown>;
+const KEEP_ICONS = { history: BarChart3, account: UserRound } as const satisfies Record<TrialEndedKeep, unknown>;
 
 /**
  * Replaces the recorder in the before state when the trial has ended. It says what happened, what still works,
- * and where to go next. It never starts checkout itself: it points to Pricing, which shows checkout only when
+ * and where to go next. It links to no saved-work route: those stay behind the payment wall until payment (#1863). It never starts checkout itself: it points to Pricing, which shows checkout only when
  * payments are enabled. `paymentsEnabled` changes one sentence so the page never promises an upgrade that
  * Pricing cannot offer.
  */
@@ -42,9 +42,6 @@ export const TrialEndedPanel: React.FC<{ paymentsEnabled: boolean }> = ({ paymen
         <div className="mt-4 flex flex-col gap-2 sm:flex-row">
             <Button asChild variant={paymentsEnabled ? 'default' : 'outline'}>
                 <Link to="/pricing" data-testid="trial-ended-pricing">{TRIAL_ENDED_COPY.pricingCta}</Link>
-            </Button>
-            <Button asChild variant="outline">
-                <Link to="/progress" data-testid="trial-ended-progress">Open Progress</Link>
             </Button>
             <Button asChild variant="ghost">
                 <Link to="/account" data-testid="trial-ended-account">Account</Link>

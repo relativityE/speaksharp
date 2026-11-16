@@ -403,6 +403,23 @@ describe('failures reach the caller and leave no partial completion', () => {
     expect(await rowOf(db, id)).toEqual(saved);
   });
 
+  it('a replay that changes only total words reaches the server and is refused as a conflict', async () => {
+    bindClient(transport, await newUser(db));
+    const id = await startTake();
+    const asked = completion();
+    expect(await completeSession(id, asked)).toMatchObject({ success: true, idempotent: false });
+    const saved = await rowOf(db, id);
+    expect(saved).toMatchObject({ status: 'completed', total_words: METRICS.totalWords });
+
+    const start = transport.requests.length;
+    const changed = completion({ metrics: { ...METRICS, totalWords: METRICS.totalWords + 1 } });
+    expect(await completeSession(id, changed)).toEqual({ success: false });
+    expect(transport.requests.slice(start)).toMatchObject([
+      { method: 'POST', path: '/rest/v1/rpc/complete_session_v2', status: 500, response: { code: '40003' } },
+    ]);
+    expect(await rowOf(db, id)).toEqual(saved);
+  });
+
   it('a request lost before the server (network failure) is a failure, and the retry recovers', async () => {
     const user = await newUser(db);
     let dropped = 0;
@@ -471,7 +488,17 @@ describe('ownership across users', () => {
     const before = await rowOf(db, id);
 
     bindClient(transport, await newUser(db));
+    const start = transport.requests.length;
     expect(await completeSession(id, completion())).toEqual({ success: false });
+    expect(await completeSession(randomUUID(), completion())).toEqual({ success: false });
+    const refusal = {
+      method: 'POST', path: '/rest/v1/rpc/complete_session_v2', status: 200,
+      response: { success: false, error: 'session_not_found' },
+    };
+    expect(transport.requests.slice(start)).toEqual([
+      { ...refusal, query: {} },
+      { ...refusal, query: {} },
+    ]);
     expect(await rowOf(db, id)).toEqual(before);
     expect(await getSessionById(id)).toBeNull();
   });
