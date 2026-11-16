@@ -223,8 +223,8 @@ What each branch must prove before it may say so (Sam's fa7e7180 return):
   attachments, best passed as its bytes) and the destruction proof. It re-hashes those bytes, requires the array to
   hold exactly one receipt, and re-checks that receipt's steps, release, stack and cleanup (Sam's ac08d973 review).
   A test runs the workflow's own jq extraction and the combined finaliser's CLI and hands the files to it. A bare or
-  summary-only `PASSED` is `NOT_PROVEN`. Two phases on one stack are `NOT_PROVEN`. While access after a membership
-  ends is held, full mode is at best `PENDING_POLICY`, never `PASSED`.
+  summary-only `PASSED` is `NOT_PROVEN`. Two phases on one stack are `NOT_PROVEN`. While any step is held for a
+  product policy (none is held now), full mode is at best `PENDING_POLICY`, never `PASSED`.
 - The outcome 8 paid value loop (#1822, `paid_value_loop`) is a local-stack journey like the others, not an outside
   receipt, re-validated in its own `paid_loop` mode. It keeps its own spec, Playwright config and 90-minute job
   timeout (the billing journeys keep 60). Its 17 steps are in outcome 8's own `paidLoopSteps.mjs`, which

@@ -333,7 +333,7 @@ const fullPlanReader = (path: string) => {
     doc.jobs.journey.steps.push({ run: 'if [ "$JOURNEY" = \'paid_value_loop\' ]; then playwright test -c playwright.paid-value-loop.config.ts; fi' });
     return JSON.stringify(doc); // JSON is YAML
   }
-  if (path.endsWith('appRuntimeConfig.ts')) return 'export const isLocalPaymentsSandbox = true;';
+  if (path.endsWith('appRuntimeConfig.ts')) return 'export function isLocalBillingSandbox(input) { return true; }';
   if (path.endsWith('refund.ts')) return 'refund-cancel-at-period-end-';
   if (path.endsWith('stripe-webhook/index.ts')) return 'case "charge.refunded"';
   return '';
@@ -350,7 +350,9 @@ test('dry run: plans only, makes no call, never authorizes, and says READY only 
     assert.equal(plan.result === 'READY', allReady && plan.phases.every(phase => phase.pendingPolicySteps.length === 0), mode);
     if (!allReady) assert.equal(plan.result, 'BLOCKED_PREREQUISITE', mode);
   }
-  assert.notEqual(planRun('full').result, 'READY');
+  // With the loopback gate (#1879) and no policy hold, this tree's full plan can be READY. That is a dry-run plan
+  // only: READY follows the committed prerequisites (checked phase by phase below) and never authorizes a run.
+  assert.equal(planRun('full').authorizesExecution, false);
   const best = planRun('full', fullPlanReader);
   assert.ok(best.phases.every(phase => phase.status === 'READY'), JSON.stringify(best.phases.map(p => [p.id, p.blockedBy])));
   assert.equal(best.result, 'READY');
@@ -679,6 +681,9 @@ test('a dispatched journey whose source prerequisites are missing is refused bef
     assert.equal(result.status === 0, missing.length === 0, `${phase.id}: ${result.stdout}${result.stderr}`);
     for (const item of missing) assert.match(result.stdout, new RegExp(`BLOCKED PREREQUISITE.*${item}`), phase.id);
   }
+  // The committed loopback guard satisfies the gate, so those journeys are not blocked here (Codex P1 on #1879).
+  assert.ok(PREREQUISITES.payment_gate.check(readRepoFile), 'appRuntimeConfig.ts exports isLocalBillingSandbox');
+  assert.equal(PREREQUISITES.payment_gate.check(() => 'export const isLocalPaymentsSandbox = true;'), false);
   // The finding that added this step: the portal journeys need the local payment gate.
   for (const journey of ['conversion', 'portal_recovery', 'portal_expiry']) {
     assert.ok(PHASES.find(phase => phase.id === journey)!.requires.includes('payment_gate'), journey);

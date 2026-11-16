@@ -43,8 +43,8 @@ export const PREREQUISITES = {
     check: read => read('backend/supabase/functions/stripe-checkout/localSandbox.ts') !== null,
   },
   payment_gate: {
-    what: 'Upgrade button shown in the local test-mode sandbox (c9898bf8)',
-    check: read => /\bisLocalPaymentsSandbox\b/.test(read('frontend/src/config/appRuntimeConfig.ts') ?? ''),
+    what: 'Upgrade button shown only on the loopback local billing build (appRuntimeConfig isLocalBillingSandbox)',
+    check: read => /\bexport function isLocalBillingSandbox\b/.test(read('frontend/src/config/appRuntimeConfig.ts') ?? ''),
   },
   refund_handler: {
     what: 'webhook schedules cancel at period end on a refund (34dab357, bf683e66; ownership and price checks 4edd5288)',
