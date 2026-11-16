@@ -69,7 +69,12 @@ describe('cleanup reserve: structural worst case, read from the cleanup code', (
         expect(cleanupReserve('J6').requests).toBe(perAccount + starts('J6'));
         expect(cleanupReserve('J5').requests).toBe(3 * perAccount + starts('J5'));
         expect(cleanupReserve('J1').requests).toBe(2 * perAccount + starts('J1') + 3);
-        expect(cleanupReserve('J8').requests).toBe(3 * perAccount + starts('J8') + 6);
+        // J8 (Sam on #1870): ONE invocation, so one account deletion and ONE fence's close, clean and verify, never zero.
+        expect(runOwnedAccounts(JOURNEYS.find((x) => x.id === 'J8'))).toBe(1);
+        expect(cleanupReserve('J8').requests).toBe(perAccount + starts('J8') + 3);
+        const j8 = cleanupReserve('J8').steps.map((st) => st.op);
+        expect(j8.filter((op) => op === 'delete the account (deleteUser)')).toHaveLength(1);
+        expect(j8.filter((op) => /feedback fence: close, clean, verify$/.test(op))).toEqual(['J8 feedback fence: close, clean, verify']);
         expect(cleanupReserve('J9').requests).toBe(0);
     });
     it('reads one signup per harness case from the specs as they are', () => {

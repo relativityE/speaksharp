@@ -86,10 +86,11 @@ describe('nightly plan structure (#1864 design)', () => {
         expect(kinds('J2')).toEqual(['canary-claim-ack:NOT RUN', 'disabled-until-reviewed:NOT RUN', NO_CASE]);
         expect(kinds('J7.a')).toEqual(['unqualified:HOLD']);
         expect(kinds('J7.d')).toEqual([NO_CASE]);
-        expect(kinds('J8.c')).toEqual([NO_CASE]);
+        // J8 (Sam on #1870): one invocation, gated NOT RUN until its reviewed harness adapter lands.
+        for (const id of ['J8.a', 'J8.b', 'J8.c']) expect(kinds(id)).toEqual(['no-j8-harness-adapter:NOT RUN']);
         expect(kinds('J9.a')).toEqual(['test-mode-fixture:NOT RUN', NO_CASE]);
         expect(kinds('J9.b')).toEqual(['no-safe-production-proof:NOT RUN', NO_CASE]);
-        expect(ALL_LEGS.filter((l) => l.gates.length > 0).map((l) => l.id)).toEqual(['J1.d', 'J1.e', 'J1.f', 'J2', 'J7.a', 'J7.d', 'J8.c', 'J9.a', 'J9.b']);
+        expect(ALL_LEGS.filter((l) => l.gates.length > 0).map((l) => l.id)).toEqual(['J1.d', 'J1.e', 'J1.f', 'J2', 'J7.a', 'J7.d', 'J8.a', 'J8.b', 'J8.c', 'J9.a', 'J9.b']);
     });
     it('asserts the four invariants in every leg', () => {
         for (const l of ALL_LEGS)
