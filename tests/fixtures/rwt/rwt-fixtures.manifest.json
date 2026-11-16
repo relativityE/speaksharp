@@ -15,7 +15,7 @@
         "you know": 1
       },
       "knownFixtureLimits": [
-        "Local whisper-base.en baseline hears every macOS TTS voice's 'uh' as 'ah' (or drops it): 0/3 uh. um 4/4 and you know 1/1 are recognized. The filler ground-truth row is FIXTURE-LIMITED with this file and needs a human recording, which must never be committed to this public repository."
+        "Offline whisper-base.en (transformers.js 2.17.2, Node) recognizes 0/3 of this file's sentence-initial 'Uh,' as 'uh' (heard as 'Ah' or dropped); um 4/4 and you know 1/1 are recognized. A 2026-11-11 offline same-audio swap moved one voice's 'uh' token between positions: recognized as 'uh' mid-sentence, as 'Ah' sentence-initially. That points at sentence-initial recognition, not at the fixture; browser (ORT-Web WASM) confirmation is pending. Per-word filler rows are judged without exemption. A separate human recording observation also applies, and that recording must never be committed to this public repository."
       ],
       "localV2Baseline": {
         "model": "whisper-base.en (transformers.js 2.17.2, offline)",

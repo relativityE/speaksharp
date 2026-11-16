@@ -8,12 +8,78 @@ import {createHash, randomUUID} from 'node:crypto';
 import {createRequire} from 'node:module';
 import {HELPER_CONTRACTS, helperRuntimeIdentity, helperSourceBinding, helperCoverageOptions, validateHelperCoverage,normalizedHelperWorkerFunctions,validateRawHelperFunctions} from '../../scripts/lib/helperExecutionEvidence.mjs';
 import {runVitestHelperExecution,runVitestExecution,dependencyPaths} from '../../scripts/run-test-efficacy.mjs';
-import {executionContext, validateVitestExecution,executionRoute,executionCoverage,changedEvidencePaths,readCurrentQuality} from '../../scripts/lib/testExecutionEvidence.mjs';
+import {executionContext, validateVitestExecution,executionRoute,executionCoverage,changedEvidencePaths,readCurrentQuality,selectExecutionContracts} from '../../scripts/lib/testExecutionEvidence.mjs';
 import {TEST_EFFICACY_CONTRACTS,MEANINGFUL_COVERAGE_MANIFEST} from '../../scripts/lib/softwareQualityEvidenceQualification.mjs';
 const {test} = process.env.NODE_TEST_CONTEXT ? await import('node:test') : await import('vitest');
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const contract = HELPER_CONTRACTS[0];
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+
+const AHT1811_HELPERS=[
+  ['tests/live/helpers/feedbackAttemptLedger.ts','tests/unit/feedbackBoundedWrites.test.ts',["stableDraftSha","capDecision","isNamedIdempotencyReplay","syntheticRejection","feedbackCapVerdict","feedbackLedgerVerdict","stickyFinalVerdict","writeFeedbackAttemptRows","feedbackLegRecovered","feedbackLegRows","finalIsolationVerdict","withoutFaultLegSubmits"]],
+  ['tests/live/helpers/feedbackFence.ts','tests/unit/feedbackFence1811.test.ts',["fenceRunKey","verifyFeedbackFence","openFeedbackFence","closeFeedbackFence","cleanFeedbackFence","cleanAndVerifyFeedbackFence","fenceCleanupVerdict","JourneyFeedbackFence#open","JourneyFeedbackFence#openRow","JourneyFeedbackFence#stopWriter","JourneyFeedbackFence#close","JourneyFeedbackFence#cleanRow"]],
+  ['tests/live/helpers/feedbackDiagnosticRef.ts','tests/unit/feedbackDiagnosticRef1539.test.ts',["readStoredDiagnosticRef","noSessionBindingVerdict","olderTakeBindingVerdict","classifyInsertBody","writeNoSessionReportRows","writeOlderTakeReportRows","writeOlderTakeBindingRow"]],
+  ['tests/live/helpers/feedbackNoSessionCleanup.ts','tests/unit/feedbackNoSessionCleanup.test.ts',["noSessionWriteUncertainty"]],
+  ['tests/live/helpers/feedbackRecoveryInventory.ts','tests/unit/feedbackBoundedWrites.test.ts',["verifyRecoveryStore","recoveryFileName","recordDurably","settleRecoveryInventory","readRecoveryInventory","unresolvedAttempts","recoverFromInventory"]],
+  ['tests/live/helpers/feedbackReportCleanup.ts','tests/unit/feedbackBoundedWrites.test.ts',["mergeCapture","captureRunReports","writeUncertainty","zeroResidueVerdict","cleanupRunReports","zeroResidueNotRun"]],
+  ['tests/live/helpers/rwtAdverseRecovery.ts','tests/unit/rwtAdverseRecovery.test.ts',["isRecoveryControl","retrySetupOutcome","recoverySavedVerdict","savedTranscriptDigest","reviewReopenVerdict","modelBytesSeen","midDownloadFailureVerdict",
+    "bytesCounted","downloadingNow","offlineInjectionGate","attemptPhase","runOfflineFault","offlineNotExercisedVerdict","coldTakeSettledVerdict","unprovenRestoreVerdict","faultUnprovenRecoveryVerdict"]],
+  // AHT-14 (#1868): the attempt's network transfer behind the offline gate.
+  ['tests/live/helpers/rwtAdverse.ts','tests/unit/rwtAdverseRecovery.test.ts',["downloadFailureVerdict","ModelTransferTracker#startAttempt","ModelTransferTracker#armFault","ModelTransferTracker#disarm",
+    "ModelTransferTracker#onRequest","ModelTransferTracker#onResponse","ModelTransferTracker#onFinished","ModelTransferTracker#onFailed",
+    "ModelTransferTracker#snapshot"]],
+  ['tests/live/helpers/rwtFocusEditCancel.ts','tests/unit/rwtFocusEditCancel.test.ts',["editCancelVerdict"]],
+  ['tests/live/helpers/rwtFocusNextMarker.ts','tests/unit/rwtFocusNextMarker.test.ts',["expectedNextMarker","nextPointMarkedVerdict","sampleFocusRail"]],
+  ['tests/live/helpers/rwtFocusOpenMicIsolation.ts','tests/unit/rwtFocusOpenMicIsolation.test.ts',["openMicIsolationVerdict"]],
+  ['tests/live/helpers/rwtFocusPresentation.ts','tests/unit/rwtFocusPresentation.test.ts',["focusPresentationRow","focusSignInRow"]],
+  ['tests/live/helpers/rwtFocusSameTarget.ts','tests/unit/rwtFocusSameTarget.test.ts',["instructionHash","focusSetHash","pointHash","decidingRead","displayedTargetMatches","focusSameTargetVerdict","readTargetInPage"]],
+  ['tests/live/helpers/rwtFocusSaveIsolation.ts','tests/unit/rwtFocusSaveIsolation.test.ts',["focusDesignedSaves","focusCapturedTakes"]],
+  ['tests/live/helpers/rwtFocusTakesDiffer.ts','tests/unit/rwtFocusTakesDiffer.test.ts',["focusTakesDifferRow"]],
+  ['tests/live/helpers/rwtLeaveDestinationReady.ts','tests/unit/rwtLeaveDestinationReady.test.ts',["onFocusDestination","leaveDestinationReady","waitForLeaveDestinationReady"]],
+  ['tests/live/helpers/rwtNavigationRows.ts','tests/unit/rwtNavigationRows.test.ts',["sessionFactsFromRows","sessionWritesVerdict","historyPreservedVerdict","deepLinkTarget","listedOwnTarget","returnEntryMicVerdict","renderedOwnDetailVerdict","renderedOwnDetailRow"]],
+  ['tests/live/helpers/rwtPendingStartRecovery.ts','tests/unit/rwtPendingStartRecovery.test.ts',["recoveryTakePlan","recoveryTakeVerdict"]],
+  ['tests/live/helpers/rwtSaveRetryAttempts.ts','tests/unit/rwtSaveRetryAttempts.test.ts',["parseCompletionAttempt","attemptEvidence","completionAttemptsVerdict","exactRetrySaveVerdict","reviewReopenVerdict","transcriptDigest"]],
+  ['tests/live/helpers/rwtTwoPlaces.ts','tests/unit/rwtTwoPlaces.test.ts',["sameBrowserRefusedVerdict","displacedFenceVerdict"]],
+];
+test('AHT-02 through AHT-15 helpers select exact offline callable consumers on helper-only changes',()=>{
+  for(const [helperFile,testFile,callables] of AHT1811_HELPERS) {
+    const contract=HELPER_CONTRACTS.find(item=>item.helperFile===helperFile);
+    assert.deepEqual(contract,{helperFile,testFile,callables});
+    assert.equal(executionRoute(helperFile,root).runner,'vitest-helper');
+    assert.equal(executionRoute(helperFile,root).applicable,true);
+    const selected=selectExecutionContracts(root,[helperFile],{helpersOnly:true});
+    assert.equal(selected.length,1);
+    assert.equal(selected[0].testFile,testFile);
+    assert.deepEqual(selected[0].callables,callables);
+  }
+  assert.equal(HELPER_CONTRACTS.some(item=>item.helperFile==='tests/live/helpers/rwtFocusPointsJourney.ts'),false,
+    'source-reviewed journey must not acquire live execution credit');
+  assert.equal(HELPER_CONTRACTS.some(item=>item.helperFile==='tests/live/helpers/rwtAdverseJourney.ts'),false,
+    'source-reviewed journey must not acquire live execution credit');
+});
+test('AHT helper qualification refuses missing consumer and missing callable for every added edge',()=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'aht-helper-routes-'));
+  try {
+    fs.writeFileSync(path.join(directory,'package.json'),'{"type":"module"}');
+    fs.symlinkSync(path.join(root,'node_modules'),path.join(directory,'node_modules'),'dir');
+    for(const [helperFile,testFile,callables] of AHT1811_HELPERS) {
+      const helper=path.join(directory,helperFile),consumer=path.join(directory,testFile);
+      fs.mkdirSync(path.dirname(helper),{recursive:true});fs.mkdirSync(path.dirname(consumer),{recursive:true});
+      const source=fs.readFileSync(path.join(root,helperFile),'utf8');
+      fs.writeFileSync(helper,source);fs.writeFileSync(consumer,fs.readFileSync(path.join(root,testFile)));
+      assert.equal(executionRoute(helperFile,directory).applicable,true);
+      fs.unlinkSync(consumer);
+      assert.equal(executionRoute(helperFile,directory).applicable,false);
+      fs.writeFileSync(consumer,fs.readFileSync(path.join(root,testFile)));
+      const name=callables[0];
+      const mutant=source.replaceAll(name,name+'Removed');
+      assert.notEqual(mutant,source);
+      fs.writeFileSync(helper,mutant);
+      assert.equal(executionRoute(helperFile,directory).applicable,false);
+    }
+  } finally {fs.rmSync(directory,{recursive:true,force:true});}
+});
+
 
 test('registers explicit canary and reader callable consumers without a generic helper exemption',()=>{
   for(const [helperFile,testFile] of [
@@ -23,6 +89,7 @@ test('registers explicit canary and reader callable consumers without a generic 
     ['tests/live/helpers/rwtOracles.ts','tests/unit/rwtReadbackBindingReasons1258.test.ts'],
     ['tests/live/helpers/rwtStepDiagnostics.ts','tests/unit/rwtStepDiagnostics1258.test.ts'],
     ['tests/live/helpers/rwtFillerReference.ts','tests/unit/rwtFillerReference1258.test.ts'],
+    ['tests/live/helpers/rwtInterruptedRunRecovery.ts','tests/unit/rwtInterruptedRunRecovery1258.test.ts'],
     ['tests/live/helpers/returningSignInAttempt.ts','tests/unit/returningSignInAttempt1495.test.ts'],
     ['tests/live/helpers/repeatMetricWording.ts','tests/unit/repeatMetricWording1548.test.ts'],
     ['tests/db/c1CatalogStages.js','tests/unit/exactMigrationGate.test.js'],
@@ -355,7 +422,7 @@ test('actual embedded converter bytes are explicit and a same-lock private insta
     fs.unlinkSync(path.join(fixture.directory,'node_modules'));
     fs.mkdirSync(path.join(fixture.directory,'node_modules/@vitest'),{recursive:true});
     fs.symlinkSync(privateProvider,path.join(fixture.directory,'node_modules/@vitest/coverage-v8'),'dir');
-    for(const name of ['jsdom','typescript','@jridgewell/trace-mapping','@bcoe/v8-coverage','vite-node']) {
+    for(const name of ['jsdom','typescript','@jridgewell/trace-mapping','@bcoe/v8-coverage','vite','esbuild','vite-node']) {
       const target=path.join(fixture.directory,'node_modules',name);
       fs.mkdirSync(path.dirname(target),{recursive:true});
       fs.symlinkSync(path.dirname(require.resolve(`${name}/package.json`)),target,'dir');
@@ -384,6 +451,25 @@ test('actual embedded converter bytes are explicit and a same-lock private insta
 });
 
 if(process.env.GITHUB_ACTIONS==='true'||process.env.TEST_EFFICACY_REAL_RUNTIME==='1') {
+  test('INSTALLED mjs helper uses a genuine source map and refuses an uncalled callable',()=>{
+    const f=fixture();
+    const base=f.git(['rev-parse','HEAD']);
+    const helper=HELPER_CONTRACTS.find(item=>item.helperFile==='tests/billing/user-journey/localStackResources.mjs');
+    const source=helper.callables.map(name=>`export function ${name}(a=2,b=3) { return a+b; }`).join('\n')+'\n';
+    const consumer=`import {test,expect} from 'vitest';\nimport {${helper.callables.join(',')}} from './localStackResources.mjs';\n`
+      +helper.callables.map(name=>`test('${name}',()=>expect(${name}(2,3)).toBe(5));`).join('\n')+'\n';
+    const run=()=>runVitestExecution({root:f.directory,base});
+    try {
+      f.write(helper.helperFile,source);f.write(helper.testFile,consumer);
+      const first=run();
+      assert.deepEqual(first.tests[0].phase.helperCoverage.validated.executed.map(item=>item.name),helper.callables);
+      f.write(helper.testFile,consumer.replace(`expect(${helper.callables[0]}(2,3))`,'expect(2+3)'));
+      assert.throws(run,/Uncalled helper|Helper remapped callable not executed/);
+      f.write(helper.testFile,consumer);
+      assert.equal(run().tests[0].phase.inputSha256,first.tests[0].phase.inputSha256);
+    } finally {f.clean();}
+  });
+
   test('INSTALLED exact recovery class methods require real mapped calls, not a neighboring passing body',()=>{
     const f=recoveryClassFixture();
     const base=f.git(['rev-parse','HEAD']);

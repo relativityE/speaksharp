@@ -78,7 +78,7 @@ def current_identities(req):
 
 
 def history_baselines(history, catalog, current=None):
-    """Nightly baselines (G7, Sam 1793573813.598689) from the VERIFIED carried-forward history in the latest record: every catalog row
+    """Nightly baselines (G7) from the VERIFIED carried-forward history in the latest record: every catalog row
     (all 15 cases, 204 rows) is compared with its last executed verdict and the occurrence that produced it, and each journey names its
     previous verdict and last-known-good. A row that has never executed has no baseline; NOT RUN never replaced an earlier verdict."""
     from publish_latest_record import sanitize_history

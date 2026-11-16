@@ -4,6 +4,7 @@ import { calculateTranscriptStats } from '../../utils/fillerWordUtils';
 import logger from '../../lib/logger';
 import { useProfile } from '../useProfile';
 import { toast } from '@/lib/toast';
+import { MIC_ACCESS_MESSAGES, MIC_BLOCKED_MESSAGE, micAccessIssue } from '@/lib/micAccessErrors';
 
 import { useTranscriptionState } from './useTranscriptionState';
 import { useFillerWords } from './useFillerWords';
@@ -23,14 +24,17 @@ import { getEffectiveSubscriptionStatus, isPro } from '@/constants/subscriptionT
 function handleTranscriptionError(err: Error) {
     const rawMessage = err.message || '';
     const normalized = rawMessage.trim();
+    const micIssue = micAccessIssue(err);
     const isMicPermissionError =
         err.name === 'NotAllowedError' ||
         err.name === 'PermissionDeniedError' ||
         /permission|notallowed|mic_stream_unavailable|media devices/i.test(normalized);
-    const message = normalized && normalized !== 'Error occurred'
+    const message = micIssue
+        ? MIC_ACCESS_MESSAGES[micIssue]
+        : normalized && normalized !== 'Error occurred'
         ? normalized
         : isMicPermissionError
-            ? 'Microphone access is blocked. Allow microphone access and try again.'
+            ? MIC_BLOCKED_MESSAGE
             : 'Transcription could not start. Try again, or switch speech mode for this session.';
     logger.error({ err }, 'Transcription Error');
     toast.error(message, { id: 'stt-error-toast', duration: 5000 });

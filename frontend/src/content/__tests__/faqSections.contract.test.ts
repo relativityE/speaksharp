@@ -76,6 +76,14 @@ describe('FAQ claims match the shipped contracts', () => {
         expect(text).not.toMatch(/audio is not recorded/i);
     });
 
+    it('what is saved: the transcript is stored in the account and sent to an AI service, named in the Privacy Policy', () => {
+        expect(answerOf('what-is-saved')).toMatch(/stored in your account/i);
+        expect(answerOf('what-is-saved')).toMatch(/sent to an AI service/i);
+        expect(answerOf('what-is-saved')).toMatch(/Privacy Policy names the current provider/i);
+        // Akin 2026-11-11: product copy says "AI service" so it survives a provider change; only the policy names it.
+        expect(answerOf('what-is-saved')).not.toMatch(/Gemini/i);
+    });
+
     it('CASUALTY: claims no retention schedule while newest-one retention is only installed, not activated', () => {
         expect(text).not.toMatch(/newest[- ](one|two)|deleted after|kept for \d+|automatically deleted/i);
     });

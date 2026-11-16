@@ -8,6 +8,10 @@ export const SOURCE_CONSUMER='tests/unit/sourceContractEvidence.test.js';
 export const SOURCE_ASSERTION='consumes registered source inputs with fault-sensitive contracts and no live credit';
 export const CASE07_APPLY='product_release/evidence/retained/case07-apply.proposed.sql';
 export const CASE07_ROLLBACK='product_release/evidence/retained/case07-rollback.proposed.sql';
+const FIXTURE_GENERATOR='tests/fixtures/rwt/generate-rwt-tts-fixtures.sh';
+export const BILLING_SPEC='tests/billing/user-journey/journey.billing.spec.ts';
+export const BILLING_TARGET='tests/billing/user-journey/sandbox-target.json';
+export const BILLING_README='tests/billing/user-journey/README.md';
 export const SOURCE_CONTRACTS=Object.freeze([
   'tests/canary/smoke.canary.spec.ts',
   'tests/live/rwt-open-mic-first-session.live.spec.ts',
@@ -20,6 +24,20 @@ export const SOURCE_CONTRACTS=Object.freeze([
   'tests/live/account-delete-entry-a3-3.live.spec.ts',
   CASE07_APPLY,
   CASE07_ROLLBACK,
+  BILLING_SPEC,
+  BILLING_TARGET,
+  BILLING_README,
+  "tests/billing/user-journey/paid-value-loop.billing.spec.ts",
+  "tests/billing/user-journey/journeySteps.mjs",
+  "tests/billing/user-journey/paidLoopSteps.mjs",
+  "tests/billing/user-journey/sandbox-target.local.json",
+  "tests/billing/user-journey/journeySteps.d.mts",
+  "tests/billing/user-journey/localStackReceipt.d.mts",
+  "tests/billing/user-journey/localStackResources.d.mts",
+  "tests/billing/user-journey/paidLoopSteps.d.mts",
+  "tests/billing/user-journey/runnerPlan.d.mts",
+  "tests/billing/user-journey/runnerPreflight.d.mts",
+
   // #1760 model comparison: operator-run harness and evaluator inputs with no unit execution of their own. Wiring, text and
   // data contracts only; the live in-app comparison, the standalone evaluator, browsers and models are NOT RUN.
   'tests/model-dropin/inAppComparison.live.spec.ts',
@@ -37,6 +55,17 @@ export const SOURCE_CONTRACTS=Object.freeze([
   'tests/evidence/fixtures/model-evaluator/corpus-fixture-001-paired.json',
   'tests/evidence/fixtures/model-evaluator/product-campaign.json',
   'tests/evidence/fixtures/model-evaluator/product-campaign.parakeet-fixture-001.json',
+  FIXTURE_GENERATOR,
+  // #1811: source consumption only. These browser drivers are never executed by this consumer.
+  'tests/live/rwt-abandon-and-two-tabs.live.spec.ts',
+  'tests/live/rwt-adverse-mic-denied.live.spec.ts',
+  'tests/live/rwt-adverse-mic-model.live.spec.ts',
+  'tests/live/rwt-feedback-association-boundaries.live.spec.ts',
+  'tests/live/rwt-pending-start-navigation.live.spec.ts',
+  'tests/live/rwt-save-retry-recovery.live.spec.ts',
+  'tests/live/helpers/rwtFocusPointsJourney.ts',
+  'tests/live/helpers/rwtAdverseJourney.ts',
+  'tests/live/auth.live.spec.ts',
 ]);
 const MODEL_ADAPTER='./scripts/model-evaluator/adapters/candidate-browser.ts';
 const arm=(candidateId,engine,modelId,assetDigest,runtime,backend)=>Object.freeze({kind:'json',pins:[
@@ -46,6 +75,8 @@ const arm=(candidateId,engine,modelId,assetDigest,runtime,backend)=>Object.freez
 const WAV={'fixture-001':'500dc7ab81937cab98f6b3ef4da9b29ee1093b583e1a677840ea8458b92ef247'};
 // Pinned evaluator inputs: every pin must hold exactly, and a corpus consumes each referenced WAV by digest (as the evaluator does).
 const DATA_CONTRACTS=Object.freeze({
+"tests/billing/user-journey/sandbox-target.local.json":Object.freeze({kind:"json",pins:[[["status"], "LOCAL_DISPOSABLE_STACK"], [["appOrigin"], "http://localhost:5173"], [["apiOrigin"], "http://127.0.0.1:54321"], [["productionApiOrigin"], "https://yxlapjuovrsvjswkwnrk.supabase.co"]]}),
+
   'tests/evidence/fixtures/model-evaluator/baseline-shared-v2.json':arm('v2:base.en','private-v2','Xenova/whisper-base.en',
     'c7eaa6a9f8ccacbdafce2092d8e03752e2540acf0d4d87b01aebb05f6ba1d110','@xenova/transformers@2.17.2','wasm'),
   'tests/evidence/fixtures/model-evaluator/candidate-parakeet-tdt-v3.json':arm('parakeet:tdt-v3:int8','parakeet-tdt','nvidia/parakeet-tdt-0.6b-v3',
@@ -69,6 +100,15 @@ const DATA_CONTRACTS=Object.freeze({
 });
 // Operator documentation: each required statement must appear exactly once (a raw-text wiring contract).
 const TEXT_CONTRACTS=Object.freeze({
+"tests/billing/user-journey/journeySteps.mjs":Object.freeze(["// The billing journeys and the steps each must prove. One source for the spec (via contract.ts), the workflow's\n// combined-receipt finalizer (localStackReceipt.mjs) and the runner plan (runnerPlan.mjs), so they can't drift.\nimport { PAID_LOOP_STEPS } from './paidLoopSteps.mjs';\n\n/** The three lifecycle journeys a run without a mode collects (unchanged). */\nexport const BILLING_JOURNEYS = Object.freeze(['conversion', 'renewal_recovery', 'portal_expiry']);\n/** Branches only the Stripe test-mode runner's full mode adds. Each has its own fixture, test and receipt. */\nexport const FULL_MODE_JOURNEYS = Object.freeze(['failed_checkout', 'portal_recovery', 'refund_period_end']);\nexport const RUNNER_JOURNEYS = Object.freeze([...BILLING_JOURNEYS, ...FULL_MODE_JOURNEYS]);\n/**\n * The outcome 8 paid value loop (#1822). It has its own spec, Playwright config and runner mode (`paid_loop`), so the\n * lifecycle spec never collects it and billing's verdict never depends on it, but it runs on the same disposable\n * local stack and goes through the same receipt path.\n */\nexport const PAID_LOOP_JOURNEYS = Object.freeze(['paid_value_loop']);\n/** Every journey the local-stack workflow may dispatch, and so every journey its combined receipt accepts. */\nexport const LOCAL_STACK_JOURNEYS = Object.freeze([...RUNNER_JOURNEYS, ...PAID_LOOP_JOURNEYS]);\nexport const RUNNER_MODES = Object.freeze(['smoke', 'full']);\n\nconst PAID = ['hosted_checkout', 'first_invoice', 'stripe_delivery', 'paid_entitlement'];\nexport const REQUIRED_STEPS = Object.freeze({\n  conversion: Object.freeze(['trial_granted', 'trial_expired', 'repeated_click_one_session', 'checkout_cancelled',\n    'checkout_retried', ...PAID, 'returned_to_app', 'paid_ui', 'reload', 'sign_in_again', 'next_recording', 'cleanup']),\n  renewal_recovery: Object.freeze([...PAID,\n    'renewal_paid', 'renewal_delivery', 'failure_observed', 'failure_delivery', 'access_revoked',\n    'recovery_paid', 'recovery_delivery', 'access_restored', 'cleanup']),\n  portal_expiry: Object.freeze([...PAID,\n    'portal_opened', 'portal_cancelled', 'cancellation_delivery', 'paid_until_period_end',\n    'expiry_delivery', 'account_retained', 'access_expired', 'history_retained', 'cleanup']),\n  // A declined card and an abandoned session grant nothing; a retry then converts to exactly one subscription.\n  failed_checkout: Object.freeze(['trial_expired', 'declined_checkout', 'no_access_after_decline', 'abandoned_checkout',\n    'no_access_after_abandon', ...PAID, 'single_subscription', 'cleanup']),\n  // Recovery is the customer's own act in Manage billing (the Stripe portal), not an API payment.\n  portal_recovery: Object.freeze([...PAID,\n    'failure_observed', 'failure_delivery', 'access_revoked', 'portal_opened', 'portal_payment_method_updated',\n    'recovery_paid', 'recovery_delivery', 'access_restored', 'cleanup']),\n  // Akin, 2026-11-12: refunds are full only, and \"the customer uses the balance days/time of the monthly\n  // subscription\": Pro until the period ends, then no second charge.\n  refund_period_end: Object.freeze([...PAID,\n    'refund_issued', 'refund_cancellation_scheduled', 'cancellation_delivery', 'paid_until_period_end',\n    'expiry_delivery', 'no_second_charge', 'account_retained', 'access_expired', 'history_retained', 'cleanup']),\n  // Outcome 8 (#1822) owns this list in paidLoopSteps.mjs; this file only lists it.\n  paid_value_loop: PAID_LOOP_STEPS,\n});\n\n/**\n * Steps held until a product policy is confirmed: each receipt shows them as PENDING_POLICY, and a journey holding\n * one cannot pass. None is held now. The end-of-access policy that held access_expired and history_retained\n * (Sam, 2026-11-12) is Akin's 2026-11-14 rule, \"No payment, no service or access to their past data\", which the\n * #1863 payment wall enforces; both steps are now asserted after the paid period ends.\n */\nexport const PENDING_POLICY = 'PENDING_POLICY';\nexport const POLICY_PENDING_STEPS = Object.freeze({});"]),
+"tests/billing/user-journey/paidLoopSteps.mjs":Object.freeze(["// The outcome 8 paid value loop's step list (#1822). Outcome 8 owns this list; journeySteps.mjs only lists it, so\n// the spec, the workflow's combined receipt and the runner plan all read the same 17 steps.\n\n/** The four steps every paid journey proves first (the same four as the billing journeys, in the same order). */\nexport const PAID_LOOP_PAID_STEPS = Object.freeze(['hosted_checkout', 'first_invoice', 'stripe_delivery', 'paid_entitlement']);\n\n/** One paid account gets coaching, a linked repeat, a comparison and a returning sign-in. */\nexport const PAID_LOOP_STEPS = Object.freeze(['trial_expired', ...PAID_LOOP_PAID_STEPS,\n  'first_take_saved', 'first_take_eligible', 'coaching_saved', 'coaching_rendered', 'recommendation_recorded',\n  'linked_repeat_started', 'repeat_take_saved', 'repeat_resolved', 'comparison_shown',\n  'sign_in_again', 'readback', 'cleanup']);"]),
+"tests/billing/user-journey/journeySteps.d.mts":Object.freeze(["export declare const BILLING_JOURNEYS: readonly ['conversion', 'renewal_recovery', 'portal_expiry'];\nexport type BillingJourney = typeof BILLING_JOURNEYS[number];\nexport declare const FULL_MODE_JOURNEYS: readonly ['failed_checkout', 'portal_recovery', 'refund_period_end'];\nexport declare const RUNNER_JOURNEYS: readonly [...typeof BILLING_JOURNEYS, ...typeof FULL_MODE_JOURNEYS];\nexport type RunnerJourney = typeof RUNNER_JOURNEYS[number];\nexport declare const PAID_LOOP_JOURNEYS: readonly ['paid_value_loop'];\nexport declare const LOCAL_STACK_JOURNEYS: readonly [...typeof RUNNER_JOURNEYS, ...typeof PAID_LOOP_JOURNEYS];\nexport type LocalStackJourney = typeof LOCAL_STACK_JOURNEYS[number];\nexport declare const RUNNER_MODES: readonly ['smoke', 'full'];\nexport type RunnerMode = typeof RUNNER_MODES[number];\nexport declare const REQUIRED_STEPS: Readonly<Record<LocalStackJourney, readonly string[]>>;\nexport declare const PENDING_POLICY: 'PENDING_POLICY';\nexport declare const POLICY_PENDING_STEPS: Readonly<Partial<Record<LocalStackJourney, readonly string[]>>>;"]),
+"tests/billing/user-journey/localStackReceipt.d.mts":Object.freeze(["export declare const PENDING: 'PENDING_STACK_DESTRUCTION';\nexport declare const RECEIPT_KEYS: readonly string[];\nexport interface LocalStackChecks { stackStopped?: string; stackDestroyed?: string; stripeClean?: string }\nexport interface LocalStackExpected { journey?: string; release?: string; stackRun?: string; receiptSha256?: string; destruction?: unknown; identity?: unknown }\nexport interface CombinedLocalStackReceipt {\n  schema: 'billing-local-stack-combined/v3';\n  journey: string | null;\n  release: string | null;\n  stackRun: string | null;\n  rawReceiptSha256: string | null;\n  stackIdentitySha256: string | null;\n  journeyReceipt: 'PENDING_STACK_DESTRUCTION' | 'NOT_PROVEN';\n  stackStopped: 'PASSED' | 'NOT_PROVEN';\n  stackDestroyed: 'PASSED' | 'NOT_PROVEN';\n  stripeFixturesRemoved: 'PASSED' | 'NOT_PROVEN';\n  billingRowResidue: 'NOT_READ_DATABASE_DESTROYED' | 'NOT_READ_NOT_PROVEN';\n  defects: string[];\n  result: 'PASSED' | 'NOT_PROVEN';\n}\nexport declare function journeyReceiptDefects(receipt: unknown, expected: LocalStackExpected): string[];\nexport declare function destructionDefects(destruction: unknown, stackRun: string | null | undefined, identity: unknown): string[];\nexport declare function finaliseLocalStackReceipt(journeyReceipts: unknown, checks: LocalStackChecks, expected?: LocalStackExpected): CombinedLocalStackReceipt;"]),
+"tests/billing/user-journey/localStackResources.d.mts":Object.freeze(["export declare const IDENTITY_SCHEMA: 'billing-local-stack-identity/v1';\nexport declare const DESTROYED_SCHEMA: 'billing-local-stack-destroyed/v2';\nexport declare const PROJECT_PATTERN: RegExp;\nexport interface DockerAnswer { code: number; stdout: string; stderr: string }\nexport type DockerRunner = (args: string[]) => DockerAnswer;\nexport declare class StackProofError extends Error { code: string }\nexport interface StackIdentity {\n  schema: 'billing-local-stack-identity/v1'; project: string;\n  database: { container: string; volume: string; systemIdentifier: string };\n  containers: string[]; volumes: string[]; networks: string[];\n}\nexport interface StackDestroyed {\n  schema: 'billing-local-stack-destroyed/v2'; project: string; databaseSystemIdentifier: string; identitySha256: string;\n  containers: number; volumes: number; networks: number; destroyed: true;\n}\nexport declare function runDocker(args: string[]): DockerAnswer;\nexport declare function captureStackIdentity(project: string, docker?: DockerRunner): StackIdentity;\nexport declare function assertIdentityShape(identity: unknown, project: string): void;\nexport declare function stackIdentitySha256(identity: unknown, project: string): string;\nexport declare function verifyStackDestroyed(identity: unknown, project: string, docker?: DockerRunner): StackDestroyed;"]),
+"tests/billing/user-journey/paidLoopSteps.d.mts":Object.freeze(["export declare const PAID_LOOP_PAID_STEPS: readonly ['hosted_checkout', 'first_invoice', 'stripe_delivery', 'paid_entitlement'];\nexport declare const PAID_LOOP_STEPS: readonly string[];"]),
+"tests/billing/user-journey/runnerPlan.d.mts":Object.freeze(["export type RunnerPlanMode = 'smoke' | 'full' | 'paid_loop';\nexport const MODES: RunnerPlanMode[];\nexport const STRIPE_WRITE_ALLOWLIST: string[];\nexport type Reader = (path: string) => string | null;\nexport const PREREQUISITES: Record<string, { what: string; check: (read: Reader) => boolean }>;\nexport type Phase = {\n  id: string; kind: 'browser_branch'; modes: RunnerPlanMode[]; config: string; grep: string;\n  requires: string[]; steps: readonly string[]; pendingPolicySteps: readonly string[]; stripeWrites: string[];\n  testCards: string[]; events: string[]; proves: string; runtimeNeeds?: string[];\n};\nexport const PHASES: Phase[];\nexport const OPEN_QUESTIONS: string[];\nexport function readRepoFile(path: string): string | null;\nexport function workflowDispatch(read: Reader): { options: string[]; configs: Record<string, boolean> };\nexport type PlannedPhase = {\n  id: string; kind: Phase['kind']; status: 'READY' | 'BLOCKED_PREREQUISITE';\n  blockedBy: { prerequisite: string; what: string }[];\n  dispatch: { workflow: string; journey: string; config: string; grep: string; env: { BILLING_RUNNER_MODE?: string } };\n  pendingPolicySteps: readonly string[]; stripeWrites: string[]; testCards: string[]; events: string[];\n  proves: string; runtimeNeeds: string[];\n};\nexport function planRun(mode: string, read?: Reader): {\n  schema: 'billing-runner-plan/v1'; mode: RunnerPlanMode; dryRun: true; stripeCalls: 0; authorizesExecution: false;\n  result: 'READY' | 'READY_WITH_PENDING_POLICY' | 'BLOCKED_PREREQUISITE'; phases: PlannedPhase[]; openQuestions: string[];\n};\nexport type ModeEvidence = { phase: string; combined?: unknown; rawReceipt?: string | Uint8Array; destruction?: unknown; identity?: unknown };\nexport function finaliseModeReceipt(mode: string, entries: unknown, expected?: { release?: string }): {\n  schema: 'billing-runner-mode/v2'; mode: RunnerPlanMode; release: string | null; problems: string[];\n  phases: { phase: string; result: 'PASSED' | 'PENDING_POLICY' | 'NOT_PROVEN'; why: string[] }[];\n  result: 'PASSED' | 'PENDING_POLICY' | 'NOT_PROVEN';\n};"]),
+"tests/billing/user-journey/runnerPreflight.d.mts":Object.freeze(["export declare class PreflightError extends Error { code: string }\nexport declare const LOCAL_API_ORIGINS: readonly string[];\nexport declare function fingerprint(value: unknown): string;\ntype Env = Record<string, string | undefined>;\nexport declare function assertTestKeys(env: Env): void;\nexport declare function assertKeysMatchStack(env: Env): void;\nexport declare function assertLocalSupabaseKeys(env: Env): string;\nexport declare function probeLocalBackend(origin: string, anonKey: string | undefined,\n  fetchImpl: (url: string, init?: RequestInit) => Promise<{ status: number }>): Promise<void>;\nexport declare function runnerPreflight(env: Env,\n  fetchImpl?: (url: string, init?: RequestInit) => Promise<{ status: number }>): Promise<{\n  api: string; keyClass: 'test'; keysMatchStack: true; backend: 'loopback' }>;"]),
+
   'tests/model-dropin/EXECUTION.md':Object.freeze([
     'No account/session deletion or cleanup command is implemented.',
     'Evaluator binding: the collector binds take, capture and candidate identity from the',
@@ -136,8 +176,21 @@ const CASE07_SQL=Object.freeze({
 });
 // Real (non-type, unrenamed) imports a wiring contract requires; route contracts require none.
 const REQUIRED_IMPORTS=Object.freeze({
+"tests/billing/user-journey/paid-value-loop.billing.spec.ts":{module:"./paidValueLoop",names:["paidValueLoopReceipt", "assertSavedTake", "assertEligibleEvaluation", "savedCoaching", "coachingShownAsSaved", "assertRecommendation", "comparisonExpectation", "assertComparisonShown"]},
+
+  'tests/live/rwt-abandon-and-two-tabs.live.spec.ts':{module:'./helpers/rwtTwoPlaces',names:['displacedFenceVerdict','sameBrowserRefusedVerdict']},
+  'tests/live/rwt-adverse-mic-denied.live.spec.ts':{module:'./helpers/rwtAdverseJourney',names:['finalizer','fixture','runVariant']},
+  'tests/live/rwt-adverse-mic-model.live.spec.ts':{module:'./helpers/rwtAdverseJourney',names:['finalizer','fixture','runVariant']},
+  'tests/live/rwt-feedback-association-boundaries.live.spec.ts':{module:'./helpers/feedbackFence',names:['JourneyFeedbackFence']},
+  'tests/live/rwt-pending-start-navigation.live.spec.ts':{module:'./helpers/rwtPendingStartRecovery',names:['recoveryTakePlan','recoveryTakeVerdict','driveRecoveryPress','recoveryPressVerdict','armRecoveryClickGuard','disarmRecoveryClickGuard']},
+  'tests/live/rwt-save-retry-recovery.live.spec.ts':{module:'./helpers/rwtSaveRetryAttempts',names:['completionAttemptsVerdict']},
+  'tests/live/helpers/rwtFocusPointsJourney.ts':{module:'./rwtHarnessParity',names:['probeSaveIsolationRow','numericComparisonRow','readRepeatEligibility']},
+  'tests/live/helpers/rwtAdverseJourney.ts':{module:'./rwtAdverseRecovery',names:['recoverySavedVerdict','reviewReopenVerdict']},
+  "tests/live/auth.live.spec.ts":{module:"./helpers/servedReleaseBinding",names:["requiresReleaseBinding","servedReleaseVerdict"]},
   [SOURCE_CONTRACTS[0]]:{module:'./canaryStopSaveOracle',names:['collectCanaryStopSave','isOwnedStopSettledInPage','startOwnerId']},
   [SOURCE_CONTRACTS[1]]:{module:'./helpers/rwtFillerReference',names:['corpusRows','crossCheckCounts','fillerAnnotationsOf','hesitationTotals']},
+  [BILLING_SPEC]:{module:'./contract',names:['BILLING_JOURNEYS','receipt','requireFact','assertSandboxConfiguration',
+    'assertTestPrice','assertInvoice','isCorrelatedDelivery','safeFailureReason']},
 });
 const importsMissing=(ts,parsed,file)=>{
   const required=REQUIRED_IMPORTS[file];
@@ -150,21 +203,68 @@ const importsMissing=(ts,parsed,file)=>{
 };
 export const registeredSourceContract=file=>SOURCE_CONTRACTS.includes(file);
 
+const FILLER_REFERENCE='tests/live/helpers/rwtFillerReference.ts';
+// #1720 keeps annotations in reviewed executable code, not the manifest. Parse literals only;
+// never import/execute a live helper, and bind its exact bytes into the source witness.
+function fixtureReference(root,entry) {
+  const source=read(root,FILLER_REFERENCE);
+  const ts=createRequire(path.join(root,'package.json'))('typescript');
+  const parsed=ts.createSourceFile(FILLER_REFERENCE,source,ts.ScriptTarget.Latest,true);
+  if(parsed.parseDiagnostics.length) throw new Error('Invalid fixture reference source');
+  const declarations=parsed.statements.filter(ts.isVariableStatement).flatMap(s=>[...s.declarationList.declarations]);
+  const initializer=name=>{
+    const matches=declarations.filter(d=>ts.isIdentifier(d.name)&&d.name.text===name);
+    if(matches.length!==1) throw new Error('Missing/duplicate fixture reference declaration');
+    return matches[0].initializer;
+  };
+  const frozen=n=>{
+    if(!n||!ts.isCallExpression(n)||n.expression.getText(parsed)!=='Object.freeze'||n.arguments.length!==1) throw new Error('Unreviewed fixture reference expression');
+    return n.arguments[0];
+  };
+  const object=(n,keys)=>{
+    if(!ts.isObjectLiteralExpression(n)||n.properties.length!==keys.length) throw new Error('Invalid fixture reference literal');
+    const result={};
+    for(const p of n.properties) {
+      if(!ts.isPropertyAssignment(p)||!ts.isIdentifier(p.name)||!keys.includes(p.name.text)||Object.hasOwn(result,p.name.text)||!ts.isStringLiteral(p.initializer)) throw new Error('Invalid fixture reference property');
+      result[p.name.text]=p.initializer.text;
+    }
+    return result;
+  };
+  const identity=object(frozen(initializer('OPEN_MIC_TTS_IDENTITY')),['file','sha256','kind']);
+  if(!entry||Object.hasOwn(entry,'fillerAnnotations')||identity.kind!=='synthetic'||identity.file!=='open_mic_tts.wav'
+    || !/^[a-f0-9]{64}$/.test(identity.sha256)||Object.entries(identity).some(([k,v])=>entry[k]!==v)) throw new Error('Fixture reference identity mismatch');
+  const mapped=frozen(initializer('OPEN_MIC_TTS_ANNOTATIONS'));
+  if(!ts.isCallExpression(mapped)||!ts.isPropertyAccessExpression(mapped.expression)||mapped.expression.name.text!=='map'
+    ||!ts.isArrayLiteralExpression(mapped.expression.expression)||mapped.arguments.length!==1
+    ||tokens(root,mapped.arguments[0].getText(parsed))!==tokens(root,'(a) => Object.freeze(a)')) throw new Error('Invalid fixture annotation table');
+  const resolver=initializer('fillerAnnotationsOf');
+  const expected=`(entry: unknown): FillerAnnotation[] => {
+    const e = entry as { file?: unknown; sha256?: unknown; kind?: unknown } | null;
+    if (!e || e.file !== OPEN_MIC_TTS_IDENTITY.file || e.sha256 !== OPEN_MIC_TTS_IDENTITY.sha256 || e.kind !== OPEN_MIC_TTS_IDENTITY.kind) return [];
+    return OPEN_MIC_TTS_ANNOTATIONS.map((a) => ({ ...a }));
+  }`;
+  if(tokens(root,resolver.getText(parsed))!==tokens(root,expected)) throw new Error('Fixture reference resolver wiring changed');
+  return {items:mapped.expression.expression.elements.map(n=>object(n,['word','anchor'])),sourceSha256:hash(source)};
+}
+
 export function sourceContractApplicability(root,file) {
   if(!registeredSourceContract(file)) return {supported:false,reason:'unregistered source contract'};
   try {read(root,SOURCE_CONSUMER);} catch {return {supported:false,reason:'source contract consumer unavailable or aliased'};}
   try {
     const source=read(root,file);
-    if(CASE07_SQL[file]) {
+    if(file===BILLING_TARGET || file===BILLING_README) {
+      inspectBillingInput(file,source);
+    } else if(CASE07_SQL[file]) {
       inspectCase07Sql(file,source);
     } else if(DATA_CONTRACTS[file]) {
       if(dataProblems(root,file,source).length) return {supported:false,reason:'receiving evaluator input pins unavailable'};
     } else if(TEXT_CONTRACTS[file]) {
       if(TEXT_CONTRACTS[file].some(fragment=>source.split(fragment).length!==2)) return {supported:false,reason:'receiving operator statements unavailable'};
+    } else if(file===FIXTURE_GENERATOR) {
+      inspectFixtureGenerator(root,source);
     } else if(file===SOURCE_CONTRACTS[2]) {
       const entry=JSON.parse(source).fixtures?.open_mic_tts;
-      if(!entry?.fillerAnnotations || !Array.isArray(entry.fillerAnnotations.items)
-        || typeof entry.fillerAnnotations.source!=='string') return {supported:false,reason:'receiving fixture annotations unavailable'};
+      fixtureReference(root,entry);
       read(root,'tests/fixtures/rwt/generate-rwt-tts-fixtures.sh');
     } else {
       const ts=createRequire(path.join(root,'package.json'))('typescript');
@@ -264,7 +364,91 @@ const MODEL_WIRING=Object.freeze({
   ],
 });
 const wiring={
+"tests/billing/user-journey/paid-value-loop.billing.spec.ts":["readonly targets = assertSandboxConfiguration(env, committedTarget);", "if (useLocalStack) await runnerPreflight(env);", "requireFact(balance.livemode === false, 'stripe_account_not_test');", "assertEligibleEvaluation(evaluation, sessionId, this.uid);", "const result = paidValueLoopReceipt(run?.steps ?? new Set());", "result: status.result,", "requireFact(!stripeFailed && !accountFailed && stripeClean && !this.uncertainStripeCreate, 'cleanup_unproven');"],
+
+  [BILLING_SPEC]:[
+    'readonly targets = assertSandboxConfiguration(env, committedTarget);',
+    "const useLocalStack = env.BILLING_SANDBOX_TARGET === 'local-disposable-stack';",
+    "requireFact(balance.livemode === false, 'stripe_account_not_test');",
+    "const event = await this.stripe(`events/${encodeURIComponent(candidate.id)}`) as unknown as BillingEvent;",
+    ".select('event_id,event_type,processed_at').eq('event_id', event.id).maybeSingle();",
+    'isCorrelatedDelivery(event, { type, objectId, customer: this.customer }, data) && extra(event)',
+    "await this.delivery('checkout.session.completed', this.session);",
+    "await this.delivery('invoice.payment_succeeded', renewal.id);",
+    "await this.delivery('invoice.payment_failed', failedInvoice);",
+    "await this.delivery('invoice.payment_succeeded', failedInvoice);",
+    "await this.delivery('customer.subscription.updated', this.subscription, e => e.data.object.cancel_at_period_end === true);",
+    "await this.delivery('customer.subscription.deleted', this.subscription);",
+    "for (const table of ['account_billing_fences', 'account_checkout_operations', 'account_save_obligations'])",
+    'if (readback.error || readback.count !== 0) accountFailed = true;',
+    "requireFact(!stripeFailed && !accountFailed && stripeClean && !this.uncertainStripeCreate, 'cleanup_unproven');",
+    'for (const journey of BILLING_JOURNEYS)',
+    "requireFact(!failed && !cleanupFailed && result.result === 'PASSED', 'journey_incomplete_see_sanitized_receipt');",
+  ],
+  // Offline sign-in wiring only. This does not execute credentials or certify a served release.
+  "tests/live/auth.live.spec.ts":[
+    "test.use({ trace: 'off', video: 'off', screenshot: 'off' });",
+    "const expectRelease = (process.env.EXPECT_RELEASE_SHA ?? '').trim();",
+    "async ({ page, baseURL }) => {",
+    "const bindRelease = requiresReleaseBinding(baseURL);",
+    "if (bindRelease) { const preflight = servedReleaseVerdict(expectRelease, expectRelease);",
+    "expect(preflight, 'EXPECT_RELEASE_SHA must name the full served release under test').toEqual({ ok: true, release: expectRelease });",
+    "await page.waitForURL((url) => isExpectedAuthLanding(url.pathname, DEFAULT_AUTH_LANDING), { timeout: 30_000 });",
+    "expect(new URL(page.url()).pathname).toBe(DEFAULT_AUTH_LANDING);",
+    "await expect(page.getByTestId('nav-account-avatar')).toBeVisible({ timeout: 15000 });",
+    "const observedRelease = await page.evaluate(() => (window as unknown as { __APP_RELEASE__?: string }).__APP_RELEASE__ ?? null);",
+    "if (bindRelease) { expect(servedReleaseVerdict(expectRelease, observedRelease), 'the signed-in page must serve the release under test').toEqual({ ok: true, release: expectRelease }); }",
+  ],
   ...MODEL_WIRING,
+  'tests/live/rwt-abandon-and-two-tabs.live.spec.ts':[
+    "const oldOwnerFence = displacedFenceVerdict({ read: await readDisplacedFence(displacedId), displacedId, takeOverId, ownerId: owner.uid });",
+    "receipt.row('displaced take is permanently fenced', oldOwnerFence.status, oldOwnerFence.detail, { ...oldOwnerFence.evidence });",
+    "receipt.row('same-browser tab is refused', local.status, local.detail,",
+  ],
+  'tests/live/rwt-adverse-mic-denied.live.spec.ts':[
+    "import { finalizer, fixture, runVariant } from './helpers/rwtAdverseJourney';",
+    "await runVariant(page, browser, testInfo, 'mic-denied');",
+    'await finalizer.drain();',
+  ],
+  'tests/live/rwt-adverse-mic-model.live.spec.ts':[
+    "import { finalizer, fixture, runVariant } from './helpers/rwtAdverseJourney';",
+    "await runVariant(page, browser, testInfo, 'download-fails');",
+    "await runVariant(page, browser, testInfo, 'offline-mid-download');",
+    'await finalizer.drain();',
+  ],
+  'tests/live/rwt-feedback-association-boundaries.live.spec.ts':[
+    // #1811 (Sam, #1859 review): the database feedback fence gates every feedback write and owns the cleanup.
+    "feedbackFence = new JourneyFeedbackFence(admin as never, 'AHT-07', AHT07_FENCE_KEY_CAP);",
+    "feedbackFence = new JourneyFeedbackFence(admin as never, 'AHT-08', 1);",
+    // The AHT-07 ledger gate and the J8 route's own forward gate: each sends nothing while the fence is not writable.
+    'if (!fence.writable) { ledger.settle(attempt, { status: null, forwarded: false }); outcome = \'aborted-unsent\';',
+    'if (!fence.writable) { outcome = \'aborted-unsent\'; return await route.abort(\'failed\'); }',
+    'await installFeedbackWriteRoute(page, ledger, feedbackFence);',
+    'await runFeedbackFaultLeg(page, tap, ledger, leg, olderId, owner.uid, legJourneys)',
+  ],
+  'tests/live/rwt-pending-start-navigation.live.spec.ts':[
+    'const plan = recoveryTakePlan(returned.settled, last?.expectedControl ?? null);',
+    'const recovered = recoveryTakeVerdict(priorIds, rows, recoveryId);',
+    "receipt.row('deliberate recovery take saved', recovered.status, recovered.detail,",
+  ],
+  'tests/live/rwt-save-retry-recovery.live.spec.ts':[
+    'const attemptsVerdict = completionAttemptsVerdict(attempts);',
+    "aliveReceipt(receipt, alive).row('completion attempts are the fault and one Retry', attemptsVerdict.status, attemptsVerdict.detail,",
+    "await runVariant(page, testInfo, 'request-lost');",
+    "await runVariant(page, testInfo, 'response-lost');",
+  ],
+  'tests/live/helpers/rwtFocusPointsJourney.ts':[
+    'await probeSaveIsolationRow(aliveReceipt(receipt, alive), admin as never, owner.uid, captured, parity.takeBindings(), parity.leaseIds, designed.length, designed)',
+    '...(boundAttemptId ? { expectedAttemptId: boundAttemptId } : {})',
+    'caseConfig: { sourceSha: expectedReleaseSha(), servedSha: served, account: { id: owner.uid } }',
+    'numericComparisonRow(receipt, result, repeatEligibility, saveTakeMs);',
+    'receipt.row(FOCUS_SAME_TARGET_ROW, sameTarget.verdict, sameTarget.detail, sameTarget.evidence);',
+  ],
+  'tests/live/helpers/rwtAdverseJourney.ts':[
+    'const verdict = recoverySavedVerdict({ variant, preconditionEstablished, attempt, savedId, rows: read.rows });',
+    'const verdict = reviewReopenVerdict({ ...seen, savedId: recovered.savedId, savedDigest: recovered.savedDigest });',
+    "receipt.row('the recovered take reopens from Analytics', verdict.status, verdict.detail,",
+  ],
   [SOURCE_CONTRACTS[0]]:[
     'const savedId = startOutcome.sessionId;',
     'const outcome = await collectCanaryStopSave(page, {',
@@ -306,6 +490,40 @@ const wiring={
   ],
 };
 
+// Explicit data/document contracts for the dormant sandbox draft, not exclusions from execution.
+// They consume the exact selected bytes; their witness can never grant browser/payment credit.
+const BILLING_SCOPE_STATEMENTS=Object.freeze([
+  'This family is separate from, and does not renumber, the 15 practice journeys.',
+  'The committed `sandbox-target.json` is deliberately UNCONFIGURED.',
+  'This draft does not implement that privileged cleanup path.',
+  'This sandbox family is not full `PAID-01` or `PAID-04` acceptance.',
+  'Test-mode Stripe is not Production paid proof.',
+  'Both broader requirements remain NOT PROVEN by this draft, regardless of any future sandbox-family PASSED receipts.',
+  'No webhook signing secret is accepted.',
+]);
+function inspectBillingInput(file,source) {
+  if(file===BILLING_TARGET) {
+    const target=JSON.parse(source);
+    const expected={status:'UNCONFIGURED',appOrigin:null,apiOrigin:null,productionApiOrigin:null};
+    const valid=value=>value && Object.keys(value).sort().join(',')===Object.keys(expected).sort().join(',')
+      && Object.entries(expected).every(([key,want])=>value[key]===want);
+    if(!valid(target)) throw new Error('Billing target must remain explicitly unconfigured until separately reviewed');
+    const faults=Object.keys(expected).map(key=>({...target,[key]:key==='status'?'REVIEWED_ISOLATED_SANDBOX':'https://unreviewed.example.invalid'}));
+    if(faults.some(valid)) throw new Error('Billing target fault escaped');
+    return {file,sha256:hash(source),kind:'dormant-sandbox-target',checks:4,detectedFaults:faults.length,
+      liveExecution:'NOT RUN',scope:'closed unconfigured target only; no admission or credential use'};
+  }
+  if(file===BILLING_README) {
+    const prose=source.replace(/<!--[\s\S]*?-->/g,'').replace(/\s+/g,' ').trim();
+    if(BILLING_SCOPE_STATEMENTS.some(statement=>prose.split(statement).length!==2)) throw new Error('Billing documentation scope contract failed');
+    const faults=BILLING_SCOPE_STATEMENTS.map(statement=>prose.replace(statement,'SCOPE_REMOVED'));
+    if(faults.some(text=>BILLING_SCOPE_STATEMENTS.every(statement=>text.split(statement).length===2))) throw new Error('Billing documentation fault escaped');
+    return {file,sha256:hash(source),kind:'document-scope-contract',checks:BILLING_SCOPE_STATEMENTS.length,
+      detectedFaults:faults.length,liveExecution:'NOT RUN',scope:'documented limits only; not billing acceptance'};
+  }
+  throw new Error('Unregistered billing input');
+}
+
 function savedMatchers(ts,parsed) {
   const matches=[];
   const visit=node=>{
@@ -339,6 +557,8 @@ function savedMatchers(ts,parsed) {
 
 export function inspectSourceContract(root,file,source=read(root,file)) {
   if(!registeredSourceContract(file)) throw new Error('Unregistered source contract');
+  if(file===FIXTURE_GENERATOR) return inspectFixtureGenerator(root,source);
+  if(file===BILLING_TARGET || file===BILLING_README) return inspectBillingInput(file,source);
   if(CASE07_SQL[file]) return inspectCase07Sql(file,source);
   if(DATA_CONTRACTS[file]) {
     const problems=dataProblems(root,file,source);
@@ -391,13 +611,17 @@ export function inspectSourceContract(root,file,source=read(root,file)) {
       detectedFaults:controls.length+(savedMatcher?.detectedFaults || 0),...(savedMatcher?{savedMatcher}:{}),
       liveExecution:'NOT RUN',scope:'registered wiring only; live test body not executed'};
   }
+  return inspectFixture(root,source,read(root,FIXTURE_GENERATOR));
+}
+
+function inspectFixture(root,source,generatorSource) {
+  const file=SOURCE_CONTRACTS[2];
   const manifest=JSON.parse(source);
   const entry=manifest.fixtures?.open_mic_tts;
-  const script=read(root,'tests/fixtures/rwt/generate-rwt-tts-fixtures.sh').match(/^OPEN_MIC="([^"\n]+)"$/m)?.[1];
+  const script=generatorSource.match(/^OPEN_MIC="([^"\n]+)"$/m)?.[1];
   if(!script || entry?.kind!=='synthetic' || !/^[a-f0-9]{64}$/.test(entry.sha256 || '')
-    || !entry.fillerAnnotations?.source?.includes('not audio-bound')
     || !entry.knownFixtureLimits?.some(value=>/human recording/i.test(value))) throw new Error('Missing fixture scope/identity');
-  const items=entry.fillerAnnotations.items;
+  const {items,sourceSha256:referenceSha256}=fixtureReference(root,entry);
   if(!Array.isArray(items) || items.length!==8) throw new Error('Missing fixture annotations');
   const counts={};let cursor=0;
   for(const {word,anchor} of items) {
@@ -408,17 +632,68 @@ export function inspectSourceContract(root,file,source=read(root,file)) {
     cursor=at+needle.length;counts[word]=(counts[word] || 0)+1;
   }
   if(JSON.stringify(Object.entries(counts).sort())!==JSON.stringify(Object.entries(entry.groundTruthFillers || {}).sort())) throw new Error('Fixture count/reference disagreement');
-  return {file,sha256:hash(source),generatorSha256:hash(read(root,'tests/fixtures/rwt/generate-rwt-tts-fixtures.sh')),
-    kind:'fixture-consumption',annotationCount:items.length,counts,liveExecution:'NOT RUN',audioExecution:'NOT RUN'};
+  return {file,sha256:hash(source),generatorSha256:hash(generatorSource),
+    referenceSha256,kind:'fixture-consumption',annotationSource:'reviewed code; script-derived, not audio-bound',annotationCount:items.length,counts,liveExecution:'NOT RUN',audioExecution:'NOT RUN'};
+}
+
+// Explicit source consumption, not shell execution. Reject additional commands and altered
+// generation settings rather than treating arbitrary .sh files as qualified.
+const GENERATOR_COMMANDS=[
+  "set -euo pipefail",
+  "cd \"$(dirname \"$0\")\"",
+  "VOICE=Samantha",
+  "RATE=150",
+  "TRAILING_SILENCE_S=15",
+  "OPEN_MIC=\"<script>\"",
+  "FOCUS_POINTS=\"<script>\"",
+  "FOCUS_POINTS_PARTIAL=\"<script>\"",
+  "make() { # name text",
+  "say -v \"$VOICE\" -r \"$RATE\" -o \"$1.aiff\" \"$2\"",
+  "ffmpeg -loglevel error -y -i \"$1.aiff\" -af \"apad=pad_dur=${TRAILING_SILENCE_S}\" -ar 16000 -ac 1 -sample_fmt s16 -bitexact -map_metadata -1 \"$1.wav\"",
+  "rm -f \"$1.aiff\"",
+  "printf '%s  %s  speech+silence=%ss\\n' \"$(shasum -a 256 \"$1.wav\" | cut -c1-64)\" \"$1.wav\" \"$(ffprobe -v error -show_entries format=duration -of csv=p=0 \"$1.wav\")\"",
+  "}",
+  "make open_mic_tts \"$OPEN_MIC\"",
+  "make focus_points_tts \"$FOCUS_POINTS\"",
+  "make focus_points_partial_tts \"$FOCUS_POINTS_PARTIAL\""
+];
+// Reviewed public TTS input texts, not audio digests. A script change requires explicit re-review.
+const GENERATOR_SCRIPT_SHA256={
+  "OPEN_MIC": "8e08aa6cdb6d45d2af3b282c318a6fb9872effd8eac2da77e6e24b27d55d4462",
+  "FOCUS_POINTS": "9e7f3f609b8d1a31d3c52b101ce85e5324dd4198e34d5db785e3ee2c2508f316",
+  "FOCUS_POINTS_PARTIAL": "f0bf65deccea4609fff070cf1e597406db55ac58a2109ce6924a1c03bd89f869"
+};
+function inspectFixtureGenerator(root,source) {
+  const names=['OPEN_MIC','FOCUS_POINTS','FOCUS_POINTS_PARTIAL'];
+  const declarations={};
+  const lines=source.split(/\r?\n/).map(line=>line.trim()).filter(line=>line&&!line.startsWith('#')).map(line=>{
+    const name=names.find(n=>line.startsWith(`${n}=`));
+    if(!name) return line;
+    const match=new RegExp(`^${name}="([^"\\n]+)"$`).exec(line);
+    if(!match||/[\x24`\\]/.test(match[1])||Object.hasOwn(declarations,name)) throw new Error('Unsafe/duplicate generator declaration');
+    declarations[name]=match[1];return `${name}="<script>"`;
+  });
+  if(JSON.stringify(lines)!==JSON.stringify(GENERATOR_COMMANDS)||names.some(n=>!declarations[n])) throw new Error('Generator command/settings contract failed');
+  if(names.some(name=>hash(declarations[name])!==GENERATOR_SCRIPT_SHA256[name])) throw new Error('Generator script text differs from reviewed input');
+  const manifestSource=read(root,SOURCE_CONTRACTS[2]);
+  const manifest=JSON.parse(manifestSource);
+  for(const key of ['open_mic_tts','focus_points_tts','focus_points_partial_tts']) {
+    const entry=manifest.fixtures?.[key];
+    if(entry?.file!==`${key}.wav`||entry.kind!=='synthetic'||!/^[a-f0-9]{64}$/.test(entry.sha256||'')) throw new Error('Generator manifest target mismatch');
+  }
+  const proof=inspectFixture(root,manifestSource,source);
+  return {...proof,file:FIXTURE_GENERATOR,sha256:hash(source),manifestSha256:hash(manifestSource),
+    kind:'generator-source-consumption',scriptSha256:{...GENERATOR_SCRIPT_SHA256},scriptExecution:'NOT RUN',
+    scope:'declared synthesis commands/settings and script-to-reference wiring only; macOS TTS/ffmpeg and audio not executed'};
 }
 
 export function sourceContractBinding(root,files) {
   if(!Array.isArray(files) || !files.length || new Set(files).size!==files.length || files.some(file=>!registeredSourceContract(file))) throw new Error('Unknown/duplicate source contract input');
   if(files.some(file=>!sourceContractApplicability(root,file).supported)) throw new Error('Unsupported source contract input or consumer');
   const dependencies=[...files,SOURCE_CONSUMER,'scripts/lib/sourceContractEvidence.mjs'];
-  if(files.includes(SOURCE_CONTRACTS[2])) dependencies.push('tests/fixtures/rwt/generate-rwt-tts-fixtures.sh');
+  if(files.includes(SOURCE_CONTRACTS[2])||files.includes(FIXTURE_GENERATOR)) dependencies.push(SOURCE_CONTRACTS[2],FIXTURE_GENERATOR,FILLER_REFERENCE);
   for(const file of files) if(DATA_CONTRACTS[file]?.corpus) dependencies.push(...corpusAudio(root,file));
-  return dependencies.map(file=>({file,sha256:hash(read(root,file))}));
+  return [...new Set(dependencies)].map(file=>({file,sha256:hash(read(root,file))}));
 }
 
 export function consumeSourceContracts(root,binding) {

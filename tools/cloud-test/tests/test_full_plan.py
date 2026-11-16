@@ -253,7 +253,7 @@ class FullPlanProof(unittest.TestCase):
               "approvedBy": req["approvedLimits"]["approvedBy"], "selectionApprovalRef": req["selectionApprovalRef"]}
         cls.factp = os.path.join(cls.work, "facts.json"); wjson(cls.factp, facts)
         r = run_py("scripts/run_env.py", "--request", cls.reqp, "--request-sha256", hashlib.sha256(Path(cls.reqp).read_bytes()).hexdigest(),
-                   "--reconciliation", cls.reconciliation, "--out", os.path.join(cls.work, "env.txt"))
+                   "--reconciliation", cls.reconciliation, "--execution-deadline", json.load(open(cls.reqp))["window"]["endUtc"], "--out", os.path.join(cls.work, "env.txt"))
         assert r.returncode == 0, r.stdout + r.stderr
         cls.p0, out = cls.build("plan0")
         assert [o.returncode for o in out] == [0, 0], [o.stderr for o in out]

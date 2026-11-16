@@ -25,6 +25,7 @@ permissions:
 
 jobs:
   issue-triage:
+    environment: trusted-main-credentials
     name: Daily issue-report triage digest
     runs-on: ubuntu-latest
     timeout-minutes: 10

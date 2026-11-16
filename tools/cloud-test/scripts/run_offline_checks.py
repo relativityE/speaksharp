@@ -21,12 +21,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from _common import ROOT, load, dump, now_utc  # noqa: E402
 
-# Current-run checks only (PO 2026-10-30, Sam 1793400946): this suite needs no retained campaign history and none of its checks is ever
+# Current-run checks only (PO 2026-10-30): this suite needs no retained campaign history and none of its checks is ever
 # N/A. The audits of the retained campaigns (history index, sealed receipts, case costs, catalog rows of the compared runs) run only in
 # scripts/run_legacy_audit.py, which never earns current-execution credit.
 CHECKS = ("package-unit-tests", "report-builder-tests", "reservation-ledger-verified", "catalog-history-additive", "harness-verified",
           "assertion-catalog-matches-harness", "config-matches-workflow", "offline-proof-index")
-# The harness corrections an offline proof must cover, exactly (Sam 1793379188); held equal to offline_proof.py's CORR by test.
+# The harness corrections an offline proof must cover, exactly ; held equal to offline_proof.py's CORR by test.
 PROOF_CORRECTIONS = ("diagnostic-codes", "duplicate-markers", "contradictory-observations", "request-latency", "failure-path-evidence",
                      "effective-speech-stimulus", "selected-case-execution", "run-identity-binding", "outcome-classes")
 
@@ -56,7 +56,7 @@ def proof_problem(proof, pinned):
     return None
 
 
-# ---------- Structured per-test results (Sam 1793406369, 1793406609, 1793406980) ----------
+# ---------- Structured per-test results ----------
 # Each suite runs in its existing child process through unittest's own discovery and text runner, so the job log and the count line
 # are unittest's. The result class additionally keeps one record per test id from the result callbacks, never from text.
 SUITE_DIRS = {"package-unit-tests": ("tests",), "report-builder-tests": ("report", "tests")}
@@ -128,8 +128,23 @@ class RecordingResult(unittest.TextTestResult):
             self._outcome(subtest, "error", "errors")
 
 
+def _planned_ids(suite):
+    for item in suite:
+        if isinstance(item, unittest.TestSuite):
+            yield from _planned_ids(item)
+        elif item is not None:
+            yield item.id()
+
+
 class RecordingRunner(unittest.TextTestRunner):
     resultclass = RecordingResult
+
+    def run(self, test):
+        # Every discovered test id, captured BEFORE the run (a suite releases its tests as it runs them).
+        planned = list(_planned_ids(test))
+        result = super().run(test)
+        result.planned = planned
+        return result
 
 
 def suite_child(start, results_path):
@@ -138,7 +153,9 @@ def suite_child(start, results_path):
     program = unittest.main(module=None, argv=["python -m unittest", "discover", "-s", start, "-p", "test_*.py"], testRunner=RecordingRunner, exit=False)
     result = program.result
     try:
+        # `planned`: every discovered test id, so a test a failed class/module fixture never let run is reported NOT RUN by name.
         dump({"schema": "speaksharp.cloud-test.suite-results.v1", "tests": list(result.records.values()), "fixtures": result.fixtures,
+              "planned": list(getattr(result, "planned", [])),
               "callbackCounts": result.callbacks}, results_path)
     except (OSError, TypeError, ValueError) as error:
         print("SUITE_RESULTS_WRITE_FAILED: " + type(error).__name__, file=sys.stderr)
@@ -161,7 +178,7 @@ def suite_check(name, env):
     return check
 
 
-# ---------- Identity of what was tested (Sam 1793406369, 1793406980, 1793407393) ----------
+# ---------- Identity of what was tested ----------
 # The reviewed file set is hashed from the checkout's bytes; nothing is taken from a passed SHA. Excluded trees are pruned by path before descent and
 # never entered; a symlink inside the included tree is never followed and makes the identity INCOMPLETE. Unexpected files are counted by category only.
 SOURCE_SUFFIXES = (".py", ".sh", ".js", ".cjs", ".mjs", ".ts", ".yml", ".yaml")
@@ -186,7 +203,7 @@ def _linked(rel):
 
 
 def _regular(rel):
-    """True when the path is a regular file reached through no symlink (Sam 1793410354: preflight before any content read)."""
+    """True when the path is a regular file reached through no symlink (preflight before any content read)."""
     try:
         return not _linked(rel) and stat.S_ISREG(os.lstat(os.path.join(ROOT, rel)).st_mode)
     except OSError:
@@ -208,7 +225,7 @@ def _incomplete(codes, symlinks=0, missing=(), scan_errors=0):
 
 def file_set_identity():
     # Both manifests are preflighted before either is read: a linked or non-regular spec or PACKET manifest makes the identity INCOMPLETE without
-    # reading its content, so a link to matching bytes can never stand in for the reviewed file (Sam 1793410354).
+    # reading its content, so a link to matching bytes can never stand in for the reviewed file .
     for rel in (SPEC_PATH, PACKET_PATH):
         if _linked(rel):
             return _incomplete(["SYMLINK"], symlinks=1)
@@ -324,7 +341,7 @@ def environment():
 
 
 def git_diagnostic():
-    """Whole-repository tree and package cleanliness: diagnostic only, never required for a match (Sam 1793406369 point 2); null without git."""
+    """Whole-repository tree and package cleanliness: diagnostic only, never required for a match (point 2); null without git."""
     def git(*args):
         r = subprocess.run(["git", "-C", ROOT, *args], capture_output=True, text=True, timeout=30)
         return r.stdout.strip() if r.returncode == 0 else None
@@ -347,6 +364,85 @@ def identity(checks, cfg):
     except (OSError, ValueError, KeyError, TypeError, IndexError):
         file_set = _incomplete(["FILE_SET_UNREADABLE"])
     return {"fileSet": file_set, "pins": pins, "externalInputs": external_inputs(), "environment": environment(), "git": git_diagnostic()}
+
+
+TEST_ID = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,99}(?:\.[A-Za-z_][A-Za-z0-9_]{0,199}){1,4}")
+FIXTURE_ID = re.compile(r"(?:setUpClass|tearDownClass|setUpModule|tearDownModule) \(([A-Za-z_][A-Za-z0-9_.]{0,250})\)")
+
+
+def failed_test_lines(check):
+    """One closed line per failed or errored test of a suite check: the test's code identifier (module.Class.method) and the outcome
+    category, from the structured records (never from text). Subtest parameters, tracebacks, messages and paths are never printed; an
+    identifier outside the closed form is counted, not printed."""
+    results = check.get("results") if isinstance(check, dict) else None
+    if not isinstance(results, dict):
+        return ["FAILED-TEST %s results unavailable" % check.get("id")] if isinstance(check, dict) and check.get("passed") is not True else []
+    lines, unprintable = [], 0
+    for t in results.get("tests") or []:
+        if not isinstance(t, dict):
+            continue
+        bad = [o for o in (t.get("outcomes") or []) + (t.get("subtests") or []) if o in ("failure", "error", "unexpectedSuccess")]
+        if not bad:
+            continue
+        if isinstance(t.get("id"), str) and TEST_ID.fullmatch(t["id"]):
+            lines.append("FAILED-TEST %s %s [%s]" % (check["id"], t["id"], "error" if "error" in bad else "failure"))
+        else:
+            unprintable += 1
+    for fx in results.get("fixtures") or []:
+        if isinstance(fx, dict) and fx.get("outcome") in ("failure", "error"):
+            m = FIXTURE_ID.fullmatch(str(fx.get("description")))
+            if m:
+                lines.append("FAILED-TEST %s %s [fixture-%s]" % (check["id"], m.group(1), fx["outcome"]))
+            else:
+                unprintable += 1
+    if unprintable:
+        lines.append("FAILED-TEST %s %d failed test(s) with an unprintable identifier" % (check["id"], unprintable))
+    return lines
+
+
+PYTHON_STATUS = (("error", "ERROR"), ("failure", "FAIL"), ("unexpectedSuccess", "XPASS"), ("skipped", "SKIP"), ("expectedFailure", "XFAIL"),
+                 ("success", "PASS"))
+
+
+def test_lines(check):
+    """One closed line per test of a suite check, every status: `TEST <PASS|FAIL|ERROR|SKIP|XFAIL|XPASS|NOT RUN> <suite> <module.Class.method>`,
+    in execution order, from the structured records (never from text); a failed class/module fixture is `TEST ERROR <suite> <class> [fixture]`.
+    The worst outcome of a test or any of its subtests decides its status; a started test with no outcome is NOT RUN. Subtest parameters,
+    tracebacks, messages and paths are never printed; an identifier outside the closed form is counted, not printed."""
+    results = check.get("results") if isinstance(check, dict) else None
+    if not isinstance(results, dict):
+        return ["TEST NOT RUN %s results unavailable" % check.get("id")] if isinstance(check, dict) else []
+    lines, unprintable = [], 0
+    for t in results.get("tests") or []:
+        if not isinstance(t, dict):
+            unprintable += 1
+            continue
+        seen = [o for o in (t.get("outcomes") or []) + (t.get("subtests") or []) if isinstance(o, str)]
+        status = next((label for outcome, label in PYTHON_STATUS if outcome in seen), "NOT RUN")
+        if isinstance(t.get("id"), str) and TEST_ID.fullmatch(t["id"]):
+            lines.append("TEST %s %s %s" % (status, check["id"], t["id"]))
+        else:
+            unprintable += 1
+    for fx in results.get("fixtures") or []:
+        if isinstance(fx, dict) and fx.get("outcome") in ("failure", "error"):
+            m = FIXTURE_ID.fullmatch(str(fx.get("description")))
+            if m:
+                lines.append("TEST ERROR %s %s [fixture]" % (check["id"], m.group(1)))
+            else:
+                unprintable += 1
+    # Every discovered test that never started (a failed setUpClass/setUpModule skips its methods) is named NOT RUN.
+    recorded = {t.get("id") for t in results.get("tests") or [] if isinstance(t, dict)}
+    for test_id in results.get("planned") or []:
+        if test_id in recorded:
+            continue
+        recorded.add(test_id)
+        if isinstance(test_id, str) and TEST_ID.fullmatch(test_id):
+            lines.append("TEST NOT RUN %s %s" % (check["id"], test_id))
+        else:
+            unprintable += 1
+    if unprintable:
+        lines.append("TEST UNPRINTABLE %s %d test(s) with an unprintable identifier" % (check["id"], unprintable))
+    return lines
 
 
 def command_check(name, cmd, env):
@@ -410,7 +506,7 @@ def main():
               "audited by scripts/run_legacy_audit.py", file=sys.stderr)
         return 2
     # The offline proof is the file the workflow supplies through CT_PROOF_FILE: its freshness is the workflow's (a fresh-directory generator writing
-    # that exact path earlier in the same job, Sam 1793405248); this runner only reports the source it was given and never substitutes a retained file.
+    # that exact path earlier in the same job); this runner only reports the source it was given and never substitutes a retained file.
     proof_file = os.environ.get("CT_PROOF_FILE") or None
     checks = []
     env = {**os.environ}
@@ -430,7 +526,7 @@ def main():
         return cfg["workflowVersion"] == wf["version"], "config %s workflow %s" % (cfg["workflowVersion"], wf["version"])
 
     def proof_index():
-        # The proof must bind the harness the config pins (Sam 1793378783); a retained proof file is never substituted.
+        # The proof must bind the harness the config pins ; a retained proof file is never substituted.
         pinned = cfg["harness"]["expectedCodeManifestSha256"]
         if not isinstance(pinned, str) or not re.fullmatch(r"[0-9a-f]{64}", pinned):
             return False, "the pinned harness manifest is not a sha256"
@@ -446,8 +542,9 @@ def main():
            "checks": checks, "passed": all(c["passed"] is True for c in checks)}
     # What was tested, for the equivalence comparison of two environments; the summary validates it and recomputes every digest.
     out["identity"] = identity(checks, cfg if isinstance(cfg, dict) else {})
-    # The job log of this public repository shows only check names and statuses; child output and details stay in the
-    # written report on the runner. A report that cannot be written is a failure, and its diagnostics are not printed.
+    # The job log of this public repository shows check names and statuses and, for each unittest suite, every test's code identifier
+    # with its status (closed form; never a traceback, message or subtest parameter); child output and details stay in the written report.
+    # A report that cannot be written is a failure, and its diagnostics are not printed.
     written = True
     try:
         dump(out, x.out)
@@ -456,6 +553,9 @@ def main():
         print("OFFLINE_CHECKS_REPORT_WRITE_FAILED: " + type(error).__name__, file=sys.stderr)
     for c in checks:
         print(("PASS " if c["passed"] is True else "FAIL ") + c["id"])
+        if c["id"] in SUITE_DIRS:
+            for line in test_lines(c):
+                print(line)
     return 0 if written and out["passed"] else 1
 
 

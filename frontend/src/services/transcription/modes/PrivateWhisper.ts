@@ -124,6 +124,12 @@ export interface PrivateTimingSummary {
   anchor: 'speech' | 'stream' | null;
   /** performance.now() at last update, for ordering across reads. */
   updatedAtMs: number;
+  /**
+   * #1848: the take the finalize fields belong to. A page-monotonic number this engine assigns at each
+   * recording start; `getFinalizeTakeSeq()` returns the same number, so a reader can bind the summary to
+   * the exact take it is stopping. null before the first recording. Diagnostics only.
+   */
+  takeSeq: number | null;
 }
 
 /**
@@ -142,6 +148,7 @@ export function buildPrivateTimingSummary(p: {
   decodedSampleCount: number;
   peakBufferedSamples: number;
   nowMs: number;
+  takeSeq?: number | null;
 }): PrivateTimingSummary {
   const anchorMs = p.speechStartAtMs ?? p.streamStartAtMs;
   const anchor: PrivateTimingSummary['anchor'] =
@@ -159,6 +166,7 @@ export function buildPrivateTimingSummary(p: {
     peakBufferedSeconds: Number(samplesToSeconds(p.peakBufferedSamples, PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
     anchor,
     updatedAtMs: Number(p.nowMs.toFixed(1)),
+    takeSeq: p.takeSeq ?? null,
   };
 }
 // Toast removed from here to centralized UI layer
@@ -202,6 +210,9 @@ type SpeechGateStats = {
 const PRIVATE_STT_SAMPLE_RATE = PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ;
 const MIN_TRANSCRIPTION_SAMPLES = PRIV_STT_DERIVED.MIN_TRANSCRIPTION_SAMPLES;
 const LIVE_DECODE_WINDOW_SAMPLES = PRIV_STT_DERIVED.LIVE_DECODE_WINDOW_SAMPLES;
+const COLD_START_DECODE_MAX_SAMPLES = PRIV_STT_DERIVED.COLD_START_DECODE_MAX_SAMPLES;
+// Speech-energy blocks for a cold-start backlog's gates (100 ms, like a mic frame).
+const SPEECH_ENERGY_BLOCK_SAMPLES = Math.round(PRIVATE_STT_SAMPLE_RATE * 0.1);
 const UTTERANCE_SILENCE_TAIL_SAMPLES = PRIV_STT_DERIVED.UTTERANCE_SILENCE_TAIL_SAMPLES;
 const MAX_RETRY_SAMPLES = PRIV_STT_DERIVED.MAX_RETRY_SAMPLES;
 const PROCESSING_INTERVAL_MS = PRIV_STT.PROCESSING_INTERVAL_MS;
@@ -232,6 +243,31 @@ function pushPrivateTimeline(event: string, payload?: Record<string, unknown>): 
     perfMs: typeof performance !== 'undefined' ? Number(performance.now().toFixed(3)) : 0,
     payload,
   });
+}
+
+/**
+ * Energy of the speech in a long buffer: RMS over the 100 ms blocks that are not silent (block RMS at or
+ * above SESSION_PAUSE.SILENCE_RMS_THRESHOLD), and the whole buffer's peak. A cold-start backlog can hold a
+ * few seconds of speech among long pauses; averaging the pauses in would put that speech under the
+ * first-transcript and retry RMS gates. With no non-silent block it is the plain summary.
+ */
+function summarizeSpeechEnergy(audio: Float32Array) {
+  const whole = summarizeAudioEnergy(audio);
+  let sumSquares = 0;
+  let samples = 0;
+  for (let start = 0; start < audio.length; start += SPEECH_ENERGY_BLOCK_SAMPLES) {
+    const block = audio.subarray(start, Math.min(audio.length, start + SPEECH_ENERGY_BLOCK_SAMPLES));
+    let blockSquares = 0;
+    for (let i = 0; i < block.length; i += 1) blockSquares += block[i] * block[i];
+    if (block.length > 0 && Math.sqrt(blockSquares / block.length) >= SESSION_PAUSE.SILENCE_RMS_THRESHOLD) {
+      sumSquares += blockSquares;
+      samples += block.length;
+    }
+  }
+  // Only a buffer with at least FIRST_TRANSCRIPT_MIN_DURATION_SECONDS of non-silent audio is judged by its
+  // speech: a click or a cough in a silent backlog keeps the whole-buffer (diluted) energy and stays held.
+  const minSpeechSamples = secondsToSamples(PRIV_STT.FIRST_TRANSCRIPT_MIN_DURATION_SECONDS, PRIVATE_STT_SAMPLE_RATE);
+  return samples >= minSpeechSamples ? { rms: Math.sqrt(sumSquares / samples), peak: whole.peak } : whole;
 }
 
 function summarizeAudioEnergy(audio: Float32Array) {
@@ -691,6 +727,12 @@ import { STTEngine } from '../../../contracts/STTEngine';
  * via the options.instanceId field.
  * Inside the Engine, this ID is stored as this.instanceId.
  */
+/**
+ * #1848: page-monotonic take counter for `__PRIVATE_TIMING__`. Module scope so two engine instances can
+ * never hand out the same number on one page.
+ */
+let privateTimingTakeSeq = 0;
+
 export default class PrivateWhisper extends STTEngine implements ITranscriptionEngine {
   private frameListenerDisposer: (() => void) | null = null;
   private captureReceipt: ReturnType<typeof createCaptureReceipt> | null = null;
@@ -727,6 +769,10 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   private mic: MicStream | null = null;
   private audioChunks: Float32Array[] = [];
   private bufferedSampleCount: number = 0;
+  // Focus Point 1 cold start: set when the mic's replay burst at subscription held more than one live
+  // window; it ends at the take's first commit or after PRIV_STT.COLD_START_MAX_DECODES live decodes.
+  private coldStartBacklog: boolean = false;
+  private coldStartDecodes: number = 0;
   private prerollAudioChunks: Float32Array[] = [];
   private prerollSampleCount: number = 0;
   private speechStartAudioChunks: Float32Array[] = [];
@@ -780,6 +826,8 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   private finalizeWaitMs: number | null = null;
   private finalizePrepMs: number | null = null;
   private stopRequestedAtMs: number | null = null;
+  // #1848: which take the finalize fields above belong to (see PrivateTimingSummary.takeSeq).
+  private finalizeTakeSeq: number | null = null;
   private peakBufferedSamples: number = 0;
   private retainedUtterancePrerollSamplesAtStart: number = 0;
   private speechGateStats: SpeechGateStats = {
@@ -832,7 +880,16 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       decodedSampleCount: this.lastDecodedUtteranceSampleCount,
       peakBufferedSamples: this.peakBufferedSamples,
       nowMs: typeof performance !== 'undefined' ? performance.now() : Date.now(),
+      takeSeq: this.finalizeTakeSeq,
     });
+  }
+
+  /**
+   * #1848: the take number this engine stamps on `__PRIVATE_TIMING__` for the current recording. The
+   * controller reads it at Stop entry and emits the finalize breakdown only for a summary carrying it.
+   */
+  public getFinalizeTakeSeq(): number | null {
+    return this.finalizeTakeSeq;
   }
 
   /** Record the first visible draft provisional time once per recording. */
@@ -1073,6 +1130,8 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.status = 'transcribing';
     this.clearAudioBuffer();
     this.clearRetryAudioBuffer();
+    this.coldStartBacklog = false;
+    this.coldStartDecodes = 0;
     this.clearSpeechStartState();
     this.noiseFloor = 0.002;
     this.currentThreshold = PRIV_STT.SPEECH_START_RMS_THRESHOLD;
@@ -1094,6 +1153,12 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.liveProvisionalTranscript = '';
     this.firstTranscriptAgreementRounds = 0;
     this.isStopping = false;
+    // #1848: this take's number, and its empty finalize intervals, are set BEFORE the engine-start await,
+    // so an older stop still finalizing on this instance stops writing the moment this take begins.
+    this.finalizeDecodeMs = null;
+    this.finalizeWaitMs = null;
+    this.finalizePrepMs = null;
+    this.finalizeTakeSeq = ++privateTimingTakeSeq;
     // START THE ENGINE'S OWN SESSION. This was never called, so a streaming engine never opened its
     // live stream and every decode used a fresh standalone one -- the root cause beneath the whole
     // finality effort. v2/v4 `onStart` is a log-only no-op, so delegating changes nothing for them.
@@ -1109,9 +1174,6 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     // Reset Slice 1 timing telemetry for the new recording.
     this.firstProvisionalAtMs = null;
     this.firstFinalAtMs = null;
-    this.finalizeDecodeMs = null;
-    this.finalizeWaitMs = null;
-    this.finalizePrepMs = null;
     this.stopRequestedAtMs = null;
     this.peakBufferedSamples = 0;
     this.publishPrivateTiming();
@@ -1331,6 +1393,17 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
 
     // Store the disposer returned by onFrame
     this.frameListenerDisposer = this.mic.onFrame(listener);
+    // The mic replays its buffered frames synchronously to a late subscriber (issue 960). A replay longer than
+    // one live window means speech was captured while the model loaded: a cold-start backlog.
+    this.coldStartBacklog = this.bufferedSampleCount > LIVE_DECODE_WINDOW_SAMPLES;
+    if (this.coldStartBacklog) {
+      pushPrivateTimeline('cold_start_backlog', {
+        serviceId: this.serviceId,
+        runId: this.instanceId,
+        bufferedSamples: this.bufferedSampleCount,
+        bufferedSeconds: Number(samplesToSeconds(this.bufferedSampleCount, PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
+      });
+    }
 
     // Poll frequently; the sample threshold gates expensive model inference.
     this.processingInterval = setInterval(() => {
@@ -1430,7 +1503,10 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         return;
       }
 
-      const energy = summarizeAudioEnergy(concatenated);
+      // A cold-start backlog is judged by the energy of its speech, not diluted by its pauses (Focus Point 1).
+      const energy = this.isColdStartBacklogActive()
+        ? summarizeSpeechEnergy(concatenated)
+        : summarizeAudioEnergy(concatenated);
       const isBufferSilent = energy.rms < SESSION_PAUSE.SILENCE_RMS_THRESHOLD;
       const isMeaningfullySilent = this.pauseDetector.isMeaningfullySilent();
       const isLowEnergyPauseTail =
@@ -2013,6 +2089,10 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
 
   protected async onStop(): Promise<void> {
     this.stopRequestedAtMs = performance.now();
+    // #1848: the take this stop finalizes. If a later recording has started on this instance by the time
+    // a finalize interval is measured, the value belongs to this (older) take and is not written into
+    // the newer take's summary.
+    const stoppingTakeSeq = this.finalizeTakeSeq;
     logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateWhisper] 🛑 Stopping engine...');
     pushPrivateTimeline('stop_requested', {
       serviceId: this.serviceId,
@@ -2049,7 +2129,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       this.onStatusChange?.({
         type: 'info',
         message: 'Processing speech locally…',
-        detail: 'Finalizing your private transcript on this device.',
+        detail: 'Finishing your transcript on this device.',
       });
     }
 
@@ -2091,12 +2171,14 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       });
       const finalizeStartedAtMs = performance.now();
       // Branch 1 (drain + cleanup): Stop entry -> whole-utterance commit call.
-      this.finalizeWaitMs = this.stopRequestedAtMs == null
-        ? null
-        : Number((finalizeStartedAtMs - this.stopRequestedAtMs).toFixed(1));
+      if (stoppingTakeSeq === this.finalizeTakeSeq) {
+        this.finalizeWaitMs = this.stopRequestedAtMs == null
+          ? null
+          : Number((finalizeStartedAtMs - this.stopRequestedAtMs).toFixed(1));
+      }
       this.publishPrivateTiming();
       // Branch 2 (finalizePrepMs) + branch 3 (finalizeDecodeMs) are set inside the commit.
-      await this.commitWholeUtteranceTranscript();
+      await this.commitWholeUtteranceTranscript(stoppingTakeSeq);
       this.publishPrivateTiming();
 
       if (!this.wholeUtteranceTranscript.trim()) {
@@ -2185,8 +2267,40 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.retryAudioBuffer = null;
   }
 
+  /** True while this take's cold-start backlog may still reach a live decode (see coldStartBacklog). */
+  private isColdStartBacklogActive(): boolean {
+    if (!this.coldStartBacklog) return false;
+    if (this.currentTranscript.trim().length > 0 || this.coldStartDecodes >= PRIV_STT.COLD_START_MAX_DECODES) {
+      this.coldStartBacklog = false;
+      return false;
+    }
+    return true;
+  }
+
   private capLiveDecodeWindow(audio: Float32Array): Float32Array {
     const hasCommittedTranscript = this.currentTranscript.trim().length > 0;
+    // Cold start: a take that began with a replayed backlog keeps the backlog from its start (the oldest
+    // COLD_START_DECODE_MAX_SAMPLES) in each live decode until its first transcript commits or its decode
+    // budget is spent, so the opening spoken while the model loaded (Focus Point 1) is decoded live and the
+    // held rounds compare the same opening words. Audio past that bound is still in the Stop-time final
+    // decode. Warm takes keep the normal window.
+    const isColdStartBacklog = this.isColdStartBacklogActive();
+    if (isColdStartBacklog) {
+      this.coldStartDecodes += 1;
+      if (audio.length <= COLD_START_DECODE_MAX_SAMPLES) return audio;
+      const oldest = inheritPcmSlice(audio, audio.slice(0, COLD_START_DECODE_MAX_SAMPLES), 0, 'live-cap');
+      pushPrivateTimeline('live_decode_window_capped', {
+        serviceId: this.serviceId,
+        runId: this.instanceId,
+        inputSamples: audio.length,
+        outputSamples: oldest.length,
+        windowSeconds: PRIV_STT.COLD_START_DECODE_MAX_SECONDS,
+        hasCommittedTranscript,
+        isColdStartBacklog,
+        keptOldest: true,
+      });
+      return oldest;
+    }
     const maxLiveSamples = hasCommittedTranscript
       ? LIVE_DECODE_WINDOW_SAMPLES
       : Math.max(
@@ -2206,6 +2320,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       outputDurationSec: Number(samplesToSeconds(cappedAudio.length, PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
       windowSeconds: Number(samplesToSeconds(maxLiveSamples, PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
       hasCommittedTranscript,
+      isColdStartBacklog,
     });
 
     if (isPrivateTranscriptTraceEnabled()) {
@@ -2442,7 +2557,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     }
   }
 
-  private async commitWholeUtteranceTranscript(): Promise<void> {
+  private async commitWholeUtteranceTranscript(takeSeq: number | null = this.finalizeTakeSeq): Promise<void> {
     const commitEnteredAtMs = performance.now();
     if (this.utteranceAudioChunks.length === 0 || this.utteranceSampleCount < MIN_TRANSCRIPTION_SAMPLES) {
       pushPrivateTimeline('whole_utterance_commit_skip', {
@@ -2517,7 +2632,10 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     });
     const decodeStartedAtMs = performance.now();
     // Branch 2: finalize preprocessing (concat + energy + audio capture) before the model call.
-    this.finalizePrepMs = Number((decodeStartedAtMs - commitEnteredAtMs).toFixed(1));
+    // #1848: written only while this commit's take is still the current one.
+    if (takeSeq === this.finalizeTakeSeq) {
+      this.finalizePrepMs = Number((decodeStartedAtMs - commitEnteredAtMs).toFixed(1));
+    }
     this.publishPrivateTiming();
     // THE PRIMARY TERMINAL COMMIT. `onStop()` calls this first; `processAudio({ force: true })` runs
     // only as a FALLBACK when this produces an empty transcript. Marking finality on the fallback alone
@@ -2530,7 +2648,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     const result = await this.privateSTT.transcribe(audio, { final: true });
     const decodeMs = Number((performance.now() - decodeStartedAtMs).toFixed(1));
     // Branch 3: the model decode itself.
-    this.finalizeDecodeMs = decodeMs;
+    if (takeSeq === this.finalizeTakeSeq) this.finalizeDecodeMs = decodeMs;
     // #34 durable finalize estimate: learn THIS engine's real RTF (decode ÷ utterance) from the
     // actual decode, so the "Finalizing… ~Ns" label self-corrects per engine (v2 vs v4) instead of
     // showing a hardcoded v2 rate.
@@ -2613,7 +2731,10 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       return;
     }
 
-    const start = Math.max(0, audio.length - MAX_RETRY_SAMPLES);
+    // A held first decode of a cold-start backlog keeps the whole backlog for its retry, so the opening
+    // (Focus Point 1) is not cut to the newest MAX_RETRY_SAMPLES before the first transcript commits.
+    // The decode budget is checked here too, so the last budgeted decode's retry falls back to the normal tail.
+    const start = this.isColdStartBacklogActive() ? 0 : Math.max(0, audio.length - MAX_RETRY_SAMPLES);
     this.retryAudioBuffer = inheritPcmSlice(audio, audio.slice(start), start, 'retry-tail');
     pushPrivateTimeline('retain_audio_for_retry', {
       serviceId: this.serviceId,

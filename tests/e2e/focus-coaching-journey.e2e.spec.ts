@@ -78,7 +78,7 @@ test.describe('RWT item 4 — Focus-aware coaching through the rendered review',
 
     // PO6175213749: disclose the authoritative saved Focus inputs and relevant measurements.
     await expect(page.getByTestId('ai-suggestions-disclosure')).toHaveText(
-      "Sends this session's transcript, saved Focus Points topic, points and results, and relevant speaking measurements to the AI service provider to create AI coaching. Audio is never sent.",
+      "Your transcript is sent to an AI service for coaching. Your Focus Points topic, points and results and relevant speaking measurements go with it; audio is never sent. Who provides it",
     );
 
     // REQUEST: two refusals + one answer, each for this saved session, each Focus Points.
@@ -110,7 +110,7 @@ test.describe('RWT item 4 — Focus-aware coaching through the rendered review',
     expect(sent[0].body?.accepted_coaching_versions).toEqual(['gemini_coaching_v1', 'gemini_coaching_focus_v1']);
     // Open Mic also sends finalized filler counts and pace; audio is not sent.
     await expect(page.getByTestId('ai-suggestions-disclosure')).toHaveText(
-      "Sends this session's transcript and speaking measurements (filler counts and pace) to the AI service provider to create AI coaching. Audio is never sent.",
+      "Your transcript is sent to an AI service for coaching. Your filler counts and pace go with it; audio is never sent. Who provides it",
     );
   });
 });

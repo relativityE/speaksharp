@@ -2,7 +2,9 @@
 """Maps a validated run request to the plan-builder environment variables (names, not secrets). Offline.
 The names follow the harness plan builder (build_private_*.py): BP_CAMPAIGN, BP_T0/BP_T1, BP_TOTAL, BP_CLEANUP, BP_IDENT, BP_SELECT, BP_GATES, BP_EST,
 BP_SELECT_REF, BP_SELECT_REASON, BP_BACKEND_*. Credentials are NOT written here; the workflow supplies them at the build and run steps only.
-Usage: run_env.py --request R.json --request-sha256 SHA --reconciliation RC.json --out env.txt"""
+BP_T1 is the run's ONE execution deadline (init_run_inputs.execution_deadline, passed unchanged as an init step output), never the
+occurrence end: it must lie inside the occurrence, and a missing or malformed value refuses .
+Usage: run_env.py --request R.json --request-sha256 SHA --reconciliation RC.json --execution-deadline YYYY-MM-DDTHH:MM:SSZ --out env.txt"""
 import argparse
 import hashlib
 import json
@@ -20,6 +22,7 @@ from case_start_caps import request_caps  # noqa: E402
 SAMPLE = {"partial": "minimal", "smoke": "smoke", "full": "full"}
 BP_MODE = dict(SAMPLE)   # the request's coverageMode is the only source; a request without one fails here
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
+UTC = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")
 
 
 def bound_request(path, expected_sha256):
@@ -60,7 +63,14 @@ def main():
     a.add_argument("--request", required=True)
     a.add_argument("--request-sha256", required=True)
     a.add_argument("--reconciliation", required=True)
+    a.add_argument("--execution-deadline", required=True)
     a.add_argument("--out", required=True)
+    # the manual run's reservation binding, by its private file and digest only (never a bare number), with the execution
+    # identity it must name ("<run id>.<attempt>", CT_EXECUTION_RUN_ID).
+    a.add_argument("--reservation-binding")
+    a.add_argument("--reservation-binding-sha256")
+    a.add_argument("--execution-run-id")
+    a.add_argument("--source-sha")
     x = a.parse_args()
     r = bound_request(x.request, x.request_sha256)
     if not os.path.isabs(x.reconciliation) or os.path.realpath(x.reconciliation) != x.reconciliation:
@@ -94,13 +104,18 @@ def main():
     if contract_mode != builder_mode:
         sys.exit("BLOCKED_SETUP: Start allocation mode differs from builder mode")
     est, sel, win, appr, rel = r["estimate"], r["selection"], r["window"], r["approvedLimits"], r["release"]
+    deadline = x.execution_deadline
+    # Same-format UTC strings order lexically; the deadline is strictly after the occurrence start and never after its end.
+    if not (isinstance(deadline, str) and UTC.match(deadline) and UTC.match(str(win.get("startUtc"))) and UTC.match(str(win.get("endUtc")))
+            and win["startUtc"] < deadline <= win["endUtc"]):
+        sys.exit("BLOCKED_SETUP: the run's execution deadline is missing, malformed or outside the occurrence")
     gates = []
     for s in sel:
         if s.get("gate"):
             gc, row = s["gate"].split(":")
             gates.append("%d:%d:%s" % (num(s["case"]), num(gc), row))
     env = {
-        "BP_CAMPAIGN": r["runId"], "BP_MODE": builder_mode, "BP_RUNTIME": runtime, "BP_T0": win["startUtc"], "BP_T1": win["endUtc"],
+        "BP_CAMPAIGN": r["runId"], "BP_MODE": builder_mode, "BP_RUNTIME": runtime, "BP_T0": win["startUtc"], "BP_T1": deadline,
         "BP_PRODUCER_MODE": "same-github-job" if runtime == "GitHub Actions SpeakSharp" and any(s["case"] in ("AHT-01", "AHT-02", "AHT-03", "AHT-07", "AHT-08") for s in sel) else "unavailable",
         "BP_TOTAL": str(appr["runCapRequests"]), "BP_CLEANUP": str(est["requests"]["cleanupReserve"]), "BP_COACHING_CAP": str(est["providerBillableRequests"]["coachingCap"]),
         "BP_IDENT": str(est["identityReads"]), "BP_SELECT": ",".join(str(num(s["case"])) for s in sel),
@@ -112,6 +127,30 @@ def main():
         "BP_RECONCILIATION_FILE": x.reconciliation, "BP_RECONCILIATION_SHA256": reconciliation_sha256,
     }
     env["BP_BACKEND_VERIFIED"] = "" if env["BP_BACKEND_VERIFIED"] == "-" else env["BP_BACKEND_VERIFIED"]
+    if x.reservation_binding or x.reservation_binding_sha256:
+        import reservation_binding as RB
+        run_id, _, attempt = (x.execution_run_id or "").partition(".")
+        try:
+            RB.verify(x.reservation_binding, x.reservation_binding_sha256, request_sha256=x.request_sha256, campaign_id=r["runId"],
+                      run_id=run_id, attempt=int(attempt) if attempt.isdigit() else None, reconciliation_head=reconciliation.get("headSha"),
+                      configured_max=est["identityReads"], tested_sha=rel["testedSha"], harness_source_sha=x.source_sha or None)
+        except (RB.Refused, OSError) as e:
+            sys.exit("BLOCKED_SETUP: " + (str(e) if isinstance(e, RB.Refused) else "reservation-binding-unreadable"))
+        env.update(BP_RESERVATION_BINDING_FILE=x.reservation_binding, BP_RESERVATION_BINDING_SHA256=x.reservation_binding_sha256)
+    # R10 run 42142985744: the same-job bootstrap validates the account bindings against https://$BP_HOST_DB, but nothing on the real path
+    # set it (only unit fixtures did), so it compared against https://undefined and refused. The host comes from the SAME origin the
+    # binding resolver was given (VITE_SUPABASE_URL, execute_run.sh ensure_account_bindings), never a default.
+    origin = os.environ.get("VITE_SUPABASE_URL", "")
+    if origin:
+        # Normalised like the resolver's projectOrigin: https, no credentials, default port only, no path beyond "/", lower-case host.
+        # (A regex, not urllib: this control-plane script stays outside the network-import boundary.)
+        m = re.fullmatch(r"https://([A-Za-z0-9]{20}\.[Ss][Uu][Pp][Aa][Bb][Aa][Ss][Ee]\.[Cc][Oo])(?::443)?/?", origin)
+        if not m:
+            sys.exit("BLOCKED_SETUP: project origin must be https://<20-char ref>.supabase.co")
+        host = m.group(1).lower()
+        env["BP_HOST_DB"] = host
+    elif env["BP_PRODUCER_MODE"] == "same-github-job":
+        sys.exit("BLOCKED_SETUP: project origin (VITE_SUPABASE_URL) is required for the same-job producer")
     if builder_mode in ("selected-full", "smoke"):
         # Preserve the runner's fifteen-row denominator; only selection dispatches.
         env["BP_CASES"] = ",".join(str(n) for n in range(1, 16))

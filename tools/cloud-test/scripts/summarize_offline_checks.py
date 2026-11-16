@@ -16,8 +16,8 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-# The exact inventory of run_offline_checks.py (Sam 1793373703): every ID once, none missing or extra. Every check is a current-run check and
-# none is ever N/A; the retained-campaign audits run only in scripts/run_legacy_audit.py (PO 2026-10-30, Sam 1793400946).
+# The exact inventory of run_offline_checks.py : every ID once, none missing or extra. Every check is a current-run check and
+# none is ever N/A; the retained-campaign audits run only in scripts/run_legacy_audit.py (PO 2026-10-30).
 CHECKS = frozenset(("package-unit-tests", "report-builder-tests", "reservation-ledger-verified", "catalog-history-additive", "harness-verified",
                     "assertion-catalog-matches-harness", "config-matches-workflow", "offline-proof-index"))
 # The unittest suites whose own counts must prove a clean, non-empty run before the workflow counts as delivered.
@@ -27,7 +27,7 @@ STATUS = re.compile(r"^(OK|FAILED)(?: \(((?:[a-z ]+=\d+)(?:, [a-z ]+=\d+)*)\))?$
 COUNT_KEYS = frozenset(("failures", "errors", "skipped", "expected failures", "unexpected successes"))
 # unittest's failure headers, including class-level fixtures such as "ERROR: setUpClass (module.Class)".
 FAILING = re.compile(r"^(?:ERROR|FAIL): (\w+ \([\w.]+\))", re.M)
-# A closed allowlist is the public type boundary (Sam 1793377141): only Python's built-in exception classes and these named
+# A closed allowlist is the public type boundary : only Python's built-in exception classes and these named
 # stdlib ones are ever published, so text shaped like a traceback cannot put an arbitrary word in the summary. Else OTHER.
 PUBLIC_EXCEPTION_TYPES = frozenset(name for name, value in vars(builtins).items()
                                    if isinstance(value, type) and issubclass(value, BaseException)) | frozenset(
@@ -59,7 +59,7 @@ def _text(c):
 
 
 def _suite(c):
-    """The unittest counts of a check, read strictly from ONE unambiguous, complete result (Sam 1793398852): exactly one line
+    """The unittest counts of a check, read strictly from ONE unambiguous, complete result : exactly one line
     starting "Ran ", in unittest's exact form, whose next non-blank line is unittest's OK/FAILED status with known counts and is
     the last non-blank line of the output. Otherwise {}: none or several results, "NO TESTS RAN", a truncated or malformed
     summary, or anything (another summary, a contradictory status) after it."""
@@ -87,7 +87,7 @@ def _counts(c):
 
 
 def delivery_refusals(checks, rows, result):
-    """Every reason this result is not the delivered workflow (PO 2026-10-30 via Sam 1793398305: GitHub cloud-test passing with NO skips).
+    """Every reason this result is not the delivered workflow (PO 2026-10-30 via GitHub cloud-test passing with NO skips).
     Empty means delivered."""
     refusals = ["FAILED:" + r["id"] for r in rows if r["status"] == "FAIL"]
     if result.get("proofSource") != "ct-proof-file":
@@ -105,7 +105,7 @@ def delivery_refusals(checks, rows, result):
     return refusals
 
 
-# ---------- Equivalence (Sam 1793406117, 1793406369, 1793406609, 1793406980, 1793407393) ----------
+# ---------- Equivalence ----------
 # The summary carries what was tested and what each required test did, as hashes, public package paths and public test ids only. Every digest is
 # recomputed from the canonical content it covers; a digest aids comparison and is never proof of execution or authenticity by itself.
 MANIFEST = os.path.join(os.path.dirname(HERE), "config", "required-test-ids.v1.json")
@@ -120,7 +120,7 @@ CALLBACK_KEYS = ("ran",) + tuple(sorted(COUNT_KEYS))
 ENVIRONMENT_KEYS = ("python", "implementation", "system", "machine", "pyyaml", "node", "pdfjs")
 UNEXPECTED_CATEGORIES = ("source", "config", "other")
 FILE_SET_CODES = ("MISSING", "SCAN_ERROR", "SYMLINK", "UNEXPECTED", "FILE_SET_UNREADABLE")
-# The exact external inputs run_offline_checks.py records (Sam 1793448573 P2): a summary missing one, or naming another, has no valid identity.
+# The exact external inputs run_offline_checks.py records (P2): a summary missing one, or naming another, has no valid identity.
 REQUIRED_INPUTS = frozenset(("cloud-test-yml", "github-workflow-cloud-test", "rc-gates-yml", "checkout-lock", "speech-open_mic_tts.wav",
                              "speech-focus_points_tts.wav", "speech-focus_points_partial_tts.wav", "speech-rwt-fixtures.manifest.json", "chrome",
                              "pdfjs-pdf-mjs", "test-repo", "override-focus_oracle", "override-presentation_controls", "override-coaching_failure_policy",
@@ -133,7 +133,7 @@ def digest(value):
 
 
 def _count(v, minimum=0):
-    """A count field: an int (never a bool) at or above the minimum (Sam 1793410731)."""
+    """A count field: an int (never a bool) at or above the minimum ."""
     return isinstance(v, int) and not isinstance(v, bool) and v >= minimum
 
 
@@ -142,7 +142,7 @@ def _hex_or_none(v):
 
 
 def _input_family_ok(x):
-    """Each external input has only the shapes run_offline_checks.py emits for its family (Sam 1793449337): relabelled inputs are never valid, so
+    """Each external input has only the shapes run_offline_checks.py emits for its family : relabelled inputs are never valid, so
     equally relabelled peers cannot MATCH."""
     name, state, source, path, sha = x["name"], x["state"], x["source"], x["path"], x["sha256"]
     if name.startswith("override-"):
@@ -162,7 +162,7 @@ def _identity(doc):
     try:
         fs, pins, inputs, env, git = i["fileSet"], i["pins"], i["externalInputs"], i["environment"], i["git"]
         files = [[p, h] for p, h in fs["files"]]
-        # Every state relationship holds (Sam 1793448573 P2): each code is present exactly when its count or list is non-empty, COMPLETE means none,
+        # Every state relationship holds (P2): each code is present exactly when its count or list is non-empty, COMPLETE means none,
         # and an unreadable file set carries no hashed files.
         derived = ({"MISSING"} if fs["missing"] else set()) | ({"SCAN_ERROR"} if fs["scanErrors"] else set()) | \
                   ({"SYMLINK"} if fs["symlinks"] else set()) | ({"UNEXPECTED"} if fs["unexpected"] else set())
@@ -221,7 +221,7 @@ def _suite_records(c):
         failed_subtests = [o for o in t["subtests"] if o != "success"]
         if t["starts"] != 1 or t["stops"] != 1 or not (t["outcomes"] or failed_subtests):
             codes.append("NO_TERMINAL_OUTCOME:" + c["id"])
-        # Several unsuccessful callbacks are legitimate (a failure, then a tearDown error: Sam 1793410430) and all stay as evidence; only an
+        # Several unsuccessful callbacks are legitimate (a failure, then a tearDown error: ) and all stay as evidence; only an
         # impossible combination is contradictory: success alongside anything else, or success twice.
         if "success" in t["outcomes"] and len(t["outcomes"]) > 1:
             codes.append("CONTRADICTORY_OUTCOMES:" + c["id"])
@@ -229,7 +229,7 @@ def _suite_records(c):
         rows[t["id"]] = {"outcome": max(observed, key=OUTCOMES.index) if observed else "none",
                          "subtests": {o: t["subtests"].count(o) for o in sorted(set(t["subtests"]))},
                          "outcomes": {o: t["outcomes"].count(o) for o in sorted(set(t["outcomes"]))}}
-    # Three independent accounts must agree (Sam 1793410315): counts derived from the recorded parent, subtest and fixture outcomes, the counters the
+    # Three independent accounts must agree : counts derived from the recorded parent, subtest and fixture outcomes, the counters the
     # callbacks kept, and unittest's printed count line. A recorded failure can never hide behind zero counters and a printed OK.
     events = [o for t in tests for o in t["outcomes"] + t["subtests"]] + [f["outcome"] for f in fixtures]
     derived = {"ran": sum(t["starts"] for t in tests), "failures": events.count("failure"), "errors": events.count("error"),
@@ -245,7 +245,7 @@ def _suite_records(c):
 
 def _load_manifest():
     """(raw bytes, ids) of the required-test manifest, or (None, None) when it is unreadable or malformed: ids must be a sorted, unique list of
-    suite-qualified strings. A malformed manifest is always a classified result, never an exception (Sam 1793448849)."""
+    suite-qualified strings. A malformed manifest is always a classified result, never an exception ."""
     try:
         with open(MANIFEST, "rb") as f:
             raw = f.read()
@@ -258,7 +258,7 @@ def _load_manifest():
 
 
 def _inventory(checks):
-    """Exact manifest coverage per suite (Sam 1793406198): every required id executed exactly once with a terminal outcome, nothing unlisted."""
+    """Exact manifest coverage per suite : every required id executed exactly once with a terminal outcome, nothing unlisted."""
     raw, ids = _load_manifest()
     if raw is None:
         return {"status": "INCOMPLETE", "codes": ["MANIFEST_UNREADABLE"], "manifestSha256": None, "executed": [], "executedDigest": None}
@@ -287,7 +287,7 @@ def _result_digest(rows, inventory, delivery):
 
 
 def _eligible(rows, proof_source, ident, inventory):
-    """Delivery eligibility recomputed from validated summary content alone (Sam 1793410315): every check passes, the workflow supplied the proof,
+    """Delivery eligibility recomputed from validated summary content alone : every check passes, the workflow supplied the proof,
     both suites show a non-empty clean count, the inventory and the file set are complete, and every required test's outcome is success."""
     by_id = {r["id"]: r for r in rows}
     clean = all(isinstance(by_id[i].get("tests"), dict) and by_id[i]["tests"].get("ran", 0) > 0
@@ -334,10 +334,10 @@ def summarize(result):
     if (result.get("passed") is True) != all(r["status"] == "PASS" for r in rows):
         return fail("RESULT_INCONSISTENT")
     # The delivery: every check passes, both suites show one complete, non-empty, clean count, and the proof is the one the workflow supplied
-    # (CT_PROOF_FILE; its freshness is the workflow boundary's, Sam 1793405248).
+    # (CT_PROOF_FILE; its freshness is the workflow boundary's).
     refusals = delivery_refusals(checks, rows, result)
     # Equivalence: what was tested and what every required test did. An incomplete inventory or file set is never delivery (exact manifest
-    # coverage, Sam 1793406369); unbound external inputs only make a comparison UNKNOWN, they do not change this run's own gate.
+    # coverage); unbound external inputs only make a comparison UNKNOWN, they do not change this run's own gate.
     ident, inventory = _identity(result), _inventory(checks)
     if inventory["status"] != "COMPLETE":
         refusals.append("INVENTORY_INCOMPLETE")
@@ -345,7 +345,7 @@ def summarize(result):
         refusals.append("IDENTITY_MISSING")
     elif ident["fileSet"]["status"] != "COMPLETE":
         refusals.append("FILE_SET_INCOMPLETE")
-    # Any unsuccessful recorded parent or subtest outcome refuses delivery on its own, whatever the counters say (Sam 1793410315).
+    # Any unsuccessful recorded parent or subtest outcome refuses delivery on its own, whatever the counters say .
     refusals += sorted({"UNSUCCESSFUL_OUTCOMES:" + e[0].split("::", 1)[0] for e in inventory["executed"] if e[1] != "success"})
     delivered = not refusals
     summary.update(resultValid=True, delivered=delivered, deliveryRefusals=refusals, overallPassed=delivered, proofSource=result.get("proofSource"))
@@ -360,7 +360,7 @@ def _side(summary):
     try:
         if summary.get("schema") != "speaksharp.cloud-test.offline-checks-summary.v4" or summary.get("resultValid") is not True:
             return None, ["SUMMARY_INVALID"]
-        # The verdict fields are validated before any sort or digest reconstruction (Sam 1793449337): a wrong container or mixed elements is
+        # The verdict fields are validated before any sort or digest reconstruction : a wrong container or mixed elements is
         # classified, never an exception.
         refusals = summary["deliveryRefusals"]
         if not isinstance(refusals, list) or not all(isinstance(r, str) for r in refusals) or not all(
@@ -389,7 +389,7 @@ def _side(summary):
     except (KeyError, TypeError, AttributeError):
         return None, ["SUMMARY_INVALID"]
     codes = []
-    # The nested identity shape is checked before any dereference (Sam 1793448573 P3): an empty, partial or wrong-typed identity is a code, never an error.
+    # The nested identity shape is checked before any dereference (P3): an empty, partial or wrong-typed identity is a code, never an error.
     if ident is None:
         codes.append("IDENTITY_MISSING")
     elif (not isinstance(ident, dict) or set(ident) != {"fileSet", "pins", "externalInputs", "inputsDigest", "environment", "git"}
@@ -400,7 +400,7 @@ def _side(summary):
                **{k: ident.get(k) for k in ("pins", "externalInputs", "environment", "git")}}
         if _identity({"identity": raw}) != ident:
             codes.append("IDENTITY_DIGEST_MISMATCH")
-    # Coverage is verified against the comparer's own required-test manifest, never the side's assertion (Sam 1793448573 P1): the manifest hash must
+    # Coverage is verified against the comparer's own required-test manifest, never the side's assertion (P1): the manifest hash must
     # match and the executed ids must be exactly the required ids, so a removed, substituted or equally truncated record set cannot pass or MATCH.
     raw_manifest, required = _load_manifest()
     if raw_manifest is None or hashlib.sha256(raw_manifest).hexdigest() != inv["manifestSha256"]:
@@ -411,7 +411,7 @@ def _side(summary):
     if inv.get("executedDigest") != digest(executed) or eq.get("resultDigest") != _result_digest(rows, inv, delivery):
         codes.append("RESULT_DIGEST_MISMATCH")
     # Each row's aggregate is recomputed from its own and subtest maps, and for a complete inventory the map-derived suite totals must equal the
-    # summary-row counts (Sam 1793410909): a valid positive failure map can never sit under a "success" aggregate or behind clean row counts.
+    # summary-row counts : a valid positive failure map can never sit under a "success" aggregate or behind clean row counts.
     for e in executed:
         maps = list(e[2]) + list(e[3])
         if e[1] != (max(maps, key=OUTCOMES.index) if maps else "none"):
@@ -462,7 +462,7 @@ def compare(a, b):
     if out["codes"]:
         return out
     out["environmentDifferences"] = sorted(k for k in ENVIRONMENT_KEYS if ia["environment"][k] != ib["environment"][k])
-    # Whole-repository tree equality is reported for an external check only (Sam 1793448573): it never changes the state.
+    # Whole-repository tree equality is reported for an external check only : it never changes the state.
     ta, tb = ia["git"]["headTree"], ib["git"]["headTree"]
     out["diagnostics"] = {"gitHeadTreeEqual": None if ta is None or tb is None else ta == tb}
     inputs_a, inputs_b = ({x["name"]: x for x in i["externalInputs"]} for i in (ia, ib))
@@ -491,8 +491,8 @@ def compare(a, b):
 
 
 def main():
-    # The executable control-plane path loads the network guard, like every control-plane script (Sam 1793375168): only
-    # here, so importing summarize() for tests stays pure and never patches the importing process's sockets.
+    # The executable control-plane path loads the network guard, like every control-plane script : only
+    # here, so importing summarize for tests stays pure and never patches the importing process's sockets.
     sys.path.insert(0, HERE)
     import _netguard  # noqa: F401
     a = argparse.ArgumentParser()

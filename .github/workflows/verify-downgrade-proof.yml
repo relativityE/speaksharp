@@ -17,6 +17,7 @@ permissions:
 
 jobs:
   verify-downgrade:
+    environment: trusted-main-credentials
     name: Verify paid->free downgrade contract
     runs-on: ubuntu-latest
     timeout-minutes: 10

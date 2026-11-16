@@ -123,6 +123,9 @@ class ControlledEngine {
     async getTranscript() { return ''; }
     getLastHeartbeatTimestamp() { return Date.now(); }
     getEngineType() { return 'transformers-js'; }
+    /** #1858: a release this engine's teardown deferred (e.g. a pipeline disposed after an in-flight run) — held by the test. */
+    public deferredRelease: Promise<Error | null> | null = null;
+    async teardownReleaseOutcome(): Promise<Error | null> { return this.deferredRelease ? this.deferredRelease : null; }
 }
 
 const settle = async (turns = 12) => {
@@ -341,6 +344,29 @@ describe('#1476 — unmount retires the engine before the account lease is relea
         expect(controller.getState(), 'no affirmative termination: Start stays blocked').toBe(t.preparing);
         expect(useSessionStore.getState().runtimeState).toBe(t.preparing);
         expect(onLateTerminal, 'no lease release on a rejected termination').not.toHaveBeenCalled();
+    });
+
+    // #1858 (Sam on 26b49b8c): the REAL caller. terminate() of the engine resolved, but its pipeline disposal is still deferred
+    // behind an in-flight run: while it is held, and if it then fails, destroy() must never confirm the engine off.
+    it.each([
+        { outcome: 'fails', settle: new Error('deferred dispose rejected (release uncertain)'), confirmed: false },
+        { outcome: 'confirms', settle: null, confirmed: true },
+    ])('#1858: a deferred disposal that $outcome is engine-off only once confirmed', async ({ settle: outcome, confirmed }) => {
+        engine.modelCached = true;
+        await controller.startRecording(POLICY as never, []);
+        await vi.waitFor(() => expect(controller.getState()).toBe('RECORDING'), { timeout: 5_000 });
+        const svc = (controller as unknown as { service: { destroy: () => Promise<void>; didConfirmTermination: () => boolean } }).service;
+        let finish!: (value: Error | null) => void;
+        engine.deferredRelease = new Promise((resolve) => { finish = resolve; });
+        let destroyed = false;
+        const destroying = svc.destroy().finally(() => { destroyed = true; });
+        await settle(30);
+        expect(engine.terminateCalls, 'the engine itself was terminated').toBeGreaterThan(0);
+        expect(destroyed, 'destroy() waits for the deferred disposal').toBe(false);
+        expect(svc.didConfirmTermination(), 'a held disposal is not engine-off').toBe(false);
+        finish(outcome);
+        await destroying;
+        expect(svc.didConfirmTermination(), 'engine-off only on a confirmed disposal').toBe(confirmed);
     });
 
     it('Codex P2 r4315983017 (#1668): a NORMAL stop is affirmative proof — a later redundant terminate() that rejects does not erase it', async () => {

@@ -7,6 +7,7 @@ const coachingEvidence=require('./pure/rwtCoachingEvidence.cjs');
 const consistency=require('./pure/rwtCoachingConsistency.cjs');
 const marker=require('./pure/rwtMarkerObserver.cjs');
 const focusIdentity=require('./pure/rwtSavedFocusIdentity.cjs');
+const smokeFocus=require('./smoke-saved-focus.cjs');
 const feedback=require('./pure/feedbackDiagnosticRef.cjs');
 const recovery=require('./pure/rwtRecoveryCapture.cjs');
 const lease=require('./pure/rwtAbandonTakeover.cjs');
@@ -163,7 +164,33 @@ function createOracles({context,guard,caseConfig:c,writeEvidence,readPrivateEvid
   const displaced=await a.tabA.getByText(lease.DISPLACED_COPY,{exact:true}).waitFor({state:'visible',timeout:30000}).then(()=>true,()=>false);await a.tabA.waitForFunction(()=>{const ss=window.__rwtMicStreams__;return Array.isArray(ss)&&ss.flatMap(s=>s.getAudioTracks()).every(t=>t.readyState!=='live');},undefined,{timeout:20000}).catch(()=>undefined);
   const snapshot=async p=>{const m=await mic.mic(p);must(m,'takeover microphone state unavailable');return {runtimeState:await p.locator('html').getAttribute('data-runtime-state'),liveTracks:m.liveTracks,recorderVisible:m.recorderVisible};};const va=await snapshot(a.tabA),vb=await snapshot(a.tabB);const v=lease.takeOverVerdict({tabA:va,tabB:vb,displacedCopyShown:displaced});if(v.status==='FAIL')return result('takeover','FAIL',{oldMicTracks:va.liveTracks,newMicTracks:vb.liveTracks,displacedCopy:displaced});const old=await one(a.tabB,'sessions','id,user_id,status,recording_fenced_at,recording_fenced_reason',{id:s.firstId});const fenced=typeof old.recording_fenced_at==='string'&&Number.isFinite(Date.parse(old.recording_fenced_at))&&old.recording_fenced_reason==='displaced';return result('takeover',v.status==='FAIL'||!fenced?'FAIL':v.status,{oldMicTracks:va.liveTracks,newMicTracks:vb.liveTracks,displacedCopy:displaced,oldPermanentFence:fenced,physicalDeviceNotAsserted:true});
  }
- const funcs={coaching,pdfOwnerTake,sameTarget,focusEvidence,focusControlBinding,feedbackReceived,feedbackAssociation,coachingAssociation,abandonmentLease,takeoverLease};
+ // Sam 1794103612 / 1794103587: the SMOKE saved-Focus readback for the exact first take. It reuses the expected brief id the existing
+ // focusEvidence 'begin' already captured (no second objective_brief read), runs on the page saveReopen left on the reloaded detail of exactly
+ // this session (no new page or navigation), and adds 3 owner-scoped reads. An unavailable read is NOT RUN (rows() throws NOT_RUN); missing or
+ // duplicated product data is FAIL. Exercised points come only from the fixture windows (smoke-saved-focus.cjs).
+ async function smokeFocusReadback(a){
+  const s=state.focus;must(s&&typeof s.briefId==='string'&&s.briefId,'Focus brief capture unavailable');
+  must(typeof a.sessionId==='string'&&a.sessionId,'saved Focus session unavailable');
+  must(Array.isArray(a.railStatuses)&&a.railStatuses.length===c.focus.points.length,'smoke Focus rail statuses unavailable');
+  // Sam 1794104563: the tested release (5a7bf6a1 AnalyticsDashboard.tsx L483/L500) links open-session-detail-<id> to the canonical
+  // /progress/<id>; /analytics/:sessionId is only a legacy redirect. ui.reopen clicks that link and reloads, so the page must be exactly
+  // /progress/<this take> on the expected origin; another session, origin or the legacy alias is NOT RUN.
+  let here=null,origin=null;try{here=new URL(a.page.url());origin=new URL(c.targetUrl).origin;}catch{}
+  must(here&&origin&&here.origin===origin&&here.pathname==='/progress/'+a.sessionId,'reopened page is not the exact saved session');
+  const objectives=await rows(db(a.page),'objective_session','id,user_id,brief_id',{source_session_id:a.sessionId});
+  if(objectives.length!==1)return result('smokeFocusReadback','FAIL',{objectiveSessions:objectives.length,scope:'smoke-saved-focus-readback'});
+  const objective=objectives[0];
+  const points=await rows(db(a.page),'objective_brief_point','id,user_id,brief_id,sort_order,label',{brief_id:objective.brief_id});
+  const ev=await rows(db(a.page),'objective_evidence','id,user_id,brief_point_id,verdict',{session_id:objective.id});
+  const shown=a.page.getByTestId('review-evidence').first();
+  const visibleEvidence=(await shown.count())?(await shown.innerText()).split('\n'):[];
+  const v=smokeFocus.smokeSavedFocusVerdict({expectedBriefId:s.briefId,savedBriefId:objective.brief_id,
+    expected:c.focus.points.map((label,i)=>({label,railStatus:a.railStatuses[i]})),savedPoints:points,evidence:ev,visibleEvidence},
+    {windows:c.focus.speechWindows,recordingWindowMs:c.recordingWindowMs});
+  return result('smokeFocusReadback',v.verdict==='NOT RUN'?'HOLD':v.verdict,{scope:v.scope,points:points.length,exercisedOrdinals:v.exercisedOrdinals,
+    unexercisedOrdinals:v.unexercisedOrdinals,mismatchedOrdinals:v.mismatchedOrdinals});
+ }
+ const funcs={coaching,pdfOwnerTake,sameTarget,focusEvidence,focusControlBinding,feedbackReceived,feedbackAssociation,coachingAssociation,abandonmentLease,takeoverLease,smokeFocusReadback};
  // Every wrapper catches unavailable evidence as NOT RUN, not a synthetic success. Assertion-level callers persist FAIL.
  for(const [name,fn]of Object.entries(funcs))funcs[name]=async a=>{try{return await fn(a);}catch(e){if(e?.code==='NOT_RUN')throw e;const interrupted=await result(name,'HOLD',{observationInterrupted:true,...(name==='coaching'?{capture:captureDiagnostic(e)}:{})});return carryCaptureDiagnostic(e,interrupted);}};
  funcs.dispose=()=>{state.closed=true;state.coaching?.tap.detach?.();state.association?.detach?.();state.feedback?.tap.detach?.();state.feedbackAssociation?.detach?.();state.takeoverFirst?.creates.detach();if(state.takeover?.modelListener){try{state.takeover.tabB.off('request',state.takeover.modelListener);}catch{/* closed page */}}};

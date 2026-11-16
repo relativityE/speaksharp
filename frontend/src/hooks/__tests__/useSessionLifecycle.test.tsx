@@ -16,6 +16,9 @@ import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import { consumeModelComparisonTakeAuthorization } from '@/services/transcription/modelComparisonAuthorization';
 import { authorizeProduction, resetAuthorization } from '@/services/transcription/__tests__/modelComparisonAuthorization.helper';
 import { MicCard } from '@/components/session/MicCard';
+import { MIC_BLOCKED_MESSAGE, MIC_IN_USE_MESSAGE, MIC_NOT_FOUND_MESSAGE, markMicAcquisitionError } from '@/lib/micAccessErrors';
+import { toSanitizedCause } from '@/lib/sanitizeStartError';
+import { projectEventProps } from '@/services/telemetryAllowlist';
 import * as supabaseClientModule from '@/lib/supabaseClient';
 
 // Mock ALL hooks used inside useSessionLifecycle
@@ -289,7 +292,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         const view = render(<Probe />);
         return { store, view };
     };
-    const deniedCopy = '⚠️ Microphone access is blocked. Allow microphone access and try again.';
+    const deniedCopy = `⚠️ ${MIC_BLOCKED_MESSAGE}`;
     const setupCopy = '⚠️ Private transcription could not finish setup. Check microphone permission and browser storage, then retry setup. Your audio stays on your machine.';
 
     it.each([
@@ -321,6 +324,43 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         fireEvent.click(screen.getByTestId('mic-start'));
         await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(setupCopy));
         expect(screen.getByRole('alert')).not.toHaveTextContent('private diagnostic text');
+        view.unmount();
+    });
+    it.each([
+        ['NotAllowedError', MIC_BLOCKED_MESSAGE], ['SecurityError', MIC_BLOCKED_MESSAGE],
+        ['NotFoundError', MIC_NOT_FOUND_MESSAGE], ['NotReadableError', MIC_IN_USE_MESSAGE],
+    ] as const)('a getUserMedia %s names the mic problem, wrapped or bare, and Start stays the retry', async (name, copy) => {
+        for (const wrapped of [true, false]) {
+            const leaf = markMicAcquisitionError(new DOMException('private diagnostic text', name));
+            const error = wrapped
+                ? Object.assign(new Error('TRANSCRIPTION_START_DID_NOT_RECORD:FAILED'), { cause: toSanitizedCause(leaf) })
+                : leaf;
+            const { store, view } = failedStartView(error as Error);
+            fireEvent.click(screen.getByTestId('mic-start'));
+            await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(`⚠️ ${copy}`));
+            expect(screen.getByRole('alert')).not.toHaveTextContent('private diagnostic text');
+            expect(store.getState().isListening).toBe(false);
+            expect(screen.getByTestId('mic-start')).toBeEnabled();
+            vi.mocked(speechRuntimeController.startRecording).mockResolvedValueOnce(undefined);
+            const callsBefore = vi.mocked(speechRuntimeController.startRecording).mock.calls.length;
+            fireEvent.click(screen.getByTestId('mic-start'));
+            await waitFor(() => expect(speechRuntimeController.startRecording).toHaveBeenCalledTimes(callsBefore + 1));
+            view.unmount();
+        }
+    });
+    it('a getUserMedia failure keeps telemetry to closed names: the copy and the device text never ride along', async () => {
+        const leaf = markMicAcquisitionError(new DOMException('USB Mic (Akin) busy', 'NotReadableError'));
+        const error = Object.assign(new Error('TRANSCRIPTION_START_DID_NOT_RECORD:FAILED'), { cause: toSanitizedCause(leaf) });
+        const pushSpy = vi.spyOn(analyticsBuffer, 'push');
+        const { view } = failedStartView(error);
+        fireEvent.click(screen.getByTestId('mic-start'));
+        await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(MIC_IN_USE_MESSAGE));
+        const failed = pushSpy.mock.calls.find(([event]) => event === 'recording_start_failed');
+        expect(failed?.[1]).toMatchObject({ start_leaf_name: 'NotReadableError' });
+        const { props } = projectEventProps('recording_start_failed', failed?.[1] as Record<string, unknown>);
+        expect(props).toMatchObject({ start_leaf_name: 'NotReadableError' });
+        expect(JSON.stringify(props)).not.toMatch(/USB Mic|Akin|in use by another/);
+        pushSpy.mockRestore();
         view.unmount();
     });
     it('AHT12 the real controller wraps a denied service start and the actual hook renders the safe mic alert', async () => {
@@ -1050,7 +1090,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         expect(speechRuntimeController.reset).toHaveBeenCalledWith('start_failed');
         expect(mockStore.getState().sttStatus).toEqual({
             type: 'error',
-            message: '⚠️ Microphone access is blocked. Allow microphone access and try again.'
+            message: `⚠️ ${MIC_BLOCKED_MESSAGE}`
         });
     });
 

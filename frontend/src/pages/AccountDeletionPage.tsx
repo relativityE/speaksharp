@@ -84,6 +84,9 @@ export default function AccountDeletionPage({ completionReadiness = unavailableR
     requestId: currentStatus?.value?.outcome === 'pending' ? currentStatus.value.requestId : null, loading };
   const executionState = useRef<CompletionExecutionState | null>(null);
   const executionFlight = useRef(false);
+  // J1.f: an interrupted save that can never settle (for example, the trial ended before Stop) holds up deletion.
+  const discardFlight = useRef(false);
+  const [discard, setDiscard] = useState<{ ownerId: string; busy: boolean; message: string | null } | null>(null);
   const [executionConfirmation, setExecutionConfirmation] = useState<{ ownerId: string; requestId: string; checked: boolean } | null>(null);
   const [executionAttempt, setExecutionAttempt] = useState<{ ownerId: string; requestId: string; phase: 'submitting' | 'unknown' | 'pending' } | null>(null);
   const readiness = useCallback((ownerId: string, requestId: string) => {
@@ -170,6 +173,27 @@ export default function AccountDeletionPage({ completionReadiness = unavailableR
       if (statusDeadline.current) clearTimeout(statusDeadline.current);
     };
   }, [user?.id]);
+
+  // Only the owner's own confirmed, pending deletion can discard, and never a take that is still recording: the server
+  // checks both. The take is recorded as discarded, not saved, and can never be saved afterwards.
+  const discardUnsaved = async () => {
+    if (!user || discardFlight.current) return;
+    const ownerId = user.id;
+    discardFlight.current = true;
+    setDiscard({ ownerId, busy: true, message: null });
+    let message: string | null = 'The unsaved recording could not be discarded. Check deletion status, then try again.';
+    try {
+      const client = getSupabaseClient();
+      const { data, error } = client ? await client.rpc('discard_unsaved_recordings_for_closure_v1') : { data: null, error: true };
+      const reply = !error && data && typeof data === 'object' ? data as { outcome?: unknown; reason?: unknown } : null;
+      if (reply?.outcome === 'discarded_not_saved') message = null;
+      else if (reply?.reason === 'recording_live') message = 'A recording is still in progress on another tab or device. Stop it, then try again.';
+    } catch { /* the bounded message above stands */ } finally {
+      discardFlight.current = false;
+    }
+    setDiscard(current => current?.ownerId === ownerId ? { ownerId, busy: false, message } : current);
+    if (message === null) refreshCompletion();
+  };
 
   const completePending = async () => {
     const current = ownerAndRequest.current;
@@ -394,6 +418,13 @@ export default function AccountDeletionPage({ completionReadiness = unavailableR
         : shownCompletion
         ? <div data-testid="account-completion-status"><AccountCompletionStatusNotice status={shownCompletion} /></div>
         : <p role="status" className="mt-6">Your deletion request is pending. Your account has not been deleted. Outstanding checkout operations: {currentStatus.value.checkoutPending}. No deletion will be retried from this page.</p>)}
+      {shownCompletion?.outcome === 'pending' && shownCompletion.reason === 'save_unsettled' && <div className="mt-6 space-y-4">
+        <p>If a recording was interrupted, for example because your free trial ended before you stopped it, it may not have been saved and is holding up deletion. Discarding it lets deletion continue. It cannot be saved afterwards.</p>
+        <Button variant="outline" disabled={discard?.ownerId === user.id && discard.busy} onClick={() => { void discardUnsaved(); }}>
+          Discard unsaved recording
+        </Button>
+      </div>}
+      {discard?.ownerId === user.id && discard.message && <p role="status" className="mt-6">{discard.message}</p>}
       {canComplete && retained && user && <div className="mt-6 space-y-4">
         <label className="flex items-start gap-3"><input type="checkbox"
           checked={executionConfirmation?.ownerId === user.id && executionConfirmation.requestId === retained.requestId && executionConfirmation.checked}

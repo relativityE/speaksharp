@@ -3,9 +3,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {CASE07_APPLY,CASE07_ROLLBACK,SOURCE_CONTRACTS,SOURCE_CONSUMER,SOURCE_ASSERTION,inspectSourceContract,sourceContractBinding,
+import {BILLING_SPEC,BILLING_TARGET,BILLING_README,CASE07_APPLY,CASE07_ROLLBACK,SOURCE_CONTRACTS,SOURCE_CONSUMER,SOURCE_ASSERTION,inspectSourceContract,sourceContractBinding,
   consumeSourceContracts,validateSourceContractWitness} from '../../scripts/lib/sourceContractEvidence.mjs';
-import {executionRoute} from '../../scripts/lib/testExecutionEvidence.mjs';
+import {executionRoute,selectExecutionContracts} from '../../scripts/lib/testExecutionEvidence.mjs';
+import {registeredHelper} from '../../scripts/lib/helperExecutionEvidence.mjs';
 const {test}=process.env.NODE_TEST_CONTEXT?await import('node:test'):await import('vitest');
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 const canary=`import {collectCanaryStopSave,isOwnedStopSettledInPage,startOwnerId} from './canaryStopSaveOracle';
@@ -40,6 +41,77 @@ await expect(link).toHaveText('Delete account');
 await expect(link).toHaveAttribute('href', '/account/delete');
 expect(closureCalls, 'opening Account issues no account-closure request').toEqual([]);`;
 const ROUTES=[[SOURCE_CONTRACTS[3],products,1],[SOURCE_CONTRACTS[4],recording,2],[SOURCE_CONTRACTS[5],pageContext,3],[SOURCE_CONTRACTS[6],deleteEntry,8]];
+
+test('billing registrations require the actual helper consumer and seven executed callable bodies',()=>{
+  const helper='tests/billing/user-journey/contract.ts';
+  assert.deepEqual(registeredHelper(helper),{helperFile:helper,testFile:'tests/billing/user-journey/contract.test.ts',
+    callables:['requireFact','safeFailureReason','receipt','assertTestPrice','assertInvoice','isCorrelatedDelivery','assertSandboxConfiguration']});
+  assert.equal(executionRoute(helper,root).runner,'vitest-helper');
+  assert.equal(executionRoute(helper,root).applicable,true);
+  assert.equal(executionRoute('tests/billing/user-journey/unregistered.ts',root),null);
+});
+
+test('billing source contract consumes genuine-delivery and cleanup wires without claiming runtime execution',()=>{
+  const source=fs.readFileSync(path.join(root,BILLING_SPEC),'utf8');
+  const proof=inspectSourceContract(root,BILLING_SPEC,source);
+  assert.equal(proof.liveExecution,'NOT RUN');
+  assert.equal(proof.checks,17);assert.equal(proof.detectedFaults,17);
+  assert.equal(executionRoute(BILLING_SPEC,root).runner,'vitest-source-contract');
+  for(const [from,to] of [
+    ['assertSandboxConfiguration(env, committedTarget)','assertSandboxConfiguration(env, arbitraryTarget)'],
+    ["env.BILLING_SANDBOX_TARGET === 'local-disposable-stack'","env.BILLING_SANDBOX_TARGET !== undefined"],
+    ["balance.livemode === false","balance.livemode === true"],
+    ['isCorrelatedDelivery(event, { type, objectId, customer: this.customer }, data) && extra(event)','true'],
+    [".eq('event_id', event.id)",".eq('event_id', unrelated.id)"],
+    ["await this.delivery('invoice.payment_failed', failedInvoice);","await this.delivery('invoice.payment_failed', anotherInvoice);"],
+    ['readback.count !== 0','readback.count > 0'],
+    ["result.result === 'PASSED'","result.result !== 'PASSED'"],
+    ["from './contract'","from './untrusted-contract'"],
+  ]) {
+    const mutant=source.replace(from,to);assert.notEqual(mutant,source);
+    assert.throws(()=>inspectSourceContract(root,BILLING_SPEC,mutant),/Source wiring contract failed/);
+  }
+  assert.throws(()=>inspectSourceContract(root,BILLING_SPEC,`/* ${source} */`),/Source wiring contract failed/);
+});
+
+test('billing target source consumer refuses any unreviewed activation, target or extra field',()=>{
+  const source=fs.readFileSync(path.join(root,BILLING_TARGET),'utf8');
+  const target=JSON.parse(source);
+  assert.equal(inspectSourceContract(root,BILLING_TARGET,source).liveExecution,'NOT RUN');
+  for(const mutant of [{...target,status:'REVIEWED_ISOLATED_SANDBOX'},
+    {...target,apiOrigin:'https://unreviewed.example.invalid'}, {...target,appOrigin:'https://unreviewed.example.invalid'},
+    {...target,productionApiOrigin:'https://unreviewed.example.invalid'}, {...target,allowFallback:true}]) {
+    assert.throws(()=>inspectSourceContract(root,BILLING_TARGET,JSON.stringify(mutant)),/must remain explicitly unconfigured/);
+  }
+});
+
+test('billing documentation consumption preserves separate practice and broader paid acceptance limits',()=>{
+  const source=fs.readFileSync(path.join(root,BILLING_README),'utf8');
+  const proof=inspectSourceContract(root,BILLING_README,source);
+  assert.equal(proof.liveExecution,'NOT RUN');assert.equal(proof.checks,7);
+  for(const [from,to] of [['the 15 practice journeys','the 18 practice journeys'],
+    ['not full `PAID-01` or `PAID-04` acceptance','full `PAID-01` and `PAID-04` acceptance'],
+    ['NOT PROVEN by this draft','PROVEN by this draft'],
+    ['No webhook signing secret is accepted.','A webhook signing secret is accepted.']]) {
+    const mutant=source.replace(from,to);assert.notEqual(mutant,source);
+    assert.throws(()=>inspectSourceContract(root,BILLING_README,mutant),/documentation scope contract failed/);
+  }
+  assert.throws(()=>inspectSourceContract(root,BILLING_README,`<!-- ${source} -->`),/documentation scope contract failed/);
+});
+
+test('billing source witness binds all three exact inputs and rejects invented live credit',()=>{
+  const files=[BILLING_SPEC,BILLING_TARGET,BILLING_README];
+  const binding={phaseId:'billing-offline-control',cwd:root,testFile:path.join(root,SOURCE_CONSUMER),
+    sourceContract:{files,sourceBinding:sourceContractBinding(root,files),
+      witnessFile:path.join(root,'.source-contract-billing-offline-control.json')}};
+  const witness=consumeSourceContracts(root,binding);
+  const report={testResults:[{assertionResults:[{fullName:SOURCE_ASSERTION,status:'passed'}]}]};
+  const envelope={finished:{files:[{tasks:[{type:'test',name:SOURCE_ASSERTION,result:{state:'pass'}}]}]}};
+  assert.deepEqual(validateSourceContractWitness(witness,binding,root,report,envelope),files);
+  for(const proof of witness.proofs)assert.equal(proof.liveExecution,'NOT RUN');
+  const forged=structuredClone(witness);forged.proofs[0].liveExecution='PASSED';
+  assert.throws(()=>validateSourceContractWitness(forged,binding,root,report,envelope),/fake live credit/);
+});
 
 test('canary source rejects a negated saved matcher on the actual outcome',()=>{
   const negated=canary.replace("expect(outcome.kind).toBe('saved')","expect(outcome.kind, diagnostic).not.toBe('saved')");
@@ -244,23 +316,89 @@ test('source witness refuses stale bytes, missing consumer, wrong phase and fake
   assert.throws(()=>sourceContractBinding(dir,['tests/fixtures/unconsumed.json']),/Unknown/);
 }));
 
-test('fixture contract consumes all annotations against the pinned generator, without audio credit',()=>fixture(({dir,write})=>{
-  const words=['um','uh','um','you know','uh','um','uh','um'];
-  const items=words.map((word,i)=>({word,anchor:`anchor ${i}`}));
-  const manifest={fixtures:{open_mic_tts:{kind:'synthetic',sha256:'a'.repeat(64),groundTruthFillers:{um:4,uh:3,'you know':1},
-    fillerAnnotations:{source:'script, not audio-bound',items},knownFixtureLimits:['needs human recording']}}};
-  write('tests/fixtures/rwt/generate-rwt-tts-fixtures.sh',`OPEN_MIC="${items.map(({word,anchor})=>`${word}, ${anchor}`).join('. ')}"\n`);
-  const source=JSON.stringify(manifest);
-  write(SOURCE_CONTRACTS[2],source);assert.equal(executionRoute(SOURCE_CONTRACTS[2],dir).applicable,true);
-  const absent=structuredClone(manifest);delete absent.fixtures.open_mic_tts.fillerAnnotations;
-  write(SOURCE_CONTRACTS[2],JSON.stringify(absent));assert.equal(executionRoute(SOURCE_CONTRACTS[2],dir).applicable,false);
-  write(SOURCE_CONTRACTS[2],source);
+test('real manifest consumes reviewed code annotations against the generator, without audio credit',()=>fixture(({dir,write})=>{
+  const helper='tests/live/helpers/rwtFillerReference.ts';
+  const generator='tests/fixtures/rwt/generate-rwt-tts-fixtures.sh';
+  const helperSource=fs.readFileSync(path.join(root,helper),'utf8');
+  const source=fs.readFileSync(path.join(root,SOURCE_CONTRACTS[2]),'utf8');
+  const manifest=JSON.parse(source);
+  assert.equal(Object.hasOwn(manifest.fixtures.open_mic_tts,'fillerAnnotations'),false);
+  for(const file of [helper,generator,SOURCE_CONTRACTS[2]]) write(file,fs.readFileSync(path.join(root,file),'utf8'));
+  assert.equal(executionRoute(SOURCE_CONTRACTS[2],dir).applicable,true);
   const proof=inspectSourceContract(dir,SOURCE_CONTRACTS[2],source);
   assert.equal(proof.annotationCount,8);assert.equal(proof.audioExecution,'NOT RUN');
+  assert.equal(proof.liveExecution,'NOT RUN');assert.equal(proof.annotationSource,'reviewed code; script-derived, not audio-bound');
+  assert.deepEqual(proof.counts,{um:4,uh:3,'you know':1});
+  const binding=sourceContractBinding(dir,[SOURCE_CONTRACTS[2]]);
+  assert.ok(binding.some(b=>b.file===helper&&b.sha256===proof.referenceSha256));
   const wrong=structuredClone(manifest);wrong.fixtures.open_mic_tts.groundTruthFillers.uh=2;
   assert.throws(()=>inspectSourceContract(dir,SOURCE_CONTRACTS[2],JSON.stringify(wrong)),/disagreement/);
-  const unconsumed=structuredClone(manifest);unconsumed.fixtures.open_mic_tts.fillerAnnotations.items[1].anchor='not in generator';
-  assert.throws(()=>inspectSourceContract(dir,SOURCE_CONTRACTS[2],JSON.stringify(unconsumed)),/not consumed/);
+  for(const [key,value] of [['sha256','0'.repeat(64)],['file','foreign.wav'],['kind','human']]) {
+    const other=structuredClone(manifest);other.fixtures.open_mic_tts[key]=value;
+    write(SOURCE_CONTRACTS[2],JSON.stringify(other));
+    assert.equal(executionRoute(SOURCE_CONTRACTS[2],dir).applicable,false);
+    assert.throws(()=>inspectSourceContract(dir,SOURCE_CONTRACTS[2]),/identity|scope/);
+  }
+  write(SOURCE_CONTRACTS[2],source);
+  for(const [from,to,error] of [
+    ["anchor: 'I propose'","anchor: 'not in generator'",/not consumed/],
+    ["{ word: 'um', anchor: 'deadlines live' },",'',/Missing fixture annotations/],
+    ['e.sha256 !== OPEN_MIC_TTS_IDENTITY.sha256','false',/resolver wiring/],
+    ["word: 'uh'","word: computedWord()",/reference property/],
+  ]) {
+    assert.ok(helperSource.includes(from));write(helper,helperSource.replace(from,to));
+    assert.throws(()=>inspectSourceContract(dir,SOURCE_CONTRACTS[2]),error);
+  }
+  write(helper,helperSource+'\n// changed reference bytes');
+  assert.notDeepEqual(sourceContractBinding(dir,[SOURCE_CONTRACTS[2]]),binding);
+  write(helper,helperSource);
+  const duplicate=structuredClone(manifest);duplicate.fixtures.open_mic_tts.fillerAnnotations={source:'legacy',items:[]};
+  assert.throws(()=>inspectSourceContract(dir,SOURCE_CONTRACTS[2],JSON.stringify(duplicate)),/identity/);
+  fs.unlinkSync(path.join(dir,helper));
+  assert.equal(executionRoute(SOURCE_CONTRACTS[2],dir).applicable,false);
+}));
+
+
+test('exact fixture generator has a bounded source-only route, including generator-only deltas',()=>fixture(({dir,write})=>{
+  const generator='tests/fixtures/rwt/generate-rwt-tts-fixtures.sh';
+  const helper='tests/live/helpers/rwtFillerReference.ts';
+  for(const file of [generator,helper,SOURCE_CONTRACTS[2]]) write(file,fs.readFileSync(path.join(root,file),'utf8'));
+  const source=fs.readFileSync(path.join(dir,generator),'utf8');
+  const route=executionRoute(generator,dir);
+  assert.equal(route.runner,'vitest-source-contract');assert.equal(route.applicable,true);assert.equal(route.liveExecution,'NOT RUN');
+  assert.equal(executionRoute('tests/fixtures/rwt/unregistered-generator.sh',dir),null);
+  const selected=selectExecutionContracts(dir,[generator]);
+  assert.equal(selected.length,1);assert.deepEqual(selected[0].sourceFiles,[generator]);
+  const proof=inspectSourceContract(dir,generator);
+  assert.equal(proof.kind,'generator-source-consumption');assert.equal(proof.scriptExecution,'NOT RUN');
+  assert.equal(proof.audioExecution,'NOT RUN');assert.equal(proof.annotationCount,8);
+  const binding=sourceContractBinding(dir,[generator]);
+  for(const file of [generator,helper,SOURCE_CONTRACTS[2]]) assert.ok(binding.some(b=>b.file===file));
+  assert.equal(new Set(binding.map(b=>b.file)).size,binding.length);
+  for(const [from,to] of [
+    ['RATE=150','RATE=151'],['VOICE=Samantha','VOICE=Other'],
+    ['TRAILING_SILENCE_S=15','TRAILING_SILENCE_S=0'],
+    ['say -v','echo -v'],['-ar 16000','-ar 8000'],
+    ['make open_mic_tts','make wrong_target'],
+    ['Uh, I propose','Uh, unrelated anchor'],
+    ['OPEN_MIC="','OPEN_MIC="$(malicious)'],
+  ]) {
+    assert.ok(source.includes(from));assert.throws(()=>inspectSourceContract(dir,generator,source.replace(from,to)));
+  }
+  for(const name of ['OPEN_MIC','FOCUS_POINTS','FOCUS_POINTS_PARTIAL']) {
+    const changed=source.replace(new RegExp(`^${name}="[^"\\n]+"$`,'m'),`${name}="garbage"`);
+    assert.notEqual(changed,source);assert.throws(()=>inspectSourceContract(dir,generator,changed),/script text differs/);
+  }
+  assert.throws(()=>inspectSourceContract(dir,generator,source+'\necho extra-command\n'),/command/);
+  assert.throws(()=>inspectSourceContract(dir,generator,source.split('\n').map(l=>'# '+l).join('\n')),/command/);
+  write(generator,source+'\n# source-only comment correction\n');
+  assert.notDeepEqual(sourceContractBinding(dir,[generator]),binding);
+  assert.equal(inspectSourceContract(dir,generator).scriptExecution,'NOT RUN');
+  write(generator,source);
+  const manifest=JSON.parse(fs.readFileSync(path.join(dir,SOURCE_CONTRACTS[2]),'utf8'));
+  manifest.fixtures.focus_points_tts.file='foreign.wav';write(SOURCE_CONTRACTS[2],JSON.stringify(manifest));
+  assert.equal(executionRoute(generator,dir).applicable,false);
+  assert.throws(()=>inspectSourceContract(dir,generator),/target mismatch/);
 }));
 
 const MODEL='tests/evidence/fixtures/model-evaluator/';
@@ -303,4 +441,78 @@ test(SOURCE_ASSERTION,()=>{
   const witness=consumeSourceContracts(process.cwd(),binding);
   assert.equal(witness.liveExecution,'NOT RUN');
   fs.writeFileSync(binding.sourceContract.witnessFile,JSON.stringify(witness));
+});
+
+// #1815: qualification is exact source wiring, never a successful deployed sign-in claim.
+test('sign-in release wiring rejects disconnected release, landing and artifact controls',()=>{
+  const file='tests/live/auth.live.spec.ts';
+  const source=fs.readFileSync(path.join(root,file),'utf8');
+  const proof=inspectSourceContract(root,file,source);
+  assert.equal(proof.liveExecution,'NOT RUN');
+  assert.equal(proof.detectedFaults,11);
+  for(const [from,to] of [
+    ["trace: 'off'","trace: 'on'"],
+    ['process.env.EXPECT_RELEASE_SHA','process.env.EXPECTED_RELEASE_SHA'],
+    ['requiresReleaseBinding(baseURL)','false'],
+    ['requiresReleaseBinding(baseURL)','requiresReleaseBinding(process.env.BASE_URL)'],
+    ['async ({ page, baseURL }) =>','async ({ page }) =>'],
+    ['servedReleaseVerdict(expectRelease, expectRelease)','{ ok: true }'],
+    ['isExpectedAuthLanding(url.pathname, DEFAULT_AUTH_LANDING)','true'],
+    ['.toBe(DEFAULT_AUTH_LANDING)','.not.toBe(DEFAULT_AUTH_LANDING)'],
+    ["getByTestId('nav-account-avatar')","getByTestId('unrelated')"],
+    ['.__APP_RELEASE__ ?? null','.__APP_RELEASE__ ?? expectRelease'],
+    ['servedReleaseVerdict(expectRelease, observedRelease)','servedReleaseVerdict(expectRelease, expectRelease)'],
+    ['if (bindRelease)','if (false)'],
+  ]) assert.throws(()=>inspectSourceContract(root,file,source.replace(from,to)),/Source wiring contract failed/,from);
+});
+
+test('#1811 browser drivers select source-only contracts, detect verdict and binding faults, and never claim live execution',()=>{
+  const cases=[
+    ['tests/live/rwt-abandon-and-two-tabs.live.spec.ts','oldOwnerFence.status',"'PASS'"],
+    ['tests/live/rwt-adverse-mic-denied.live.spec.ts',"'mic-denied'","'download-fails'"],
+    ['tests/live/rwt-adverse-mic-model.live.spec.ts',"'offline-mid-download'","'download-fails'"],
+    ['tests/live/rwt-feedback-association-boundaries.live.spec.ts','if (!fence.writable) {','if (false) {'],
+    ['tests/live/rwt-pending-start-navigation.live.spec.ts','recovered.status',"'PASS'"],
+    ['tests/live/rwt-save-retry-recovery.live.spec.ts','attemptsVerdict.status',"'PASS'"],
+    ['tests/live/helpers/rwtFocusPointsJourney.ts','expectedAttemptId: boundAttemptId','expectedAttemptId: null'],
+    ['tests/live/helpers/rwtAdverseJourney.ts','rows: read.rows','rows: []'],
+  ];
+  for(const [file,from,to] of cases) {
+    const source=fs.readFileSync(path.join(root,file),'utf8');
+    const route=executionRoute(file,root);
+    assert.equal(route.runner,'vitest-source-contract');assert.equal(route.applicable,true);
+    assert.equal(route.consumer,SOURCE_CONSUMER);assert.equal(route.liveExecution,'NOT RUN');
+    const witness=inspectSourceContract(root,file,source);
+    assert.equal(witness.kind,'wiring-contract');assert.equal(witness.liveExecution,'NOT RUN');
+    assert.ok(witness.detectedFaults>=3);
+    assert.ok(source.includes(from),`${file}: mutation must change actual source`);
+    assert.throws(()=>inspectSourceContract(root,file,source.replace(from,to)),/Source wiring contract failed/);
+    assert.throws(()=>inspectSourceContract(root,file,`/* ${source.replaceAll('*/','* /')} */`),/Source wiring contract failed/);
+    const importsRemoved=source.replace(/from (['"])(\.\/[^'"]+)\1/g,"from './foreign-helper'");
+    assert.notEqual(importsRemoved,source);
+    assert.throws(()=>inspectSourceContract(root,file,importsRemoved),/Source wiring contract failed/);
+  }
+});
+
+ test('billing stack registrations bind paid helper bodies and source-only runner inputs without live credit',()=>{
+assert.equal(executionRoute("tests/billing/user-journey/paidValueLoop.ts",root).runner,'vitest-helper');
+assert.equal(executionRoute("tests/billing/user-journey/paidValueLoop.ts",root).applicable,true);
+assert.equal(executionRoute("tests/billing/user-journey/localStackResources.mjs",root).runner,'vitest-helper');
+assert.equal(executionRoute("tests/billing/user-journey/localStackResources.mjs",root).applicable,true);
+assert.equal(executionRoute("tests/billing/user-journey/localStackReceipt.mjs",root).runner,'vitest-helper');
+assert.equal(executionRoute("tests/billing/user-journey/localStackReceipt.mjs",root).applicable,true);
+assert.equal(executionRoute("tests/billing/user-journey/runnerPlan.mjs",root).runner,'vitest-helper');
+assert.equal(executionRoute("tests/billing/user-journey/runnerPlan.mjs",root).applicable,true);
+assert.equal(executionRoute("tests/billing/user-journey/runnerPreflight.mjs",root).runner,'vitest-helper');
+assert.equal(executionRoute("tests/billing/user-journey/runnerPreflight.mjs",root).applicable,true);
+{const file="tests/billing/user-journey/paid-value-loop.billing.spec.ts";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
+{const file="tests/billing/user-journey/journeySteps.mjs";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
+{const file="tests/billing/user-journey/paidLoopSteps.mjs";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
+{const file="tests/billing/user-journey/sandbox-target.local.json";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
+{const file="tests/billing/user-journey/journeySteps.d.mts";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
+{const file="tests/billing/user-journey/localStackReceipt.d.mts";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
+{const file="tests/billing/user-journey/localStackResources.d.mts";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
+{const file="tests/billing/user-journey/paidLoopSteps.d.mts";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
+{const file="tests/billing/user-journey/runnerPlan.d.mts";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
+{const file="tests/billing/user-journey/runnerPreflight.d.mts";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
 });

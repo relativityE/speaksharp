@@ -244,7 +244,7 @@ describe('acceptance map — the saved-row requirement is navigate-away only', (
                 ? { step, verdict: 'HOLD', detail: 'pending' }
                 : { step, verdict: step === fail ? 'FAIL' : 'PASS', detail: 'ok' }));
         // No journey readback is qualified for these suites (like pending Start): the receipt carries an empty one.
-        return { suite, release: SHA, meta: { fixtureKind: 'synthetic' }, rows, readback: { journeys: [], reportedJourneyIds: [], missingBindings: [] } };
+        return { suite, release: SHA, meta: { fixtureKind: 'synthetic', runScope: 'full-gate' }, rows, readback: { journeys: [], reportedJourneyIds: [], missingBindings: [] } };
     };
     const finalize = (r: ReturnType<typeof canonical>) =>
         finalizeReceipt(r, parseHumanWorksheet(humanWorksheet(r.suite, SHA, [], r.rows)), undefined);

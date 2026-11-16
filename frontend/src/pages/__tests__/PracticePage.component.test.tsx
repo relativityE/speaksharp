@@ -177,7 +177,7 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       render(<PracticePage />);
       const closing = screen.getByRole('region', { name: /call to action/i });
       expect(within(closing).getByRole('link', { name: 'Start your session' })).toHaveAttribute('href', '/auth/signup');
-      expect(closing).toHaveTextContent('Your recordings stay Private on this device.');
+      expect(closing).toHaveTextContent('Your audio is transcribed on your device and never uploaded.');
       expect(closing).not.toHaveTextContent(/30 day|\$10/i);
     });
 

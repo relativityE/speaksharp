@@ -16,7 +16,7 @@
   },
   "periodScope": {
     "periodStartUtc": "2026-11-02T20:15:00Z",
-    "periodEndUtc": "2026-11-06T02:00:00Z",
+    "periodEndUtc": "2026-12-31T00:00:00Z",
     "carryover": "none",
     "knownMinimumCeilings": {
       "requests": 4342,
@@ -26,14 +26,14 @@
       "takes": 31
     },
     "ceilings": {
-      "requests": 4342,
+      "requests": 9518,
       "protectedReserveRequests": 0,
-      "identityReads": 32,
-      "starts": 42,
-      "takes": 31
+      "identityReads": 149,
+      "starts": 80,
+      "takes": 80
     },
-    "approvalRef": "slack:1793814535.013849",
-    "sha256": "ee4d3d5ea2c343433ff2b1d7fd36aecdf5ca1438faf0836402d18ac74ddbe397"
+    "approvalRef": "approval-2c749f7fca826f9e54d962517a702665",
+    "sha256": "ab44af95da89cb07e28c6680f0f2e92278574f6c6bd4611dfb15afe60416eff4"
   },
   "rootRefCreationSelected": true,
   "activationPinsSelected": true,

@@ -32,6 +32,9 @@
 export const REQUIRED_JOBS = Object.freeze([
   'scope',
   'build',
+  // #1837: the code quality gate is its own parallel job. unit-coverage-merge already refuses to pass without it,
+  // but it is required here directly so qualification never rests on that indirection alone.
+  'quality',
   'edge-tests',
   'unit-shard',
   'unit-coverage-merge',

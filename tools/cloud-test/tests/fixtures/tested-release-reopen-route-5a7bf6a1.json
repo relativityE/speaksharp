@@ -1,0 +1,21 @@
+{
+ "sourceSha": "5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2",
+ "note": "Exact lines of the tested release that define where ui.reopen lands. Each line is verbatim; line numbers are 1-based.",
+ "files": {
+  "frontend/src/components/AnalyticsDashboard.tsx": {
+   "blobSha": "0c5edec2e38fcf61d14953e64481d568238d8a97",
+   "lines": {
+    "499": "                    <NavLink",
+    "500": "                        to={`/progress/${session.id}`}",
+    "501": "                        data-testid={`open-session-detail-${session.id}`}"
+   }
+  },
+  "frontend/src/App.tsx": {
+   "blobSha": "c9af7702bfd00cb523092798cf864c5401868e2f",
+   "lines": {
+    "480": "                  <Route path=\"/progress/:sessionId\" element={",
+    "488": "                  <Route path=\"/analytics/:sessionId\" element={<LegacyProgressRedirect />} />"
+   }
+  }
+ }
+}

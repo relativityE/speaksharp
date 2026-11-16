@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { USER_HARM_CONTROLS, mutateBytes, runTestEfficacy } from '../../scripts/run-test-efficacy.mjs';
+import { runEfficacyChild } from '../../scripts/lib/efficacyChild.mjs';
 
 const { test } = process.env.NODE_TEST_CONTEXT ? await import('node:test') : await import('vitest');
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -27,8 +28,13 @@ test('named user-harm controls bind distinct real source edits and unique assert
 // Ordinary hosted unit CI exercises real product tests. A local registration check does not qualify
 // a missing runtime or substitute a synthetic PASS for baseline → semantic fault → restoration.
 if (process.env.GITHUB_ACTIONS === 'true' || process.env.TEST_USER_HARM_REAL_RUNTIME === '1') {
-  test('INSTALLED Vitest: all three named user-harm controls pass, fail their intended assertion, then pass restored', { timeout: 240_000 }, () => {
-    const receipt = runTestEfficacy({ root, base: null, userHarmControls: true });
+  test('INSTALLED Vitest: all three named user-harm controls pass, fail their intended assertion, then pass restored', { timeout: 240_000 }, async () => {
+    // runTestEfficacy blocks on synchronous child runs for minutes. Run its CLI in its own Node process so this
+    // worker's event loop stays free; a multi-minute block makes Vitest's worker RPC time out and fail the shard.
+    // runEfficacyChild never kills the coordinator, so a test timeout still leaves it to drain and clean up
+    // (proved by tests/unit/efficacyChildTimeout.test.js).
+    const receipt = await runEfficacyChild(path.join(root, 'scripts/run-test-efficacy.mjs'), ['--user-harm-controls'],
+      { cwd: root, env: { ...process.env, TEST_EFFICACY_BASE: '' } });
     assert.equal(receipt.status, 'executed');
     assert.deepEqual(receipt.contracts.map(control => control.id), USER_HARM_CONTROLS.map(control => control.id));
     for (const control of receipt.contracts) {

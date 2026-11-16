@@ -14,6 +14,10 @@ import { StatusNotificationBar } from '@/components/session/StatusNotificationBa
 import { FreeformHelpOverlay } from '@/components/session/FreeformHelpOverlay';
 import { SttStatus } from '@/types/transcription';
 import { SessionOverhaulView } from '@/components/session/SessionOverhaulView';
+import { TrialCountdownChip } from '@/components/session/TrialCountdownChip';
+import { TrialEndedPanel } from '@/components/session/TrialEndedPanel';
+import { isTrialExpiredRefusal, trialCountdown } from '@/components/session/trialStatus';
+import { arePaymentsEnabled } from '@/config/appRuntimeConfig';
 import { SavedSessionReturn } from '@/components/session/SavedSessionReturn';
 import { restorableSession, restoreRefused } from '@/components/session/restorableSession';
 import { ObjectiveSetupDialog } from '@/components/practice/ObjectiveSetupDialog';
@@ -206,6 +210,7 @@ export const SessionPage: React.FC = () => {
         interimTranscript,
         canUsePrivateStt,
         isButtonDisabled,
+        usageLimit,
     } = useSessionLifecycle();
 
     // #1033 Part-2b (A5/A6): all owner-scoped recovery orchestration lives in this hook —
@@ -570,6 +575,12 @@ export const SessionPage: React.FC = () => {
     // (idle: not recording, not finalizing, no post-save prompt). During/after it recedes so the live
     // workflow owns the frame — matching the PO's G1 mockup.
     const beforeState = !isListening && !showAnalyticsPrompt && !isTranscriptFinalizing;
+    // Trial time and the trial-ended screen come ONLY from the server's check_usage_limit answer (the same one
+    // the start gate reads), never from the browser clock. The ended screen replaces the recorder only in the
+    // at-rest before state: a take that is starting, recording, finalizing or showing its review keeps its
+    // surface even if the trial runs out underneath it, and a restored saved session is always readable.
+    const trialTime = trialCountdown(usageLimit);
+    const trialEnded = isTrialExpiredRefusal(usageLimit) && beforeState && !startupWaiting && !restoreId;
     // Dynamic subtitle from REAL history. practiceHistory is newest-first, so the oldest (baseline) is last.
     const completedSessions = practiceHistory?.length ?? 0;
     // #1046 Focus Points: the subtitle names the SET, not the session history — "baseline" is an Open-Floor
@@ -695,6 +706,7 @@ export const SessionPage: React.FC = () => {
                         <div>
                             <h1 className="mb-1 text-3xl font-extrabold tracking-tight text-foreground">Practice Session</h1>
                             <p className="text-sm text-muted-foreground" data-testid="session-subtitle">{sessionSubtitle}</p>
+                            {trialTime && <TrialCountdownChip countdown={trialTime} className="mt-2" />}
                         </div>
                         <FreeformHelpOverlay available={helpOverlayAvailable} className="shrink-0" variant={isObjectiveSession ? 'objective' : 'freeform'} />
                     </div>
@@ -835,7 +847,9 @@ export const SessionPage: React.FC = () => {
                 {/* #1222: the session page is the fixed 4-slot overhaul shell driven by the live runtime
                     (before/during/after). The surrounding chrome — header, status bar, recovery banner,
                     access modals, mobile action bar — wraps it. This is the only session page. */}
-                {restoreId ? (
+                {trialEnded ? (
+                    <TrialEndedPanel paymentsEnabled={arePaymentsEnabled()} />
+                ) : restoreId ? (
                     restoredSession
                         ? <SavedSessionReturn session={restoredSession} onSeeAllSessions={() => navigate('/progress')} ownerId={authUserId} />
                         : <div className="h-40 animate-pulse rounded-2xl bg-muted/60" aria-hidden="true" data-testid="saved-session-return-loading" />
@@ -1016,7 +1030,7 @@ export const SessionPage: React.FC = () => {
             </div>
 
             {/* Mobile Sticky Action Bar — not on the restored read-only session (#1258 PR 4): it has no Start. */}
-            {!restoreId && <MobileActionBar
+            {!restoreId && !trialEnded && <MobileActionBar
                 isListening={isListening}
                 starting={startupWaiting}
                 isButtonDisabled={isButtonDisabled}

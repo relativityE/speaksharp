@@ -11,7 +11,9 @@ import type { Verdict } from './rwtAbandonTakeover';
 
 type Contract = { generationConfig: { responseSchema: { properties: Record<'what_worked' | 'what_to_try_next', { maxLength: number }> } } };
 const contract = JSON.parse(readFileSync(
-    resolve(dirname(fileURLToPath(import.meta.url)), '../../../backend/supabase/functions/get-ai-suggestions/contract.json'), 'utf8',
+    // The DEPLOYED backend's contract, not this checkout's: this run branch is the served frontend tree (5a7bf6a1) while the backend
+    // was released from fbc984fa (gemini-3.6-flash). deployedCoachingContract.json is that release's exact contract.json bytes, pinned.
+    resolve(dirname(fileURLToPath(import.meta.url)), './deployedCoachingContract.json'), 'utf8',
 )) as Contract;
 /** The provider schema's own ceiling, the same number the Edge function enforces (COACHING_CHARACTER_CEILING). */
 export const COACHING_CHARACTER_CEILING = Object.freeze({

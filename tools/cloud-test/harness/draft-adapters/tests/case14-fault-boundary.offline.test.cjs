@@ -1,5 +1,5 @@
 'use strict';
-// Case 14 (R5 dossier; Sam's selected boundary 1793469167.805339) — the REAL AHT-14 adapter branch and the REAL
+// Case 14 (R5 dossier; the reviewer's selected boundary ) — the REAL AHT-14 adapter branch and the REAL
 // browser-actions Start/Retry selection, driven against a scripted fake page and guard. No browser, account or network.
 // Reused, not repeated here: the guard's own prefix/offline/restore mechanics (selftest S14, S14b) and fault matching
 // (download-fault.test.cjs). These controls cover what those cannot: the adapter's verdicts at the browser boundary.
@@ -17,6 +17,15 @@ const req=(id,o={})=>['Network.requestWillBeSent',{requestId:id,timestamp:o.t??1
 const resp=(id,o={})=>['Network.responseReceived',{requestId:id,response:{url:o.url??ASSET,status:o.status??200,...(o.from?{[o.from]:true}:{})}}];
 const data=(id,o={})=>['Network.dataReceived',{requestId:id,timestamp:o.t??2,dataLength:o.len??65536,encodedDataLength:o.enc??65536}];
 const ESTABLISHED_CDP=[req('r1'),resp('r1'),data('r1')];
+// A deterministic fixture clock. During a run the fixture owns Date.now: it stands still except at the scripted steps
+// fault -> error (+faultToErrorMs) and error -> Retry visible (+errorToRetryMs), and a browser clock read inside an epoch bridge may
+// tick by bridgeTickMs. Wall-clock ticks can no longer land inside a bridge (the 1 ms [0,1] offset that made the real comparator
+// correctly answer timeline-order-ambiguous). A frozen clock must never spin a polling loop, so reads are capped.
+const CLOCK_EPOCH_MS=1800000000000,CLOCK_READ_CAP=100000;
+function fixtureClock({faultToErrorMs=10,errorToRetryMs=10,bridgeTickMs=0}={}){
+ let t=CLOCK_EPOCH_MS,reads=0;
+ return {faultToErrorMs,errorToRetryMs,bridgeTickMs,now(){if(++reads>CLOCK_READ_CAP)throw new Error('fixture clock read cap exceeded: a loop is polling a frozen clock');return t;},advance(ms){t+=ms;}};
+}
 
 /** A scripted page whose DOM follows the product's model-status contract; every click and restore is journaled in order. */
 function fakeWorld(s,events){
@@ -27,16 +36,16 @@ function fakeWorld(s,events){
   const next=status==='download-required'?'mic-download':['error','init-failed'].includes(status)?'mic-retry':status==='ready'?'mic-start':'none';if(!(s.hideRetry&&next==='mic-retry'))visible.add(next);};
  const clicks={
   // As guard-proxy.cjs does: the matched request binds the correlator (391–393); after the prefix write the receipt
-  // comes from received() before offline (473). Either refusal leaves the fault unfired and harness-limited.
+  // comes from received before offline (473). Either refusal leaves the fault unfired and harness-limited.
   async 'mic-download'(){
    if(s.fires!==false){modelRequests++;const f=faults[0];
     // A guard without a browser-prefix observer still fires (guard-proxy.cjs 473–476) and its summary omits the receipt (598).
-    if(s.noObserver){Object.assign(f,{fired:true,firedAtEpochMs:Date.now(),browserOfflineApplied:true,bytesForwarded:65536,...(s.noObserver==='null'?{browserPrefixReceipt:null}:{})});setStatus('error');return;}
+    if(s.noObserver){Object.assign(f,{fired:true,firedAtEpochMs:Date.now(),browserOfflineApplied:true,bytesForwarded:65536,...(s.noObserver==='null'?{browserPrefixReceipt:null}:{})});s.clock.advance(s.clock.faultToErrorMs);setStatus('error');return;}
     const deliver=list=>{for(const item of list)if(item==='close')prefix.close();else prefix.event('page-session',item[0],item[1]);};
     deliver(s.cdp??ESTABLISHED_CDP);
     if(s.closePrefix)prefix.close();
     try{
-     // bind() and received() register their waiter synchronously, so events delivered after the call arrive while it is pending.
+     // bind and received register their waiter synchronously, so events delivered after the call arrive while it is pending.
      const pendingBind=prefix.bind(f.id,{timeoutMs:25});
      if(s.duringBind){s.journal?.push({kind:'test-bind-pending',waiters:prefix.listenerCount('change')});deliver(s.duringBind);}
      const binding=await pendingBind;
@@ -47,7 +56,7 @@ function fakeWorld(s,events){
       browserPrefixReceipt:s.defenseReceipt?{...receipt,...s.defenseReceipt}:receipt});
     }catch{s.journal?.push({kind:'test-guard-harness-limited',reason:'browser-prefix-receipt-not-established'});}
    }
-   setStatus('error');},
+   s.clock.advance(s.clock.faultToErrorMs);setStatus('error');},
   'mic-retry'(){setStatus(faults[0]?.networkRestored?'ready':'error');},
   'mic-start'(){attrs['data-runtime-state']='RECORDING';visible.add('recorder-stop');visible.add('recorder-bar');},
   'recorder-stop'(){attrs['data-runtime-state']='IDLE';visible.delete('recorder-stop');visible.delete('recorder-bar');attrs['data-session-persisted']='true';attrs['data-session-persisted-id']=SAVED.id;},
@@ -55,10 +64,11 @@ function fakeWorld(s,events){
  const doc={documentElement:{getAttribute:n=>attrs[n]??null},querySelector(sel){const m=/data-testid="([^"]+)"/.exec(sel);return m&&visible.has(m[1])?{disabled:false,getClientRects:()=>[{}]}:null;}};
  const locator=id=>({first(){return this;},isVisible:async()=>visible.has(id),isEnabled:async()=>true,
   async click(){events.push('click:'+id);requireClick(id);await clicks[id]();},
-  async waitFor({state}={}){if((state==='detached')===visible.has(id))throw Object.assign(new Error('synthetic wait timeout'),{name:'TimeoutError'});}});
+  async waitFor({state}={}){if((state==='detached')===visible.has(id))throw Object.assign(new Error('synthetic wait timeout'),{name:'TimeoutError'});
+   if(id==='mic-retry'&&state==='visible')s.clock.advance(s.clock.errorToRetryMs);}});
  const requireClick=id=>{if(!visible.has(id))throw new Error('synthetic click on hidden control '+id);};
  const page=Object.assign(new EventEmitter(),{
-  setDefaultTimeout(){},setDefaultNavigationTimeout(){},waitForTimeout:async()=>{},isClosed:()=>closed,close:async()=>{closed=true;},evaluate:async fn=>String(fn).replace(/\s/g,'')==='()=>Date.now()'?Date.now():undefined,
+  setDefaultTimeout(){},setDefaultNavigationTimeout(){},waitForTimeout:async()=>{},isClosed:()=>closed,close:async()=>{closed=true;},evaluate:async fn=>{if(String(fn).replace(/\s/g,'')!=='()=>Date.now()')return undefined;s.clock.advance(s.clock.bridgeTickMs);return Date.now();},
   getByTestId:locator,getByText:()=>({first(){return this;},isVisible:async()=>false,waitFor:async()=>{throw new Error('synthetic copy absent');}}),
   locator:()=>({getAttribute:async n=>attrs[n]??null}),
   async waitForFunction(fn,arg){const previous=globalThis.document;globalThis.document=doc;let r;try{r=fn(arg);}finally{if(previous===undefined)delete globalThis.document;else globalThis.document=previous;}
@@ -76,8 +86,10 @@ function fakeWorld(s,events){
 
 // Recorded rows carry no facts; the facts are read back from the evidence the adapter writes for each row.
 async function runWithFacts(s){
+ s.clock=fixtureClock(s.clockSteps);
  const events=[],recorded=[],changes=[],facts=new Map();const w=fakeWorld(s,events);let saved=false;
  const patch=(object,key,value)=>{changes.push([object,key,object[key]]);object[key]=value;};
+ patch(Date,'now',()=>s.clock.now());
  patch(ui,'login',async()=>true);patch(ui,'openMic',async()=>{w.openMic();});patch(ui,'reopen',async()=>({before:SAVED.transcriptSha256,after:SAVED.transcriptSha256}));
  patch(observer,'install',async()=>{});patch(observer,'armStates',async()=>{});patch(observer,'states',async()=>['download-required','downloading','error']);
  patch(observer,'mic',async()=>({acquisitions:0,log:[],liveTracks:0,recording:false,recorderVisible:false}));
@@ -92,7 +104,7 @@ async function runWithFacts(s){
    capabilities:{credentials:{email:'synthetic@example.invalid',password:'synthetic-only'},oracles:{},
     recordStartPress:async({control})=>{events.push('press:'+control);if(control==='mic-start')saved=true;},
     writeEvidence:async(n,v)=>{if(v?.assertion){if(facts.has(v.assertion))throw new Error('second evidence write for '+v.assertion);facts.set(v.assertion,v.facts);}return n;},
-    // Like case-results.cjs, a changed duplicate is refused; any duplicate at all fails row() below.
+    // Like case-results.cjs, a changed duplicate is refused; any duplicate at all fails row below.
     recordAssertion:async r=>{const old=recorded.find(x=>x.id===r.id);if(old&&JSON.stringify(old)!==JSON.stringify(r))throw new Error('changed duplicate assertion '+r.id);recorded.push(r);}}});
   const row=id=>{const all=recorded.filter(r=>r.id===id);assert.ok(all.length<=1,'exactly one recorded row for '+id+', got '+all.length);if(all[0])assert.equal(new Set(all[0].evidenceRefs).size,all[0].evidenceRefs.length,'no repeated evidence ref for '+id);return all[0];};
   return {result,events,row,facts:id=>facts.get(id),presses:events.filter(e=>e.startsWith('press:')).map(e=>e.slice(6))};
@@ -106,6 +118,28 @@ test('Case14 full path: exactly Download → Retry → Start journaled, restorat
  for(const id of ['download-fault-exercised','download-failure-truthful','deliberate-recovery-saved','review-reopen'])assert.equal(f.row(id)?.result,'PASS',id);
  assert.equal(f.result.blocker,null);
  assert.equal(f.row('start-press-budget')?.result,'PASS');
+});
+
+test('Case14 full path is deterministic: the fixture clock gives the real comparator a strictly ordered fault, error and Retry',async()=>{
+ for(let i=0;i<20;i++){
+  const f=await runWithFacts({});
+  assert.equal(f.row('download-failure-truthful')?.result,'PASS');
+  const t=f.facts('download-failure-truthful');
+  assert.equal(t.firedAtEpochMs,CLOCK_EPOCH_MS);assert.equal(t.errorStateObservedAtEpochMs,CLOCK_EPOCH_MS+10);
+ }
+});
+
+test('Case14 negative control: a 1 ms bridge tick with fault and error in the same millisecond is timeline-order-ambiguous, NOT RUN, never PASS',async()=>{
+ const f=await runWithFacts({clockSteps:{faultToErrorMs:0,bridgeTickMs:1}});
+ const row=f.row('download-failure-truthful');
+ assert.equal(row?.result,'NOT RUN');
+ assert.equal(f.facts('download-failure-truthful').reason,'fault-error-retry-timeline-not-comparable');
+ assert.deepEqual(f.presses,['mic-download'],'no Retry or Start is spent on an ambiguous timeline');
+ const smokeTiming=require('../oracles/pure/smokeTiming.cjs');
+ const bridge=smokeTiming.epochBridge({nodeBeforeEpochMs:CLOCK_EPOCH_MS,browserEpochMs:CLOCK_EPOCH_MS+1,nodeAfterEpochMs:CLOCK_EPOCH_MS+1});
+ assert.deepEqual(bridge,{offsetMinMs:0,offsetMaxMs:1,roundTripMs:1});
+ const v=smokeTiming.comparableFaultTimeline({beforeBridge:bridge,afterBridge:bridge,faultNodeEpochMs:CLOCK_EPOCH_MS+1,errorBrowserEpochMs:CLOCK_EPOCH_MS+1,retryBrowserEpochMs:CLOCK_EPOCH_MS+2});
+ assert.equal(v.reason,'timeline-order-ambiguous');assert.equal(v.faultToErrorMinMs,-1);
 });
 
 // (a) The REAL correlator establishes the receipt from one exact armed GET whose bytes arrived before offline.
@@ -163,7 +197,7 @@ for(const [name,overlay] of [['not observed',{observed:false}],['received after 
   for(const id of ['download-failure-truthful','deliberate-recovery-saved','review-reopen'])assert.equal(f.row(id)?.result,'NOT RUN',id);
  });
 
-// (g) Events that arrive WHILE bind() or received() is pending. The marker proves exactly one waiter was registered before delivery.
+// (g) Events that arrive WHILE bind or received is pending. The marker proves exactly one waiter was registered before delivery.
 const LATE=[req('r1'),resp('r1'),data('r1')];
 test('Case14 (g) real correlator: the request arrives during bind() and the bytes during received(): PASS, in journal order',async()=>{
  const journal=[];const f=await runWithFacts({journal,cdp:[],duringBind:[LATE[0]],duringReceived:LATE.slice(1)});

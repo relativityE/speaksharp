@@ -637,8 +637,8 @@ describe('AISuggestions Integration', () => {
 
             await waitFor(() => expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1));
             const disclosure = screen.getByTestId('ai-suggestions-disclosure');
-            expect(disclosure).toHaveTextContent(/AI service provider/i);
-            expect(disclosure).toHaveTextContent(/Audio is never sent/i);
+            expect(disclosure).toHaveTextContent(/sent to an AI service for coaching/i);
+            expect(disclosure).toHaveTextContent(/audio is never sent/i);
         });
     });
 
@@ -951,7 +951,7 @@ describe('AISuggestions Integration', () => {
 
     describe('AI service provider disclosure persistence', () => {
         // Disclose saved provider inputs without promising a coaching outcome or count.
-        const DISCLOSURE = "Sends this session's transcript and speaking measurements (filler counts and pace) to the AI service provider to create AI coaching. Audio is never sent.";
+        const DISCLOSURE = "Your transcript is sent to an AI service for coaching. Your filler counts and pace go with it; audio is never sent.";
 
         it('shows the provider/input disclosure in the empty state', () => {
             render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
@@ -994,19 +994,29 @@ describe('AISuggestions Integration', () => {
         });
 
         // PO6175213749: reflect the authoritative server prompt's saved evidence.
-        const FOCUS_DISCLOSURE = "Sends this session's transcript, saved Focus Points topic, points and results, and relevant speaking measurements to the AI service provider to create AI coaching. Audio is never sent.";
+        const FOCUS_DISCLOSURE = "Your transcript is sent to an AI service for coaching. Your Focus Points topic, points and results and relevant speaking measurements go with it; audio is never sent.";
         const OPEN_MIC_DISCLOSURE = DISCLOSURE;
 
         it('#1538 — a Focus Points take discloses saved topic, points/results and relevant measurements, exactly', () => {
             render(<AISuggestions transcript="Hello world" sessionId="session-test" product="focus_points" />);
 
-            expect(screen.getByTestId('ai-suggestions-disclosure').textContent).toBe(FOCUS_DISCLOSURE);
+            expect(screen.getByTestId('ai-suggestions-disclosure').textContent).toBe(`${FOCUS_DISCLOSURE} Who provides it`);
+        });
+
+        it('#1820 — the disclosure names no provider and links to the Privacy Policy section that does', () => {
+            render(<AISuggestions transcript="Hello world" sessionId="session-test" product="open_mic" />);
+            const disclosure = screen.getByTestId('ai-suggestions-disclosure');
+            expect(disclosure.textContent).not.toMatch(/Gemini|Google|OpenAI|Anthropic/i);
+            const link = screen.getByTestId('coaching-provider-detail-link');
+            expect(link).toHaveAttribute('href', '/privacy#service-providers');
+            expect(link).toHaveAttribute('target', '_blank');
+            expect(link).toHaveAttribute('rel', 'noopener noreferrer');
         });
 
         it('#1538 — an Open Mic take discloses transcript, filler counts and pace, exactly', () => {
             render(<AISuggestions transcript="Hello world" sessionId="session-test" product="open_mic" />);
 
-            expect(screen.getByTestId('ai-suggestions-disclosure').textContent).toBe(OPEN_MIC_DISCLOSURE);
+            expect(screen.getByTestId('ai-suggestions-disclosure').textContent).toBe(`${OPEN_MIC_DISCLOSURE} Who provides it`);
         });
 
         it('#1538 — the Focus disclosure is shown before the review is requested', async () => {
@@ -1014,7 +1024,7 @@ describe('AISuggestions Integration', () => {
             mockSupabaseClient.functions.invoke.mockImplementation(() => new Promise((resolve) => { resolveInvoke = resolve; }));
             render(<AISuggestions transcript="Hello world" canReview sessionId="s-focus-disclosure" product="focus_points" />);
 
-            expect(screen.getByTestId('ai-suggestions-disclosure').textContent).toBe(FOCUS_DISCLOSURE);
+            expect(screen.getByTestId('ai-suggestions-disclosure').textContent).toBe(`${FOCUS_DISCLOSURE} Who provides it`);
             await waitFor(() => expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1));
             resolveInvoke({ data: { suggestions: null }, error: null });
         });
@@ -1030,8 +1040,8 @@ describe('AISuggestions Integration', () => {
 
             await waitFor(() => expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1));
             const disclosure = screen.getByTestId('ai-suggestions-disclosure');
-            expect(disclosure).toHaveTextContent(/AI service provider/i);
-            expect(disclosure).toHaveTextContent(/Audio is never sent/i);
+            expect(disclosure).toHaveTextContent(/sent to an AI service for coaching/i);
+            expect(disclosure).toHaveTextContent(/audio is never sent/i);
         });
     });
 
@@ -1462,7 +1472,7 @@ describe('#1258 punch list D3 — manual Try again policy by failure reason (PM 
         render(<AISuggestions transcript="Hello world" canReview sessionId={`s-no-${_reason}`} product="open_mic" />);
         await waitFor(() => expect(screen.getByTestId('ai-suggestions-card')).toHaveAttribute('data-lifecycle', 'terminal'));
         expect(screen.queryByRole('button', { name: /try again/i })).toBeNull();
-        expect(screen.getByTestId('ai-suggestions-disclosure')).toHaveTextContent(/AI service provider/);
+        expect(screen.getByTestId('ai-suggestions-disclosure')).toHaveTextContent(/sent to an AI service for coaching/);
     });
 
     it.each([
@@ -1478,7 +1488,7 @@ describe('#1258 punch list D3 — manual Try again policy by failure reason (PM 
         mockSupabaseClient.functions.invoke.mockResolvedValue(httpErrorStatus(503, { code: 'service_configuration' }));
         render(<AISuggestions transcript="Hello world" canReview sessionId="s-fp" product="focus_points" />);
         await waitFor(() => expect(screen.getByTestId('ai-suggestions-card')).toHaveAttribute('data-lifecycle', 'terminal'));
-        expect(screen.getByTestId('ai-suggestions-disclosure')).toHaveTextContent(/saved Focus Points topic, points and results, and relevant speaking measurements/);
+        expect(screen.getByTestId('ai-suggestions-disclosure')).toHaveTextContent(/Your Focus Points topic, points and results and relevant speaking measurements/);
     });
 
     it("a session change never shows the previous session's failure", async () => {

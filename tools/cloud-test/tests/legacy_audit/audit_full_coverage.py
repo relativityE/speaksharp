@@ -79,7 +79,7 @@ class CaseCostsFromGuardLogs(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             import shutil
             shutil.copytree(os.path.join(RECEIPTS, "R5"), os.path.join(d, "R5"))
-            # The one correction to a moved body (Sam 1793404914): tamper an isolated writable COPY; the retained sealed set is never changed.
+            # The one correction to a moved body : tamper an isolated writable COPY; the retained sealed set is never changed.
             from test_comparison_automation import writable
             writable(d)
             led = os.path.join(d, "R5", "campaign-ledger.json")

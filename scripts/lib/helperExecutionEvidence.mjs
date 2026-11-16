@@ -25,6 +25,11 @@ export const HELPER_CONTRACTS = Object.freeze([{
   helperFile:'tests/live/helpers/rwtStepDiagnostics.ts', testFile:'tests/unit/rwtStepDiagnostics1258.test.ts',
   callables:['routeClass'],
 }, {
+  // AHT-01 / #1812 Gate 3 budget: the interrupted-run recovery helper (its age floor is now coupled to the job limit).
+  helperFile:'tests/live/helpers/rwtInterruptedRunRecovery.ts', testFile:'tests/unit/rwtInterruptedRunRecovery1258.test.ts',
+  callables:['recoveryDeleteAck','deletionDomain','runOwnedDomain','ownedPrefixOf','selectInterruptedRunAccounts','recoveryAuthority',
+    'listAuthUsersBounded','recoverInterruptedRuns','recoveryReportLine'],
+}, {
   helperFile:'tests/live/helpers/rwtFillerReference.ts', testFile:'tests/unit/rwtFillerReference1258.test.ts',
   callables:['fillerAnnotationsOf','referenceKeyFor','referenceCount','alignFillers','corpusWordVerdict',
     'corpusVerdicts','corpusRows','hesitationTotals','integrityVerdict','crossCheckCounts'],
@@ -46,6 +51,10 @@ export const HELPER_CONTRACTS = Object.freeze([{
   helperFile:'tests/live/helpers/rwtDocumentIdentity.ts',testFile:'tests/unit/rwtWatchdog1593.test.ts',
   callables:['trackDocuments','documentTrackerOf'],
 }, {
+  helperFile:'tests/billing/user-journey/contract.ts',testFile:'tests/billing/user-journey/contract.test.ts',
+  callables:['requireFact','safeFailureReason','receipt','assertTestPrice','assertInvoice',
+    'isCorrelatedDelivery','assertSandboxConfiguration'],
+}, {helperFile:"tests/billing/user-journey/paidValueLoop.ts",testFile:"tests/billing/user-journey/paidValueLoop.test.ts",callables:["paidValueLoopReceipt", "assertSavedTake", "assertEligibleEvaluation", "savedCoaching", "coachingShownAsSaved", "assertRecommendation", "comparisonExpectation", "assertComparisonShown"]}, {helperFile:"tests/billing/user-journey/localStackResources.mjs",testFile:"tests/billing/user-journey/localStackResources.test.ts",callables:["captureStackIdentity", "assertIdentityShape", "stackIdentitySha256", "verifyStackDestroyed"]}, {helperFile:"tests/billing/user-journey/localStackReceipt.mjs",testFile:"tests/billing/user-journey/contract.test.ts",callables:["journeyReceiptDefects", "destructionDefects", "finaliseLocalStackReceipt"]}, {helperFile:"tests/billing/user-journey/runnerPlan.mjs",testFile:"tests/billing/user-journey/fullMode.test.ts",callables:["workflowDispatch", "planRun", "finaliseModeReceipt"]}, {helperFile:"tests/billing/user-journey/runnerPreflight.mjs",testFile:"tests/billing/user-journey/runnerPreflight.test.ts",callables:["fingerprint", "assertTestKeys", "assertKeysMatchStack", "assertLocalSupabaseKeys", "probeLocalBackend", "runnerPreflight"]}, {
   // #1760 model comparison harness and evaluator helpers, each through its own unit consumer.
   helperFile:'tests/model-dropin/comparisonBounds.ts',testFile:'tests/model-dropin/comparisonBounds.test.ts',
   callables:['validateApproval','requireCompatibleBackend','elapsedMs','privateTimingMetrics','canonicalCaseReceipts','canonicalPopulation','caseMs','registerPackageCaseLimits',
@@ -73,6 +82,122 @@ export const HELPER_CONTRACTS = Object.freeze([{
   // Work point 2: the frozen real-speech reliability scorer (stt_reliability_v1) and its controls.
   helperFile:'tests/evidence/sttReliabilityScore.ts',testFile:'tests/evidence/__tests__/sttReliabilityScore.test.ts',
   callables:['alignTokens','alignTokensPreferringEarlyMatches','findRepetitionLoops','scoreReliabilityCorpus'],
+}, {
+  helperFile:'tests/live/helpers/coachingExternal.ts',testFile:'tests/unit/rwtCoachingExternal1258.test.ts',
+  callables:['provenExternalOutcome','isCoachingUnavailableHeadline','gracefulFailures','coachingParentVerdict'],
+}, {
+  helperFile:'tests/live/helpers/runBinding.ts',testFile:'tests/unit/rwtRunBoundCleanup.test.ts',
+  callables:['runBindingState','currentRunBinding','sameRunBinding'],
+}, {
+  helperFile:'tests/live/helpers/runOwnedCleanup.ts',testFile:'tests/unit/rwtRunBoundCleanup.test.ts',
+  callables:['cleanupFailureStep','cleanupRunOwnedAccount','requireZeroResidue'],
+}, {
+  helperFile:'tests/live/helpers/rwtAcceptance.ts',testFile:'tests/unit/rwtAcceptanceExecution1812.test.ts',
+  callables:['externalParentProofGaps','receiptAcceptance','requiredAutomatedRows','validateReceipt','finalizeReceipt'],
+}, {
+  helperFile:'tests/live/helpers/rwtCoachingConsistency.ts',testFile:'tests/unit/rwtCoachingConsistency1258.test.ts',
+  callables:['characterCeilingVerdict','fillerAdviceVerdict','takesDifferVerdict','openPointReferenceVerdict','readTwoTakesCoaching'],
+}, {
+  helperFile:'tests/live/helpers/rwtCoachingEvidence.ts',testFile:'tests/unit/rwtCoachingEvidence.test.ts',
+  callables:['canonicalSuggestionSha256','coachingSessionBindingSha256','recomputeCoachingPromptSha256','buildRwtCoachingEvidenceArtifact','writeRwtCoachingEvidenceArtifact'],
+}, {
+  helperFile:'tests/live/helpers/rwtHarnessParity.ts',testFile:'tests/unit/rwtHarnessParityExecution1812.test.ts',
+  callables:['HarnessParityTap#takeBindings','HarnessParityTap#attach','HarnessParityTap#noCloudSttRow','HarnessParityTap#startPressRow','HarnessParityTap#ownedPagesClosedRow','probeSaveIsolationRow','numericComparisonRow','readRepeatEligibility','repeatEligibilityEvidence'],
+}, {
+  helperFile:'tests/live/helpers/rwtLateCoaching.ts',testFile:'tests/unit/rwtLateCoaching.test.ts',
+  callables:['sha256Hex','answerOrder','latestAnsweredAt','lateCoachingSavedRow','accessTokenFromAuthStorage','tokenSubject','ownerSessionReader','nonblankParity','classifyTarget','ownerNewerCompletedCounter'],
+}, {
+  helperFile:'tests/live/helpers/rwtWatchdog.ts',testFile:'tests/unit/rwtCleanupExecution1812.test.ts',
+  callables:['OwnedCleanup#run','OwnedCleanup#settle','finalizeOwnedCleanup'],
+}, {
+  helperFile:'tests/live/helpers/feedbackAttemptLedger.ts',testFile:'tests/unit/feedbackBoundedWrites.test.ts',
+  callables:["stableDraftSha","capDecision","isNamedIdempotencyReplay","syntheticRejection","feedbackCapVerdict","feedbackLedgerVerdict","stickyFinalVerdict","writeFeedbackAttemptRows","feedbackLegRecovered","feedbackLegRows","finalIsolationVerdict","withoutFaultLegSubmits"],
+}, {
+  helperFile:'tests/live/helpers/feedbackDiagnosticRef.ts',testFile:'tests/unit/feedbackDiagnosticRef1539.test.ts',
+  callables:["readStoredDiagnosticRef","noSessionBindingVerdict","olderTakeBindingVerdict","classifyInsertBody","writeNoSessionReportRows","writeOlderTakeReportRows","writeOlderTakeBindingRow"],
+}, {
+  helperFile:'tests/live/helpers/feedbackNoSessionCleanup.ts',testFile:'tests/unit/feedbackNoSessionCleanup.test.ts',
+  callables:["noSessionWriteUncertainty"],
+}, {
+  // #1811: the database feedback fence the AHT-01/02/07/08 journeys write behind (#1859 RPCs), through its own unit consumer.
+  helperFile:'tests/live/helpers/feedbackFence.ts',testFile:'tests/unit/feedbackFence1811.test.ts',
+  callables:["fenceRunKey","verifyFeedbackFence","openFeedbackFence","closeFeedbackFence","cleanFeedbackFence","cleanAndVerifyFeedbackFence",
+    "fenceCleanupVerdict","JourneyFeedbackFence#open","JourneyFeedbackFence#openRow","JourneyFeedbackFence#stopWriter",
+    "JourneyFeedbackFence#close","JourneyFeedbackFence#cleanRow"],
+}, {
+  helperFile:'tests/live/helpers/feedbackRecoveryInventory.ts',testFile:'tests/unit/feedbackBoundedWrites.test.ts',
+  callables:["verifyRecoveryStore","recoveryFileName","recordDurably","settleRecoveryInventory","readRecoveryInventory","unresolvedAttempts","recoverFromInventory"],
+}, {
+  helperFile:'tests/live/helpers/feedbackReportCleanup.ts',testFile:'tests/unit/feedbackBoundedWrites.test.ts',
+  callables:["mergeCapture","captureRunReports","writeUncertainty","zeroResidueVerdict","cleanupRunReports","zeroResidueNotRun"],
+}, {
+  helperFile:'tests/live/helpers/rwtAdverseRecovery.ts',testFile:'tests/unit/rwtAdverseRecovery.test.ts',
+  callables:["isRecoveryControl","retrySetupOutcome","recoverySavedVerdict","savedTranscriptDigest","reviewReopenVerdict","modelBytesSeen","midDownloadFailureVerdict",
+    "bytesCounted","downloadingNow","offlineInjectionGate","attemptPhase","runOfflineFault","offlineNotExercisedVerdict","coldTakeSettledVerdict","unprovenRestoreVerdict","faultUnprovenRecoveryVerdict"],
+}, {
+  // AHT-14 (#1868): the attempt's network transfer behind the offline gate, through the same unit consumer.
+  helperFile:'tests/live/helpers/rwtAdverse.ts',testFile:'tests/unit/rwtAdverseRecovery.test.ts',
+  callables:["downloadFailureVerdict","ModelTransferTracker#startAttempt","ModelTransferTracker#armFault","ModelTransferTracker#disarm",
+    "ModelTransferTracker#onRequest","ModelTransferTracker#onResponse","ModelTransferTracker#onFinished","ModelTransferTracker#onFailed",
+    "ModelTransferTracker#snapshot"],
+}, {
+  // J8 (#1870): the same-account feedback journey's pure rules, through their own unit consumer.
+  helperFile:'tests/live/helpers/rwtJ8Journey.ts',testFile:'tests/unit/rwtJ8Journey.test.ts',
+  callables:["legSink","legReceipt","legReadback","mergeLegReadback","takeDigest","readTakeDigests","takesReadComplete","takesUnchangedVerdict","writerDrainedVerdict","j8RunnerAdmission",
+    "J8WriteGate#open","J8WriteGate#close","J8WriteGate#enter","J8WriteGate#settle","J8WriteGate#keysOf"],
+}, {
+  // J1.d (#1883): the returning sign-out leg's pure rules, its sign-out recorder, and the browser leg (driven offline, fail-closed).
+  helperFile:'tests/live/helpers/rwtJ1dJourney.ts',testFile:'tests/unit/rwtJ1dJourney.test.ts',
+  callables:["j1dRunnerAdmission","historyPreservedVerdict","returnOwnerPreservedVerdict","noRecordingOrSessionWriteVerdict",
+    "deepLinkExactReturnVerdict","deepLinkRenderedOwnDetailVerdict","j1dVerdicts","j1dCaseAssertions","classifyJourneyWrite",
+    "loadedReviewSessionId","pollUntil","digestOf"],
+}, {
+  helperFile:'tests/live/helpers/rwtSignOutRecorder.ts',testFile:'tests/unit/rwtSignOutRecorder.test.ts',
+  callables:["routeOf","signOutUnauthorizedReadVerdict","signOutStaleRequestVerdict","SignOutRecorder#onRequest","SignOutRecorder#onResponse",
+    "SignOutRecorder#onFailed","SignOutRecorder#onFinished","SignOutRecorder#markClick","SignOutRecorder#designateProbe","SignOutRecorder#recordOwnerRead",
+    "SignOutRecorder#recordProbe","SignOutRecorder#markWindowEnd","SignOutRecorder#observeAtLeast","SignOutRecorder#settled","SignOutRecorder#snapshot"],
+}, {
+  helperFile:'tests/live/helpers/rwtJ1dLeg.ts',testFile:'tests/unit/rwtJ1dLeg.test.ts',
+  callables:["runJ1dLeg","pageUid","micState"],
+}, {
+  helperFile:'tests/live/helpers/rwtFocusEditCancel.ts',testFile:'tests/unit/rwtFocusEditCancel.test.ts',
+  callables:["editCancelVerdict"],
+}, {
+  helperFile:'tests/live/helpers/rwtFocusNextMarker.ts',testFile:'tests/unit/rwtFocusNextMarker.test.ts',
+  callables:["expectedNextMarker","nextPointMarkedVerdict","sampleFocusRail"],
+}, {
+  helperFile:'tests/live/helpers/rwtFocusOpenMicIsolation.ts',testFile:'tests/unit/rwtFocusOpenMicIsolation.test.ts',
+  callables:["openMicIsolationVerdict"],
+}, {
+  helperFile:'tests/live/helpers/rwtFocusPresentation.ts',testFile:'tests/unit/rwtFocusPresentation.test.ts',
+  callables:["focusPresentationRow","focusSignInRow"],
+}, {
+  helperFile:'tests/live/helpers/rwtFocusSameTarget.ts',testFile:'tests/unit/rwtFocusSameTarget.test.ts',
+  callables:["instructionHash","focusSetHash","pointHash","decidingRead","displayedTargetMatches","focusSameTargetVerdict","readTargetInPage"],
+}, {
+  helperFile:'tests/live/helpers/rwtFocusSaveIsolation.ts',testFile:'tests/unit/rwtFocusSaveIsolation.test.ts',
+  callables:["focusDesignedSaves","focusCapturedTakes"],
+}, {
+  helperFile:'tests/live/helpers/rwtFocusTakesDiffer.ts',testFile:'tests/unit/rwtFocusTakesDiffer.test.ts',
+  callables:["focusTakesDifferRow"],
+}, {
+  helperFile:'tests/live/helpers/rwtLeaveDestinationReady.ts',testFile:'tests/unit/rwtLeaveDestinationReady.test.ts',
+  callables:["onFocusDestination","leaveDestinationReady","waitForLeaveDestinationReady"],
+}, {
+  helperFile:'tests/live/helpers/rwtNavigationRows.ts',testFile:'tests/unit/rwtNavigationRows.test.ts',
+  callables:["sessionFactsFromRows","sessionWritesVerdict","historyPreservedVerdict","deepLinkTarget","listedOwnTarget","returnEntryMicVerdict","renderedOwnDetailVerdict","renderedOwnDetailRow"],
+}, {
+  helperFile:'tests/live/helpers/rwtPendingStartRecovery.ts',testFile:'tests/unit/rwtPendingStartRecovery.test.ts',
+  callables:["recoveryTakePlan","recoveryTakeVerdict"],
+}, {
+  helperFile:'tests/live/helpers/rwtSaveRetryAttempts.ts',testFile:'tests/unit/rwtSaveRetryAttempts.test.ts',
+  callables:["parseCompletionAttempt","attemptEvidence","completionAttemptsVerdict","exactRetrySaveVerdict","reviewReopenVerdict","transcriptDigest"],
+}, {
+  helperFile:'tests/live/helpers/rwtTwoPlaces.ts',testFile:'tests/unit/rwtTwoPlaces.test.ts',
+  callables:["sameBrowserRefusedVerdict","displacedFenceVerdict"],
+}, {
+  helperFile:'tests/live/helpers/servedReleaseBinding.ts', testFile:'tests/unit/servedReleaseBinding.test.ts',
+  callables:['servedReleaseVerdict','requiresReleaseBinding'],
 }]);
 export const HELPER_CONFIG = 'scripts/efficacy-helper-vitest.config.mjs';
 
@@ -134,7 +259,7 @@ function regularFile(root, relative) {
 
 export function helperRuntimeIdentity(root) {
   const require = createRequire(path.join(root, 'package.json'));
-  const packages = ['@vitest/coverage-v8', 'jsdom', '@jridgewell/trace-mapping', 'typescript','vite-node'].map(name => {
+  const packages = ['@vitest/coverage-v8', 'jsdom', '@jridgewell/trace-mapping', 'typescript','vite','esbuild','vite-node'].map(name => {
     const location = require.resolve(`${name}/package.json`);
     const bytes = fs.readFileSync(location);
     return {name, version: JSON.parse(bytes).version, packageSha256: hash(bytes),
@@ -428,7 +553,16 @@ export function validateHelperCoverage(raw, binding, root) {
     const declarations=callableDeclarations(ts,parsed,name);
     const declaration=declarations.length===1?declarations[0]:null;
     const runtimeName=name.includes('#')?name.split('#')[1]:name;
-    const functions = conversion.functions.filter(fn => fn.functionName === runtimeName);
+    const start = declaration && parsed.getLineAndCharacterOfPosition(declaration.getStart(parsed));
+    const end = declaration && parsed.getLineAndCharacterOfPosition(declaration.end);
+    // A class-qualified contract cannot borrow a same-named method from another class.
+    // Disambiguate only with the retained raw range's independently replayed source map.
+    const insideDeclaration = span => start && end && span.start.line >= start.line+1
+      && span.end.line <= end.line+1
+      && (span.start.line !== start.line+1 || span.start.column >= start.character)
+      && (span.end.line !== end.line+1 || span.end.column <= end.character);
+    const functions = conversion.functions.filter(fn => fn.functionName === runtimeName
+      && (!name.includes('#') || fn.ranges?.length && insideDeclaration(mappedSpan(fn.ranges[0]))));
     if (!declaration?.body || functions.length !== 1) throw new Error(`Missing/ambiguous helper callable: ${name}`);
     const fn = functions[0];
     if (fn.isBlockCoverage !== true || !fn.ranges?.length || fn.ranges[0].count <= 0) throw new Error(`Uncalled helper: ${name}`);
@@ -442,8 +576,6 @@ export function validateHelperCoverage(raw, binding, root) {
         throw new Error('Helper nested range escapes its callable');
       }
     }
-    const start = parsed.getLineAndCharacterOfPosition(declaration.getStart(parsed));
-    const end = parsed.getLineAndCharacterOfPosition(declaration.end);
     for (const range of fn.ranges) {
       for (const offset of [range.startOffset, range.endOffset - 1]) {
         const original = originalAt(offset - conversion.wrapperLength);
@@ -454,7 +586,8 @@ export function validateHelperCoverage(raw, binding, root) {
         }
       }
     }
-    const entries = Object.entries(mapped.fnMap || {}).filter(([, value]) => value.name === runtimeName);
+    const entries = Object.entries(mapped.fnMap || {}).filter(([, value]) => value.name === runtimeName
+      && (!name.includes('#') || value.loc && insideDeclaration(value.loc)));
     if (entries.length !== 1 || !(mapped.f?.[entries[0][0]] > 0)) throw new Error(`Helper remapped callable not executed: ${name}`);
     if (mapped.f[entries[0][0]] !== fn.ranges[0].count) throw new Error('Remapped helper count contradicts raw worker count');
     const location = entries[0][1].loc;
@@ -465,11 +598,11 @@ export function validateHelperCoverage(raw, binding, root) {
     // The pinned legacy converter maps transformed async declarations to the
     // declaration start (including export), not the inner function keyword.
     // Accept that exact AST boundary only for an actual async declaration.
-    const asyncDeclaration=ts.isFunctionDeclaration(declaration)
+    const asyncDeclaration=(ts.isFunctionDeclaration(declaration) || ts.isMethodDeclaration(declaration))
       && declaration.modifiers?.some(modifier=>modifier.kind===ts.SyntaxKind.AsyncKeyword);
     const functionStart = keyword ? parsed.getLineAndCharacterOfPosition(asyncDeclaration?declaration.getStart(parsed):keyword.getStart(parsed))
       : declaration && ts.isArrowFunction(declaration) ? parsed.getLineAndCharacterOfPosition(declaration.getStart(parsed))
-        : ts.isMethodDeclaration(declaration) ? parsed.getLineAndCharacterOfPosition(declaration.name.getStart(parsed)) : null;
+        : ts.isMethodDeclaration(declaration) ? parsed.getLineAndCharacterOfPosition(asyncDeclaration?declaration.getStart(parsed):declaration.name.getStart(parsed)) : null;
     const typedArrow=ts.isArrowFunction(declaration) && (declaration.type || declaration.parameters.some(parameter=>parameter.type));
     const parameterStart=typedArrow && declaration.parameters[0]
       ? parsed.getLineAndCharacterOfPosition(declaration.parameters[0].getStart(parsed)):null;
