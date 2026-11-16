@@ -30,6 +30,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { buildReviewReceipt, readPullRequest as readPullRequestLive } from './collect-review-qualification.mjs';
 import { RECEIPT_MAX_AGE_MS } from './review-qualification.mjs';
+import { carryForwardBound } from './review-carry-forward.mjs';
 
 /** Why a merge was refused. Bounded, so a caller cannot invent a reason that reads as permission. */
 export const PRE_MERGE_HOLD = Object.freeze({
@@ -116,7 +117,8 @@ function bindingHolds({ receipt, repository, prNumber, expectedHeadSha, expected
   }
   const currentSha = String(receipt?.currentSha ?? '').toLowerCase();
   const reviewedSha = String(receipt?.reviewedSha ?? '').toLowerCase();
-  if (currentSha !== head || reviewedSha !== head) holds.push(codes.wrongHead);
+  if (currentSha !== head || (reviewedSha !== head && (!carryForwardBound(receipt)
+      || receipt.reviewCarryForward.integrationBaseSha !== expectedBaseSha))) holds.push(codes.wrongHead);
   // The same rule for WHERE the evidence applies: an absent repository or base is not a match.
   if (!receipt?.repository || String(receipt.repository) !== String(repository ?? '')) {
     holds.push(codes.wrongRepository);
