@@ -48,7 +48,7 @@ function receiptWith(overrides: ReceiptRow[]) {
         if (!rows.some((r) => r.step === step)) rows.push(pass(step));
     }
     return {
-        suite: SUITE, release: SHA, meta: { fixtureKind: 'synthetic' }, rows,
+        suite: SUITE, release: SHA, meta: { fixtureKind: 'synthetic', runScope: 'full-gate' }, rows,
         readback: { journeys: [{ journeyId: REC, stages: REC_STAGES }, { journeyId: PDF, stages: PDF_STAGES }], reportedJourneyIds: [], missingBindings: [] },
     };
 }

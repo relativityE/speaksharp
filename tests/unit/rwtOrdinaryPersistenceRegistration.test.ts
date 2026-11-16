@@ -17,7 +17,7 @@ const canonical = (): ReceiptRow[] => [
   humanRow('open_mic_coaching_relevant'), humanRow('open_mic_uh_detected'),
 ];
 const finalize = (rows: ReceiptRow[]) => {
-  const receipt = { suite: SUITE, release: SHA, meta: { fixtureKind: 'synthetic' }, rows, readback: { journeys: [{ journeyId: J, stages: STAGES }], reportedJourneyIds: ['other'], missingBindings: [] } };
+  const receipt = { suite: SUITE, release: SHA, meta: { fixtureKind: 'synthetic', runScope: 'full-gate' }, rows, readback: { journeys: [{ journeyId: J, stages: STAGES }], reportedJourneyIds: ['other'], missingBindings: [] } };
   const worksheet = parseHumanWorksheet(humanWorksheet(SUITE, SHA, [J, 'other'], rows).split('\n').map(l => l.startsWith('| `open_mic_') ? l.replace(/\| {2}\| {2}\|$/, '| PASS | PO · 2026-09-28 |') : l).join('\n'));
   return finalizeReceipt(receipt, worksheet, { suite: SUITE, release: SHA, journeys: [{ journeyId: J, stages: STAGES, verdict: 'QUALIFIED' }], missingBindings: [] });
 };
