@@ -24,13 +24,13 @@ const results = (leg, o = 'PASS') => Object.fromEntries(rowsForLeg(leg).map((r) 
 const sumReserves = (journeys) => journeys.reduce((n, j) => n + cleanupReserve(j).requests, 0);
 
 describe('frozen allocations, reserved before the run', () => {
-    it('reserves the whole run up front: 32 coaching and 43 starts with every leg, 30 and 40 today', () => {
+    it('reserves the whole run up front: 32 coaching and 43 starts with every leg, 28 and 38 today (J8 gated)', () => {
         const all = plan({ satisfiedGates: EVERY_GATE, selected: NO_J2 });
         expect(all.totals().coaching).toBe(32);
         expect(all.totals().starts).toBe(43);
         const today = plan();
-        expect(today.totals().coaching).toBe(30);
-        expect(today.totals().starts).toBe(40);
+        expect(today.totals().coaching).toBe(28);
+        expect(today.totals().starts).toBe(38);
         expect(today.totals().coaching).toBe(countedLimits(TODAY).coachingRequests);
         expect(today.totals().cleanupRequests).toBe(countedLimits(TODAY).cleanupRequests);
     });
@@ -65,13 +65,13 @@ describe('the run request names its legs; the budget never chooses them', () => 
     it('refuses a lower ceiling that does not cover the named legs, and drops nothing', () => {
         let err;
         try {
-            plan({ coachingCeiling: 28 });
+            plan({ coachingCeiling: 26 });
         }
         catch (e) {
             err = e;
         }
         expect(err instanceof RunRefused).toBe(true);
-        expect(err.message).toContain('need 30 coaching requests, above the ceiling of 28; name fewer legs');
+        expect(err.message).toContain('need 28 coaching requests, above the ceiling of 26; name fewer legs');
     });
     it('runs a lower ceiling when the request names exactly the legs it covers', () => {
         const b = plan({ selected: ALL_IDS.filter((id) => id !== 'J8.b' && id !== 'J8.c'), coachingCeiling: 28 });
@@ -95,7 +95,7 @@ describe('the run request names its legs; the budget never chooses them', () => 
         expect(plan({ selected: ['J1.a', 'J1.b'] }).allocationOf('J1.b')).toEqual({ coaching: 0, starts: 0 });
     });
     it('gives no allocation to a named leg whose dependency is gated, and says why', () => {
-        const b = plan({ satisfiedGates: new Set(['no-harness-case']), selected: ['J8.a', 'J8.b', 'J8.c'] });
+        const b = plan({ satisfiedGates: new Set(['no-harness-case', 'no-j8-harness-adapter']), selected: ['J8.a', 'J8.b', 'J8.c'] });
         expect(b.allocationOf('J8.b')).toEqual({ coaching: 2, starts: 2 });
         const gated = plan({ selected: ['J1.e', 'J1.f'] });
         expect(gated.allocationOf('J1.f')).toBe(null);
@@ -110,7 +110,7 @@ describe('the run request names its legs; the budget never chooses them', () => 
         try {
             delete require.cache[require.resolve('../run-budget.cjs')];
             const fresh = require('../run-budget.cjs');
-            const b = fresh.planRunBudget({ satisfiedGates: new Set(['no-harness-case']), selected: ['J8.a', 'J8.b', 'J8.c'] });
+            const b = fresh.planRunBudget({ satisfiedGates: new Set(['no-harness-case', 'no-j8-harness-adapter']), selected: ['J8.a', 'J8.b', 'J8.c'] });
             expect(b.allocationOf('J8.a') === null).toBe(false);
             expect(b.allocationOf('J8.c')).toBe(null);
             expect(b.legBudget('J8.c').reason).toBe('needs J8.b, which has no allocation');
@@ -127,9 +127,9 @@ describe('the run request names its legs; the budget never chooses them', () => 
         expect(coachingCeilingFromEnv({ [COACHING_CEILING_ENV]: ' 0 ' })).toBe(0);
         for (const bad of ['3.5', '-1', 'abc', '1e3'])
             expect(() => coachingCeilingFromEnv({ [COACHING_CEILING_ENV]: bad })).toThrow();
-        expect(plan({ coachingCeiling: coachingCeilingFromEnv({}) }).totals().coaching).toBe(30);
-        expect(plan({ coachingCeiling: coachingCeilingFromEnv({ [COACHING_CEILING_ENV]: '30' }) }).totals().coaching).toBe(30);
-        for (const other of ['28', '31', '1000'])
+        expect(plan({ coachingCeiling: coachingCeilingFromEnv({}) }).totals().coaching).toBe(28);
+        expect(plan({ coachingCeiling: coachingCeilingFromEnv({ [COACHING_CEILING_ENV]: '28' }) }).totals().coaching).toBe(28);
+        for (const other of ['26', '29', '1000'])
             expect(() => plan({ coachingCeiling: coachingCeilingFromEnv({ [COACHING_CEILING_ENV]: other }) })).toThrow(RunRefused);
     });
     it('lists the allocated legs as the run\'s scope for the runnable-legs summary', () => {
@@ -204,11 +204,21 @@ describe('no retry borrowing', () => {
 describe('protected cleanup reserve', () => {
     it('sizes each journey\'s reserve to its structural worst case, once per journey with an allocated leg', () => {
         const b = plan();
-        for (const j of ['J1', 'J3', 'J4', 'J5', 'J6', 'J7', 'J8'])
+        for (const j of ['J1', 'J3', 'J4', 'J5', 'J6', 'J7'])
             expect(b.cleanupReserveOf(j)).toEqual({ requests: cleanupReserve(j).requests, seconds: cleanupReserve(j).seconds });
         expect(b.cleanupReserveOf('J2')).toBe(null);
         expect(b.cleanupReserveOf('J9')).toBe(null);
-        expect(b.totals().cleanupRequests).toBe(sumReserves(['J1', 'J3', 'J4', 'J5', 'J6', 'J7', 'J8']));
+        expect(b.totals().cleanupRequests).toBe(sumReserves(['J1', 'J3', 'J4', 'J5', 'J6', 'J7']));
+    });
+    // Sam on #1870: gated J8 consumes ZERO live budget; once its adapter gate is met it reserves one account deletion and
+    // one fence's close, clean and verify. (An offline budget is not proof of a real account reservation.)
+    it('gives gated J8 no allocation and no cleanup reserve; ungated, one account and one fence', () => {
+        const gated = plan();
+        for (const leg of ['J8.a', 'J8.b', 'J8.c']) expect(gated.allocationOf(leg)).toBe(null);
+        expect(gated.cleanupReserveOf('J8')).toBe(null);
+        const open = plan({ satisfiedGates: new Set(['no-j8-harness-adapter']) });
+        expect(open.cleanupReserveOf('J8')).toEqual({ requests: cleanupReserve('J8').requests, seconds: cleanupReserve('J8').seconds });
+        expect(open.allocationOf('J8.b')).toEqual({ coaching: 2, starts: 2 });
     });
     it('refuses a run whose journey has no defined cleanup step (J2), rather than guessing one', () => {
         expect(() => plan({ satisfiedGates: EVERY_GATE })).toThrow(RunRefused);
@@ -227,7 +237,7 @@ describe('protected cleanup reserve', () => {
         expect(b.reserveCleanup('J6').granted).toBe(false);
     });
     it('shares one reserve across a journey\'s legs, so two legs cannot take more than the journey\'s worst case', () => {
-        const b = plan();
+        const b = plan({ satisfiedGates: new Set(['no-j8-harness-adapter']) });
         const n = cleanupReserve('J8').requests;
         for (let i = 0; i < n; i += 1)
             expect(b.reserveCleanup(i % 2 ? 'J8.a' : 'J8.b').granted).toBe(true);

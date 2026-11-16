@@ -56,9 +56,10 @@ function caseUnits(legs) {
 const isFresh = (l) => JOURNEYS.find((j) => j.id === l.journey).account === 'fresh-run-owned';
 /**
  * The counted limits for the legs that can run, given the gate kinds the runner has established as met.
- * With every gate satisfied: 18 sign-ups, 31 takes, 43 starts, 32 coaching, 40 identity reads, 96 provider calls, $0
- * (J1.e's probe reserved at its worst case, Sam's review). With none it is today's column (13, 30, 40, 30, 28, 90 calls,
- * $0): J1.e is gated today, so its probe reserves nothing, and J1.d is gated until the sign-out recorder is wired. Sign-ups follow today's per-case accounts (signedUpAccounts in
+ * With every gate satisfied: 16 sign-ups, 31 takes, 43 starts, 32 coaching, 36 identity reads, 96 provider calls, $0
+ * (J1.e's probe reserved at its worst case, Sam's review). With none it is today's column (11, 28, 38, 28, 24, 84 calls,
+ * $0): J1.e is gated today, so its probe reserves nothing; J1.d is gated until the sign-out recorder is wired, and J8 until
+ * its one-invocation adapter lands (#1870). Sign-ups follow today's per-case accounts (signedUpAccounts in
  * cleanup-plan.cjs, AHT-15's maintained account excluded); #1864's one per journey (8 and 7) is `sharedAccountTarget`.
  * Identity reads are per harness case (caseUnits).
  */

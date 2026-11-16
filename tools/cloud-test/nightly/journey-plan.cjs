@@ -23,7 +23,29 @@ const HARNESS_CASES = Object.freeze({
     'J3.a': ['AHT-02', 7], 'J3.b': ['AHT-03', 4], 'J4.a': ['AHT-05', 2], 'J4.b': ['AHT-06', 2],
     'J5.a': ['AHT-04', 2], 'J5.b': ['AHT-09', 3], 'J5.c': ['AHT-10', 3], 'J6': ['AHT-11', 4],
     'J7.a': ['AHT-12', 3], 'J7.b': ['AHT-13', 3], 'J7.c': ['AHT-14', 3], 'J7.d': [null, 0],
-    'J8.a': ['AHT-08', 0], 'J8.b': ['AHT-07', 2], 'J8.c': [null, 0], 'J9.a': [null, 0], 'J9.b': [null, 0],
+    // J8 (Sam, #1870): ONE invocation of the same-account J8 spec covers all three legs on one run-owned account; no J8 leg
+    // falls back to the retired AHT-07/AHT-08 cases. Their catalog rows keep their homes and arrive prefixed by them.
+    'J8.a': ['J8', 0], 'J8.b': ['J8', 2], 'J8.c': ['J8', 0], 'J9.a': [null, 0], 'J9.b': [null, 0],
+});
+/**
+ * Journey invocations: one run of one journey spec that covers several legs (instead of a legacy AHT-NN harness case).
+ * `homes` are the legacy cases whose catalog rows it reports, each as `${home}:${assertion}` (the two share row names).
+ */
+const JOURNEY_INVOCATIONS = Object.freeze({
+    J8: Object.freeze({
+        homes: Object.freeze(['AHT-07', 'AHT-08']), suite: 'feedback-association-boundaries-j8',
+        // Historical row IDs only: which retired case's catalog rows (and catalog Start presses and takes) each leg carries.
+        legHomes: Object.freeze({ 'J8.a': 'AHT-08', 'J8.b': 'AHT-07', 'J8.c': null }),
+        spec: 'tests/live/rwt-feedback-association-boundaries.live.spec.ts', account: 'fresh-run-owned',
+    }),
+});
+const isInvocation = (caseId) => caseId !== null && Object.prototype.hasOwnProperty.call(JOURNEY_INVOCATIONS, caseId);
+/** The catalog case a leg's rows are counted under: its harness case, or for an invocation leg its historical home. */
+const historicalCase = (l) => (isInvocation(l.caseId) ? JOURNEY_INVOCATIONS[l.caseId].legHomes[l.id] ?? null : l.caseId);
+// Until its reviewed harness adapter lands (in the shared, sealed harness), no runner can select the invocation: NOT RUN.
+const NO_INVOCATION_ADAPTER = Object.freeze({
+    kind: 'no-j8-harness-adapter', outcome: 'NOT RUN',
+    reason: 'J8 runs as one invocation of its same-account spec, and that invocation has no reviewed harness adapter yet',
 });
 // Sam on 79320578: J1.d's sign-out rows need the wired recorder and its named protected probe (the offline recorder is parked
 // until the run-owned fixture handoff). Until then the leg reports NOT RUN and no offline result counts as its proof.
@@ -49,7 +71,8 @@ const leg = (id, story, o = {}) => Object.freeze({
     // What the run budget reserves for the leg before the run starts: one per saved take's review, plus the worst case of
     // every probe the server should refuse (Sam's #1864 review: reserve the probe's cost before it is sent).
     coachingReserve: (o.coachingRequests ?? 0) + (o.coachingProbes ?? 0), proofScope: o.proofScope ?? 'deployed-production',
-    gates: Object.freeze([...(o.gates ?? []), ...(harnessCase(id)[0] === null ? [NO_HARNESS_CASE] : [])]),
+    gates: Object.freeze([...(o.gates ?? []), ...(harnessCase(id)[0] === null ? [NO_HARNESS_CASE] : []),
+        ...(isInvocation(harnessCase(id)[0]) ? [NO_INVOCATION_ADAPTER] : [])]),
 });
 const JOURNEYS = Object.freeze([
     {
@@ -393,4 +416,4 @@ const CATALOG_ROW_HOMES = Object.freeze([
     { caseId: 'AHT-15', assertion: 'return-signed-out', legs: ['J1.d'], change: 'moved' },
 ]);
 
-module.exports = { ALL_LEGS, DESIGN_RUN_START_PRESSES, HARNESS_CASES, NO_HARNESS_CASE, CATALOG_ROW_HOMES, DESIGN_RUN_COACHING_CAP, JOURNEYS, JOURNEY_IDS, LEG_INVARIANTS, NEW_ROWS, legById, rowsForLeg };
+module.exports = { ALL_LEGS, DESIGN_RUN_START_PRESSES, HARNESS_CASES, JOURNEY_INVOCATIONS, NO_HARNESS_CASE, NO_INVOCATION_ADAPTER, historicalCase, isInvocation, CATALOG_ROW_HOMES, DESIGN_RUN_COACHING_CAP, JOURNEYS, JOURNEY_IDS, LEG_INVARIANTS, NEW_ROWS, legById, rowsForLeg };

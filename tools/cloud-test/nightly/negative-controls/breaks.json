@@ -223,8 +223,8 @@
       "file": "case-results.cjs",
       "test": "tests/harness-mapping.test.cjs",
       "guards": "a case row the plan places nowhere fails the legs of its case",
-      "find": "        if (!placed)\n            for",
-      "replace": "        if (false)\n            for"
+      "find": "    if (!placed)\n        for",
+      "replace": "    if (false)\n        for"
     },
     {
       "id": "P3-harness-not-run-passes",
@@ -1409,6 +1409,54 @@
       "find": "{ needs: ['J1.a'], gates: [SIGNOUT_RECORDER_UNWIRED] }",
       "replace": "{ needs: ['J1.a'] }",
       "test": "tests/journey-plan.test.cjs"
+    },
+    {
+      "id": "P13-j8-legacy-fallback",
+      "guards": "J8's legs run as ONE invocation; no leg falls back to the retired AHT-07/AHT-08 cases",
+      "file": "journey-plan.cjs",
+      "find": "'J8.a': ['J8', 0], 'J8.b': ['J8', 2],",
+      "replace": "'J8.a': ['AHT-08', 0], 'J8.b': ['J8', 2],",
+      "test": "tests/harness-mapping.test.cjs"
+    },
+    {
+      "id": "P13-j8-adapter-gate-dropped",
+      "guards": "J8 stays NOT RUN until its reviewed one-invocation adapter lands",
+      "file": "journey-plan.cjs",
+      "find": "        ...(isInvocation(harnessCase(id)[0]) ? [NO_INVOCATION_ADAPTER] : [])]),",
+      "replace": "        ...([])]),",
+      "test": "tests/harness-mapping.test.cjs"
+    },
+    {
+      "id": "P13-j8-row-swap-accepted",
+      "guards": "a J8 row claimed for a leg the plan homes elsewhere is unplaced, never a PASS",
+      "file": "case-results.cjs",
+      "find": "        return home.legs.includes(leg) ? put(leg, id, outcome) : unplaced();",
+      "replace": "        return put(leg, id, outcome);",
+      "test": "tests/harness-mapping.test.cjs"
+    },
+    {
+      "id": "P13-j8-row-without-leg-accepted",
+      "guards": "a J8 row that names no leg of the invocation is unplaced",
+      "file": "case-results.cjs",
+      "find": "    const leg = typeof a?.leg === 'string' && legs.includes(a.leg) ? a.leg : null;",
+      "replace": "    const leg = typeof a?.leg === 'string' ? a.leg : legs[0];",
+      "test": "tests/harness-mapping.test.cjs"
+    },
+    {
+      "id": "P13-j8-invariant-on-every-leg",
+      "guards": "a J8 invariant lands only on the leg that reported it",
+      "file": "case-results.cjs",
+      "find": "    if (LEG_INVARIANTS.includes(id))\n        return put(leg, `invariant:${id}`, outcome);",
+      "replace": "    if (LEG_INVARIANTS.includes(id)) {\n        for (const l of legs) put(l, `invariant:${id}`, outcome);\n        return undefined;\n    }",
+      "test": "tests/harness-mapping.test.cjs"
+    },
+    {
+      "id": "P13-j8-fence-dropped",
+      "guards": "J8 still budgets its one fence's close, clean and verify",
+      "file": "cleanup-plan.cjs",
+      "find": "const FENCED_CASES = Object.freeze(['AHT-01', 'AHT-02', 'J8']);",
+      "replace": "const FENCED_CASES = Object.freeze(['AHT-01', 'AHT-02']);",
+      "test": "tests/cleanup.test.cjs"
     }
   ]
 }

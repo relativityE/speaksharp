@@ -9,7 +9,7 @@ const { countedLimits } = require('../limits.cjs');
 const ALLOCATED = Object.freeze({ allocated: true, overrun: [] });
 // Most tests are about rows, gates and dependencies, so each leg has its allocation unless a test says otherwise.
 const legVerdict = (id, input) => rawLegVerdict(id, { budget: ALLOCATED, ...input });
-const ALL_GATES = new Set(['canary-claim-ack', 'unqualified', 'disabled-until-reviewed', 'test-mode-fixture', 'no-safe-production-proof', 'no-harness-case', 'signout-recorder-unwired']);
+const ALL_GATES = new Set(['canary-claim-ack', 'unqualified', 'disabled-until-reviewed', 'test-mode-fixture', 'no-safe-production-proof', 'no-harness-case', 'signout-recorder-unwired', 'no-j8-harness-adapter']);
 const NO_GATES = new Set();
 const results = (leg, o = 'PASS') => Object.fromEntries(rowsForLeg(leg).map((r) => [r, o]));
 const prior = (...vs) => new Map(vs.map((v) => [v.leg, v]));
