@@ -91,4 +91,54 @@ describe('current-chain trial preflight regression', () => {
     } finally { await db.exec(original); }
     assertDenied(await preflight());
   });
+  // #1863 added a second reader of the same expiry: the payment wall (RLS and guarded RPCs) through
+  // current_account_has_product_access(). If the two ever disagree, a user can start a take the wall then refuses to
+  // save, or is told to pay while the wall still serves their saved work. Pin that they agree on every expiry state.
+  const STATES: Array<[string, string]> = [
+    ['active marked trial', "trial_expires_at=now()+interval '1 day'"],
+    ['exact expiry instant', 'trial_expires_at=now()'],
+    ['one second past expiry', "trial_expires_at=now()-interval '1 second'"],
+    ['bare pro label after expiry (no Stripe subscription)', "trial_expires_at=now()-interval '1 second', subscription_status='pro', stripe_subscription_id=NULL"],
+    ['paid after expiry', "trial_expires_at=now()-interval '1 second', subscription_status='pro', stripe_subscription_id='sub_test_agree_'||id::text"],
+  ];
+  async function verdicts(uid: string, set: string): Promise<{ canStart: boolean; access: boolean }> {
+    await db.exec('BEGIN'); // one transaction, so both readers see the same now()
+    try {
+      await db.query(`UPDATE public.user_profiles SET ${set} WHERE id=$1`, [uid]);
+      const canStart = (await preflight()).can_start;
+      await db.exec('SET ROLE authenticated');
+      try {
+        const access = (await db.query<{ a: boolean }>('SELECT public.current_account_has_product_access() AS a')).rows[0].a;
+        return { canStart, access };
+      } finally { await db.exec('RESET ROLE'); }
+    } finally { await db.exec('ROLLBACK'); }
+  }
+
+  it('preflight and the #1863 payment wall give the same answer for every expiry state', async () => {
+    const uid = await signup();
+    const seen: Array<[string, { canStart: boolean; access: boolean }]> = [];
+    for (const [name, set] of STATES) seen.push([name, await verdicts(uid, set)]);
+    // Each state as [name, preflight can_start, wall access]: a disagreement names its state in the diff.
+    expect(seen.map(([name, v]) => [name, v.canStart, v.access])).toEqual(seen.map(([name, v]) => [name, v.access, v.access]));
+    expect(Object.fromEntries(seen.map(([n, v]) => [n, v.access]))).toEqual({
+      'active marked trial': true, 'exact expiry instant': false, 'one second past expiry': false,
+      'bare pro label after expiry (no Stripe subscription)': false, 'paid after expiry': true,
+    });
+  });
+
+  it('negative control: a preflight with its own inclusive expiry check disagrees with the wall at the expiry instant', async () => {
+    const uid = await signup();
+    const original = (await db.query<{ definition: string }>(
+      "SELECT pg_get_functiondef('public.check_usage_limit()'::regprocedure) AS definition",
+    )).rows[0].definition;
+    const gate = "IF COALESCE(v_effective_tier, 'free') <> 'pro' THEN";
+    expect(original.split(gate)).toHaveLength(2);
+    try {
+      // A plausible drift: preflight re-derives expiry itself and treats the expiry instant as still in trial.
+      await db.exec(original.replace(gate, "IF COALESCE(v_effective_tier, 'free') <> 'pro' AND NOT (v_trial_expires_at >= now()) THEN"));
+      const v = await verdicts(uid, 'trial_expires_at=now()');
+      expect(v).toEqual({ canStart: true, access: false }); // the agreement assertion above would fail here
+    } finally { await db.exec(original); }
+    expect(await verdicts(uid, 'trial_expires_at=now()')).toEqual({ canStart: false, access: false });
+  });
 });
