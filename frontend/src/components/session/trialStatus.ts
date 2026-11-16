@@ -61,19 +61,17 @@ export function isTrialExpiredRefusal(usage: TrialUsage | null | undefined): boo
  * Copy for the practice page once the server refuses recording with `trial_expired` (#1282). Exported so tests
  * assert the real strings. The title matches the refusal message `useSessionLifecycle` already shows.
  *
- * Retention is `newest_one_v1`: saving a newer eligible session replaces the previous transcript, and a saved
- * session's coaching is removed with its transcript. Session history, measurements and the next action survive
- * for every session. So this copy never says "everything" or "all your reviews" stays; it names what does.
+ * PO 2026-11-14 (#1863): "No payment, no service or access to their past data. They have the option to delete
+ * account." Saved work is kept, not deleted, and reopens on payment, so this copy never offers Progress, History or
+ * PDF export while unpaid. Retention is `newest_one_v1`, so it never says every transcript is kept.
  * Paid wording is neutral ("paid access"), never a tier name.
  */
 export const TRIAL_ENDED_COPY = Object.freeze({
     title: 'Your 30-day free trial has ended',
-    body: 'Recording new sessions is closed on this account. What you already saved stays in your account:',
+    body: 'Recording and your saved work are closed on this account until payment is confirmed.',
     keeps: [
-        { key: 'history' as const, label: 'Your session history, measurements and next steps, in Progress' },
-        { key: 'transcript' as const, label: 'Your most recent saved transcript and its coaching. SpeakSharp keeps only the newest one.' },
-        { key: 'export' as const, label: 'PDF export from Progress, with measurements for every session and the transcript for the newest one only' },
-        { key: 'account' as const, label: 'Your account settings, including deleting your account' },
+        { key: 'history' as const, label: 'Your saved sessions are kept, not deleted, and open again once payment is confirmed. SpeakSharp keeps only the newest transcript.' },
+        { key: 'account' as const, label: 'Your account settings, billing and deleting your account stay available.' },
     ],
     /** Payments open: Pricing shows checkout. */
     continueOpen: 'Continue with paid access to keep recording.',

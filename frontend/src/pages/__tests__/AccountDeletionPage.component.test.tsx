@@ -7,12 +7,14 @@ import { completionCapabilities } from '@/services/accountCompletionStatus';
 const mocks = vi.hoisted(() => ({
   invoke: vi.fn(), signOut: vi.fn(async () => {}), token: null as string | null,
   user: { id: 'owner' } as { id: string } | null, clear: vi.fn(), session: vi.fn(), status: null as unknown,
+  rpc: vi.fn(),
 }));
 vi.mock('@/contexts/AuthProvider', () => ({
   useAuthProvider: () => ({ user: mocks.user, loading: false, signOut: mocks.signOut }),
 }));
 vi.mock('@/lib/supabaseClient', () => ({ getSupabaseClient: () => ({
   auth: { getSession: mocks.session },
+  rpc: mocks.rpc,
   functions: { invoke: (name: string, options: { body: { action: string } }) => options.body.action === 'status'
     ? Promise.resolve({ data: mocks.status ?? { outcome: 'not_pending', destructiveEnabled: false }, error: null })
     : mocks.invoke(name, options) },
@@ -75,6 +77,30 @@ describe('explicit pending completion — real page and effect/status transports
     fireEvent.click(screen.getByRole('checkbox', { name: 'I confirm permanent account deletion now, with no refund.' }));
     fireEvent.click(button);
   };
+  it('J1.f: an unsaved recording holding up deletion can be discarded, then deletion continues', async () => {
+    readReply = { outcome: 'pending', requestId, reason: 'save_unsettled', canRetry: false };
+    mocks.rpc.mockImplementation(async (name: string) => {
+      expect(name).toBe('discard_unsaved_recordings_for_closure_v1');
+      readReply = { outcome: 'pending', requestId, reason: 'ready', canRetry: false };
+      return { data: { discarded: 1, outcome: 'discarded_not_saved' }, error: null };
+    });
+    renderPage();
+    await screen.findByText(/A practice session is still being saved/);
+    expect(screen.getByText(/may not have been saved and is holding up deletion/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Discard unsaved recording' }));
+    await screen.findByText(/Earlier work is settled/);
+    expect(mocks.rpc).toHaveBeenCalledOnce();
+    expect(screen.queryByRole('button', { name: 'Discard unsaved recording' })).not.toBeInTheDocument();
+    expect(effects()).toHaveLength(0);
+  });
+  it('J1.f: a recording still in progress elsewhere is not discarded and says so', async () => {
+    readReply = { outcome: 'pending', requestId, reason: 'save_unsettled', canRetry: false };
+    mocks.rpc.mockResolvedValue({ data: { discarded: 0, reason: 'recording_live' }, error: null });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Discard unsaved recording' }));
+    await screen.findByText('A recording is still in progress on another tab or device. Stop it, then try again.');
+    expect(screen.getByText(/A practice session is still being saved/)).toBeInTheDocument();
+  });
   it('default unavailable cannot become ready from a status reason, legacy flag or secured capability', async () => {
     renderPage();
     await screen.findByText(/Earlier work is settled/);
