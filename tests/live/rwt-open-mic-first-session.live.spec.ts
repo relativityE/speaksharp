@@ -26,6 +26,9 @@
  * With no comparison cell the run records the deployed default and is labelled diagnostic.
  */
 import { createClient } from '@supabase/supabase-js';
+import { readFileSync } from 'node:fs';
+import { J1D_LEG, J1D_ROWS, J1D_SUITE, j1dCaseAssertions, j1dRunnerAdmission, j1dVerdicts } from './helpers/rwtJ1dJourney';
+import { runJ1dLeg } from './helpers/rwtJ1dLeg';
 import { test } from './helpers/rwtProductionTest';
 import { MainThreadTrace, TRACE_OP_TIMEOUT_MS, TRACE_START_WORST_CASE_MS, TRACE_STOP_WORST_CASE_MS, boundedStopWithTrace, withDeadline } from './helpers/rwtMainThreadTrace';
 import { DiagnosticRecord, ProcessSampler, diagnosticWindowFor, requireWindowBudget, runBoundedWindow } from './helpers/rwtDiagnosticWindow';
@@ -318,6 +321,10 @@ test.describe('RWT — Open Mic first session @live', () => {
         /** The Practice-again save-take duration actually used (undefined until that step runs). */
         let saveTakeMs: number | undefined;
         let coachingCapture: ReturnType<typeof createCoachingTakeCapture> | null = null;
+        // J1.d (Sam 1a, 16 Nov): a separate reporting leg in THIS worker, on THIS account, reusing its in-memory sign-in closure.
+        // Without the named runner's admission it does nothing and J1.d stays NOT RUN.
+        const j1dAdmission = j1dRunnerAdmission(process.env, (f) => readFileSync(f, 'utf8'));
+        let signInOnShownForm: (() => Promise<void>) | null = null;
         const finish = finalizer.once(async () => {
             // Sam, #1662 RETURN: every step is bounded and isolated, so the account cleanup and the receipt always run.
             const steps = new FinalizationSteps();
@@ -482,10 +489,12 @@ test.describe('RWT — Open Mic first session @live', () => {
                 await page.goto('/auth/signup');
                 await expect(page.getByTestId('auth-form')).toBeVisible({ timeout: 30_000 });
                 await requireApprovedSurface(page, receipt);
-                createdEmail = newDisposableEmail('open-mic');
+                // With a J1.d admission, the email is the lookup reference the named runner recorded for J1.a's create.
+                createdEmail = j1dAdmission.admitted ? j1dAdmission.lookupRef : newDisposableEmail('open-mic');
                 receipt.forbid(createdEmail);
                 const account = await signUpDisposableAccount(page, createdEmail);
                 capturedUid = account.uid;
+                signInOnShownForm = account.signInOnShownForm;
                 const identity = await runOwnedIdentityFailures(admin as never, capturedUid, createdEmail);
                 if (identity.length > 0) throw new Error(`FAIL first-visit identity: ${identity.join('; ')}`);
                 receipt.row('signup', 'PASS', 'fresh account created through the real form; UID, email and profile verified', { signupMs: account.signupMs });
@@ -1200,6 +1209,27 @@ test.describe('RWT — Open Mic first session @live', () => {
                 }
                 numericComparisonRow(receipt, result, repeatEligibility, saveTakeMs);
             });
+
+            // ── J1.d: sign out and return, on this account and its saved takes (a separate J1D receipt) ─────────────────────
+            if (j1dAdmission.admitted) {
+                await test.step('J1.d — sign out, deep link, sign back in, history preserved', async () => {
+                    const j1d = new RwtReceipt(J1D_SUITE);
+                    j1d.forbid(createdEmail, capturedUid, persistedId, repeatSessionId, SERVICE_ROLE);
+                    const takeIds = [persistedId, repeatSessionId].filter((id): id is string => typeof id === 'string' && id.length > 0);
+                    const origin = (() => { try { return new URL(SUPABASE_URL).origin; } catch { return ''; } })();
+                    try {
+                        if (!signInOnShownForm || !capturedUid || takeIds.length === 0 || !origin) throw new Error('J1.a left no account, sign-in or saved take');
+                        const obs = await runJ1dLeg({ page, backendOrigin: origin, ownerUid: capturedUid, takeIds, signInOnShownForm });
+                        const verdicts = j1dVerdicts(obs);
+                        for (const a of j1dCaseAssertions(verdicts)) j1d.row(a.id, a.result, verdicts[a.id.slice(J1D_LEG.length + 1) as keyof typeof verdicts].detail);
+                    } catch (error) {
+                        // Only the error class leaves this step: a Playwright message can carry ids.
+                        const name = error instanceof Error && /^[A-Za-z]{1,40}Error$/.test(error.name) ? error.name : 'Error';
+                        for (const row of J1D_ROWS) j1d.row(`${J1D_LEG}:${row}`, 'HOLD', `the J1.d leg did not complete (${name})`);
+                    }
+                    j1d.write(testInfo, { journeys: [], reportedJourneyIds: [], missingBindings: [] }, []);
+                });
+            }
         } finally {
             await finish();
         }

@@ -27,16 +27,14 @@ export const J1D_ROWS = Object.freeze([
 export type J1dRow = (typeof J1D_ROWS)[number];
 
 export const digestOf = (value: string): string => createHash('sha256').update(value).digest('hex');
-const HEX64 = /^[0-9a-f]{64}$/;
 
 /**
- * Admission: J1.d runs only under the named nine-journey runner, on the account J1.a created in THIS run. The record names the
- * J1D suite, this run and attempt, `reusesLeg: 'J1.a'`, J1.a's non-secret lookup reference and the digests of the takes J1.a
- * saved. A record that carries an account-create attempt is refused: J1.d never signs up.
+ * Admission: J1.d runs only under the named nine-journey runner, in J1.a's worker (Sam 1a), on the account J1.a created in THIS
+ * run. The record names the J1D suite, this run and attempt, `reusesLeg: 'J1.a'` and J1.a's non-secret lookup reference, which the
+ * spec must match to the account it holds. J1.a's known takes come from J1.a in memory, never from the record. A record that
+ * carries an account-create attempt is refused: J1.d never signs up.
  */
-export type J1dAdmission =
-    | { admitted: true; lookupRef: string; knownTakeDigests: readonly string[] }
-    | { admitted: false; reason: string };
+export type J1dAdmission = { admitted: true; lookupRef: string } | { admitted: false; reason: string };
 export const J1D_ADMISSION_ENV = 'RWT_J1D_RUNNER_ADMISSION';
 const LOOKUP_REF = /^rwt-journey-[a-z0-9-]{4,80}@[a-z0-9.-]+\.[a-z]{2,}$/;
 export function j1dRunnerAdmission(env: Readonly<Record<string, string | undefined>>, readFile: (p: string) => string): J1dAdmission {
@@ -53,11 +51,7 @@ export function j1dRunnerAdmission(env: Readonly<Record<string, string | undefin
     if (typeof doc.lookupRef !== 'string' || !LOOKUP_REF.test(doc.lookupRef)) {
         return { admitted: false, reason: 'the runner admission names no run-owned J1.a account' };
     }
-    const takes = doc.knownTakeDigests;
-    if (!Array.isArray(takes) || takes.length === 0 || !takes.every((t) => typeof t === 'string' && HEX64.test(t)) || new Set(takes).size !== takes.length) {
-        return { admitted: false, reason: 'the runner admission names no known saved takes of J1.a (digests)' };
-    }
-    return { admitted: true, lookupRef: doc.lookupRef, knownTakeDigests: Object.freeze([...takes] as string[]) };
+    return { admitted: true, lookupRef: doc.lookupRef };
 }
 
 /** The microphone and recorder state on one page at one moment: null when it could not be read. */
@@ -70,7 +64,7 @@ const micOff = (m: MicState | null, where: string): Verdict => {
 
 /** Everything the J1D spec observed, as content-free facts. Every field is null when it was not observed. */
 export interface J1dObservations {
-    /** The admitted account's known saved takes (digests), from the admission. */
+    /** J1.a's known saved takes (digests), from J1.a in memory. */
     knownTakeDigests: readonly string[];
     /** The signed-in owner before sign-out, and after the return (digest of the user id the page's session names). */
     ownerBefore: string | null;

@@ -9,7 +9,7 @@ import { SIGNOUT_MIN_OBSERVATION_MS, type SignOutObservation } from '../live/hel
 
 const plan = createRequire(import.meta.url)('../../tools/cloud-test/nightly/journey-plan.cjs') as {
     NATIVE_LEG_ROWS: Record<string, readonly string[]>;
-    JOURNEY_INVOCATIONS: Record<string, { suite: string; spec: string; account: string }>;
+    JOURNEY_INVOCATIONS: Record<string, { suite: string; spec: string; account: string; worker?: string }>;
 };
 
 const TAKE_A = digestOf('take-a');
@@ -46,21 +46,21 @@ describe('J1.d rows are the nightly plan\'s native J1.d rows', () => {
     it('matches journey-plan NATIVE_LEG_ROWS exactly, in order', () => {
         expect([...J1D_ROWS]).toEqual([...plan.NATIVE_LEG_ROWS['J1.d']]);
     });
-    it('names the J1D invocation suite, spec and reused J1.a account', () => {
+    it('names the J1D suite, and runs in J1.a\'s worker, spec and account (Sam 1a)', () => {
         expect(plan.JOURNEY_INVOCATIONS.J1D.suite).toBe(J1D_SUITE);
-        expect(plan.JOURNEY_INVOCATIONS.J1D.spec).toBe('tests/live/rwt-returning-signout.live.spec.ts');
+        expect(plan.JOURNEY_INVOCATIONS.J1D.spec).toBe('tests/live/rwt-open-mic-first-session.live.spec.ts');
+        expect(plan.JOURNEY_INVOCATIONS.J1D.worker).toBe('J1.a');
         expect(plan.JOURNEY_INVOCATIONS.J1D.account).toBe('reuses:J1.a');
     });
 });
 
 describe('j1dRunnerAdmission', () => {
     const env = { [J1D_ADMISSION_ENV]: '/adm.json', GITHUB_RUN_ID: '99', GITHUB_RUN_ATTEMPT: '1' };
-    const doc = { suite: J1D_SUITE, runId: '99', runAttempt: '1', reusesLeg: 'J1.a', lookupRef: 'rwt-journey-abcd-1234@example.test',
-        knownTakeDigests: [TAKE_A, TAKE_B] };
+    const doc = { suite: J1D_SUITE, runId: '99', runAttempt: '1', reusesLeg: 'J1.a', lookupRef: 'rwt-journey-abcd-1234@example.test' };
     const admit = (d: object, e: Record<string, string | undefined> = env) => j1dRunnerAdmission(e, () => JSON.stringify(d));
 
-    it('admits a record bound to this run, reusing J1.a, with known takes', () => {
-        expect(admit(doc)).toEqual({ admitted: true, lookupRef: doc.lookupRef, knownTakeDigests: [TAKE_A, TAKE_B] });
+    it('admits a record bound to this run, reusing J1.a', () => {
+        expect(admit(doc)).toEqual({ admitted: true, lookupRef: doc.lookupRef });
     });
     it('never runs standalone', () => {
         expect(admit(doc, { GITHUB_RUN_ID: '99', GITHUB_RUN_ATTEMPT: '1' }).admitted).toBe(false);
@@ -77,9 +77,6 @@ describe('j1dRunnerAdmission', () => {
         ['an account not created by J1.a', { reusesLeg: 'J1.b' }],
         ['no lookup reference', { lookupRef: undefined }],
         ['a lookup reference that is not run-owned', { lookupRef: 'maintained-free@example.test' }],
-        ['no known takes', { knownTakeDigests: [] }],
-        ['a take that is not a digest', { knownTakeDigests: ['take-a'] }],
-        ['duplicate takes', { knownTakeDigests: [TAKE_A, TAKE_A] }],
     ])('refuses %s', (_name, over) => {
         expect(admit({ ...doc, ...over }).admitted).toBe(false);
     });

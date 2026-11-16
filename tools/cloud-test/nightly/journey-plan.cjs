@@ -38,12 +38,12 @@ const JOURNEY_INVOCATIONS = Object.freeze({
         legHomes: Object.freeze({ 'J8.a': 'AHT-08', 'J8.b': 'AHT-07', 'J8.c': null }),
         spec: 'tests/live/rwt-feedback-association-boundaries.live.spec.ts', account: 'fresh-run-owned',
     }),
-    // J1.d (Sam, 16 Nov): the canonical owner of its rows, one invocation of its own returning/sign-out spec on J1.a's
-    // run-owned account and known saved takes. No legacy home, execution path or fallback.
+    // J1.d (Sam, 16 Nov): the canonical owner of its rows. A separate reporting leg (its own J1D receipt) that runs in J1.a's
+    // worker (Sam 1a): J1.a's spec, account, saved takes and in-memory sign-in closure. No legacy home, execution path or fallback.
     J1D: Object.freeze({
         homes: Object.freeze([]), suite: 'returning-signout-j1d',
         legHomes: Object.freeze({ 'J1.d': null }),
-        spec: 'tests/live/rwt-returning-signout.live.spec.ts', account: 'reuses:J1.a',
+        spec: 'tests/live/rwt-open-mic-first-session.live.spec.ts', account: 'reuses:J1.a', worker: 'J1.a',
     }),
 });
 const isInvocation = (caseId) => caseId !== null && Object.prototype.hasOwnProperty.call(JOURNEY_INVOCATIONS, caseId);
