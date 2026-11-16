@@ -1113,6 +1113,17 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     w.__NATIVE_BROWSER_TRACE__ = w.__NATIVE_BROWSER_TRACE__ ?? [];
                     return performance.now();
                 }).catch(() => null);
+                // Diagnostics only: the controller's own warn/error lines for this take, reduced to their tag and an
+                // outcome kind (e.g. a Progress gate left unresolved before the completed brief is published). No payload.
+                const switchControllerLines: string[] = [];
+                const onSwitchConsole = (msg: { type(): string; text(): string }) => {
+                    if (msg.type() !== 'warning' && msg.type() !== 'error') return;
+                    const tag = /\} (\[controller\] [^{}]{1,90})$/.exec(msg.text())?.[1];
+                    if (!tag || switchControllerLines.length >= 8) return;
+                    const kind = /outcome: (\w+)/.exec(msg.text())?.[1];
+                    switchControllerLines.push(kind ? `${tag} (${kind})` : tag);
+                };
+                page.on('console', onSwitchConsole);
                 await startBenchmarkRecording(page, `${suite}-switch-focus`);
                 await page.waitForTimeout(shortTakeSeconds * 1000);
                 await stopBenchmarkRecording(page, `${suite}-switch-focus`, 180_000);
@@ -1137,6 +1148,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                         refusals: from === null ? null : trace.filter((e) => e.t >= from && watched.includes(e.event)).map((e) => e.event).join('|'),
                     };
                 }, switchTraceFrom).catch(() => null);
+                page.off('console', onSwitchConsole);
                 const savedFocus = focusId && focusId !== openMicId ? await sessionRow(focusId) : unavailable('missing');
                 const savedProduct = savedFocus.state === 'available' && savedFocus.sessionId === focusId && savedFocus.userId === owner.uid ? savedFocus.product : null;
                 const openMicAfter = openMicId && openMicId !== before ? await sessionRow(openMicId) : unavailable('missing');
@@ -1153,6 +1165,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     afterSessionState: switchAfterState?.sessionState ?? 'unread', afterRuntimeState: switchAfterState?.runtimeState ?? 'unread',
                     railMounted: switchAfterState?.railMounted ?? null, railRows: switchAfterState?.railRows ?? null,
                     topicShown: switchAfterState?.topicShown ?? null, controllerRefusals: switchAfterState?.refusals ?? 'unread',
+                    controllerLines: switchControllerLines.join('|'),
                 });
                 // Read again at the end of the step, so an objective row written late for the Open Mic take is still seen.
                 if (savedOpenMicId) openMicObjectiveRowReads.push(await objectiveRowsFor(savedOpenMicId));
