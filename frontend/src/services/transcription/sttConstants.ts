@@ -66,10 +66,11 @@ export const PRIV_STT = {
   LIVE_DECODE_WINDOW_SECONDS: 3.0,
   // Cold start (Focus Point 1, 2026-11-16): when the mic opens before the model is ready, the speech
   // spoken while it loaded reaches the live path as one backlog (the mic replays up to 15 s, #960).
-  // Until the take's first transcript is committed, a live decode may take up to this much of that
-  // backlog, so the opening is transcribed live instead of being cut to the newest
-  // LIVE_DECODE_WINDOW_SECONDS. Once text is committed, decodes keep the normal window. Matches the
-  // mic's 15 s replay buffer.
+  // For a take that starts with such a backlog, until its first transcript is committed (or this much
+  // new audio has arrived), a live decode and a held decode's retry audio may take up to this much of
+  // it, so the opening is transcribed live instead of being cut to the newest
+  // LIVE_DECODE_WINDOW_SECONDS. Warm takes, and decodes after the first commit, keep the normal
+  // window. Matches the mic's 15 s replay buffer.
   COLD_START_BACKLOG_MAX_SECONDS: 15,
   UTTERANCE_SILENCE_TAIL_SECONDS: 1.0,
   // #891 capture-from-start: the final buffer accumulates from mic-start (not from speech-start
