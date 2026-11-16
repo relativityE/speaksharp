@@ -120,6 +120,11 @@ describe('#1054 CI change classifier', () => {
                 'tools/aht-rationalization/catalog.fixture.json',
                 'tools/aht-rationalization/README.md',
                 'tools/aht-rationalization/validate.cjs',
+                // Independent review of 970dd598: no other module under the directory counts, only validate.mjs itself.
+                'tools/aht-rationalization/data/example.mjs',
+                'tools/aht-rationalization/other.mjs',
+                'tools/aht-rationalization/lib/validate.mjs',
+                'tools/aht-rationalization/validate.mjs.bak',
                 'tools/aht-rationalization/validate.py',
                 'tools/aht-rationalizationish/validate.mjs',
             ])('%s is NOT matched as executable validator code, so it cannot make a PR implementation', (file) => {

@@ -113,6 +113,13 @@ export const CANONICAL_PRODUCT_RELEASE_DOCUMENTS = Object.freeze([
   'product_release/TESTER_OPERATIONS.md',
 ]);
 const CANONICAL_PRODUCT_RELEASE_DOCUMENT_SET = new Set(CANONICAL_PRODUCT_RELEASE_DOCUMENTS);
+/**
+ * The guard test bound to each canonical document that has one (independent review of 970dd598). A document plus ITS
+ * bound guard test is a documentation claim; any other test, fixture or helper beside it is not. Keep exact.
+ */
+const CANONICAL_DOCUMENT_GUARD_TESTS = Object.freeze({
+  'product_release/RELEASE_STATUS.md': Object.freeze(['tests/config/mvpAcceptanceMap.test.ts']),
+});
 
 /**
  * Canonical product authorities are a reviewable documentation claim, not an implementation claim.
@@ -238,11 +245,13 @@ export function evaluateReviewQualification({
   const documentationFiles = files.filter(isCanonicalProductReleaseDocument);
   const canonicalDocumentationOnly = files.length > 0 && documentationFiles.length === files.length;
   const testIntegrityOnly = files.length > 0 && files.every(isTestIntegrityFile);
-  // #1796: a canonical product-release document together with the test that guards it is still a documentation claim.
-  // Every file must be one or the other, with at least one of each; an implementation file keeps the implementation scope.
+  // #1796: a canonical product-release document together with ITS bound guard test is still a documentation claim.
+  // Every file is a canonical document or a guard test bound to a canonical document in the same PR, with at least one
+  // guard test; any other test, fixture or helper removes the scope. An implementation file keeps the implementation scope.
+  const boundGuardTests = new Set(documentationFiles.flatMap((doc) => CANONICAL_DOCUMENT_GUARD_TESTS[doc] ?? []));
   const canonicalDocumentationWithTests = files.length > 0 && documentationFiles.length > 0
-    && files.some(isTestIntegrityFile)
-    && files.every((file) => isCanonicalProductReleaseDocument(file) || isTestIntegrityFile(file));
+    && files.some((file) => boundGuardTests.has(file))
+    && files.every((file) => isCanonicalProductReleaseDocument(file) || boundGuardTests.has(file));
   const humanTestEvidenceOnly = files.length > 0 && files.every(isHumanTestEvidenceDocument);
   const namedDocumentationCarrier = documentationEvidenceAdmission(repository, pullRequestNumber) !== null;
   const pinnedDocumentation = isPinnedDocumentationEvidence({ repository, pullRequestNumber,

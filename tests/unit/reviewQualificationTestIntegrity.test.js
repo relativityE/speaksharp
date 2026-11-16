@@ -82,12 +82,9 @@ describe('test-integrity review scope', () => {
   });
 
   it('CASUALTY: ONE non-test file among test files removes the scope — every file must be test source', () => {
-    for (const extra of ['tests/README.md', 'tests/fixtures/sessions.json', 'random.cfg']) {
+    for (const extra of ['tests/README.md', 'tests/fixtures/sessions.json', 'product_release/RELEASE_STATUS.md', 'random.cfg']) {
       expect({ extra, reasons: receipt([...PR_1543, extra]).reasons }).toEqual({ extra, reasons: ['no_substantive_implementation'] });
     }
-    // A canonical product-release document is the one exception, and it never becomes test integrity: it takes the
-    // documentation-with-tests scope below.
-    expect(receipt([...PR_1543, 'product_release/RELEASE_STATUS.md'])).toMatchObject({ qualified: true, reviewScope: 'canonical_product_release_documentation_with_tests' });
   });
 
   it('CONTROL: tests beside real implementation remain an implementation review; tests are still never implementation', () => {
@@ -105,7 +102,8 @@ describe('test-integrity review scope', () => {
 });
 
 // #1796: a canonical product-release document plus the test that guards it had no scope (`no_substantive_implementation`
-// on a clean exact-head review). It is a documentation claim with its own guard, so it gets a documentation scope of its own.
+// on a clean exact-head review). It is a documentation claim with its own BOUND guard test, so it gets a documentation scope;
+// only the guard test bound to that document counts (independent review of 970dd598).
 const PR_1796 = ['product_release/RELEASE_STATUS.md', 'tests/config/mvpAcceptanceMap.test.ts'];
 
 describe('canonical documentation with its tests', () => {
@@ -119,6 +117,17 @@ describe('canonical documentation with its tests', () => {
     expect(receipt(['product_release/RELEASE_STATUS.md']).reviewScope).toBe('canonical_product_release_documentation');
     expect(receipt(['tests/config/mvpAcceptanceMap.test.ts']).reviewScope).toBe('test_integrity');
     expect(receipt([...PR_1796, 'scripts/review-qualification.mjs']).reviewScope).toBe('implementation');
+  });
+
+  it('CASUALTY (independent review of 970dd598): only the guard test BOUND to the document counts; a fixture, an unrelated test, or the guard beside another document does not', () => {
+    for (const extra of ['tests/fixtures/example.ts', 'tests/unit/unrelated.test.ts', 'tests/e2e/helpers.ts']) {
+      expect({ extra, reasons: receipt([...PR_1796, extra]).reasons }).toEqual({ extra, reasons: ['no_substantive_implementation'] });
+      expect({ extra, reasons: receipt(['product_release/RELEASE_STATUS.md', extra]).reasons }).toEqual({ extra, reasons: ['no_substantive_implementation'] });
+    }
+    // The map test is bound to RELEASE_STATUS.md, not to another canonical document.
+    expect(receipt(['product_release/ROADMAP.md', 'tests/config/mvpAcceptanceMap.test.ts']).reasons).toEqual(['no_substantive_implementation']);
+    // A doc with an unrelated test does not borrow the scope from a bound pair either.
+    expect(receipt([...PR_1796, 'product_release/ROADMAP.md', 'tests/unit/unrelated.test.ts']).reasons).toEqual(['no_substantive_implementation']);
   });
 
   it('CASUALTY: any file that is neither a canonical document nor test source removes the scope', () => {
