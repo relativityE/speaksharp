@@ -24,8 +24,9 @@ const COPY = 'frontend/src/lib/copy.ts';
 const UNRELATED = 'frontend/src/unrelated.ts';
 const BUILD_SCRIPT = 'scripts/build.config.js';
 const WORKLET = 'frontend/public/audio/proc.worklet.js';
+const MODEL_FILE = 'frontend/public/models/tiny/config.json';
 const SOURCE_FILES = {
-    [SELECTOR]: `import React from 'react';\nimport { helper } from './micHelpers';\nimport { START } from '@/lib/copy';\nconst WORKLET_URL = '/audio/proc.worklet.js';\nexport const MicCard = () => <div data-testid="mic-card" data-session-state="idle">{START}{helper()}{WORKLET_URL}</div>;\n`,
+    [SELECTOR]: `import React from 'react';\nimport { helper } from './micHelpers';\nimport { START } from '@/lib/copy';\nconst WORKLET_URL = '/audio/proc.worklet.js';\nconst MODEL_DIR = '/models/';\nconst ROUTE = '/session/';\nexport const MicCard = () => <div data-testid="mic-card" data-session-state="idle">{START}{helper()}{WORKLET_URL}</div>;\n`,
     [DEPENDENCY]: 'export const helper = () => 1;\n',
     [COPY]: "export const START = 'Start recording';\n",
     [UNRELATED]: 'export const other = 2;\n',
@@ -35,6 +36,8 @@ const SOURCE_FILES = {
     [BUILD_SCRIPT]: 'export const meta = 1;\n',
     // A file the page loads at runtime by URL, not by import.
     [WORKLET]: 'registerProcessor("proc", class {});\n',
+    // A directory the page resolves files from at runtime (as the worker sets env.localModelPath = '/models/').
+    [MODEL_FILE]: '{"layers": 4}\n',
 };
 
 /** A throwaway repository: commits are made in order and each one's full sha is returned. */
@@ -64,6 +67,7 @@ function fixtureRepo() {
         lockfileChanged: commit({ 'pnpm-lock.yaml': 'changed lockfile\n' }),
         buildScriptChanged: commit({ [BUILD_SCRIPT]: 'export const meta = 2;\n' }),
         workletChanged: commit({ [WORKLET]: 'registerProcessor("proc", class { changed() {} });\n' }),
+        modelChanged: commit({ [MODEL_FILE]: '{"layers": 6}\n' }),
         selectorRemoved: commit({}, [SELECTOR]),
         missingAsset: commit({ [SELECTOR]: "const URL = '/audio/missing.worklet.js';\nexport const MicCard = () => <div data-testid=\"mic-card\" data-session-state=\"idle\">Start recording{URL}</div>;\n" }),
     };
@@ -78,7 +82,9 @@ describe('deriving the inspected inputs (synthetic repository)', () => {
     it('binds the selector file, the dependency it imports, the file defining the adapter\'s copy, and the build configuration', () => {
         expect(fixtureManifest.sourceSha).toBe(repo.shas.source);
         expect(fixtureManifest.unresolved).toEqual([]);
-        for (const p of [SELECTOR, DEPENDENCY, COPY, ...CONFIG_FILES, BUILD_SCRIPT, WORKLET]) expect(paths(fixtureManifest).includes(p)).toBe(true);
+        for (const p of [SELECTOR, DEPENDENCY, COPY, ...CONFIG_FILES, BUILD_SCRIPT, WORKLET, MODEL_FILE]) expect(paths(fixtureManifest).includes(p)).toBe(true);
+        // A literal naming no public directory (a route) binds nothing.
+        expect(paths(fixtureManifest).some((p) => p.startsWith('frontend/public/session'))).toBe(false);
         expect(paths(fixtureManifest).includes(UNRELATED)).toBe(false);
         expect(fixtureManifest.packages).toEqual(['react']);
     });
@@ -110,6 +116,9 @@ describe('reusing the inspection at a newer served release (synthetic repository
     });
     it('CONTROL: a changed runtime-loaded asset (an audio worklet loaded by URL) is refused', () => {
         expect(verdict(repo.shas.workletChanged).refused.some((r) => r.path === WORKLET && r.reason === 'changed since the inspected source')).toBe(true);
+    });
+    it('CONTROL (Codex P2 on 3b870acf): a changed file in a directory resolved at runtime (the model directory) is refused', () => {
+        expect(verdict(repo.shas.modelChanged).refused.some((r) => r.path === MODEL_FILE && r.reason === 'changed since the inspected source')).toBe(true);
     });
     it('CONTROL: a code-like asset referenced by URL but absent from the public directory is unresolved, never dropped', () => {
         const m = derive({ sha: repo.shas.missingAsset, adapterDir: repo.adapterDir, repoRoot: repo.root });

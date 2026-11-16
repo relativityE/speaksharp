@@ -173,6 +173,16 @@ function derive({ sha = SOURCE_SHA, adapterDir = ADAPTER_DIR, repoRoot = REPO_RO
             if (bytes) bound.set(pub, bytes);
             else if (/\.(js|mjs|wasm)$/.test(m[1])) unresolved.push({ kind: 'runtime-asset', file: f, detail: m[1] });
         }
+        // Codex P2 on 3b870acf: a directory the page resolves files from at runtime (`env.localModelPath = '/models/'`, the
+        // Private model's tokenizer, config and weights) binds every file under it in `frontend/public`. A literal that names
+        // no public directory (a route such as '/session/') binds nothing.
+        for (const m of files.get(f).toString('utf8').matchAll(/[`"'](\/[A-Za-z0-9_][A-Za-z0-9_.\-/]*\/)[`"']/g)) {
+            const dir = `frontend/public${m[1]}`.replace(/\/$/, '');
+            let listed = [];
+            try { listed = git(['ls-tree', '-r', '--name-only', sha, dir], repoRoot).toString().split('\n').filter(Boolean); }
+            catch { /* not a public directory */ }
+            for (const p of listed) if (!bound.has(p)) bound.set(p, git(['show', `${sha}:${p}`], repoRoot));
+        }
     }
     const inputs = [...bound].map(([p, bytes]) => ({ path: p, sha256: sha256(bytes) })).sort((a, b) => a.path.localeCompare(b.path));
     return {
