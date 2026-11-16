@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
 
 const source = readFileSync(new URL('../../product_release/RELEASE_STATUS.md', import.meta.url), 'utf8');
 const start = '## 9 November 2026 MVP acceptance map';
@@ -34,6 +35,11 @@ const currentStates: Record<number, string> = {
   1760: 'merged', 1782: 'merged', 1770: 'merged',
   1788: 'open unmerged', 1795: 'open unmerged', 1775: 'open unmerged',
 };
+// The J1–J9 retarget (16 November 2026) is bound to the runner's own leg plan, so a leg or a former case cannot drop out.
+const plan = createRequire(import.meta.url)('../../tools/cloud-test/nightly/journey-plan.cjs') as {
+  ALL_LEGS: { id: string; caseId: string | null }[];
+};
+const retargetHeading = '### Retarget to J1–J9, 16 November 2026';
 // Gaps Sam asked the map to keep explicitly (12 November framework-review reconciliation).
 const retainedGaps = [
   ['3', ['**Two-part coaching output contract:**', '`what_worked`', '`what_to_try_next`']],
@@ -82,6 +88,22 @@ function violations(document: string): string[] {
     'Bounded follow-ups for accepted gaps']) {
     if (!efficacy.includes(`| ${deliverable} |`)) errors.push(`efficacy-deliverable:${deliverable}`);
   }
+  const retargetStart = current.indexOf(retargetHeading);
+  const retarget = retargetStart < 0 ? '' : current.slice(retargetStart, current.indexOf('### Existing PR inventory to preserve'));
+  if (!retarget) errors.push('retarget-missing');
+  const legRows = retarget.split('\n').filter((row) => /^\| J\d/.test(row));
+  for (const leg of plan.ALL_LEGS) {
+    const rows = legRows.filter((row) => row.startsWith(`| ${leg.id} |`));
+    if (rows.length !== 1) errors.push(`retarget-leg:${leg.id}`);
+    else if (!rows[0].includes(`| ${leg.caseId ?? 'none (new row)'} |`)) errors.push(`retarget-case:${leg.id}`);
+    else if (!/\| NOT RUN( \(gated: [^)]+\))? \|$/.test(rows[0])) errors.push(`retarget-promoted:${leg.id}`);
+  }
+  if (legRows.length !== plan.ALL_LEGS.length) errors.push('retarget-leg-count');
+  for (let n = 1; n <= 15; n += 1) {
+    const id = `AHT-${String(n).padStart(2, '0')}`;
+    if (!legRows.some((row) => row.includes(`| ${id} |`))) errors.push(`retarget-former-case:${id}`);
+  }
+  if (!retarget.includes('NOT RUN never\n  counts as PASS')) errors.push('retarget-not-run-rule');
   const inventoryStart = current.indexOf('### Existing PR inventory to preserve');
   const inventoryEnd = current.indexOf('### 1. One MVP acceptance map');
   const inventory = current.slice(inventoryStart, inventoryEnd);
@@ -102,10 +124,10 @@ describe('bounded MVP acceptance-map contract', () => {
   it('preserves the exact historical suffix instead of rewriting prior evidence', () => {
     const offset = source.indexOf(stop);
     expect(offset).toBeGreaterThanOrEqual(0);
-    // Verified against the unchanged source at main 4787338b (main's own 12 November currency
-    // edits to this history are carried byte-for-byte), not a regenerated ledger.
+    // Verified byte-identical to the unchanged source at main 362fbd68 (main's own currency edits to this history
+    // through 16 November are carried byte-for-byte), not a regenerated ledger.
     expect(createHash('sha256').update(source.slice(offset)).digest('hex'))
-      .toBe('73c2853d918f866bedd2d1e8c935aabdad3f2dc4d12b1840291227290b232dd8');
+      .toBe('ae7b947d89cc1d1b6e09171bfecf983300b43a403510f237c42a939607ad033c');
   });
 
   it('preserves ten outcomes, all four stages, inventories and retained source identities', () => {
@@ -133,6 +155,11 @@ describe('bounded MVP acceptance-map contract', () => {
     { name: 'analytics correctness dropped', before: '**Analytics correctness:**', after: '**Analytics note:**', code: 'retained-gap:4' },
     { name: 'on-device audio proof dropped', before: '**Private audio stays on-device:**', after: '**Private audio design:**', code: 'retained-gap:9' },
     { name: 'received observer evidence dropped', before: '| Observer integrity |', after: '| Unselected telemetry |', code: 'telemetry-family:Observer integrity' },
+    { name: 'retarget leg dropped', before: '| J4.a | save request lost, retry, one saved | AHT-05 | NOT RUN |\n', after: '', code: 'retarget-leg:J4.a' },
+    { name: 'retarget leg promoted to PASS', before: '| J6 | second tab and second browser refused; takeover fences the old owner | AHT-11 | NOT RUN |', after: '| J6 | second tab and second browser refused; takeover fences the old owner | AHT-11 | PASS |', code: 'retarget-promoted:J6' },
+    { name: 'former case detached from its leg', before: '| J7.c | connection drops after bytes arrive, retry | AHT-14 |', after: '| J7.c | connection drops after bytes arrive, retry | none (new row) |', code: 'retarget-case:J7.c' },
+    { name: 'gated leg presented as runnable PASS', before: '| AHT-15 | NOT RUN (gated: signout-recorder-unwired) |', after: '| AHT-15 | PASS |', code: 'retarget-promoted:J1.d' },
+    { name: 'NOT RUN-is-not-PASS rule dropped', before: 'NOT RUN never\n  counts as PASS', after: 'NOT RUN may later\n  count', code: 'retarget-not-run-rule' },
     { name: 'false-green register lost', before: '| False-green, mock-fidelity and obsolete-test register |', after: '| Test count summary |', code: 'efficacy-deliverable:False-green, mock-fidelity and obsolete-test register' },
   ];
 

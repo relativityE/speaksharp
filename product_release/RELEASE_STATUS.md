@@ -233,6 +233,60 @@ No placeholder implementation or unearned completion is implied by a planned buc
 Each resulting PR must show its actual delivered increment, four-stage contract,
 carried obligations and remaining approvals. Source delivery cannot claim stages 3–4.
 
+### Retarget to J1–J9, 16 November 2026
+
+The release route for outcome 5 is the nine-journey suite (J1–J9, 24 legs), not the retired
+R10 cloud-test campaign of 15 single-spec cases (Product Owner, 14 November: the legacy
+15-case run is not executed; the nine-journey suite is the priority). Every former case is
+carried by the leg below that replaces it, so no case ID or closure criterion is dropped; the
+15-case text later in this map is that history. Seven legs have no former case and are new
+rows. The leg list is the runner's own plan (`tools/cloud-test/nightly/journey-plan.cjs` on
+`main` `362fbd68`).
+
+| Leg | Story | Former case | Release-acceptance state |
+|---|---|---|---|
+| J1.a | sign up, trial length, first Open Mic take | AHT-01 | NOT RUN |
+| J1.b | coaching, review, PDF, same-target repeat | AHT-01 | NOT RUN |
+| J1.c | short Stop saves nothing; probe save isolation | AHT-01 | NOT RUN |
+| J1.d | sign out and return, deep link, history preserved | AHT-15 | NOT RUN (gated: signout-recorder-unwired) |
+| J1.e | trial ends: wall on the open session, then after a fresh sign-in; server refuses | none (new row) | NOT RUN (gated: canary-claim-ack, no-harness-case) |
+| J1.f | delete the account from the wall | none (new row) | NOT RUN (gated: canary-claim-ack, no-harness-case) |
+| J2 | expired account, wall, hosted Checkout opens, abandon, still walled; webhook configured | none (new row) | NOT RUN (gated: canary-claim-ack, disabled-until-reviewed, no-harness-case) |
+| J3.a | full Focus fixture | AHT-02 | NOT RUN |
+| J3.b | partial Focus fixture with one repeat take | AHT-03 | NOT RUN |
+| J4.a | save request lost, retry, one saved | AHT-05 | NOT RUN |
+| J4.b | save response lost, retry, one saved; next take isolated | AHT-06 | NOT RUN |
+| J5.a | leave during a cold Start | AHT-04 | NOT RUN |
+| J5.b | navigate away while recording | AHT-09 | NOT RUN |
+| J5.c | close the tab while recording, return | AHT-10 | NOT RUN |
+| J6 | second tab and second browser refused; takeover fences the old owner | AHT-11 | NOT RUN |
+| J7.a | mic denied then granted in the same deny-launched browser | AHT-12 | NOT RUN (gated: unqualified) |
+| J7.b | model request fails before any byte, retry | AHT-13 | NOT RUN |
+| J7.c | connection drops after bytes arrive, retry | AHT-14 | NOT RUN |
+| J7.d | delete the account from the Account page during the trial | none (new row) | NOT RUN (gated: no-harness-case) |
+| J8.a | feedback with no session, before any take | AHT-08 | NOT RUN |
+| J8.b | feedback on an older take and its coaching, with retries | AHT-07 | NOT RUN |
+| J8.c | "No session" chosen while takes are listed | none (new row) | NOT RUN (gated: no-harness-case) |
+| J9.a | sandbox: kept sessions, Progress and the billing portal open on a long-lived test-mode paid account; no takes | none (new row) | NOT RUN (gated: test-mode-fixture, no-harness-case) |
+| J9.b | production: a real paid account keeps its entitlement and data after a production upgrade | none (new row) | NOT RUN (gated: no-safe-production-proof, no-harness-case) |
+
+**Unresolved proof, kept open:**
+- **No leg is accepted.** Every leg above is NOT RUN for release acceptance; NOT RUN never
+  counts as PASS, and a gated leg stays NOT RUN until its gate is lifted by reviewed change.
+- **No qualifying execution path yet.** Since #1874 (merged 16 November), a diagnostic run's
+  receipt is evidence only and can never report acceptance; no current RWT path earns full
+  acceptance. The runner bridge (#1875, merged 16 November) is proven offline only; the
+  harness case process does not route through it yet. J8 (#1870) and J1.d are not wired for a
+  live run.
+- **Earlier live evidence is partial.** AHT-05 (now J4.a), run 43725359185 on served
+  `446e09fa`, ended INCOMPLETE (18 PASS, 2 HOLD); only its save-once, persisted-row and
+  reopen observations are reusable, and the adapter inspection may be reused at a newer
+  release only through the release-pin revalidation (#1876) or a fresh inspection.
+- **Authorized, not executed.** The Product Owner authorized (16 November) the live J1–J9
+  release proof on one exact served release with cleanup evidence. It stays unexecuted until
+  the qualifying path above exists; billing (J2, J9) and human/device evidence remain
+  separate from it.
+
 ### Existing PR inventory to preserve
 
 Consolidation state was verified on 10 November 2026; the PR-state wording in this
@@ -413,7 +467,8 @@ and settlement as separate open requirements.
    product defects and retain prior attempts.
 3. **Prove:** qualify the complete intended-release oracle, reconcile the execution
    contract with protected-main-only control code, and only under required authorization
-   reach and truthfully record all 15 cases. Review tested and final source identities;
+   reach and truthfully record every J1–J9 leg, which carries all 15 former cases (see the
+   retarget table). Review tested and final source identities;
    preserve the restored main-only conditions and qualify the final head.
 4. **Release/learn:** after separate landing/release decisions, bind accepted results
    to what is served and route observed product defects to their numbered bucket.
