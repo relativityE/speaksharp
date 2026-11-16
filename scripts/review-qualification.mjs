@@ -113,6 +113,13 @@ export const CANONICAL_PRODUCT_RELEASE_DOCUMENTS = Object.freeze([
   'product_release/TESTER_OPERATIONS.md',
 ]);
 const CANONICAL_PRODUCT_RELEASE_DOCUMENT_SET = new Set(CANONICAL_PRODUCT_RELEASE_DOCUMENTS);
+/**
+ * The guard test bound to each canonical document that has one (independent review of 970dd598). A document plus ITS
+ * bound guard test is a documentation claim; any other test, fixture or helper beside it is not. Keep exact.
+ */
+const CANONICAL_DOCUMENT_GUARD_TESTS = Object.freeze({
+  'product_release/RELEASE_STATUS.md': Object.freeze(['tests/config/mvpAcceptanceMap.test.ts']),
+});
 
 /**
  * Canonical product authorities are a reviewable documentation claim, not an implementation claim.
@@ -238,6 +245,13 @@ export function evaluateReviewQualification({
   const documentationFiles = files.filter(isCanonicalProductReleaseDocument);
   const canonicalDocumentationOnly = files.length > 0 && documentationFiles.length === files.length;
   const testIntegrityOnly = files.length > 0 && files.every(isTestIntegrityFile);
+  // #1796: a canonical product-release document together with ITS bound guard test is still a documentation claim.
+  // Every file is a canonical document or a guard test bound to a canonical document in the same PR, with at least one
+  // guard test; any other test, fixture or helper removes the scope. An implementation file keeps the implementation scope.
+  const boundGuardTests = new Set(documentationFiles.flatMap((doc) => CANONICAL_DOCUMENT_GUARD_TESTS[doc] ?? []));
+  const canonicalDocumentationWithTests = files.length > 0 && documentationFiles.length > 0
+    && files.some((file) => boundGuardTests.has(file))
+    && files.every((file) => isCanonicalProductReleaseDocument(file) || boundGuardTests.has(file));
   const humanTestEvidenceOnly = files.length > 0 && files.every(isHumanTestEvidenceDocument);
   const namedDocumentationCarrier = documentationEvidenceAdmission(repository, pullRequestNumber) !== null;
   const pinnedDocumentation = isPinnedDocumentationEvidence({ repository, pullRequestNumber,
@@ -247,6 +261,7 @@ export function evaluateReviewQualification({
     : substantiveFiles.length > 0
     ? 'implementation'
     : canonicalDocumentationOnly ? 'canonical_product_release_documentation'
+      : canonicalDocumentationWithTests ? 'canonical_product_release_documentation_with_tests'
       : testIntegrityOnly ? 'test_integrity'
         : humanTestEvidenceOnly ? 'human_test_evidence_documentation' : null;
   if (reviewScope === null) reasons.push('no_substantive_implementation');
@@ -292,9 +307,14 @@ export function formatReviewQualification(result) {
     ? 'pinned product-release documentation/evidence'
     : result.reviewScope === 'canonical_product_release_documentation'
     ? 'canonical product-release documentation'
+    : result.reviewScope === 'canonical_product_release_documentation_with_tests'
+    ? 'canonical product-release documentation and its tests'
     : result.reviewScope === 'test_integrity' ? 'test-integrity'
     : result.reviewScope === 'human_test_evidence_documentation' ? 'human-test evidence documentation'
     : 'implementation';
+  if (result.qualified && result.reviewEvidence === 'identical_patch') {
+    return `REVIEW-QUALIFIED: original review of ${result.reviewedSha} covers the identical ${subject} patch at ${result.currentSha}`;
+  }
   return result.qualified
     ? `REVIEW-QUALIFIED: completed zero-finding review covers current ${subject} head ${result.currentSha}`
     : `NOT REVIEW-QUALIFIED: ${result.reasons.join(', ')}`;

@@ -45,6 +45,8 @@ export type AcquisitionErrorCode =
     | 'aborted'
     | 'storage'
     | 'timeout'
+    /** #1858: a teardown cancelled the load, and the engine's release FAILED or did not settle within its bound. */
+    | 'release_uncertain'
     | 'unknown';
 
 export interface AcquisitionSubject {
@@ -338,11 +340,27 @@ export function recordAcquisitionFailure(
 }
 
 /**
+ * The load was abandoned by a page teardown (the user left), not failed. A lifecycle outcome: never a failure event,
+ * so a journey that leaves a page mid-load is not read as a model failure (AHT-01/04, 2026-11-14). Content-free.
+ */
+export function recordAcquisitionCancelled(subject: AcquisitionSubject, cacheResult: CacheResult, totalMs: number): void {
+    emit('private_model_acquisition_cancelled', {
+        ...subjectProps(subject),
+        cache_result: cacheResult,
+        total_ms: totalMs,
+        outcome: 'cancelled',
+    });
+}
+
+/**
  * Reduce any thrown value to a bounded code. A raw message may contain an asset URL, a filesystem path,
  * or text the user typed, none of which may enter telemetry.
  */
 export function classifyAcquisitionError(err: unknown): AcquisitionErrorCode {
     const name = err instanceof Error ? `${err.name} ${err.message}`.toLowerCase() : String(err ?? '').toLowerCase();
+    // #1858: checked first. An uncertain engine release (a failed or unconfirmed teardown/dispose) is its own outcome,
+    // whatever the underlying error text says.
+    if (name.includes('release uncertain')) return 'release_uncertain';
     if (name.includes('abort')) return 'aborted';
     if (name.includes('timeout') || name.includes('timed out')) return 'timeout';
     if (name.includes('integrity') || name.includes('sha-256') || name.includes('digest')) return 'integrity';

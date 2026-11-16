@@ -533,9 +533,10 @@ class SandboxJourney {
   }
 
   /**
-   * The period ends at Stripe. Data is kept whatever the end-of-access policy, so it is read from the database
-   * only. What the member can do afterwards (access_expired, history_retained) stays PENDING_POLICY until Akin
-   * confirms the end-of-access policy with Sam: nothing here signs in or reads access after the end.
+   * The period ends at Stripe. Data is kept, read from the database. Akin, 2026-11-14: "No payment, no service or
+   * access to their past data". So the still signed-in member is then refused service (access_expired), and the
+   * saved recording, kept in the database, is not readable by its owner (history_retained). Payment restores both
+   * (#1863); this branch does not pay again.
    */
   async periodEnd(ending: Obj): Promise<void> {
     await this.advance(ending.current_period_end + 3600);
@@ -549,6 +550,15 @@ class SandboxJourney {
     const saved = await this.admin.from('sessions').select('id').eq('id', this.savedSession).eq('user_id', this.uid).single();
     requireFact(!saved.error && saved.data, 'history_deleted_by_cancellation');
     this.steps.add('account_retained');
+    await this.poll(() => this.usage(), u => u.can_start === false && u.is_pro === false && u.trial_active === false,
+      'access_not_closed_after_end');
+    this.steps.add('access_expired');
+    // A signed-out read of walled history is also empty, so first prove the member is still this account.
+    const who = await this.member.auth.getUser();
+    requireFact(!who.error && who.data.user?.id === this.uid, 'member_not_signed_in_after_end');
+    const own = await this.member.from('sessions').select('id').eq('id', this.savedSession);
+    requireFact(!own.error && Array.isArray(own.data) && own.data.length === 0, 'saved_history_readable_after_end');
+    this.steps.add('history_retained');
   }
 
   async cleanup(): Promise<void> {
