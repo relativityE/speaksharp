@@ -179,13 +179,23 @@ export interface ReviewPage {
  * Matched on the FULL pathname: `routeOf()` keeps three segments, so every RPC collapses to `/rest/v1/rpc` (Codex, #1883). The
  * sessions table matches by route, so a row path (`/rest/v1/sessions/...`) still counts.
  */
-const SESSION_WRITE_RPCS = new Set(['/rest/v1/rpc/create_session_and_update_usage', '/rest/v1/rpc/heartbeat_session']);
+/**
+ * Every product RPC that creates, completes, heartbeats, discards or finalizes a session (audited from frontend/src, Codex #1883:
+ * `complete_session_v2` is the save/retry completion path), and every RPC that acquires or keeps a recording.
+ */
+const SESSION_WRITE_RPCS = new Set([
+    '/rest/v1/rpc/create_session_and_update_usage', '/rest/v1/rpc/complete_session_v2', '/rest/v1/rpc/heartbeat_session',
+    '/rest/v1/rpc/discard_unsaved_recordings_for_closure_v1', '/rest/v1/rpc/objective_start_session_v1',
+    '/rest/v1/rpc/objective_finalize_evidence_v1',
+]);
 const SESSION_TABLE_ROUTE = '/rest/v1/sessions';
-const RECORDING_START_RPC = '/rest/v1/rpc/acquire_recording_lease';
+const RECORDING_START_RPCS = new Set([
+    '/rest/v1/rpc/acquire_recording_lease', '/rest/v1/rpc/heartbeat_recording_lease', '/rest/v1/rpc/abandon_recording_start_v1',
+]);
 /** Exported for its unit test: is this request a session write, or a recording start? */
 export function classifyJourneyWrite(method: string, pathname: string): 'session-write' | 'recording-start' | null {
     const path = pathname.replace(/\/+$/, '');
-    if (path === RECORDING_START_RPC) return 'recording-start';
+    if (RECORDING_START_RPCS.has(path)) return 'recording-start';
     if (method === 'GET' || method === 'HEAD') return null;
     if (SESSION_WRITE_RPCS.has(path) || routeOf(path) === SESSION_TABLE_ROUTE) return 'session-write';
     return null;

@@ -207,6 +207,22 @@ describe('Codex #1883: write classification matches full RPC paths, not the trun
         expect(classifyJourneyWrite('PATCH', '/rest/v1/sessions')).toBe('session-write');
         expect(classifyJourneyWrite('DELETE', '/rest/v1/sessions/extra')).toBe('session-write');
     });
+    it.each([
+        'complete_session_v2', 'discard_unsaved_recordings_for_closure_v1', 'objective_start_session_v1', 'objective_finalize_evidence_v1',
+    ])('Codex #1883: %s (a session completion/discard/finalize path) is a session write', async (rpc) => {
+        const { classifyJourneyWrite } = await import('../live/helpers/rwtJ1dJourney');
+        expect(classifyJourneyWrite('POST', `/rest/v1/rpc/${rpc}`)).toBe('session-write');
+    });
+    it.each(['heartbeat_recording_lease', 'abandon_recording_start_v1'])('%s is recording activity', async (rpc) => {
+        const { classifyJourneyWrite } = await import('../live/helpers/rwtJ1dJourney');
+        expect(classifyJourneyWrite('POST', `/rest/v1/rpc/${rpc}`)).toBe('recording-start');
+    });
+    it('CONTROL: a late completion alone (no new recording, no creation) FAILs the write row', async () => {
+        const { classifyJourneyWrite } = await import('../live/helpers/rwtJ1dJourney');
+        const sessionWrites = ['/rest/v1/rpc/complete_session_v2'].filter((p) => classifyJourneyWrite('POST', p) === 'session-write').length;
+        expect(sessionWrites).toBe(1);
+        expect(noRecordingOrSessionWriteVerdict(good({ writes: { recordingStarts: 0, sessionWrites, windowClosed: true } })).status).toBe('FAIL');
+    });
     it('reads and unrelated RPCs are not writes', async () => {
         const { classifyJourneyWrite } = await import('../live/helpers/rwtJ1dJourney');
         expect(classifyJourneyWrite('GET', '/rest/v1/sessions')).toBeNull();
