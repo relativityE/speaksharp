@@ -36,8 +36,8 @@ describe('frozen allocations, reserved before the run', () => {
     });
     it('gives each leg its own allocation, and none to a gated leg', () => {
         const b = plan();
-        expect(b.allocationOf('J3.a')).toEqual({ coaching: 7, starts: 7 });
-        expect(b.allocationOf('J1.c')).toEqual({ coaching: 0, starts: 1 });
+        expect(b.allocationOf('J3.a')).toEqual({ coaching: 7, starts: 7, signups: 1 });
+        expect(b.allocationOf('J1.c')).toEqual({ coaching: 0, starts: 1, signups: 0 });
         expect(b.allocationOf('J7.a')).toBe(null);
         expect(b.legBudget('J7.a').allocated).toBe(false);
     });
@@ -78,7 +78,7 @@ describe('the run request names its legs; the budget never chooses them', () => 
         expect(b.totals().coaching).toBe(28);
         expect(b.allocationOf('J8.b')).toBe(null);
         expect(b.legBudget('J8.b').reason).toBe('not named in the run request');
-        expect(b.allocationOf('J7.c')).toEqual({ coaching: 1, starts: 3 });
+        expect(b.allocationOf('J7.c')).toEqual({ coaching: 1, starts: 3, signups: 1 });
     });
     it('refuses a leg named without the legs it needs', () => {
         for (const [leg, dep] of [['J1.b', 'J1.a'], ['J1.f', 'J1.e'], ['J8.c', 'J8.b']]) {
@@ -92,7 +92,7 @@ describe('the run request names its legs; the budget never chooses them', () => 
             expect(err instanceof RunRefused).toBe(true);
             expect(err.message).toContain(`${leg} is named without ${dep}`);
         }
-        expect(plan({ selected: ['J1.a', 'J1.b'] }).allocationOf('J1.b')).toEqual({ coaching: 0, starts: 0 });
+        expect(plan({ selected: ['J1.a', 'J1.b'] }).allocationOf('J1.b')).toEqual({ coaching: 0, starts: 0, signups: 0 });
     });
     it('gives no allocation to a named leg whose dependency is gated, and says why', () => {
         const gated = plan({ selected: ['J1.e', 'J1.f'] });
@@ -137,7 +137,7 @@ describe('the run request names its legs; the budget never chooses them', () => 
 describe('J1.e probe reserved at its worst case', () => {
     it('reserves one coaching request for the expired-token probe once J1.e can run, and nothing more', () => {
         const b = plan({ satisfiedGates: EVERY_GATE, selected: NO_J2 });
-        expect(b.allocationOf('J1.e')).toEqual({ coaching: 1, starts: 0 });
+        expect(b.allocationOf('J1.e')).toEqual({ coaching: 1, starts: 0, signups: 1 });
         expect(b.reserve('J1.e', 'coaching').granted).toBe(true);
         expect(b.reserve('J1.e', 'coaching').granted).toBe(false);
         expect(b.legBudgetRow('J1.e').outcome).toBe('FAIL');

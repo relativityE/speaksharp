@@ -354,7 +354,9 @@ function historicalReview(pullRequest) {
     || !originalReviewOf(pullRequest, reviewedSha)) return null;
   const code = completedReviewRow(body, 'Code Review', '📝 **Code Review**');
   const security = completedReviewRow(body, 'Security Review', '🔒 **Security Review**');
-  return code && security ? { reviewedSha, completedAt: Math.max(code.completedAt, security.completedAt) } : null;
+  // originalReviewOf has already verified that this Ready event predates both completed reviews.
+  const readyAt = Math.max(...pullRequest.timelineItems.nodes.map(event => Date.parse(event.createdAt)));
+  return code && security ? { reviewedSha, readyAt, completedAt: Math.max(code.completedAt, security.completedAt) } : null;
 }
 
 export function buildReviewReceipt({ pullRequest, expectedHeadSha }) {
@@ -721,20 +723,8 @@ export async function readPullRequest({ repository, number, token, pageCap = ISS
   })) ? historicalReview(pullRequest) : null;
   if (original) {
     try {
-      pullRequest.reviewCarryForward = await collectCarryForward(pullRequest, original, async path => {
-        try { return await githubRequest(path, token, { signal: AbortSignal.timeout(10000) }); }
-        catch (error) {
-          // The PR workflow token has no Actions scope. For a public repository,
-          // retrieve the same public run metadata without sending a token.
-          if (!['github_api_403', 'github_api_404'].includes(error.message)) throw error;
-          const res = await fetch(`https://api.github.com${path}`, {
-            redirect: 'error', signal: AbortSignal.timeout(10000),
-            headers: { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' },
-          });
-          if (!res.ok) throw Error('historical_review_base_unavailable');
-          return res.json();
-        }
-      });
+      pullRequest.reviewCarryForward = await collectCarryForward(pullRequest, original,
+        path => githubRequest(path, token, { signal: AbortSignal.timeout(10000) }));
     } catch { /* Missing Git evidence never carries a review forward. */ }
   }
   if (documentationEvidenceAdmission(repository, number) !== null) {

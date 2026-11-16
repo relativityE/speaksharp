@@ -12,8 +12,10 @@ const oldBase = '1'.repeat(40);
 const oldHead = '2'.repeat(40);
 const base = '3'.repeat(40);
 const head = '4'.repeat(40);
+const priorBase = '5'.repeat(40);
+const merged = '6'.repeat(40);
 const at = minute => `2026-11-16T08:${String(minute).padStart(2, '0')}:00Z`;
-const review = { reviewedSha: oldHead, completedAt: Date.parse(at(20)) };
+const review = { reviewedSha: oldHead, readyAt: Date.parse(at(10)), completedAt: Date.parse(at(20)) };
 const author = { login: 'chatgpt-codex-connector[bot]' };
 function fixture(number = 72) {
   const row = label => `| ${label} | ✅ **Completed** <relative-time datetime="${at(20)}">Complete</relative-time> | \`${oldHead.slice(0, 8)}\` | Draft marked ready |`;
@@ -37,16 +39,15 @@ function fixture(number = 72) {
   };
 }
 
-function runData(number) {
-  const r = { id: 1234 };
-  return { total_count: 1, workflow_runs: [{
-    head_sha: oldHead, event: 'pull_request', path: '.github/workflows/ci.yml', created_at: at(5),
-    repository: { ...r, full_name: repository },
-    pull_requests: [{ number, head: { sha: oldHead, repo: r }, base: { sha: oldBase, ref: 'main', repo: r } }],
-  }] };
+function move(before, after, minute) {
+  return { before, after, ref: 'refs/heads/main', activity_type: 'pr_merge', timestamp: at(minute) };
 }
-const collect = async (pr, data = runData(pr.number), compare = () => ({ hash: 'a'.repeat(64), integrationBaseSha: base })) => {
-  pr.reviewCarryForward = await collectCarryForward(pr, review, async () => data, compare);
+const history = () => [move(oldBase, base, 21), move(priorBase, oldBase, 5)];
+const collect = async (pr, data = history(), compare = () => ({ hash: 'a'.repeat(64), integrationBaseSha: base })) => {
+  pr.reviewCarryForward = await collectCarryForward(pr, review, async path => {
+    expect(path).toBe(`/repos/${repository}/activity?ref=refs%2Fheads%2Fmain&per_page=100&direction=desc`);
+    return data;
+  }, compare);
   return buildReviewReceipt({ pullRequest: pr, expectedHeadSha: head });
 };
 
@@ -56,21 +57,31 @@ describe('generic patch-bound review', () => {
       reviewEvidence: 'identical_patch', reviewCarryForward: { number, integrationBaseSha: base } });
   });
 
-  it.each(['wrong PR', 'wrong head', 'wrong workflow', 'late run', 'incomplete', 'conflicting base'])(
-    'rejects historical input that cannot pin one original base: %s', defect => {
-      const data = runData(72);
-      const run = data.workflow_runs[0], pr = run.pull_requests[0];
-      if (defect === 'wrong PR') pr.number += 1;
-      if (defect === 'wrong head') pr.head.sha = base;
-      if (defect === 'wrong workflow') run.path = '.github/workflows/other.yml';
-      if (defect === 'late run') run.created_at = at(21);
-      if (defect === 'incomplete') data.total_count += 1;
-      if (defect === 'conflicting base') {
-        data.total_count += 1;
-        data.workflow_runs.push({ ...run, pull_requests: [{ ...pr, base: { ...pr.base, sha: base } }] });
-      }
-      expect(historicalReviewBase(data, { ...review, repository, number: 72 })).toBe(null);
+  it.each(['wrong ref', 'wrong live base', 'force push', 'truncated SHA', 'incomplete', 'broken chain',
+    'move at Ready', 'move during review', 'move at completion', 'out of order', 'tied moves'])(
+    'rejects main activity that cannot pin one original base: %s', defect => {
+      const data = history();
+      if (defect === 'wrong ref') data[0].ref = 'refs/heads/topic';
+      if (defect === 'wrong live base') data[0].after = merged;
+      if (defect === 'force push') data[0].activity_type = 'force_push';
+      if (defect === 'truncated SHA') data[1].before = priorBase.slice(0, 7);
+      if (defect === 'incomplete') data.pop();
+      if (defect === 'broken chain') data[0].before = merged;
+      if (defect === 'move at Ready') data[0].timestamp = at(10);
+      if (defect === 'move during review') data[0].timestamp = at(15);
+      if (defect === 'move at completion') data[0].timestamp = at(20);
+      if (defect === 'out of order') data[1].timestamp = at(22);
+      if (defect === 'tied moves') data[1].timestamp = at(21);
+      expect(historicalReviewBase(data, { ...review, liveBaseSha: base })).toBe(null);
     });
+
+  it('anchors a merged PR to its squash even when current main advanced and baseRefOid may be historical', () => {
+    const newer = '7'.repeat(40);
+    const activity = [move(merged, newer, 35), move(base, merged, 30), ...history()];
+    expect(historicalReviewBase(activity, { ...review, liveBaseSha: newer, mergeSha: merged })).toBe(oldBase);
+    expect(historicalReviewBase(activity, { ...review, liveBaseSha: base, mergeSha: merged })).toBe(oldBase);
+    expect(historicalReviewBase(activity, { ...review, liveBaseSha: newer, mergeSha: head })).toBe(null);
+  });
 
   it.each(['author', 'move during review', 'new Ready', 'incomplete read', 'old finding', 'new finding'])(
     'never clears invalid reviews or findings: %s', async defect => {
@@ -89,7 +100,7 @@ describe('generic patch-bound review', () => {
     });
 
   it('refuses a mismatching patch and requires fresh live review evidence before the mock merge', async () => {
-    expect((await collect(fixture(), runData(72), () => null)).qualified).toBe(false);
+    expect((await collect(fixture(), history(), () => null)).qualified).toBe(false);
     const pr = fixture();
     const receipt = await collect(pr);
     let calls = 0;
