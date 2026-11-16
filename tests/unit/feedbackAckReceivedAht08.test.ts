@@ -146,7 +146,8 @@ describe('the spec wires the AHT-08 rows, and leaves AHT-07\'s submit unchanged'
         expect(fresh).toBeLessThan(thrown);
     });
     it('AHT-07 passes no observers (its submit path and rows are unchanged); AHT-08 passes both', () => {
-        const older = spec.slice(at("test('feedback selected for an older take links only to that take'"), at("test('No session feedback stores no take or coaching link'"));
+        // AHT-07's own body ends where the next test (J8) begins.
+        const older = spec.slice(at("test('feedback selected for an older take links only to that take'"), at("test('J8: one account"));
         expect(older).toMatch(/await submitFeedback\(page, tap, owner\.uid, 'selected_older_session', olderId, newerId\);/);
         expect(older).not.toMatch(/fresh acknowledgment|received feedback|onFreshAcknowledgment|onSubmitted/);
         const none = spec.slice(at("test('No session feedback stores no take or coaching link'"));

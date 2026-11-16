@@ -35,6 +35,11 @@ import { ZERO_RESIDUE_ROW } from './helpers/feedbackReportCleanup';
 import { NO_SESSION_ATTEMPT_CAP, noSessionWriteDecision } from './helpers/feedbackNoSessionCleanup';
 import { HarnessParityTap, START_CONTROLS } from './helpers/rwtHarnessParity';
 import { JourneyFeedbackFence } from './helpers/feedbackFence';
+import {
+    J8_FENCE_CASE, J8_FENCE_KEY_CAP, J8_LEGS, J8_SUITE, type J8Leg, J8WriteGate, type J8WriteOutcome, TAKE_PROJECTION_FIELDS, j8RunnerAdmission,
+    legReadback, legReceipt, legSink, mergeLegReadback, readTakeDigests, takesReadComplete, takesUnchangedVerdict, writerDrainedVerdict,
+} from './helpers/rwtJ8Journey';
+import { readFileSync } from 'node:fs';
 import { currentRunBinding } from './helpers/runBinding';
 import { coachingContract } from './helpers/rwtCoachingEvidence';
 import { openProductsItem } from './helpers/productsMenu';
@@ -66,7 +71,7 @@ const FEEDBACK_FENCE_STEP_MS = 10_000;
 
 type Owner = { email: string; uid: string };
 
-async function prepareDisposable(page: Page, receipt: RwtReceipt, owner: Owner): Promise<boolean> {
+async function prepareDisposable(page: Page, receipt: RwtReceipt, owner: Owner, runnerEmail?: string): Promise<boolean> {
     const missing = rwtPreconditionFailures();
     if (!canaryClaimAuthorized() || process.env.RWT_CANARY_CLAIM_ACK !== RWT_CANARY_CLAIM_ACK_VALUE) {
         missing.push('AUTHORIZATION GATE: the separate run-owned canary-claim acknowledgement is absent');
@@ -78,7 +83,8 @@ async function prepareDisposable(page: Page, receipt: RwtReceipt, owner: Owner):
     await installMicAcquisitionCounter(page);
     await page.goto('/auth/signup');
     await requireApprovedSurface(page, receipt);
-    owner.email = newDisposableEmail('feedback-boundary');
+    // J8: the email is the lookup reference the named runner recorded for this account-create BEFORE the signup (Sam on 94fe88d7).
+    owner.email = runnerEmail ?? newDisposableEmail('feedback-boundary');
     receipt.forbid(owner.email, SERVICE_ROLE);
     const account = await signUpDisposableAccount(page, owner.email);
     owner.uid = account.uid;
@@ -157,10 +163,11 @@ async function submitFeedback(
     page: Page,
     tap: AnalyticsTap,
     uid: string,
-    association: 'selected_older_session' | 'no_session',
+    association: 'selected_older_session' | 'no_session' | 'no_session_with_takes',
     sessionId: string | null,
     newerSessionId?: string,
     observers?: SubmitObservers,
+    listedTakes?: readonly [string, string],
 ): Promise<StoredFeedbackReport & { acknowledged: boolean }> {
     await page.goto('/analytics');
     await expect(page.getByTestId('nav-report-issue-button').first()).toBeVisible({ timeout: 45_000 });
@@ -171,7 +178,7 @@ async function submitFeedback(
     // context from the open dialog until the read, so every Send of this draft is seen; one draft's Sends share one key.
     const inserts = new FeedbackInsertObserver(page.context());
     try {
-        return await submitOpenDialog(page, tap, uid, association, sessionId, inserts, newerSessionId, observers);
+        return await submitOpenDialog(page, tap, uid, association, sessionId, inserts, newerSessionId, observers, listedTakes);
     } finally {
         inserts.stop();
     }
@@ -181,11 +188,12 @@ async function submitOpenDialog(
     page: Page,
     tap: AnalyticsTap,
     uid: string,
-    association: 'selected_older_session' | 'no_session',
+    association: 'selected_older_session' | 'no_session' | 'no_session_with_takes',
     sessionId: string | null,
     inserts: FeedbackInsertObserver,
     newerSessionId?: string,
     observers?: SubmitObservers,
+    listedTakes?: readonly [string, string],
 ): Promise<StoredFeedbackReport & { acknowledged: boolean }> {
     const selector = page.getByTestId('feedback-session-select');
     if (association === 'selected_older_session') {
@@ -197,6 +205,14 @@ async function submitOpenDialog(
             expect(order.indexOf(newerSessionId)).toBeLessThan(order.indexOf(sessionId));
         }
         await selector.selectOption(sessionId);
+    } else if (association === 'no_session_with_takes') {
+        // J8.c (Sam, 2026-11-15): exactly "No session" plus the two distinct saved takes, each listed once; then No session.
+        if (!listedTakes || new Set(listedTakes).size !== 2) throw new Error('J8.c requires the two distinct saved take ids');
+        const values = await selector.locator('option').evaluateAll((options) => options.map((option) => (option as HTMLOptionElement).value));
+        expect(values.filter((v) => v === '__none')).toHaveLength(1);
+        for (const take of listedTakes) expect(values.filter((v) => v === take)).toHaveLength(1);
+        expect(values).toHaveLength(3);
+        await selector.selectOption('__none');
     } else {
         await expect(selector.locator('option[value="__none"]')).toHaveCount(1);
         await expect(selector.locator('option')).toHaveCount(1);
@@ -289,43 +305,106 @@ async function installFeedbackWriteRoute(page: Page, ledger: FeedbackAttemptLedg
     await page.context().route(FEEDBACK_INSERT_URL, async (route: Route) => {
         const request = route.request();
         if (['GET', 'HEAD', 'OPTIONS'].includes(request.method())) return route.fallback();
-        ledger.begin();
-        // Recorded and decided here, before anything is sent.
-        const attempt = ledger.admit(request.method(), () => request.postDataJSON());
+        return handleLedgerWrite(route, ledger, fence);
+    });
+}
+
+/**
+ * The AHT-07 ledger's handling of ONE write (shared by the AHT-07 route and J8.b's window of the J8 route). Returns how it ended,
+ * so the J8 gate keeps an unknown server outcome unresolved (Sam on 94fe88d7); the AHT-07 route ignores it.
+ */
+async function handleLedgerWrite(route: Route, ledger: FeedbackAttemptLedger, fence: JourneyFeedbackFence): Promise<J8WriteOutcome> {
+    const request = route.request();
+    ledger.begin();
+    // Recorded and decided here, before anything is sent.
+    const attempt = ledger.admit(request.method(), () => request.postDataJSON());
+    let outcome: J8WriteOutcome = 'unknown';
+    try {
+        // #1811 (Sam, #1859 review): the database fence is the durable record — every insert the account commits is recorded
+        // in the same transaction, so a late commit stays locatable after this process exits. A write is sent only while the
+        // fence is confirmed open and the writer has not been stopped; anything else is aborted, never sent.
+        if (!fence.writable) {
+            ledger.settle(attempt, { status: null, forwarded: false });
+            outcome = 'aborted-unsent';
+            await route.abort('failed');
+            return outcome;
+        }
+        if (attempt.action === 'cap-abort' || attempt.action === 'fault-request-lost') {
+            ledger.settle(attempt, { status: null, forwarded: false });
+            outcome = 'aborted-unsent';
+            await route.abort('failed');
+            return outcome;
+        }
+        if (attempt.action === 'fault-synthetic-42501') {
+            ledger.settle(attempt, { status: 403, forwarded: false });
+            outcome = 'aborted-unsent';
+            await route.fulfill(syntheticRejection(request.headers().origin));
+            return outcome;
+        }
+        let response: APIResponse;
+        try { response = await route.fetch(); } catch {
+            // An unanswered forward may still have committed: the fence recorded it if so, and close serializes with it.
+            ledger.settle(attempt, { status: null, forwarded: null });
+            outcome = 'unknown';
+            await route.abort('failed');
+            return outcome;
+        }
+        const status = response.status();
+        const key = attempt.keys.length === 1 ? attempt.keys[0] : null;
+        const replayNamed = status === 409 ? isNamedIdempotencyReplay(await response.text().catch(() => null), key) : null;
+        ledger.settle(attempt, { status, forwarded: true, replayNamed });
+        // stored-response-lost: the server stored the row (201); only its answer is dropped. The commit was OBSERVED here.
+        if (attempt.action === 'fault-stored-response-lost') {
+            outcome = status >= 200 && status < 300 ? 'committed-response-dropped' : 'answered';
+            await route.abort('failed');
+            return outcome;
+        }
+        outcome = 'answered';
+        await route.fulfill({ response });
+        return outcome;
+    } catch {
+        // The page closed under the route: the attempt is already in the ledger; the outcome decided so far stands.
+        return outcome;
+    } finally {
+        ledger.end();
+    }
+}
+
+/**
+ * J8 (Sam, 2026-11-15): ONE route on the journey's context for all three legs. Each write is decided at entry and frozen to the
+ * leg window open then (`J8WriteGate`): a write between windows or while an earlier one is unresolved is aborted unsent; J8.a and
+ * J8.c are each bounded to one key and one same-key Retry of their OWN; J8.b's writes go through the AHT-07 ledger exactly as in
+ * the older-take journey. Nothing is sent unless the journey's one `AHT-07+AHT-08` fence is confirmed writable.
+ */
+async function installJ8WriteRoute(page: Page, gate: J8WriteGate, ledger: FeedbackAttemptLedger, fence: JourneyFeedbackFence): Promise<void> {
+    await page.context().route(FEEDBACK_INSERT_URL, async (route: Route) => {
+        const request = route.request();
+        if (['GET', 'HEAD', 'OPTIONS'].includes(request.method())) return route.fallback();
+        const decision = gate.enter(request.method(), () => request.postDataJSON());
+        if (decision.action === 'abort') return route.abort('failed').catch(() => undefined);
+        // Sam on 94fe88d7: only a known outcome releases the gate; a failed forward stays UNRESOLVED and blocks every later write
+        // and the next leg (the fence records the commit if it lands, and its close serializes with it).
+        let outcome: J8WriteOutcome = 'unknown';
         try {
-            // #1811 (Sam, #1859 review): the database fence is the durable record — every insert the account commits is recorded
-            // in the same transaction, so a late commit stays locatable after this process exits. A write is sent only while the
-            // fence is confirmed open and the writer has not been stopped; anything else is aborted, never sent.
+            if (decision.action === 'ledger') {
+                outcome = await handleLedgerWrite(route, ledger, fence);
+                return undefined;
+            }
             if (!fence.writable) {
-                ledger.settle(attempt, { status: null, forwarded: false });
+                outcome = 'aborted-unsent';
                 return await route.abort('failed');
-            }
-            if (attempt.action === 'cap-abort' || attempt.action === 'fault-request-lost') {
-                ledger.settle(attempt, { status: null, forwarded: false });
-                return await route.abort('failed');
-            }
-            if (attempt.action === 'fault-synthetic-42501') {
-                ledger.settle(attempt, { status: 403, forwarded: false });
-                return await route.fulfill(syntheticRejection(request.headers().origin));
             }
             let response: APIResponse;
             try { response = await route.fetch(); } catch {
-                // An unanswered forward may still have committed: the fence recorded it if so, and close serializes with it.
-                ledger.settle(attempt, { status: null, forwarded: null });
+                outcome = 'unknown';
                 return await route.abort('failed');
             }
-            const status = response.status();
-            const key = attempt.keys.length === 1 ? attempt.keys[0] : null;
-            const replayNamed = status === 409 ? isNamedIdempotencyReplay(await response.text().catch(() => null), key) : null;
-            ledger.settle(attempt, { status, forwarded: true, replayNamed });
-            // stored-response-lost: the server stored the row (201); only its answer is dropped.
-            if (attempt.action === 'fault-stored-response-lost') return await route.abort('failed');
+            outcome = 'answered';
             return await route.fulfill({ response });
         } catch {
-            // The page closed under the route: the attempt is already in the ledger.
-            return undefined;
+            return undefined; // the page closed under the route: the outcome decided so far stands
         } finally {
-            ledger.end();
+            gate.settle(decision.attempt, outcome);
         }
     });
 }
@@ -431,6 +510,33 @@ async function finishReceipt(
         expectedReleaseSha: expectedReleaseSha(), expectedRunId: process.env.GITHUB_RUN_ID,
         expectedRunAttempt: process.env.GITHUB_RUN_ATTEMPT,
     }), tap.trafficTypes());
+}
+
+/**
+ * J8's receipt: ONE receipt with three leg-scoped readback results (Sam, 2026-11-15). Each leg is bound only to its own window's
+ * capture and submit events (J8.b's fault-leg submits excluded); a leg with no, a duplicate or a mismatched binding stays a
+ * leg-scoped missing binding (HOLD) and never borrows another leg's proof.
+ */
+async function finishJ8Receipt(
+    receipt: RwtReceipt, testInfo: TestInfo, tap: AnalyticsTap, claimed: boolean, steps: FinalizationSteps,
+    windows: Partial<Record<J8Leg, { fromMs: number; toMs: number }>>, faultLegJourneys: readonly string[],
+    storedProof: Partial<Record<J8Leg, { storedRows: number; insertKeys: number }>>,
+): Promise<void> {
+    await steps.step('telemetry rows', () => telemetryClassRows(receipt, tap, claimed, true));
+    steps.report(receipt);
+    const ctx = { expectedReleaseSha: expectedReleaseSha(), expectedRunId: process.env.GITHUB_RUN_ID, expectedRunAttempt: process.env.GITHUB_RUN_ATTEMPT };
+    const plans = Object.fromEntries(J8_LEGS.map((leg) => {
+        const w = windows[leg] ?? { fromMs: Number.POSITIVE_INFINITY, toMs: Number.NEGATIVE_INFINITY };
+        return [leg, legReadback(tap.events, { ...w, bindings: tap.actionBindings, captures: tap.actionCaptures,
+            excludeJourneys: leg === 'J8.b' ? faultLegJourneys : [], stored: storedProof[leg] ?? null }, ctx)];
+    })) as Record<J8Leg, ReturnType<typeof legReadback>>;
+    const merged = mergeLegReadback(plans);
+    // The leg -> journey map the nine-journey splitter reads to scope each leg's received readback (the readback itself is per journey).
+    const oneEach = J8_LEGS.every((leg) => merged.legJourneys[leg].length === 1);
+    receipt.row('J8 leg readback bindings', oneEach ? 'PASS' : 'HOLD',
+        oneEach ? 'each leg is bound to exactly one journey of its own' : 'a leg has no journey of its own bound (see readback journey binding)',
+        Object.fromEntries(J8_LEGS.map((leg) => [leg, merged.legJourneys[leg].join(',')])));
+    receipt.write(testInfo, merged, tap.trafficTypes());
 }
 
 /** #1593 (live case 12): the journey's finalization must survive a test timeout — see `JourneyFinalizer`. */
@@ -621,6 +727,235 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
                 exchanges: generations.exchanges, observedEvents: tap.events, configuredModel: coachingContract.model, product: 'open_mic',
             });
             writeOlderTakeBindingRow(receipt, stored, olderRequests, newerRequests);
+        } catch (error) {
+            receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
+            throw error;
+        } finally {
+            await finish();
+        }
+    });
+
+    /**
+     * J8 (nine-journey design; Sam's disposition 2026-11-15): ONE run-owned account, in order J8.a No session before any take,
+     * J8.b two saved takes + the AHT-07 fault legs + the older-take submit, J8.c No session with both takes listed. One
+     * `AHT-07+AHT-08` fence (keys 1/4/1), one route (`installJ8WriteRoute`), one finalizer, ONE receipt with leg-scoped rows and
+     * three leg-scoped readback results. Offline adapter for the named nine-journey runner: never dispatched standalone.
+     */
+    test('J8: one account — No session before any take, older-take feedback, No session with both takes listed', async ({ page }, testInfo) => {
+        // Sam on 94fe88d7: no runner, no signup. Decided FIRST, before any page action, signup, route or write: without the named
+        // nine-journey runner's admission for this run (and its pre-recorded account-create attempt) the test sends nothing.
+        const admission = j8RunnerAdmission(process.env, (f) => readFileSync(f, 'utf8'));
+        test.skip(!admission.admitted, admission.admitted ? '' : admission.reason);
+        if (!admission.admitted) return;
+        test.setTimeout(2_400_000);
+        const owner: Owner = { email: '', uid: '' };
+        const receipt = new RwtReceipt(J8_SUITE);
+        const tap = new AnalyticsTap();
+        const generations = new CoachingGenerationTap();
+        tap.attach(page); generations.attach(page);
+        const parity = new HarnessParityTap();
+        const watch = armWatchdog({ page, tap, profile: watchProfileFor(J8_SUITE), label: J8_SUITE });
+        let claimed = false;
+        let accountDeleted = false;
+        // The J8.b older-take report carries the retention proof (the richest one: a take link and a coaching diagnostic).
+        let retentionReportId: string | null = null;
+        const takes: string[] = [];
+        const ledger = new FeedbackAttemptLedger();
+        const gate = new J8WriteGate();
+        let routeInstalled = false;
+        const faultLegJourneys: string[] = [];
+        let observedLedger: RowVerdict | null = null;
+        let feedbackFence: JourneyFeedbackFence | null = null;
+        // Each leg's evidence window, and each no-session leg's submit window for its received-feedback row.
+        const windows: Partial<Record<J8Leg, { fromMs: number; toMs: number }>> = {};
+        const submitWindows: Partial<Record<J8Leg, { feedbackBefore: number; submitAt: number }>> = {};
+        // Each leg's own independently observed submit proof (stored rows under its own observed insert keys) for its readback.
+        const storedProof: Partial<Record<J8Leg, { storedRows: number; insertKeys: number }>> = {};
+        // A leg opens only when no earlier write is in flight or has an unknown outcome; otherwise it is NOT RUN (HOLD).
+        const openLeg = (leg: J8Leg): boolean => {
+            if (gate.pending === 0 && gate.unresolvedCount === 0) { gate.open(leg); return true; }
+            legSink(receipt, leg).row('prerequisites', 'HOLD', `an earlier feedback write is still in flight or has an unknown outcome, so ${leg} was NOT RUN`,
+                { pending: gate.pending, unresolved: gate.unresolvedCount });
+            return false;
+        };
+        const finish = finalizer.once(async () => {
+            const steps = new FinalizationSteps();
+            await steps.step('telemetry settle', () => tap.settleEveryPage((ms) => new Promise((resolve) => setTimeout(resolve, ms))));
+            await steps.step('watchdog', () => watch.record(receipt));
+            for (const leg of ['J8.a', 'J8.c'] as const) {
+                await steps.step(`${leg} received feedback`, (alive) => {
+                    const submitted = submitWindows[leg];
+                    if (!submitted) return;
+                    writeReceivedFeedbackRow(legSink(aliveReceipt(receipt, alive), leg), tap.sent('feedback_submit').slice(submitted.feedbackBefore)
+                        .filter((e) => e.at <= (windows[leg]?.toMs ?? Number.POSITIVE_INFINITY)), {
+                        blindSinceSubmit: tap.blindAt.filter((t) => t >= submitted.submitAt && t <= (windows[leg]?.toMs ?? Number.POSITIVE_INFINITY)).length,
+                        expectedReleaseSha: expectedReleaseSha(),
+                    });
+                });
+            }
+            await steps.step('coaching settle', () => generations.settle(), FINALIZE_SETTLE_MS);
+            // The whole journey: at most one coaching request per saved take (two in all); J8.a and J8.c add none.
+            await steps.step('coaching budget', () => coachingRequestBudgetRow(receipt, generations, { maximum: 2, oneRequestPerSession: takes }));
+            await steps.step('harness parity counts', (alive) => {
+                parity.noCloudSttRow(aliveReceipt(receipt, alive));
+                parity.startPressRow(aliveReceipt(receipt, alive), AHT07_START_PRESS_BUDGET);
+            });
+            await steps.step('owned pages closed', (alive) => parity.ownedPagesClosedRow(aliveReceipt(receipt, alive)), PARITY_CLOSE_STEP_MS);
+            ledger.endWindow();
+            if (routeInstalled) {
+                await steps.step('feedback writer drained', async (alive) => {
+                    feedbackFence?.stopWriter();
+                    const pendingAfterDrain = await ledger.drain(15_000);
+                    const sink = aliveReceipt(receipt, alive);
+                    // Sam on 7a755749: in-flight and unresolved are counted apart; either one keeps the writer HOLD. Every J8 write goes
+                    // through the gate, so the ledger's own count is a subset of it. The fence close and cleanup steps below run either way.
+                    const drained = writerDrainedVerdict({ inFlight: Math.max(pendingAfterDrain, gate.pending), unresolved: gate.unresolvedCount });
+                    sink.row('feedback writer drained', drained.status, drained.detail, drained.evidence);
+                    const refused = gate.refused.none + J8_LEGS.reduce((n, leg) => n + gate.refused[leg], 0);
+                    sink.row('J8 write windows', refused === 0 ? 'PASS' : 'FAIL',
+                        refused === 0 ? 'every feedback write fell inside its own leg window, within its own bounds'
+                            : `${refused} write(s) refused (between windows, unresolved prior write, or over a leg's own bounds)`,
+                        { refusedBetweenWindows: gate.refused.none, refusedJ8a: gate.refused['J8.a'], refusedJ8b: gate.refused['J8.b'], refusedJ8c: gate.refused['J8.c'] });
+                    const b = legSink(sink, 'J8.b');
+                    writeFeedbackAttemptRows(b, ledger.attempts, observedLedger);
+                    const isolation = finalIsolationVerdict({
+                        boundJourneys: tap.actionBindings.filter((x) => x.stage === 'share_feedback' && windows['J8.b']
+                            && x.capturedAt >= windows['J8.b'].fromMs && x.capturedAt <= windows['J8.b'].toMs).map((x) => x.journeyId),
+                        legJourneys: faultLegJourneys, events: tap.sent('feedback_submit'),
+                        legKeys: FEEDBACK_FAULT_LEGS.flatMap((leg) => ledger.legAttempts(leg).flatMap((a) => a.keys)),
+                        finalKeys: [...new Set(ledger.finalAttempts().flatMap((a) => a.keys))],
+                    });
+                    b.row(FEEDBACK_ISOLATION_ROW, isolation.verdict, isolation.detail, isolation.evidence);
+                });
+            }
+            const fence = feedbackFence;
+            if (fence) await steps.step('feedback fence close', async (alive) => { await fence.close(aliveReceipt(receipt, alive)); });
+            if ((owner.uid || owner.email) && !accountDeleted) {
+                const cleanup = new OwnedCleanup(() => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
+                const report = owner.uid ? retentionReportId : null;
+                accountDeleted = (await finalizeOwnedCleanup(steps, receipt, cleanup, report
+                    ? (alive) => feedbackRetentionAfterDeletionRow(aliveReceipt(receipt, alive), admin as never, report, () => cleanup.run())
+                    : undefined)) === 'deleted';
+            }
+            if (fence) {
+                const written = await steps.step('feedback fence cleanup', async (alive) => { await fence.cleanRow(aliveReceipt(receipt, alive), ZERO_RESIDUE_ROW); return true; },
+                    FINALIZE_CLEANUP_MS);
+                if (written !== true) receipt.row(ZERO_RESIDUE_ROW, 'FAIL', 'the fence cleanup step did not finish; the recovery dispatch closes and cleans it by run key');
+            }
+            await finishJ8Receipt(receipt, testInfo, tap, claimed, steps, windows, faultLegJourneys, storedProof);
+        });
+        try {
+            await parity.attach(page.context());
+            await suppressPageSnapshot(testInfo);
+            const ready = await prepareDisposable(page, receipt, owner, admission.lookupRef);
+            claimed = ready;
+            if (!ready) return;
+            feedbackFence = new JourneyFeedbackFence(admin as never, J8_FENCE_CASE, J8_FENCE_KEY_CAP);
+            await feedbackFence.open(owner.uid, currentRunBinding());
+            if (!feedbackFence.writable) {
+                receipt.halt('feedback fence open', `HOLD before any feedback write: ${feedbackFence.heldReason ?? 'not opened'}`);
+                return;
+            }
+            feedbackFence.openRow(receipt);
+            await installJ8WriteRoute(page, gate, ledger, feedbackFence);
+            routeInstalled = true;
+
+            // J8.a — No session before any take (AHT-08's checks): one report, no take or coaching link, no coaching at all yet.
+            const a = legSink(receipt, 'J8.a');
+            windows['J8.a'] = { fromMs: Date.now(), toMs: Number.POSITIVE_INFINITY };
+            if (!openLeg('J8.a')) return;
+            const storedA = await submitFeedback(page, tap, owner.uid, 'no_session', null, undefined, {
+                onSubmitted: (submitted) => { submitWindows['J8.a'] = submitted; },
+                onFreshAcknowledgment: (observation) => writeFreshAcknowledgmentRow(a, observation),
+            });
+            gate.close('J8.a');
+            windows['J8.a'].toMs = Date.now();
+            storedProof['J8.a'] = { storedRows: storedA.storedRows, insertKeys: storedA.insertKeys };
+            writeNoSessionReportRows(a, storedA);
+            a.row('no coaching before any take', generations.exchanges.length === 0 ? 'PASS' : 'FAIL',
+                generations.exchanges.length === 0 ? 'no coaching request was sent before the first take' : 'a coaching request was sent before any take existed',
+                { coachingRequests: generations.exchanges.length });
+
+            // J8.b — two saved takes, the AHT-07 fault legs, then the older-take submit.
+            const b = legSink(receipt, 'J8.b');
+            await page.goto('/practice');
+            await openProductsItem(page, 'open-mic');
+            await page.waitForURL(/\/session/, { timeout: 45_000 });
+            const olderId = await createSavedOpenMicTake(page, 1, true);
+            const newerId = await createSavedOpenMicTake(page, 2, false);
+            takes.push(olderId, newerId);
+            await generations.settle();
+            b.row('two saved takes', olderId !== newerId ? 'PASS' : 'FAIL',
+                olderId !== newerId ? 'two distinct takes were saved in this login' : 'the two saves reused one session identity');
+            const olderRequests = generations.forSession(olderId).map((e) => e.sent.requestId).filter((id): id is string => Boolean(id));
+            const newerRequests = generations.forSession(newerId).map((e) => e.sent.requestId).filter((id): id is string => Boolean(id));
+            b.row('older take coaching request observed', olderRequests.length > 0 ? 'PASS' : 'HOLD',
+                olderRequests.length > 0 ? 'the browser sent a coaching request bound to the older saved take' : 'no older-take coaching request was captured');
+            windows['J8.b'] = { fromMs: Date.now(), toMs: Number.POSITIVE_INFINITY };
+            if (!openLeg('J8.b')) return;
+            let bEstablished = olderId !== newerId;
+            for (const leg of FEEDBACK_FAULT_LEGS) {
+                const observation = await runFeedbackFaultLeg(page, tap, ledger, leg, olderId, owner.uid, faultLegJourneys);
+                writeFeedbackLegRows(b, leg, observation, ledger.legAttempts(leg));
+                if (!feedbackLegRecovered(observation)) { bEstablished = false; break; }
+            }
+            let storedB: (StoredFeedbackReport & { acknowledged: boolean }) | null = null;
+            if (bEstablished) {
+                ledger.beginFinal();
+                storedB = await submitFeedback(page, tap, owner.uid, 'selected_older_session', olderId, newerId);
+                ledger.endWindow();
+                observedLedger = feedbackLedgerVerdict(ledger.attempts);
+                retentionReportId = storedB.id;
+                storedProof['J8.b'] = { storedRows: storedB.storedRows, insertKeys: storedB.insertKeys };
+                writeOlderTakeReportRows(b, storedB, olderId);
+                await generations.settle();
+                await feedbackDiagnosticChainRow({
+                    receipt: legReceipt(receipt, 'J8.b'), admin: admin as never, userId: owner.uid, reportId: storedB.id, currentSessionId: newerId,
+                    reportedSessionId: olderId, acknowledgementVisible: storedB.acknowledged,
+                    exchanges: generations.exchanges, observedEvents: tap.events, configuredModel: coachingContract.model, product: 'open_mic',
+                });
+                writeOlderTakeBindingRow(b, storedB, olderRequests, newerRequests);
+            }
+            gate.close('J8.b');
+            windows['J8.b'].toMs = Date.now();
+
+            // J8.c — No session with both takes listed. Sam on 94fe88d7: it must EARN its write. Before C opens: J8.b's report is stored
+            // exactly once AND linked to the older take, and both saved takes read completely and owner-bound. Otherwise NOT RUN.
+            const c = legSink(receipt, 'J8.c');
+            // Sam on 7a755749: a failed query is UNREADABLE (null), never an empty map: unreadable before the submit keeps J8.c NOT
+            // RUN; after it, HOLD. Only a successful read that lacks a take FAILs.
+            const readTakes = async (): Promise<ReadonlyMap<string, string | null> | null> => {
+                try {
+                    return readTakeDigests(await admin!.from('sessions').select(TAKE_PROJECTION_FIELDS.join(',')).eq('user_id', owner.uid).in('id', [olderId, newerId]), owner.uid);
+                } catch { return null; }
+            };
+            const linkedToOlder = Boolean(storedB && storedB.storedRows === 1 && storedB.sessionId === olderId);
+            const before = linkedToOlder ? await readTakes() : null;
+            if (!bEstablished || !linkedToOlder || !takesReadComplete([olderId, newerId], before)) {
+                c.row('prerequisites', 'HOLD', 'J8.b did not leave one stored report linked to the older take and two completely read, owner-bound saved takes, so J8.c was NOT RUN',
+                    { bEstablished, linkedToOlder, takesReadable: before !== null, takesReadComplete: takesReadComplete([olderId, newerId], before) });
+                return;
+            }
+            const startsBefore = parity.startPresses;
+            const coachingBefore = generations.exchanges.length;
+            windows['J8.c'] = { fromMs: Date.now(), toMs: Number.POSITIVE_INFINITY };
+            if (!openLeg('J8.c')) return;
+            const storedC = await submitFeedback(page, tap, owner.uid, 'no_session_with_takes', null, undefined, {
+                onSubmitted: (submitted) => { submitWindows['J8.c'] = submitted; },
+                onFreshAcknowledgment: (observation) => writeFreshAcknowledgmentRow(c, observation),
+            }, [olderId, newerId]);
+            gate.close('J8.c');
+            windows['J8.c'].toMs = Date.now();
+            storedProof['J8.c'] = { storedRows: storedC.storedRows, insertKeys: storedC.insertKeys };
+            writeNoSessionReportRows(c, storedC);
+            await generations.settle();
+            const unchanged = takesUnchangedVerdict([olderId, newerId], before, await readTakes());
+            c.row('both saved takes unchanged', unchanged.status, unchanged.detail, unchanged.evidence);
+            const extraStarts = parity.startPresses - startsBefore;
+            const extraCoaching = generations.exchanges.length - coachingBefore;
+            c.row('no extra Start or coaching', extraStarts === 0 && extraCoaching === 0 ? 'PASS' : 'FAIL',
+                extraStarts === 0 && extraCoaching === 0 ? 'the No-session submit pressed no Start and sent no coaching request'
+                    : 'the No-session submit was followed by a Start press or a coaching request', { extraStarts, extraCoaching });
         } catch (error) {
             receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
             throw error;
