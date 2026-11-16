@@ -210,6 +210,9 @@ type SpeechGateStats = {
 const PRIVATE_STT_SAMPLE_RATE = PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ;
 const MIN_TRANSCRIPTION_SAMPLES = PRIV_STT_DERIVED.MIN_TRANSCRIPTION_SAMPLES;
 const LIVE_DECODE_WINDOW_SAMPLES = PRIV_STT_DERIVED.LIVE_DECODE_WINDOW_SAMPLES;
+const COLD_START_DECODE_MAX_SAMPLES = PRIV_STT_DERIVED.COLD_START_DECODE_MAX_SAMPLES;
+// Speech-energy blocks for a cold-start backlog's gates (100 ms, like a mic frame).
+const SPEECH_ENERGY_BLOCK_SAMPLES = Math.round(PRIVATE_STT_SAMPLE_RATE * 0.1);
 const UTTERANCE_SILENCE_TAIL_SAMPLES = PRIV_STT_DERIVED.UTTERANCE_SILENCE_TAIL_SAMPLES;
 const MAX_RETRY_SAMPLES = PRIV_STT_DERIVED.MAX_RETRY_SAMPLES;
 const PROCESSING_INTERVAL_MS = PRIV_STT.PROCESSING_INTERVAL_MS;
@@ -240,6 +243,31 @@ function pushPrivateTimeline(event: string, payload?: Record<string, unknown>): 
     perfMs: typeof performance !== 'undefined' ? Number(performance.now().toFixed(3)) : 0,
     payload,
   });
+}
+
+/**
+ * Energy of the speech in a long buffer: RMS over the 100 ms blocks that are not silent (block RMS at or
+ * above SESSION_PAUSE.SILENCE_RMS_THRESHOLD), and the whole buffer's peak. A cold-start backlog can hold a
+ * few seconds of speech among long pauses; averaging the pauses in would put that speech under the
+ * first-transcript and retry RMS gates. With no non-silent block it is the plain summary.
+ */
+function summarizeSpeechEnergy(audio: Float32Array) {
+  const whole = summarizeAudioEnergy(audio);
+  let sumSquares = 0;
+  let samples = 0;
+  for (let start = 0; start < audio.length; start += SPEECH_ENERGY_BLOCK_SAMPLES) {
+    const block = audio.subarray(start, Math.min(audio.length, start + SPEECH_ENERGY_BLOCK_SAMPLES));
+    let blockSquares = 0;
+    for (let i = 0; i < block.length; i += 1) blockSquares += block[i] * block[i];
+    if (block.length > 0 && Math.sqrt(blockSquares / block.length) >= SESSION_PAUSE.SILENCE_RMS_THRESHOLD) {
+      sumSquares += blockSquares;
+      samples += block.length;
+    }
+  }
+  // Only a buffer with at least FIRST_TRANSCRIPT_MIN_DURATION_SECONDS of non-silent audio is judged by its
+  // speech: a click or a cough in a silent backlog keeps the whole-buffer (diluted) energy and stays held.
+  const minSpeechSamples = secondsToSamples(PRIV_STT.FIRST_TRANSCRIPT_MIN_DURATION_SECONDS, PRIVATE_STT_SAMPLE_RATE);
+  return samples >= minSpeechSamples ? { rms: Math.sqrt(sumSquares / samples), peak: whole.peak } : whole;
 }
 
 function summarizeAudioEnergy(audio: Float32Array) {
@@ -741,6 +769,10 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   private mic: MicStream | null = null;
   private audioChunks: Float32Array[] = [];
   private bufferedSampleCount: number = 0;
+  // Focus Point 1 cold start: set when the mic's replay burst at subscription held more than one live
+  // window; it ends at the take's first commit or after PRIV_STT.COLD_START_MAX_DECODES live decodes.
+  private coldStartBacklog: boolean = false;
+  private coldStartDecodes: number = 0;
   private prerollAudioChunks: Float32Array[] = [];
   private prerollSampleCount: number = 0;
   private speechStartAudioChunks: Float32Array[] = [];
@@ -1098,6 +1130,8 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.status = 'transcribing';
     this.clearAudioBuffer();
     this.clearRetryAudioBuffer();
+    this.coldStartBacklog = false;
+    this.coldStartDecodes = 0;
     this.clearSpeechStartState();
     this.noiseFloor = 0.002;
     this.currentThreshold = PRIV_STT.SPEECH_START_RMS_THRESHOLD;
@@ -1359,6 +1393,17 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
 
     // Store the disposer returned by onFrame
     this.frameListenerDisposer = this.mic.onFrame(listener);
+    // The mic replays its buffered frames synchronously to a late subscriber (issue 960). A replay longer than
+    // one live window means speech was captured while the model loaded: a cold-start backlog.
+    this.coldStartBacklog = this.bufferedSampleCount > LIVE_DECODE_WINDOW_SAMPLES;
+    if (this.coldStartBacklog) {
+      pushPrivateTimeline('cold_start_backlog', {
+        serviceId: this.serviceId,
+        runId: this.instanceId,
+        bufferedSamples: this.bufferedSampleCount,
+        bufferedSeconds: Number(samplesToSeconds(this.bufferedSampleCount, PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
+      });
+    }
 
     // Poll frequently; the sample threshold gates expensive model inference.
     this.processingInterval = setInterval(() => {
@@ -1458,7 +1503,10 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         return;
       }
 
-      const energy = summarizeAudioEnergy(concatenated);
+      // A cold-start backlog is judged by the energy of its speech, not diluted by its pauses (Focus Point 1).
+      const energy = this.isColdStartBacklogActive()
+        ? summarizeSpeechEnergy(concatenated)
+        : summarizeAudioEnergy(concatenated);
       const isBufferSilent = energy.rms < SESSION_PAUSE.SILENCE_RMS_THRESHOLD;
       const isMeaningfullySilent = this.pauseDetector.isMeaningfullySilent();
       const isLowEnergyPauseTail =
@@ -2219,8 +2267,40 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.retryAudioBuffer = null;
   }
 
+  /** True while this take's cold-start backlog may still reach a live decode (see coldStartBacklog). */
+  private isColdStartBacklogActive(): boolean {
+    if (!this.coldStartBacklog) return false;
+    if (this.currentTranscript.trim().length > 0 || this.coldStartDecodes >= PRIV_STT.COLD_START_MAX_DECODES) {
+      this.coldStartBacklog = false;
+      return false;
+    }
+    return true;
+  }
+
   private capLiveDecodeWindow(audio: Float32Array): Float32Array {
     const hasCommittedTranscript = this.currentTranscript.trim().length > 0;
+    // Cold start: a take that began with a replayed backlog keeps the backlog from its start (the oldest
+    // COLD_START_DECODE_MAX_SAMPLES) in each live decode until its first transcript commits or its decode
+    // budget is spent, so the opening spoken while the model loaded (Focus Point 1) is decoded live and the
+    // held rounds compare the same opening words. Audio past that bound is still in the Stop-time final
+    // decode. Warm takes keep the normal window.
+    const isColdStartBacklog = this.isColdStartBacklogActive();
+    if (isColdStartBacklog) {
+      this.coldStartDecodes += 1;
+      if (audio.length <= COLD_START_DECODE_MAX_SAMPLES) return audio;
+      const oldest = inheritPcmSlice(audio, audio.slice(0, COLD_START_DECODE_MAX_SAMPLES), 0, 'live-cap');
+      pushPrivateTimeline('live_decode_window_capped', {
+        serviceId: this.serviceId,
+        runId: this.instanceId,
+        inputSamples: audio.length,
+        outputSamples: oldest.length,
+        windowSeconds: PRIV_STT.COLD_START_DECODE_MAX_SECONDS,
+        hasCommittedTranscript,
+        isColdStartBacklog,
+        keptOldest: true,
+      });
+      return oldest;
+    }
     const maxLiveSamples = hasCommittedTranscript
       ? LIVE_DECODE_WINDOW_SAMPLES
       : Math.max(
@@ -2240,6 +2320,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       outputDurationSec: Number(samplesToSeconds(cappedAudio.length, PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
       windowSeconds: Number(samplesToSeconds(maxLiveSamples, PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
       hasCommittedTranscript,
+      isColdStartBacklog,
     });
 
     if (isPrivateTranscriptTraceEnabled()) {
@@ -2650,7 +2731,10 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       return;
     }
 
-    const start = Math.max(0, audio.length - MAX_RETRY_SAMPLES);
+    // A held first decode of a cold-start backlog keeps the whole backlog for its retry, so the opening
+    // (Focus Point 1) is not cut to the newest MAX_RETRY_SAMPLES before the first transcript commits.
+    // The decode budget is checked here too, so the last budgeted decode's retry falls back to the normal tail.
+    const start = this.isColdStartBacklogActive() ? 0 : Math.max(0, audio.length - MAX_RETRY_SAMPLES);
     this.retryAudioBuffer = inheritPcmSlice(audio, audio.slice(start), start, 'retry-tail');
     pushPrivateTimeline('retain_audio_for_retry', {
       serviceId: this.serviceId,
