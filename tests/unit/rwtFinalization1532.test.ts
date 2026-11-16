@@ -38,7 +38,7 @@ const completeWith = (suite: string, base: ReceiptRow[]): ReceiptRow[] => [
         .map((step) => (step === 'base_q4 primary' ? hold(step) : pass(step))),
 ];
 rows.push(...completeWith(SUITE, rows).slice(rows.length));
-const receipt = { suite: SUITE, release: SHA, meta: { fixtureKind: 'synthetic' }, rows,
+const receipt = { suite: SUITE, release: SHA, meta: { fixtureKind: 'synthetic', runScope: 'full-gate' }, rows,
     readback: { journeys: [{ journeyId: J, stages: STAGES }], reportedJourneyIds: ['other'], missingBindings: [] } };
 const readbackOk = { suite: SUITE, release: SHA, journeys: [{ journeyId: J, stages: STAGES, verdict: 'QUALIFIED' }], missingBindings: [] };
 const worksheetDone = () => {

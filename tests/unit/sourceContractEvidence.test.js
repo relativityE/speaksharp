@@ -471,7 +471,7 @@ test('#1811 browser drivers select source-only contracts, detect verdict and bin
     ['tests/live/rwt-abandon-and-two-tabs.live.spec.ts','oldOwnerFence.status',"'PASS'"],
     ['tests/live/rwt-adverse-mic-denied.live.spec.ts',"'mic-denied'","'download-fails'"],
     ['tests/live/rwt-adverse-mic-model.live.spec.ts',"'offline-mid-download'","'download-fails'"],
-    ['tests/live/rwt-feedback-association-boundaries.live.spec.ts','inserts: insertSnapshot, reportId, storedRows','inserts: null, reportId, storedRows'],
+    ['tests/live/rwt-feedback-association-boundaries.live.spec.ts','if (!fence.writable) {','if (false) {'],
     ['tests/live/rwt-pending-start-navigation.live.spec.ts','recovered.status',"'PASS'"],
     ['tests/live/rwt-save-retry-recovery.live.spec.ts','attemptsVerdict.status',"'PASS'"],
     ['tests/live/helpers/rwtFocusPointsJourney.ts','expectedAttemptId: boundAttemptId','expectedAttemptId: null'],

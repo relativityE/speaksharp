@@ -70,12 +70,55 @@ export function paymentsEnabled(explicitlyEnabled: boolean, key: string | undefi
   return explicitlyEnabled === true && arePaymentsEnabledFor(key);
 }
 
-/** Runtime convenience wrapper: explicit enablement flag AND a live publishable key. */
+/**
+ * The ONLY test-key checkout path in the browser: a build made for the approval-gated local billing
+ * stack (billing-local-stack-journey.yml), served on the loopback app origin and talking to the local
+ * Supabase API. It mirrors the server rule in backend/supabase/functions/stripe-checkout/localSandbox.ts,
+ * which stays the real boundary. Every condition must hold; any miss leaves the live-only rule in place:
+ *   - the build carries the exact acknowledgement value, not a boolean a stray "true" could satisfy;
+ *   - the publishable key is a TEST key (a live key never takes this path);
+ *   - the Supabase API is the local stack's loopback port, so a hosted project never matches;
+ *   - the page itself is served on the local app origin, so a deployed site never matches.
+ */
+export const LOCAL_BILLING_SANDBOX_ACKNOWLEDGEMENT = 'ISOLATED-TEST-MODE-ONLY';
+export const LOCAL_BILLING_API_ORIGINS: readonly string[] = ['http://127.0.0.1:54321', 'http://localhost:54321'];
+export const LOCAL_BILLING_APP_ORIGINS: readonly string[] = ['http://localhost:5173', 'http://127.0.0.1:5173'];
+
+function isExactLocalOrigin(raw: string | undefined | null, allowed: readonly string[]): boolean {
+  if (!raw) return false;
+  let url: URL;
+  try { url = new URL(raw); } catch { return false; }
+  if (url.protocol !== 'http:' || url.username || url.password || url.search || url.hash) return false;
+  if (url.pathname !== '/' && url.pathname !== '') return false;
+  return allowed.includes(url.origin);
+}
+
+export interface LocalBillingSandboxInput {
+  acknowledgement: string | undefined | null;
+  key: string | undefined | null;
+  supabaseUrl: string | undefined | null;
+  pageOrigin: string | undefined | null;
+}
+
+/** Pure, testable: is this the isolated local billing build on its loopback origin? */
+export function isLocalBillingSandbox(input: LocalBillingSandboxInput): boolean {
+  if (input.acknowledgement !== LOCAL_BILLING_SANDBOX_ACKNOWLEDGEMENT) return false;
+  if (classifyStripeKey(input.key) !== 'test') return false;
+  if (!isExactLocalOrigin(input.supabaseUrl, LOCAL_BILLING_API_ORIGINS)) return false;
+  if (!input.pageOrigin || !LOCAL_BILLING_APP_ORIGINS.includes(input.pageOrigin)) return false;
+  return true;
+}
+
+/** Runtime convenience wrapper: explicit enablement flag AND a live publishable key, or the local billing sandbox. */
 export function arePaymentsEnabled(): boolean {
-  return paymentsEnabled(
-    isPaymentsExplicitlyEnabled(),
-    import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string | undefined,
-  );
+  const key = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string | undefined;
+  if (paymentsEnabled(isPaymentsExplicitlyEnabled(), key)) return true;
+  return isLocalBillingSandbox({
+    acknowledgement: import.meta.env.VITE_BILLING_LOCAL_SANDBOX as string | undefined,
+    key,
+    supabaseUrl: import.meta.env.VITE_SUPABASE_URL as string | undefined,
+    pageOrigin: typeof window !== 'undefined' ? window.location.origin : undefined,
+  });
 }
 
 export interface AppRuntimeConfig {
