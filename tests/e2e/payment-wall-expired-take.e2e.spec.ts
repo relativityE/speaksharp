@@ -1,6 +1,8 @@
 import type { Page } from '@playwright/test';
 import { test, expect } from './fixtures';
-import { goToApp, navigateToRoute, programmaticLoginWithRoutes, startRecording, stopRecording } from './helpers';
+import { goToApp, mockLiveTranscript, navigateToRoute, programmaticLoginWithRoutes, startRecording, stopRecording } from './helpers';
+import { TEST_IDS } from '../constants';
+import { MOCK_TRANSCRIPTS } from './fixtures/mockData';
 
 // #1863 J1.e and J1.f in a real browser: the real App, router, auth provider, TrialServiceBoundary and recorder.
 // Only the server is mocked (the in-page Supabase double): its entitlement answer and the save RPC's refusal are set
@@ -8,6 +10,7 @@ import { goToApp, navigateToRoute, programmaticLoginWithRoutes, startRecording, 
 type E2EWindow = Window & {
   __E2E_USAGE_LIMIT_1863__?: Record<string, unknown>;
   __E2E_RPC_ANSWER_1863__?: Record<string, { data: unknown; error: unknown }>;
+  __E2E_RPC_CALLS_1476__?: Record<string, number>;
   queryClient?: {
     invalidateQueries: (filters: { queryKey: unknown[] }) => Promise<void>;
     getQueryCache: () => { findAll: (filters: { queryKey: unknown[] }) => Array<{ state: { data?: { can_start?: boolean } } }> };
@@ -19,8 +22,9 @@ const EXPIRED = { can_start: false, trial_active: false, error: 'trial_expired',
 /** Every cached entitlement answer on the page says access is refused. */
 async function waitForRefusedEntitlement(page: Page) {
   await page.waitForFunction(() => {
-    const entries = (window as E2EWindow).queryClient?.getQueryCache().findAll({ queryKey: ['usageLimit'] }) ?? [];
-    return entries.length > 0 && entries.every((q) => q.state.data?.can_start === false);
+    const answered = ((window as E2EWindow).queryClient?.getQueryCache().findAll({ queryKey: ['usageLimit'] }) ?? [])
+      .filter((q) => q.state.data !== undefined);
+    return answered.length > 0 && answered.every((q) => q.state.data?.can_start === false);
   }, undefined, { timeout: 10_000 });
 }
 
@@ -44,11 +48,14 @@ test.describe('#1863 payment wall in the browser', () => {
     await expect(page.getByTestId('account-deletion-page')).toBeVisible();
     await expect(page.getByTestId('trial-payment-wall')).toHaveCount(0);
 
-    // Account and pricing stay outside the wall.
-    for (const route of ['/account', '/pricing']) {
-      await navigateToRoute(page, route);
-      await expect(page.getByTestId('trial-payment-wall')).toHaveCount(0);
-    }
+    // Account and pricing stay outside the wall, and actually render.
+    await navigateToRoute(page, '/account');
+    await expect(page.getByTestId('account-page')).toBeVisible();
+    await expect(page.getByTestId('trial-payment-wall')).toHaveCount(0);
+    await navigateToRoute(page, '/pricing');
+    await expect(page).toHaveURL(/\/pricing$/);
+    await expect(page.locator('main')).toBeVisible();
+    await expect(page.getByTestId('trial-payment-wall')).toHaveCount(0);
   });
 
   test('J1.e: a take cut off when the trial ends says "not saved", and Delete account still opens deletion', async ({ page }) => {
@@ -57,6 +64,8 @@ test.describe('#1863 payment wall in the browser', () => {
     await programmaticLoginWithRoutes(page, { userType: 'free', mockProfile: { can_start: true, trial_active: true, trial_seconds_remaining: 3600 } });
     await navigateToRoute(page, '/session');
     await startRecording(page);
+    await mockLiveTranscript(page, MOCK_TRANSCRIPTS as unknown as string[]);
+    await expect(page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT)).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId('recorder-stop')).toBeVisible();
 
     // The trial ends mid-take. The server now refuses access and refuses the save, as the database does, and the page
@@ -75,7 +84,14 @@ test.describe('#1863 payment wall in the browser', () => {
     await expect(page.getByTestId('recorder-stop')).toBeVisible();
     await expect(page.getByTestId('trial-payment-wall')).toHaveCount(0);
 
+    // Past the 5 s minimum, so the stop really asks the server to save the take (a shorter take is discarded unsent).
+    await page.waitForTimeout(5_200);
+    const savesBefore = await page.evaluate(() => (window as E2EWindow).__E2E_RPC_CALLS_1476__?.complete_session_v2 ?? 0);
     await stopRecording(page);
+    await expect.poll(
+      () => page.evaluate(() => (window as E2EWindow).__E2E_RPC_CALLS_1476__?.complete_session_v2 ?? 0),
+      { timeout: 15_000 },
+    ).toBeGreaterThan(savesBefore);
 
     // Once the take ends unsaved, the wall replaces the page and says so.
     const wall = page.getByTestId('trial-payment-wall');
