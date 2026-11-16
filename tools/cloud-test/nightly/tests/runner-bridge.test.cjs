@@ -630,3 +630,72 @@ describe('nightly runner bridge: the guarded signup wrapper around the factory',
         assert.equal(clicked, 0);
     });
 });
+
+// Sam, 16 Nov: the complete exact-email lookup wired into guarded-signup recovery, proven at the integration entry point
+// (`recoverUnansweredSignup`) after a real guarded signup through the bridge lost its reply. Fake admin client, no hosted auth.
+describe('nightly runner bridge: recovering a lost guarded signup through the complete exact-email lookup', () => {
+    const { recoverUnansweredSignup } = require('../signup-recovery.cjs');
+    const ev = () => { delete require.cache[require.resolve('../cleanup-evidence.cjs')]; return require('../cleanup-evidence.cjs'); };
+    const lostSignup = async (runId) => {
+        const d = dirs();
+        await nightlyRun(d, runId, { guarded: { runId, clicks: [], results: [], factory: 'lost' } });
+        const sentName = fs.readdirSync(d.evidenceDir).find((n) => n.startsWith(`${runId}.attempt.`) && n.endsWith('.sent.json'));
+        const attemptId = sentName.slice(`${runId}.attempt.`.length, -'.sent.json'.length);
+        return { d, attemptId, email: `rwt-journey-j6-${runId}-1@example.com` };
+    };
+    /** A fake `listUsers`: `users` in pages of `perPage`, optionally failing, always full (truncated), or with a bad total. */
+    const fakeList = (users, { error = false, alwaysFull = false } = {}) => async ({ page, perPage }) => {
+        if (error) return { data: { users: [] }, error: { message: 'boom' } };
+        if (alwaysFull) return { data: { users: Array.from({ length: perPage }, (_, i) => ({ id: `id-${page}-${i}`, email: `x-${page}-${i}@example.com` })) }, error: null };
+        return { data: { users: users.slice((page - 1) * perPage, page * perPage), total: users.length }, error: null };
+    };
+    const recover = (s, listUsers) => recoverUnansweredSignup({ evidenceDir: s.d.evidenceDir, runId: s.runId, attemptId: s.attemptId,
+        listUsers, domain: 'example.com', configuredDomain: 'example.com', runOwnedPrefix: 'rwt-journey-' });
+    for (const [name, list] of [
+        ['a failed listing', (s) => fakeList([], { error: true })],
+        ['an incomplete (truncated) listing', (s) => fakeList([], { alwaysFull: true })],
+        ['a matching user without an id', (s) => fakeList([{ id: '', email: s.email }])],
+        ['a complete zero after the lost reply', (s) => fakeList([{ id: 'other', email: 'someone@example.com' }])],
+    ]) {
+        it(`CONTROL: ${name} keeps admission closed and records nothing`, async () => {
+            const runId = `${8000 + name.length}`;
+            const s = { ...(await lostSignup(runId)), runId };
+            const out = await recover(s, list(s));
+            assert.equal(out.state, 'blocked');
+            assert.equal(fs.readdirSync(s.d.evidenceDir).some((n) => n.endsWith('.landed.json')), false);
+            const admit = ev().admitRun(s.d.evidenceDir);
+            assert.equal(admit.admitted, false);
+            assert.ok(admit.blocking.some((b) => /has no terminal result/.test(b)));
+        });
+    }
+    it('one run-owned match is recorded as landed (scoped cleanup only, id never written); readmits only after a complete zero residue', async () => {
+        const runId = '8100';
+        const s = { ...(await lostSignup(runId)), runId };
+        const out = await recover(s, fakeList([{ id: 'uid-secret-1', email: s.email.toUpperCase() }, { id: 'x', email: 'other@example.com' }]));
+        assert.equal(out.state, 'landed');
+        const landedName = fs.readdirSync(s.d.evidenceDir).find((n) => n.endsWith('.landed.json'));
+        assert.ok(landedName);
+        assert.equal(fs.readFileSync(path.join(s.d.evidenceDir, landedName), 'utf8').includes('uid-secret-1'), false, 'only a digest of the id is recorded');
+        const blocked = ev().admitRun(s.d.evidenceDir);
+        assert.equal(blocked.admitted, false);
+        assert.ok(blocked.blocking.some((b) => /scoped cleanup is permitted/.test(b)));
+        const e = ev();
+        e.recordRecovery(s.d.evidenceDir, runId, 'unit-run-recovery');
+        const sent = JSON.parse(fs.readFileSync(path.join(s.d.evidenceDir, landedName.replace('.landed.json', '.sent.json')), 'utf8'));
+        const landedAt = JSON.parse(fs.readFileSync(path.join(s.d.evidenceDir, landedName), 'utf8')).landedAt;
+        e.recordAttemptRecovery(s.d.evidenceDir, runId, s.attemptId, { kind: 'landed-and-cleaned', residue: { lookupRef: sent.lookupRef, observedAt: landedAt,
+            queries: [{ kind: 'account', scope: sent.lookupRef, count: 0 }], residueChecks: 22, residueNonZero: 0 } });
+        assert.equal(ev().admitRun(s.d.evidenceDir).admitted, true);
+    });
+    it('CONTROL: a domain that is not the configured one, or an attempt never recorded, is blocked before any lookup', async () => {
+        let listed = 0;
+        const counting = async () => { listed += 1; return { data: { users: [] }, error: null }; };
+        const runId = '8200';
+        const s = await lostSignup(runId);
+        assert.equal((await recoverUnansweredSignup({ evidenceDir: s.d.evidenceDir, runId, attemptId: s.attemptId, listUsers: counting,
+            domain: 'example.com', configuredDomain: 'other.test', runOwnedPrefix: 'rwt-journey-' })).state, 'blocked');
+        assert.equal((await recoverUnansweredSignup({ evidenceDir: s.d.evidenceDir, runId, attemptId: 'J6-999', listUsers: counting,
+            domain: 'example.com', configuredDomain: 'example.com', runOwnedPrefix: 'rwt-journey-' })).state, 'blocked');
+        assert.equal(listed, 0);
+    });
+});

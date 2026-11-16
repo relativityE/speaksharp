@@ -1777,6 +1777,30 @@
       "find": "    if (!enumeration || enumeration.complete !== true || !Array.isArray(enumeration.users))\n",
       "replace": "    if (!enumeration || !Array.isArray(enumeration.users))\n",
       "test": "tests/account-lookup.test.cjs"
+    },
+    {
+      "id": "P19-recovery-lands-on-zero",
+      "guards": "only an exact-email lookup that FINDS the account records it as landed; anything else writes nothing",
+      "file": "signup-recovery.cjs",
+      "find": "    if (found.lookup !== 'one')\n",
+      "replace": "    if (found.lookup !== 'one' && found.lookup !== 'zero')\n",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P19-recovery-domain-unverified",
+      "guards": "recovery rebuilds the email only with the fixed, configured domain",
+      "file": "signup-recovery.cjs",
+      "find": "|| fixed !== configuredDomain.toLowerCase())",
+      "replace": ")",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P19-recovery-records-raw-id",
+      "guards": "only a digest of the server id reaches the evidence directory",
+      "file": "signup-recovery.cjs",
+      "find": "    const accountRef = `account-${crypto.createHash('sha256').update(found.uid).digest('hex').slice(0, 24)}`;",
+      "replace": "    const accountRef = found.uid;",
+      "test": "tests/runner-bridge.test.cjs"
     }
   ]
 }

@@ -298,6 +298,11 @@ function recordCreateAttempt(dir, runId, { attemptId, leg, lookupRef, transportD
         throw new Error(`journey ${journeyOf(leg)} already sent its one account create in run ${runId}; another could land after that account is deleted`);
     durableWrite(attemptFile(dir, runId, attemptId, 'sent'), { runId, attemptId, leg, kind: 'account', lookupRef, transportDeadlineMs, recordedAt: at });
 }
+/** The recorded (sent) account-create attempt, or null when it was never recorded or can't be read. */
+function readSentAttempt(dir, runId, attemptId) {
+    checkRunId(runId);
+    return typeof attemptId === 'string' && ATTEMPT_ID.test(attemptId) ? readAttempt(attemptFile(dir, runId, attemptId, 'sent')) : null;
+}
 function readAttempt(file) {
     try {
         return JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -533,5 +538,5 @@ function admitRun(dir, opts = {}) {
 
 module.exports = {
     ADMISSION_LOCK, AdmissionRefused, MAX_TRANSPORT_DEADLINE_MS, RESOURCE_KINDS, SERVER_CREATE_DEADLINE, VERIFICATION_KINDS, admitRun, answerCreateAttempt, beginRun,
-    recordAttemptLanded, recordAttemptRecovery, recordCreateAttempt, recordRecovery, unprovenCleanup, writeCleanupEvidence,
+    readSentAttempt, recordAttemptLanded, recordAttemptRecovery, recordCreateAttempt, recordRecovery, unprovenCleanup, writeCleanupEvidence,
 };
