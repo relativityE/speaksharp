@@ -7,6 +7,7 @@
  * suite, deployed SHA, journey ids and observation set, requires a PASS/FAIL and an observer for every observation,
  * and recomputes acceptance over ALL rows. Content-free throughout: ids, verdicts, SHAs and observer names only.
  */
+import { createHash } from 'node:crypto';
 import { coherentCoachingResult } from '../../../frontend/src/services/telemetry/coachingDiagnosticReceipt';
 import { SAVE_RETRY_SUITE } from './rwtSaveRetry';
 import { ABANDON_SUITE, TWO_TAB_SUITE } from './rwtAbandonTakeover';
@@ -64,15 +65,21 @@ export type Acceptance = 'PASS' | 'FAIL' | 'INCOMPLETE';
  * held as INCOMPLETE.
  */
 export const RUN_SCOPE_ENV = 'RWT_RUN_SCOPE';
-export type RunScopeMeta = { runScope: string | null; diagnosticSpec: string | null; diagnosticGrep: string | null; diagnosticReleaseSource: string | null };
-/** The scope fields the receipt writer records, read verbatim from the workflow's environment (no inference). */
+/**
+ * Content-free (Sam on d7068c26): the free-text grep is never recorded, only its SHA-256; the spec only as a plain repository
+ * test path (anything else is recorded as `unrecognized`); the release source as a closed word.
+ */
+export type RunScopeMeta = { runScope: string | null; diagnosticSpec: string | null; diagnosticGrepSha256: string | null; diagnosticReleaseSource: string | null };
+const SPEC_PATH = /^tests\/[A-Za-z0-9_./-]{1,200}\.spec\.ts$/;
+/** The scope fields the receipt writer records from the workflow's environment (no inference). */
 export function runScopeMeta(env: Readonly<Record<string, string | undefined>>): RunScopeMeta {
     const text = (v: string | undefined) => (typeof v === 'string' && v.length > 0 ? v : null);
-    const scope = text(env[RUN_SCOPE_ENV]);
+    const spec = text(env.DIAGNOSTIC_SPEC);
+    const grep = text(env.DIAGNOSTIC_GREP);
     return {
-        runScope: scope,
-        diagnosticSpec: text(env.DIAGNOSTIC_SPEC),
-        diagnosticGrep: text(env.DIAGNOSTIC_GREP),
+        runScope: text(env[RUN_SCOPE_ENV]),
+        diagnosticSpec: spec === null ? null : SPEC_PATH.test(spec) && !spec.includes('..') ? spec : 'unrecognized',
+        diagnosticGrepSha256: grep === null ? null : createHash('sha256').update(grep, 'utf8').digest('hex'),
         diagnosticReleaseSource: text(env.DIAGNOSTIC_RELEASE) ? 'diagnostic_release_sha' : null,
     };
 }
@@ -80,7 +87,7 @@ export function runScopeMeta(env: Readonly<Record<string, string | undefined>>):
 export function runScopeVerdict(meta: Record<string, unknown> | undefined): { qualifies: boolean; reason: string } {
     const m = meta ?? {};
     const scope = m.runScope;
-    const diagnosticFields = ['diagnosticSpec', 'diagnosticGrep', 'diagnosticReleaseSource'].filter((k) => m[k] !== null && m[k] !== undefined);
+    const diagnosticFields = ['diagnosticSpec', 'diagnosticGrepSha256', 'diagnosticReleaseSource'].filter((k) => m[k] !== null && m[k] !== undefined);
     if (scope === undefined || scope === null)
         return { qualifies: false, reason: 'no recorded run scope: an old or unscoped receipt cannot qualify as acceptance' };
     if (scope === 'diagnostic')

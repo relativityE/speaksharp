@@ -53,8 +53,9 @@ const finalize = (meta: Record<string, unknown>, rows?: ReceiptRow[]) => {
     const r = receipt(meta, rows);
     return finalizeReceipt(r, worksheet(r), readback);
 };
-const FULL = { runScope: 'full-gate', diagnosticSpec: null, diagnosticGrep: null, diagnosticReleaseSource: null };
-const DIAGNOSTIC = { runScope: 'diagnostic', diagnosticSpec: 'tests/live/rwt-open-mic-first-session.live.spec.ts', diagnosticGrep: 'one test', diagnosticReleaseSource: 'diagnostic_release_sha' };
+const FULL = { runScope: 'full-gate', diagnosticSpec: null, diagnosticGrepSha256: null, diagnosticReleaseSource: null };
+const GREP = 'Free user with an UNUSED Private sample';
+const DIAGNOSTIC = { runScope: 'diagnostic', diagnosticSpec: 'tests/live/rwt-open-mic-first-session.live.spec.ts', diagnosticGrepSha256: sha(GREP), diagnosticReleaseSource: 'diagnostic_release_sha' };
 
 describe('the finalizer: only a full Gate 3 scope may carry an acceptance PASS', () => {
     it('a properly scoped full-gate receipt still finalizes PASS (the normal acceptance path)', () => {
@@ -76,6 +77,7 @@ describe('the finalizer: only a full Gate 3 scope may carry an acceptance PASS',
         ['malformed (other word)', { runScope: 'yes' }],
         ['malformed (not a string)', { runScope: true }],
         ['contradictory: full-gate with a diagnostic spec', { ...FULL, diagnosticSpec: 'tests/live/x.live.spec.ts' }],
+        ['contradictory: full-gate with a diagnostic grep', { ...FULL, diagnosticGrepSha256: sha(GREP) }],
         ['contradictory: full-gate with a caller-chosen release', { ...FULL, diagnosticReleaseSource: 'diagnostic_release_sha' }],
     ])('CONTROL: a %s scope cannot produce an acceptance PASS', (_name, meta) => {
         expect(finalize(meta).finalAcceptance).toBe('INCOMPLETE');
@@ -97,8 +99,15 @@ describe('the scope is read exactly as the workflow set it, never inferred', () 
         expect(runScopeVerdict(meta).qualifies).toBe(false);
     });
     it('a diagnostic run records its spec, grep and release source', () => {
-        expect(runScopeMeta({ [RUN_SCOPE_ENV]: 'diagnostic', DIAGNOSTIC_SPEC: DIAGNOSTIC.diagnosticSpec, DIAGNOSTIC_GREP: 'one test', DIAGNOSTIC_RELEASE: RELEASE }))
+        expect(runScopeMeta({ [RUN_SCOPE_ENV]: 'diagnostic', DIAGNOSTIC_SPEC: DIAGNOSTIC.diagnosticSpec, DIAGNOSTIC_GREP: GREP, DIAGNOSTIC_RELEASE: RELEASE }))
             .toEqual(DIAGNOSTIC);
+    });
+    it('CONTROL (content-free): the grep is recorded only as its SHA-256, and a spec that is not a plain test path as `unrecognized`', () => {
+        const meta = runScopeMeta({ [RUN_SCOPE_ENV]: 'diagnostic', DIAGNOSTIC_SPEC: 'tests/live/../../etc/x.spec.ts', DIAGNOSTIC_GREP: GREP });
+        expect(JSON.stringify(meta)).not.toContain(GREP);
+        expect(meta.diagnosticGrepSha256).toMatch(/^[0-9a-f]{64}$/);
+        for (const spec of ['tests/live/../../etc/x.spec.ts', '/tmp/x.spec.ts', 'tests/live/x.spec.ts; rm -rf', 'not a path'])
+            expect(runScopeMeta({ DIAGNOSTIC_SPEC: spec }).diagnosticSpec).toBe('unrecognized');
     });
 });
 
@@ -132,9 +141,10 @@ describe('the receipt writer stamps the scope, and the stamp reaches the finaliz
         expect(final).toMatchObject({ status: 'final', finalAcceptance: 'PASS' });
     });
     it('CONTROL: diagnostic step: the written receipt says diagnostic, its own acceptance is not PASS, and it finalizes INCOMPLETE', () => {
-        Object.assign(process.env, { [RUN_SCOPE_ENV]: 'diagnostic', DIAGNOSTIC_SPEC: DIAGNOSTIC.diagnosticSpec, DIAGNOSTIC_GREP: 'one test', DIAGNOSTIC_RELEASE: RELEASE });
+        Object.assign(process.env, { [RUN_SCOPE_ENV]: 'diagnostic', DIAGNOSTIC_SPEC: DIAGNOSTIC.diagnosticSpec, DIAGNOSTIC_GREP: GREP, DIAGNOSTIC_RELEASE: RELEASE });
         const { written, final } = writeAndFinalize();
         expect(written.meta).toMatchObject(DIAGNOSTIC);
+        expect(readFileSync(path.join(dir, 'test-results', 'rwt', `${SUITE}.receipt.json`), 'utf8')).not.toContain(GREP);
         expect(written.acceptance).not.toBe('PASS');
         expect(final).toMatchObject({ finalAcceptance: 'INCOMPLETE', automatedRowsAllPass: true });
     });
