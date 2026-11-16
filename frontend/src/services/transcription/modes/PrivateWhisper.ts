@@ -210,6 +210,7 @@ type SpeechGateStats = {
 const PRIVATE_STT_SAMPLE_RATE = PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ;
 const MIN_TRANSCRIPTION_SAMPLES = PRIV_STT_DERIVED.MIN_TRANSCRIPTION_SAMPLES;
 const LIVE_DECODE_WINDOW_SAMPLES = PRIV_STT_DERIVED.LIVE_DECODE_WINDOW_SAMPLES;
+const COLD_START_BACKLOG_MAX_SAMPLES = PRIV_STT_DERIVED.COLD_START_BACKLOG_MAX_SAMPLES;
 const UTTERANCE_SILENCE_TAIL_SAMPLES = PRIV_STT_DERIVED.UTTERANCE_SILENCE_TAIL_SAMPLES;
 const MAX_RETRY_SAMPLES = PRIV_STT_DERIVED.MAX_RETRY_SAMPLES;
 const PROCESSING_INTERVAL_MS = PRIV_STT.PROCESSING_INTERVAL_MS;
@@ -787,6 +788,9 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   // latency. performance.now() ms; null until set this recording.
   private streamStartAtMs: number | null = null;
   private speechStartAtMs: number | null = null;
+  // Cold start: false until this take's first live (non-final) decode, which may take the whole
+  // backlog spoken while the model loaded (COLD_START_BACKLOG_MAX_SAMPLES), not only the newest window.
+  private liveDecodeStarted: boolean = false;
   // Slice 1 timing telemetry (window.__PRIVATE_TIMING__). Diagnostics only.
   private firstProvisionalAtMs: number | null = null;
   private firstFinalAtMs: number | null = null;
@@ -1136,6 +1140,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     }
     this.streamStartAtMs = performance.now();
     this.speechStartAtMs = null;
+    this.liveDecodeStarted = false;
     this.retainedUtterancePrerollSamplesAtStart = 0;
     // Reset Slice 1 timing telemetry for the new recording.
     this.firstProvisionalAtMs = null;
@@ -2221,11 +2226,16 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
 
   private capLiveDecodeWindow(audio: Float32Array): Float32Array {
     const hasCommittedTranscript = this.currentTranscript.trim().length > 0;
+    // Cold start: the take's first live decode keeps the backlog spoken while the model loaded, so
+    // the opening (Focus Point 1) is transcribed live rather than dropped for the newest window.
+    const isColdStartBacklog = !hasCommittedTranscript && !this.liveDecodeStarted;
+    this.liveDecodeStarted = true;
     const maxLiveSamples = hasCommittedTranscript
       ? LIVE_DECODE_WINDOW_SAMPLES
       : Math.max(
         LIVE_DECODE_WINDOW_SAMPLES,
         secondsToSamples(PRIV_STT.FIRST_TRANSCRIPT_MIN_DURATION_SECONDS, PRIVATE_STT_SAMPLE_RATE),
+        isColdStartBacklog ? COLD_START_BACKLOG_MAX_SAMPLES : 0,
       );
 
     if (audio.length <= maxLiveSamples) return audio;
@@ -2240,6 +2250,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       outputDurationSec: Number(samplesToSeconds(cappedAudio.length, PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
       windowSeconds: Number(samplesToSeconds(maxLiveSamples, PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
       hasCommittedTranscript,
+      isColdStartBacklog,
     });
 
     if (isPrivateTranscriptTraceEnabled()) {

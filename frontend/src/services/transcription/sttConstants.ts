@@ -64,6 +64,12 @@ export const PRIV_STT = {
   // live/provisional decodes use a recent window. Stop/final save still uses
   // the full utterance buffer.
   LIVE_DECODE_WINDOW_SECONDS: 3.0,
+  // Cold start (Focus Point 1, 2026-11-16): when the mic opens before the model is ready, the speech
+  // spoken while it loaded reaches the live path as one backlog (the mic replays up to 15 s, #960).
+  // The FIRST live decode of a take may take up to this much of that backlog, so the opening is
+  // transcribed live instead of being cut to the newest LIVE_DECODE_WINDOW_SECONDS. Later decodes
+  // keep the normal window. Matches the mic's 15 s replay buffer.
+  COLD_START_BACKLOG_MAX_SECONDS: 15,
   UTTERANCE_SILENCE_TAIL_SECONDS: 1.0,
   // #891 capture-from-start: the final buffer accumulates from mic-start (not from speech-start
   // confirmation), so a hard cap bounds memory on a stuck/overlong recording. On overflow we keep
@@ -350,6 +356,10 @@ export const PRIV_STT_DERIVED = {
   ),
   LIVE_DECODE_WINDOW_SAMPLES: secondsToSamples(
     PRIV_STT.LIVE_DECODE_WINDOW_SECONDS,
+    PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ,
+  ),
+  COLD_START_BACKLOG_MAX_SAMPLES: secondsToSamples(
+    PRIV_STT.COLD_START_BACKLOG_MAX_SECONDS,
     PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ,
   ),
   UTTERANCE_SILENCE_TAIL_SAMPLES: secondsToSamples(
