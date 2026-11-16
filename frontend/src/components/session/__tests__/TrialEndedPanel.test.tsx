@@ -16,23 +16,25 @@ describe('TrialEndedPanel', () => {
         expect(screen.getByRole('heading', { name: TRIAL_ENDED_COPY.title })).toBeInTheDocument();
         expect(screen.getByText(TRIAL_ENDED_COPY.body)).toBeInTheDocument();
         for (const { label } of TRIAL_ENDED_COPY.keeps) expect(screen.getByText(label)).toBeInTheDocument();
-        expect(screen.getByTestId('trial-ended-progress')).toHaveAttribute('href', '/progress');
         expect(screen.getByTestId('trial-ended-account')).toHaveAttribute('href', '/account');
     });
 
-    it('matches newest-one retention: never claims every transcript or review is still there', () => {
-        // Retention keeps only the newest saved transcript (and its coaching); history and measurements survive.
+    it('PO 2026-11-14 payment wall: offers no saved work while unpaid, and says nothing was deleted', () => {
+        // "No payment, no service or access to their past data. They have the option to delete account."
         renderPanel(true);
-        const text = screen.getByTestId('trial-ended-panel').textContent ?? '';
-        expect(text).toMatch(/most recent saved transcript/i);
-        expect(text).toMatch(/keeps only the newest one/i);
+        const panel = screen.getByTestId('trial-ended-panel');
+        const text = panel.textContent ?? '';
+        expect(screen.queryByTestId('trial-ended-progress')).not.toBeInTheDocument();
+        const hrefs = Array.from(panel.querySelectorAll('a')).map(link => link.getAttribute('href'));
+        expect(hrefs.sort()).toEqual(['/account', '/pricing']);
+        expect(text).not.toMatch(/\bin Progress\b|PDF export|Open Progress/i);
+        expect(text).toMatch(/saved work are closed on this account until payment is confirmed/i);
+        expect(text).toMatch(/kept, not deleted/i);
+        expect(text).toMatch(/deleting your account/i);
+        // Newest-one retention still holds for what paying reopens: never claims every transcript is kept.
+        expect(text).toMatch(/keeps only the newest transcript/i);
         expect(text).not.toMatch(/\beverything\b/i);
         expect(text).not.toMatch(/\ball (of )?your\b/i);
-        expect(text).not.toMatch(/\breviews\b/i);
-        expect(text).not.toMatch(/\bany saved session\b/i);
-        // The PDF carries a transcript page only for a session whose transcript is still stored.
-        expect(text).toMatch(/transcript for the newest one only/i);
-        expect(text).not.toMatch(/PDF export of your saved sessions/i);
     });
 
     it('uses neutral paid-access wording, never a tier name', () => {

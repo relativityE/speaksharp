@@ -45,6 +45,17 @@ const defaultFetchUsageLimit = async (session?: { access_token: string }): Promi
  * Hook to check recording access through the legacy-named endpoint.
  * Follows exact Phase 3 - Step 1 prescription.
  */
+function usageLimitQueryFn(
+    session: unknown,
+    fetchUsageLimit?: () => Promise<UsageLimitCheck>,
+): () => Promise<UsageLimitCheck> {
+    return async (): Promise<UsageLimitCheck> => {
+        const e2eDeps = (typeof window !== 'undefined' ? (window as unknown as Record<string, unknown>).__E2E_DEPS__ : null) as { fetchUsageLimit?: () => Promise<UsageLimitCheck> } | null;
+        const fetcher = fetchUsageLimit || e2eDeps?.fetchUsageLimit || (() => defaultFetchUsageLimit(session as { access_token: string }));
+        return fetcher();
+    };
+}
+
 export function useUsageLimit(deps?: { fetchUsageLimit?: () => Promise<UsageLimitCheck> }) {
     const { user, session } = useAuthProvider();
 
@@ -52,13 +63,23 @@ export function useUsageLimit(deps?: { fetchUsageLimit?: () => Promise<UsageLimi
     // Note: We wrap in useQuery for UI-side state management (loading/error).
     return useQuery({
         queryKey: ['usageLimit', user?.id],
-        queryFn: async (): Promise<UsageLimitCheck> => {
-            const e2eDeps = (typeof window !== 'undefined' ? (window as unknown as Record<string, unknown>).__E2E_DEPS__ : null) as { fetchUsageLimit?: () => Promise<UsageLimitCheck> } | null;
-            const fetcher = deps?.fetchUsageLimit || e2eDeps?.fetchUsageLimit || (() => defaultFetchUsageLimit(session as { access_token: string }));
-            return fetcher();
-        },
+        queryFn: usageLimitQueryFn(session, deps?.fetchUsageLimit),
         enabled: !!user && !!session,
         staleTime: 0,
         refetchOnWindowFocus: true,
+    });
+}
+
+/**
+ * Cache-only read of the same entitlement answer: disabled, so it never starts a fetch of its own and only
+ * reflects what useUsageLimit last stored for this user. It carries the real fetcher (not skipToken) because
+ * observers of one key share options, and a key-wide invalidation must still be able to run the query.
+ */
+export function useCachedUsageLimit() {
+    const { user, session } = useAuthProvider();
+    return useQuery({
+        queryKey: ['usageLimit', user?.id],
+        queryFn: usageLimitQueryFn(session),
+        enabled: false,
     });
 }
