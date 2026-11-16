@@ -1106,6 +1106,13 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 const windows = fixture.entry.pointAudioWindows ?? [];
                 // Past point 1's window, short of point 2's start (focus_points_tts: [2.91,6.21] then [11.98,…]).
                 const shortTakeSeconds = windows[1] ? Math.max(8, Math.min(9, windows[1][0] - 2)) : 9;
+                // Diagnostics only (content-free): arm the product's own controller trace before the take, so the receipt says
+                // whether the completed brief's publication or the live brief's retirement was refused for this take.
+                const switchTraceFrom = await page.evaluate(() => {
+                    const w = window as unknown as { __NATIVE_BROWSER_TRACE__?: unknown[] };
+                    w.__NATIVE_BROWSER_TRACE__ = w.__NATIVE_BROWSER_TRACE__ ?? [];
+                    return performance.now();
+                }).catch(() => null);
                 await startBenchmarkRecording(page, `${suite}-switch-focus`);
                 await page.waitForTimeout(shortTakeSeconds * 1000);
                 await stopBenchmarkRecording(page, `${suite}-switch-focus`, 180_000);
@@ -1116,6 +1123,20 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 await expect.poll(async () => (await readRail(page, points.length)).statuses.every((s) => s !== 'pending'), { timeout: 60_000 })
                     .toBe(true).catch(() => undefined);
                 const finalStatuses = (await readRail(page, points.length)).statuses;
+                // Diagnostics only: which after-state the page is in, and whether the rail is mounted at all (rows absent
+                // reads as null statuses), plus the refusal events the controller recorded for this take. Names only.
+                const switchAfterState = await page.evaluate((from) => {
+                    const trace = (window as unknown as { __NATIVE_BROWSER_TRACE__?: Array<{ t: number; event: string }> }).__NATIVE_BROWSER_TRACE__ ?? [];
+                    const watched = ['controller_progress_publication_refused', 'controller_brief_retirement_refused'];
+                    return {
+                        sessionState: document.querySelector('[data-testid="session-shell"]')?.getAttribute('data-session-state') ?? null,
+                        runtimeState: document.documentElement.getAttribute('data-runtime-state'),
+                        railMounted: document.querySelectorAll('[data-testid="focus-points-rail"]').length > 0,
+                        railRows: document.querySelectorAll('[data-testid^="focus-point-"][data-status]').length,
+                        topicShown: document.querySelectorAll('[data-testid="focus-points-topic"]').length > 0,
+                        refusals: from === null ? null : trace.filter((e) => e.t >= from && watched.includes(e.event)).map((e) => e.event).join('|'),
+                    };
+                }, switchTraceFrom).catch(() => null);
                 const savedFocus = focusId && focusId !== openMicId ? await sessionRow(focusId) : unavailable('missing');
                 const savedProduct = savedFocus.state === 'available' && savedFocus.sessionId === focusId && savedFocus.userId === owner.uid ? savedFocus.product : null;
                 const openMicAfter = openMicId && openMicId !== before ? await sessionRow(openMicId) : unavailable('missing');
@@ -1129,6 +1150,9 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     openMicSaved: Boolean(openMicId && openMicId !== before), openMicUnchanged: openMicBefore.digest !== null && openMicBefore.digest === openMicAfter.digest,
                     openMicRetentionState: openMicAfter.state ?? 'unknown',
                     openMicExpiredAfterWitness: iso.verdict === 'PASS' && openMicAfter.state === 'expired',
+                    afterSessionState: switchAfterState?.sessionState ?? 'unread', afterRuntimeState: switchAfterState?.runtimeState ?? 'unread',
+                    railMounted: switchAfterState?.railMounted ?? null, railRows: switchAfterState?.railRows ?? null,
+                    topicShown: switchAfterState?.topicShown ?? null, controllerRefusals: switchAfterState?.refusals ?? 'unread',
                 });
                 // Read again at the end of the step, so an objective row written late for the Open Mic take is still seen.
                 if (savedOpenMicId) openMicObjectiveRowReads.push(await objectiveRowsFor(savedOpenMicId));
