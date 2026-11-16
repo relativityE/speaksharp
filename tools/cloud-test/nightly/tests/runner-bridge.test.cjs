@@ -62,7 +62,29 @@ function fakeIo(scenario, wire) {
             const refused = [];
             const j6 = c.id === 'AHT-11';
             // The runner records what it creates BEFORE the creating send; the teardown's report can't erase it.
-            if (scenario.create) {
+            if (scenario.guarded) {
+                // Sam, 16 Nov: the nightly-owned wrapper around the signup factory, through the real guarded route.
+                const g = scenario.guarded;
+                const { guardedSignup } = require('../guarded-signup.cjs');
+                const attemptOnDisk = () => fs.readdirSync(scenario.evidenceDir).some((n) => n.includes('.attempt.') && n.endsWith('.sent.json'));
+                const factory = async (page, email) => {
+                    g.clicks.push({ email, attemptRecordedBeforeClick: attemptOnDisk() });
+                    wire.push('create:account');
+                    if (g.factory === 'lost') throw new Error('signup reply lost');
+                    return { uid: 'uid-unit', signInOn: async () => undefined };
+                };
+                const signUp = guardedSignup({ prefix: 'rwt-journey-', runId: g.runId, runAttempt: '1', domain: 'example.com', configuredDomain: 'example.com',
+                    createAccount: nightly.createAccount, factory });
+                if (g.unwritableEvidence) fs.chmodSync(scenario.evidenceDir, 0o500);
+                try {
+                    for (let i = 0; i < (g.times ?? 1); i += 1)
+                        g.results.push(await signUp({ page: 'fake-page' }, leg).catch((e) => ({ threw: e.message })));
+                }
+                finally {
+                    if (g.unwritableEvidence) fs.chmodSync(scenario.evidenceDir, 0o700);
+                }
+            }
+            else if (scenario.create) {
                 // Sam, 15 Nov (#1867): the account-create request goes through the ONE guarded route, onto a fake transport.
                 const g = scenario.create;
                 const attemptsBefore = () => fs.readdirSync(scenario.evidenceDir).filter((n) => n.includes('.attempt.') && n.endsWith('.sent.json')).length;
@@ -533,5 +555,78 @@ describe('nightly runner bridge: one account create per journey reservation, acr
         const residue = { lookupRef: sent.lookupRef, observedAt: new Date().toISOString(), queries: [{ kind: 'account', scope: sent.lookupRef, count: 0 }], residueChecks: 22, residueNonZero: 0 };
         assert.throws(() => ev.recordAttemptRecovery(d.evidenceDir, 'r5', sent.attemptId, { kind: 'landed-and-cleaned', residue }), /no landed record/);
         assert.equal(fresh().admitRun(d.evidenceDir).admitted, false);
+    });
+});
+
+// Sam, 16 Nov: the new runner's ONLY signup path is the nightly-owned wrapper: the exact reservation email is fixed, the attempt
+// is recorded through the guarded route, and only then is the factory called once with that email. This proves the runner
+// submits once, not that the network delivers once.
+describe('nightly runner bridge: the guarded signup wrapper around the factory', () => {
+    const { guardedSignup } = require('../guarded-signup.cjs');
+    const g = (runId, over = {}) => ({ runId, clicks: [], results: [], ...over });
+    it('a successful record precedes the one click, with the exact reservation email', async () => {
+        const d = dirs();
+        const guarded = g('7001');
+        await nightlyRun(d, '7001', { guarded });
+        assert.equal(guarded.clicks.length, 1);
+        assert.equal(guarded.clicks[0].attemptRecordedBeforeClick, true, 'the attempt was on disk before the factory clicked');
+        assert.equal(guarded.clicks[0].email, 'rwt-journey-j6-7001-1@example.com');
+        assert.equal(guarded.results[0].created, true);
+        const sent = fs.readdirSync(d.evidenceDir).filter((n) => n.startsWith('7001.attempt.') && n.endsWith('.sent.json'));
+        assert.equal(sent.length, 1);
+        assert.equal(JSON.parse(fs.readFileSync(path.join(d.evidenceDir, sent[0]), 'utf8')).lookupRef, 'rwt-journey-j6-7001-1');
+    });
+    it('CONTROL: a failed record write means no click', async () => {
+        const d = dirs();
+        const guarded = g('7002', { unwritableEvidence: true });
+        await nightlyRun(d, '7002', { guarded });
+        assert.equal(guarded.clicks.length, 0);
+        assert.equal(guarded.results[0].created, false);
+        assert.match(guarded.results[0].reason, /could not be recorded, so nothing was sent/);
+    });
+    it('CONTROL: a second signup in the run clicks nothing', async () => {
+        const d = dirs();
+        const guarded = g('7003', { times: 2 });
+        await nightlyRun(d, '7003', { guarded });
+        assert.equal(guarded.clicks.length, 1);
+        assert.equal(guarded.results[1].created, false);
+    });
+    it('CONTROL: after a lost reply and a restart, a retry for the journey clicks nothing', async () => {
+        const d = dirs();
+        const guarded = g('7004', { factory: 'lost' });
+        await nightlyRun(d, '7004', { guarded });
+        assert.equal(guarded.clicks.length, 1);
+        assert.ok(guarded.results[0].threw, 'the lost reply propagates; the attempt stays unresolved');
+        // Restart: a fresh module reading the same evidence; the bridge's durable record refuses the journey's second create.
+        delete require.cache[require.resolve('../cleanup-evidence.cjs')];
+        const ev = require('../cleanup-evidence.cjs');
+        let clicked = 0;
+        const restarted = guardedSignup({ prefix: 'rwt-journey-', runId: '7004', runAttempt: '1', domain: 'example.com', configuredDomain: 'example.com',
+            createAccount: async (leg, lookupRef, send) => {
+                try {
+                    ev.recordCreateAttempt(d.evidenceDir, '7004', { attemptId: `${leg}-restart`, leg, lookupRef, transportDeadlineMs: 1000 });
+                }
+                catch (e) {
+                    return { sent: false, reason: e.message };
+                }
+                return { sent: true, answered: true, value: await send({ token: null, signal: new AbortController().signal, retries: 0 }) };
+            },
+            factory: async () => { clicked += 1; return { uid: 'x' }; } });
+        const again = await restarted('fake-page', 'J6');
+        assert.equal(clicked, 0, 'no click after the restart');
+        assert.equal(again.created, false);
+        assert.match(again.reason, /already sent its one account create/);
+        assert.equal(ev.admitRun(d.evidenceDir).admitted, false, 'the lost reply still blocks admission');
+    });
+    it('CONTROL: the guard is required, the domain must be the configured one, and a route that allows retries is refused', async () => {
+        const base = { prefix: 'rwt-journey-', runId: '7005', runAttempt: '1', domain: 'example.com', configuredDomain: 'example.com', factory: async () => ({ uid: 'x' }) };
+        assert.throws(() => guardedSignup({ ...base, createAccount: undefined }), /no unguarded signup path/);
+        assert.throws(() => guardedSignup({ ...base, createAccount: async () => ({}), configuredDomain: 'other.test' }), /not fixed to the configured test domain/);
+        assert.throws(() => guardedSignup({ ...base, createAccount: async () => ({}), domain: 'nodot' }), /not fixed/);
+        let clicked = 0;
+        const sloppy = guardedSignup({ ...base, factory: async () => { clicked += 1; return { uid: 'x' }; },
+            createAccount: async (_leg, _ref, send) => ({ sent: true, answered: true, value: await send({ retries: 3 }) }) });
+        await assert.rejects(sloppy('p', 'J8.a'), /must forbid retries/);
+        assert.equal(clicked, 0);
     });
 });

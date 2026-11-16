@@ -1713,6 +1713,38 @@
       "find": "const value = await send({ token: r.token, signal, retries: 0 });",
       "replace": "const value = await send({ token: r.token, signal });",
       "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P16-unguarded-signup-allowed",
+      "guards": "the new runner has no unguarded signup path: without the bridge route nothing is touched",
+      "file": "guarded-signup.cjs",
+      "find": "    if (typeof createAccount !== 'function')\n        throw new Error(",
+      "replace": "    if (false)\n        throw new Error(",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P16-domain-not-fixed",
+      "guards": "the reservation domain must be the configured test domain",
+      "file": "guarded-signup.cjs",
+      "find": "|| fixed !== configuredDomain.toLowerCase())",
+      "replace": ")",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P16-retrying-route-accepted",
+      "guards": "the wrapper refuses a route that allows retries before clicking",
+      "file": "guarded-signup.cjs",
+      "find": "            if (retries !== 0)\n",
+      "replace": "            if (false)\n",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P16-factory-before-record",
+      "guards": "the factory is called only inside the guarded route, after the attempt is recorded",
+      "file": "guarded-signup.cjs",
+      "find": "        const route = await createAccount(leg, lookupRef, async ({ retries }) => {",
+      "replace": "        account = await factory(page, email); factoryCalls += 1;\n        const route = await createAccount(leg, lookupRef, async ({ retries }) => {",
+      "test": "tests/runner-bridge.test.cjs"
     }
   ]
 }
