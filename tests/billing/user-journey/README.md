@@ -203,11 +203,11 @@ prints the plan and what still blocks it; it reads committed files only and neve
 outcome 8's own mode: it holds only the paid value loop, which `smoke` and `full` never include, so a Gemini outage
 or a coaching bug shows as outcome 8 not proven, never as billing not proven.
 
-Access after a membership ends is on hold until the end-of-access policy is confirmed. `access_expired` and
-`history_retained` in `portal_expiry` and `refund_period_end` read `PENDING_POLICY`: they are never asserted,
-the spec fails with `access_after_end_policy_pending`, the combined receipt keeps the `policy_pending` defect,
-and full mode can say `PENDING_POLICY` at best, never `PASSED`. The run still proves the account and saved
-data are kept, from the database only.
+Access after a membership ends follows Akin's 2026-11-14 rule, "No payment, no service or access to their past
+data", which the #1863 payment wall enforces. In `portal_expiry` and `refund_period_end`, once the paid period
+ends the run proves the account and saved data are kept (database read), then `access_expired` (the still
+signed-in member gets `can_start: false`) and `history_retained` (that member's own read of the kept recording
+returns nothing). No step is held as `PENDING_POLICY` now; the mechanism stays for a future held policy.
 
 What each branch must prove before it may say so (Sam's fa7e7180 return):
 
@@ -223,8 +223,8 @@ What each branch must prove before it may say so (Sam's fa7e7180 return):
   attachments, best passed as its bytes) and the destruction proof. It re-hashes those bytes, requires the array to
   hold exactly one receipt, and re-checks that receipt's steps, release, stack and cleanup (Sam's ac08d973 review).
   A test runs the workflow's own jq extraction and the combined finaliser's CLI and hands the files to it. A bare or
-  summary-only `PASSED` is `NOT_PROVEN`. Two phases on one stack are `NOT_PROVEN`. While access after a membership
-  ends is held, full mode is at best `PENDING_POLICY`, never `PASSED`.
+  summary-only `PASSED` is `NOT_PROVEN`. Two phases on one stack are `NOT_PROVEN`. While any step is held for a
+  product policy (none is held now), full mode is at best `PENDING_POLICY`, never `PASSED`.
 - The outcome 8 paid value loop (#1822, `paid_value_loop`) is a local-stack journey like the others, not an outside
   receipt, re-validated in its own `paid_loop` mode. It keeps its own spec, Playwright config and 90-minute job
   timeout (the billing journeys keep 60). Its 17 steps are in outcome 8's own `paidLoopSteps.mjs`, which
