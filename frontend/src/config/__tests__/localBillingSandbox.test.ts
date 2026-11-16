@@ -56,5 +56,8 @@ describe('only the local billing workflow builds with the sandbox acknowledgemen
     const wf = readFileSync(resolve(__dirname, '../../../../.github/workflows/billing-local-stack-journey.yml'), 'utf8');
     expect(wf).toMatch(/VITE_BILLING_LOCAL_SANDBOX: ISOLATED-TEST-MODE-ONLY/);
     expect(wf).toMatch(/LOCAL_APP_URL: http:\/\/localhost:5173/);
+    // The sandbox build talks only to the loopback API the workflow started.
+    expect(wf).toMatch(/VITE_SUPABASE_URL: \$\{\{ env\.LOCAL_API_URL \}\}/);
+    expect(wf).toMatch(/LOCAL_API_URL: http:\/\/127\.0\.0\.1:54321/);
   });
 });
