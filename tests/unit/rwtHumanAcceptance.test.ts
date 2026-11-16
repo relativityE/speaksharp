@@ -42,7 +42,7 @@ const productRows: ReceiptRow[] = requiredAutomatedRows(SUITE)!.product
     .filter((step) => ![...automated, ...inventory].some((r) => r.step === step))
     .map((step) => ({ step, verdict: step === 'base_q4 primary' ? 'HOLD' : 'PASS', detail: 'fixture' }));
 const rows = [...automated, human('open_mic_coaching_relevant', 'Product 1 row 5'), human('open_mic_uh_detected', 'Product 1 row 4'), ...inventory, ...productRows];
-const receipt = { suite: SUITE, release: SHA, meta: { fixtureKind: 'synthetic' }, rows, readback: { journeys: [{ journeyId: JOURNEY, stages: ['session_during', 'session_after_open_mic'] }], reportedJourneyIds: [] } };
+const receipt = { suite: SUITE, release: SHA, meta: { fixtureKind: 'synthetic', runScope: 'full-gate' }, rows, readback: { journeys: [{ journeyId: JOURNEY, stages: ['session_during', 'session_after_open_mic'] }], reportedJourneyIds: [] } };
 const readbackOk = { suite: SUITE, release: SHA, journeys: [{ journeyId: JOURNEY, stages: ['session_during', 'session_after_open_mic'], verdict: 'QUALIFIED' }], missingBindings: [] };
 
 /** Fill the blank Result/Observer cells of a generated worksheet. */
@@ -168,18 +168,19 @@ describe('PM RETURN 2026-09-26 — the receipt is untrusted input: a malformed r
     });
 
     it('a human-recorded uh is required only for the synthetic fixture (a human recording proves it automatically)', () => {
-        const humanFixture = { ...receipt, meta: { fixtureKind: 'human' }, rows: [...rows.slice(0, 3), ...inventory, ...productRows] };
+        const humanFixture = { ...receipt, meta: { fixtureKind: 'human', runScope: 'full-gate' }, rows: [...rows.slice(0, 3), ...inventory, ...productRows] };
         const md = complete(humanWorksheet(SUITE, SHA, [JOURNEY], humanFixture.rows), { open_mic_coaching_relevant: 'PASS' });
         expect(finalizeReceipt(humanFixture, parseHumanWorksheet(md), readbackOk).finalAcceptance).toBe('PASS');
     });
 });
 
 describe('the finalization STEP itself (`pnpm rwt:finalize` → scripts/rwt-finalize-receipt.mts)', () => {
-    const run = (results: Record<string, string>) => {
+    // A full Gate 3 run's receipt (Sam, 16 Nov B: only that step stamps `full-gate`); `meta` overrides it for the scope controls.
+    const run = (results: Record<string, string>, meta: Record<string, unknown> = { runScope: 'full-gate' }) => {
         const dir = mkdtempSync(path.join(tmpdir(), 'rwt-final-'));
         const receiptPath = path.join(dir, `${SUITE}.receipt.json`);
         const worksheetPath = path.join(dir, `${SUITE}.human-worksheet.md`);
-        writeFileSync(receiptPath, JSON.stringify({ ...receipt, meta: {} }));
+        writeFileSync(receiptPath, JSON.stringify({ ...receipt, meta }));
         writeFileSync(worksheetPath, complete(humanWorksheet(SUITE, SHA, [JOURNEY], rows), results));
         const readbackPath = path.join(dir, `${SUITE}.readback-verdicts.json`);
         writeFileSync(readbackPath, JSON.stringify(readbackOk));
@@ -208,6 +209,15 @@ describe('the finalization STEP itself (`pnpm rwt:finalize` → scripts/rwt-fina
             expect(code).toBe(2);
             expect(final.finalAcceptance).toBe('INCOMPLETE');
             expect((final.errors as string[]).length).toBeGreaterThan(0);
+        }
+    }, 60_000);
+
+    it('CONTROL (real CLI, Sam 16 Nov B): the same all-PASS receipt from a diagnostic run, or with no scope, exits 2 INCOMPLETE, never 0 PASS', () => {
+        const allPass = { open_mic_coaching_relevant: 'PASS', open_mic_uh_detected: 'PASS' };
+        for (const meta of [{ runScope: 'diagnostic', diagnosticSpec: 'tests/live/rwt-open-mic-first-session.live.spec.ts' }, {}]) {
+            const out = run(allPass, meta);
+            expect(out.code).toBe(2);
+            expect(out.final.finalAcceptance).toBe('INCOMPLETE');
         }
     }, 60_000);
 
