@@ -20,22 +20,6 @@ type WorkerFixtures = {
   workerAuth: void;
 };
 
-/**
- * The shared console monitor's rule: console errors that are expected, non-fatal noise (network, STT, trial, RPC,
- * heartbeat and profile). Every other console error fails the test. Exported so a spec that must also allow its own
- * exact, injected diagnostics can keep this same rule for everything else.
- */
-const NON_FATAL_CONSOLE_MARKERS = [
-  'NET::ERR_', 'FAILED TO LOAD RESOURCE', '404', '500', 'FETCH', 'TRANSCRIPTION ERROR', 'TRANSCRIPTIONSERVICE',
-  'ENSUREENGINEINITIALIZED', 'NETWORK_TIMEOUT', 'ABORT', 'TRIAL', 'RPC', 'HEARTBEAT', 'PROFILE', 'USERPROFILE',
-  'FAILED_VISIBLE', 'DISTRIBUTEDLOCK',
-] as const;
-
-export function isNonFatalConsoleError(text: string): boolean {
-  const upperText = text.toUpperCase();
-  return NON_FATAL_CONSOLE_MARKERS.some((marker) => upperText.includes(marker));
-}
-
 export const test = base.extend<TestFixtures, WorkerFixtures>({
   // Worker-scoped setup (Placeholder for shared boot/env if needed)
   workerAuth: [async ({ playwright }, use) => {
@@ -69,7 +53,26 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     page.on('console', msg => {
       if (msg.type() === 'error') {
         const text = msg.text();
-        const isNetworkError = isNonFatalConsoleError(text);
+        const upperText = text.toUpperCase();
+
+        // Identify expected non-fatal network/STT errors
+        const isNetworkError = upperText.includes('NET::ERR_') ||
+          upperText.includes('FAILED TO LOAD RESOURCE') ||
+          upperText.includes('404') ||
+          upperText.includes('500') ||
+          upperText.includes('FETCH') ||
+          upperText.includes('TRANSCRIPTION ERROR') ||
+          upperText.includes('TRANSCRIPTIONSERVICE') ||
+          upperText.includes('ENSUREENGINEINITIALIZED') ||
+          upperText.includes('NETWORK_TIMEOUT') ||
+          upperText.includes('ABORT') ||
+          upperText.includes('TRIAL') ||
+          upperText.includes('RPC') ||
+          upperText.includes('HEARTBEAT') ||
+          upperText.includes('PROFILE') ||
+          upperText.includes('USERPROFILE') ||
+          upperText.includes('FAILED_VISIBLE') ||
+          upperText.includes('DISTRIBUTEDLOCK');
 
         if (isNetworkError) {
           console.warn(`[E2E_NON_FATAL_LOG] ${text}`);

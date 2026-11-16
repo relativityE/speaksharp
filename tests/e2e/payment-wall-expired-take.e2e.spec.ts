@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { test, expect, isNonFatalConsoleError } from './fixtures';
+import { test, expect } from './fixtures';
 import { goToApp, mockLiveTranscript, navigateToRoute, programmaticLoginWithRoutes, startRecording, stopRecording } from './helpers';
 import { TEST_IDS } from '../constants';
 import { MOCK_TRANSCRIPTS } from './fixtures/mockData';
@@ -19,6 +19,44 @@ type E2EWindow = Window & {
 
 const EXPIRED = { can_start: false, trial_active: false, error: 'trial_expired', trial_seconds_remaining: 0 };
 
+type Answer = { data: unknown; error: unknown };
+type SupabaseDouble = {
+  functions: { invoke: (name: string, options?: unknown) => Promise<{ data?: unknown; error?: unknown }> };
+  rpc: (fn: string, args?: unknown) => Promise<unknown>;
+};
+
+/**
+ * Sets the server's answers in the page's own Supabase double (`window.supabase`, installed by the e2e manifest's init
+ * script; `getSupabaseClient()` prefers it), so no shared helper changes. Registered after login, this init script runs
+ * after the manifest's on every document and wraps two calls, each read live so a test can change it mid-page:
+ * - `check-usage-limit`: the manifest's answer with `window.__E2E_USAGE_LIMIT_1863__` laid over it (starts as `usageLimit`).
+ * - a named RPC: while `window.__E2E_RPC_ANSWER_1863__[fn]` is set, it is counted in `__E2E_RPC_CALLS_1476__` as the
+ *   double counts every RPC, and answered exactly as the database answers once an unpaid trial has ended.
+ */
+async function setServerAnswers(page: Page, usageLimit: Record<string, unknown>) {
+  await page.addInitScript((initial) => {
+    const win = window as E2EWindow & { __SERVER_ANSWERS_1863__?: boolean };
+    const supabase = (window as unknown as { supabase?: SupabaseDouble }).supabase;
+    if (!supabase || win.__SERVER_ANSWERS_1863__) return;
+    win.__SERVER_ANSWERS_1863__ = true;
+    win.__E2E_USAGE_LIMIT_1863__ = initial;
+    const invoke = supabase.functions.invoke.bind(supabase.functions);
+    supabase.functions.invoke = async (name, options) => {
+      const result = await invoke(name, options);
+      const override = win.__E2E_USAGE_LIMIT_1863__;
+      if (name !== 'check-usage-limit' || !override || !result?.data || typeof result.data !== 'object') return result;
+      return { ...result, data: { ...(result.data as Record<string, unknown>), ...override } };
+    };
+    const rpc = supabase.rpc.bind(supabase);
+    supabase.rpc = async (fn, args) => {
+      const answer: Answer | undefined = win.__E2E_RPC_ANSWER_1863__?.[fn];
+      if (!answer) return rpc(fn, args);
+      win.__E2E_RPC_CALLS_1476__ = { ...(win.__E2E_RPC_CALLS_1476__ ?? {}), [fn]: (win.__E2E_RPC_CALLS_1476__?.[fn] ?? 0) + 1 };
+      return answer;
+    };
+  }, usageLimit);
+}
+
 /** Every cached entitlement answer on the page says access is refused. */
 async function waitForRefusedEntitlement(page: Page) {
   await page.waitForFunction(() => {
@@ -34,6 +72,14 @@ async function waitForRefusedEntitlement(page: Page) {
  * added: each is matched by its exact shape and COUNTED (the test asserts the counts), every error the shared rule
  * allows is still allowed, and any other console error is collected and must be empty. `pageerror` is untouched.
  */
+// The shared monitor's allowance in tests/e2e/fixtures.ts, copied verbatim so this spec changes no shared helper.
+// Keep the two lists identical.
+const SHARED_NON_FATAL_MARKERS = [
+  'NET::ERR_', 'FAILED TO LOAD RESOURCE', '404', '500', 'FETCH', 'TRANSCRIPTION ERROR', 'TRANSCRIPTIONSERVICE',
+  'ENSUREENGINEINITIALIZED', 'NETWORK_TIMEOUT', 'ABORT', 'TRIAL', 'RPC', 'HEARTBEAT', 'PROFILE', 'USERPROFILE',
+  'FAILED_VISIBLE', 'DISTRIBUTEDLOCK',
+] as const;
+const isSharedNonFatal = (text: string) => SHARED_NON_FATAL_MARKERS.some((marker) => text.toUpperCase().includes(marker));
 const REFUSED_SAVE_DIAGNOSTICS = {
   // The storage boundary rejects the { success: false, error: 'trial_expired' } envelope (logs its type only).
   unusableEnvelope: /^\{sessionId: session-[^,}]+, receivedType: object\} \[Supabase DB\] 🏁 Session completion returned an unusable result envelope$/,
@@ -53,7 +99,7 @@ function guardRefusedSaveConsole(page: Page): { counts: () => RefusedSaveCounts;
     const kind = (Object.keys(REFUSED_SAVE_DIAGNOSTICS) as Array<keyof typeof REFUSED_SAVE_DIAGNOSTICS>)
       .find((k) => REFUSED_SAVE_DIAGNOSTICS[k].test(text));
     if (kind) counts[kind] += 1;
-    else if (isNonFatalConsoleError(text)) console.warn(`[E2E_NON_FATAL_LOG] ${text}`);
+    else if (isSharedNonFatal(text)) console.warn(`[E2E_NON_FATAL_LOG] ${text}`);
     else unexpected.push(text.slice(0, 200));
   });
   return { counts: () => ({ ...counts }), unexpected: () => [...unexpected] };
@@ -62,6 +108,7 @@ function guardRefusedSaveConsole(page: Page): { counts: () => RefusedSaveCounts;
 test.describe('#1863 payment wall in the browser', () => {
   test('J1.f: an expired unpaid user meets the wall on product pages and can still reach deletion and billing', async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'free', mockProfile: EXPIRED });
+    await setServerAnswers(page, EXPIRED);
 
     // goToApp, not navigateToRoute: the route helper waits for the page's own content, which the wall replaces.
     for (const route of ['/practice', '/session', '/progress']) {
@@ -94,6 +141,7 @@ test.describe('#1863 payment wall in the browser', () => {
     // own deadline cannot fire during the test.
     const consoleGuard = guardRefusedSaveConsole(page);
     await programmaticLoginWithRoutes(page, { userType: 'free', mockProfile: { can_start: true, trial_active: true, trial_seconds_remaining: 3600 } });
+    await setServerAnswers(page, { trial_seconds_remaining: 3600 });
     await navigateToRoute(page, '/session');
     await startRecording(page);
     await mockLiveTranscript(page, MOCK_TRANSCRIPTS as unknown as string[]);
