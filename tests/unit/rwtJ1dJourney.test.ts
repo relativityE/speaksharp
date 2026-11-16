@@ -226,6 +226,24 @@ describe('Codex #1883: the reopened take is judged from the loaded review id, ne
         const { loadedReviewSessionId } = await import('../live/helpers/rwtJ1dJourney');
         expect(await loadedReviewSessionId(fakePage([null, null, 'take-a']) as never, 5_000)).toBe('take-a');
     });
+    it('Codex #1883: keeps polling for the whole deadline when each read returns at once (a 30 s load still counts)', async () => {
+        const { loadedReviewSessionId } = await import('../live/helpers/rwtJ1dJourney');
+        let t = 0;
+        let reads = 0;
+        const page = {
+            getByTestId: () => ({ first: () => ({ getAttribute: async () => { reads += 1; return t >= 30_000 ? 'take-a' : null; } }) }),
+            waitForTimeout: async (ms: number) => { t += ms; },
+        };
+        expect(await loadedReviewSessionId(page as never, 45_000, () => t)).toBe('take-a');
+        expect(reads).toBeGreaterThan(100);
+    });
+    it('stops at the deadline, not before', async () => {
+        const { loadedReviewSessionId } = await import('../live/helpers/rwtJ1dJourney');
+        let t = 0;
+        const page = { getByTestId: () => ({ first: () => ({ getAttribute: async () => null }) }), waitForTimeout: async (ms: number) => { t += ms; } };
+        expect(await loadedReviewSessionId(page as never, 45_000, () => t)).toBeNull();
+        expect(t).toBeGreaterThanOrEqual(45_000);
+    });
     it('returns null when no id ever loads', async () => {
         const { loadedReviewSessionId } = await import('../live/helpers/rwtJ1dJourney');
         expect(await loadedReviewSessionId(fakePage([null]) as never, 50)).toBeNull();

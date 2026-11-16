@@ -195,14 +195,17 @@ export function classifyJourneyWrite(method: string, pathname: string): 'session
  * The take the saved review was actually read from. The section renders while its read is in flight, without
  * `data-session-id` (Codex, #1883), so wait for the loaded id itself, never for visibility alone. null: nothing loaded in time.
  */
-export async function loadedReviewSessionId(page: ReviewPage, timeoutMs = 45_000): Promise<string | null> {
+export async function loadedReviewSessionId(page: ReviewPage, timeoutMs = 45_000, now: () => number = Date.now): Promise<string | null> {
     const review = page.getByTestId('saved-review').first();
-    // Bounded by attempts, not the wall clock: each attempt waits at most 1 s for the attribute, then 250 ms.
-    const attempts = Math.max(1, Math.ceil(timeoutMs / 1_250));
-    for (let i = 0; i < attempts; i += 1) {
+    // The attribute read returns at once while the review loads, so the wait is the elapsed-time deadline (Codex, #1883). The
+    // attempt cap only stops a frozen clock: each real attempt waits at least POLL_MS, so it never ends the wait early.
+    const POLL_MS = 250;
+    const deadline = now() + timeoutMs;
+    const cap = Math.ceil(timeoutMs / POLL_MS) + 1;
+    for (let i = 0; i < cap && now() < deadline; i += 1) {
         const id = await review.getAttribute('data-session-id', { timeout: 1_000 }).catch(() => null);
         if (id) return id;
-        await page.waitForTimeout(250);
+        await page.waitForTimeout(POLL_MS);
     }
     return null;
 }
