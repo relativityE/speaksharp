@@ -140,6 +140,7 @@ export const WATCH_PROFILES: Readonly<Record<string, WatchProfile>> = Object.fre
     'save-retry-recovery-response-lost': { allowSaveFailed: true, allowFailureCodes: ['session_save_failed', 'session_completion_failed', 'finalize_timeout'] },
     'feedback-association-boundaries-older-take': {},
     'feedback-association-boundaries-no-session': {},
+    'feedback-association-boundaries-j8': {},
     // The left take's lease, the truthful return refusal, the displaced tab.
     'abandon-and-two-tabs-navigate-away': { allowStartRefused: true, allowFailureCodes: [...LEASE_CODES, 'aborted'] },
     'abandon-and-two-tabs-close-tab': { allowStartRefused: true, allowFailureCodes: [...LEASE_CODES, 'aborted'] },
