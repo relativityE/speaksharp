@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { test, expect } from './fixtures';
+import { test, expect, isNonFatalConsoleError } from './fixtures';
 import { goToApp, mockLiveTranscript, navigateToRoute, programmaticLoginWithRoutes, startRecording, stopRecording } from './helpers';
 import { TEST_IDS } from '../constants';
 import { MOCK_TRANSCRIPTS } from './fixtures/mockData';
@@ -26,6 +26,37 @@ async function waitForRefusedEntitlement(page: Page) {
       .filter((q) => q.state.data !== undefined);
     return answered.length > 0 && answered.every((q) => q.state.data?.can_start === false);
   }, undefined, { timeout: 10_000 });
+}
+
+/**
+ * J1.e's refused save is reported by three authored, content-free console errors that the shared monitor does not
+ * allow, so it would fail the test before its final checks. For J1.e only, this swaps in the same rule with those three
+ * added: each is matched by its exact shape and COUNTED (the test asserts the counts), every error the shared rule
+ * allows is still allowed, and any other console error is collected and must be empty. `pageerror` is untouched.
+ */
+const REFUSED_SAVE_DIAGNOSTICS = {
+  // The storage boundary rejects the { success: false, error: 'trial_expired' } envelope (logs its type only).
+  unusableEnvelope: /^\{sessionId: session-[^,}]+, receivedType: object\} \[Supabase DB\] 🏁 Session completion returned an unusable result envelope$/,
+  // The failed Stop, once: the controller's catch and the page's stop handler.
+  stopErrorCaught: /^\{err: Error: SESSION_COMPLETION_FAILED[\s\S]*\} \[DEBUG-STOP\] ERROR caught$/,
+  lifecycleStopError: /^\{err: Error: SESSION_COMPLETION_FAILED[\s\S]*\} \[useSessionLifecycle\] Error stopping recording$/,
+} as const;
+type RefusedSaveCounts = Record<keyof typeof REFUSED_SAVE_DIAGNOSTICS, number>;
+
+function guardRefusedSaveConsole(page: Page): { counts: () => RefusedSaveCounts; unexpected: () => string[] } {
+  page.removeAllListeners('console');
+  const counts: RefusedSaveCounts = { unusableEnvelope: 0, stopErrorCaught: 0, lifecycleStopError: 0 };
+  const unexpected: string[] = [];
+  page.on('console', (msg) => {
+    if (msg.type() !== 'error') return;
+    const text = msg.text();
+    const kind = (Object.keys(REFUSED_SAVE_DIAGNOSTICS) as Array<keyof typeof REFUSED_SAVE_DIAGNOSTICS>)
+      .find((k) => REFUSED_SAVE_DIAGNOSTICS[k].test(text));
+    if (kind) counts[kind] += 1;
+    else if (isNonFatalConsoleError(text)) console.warn(`[E2E_NON_FATAL_LOG] ${text}`);
+    else unexpected.push(text.slice(0, 200));
+  });
+  return { counts: () => ({ ...counts }), unexpected: () => [...unexpected] };
 }
 
 test.describe('#1863 payment wall in the browser', () => {
@@ -61,6 +92,7 @@ test.describe('#1863 payment wall in the browser', () => {
   test('J1.e: a take cut off when the trial ends says "not saved", and Delete account still opens deletion', async ({ page }) => {
     // The trial is active with an hour left, so the take starts while the server confirms access and the page's
     // own deadline cannot fire during the test.
+    const consoleGuard = guardRefusedSaveConsole(page);
     await programmaticLoginWithRoutes(page, { userType: 'free', mockProfile: { can_start: true, trial_active: true, trial_seconds_remaining: 3600 } });
     await navigateToRoute(page, '/session');
     await startRecording(page);
@@ -104,5 +136,9 @@ test.describe('#1863 payment wall in the browser', () => {
     await wall.getByRole('link', { name: 'Delete account' }).click();
     await expect(page.getByTestId('account-deletion-page')).toBeVisible();
     await expect(page.getByTestId('trial-payment-wall')).toHaveCount(0);
+
+    await expect.poll(() => consoleGuard.counts(), { message: 'one refused save, one failed Stop', timeout: 10_000 })
+      .toEqual({ unusableEnvelope: 1, stopErrorCaught: 1, lifecycleStopError: 1 });
+    expect(consoleGuard.unexpected(), 'no console error beyond the refused save\'s own diagnostics and the shared allowances').toEqual([]);
   });
 });
