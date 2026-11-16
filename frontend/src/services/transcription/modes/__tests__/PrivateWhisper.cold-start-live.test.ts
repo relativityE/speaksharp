@@ -60,6 +60,8 @@ const FRAME = Math.round(SR * 0.1); // 100 ms mic frames
 // Each spoken point is a distinct amplitude, so the fake decoder can say which point it heard.
 const POINT_1 = 0.3;
 const POINT_2 = 0.5;
+// Point 1 spoken quietly (a soft-spoken opening), for the speech-energy case.
+const POINT_1_QUIET = 0.08;
 const POINT_1_WORDS = 'my main point is planning';
 const POINT_2_WORDS = 'the second point is timing';
 
@@ -67,9 +69,12 @@ function frames(seconds: number, value: number): Float32Array[] {
   return Array.from({ length: Math.round(seconds * 10) }, () => new Float32Array(FRAME).fill(value));
 }
 
+/** Whether the window holds enough of a point to transcribe it: at least 1.5 s of it, so a window that cut
+ *  most of the point away does not count as hearing it. */
 function contains(buf: Float32Array, mark: number): boolean {
-  for (let i = 0; i < buf.length; i++) if (Math.abs(buf[i] - mark) <= 0.01) return true;
-  return false;
+  let n = 0;
+  for (let i = 0; i < buf.length; i++) if (Math.abs(buf[i] - mark) <= 0.01) n++;
+  return n >= SR * 1.5;
 }
 
 /** The PO script's opening, as the mic captured it while the model was still loading: quiet lead-in,
@@ -92,7 +97,8 @@ describe('Focus Point 1 on a cold start: speech spoken while the model loads rea
     mocks.isMeaningfullySilent.mockReturnValue(false);
     // A fake decoder: it "hears" each point whose audio is in the window it was handed.
     mocks.transcribe.mockImplementation(async (audio: Float32Array) => {
-      const words = [contains(audio, POINT_1) ? POINT_1_WORDS : '', contains(audio, POINT_2) ? POINT_2_WORDS : '']
+      const point1 = contains(audio, POINT_1) || contains(audio, POINT_1_QUIET);
+      const words = [point1 ? POINT_1_WORDS : '', contains(audio, POINT_2) ? POINT_2_WORDS : '']
         .filter(Boolean).join(' ');
       return Result.ok(words);
     });
@@ -115,7 +121,7 @@ describe('Focus Point 1 on a cold start: speech spoken while the model loads rea
   });
 
   /** Starts streaming as a cold start does: the engine is ready only now, and the mic replays the opening. */
-  async function coldStartTake(backlog: Float32Array[] = coldStartBacklog(), settleMs = 0): Promise<{ liveTranscript: string; committedTranscript: string; liveDecodes: Float32Array[] }> {
+  async function coldStartTake(backlog: Float32Array[] = coldStartBacklog(), settleMs = 0, liveValue = POINT_2): Promise<{ liveTranscript: string; committedTranscript: string; liveDecodes: Float32Array[] }> {
     let frameCb: ((f: Float32Array) => void) | undefined;
     // The real mic (audioUtils.impl.ts) replays its buffered frames synchronously to a late subscriber.
     const mic: MicStream = {
@@ -134,7 +140,7 @@ describe('Focus Point 1 on a cold start: speech spoken while the model loads rea
     // after the model is ready. The first transcript needs more than one decode to be committed, so this
     // also proves the opening survives that hold rather than only flashing as a provisional partial.
     for (let i = 0; i < 40; i++) {
-      frameCb!(new Float32Array(FRAME).fill(POINT_2));
+      frameCb!(new Float32Array(FRAME).fill(liveValue));
       await vi.advanceTimersByTimeAsync(100);
     }
     // Let a decode still in flight finish before Stop (only the slow-decoder test needs this).
@@ -189,6 +195,16 @@ describe('Focus Point 1 on a cold start: speech spoken while the model loads rea
     const { committedTranscript } = await coldStartTake([...frames(0.5, 0), ...frames(2.0, POINT_1), ...frames(12.5, POINT_2)]);
 
     expect(committedTranscript, 'Point 1 must survive a held first decode of a 15 s backlog').toContain(POINT_1_WORDS);
+  });
+
+  it('commits a quiet Point 1 from a backlog that is mostly pause', async () => {
+    // 2 s of soft speech in a 15 s replay: averaged over the whole backlog its RMS falls under the
+    // first-transcript gate, so the gates must judge the speech, not the pauses around it.
+    const backlog = [...frames(0.5, 0), ...frames(2.0, POINT_1_QUIET), ...frames(12.5, 0)];
+
+    const { committedTranscript } = await coldStartTake(backlog, 0, 0);
+
+    expect(committedTranscript, 'a quiet Point 1 in a long backlog must still commit').toContain(POINT_1_WORDS);
   });
 
   it('keeps the normal live window on a warm take (no replayed backlog)', async () => {

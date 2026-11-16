@@ -66,12 +66,15 @@ export const PRIV_STT = {
   LIVE_DECODE_WINDOW_SECONDS: 3.0,
   // Cold start (Focus Point 1, 2026-11-16): when the mic opens before the model is ready, the speech
   // spoken while it loaded reaches the live path as one backlog (the mic replays up to 15 s, #960).
-  // For a take that starts with such a backlog, until its first transcript is committed (or this much
-  // new audio has arrived), a live decode and a held decode's retry audio may take up to this much of
-  // it, so the opening is transcribed live instead of being cut to the newest
-  // LIVE_DECODE_WINDOW_SECONDS. Warm takes, and decodes after the first commit, keep the normal
-  // window. Matches the mic's 15 s replay buffer.
+  // For a take that starts with such a backlog, until its first transcript is committed or this much
+  // new audio has arrived, live decodes keep the whole backlog from its start (nothing is cut from the
+  // opening), so it is transcribed live instead of being cut to the newest LIVE_DECODE_WINDOW_SECONDS.
+  // Warm takes, and decodes after the first commit, keep the normal window. Matches the mic's 15 s
+  // replay buffer.
   COLD_START_BACKLOG_MAX_SECONDS: 15,
+  // Hard bound on a cold-start decode: the replay (at most 15 s) plus the new audio allowed before the
+  // cold-start window ends (15 s). Whisper's own input window is 30 s.
+  COLD_START_DECODE_MAX_SECONDS: 30,
   UTTERANCE_SILENCE_TAIL_SECONDS: 1.0,
   // #891 capture-from-start: the final buffer accumulates from mic-start (not from speech-start
   // confirmation), so a hard cap bounds memory on a stuck/overlong recording. On overflow we keep
@@ -362,6 +365,10 @@ export const PRIV_STT_DERIVED = {
   ),
   COLD_START_BACKLOG_MAX_SAMPLES: secondsToSamples(
     PRIV_STT.COLD_START_BACKLOG_MAX_SECONDS,
+    PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ,
+  ),
+  COLD_START_DECODE_MAX_SAMPLES: secondsToSamples(
+    PRIV_STT.COLD_START_DECODE_MAX_SECONDS,
     PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ,
   ),
   UTTERANCE_SILENCE_TAIL_SAMPLES: secondsToSamples(
