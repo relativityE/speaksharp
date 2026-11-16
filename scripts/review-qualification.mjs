@@ -238,6 +238,11 @@ export function evaluateReviewQualification({
   const documentationFiles = files.filter(isCanonicalProductReleaseDocument);
   const canonicalDocumentationOnly = files.length > 0 && documentationFiles.length === files.length;
   const testIntegrityOnly = files.length > 0 && files.every(isTestIntegrityFile);
+  // #1796: a canonical product-release document together with the test that guards it is still a documentation claim.
+  // Every file must be one or the other, with at least one of each; an implementation file keeps the implementation scope.
+  const canonicalDocumentationWithTests = files.length > 0 && documentationFiles.length > 0
+    && files.some(isTestIntegrityFile)
+    && files.every((file) => isCanonicalProductReleaseDocument(file) || isTestIntegrityFile(file));
   const humanTestEvidenceOnly = files.length > 0 && files.every(isHumanTestEvidenceDocument);
   const namedDocumentationCarrier = documentationEvidenceAdmission(repository, pullRequestNumber) !== null;
   const pinnedDocumentation = isPinnedDocumentationEvidence({ repository, pullRequestNumber,
@@ -247,6 +252,7 @@ export function evaluateReviewQualification({
     : substantiveFiles.length > 0
     ? 'implementation'
     : canonicalDocumentationOnly ? 'canonical_product_release_documentation'
+      : canonicalDocumentationWithTests ? 'canonical_product_release_documentation_with_tests'
       : testIntegrityOnly ? 'test_integrity'
         : humanTestEvidenceOnly ? 'human_test_evidence_documentation' : null;
   if (reviewScope === null) reasons.push('no_substantive_implementation');
@@ -292,6 +298,8 @@ export function formatReviewQualification(result) {
     ? 'pinned product-release documentation/evidence'
     : result.reviewScope === 'canonical_product_release_documentation'
     ? 'canonical product-release documentation'
+    : result.reviewScope === 'canonical_product_release_documentation_with_tests'
+    ? 'canonical product-release documentation and its tests'
     : result.reviewScope === 'test_integrity' ? 'test-integrity'
     : result.reviewScope === 'human_test_evidence_documentation' ? 'human-test evidence documentation'
     : 'implementation';

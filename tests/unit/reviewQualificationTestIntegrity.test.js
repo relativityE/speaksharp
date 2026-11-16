@@ -82,9 +82,12 @@ describe('test-integrity review scope', () => {
   });
 
   it('CASUALTY: ONE non-test file among test files removes the scope — every file must be test source', () => {
-    for (const extra of ['tests/README.md', 'tests/fixtures/sessions.json', 'product_release/RELEASE_STATUS.md', 'random.cfg']) {
+    for (const extra of ['tests/README.md', 'tests/fixtures/sessions.json', 'random.cfg']) {
       expect({ extra, reasons: receipt([...PR_1543, extra]).reasons }).toEqual({ extra, reasons: ['no_substantive_implementation'] });
     }
+    // A canonical product-release document is the one exception, and it never becomes test integrity: it takes the
+    // documentation-with-tests scope below.
+    expect(receipt([...PR_1543, 'product_release/RELEASE_STATUS.md'])).toMatchObject({ qualified: true, reviewScope: 'canonical_product_release_documentation_with_tests' });
   });
 
   it('CONTROL: tests beside real implementation remain an implementation review; tests are still never implementation', () => {
@@ -98,5 +101,46 @@ describe('test-integrity review scope', () => {
     expect(receipt(PR_1543, { reviewStatus: undefined }).reasons).toEqual(['review_not_completed:missing']);
     expect(receipt(PR_1543, { generatedAt: new Date(Date.now() - 31 * 60 * 1000).toISOString() }).reasons[0]).toMatch(/^receipt_stale:/);
     expect(receipt(PR_1543, { findingCount: 1 }).qualified).toBe(false);
+  });
+});
+
+// #1796: a canonical product-release document plus the test that guards it had no scope (`no_substantive_implementation`
+// on a clean exact-head review). It is a documentation claim with its own guard, so it gets a documentation scope of its own.
+const PR_1796 = ['product_release/RELEASE_STATUS.md', 'tests/config/mvpAcceptanceMap.test.ts'];
+
+describe('canonical documentation with its tests', () => {
+  it('#1796 — a canonical document plus its test qualifies on a clean exact-head review', () => {
+    const result = receipt(PR_1796);
+    expect(result).toMatchObject({ qualified: true, reasons: [], reviewScope: 'canonical_product_release_documentation_with_tests', substantiveFiles: [] });
+    expect(formatReviewQualification(result)).toBe(`REVIEW-QUALIFIED: completed zero-finding review covers current canonical product-release documentation and its tests head ${SHA}`);
+  });
+
+  it('CONTROL: the existing scopes are unchanged — a document alone, tests alone, and implementation keep theirs', () => {
+    expect(receipt(['product_release/RELEASE_STATUS.md']).reviewScope).toBe('canonical_product_release_documentation');
+    expect(receipt(['tests/config/mvpAcceptanceMap.test.ts']).reviewScope).toBe('test_integrity');
+    expect(receipt([...PR_1796, 'scripts/review-qualification.mjs']).reviewScope).toBe('implementation');
+  });
+
+  it('CASUALTY: any file that is neither a canonical document nor test source removes the scope', () => {
+    for (const extra of [
+      'product_release/archive/OLD_STATUS.md', // not one of the canonical documents
+      'product_release/evidence/notes.md',
+      'docs/findings/x.md',
+      'tests/fixtures/sessions.json',
+      'tools/aht-rationalization/mapping.json',
+      'random.cfg',
+      'README.md',
+    ]) {
+      expect({ extra, reasons: receipt([...PR_1796, extra]).reasons }).toEqual({ extra, reasons: ['no_substantive_implementation'] });
+    }
+    // A non-canonical Markdown file beside a test has no documentation to claim.
+    expect(receipt(['product_release/archive/OLD_STATUS.md', 'tests/config/mvpAcceptanceMap.test.ts']).reasons).toEqual(['no_substantive_implementation']);
+  });
+
+  it('CASUALTY: the scope relaxes nothing else — findings, a wrong or missing review, and staleness still refuse', () => {
+    expect(receipt(PR_1796, { findingCount: 1 }).reasons).toEqual(['open_findings:1']);
+    expect(receipt(PR_1796, { reviewedSha: OTHER }).reasons).toEqual(['reviewed_sha_is_not_current_head']);
+    expect(receipt(PR_1796, { reviewStatus: undefined }).reasons).toEqual(['review_not_completed:missing']);
+    expect(receipt(PR_1796, { generatedAt: new Date(Date.now() - 31 * 60 * 1000).toISOString() }).reasons[0]).toMatch(/^receipt_stale:/);
   });
 });

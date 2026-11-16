@@ -102,6 +102,38 @@ describe('#1054 CI change classifier', () => {
             });
         });
 
+        describe('the AHT coverage-migration validator (tools/aht-rationalization, #1862): its module is implementation, its tests and data are not', () => {
+            it('tools/aht-rationalization/validate.mjs is a full-lane control path and substantive implementation', () => {
+                const file = 'tools/aht-rationalization/validate.mjs';
+                expect(FULL_LANE_PATTERNS.some((pattern: RegExp) => pattern.test(file))).toBe(true);
+                expect(isSubstantiveImplementationFile(file)).toBe(true);
+                expect(classifyChanges([file], draft).full_required).toBe(true);
+            });
+
+            it.each([
+                'tools/aht-rationalization/validate.test.mjs',
+                'tools/aht-rationalization/validate.spec.mjs',
+                'tools/aht-rationalization/tests/validate.mjs',
+                'tools/aht-rationalization/__tests__/validate.mjs',
+                'tools/aht-rationalization/fixtures/validate.mjs',
+                'tools/aht-rationalization/mapping.json',
+                'tools/aht-rationalization/catalog.fixture.json',
+                'tools/aht-rationalization/README.md',
+                'tools/aht-rationalization/validate.cjs',
+                'tools/aht-rationalization/validate.py',
+                'tools/aht-rationalizationish/validate.mjs',
+            ])('%s is NOT matched as executable validator code, so it cannot make a PR implementation', (file) => {
+                expect(FULL_LANE_PATTERNS.some((pattern: RegExp) => pattern.test(file))).toBe(false);
+                expect(isSubstantiveImplementationFile(file)).toBe(false);
+            });
+
+            it("#1862's exact change set has exactly one implementation file", () => {
+                const files = ['tools/aht-rationalization/README.md', 'tools/aht-rationalization/catalog.fixture.json',
+                    'tools/aht-rationalization/mapping.json', 'tools/aht-rationalization/validate.mjs', 'tools/aht-rationalization/validate.test.mjs'];
+                expect(files.filter((file) => isSubstantiveImplementationFile(file))).toEqual(['tools/aht-rationalization/validate.mjs']);
+            });
+        });
+
         it.each([
             'backend/some-other-service/thing.ts',
             'frontend/scripts/gen.mjs',
