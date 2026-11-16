@@ -740,6 +740,30 @@ describe('nightly runner bridge: recovering a lost guarded signup through the co
             queries: [{ kind: 'account', scope: sent.lookupRef, count: 0 }], residueChecks: 22, residueNonZero: 0 } });
         assert.equal(ev().admitRun(s.d.evidenceDir).admitted, true);
     });
+    // Codex P2 on df64d30e: the domain is bound durably at send time; a domain configured differently later is refused.
+    it('CONTROL: a signup sent under one domain is not recovered under a changed configured domain, nor without a recorded domain', async () => {
+        const s = { ...(await lostSignup('8101')), runId: '8101' };
+        const sent = JSON.parse(fs.readFileSync(path.join(s.d.evidenceDir, `8101.attempt.${s.attemptId}.sent.json`), 'utf8'));
+        assert.equal(sent.emailDomain, 'example.com', 'the guarded signup records its fixed domain before sending');
+        let calls = 0;
+        const moved = `${sent.lookupRef}@changed.example.com`;
+        const listUsers = async (q) => { calls += 1; return fakeList([{ id: 'unrelated', email: moved }])(q); };
+        const out = await recoverUnansweredSignup({ evidenceDir: s.d.evidenceDir, runId: '8101', attemptId: s.attemptId, listUsers,
+            domain: 'changed.example.com', configuredDomain: 'changed.example.com', runOwnedPrefix: 'rwt-journey-' });
+        assert.equal(out.state, 'blocked');
+        assert.match(out.reason, /domain changed since the signup was sent/);
+        assert.equal(calls, 0, 'no listing under the changed domain');
+        assert.equal(fs.readdirSync(s.d.evidenceDir).some((n) => n.endsWith('.landed.json')), false, 'the unrelated account was not recorded');
+        assert.equal(ev().admitRun(s.d.evidenceDir).admitted, false);
+        // An attempt recorded without a domain (not an email reservation) is never rebuilt into an email.
+        const bare = dirs();
+        await nightlyRun(bare, '8102', {}).catch(() => undefined);
+        ev().recordCreateAttempt(bare.evidenceDir, '8102', { attemptId: 'J3.a-9', leg: 'J3.a', lookupRef: 'rwt-journey-j3-8102-1', transportDeadlineMs: 1000 });
+        const none = await recoverUnansweredSignup({ evidenceDir: bare.evidenceDir, runId: '8102', attemptId: 'J3.a-9', listUsers,
+            domain: 'example.com', configuredDomain: 'example.com', runOwnedPrefix: 'rwt-journey-' });
+        assert.equal(none.state, 'blocked');
+        assert.match(none.reason, /did not record the email domain/);
+    });
     it('CONTROL: a domain that is not the configured one, or an attempt never recorded, is blocked before any lookup', async () => {
         let listed = 0;
         const counting = async () => { listed += 1; return { data: { users: [] }, error: null }; };

@@ -77,6 +77,7 @@ function unprovenCleanup(j) {
 }
 const RUN_ID = /^[A-Za-z0-9._-]{1,80}$/;
 const REF = /^[A-Za-z0-9._:-]{1,120}$/;
+const EMAIL_DOMAIN = /^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/;
 const runFile = (dir, runId, kind) => path.join(dir, `${runId}.${kind}.json`);
 
 /**
@@ -281,7 +282,7 @@ function journeyAttempts(dir, runId, journey) {
  * same run, under any reference, is refused from the durable records, so a restart can't send it either (a second create
  * could land after the first account was found and deleted).
  */
-function recordCreateAttempt(dir, runId, { attemptId, leg, lookupRef, transportDeadlineMs }, at = new Date().toISOString()) {
+function recordCreateAttempt(dir, runId, { attemptId, leg, lookupRef, transportDeadlineMs, emailDomain }, at = new Date().toISOString()) {
     checkRunId(runId);
     if (typeof attemptId !== 'string' || !ATTEMPT_ID.test(attemptId))
         throw new Error('an attempt id is letters, digits, dot, dash or underscore');
@@ -291,6 +292,10 @@ function recordCreateAttempt(dir, runId, { attemptId, leg, lookupRef, transportD
         throw new Error('an account-create attempt needs a non-secret lookup reference for the account it may create');
     if (!Number.isInteger(transportDeadlineMs) || transportDeadlineMs <= 0 || transportDeadlineMs > MAX_TRANSPORT_DEADLINE_MS)
         throw new Error(`an account-create attempt needs a transport deadline within ${MAX_TRANSPORT_DEADLINE_MS} ms`);
+    // Codex P2 on df64d30e: an email-based reservation records its fixed domain BEFORE the create is sent, so recovery
+    // rebuilds the exact email that was submitted, never one under a domain configured later.
+    if (emailDomain !== undefined && (typeof emailDomain !== 'string' || !EMAIL_DOMAIN.test(emailDomain)))
+        throw new Error('an account-create attempt\'s email domain must be a plain lower-case domain');
     if (!fs.existsSync(runFile(dir, runId, 'started')))
         throw new Error(`run ${runId} was never admitted; nothing may be sent`);
     const earlier = journeyAttempts(dir, runId, journeyOf(leg));
@@ -311,7 +316,7 @@ function recordCreateAttempt(dir, runId, { attemptId, leg, lookupRef, transportD
             throw new Error(`journey ${journey} already claimed its one account create in run ${runId}; another could land after that account is deleted`);
         throw e;
     }
-    durableWrite(attemptFile(dir, runId, attemptId, 'sent'), { runId, attemptId, leg, kind: 'account', lookupRef, transportDeadlineMs, recordedAt: at });
+    durableWrite(attemptFile(dir, runId, attemptId, 'sent'), { runId, attemptId, leg, kind: 'account', lookupRef, ...(emailDomain === undefined ? {} : { emailDomain }), transportDeadlineMs, recordedAt: at });
 }
 /** The recorded (sent) account-create attempt, or null when it was never recorded or can't be read. */
 function readSentAttempt(dir, runId, attemptId) {

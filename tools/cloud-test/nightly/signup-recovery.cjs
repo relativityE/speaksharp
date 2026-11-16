@@ -26,7 +26,13 @@ async function recoverUnansweredSignup({ evidenceDir, runId, attemptId, listUser
     const sent = readSentAttempt(evidenceDir, runId, attemptId);
     if (!sent || typeof sent.lookupRef !== 'string')
         return { state: 'blocked', lookup: 'unreadable', reason: 'the attempt was never recorded or its record is unreadable' };
-    const email = `${sent.lookupRef}@${fixed}`;
+    // Codex P2 on df64d30e: the email is rebuilt with the domain the signup durably recorded before it was sent. A record
+    // without one, or a domain configured differently since, could name an unrelated account: refused, nothing written.
+    if (typeof sent.emailDomain !== 'string' || !DOMAIN.test(sent.emailDomain))
+        return { state: 'blocked', lookup: 'unreadable', reason: 'the attempt did not record the email domain it was sent under' };
+    if (sent.emailDomain !== fixed)
+        return { state: 'blocked', lookup: 'unreadable', reason: 'the configured test domain changed since the signup was sent; the recorded email is not the one being looked up' };
+    const email = `${sent.lookupRef}@${sent.emailDomain}`;
     const found = exactEmailLookup(await enumerateUsers(listUsers), { email, runOwnedPrefix });
     if (found.lookup !== 'one')
         return { state: 'blocked', lookup: found.lookup, reason: found.reason };

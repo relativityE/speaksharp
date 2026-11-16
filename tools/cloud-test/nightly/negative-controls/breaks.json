@@ -1574,7 +1574,7 @@
       "id": "P10-create-unrecorded-send",
       "guards": "an account-create attempt is recorded durably before it is sent (Sam, 15 Nov, #1867)",
       "file": "runner-bridge.cjs",
-      "find": "                        recordCreateAttempt(opts.evidenceDir, opts.runId, { attemptId, leg, lookupRef, transportDeadlineMs: deadlineMs });\n",
+      "find": "                        recordCreateAttempt(opts.evidenceDir, opts.runId, { attemptId, leg, lookupRef, transportDeadlineMs: deadlineMs, emailDomain });\n",
       "replace": "",
       "test": "tests/runner-bridge.test.cjs"
     },
@@ -1824,6 +1824,22 @@
       "file": "cleanup-evidence.cjs",
       "find": "        durableWrite(createClaimFile(dir, runId, journey), { runId, journey, attemptId, leg, claimedAt: at });\n",
       "replace": "",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P22-recovery-ignores-recorded-domain",
+      "guards": "recovery rebuilds the email only under the domain the signup durably recorded before sending",
+      "file": "signup-recovery.cjs",
+      "find": "    if (sent.emailDomain !== fixed)\n",
+      "replace": "    if (false)\n",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P22-signup-domain-not-recorded",
+      "guards": "the guarded signup records its fixed email domain with the attempt before the create is sent",
+      "file": "guarded-signup.cjs",
+      "find": "        }, { emailDomain: fixed });",
+      "replace": "        });",
       "test": "tests/runner-bridge.test.cjs"
     }
   ]

@@ -44,7 +44,7 @@ function guardedSignup({ prefix, runId, runAttempt, domain, configuredDomain, cr
             if (!account || typeof account.uid !== 'string' || !account.uid)
                 return { outcome: 'unknown' };
             return { outcome: 'created', accountRef: `account-${journey.toLowerCase()}` };
-        });
+        }, { emailDomain: fixed });
         if (!route || route.sent !== true)
             return { created: false, reason: route?.reason ?? 'the guarded route refused the create', factoryCalls };
         if (route.answered !== true)

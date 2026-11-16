@@ -153,7 +153,7 @@ function nightlyAdapter(io, opts) {
                  * throw, a late or ambiguous result, or a restart leaves it unresolved, and admission stays refused until that
                  * exact account is recovered (cleanup-evidence.cjs).
                  */
-                createAccount: async (leg, lookupRef, send) => {
+                createAccount: async (leg, lookupRef, send, { emailDomain } = {}) => {
                     own(leg);
                     const deadlineMs = opts.createDeadlineMs ?? CREATE_DEADLINE_MS;
                     const r = budget.reserve(leg, 'signups');
@@ -161,7 +161,7 @@ function nightlyAdapter(io, opts) {
                         return { sent: false, reason: r.reason };
                     const attemptId = `${leg}-${r.token.n}`;
                     try {
-                        recordCreateAttempt(opts.evidenceDir, opts.runId, { attemptId, leg, lookupRef, transportDeadlineMs: deadlineMs });
+                        recordCreateAttempt(opts.evidenceDir, opts.runId, { attemptId, leg, lookupRef, transportDeadlineMs: deadlineMs, emailDomain });
                     }
                     catch (e) {
                         return { sent: false, reason: `the account-create attempt could not be recorded, so nothing was sent: ${e.message}` };
