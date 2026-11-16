@@ -3,7 +3,7 @@
  * @description Focus Point 1 on a cold start (Sam/PO 2026-11-16). On a first-run account the mic opens
  * before the Private model has downloaded and loaded (TranscriptionService.init creates the mic stream
  * first, then initializes the engine, ~9 s cold in run 43715342978). The mic replays up to 15 s of the
- * audio it captured meanwhile to the late listener (#960), so the speech spoken while the model was
+ * audio it captured meanwhile to the late listener (issue 960), so the speech spoken while the model was
  * loading reaches PrivateWhisper in one burst when streaming starts.
  *
  * The contract: that opening speech must reach a LIVE decode (and so the live transcript, where Focus

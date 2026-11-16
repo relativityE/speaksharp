@@ -1393,7 +1393,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
 
     // Store the disposer returned by onFrame
     this.frameListenerDisposer = this.mic.onFrame(listener);
-    // The mic replays its buffered frames synchronously to a late subscriber (#960). A replay longer than
+    // The mic replays its buffered frames synchronously to a late subscriber (issue 960). A replay longer than
     // one live window means speech was captured while the model loaded: a cold-start backlog.
     this.coldStartBacklog = this.bufferedSampleCount > LIVE_DECODE_WINDOW_SAMPLES;
     if (this.coldStartBacklog) {
