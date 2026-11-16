@@ -23,14 +23,15 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { createHash, randomBytes } = require('node:crypto');
-const { ALL_LEGS, legById } = require('./journey-plan.cjs');
+const { ALL_LEGS, JOURNEYS, legById } = require('./journey-plan.cjs');
 const { runnable } = require('./limits.cjs');
-const { cleanupReserve } = require('./cleanup-plan.cjs');
+const { cleanupReserve, signedUpAccounts, signupOwnerLegs } = require('./cleanup-plan.cjs');
 const { isCount } = require('./counts.cjs');
 
 const COACHING_CEILING_ENV = 'NIGHTLY_COACHING_CAP';
 /** The kinds ordinary work reserves. Cleanup is reserved only through `reserveCleanup`. */
-const ORDINARY_KINDS = Object.freeze(['coaching', 'starts']);
+// `signups` (Sam, 15 Nov, #1867): an account-create request is ordinary work too, reserved before it can leave.
+const ORDINARY_KINDS = Object.freeze(['coaching', 'starts', 'signups']);
 const CLEANUP = 'cleanup';
 class RunRefused extends Error {}
 /** The shared journal could not be used (lock not available in time, or unreadable): nothing is sent. */
@@ -100,9 +101,14 @@ function planRunBudget({ satisfiedGates, selected, coachingCeiling } = {}) {
         if (coachingCeiling > need)
             throw new RunRefused(`coaching ceiling ${coachingCeiling} is above the ${need} requests the named legs need; a higher ceiling buys no signal`);
     }
+    // Sign-ups are frozen on the leg that owns each created account (limits.freshSignUps), never on a sibling that reuses it.
+    const fresh = legs.filter((l) => JOURNEYS.find((j) => j.id === l.journey).account === 'fresh-run-owned');
+    const owners = signupOwnerLegs(fresh);
+    if (owners.size !== signedUpAccounts(fresh))
+        throw new Error(`sign-up owners (${owners.size}) differ from the counted fresh sign-ups (${signedUpAccounts(fresh)})`);
     const legAlloc = {};
     for (const l of legs)
-        legAlloc[l.id] = { coaching: l.coachingReserve, starts: l.startPresses };
+        legAlloc[l.id] = { coaching: l.coachingReserve, starts: l.startPresses, signups: owners.has(l.id) ? 1 : 0 };
     const cleanup = {};
     for (const j of new Set(legs.map((l) => l.journey))) {
         try {
@@ -118,6 +124,8 @@ function planRunBudget({ satisfiedGates, selected, coachingCeiling } = {}) {
 
 // ---------------------------------------------------------------------------------------------------------------
 // The journal. State is folded from events, so one process and many share the same rules.
+/** One zero counter per ordinary kind, so a kind added to ORDINARY_KINDS can never count as NaN (and never fail open). */
+const zeroKinds = () => Object.fromEntries(ORDINARY_KINDS.map((k) => [k, 0]));
 const emptyState = () => ({ used: new Map(), cleanupUsed: new Map(), refused: new Map(), stopped: new Set(), afterStop: new Map(), torn: 0 });
 const counter = (m, k, init) => {
     if (!m.has(k))
@@ -138,10 +146,10 @@ function apply(state, plan, e) {
         if (e.kind === CLEANUP)
             state.cleanupUsed.set(leg.journey, (state.cleanupUsed.get(leg.journey) ?? 0) + 1);
         else
-            counter(state.used, e.leg, () => ({ coaching: 0, starts: 0 }))[e.kind] += 1;
+            counter(state.used, e.leg, zeroKinds)[e.kind] += 1;
     }
     else if (e.t === 'refuse') {
-        counter(state.refused, e.leg, () => ({ coaching: 0, starts: 0, [CLEANUP]: 0 }))[e.kind] += 1;
+        counter(state.refused, e.leg, () => ({ ...zeroKinds(), [CLEANUP]: 0 }))[e.kind] += 1;
         if (e.kind !== CLEANUP)
             state.stopped.add(e.leg);
     }
@@ -171,7 +179,8 @@ function decide(state, plan, legId, kind) {
     if (state.stopped.has(legId))
         return { event: { t: 'refuse-after-stop', leg: legId, kind }, result: { granted: false, reason: `${legId}'s ordinary work was stopped after it exceeded its allocation` } };
     const used = state.used.get(legId)?.[kind] ?? 0;
-    if (used >= a[kind])
+    // A count or allocation that is not a whole number (an unknown kind, a malformed plan) refuses: never `NaN >= n` granting.
+    if (!isCount(used) || !isCount(a[kind]) || used >= a[kind])
         return { event: { t: 'refuse', leg: legId, kind }, result: { granted: false, reason: `${legId} has used its ${kind} allocation of ${a[kind]}` } };
     return { event: { t: 'grant', leg: legId, kind }, result: { granted: true, token: Object.freeze({ legId, kind, n: used + 1 }) } };
 }
@@ -191,10 +200,12 @@ function freezePlan(p) {
     const legs = {};
     for (const [id, a] of Object.entries(p.legs)) {
         legById(id);
+        // A plan written before sign-ups were a kind allocates none: missing means 0, which refuses every sign-up.
+        const withSignups = { ...a, signups: a.signups ?? 0 };
         for (const k of ORDINARY_KINDS)
-            if (!isCount(a[k]))
-                throw new Error(`${id}: ${k} allocation must be a whole number >= 0, got ${a[k]}`);
-        legs[id] = Object.freeze({ coaching: a.coaching, starts: a.starts });
+            if (!isCount(withSignups[k]))
+                throw new Error(`${id}: ${k} allocation must be a whole number >= 0, got ${withSignups[k]}`);
+        legs[id] = Object.freeze({ coaching: a.coaching, starts: a.starts, signups: withSignups.signups });
     }
     const cleanup = {};
     for (const [j, c] of Object.entries(p.cleanup)) {
@@ -228,10 +239,11 @@ class RunBudget {
     }
     /** The whole run's reservation, fixed at the start. */
     totals() {
-        const t = { coaching: 0, starts: 0, cleanupRequests: 0, cleanupSeconds: 0 };
+        const t = { coaching: 0, starts: 0, signups: 0, cleanupRequests: 0, cleanupSeconds: 0 };
         for (const a of Object.values(this.#plan.legs)) {
             t.coaching += a.coaching;
             t.starts += a.starts;
+            t.signups += a.signups;
         }
         for (const c of Object.values(this.#plan.cleanup)) {
             t.cleanupRequests += c.requests;
@@ -351,8 +363,8 @@ class RunBudget {
             const b = this.#facts(legId, s);
             return {
                 outcome: b.overrun.length > 0 ? 'FAIL' : b.hold ? 'HOLD' : 'PASS', ...(b.hold ? { reason: b.hold } : {}),
-                allocated: this.#plan.legs[legId], used: { coaching: 0, starts: 0, ...s.used.get(legId) },
-                refused: { coaching: 0, starts: 0, [CLEANUP]: 0, ...s.refused.get(legId) }, refusedAfterStop: s.afterStop.get(legId) ?? 0,
+                allocated: this.#plan.legs[legId], used: { ...zeroKinds(), ...s.used.get(legId) },
+                refused: { ...zeroKinds(), [CLEANUP]: 0, ...s.refused.get(legId) }, refusedAfterStop: s.afterStop.get(legId) ?? 0,
                 journeyCleanup: { reserve: this.#plan.cleanup[j].requests, used: s.cleanupUsed.get(j) ?? 0 },
             };
         }, (e) => ({ outcome: 'HOLD', reason: `the run budget could not be read: ${e.message}` }));

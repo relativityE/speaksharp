@@ -398,8 +398,8 @@
       "id": "P4-allocation-not-frozen",
       "guards": "allocations are frozen once the run starts",
       "file": "run-budget.cjs",
-      "find": "legs[id] = Object.freeze({ coaching: a.coaching, starts: a.starts });",
-      "replace": "legs[id] = ({ coaching: a.coaching, starts: a.starts });",
+      "find": "legs[id] = Object.freeze({ coaching: a.coaching, starts: a.starts, signups: withSignups.signups });",
+      "replace": "legs[id] = ({ coaching: a.coaching, starts: a.starts, signups: withSignups.signups });",
       "test": "tests/run-budget.test.cjs"
     },
     {
@@ -438,8 +438,8 @@
       "id": "P4-retry-allowance",
       "guards": "a retry past the leg's allocation is refused: no retry allowance",
       "file": "run-budget.cjs",
-      "find": "if (used >= a[kind])",
-      "replace": "if (used >= a[kind] + 1)",
+      "find": "|| used >= a[kind])",
+      "replace": "|| used >= a[kind] + 1)",
       "test": "tests/run-budget.test.cjs"
     },
     {
@@ -1409,6 +1409,342 @@
       "find": "{ needs: ['J1.a'], gates: [SIGNOUT_RECORDER_UNWIRED] }",
       "replace": "{ needs: ['J1.a'] }",
       "test": "tests/journey-plan.test.cjs"
+    },
+    {
+      "id": "P10-bridge-j2-admitted",
+      "guards": "a run naming J2 (no reviewed cleanup) is refused before anything is planned or sent",
+      "file": "runner-bridge.cjs",
+      "find": "                    if (e instanceof CleanupUndefined)\n                        throw new RunRefused(`${leg} is named, but ${e.message}`);\n",
+      "replace": "                    if (e instanceof CleanupUndefined)\n                        continue;\n",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-bridge-admit-before-plan",
+      "guards": "the run budget is planned and the start recorded before the harness admission",
+      "file": "runner-bridge.cjs",
+      "find": "            if (budget)\n                throw new Error('nightly: the run was already admitted');\n",
+      "replace": "            if (budget)\n                throw new Error('nightly: the run was already admitted');\n            await io.admit(...args);\n",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-bridge-send-unreserved",
+      "guards": "every ordinary send leaves only through its reservation",
+      "file": "runner-bridge.cjs",
+      "find": "                send: async (leg, kind, action) => { own(leg); return budget.send(leg, kind, action); },\n",
+      "replace": "                send: async (leg, kind, action) => { own(leg); return { sent: true, value: await action() }; },\n",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-bridge-cleanup-unreserved",
+      "guards": "every cleanup request draws on the journey's protected reserve",
+      "file": "runner-bridge.cjs",
+      "find": "                cleanup: async (leg, action) => { own(leg); return budget.send(leg, CLEANUP, action); },\n",
+      "replace": "                cleanup: async (leg, action) => { own(leg); return { sent: true, value: await action() }; },\n",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-bridge-torn-not-fault",
+      "guards": "a torn budget journal makes every journey's cleanup incomplete",
+      "file": "runner-bridge.cjs",
+      "find": "                : torn > 0 ? [`${torn} run budget journal write(s) were cut short`] : [];\n",
+      "replace": "                : [];\n",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-bridge-no-evidence",
+      "guards": "the run's cleanup evidence is written on save",
+      "file": "runner-bridge.cjs",
+      "find": "            evidence = writeCleanupEvidence(opts.evidenceDir, opts.runId, entries, { cleanupExhausted: (j) => budget.cleanupExhausted(j), runFaults });\n",
+      "replace": "            evidence = { cleanup: 'complete', incompleteJourneys: [], incompleteReasons: {} };\n",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-evidence-run-fault-ignored",
+      "guards": "a run fault marks every journey incomplete",
+      "file": "cleanup-evidence.cjs",
+      "find": "[j.journey, [...runFaults, ...(j.unproven ?? []), ...unprovenCleanup(j)]]",
+      "replace": "[j.journey, [...(j.unproven ?? []), ...unprovenCleanup(j)]]",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-created-step-unchecked",
+      "guards": "every resource the runner created needs a completed cleanup step for that exact resource",
+      "file": "cleanup-evidence.cjs",
+      "find": "            reasons.push(`created ${r.kind} ${r.ref} has no completed cleanup step`);\n",
+      "replace": "            void r;\n",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-created-nothing-claim",
+      "guards": "nothing-created is refused when the runner recorded a creation",
+      "file": "cleanup-evidence.cjs",
+      "find": "            reasons.push(`nothing-created claimed, but the runner recorded creating ${created.length} resource(s)`);\n",
+      "replace": "            void created;\n",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-created-kind-unqueried",
+      "guards": "the residue verification must query every created kind",
+      "file": "cleanup-evidence.cjs",
+      "find": "new Set([...j.steps, ...j.left, ...created].map((r) => r.kind))",
+      "replace": "new Set([...j.steps, ...j.left].map((r) => r.kind))",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-bridge-created-not-recorded",
+      "guards": "the runner records what it created (per case and per journey), so an omitted resource cannot look clean",
+      "file": "runner-bridge.cjs",
+      "find": "                createdHere.push(r);\n                createdByJourney.set(journey, [...(createdByJourney.get(journey) ?? []), r]);\n",
+      "replace": "                void journey;\n",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-bridge-throw-hides-verdicts",
+      "guards": "a case that throws still records its legs' verdicts, so an overrun stays FAIL (Codex P2 f01e9768)",
+      "file": "runner-bridge.cjs",
+      "find": "                for (const leg of legs) {\n                    const b = budget.legBudget(leg);\n",
+      "replace": "                for (const leg of []) {\n                    const b = budget.legBudget(leg);\n",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-bridge-signals-dropped",
+      "guards": "the harness execution signals reach the splitter, so a cap stop is FAIL (Codex P2 1d2bb043)",
+      "file": "runner-bridge.cjs",
+      "find": "                split = splitCaseResult(c.id, { ...ran, caseId: c.id, assertions: ran.assertions ?? [] });\n",
+      "replace": "                split = splitCaseResult(c.id, { caseId: c.id, assertions: ran.assertions ?? [] });\n",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-bridge-evidence-at-checkpoint",
+      "guards": "cleanup evidence is published once after the campaign, never at a checkpoint save (Codex P1 a09d4da8)",
+      "file": "runner-bridge.cjs",
+      "find": "            if (report && typeof report === 'object')\n                report.nightly = { ...outcome(), interim: !finished };\n",
+      "replace": "            if (!finished && budget)\n                return finish(report);\n            if (report && typeof report === 'object')\n                report.nightly = { ...outcome(), interim: !finished };\n",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-bridge-no-reconcile",
+      "guards": "the verdicts are reconciled with the harness results before publishing (Codex P2 a09d4da8)",
+      "file": "runner-bridge.cjs",
+      "find": "            reconcile(report);\n",
+      "replace": "",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-bridge-terminal-ignored",
+      "guards": "an incomplete harness run turns PASS legs into HOLD",
+      "file": "runner-bridge.cjs",
+      "find": "        if (!completed) {\n",
+      "replace": "        if (false) {\n",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-bridge-cases-merged",
+      "guards": "each case's cleanup proof is validated on its own before combining (Codex P2 2ba59540)",
+      "file": "runner-bridge.cjs",
+      "find": "    const withUnproven = (o) => (unproven.length > 0 ? { ...o, unproven } : o);\n",
+      "replace": "    const withUnproven = (o) => o;\n",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-evidence-unproven-ignored",
+      "guards": "a case's unproven cleanup keeps its journey incomplete",
+      "file": "cleanup-evidence.cjs",
+      "find": "[j.journey, [...runFaults, ...(j.unproven ?? []), ...unprovenCleanup(j)]]",
+      "replace": "[j.journey, [...runFaults, ...unprovenCleanup(j)]]",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-bridge-time-ignores-cleanup",
+      "guards": "admission refuses a run whose work plus cleanup reserve does not fit before the deadline (Sam, 14 Nov)",
+      "file": "runner-bridge.cjs",
+      "find": "            if (now + workMs + cleanupMs > deadline)\n",
+      "replace": "            if (now + workMs > deadline)\n",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-bridge-final-budget-unread",
+      "guards": "a budget fault found at the end of the run reaches the recorded leg verdicts (Codex P2 01607310)",
+      "file": "runner-bridge.cjs",
+      "find": "            reconcileBudget();\n",
+      "replace": "",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-create-unrecorded-send",
+      "guards": "an account-create attempt is recorded durably before it is sent (Sam, 15 Nov, #1867)",
+      "file": "runner-bridge.cjs",
+      "find": "                        recordCreateAttempt(opts.evidenceDir, opts.runId, { attemptId, leg, lookupRef, transportDeadlineMs: deadlineMs });\n",
+      "replace": "",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-create-persist-failure-sends",
+      "guards": "an attempt that cannot be recorded sends nothing (Sam, 15 Nov, #1867)",
+      "file": "runner-bridge.cjs",
+      "find": "                        return { sent: false, reason: `the account-create attempt could not be recorded, so nothing was sent: ${e.message}` };\n",
+      "replace": "",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-attempt-not-blocking",
+      "guards": "an unanswered account-create attempt blocks admission whatever the run marker says (Sam, 15 Nov, #1867)",
+      "file": "cleanup-evidence.cjs",
+      "find": "    blocking.push(...blockingAttempts(dir, names, opts));\n",
+      "replace": "",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-attempt-wrong-account",
+      "guards": "a terminal result not bound to the attempt and its lookup reference is refused (Sam, 15 Nov, #1867)",
+      "file": "cleanup-evidence.cjs",
+      "find": "    if (result.attemptId !== sent.attemptId || result.lookupRef !== sent.lookupRef)\n        return 'the result is not bound to this attempt and its lookup reference';\n",
+      "replace": "",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-attempt-early-zero",
+      "guards": "a zero lookup taken before the documented server deadline does not clear the attempt (Sam on 964f2add)",
+      "file": "cleanup-evidence.cjs",
+      "find": "r.observed < recorded + serverDeadline.ms",
+      "replace": "false",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-signups-sibling-owner",
+      "guards": "only the leg that owns a created account gets a sign-up allocation (Sam, 15 Nov, #1867)",
+      "file": "run-budget.cjs",
+      "find": "signups: owners.has(l.id) ? 1 : 0",
+      "replace": "signups: 1",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-answer-late-accepted",
+      "guards": "a result that arrives after the client's abort is not an answer (Sam on 964f2add)",
+      "file": "cleanup-evidence.cjs",
+      "find": "    if (result.beforeAbort !== true)\n        return 'the result did not arrive before the client aborted, so the request may still complete';\n",
+      "replace": "",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-answer-not-revalidated",
+      "guards": "admission re-validates the recorded answer on read (Sam on 964f2add)",
+      "file": "cleanup-evidence.cjs",
+      "find": "            const fault = terminalResultFault(sent, answered?.result);\n            if (fault) {",
+      "replace": "            const fault = null;\n            if (fault) {",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-deadline-route-open",
+      "guards": "with no documented server deadline, a lookup alone never clears an attempt (Sam on 964f2add)",
+      "file": "cleanup-evidence.cjs",
+      "find": "        if (!Number.isInteger(serverDeadline?.ms) || serverDeadline.ms <= 0 || typeof serverDeadline.source !== 'string' || !serverDeadline.source)",
+      "replace": "        if (false)",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-residue-incomplete",
+      "guards": "a recovery lookup must cover every residue check (Sam on 964f2add)",
+      "file": "cleanup-evidence.cjs",
+      "find": "    if (residue.residueChecks !== REQUIRED_RESIDUE_CHECKS || residue.residueNonZero !== 0)",
+      "replace": "    if (false)",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P10-residue-future",
+      "guards": "a recovery lookup dated in the future is not an observation (Sam on 964f2add)",
+      "file": "cleanup-evidence.cjs",
+      "find": "    if (!Number.isFinite(observed) || observed > now)",
+      "replace": "    if (!Number.isFinite(observed))",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P15-second-create-per-journey",
+      "guards": "a journey sends ONE account create; a second, under any reference, is refused from the durable records (survives restart)",
+      "file": "cleanup-evidence.cjs",
+      "find": "    if (earlier.length > 0)\n        throw new Error(",
+      "replace": "    if (false)\n        throw new Error(",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P15-zero-lookup-resolves",
+      "guards": "a zero lookup proves nothing: the reservation stays unresolved",
+      "file": "account-reservation.cjs",
+      "find": "    if (lookup === 'zero')\n        return { state: 'unresolved',",
+      "replace": "    if (lookup === 'zero')\n        return { state: 'resolved', how: 'landed', reason:",
+      "test": "tests/account-reservation.test.cjs"
+    },
+    {
+      "id": "P15-retry-same-email-admitted",
+      "guards": "a same-email retry is refused: it could land after the first account is deleted",
+      "file": "account-reservation.cjs",
+      "find": "        return { admitted: false, reason: `${journey} already sent its one create;",
+      "replace": "        return { admitted: true, email: e, reason: `${journey} already sent its one create;",
+      "test": "tests/account-reservation.test.cjs"
+    },
+    {
+      "id": "P15-two-creates-resolve",
+      "guards": "a reservation with more than one create sent is never resolved (late-after-delete)",
+      "file": "account-reservation.cjs",
+      "find": "    if (createsSent !== 1)\n",
+      "replace": "    if (createsSent < 1)\n",
+      "test": "tests/account-reservation.test.cjs"
+    },
+    {
+      "id": "P15-landed-clears-without-residue",
+      "guards": "a found account permits scoped cleanup only; it clears only with complete zero residue after it was found",
+      "file": "cleanup-evidence.cjs",
+      "find": "        if (r.observed < Date.parse(opts.landed.landedAt))\n",
+      "replace": "        if (false)\n",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P15-landed-readmits",
+      "guards": "a landed record alone keeps admission closed",
+      "file": "cleanup-evidence.cjs",
+      "find": "            blocking.push(`${stem}: the account was found under its reservation; scoped cleanup is permitted, and only a complete zero after it readmits`);\n            continue;",
+      "replace": "            continue;",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P15-client-retries-allowed",
+      "guards": "the one outbound create tells the client not to retry",
+      "file": "runner-bridge.cjs",
+      "find": "const value = await send({ token: r.token, signal, retries: 0 });",
+      "replace": "const value = await send({ token: r.token, signal });",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P16-unguarded-signup-allowed",
+      "guards": "the new runner has no unguarded signup path: without the bridge route nothing is touched",
+      "file": "guarded-signup.cjs",
+      "find": "    if (typeof createAccount !== 'function')\n        throw new Error(",
+      "replace": "    if (false)\n        throw new Error(",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P16-domain-not-fixed",
+      "guards": "the reservation domain must be the configured test domain",
+      "file": "guarded-signup.cjs",
+      "find": "|| fixed !== configuredDomain.toLowerCase())",
+      "replace": ")",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P16-retrying-route-accepted",
+      "guards": "the wrapper refuses a route that allows retries before clicking",
+      "file": "guarded-signup.cjs",
+      "find": "            if (retries !== 0)\n",
+      "replace": "            if (false)\n",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P16-factory-before-record",
+      "guards": "the factory is called only inside the guarded route, after the attempt is recorded",
+      "file": "guarded-signup.cjs",
+      "find": "        const route = await createAccount(leg, lookupRef, async ({ retries }) => {",
+      "replace": "        account = await factory(page, email); factoryCalls += 1;\n        const route = await createAccount(leg, lookupRef, async ({ retries }) => {",
+      "test": "tests/runner-bridge.test.cjs"
     }
   ]
 }
