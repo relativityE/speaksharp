@@ -527,14 +527,28 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 await startBenchmarkRecording(page, suite);
             }
             startedAt = Date.now();
+            // Diagnostics only (counts, no words): when live words first appear and how the count grows, on the same clock
+            // as firstChangeSec, plus how long Start took after the press, so a missed point can be told apart as no live
+            // words yet (engine start) versus words present but the point not matched.
+            const startTookMs = startedAt - acquisitionStarted;
             modelIdentityRow(receipt, run, await readSttIdentity(page), startedAt - acquisitionStarted, await readCpuRuntime(page));
 
             const until = startedAt + Math.round((fixture.entry.speechSeconds + 4) * 1000);
+            const liveWordSteps: string[] = [];
+            let lastLiveWords = -1;
             while (Date.now() < until) {
                 // One atomic read per sample: the statuses and the "Still to cover" marker come from the same evaluation.
                 const now = await sampleFocusRail(page, points.length);
                 const atMs = Date.now();
                 markerWindow.record(atMs - startedAt, now);
+                const liveWords = await page.evaluate(() => {
+                    const t = document.querySelector('[data-testid="live-transcript"]')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+                    return t ? t.split(' ').length : 0;
+                }).catch(() => -1);
+                if (liveWords !== lastLiveWords && liveWordSteps.length < 24) {
+                    liveWordSteps.push(`${Math.round((atMs - startedAt) / 100) / 10}s:${liveWords}`);
+                    lastLiveWords = liveWords;
+                }
                 (now?.statuses ?? []).forEach((status, i) => {
                     if (!firstChange[i] && status !== 'pending' && status !== 'none' && status !== ABSENT_ROW) {
                         firstChange[i] = { status: status as RailStatus, atSec: Math.round((atMs - startedAt) / 1000), atMs };
@@ -553,7 +567,8 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             const ordered = firstChange.filter(Boolean).every((c, i, all) => i === 0 || c!.atSec >= all[i - 1]!.atSec);
             receipt.row('live marker changes', notLive.length === 0 && ordered ? 'PASS' : 'FAIL',
                 notLive.length === 0 ? 'every spoken point expected to be detected changed during speech, in speaking order' : 'a point expected to be detected did not change during speech (Stop-time-only detection fails this row)',
-                { changedDuringSpeech: liveChanged, expected: expectedLive, notLive: notLive.map((i) => i + 1).join(','), firstChangeSec: firstChange.map((c) => (c ? `${c.status}@${c.atSec}` : 'none')).join(',') });
+                { changedDuringSpeech: liveChanged, expected: expectedLive, notLive: notLive.map((i) => i + 1).join(','), firstChangeSec: firstChange.map((c) => (c ? `${c.status}@${c.atSec}` : 'none')).join(','),
+                  startTookMs, liveWordSteps: liveWordSteps.join(',') });
             // Owner decision (Akin, 2026-11-11): the marker must always be on the FIRST pending point; it is NOT required to move
             // (movement is judged by `live marker changes` and `marker timing vs audio`). Mirrors the harness `markerVerdict`
             // (tools/cloud-test/harness/draft-adapters/focus-oracle.cjs); a window with no usable sample is HOLD, never PASS.
