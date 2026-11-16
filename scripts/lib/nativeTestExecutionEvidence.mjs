@@ -25,6 +25,10 @@ export const SQL_CONTRACTS=Object.freeze([
     files:Object.freeze(['backend/supabase/migrations/20261112130000_stripe_refund_followups.sql'])}),
   Object.freeze({consumer:'tests/db/recording-start-abandonment.integration.test.ts',
     files:Object.freeze(['backend/supabase/migrations/20261112133000_recording_start_abandonment_1643.sql'])}),
+  // #1811 feedback fence: the ledger-11 attestation replays the exact migration in PGlite (both catalog contexts); the native
+  // PG17 proofs (rwt-feedback-fence-realpg, feedback-fence-postflight-realpg) run in the full-chain proof workflow.
+  Object.freeze({consumer:'tests/unit/t2MigrationPostflight.test.js',
+    files:Object.freeze(['backend/supabase/migrations/20261114100000_rwt_feedback_fence_1811.sql'])}),
 ]);
 export const sqlContract=file=>SQL_CONTRACTS.find(item=>item.files.includes(file));
 export const NATIVE_HELPERS=Object.freeze([

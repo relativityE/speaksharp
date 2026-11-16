@@ -181,7 +181,7 @@ const REQUIRED_IMPORTS=Object.freeze({
   'tests/live/rwt-abandon-and-two-tabs.live.spec.ts':{module:'./helpers/rwtTwoPlaces',names:['displacedFenceVerdict','sameBrowserRefusedVerdict']},
   'tests/live/rwt-adverse-mic-denied.live.spec.ts':{module:'./helpers/rwtAdverseJourney',names:['finalizer','fixture','runVariant']},
   'tests/live/rwt-adverse-mic-model.live.spec.ts':{module:'./helpers/rwtAdverseJourney',names:['finalizer','fixture','runVariant']},
-  'tests/live/rwt-feedback-association-boundaries.live.spec.ts':{module:'./helpers/feedbackNoSessionCleanup',names:['noSessionWriteUncertainty']},
+  'tests/live/rwt-feedback-association-boundaries.live.spec.ts':{module:'./helpers/feedbackFence',names:['JourneyFeedbackFence']},
   'tests/live/rwt-pending-start-navigation.live.spec.ts':{module:'./helpers/rwtPendingStartRecovery',names:['recoveryTakePlan','recoveryTakeVerdict']},
   'tests/live/rwt-save-retry-recovery.live.spec.ts':{module:'./helpers/rwtSaveRetryAttempts',names:['completionAttemptsVerdict']},
   'tests/live/helpers/rwtFocusPointsJourney.ts':{module:'./rwtHarnessParity',names:['probeSaveIsolationRow','numericComparisonRow','readRepeatEligibility']},
@@ -417,9 +417,11 @@ const wiring={
     'await finalizer.drain();',
   ],
   'tests/live/rwt-feedback-association-boundaries.live.spec.ts':[
-    'const runKeys = insertSnapshot?.keys ?? [];',
-    'const uncertainty = noSessionWriteUncertainty({ submitted: submitWindow !== null, inserts: insertSnapshot, reportId, storedRows });',
-    'const verdict = await cleanupRunReports(admin as never, owner.uid, runKeys, capturedReports, uncertainty);',
+    // #1811 (Sam, #1859 review): the database feedback fence gates every feedback write and owns the cleanup.
+    "feedbackFence = new JourneyFeedbackFence(admin as never, 'AHT-07', AHT07_FENCE_KEY_CAP);",
+    "feedbackFence = new JourneyFeedbackFence(admin as never, 'AHT-08', 1);",
+    'if (!fence.writable) {',
+    'await installFeedbackWriteRoute(page, ledger, feedbackFence);',
     'await runFeedbackFaultLeg(page, tap, ledger, leg, olderId, owner.uid, legJourneys)',
   ],
   'tests/live/rwt-pending-start-navigation.live.spec.ts':[

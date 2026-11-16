@@ -20,6 +20,9 @@ import { PRIV_STT_V4_VARIANTS } from '../../sttConstants';
 
 // Mock underlying libraries to avoid resolution errors
 vi.mock('@xenova/transformers', () => ({}));
+// AHT-01/04: the acquisition lifecycle events this facade emits, captured at the analytics boundary.
+const telemetryPushed = vi.hoisted(() => [] as Array<{ name: string; props: Record<string, unknown> }>);
+vi.mock('@/services/AnalyticsBuffer', () => ({ analyticsBuffer: { push: (name: string, props: Record<string, unknown>) => { telemetryPushed.push({ name, props }); } } }));
 
 // Inject dynamic ENV mock to bypass static IIFE in TestFlags.ts
 vi.mock('@/config/TestFlags', async (importOriginal) => {
@@ -468,6 +471,219 @@ describe('PrivateSTT (Routing Logic)', () => {
             });
         });
         afterEach(() => { mockTJInit.mockReset(); mockTJInit.mockResolvedValue({ isOk: true, data: undefined }); });
+
+        // AHT-01 (run 43583228045) / AHT-04 (run 43586395706): leaving a page mid-load reported `failure`/`unknown`, and the
+        // watchdog stopped both journeys. Reproduced on adc70cd2 with this exact harness before the fix.
+        const acquisitionEvents = async () => {
+            const telemetry = await import('../../modelAcquisitionTelemetry');
+            telemetry.markIdentitySettled();
+            return telemetryPushed.filter((e) => e.name.startsWith('private_model_acquisition_'))
+                .map((e) => ({ name: e.name, outcome: e.props.outcome ?? null, error_code: e.props.error_code ?? null }));
+        };
+        it.each(['destroy', 'terminate'] as const)('a %s during the load emits a CANCELLED lifecycle outcome, never a failure', async (teardown) => {
+            const telemetry = await import('../../modelAcquisitionTelemetry');
+            telemetry.__resetAcquisitionTelemetry();
+            telemetryPushed.length = 0;
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+            const pending = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            await pstt[teardown]();
+            gates[0](Result.ok(undefined));
+            expect((await pending).isOk).toBe(false);
+            const events = await acquisitionEvents();
+            expect(events.map((e) => e.name)).toEqual(['private_model_acquisition_start', 'private_model_acquisition_cancelled']);
+            expect(events[1]).toMatchObject({ outcome: 'cancelled', error_code: null });
+        });
+        // #1858 (Sam, a3ad6f0d): the post-adoption cancel path returns `cancelledInitError(false)` without awaiting the
+        // release, and TranscriptionService.destroy swallows the teardown's rejection. The cancelled event must therefore
+        // wait for the teardown: a held release reports nothing yet; a release that then FAILS is a fatal failure.
+        const heldTeardown = async (teardown: 'destroy' | 'terminate') => {
+            const telemetry = await import('../../modelAcquisitionTelemetry');
+            telemetry.__resetAcquisitionTelemetry();
+            telemetryPushed.length = 0;
+            const { PrivateSTT } = await import('../PrivateSTT');
+            const facade = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn(), forceEngine: 'transformers-js' } as never);
+            pstt = facade;
+            // Sam's exact window: the engine is ADOPTED, then the teardown arrives before the init resumes. The init
+            // returns `cancelledInitError(false)` without awaiting the release, which the teardown now holds.
+            const internals = facade as unknown as { adoptEngine: (...args: unknown[]) => Promise<Result<void, Error>> };
+            const adopt = internals.adoptEngine.bind(facade);
+            const release: { complete?: () => void; fail?: (error: Error) => void } = {};
+            let tearingDown: Promise<Error | null> = Promise.resolve(null);
+            vi.spyOn(internals, 'adoptEngine').mockImplementationOnce(async (...args: unknown[]) => {
+                const adopted = await adopt(...args);
+                created[0].onDestroy.mockImplementationOnce(() => new Promise<void>((resolve, reject) => { release.complete = resolve; release.fail = reject; }));
+                tearingDown = facade[teardown]().then(() => null, (error: unknown) => error as Error);
+                return adopted;
+            });
+            const pending = facade.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            gates[0](Result.ok(undefined));
+            const result = await pending; // the init settles while its engine's release is still held
+            expect(result.isOk).toBe(false);
+            expect(result.isOk ? '' : result.error.message).toMatch(/release belongs to that teardown/);
+            // Microtasks only: under fake timers vi.waitFor advances the clock, which would fire the release bound early.
+            for (let i = 0; i < 100 && !release.complete; i += 1) await Promise.resolve();
+            expect(release.complete).toBeTypeOf('function');
+            pstt = null; // each test settles the held teardown itself; afterEach must not wait on it
+            return { release, tearingDown: () => tearingDown };
+        };
+        it.each(['destroy', 'terminate'] as const)('#1858: a %s whose held release then REJECTS emits a fatal failure{release_uncertain}, never cancelled', async (teardown) => {
+            const { release, tearingDown } = await heldTeardown(teardown);
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect((await acquisitionEvents()).map((e) => e.name)).toEqual(['private_model_acquisition_start']); // nothing claimed yet
+            release.fail?.(new Error('injected release failure'));
+            expect(await tearingDown()).toEqual(expect.objectContaining({ message: expect.stringMatching(/injected release failure/) }));
+            await vi.waitFor(async () => expect((await acquisitionEvents()).length).toBe(2));
+            const events = await acquisitionEvents();
+            expect(events.map((e) => e.name)).toEqual(['private_model_acquisition_start', 'private_model_acquisition_failure']);
+            expect(events[1]).toMatchObject({ outcome: 'failure', error_code: 'release_uncertain' });
+        });
+        it.each(['destroy', 'terminate'] as const)('#1858: a %s whose held release then COMPLETES emits cancelled only after it is confirmed', async (teardown) => {
+            const { release, tearingDown } = await heldTeardown(teardown);
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect((await acquisitionEvents()).map((e) => e.name)).toEqual(['private_model_acquisition_start']);
+            release.complete?.();
+            expect(await tearingDown()).toBeNull();
+            await vi.waitFor(async () => expect((await acquisitionEvents()).length).toBe(2));
+            const events = await acquisitionEvents();
+            expect(events.map((e) => e.name)).toEqual(['private_model_acquisition_start', 'private_model_acquisition_cancelled']);
+            expect(events[1]).toMatchObject({ outcome: 'cancelled', error_code: null });
+        });
+        it('#1858: a release that never settles within the bound is reported as a fatal failure{release_uncertain}, exactly once', async () => {
+            const { CANCELLED_RELEASE_SETTLE_BOUND_MS } = await import('../PrivateSTT');
+            vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+            try {
+                const { release, tearingDown } = await heldTeardown('destroy');
+                expect((await acquisitionEvents()).map((e) => e.name)).toEqual(['private_model_acquisition_start']);
+                await vi.advanceTimersByTimeAsync(CANCELLED_RELEASE_SETTLE_BOUND_MS - 1);
+                expect((await acquisitionEvents()).map((e) => e.name)).toEqual(['private_model_acquisition_start']);
+                await vi.advanceTimersByTimeAsync(1);
+                const events = await acquisitionEvents();
+                expect(events.map((e) => e.name)).toEqual(['private_model_acquisition_start', 'private_model_acquisition_failure']);
+                expect(events[1]).toMatchObject({ outcome: 'failure', error_code: 'release_uncertain' });
+                release.complete?.(); // a late confirmation cannot retract the failure or add a second event
+                expect(await tearingDown()).toBeNull();
+                await vi.advanceTimersByTimeAsync(0);
+                expect((await acquisitionEvents()).map((e) => e.name)).toEqual(['private_model_acquisition_start', 'private_model_acquisition_failure']);
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+        it.each(['destroy', 'terminate'] as const)('#1858 (Codex P2): an engine whose late dispose FAILED after a %s emits failure{release_uncertain}, never cancelled', async (teardown) => {
+            const telemetry = await import('../../modelAcquisitionTelemetry');
+            telemetry.__resetAcquisitionTelemetry();
+            telemetryPushed.length = 0;
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+            const pending = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            await pstt[teardown](); // the facade teardown succeeds; only the engine knows its late pipeline leaked
+            gates[0](Result.err(new Error('[TransformersJS] init cancelled, and disposing the pipeline that completed after teardown FAILED (release uncertain): dispose rejected')));
+            expect((await pending).isOk).toBe(false);
+            await vi.waitFor(async () => expect((await acquisitionEvents()).length).toBe(2));
+            const events = await acquisitionEvents();
+            expect(events.map((e) => e.name)).toEqual(['private_model_acquisition_start', 'private_model_acquisition_failure']);
+            expect(events[1]).toMatchObject({ outcome: 'failure', error_code: 'release_uncertain' });
+        });
+        // #1858 (Codex P2 on 703aa9d5; Sam on 26b49b8c): a child's terminate() may resolve while its pipeline disposal is still
+        // deferred behind an in-flight run. The facade's teardown waits for that, inside THE SAME teardown, so neither a caller
+        // nor a later lifetime can treat the engine as off, and a later lifetime can never substitute its own children.
+        const heldChildDeferral = async () => {
+            const telemetry = await import('../../modelAcquisitionTelemetry');
+            telemetry.__resetAcquisitionTelemetry();
+            telemetryPushed.length = 0;
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+            const pending = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            const deferral: { settle?: (outcome: Error | null) => void } = {};
+            vi.spyOn(created[0] as unknown as { teardownReleaseOutcome: () => Promise<Error | null> }, 'teardownReleaseOutcome')
+                .mockImplementation(() => new Promise(resolve => { deferral.settle = resolve; }));
+            let tornDown = false;
+            const tearingDown = pstt.destroy().then(() => null, (error: unknown) => error as Error).finally(() => { tornDown = true; });
+            gates[0](Result.ok(undefined));
+            expect((await pending).isOk).toBe(false);
+            await vi.waitFor(() => expect(deferral.settle).toBeTypeOf('function'));
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(tornDown).toBe(false); // the facade's teardown is NOT engine-off while the child's disposal is held
+            expect((await acquisitionEvents()).map((e) => e.name)).toEqual(['private_model_acquisition_start']);
+            return { deferral, tearingDown };
+        };
+        it('#1858: a released child whose deferred disposal FAILS fails the facade teardown and turns the cancel into failure{release_uncertain}', async () => {
+            const { deferral, tearingDown } = await heldChildDeferral();
+            deferral.settle?.(new Error('[TransformersJS] disposing the main-thread pipeline at teardown FAILED (release uncertain): x'));
+            expect(await tearingDown).toEqual(expect.objectContaining({ message: expect.stringMatching(/release uncertain/) }));
+            await vi.waitFor(async () => expect((await acquisitionEvents()).length).toBe(2));
+            const events = await acquisitionEvents();
+            expect(events.map((e) => e.name)).toEqual(['private_model_acquisition_start', 'private_model_acquisition_failure']);
+            expect(events[1]).toMatchObject({ outcome: 'failure', error_code: 'release_uncertain' });
+            pstt = null; // its release is uncertain by design; afterEach must not replay it
+        });
+        it('#1858: a released child whose deferred disposal CONFIRMS lets the teardown settle as a clean cancel', async () => {
+            const { deferral, tearingDown } = await heldChildDeferral();
+            deferral.settle?.(null);
+            expect(await tearingDown).toBeNull();
+            await vi.waitFor(async () => expect((await acquisitionEvents()).length).toBe(2));
+            expect((await acquisitionEvents())[1]).toMatchObject({ outcome: 'cancelled', error_code: null });
+        });
+        it('#1858 (Sam on 26b49b8c): two lifetimes, out of order — a successor cannot start, or hide the earlier failure, while the deferral is held', async () => {
+            const { deferral, tearingDown } = await heldChildDeferral();
+            const successor = pstt!.init(); // a later lifetime asks for an engine while the first teardown is still held
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(gates).toHaveLength(1); // it acquires nothing until that teardown settles
+            deferral.settle?.(new Error('deferred dispose rejected (release uncertain)'));
+            expect(await tearingDown).toEqual(expect.objectContaining({ message: expect.stringMatching(/release uncertain/) }));
+            const second = await successor;
+            expect(second.isOk).toBe(false); // an uncertain release never permits a successor on this facade
+            expect(second.isOk ? '' : second.error.message).toMatch(/release uncertain/);
+            expect(gates).toHaveLength(1);
+            await vi.waitFor(async () => expect((await acquisitionEvents()).length).toBe(2));
+            expect((await acquisitionEvents()).map((e) => e.name)).toEqual(['private_model_acquisition_start', 'private_model_acquisition_failure']);
+            pstt = null;
+        });
+        it('#1858: a deferral that never settles fails the facade teardown at its bound as an uncertain release', async () => {
+            const { CHILD_DEFERRED_RELEASE_BOUND_MS } = await import('../PrivateSTT');
+            vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+            try {
+                const telemetry = await import('../../modelAcquisitionTelemetry');
+                telemetry.__resetAcquisitionTelemetry();
+                telemetryPushed.length = 0;
+                const { PrivateSTT } = await import('../PrivateSTT');
+                pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+                const pending = pstt.init();
+                for (let i = 0; i < 100 && gates.length < 1; i += 1) await Promise.resolve();
+                expect(gates).toHaveLength(1);
+                vi.spyOn(created[0] as unknown as { teardownReleaseOutcome: () => Promise<Error | null> }, 'teardownReleaseOutcome')
+                    .mockImplementation(() => new Promise(() => undefined));
+                const tearingDown = pstt.destroy().then(() => null, (error: unknown) => error as Error);
+                gates[0](Result.ok(undefined));
+                expect((await pending).isOk).toBe(false);
+                await vi.advanceTimersByTimeAsync(CHILD_DEFERRED_RELEASE_BOUND_MS);
+                expect(await tearingDown).toEqual(expect.objectContaining({ message: expect.stringMatching(/did not settle within/) }));
+                const events = await acquisitionEvents();
+                expect(events.map((e) => e.name)).toEqual(['private_model_acquisition_start', 'private_model_acquisition_failure']);
+                expect(events[1]).toMatchObject({ error_code: 'release_uncertain' });
+            } finally {
+                vi.useRealTimers();
+                pstt = null;
+            }
+        });
+        it('NEGATIVE: a load that genuinely fails (not a teardown) still emits a failure', async () => {
+            const telemetry = await import('../../modelAcquisitionTelemetry');
+            telemetry.__resetAcquisitionTelemetry();
+            telemetryPushed.length = 0;
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+            const pending = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            gates[0](Result.err(new Error('NetworkError when attempting to fetch resource')));
+            expect((await pending).isOk).toBe(false);
+            const events = await acquisitionEvents();
+            expect(events.map((e) => e.name)).toEqual(['private_model_acquisition_start', 'private_model_acquisition_failure']);
+            expect(events[1]).toMatchObject({ outcome: 'failure', error_code: 'network' });
+        });
 
         it.each(['destroy', 'terminate'] as const)('a %s during the model load releases the acquired engine exactly once and never adopts it', async (teardown) => {
             const { PrivateSTT } = await import('../PrivateSTT');
