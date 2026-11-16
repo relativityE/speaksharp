@@ -43,7 +43,7 @@ export function journeyReceiptDefects(receipt, expected) {
   if (!SHA.test(`${expected?.release ?? ''}`) || receipt.testedRelease !== expected.release) defects.push('release_mismatch');
   if (!PROJECT_PATTERN.test(`${expected?.stackRun ?? ''}`) || receipt.stackRun !== expected.stackRun) defects.push('stack_run_mismatch');
   const required = REQUIRED_STEPS[expected?.journey] ?? [];
-  // Access after a membership ends is on hold (POLICY_PENDING_STEPS). Only those steps, and only in a receipt
+  // Steps held for a product policy (POLICY_PENDING_STEPS; none is held now). Only those steps, and only in a receipt
   // that says PENDING_POLICY, may read PENDING_POLICY; every other step must be PASSED. Such a receipt still
   // carries the policy_pending defect, so it can never be promoted to PASSED.
   const pending = receipt.result === PENDING_POLICY ? POLICY_PENDING_STEPS[expected?.journey] ?? [] : [];

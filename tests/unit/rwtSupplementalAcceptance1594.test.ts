@@ -44,7 +44,7 @@ function canonical(suite: string): { suite: string; release: string; meta: Recor
             : pass(s))),
     ];
     const feedback = suite !== PENDING_START_SUITE;
-    return { suite, release: SHA, meta: { fixtureKind: 'synthetic' }, rows,
+    return { suite, release: SHA, meta: { fixtureKind: 'synthetic', runScope: 'full-gate' }, rows,
         readback: { journeys: feedback ? [{ journeyId: J, stages: ['share_feedback'] }] : [], reportedJourneyIds: [], missingBindings: [] } };
 }
 const worksheet = (r: { suite: string; rows: ReceiptRow[]; readback: unknown }) =>

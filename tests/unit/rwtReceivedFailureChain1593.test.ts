@@ -89,7 +89,7 @@ function finalize(chainRow: ReceiptRow, received?: ReturnType<typeof evaluateCoa
         Object.assign(rows.find((r) => r.step === 'coaching visible = saved')!, { verdict: 'EXTERNAL',
             evidence: { savedCoachingAbsent: true, visibleCoachingAbsent: true } });
     }
-    const receipt = { suite: SUITE, release: RELEASE, meta: { fixtureKind: 'synthetic' }, rows,
+    const receipt = { suite: SUITE, release: RELEASE, meta: { fixtureKind: 'synthetic', runScope: 'full-gate' }, rows,
         readback: { journeys: [{ journeyId: JOURNEY, stages: STAGES }], reportedJourneyIds: ['other'], missingBindings: [] } };
     const worksheet = parseHumanWorksheet(humanWorksheet(SUITE, RELEASE, [JOURNEY, 'other'], rows).split('\n')
         .map((line) => line.startsWith('| `open_mic_')

@@ -4,7 +4,7 @@ const { readFileSync } = require('node:fs');
 const path = require('node:path');
 const { describe, it } = require('node:test');
 const { expect } = require('./expect-lite.cjs');
-const { ALL_LEGS, CATALOG_ROW_HOMES, DESIGN_RUN_START_PRESSES, HARNESS_CASES, legById, rowsForLeg } = require('../journey-plan.cjs');
+const { ALL_LEGS, CATALOG_ROW_HOMES, DESIGN_RUN_START_PRESSES, HARNESS_CASES, historicalCase, legById, rowsForLeg } = require('../journey-plan.cjs');
 const { legsForCase, outcomeOf, splitCaseResult } = require('../case-results.cjs');
 const { legVerdict: rawLegVerdict } = require('../leg-verdicts.cjs');
 // These tests are about the case split, so every leg has its allocation.
@@ -17,6 +17,15 @@ function caseResult(caseId, result = 'PASS', newRows = []) {
     return { caseId, contentSafe: true, blocker: null, assertions: [...ids, ...newRows].map((id) => ({ id, result })) };
 }
 const sum = (legs, f) => legs.reduce((n, l) => n + f(l), 0);
+/** The J8 invocation result reporting every planned row of its three legs, each row naming the leg it was observed on. */
+function j8Result(result = 'PASS') {
+    const assertions = ['J8.a', 'J8.b', 'J8.c'].flatMap((leg) => rowsForLeg(leg).map((row) => {
+        const id = row.startsWith('invariant:') || row.startsWith('new:') ? row.slice(row.indexOf(':') + 1) : row;
+        return { id, leg, result };
+    }));
+    return { caseId: 'J8', contentSafe: true, blocker: null, assertions };
+}
+const RETIRED = new Set(['AHT-07', 'AHT-08']);
 
 describe('plan mapping onto the harness cases', () => {
     it('maps every leg, and only the plan legs', () => {
@@ -28,23 +37,24 @@ describe('plan mapping onto the harness cases', () => {
     });
     it('spends each case exactly its catalog Start presses, AHT-01 one more for the short Stop', () => {
         for (const [caseId, c] of Object.entries(catalog.cases)) {
-            const legs = ALL_LEGS.filter((l) => l.caseId === caseId);
+            // J8's legs count under their historical cases (AHT-08 for J8.a, AHT-07 for J8.b): one invocation, same totals.
+            const legs = ALL_LEGS.filter((l) => historicalCase(l) === caseId);
             expect(legs.length).toBeGreaterThan(0);
             expect(sum(legs, (l) => l.startPresses)).toBe(c.minimumStarts + (caseId === 'AHT-01' ? 1 : 0));
         }
     });
     it('sends each case exactly its catalog takes as coaching requests', () => {
         for (const [caseId, c] of Object.entries(catalog.cases))
-            expect(sum(ALL_LEGS.filter((l) => l.caseId === caseId), (l) => l.coachingRequests)).toBe(c.minimumTakes);
+            expect(sum(ALL_LEGS.filter((l) => historicalCase(l) === caseId), (l) => l.coachingRequests)).toBe(c.minimumTakes);
     });
     it('homes every catalog row only on legs its own case runs', () => {
         for (const r of CATALOG_ROW_HOMES)
             for (const leg of r.legs)
-                expect(legById(leg).caseId).toBe(r.caseId);
+                expect(historicalCase(legById(leg))).toBe(r.caseId);
     });
     it('gives a leg with no harness case nothing to spend and a NOT RUN gate', () => {
         const none = ALL_LEGS.filter((l) => l.caseId === null);
-        expect(none.map((l) => l.id)).toEqual(['J1.e', 'J1.f', 'J2', 'J7.d', 'J8.c', 'J9.a', 'J9.b']);
+        expect(none.map((l) => l.id)).toEqual(['J1.e', 'J1.f', 'J2', 'J7.d', 'J9.a', 'J9.b']);
         for (const l of none) {
             expect(l.startPresses).toBe(0);
             expect(l.coachingRequests).toBe(0);
@@ -101,9 +111,9 @@ describe('splitting a case result into legs', () => {
         expect(splitCaseResult('AHT-01', res).get('J1.a')['invariant:start-press-budget']).toBe('NOT RUN');
     });
     it('keeps the worse outcome of a row reported twice', () => {
-        const res = caseResult('AHT-08');
-        res.assertions.push({ id: 'feedback-stored-once', result: 'FAIL' });
-        expect(splitCaseResult('AHT-08', res).get('J8.a')['AHT-08:feedback-stored-once']).toBe('FAIL');
+        const res = j8Result();
+        res.assertions.push({ id: 'AHT-08:feedback-stored-once', leg: 'J8.a', result: 'FAIL' });
+        expect(splitCaseResult('J8', res).get('J8.a')['AHT-08:feedback-stored-once']).toBe('FAIL');
     });
     it('refuses a result for another case, or one with no assertions', () => {
         expect(() => splitCaseResult('AHT-01', caseResult('AHT-02'))).toThrow();
@@ -111,17 +121,79 @@ describe('splitting a case result into legs', () => {
         expect(() => splitCaseResult('AHT-99', { caseId: 'AHT-99', assertions: [] })).toThrow();
     });
     it('lists the legs a case covers in plan order', () => {
-        expect(legsForCase('AHT-07')).toEqual(['J8.b']);
+        expect(legsForCase('J8')).toEqual(['J8.a', 'J8.b', 'J8.c']);
+        expect(legsForCase('AHT-07')).toEqual([]);
         expect(legsForCase('AHT-99')).toEqual([]);
     });
     it('leaves every planned row of a fully reported case placed, with no unplaced row', () => {
-        for (const caseId of Object.keys(catalog.cases)) {
-            const split = splitCaseResult(caseId, caseResult(caseId));
+        for (const caseId of [...Object.keys(catalog.cases).filter((c) => !RETIRED.has(c)), 'J8']) {
+            const split = splitCaseResult(caseId, caseId === 'J8' ? j8Result() : caseResult(caseId));
             for (const [leg, rows] of split) {
                 expect(Object.keys(rows).filter((r) => r.startsWith('unplaced:'))).toEqual([]);
                 for (const r of Object.keys(rows))
                     expect(rowsForLeg(leg)).toContain(r);
             }
         }
+    });
+});
+
+/** Sam on #1870: J8 is ONE invocation; AHT-07/AHT-08 are historical row IDs, never a receipt source. */
+describe('the J8 invocation', () => {
+    it('one invocation covers all three legs: one case id, no leg resolves to a retired case', () => {
+        expect([...new Set(['J8.a', 'J8.b', 'J8.c'].map((id) => legById(id).caseId))]).toEqual(['J8']);
+        for (const l of ALL_LEGS) expect(RETIRED.has(l.caseId)).toBe(false);
+    });
+    it('a fully reported J8 result passes each leg with every row on its own leg', () => {
+        const split = splitCaseResult('J8', j8Result());
+        for (const leg of ['J8.a', 'J8.b', 'J8.c']) expect(Object.keys(split.get(leg)).sort()).toEqual([...rowsForLeg(leg)].sort());
+    });
+    it('CONTROL: a legacy AHT-07 or AHT-08 receipt is refused, for J8 and on its own', () => {
+        expect(() => splitCaseResult('J8', caseResult('AHT-07'))).toThrow();
+        expect(() => splitCaseResult('J8', caseResult('AHT-08'))).toThrow();
+        expect(() => splitCaseResult('AHT-07', caseResult('AHT-07'))).toThrow();
+    });
+    it('CONTROL: a row swapped between legs is unplaced on every leg, never a PASS on either', () => {
+        const res = j8Result();
+        res.assertions.push({ id: 'AHT-07:older-take-association', leg: 'J8.a', result: 'PASS' });
+        const split = splitCaseResult('J8', res);
+        for (const leg of ['J8.a', 'J8.b', 'J8.c']) expect(Object.keys(split.get(leg))).toContain('unplaced:J8.a:AHT-07:older-take-association');
+        const v = legVerdict('J8.a', { prior: new Map(), satisfiedGates: new Set([...ALL_GATES, 'no-j8-harness-adapter']), results: split.get('J8.a') });
+        expect(v.outcome).toBe('FAIL');
+    });
+    it('CONTROL: a row naming no leg, or a leg outside J8, is unplaced', () => {
+        for (const extra of [{ id: 'AHT-08:owner-bound', result: 'PASS' }, { id: 'AHT-08:owner-bound', leg: 'J7.c', result: 'PASS' }]) {
+            const res = j8Result();
+            res.assertions.push(extra);
+            expect(Object.keys(splitCaseResult('J8', res).get('J8.a')).some((r) => r.startsWith('unplaced:'))).toBe(true);
+        }
+    });
+    it('an invariant lands only on the leg that reported it', () => {
+        const res = { caseId: 'J8', assertions: [{ id: 'owner-bound', leg: 'J8.c', result: 'FAIL' }] };
+        const split = splitCaseResult('J8', res);
+        expect(split.get('J8.c')['invariant:owner-bound']).toBe('FAIL');
+        expect('invariant:owner-bound' in split.get('J8.a')).toBe(false);
+        expect('invariant:owner-bound' in split.get('J8.b')).toBe(false);
+    });
+    it('CONTROL: J8 is NOT RUN until its reviewed harness adapter lands, even with every row PASS', () => {
+        const split = splitCaseResult('J8', j8Result());
+        for (const leg of ['J8.a', 'J8.b']) {
+            const v = legVerdict(leg, { prior: new Map(), satisfiedGates: ALL_GATES, results: split.get(leg) });
+            expect(v.outcome).toBe('NOT RUN');
+            expect(v.reason).toContain('no reviewed harness adapter');
+        }
+    });
+    it('J8.c stays NOT RUN when J8.b did not PASS, and never passes while J8 has no adapter', () => {
+        const gates = new Set([...ALL_GATES, 'no-j8-harness-adapter']);
+        const split = splitCaseResult('J8', j8Result());
+        const bad = { ...split.get('J8.b'), 'AHT-07:older-take-association': 'FAIL' };
+        const b = legVerdict('J8.b', { prior: new Map(), satisfiedGates: gates, results: bad });
+        expect(b.outcome).toBe('FAIL');
+        const c = legVerdict('J8.c', { prior: new Map([['J8.b', b]]), satisfiedGates: gates, results: split.get('J8.c') });
+        expect(c.outcome).toBe('NOT RUN');
+        expect(c.reason).toContain('needs J8.b');
+        // Sam on a90e906a: even a passing J8.b cannot make J8.c run: the adapter gate is never satisfied yet.
+        const okB = legVerdict('J8.b', { prior: new Map(), satisfiedGates: gates, results: split.get('J8.b') });
+        expect(okB.outcome).toBe('NOT RUN');
+        expect(legVerdict('J8.c', { prior: new Map([['J8.b', okB]]), satisfiedGates: gates, results: split.get('J8.c') }).outcome).toBe('NOT RUN');
     });
 });
