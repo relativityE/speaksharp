@@ -241,7 +241,8 @@ R10 cloud-test campaign of 15 single-spec cases (Product Owner, 14 November: the
 carried by the leg below that replaces it, so no case ID or closure criterion is dropped; the
 15-case text later in this map is that history. Seven legs have no former case and are new
 rows. The leg list is the runner's own plan (`tools/cloud-test/nightly/journey-plan.cjs` on
-`main` `362fbd68`).
+`main` `90472d5d`, after #1870 made J8 one invocation; former cases come from its
+`historicalCase`).
 
 | Leg | Story | Former case | Release-acceptance state |
 |---|---|---|---|
@@ -264,9 +265,9 @@ rows. The leg list is the runner's own plan (`tools/cloud-test/nightly/journey-p
 | J7.b | model request fails before any byte, retry | AHT-13 | NOT RUN |
 | J7.c | connection drops after bytes arrive, retry | AHT-14 | NOT RUN |
 | J7.d | delete the account from the Account page during the trial | none (new row) | NOT RUN (gated: no-harness-case) |
-| J8.a | feedback with no session, before any take | AHT-08 | NOT RUN |
-| J8.b | feedback on an older take and its coaching, with retries | AHT-07 | NOT RUN |
-| J8.c | "No session" chosen while takes are listed | none (new row) | NOT RUN (gated: no-harness-case) |
+| J8.a | feedback with no session, before any take | AHT-08 | NOT RUN (gated: no-j8-harness-adapter) |
+| J8.b | feedback on an older take and its coaching, with retries | AHT-07 | NOT RUN (gated: no-j8-harness-adapter) |
+| J8.c | "No session" chosen while takes are listed | none (new row) | NOT RUN (gated: no-j8-harness-adapter) |
 | J9.a | sandbox: kept sessions, Progress and the billing portal open on a long-lived test-mode paid account; no takes | none (new row) | NOT RUN (gated: test-mode-fixture, no-harness-case) |
 | J9.b | production: a real paid account keeps its entitlement and data after a production upgrade | none (new row) | NOT RUN (gated: no-safe-production-proof, no-harness-case) |
 
@@ -276,8 +277,8 @@ rows. The leg list is the runner's own plan (`tools/cloud-test/nightly/journey-p
 - **No qualifying execution path yet.** Since #1874 (merged 16 November), a diagnostic run's
   receipt is evidence only and can never report acceptance; no current RWT path earns full
   acceptance. The runner bridge (#1875, merged 16 November) is proven offline only; the
-  harness case process does not route through it yet. J8 (#1870) and J1.d are not wired for a
-  live run.
+  harness case process does not route through it yet. J8 and J1.d are not wired for a live
+  run: #1870 (merged 16 November) wires J8 offline only, as one gated invocation.
 - **Earlier live evidence is partial.** AHT-05 (now J4.a), run 43725359185 on served
   `446e09fa`, ended INCOMPLETE (18 PASS, 2 HOLD); only its save-once, persisted-row and
   reopen observations are reusable, and the adapter inspection may be reused at a newer

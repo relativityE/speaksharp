@@ -36,8 +36,10 @@ const currentStates: Record<number, string> = {
   1788: 'open unmerged', 1795: 'open unmerged', 1775: 'open unmerged',
 };
 // The J1–J9 retarget (16 November 2026) is bound to the runner's own leg plan, so a leg or a former case cannot drop out.
+type PlanLeg = { id: string; caseId: string | null };
 const plan = createRequire(import.meta.url)('../../tools/cloud-test/nightly/journey-plan.cjs') as {
-  ALL_LEGS: { id: string; caseId: string | null }[];
+  ALL_LEGS: PlanLeg[];
+  historicalCase: (leg: PlanLeg) => string | null; // the former AHT case a leg carries (J8 runs as one invocation)
 };
 const retargetHeading = '### Retarget to J1–J9, 16 November 2026';
 // Gaps Sam asked the map to keep explicitly (12 November framework-review reconciliation).
@@ -95,7 +97,7 @@ function violations(document: string): string[] {
   for (const leg of plan.ALL_LEGS) {
     const rows = legRows.filter((row) => row.startsWith(`| ${leg.id} |`));
     if (rows.length !== 1) errors.push(`retarget-leg:${leg.id}`);
-    else if (!rows[0].includes(`| ${leg.caseId ?? 'none (new row)'} |`)) errors.push(`retarget-case:${leg.id}`);
+    else if (!rows[0].includes(`| ${plan.historicalCase(leg) ?? 'none (new row)'} |`)) errors.push(`retarget-case:${leg.id}`);
     else if (!/\| NOT RUN( \(gated: [^)]+\))? \|$/.test(rows[0])) errors.push(`retarget-promoted:${leg.id}`);
   }
   if (legRows.length !== plan.ALL_LEGS.length) errors.push('retarget-leg-count');
