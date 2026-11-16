@@ -23,7 +23,7 @@
 const fs = require('node:fs');
 const { CLEANUP, RunRefused, openSharedRunBudget, planRunBudget, writeSharedPlan } = require('./run-budget.cjs');
 const { CleanupUndefined, cleanupReserve } = require('./cleanup-plan.cjs');
-const { caseWorstCaseMs } = require('../harness/bundle/harness/campaign-core.cjs');
+const { caseWorstCaseMs, safeReason } = require('../harness/bundle/harness/campaign-core.cjs');
 const { answerCreateAttempt, beginRun, recordCreateAttempt, unprovenCleanup, writeCleanupEvidence } = require('./cleanup-evidence.cjs');
 /** The default deadline an account-create transport is held to (it must fit inside LATE_COMPLETION_BOUND_MS). */
 const CREATE_DEADLINE_MS = 60_000;
@@ -198,7 +198,7 @@ function nightlyAdapter(io, opts) {
                     const b = budget.legBudget(leg);
                     ledger.record(b.overrun.length > 0
                         ? legVerdict(leg, { budget: b, prior: ledger.verdicts(), satisfiedGates })
-                        : { leg, proofScope: legById(leg).proofScope, outcome: 'HOLD', reason: `the case threw before reporting its rows: ${e?.message ?? e}`, rows: {} });
+                        : { leg, proofScope: legById(leg).proofScope, outcome: 'HOLD', reason: `the case threw before reporting its rows: ${safeReason(e)}`, rows: {} });
                 }
                 throw e;
             }

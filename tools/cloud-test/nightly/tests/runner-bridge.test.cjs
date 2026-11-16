@@ -129,7 +129,7 @@ function fakeIo(scenario, wire) {
             if (scenario.tearJournal)
                 fs.appendFileSync(path.join(scenario.runDir, 'budget-journal.jsonl'), '{"t":"grant","leg":"J6"');
             if (scenario.throwAfterSends)
-                throw new Error('injected case failure after its sends');
+                throw new Error(scenario.throwMessage ?? 'injected case failure after its sends');
             const del = await nightly.cleanup(leg, async () => { wire.push('cleanup:delete-account'); return true; });
             const query = scenario.skipVerify ? { sent: false } : await nightly.cleanup(leg, async () => { wire.push('cleanup:residue-query'); return scenario.residue ?? 0; });
             const assertions = rowsFor(c.id).map((id) => ({ id, result: scenario.harnessCapStop && id === 'start-press-budget' ? 'NOT RUN' : 'PASS', detail: 'offline fake', evidenceRefs: ['unit.json'] }));
@@ -334,6 +334,22 @@ describe('nightly runner bridge: one journey (J6) through the real harness runne
         assert.notEqual(threw.outcome.run.scope.outcome, 'PASS');
         assert.equal(threw.outcome.cleanup.result, 'incomplete', 'a case that threw reported no cleanup, so nothing is proven');
     });
+    // Codex P1 on 8641c4ec: a raw Playwright error can carry form values or request details; only the harness's closed
+    // safeReason() text may reach the verdict ledger and the report.
+    it('a case that throws a raw error stores only the sanitized reason: no form value or token reaches the verdicts or report', async () => {
+        const secret = 'pw-unit-Secret-9f3c';
+        const raw = `locator.fill: Timeout 5000ms exceeded.\nCall log:\n  - fill("${secret}") Authorization: Bearer tok-unit-abc`;
+        const run = await nightlyRun(dirs(), 'r1', { throwAfterSends: true, throwMessage: raw });
+        assert.equal(run.outcome.legs.J6.outcome, 'HOLD');
+        assert.match(run.outcome.legs.J6.reason, /the case threw before reporting its rows: Error details withheld/);
+        const everything = JSON.stringify(run);
+        assert.equal(everything.includes(secret), false, 'the form value was stored');
+        assert.equal(everything.includes('tok-unit-abc'), false, 'the token was stored');
+        assert.equal(everything.includes('Call log'), false, 'the raw Playwright call log was stored');
+        // A closed harness-authored message is kept as written.
+        const closed = await nightlyRun(dirs(), 'r1', { throwAfterSends: true, throwMessage: 'BLOCKED_SETUP: unit closed message' });
+        assert.match(closed.outcome.legs.J6.reason, /BLOCKED_SETUP: unit closed message/);
+    });
     it('the cleanup reserve is the journey\'s own and is fixed before the run', async () => {
         const d = dirs();
         await nightlyRun(d, 'r1');
@@ -461,6 +477,11 @@ describe('nightly runner bridge: the guarded account-create route', () => {
         assert.throws(() => tryRecover({ kind: 'terminal', result: terminal(), residue: residue({ residueChecks: 21 }) }), /incomplete/);
         assert.throws(() => tryRecover({ kind: 'terminal', result: terminal(), residue: residue({ observedAt: new Date(Date.now() + 3600_000).toISOString() }) }), /future time/);
         assert.throws(() => tryRecover({ kind: 'terminal', result: terminal(), residue: residue({ queries: [{ kind: 'account', scope: sent.lookupRef, count: 1 }] }) }), /zero count/);
+        // Codex P1 on 8641c4ec: a zero observed before the create was answered (a day earlier, or between the record and
+        // the answer) cannot show the created account is gone.
+        const answered = terminal({ receivedAt: after(3) });
+        assert.throws(() => tryRecover({ kind: 'terminal', result: answered, residue: residue({ observedAt: after(-24 * 3600_000) }) }), /taken before the create was answered/);
+        assert.throws(() => tryRecover({ kind: 'terminal', result: answered, residue: residue({ observedAt: after(2) }) }), /taken before the create was answered/);
         assert.equal(admitRun(d.evidenceDir).admitted, false, 'every refused proof left admission closed');
         tryRecover({ kind: 'terminal', result: terminal(), residue: residue() });
         assert.equal(admitRun(d.evidenceDir).admitted, true, 'an authoritative created result plus complete zero residue readmits');

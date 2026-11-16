@@ -1801,6 +1801,22 @@
       "find": "    const accountRef = `account-${crypto.createHash('sha256').update(found.uid).digest('hex').slice(0, 24)}`;",
       "replace": "    const accountRef = found.uid;",
       "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P20-case-throw-raw-reason",
+      "guards": "a case exception reaches the verdict ledger and report only through the harness's closed safeReason()",
+      "file": "runner-bridge.cjs",
+      "find": "the case threw before reporting its rows: ${safeReason(e)}",
+      "replace": "the case threw before reporting its rows: ${e?.message ?? e}",
+      "test": "tests/runner-bridge.test.cjs"
+    },
+    {
+      "id": "P20-terminal-created-stale-residue",
+      "guards": "a created terminal result readmits only with zero residue observed after the create was answered",
+      "file": "cleanup-evidence.cjs",
+      "find": "            if (r.observed < Date.parse(proof.result.receivedAt))\n",
+      "replace": "            if (false)\n",
+      "test": "tests/runner-bridge.test.cjs"
     }
   ]
 }

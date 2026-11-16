@@ -379,6 +379,9 @@ function attemptRecoveryFault(sent, proof, { serverDeadline = SERVER_CREATE_DEAD
             const r = residueFault(sent, proof.residue, now);
             if (typeof r === 'string')
                 return `the account was created and ${r}`;
+            // Codex P1 on 8641c4ec: a zero taken before the create's answer cannot show the created account is gone.
+            if (r.observed < Date.parse(proof.result.receivedAt))
+                return 'the residue lookup was taken before the create was answered, so it cannot show the created account is gone';
         }
         return null;
     }
