@@ -21,6 +21,7 @@ concurrency:
 
 jobs:
   service-level-evidence:
+    environment: trusted-main-credentials
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:

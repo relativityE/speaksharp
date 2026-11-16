@@ -34,7 +34,7 @@
 import { TranscriptionModeOptions, Result, ITranscriptionEngine } from '@/services/transcription/modes/types';
 import { IPrivateSTTEngine, EngineType } from '@/contracts/IPrivateSTTEngine';
 import type { LiveResultKind, PrivateRuntimeEvidence } from '@/contracts/IPrivateSTTEngine';
-import { STTEngine, validateEngine, assertEngineCanDecode } from '@/contracts/STTEngine';
+import { STTEngine, InitCancelledError, isInitCancelledError, validateEngine, assertEngineCanDecode } from '@/contracts/STTEngine';
 import { PrivateSTTInitOptions } from '@/contracts/IPrivateSTT';
 import logger from '@/lib/logger';
 import { ModelManager } from '@/services/transcription/ModelManager';
@@ -57,8 +57,8 @@ import { resolvePrivateRuntimePath, type PrivateRuntimeDecision } from '../utils
 import { buildV4LifecycleProps, emitV4Ready, emitV4Fallback, emitV4Error, emitV4Telemetry, V4_TELEMETRY_EVENTS } from '../privateV4Telemetry';
 import { buildEngineVersion, type EngineVariant } from '../privateTelemetry';
 import {
-    probeCache, recordAcquisitionStart, recordAcquisitionSuccess, recordAcquisitionFailure,
-    classifyAcquisitionError, type AcquisitionSubject, type PinnedAssetRef,
+    probeCache, recordAcquisitionStart, recordAcquisitionSuccess, recordAcquisitionFailure, recordAcquisitionCancelled,
+    classifyAcquisitionError, type AcquisitionSubject, type CacheResult, type PinnedAssetRef,
 } from '../modelAcquisitionTelemetry';
 import type { Candidate } from '../candidateRegistry';
 import { acquisitionComponentGroupsFor, assetRequestsFor, acquisitionScopeFor, resolveCandidateAssetUrl } from '../candidateAssetRequests';
@@ -196,6 +196,17 @@ function getConfiguredPrivateEngine(): PrivateEngineType {
  *  past this bound we treat it as a failure and fall back to v2-base. Kept comfortably under the
  *  app-path proof's first-text window so the v2 re-transcribe still fits inside it. */
 const V4_AUTO_DECODE_TIMEOUT_MS = 40_000;
+/**
+ * #1858: how long a cancelled acquisition waits for its teardown to confirm the engine release before reporting the
+ * release as uncertain (a fatal failure event). A child terminate is a worker termination plus bounded cleanup.
+ */
+export const CANCELLED_RELEASE_SETTLE_BOUND_MS = 10_000;
+/**
+ * #1858: how long this facade's teardown waits for a released child's deferred release (a pipeline disposed only after an
+ * in-flight decode/warm-up settles). Shorter than the acquisition report's bound, so a stuck disposal is reported by the
+ * teardown itself as an uncertain release.
+ */
+export const CHILD_DEFERRED_RELEASE_BOUND_MS = 8_000;
 
 interface EngineLifetime {
     generation: number;
@@ -758,13 +769,23 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         const engineType = this._engineType;
         this.engine = null;
         this._engineType = null;
-        const failures = await Promise.all([...new Set([...acquiring, ...(engine ? [engine] : [])])]
-            .map(child => this.releaseEngine(child)));
+        const children = [...new Set([...acquiring, ...(engine ? [engine] : [])])];
+        const failures = await Promise.all(children.map(child => this.releaseEngine(child)));
         const failure = failures.find(value => value !== null);
         if (failure) {
             // The shared teardown rejects, so public destroy() and every concurrent waiter see it.
             logger.warn({ error: failure, engineType }, '[PrivateSTT] Engine release failed during Private STT teardown');
             throw new Error(`[PrivateSTT] engine release FAILED during teardown (release uncertain): ${failure.message}`);
+        }
+        // #1858 (Sam on 26b49b8c): a child's terminate() may resolve while its pipeline disposal is still deferred behind an
+        // in-flight run. This facade's teardown is the engine-off proof its callers rely on (TranscriptionService marks
+        // termination confirmed when it resolves), so it settles only once every released child has confirmed its deferred
+        // releases too — bounded, and a failure or non-settlement is an uncertain release, never engine-off. Computed inside
+        // THIS teardown, so a later lifetime can never substitute its own children.
+        const deferred = await this.childDeferredReleaseFailure(children);
+        if (deferred) {
+            logger.warn({ error: deferred, engineType }, '[PrivateSTT] A released engine did not confirm its deferred release');
+            throw new Error(`[PrivateSTT] engine release FAILED during teardown (release uncertain): ${deferred.message}`);
         }
         this.selection = null;
     }
@@ -811,9 +832,57 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         return generation !== this.lifecycleGeneration || this.isTerminated;
     }
 
+    /**
+     * #1858: a cancelled acquisition is reported only once the teardown that cancelled it has settled, because only that
+     * teardown knows whether the engine was released. The cancelling init cannot rely on anyone else to surface a failed
+     * release — TranscriptionService.destroy logs and swallows the teardown's rejection — so:
+     *   - teardown settled, every release confirmed (including each child's deferred disposal, see onDestroy)
+     *                                                  → `private_model_acquisition_cancelled` (a lifecycle outcome);
+     *   - teardown rejected / a release failure retained → `private_model_acquisition_failure{release_uncertain}`;
+     *   - teardown still unsettled after the bound       → `private_model_acquisition_failure{release_uncertain}`.
+     * Exactly one event per acquisition. Non-blocking: the init returns its outcome immediately; the teardown never
+     * waits on this report, so there is no ordering dependency between the two.
+     */
+    private reportCancelledAcquisition(subject: AcquisitionSubject, cacheResult: CacheResult, totalMs: number): void {
+        let reported = false;
+        const uncertain = () => {
+            if (reported) return;
+            reported = true;
+            recordAcquisitionFailure(subject, cacheResult, 'release_uncertain', totalMs);
+        };
+        const bound = setTimeout(uncertain, CANCELLED_RELEASE_SETTLE_BOUND_MS);
+        // The facade's teardown includes each released child's deferred releases (see onDestroy), so its outcome is complete.
+        void this.teardownReleaseOutcome().then(
+            failure => {
+                clearTimeout(bound);
+                if (failure) return uncertain();
+                if (reported) return;
+                reported = true;
+                recordAcquisitionCancelled(subject, cacheResult, totalMs);
+            },
+            () => { clearTimeout(bound); uncertain(); },
+        );
+    }
+
+    /** #1858: the first deferred-release failure among `children`, or a non-settlement within the bound; null when all confirm. */
+    private async childDeferredReleaseFailure(children: IPrivateSTTEngine[]): Promise<Error | null> {
+        const outcomes = Promise.all(children.map(child =>
+            (child as { teardownReleaseOutcome?: () => Promise<Error | null> }).teardownReleaseOutcome?.() ?? Promise.resolve(null)));
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const bound = new Promise<Array<Error | null>>(resolve => {
+            timer = setTimeout(() => resolve([new Error(
+                `an engine's deferred release did not settle within ${CHILD_DEFERRED_RELEASE_BOUND_MS} ms`)]), CHILD_DEFERRED_RELEASE_BOUND_MS);
+        });
+        try {
+            return (await Promise.race([outcomes, bound])).find(Boolean) ?? null;
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+
     /** `released` only when THIS init verified the release; otherwise the cancelling teardown reports it. */
     private cancelledInitError(released: boolean): Error {
-        return new Error(released
+        return new InitCancelledError(released
             ? '[PrivateSTT] init cancelled by destroy/terminate; the acquired engine was released.'
             : '[PrivateSTT] init cancelled by destroy/terminate; the engine release belongs to that teardown.');
     }
@@ -1126,13 +1195,22 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                     downloadMs: observed.downloadMs,
                     totalMs,
                 });
+            } else if (isInitCancelledError(outcome.error)) {
+                // AHT-01/04 (runs 43583228045, 43586395706): a teardown (destroy/terminate) abandoned this load — the user
+                // left the page. That is a lifecycle outcome, not a model failure; reporting it as `failure`/`unknown` is
+                // what stopped those journeys. But only a CONFIRMED release makes it a clean cancel (#1858).
+                this.reportCancelledAcquisition(subject, cacheResult, totalMs);
             } else {
                 recordAcquisitionFailure(subject, cacheResult, classifyAcquisitionError(outcome.error), totalMs);
             }
             return outcome;
         } catch (err) {
-            recordAcquisitionFailure(subject, cacheResult, classifyAcquisitionError(err),
-                Math.round(performance.now() - acquisitionStartedAt));
+            if (isInitCancelledError(err)) {
+                this.reportCancelledAcquisition(subject, cacheResult, Math.round(performance.now() - acquisitionStartedAt));
+            } else {
+                recordAcquisitionFailure(subject, cacheResult, classifyAcquisitionError(err),
+                    Math.round(performance.now() - acquisitionStartedAt));
+            }
             throw err;
         }
     }

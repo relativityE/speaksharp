@@ -89,7 +89,9 @@ jobs:
   gate-1-product:
     name: Gate 1 - Product Truth
     if: ${{ github.event.inputs.gate == 'all' || github.event.inputs.gate == 'gate-1-product' }}
-    runs-on: ubuntu-latest
+    # Pinned (AHT-01 run 43413270234): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build
+    # and setup fails before any gate runs. Remove with the Playwright upgrade (#1840).
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
@@ -124,9 +126,12 @@ jobs:
         run: pnpm rc:gate:2:sast
 
   gate-3-dast:
+    environment: trusted-main-credentials
     name: Gate 3 - DAST / Running App
     if: ${{ github.event.inputs.gate == 'all' || github.event.inputs.gate == 'gate-3-dast' }}
-    runs-on: ubuntu-latest
+    # Pinned (AHT-01 run 43413270234): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build
+    # and setup fails before any gate runs. Remove with the Playwright upgrade (#1840).
+    runs-on: ubuntu-24.04
     # Bounded time budget (AHT-01 / #1812): every step on the single-spec RWT path has its own limit and the job limit is at
     # least their sum plus a 4 min post-action allowance, so the job limit does not cut the spec step (whose finalizer and
     # run-owned cleanup run inside it). Configured envelope only: Playwright start/teardown and runner loss/cancellation are
@@ -219,6 +224,8 @@ jobs:
           BASE_URL: ${{ github.event.inputs.base_url }}
           EXPECTED_RELEASE_SHA: ${{ github.sha }}
           EVIDENCE_SCOPE: canonical-production
+          # Sam, 16 Nov (B): ONLY this full Gate 3 step stamps its RWT receipts `full-gate`; nothing infers it.
+          RWT_RUN_SCOPE: full-gate
           EVIDENCE_ELIGIBILITY_FILE: ${{ runner.temp }}/gate-3-evidence-eligibility.json
           # #960: pass Vercel Protection Bypass so DAST can reach a PROTECTED preview (fix validation /
           # per-commit bisect). No-op against the public prod URL. playwright.deployed-live.config.ts
@@ -350,6 +357,8 @@ jobs:
           COMPARISON_CELL: ${{ github.event.inputs.comparison_cell }}
           PAID_LAUNCH: ${{ github.event.inputs.paid_launch }}
           EVIDENCE_SCOPE: diagnostic
+          # Sam, 16 Nov (B): a diagnostic run's RWT receipts are evidence, never an acceptance PASS.
+          RWT_RUN_SCOPE: diagnostic
           EVIDENCE_ELIGIBILITY_FILE: ${{ runner.temp }}/gate-3-evidence-eligibility.json
           # #960: pass Vercel Protection Bypass so DAST can reach a PROTECTED preview (fix validation /
           # per-commit bisect). No-op against the public prod URL. playwright.deployed-live.config.ts
@@ -635,7 +644,9 @@ jobs:
   gate-5-ux:
     name: Gate 5 - UX Smoke
     if: ${{ github.event.inputs.gate == 'all' || github.event.inputs.gate == 'gate-5-ux' }}
-    runs-on: ubuntu-latest
+    # Pinned (AHT-01 run 43413270234): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build
+    # and setup fails before any gate runs. Remove with the Playwright upgrade (#1840).
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6

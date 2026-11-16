@@ -141,5 +141,29 @@ export default class VitestCIReporter {
 
         // Also write to the legacy unit-metrics.json if expected by other tools
         fs.writeFileSync(path.join(rootDir, 'unit-metrics.json'), JSON.stringify(bridge, null, 2));
+
+        /*
+         * #1837 — EVERY FILE THIS RUN EXECUTED, WITH ITS MEASURED COST. A separate file, not a field of
+         * unit-metrics.json, so the evidence schema above is unchanged.
+         *
+         * Two consumers. `scripts/ci-unit-partition-check.mjs` proves the four shards together executed
+         * every discovered test file exactly once, which is what makes a custom shard sequencer safe.
+         * `scripts/ci-unit-durations-refresh.mjs` turns these costs into the scheduling hints the
+         * sequencer reads. The cost is the whole per-file wall in its fork (prepare, environment, setup,
+         * import/collect and tests), not just the tests, because that is what a shard actually spends.
+         */
+        const finiteMs = (value) => (Number.isFinite(value) && value > 0 ? value : 0);
+        const executedFiles = files.map((f) => ({
+            path: normalizePath(f),
+            projectName: typeof f.projectName === 'string' ? f.projectName : '',
+            state: f.result?.state ?? 'unknown',
+            durationMs: Math.round(finiteMs(f.prepareDuration) + finiteMs(f.environmentLoad)
+                + finiteMs(f.setupDuration) + finiteMs(f.collectDuration) + finiteMs(f.result?.duration)),
+        })).filter((entry) => entry.path && !entry.path.startsWith('../'));
+        fs.writeFileSync(path.join(rootDir, 'unit-file-timings.json'), JSON.stringify({
+            schemaVersion: 1,
+            kind: 'vitest-executed-files',
+            files: executedFiles,
+        }, null, 2));
     }
 }

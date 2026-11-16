@@ -268,7 +268,7 @@ class Teardown(unittest.TestCase):
 
 
 class StructuredSuiteResults(unittest.TestCase):
-    """The suite child (Sam 1793406369 point 3): unittest's own output and exit code, plus one structured record per test id from the callbacks."""
+    """The suite child (point 3): unittest's own output and exit code, plus one structured record per test id from the callbacks."""
 
     def run_child(self, source):
         d = tempfile.mkdtemp()
@@ -315,7 +315,7 @@ class StructuredSuiteResults(unittest.TestCase):
 
 
 class FileSetIdentity(unittest.TestCase):
-    """The reviewed file set (Sam 1793407393): explicit paths, harness through its manifest, excluded trees pruned before descent, symlinks never
+    """The reviewed file set : explicit paths, harness through its manifest, excluded trees pruned before descent, symlinks never
     followed, unexpected files counted by category only."""
 
     def setUp(self):
@@ -372,7 +372,7 @@ class FileSetIdentity(unittest.TestCase):
         self.assertNotIn("scripts/a.py", [p for p, _ in fs["files"]])
 
     def test_a_linked_named_harness_file_or_manifest_is_incomplete_even_with_matching_bytes(self):
-        # Sam 1793410354: a link to identical bytes must never stand in for an included file; both manifests are preflighted before any read.
+        # a link to identical bytes must never stand in for an included file; both manifests are preflighted before any read.
         twin = self.root / "elsewhere"
         twin.mkdir()
         for rel in ("harness/bundle/x.cjs", "config/equivalence-file-set.v1.json", "harness/PACKET-MANIFEST.sha256"):

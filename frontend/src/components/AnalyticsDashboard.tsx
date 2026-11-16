@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ProgressPanel } from '@/components/progress/ProgressPanel';
+import { RepeatOriginSection } from '@/components/progress/RepeatOriginSection';
 import { Checkbox } from '@/components/ui/checkbox';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ErrorDisplay } from './ErrorDisplay';
@@ -878,6 +879,8 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                     {/* #1045: the Progress loop keeps its metrics and evidence; its competing "Practice this next"
                         sentence and button give way to the review's single action (PM 2026-09-25). */}
                     <ProgressPanel session={targetSession} nextActionOwnedByReview />
+                    {/* Outcome 4: when this session is a linked repeat, name the session it repeated and the stored result. */}
+                    <RepeatOriginSection sessionId={targetSession.id} />
 
                     {/* #1306 metrics-only: no transcript is stored, so there is no transcript-quality caveat. */}
 

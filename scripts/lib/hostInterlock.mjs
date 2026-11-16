@@ -15,7 +15,7 @@
  *  - A BENCHMARK REFUSES ANOTHER BENCHMARK. Two concurrent benchmarks contaminate each other exactly as
  *    a suite does; only local jobs may coexist with each other.
  *  - AN OVERRIDE IS RECORDED, NOT INVISIBLE. Bypassing does not silently produce normal-looking timing:
- *    `overrideActive()` is written into the artifact and marks its timing ineligible.
+ * `overrideActive` is written into the artifact and marks its timing ineligible.
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, rmdirSync, writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';

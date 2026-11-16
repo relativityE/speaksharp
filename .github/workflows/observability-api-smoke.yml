@@ -42,6 +42,7 @@ jobs:
         run: node scripts/live-observability-proof.mjs --target=edge-sentry
 
   posthog-launch-event:
+    environment: trusted-main-credentials
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

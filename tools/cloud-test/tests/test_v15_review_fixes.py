@@ -110,8 +110,112 @@ class CollectorPreservesOriginalExecutionProvenance(unittest.TestCase):
         document["cases"][0]["executionReceipt"]["requestSha256"] = "0" * 64
         wjson(paths["caseResults"], document)
         result = self.run_collector(paths)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("runtime receipt differs", result.stderr)
+        # the reviewer N1 / a receipt from another request credits nothing; the run is recorded INCOMPLETE (named reason,
+        # every row UNKNOWN, every count unmeasured so the settle holds the caps), never with its results.
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("INCOMPLETE run record: runtime-receipt-differs", result.stderr)
+        rec = json.load(open(paths["out"]))
+        self.assertEqual((rec["result"], rec["incompleteReason"]), ("INCOMPLETE", "runtime-receipt-differs"))
+        self.assertEqual(rec["executionProvenance"]["runtimeReceipts"], {})
+        self.assertEqual({k: rec["spend"][k] for k in ("requests", "identityReads", "starts", "takes")},
+                         {"requests": None, "identityReads": None, "starts": None, "takes": None})
+
+
+
+class IncompleteRunRecord(CollectorPreservesOriginalExecutionProvenance):
+    """the reviewer N1 / acceptance controls: a run that STARTED but left no verified aggregate results is recorded INCOMPLETE,
+    never NOT RUN and never passed; every row is UNKNOWN; every count is unmeasured so the settle holds the reserved caps; bound per-case
+    receipts survive as digests only."""
+
+    def started_fixture(self, selection=("AHT-01", "AHT-02")):
+        paths, receipt = self.fixture()
+        doc = json.load(open(paths["request"])); doc["selection"] = [{"case": c} for c in selection]
+        wjson(paths["request"], doc)
+        with open(paths["request"], "rb") as f:
+            paths["requestSha"] = hashlib.sha256(f.read()).hexdigest()
+        paths["cases"] = os.path.join(paths["root"], "cases"); os.makedirs(paths["cases"])
+        return paths
+
+    def collect(self, paths):
+        r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "collect_run_record.py"),
+            "--request", paths["request"], "--request-sha256", paths["requestSha"], "--execution-run-id", self.RUN, "--attempt", "1",
+            "--case-results", paths["caseResults"], "--cases-dir", paths["cases"], "--ledger-dir", paths["ledger"],
+            "--gate-status", paths["gate"], "--workflow", paths["workflow"], "--runner-json", paths["runner"],
+            "--started-utc", "2026-11-06T01:30:00Z", "--ended-utc", "2026-11-06T01:40:00Z", "--out", paths["out"]],
+            capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return json.load(open(paths["out"])), r.stderr
+
+    def assert_incomplete(self, rec, reason, selection=("AHT-01", "AHT-02")):
+        self.assertEqual((rec["result"], rec["incompleteReason"]), ("INCOMPLETE", reason))
+        self.assertEqual([(c["case"], c["result"]) for c in rec["cases"]], [(c, "UNKNOWN") for c in selection])
+        self.assertNotIn("NOT RUN", {c["result"] for c in rec["cases"]})
+        self.assertEqual({k: rec["spend"][k] for k in ("requests", "identityReads", "starts", "takes")},
+                         {"requests": None, "identityReads": None, "starts": None, "takes": None})
+        self.assertEqual(rec["executionProvenance"]["runtimeReceipts"], {})
+
+    def test_started_without_results_and_crash_before_first_save_are_incomplete_not_not_run(self):
+        paths = self.started_fixture(); os.remove(paths["caseResults"])          # crash before the first aggregate save
+        rec, err = self.collect(paths)
+        self.assert_incomplete(rec, "case-results-missing")
+        self.assertEqual(rec["boundCaseReceipts"], {})
+        self.assertIn("INCOMPLETE run record: case-results-missing", err)
+
+    def test_interruption_after_effects_keeps_partial_bound_receipts_as_digests_only(self):
+        paths = self.started_fixture(); os.remove(paths["caseResults"])
+        os.makedirs(os.path.join(paths["cases"], "AHT-01"))
+        for name in ("summary.json", "runtime-start-consumption.json"):
+            wjson(os.path.join(paths["cases"], "AHT-01", name), {"private": "never copied"})
+        os.makedirs(os.path.join(paths["cases"], "AHT-02"))                      # started, nothing written yet
+        rec, _ = self.collect(paths)
+        self.assert_incomplete(rec, "case-results-missing")                       # receipts never turn into outcomes
+        self.assertEqual(sorted(rec["boundCaseReceipts"]), ["AHT-01"])
+        self.assertEqual(sorted(rec["boundCaseReceipts"]["AHT-01"]), ["runtime-start-consumption.json", "summary.json"])
+        self.assertNotIn("never copied", json.dumps(rec))
+
+    def test_corrupt_or_mismatched_results_are_incomplete_and_credit_nothing(self):
+        for name, mutate in (("corrupt", lambda p: open(p, "w").write("{not json")),
+                             ("other campaign", lambda p: wjson(p, dict(json.load(open(p)), campaignId="R0-OTHER")))):
+            with self.subTest(name):
+                paths = self.started_fixture(); mutate(paths["caseResults"])
+                rec, _ = self.collect(paths)
+                self.assert_incomplete(rec, "case-results-invalid")
+
+    def test_malformed_nested_shapes_are_incomplete_never_an_exception(self):
+        # cases=[null], a NOT RUN case without caseId and assertions=[null] each aborted the collector
+        for name, cases in (("null case", [None]), ("no caseId", [{"result": "NOT RUN"}]),
+                            ("null assertion", [{"caseId": "AHT-01", "result": "NOT RUN", "assertions": [None]}]),
+                            ("non-int count", [{"caseId": "AHT-01", "result": "NOT RUN", "requestsUsed": "7"}]),
+                            ("receipt not an object", [{"caseId": "AHT-01", "result": "FAIL", "executionReceipt": "x"}])):
+            with self.subTest(name):
+                paths = self.started_fixture()
+                wjson(paths["caseResults"], {"campaignId": "R9-I4", "cases": cases})
+                rec, err = self.collect(paths)
+                self.assert_incomplete(rec, "case-results-invalid")
+                self.assertIn("INCOMPLETE run record: case-results-invalid", err)
+
+    def test_an_incomplete_record_settles_at_the_reserved_caps_and_never_qualifies(self):
+        import init_run_inputs as I
+        import manual_reservation as M
+        import publish_latest_record as LR
+        import settle_input as SI
+        paths = self.started_fixture(); os.remove(paths["caseResults"])
+        rec, _ = self.collect(paths)
+        raw = open(paths["out"], "rb").read()
+        reserved = {"type": "reserve", "campaignId": "R9-I4", "runId": self.RUN, "attempt": 1,
+                    "allocation": {"requests": 2032, "identityReads": 32, "starts": 16, "takes": 16, "coachingRequests": 20, "runnerMinutes": 40},
+                    "provenance": "request-sha256:" + paths["requestSha"], "atUtc": "2026-11-06T01:19:15Z"}
+        handoff = SI.validate(SI.project(raw))                                    # the content-free settle input carries nulls
+        self.assertEqual(handoff["spend"], {"requests": None, "identityReads": None, "starts": None, "takes": None})
+        usage, digest = M.usage_from_record(raw, reserved)
+        event = M.settle(reserved, usage, digest, "2026-11-06T01:40:00Z")
+        self.assertEqual(event["allocation"], reserved["allocation"])             # held at the caps, never zero
+        forged = {"qualified": True, "outcome": "passed", "campaignId": "R9-I4", "coverage": "batch", "cases": ["AHT-01", "AHT-02"]}
+        out = I.project(rec, self.RUN, 1, "b" * 40, "a" * 40, qualification=forged, request_sha256=paths["requestSha"])
+        self.assertEqual((out["outcome"], out["codes"]), ("failed", ["not-qualified", "incomplete-run"]))
+        self.assertEqual({c["result"] for c in out["cases"]}, {"UNKNOWN"})
+        self.assertTrue(all(not any(c["rows"].values()) for c in out["cases"]))
+        self.assertIn("0 PASS, 0 FAIL, 0 NOT RUN, 2 UNKNOWN", LR.render({"latestCompleted": out, "inProgress": None}))
 
 
 def approval(req, **caps):
@@ -903,7 +1007,7 @@ class ReviewedFeaturesReachRegressionWithoutABug(unittest.TestCase):
                                                         "FEAT-OWNER-GOAL-UPDATE", "FEAT-PCM-BOUNDARY-RECEIPTS",
                                                         "FEAT-REPLACEABLE-COACHING-ADAPTER"])
         self.assertTrue(all(f["review"]["outcome"] == "approved" for f in features))
-        self.assertEqual(features[0]["review"]["reviewedBy"], "Sam (independent Codex source review)")
+        self.assertEqual(features[0]["review"]["reviewedBy"], "independent reviewer (Codex source review)")
         self.assertEqual(features[0]["review"]["reviewRef"],
                          "codex-source-review:0d1047f31d5ddde09a90081c613a92307df83682:FEAT-R5-OBJECTIVE-PUBLICATION")
         goal = next(f for f in features if f["id"] == "FEAT-OWNER-GOAL-UPDATE")

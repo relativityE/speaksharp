@@ -1,0 +1,157 @@
+{
+  "schema": "speaksharp.cloud-test.run-request.v2",
+  "runId": "R10-3b040043-smoke15",
+  "proposal": false,
+  "coverageMode": "smoke",
+  "sampleMode": "smoke",
+  "workflowVersion": "1.5.0",
+  "configVersion": "1.4.0",
+  "createdUtc": "2026-11-08T14:41:03Z",
+  "purpose": "Execute only AHT-01 through the existing live smoke harness to determine whether one complete journey can pass. Preserve every required AHT-01 smoke assertion and its evidence; do not claim full acceptance or coverage of the fourteen unselected cases.",
+  "priority": "journey-smoke",
+  "targetedGaps": [
+    "GAP-01"
+  ],
+  "notTargeted": [
+    {
+      "gap": "GAP-02",
+      "why": "Not selected: this one-case attempt runs only AHT-01 (GAP-01). GAP-02 is tracked separately: Focus: opening points never leave pending; marker oracle disputed"
+    },
+    {
+      "gap": "GAP-03",
+      "why": "Not selected: this one-case attempt runs only AHT-01 (GAP-01). GAP-03 is tracked separately: Microphone-denied path: blocked-microphone guidance not shown"
+    },
+    {
+      "gap": "GAP-04",
+      "why": "Not selected: this one-case attempt runs only AHT-01 (GAP-01). GAP-04 is tracked separately: Authenticated REST read returns 403 near sign-out"
+    },
+    {
+      "gap": "GAP-05",
+      "why": "Not selected: this one-case attempt runs only AHT-01 (GAP-01). GAP-05 is tracked separately: Leave-page release while recording (AHT-10)"
+    },
+    {
+      "gap": "GAP-06",
+      "why": "Not selected: this one-case attempt runs only AHT-01 (GAP-01). GAP-06 is tracked separately: Evidence lost: AHT-04, AHT-13, AHT-14 stimulus (cold-model download faults) not established"
+    }
+  ],
+  "selection": [
+    {
+      "order": 1,
+      "case": "AHT-01",
+      "gaps": [
+        "GAP-01"
+      ],
+      "role": "target",
+      "needsCaptureDevice": true,
+      "plannedRequests": 350,
+      "startPressCap": 2,
+      "gate": null,
+      "reason": "Owner-selected one-case harness diagnosis: execute all 15 AHT-01 smoke assertions, including two Starts and two takes. A pass proves this selected smoke journey only, not the other fourteen cases or full-depth acceptance."
+    }
+  ],
+  "evidenceScope": {
+    "maxDeliveries": 8,
+    "maxSupabaseRequests": 10,
+    "maxTelemetryReads": 2
+  },
+  "estimate": {
+    "requests": {
+      "planned": 350,
+      "cleanupReserve": 10,
+      "pooledSlack": 90,
+      "runCap": 450
+    },
+    "identityReads": 4,
+    "starts": 2,
+    "takes": 2,
+    "paidActionsAuthorizedUsd": 0,
+    "providerBillableRequests": {
+      "coachingCap": 3,
+      "basis": "Two smoke takes plus the existing 25 percent coaching retry allowance, rounded up; no paid action authorized."
+    },
+    "githubRunnerMinutesMax": 60
+  },
+  "proposedLimits": {
+    "cumulativeCeilingRequests": 9518,
+    "ceilingIncreaseJustification": "Unchanged period request ceiling; all prior settled charges remain. This single AHT-01 attempt reserves 450 campaign requests plus 4 identity reads. The campaign ceiling is the existing 350-request estimate with its 125 percent ceiling rounded to 440, plus 10 cleanup requests.",
+    "identityCap": 149,
+    "identityIncreaseJustification": "Fresh journal 95172c6cf9e6a55a270af425d7b2543e141f4457 contains 141 settled identity reads, including run 42607776111's 4 settled at its caps. The owner credits +8 identity reads (two one-case attempts of exactly 4: admission, before, after, final), raising only the period identity ceiling from 141 to 149. No refund or deletion of prior usage.",
+    "startsCap": 80,
+    "startsIncreaseJustification": "Unchanged period ceiling; this selected smoke attempt reserves 2 Starts.",
+    "takesCap": 80,
+    "takesIncreaseJustification": "Unchanged period ceiling; this selected smoke attempt reserves 2 takes.",
+    "runCapRequests": 450,
+    "paidActionsUsd": 0,
+    "guardCaps": {
+      "coaching": 3
+    },
+    "startPressCaps": {
+      "AHT-01": 2
+    }
+  },
+  "approvedLimits": {
+    "cumulativeCeilingRequests": 9518,
+    "identityCap": 149,
+    "startsCap": 80,
+    "takesCap": 80,
+    "runCapRequests": 450,
+    "approvalRef": "approval-b1c63f140780f9117f95b571efe91162",
+    "approvedBy": "product-owner",
+    "startPressCaps": {
+      "AHT-01": 2
+    }
+  },
+  "window": {
+    "startUtc": "2026-11-08T14:41:03Z",
+    "endUtc": "2026-11-08T16:21:03Z",
+    "approvalRef": "approval-bcde5476311b392d618839dd2ae6b2f0"
+  },
+  "release": {
+    "testedSha": "5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2",
+    "lastRunTestedSha": "5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2",
+    "backend": {
+      "sha": "c32319f9121d4fef64dc48bb40fae5464dc6b65a",
+      "source": "cloud-verified-source-equivalent",
+      "verifiedAtUtc": "2026-11-02T20:32:12Z",
+      "evidenceRef": "https://github.com/relativityE/speaksharp/actions/runs/41519075645",
+      "sourceEquivalentToSha": "5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2",
+      "functionsTreeSha": "09291193cdb63331cb9f3bd0d10e59aec35cbe1e"
+    }
+  },
+  "harness": {
+    "codeManifestSha256": "d2926261e3c6253168c694b306f4d0bbe8a7fc2ea2295a3c39a25f3635b3319c",
+    "packetManifestSha256": "09b602a3d94731ae9358aa4e58501dfe24326d99ba58b514a1ccf43bd6ee263f",
+    "ownerApprovalRef": "approval-bcde5476311b392d618839dd2ae6b2f0",
+    "offlineProofFile": "config/proofs/offline-proof-74d26870.json"
+  },
+  "priorRuns": [
+    {
+      "label": "R4C",
+      "bindingFile": "config/history/binding-R4C.json"
+    },
+    {
+      "label": "R5",
+      "bindingFile": "config/history/binding-R5.json"
+    }
+  ],
+  "selectionApprovalRef": "approval-b1c63f140780f9117f95b571efe91162",
+  "ownerInputs": {
+    "prDocsCloseout": {
+      "status": "closed",
+      "evidence": "github:relativityE/speaksharp#1772@5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2"
+    },
+    "r10Binding": {
+      "status": "closed",
+      "evidence": "approval-bcde5476311b392d618839dd2ae6b2f0"
+    },
+    "retainedInputs": {
+      "status": "closed",
+      "evidence": "github:relativityE/speaksharp#1772"
+    }
+  },
+  "deviations": [],
+  "cleanupConditions": "every owned page, process and fixture closed and verified; guard ledgers reconciled; no marked orphan",
+  "approvedOmissions": [],
+  "synthetic": false,
+  "executionRuntime": "GitHub Actions SpeakSharp"
+}

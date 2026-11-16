@@ -48,7 +48,7 @@ function receiptWith(overrides: ReceiptRow[]) {
         if (!rows.some((r) => r.step === step)) rows.push(pass(step));
     }
     return {
-        suite: SUITE, release: SHA, meta: { fixtureKind: 'synthetic' }, rows,
+        suite: SUITE, release: SHA, meta: { fixtureKind: 'synthetic', runScope: 'full-gate' }, rows,
         readback: { journeys: [{ journeyId: REC, stages: REC_STAGES }, { journeyId: PDF, stages: PDF_STAGES }], reportedJourneyIds: [], missingBindings: [] },
     };
 }
@@ -299,7 +299,7 @@ describe('SOURCE CONTRACT: each settling row names stages that really receive it
         const claimed = CLAIMS.flatMap((c) => c.suites.map((suite) => `${suite}|${c.step}|${c.stages.join(',')}`)).sort();
         expect(mapped).toEqual(claimed);
     });
-    it.each(CLAIMS)('$constant: the declared stages require every event the row counts', ({ file, constant, stages, events, invariant }) => {
+    it.each(CLAIMS)('$constant in $file: the declared stages require every event the row counts', ({ file, constant, stages, events, invariant }) => {
         const source = readFileSync(path.resolve(__dirname, file), 'utf8');
         expect(source).toContain(`const ${constant} = [${stages.map((s) => `'${s}'`).join(', ')}] as const;`);
         // The row really carries the settlement evidence for these stages (not just a declared constant).

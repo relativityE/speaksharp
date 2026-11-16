@@ -19,7 +19,7 @@ describe('AHT-04 pending-start-navigation: only the leave\'s own abort', () => {
         expect(fatalSignalOf(acq('aborted'), p, false, { navigationAbortOpen: true })).toBeNull();
     });
     it('NEGATIVE: an unrelated acquisition error after the intent stays fatal', () => {
-        for (const code of ['network', 'integrity', 'storage', 'timeout', 'unsupported', 'unknown']) {
+        for (const code of ['network', 'integrity', 'storage', 'timeout', 'unsupported', 'release_uncertain', 'unknown']) {
             expect(fatalSignalOf(acq(code), p, false, { navigationAbortOpen: true })).toBe('model_failed');
         }
         expect(fatalSignalOf(acq(), p, false, { navigationAbortOpen: true })).toBe('model_failed');

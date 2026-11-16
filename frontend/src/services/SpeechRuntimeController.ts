@@ -22,6 +22,7 @@ import { emitFillerMeasurement } from '@/services/telemetry/fillerMeasurement';
 import { noteEngineReady, noteEngineTeardown } from '@/services/telemetry/reinitObservation';
 import { resetTranscriptStability } from '@/services/telemetry/transcriptStability';
 import { markCompletionStage, resetCompletionChain } from '@/services/telemetry/completionStages';
+import { emitFinalizeBreakdown, readFinalizeTakeSeq, readPrivateTimingSummary } from '@/services/telemetry/finalizeBreakdown';
 import { resolvedEngine } from '@/services/telemetry/runtimeAttribution';
 import { countWords } from '@/lib/contentDigest';
 import type { SessionPersistStatus } from '@/lib/forensicAnchors';
@@ -5562,6 +5563,11 @@ export class SpeechRuntimeController {
                     // On expiry we throw into the EXISTING catch, which transitions to FAILED, clears the
                     // finalizing latch and surfaces the recovery draft the user already spoke.
                     let finalizeTimer: ReturnType<typeof setTimeout> | undefined;
+                    // #1848: which take this stop finalizes, read before stopTranscription() can move on.
+                    const finalizeStop = {
+                        entryPerfMs: typeof performance !== 'undefined' ? performance.now() : null,
+                        takeSeq: readFinalizeTakeSeq(service),
+                    };
                     try {
                         result = await Promise.race([
                             service.stopTranscription(),
@@ -5585,6 +5591,11 @@ export class SpeechRuntimeController {
                      * downstream can detect.
                      */
                     markCompletionStage('recording_terminated');
+                    // Only while this stop still owns the shared surfaces: a superseded stop must not put
+                    // its rows (or its successor's summary) into the successor's journey (#1431).
+                    if (this.stopStillOwnsSharedState(stopAuthority, token)) {
+                        emitFinalizeBreakdown(readPrivateTimingSummary(), finalizeStop, service.getMode?.() ?? stopEntryMode);
+                    }
                     logger.info({
                         mode: service.getMode?.() ?? stopEntryMode,
                         sessionId,

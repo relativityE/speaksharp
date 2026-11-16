@@ -9,6 +9,7 @@ import fs from 'fs';
 // #1262 — single coverage-threshold authority, shared with scripts/merge-coverage.mjs so the local gate
 // and the CI (sharded) gate can never drift apart.
 import { toVitestThresholds } from '../scripts/coverage-thresholds.mjs';
+import DurationSequencer from '../scripts/ci-duration-sequencer.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -32,6 +33,8 @@ export default defineConfig({
     ]
   },
   test: {
+    // Scheduling hints only: every discovered spec is still executed exactly once.
+    sequence: process.env.CI_SHARD_MODE === 'true' ? { sequencer: DurationSequencer } : undefined,
     globals: true,
     environment: 'jsdom',
     root: path.resolve(__dirname, '..'),
@@ -127,3 +130,4 @@ export default defineConfig({
     exclude: []
   }
 });
+

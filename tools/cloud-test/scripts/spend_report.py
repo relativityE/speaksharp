@@ -85,7 +85,10 @@ def build(req, cfg, rc, rr=None, costs=None, timings_dir=None, latest_label=None
         "paidActions": {"authorizedUsd": est["paidActionsAuthorizedUsd"], "executed": paid if ran else None,
                         "note": "payments and checkout are authorized at $0; this line says whether any was executed, and is not a cost"},
         "costs": c,
-        "before": {"requestsUsedConservative": used_r, "requestsUsedMeasured": rc["requests"]["measuredFromSealedLedgers"], "unreconciledRequests": rc["requests"]["unreconciled"], "protectedReserve": reserve,
+        "before": {"requestsUsedConservative": used_r, "requestsUsedMeasured": rc["requests"].get("measuredFromSealedLedgers"),
+                   # the accepted-rollup checkpoint (manual/nightly occurrence route) carries conservativeUsed/ownerCounted only; the legacy
+                   # sealed-ledger fields are reported as absent (null), never invented (R10 post-A7 rehearsal: KeyError on that route)
+                   "unreconciledRequests": rc["requests"].get("unreconciled"), "protectedReserve": reserve,
                    "identityReadsUsedConservative": used_i, "startsUsed": rc["starts"]["ownerCounted"], "takesUsed": rc["takes"]["ownerCounted"]},
         "remainingBeforeRun": {"requests": (cap["cumulativeCeilingRequests"] or cur["requests"]) - used_r - reserve, "identityReads": (cap["identityCap"] or cur["identityReads"]) - used_i,
                                "starts": cur["starts"] - rc["starts"]["ownerCounted"], "takes": cur["takes"] - rc["takes"]["ownerCounted"]},

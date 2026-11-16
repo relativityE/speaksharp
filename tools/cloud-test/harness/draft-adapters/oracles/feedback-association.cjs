@@ -15,4 +15,8 @@ function associationProjection(loaded,c,key){
  if(v.observations.length===0)return{status:'HOLD',reason:'fresh_owner_key_row_or_clock_order_unproven'};
  return{status:'PASS',reports:v.observations.map(r=>({id:r.idSha256,sessionSha256:r.sessionSha256,diagnosticKind:r.diagnosticKind,diagnosticRefSha256:r.diagnosticRefSha256}))};
 }
-module.exports={attach,observedIdentity,associationProjection,sha};
+// Sam 1794100227: the one-take smoke path never compared the persisted association with the take the user selected; delivery and a single
+// stored row do not prove WHICH session the report is bound to. The server projection already read for feedback-stored-once carries the
+// persisted sessionSha256; it must equal sha(selected take). A null, malformed or other session hash is a FAIL, never a pass.
+function selectedTakeAssociation(report,selectedId){const persisted=report&&typeof report==='object'?report.sessionSha256:undefined;const ok=typeof selectedId==='string'&&selectedId.length>0&&typeof persisted==='string'&&/^[a-f0-9]{64}$/.test(persisted)&&persisted===sha(selectedId);return{pass:ok,detail:{matchesSelected:ok,persistedAssociation:persisted===null?'null':typeof persisted==='string'&&/^[a-f0-9]{64}$/.test(persisted)?'session':'malformed'}};}
+module.exports={attach,observedIdentity,associationProjection,sha,selectedTakeAssociation};

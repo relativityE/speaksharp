@@ -1,4 +1,4 @@
-"""The append-only state-ref writer (Sam 1793548444.540999, RETURN 1793549143.187519), exercised only against temporary bare repositories:
+"""The append-only state-ref writer (RETURN ), exercised only against temporary bare repositories:
 the fixed ref, the pinned root and whole-chain validation from raw objects, exact expected-old-SHA appends under races, deletion and rewind,
 journal-before-push crash recovery without a second transition, Git's trust boundary, and closed, typed, content-free events."""
 import json
@@ -16,7 +16,7 @@ import state_ref_writer as W
 
 REF = W.STATE_REF
 CAPS = {"requests": 800, "identityReads": 20, "starts": 6, "takes": 4, "coachingRequests": 5, "runnerMinutes": 340}
-APPROVAL = "approval:slack-1793548444.540999"
+APPROVAL = "approval:slack-1000000009.000009"
 TEST_ENV = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@invalid", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@invalid"}
 
 
@@ -306,7 +306,7 @@ class StateRef(unittest.TestCase):
 
 
 class PushTokenConfinement(unittest.TestCase):
-    """J1 (Sam 1793580621.313599): the writer itself consumes CT_STATE_PUSH_TOKEN, for the one leased https push only. Offline: the https
+    """J1 : the writer itself consumes CT_STATE_PUSH_TOKEN, for the one leased https push only. Offline: the https
     subprocess is intercepted before it runs; the file-remote append is real. Reuses StateRef's fixture without rerunning its tests."""
     setUp, fresh, commit, propose = StateRef.setUp, StateRef.fresh, StateRef.commit, StateRef.propose
     TOKEN = "ghs_" + "A1b2C3d4" * 5   # short legacy-style form

@@ -17,11 +17,17 @@ const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 
 const AHT1811_HELPERS=[
   ['tests/live/helpers/feedbackAttemptLedger.ts','tests/unit/feedbackBoundedWrites.test.ts',["stableDraftSha","capDecision","isNamedIdempotencyReplay","syntheticRejection","feedbackCapVerdict","feedbackLedgerVerdict","stickyFinalVerdict","writeFeedbackAttemptRows","feedbackLegRecovered","feedbackLegRows","finalIsolationVerdict","withoutFaultLegSubmits"]],
+  ['tests/live/helpers/feedbackFence.ts','tests/unit/feedbackFence1811.test.ts',["fenceRunKey","verifyFeedbackFence","openFeedbackFence","closeFeedbackFence","cleanFeedbackFence","cleanAndVerifyFeedbackFence","fenceCleanupVerdict","JourneyFeedbackFence#open","JourneyFeedbackFence#openRow","JourneyFeedbackFence#stopWriter","JourneyFeedbackFence#close","JourneyFeedbackFence#cleanRow"]],
   ['tests/live/helpers/feedbackDiagnosticRef.ts','tests/unit/feedbackDiagnosticRef1539.test.ts',["readStoredDiagnosticRef","noSessionBindingVerdict","olderTakeBindingVerdict","classifyInsertBody","writeNoSessionReportRows","writeOlderTakeReportRows","writeOlderTakeBindingRow"]],
   ['tests/live/helpers/feedbackNoSessionCleanup.ts','tests/unit/feedbackNoSessionCleanup.test.ts',["noSessionWriteUncertainty"]],
   ['tests/live/helpers/feedbackRecoveryInventory.ts','tests/unit/feedbackBoundedWrites.test.ts',["verifyRecoveryStore","recoveryFileName","recordDurably","settleRecoveryInventory","readRecoveryInventory","unresolvedAttempts","recoverFromInventory"]],
   ['tests/live/helpers/feedbackReportCleanup.ts','tests/unit/feedbackBoundedWrites.test.ts',["mergeCapture","captureRunReports","writeUncertainty","zeroResidueVerdict","cleanupRunReports","zeroResidueNotRun"]],
-  ['tests/live/helpers/rwtAdverseRecovery.ts','tests/unit/rwtAdverseRecovery.test.ts',["isRecoveryControl","retrySetupOutcome","recoverySavedVerdict","savedTranscriptDigest","reviewReopenVerdict","modelBytesSeen","midDownloadFailureVerdict"]],
+  ['tests/live/helpers/rwtAdverseRecovery.ts','tests/unit/rwtAdverseRecovery.test.ts',["isRecoveryControl","retrySetupOutcome","recoverySavedVerdict","savedTranscriptDigest","reviewReopenVerdict","modelBytesSeen","midDownloadFailureVerdict",
+    "bytesCounted","downloadingNow","offlineInjectionGate","attemptPhase","runOfflineFault","offlineNotExercisedVerdict","coldTakeSettledVerdict","unprovenRestoreVerdict","faultUnprovenRecoveryVerdict"]],
+  // AHT-14 (#1868): the attempt's network transfer behind the offline gate.
+  ['tests/live/helpers/rwtAdverse.ts','tests/unit/rwtAdverseRecovery.test.ts',["downloadFailureVerdict","ModelTransferTracker#startAttempt","ModelTransferTracker#armFault","ModelTransferTracker#disarm",
+    "ModelTransferTracker#onRequest","ModelTransferTracker#onResponse","ModelTransferTracker#onFinished","ModelTransferTracker#onFailed",
+    "ModelTransferTracker#snapshot"]],
   ['tests/live/helpers/rwtFocusEditCancel.ts','tests/unit/rwtFocusEditCancel.test.ts',["editCancelVerdict"]],
   ['tests/live/helpers/rwtFocusNextMarker.ts','tests/unit/rwtFocusNextMarker.test.ts',["expectedNextMarker","nextPointMarkedVerdict","sampleFocusRail"]],
   ['tests/live/helpers/rwtFocusOpenMicIsolation.ts','tests/unit/rwtFocusOpenMicIsolation.test.ts',["openMicIsolationVerdict"]],
@@ -416,7 +422,7 @@ test('actual embedded converter bytes are explicit and a same-lock private insta
     fs.unlinkSync(path.join(fixture.directory,'node_modules'));
     fs.mkdirSync(path.join(fixture.directory,'node_modules/@vitest'),{recursive:true});
     fs.symlinkSync(privateProvider,path.join(fixture.directory,'node_modules/@vitest/coverage-v8'),'dir');
-    for(const name of ['jsdom','typescript','@jridgewell/trace-mapping','@bcoe/v8-coverage','vite-node']) {
+    for(const name of ['jsdom','typescript','@jridgewell/trace-mapping','@bcoe/v8-coverage','vite','esbuild','vite-node']) {
       const target=path.join(fixture.directory,'node_modules',name);
       fs.mkdirSync(path.dirname(target),{recursive:true});
       fs.symlinkSync(path.dirname(require.resolve(`${name}/package.json`)),target,'dir');
@@ -445,6 +451,25 @@ test('actual embedded converter bytes are explicit and a same-lock private insta
 });
 
 if(process.env.GITHUB_ACTIONS==='true'||process.env.TEST_EFFICACY_REAL_RUNTIME==='1') {
+  test('INSTALLED mjs helper uses a genuine source map and refuses an uncalled callable',()=>{
+    const f=fixture();
+    const base=f.git(['rev-parse','HEAD']);
+    const helper=HELPER_CONTRACTS.find(item=>item.helperFile==='tests/billing/user-journey/localStackResources.mjs');
+    const source=helper.callables.map(name=>`export function ${name}(a=2,b=3) { return a+b; }`).join('\n')+'\n';
+    const consumer=`import {test,expect} from 'vitest';\nimport {${helper.callables.join(',')}} from './localStackResources.mjs';\n`
+      +helper.callables.map(name=>`test('${name}',()=>expect(${name}(2,3)).toBe(5));`).join('\n')+'\n';
+    const run=()=>runVitestExecution({root:f.directory,base});
+    try {
+      f.write(helper.helperFile,source);f.write(helper.testFile,consumer);
+      const first=run();
+      assert.deepEqual(first.tests[0].phase.helperCoverage.validated.executed.map(item=>item.name),helper.callables);
+      f.write(helper.testFile,consumer.replace(`expect(${helper.callables[0]}(2,3))`,'expect(2+3)'));
+      assert.throws(run,/Uncalled helper|Helper remapped callable not executed/);
+      f.write(helper.testFile,consumer);
+      assert.equal(run().tests[0].phase.inputSha256,first.tests[0].phase.inputSha256);
+    } finally {f.clean();}
+  });
+
   test('INSTALLED exact recovery class methods require real mapped calls, not a neighboring passing body',()=>{
     const f=recoveryClassFixture();
     const base=f.git(['rev-parse','HEAD']);

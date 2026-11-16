@@ -124,6 +124,12 @@ export interface PrivateTimingSummary {
   anchor: 'speech' | 'stream' | null;
   /** performance.now() at last update, for ordering across reads. */
   updatedAtMs: number;
+  /**
+   * #1848: the take the finalize fields belong to. A page-monotonic number this engine assigns at each
+   * recording start; `getFinalizeTakeSeq()` returns the same number, so a reader can bind the summary to
+   * the exact take it is stopping. null before the first recording. Diagnostics only.
+   */
+  takeSeq: number | null;
 }
 
 /**
@@ -142,6 +148,7 @@ export function buildPrivateTimingSummary(p: {
   decodedSampleCount: number;
   peakBufferedSamples: number;
   nowMs: number;
+  takeSeq?: number | null;
 }): PrivateTimingSummary {
   const anchorMs = p.speechStartAtMs ?? p.streamStartAtMs;
   const anchor: PrivateTimingSummary['anchor'] =
@@ -159,6 +166,7 @@ export function buildPrivateTimingSummary(p: {
     peakBufferedSeconds: Number(samplesToSeconds(p.peakBufferedSamples, PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
     anchor,
     updatedAtMs: Number(p.nowMs.toFixed(1)),
+    takeSeq: p.takeSeq ?? null,
   };
 }
 // Toast removed from here to centralized UI layer
@@ -691,6 +699,12 @@ import { STTEngine } from '../../../contracts/STTEngine';
  * via the options.instanceId field.
  * Inside the Engine, this ID is stored as this.instanceId.
  */
+/**
+ * #1848: page-monotonic take counter for `__PRIVATE_TIMING__`. Module scope so two engine instances can
+ * never hand out the same number on one page.
+ */
+let privateTimingTakeSeq = 0;
+
 export default class PrivateWhisper extends STTEngine implements ITranscriptionEngine {
   private frameListenerDisposer: (() => void) | null = null;
   private captureReceipt: ReturnType<typeof createCaptureReceipt> | null = null;
@@ -780,6 +794,8 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   private finalizeWaitMs: number | null = null;
   private finalizePrepMs: number | null = null;
   private stopRequestedAtMs: number | null = null;
+  // #1848: which take the finalize fields above belong to (see PrivateTimingSummary.takeSeq).
+  private finalizeTakeSeq: number | null = null;
   private peakBufferedSamples: number = 0;
   private retainedUtterancePrerollSamplesAtStart: number = 0;
   private speechGateStats: SpeechGateStats = {
@@ -832,7 +848,16 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       decodedSampleCount: this.lastDecodedUtteranceSampleCount,
       peakBufferedSamples: this.peakBufferedSamples,
       nowMs: typeof performance !== 'undefined' ? performance.now() : Date.now(),
+      takeSeq: this.finalizeTakeSeq,
     });
+  }
+
+  /**
+   * #1848: the take number this engine stamps on `__PRIVATE_TIMING__` for the current recording. The
+   * controller reads it at Stop entry and emits the finalize breakdown only for a summary carrying it.
+   */
+  public getFinalizeTakeSeq(): number | null {
+    return this.finalizeTakeSeq;
   }
 
   /** Record the first visible draft provisional time once per recording. */
@@ -1094,6 +1119,12 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.liveProvisionalTranscript = '';
     this.firstTranscriptAgreementRounds = 0;
     this.isStopping = false;
+    // #1848: this take's number, and its empty finalize intervals, are set BEFORE the engine-start await,
+    // so an older stop still finalizing on this instance stops writing the moment this take begins.
+    this.finalizeDecodeMs = null;
+    this.finalizeWaitMs = null;
+    this.finalizePrepMs = null;
+    this.finalizeTakeSeq = ++privateTimingTakeSeq;
     // START THE ENGINE'S OWN SESSION. This was never called, so a streaming engine never opened its
     // live stream and every decode used a fresh standalone one -- the root cause beneath the whole
     // finality effort. v2/v4 `onStart` is a log-only no-op, so delegating changes nothing for them.
@@ -1109,9 +1140,6 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     // Reset Slice 1 timing telemetry for the new recording.
     this.firstProvisionalAtMs = null;
     this.firstFinalAtMs = null;
-    this.finalizeDecodeMs = null;
-    this.finalizeWaitMs = null;
-    this.finalizePrepMs = null;
     this.stopRequestedAtMs = null;
     this.peakBufferedSamples = 0;
     this.publishPrivateTiming();
@@ -2013,6 +2041,10 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
 
   protected async onStop(): Promise<void> {
     this.stopRequestedAtMs = performance.now();
+    // #1848: the take this stop finalizes. If a later recording has started on this instance by the time
+    // a finalize interval is measured, the value belongs to this (older) take and is not written into
+    // the newer take's summary.
+    const stoppingTakeSeq = this.finalizeTakeSeq;
     logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateWhisper] 🛑 Stopping engine...');
     pushPrivateTimeline('stop_requested', {
       serviceId: this.serviceId,
@@ -2091,12 +2123,14 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       });
       const finalizeStartedAtMs = performance.now();
       // Branch 1 (drain + cleanup): Stop entry -> whole-utterance commit call.
-      this.finalizeWaitMs = this.stopRequestedAtMs == null
-        ? null
-        : Number((finalizeStartedAtMs - this.stopRequestedAtMs).toFixed(1));
+      if (stoppingTakeSeq === this.finalizeTakeSeq) {
+        this.finalizeWaitMs = this.stopRequestedAtMs == null
+          ? null
+          : Number((finalizeStartedAtMs - this.stopRequestedAtMs).toFixed(1));
+      }
       this.publishPrivateTiming();
       // Branch 2 (finalizePrepMs) + branch 3 (finalizeDecodeMs) are set inside the commit.
-      await this.commitWholeUtteranceTranscript();
+      await this.commitWholeUtteranceTranscript(stoppingTakeSeq);
       this.publishPrivateTiming();
 
       if (!this.wholeUtteranceTranscript.trim()) {
@@ -2442,7 +2476,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     }
   }
 
-  private async commitWholeUtteranceTranscript(): Promise<void> {
+  private async commitWholeUtteranceTranscript(takeSeq: number | null = this.finalizeTakeSeq): Promise<void> {
     const commitEnteredAtMs = performance.now();
     if (this.utteranceAudioChunks.length === 0 || this.utteranceSampleCount < MIN_TRANSCRIPTION_SAMPLES) {
       pushPrivateTimeline('whole_utterance_commit_skip', {
@@ -2517,7 +2551,10 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     });
     const decodeStartedAtMs = performance.now();
     // Branch 2: finalize preprocessing (concat + energy + audio capture) before the model call.
-    this.finalizePrepMs = Number((decodeStartedAtMs - commitEnteredAtMs).toFixed(1));
+    // #1848: written only while this commit's take is still the current one.
+    if (takeSeq === this.finalizeTakeSeq) {
+      this.finalizePrepMs = Number((decodeStartedAtMs - commitEnteredAtMs).toFixed(1));
+    }
     this.publishPrivateTiming();
     // THE PRIMARY TERMINAL COMMIT. `onStop()` calls this first; `processAudio({ force: true })` runs
     // only as a FALLBACK when this produces an empty transcript. Marking finality on the fallback alone
@@ -2530,7 +2567,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     const result = await this.privateSTT.transcribe(audio, { final: true });
     const decodeMs = Number((performance.now() - decodeStartedAtMs).toFixed(1));
     // Branch 3: the model decode itself.
-    this.finalizeDecodeMs = decodeMs;
+    if (takeSeq === this.finalizeTakeSeq) this.finalizeDecodeMs = decodeMs;
     // #34 durable finalize estimate: learn THIS engine's real RTF (decode ÷ utterance) from the
     // actual decode, so the "Finalizing… ~Ns" label self-corrects per engine (v2 vs v4) instead of
     // showing a hardcoded v2 rate.
