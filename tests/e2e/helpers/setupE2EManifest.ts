@@ -607,7 +607,10 @@ export async function setupE2EManifest(
     };
 
     const buildUsageLimitResponse = () => {
-      const profile = e2eProfile as Record<string, unknown>;
+      // #1863 J1.e/J1.f (opt-in, inert by default): a spec can change the server's entitlement answer mid-page,
+      // e.g. a trial that ends during a take, by setting `window.__E2E_USAGE_LIMIT_1863__` to the fields that change.
+      const override = (window as unknown as { __E2E_USAGE_LIMIT_1863__?: Record<string, unknown> }).__E2E_USAGE_LIMIT_1863__;
+      const profile = { ...(e2eProfile as Record<string, unknown>), ...(override ?? {}) };
       const userType = String(profile.subscription_status || 'free');
       const isPro = userType === 'pro';
 
@@ -617,6 +620,8 @@ export async function setupE2EManifest(
         is_pro: isPro,
         trial_active: profile.trial_active ?? !isPro,
         trial_expires_at: profile.trial_expires_at ?? null,
+        ...(typeof profile.trial_seconds_remaining === 'number' ? { trial_seconds_remaining: profile.trial_seconds_remaining } : {}),
+        ...(typeof profile.error === 'string' ? { error: profile.error } : {}),
         user_type: userType,
         streak_count: 0,
       };
@@ -733,6 +738,11 @@ export async function setupE2EManifest(
           // mark the true release instant (#1543 Codex P2 r4134484781); inert when nothing listens.
           window.dispatchEvent(new CustomEvent('e2e-rpc-resumed-1476', { detail: fn }));
         }
+        // #1863 J1.e (opt-in, inert by default): answer a named RPC exactly as the database does once an unpaid trial
+        // has ended (e.g. complete_session_v2's { success: false, error: 'trial_expired' }), while
+        // `window.__E2E_RPC_ANSWER_1863__[fn]` holds that answer.
+        const answer = (window as unknown as { __E2E_RPC_ANSWER_1863__?: Record<string, { data: unknown; error: unknown }> }).__E2E_RPC_ANSWER_1863__?.[fn];
+        if (answer) return answer;
         if (fn === 'issue_objective_project_v1') {
           objectiveSequence += 1;
           return { data: `e2e-objective-project-${objectiveSequence}`, error: null };
