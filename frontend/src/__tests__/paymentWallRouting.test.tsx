@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -7,6 +7,7 @@ import type { Session, User } from '@supabase/supabase-js';
 import { AuthContext, type AuthContextType } from '@/contexts/AuthProvider';
 import App from '../App';
 import { useProgressReconciliation } from '../hooks/useProgressReconciliation';
+import { useSessionStore } from '@/stores/useSessionStore';
 
 /**
  * PO 2026-11-14 payment wall, through the REAL App routes, ProtectedRoute and TrialServiceBoundary.
@@ -31,14 +32,16 @@ vi.mock('../hooks/useCriticalQueries', () => ({ useCriticalQueries: () => ({ isR
 vi.mock('../providers/TranscriptionProvider', () => ({
     TranscriptionProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
-vi.mock('framer-motion', () => ({
-    AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-    motion: new Proxy({}, {
-        get: () => ({ children, initial: _i, animate: _a, transition: _t, ...rest }: Record<string, unknown> & { children?: React.ReactNode }) => (
-            <div {...(rest as React.HTMLAttributes<HTMLDivElement>)}>{children}</div>
-        ),
-    }),
-}));
+vi.mock('framer-motion', () => {
+    // One stable component: a new one per property read would remount every route on each App render.
+    const MotionDiv = ({ children, initial: _i, animate: _a, transition: _t, ...rest }: Record<string, unknown> & { children?: React.ReactNode }) => (
+        <div {...(rest as React.HTMLAttributes<HTMLDivElement>)}>{children}</div>
+    );
+    return {
+        AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+        motion: new Proxy({}, { get: () => MotionDiv }),
+    };
+});
 const page = (id: string) => ({ default: () => <div data-testid={id} /> });
 vi.mock('../pages/PracticePage', () => page('practice-page'));
 vi.mock('../pages/SessionPage', () => page('session-page'));
@@ -52,17 +55,18 @@ const session = { user, access_token: 'test-bearer-owner' } as Session;
 const expired = { can_start: false, is_pro: false, error: 'trial_expired', trial_active: false };
 const paid = { can_start: true, is_pro: true, trial_active: false, trial_seconds_remaining: 0 };
 
-function renderAt(path: string, signedIn = true) {
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const value = { session: signedIn ? session : null, user: signedIn ? user : null, loading: false, signOut: vi.fn(), setSession: vi.fn() } as unknown as AuthContextType;
-    return render(
+const authValue = (signedIn: boolean) =>
+    ({ session: signedIn ? session : null, user: signedIn ? user : null, loading: false, signOut: vi.fn(), setSession: vi.fn() }) as unknown as AuthContextType;
+function appAt(path: string, signedIn = true, client = new QueryClient({ defaultOptions: { queries: { retry: false } } }), value = authValue(signedIn)) {
+    return (
         <MemoryRouter initialEntries={[path]}>
             <QueryClientProvider client={client}>
                 <AuthContext.Provider value={value}><App /></AuthContext.Provider>
             </QueryClientProvider>
-        </MemoryRouter>,
+        </MemoryRouter>
     );
 }
+const renderAt = (path: string, signedIn = true) => render(appAt(path, signedIn));
 
 const answer = (data: unknown) => {
     state.query = {
@@ -71,7 +75,11 @@ const answer = (data: unknown) => {
     };
 };
 
-beforeEach(() => { answer(expired); vi.mocked(useProgressReconciliation).mockClear(); });
+beforeEach(() => {
+    answer(expired);
+    vi.mocked(useProgressReconciliation).mockClear();
+    useSessionStore.setState({ runtimeState: 'IDLE', completedSessionId: null });
+});
 
 const walled: Array<[string, string]> = [
     ['/practice', 'practice-page'],
@@ -137,5 +145,31 @@ describe('payment wall routing on the real App', () => {
         answer({ ...expired, subscription_status: 'pro' });
         renderAt('/practice');
         expect(await screen.findByTestId('trial-payment-wall')).toBeInTheDocument();
+    });
+    it('J1.e on the real App: a take cut off by expiry says "not saved", and Delete account still opens deletion', async () => {
+        // The take started while the server confirmed access, on the recording route.
+        answer(paid);
+        useSessionStore.setState({ runtimeState: 'RECORDING', completedSessionId: null });
+        // A new element per render, so React re-renders and the boundary reads the new server answer.
+        const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+        const auth = authValue(true);
+        const tree = () => appAt('/session', true, client, auth);
+        const view = render(tree());
+        expect(await screen.findByTestId('session-page')).toBeInTheDocument();
+        // The trial ends mid-take: the take is left to finish, then the server refuses its save.
+        state.query = { ...state.query, data: expired, dataUpdatedAt: 2 };
+        view.rerender(tree());
+        expect(screen.getByTestId('session-page')).toBeInTheDocument();
+        act(() => { useSessionStore.setState({ runtimeState: 'STOPPING' }); });
+        act(() => { useSessionStore.setState({ runtimeState: 'FAILED' }); });
+        expect(await screen.findByTestId('trial-payment-wall')).toBeInTheDocument();
+        expect(screen.queryByTestId('session-page')).not.toBeInTheDocument();
+        expect(screen.getByTestId('trial-take-not-saved')).toHaveTextContent(
+            'The recording in progress when your free trial ended was not saved.',
+        );
+        // The wall's own link reaches the deletion page; the wall does not follow it there.
+        fireEvent.click(screen.getByRole('link', { name: 'Delete account' }));
+        expect(await screen.findByTestId('account-deletion-page')).toBeInTheDocument();
+        expect(screen.queryByTestId('trial-payment-wall')).not.toBeInTheDocument();
     });
 });
