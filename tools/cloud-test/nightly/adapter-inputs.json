@@ -18,9 +18,11 @@
     "@radix-ui/react-popover",
     "@radix-ui/react-slot",
     "@sentry/react",
+    "@sentry/vite-plugin",
     "@shared/test-fixtures",
     "@supabase/supabase-js",
     "@tanstack/react-query",
+    "@vitejs/plugin-react",
     "@xenova/transformers",
     "class-variance-authority",
     "clsx",
@@ -33,6 +35,7 @@
     "lucide-react",
     "msw",
     "next-themes",
+    "path",
     "pino",
     "posthog-js",
     "react",
@@ -41,6 +44,10 @@
     "recharts",
     "sonner",
     "tailwind-merge",
+    "tailwindcss-animate",
+    "url",
+    "vite",
+    "vite-tsconfig-paths",
     "zustand"
   ],
   "inputs": [
@@ -55,6 +62,14 @@
     {
       "path": "frontend/postcss.config.cjs",
       "sha256": "fa650b380adfabb151a0b352f7135e107e6352345f899060f1c5c231228f94bf"
+    },
+    {
+      "path": "frontend/public/audio/audio-processor.worklet.js",
+      "sha256": "a2a7318e1a2cd5ddd476eb891f8d16080515680e9aa86f78ee0214a9190d296e"
+    },
+    {
+      "path": "frontend/public/ops-health/ops-health.summary.json",
+      "sha256": "82a99ca25407908136c2ca5ed759e44ad2cf7ebe8a4efd39ed098738a04e3deb"
     },
     {
       "path": "frontend/src/App.tsx",
@@ -1763,6 +1778,10 @@
     {
       "path": "pnpm-lock.yaml",
       "sha256": "847997ce69bb4fe97c27eafd0ca40c1021fef6ac32adbe4be240a56be3867b55"
+    },
+    {
+      "path": "scripts/build.config.js",
+      "sha256": "44fc24d85042d73902ddd7a9383a592a55a3f5d4fd4d56f98ae1bfb5b4cafc26"
     },
     {
       "path": "tests/types/e2eConfig.ts",

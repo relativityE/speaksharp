@@ -1881,6 +1881,30 @@
       "find": "            else if (!seen.has(r.file)) queue.push(r.file);",
       "replace": "            else if (false) queue.push(r.file);",
       "test": "tests/adapter-revalidation.test.cjs"
+    },
+    {
+      "id": "P23-config-imports-not-traversed",
+      "guards": "the build configuration's own imports are bound inputs (Codex P2 on ddc27975)",
+      "file": "derive-adapter-inputs.cjs",
+      "find": "    const closure = importClosure(files, [...seeds, ...configSeeds]);",
+      "replace": "    const closure = importClosure(files, [...seeds]);",
+      "test": "tests/adapter-revalidation.test.cjs"
+    },
+    {
+      "id": "P23-runtime-asset-not-bound",
+      "guards": "a file the page loads at runtime by URL from frontend/public is a bound input (Codex P2 on ddc27975)",
+      "file": "derive-adapter-inputs.cjs",
+      "find": "            if (bytes) bound.set(pub, bytes);",
+      "replace": "            if (false) bound.set(pub, bytes);",
+      "test": "tests/adapter-revalidation.test.cjs"
+    },
+    {
+      "id": "P23-missing-runtime-asset-dropped",
+      "guards": "a code-like asset referenced by URL but absent is unresolved, never dropped",
+      "file": "derive-adapter-inputs.cjs",
+      "find": "            else if (/\\.(js|mjs|wasm)$/.test(m[1])) unresolved.push",
+      "replace": "            else if (false) unresolved.push",
+      "test": "tests/adapter-revalidation.test.cjs"
     }
   ]
 }

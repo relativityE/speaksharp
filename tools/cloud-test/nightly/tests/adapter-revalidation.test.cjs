@@ -22,12 +22,19 @@ const SELECTOR = 'frontend/src/components/MicCard.tsx';
 const DEPENDENCY = 'frontend/src/components/micHelpers.ts';
 const COPY = 'frontend/src/lib/copy.ts';
 const UNRELATED = 'frontend/src/unrelated.ts';
+const BUILD_SCRIPT = 'scripts/build.config.js';
+const WORKLET = 'frontend/public/audio/proc.worklet.js';
 const SOURCE_FILES = {
-    [SELECTOR]: `import React from 'react';\nimport { helper } from './micHelpers';\nimport { START } from '@/lib/copy';\nexport const MicCard = () => <div data-testid="mic-card" data-session-state="idle">{START}{helper()}</div>;\n`,
+    [SELECTOR]: `import React from 'react';\nimport { helper } from './micHelpers';\nimport { START } from '@/lib/copy';\nconst WORKLET_URL = '/audio/proc.worklet.js';\nexport const MicCard = () => <div data-testid="mic-card" data-session-state="idle">{START}{helper()}{WORKLET_URL}</div>;\n`,
     [DEPENDENCY]: 'export const helper = () => 1;\n',
     [COPY]: "export const START = 'Start recording';\n",
     [UNRELATED]: 'export const other = 2;\n',
     ...Object.fromEntries(CONFIG_FILES.map((p) => [p, `config ${p}\n`])),
+    // The build configuration imports a script outside frontend/ (as the real vite config imports scripts/build.config.js).
+    'frontend/vite.config.mjs': "import { meta } from '../scripts/build.config.js';\nexport default { define: { meta } };\n",
+    [BUILD_SCRIPT]: 'export const meta = 1;\n',
+    // A file the page loads at runtime by URL, not by import.
+    [WORKLET]: 'registerProcessor("proc", class {});\n',
 };
 
 /** A throwaway repository: commits are made in order and each one's full sha is returned. */
@@ -55,7 +62,10 @@ function fixtureRepo() {
         unrelatedChanged: commit({ [UNRELATED]: 'export const other = 3;\n' }),
         dependencyChanged: commit({ [DEPENDENCY]: 'export const helper = () => 2;\n' }),
         lockfileChanged: commit({ 'pnpm-lock.yaml': 'changed lockfile\n' }),
+        buildScriptChanged: commit({ [BUILD_SCRIPT]: 'export const meta = 2;\n' }),
+        workletChanged: commit({ [WORKLET]: 'registerProcessor("proc", class { changed() {} });\n' }),
         selectorRemoved: commit({}, [SELECTOR]),
+        missingAsset: commit({ [SELECTOR]: "const URL = '/audio/missing.worklet.js';\nexport const MicCard = () => <div data-testid=\"mic-card\" data-session-state=\"idle\">Start recording{URL}</div>;\n" }),
     };
     return { root, adapterDir, shas, read: (sha, p) => gitBlob(sha, p, root) };
 }
@@ -68,7 +78,7 @@ describe('deriving the inspected inputs (synthetic repository)', () => {
     it('binds the selector file, the dependency it imports, the file defining the adapter\'s copy, and the build configuration', () => {
         expect(fixtureManifest.sourceSha).toBe(repo.shas.source);
         expect(fixtureManifest.unresolved).toEqual([]);
-        for (const p of [SELECTOR, DEPENDENCY, COPY, ...CONFIG_FILES]) expect(paths(fixtureManifest).includes(p)).toBe(true);
+        for (const p of [SELECTOR, DEPENDENCY, COPY, ...CONFIG_FILES, BUILD_SCRIPT, WORKLET]) expect(paths(fixtureManifest).includes(p)).toBe(true);
         expect(paths(fixtureManifest).includes(UNRELATED)).toBe(false);
         expect(fixtureManifest.packages).toEqual(['react']);
     });
@@ -93,6 +103,18 @@ describe('reusing the inspection at a newer served release (synthetic repository
     });
     it('CONTROL: a changed lockfile is refused', () => {
         expect(verdict(repo.shas.lockfileChanged).refused.map((r) => r.path)).toEqual([DEPENDENCY, 'pnpm-lock.yaml']);
+    });
+    // Codex P2s on ddc27975: an input the build configuration imports, and a file the page loads at runtime by URL.
+    it('CONTROL: a changed script the build configuration imports is refused, though no listed configuration file changed', () => {
+        expect(verdict(repo.shas.buildScriptChanged).refused.some((r) => r.path === BUILD_SCRIPT && r.reason === 'changed since the inspected source')).toBe(true);
+    });
+    it('CONTROL: a changed runtime-loaded asset (an audio worklet loaded by URL) is refused', () => {
+        expect(verdict(repo.shas.workletChanged).refused.some((r) => r.path === WORKLET && r.reason === 'changed since the inspected source')).toBe(true);
+    });
+    it('CONTROL: a code-like asset referenced by URL but absent from the public directory is unresolved, never dropped', () => {
+        const m = derive({ sha: repo.shas.missingAsset, adapterDir: repo.adapterDir, repoRoot: repo.root });
+        expect(m.unresolved).toEqual([{ kind: 'runtime-asset', file: SELECTOR, detail: '/audio/missing.worklet.js' }]);
+        expect(revalidate({ servedSha: repo.shas.missingAsset, readBlob: repo.read, manifest: m }).admissible).toBe(false);
     });
     it('CONTROL: a missing or unreadable input is refused, never skipped', () => {
         const v = verdict(repo.shas.selectorRemoved);
