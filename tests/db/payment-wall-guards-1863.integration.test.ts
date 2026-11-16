@@ -341,4 +341,38 @@ describe('#1863 payment wall: guarded RPCs, table guard and open surfaces', () =
             await expect(db.query('SELECT public.release_recording_lease($1)', [lease])).resolves.toBeTruthy();
         });
     });
+
+    // The real payment path, not a direct profile write: the checkout an expired user starts stays open, access stays
+    // closed while that checkout is unpaid, the webhook's confirmed (active, approved-price) snapshot restores it, and a
+    // later terminal snapshot closes it again. Stripe is never called; these are the rows its webhook would write.
+    it('an expired user can check out, and only the confirmed payment snapshot restores access', async () => {
+        const { uid, session } = await fixture();
+        const [sql, params] = callFor('get_analytics_summary', uid, session);
+        const access = () => asUser(uid, async () =>
+            (await db.query<{ a: boolean }>('SELECT public.current_account_has_product_access() AS a')).rows[0].a);
+        const service = (text: string, values: unknown[]) => asRole('service_role', null, () => db.query<{ r: unknown }>(text, values));
+        const sub = `sub_synthetic_checkout_${uid}`, cus = `cus_synthetic_checkout_${uid}`, cs = `cs_synthetic_${uid}`;
+        await expire(uid);
+        expect(await outcome(uid, sql, params)).toMatch(PAYMENT_REQUIRED);
+
+        const op = (await service('SELECT public.begin_account_checkout($1) AS r', [uid])).rows[0].r as string;
+        await service('SELECT public.record_account_checkout($1,$2,$3)', [uid, op, cs]);
+        expect(await access()).toBe(false);
+        expect(await outcome(uid, sql, params)).toMatch(PAYMENT_REQUIRED);
+
+        const paid = (await service("SELECT public.apply_account_checkout_snapshot($1,$2,$3,$4,$5,$6,'active',true) AS r",
+            [uid, op, cs, `evt_synthetic_paid_${uid}`, sub, cus])).rows[0].r;
+        expect(paid).toMatchObject({ success: true, entitlement: 'pro' });
+        expect((await db.query('SELECT phase FROM public.account_checkout_operations WHERE operation_id=$1', [op])).rows)
+            .toEqual([{ phase: 'settled' }]);
+        expect(await access()).toBe(true);
+        expect(await outcome(uid, sql, params)).toBe('ok');
+
+        // As the webhook sends a subscription deletion: no user id, so the snapshot finds the account by its binding.
+        const ended = (await service("SELECT public.apply_stripe_subscription_snapshot($1,$2,$3,'canceled',false,false,NULL,NULL) AS r",
+            [`evt_synthetic_canceled_${uid}`, sub, cus])).rows[0].r;
+        expect(ended).toMatchObject({ success: true });
+        expect(await access()).toBe(false);
+        expect(await outcome(uid, sql, params)).toMatch(PAYMENT_REQUIRED);
+    });
 });
