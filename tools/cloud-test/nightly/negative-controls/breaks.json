@@ -1897,6 +1897,118 @@
       "find": "const NEVER_SATISFIED = Object.freeze(['no-safe-production-proof', 'no-j8-harness-adapter']);",
       "replace": "const NEVER_SATISFIED = Object.freeze(['no-safe-production-proof']);",
       "test": "tests/leg-verdicts.test.cjs"
+    },
+    {
+      "id": "P17-changed-input-admitted",
+      "guards": "a changed inspected input refuses reuse of the adapter inspection",
+      "file": "adapter-revalidation.cjs",
+      "find": "        else if (sha256(bytes) !== input.sha256)\n",
+      "replace": "        else if (false)\n",
+      "test": "tests/adapter-revalidation.test.cjs"
+    },
+    {
+      "id": "P17-missing-input-skipped",
+      "guards": "a missing or unreadable input is refused, never skipped",
+      "file": "adapter-revalidation.cjs",
+      "find": "            refused.push({ path: input.path, reason: 'missing or unreadable at the served release' });\n            continue;",
+      "replace": "            continue;",
+      "test": "tests/adapter-revalidation.test.cjs"
+    },
+    {
+      "id": "P17-unresolved-ignored",
+      "guards": "an unresolved dependency in the manifest refuses every case",
+      "file": "adapter-revalidation.cjs",
+      "find": "    if (!Array.isArray(manifest.unresolved) || manifest.unresolved.length > 0)\n",
+      "replace": "    if (false)\n",
+      "test": "tests/adapter-revalidation.test.cjs"
+    },
+    {
+      "id": "P17-short-sha-admitted",
+      "guards": "the served release must be an exact full lowercase SHA",
+      "file": "adapter-revalidation.cjs",
+      "find": "const FULL_SHA = /^[0-9a-f]{40}$/;",
+      "replace": "const FULL_SHA = /^[0-9a-fA-F]{7,40}$/;",
+      "test": "tests/adapter-revalidation.test.cjs"
+    },
+    {
+      "id": "P17-imports-not-followed",
+      "guards": "the manifest binds the transitive imports of the selector files, so a changed dependency is caught",
+      "file": "derive-adapter-inputs.cjs",
+      "find": "            else if (!seen.has(r.file)) queue.push(r.file);",
+      "replace": "            else if (false) queue.push(r.file);",
+      "test": "tests/adapter-revalidation.test.cjs"
+    },
+    {
+      "id": "P23-config-imports-not-traversed",
+      "guards": "the build configuration's own imports are bound inputs (Codex P2 on ddc27975)",
+      "file": "derive-adapter-inputs.cjs",
+      "find": "    const closure = importClosure(files, [...seeds, ...configSeeds]);",
+      "replace": "    const closure = importClosure(files, [...seeds]);",
+      "test": "tests/adapter-revalidation.test.cjs"
+    },
+    {
+      "id": "P23-runtime-asset-not-bound",
+      "guards": "a file the page loads at runtime by URL from frontend/public is a bound input (Codex P2 on ddc27975)",
+      "file": "derive-adapter-inputs.cjs",
+      "find": "            if (bytes) bound.set(pub, bytes);",
+      "replace": "            if (false) bound.set(pub, bytes);",
+      "test": "tests/adapter-revalidation.test.cjs"
+    },
+    {
+      "id": "P23-missing-runtime-asset-dropped",
+      "guards": "a code-like asset referenced by URL but absent is unresolved, never dropped",
+      "file": "derive-adapter-inputs.cjs",
+      "find": "            else if (/\\.(js|mjs|wasm)$/.test(m[1])) unresolved.push",
+      "replace": "            else if (false) unresolved.push",
+      "test": "tests/adapter-revalidation.test.cjs"
+    },
+    {
+      "id": "P24-runtime-directory-not-bound",
+      "guards": "files under a public directory the page resolves at runtime (the Private model directory) are bound inputs (Codex P2 on 3b870acf)",
+      "file": "derive-adapter-inputs.cjs",
+      "find": "            for (const p of listed) if (!bound.has(p)) bound.set(p, git(['show', `${sha}:${p}`], repoRoot));",
+      "replace": "            for (const p of listed) if (false) bound.set(p, null);",
+      "test": "tests/adapter-revalidation.test.cjs"
+    },
+    {
+      "id": "P25-alias-treated-as-package",
+      "guards": "a configured path alias resolves to its repository file, never to an npm package (Codex P2 on 1c878e24)",
+      "file": "derive-adapter-inputs.cjs",
+      "find": "    files.aliases = configuredAliases(git(['show', `${sha}:frontend/tsconfig.json`], repoRoot).toString('utf8'));",
+      "replace": "    files.aliases = [];",
+      "test": "tests/adapter-revalidation.test.cjs"
+    },
+    {
+      "id": "P25-serving-config-unbound",
+      "guards": "the serving configuration (vercel.json) is a bound input (Codex P2 on 1c878e24)",
+      "file": "derive-adapter-inputs.cjs",
+      "find": "    'vercel.json',\n]);",
+      "replace": "]);",
+      "test": "tests/adapter-revalidation.test.cjs"
+    },
+    {
+      "id": "P26-served-graph-not-rechecked",
+      "guards": "an input added to the dependency graph at the served release refuses reuse (Codex P2 on ed4af854)",
+      "file": "adapter-revalidation.cjs",
+      "find": "        refused.push({ path: p, reason: 'added to the dependency graph at the served release' });",
+      "replace": "        void p;",
+      "test": "tests/adapter-revalidation.test.cjs"
+    },
+    {
+      "id": "P26-underivable-graph-admitted",
+      "guards": "a served release whose graph cannot be derived is refused, never admitted",
+      "file": "adapter-revalidation.cjs",
+      "find": "        refused.push({ path: null, reason: 'the dependency graph could not be derived at the served release' });\n        return { admissible: false, refused };",
+      "replace": "        return { admissible: refused.length === 0, refused };",
+      "test": "tests/adapter-revalidation.test.cjs"
+    },
+    {
+      "id": "P26-resolution-order-not-vite",
+      "guards": "extensionless imports resolve in Vite's order, so a .js sibling shadows the inspected .ts",
+      "file": "derive-adapter-inputs.cjs",
+      "find": "const SOURCE_EXT = ['.mjs', '.js', '.mts', '.ts', '.jsx', '.tsx', '.json', '.cjs'];",
+      "replace": "const SOURCE_EXT = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'];",
+      "test": "tests/adapter-revalidation.test.cjs"
     }
   ]
 }
