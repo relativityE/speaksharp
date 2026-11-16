@@ -331,3 +331,28 @@ STT decision without duplicating the existing MVP qualification work.
 Completion of this documentation increment means all thirteen dispositions and their
 acceptance boundaries are recorded. It does not close the implementation,
 production-verification or release-acceptance obligations.
+
+### Reconciliation of Nat's 15–16 November findings
+
+Reconciled on 16 November 2026 against main `db7b231d`. Each unresolved finding is
+linked to its existing PR or issue, to evidence, or to an explicit deferral. A link
+is not a fix, and no new PR is opened from this register without Product Owner
+approval. Where no PR exists, the finding stays deferred until an owner is assigned.
+
+| Finding | State on `db7b231d` | Linked to | Disposition |
+|---|---|---|---|
+| Harness preflight pins an old release | `draft-adapters/source-adapters.cjs:23` still pins `5a7bf6a1`; #1876 reuses inspection when inputs are unchanged; at least 54 inspected inputs changed on the observed deployment, so a SHA swap does not fix it | Recorded on #1883 as a dependency, not part of the J1.d patch | Open: Sam owns the shared adapter work |
+| Nine-journey gate has no qualifying run | #1796 map merged; every J1–J9 leg NOT RUN; J1.d and J8 legs gated (`no-j1d-harness-adapter`, `no-j8-harness-adapter`) | #1796, #1875, #1883, `RELEASE_STATUS.md` | Open: run the suite, and build or retire the gated adapters |
+| Billing wall merged, paid loop never run | #1863 and #1879 merged; production fail-closed; test-mode checkout proof not run | F07 billing lane; outcome 4/8 acceptance in #1796 | Open: sandbox proof needs the protected environment and Product Owner go; live-key activation is a Product Owner decision |
+| Privacy opt-in gate absent | Save and coaching send still unconditional | #1835 (draft), F03 | Open: Product Owner policy decision, then the build |
+| Clarity and pauses not sent to coaching | Code comment still argues against it | #1836 (draft) | Open: owner decision to merge or close, recorded either way |
+| No rate limit on ops-status | `middleware.js` has constant-time auth, no throttle | F05 | Deferred: first verify exposed fields and upstream throttling (Sam, 15 Nov) |
+| STT model decision unmade | Selector `v2:base.en`; registry unchanged | #1789, #1790, #1793, #1794; F06, F09, F12, F13 | Open: run the comparison or record an explicit stay-on-v2 decision |
+| **Feedback fence "unapplied" (corrected)** | Applied and verified in production on 14 November 2026: run 43621378194, dispatched once at 17:29:31Z on main `8673fa74`, target-only, `postflight_20261114100000=success`; withheld migrations stayed pending; production ledger and catalog independently verified by Sam at 17:32Z. A 15 November diagnostic run then verified the fence closed, removed one test report and left zero residue. This is not a J1–J9 acceptance pass | #1859, #1860; apply and verification reports in the team channel, 14 Nov | Closed as applied: a documentation correction, not a migration task; do not reapply. Gap: `RELEASE_STATUS.md` has no entry for `20261114100000`, and the run page no longer resolves through the GitHub API, so record the apply there in a separate reviewed change |
+| Smoke budgets for two retired R10 cases | `test-config.v1.json` smoke `caseMaxMs` still 10 s and 17 s | No PR | Deferred: confirm the smoke section retired with R10, then delete it or size it |
+| Test-selector under-selection holes | Unchanged | #1842 (draft) | Open: prove the runtime-read index before any skip-based CI |
+| Take stopped under five seconds completes | Fix not merged | #1880 | Open: Product Owner lifted the hold on 16 November; a manual Stop under five seconds discards the take and offers a retry when the discard cannot be confirmed |
+| #1837 retention numbers | Code on main keeps reuse artifacts 7 days, or 30 days on push; no 1-day value exists | `abb9bd3f` (#1837) | Closed: the 1-day figure was a stale PR description, not code |
+| Twelve framework items with no PR | Each mapped to a PR, issue or explicit non-goal | Sam's M1–M20 table on #1817 (12 Nov) | Linked; gaps stay open there |
+| Review threads not blocking merges; stale PR bodies; closures without reasons | Process gaps, no code | Merge runbook `.agent/workflows/pr-merge-workflow.md` | Open: owner decision on whether unresolved threads block merges |
+| Merge-process optimizations (Nat, 16 Nov) | Sam's response: review and engineering CI are already separate; a manual queue does not emit GitHub's `merge_group` event; in three recent runs the Lighthouse wait saved nothing | No PR | Adopted now: refresh only the review receipt and merge at once through the guard, with PR authors owning their merges and Sam as fallback. Kept: the 30-minute receipt rule. Deferred: the shorter lane for unchanged patches, as a separate design that #1842's unproven selector does not decide |
