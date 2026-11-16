@@ -283,6 +283,8 @@ jobs:
           VITE_SUPABASE_URL: ${{ env.LOCAL_API_URL }}
           VITE_AUTH_MODE: real
           VITE_STRIPE_PUBLISHABLE_KEY: ${{ vars.STRIPE_TEST_PUBLISHABLE_KEY }}
+          # Opens the browser's test-key checkout only on this loopback build (appRuntimeConfig isLocalBillingSandbox).
+          VITE_BILLING_LOCAL_SANDBOX: ISOLATED-TEST-MODE-ONLY
         run: |
           set -euo pipefail
           # Release id is GITHUB_SHA (vite release-inject), which the first step bound to commit_sha.
