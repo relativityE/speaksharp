@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { gunzipSync, inflateSync } from 'node:zlib';
 import { expect, type Locator, type Page, type Request, type TestInfo } from '@playwright/test';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { COACHING_DEPENDENT_ANALYTICS_ROWS, guardReceiptOutput, humanWorksheet, receiptAcceptance, rowAfterHalt, type ReadbackActionBinding, type ReadbackActionStage, type ReceiptRow, type Verdict } from './rwtAcceptance';
+import { COACHING_DEPENDENT_ANALYTICS_ROWS, guardReceiptOutput, humanWorksheet, receiptAcceptance, rowAfterHalt, runScopeMeta, runScopeVerdict, scopedAcceptance, type ReadbackActionBinding, type ReadbackActionStage, type ReceiptRow, type Verdict } from './rwtAcceptance';
 import { RWT_BROWSER_IDENTITY_ARGS } from './rwtBrowserIdentity';
 import { documentTrackerOf } from './rwtDocumentIdentity';
 import {
@@ -1221,6 +1221,9 @@ export class RwtReceipt {
             this.row('receipt content-free', 'PASS', 'the leak guard found no registered value in the receipt, worksheet or log line');
         }
         const journeyIds = runJourneyIds(plan);
+        // Sam, 16 Nov (B): the run's scope, exactly as the workflow set it; the receipt's own acceptance is bounded by it.
+        Object.assign(this.meta, runScopeMeta(process.env));
+        const acceptance = receiptAcceptance(this.rows);
         const dir = path.resolve('test-results', 'rwt');
         mkdirSync(dir, { recursive: true });
         const body = {
@@ -1239,7 +1242,8 @@ export class RwtReceipt {
              * observation (recorded PASS). Any open HOLD or HUMAN row makes it INCOMPLETE, so an all-green automated
              * part can never be read as a completed runbook. `automatedRowsAllPass` states the automated part alone.
              */
-            ...receiptAcceptance(this.rows),
+            ...acceptance,
+            acceptance: scopedAcceptance(acceptance.acceptance, runScopeVerdict(this.meta)),
             // For the readback step: which journeys to read back, under which traffic class and declared stages.
             readback: {
                 journeys: plan.journeys, reportedJourneyIds: plan.reportedJourneyIds, missingBindings: plan.missingBindings,

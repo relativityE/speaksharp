@@ -21,10 +21,16 @@ import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
 import { openProductsItem } from './helpers/productsMenu';
 import { RETURN_SETTLE_DEFAULTS, returnControlSample, settleReturnControlState, type ReturnControlState } from './helpers/rwtReturnControlState';
 import {
-    preparePrivateModelIfPrompted, selectBenchmarkMode, startBenchmarkRecording, stopBenchmarkRecording, waitForPrivateEngineReady,
+    selectBenchmarkMode, stopBenchmarkRecording,
 } from './helpers/benchmark-utils';
+import { isRecording } from './helpers/rwtPageState';
+import { activeHumanReflexMs } from './helpers/rwtHumanReflex';
+import { RECORDER_STOP, micControlFor } from '../helpers/micControls';
 import { nextTakeIdArrived, type SessionRowFacts } from './helpers/rwtSaveRetry';
-import { recoveryTakePlan, recoveryTakeVerdict } from './helpers/rwtPendingStartRecovery';
+import {
+    type RecoveryControl, armRecoveryClickGuard, disarmRecoveryClickGuard, driveRecoveryPress, recoveryPressVerdict, recoveryTakePlan,
+    recoveryTakeVerdict,
+} from './helpers/rwtPendingStartRecovery';
 import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
 import { HarnessParityTap, type StartPressBudget } from './helpers/rwtHarnessParity';
 
@@ -87,12 +93,48 @@ test.use({
 });
 
 /**
+ * Sam, 2026-11-15 (#1869): ONE guarded activation of exactly the planned recovery control. The button must be the only one with
+ * that test id and enabled; a capture-phase guard accepts the click only if it reaches that same element while it still carries
+ * that id and is enabled (otherwise the event is stopped before the product sees it). `activated` is true only when the guard
+ * observed the click. The human reflex is applied explicitly (ElementHandle actions bypass the RWT locator wrapper).
+ */
+async function pressRecoveryControl(page: Page, control: RecoveryControl): Promise<{ activated: boolean; reason?: string; staleRecorder?: boolean }> {
+    const found = await page.waitForFunction((id: string) => {
+        const buttons = document.querySelectorAll<HTMLButtonElement>(`[data-testid="${id}"]`);
+        if (buttons.length !== 1) return false;
+        const button = buttons.item(0);
+        return button.disabled ? false : button;
+    }, control, { timeout: 60_000 }).catch(() => null);
+    const target = found?.asElement() ?? null;
+    if (!target) {
+        await found?.dispose().catch(() => undefined);
+        return { activated: false, reason: `${control} was not the one enabled control` };
+    }
+    // Sam, #1869 on c0c085ac: the guard re-checks the recorder and the unique planned control AT ACTIVATION, belongs to this one
+    // attempt, and is always removed in `finally`, even when the click times out before it is dispatched.
+    const token = `rp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    try {
+        const reflexMs = activeHumanReflexMs();
+        if (reflexMs > 0) await new Promise((resolve) => setTimeout(resolve, reflexMs));
+        await target.evaluate(armRecoveryClickGuard, { id: control, recorderStopId: RECORDER_STOP, token });
+        const clicked = await target.click({ timeout: 30_000 }).then(() => true, () => false);
+        const seen = await page.evaluate(disarmRecoveryClickGuard, token).catch(() => null);
+        if (seen?.rejected && seen.reason === 'recorder') return { activated: false, staleRecorder: true, reason: 'a recorder was running at activation' };
+        return clicked && seen?.accepted === true ? { activated: true }
+            : { activated: false, reason: clicked ? 'the click did not reach the planned control at activation' : 'the click did not complete' };
+    } finally {
+        await page.evaluate(disarmRecoveryClickGuard, token).catch(() => null);
+        await found?.dispose().catch(() => undefined);
+    }
+}
+
+/**
  * Harness parity (catalog AHT-04, minimumStarts 2), from the journey's DESIGN (not a run's count). The journey presses two Starts:
  *   1. the cold Start it abandons — `mic-download` (`page.getByTestId('mic-download').click`, below);
  *      the return to Open Mic only reads the controls (`settleReturnControlState`) and presses none;
  *   2. the deliberate recovery take — whichever control the settled return offers: `mic-download` when the abandoned model was
- *      retired (`preparePrivateModelIfPrompted`, whose one press downloads AND starts the take) or `mic-start` when it is warm
- *      (`startBenchmarkRecording`). Never both, and never `mic-retry` (a Retry return HOLDs the take instead of pressing).
+ *      retired (one press downloads AND starts the take) or `mic-start` when it is warm, pressed ONCE by `pressRecoveryControl`
+ *      (`driveRecoveryPress`). Never both, and never `mic-retry` (a Retry return HOLDs the take instead of pressing).
  * So: 2 presses in all, `mic-download` at most 2, `mic-start` at most 1.
  */
 const AHT04_START_PRESS_BUDGET: StartPressBudget = { total: 2, perControl: { 'mic-download': 2, 'mic-start': 1 } };
@@ -328,10 +370,23 @@ test('leaving during a cold Start does not leave a recording or session behind @
                 { returnSettled: returned.settled, returnControl: last?.expectedControl ?? null });
         } else {
             const priorIds = await readSessionIds(uid);
-            const setup = await preparePrivateModelIfPrompted(page, 900_000);
-            if (!setup.recordingAlreadyStarted) {
-                await waitForPrivateEngineReady(page, 600_000);
-                await startBenchmarkRecording(page, 'pending-start-recovery');
+            // Sam, 2026-11-15 (AHT-04 run 43732453926; #1869 on 26896492): the return settled on an idle model with an enabled
+            // Start, and the Private engine readies only AFTER Start, so the old engine-ready wait pressed nothing. The planned
+            // control is now pressed ONCE, with no readiness wait and no generic helper that could re-resolve it to Retry or skip
+            // the press on a running recorder; a recording must follow that press. Anything else is decided by
+            // `recoveryPressVerdict`: a stale recorder or a proven press that never records FAILs; a changed control or an
+            // unobserved press HOLDs; none of them earns recovery credit.
+            const pressed = await driveRecoveryPress({
+                recorderPresent: () => page.getByTestId(RECORDER_STOP).count().then((n) => n > 0),
+                offeredControl: () => page.evaluate(() => document.documentElement.getAttribute('data-model-status')).then(micControlFor),
+                pressOnce: (control) => pressRecoveryControl(page, control),
+                recordingAfterPress: (control) => isRecording(page, control === 'mic-download' ? 900_000 : 600_000),
+            }, plan.control);
+            const pressVerdict = recoveryPressVerdict(pressed);
+            if (pressVerdict) {
+                receipt.row('deliberate recovery take saved', pressVerdict.status, pressVerdict.detail,
+                    { returnControl: plan.control, pressOutcome: pressed.kind });
+                return;
             }
             await page.waitForTimeout(Math.round((fixture.entry.speechSeconds + 4) * 1000));
             await stopBenchmarkRecording(page, 'pending-start-recovery', 180_000);
@@ -343,7 +398,7 @@ test('leaving during a cold Start does not leave a recording or session behind @
             const rows = await readSessionRows(uid);
             const recovered = recoveryTakeVerdict(priorIds, rows, recoveryId);
             receipt.row('deliberate recovery take saved', recovered.status, recovered.detail,
-                { returnControl: plan.control, setupStartedTake: setup.recordingAlreadyStarted, persistedIdBound: recoveryId !== null,
+                { returnControl: plan.control, pressOutcome: pressed.kind, persistedIdBound: recoveryId !== null,
                     priorSessions: priorIds.length, rows: rows.length, completed: rows.filter((r) => r.status === 'completed').length });
         }
     } catch (error) {
