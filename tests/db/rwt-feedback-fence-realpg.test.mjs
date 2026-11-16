@@ -222,9 +222,10 @@ test('rwt feedback fence: open, record, cap, close-serializes, clean — on the 
     // close — the mutant this assertion kills.)
     const raceKey = sql(service(`SELECT public.open_rwt_feedback_fence_v1(${lit(RACER)}::uuid, ${lit(JSON.stringify({ ...BINDING, runId: '9' }))}::jsonb, 'AHT-08', 2);`)).split('\n').at(-1);
     const run = (text) => new Promise((done) => {
-      const child = spawn(bin.psql, [...args, '-c', text], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+      const child = spawn(bin.psql, [...args, '-c', text], { env, stdio: ['ignore', 'ignore', 'pipe'] });
       let err = ''; child.stderr.on('data', (d) => { err += d; });
-      child.on('exit', (code) => done({ code, err }));
+      // 'close', not 'exit': 'exit' can fire before stderr has drained, which left err empty (4 of 20 local runs).
+      child.on('close', (code) => done({ code, err }));
     });
     const holder = run(`BEGIN; SELECT 1 FROM public.rwt_feedback_fences WHERE run_key = ${lit(raceKey)} FOR UPDATE; SELECT pg_sleep(1.5); COMMIT;`);
     await new Promise((r) => setTimeout(r, 300));
@@ -239,6 +240,7 @@ test('rwt feedback fence: open, record, cap, close-serializes, clean — on the 
     const raced = JSON.parse(sql(`SELECT row_to_json(f) FROM public.rwt_feedback_fences f WHERE run_key = ${lit(raceKey)};`));
     assert.equal(raced.state, 'closed');
     assert.equal(raced.report_ids.length, 0);
+    assert.equal(sql(`SELECT count(*) FROM public.user_issue_reports WHERE idempotency_key = ${lit(key(20))};`), '0', 'the refused write stored no report');
   } finally {
     if (started) { try { execFileSync(bin.pg_ctl, ['-D', data, '-m', 'immediate', 'stop'], { env, encoding: 'utf8' }); } catch { /* best effort */ } }
     rmSync(root, { recursive: true, force: true });
