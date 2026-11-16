@@ -110,7 +110,7 @@ const receiptWith = (chainRow: ReceiptRow) => {
         ...requiredAutomatedRows(SUITE)!.product.filter((s) => s !== 'feedback diagnostic chain').map((s) => (s === 'base_q4 primary' ? hold(s) : pass(s))),
         chainRow, ...humans,
     ];
-    return { suite: SUITE, release: RELEASE, meta: { fixtureKind: 'synthetic' }, rows,
+    return { suite: SUITE, release: RELEASE, meta: { fixtureKind: 'synthetic', runScope: 'full-gate' }, rows,
         readback: { journeys: [{ journeyId: J, stages: STAGES }], reportedJourneyIds: ['other'], missingBindings: [] } };
 };
 const worksheet = (r: { rows: ReceiptRow[] }) => parseHumanWorksheet(humanWorksheet(SUITE, RELEASE, [J, 'other'], r.rows).split('\n')
