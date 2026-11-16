@@ -757,6 +757,8 @@
     "package-unit-tests::test_nightly_request.NightlyChecks.test_the_estimate_split_is_the_accepted_budgets_and_the_template_rows_own",
     "package-unit-tests::test_nightly_request.ReplayThroughTheRealWriter.test_a_second_run_id_for_a_reserved_occurrence_is_refused",
     "package-unit-tests::test_nightly_request.StandingPeriodLimits.test_a_later_occurrence_validates_against_the_standing_period_caps",
+    "package-unit-tests::test_nightly_suite.NightlySuite.test_every_nightly_module_is_covered_by_a_test_file",
+    "package-unit-tests::test_nightly_suite.NightlySuite.test_every_nightly_node_test_passes_and_none_is_skipped",
     "package-unit-tests::test_offline_failed_test_lines.FailedTestLines.test_each_failed_test_is_named_by_identifier_and_category_only",
     "package-unit-tests::test_offline_failed_test_lines.FailedTestLines.test_every_status_is_closed_and_a_started_test_without_an_outcome_is_not_run",
     "package-unit-tests::test_offline_failed_test_lines.FailedTestLines.test_every_test_is_printed_with_its_status_in_execution_order",

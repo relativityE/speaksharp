@@ -295,6 +295,9 @@ export function formatReviewQualification(result) {
     : result.reviewScope === 'test_integrity' ? 'test-integrity'
     : result.reviewScope === 'human_test_evidence_documentation' ? 'human-test evidence documentation'
     : 'implementation';
+  if (result.qualified && result.reviewEvidence === 'identical_patch') {
+    return `REVIEW-QUALIFIED: original review of ${result.reviewedSha} covers the identical ${subject} patch at ${result.currentSha}`;
+  }
   return result.qualified
     ? `REVIEW-QUALIFIED: completed zero-finding review covers current ${subject} head ${result.currentSha}`
     : `NOT REVIEW-QUALIFIED: ${result.reasons.join(', ')}`;
