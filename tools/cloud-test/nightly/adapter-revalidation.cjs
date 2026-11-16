@@ -16,8 +16,14 @@ const sha256 = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex'
 /** Git blob bytes of `file` at full commit `sha` in the repository at `root` (this checkout by default); throws when absent. */
 const gitBlob = (sha, file, root = REPO_ROOT) => execFileSync('git', ['show', `${sha}:${file}`], { cwd: root, stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 * 1024 * 1024 });
 
-/** `{ admissible, refused: [{ path, reason }] }` for reusing the inspection at `servedSha`. */
-function revalidate({ servedSha, readBlob = gitBlob, manifest = MANIFEST }) {
+/** The dependency graph the deriver produces at `sha` with the sealed adapters (this checkout's history). */
+const deriveAtSha = (sha) => require('./derive-adapter-inputs.cjs').derive({ sha });
+/**
+ * `{ admissible, refused: [{ path, reason }] }` for reusing the inspection at `servedSha`. Byte-identical inputs are not
+ * enough (Codex P2 on ed4af854): a file added at the served release can take an unchanged import's place, so the graph is
+ * re-derived there (`deriveAt`) and must contain exactly the inspected inputs, with nothing unresolved.
+ */
+function revalidate({ servedSha, readBlob = gitBlob, manifest = MANIFEST, deriveAt = deriveAtSha }) {
     if (typeof servedSha !== 'string' || !FULL_SHA.test(servedSha))
         return { admissible: false, refused: [{ path: null, reason: 'the served release is not an exact full lowercase SHA' }] };
     if (!manifest || !Array.isArray(manifest.inputs) || manifest.inputs.length === 0 || !FULL_SHA.test(manifest.sourceSha ?? ''))
@@ -41,6 +47,22 @@ function revalidate({ servedSha, readBlob = gitBlob, manifest = MANIFEST }) {
         else if (sha256(bytes) !== input.sha256)
             refused.push({ path: input.path, reason: 'changed since the inspected source' });
     }
+    let served;
+    try {
+        served = deriveAt(servedSha);
+    }
+    catch {
+        refused.push({ path: null, reason: 'the dependency graph could not be derived at the served release' });
+        return { admissible: false, refused };
+    }
+    const inspected = new Set(manifest.inputs.map((i) => i.path));
+    const now = new Set((served?.inputs ?? []).map((i) => i.path));
+    for (const p of [...now].filter((x) => !inspected.has(x)).sort())
+        refused.push({ path: p, reason: 'added to the dependency graph at the served release' });
+    for (const p of [...inspected].filter((x) => !now.has(x)).sort())
+        if (!refused.some((r) => r.path === p)) refused.push({ path: p, reason: 'no longer in the dependency graph at the served release' });
+    for (const u of served?.unresolved ?? [])
+        refused.push({ path: u.file ?? null, reason: `unresolved at the served release: ${u.kind} ${u.token ?? u.detail ?? ''}`.trim() });
     return { admissible: refused.length === 0, refused };
 }
 

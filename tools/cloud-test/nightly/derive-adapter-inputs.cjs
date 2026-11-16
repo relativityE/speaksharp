@@ -29,7 +29,9 @@ const CONFIG_FILES = Object.freeze([
     // which selects single- or multi-threaded Private transcription).
     'vercel.json',
 ]);
-const SOURCE_EXT = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'];
+// Vite's default resolve.extensions order (the build sets none): an extensionless import resolves to the FIRST existing
+// candidate, so a `.js` sibling takes precedence over the inspected `.ts` (Codex P2 on ed4af854). `.cjs` last, as a fallback.
+const SOURCE_EXT = ['.mjs', '.js', '.mts', '.ts', '.jsx', '.tsx', '.json', '.cjs'];
 const ASSET = /\.(css|scss|json|svg|png|jpg|jpeg|gif|webp|wasm|txt|md)(\?.*)?$/;
 const sha256 = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
 const git = (args, root = REPO_ROOT) => execFileSync('git', args, { cwd: root, stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 256 * 1024 * 1024 });

@@ -74,6 +74,8 @@ function fixtureRepo() {
         modelChanged: commit({ [MODEL_FILE]: '{"layers": 6}\n' }),
         aliasTargetChanged: commit({ [SHARED]: 'export const FX = 2;\n' }),
         servingConfigChanged: commit({ 'vercel.json': '{"headers": []}\n' }),
+        // Codex P2 on ed4af854: a sibling that Vite resolves first replaces the inspected module; no listed byte changes.
+        shadowingSibling: commit({ 'frontend/src/components/micHelpers.js': 'export const helper = () => 99;\n' }),
         selectorRemoved: commit({}, [SELECTOR]),
         missingAsset: commit({ [SELECTOR]: "const URL = '/audio/missing.worklet.js';\nexport const MicCard = () => <div data-testid=\"mic-card\" data-session-state=\"idle\">Start recording{URL}</div>;\n" }),
     };
@@ -81,7 +83,8 @@ function fixtureRepo() {
 }
 const repo = fixtureRepo();
 const fixtureManifest = derive({ sha: repo.shas.source, adapterDir: repo.adapterDir, repoRoot: repo.root });
-const verdict = (servedSha, opts = {}) => revalidate({ servedSha, readBlob: repo.read, manifest: fixtureManifest, ...opts });
+const deriveAt = (sha) => derive({ sha, adapterDir: repo.adapterDir, repoRoot: repo.root });
+const verdict = (servedSha, opts = {}) => revalidate({ servedSha, readBlob: repo.read, manifest: fixtureManifest, deriveAt, ...opts });
 const paths = (m) => m.inputs.map((i) => i.path);
 
 describe('deriving the inspected inputs (synthetic repository)', () => {
@@ -99,7 +102,7 @@ describe('deriving the inspected inputs (synthetic repository)', () => {
         fs.writeFileSync(path.join(dir, 'missing.cjs'), "async function run(page) { await page.getByTestId('no-such-id').click(); }\n");
         const m = derive({ sha: repo.shas.source, adapterDir: dir, repoRoot: repo.root });
         expect(m.unresolved).toEqual([{ kind: 'test-id', token: 'no-such-id' }]);
-        expect(revalidate({ servedSha: repo.shas.source, readBlob: repo.read, manifest: m }).admissible).toBe(false);
+        expect(revalidate({ servedSha: repo.shas.source, readBlob: repo.read, manifest: m, deriveAt }).admissible).toBe(false);
     });
 });
 
@@ -132,10 +135,25 @@ describe('reusing the inspection at a newer served release (synthetic repository
     it('CONTROL (Codex P2 on 1c878e24): a changed serving configuration (vercel.json) is refused', () => {
         expect(verdict(repo.shas.servingConfigChanged).refused.some((r) => r.path === 'vercel.json' && r.reason === 'changed since the inspected source')).toBe(true);
     });
+    it('CONTROL (Codex P2 on ed4af854): a sibling that resolution prefers replaces an inspected module: refused, though no listed byte changed', () => {
+        const before = repo.shas.servingConfigChanged;
+        const v = verdict(repo.shas.shadowingSibling);
+        const added = v.refused.find((r) => r.path === 'frontend/src/components/micHelpers.js');
+        expect(added).toEqual({ path: 'frontend/src/components/micHelpers.js', reason: 'added to the dependency graph at the served release' });
+        // The inspected .ts it replaces is refused too (the fixture's earlier commit already changed it, so that reason is kept).
+        expect(v.refused.some((r) => r.path === DEPENDENCY)).toBe(true);
+        // Only the new sibling separates the two commits: every inspected byte that was unchanged before is unchanged now.
+        expect(verdict(before).refused.some((r) => r.reason.includes('dependency graph'))).toBe(false);
+    });
+    it('CONTROL: a graph that cannot be derived at the served release is refused', () => {
+        const v = verdict(repo.shas.unrelatedChanged, { deriveAt: () => { throw new Error('no history'); } });
+        expect(v.admissible).toBe(false);
+        expect(v.refused.some((r) => r.reason === 'the dependency graph could not be derived at the served release')).toBe(true);
+    });
     it('CONTROL: a code-like asset referenced by URL but absent from the public directory is unresolved, never dropped', () => {
         const m = derive({ sha: repo.shas.missingAsset, adapterDir: repo.adapterDir, repoRoot: repo.root });
         expect(m.unresolved).toEqual([{ kind: 'runtime-asset', file: SELECTOR, detail: '/audio/missing.worklet.js' }]);
-        expect(revalidate({ servedSha: repo.shas.missingAsset, readBlob: repo.read, manifest: m }).admissible).toBe(false);
+        expect(revalidate({ servedSha: repo.shas.missingAsset, readBlob: repo.read, manifest: m, deriveAt }).admissible).toBe(false);
     });
     it('CONTROL: a missing or unreadable input is refused, never skipped', () => {
         const v = verdict(repo.shas.selectorRemoved);

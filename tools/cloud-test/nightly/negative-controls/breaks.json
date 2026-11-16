@@ -1929,6 +1929,30 @@
       "find": "    'vercel.json',\n]);",
       "replace": "]);",
       "test": "tests/adapter-revalidation.test.cjs"
+    },
+    {
+      "id": "P26-served-graph-not-rechecked",
+      "guards": "an input added to the dependency graph at the served release refuses reuse (Codex P2 on ed4af854)",
+      "file": "adapter-revalidation.cjs",
+      "find": "        refused.push({ path: p, reason: 'added to the dependency graph at the served release' });",
+      "replace": "        void p;",
+      "test": "tests/adapter-revalidation.test.cjs"
+    },
+    {
+      "id": "P26-underivable-graph-admitted",
+      "guards": "a served release whose graph cannot be derived is refused, never admitted",
+      "file": "adapter-revalidation.cjs",
+      "find": "        refused.push({ path: null, reason: 'the dependency graph could not be derived at the served release' });\n        return { admissible: false, refused };",
+      "replace": "        return { admissible: refused.length === 0, refused };",
+      "test": "tests/adapter-revalidation.test.cjs"
+    },
+    {
+      "id": "P26-resolution-order-not-vite",
+      "guards": "extensionless imports resolve in Vite's order, so a .js sibling shadows the inspected .ts",
+      "file": "derive-adapter-inputs.cjs",
+      "find": "const SOURCE_EXT = ['.mjs', '.js', '.mts', '.ts', '.jsx', '.tsx', '.json', '.cjs'];",
+      "replace": "const SOURCE_EXT = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'];",
+      "test": "tests/adapter-revalidation.test.cjs"
     }
   ]
 }
