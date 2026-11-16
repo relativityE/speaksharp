@@ -121,7 +121,7 @@ describe('Focus Point 1 on a cold start: speech spoken while the model loads rea
   });
 
   /** Starts streaming as a cold start does: the engine is ready only now, and the mic replays the opening. */
-  async function coldStartTake(backlog: Float32Array[] = coldStartBacklog(), settleMs = 0, liveValue = POINT_2): Promise<{ liveTranscript: string; committedTranscript: string; liveDecodes: Float32Array[] }> {
+  async function coldStartTake(backlog: Float32Array[] = coldStartBacklog(), settleMs = 0, liveValue = POINT_2, liveSeconds = 4): Promise<{ liveTranscript: string; committedTranscript: string; liveDecodes: Float32Array[] }> {
     let frameCb: ((f: Float32Array) => void) | undefined;
     // The real mic (audioUtils.impl.ts) replays its buffered frames synchronously to a late subscriber.
     const mic: MicStream = {
@@ -139,7 +139,7 @@ describe('Focus Point 1 on a cold start: speech spoken while the model loads rea
     // The speaker keeps talking (Point 2 continues) while live processing runs, as it would in the seconds
     // after the model is ready. The first transcript needs more than one decode to be committed, so this
     // also proves the opening survives that hold rather than only flashing as a provisional partial.
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < liveSeconds * 10; i++) {
       frameCb!(new Float32Array(FRAME).fill(liveValue));
       await vi.advanceTimersByTimeAsync(100);
     }
@@ -158,7 +158,10 @@ describe('Focus Point 1 on a cold start: speech spoken while the model loads rea
       committedTranscript: result.committedTranscript,
     }));
     stopped = true;
-    await pw.stop();
+    // Stop waits for a decode still in flight; keep the clock moving so a slow decoder can finish.
+    const stopping = pw.stop();
+    await vi.advanceTimersByTimeAsync(20000);
+    await stopping;
     return result;
   }
 
@@ -205,6 +208,31 @@ describe('Focus Point 1 on a cold start: speech spoken while the model loads rea
     const { committedTranscript } = await coldStartTake(backlog, 0, 0);
 
     expect(committedTranscript, 'a quiet Point 1 in a long backlog must still commit').toContain(POINT_1_WORDS);
+  });
+
+  it('commits Point 1 on a slow device whose decodes run slower than real time', async () => {
+    // A slow cold start: each live decode of the backlog takes 16 s, so more than 15 s of new audio arrives
+    // before the second round. The window must last for the rounds a first transcript needs, not for a fixed time.
+    const decode = mocks.transcribe.getMockImplementation()!;
+    mocks.transcribe.mockImplementation(async (audio: Float32Array, opts?: { final?: boolean }) => {
+      if (opts?.final !== true) await new Promise((r) => setTimeout(r, 16000));
+      return decode(audio, opts);
+    });
+
+    const { committedTranscript } = await coldStartTake([...frames(0.5, 0), ...frames(2.0, POINT_1), ...frames(12.5, POINT_2)], 0, POINT_2, 40);
+
+    expect(committedTranscript, 'Point 1 must commit on a slow device').toContain(POINT_1_WORDS);
+  }, 120_000);
+
+  it('does not commit a hallucination from a silent backlog with one click in it', async () => {
+    // Noise, not speech: 14 s of silence and one 200 ms click. The speech-energy gate must not treat the click
+    // as speech, so a hallucinated phrase stays held as it would on the whole buffer's energy.
+    mocks.transcribe.mockImplementation(async () => Result.ok('please like and share'));
+    const backlog = [...frames(7, 0), ...frames(0.2, 0.15), ...frames(6.8, 0)];
+
+    const { committedTranscript } = await coldStartTake(backlog, 0, 0);
+
+    expect(committedTranscript, 'a click in silence must not commit a phrase').toBe('');
   });
 
   it('keeps the normal live window on a warm take (no replayed backlog)', async () => {
