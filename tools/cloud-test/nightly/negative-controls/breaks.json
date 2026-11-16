@@ -1401,6 +1401,14 @@
       "find": "            if (attempt > 0 && Date.now() >= deadline)\n                return null;\n",
       "replace": "",
       "test": "tests/run-budget.test.cjs"
+    },
+    {
+      "id": "P12-j1d-gate-dropped",
+      "guards": "J1.d stays NOT RUN until the sign-out recorder is wired",
+      "file": "journey-plan.cjs",
+      "find": "{ needs: ['J1.a'], gates: [SIGNOUT_RECORDER_UNWIRED] }",
+      "replace": "{ needs: ['J1.a'] }",
+      "test": "tests/journey-plan.test.cjs"
     }
   ]
 }

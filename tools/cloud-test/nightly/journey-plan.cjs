@@ -25,6 +25,12 @@ const HARNESS_CASES = Object.freeze({
     'J7.a': ['AHT-12', 3], 'J7.b': ['AHT-13', 3], 'J7.c': ['AHT-14', 3], 'J7.d': [null, 0],
     'J8.a': ['AHT-08', 0], 'J8.b': ['AHT-07', 2], 'J8.c': [null, 0], 'J9.a': [null, 0], 'J9.b': [null, 0],
 });
+// Sam on 79320578: J1.d's sign-out rows need the wired recorder and its named protected probe (the offline recorder is parked
+// until the run-owned fixture handoff). Until then the leg reports NOT RUN and no offline result counts as its proof.
+const SIGNOUT_RECORDER_UNWIRED = Object.freeze({
+    kind: 'signout-recorder-unwired', outcome: 'NOT RUN',
+    reason: 'the sign-out recorder and its named protected probe are not wired into the run-owned J1 fixture yet',
+});
 const NO_HARNESS_CASE = Object.freeze({
     kind: 'no-harness-case', outcome: 'NOT RUN',
     reason: 'this leg has no harness adapter yet; it lands through the reviewed harness handoff',
@@ -52,7 +58,7 @@ const JOURNEYS = Object.freeze([
             leg('J1.a', 'sign up, trial length, first Open Mic take', { coachingRequests: 4 }),
             leg('J1.b', 'coaching, review, PDF, same-target repeat', { needs: ['J1.a'], needsCoaching: true, coachingRequests: 0 }),
             leg('J1.c', 'short Stop saves nothing; probe save isolation', { needs: ['J1.a'], needsCoaching: true, coachingRequests: 0 }),
-            leg('J1.d', 'sign out and return, deep link, history preserved', { needs: ['J1.a'] }),
+            leg('J1.d', 'sign out and return, deep link, history preserved', { needs: ['J1.a'], gates: [SIGNOUT_RECORDER_UNWIRED] }),
             // J1.e sends one coaching request with the expired account's token, which the server must refuse before any
             // provider work. If it wrongly accepts it, that request costs up to 3 provider calls, so the run reserves it
             // up front (Sam, #1864 review) instead of leaving it outside the ceiling.

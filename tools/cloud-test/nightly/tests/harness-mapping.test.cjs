@@ -10,7 +10,7 @@ const { legVerdict: rawLegVerdict } = require('../leg-verdicts.cjs');
 // These tests are about the case split, so every leg has its allocation.
 const legVerdict = (id, input) => rawLegVerdict(id, { budget: { allocated: true, overrun: [] }, ...input });
 const catalog = JSON.parse(readFileSync(path.resolve(__dirname, '../../config/assertion-catalog.json'), 'utf8'));
-const ALL_GATES = new Set(['canary-claim-ack', 'unqualified', 'disabled-until-reviewed', 'test-mode-fixture', 'no-safe-production-proof', 'no-harness-case']);
+const ALL_GATES = new Set(['canary-claim-ack', 'unqualified', 'disabled-until-reviewed', 'test-mode-fixture', 'no-safe-production-proof', 'no-harness-case', 'signout-recorder-unwired']);
 /** A case result that reports every row the plan homes to the case's legs, plus the given new rows. */
 function caseResult(caseId, result = 'PASS', newRows = []) {
     const ids = catalog.cases[caseId].requiredAssertions;

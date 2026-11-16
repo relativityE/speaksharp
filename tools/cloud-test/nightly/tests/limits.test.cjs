@@ -14,15 +14,15 @@ describe('counted limits', () => {
         expect(counted(countedLimits(allGateKinds()))).toEqual([18, 31, 43, 32, 40, 96, 0]);
         expect(countedLimits(allGateKinds()).sharedAccountTarget).toEqual({ freshSignUps: 8 });
     });
-    it("matches today's column: 13 sign-ups, 30 takes, 40 starts, 30 coaching, 30 identity reads, 90 provider calls, $0", () => {
-        // One account per runnable harness case today, not one per journey (7), except AHT-15 on its maintained account;
-        // identity reads stay 2 per harness case (14 cases) plus 2.
-        expect(counted(countedLimits(new Set()))).toEqual([13, 30, 40, 30, 30, 90, 0]);
+    it("matches today's column: 13 sign-ups, 30 takes, 40 starts, 30 coaching, 28 identity reads, 90 provider calls, $0", () => {
+        // One account per runnable harness case today, not one per journey (7); identity reads stay 2 per runnable harness
+        // case (13: J1.d's AHT-15 is gated NOT RUN until the sign-out recorder is wired, Sam on 79320578) plus 2.
+        expect(counted(countedLimits(new Set()))).toEqual([13, 30, 40, 30, 28, 90, 0]);
         expect(countedLimits(new Set()).sharedAccountTarget).toEqual({ freshSignUps: 7 });
     });
     it('counts nothing for a leg that cannot run, and names it NOT RUN', () => {
         const today = countedLimits(new Set());
-        expect(today.notRun).toEqual(['J1.e', 'J1.f', 'J2', 'J7.a', 'J7.d', 'J8.c', 'J9.a', 'J9.b']);
+        expect(today.notRun).toEqual(['J1.d', 'J1.e', 'J1.f', 'J2', 'J7.a', 'J7.d', 'J8.c', 'J9.a', 'J9.b']);
         for (const id of today.notRun)
             expect(today.legs.includes(id)).toBe(false);
     });

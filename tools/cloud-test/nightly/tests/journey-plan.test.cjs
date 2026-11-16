@@ -79,6 +79,8 @@ describe('nightly plan structure (#1864 design)', () => {
     it('gates the trial-ending legs on the canary claim, holds J7.a, and keeps J2 and J9 off', () => {
         const kinds = (id) => legById(id).gates.map((g) => `${g.kind}:${g.outcome}`);
         const NO_CASE = 'no-harness-case:NOT RUN';
+        // Sam on 79320578: J1.d stays NOT RUN until the sign-out recorder and its protected probe are wired.
+        expect(kinds('J1.d')).toEqual(['signout-recorder-unwired:NOT RUN']);
         expect(kinds('J1.e')).toEqual(['canary-claim-ack:NOT RUN', NO_CASE]);
         expect(kinds('J1.f')).toEqual(['canary-claim-ack:NOT RUN', NO_CASE]);
         expect(kinds('J2')).toEqual(['canary-claim-ack:NOT RUN', 'disabled-until-reviewed:NOT RUN', NO_CASE]);
@@ -87,7 +89,7 @@ describe('nightly plan structure (#1864 design)', () => {
         expect(kinds('J8.c')).toEqual([NO_CASE]);
         expect(kinds('J9.a')).toEqual(['test-mode-fixture:NOT RUN', NO_CASE]);
         expect(kinds('J9.b')).toEqual(['no-safe-production-proof:NOT RUN', NO_CASE]);
-        expect(ALL_LEGS.filter((l) => l.gates.length > 0).map((l) => l.id)).toEqual(['J1.e', 'J1.f', 'J2', 'J7.a', 'J7.d', 'J8.c', 'J9.a', 'J9.b']);
+        expect(ALL_LEGS.filter((l) => l.gates.length > 0).map((l) => l.id)).toEqual(['J1.d', 'J1.e', 'J1.f', 'J2', 'J7.a', 'J7.d', 'J8.c', 'J9.a', 'J9.b']);
     });
     it('asserts the four invariants in every leg', () => {
         for (const l of ALL_LEGS)

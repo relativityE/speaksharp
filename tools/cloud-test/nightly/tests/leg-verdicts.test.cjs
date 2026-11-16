@@ -5,10 +5,11 @@ const { describe, it } = require('node:test');
 const { expect } = require('./expect-lite.cjs');
 const { ALL_LEGS, rowsForLeg } = require('../journey-plan.cjs');
 const { VerdictLedger, legVerdict: rawLegVerdict, runVerdict, verdictLine } = require('../leg-verdicts.cjs');
+const { countedLimits } = require('../limits.cjs');
 const ALLOCATED = Object.freeze({ allocated: true, overrun: [] });
 // Most tests are about rows, gates and dependencies, so each leg has its allocation unless a test says otherwise.
 const legVerdict = (id, input) => rawLegVerdict(id, { budget: ALLOCATED, ...input });
-const ALL_GATES = new Set(['canary-claim-ack', 'unqualified', 'disabled-until-reviewed', 'test-mode-fixture', 'no-safe-production-proof', 'no-harness-case']);
+const ALL_GATES = new Set(['canary-claim-ack', 'unqualified', 'disabled-until-reviewed', 'test-mode-fixture', 'no-safe-production-proof', 'no-harness-case', 'signout-recorder-unwired']);
 const NO_GATES = new Set();
 const results = (leg, o = 'PASS') => Object.fromEntries(rowsForLeg(leg).map((r) => [r, o]));
 const prior = (...vs) => new Map(vs.map((v) => [v.leg, v]));
@@ -19,6 +20,15 @@ describe('leg verdict', () => {
         const r = results('J1.a');
         r[Object.keys(r)[3]] = 'FAIL';
         expect(legVerdict('J1.a', { prior: new Map(), satisfiedGates: ALL_GATES, results: r }).outcome).toBe('FAIL');
+    });
+    it('CONTROL (Sam on 79320578): J1.d is refused as NOT RUN while the sign-out recorder is unwired, even if every row reports PASS', () => {
+        const unwired = new Set([...ALL_GATES].filter((k) => k !== 'signout-recorder-unwired'));
+        const v = legVerdict('J1.d', { prior: prior(pass('J1.a')), satisfiedGates: unwired, results: results('J1.d') });
+        expect(v.outcome).toBe('NOT RUN');
+        expect(v.reason).toContain('sign-out recorder');
+        // The plan never schedules it: J1.d counts toward no limit and is named NOT RUN in every column until wired.
+        expect(countedLimits(unwired).notRun).toContain('J1.d');
+        expect(countedLimits(unwired).legs.includes('J1.d')).toBe(false);
     });
     it('treats a missing row result as NOT RUN, so the leg is not green', () => {
         const r = results('J3.a');
