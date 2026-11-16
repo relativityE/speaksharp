@@ -44,13 +44,10 @@ export const REQUIRED_STEPS = Object.freeze({
 });
 
 /**
- * What a member can do once a paid membership has ended is ON HOLD (Sam, 2026-11-12) until Akin confirms the
- * end-of-access policy with Sam. These steps are never asserted and never PASSED: each receipt shows them as
- * PENDING_POLICY, and a journey holding one cannot pass. Data retention (account_retained) is not access and
- * is still proven, from the database only.
+ * Steps held until a product policy is confirmed: each receipt shows them as PENDING_POLICY, and a journey holding
+ * one cannot pass. None is held now. The end-of-access policy that held access_expired and history_retained
+ * (Sam, 2026-11-12) is Akin's 2026-11-14 rule, "No payment, no service or access to their past data", which the
+ * #1863 payment wall enforces; both steps are now asserted after the paid period ends.
  */
 export const PENDING_POLICY = 'PENDING_POLICY';
-export const POLICY_PENDING_STEPS = Object.freeze({
-  portal_expiry: Object.freeze(['access_expired', 'history_retained']),
-  refund_period_end: Object.freeze(['access_expired', 'history_retained']),
-});
+export const POLICY_PENDING_STEPS = Object.freeze({});

@@ -116,7 +116,6 @@ export const PHASES = [
 /** Things a dry run cannot settle; listed so a plan never reads as more ready than it is. */
 export const OPEN_QUESTIONS = [
   'portal_recovery: whether the Stripe portal itself pays the past-due invoice after the card is added; if it does not, the branch fails closed (portal_recovery_pay_unavailable), it is never switched to an API payment',
-  'access after a membership ends (portal_expiry, refund_period_end): held until Akin confirms the end-of-access policy with Sam; those steps read PENDING_POLICY, are never asserted and can never pass, so full mode cannot say PASSED yet',
   'failed_checkout: whether the server lets a new Checkout start after an abandoned one is expired; a refusal fails the branch (retry_checkout_refused)',
 ];
 

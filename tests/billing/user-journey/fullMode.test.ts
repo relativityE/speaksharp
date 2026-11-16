@@ -48,8 +48,8 @@ test('mode selection: no mode keeps the three branches, smoke is conversion only
   assert.equal(SPEC.match(/journeyTest\(journey\);/g)?.length, 2);
 });
 
-test('every runner journey has its own branch, and only portal_expiry and refund_period_end hold steps', () => {
-  assert.deepEqual(Object.keys(POLICY_PENDING_STEPS).sort(), ['portal_expiry', 'refund_period_end']);
+test('every runner journey has its own branch, and no journey holds a step', () => {
+  assert.deepEqual(Object.keys(POLICY_PENDING_STEPS), []);
   for (const journey of RUNNER_JOURNEYS) {
     if (journey !== 'conversion') assert.match(SPEC, new RegExp(`this\\.journey === '${journey}'|// ${journey} `), journey);
     for (const step of REQUIRED_STEPS[journey]) {
@@ -61,14 +61,22 @@ test('every runner journey has its own branch, and only portal_expiry and refund
   }
 });
 
-test('access after the end is never read: no sign-in, page or access check after the subscription ends', () => {
+test('after the end: data kept, the same signed-in member is refused service and cannot read the kept recording', () => {
   const periodEnd = between('  async periodEnd(ending: Obj): Promise<void> {', '\n  }\n');
-  for (const forbidden of [/entitlement\(/, /\.account\(/, /goto\(/, /sign-?in/i, /usage\(\)/, /profile\(\)/, /access_expired|history_retained/]) {
+  // No new sign-in, page or paid-path read: the member who paid is checked as they are.
+  for (const forbidden of [/entitlement\(/, /\.account\(/, /goto\(/, /signIn/, /profile\(\)/]) {
     assert.doesNotMatch(periodEnd, forbidden, String(forbidden));
   }
-  // Data kept is read from the database only.
+  // Data kept is read from the database first.
   assert.match(periodEnd, /getUserById\(this\.uid\)/);
-  assert.match(periodEnd, /steps\.add\('account_retained'\)/);
+  const kept = periodEnd.indexOf("steps.add('account_retained')");
+  const expired = periodEnd.indexOf("steps.add('access_expired')");
+  const walled = periodEnd.indexOf("steps.add('history_retained')");
+  assert.ok(kept > 0 && kept < expired && expired < walled, 'kept, then refused, then walled');
+  assert.match(periodEnd, /u\.can_start === false && u\.is_pro === false/);
+  // An empty read only counts once the member is proven still signed in as this account.
+  assert.ok(periodEnd.indexOf('member.auth.getUser()') < periodEnd.indexOf("member.from('sessions')"));
+  assert.match(periodEnd, /own\.data\.length === 0, 'saved_history_readable_after_end'/);
   // periodEnd is the last thing paidUntilPeriodEnd does, and only it calls periodEnd.
   const until = between('  async paidUntilPeriodEnd(ending: Obj): Promise<void> {', '\n  }\n');
   assert.match(until, /await this\.periodEnd\(ending\);$/);
@@ -301,17 +309,16 @@ test('combined receipt: a held run is never PASSED, and its only defect is polic
   }
 });
 
-test('combined receipt negative controls: PENDING_POLICY steps only where held, and only in a held receipt', () => {
+test('combined receipt negative controls: no journey may claim a PENDING_POLICY step', () => {
   const portal = pendingFor('portal_expiry');
-  // A held step marked PASSED (someone asserted it) is refused.
-  const asserted = portal.steps.map(row => row.result === PENDING_POLICY ? { ...row, result: 'PASSED' } : row);
-  assert.ok(combine('portal_expiry', { steps: asserted }).defects.includes('steps_not_all_passed'));
-  // A step that is not held marked PENDING_POLICY is refused.
-  const dodged = portal.steps.map(row => row.step === 'portal_cancelled' ? { ...row, result: PENDING_POLICY } : row);
-  assert.ok(combine('portal_expiry', { steps: dodged }).defects.includes('steps_not_all_passed'));
-  // A held step in a receipt that does not say PENDING_POLICY is refused.
-  assert.ok(combine('portal_expiry', { result: 'PENDING_STACK_DESTRUCTION' }).defects.includes('steps_not_all_passed'));
-  // A journey with no held steps cannot claim one.
+  // The end-of-access steps are asserted now: claiming either as held is refused, and so is the held receipt.
+  for (const step of ['access_expired', 'history_retained', 'portal_cancelled']) {
+    const dodged = portal.steps.map(row => row.step === step ? { ...row, result: PENDING_POLICY } : row);
+    assert.ok(combine('portal_expiry', { steps: dodged }).defects.includes('steps_not_all_passed'), step);
+    const held = combine('portal_expiry', { result: PENDING_POLICY, steps: dodged });
+    assert.ok(held.defects.includes('policy_pending') && held.result === 'NOT_PROVEN', step);
+  }
+  // Nor can conversion.
   const conversion = pendingFor('conversion');
   const claimed = combine('conversion', { result: PENDING_POLICY,
     steps: conversion.steps.map(row => row.step === 'next_recording' ? { ...row, result: PENDING_POLICY } : row) });
@@ -332,13 +339,13 @@ const fullPlanReader = (path: string) => {
   return '';
 };
 
-test('dry run: plans only, makes no call, never authorizes, and cannot say READY while access after end is held', () => {
+test('dry run: plans only, makes no call, never authorizes, and says READY only when every phase is READY', () => {
   for (const mode of MODES) {
     const plan = planRun(mode);
     assert.equal(plan.dryRun, true);
     assert.equal(plan.stripeCalls, 0);
     assert.equal(plan.authorizesExecution, false);
-    // READY only when every phase is READY and none holds a step; full mode holds two, so it is never READY.
+    // READY only when every phase is READY and none holds a step.
     const allReady = plan.phases.every(phase => phase.status === 'READY');
     assert.equal(plan.result === 'READY', allReady && plan.phases.every(phase => phase.pendingPolicySteps.length === 0), mode);
     if (!allReady) assert.equal(plan.result, 'BLOCKED_PREREQUISITE', mode);
@@ -346,9 +353,10 @@ test('dry run: plans only, makes no call, never authorizes, and cannot say READY
   assert.notEqual(planRun('full').result, 'READY');
   const best = planRun('full', fullPlanReader);
   assert.ok(best.phases.every(phase => phase.status === 'READY'), JSON.stringify(best.phases.map(p => [p.id, p.blockedBy])));
-  assert.equal(best.result, 'READY_WITH_PENDING_POLICY');
+  assert.equal(best.result, 'READY');
   assert.equal(best.authorizesExecution, false);
-  assert.ok(best.openQuestions.some(question => question.startsWith('access after a membership ends')));
+  assert.ok(best.phases.every(phase => phase.pendingPolicySteps.length === 0));
+  assert.ok(!best.openQuestions.some(question => question.startsWith('access after a membership ends')));
   assert.equal(planRun('smoke', fullPlanReader).result, 'READY');
   // The paid loop's own mode has no held step, so with its spec and dispatch present it can be READY, and it
   // carries none of full mode's open questions.
@@ -415,9 +423,9 @@ test('mode result: each phase is re-validated from its evidence; held phases are
   for (const journey of RUNNER_JOURNEYS) {
     assert.equal(byPhase[journey].result, POLICY_PENDING_STEPS[journey] ? PENDING_POLICY : 'PASSED', `${journey} ${byPhase[journey].why}`);
   }
-  // Access after a membership ends is still held, so full mode is PENDING_POLICY, never PASSED.
+  // Access after a membership ends is asserted now, so complete full-mode evidence is PASSED.
   assert.deepEqual(full.problems, []);
-  assert.equal(full.result, PENDING_POLICY);
+  assert.equal(full.result, 'PASSED');
   assert.equal(finaliseModeReceipt('smoke', [evidenceFor('conversion')], { release: RELEASE }).result, 'PASSED');
 });
 
@@ -438,7 +446,7 @@ test('the paid loop has its own mode: outcome 8 is proven or not on its own, and
   assert.equal(paidLoop([paid, evidenceFor('conversion', 8)]).result, 'NOT_PROVEN', 'a billing phase in the paid mode');
   // A failed paid loop leaves billing's verdict exactly as it was, and a paid receipt cannot join billing's mode.
   const billing = RUNNER_JOURNEYS.map((journey, i) => evidenceFor(journey, i + 1));
-  assert.equal(finaliseModeReceipt('full', billing, { release: RELEASE }).result, PENDING_POLICY);
+  assert.equal(finaliseModeReceipt('full', billing, { release: RELEASE }).result, 'PASSED');
   const withPaid = finaliseModeReceipt('full', [...billing, paid], { release: RELEASE });
   assert.equal(withPaid.result, 'NOT_PROVEN');
   assert.ok(withPaid.problems.includes('unexpected_phase'));
@@ -581,20 +589,20 @@ test('mode result negative controls: a bare or summary-only PASSED, or evidence 
 
   const local = RUNNER_JOURNEYS.map((journey, i) => evidenceFor(journey, i + 1));
   const full = (entries: unknown) => finaliseModeReceipt('full', entries, { release: RELEASE });
-  assert.equal(full(local).result, PENDING_POLICY, 'the untouched evidence is not NOT_PROVEN, so each case below fails on its own');
-  const held = local.find(item => item.phase === 'portal_expiry')!;
-  const asserted = JSON.parse(held.rawReceipt)[0];
-  asserted.result = 'PENDING_STACK_DESTRUCTION';
-  asserted.steps = asserted.steps.map((row: { step: string; result: string }) => ({ ...row, result: 'PASSED' }));
+  assert.equal(full(local).result, 'PASSED', 'the untouched evidence is not NOT_PROVEN, so each case below fails on its own');
+  const portal = local.find(item => item.phase === 'portal_expiry')!;
+  const dodged = JSON.parse(portal.rawReceipt)[0];
+  dodged.steps = dodged.steps.map((row: { step: string; result: string }) =>
+    row.step === 'access_expired' ? { ...row, result: PENDING_POLICY } : row);
   const fullCases: [string, unknown][] = [
     ['missing phase', local.filter(item => item.phase !== 'failed_checkout')],
     ['duplicate phase', [...local, evidenceFor('failed_checkout', 20)]],
     ['unknown phase', [...local, { ...evidenceFor('conversion', 21), phase: 'invented' }]],
     ['two phases on one stack', local.map(item => item.phase === 'portal_recovery' ? evidenceFor('portal_recovery', 1) : item)],
-    ['held phase asserts its held steps', local.map(item => item.phase === 'portal_expiry'
-      ? evidenceFor('portal_expiry', 3, { result: asserted.result, steps: asserted.steps }) : item)],
-    ['held combined receipt with another defect', local.map(item => item.phase === 'portal_expiry'
-      ? { ...item, combined: { ...item.combined, defects: ['policy_pending', 'release_mismatch'] } } : item)],
+    ['a phase holds an end-of-access step', local.map(item => item.phase === 'portal_expiry'
+      ? evidenceFor('portal_expiry', 3, { result: dodged.result, steps: dodged.steps }) : item)],
+    ['a combined receipt carries a policy_pending defect', local.map(item => item.phase === 'portal_expiry'
+      ? { ...item, combined: { ...item.combined, defects: ['policy_pending'] } } : item)],
     ['not a list', 'receipts'],
   ];
   for (const [name, entries] of fullCases) {
