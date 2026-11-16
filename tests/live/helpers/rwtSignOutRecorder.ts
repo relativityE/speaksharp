@@ -5,8 +5,10 @@
  * - `signout-no-unauthorized-read`: after sign-out completed, nothing protected was read with the signed-out session.
  *   (1) a successful (2xx) protected read, or data reaching the signed-out page, FAILs: a new old-session request answered 2xx,
  *   or an old-session request sent BEFORE sign-out completed whose 2xx answer arrived after it (its data reaches the signed-out
- *   page). (2) A 401/403 is a correct denial for that read only. PASS needs the NAMED protected probe, exercised after sign-out
- *   with a terminal answer that denies it; an unrelated request's 403, an unanswered probe or no probe at all is HOLD, never PASS.
+ *   page). (2) A 401/403 is a correct denial for that read only. PASS needs the NAMED protected probe of the exact run-owned take,
+ *   observed after sign-out, with a terminal answer that denies it; an unrelated request's 403, an unanswered, unobserved or
+ *   unbound probe, or no probe at all is HOLD, never PASS. An anonymous, well-formed 200 [] is a denial only with the paired
+ *   control (Sam, 16 Nov): the owner read that exact take before sign-out and reopened it after signing back in; otherwise HOLD.
  * - `signout-no-stale-request`: (3) a NEW organic request carrying the signed-out session, sent after sign-out completed, FAILs
  *   whatever its answer. (4) A request sent before sign-out completed that finishes late is not a new stale request. The probe
  *   is never organic traffic, so it cannot trigger this row. Zero stale requests PASS only with a proven complete window.
@@ -38,8 +40,24 @@ export interface SignOutRequestFact {
     failed: boolean;
 }
 
-/** The named protected probe after sign-out: its terminal status and the protected rows its answer made visible (a count). */
-export interface SignOutProbe { status: number | null; dataRows: number | null }
+/**
+ * The named protected probe after sign-out, as the spec read it: its terminal status, the protected rows its answer made visible
+ * (a count), whether the body was a well-formed JSON array, and whether it read the exact run-owned take (bound by id).
+ */
+export interface SignOutProbe { status: number | null; dataRows: number | null; wellFormed?: boolean | null; boundToTake?: boolean | null }
+/** The probe as judged: what the spec read, plus what the recorder itself saw of the designated request. */
+export interface SignOutProbeObservation {
+    status: number | null; dataRows: number | null; wellFormed: boolean | null; boundToTake: boolean | null;
+    /** The designated probe request was observed, sent after the logout completed and before the window end. */
+    observed: boolean;
+    /** Its headers carried no user session (no bearer, or only the anon key): null when unread or unobserved. */
+    anonymous: boolean | null;
+}
+/**
+ * The paired control (Sam, 16 Nov): the authenticated owner read the exact run-owned take before the sign-out click, and the same
+ * owner reopened it after signing back in. It tells a denial (200 []) apart from a missing fixture. null: not observed.
+ */
+export interface SignOutPairedControl { ownerReadBefore: boolean | null; ownerReopenedAfter: boolean | null }
 
 export interface SignOutObservation {
     armedBeforeClick: boolean;
@@ -52,7 +70,8 @@ export interface SignOutObservation {
     requests: SignOutRequestFact[];
     unreadHeaders: number;
     observedAfterLogoutMs: number | null;
-    probe: SignOutProbe | null;
+    probe: SignOutProbeObservation | null;
+    pairedControl: SignOutPairedControl;
 }
 
 interface Entry {
@@ -91,6 +110,9 @@ export class SignOutRecorder<R = unknown> {
     private logoutCompletedAt: number | null = null;
     private endAt: number | null = null;
     private probe: SignOutProbe | null = null;
+    private probeEntry: Entry | null = null;
+    private ownerReadBefore: boolean | null = null;
+    private ownerReopenedAfter: boolean | null = null;
 
     constructor(private readonly backendOrigin: string, private readonly now: () => number = Date.now) {}
 
@@ -150,7 +172,19 @@ export class SignOutRecorder<R = unknown> {
     markClick(): void { if (this.clickSeq === null) this.clickSeq = ++this.seq; }
 
     /** A page request the spec sent as the named protected probe: judged as the probe, never as organic traffic. */
-    designateProbe(request: R): void { const entry = this.entries.get(request); if (entry) entry.probe = true; }
+    designateProbe(request: R): void {
+        const entry = this.entries.get(request);
+        if (entry) { entry.probe = true; this.probeEntry = entry; }
+    }
+
+    /**
+     * The paired control's two owner reads of the exact run-owned take: 'before' counts only before the sign-out click, 'after'
+     * only after the window end (the owner signed back in). Each is recorded once; a later call does not overwrite it.
+     */
+    recordOwnerRead(phase: 'before' | 'after', foundExactTake: boolean): void {
+        if (phase === 'before' && this.clickSeq === null && this.ownerReadBefore === null) this.ownerReadBefore = foundExactTake;
+        if (phase === 'after' && this.endSeq !== null && this.ownerReopenedAfter === null) this.ownerReopenedAfter = foundExactTake;
+    }
 
     /**
      * The named protected probe's outcome, sent after the logout completed: its terminal status (null when it got none) and the
@@ -158,7 +192,7 @@ export class SignOutRecorder<R = unknown> {
      */
     recordProbe(result: SignOutProbe): void {
         if (this.logoutCompletedSeq === null) return; // a probe before sign-out completed probes nothing signed out
-        this.probe = { status: result.status, dataRows: result.dataRows };
+        this.probe = { status: result.status, dataRows: result.dataRows, wellFormed: result.wellFormed ?? null, boundToTake: result.boundToTake ?? null };
     }
 
     /** Immediately before the next sign-in submit, or when the recording ends. */
@@ -198,7 +232,20 @@ export class SignOutRecorder<R = unknown> {
             })),
             unreadHeaders: judged.filter((e) => !e.headersRead).length,
             observedAfterLogoutMs: this.logoutCompletedAt === null ? null : (this.endAt ?? this.now()) - this.logoutCompletedAt,
-            probe: this.probe,
+            probe: this.probeObservation(),
+            pairedControl: { ownerReadBefore: this.ownerReadBefore, ownerReopenedAfter: this.ownerReopenedAfter },
+        };
+    }
+
+    private probeObservation(): SignOutProbeObservation | null {
+        if (this.probe === null) return null;
+        const e = this.probeEntry;
+        const done = this.logoutCompletedSeq;
+        const observed = e !== null && done !== null && e.seq > done && (this.endSeq === null || e.seq < this.endSeq);
+        const anonymous = !observed || !e.headersRead ? null : e.bearer === null || e.bearer === e.apikey;
+        return {
+            status: this.probe.status, dataRows: this.probe.dataRows, wellFormed: this.probe.wellFormed ?? null,
+            boundToTake: this.probe.boundToTake ?? null, observed, anonymous,
         };
     }
 }
@@ -244,6 +291,9 @@ export function signOutUnauthorizedReadVerdict(o: SignOutObservation): RowVerdic
     const evidence = {
         logoutStatus: o.logout?.status ?? null, observedAfterLogoutMs: o.observedAfterLogoutMs,
         probeStatus: o.probe?.status ?? null, probeDataRows: o.probe?.dataRows ?? null,
+        probeAnonymous: o.probe?.anonymous == null ? null : Number(o.probe.anonymous),
+        ownerReadBefore: o.pairedControl.ownerReadBefore == null ? null : Number(o.pairedControl.ownerReadBefore),
+        ownerReopenedAfter: o.pairedControl.ownerReopenedAfter == null ? null : Number(o.pairedControl.ownerReopenedAfter),
         readAfterSignOut: read.length, lateDataAfterSignOut: late.length,
     };
     if (why) return { status: 'HOLD', detail: why, evidence };
@@ -253,8 +303,19 @@ export function signOutUnauthorizedReadVerdict(o: SignOutObservation): RowVerdic
     if (p === null) return { status: 'HOLD', detail: 'no named protected probe was exercised after sign-out, so the denial is unproven', evidence };
     if (p.status === null) return { status: 'HOLD', detail: 'the protected probe got no terminal answer', evidence };
     if (is2xx(p.status) && (p.dataRows ?? 0) > 0) return { status: 'FAIL', detail: 'the protected probe read data with the signed-out session', evidence };
+    if (!p.observed) return { status: 'HOLD', detail: 'the probe request was not observed between the completed logout and the window end', evidence };
+    if (p.boundToTake !== true) return { status: 'HOLD', detail: 'the probe was not bound to the exact run-owned take', evidence };
     if (p.status === 401 || p.status === 403) return { status: 'PASS', detail: 'the protected probe was denied (401/403) and nothing protected was read after sign-out', evidence };
-    return { status: 'HOLD', detail: `the protected probe was answered ${p.status} with no data shown: neither a read nor a denial`, evidence };
+    if (p.status === 200 && p.dataRows === 0 && p.wellFormed === true) {
+        // Sam (16 Nov): an anonymous 200 [] is a denial only with the paired control, which rules out a missing fixture.
+        if (p.anonymous !== true) return { status: 'HOLD', detail: 'the probe answered 200 [] but was not confirmed anonymous', evidence };
+        const c = o.pairedControl;
+        if (c.ownerReadBefore === false) return { status: 'HOLD', detail: 'the owner could not read the exact take before sign-out: a missing fixture, not a denial', evidence };
+        if (c.ownerReadBefore !== true) return { status: 'HOLD', detail: 'the owner\'s read of the exact take before sign-out was not observed', evidence };
+        if (c.ownerReopenedAfter !== true) return { status: 'HOLD', detail: 'the owner did not reopen the exact take after signing back in', evidence };
+        return { status: 'PASS', detail: 'the anonymous read of the exact take returned no record, and the owner read it before sign-out and reopened it after', evidence };
+    }
+    return { status: 'HOLD', detail: `the protected probe was answered ${p.status} with no well-formed empty result: neither a read nor a denial`, evidence };
 }
 
 /** `signout-no-stale-request`: see the module comment, rules (3) and (4). */

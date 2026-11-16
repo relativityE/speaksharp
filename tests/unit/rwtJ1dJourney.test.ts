@@ -21,7 +21,8 @@ const OFF = { recording: false, liveTracks: 0 };
 const recorderPass = (): SignOutObservation => ({
     armedBeforeClick: true, priorSessions: 1, clickSeq: 5, logout: { requestSeq: 6, completedSeq: 7, status: 204 },
     windowClosed: true, requests: [], unreadHeaders: 0, observedAfterLogoutMs: SIGNOUT_MIN_OBSERVATION_MS,
-    probe: { status: 401, dataRows: null },
+    probe: { status: 401, dataRows: null, wellFormed: null, boundToTake: true, observed: true, anonymous: true },
+    pairedControl: { ownerReadBefore: true, ownerReopenedAfter: true },
 });
 
 /** A complete, passing J1.d observation. Each failing control below changes exactly one fact. */
@@ -177,8 +178,13 @@ describe('recorder rows come from the sign-out recorder', () => {
         expect(v['signout-no-unauthorized-read'].status).toBe('HOLD');
         expect(v['signout-no-stale-request'].status).toBe('HOLD');
     });
-    it('a probe answered 200 with no rows is not a denial', () => {
-        expect(j1dVerdicts(good({ recorder: { ...recorderPass(), probe: { status: 200, dataRows: 0 } } }))['signout-no-unauthorized-read'].status).toBe('HOLD');
+    it('Sam 2b: an anonymous 200 [] on the exact take passes only with the paired control', () => {
+        const empty = { status: 200, dataRows: 0, wellFormed: true, boundToTake: true, observed: true, anonymous: true };
+        const row = (r: SignOutObservation) => j1dVerdicts(good({ recorder: r }))['signout-no-unauthorized-read'].status;
+        expect(row({ ...recorderPass(), probe: empty })).toBe('PASS');
+        expect(row({ ...recorderPass(), probe: empty, pairedControl: { ownerReadBefore: false, ownerReopenedAfter: true } })).toBe('HOLD');
+        expect(row({ ...recorderPass(), probe: { ...empty, anonymous: false } })).toBe('HOLD');
+        expect(row({ ...recorderPass(), probe: { ...empty, dataRows: 1 } })).toBe('FAIL');
     });
     it('a stale request with the signed-out session fails', () => {
         const stale = { sentSeq: 8, answeredSeq: 9, method: 'GET', path: '/rest/v1/sessions', oldSession: true, status: 401, failed: false };
