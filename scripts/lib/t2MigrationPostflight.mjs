@@ -8,6 +8,7 @@ import { EXACT_MIGRATION_ALLOWLIST } from './exactMigrationGate.mjs';
 import { C1_VERSIONS, c1Contract, c1CatalogQuery, functionDefinitions } from './c1MigrationPostflight.mjs';
 import { RETIREMENT_CATALOG_DELTA } from './retirementCatalogPins.mjs';
 import { ABANDONMENT_CATALOG_DELTA } from './abandonmentCatalogPins.mjs';
+import { FEEDBACK_FENCE_CATALOG_DELTA } from './feedbackFenceCatalogPins.mjs';
 
 export const RETIREMENT_VERSION = '20261110173548';
 export const RETIREMENT_FUNCTIONS = Object.freeze(['fence_account_coaching_expired_v1', 'finish_account_coaching_local_v1']);
@@ -16,6 +17,11 @@ export const RETIREMENT_TABLES = Object.freeze(['account_coaching_expiry_fences'
 export const ABANDONMENT_VERSION = '20261112133000';
 export const ABANDONMENT_FUNCTIONS = Object.freeze(['abandon_recording_start_v1']);
 export const ABANDONMENT_TABLES = Object.freeze(['recording_start_abandonments']);
+// #1811 AHT-01/02/07/08 feedback fence (ledger 11): one table, a write trigger on user_issue_reports and six functions.
+export const FEEDBACK_FENCE_VERSION = '20261114100000';
+export const FEEDBACK_FENCE_FUNCTIONS = Object.freeze(['_rwt_feedback_fence_v1', 'clean_rwt_feedback_fence_v1',
+  'close_rwt_feedback_fence_v1', 'list_unresolved_rwt_feedback_fences_v1', 'open_rwt_feedback_fence_v1', 'verify_rwt_feedback_fence_v1']);
+export const FEEDBACK_FENCE_TABLES = Object.freeze(['rwt_feedback_fences']);
 
 export const T2_VERSIONS = Object.freeze([
   '20261018090000', '20261018170000', '20261019010000',
@@ -458,8 +464,8 @@ export function t2ReleaseContract(root, installed, options = {}) {
   }
   const ledger = typeof installed === 'string' ? JSON.parse(installed) : installed;
   const versions = [...T2_VERSIONS, ...C1_VERSIONS, ...(ledger?.length >= 9 ? [RETIREMENT_VERSION] : []),
-    ...(ledger?.length === 10 ? [ABANDONMENT_VERSION] : [])];
-  if (!Array.isArray(ledger) || ![6, 7, 8, 9, 10].includes(ledger.length)
+    ...(ledger?.length >= 10 ? [ABANDONMENT_VERSION] : []), ...(ledger?.length === 11 ? [FEEDBACK_FENCE_VERSION] : [])];
+  if (!Array.isArray(ledger) || ![6, 7, 8, 9, 10, 11].includes(ledger.length)
     || ledger.some((version, index) => version !== versions[index])) {
     throw new Error('T2 release ledger unknown, mixed or incomplete');
   }
@@ -479,7 +485,7 @@ export function t2ReleaseContract(root, installed, options = {}) {
     return { version, sha256: pin.sha256 };
   });
   const c1Sources = [...C1_VERSIONS.slice(0, stage), ...(stage >= 3 ? [RETIREMENT_VERSION] : []),
-    ...(stage === 4 ? [ABANDONMENT_VERSION] : [])].map(version => sources[version]);
+    ...(stage >= 4 ? [ABANDONMENT_VERSION] : []), ...(stage === 5 ? [FEEDBACK_FENCE_VERSION] : [])].map(version => sources[version]);
   const inventory = {
     functions: [...new Set([...T2_INVENTORY.functions, ...c1Sources.flatMap(source =>
       functionDefinitions(source).map(fn => fn.signature.split('(')[0].slice(7)))])].sort(),
@@ -491,7 +497,8 @@ export function t2ReleaseContract(root, installed, options = {}) {
   };
   const expected = Object.assign({}, T2_CATALOG_STATES.at(-1), ...T2_C1_RELEASE_DELTAS.slice(0, stage),
     stage >= 2 && catalogContext === 'retained-production' ? RETAINED_PRODUCTION_POST128 : {},
-    stage >= 3 ? RETIREMENT_CATALOG_DELTA : {}, stage === 4 ? ABANDONMENT_CATALOG_DELTA : {});
+    stage >= 3 ? RETIREMENT_CATALOG_DELTA : {}, stage >= 4 ? ABANDONMENT_CATALOG_DELTA : {},
+    stage === 5 ? FEEDBACK_FENCE_CATALOG_DELTA : {});
   // The independent source-derived C1 checker also refuses future/partial
   // objects and old body/ACL/trigger shapes, even before their ledger entry.
   const c1 = stage >= 2 ? c1Contract(root, 'after', C1_VERSIONS[1])
@@ -514,11 +521,13 @@ export function t2ReleaseContract(root, installed, options = {}) {
     throw new Error('T2 release future function shape unavailable');
   }
   const absentFamilies = futureFunctions.map(fn => fn.signature.split('(')[0].slice(7));
-  const profile = stage === 4 ? 'post-1643-abandonment' : stage === 3 ? 'post-128-retirement' : `post-${126 + stage}`;
+  const profile = stage === 5 ? 'post-1811-feedback-fence' : stage === 4 ? 'post-1643-abandonment'
+    : stage === 3 ? 'post-128-retirement' : `post-${126 + stage}`;
   return { profile, catalogContext, stage, ledger: [...ledger], pins, inventory, expected, c1,
     knownAbsent: { ...NEXT_RELEASE_SOURCE, families: [...absentFamilies, ...(stage < 3 ? RETIREMENT_FUNCTIONS : []),
-      ...(stage < 4 ? ABANDONMENT_FUNCTIONS : [])],
-      tables: [...(stage < 3 ? RETIREMENT_TABLES : []), ...(stage < 4 ? ABANDONMENT_TABLES : [])] } };
+      ...(stage < 4 ? ABANDONMENT_FUNCTIONS : []), ...(stage < 5 ? FEEDBACK_FENCE_FUNCTIONS : [])],
+      tables: [...(stage < 3 ? RETIREMENT_TABLES : []), ...(stage < 4 ? ABANDONMENT_TABLES : []),
+        ...(stage < 5 ? FEEDBACK_FENCE_TABLES : [])] } };
 }
 
 export function t2KnownAbsentQuery(contract) {
@@ -533,8 +542,9 @@ export function t2KnownAbsentQuery(contract) {
 // installed. Keep verify/release available for historical read-only diagnostics.
 export function t2EdgeReleaseContract(root, installed) {
   const contract = t2ReleaseContract(root, installed, { catalogContext: 'retained-production' });
-  // The retirement successor is required; the later #1643 start-abandonment ledger (10) still includes it.
-  if (!['post-128-retirement', 'post-1643-abandonment'].includes(contract.profile)) {
+  // The retirement successor is required; the later #1643 start-abandonment (10) and #1811 feedback-fence (11) ledgers
+  // still include it.
+  if (!['post-128-retirement', 'post-1643-abandonment', 'post-1811-feedback-fence'].includes(contract.profile)) {
     throw new Error('T2 Edge release requires installed coaching retirement successor');
   }
   return contract;

@@ -119,6 +119,12 @@ export const HELPER_CONTRACTS = Object.freeze([{
   helperFile:'tests/live/helpers/feedbackNoSessionCleanup.ts',testFile:'tests/unit/feedbackNoSessionCleanup.test.ts',
   callables:["noSessionWriteUncertainty"],
 }, {
+  // #1811: the database feedback fence the AHT-01/02/07/08 journeys write behind (#1859 RPCs), through its own unit consumer.
+  helperFile:'tests/live/helpers/feedbackFence.ts',testFile:'tests/unit/feedbackFence1811.test.ts',
+  callables:["fenceRunKey","verifyFeedbackFence","openFeedbackFence","closeFeedbackFence","cleanFeedbackFence","cleanAndVerifyFeedbackFence",
+    "fenceCleanupVerdict","JourneyFeedbackFence#open","JourneyFeedbackFence#openRow","JourneyFeedbackFence#stopWriter",
+    "JourneyFeedbackFence#close","JourneyFeedbackFence#cleanRow"],
+}, {
   helperFile:'tests/live/helpers/feedbackRecoveryInventory.ts',testFile:'tests/unit/feedbackBoundedWrites.test.ts',
   callables:["verifyRecoveryStore","recoveryFileName","recordDurably","settleRecoveryInventory","readRecoveryInventory","unresolvedAttempts","recoverFromInventory"],
 }, {
@@ -126,7 +132,14 @@ export const HELPER_CONTRACTS = Object.freeze([{
   callables:["mergeCapture","captureRunReports","writeUncertainty","zeroResidueVerdict","cleanupRunReports","zeroResidueNotRun"],
 }, {
   helperFile:'tests/live/helpers/rwtAdverseRecovery.ts',testFile:'tests/unit/rwtAdverseRecovery.test.ts',
-  callables:["isRecoveryControl","retrySetupOutcome","recoverySavedVerdict","savedTranscriptDigest","reviewReopenVerdict","modelBytesSeen","midDownloadFailureVerdict"],
+  callables:["isRecoveryControl","retrySetupOutcome","recoverySavedVerdict","savedTranscriptDigest","reviewReopenVerdict","modelBytesSeen","midDownloadFailureVerdict",
+    "bytesCounted","downloadingNow","offlineInjectionGate","attemptPhase","runOfflineFault","offlineNotExercisedVerdict","coldTakeSettledVerdict","unprovenRestoreVerdict","faultUnprovenRecoveryVerdict"],
+}, {
+  // AHT-14 (#1868): the attempt's network transfer behind the offline gate, through the same unit consumer.
+  helperFile:'tests/live/helpers/rwtAdverse.ts',testFile:'tests/unit/rwtAdverseRecovery.test.ts',
+  callables:["downloadFailureVerdict","ModelTransferTracker#startAttempt","ModelTransferTracker#armFault","ModelTransferTracker#disarm",
+    "ModelTransferTracker#onRequest","ModelTransferTracker#onResponse","ModelTransferTracker#onFinished","ModelTransferTracker#onFailed",
+    "ModelTransferTracker#snapshot"],
 }, {
   helperFile:'tests/live/helpers/rwtFocusEditCancel.ts',testFile:'tests/unit/rwtFocusEditCancel.test.ts',
   callables:["editCancelVerdict"],

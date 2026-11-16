@@ -88,6 +88,8 @@ import {
     markerTimingStatus, type MarkerObserverSnapshot,
 } from './rwtMarkerObserver';
 import { ABSENT_ROW, MarkerTimeline, nextPointMarkedVerdict, sampleFocusRail } from './rwtFocusNextMarker';
+import { JourneyFeedbackFence } from './feedbackFence';
+import { currentRunBinding } from './runBinding';
 import { FOCUS_TAKES_DIFFER_ROW, focusTakesDifferRow } from './rwtFocusTakesDiffer';
 import { FOCUS_EDIT_CANCEL_ROW, editCancelVerdict, type BriefSnapshot, type EditCancelObservation } from './rwtFocusEditCancel';
 import { OPEN_MIC_ISOLATION_ROW, openMicIsolationVerdict, type FocusEvidenceSnapshot } from './rwtFocusOpenMicIsolation';
@@ -98,6 +100,8 @@ import {
     type PanelObservation, type ServerEvidence,
 } from './repeatMetricWording';
 
+/** #1811: each fence step is two or three service-role RPCs; bounded tightly so the declared finalizer worst case stays in budget. */
+const FEEDBACK_FENCE_STEP_MS = 10_000;
 const JOURNEY = 'focus_points';
 export const WEBGPU = process.env.RWT_WEBGPU === '1';
 /** The pace guide the script sets (1:00 per point). The measured average must NOT simply echo it. */
@@ -187,6 +191,9 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     const receipt = new RwtReceipt(suite);
     receipt.forbid(SERVICE_ROLE, topic, ...points);
     let feedbackReportId: string | null = null;
+    // #1811 (Sam, #1859 review): the full Focus journey's (AHT-02) feedback fence — confirmed open before its one feedback write,
+    // closed at the final boundary, cleaned (fence-recorded reports only) after the account deletion and retention proof.
+    let feedbackFence: JourneyFeedbackFence | null = null;
     receipt.meta.fixture = fixture.key;
     receipt.meta.fixtureKind = fixture.entry.kind;
     receipt.meta.fixtureSha256 = fixture.entry.sha256;
@@ -387,6 +394,9 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             else aliveReceipt(receipt, alive).row('probe saves isolated', 'HOLD', 'no server read is available in this run');
         });
         await steps.step('owned pages closed', (alive) => parity.ownedPagesClosedRow(aliveReceipt(receipt, alive)), PARITY_CLOSE_STEP_MS);
+        // #1811: every owned page is closed, so no feedback write can still come from a page: close the fence (acknowledged).
+        const fence = feedbackFence;
+        if (fence) await steps.step('feedback fence close', async (alive) => { await fence.close(aliveReceipt(receipt, alive)); }, FEEDBACK_FENCE_STEP_MS);
         // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion. The full run's retention proof and the partial run's own
         // cleanup verdict (#1532 Codex P1 r4126745141) both delete through it; the deletion's own settlement then decides —
         // a stalled readback never deletes again, and a body that ended early still has its account deleted, here only.
@@ -401,6 +411,8 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     : undefined;
             if (await finalizeOwnedCleanup(steps, receipt, cleanup, proof) === 'deleted') { owner.uid = ''; owner.email = ''; }
         }
+        // #1811: AFTER the retention proof, delete exactly the fence-recorded reports and verify zero independently.
+        if (fence) await steps.step('feedback fence cleanup', async (alive) => { await fence.cleanRow(aliveReceipt(receipt, alive)); }, FEEDBACK_FENCE_STEP_MS);
         // Last, so it covers every row above, including cleanup.
         await steps.step('receipt content check', () => {
             // Point text and topic are the person's content: they must never reach the receipt.
@@ -527,28 +539,14 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 await startBenchmarkRecording(page, suite);
             }
             startedAt = Date.now();
-            // Diagnostics only (counts, no words): when live words first appear and how the count grows, on the same clock
-            // as firstChangeSec, plus how long Start took after the press, so a missed point can be told apart as no live
-            // words yet (engine start) versus words present but the point not matched.
-            const startTookMs = startedAt - acquisitionStarted;
             modelIdentityRow(receipt, run, await readSttIdentity(page), startedAt - acquisitionStarted, await readCpuRuntime(page));
 
             const until = startedAt + Math.round((fixture.entry.speechSeconds + 4) * 1000);
-            const liveWordSteps: string[] = [];
-            let lastLiveWords = -1;
             while (Date.now() < until) {
                 // One atomic read per sample: the statuses and the "Still to cover" marker come from the same evaluation.
                 const now = await sampleFocusRail(page, points.length);
                 const atMs = Date.now();
                 markerWindow.record(atMs - startedAt, now);
-                const liveWords = await page.evaluate(() => {
-                    const t = document.querySelector('[data-testid="live-transcript"]')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
-                    return t ? t.split(' ').length : 0;
-                }).catch(() => -1);
-                if (liveWords !== lastLiveWords && liveWordSteps.length < 24) {
-                    liveWordSteps.push(`${Math.round((atMs - startedAt) / 100) / 10}s:${liveWords}`);
-                    lastLiveWords = liveWords;
-                }
                 (now?.statuses ?? []).forEach((status, i) => {
                     if (!firstChange[i] && status !== 'pending' && status !== 'none' && status !== ABSENT_ROW) {
                         firstChange[i] = { status: status as RailStatus, atSec: Math.round((atMs - startedAt) / 1000), atMs };
@@ -567,8 +565,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             const ordered = firstChange.filter(Boolean).every((c, i, all) => i === 0 || c!.atSec >= all[i - 1]!.atSec);
             receipt.row('live marker changes', notLive.length === 0 && ordered ? 'PASS' : 'FAIL',
                 notLive.length === 0 ? 'every spoken point expected to be detected changed during speech, in speaking order' : 'a point expected to be detected did not change during speech (Stop-time-only detection fails this row)',
-                { changedDuringSpeech: liveChanged, expected: expectedLive, notLive: notLive.map((i) => i + 1).join(','), firstChangeSec: firstChange.map((c) => (c ? `${c.status}@${c.atSec}` : 'none')).join(','),
-                  startTookMs, liveWordSteps: liveWordSteps.join(',') });
+                { changedDuringSpeech: liveChanged, expected: expectedLive, notLive: notLive.map((i) => i + 1).join(','), firstChangeSec: firstChange.map((c) => (c ? `${c.status}@${c.atSec}` : 'none')).join(',') });
             // Owner decision (Akin, 2026-11-11): the marker must always be on the FIRST pending point; it is NOT required to move
             // (movement is judged by `live marker changes` and `marker timing vs audio`). Mirrors the harness `markerVerdict`
             // (tools/cloud-test/harness/draft-adapters/focus-oracle.cjs); a window with no usable sample is HOLD, never PASS.
@@ -798,6 +795,14 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         // and qualified there for its own stages (share_feedback), never claimed for the recording journey.
         if (fixtureKey === 'focus_points_tts') {
             await test.step('share feedback', async () => {
+                // #1811: no feedback write without a confirmed-open fence for this run-owned account.
+                feedbackFence = new JourneyFeedbackFence(admin as never, 'AHT-02', 1);
+                if (admin) await feedbackFence.open(owner.uid, currentRunBinding());
+                feedbackFence.openRow(receipt);
+                if (!feedbackFence.writable) {
+                    receipt.row('feedback', 'HOLD', 'no confirmed feedback fence for this run, so no feedback was written');
+                    return;
+                }
                 feedbackReportId = await shareFeedbackRows(page, receipt, admin as never, owner.uid, tap);
             });
             await test.step('feedback diagnostic chain', async () => {
@@ -1121,24 +1126,6 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 const windows = fixture.entry.pointAudioWindows ?? [];
                 // Past point 1's window, short of point 2's start (focus_points_tts: [2.91,6.21] then [11.98,…]).
                 const shortTakeSeconds = windows[1] ? Math.max(8, Math.min(9, windows[1][0] - 2)) : 9;
-                // Diagnostics only (content-free): arm the product's own controller trace before the take, so the receipt says
-                // whether the completed brief's publication or the live brief's retirement was refused for this take.
-                const switchTraceFrom = await page.evaluate(() => {
-                    const w = window as unknown as { __NATIVE_BROWSER_TRACE__?: unknown[] };
-                    w.__NATIVE_BROWSER_TRACE__ = w.__NATIVE_BROWSER_TRACE__ ?? [];
-                    return performance.now();
-                }).catch(() => null);
-                // Diagnostics only: the controller's own warn/error lines for this take, reduced to their tag and an
-                // outcome kind (e.g. a Progress gate left unresolved before the completed brief is published). No payload.
-                const switchControllerLines: string[] = [];
-                const onSwitchConsole = (msg: { type(): string; text(): string }) => {
-                    if (msg.type() !== 'warning' && msg.type() !== 'error') return;
-                    const tag = /\} (\[controller\] [^{}]{1,90})$/.exec(msg.text())?.[1];
-                    if (!tag || switchControllerLines.length >= 8) return;
-                    const kind = /outcome: (\w+)/.exec(msg.text())?.[1];
-                    switchControllerLines.push(kind ? `${tag} (${kind})` : tag);
-                };
-                page.on('console', onSwitchConsole);
                 await startBenchmarkRecording(page, `${suite}-switch-focus`);
                 await page.waitForTimeout(shortTakeSeconds * 1000);
                 await stopBenchmarkRecording(page, `${suite}-switch-focus`, 180_000);
@@ -1149,21 +1136,6 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 await expect.poll(async () => (await readRail(page, points.length)).statuses.every((s) => s !== 'pending'), { timeout: 60_000 })
                     .toBe(true).catch(() => undefined);
                 const finalStatuses = (await readRail(page, points.length)).statuses;
-                // Diagnostics only: which after-state the page is in, and whether the rail is mounted at all (rows absent
-                // reads as null statuses), plus the refusal events the controller recorded for this take. Names only.
-                const switchAfterState = await page.evaluate((from) => {
-                    const trace = (window as unknown as { __NATIVE_BROWSER_TRACE__?: Array<{ t: number; event: string }> }).__NATIVE_BROWSER_TRACE__ ?? [];
-                    const watched = ['controller_progress_publication_refused', 'controller_brief_retirement_refused'];
-                    return {
-                        sessionState: document.querySelector('[data-testid="session-shell"]')?.getAttribute('data-session-state') ?? null,
-                        runtimeState: document.documentElement.getAttribute('data-runtime-state'),
-                        railMounted: document.querySelectorAll('[data-testid="focus-points-rail"]').length > 0,
-                        railRows: document.querySelectorAll('[data-testid^="focus-point-"][data-status]').length,
-                        topicShown: document.querySelectorAll('[data-testid="focus-points-topic"]').length > 0,
-                        refusals: from === null ? null : trace.filter((e) => e.t >= from && watched.includes(e.event)).map((e) => e.event).join('|'),
-                    };
-                }, switchTraceFrom).catch(() => null);
-                page.off('console', onSwitchConsole);
                 const savedFocus = focusId && focusId !== openMicId ? await sessionRow(focusId) : unavailable('missing');
                 const savedProduct = savedFocus.state === 'available' && savedFocus.sessionId === focusId && savedFocus.userId === owner.uid ? savedFocus.product : null;
                 const openMicAfter = openMicId && openMicId !== before ? await sessionRow(openMicId) : unavailable('missing');
@@ -1177,10 +1149,6 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     openMicSaved: Boolean(openMicId && openMicId !== before), openMicUnchanged: openMicBefore.digest !== null && openMicBefore.digest === openMicAfter.digest,
                     openMicRetentionState: openMicAfter.state ?? 'unknown',
                     openMicExpiredAfterWitness: iso.verdict === 'PASS' && openMicAfter.state === 'expired',
-                    afterSessionState: switchAfterState?.sessionState ?? 'unread', afterRuntimeState: switchAfterState?.runtimeState ?? 'unread',
-                    railMounted: switchAfterState?.railMounted ?? null, railRows: switchAfterState?.railRows ?? null,
-                    topicShown: switchAfterState?.topicShown ?? null, controllerRefusals: switchAfterState?.refusals ?? 'unread',
-                    controllerLines: switchControllerLines.join('|'),
                 });
                 // Read again at the end of the step, so an objective row written late for the Open Mic take is still seen.
                 if (savedOpenMicId) openMicObjectiveRowReads.push(await objectiveRowsFor(savedOpenMicId));

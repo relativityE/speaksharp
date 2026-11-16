@@ -35,8 +35,7 @@ vi.mock('../../lib/storage', () => ({
     heartbeatSession: vi.fn().mockResolvedValue({ success: true }),
     // Must RESOLVE: the controller attaches .catch() to it on the FAILED path, and an undefined
     // return throws there — harness noise that masqueraded as a product failure.
-    // G5: a real CompleteSessionResult always carries `success`; `{}` is an invalid response and an unconfirmed discard.
-    completeSession: vi.fn().mockResolvedValue({ success: true }),
+    completeSession: vi.fn().mockResolvedValue({}),
 }));
 /**
  * #1433 Codex P1 `3990876675` — the runtime-candidate take gate, controllable per case. Every case runs with the

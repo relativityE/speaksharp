@@ -26,7 +26,6 @@ import { PRIV_STT } from '@/services/transcription/sttConstants';
 import { buildPolicyForUser, type TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 import { isPrivateModelBlockingStart } from '@/services/transcription/privateModelStartBlock';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
-import type { SttStatus } from '@/types/transcription';
 import { ENV } from '@/config/TestFlags';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import {
@@ -428,48 +427,22 @@ export const useSessionLifecycle = () => {
             const liveStart = useSessionStore.getState().startTime;
             const elapsedAtStop = liveStart ? Math.floor((Date.now() - liveStart) / 1000) : elapsedTime;
             if (elapsedAtStop < MIN_SESSION_DURATION_SECONDS && !options?.stopReason) {
-                let discardSettled = false;
-                // The take whose unsettled discard THIS stop armed, if any; the warning below is registered only for it.
-                let armedDiscardSessionId: string | null = null;
                 try {
-                    // G5 (#1861): this take is reported as too short below, so the controller must discard it, not
-                    // complete it. An ordinary Stop here saved a completed session the user was told was not saved.
-                    await speechRuntimeController.stopRecording({
-                        belowMinimumDuration: true,
-                        onUnsettledDiscard: (id: string) => { armedDiscardSessionId = id; },
-                    });
-                    // G5 (Sam on 3a91a20): the discard counts only once its `failed` mark was confirmed. Otherwise the
-                    // controller keeps the take unresolved and the page offers Try again; it is not reported discarded.
-                    discardSettled = speechRuntimeController.hasUnsettledDiscard?.() !== true;
-                    saveLatency.settle(discardSettled ? 'discarded' : 'failed');
+                    await speechRuntimeController.stopRecording();
+                    saveLatency.settle('discarded');
                     reviewLatency.settle('unavailable');
                     reviewLatencyRef.current = null;
                 } catch (error) {
                     saveLatency.settle('failed');
                     reviewLatency.settle('unavailable');
                     reviewLatencyRef.current = null;
-                    // A failed stop must not leave the control refusing every later press.
-                    isProcessingRef.current = false;
                     throw error;
                 }
                 setShowAnalyticsPrompt(false);
-                const tooShortStatus: SttStatus = {
+                setSTTStatus({
                     type: 'info',
                     message: `⚠️ Session too short (${elapsedAtStop}s). Minimum ${MIN_SESSION_DURATION_SECONDS}s required.`
-                };
-                if (discardSettled) {
-                    setSTTStatus(tooShortStatus);
-                } else {
-                    setSTTStatus({
-                        type: 'warning',
-                        message: `⚠️ Session too short (${elapsedAtStop}s). It wasn't saved, but we couldn't finish clearing it.`,
-                        detail: 'Use Try again to finish.',
-                    });
-                    // A confirmed Try again later replaces this warning with the too-short message (Codex P2 on a58a348).
-                    if (armedDiscardSessionId) {
-                        speechRuntimeController.noteUnsettledDiscardWarning?.(tooShortStatus, armedDiscardSessionId);
-                    }
-                }
+                });
                 isProcessingRef.current = false;
                 return;
             }
@@ -480,8 +453,7 @@ export const useSessionLifecycle = () => {
                 const stopResult = await speechRuntimeController.stopRecording();
 
                 if (!stopResult) {
-                    // G5: a no-speech discard whose `failed` mark was not confirmed is not a discard yet.
-                    saveLatency.settle(speechRuntimeController.hasUnsettledDiscard?.() === true ? 'failed' : 'discarded');
+                    saveLatency.settle('discarded');
                     reviewLatency.settle('unavailable');
                     reviewLatencyRef.current = null;
                     setShowAnalyticsPrompt(false);

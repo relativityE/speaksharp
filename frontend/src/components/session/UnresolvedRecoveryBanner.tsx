@@ -1,7 +1,7 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
 
-export type PendingResolutionKind = 'initial_save' | 'full_save' | 'attribution' | 'discard' | null;
+export type PendingResolutionKind = 'initial_save' | 'full_save' | 'attribution' | null;
 
 /**
  * Discard confirmations. Exported so tests assert the real strings.
@@ -75,9 +75,6 @@ export const UnresolvedRecoveryBanner: React.FC<UnresolvedRecoveryBannerProps> =
     if (!pendingResolutionKind) return null;
 
     const isAttributionOnly = pendingResolutionKind === 'attribution';
-    // G5 (#1861): a discarded take (too short, or no speech) whose `failed` mark was not confirmed. Nothing was saved
-    // and no transcript is kept; Try again re-runs only that mark. There is nothing else to discard, so no Discard.
-    const isUnsettledDiscard = pendingResolutionKind === 'discard';
     // A claim about WORDS requires words. A claim about measurements requires only measurements.
     const recoverableSuffix = hasTranscriptText
         ? ' Your words are still here.'
@@ -95,8 +92,6 @@ export const UnresolvedRecoveryBanner: React.FC<UnresolvedRecoveryBannerProps> =
         ? 'Working…'
         : error
             ? error
-            : isUnsettledDiscard
-                ? 'Your last recording wasn’t saved, but we couldn’t finish clearing it.'
             : isAttributionOnly
                 ? 'Your transcript was saved. We could not verify which transcription method produced it.'
                 // #1474 (Sam 6242612760): a full-save failure is an UNCONFIRMED outcome, not a known loss. A lost
@@ -117,9 +112,7 @@ export const UnresolvedRecoveryBanner: React.FC<UnresolvedRecoveryBannerProps> =
             void onRetry()
                 .then((ok) => {
                     if (!ok) {
-                        setError(isUnsettledDiscard
-                            ? 'Clearing it failed again. You can try again.'
-                            : isAttributionOnly
+                        setError(isAttributionOnly
                             ? 'Verification failed again. You can retry.'
                             : 'Saving failed again. You can retry.');
                     }
@@ -158,14 +151,14 @@ export const UnresolvedRecoveryBanner: React.FC<UnresolvedRecoveryBannerProps> =
                     variant="outline"
                     size="sm"
                     disabled={busy}
-                    data-testid={isUnsettledDiscard ? 'session-retry-discard' : isAttributionOnly ? 'session-retry-verification' : 'session-retry-save'}
+                    data-testid={isAttributionOnly ? 'session-retry-verification' : 'session-retry-save'}
                     onClick={() => run('retry')}
                 >
-                    {isUnsettledDiscard ? 'Try again' : isAttributionOnly ? 'Retry verification' : 'Retry Save'}
+                    {isAttributionOnly ? 'Retry verification' : 'Retry Save'}
                 </Button>
 
                 {/* Attribution-only: the transcript IS saved, so no discard affordance exists at all. */}
-                {isAttributionOnly || isUnsettledDiscard ? null : confirmDiscard ? (
+                {isAttributionOnly ? null : confirmDiscard ? (
                     <Button
                         type="button"
                         variant="destructive"
