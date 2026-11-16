@@ -25,6 +25,9 @@ const MANIFEST = path.join(__dirname, 'adapter-inputs.json');
 const CONFIG_FILES = Object.freeze([
     'package.json', 'pnpm-lock.yaml', 'frontend/package.json', 'frontend/vite.config.mjs', 'frontend/index.html',
     'frontend/tsconfig.json', 'frontend/postcss.config.cjs', 'frontend/tailwind.config.js',
+    // Codex P2 on 1c878e24: the serving configuration (rewrites and the COOP/COEP headers that decide crossOriginIsolated,
+    // which selects single- or multi-threaded Private transcription).
+    'vercel.json',
 ]);
 const SOURCE_EXT = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'];
 const ASSET = /\.(css|scss|json|svg|png|jpg|jpeg|gif|webp|wasm|txt|md)(\?.*)?$/;
@@ -89,13 +92,40 @@ function resolveTestId(files, id) {
     return prefix !== id ? definingFiles(files, `\`${prefix}\${`).sort() : [];
 }
 
+/**
+ * The configured path aliases (frontend/tsconfig.json `compilerOptions.paths`, relative to its `baseUrl`), as
+ * `[{ prefix, exact, targets }]`. Codex P2 on 1c878e24: `@shared/*` maps into backend/supabase/functions/_shared, so an
+ * alias must resolve to its repository file, never be recorded as an npm package.
+ */
+function configuredAliases(tsconfigText) {
+    const config = JSON.parse(tsconfigText);
+    const base = path.posix.join('frontend', config.compilerOptions?.baseUrl ?? '.');
+    return Object.entries(config.compilerOptions?.paths ?? {}).map(([key, targets]) => ({
+        prefix: key.replace(/\*$/, ''), exact: !key.endsWith('*'),
+        targets: targets.map((t) => path.posix.join(base, t)),
+    }));
+}
 /** Resolves an import specifier from `from` to a product path, or null; bare packages return `{ pkg }`. */
 function resolveImport(files, from, spec) {
+    const alias = (files.aliases ?? []).find((a) => (a.exact ? spec === a.prefix : spec.startsWith(a.prefix)));
+    if (alias && !spec.startsWith('@/')) {
+        for (const target of alias.targets) {
+            const mapped = alias.exact ? target : target.replace(/\*$/, spec.slice(alias.prefix.length));
+            const hit = resolveImport(files, from, mapped.startsWith('frontend/src/') ? `@/${mapped.slice('frontend/src/'.length)}` : `/${mapped}`);
+            if (hit && hit.file) return hit;
+        }
+        return null;
+    }
+    if (spec.startsWith('/')) return resolvePath(files, spec.slice(1));
     if (!spec.startsWith('.') && !spec.startsWith('@/')) {
         const pkg = spec.startsWith('@') ? spec.split('/').slice(0, 2).join('/') : spec.split('/')[0];
         return { pkg };
     }
     const base = spec.startsWith('@/') ? path.posix.join('frontend/src', spec.slice(2)) : path.posix.join(path.posix.dirname(from), spec);
+    return resolvePath(files, base);
+}
+/** A repository path (without extension) resolved against the product files, or bound from the same sha; null when absent. */
+function resolvePath(files, base) {
     const clean = base.replace(/\?.*$/, '');
     const candidates = [clean, ...SOURCE_EXT.map((e) => clean + e), ...SOURCE_EXT.map((e) => `${clean}/index${e}`)];
     const hit = candidates.find((c) => files.has(c));
@@ -143,6 +173,7 @@ function importClosure(files, seeds) {
 function derive({ sha = SOURCE_SHA, adapterDir = ADAPTER_DIR, repoRoot = REPO_ROOT } = {}) {
     const tokens = adapterTokens(adapterDir);
     const files = productFiles(sha, repoRoot);
+    files.aliases = configuredAliases(git(['show', `${sha}:frontend/tsconfig.json`], repoRoot).toString('utf8'));
     const unresolved = [];
     const seeds = new Set();
     const bind = (kind, token, found) => { if (found.length === 0) unresolved.push({ kind, token }); for (const f of found) seeds.add(f); };
@@ -193,7 +224,7 @@ function derive({ sha = SOURCE_SHA, adapterDir = ADAPTER_DIR, repoRoot = REPO_RO
     };
 }
 
-module.exports = { CONFIG_FILES, SOURCE_SHA, adapterTokens, definingFiles, derive, importClosure, resolveImport, resolveTestId };
+module.exports = { CONFIG_FILES, SOURCE_SHA, adapterTokens, configuredAliases, definingFiles, derive, importClosure, resolveImport, resolveTestId };
 
 if (require.main === module) {
     const manifest = derive();

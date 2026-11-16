@@ -1913,6 +1913,22 @@
       "find": "            for (const p of listed) if (!bound.has(p)) bound.set(p, git(['show', `${sha}:${p}`], repoRoot));",
       "replace": "            for (const p of listed) if (false) bound.set(p, null);",
       "test": "tests/adapter-revalidation.test.cjs"
+    },
+    {
+      "id": "P25-alias-treated-as-package",
+      "guards": "a configured path alias resolves to its repository file, never to an npm package (Codex P2 on 1c878e24)",
+      "file": "derive-adapter-inputs.cjs",
+      "find": "    files.aliases = configuredAliases(git(['show', `${sha}:frontend/tsconfig.json`], repoRoot).toString('utf8'));",
+      "replace": "    files.aliases = [];",
+      "test": "tests/adapter-revalidation.test.cjs"
+    },
+    {
+      "id": "P25-serving-config-unbound",
+      "guards": "the serving configuration (vercel.json) is a bound input (Codex P2 on 1c878e24)",
+      "file": "derive-adapter-inputs.cjs",
+      "find": "    'vercel.json',\n]);",
+      "replace": "]);",
+      "test": "tests/adapter-revalidation.test.cjs"
     }
   ]
 }

@@ -19,7 +19,6 @@
     "@radix-ui/react-slot",
     "@sentry/react",
     "@sentry/vite-plugin",
-    "@shared/test-fixtures",
     "@supabase/supabase-js",
     "@tanstack/react-query",
     "@vitejs/plugin-react",
@@ -51,6 +50,10 @@
     "zustand"
   ],
   "inputs": [
+    {
+      "path": "backend/supabase/functions/_shared/test-fixtures.ts",
+      "sha256": "4c5ed54a388f76c84d2834727f80cc54d54296a701b0e797c272fc6c53721ca0"
+    },
     {
       "path": "frontend/index.html",
       "sha256": "9399810a9e6643976c3be245602e51ca19a57f96c7084efc26636bb038ff047b"
@@ -1890,6 +1893,10 @@
     {
       "path": "tests/types/e2eConfig.ts",
       "sha256": "12cedd04fc18487f8a67945e1343d283cbefcda96c8768e9655924d96f6243fb"
+    },
+    {
+      "path": "vercel.json",
+      "sha256": "67de9ed215c7a50c2156d29d8cad807f3a9aaba2b3621f6d9d908f1ef0b2a57a"
     }
   ],
   "unresolved": []

@@ -25,9 +25,12 @@ const UNRELATED = 'frontend/src/unrelated.ts';
 const BUILD_SCRIPT = 'scripts/build.config.js';
 const WORKLET = 'frontend/public/audio/proc.worklet.js';
 const MODEL_FILE = 'frontend/public/models/tiny/config.json';
+const SHARED = 'shared/fx.ts';
 const SOURCE_FILES = {
     [SELECTOR]: `import React from 'react';\nimport { helper } from './micHelpers';\nimport { START } from '@/lib/copy';\nconst WORKLET_URL = '/audio/proc.worklet.js';\nconst MODEL_DIR = '/models/';\nconst ROUTE = '/session/';\nexport const MicCard = () => <div data-testid="mic-card" data-session-state="idle">{START}{helper()}{WORKLET_URL}</div>;\n`,
-    [DEPENDENCY]: 'export const helper = () => 1;\n',
+    [DEPENDENCY]: "import { FX } from '@shared/fx';\nexport const helper = () => FX;\n",
+    // A configured path alias that maps outside frontend/ (as @shared/* maps into backend/supabase/functions/_shared).
+    [SHARED]: 'export const FX = 1;\n',
     [COPY]: "export const START = 'Start recording';\n",
     [UNRELATED]: 'export const other = 2;\n',
     ...Object.fromEntries(CONFIG_FILES.map((p) => [p, `config ${p}\n`])),
@@ -38,6 +41,7 @@ const SOURCE_FILES = {
     [WORKLET]: 'registerProcessor("proc", class {});\n',
     // A directory the page resolves files from at runtime (as the worker sets env.localModelPath = '/models/').
     [MODEL_FILE]: '{"layers": 4}\n',
+    'frontend/tsconfig.json': JSON.stringify({ compilerOptions: { baseUrl: '.', paths: { '@/*': ['src/*'], '@shared/*': ['../shared/*'] } } }),
 };
 
 /** A throwaway repository: commits are made in order and each one's full sha is returned. */
@@ -63,11 +67,13 @@ function fixtureRepo() {
     const shas = {
         source,
         unrelatedChanged: commit({ [UNRELATED]: 'export const other = 3;\n' }),
-        dependencyChanged: commit({ [DEPENDENCY]: 'export const helper = () => 2;\n' }),
+        dependencyChanged: commit({ [DEPENDENCY]: "import { FX } from '@shared/fx';\nexport const helper = () => FX + 1;\n" }),
         lockfileChanged: commit({ 'pnpm-lock.yaml': 'changed lockfile\n' }),
         buildScriptChanged: commit({ [BUILD_SCRIPT]: 'export const meta = 2;\n' }),
         workletChanged: commit({ [WORKLET]: 'registerProcessor("proc", class { changed() {} });\n' }),
         modelChanged: commit({ [MODEL_FILE]: '{"layers": 6}\n' }),
+        aliasTargetChanged: commit({ [SHARED]: 'export const FX = 2;\n' }),
+        servingConfigChanged: commit({ 'vercel.json': '{"headers": []}\n' }),
         selectorRemoved: commit({}, [SELECTOR]),
         missingAsset: commit({ [SELECTOR]: "const URL = '/audio/missing.worklet.js';\nexport const MicCard = () => <div data-testid=\"mic-card\" data-session-state=\"idle\">Start recording{URL}</div>;\n" }),
     };
@@ -82,11 +88,11 @@ describe('deriving the inspected inputs (synthetic repository)', () => {
     it('binds the selector file, the dependency it imports, the file defining the adapter\'s copy, and the build configuration', () => {
         expect(fixtureManifest.sourceSha).toBe(repo.shas.source);
         expect(fixtureManifest.unresolved).toEqual([]);
-        for (const p of [SELECTOR, DEPENDENCY, COPY, ...CONFIG_FILES, BUILD_SCRIPT, WORKLET, MODEL_FILE]) expect(paths(fixtureManifest).includes(p)).toBe(true);
+        for (const p of [SELECTOR, DEPENDENCY, COPY, ...CONFIG_FILES, BUILD_SCRIPT, WORKLET, MODEL_FILE, SHARED, 'vercel.json']) expect(paths(fixtureManifest).includes(p)).toBe(true);
         // A literal naming no public directory (a route) binds nothing.
         expect(paths(fixtureManifest).some((p) => p.startsWith('frontend/public/session'))).toBe(false);
         expect(paths(fixtureManifest).includes(UNRELATED)).toBe(false);
-        expect(fixtureManifest.packages).toEqual(['react']);
+        expect(fixtureManifest.packages).toEqual(['react']); // the @shared alias is a repository file, never a package
     });
     it('CONTROL: a test id no product file defines is recorded as unresolved, never dropped', () => {
         const dir = fs.mkdtempSync(path.join(repo.root, 'adapters-missing-'));
@@ -119,6 +125,12 @@ describe('reusing the inspection at a newer served release (synthetic repository
     });
     it('CONTROL (Codex P2 on 3b870acf): a changed file in a directory resolved at runtime (the model directory) is refused', () => {
         expect(verdict(repo.shas.modelChanged).refused.some((r) => r.path === MODEL_FILE && r.reason === 'changed since the inspected source')).toBe(true);
+    });
+    it('CONTROL (Codex P2 on 1c878e24): a changed file behind a configured path alias is refused', () => {
+        expect(verdict(repo.shas.aliasTargetChanged).refused.some((r) => r.path === SHARED && r.reason === 'changed since the inspected source')).toBe(true);
+    });
+    it('CONTROL (Codex P2 on 1c878e24): a changed serving configuration (vercel.json) is refused', () => {
+        expect(verdict(repo.shas.servingConfigChanged).refused.some((r) => r.path === 'vercel.json' && r.reason === 'changed since the inspected source')).toBe(true);
     });
     it('CONTROL: a code-like asset referenced by URL but absent from the public directory is unresolved, never dropped', () => {
         const m = derive({ sha: repo.shas.missingAsset, adapterDir: repo.adapterDir, repoRoot: repo.root });
