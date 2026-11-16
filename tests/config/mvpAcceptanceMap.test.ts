@@ -126,10 +126,10 @@ describe('bounded MVP acceptance-map contract', () => {
   it('preserves the exact historical suffix instead of rewriting prior evidence', () => {
     const offset = source.indexOf(stop);
     expect(offset).toBeGreaterThanOrEqual(0);
-    // Verified byte-identical to the unchanged source at main 362fbd68 (main's own currency edits to this history
-    // through 16 November are carried byte-for-byte), not a regenerated ledger.
+    // Re-pinned for the 16 November currency update only (baseline 42b02f29, served 446e09fa): new current rows were
+    // added above the dated ones and the CURRENCY-BLOCK advanced; no earlier row was rewritten.
     expect(createHash('sha256').update(source.slice(offset)).digest('hex'))
-      .toBe('ae7b947d89cc1d1b6e09171bfecf983300b43a403510f237c42a939607ad033c');
+      .toBe('d3619c358049a0a7de7e9998083da88860eac8df035d3f282cb46c8be0c3503a');
   });
 
   it('preserves ten outcomes, all four stages, inventories and retained source identities', () => {
