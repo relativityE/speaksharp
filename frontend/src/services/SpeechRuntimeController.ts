@@ -1744,7 +1744,7 @@ export class SpeechRuntimeController {
     private snapshotProgressModeAtRecordingBoundary(): RecordingProgressMode {
         const brief = useSessionStore.getState().activeObjectiveBrief;
         // #1882 diagnostic: which product the take is recorded as, decided here at Start.
-        pushNativeRuntimeTrace('controller_progress_mode_snapshot', { mode: brief ? 'focus_points' : 'open_mic', briefId: brief?.briefId ?? null });
+        pushNativeRuntimeTrace('controller_progress_mode_snapshot', { mode: brief ? 'focus_points' : 'open_mic', pointCount: brief?.points?.length ?? 0 });
         if (!brief) return { mode: 'open_mic' };
         return {
             mode: 'focus_points',
@@ -6722,7 +6722,7 @@ export class SpeechRuntimeController {
         //
         // Unknown/legacy retry context fails closed — it cannot prove evidence is terminal.
         if (context.mode === 'unknown') {
-            pushNativeRuntimeTrace('controller_progress_unresolved', { sessionId, mode: context.mode, reason: 'unknown_mode' });
+            pushNativeRuntimeTrace('controller_progress_unresolved', { mode: context.mode, reason: 'unknown_mode' });
             const unresolved: ProgressEvaluationOutcome = { kind: 'unresolved', reason: 'metrics_not_persisted' };
             return publishIfCurrent(() => { this.applyProgressGate(sessionId, unresolved); }) ? unresolved : unresolved;
         }
@@ -6730,7 +6730,7 @@ export class SpeechRuntimeController {
         // immediate path and Focus Points registration so neither can create an immutable partial evaluation.
         if (!metricsPersisted) {
             // #1882 diagnostic: a Focus take that returns here never publishes its completed brief.
-            pushNativeRuntimeTrace('controller_progress_unresolved', { sessionId, mode: context.mode, reason: 'metrics_not_persisted' });
+            pushNativeRuntimeTrace('controller_progress_unresolved', { mode: context.mode, reason: 'metrics_not_persisted' });
             const unresolved: ProgressEvaluationOutcome = { kind: 'unresolved', reason: 'metrics_not_persisted' };
             return publishIfCurrent(() => { this.applyProgressGate(sessionId, unresolved); }) ? unresolved : unresolved;
         }
@@ -6790,7 +6790,7 @@ export class SpeechRuntimeController {
          */
         const completedBriefPublished = publishIfCurrent(() => { store.setCompletedObjectiveBrief(context.brief); });
         // #1882 diagnostic: the after rail renders only from this brief once the active one retires.
-        pushNativeRuntimeTrace('controller_completed_brief', { sessionId, briefId: context.brief.briefId, published: completedBriefPublished });
+        pushNativeRuntimeTrace('controller_completed_brief', { published: completedBriefPublished });
         const objectiveOutcome = await this.finalizeObjectiveAndGateProgress(
             { projectId: context.brief.projectId, briefId: context.brief.briefId },
             sessionId,
