@@ -11,7 +11,7 @@
 import type { Page, Request } from '@playwright/test';
 import { extractUidFromAuthStorage } from './proofAuthority';
 import { liveMicTracks, micAcquisitions, signOutThroughProduct } from './rwtJourney';
-import { digestOf, type J1dObservations, type MicState } from './rwtJ1dJourney';
+import { classifyJourneyWrite, digestOf, type J1dObservations, loadedReviewSessionId, type MicState } from './rwtJ1dJourney';
 import { routeOf, SignOutRecorder } from './rwtSignOutRecorder';
 
 export interface J1dLegContext {
@@ -26,8 +26,6 @@ export interface J1dLegContext {
     signInOnShownForm: () => Promise<void>;
 }
 
-const SESSION_WRITE_ROUTES = new Set(['/rest/v1/sessions', '/rest/v1/rpc/create_session_and_update_usage', '/rest/v1/rpc/heartbeat_session']);
-const RECORDING_START_ROUTE = '/rest/v1/rpc/acquire_recording_lease';
 const AUTH_TOKEN_KEY = /^sb-.*-auth-token$/;
 
 async function pageUid(page: Page): Promise<string | null> {
@@ -75,9 +73,9 @@ export async function runJ1dLeg(ctx: J1dLegContext): Promise<J1dObservations> {
         const headers = r.allHeaders();
         recorder.onRequest(r, r.url(), r.method(), headers);
         void headers.then((h) => { if (!anonKey && typeof h.apikey === 'string' && h.apikey) anonKey = h.apikey; }, () => undefined);
-        const route = routeOf(url.pathname);
-        if (r.method() !== 'GET' && r.method() !== 'HEAD' && SESSION_WRITE_ROUTES.has(route)) sessionWrites += 1;
-        if (route === RECORDING_START_ROUTE) recordingStarts += 1;
+        const kind = classifyJourneyWrite(r.method(), url.pathname);
+        if (kind === 'session-write') sessionWrites += 1;
+        if (kind === 'recording-start') recordingStarts += 1;
     };
     /** The final sign-out's own logout answer (the recorder's window is closed by then). */
     let finalPhase = false;
@@ -161,9 +159,7 @@ export async function runJ1dLeg(ctx: J1dLegContext): Promise<J1dObservations> {
             obs.deepLink = { requested, landed: `${landedUrl.pathname}${landedUrl.search}` };
             const after = await pageUid(page);
             obs.ownerAfterReturn = after ? digestOf(after) : null;
-            const review = page.getByTestId('saved-review').first();
-            const shown = await review.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false);
-            const renderedId = shown ? await review.getAttribute('data-session-id').catch(() => null) : null;
+            const renderedId = await loadedReviewSessionId(page);
             obs.rendered = { takeDigest: renderedId ? digestOf(renderedId) : null, ownerDigest: renderedId && after ? digestOf(after) : null };
             obs.micOnDeepLink = await micState(page);
             await countAcquisitions();
@@ -181,9 +177,7 @@ export async function runJ1dLeg(ctx: J1dLegContext): Promise<J1dObservations> {
         const reopened: Record<string, boolean> = {};
         for (const id of known) {
             await page.goto(`/progress/${id}`);
-            const review = page.getByTestId('saved-review').first();
-            const ok = await review.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false);
-            reopened[digestOf(id)] = ok && (await review.getAttribute('data-session-id').catch(() => null)) === id;
+            reopened[digestOf(id)] = (await loadedReviewSessionId(page)) === id;
             await countAcquisitions();
         }
         obs.reopened = reopened;

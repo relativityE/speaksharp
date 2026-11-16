@@ -196,3 +196,38 @@ describe('j1dCaseAssertions', () => {
         expect(rows.every((r) => r.leg === 'J1.d' && r.result === 'PASS' && Object.keys(r).length === 3)).toBe(true);
     });
 });
+
+describe('Codex #1883: write classification matches full RPC paths, not the truncated route', () => {
+    it('counts session-writing RPCs and the recording lease, which routeOf() would collapse to /rest/v1/rpc', async () => {
+        const { classifyJourneyWrite } = await import('../live/helpers/rwtJ1dJourney');
+        expect(classifyJourneyWrite('POST', '/rest/v1/rpc/create_session_and_update_usage')).toBe('session-write');
+        expect(classifyJourneyWrite('POST', '/rest/v1/rpc/heartbeat_session')).toBe('session-write');
+        expect(classifyJourneyWrite('POST', '/rest/v1/rpc/acquire_recording_lease')).toBe('recording-start');
+        expect(classifyJourneyWrite('PATCH', '/rest/v1/sessions')).toBe('session-write');
+        expect(classifyJourneyWrite('DELETE', '/rest/v1/sessions/extra')).toBe('session-write');
+    });
+    it('reads and unrelated RPCs are not writes', async () => {
+        const { classifyJourneyWrite } = await import('../live/helpers/rwtJ1dJourney');
+        expect(classifyJourneyWrite('GET', '/rest/v1/sessions')).toBeNull();
+        expect(classifyJourneyWrite('POST', '/rest/v1/rpc/get_analytics_summary')).toBeNull();
+        expect(classifyJourneyWrite('POST', '/rest/v1/rpc')).toBeNull();
+    });
+});
+
+describe('Codex #1883: the reopened take is judged from the loaded review id, never visibility alone', () => {
+    const fakePage = (ids: Array<string | null>) => {
+        let i = 0;
+        return {
+            getByTestId: () => ({ first: () => ({ getAttribute: async () => ids[Math.min(i++, ids.length - 1)] }) }),
+            waitForTimeout: async () => undefined,
+        };
+    };
+    it('waits through the loading render (no id yet) for the loaded id', async () => {
+        const { loadedReviewSessionId } = await import('../live/helpers/rwtJ1dJourney');
+        expect(await loadedReviewSessionId(fakePage([null, null, 'take-a']) as never, 5_000)).toBe('take-a');
+    });
+    it('returns null when no id ever loads', async () => {
+        const { loadedReviewSessionId } = await import('../live/helpers/rwtJ1dJourney');
+        expect(await loadedReviewSessionId(fakePage([null]) as never, 50)).toBeNull();
+    });
+});

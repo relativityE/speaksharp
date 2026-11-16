@@ -13,7 +13,7 @@
  */
 import { createHash } from 'node:crypto';
 import type { Verdict } from './rwtAbandonTakeover';
-import { SIGNOUT_STALE_REQUEST_ROW, SIGNOUT_UNAUTHORIZED_READ_ROW, type SignOutObservation, signOutStaleRequestVerdict,
+import { routeOf, SIGNOUT_STALE_REQUEST_ROW, SIGNOUT_UNAUTHORIZED_READ_ROW, type SignOutObservation, signOutStaleRequestVerdict,
     signOutUnauthorizedReadVerdict } from './rwtSignOutRecorder';
 
 export const J1D_SUITE = 'returning-signout-j1d';
@@ -167,4 +167,42 @@ export function j1dVerdicts(o: J1dObservations): Readonly<Record<J1dRow, Verdict
 /** The J1D invocation result rows the nightly splitter places: native `J1.d:<row>` on leg J1.d, outcomes only. */
 export function j1dCaseAssertions(verdicts: Readonly<Record<J1dRow, Verdict>>): ReadonlyArray<{ id: string; leg: 'J1.d'; result: Verdict['status'] }> {
     return J1D_ROWS.map((row) => ({ id: `${J1D_LEG}:${row}`, leg: J1D_LEG, result: verdicts[row]?.status ?? 'HOLD' }));
+}
+
+/** The part of a Playwright page the loaded-review read needs (kept structural so this module stays free of Playwright). */
+export interface ReviewPage {
+    getByTestId(id: string): { first(): { getAttribute(name: string, options?: { timeout?: number }): Promise<string | null> } };
+    waitForTimeout(ms: number): Promise<void>;
+}
+
+/**
+ * Matched on the FULL pathname: `routeOf()` keeps three segments, so every RPC collapses to `/rest/v1/rpc` (Codex, #1883). The
+ * sessions table matches by route, so a row path (`/rest/v1/sessions/...`) still counts.
+ */
+const SESSION_WRITE_RPCS = new Set(['/rest/v1/rpc/create_session_and_update_usage', '/rest/v1/rpc/heartbeat_session']);
+const SESSION_TABLE_ROUTE = '/rest/v1/sessions';
+const RECORDING_START_RPC = '/rest/v1/rpc/acquire_recording_lease';
+/** Exported for its unit test: is this request a session write, or a recording start? */
+export function classifyJourneyWrite(method: string, pathname: string): 'session-write' | 'recording-start' | null {
+    const path = pathname.replace(/\/+$/, '');
+    if (path === RECORDING_START_RPC) return 'recording-start';
+    if (method === 'GET' || method === 'HEAD') return null;
+    if (SESSION_WRITE_RPCS.has(path) || routeOf(path) === SESSION_TABLE_ROUTE) return 'session-write';
+    return null;
+}
+
+/**
+ * The take the saved review was actually read from. The section renders while its read is in flight, without
+ * `data-session-id` (Codex, #1883), so wait for the loaded id itself, never for visibility alone. null: nothing loaded in time.
+ */
+export async function loadedReviewSessionId(page: ReviewPage, timeoutMs = 45_000): Promise<string | null> {
+    const review = page.getByTestId('saved-review').first();
+    // Bounded by attempts, not the wall clock: each attempt waits at most 1 s for the attribute, then 250 ms.
+    const attempts = Math.max(1, Math.ceil(timeoutMs / 1_250));
+    for (let i = 0; i < attempts; i += 1) {
+        const id = await review.getAttribute('data-session-id', { timeout: 1_000 }).catch(() => null);
+        if (id) return id;
+        await page.waitForTimeout(250);
+    }
+    return null;
 }
