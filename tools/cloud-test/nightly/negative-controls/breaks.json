@@ -1409,6 +1409,46 @@
       "find": "{ needs: ['J1.a'], gates: [SIGNOUT_RECORDER_UNWIRED] }",
       "replace": "{ needs: ['J1.a'] }",
       "test": "tests/journey-plan.test.cjs"
+    },
+    {
+      "id": "P17-changed-input-admitted",
+      "guards": "a changed inspected input refuses reuse of the adapter inspection",
+      "file": "adapter-revalidation.cjs",
+      "find": "        else if (sha256(bytes) !== input.sha256)\n",
+      "replace": "        else if (false)\n",
+      "test": "tests/adapter-revalidation.test.cjs"
+    },
+    {
+      "id": "P17-missing-input-skipped",
+      "guards": "a missing or unreadable input is refused, never skipped",
+      "file": "adapter-revalidation.cjs",
+      "find": "            refused.push({ path: input.path, reason: 'missing or unreadable at the served release' });\n            continue;",
+      "replace": "            continue;",
+      "test": "tests/adapter-revalidation.test.cjs"
+    },
+    {
+      "id": "P17-unresolved-ignored",
+      "guards": "an unresolved dependency in the manifest refuses every case",
+      "file": "adapter-revalidation.cjs",
+      "find": "    if (!Array.isArray(manifest.unresolved) || manifest.unresolved.length > 0)\n",
+      "replace": "    if (false)\n",
+      "test": "tests/adapter-revalidation.test.cjs"
+    },
+    {
+      "id": "P17-short-sha-admitted",
+      "guards": "the served release must be an exact full lowercase SHA",
+      "file": "adapter-revalidation.cjs",
+      "find": "const FULL_SHA = /^[0-9a-f]{40}$/;",
+      "replace": "const FULL_SHA = /^[0-9a-fA-F]{7,40}$/;",
+      "test": "tests/adapter-revalidation.test.cjs"
+    },
+    {
+      "id": "P17-imports-not-followed",
+      "guards": "the manifest binds the transitive imports of the selector files, so a changed dependency is caught",
+      "file": "derive-adapter-inputs.cjs",
+      "find": "            else if (!seen.has(r.file)) queue.push(r.file);",
+      "replace": "            else if (false) queue.push(r.file);",
+      "test": "tests/adapter-revalidation.test.cjs"
     }
   ]
 }
