@@ -1,12 +1,17 @@
-# test: prove current session save and recovery path
+# Session-save path: local client-to-database evidence
 
-## Deliverable
-Tests exercising the real client write and current database completion path, including metrics, write failure, partial completion and recovery.
+**Observed 16 November 2026:** The 29 focused tests in
+[`session-save-path-contract.integration.test.ts`](../../../tests/db/session-save-path-contract.integration.test.ts)
+passed on the #1846 candidate integrated with main `362fbd68`. The test
+runs the real client save functions and shipped migration chain against
+an isolated PGlite database through a local PostgREST-shaped transport.
 
-## Expected outcome
-A session-save regression or lost metrics fails a reproducible test before merge.
+The suite observed successful metric and transcript round-trip, rollback
+on partial write failure, recovery after a lost response, and exact
+wrong-owner and nonexistent-session refusals. An identical replay was
+accepted and a replay changing only the word count returned SQLSTATE
+`40003` without changing the row. Deliberate controls exercised lost
+metrics and a swallowed transcript-write failure.
 
-## Implementation and acceptance
-First inventory current proofs and exact latest migration. Design tests at actual client and database boundaries; a fake-client test alone is not persistence proof. Demonstrate negative controls, failed and fixed results, and ordinary successful save. Respect ownership, avoid production writes. Existing AHT live proof is separate.
-
-Status: draft scope only, no implementation or qualification claimed. Maintain one-writer boundaries; final code, tests, exact-head review and CI required before any merge. This document does not authorize a production action.
+This evidence is local and synthetic. It does not verify a hosted
+PostgREST deployment, production persistence, or release acceptance.
