@@ -11,7 +11,7 @@
 import type { Page, Request } from '@playwright/test';
 import { extractUidFromAuthStorage } from './proofAuthority';
 import { liveMicTracks, micAcquisitions, signOutThroughProduct } from './rwtJourney';
-import { classifyJourneyWrite, digestOf, type J1dObservations, loadedReviewSessionId, type MicState } from './rwtJ1dJourney';
+import { classifyJourneyWrite, digestOf, pollUntil, type J1dObservations, loadedReviewSessionId, type MicState } from './rwtJ1dJourney';
 import { routeOf, SignOutRecorder } from './rwtSignOutRecorder';
 
 export interface J1dLegContext {
@@ -26,6 +26,8 @@ export interface J1dLegContext {
     signInOnShownForm: () => Promise<void>;
 }
 
+/** Bound on waiting for the product's logout call to answer after the sign-out click. */
+const LOGOUT_WAIT_MS = 30_000;
 const AUTH_TOKEN_KEY = /^sb-.*-auth-token$/;
 
 async function pageUid(page: Page): Promise<string | null> {
@@ -85,7 +87,7 @@ export async function runJ1dLeg(ctx: J1dLegContext): Promise<J1dObservations> {
         const r = res.request();
         let path = '';
         try { path = routeOf(new URL(r.url()).pathname); } catch { /* not a URL */ }
-        if (finalPhase && r.method() === 'POST' && path === '/auth/v1/logout') finalLogoutStatus = res.status();
+        if (finalPhase && r.method() === 'POST' && path === '/auth/v1/logout' && finalLogoutStatus === null) finalLogoutStatus = res.status();
     };
     const signedOutWithin = async (ms: number) => {
         const until = Date.now() + ms;
@@ -128,6 +130,9 @@ export async function runJ1dLeg(ctx: J1dLegContext): Promise<J1dObservations> {
         // Sign out through the product, with the recorder armed.
         recorder.markClick();
         await signOutThroughProduct(page as never).catch(() => undefined);
+        // The app clears local storage BEFORE its logout call answers (AuthProvider.signOut), so wait for the observed logout
+        // answer before judging sign-out or starting the post-logout window and probe (Codex, #1883).
+        await pollUntil(() => recorder.snapshot().logout?.completedSeq != null, (ms) => page.waitForTimeout(ms), LOGOUT_WAIT_MS);
         const signedOut = await signedOutWithin(30_000);
         const logout = recorder.snapshot().logout;
         obs.signOut = { logoutCompleted: logout?.status == null ? null : logout.status >= 200 && logout.status < 300, sessionAfter: !signedOut };
@@ -193,6 +198,7 @@ export async function runJ1dLeg(ctx: J1dLegContext): Promise<J1dObservations> {
         await countAcquisitions();
         finalPhase = true;
         await signOutThroughProduct(page as never).catch(() => undefined);
+        await pollUntil(() => finalLogoutStatus !== null, (ms) => page.waitForTimeout(ms), LOGOUT_WAIT_MS);
         const finallySignedOut = await signedOutWithin(30_000);
         obs.finalSignOut = {
             logoutCompleted: finalLogoutStatus === null ? null : finalLogoutStatus >= 200 && finalLogoutStatus < 300,

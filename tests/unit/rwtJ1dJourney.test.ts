@@ -249,3 +249,23 @@ describe('Codex #1883: the reopened take is judged from the loaded review id, ne
         expect(await loadedReviewSessionId(fakePage([null]) as never, 50)).toBeNull();
     });
 });
+
+describe('Codex #1883: sign-out is judged only after the logout answer (pollUntil)', () => {
+    it('waits through a delayed logout answer, then holds', async () => {
+        const { pollUntil } = await import('../live/helpers/rwtJ1dJourney');
+        let t = 0;
+        const ok = await pollUntil(() => t >= 12_000, async (ms) => { t += ms; }, 30_000, () => t);
+        expect(ok).toBe(true);
+        expect(t).toBeGreaterThanOrEqual(12_000);
+    });
+    it('gives up at the deadline when the logout never answers, not before', async () => {
+        const { pollUntil } = await import('../live/helpers/rwtJ1dJourney');
+        let t = 0;
+        expect(await pollUntil(() => false, async (ms) => { t += ms; }, 30_000, () => t)).toBe(false);
+        expect(t).toBeGreaterThanOrEqual(30_000);
+    });
+    it('a frozen clock still ends (attempt cap)', async () => {
+        const { pollUntil } = await import('../live/helpers/rwtJ1dJourney');
+        expect(await pollUntil(() => false, async () => undefined, 1_000, () => 0)).toBe(false);
+    });
+});

@@ -209,3 +209,19 @@ export async function loadedReviewSessionId(page: ReviewPage, timeoutMs = 45_000
     }
     return null;
 }
+
+/**
+ * Poll `check` until it holds or `timeoutMs` has elapsed (elapsed time, injectable clock; the attempt cap only stops a frozen
+ * clock). Resolves whether it held. Used to wait for the product's logout answer before judging sign-out (Codex, #1883).
+ */
+export async function pollUntil(check: () => boolean, wait: (ms: number) => Promise<unknown>, timeoutMs: number,
+    now: () => number = Date.now, pollMs = 250): Promise<boolean> {
+    const deadline = now() + timeoutMs;
+    const cap = Math.ceil(timeoutMs / pollMs) + 1;
+    for (let i = 0; i < cap; i += 1) {
+        if (check()) return true;
+        if (now() >= deadline) break;
+        await wait(pollMs);
+    }
+    return check();
+}
