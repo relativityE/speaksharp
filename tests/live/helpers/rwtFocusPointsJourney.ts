@@ -88,6 +88,8 @@ import {
     markerTimingStatus, type MarkerObserverSnapshot,
 } from './rwtMarkerObserver';
 import { ABSENT_ROW, MarkerTimeline, nextPointMarkedVerdict, sampleFocusRail } from './rwtFocusNextMarker';
+import { JourneyFeedbackFence } from './feedbackFence';
+import { currentRunBinding } from './runBinding';
 import { FOCUS_TAKES_DIFFER_ROW, focusTakesDifferRow } from './rwtFocusTakesDiffer';
 import { FOCUS_EDIT_CANCEL_ROW, editCancelVerdict, type BriefSnapshot, type EditCancelObservation } from './rwtFocusEditCancel';
 import { OPEN_MIC_ISOLATION_ROW, openMicIsolationVerdict, type FocusEvidenceSnapshot } from './rwtFocusOpenMicIsolation';
@@ -98,6 +100,8 @@ import {
     type PanelObservation, type ServerEvidence,
 } from './repeatMetricWording';
 
+/** #1811: each fence step is two or three service-role RPCs; bounded tightly so the declared finalizer worst case stays in budget. */
+const FEEDBACK_FENCE_STEP_MS = 10_000;
 const JOURNEY = 'focus_points';
 export const WEBGPU = process.env.RWT_WEBGPU === '1';
 /** The pace guide the script sets (1:00 per point). The measured average must NOT simply echo it. */
@@ -187,6 +191,9 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     const receipt = new RwtReceipt(suite);
     receipt.forbid(SERVICE_ROLE, topic, ...points);
     let feedbackReportId: string | null = null;
+    // #1811 (Sam, #1859 review): the full Focus journey's (AHT-02) feedback fence — confirmed open before its one feedback write,
+    // closed at the final boundary, cleaned (fence-recorded reports only) after the account deletion and retention proof.
+    let feedbackFence: JourneyFeedbackFence | null = null;
     receipt.meta.fixture = fixture.key;
     receipt.meta.fixtureKind = fixture.entry.kind;
     receipt.meta.fixtureSha256 = fixture.entry.sha256;
@@ -387,6 +394,9 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             else aliveReceipt(receipt, alive).row('probe saves isolated', 'HOLD', 'no server read is available in this run');
         });
         await steps.step('owned pages closed', (alive) => parity.ownedPagesClosedRow(aliveReceipt(receipt, alive)), PARITY_CLOSE_STEP_MS);
+        // #1811: every owned page is closed, so no feedback write can still come from a page: close the fence (acknowledged).
+        const fence = feedbackFence;
+        if (fence) await steps.step('feedback fence close', async (alive) => { await fence.close(aliveReceipt(receipt, alive)); }, FEEDBACK_FENCE_STEP_MS);
         // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion. The full run's retention proof and the partial run's own
         // cleanup verdict (#1532 Codex P1 r4126745141) both delete through it; the deletion's own settlement then decides —
         // a stalled readback never deletes again, and a body that ended early still has its account deleted, here only.
@@ -401,6 +411,8 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     : undefined;
             if (await finalizeOwnedCleanup(steps, receipt, cleanup, proof) === 'deleted') { owner.uid = ''; owner.email = ''; }
         }
+        // #1811: AFTER the retention proof, delete exactly the fence-recorded reports and verify zero independently.
+        if (fence) await steps.step('feedback fence cleanup', async (alive) => { await fence.cleanRow(aliveReceipt(receipt, alive)); }, FEEDBACK_FENCE_STEP_MS);
         // Last, so it covers every row above, including cleanup.
         await steps.step('receipt content check', () => {
             // Point text and topic are the person's content: they must never reach the receipt.
@@ -783,6 +795,14 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         // and qualified there for its own stages (share_feedback), never claimed for the recording journey.
         if (fixtureKey === 'focus_points_tts') {
             await test.step('share feedback', async () => {
+                // #1811: no feedback write without a confirmed-open fence for this run-owned account.
+                feedbackFence = new JourneyFeedbackFence(admin as never, 'AHT-02', 1);
+                if (admin) await feedbackFence.open(owner.uid, currentRunBinding());
+                feedbackFence.openRow(receipt);
+                if (!feedbackFence.writable) {
+                    receipt.row('feedback', 'HOLD', 'no confirmed feedback fence for this run, so no feedback was written');
+                    return;
+                }
                 feedbackReportId = await shareFeedbackRows(page, receipt, admin as never, owner.uid, tap);
             });
             await test.step('feedback diagnostic chain', async () => {

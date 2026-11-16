@@ -2,6 +2,7 @@
 import { writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { evaluateReviewQualification, formatReviewQualification, documentationEvidenceAdmission } from './review-qualification.mjs';
+import { collectCarryForward, carryForwardBound } from './review-carry-forward.mjs';
 
 const CODEX_LOGINS = new Set(['chatgpt-codex-connector', 'chatgpt-codex-connector[bot]']);
 /**
@@ -96,7 +97,7 @@ function completedReviewRow(body, keyword, label) {
   return { completedAt, commit: commit[1] };
 }
 
-function automaticReviewsBindHead({ body, pullRequest, head }) {
+function automaticReviewsBindHead({ body, pullRequest, head, historical = false }) {
   const code = completedReviewRow(body, 'Code Review', '📝 **Code Review**');
   const security = completedReviewRow(body, 'Security Review', '🔒 **Security Review**');
   if (!code || !security || !head.startsWith(code.commit) || !head.startsWith(security.commit)) return false;
@@ -121,13 +122,16 @@ function automaticReviewsBindHead({ body, pullRequest, head }) {
   if (!namesOnlyHead(code.commit) || !namesOnlyHead(security.commit)) return false;
   // #1438 Codex P1 `3993066903` (PM RETURN `5640173238`) — AT OR AFTER. GitHub's activity and Ready times share a
   // one-second granularity, so a move in the Ready second cannot be shown to precede Ready: it holds like a later one.
-  if (moves.some((move) => !Number.isFinite(move.at) || move.at >= readyAt)) return false;
-  const lastMoveAt = Math.max(...moves.map((move) => move.at));
-  const headsAtReady = new Set(moves.filter((move) => move.at === lastMoveAt).map((move) => move.after));
+  const reviewCompletedAt = Math.max(code.completedAt, security.completedAt);
+  if (moves.some((move) => !Number.isFinite(move.at)
+    || (move.at >= readyAt && (!historical || move.at <= reviewCompletedAt)))) return false;
+  const beforeReady = moves.filter((move) => move.at < readyAt);
+  const lastMoveAt = Math.max(...beforeReady.map((move) => move.at));
+  const headsAtReady = new Set(beforeReady.filter((move) => move.at === lastMoveAt).map((move) => move.after));
   return headsAtReady.size === 1 && headsAtReady.has(head);
 }
 
-function findTrustedCompletionMetadata({ pullRequest, head }) {
+function findTrustedCompletionMetadata({ pullRequest, head, historical }) {
   const blocks = (pullRequest?.comments?.nodes ?? [])
     .filter((comment) => isCodex(comment?.author?.login))
     .flatMap((comment) => [...String(comment?.body ?? '').matchAll(SUMMARY_METADATA)]
@@ -140,7 +144,7 @@ function findTrustedCompletionMetadata({ pullRequest, head }) {
   if (/\*\*Running\*\*/.test(body)) return null;
   // #1438 Codex P1s `3992603040` + `3992907765` — both automatic reviews must have completed for THIS head's Ready
   // trigger, bound through GitHub's lifecycle record. See `automaticReviewsBindHead`.
-  if (!automaticReviewsBindHead({ body, pullRequest, head })) return null;
+  if (!automaticReviewsBindHead({ body, pullRequest, head, historical })) return null;
   let metadata;
   try {
     metadata = JSON.parse(raw);
@@ -218,7 +222,7 @@ export function authorizedP2Disposition({ thread, finding, head }) {
     && P2_TRANSFER_TARGETS.includes(value.transferTarget);
 }
 
-export function buildReviewReceipt({ pullRequest, expectedHeadSha }) {
+function buildExactReviewReceipt({ pullRequest, expectedHeadSha, historical = false }) {
   const head = pullRequest?.headRefOid?.toLowerCase?.() ?? '';
   const expected = expectedHeadSha?.toLowerCase?.() ?? '';
   const reasons = [];
@@ -240,7 +244,7 @@ export function buildReviewReceipt({ pullRequest, expectedHeadSha }) {
   const latest = reviews.at(-1);
   // Only consulted when no review object exists at this head: a review that reported findings must never be
   // masked by summary metadata, which establishes completion and nothing else.
-  const completion = latest ? null : findTrustedCompletionMetadata({ pullRequest, head });
+  const completion = latest ? null : findTrustedCompletionMetadata({ pullRequest, head, historical });
   const threadFindings = [];
   const p2DispositionFindingIds = [];
   for (const thread of pullRequest?.reviewThreads?.nodes ?? []) {
@@ -317,6 +321,57 @@ export function buildReviewReceipt({ pullRequest, expectedHeadSha }) {
     /** #1432 PM RETURN `5652158578` — exact-head release findings the owner disposed of as P2 (counted as advisory). */
     p2DispositionFindingIds,
   };
+}
+
+function missingReviewOnly(exact) {
+  // No other defect can be hidden by carried review. In particular, a finding,
+  // ambiguous/incomplete history, or a workflow/head mismatch stays a hold.
+  return exact.reviewStatus === 'missing' && exact.findingCount === 0
+    && exact.reasons.length === 2 && exact.reasons.includes('reviewed_sha_missing_or_invalid')
+    && exact.reasons.includes('review_not_completed:missing');
+}
+
+function originalReviewOf(pullRequest, reviewedSha) {
+  if ((pullRequest.reviews?.nodes ?? []).some(review => isCodex(review?.author?.login)
+    && review?.commit?.oid?.toLowerCase?.() === reviewedSha && review.state === 'DISMISSED')) return null;
+  const original = buildExactReviewReceipt({
+    pullRequest: { ...pullRequest, headRefOid: reviewedSha },
+    expectedHeadSha: reviewedSha,
+    historical: true,
+  });
+  return original.qualified && original.reviewEvidence === 'codex_summary_metadata' ? original : null;
+}
+
+function historicalReview(pullRequest) {
+  const summary = (pullRequest?.comments?.nodes ?? []).filter(c => isCodex(c?.author?.login)
+    && String(c?.body ?? '').includes(SUMMARY_MARKER));
+  if (summary.length !== 1) return null;
+  const body = summary[0].body, matches = [...body.matchAll(SUMMARY_METADATA)];
+  if (matches.length !== 1) return null;
+  let reviewedSha;
+  try { reviewedSha = JSON.parse(matches[0][1])?.headSha; } catch { return null; }
+  if (!/^[a-f0-9]{40}$/.test(reviewedSha ?? '') || reviewedSha === pullRequest.headRefOid
+    || !originalReviewOf(pullRequest, reviewedSha)) return null;
+  const code = completedReviewRow(body, 'Code Review', '📝 **Code Review**');
+  const security = completedReviewRow(body, 'Security Review', '🔒 **Security Review**');
+  // originalReviewOf has already verified that this Ready event predates both completed reviews.
+  const readyAt = Math.max(...pullRequest.timelineItems.nodes.map(event => Date.parse(event.createdAt)));
+  return code && security ? { reviewedSha, readyAt, completedAt: Math.max(code.completedAt, security.completedAt) } : null;
+}
+
+export function buildReviewReceipt({ pullRequest, expectedHeadSha }) {
+  const exact = buildExactReviewReceipt({ pullRequest, expectedHeadSha });
+  const proof = pullRequest?.reviewCarryForward;
+  if (!proof || !missingReviewOnly(exact)) return exact;
+  const { reviewedSha } = proof;
+  const original = originalReviewOf(pullRequest, reviewedSha);
+  if (!original) return exact;
+  const carried = { ...exact, qualified: true, reasons: [], reviewedSha,
+    reviewStatus: original.reviewStatus, reviewSubmittedAt: original.reviewSubmittedAt,
+    advisoryFindingCount: original.advisoryFindingCount + exact.advisoryFindingCount,
+    p2DispositionFindingIds: original.p2DispositionFindingIds,
+    reviewEvidence: 'identical_patch', reviewCarryForward: proof };
+  return carryForwardBound(carried) ? carried : exact;
 }
 
 export function reviewThreadResolutionIsEnforced({ branchProtection, branchRules, branchRulesets }) {
@@ -510,7 +565,7 @@ function normaliseRef(ref) {
  * refused every legitimately clean PR at merge. Two copies of an evidence query can disagree about what
  * the evidence is; one exported copy cannot.
  */
-export const PULL_REQUEST_REVIEW_QUERY = `query($owner:String!,$name:String!,$number:Int!,$commentsBefore:String){repository(owner:$owner,name:$name){pullRequest(number:$number){number headRefOid headRefName headRepository{nameWithOwner} baseRefName baseRefOid baseRepository{nameWithOwner} timelineItems(last:20,itemTypes:[READY_FOR_REVIEW_EVENT]){nodes{... on ReadyForReviewEvent{createdAt}}} files(first:100){nodes{path} pageInfo{hasNextPage endCursor}} reviews(last:100){nodes{author{login} state commit{oid} body submittedAt} pageInfo{hasPreviousPage}} reviewThreads(first:100){nodes{isResolved comments(last:100){nodes{databaseId author{login} authorAssociation body commit{oid} originalCommit{oid} pullRequestReview{state commit{oid}}} pageInfo{hasPreviousPage}}} pageInfo{hasNextPage}} comments(last:100,before:$commentsBefore){nodes{id author{login} authorAssociation body createdAt} pageInfo{hasPreviousPage startCursor}}}}}`;
+export const PULL_REQUEST_REVIEW_QUERY = `query($owner:String!,$name:String!,$number:Int!,$commentsBefore:String){repository(owner:$owner,name:$name){pullRequest(number:$number){number state mergeCommit{oid} headRefOid headRefName headRepository{nameWithOwner} baseRefName baseRefOid baseRepository{nameWithOwner} timelineItems(last:20,itemTypes:[READY_FOR_REVIEW_EVENT]){nodes{... on ReadyForReviewEvent{createdAt}}} files(first:100){nodes{path} pageInfo{hasNextPage endCursor}} reviews(last:100){nodes{author{login} state commit{oid} body submittedAt} pageInfo{hasPreviousPage}} reviewThreads(first:100){nodes{isResolved comments(last:100){nodes{databaseId author{login} authorAssociation body commit{oid} originalCommit{oid} pullRequestReview{state commit{oid}}} pageInfo{hasPreviousPage}}} pageInfo{hasNextPage}} comments(last:100,before:$commentsBefore){nodes{id author{login} authorAssociation body createdAt} pageInfo{hasPreviousPage startCursor}}}}}`;
 
 /**
  * The conversation surface is load-bearing and long-lived PRs routinely exceed one GraphQL page.
@@ -662,6 +717,16 @@ export async function readPullRequest({ repository, number, token, pageCap = ISS
   });
   // #1438 PM RETURN `5639978861` — the branch moves the Ready-trigger binding is checked against.
   pullRequest.headRefHistory = await readHeadRefHistory({ pullRequest, token });
+  pullRequest.reviewCarryForward = null;
+  const original = missingReviewOnly(buildExactReviewReceipt({
+    pullRequest, expectedHeadSha: pullRequest.headRefOid,
+  })) ? historicalReview(pullRequest) : null;
+  if (original) {
+    try {
+      pullRequest.reviewCarryForward = await collectCarryForward(pullRequest, original,
+        path => githubRequest(path, token, { signal: AbortSignal.timeout(10000) }));
+    } catch { /* Missing Git evidence never carries a review forward. */ }
+  }
   if (documentationEvidenceAdmission(repository, number) !== null) {
     // All consumers (including the live merge guard) use this exported reader.
     // Never retain an API-supplied/candidate field as evidence if acquisition fails.
