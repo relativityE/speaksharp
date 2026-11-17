@@ -40,7 +40,9 @@ concurrency:
 jobs:
   journey:
     name: billing ${{ inputs.journey }} (local stack, test mode)
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest became Ubuntu 26.04, where Playwright 1.57 cannot install Chromium (run 43989874044,
+    # "Playwright does not support chromium on ubuntu26.04-x64"). The other browser workflows already pin 24.04.
+    runs-on: ubuntu-24.04
     # Protected environment: required reviewers must approve each run before any secret is exposed.
     environment: billing-local-stack
     # The paid loop records audio and waits on coaching; the billing journeys keep their 60 minutes.
@@ -351,7 +353,14 @@ jobs:
               || { echo "::error::Stripe's answer for $2 was not a list, so it cannot be read as zero." >&2; exit 1; }
           }
           dirty=0
-          clocks="$(stripe_count 'test_helpers/test_clocks?limit=1' 'test clocks')"
+          # Run 44080723593: the journey deleted its clock (200, deleted: true) in the same second this read ran, and the list still
+          # showed it. A deleted clock leaves the list shortly after; a real leftover never does. So: at most three reads, 5 s apart;
+          # only an observed zero passes, and a clock still listed after the last read is residue.
+          for read in 1 2 3; do
+            clocks="$(stripe_count 'test_helpers/test_clocks?limit=1' 'test clocks')"
+            [ "$clocks" = '0' ] || [ "$read" = '3' ] || { sleep 5; continue; }
+            break
+          done
           echo "Remaining test clocks: $clocks"
           [ "$clocks" = '0' ] || dirty=1
           for state in active trialing past_due unpaid incomplete; do

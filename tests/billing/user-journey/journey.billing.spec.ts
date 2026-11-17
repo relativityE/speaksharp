@@ -8,7 +8,8 @@ import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, re
   assertTestPrice, assertInvoice, isCorrelatedDelivery, safeFailureReason, testClockCreateFields, localStackStatus,
   assertFullRefund, isRefundCancellation, assertCheckoutGrantedNothing,
   checkoutSessionFromUrl, assertCheckoutIdentity, newlyAddedCard, assertNoSecondCharge,
-  type RunnerJourney, type BillingEvent } from './contract';
+  type RunnerJourney, type BillingEvent, hostedFieldUnavailable, hostedEmailDecision, type HostedField,
+  HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken } from './contract';
 import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { selectBenchmarkMode, preparePrivateModelIfPrompted, startBenchmarkRecording,
   expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput, stopBenchmarkRecording,
@@ -38,7 +39,13 @@ const id = (value: unknown): string => typeof value === 'string' ? value
 
 /** No POST to stripe-webhook, no signing key, no local replay, and no entitlement writes after fixture setup. */
 class SandboxJourney {
-  readonly steps = new Set<string>();
+  readonly started = Date.now();
+  /** Prints a content-free progress line as it happens, so a timeout still shows the last step reached. */
+  checkpoint(name: string, kind: 'step' | 'stage' | 'checkpoint' = 'checkpoint'): void {
+    console.log(progressLine(kind, name, Date.now() - this.started));
+  }
+  readonly steps = (() => { const set = new Set<string>(); const add = set.add.bind(set);
+    set.add = (name: string) => { if (!set.has(name)) this.checkpoint(name, 'step'); return add(name); }; return set; })();
   readonly marker = `rwt-journey-billing-${randomUUID()}`;
   readonly email = `${this.marker}@example.com`;
   readonly password = `Test-${randomUUID()}!`;
@@ -49,9 +56,13 @@ class SandboxJourney {
     { auth: { autoRefreshToken: false, persistSession: false } });
   readonly eventIds = new Set<string>();
   uid = ''; customer = ''; subscription = ''; clock = ''; session = ''; savedSession = '';
+  /** The Checkout session openCheckout positively bound to this run (assertCheckoutIdentity); null until then. */
+  boundCheckout: string | null = null;
   signupAttempted = false;
   uncertainStripeCreate = false;
-  stage = 'preflight';
+  private currentStage = 'preflight';
+  get stage(): string { return this.currentStage; }
+  set stage(name: string) { this.currentStage = name; this.checkpoint(name, 'stage'); }
   startedAt = Math.floor(Date.now() / 1000) - 5;
   constructor(readonly journey: RunnerJourney, readonly page: Page) {}
 
@@ -192,33 +203,186 @@ class SandboxJourney {
   }
 
   /** Fills Stripe's hosted card form (Checkout or the portal) and submits. Never reads or reports its content. */
-  async fillCard(card: string, withEmail: boolean): Promise<void> {
-    const fill = async (selector: string, value: string) => {
+  async fillCard(card: string, email: 'required' | 'after-binding' | 'none'): Promise<void> {
+    const fill = async (selector: string, value: string, field: HostedField, absentAllowed = false, kind: 'input' | 'select' = 'input') => {
       for (let attempt = 0; attempt < 40; attempt++) {
         for (const frame of this.page.frames()) {
-          const field = frame.locator(selector).first();
-          if (await field.isVisible()) { await field.fill(value); return; }
+          const input = frame.locator(selector).first();
+          if (await input.isVisible()) {
+            if (kind === 'select') {
+              await input.selectOption(value, { timeout: HOSTED_ACTION_MS }).catch(() => { throw new Error(`BILLING_JOURNEY:${hostedFieldNotEditable(field)}`); });
+              // Proven chosen: the select's own value, never assumed from the call.
+              requireFact(await input.inputValue({ timeout: HOSTED_READ_MS }).catch(() => null) === value, hostedFieldNotEditable(field));
+            } else {
+              await input.fill(value, { timeout: HOSTED_ACTION_MS }).catch(() => { throw new Error(`BILLING_JOURNEY:${hostedFieldNotEditable(field)}`); });
+            }
+            return;
+          }
         }
         await sleep(500);
       }
-      throw new Error('BILLING_JOURNEY:hosted_field_unavailable');
+      // Email only: absent is accepted solely for the session openCheckout proved is this run's own (hostedEmailDecision).
+      if (absentAllowed) return;
+      // Name the missing field and whether a visible "Card" choice was offered (content-free; the field stays required).
+      let cardChoiceShown: boolean | null = false;
+      try {
+        for (const frame of this.page.frames()) {
+          for (const role of ['radio', 'tab', 'button'] as const) {
+            if (await frame.getByRole(role, { name: /^card$/i }).first().isVisible()) cardChoiceShown = true;
+          }
+        }
+      } catch { cardChoiceShown = null; }
+      throw new Error(`BILLING_JOURNEY:${hostedFieldUnavailable(field, cardChoiceShown)}`);
     };
-    if (withEmail) await fill('input[type="email"]', this.email);
-    await fill('input[autocomplete="cc-number"],input[name="cardNumber"]', card);
-    await fill('input[autocomplete="cc-exp"],input[name="cardExpiry"]', '1234');
-    await fill('input[autocomplete="cc-csc"],input[name="cardCvc"]', '123');
-    for (const frame of this.page.frames()) {
-      for (const [selector, value] of [['input[autocomplete="cc-name"]', 'SpeakSharp Test'],
-        ['input[autocomplete="postal-code"]', '94105']] as const) {
-        const field = frame.locator(selector).first();
-        if (await field.isVisible()) await field.fill(value);
+    if (email !== 'none') {
+      const decision = hostedEmailDecision({ emailFieldVisible: false,
+        shownSession: email === 'after-binding' ? (() => { try { return checkoutSessionFromUrl(this.page.url()); } catch { return null; } })() : null,
+        boundSession: email === 'after-binding' ? this.boundCheckout : null });
+      await fill('input[type="email"]', this.email, 'email', decision === 'absent_after_binding');
+    }
+    await fill('input[autocomplete="cc-number"],input[name="cardNumber"]', card, 'card_number');
+    await fill('input[autocomplete="cc-exp"],input[name="cardExpiry"]', '1234', 'card_expiry');
+    await fill('input[autocomplete="cc-csc"],input[name="cardCvc"]', '123', 'card_cvc');
+    // Run 44141620120: Checkout requires country, ZIP and name on card (aria-required, seen in the PO's DevTools on that run's own
+    // session); the ZIP's autocomplete is "billing postal-code", so the old exact `postal-code` selector never matched and the field
+    // stayed empty. On Checkout they are REQUIRED, by their exact ids, country first (the ZIP follows the country). The portal keeps
+    // them optional: filled when shown.
+    if (email !== 'none') {
+      await fill(HOSTED_SELECTORS.country, 'US', 'billing_country', false, 'select');
+      await fill(HOSTED_SELECTORS.postalCode, '94105', 'postal_code');
+      await fill(HOSTED_SELECTORS.cardName, 'SpeakSharp Test', 'card_name');
+    } else {
+      for (const frame of this.page.frames()) {
+        for (const [selector, value] of [[`${HOSTED_SELECTORS.cardName},input[autocomplete="cc-name"]`, 'SpeakSharp Test'],
+          [`${HOSTED_SELECTORS.postalCode},input[autocomplete="billing postal-code"],input[autocomplete="postal-code"]`, '94105']] as const) {
+          const input = frame.locator(selector).first();
+          if (await input.isVisible()) await input.fill(value, { timeout: HOSTED_ACTION_MS }).catch(() => undefined);
+        }
       }
     }
   }
 
+  /** The first visible match of `selector` in ANY frame, polled within the hosted-action bound; null when none appears. */
+  async visibleInFrames(selector: string): Promise<import('@playwright/test').Locator | null> {
+    const deadline = Date.now() + HOSTED_ACTION_MS;
+    do {
+      for (const frame of this.page.frames()) {
+        const candidate = frame.locator(selector).first();
+        if (await candidate.isVisible().catch(() => false)) return candidate;
+      }
+      await sleep(500);
+    } while (Date.now() < deadline);
+    return null;
+  }
+
+  /** The first ATTACHED match of `selector` in any frame (no wait; a styled-over input is attached but may not be visible), or null. */
+  async attachedInFrames(selector: string): Promise<import('@playwright/test').Locator | null> {
+    for (const frame of this.page.frames()) {
+      const candidate = frame.locator(selector).first();
+      if (await candidate.count().catch(() => 0) > 0) return candidate;
+    }
+    return null;
+  }
+
+  /** Clears Link's opt-in through its label and proves the real input unticked; absent (both parts missing) is nothing to clear. */
+  async clearLinkOptIn(): Promise<'clear' | 'absent'> {
+    const input = await this.attachedInFrames(HOSTED_SELECTORS.linkOptInInput);
+    const label = await this.attachedInFrames(HOSTED_SELECTORS.linkOptInLabel);
+    if (!input && !label) { this.checkpoint('hosted_link_optin_absent'); return 'absent'; }
+    if (!input || !label) throw new Error(`BILLING_JOURNEY:${HOSTED_LINK_OPT_IN_NOT_CLEARED}`);
+    if (await input.isChecked({ timeout: HOSTED_READ_MS }).catch(() => null) !== false)
+      await label.click({ timeout: HOSTED_ACTION_MS }).catch(() => undefined);
+    if (await input.isChecked({ timeout: HOSTED_READ_MS }).catch(() => null) !== false) throw new Error(`BILLING_JOURNEY:${HOSTED_LINK_OPT_IN_NOT_CLEARED}`);
+    this.checkpoint('hosted_link_optin_cleared');
+    return 'clear';
+  }
+
+  /** Content-free facts of the hosted page after Subscribe when Stripe did not return (each read bounded; unread is null). */
+  async afterSubmitFacts(): Promise<Parameters<typeof checkoutNotReturned>[0]> {
+    const read = async <T>(f: () => Promise<T>): Promise<T | null> => { try { return await f(); } catch { return null; } };
+    const visibleCount = (selector: string) => read(async () => {
+      let n = 0;
+      for (const frame of this.page.frames()) {
+        const all = frame.locator(selector);
+        for (let i = 0; i < await all.count(); i++) if (await all.nth(i).isVisible()) n += 1;
+      }
+      return n;
+    });
+    const input = await this.attachedInFrames(HOSTED_SELECTORS.linkOptInInput).catch(() => null);
+    const checked = input ? await read(() => input.isChecked({ timeout: HOSTED_READ_MS })) : undefined;
+    const phones = await visibleCount('input[type="tel"],input[autocomplete="tel"],input[autocomplete="tel-national"]');
+    const challenges = await visibleCount('iframe[src*="hcaptcha"]');
+    return {
+      optIn: input === null ? 'absent' : checked === true ? 'checked' : checked === false ? 'clear' : null,
+      phoneShown: phones === null ? null : phones > 0,
+      alerts: await visibleCount('[role="alert"]'),
+      invalid: await visibleCount('input[aria-invalid="true"]'),
+      challenge: challenges === null ? null : challenges > 0,
+      // Which controls (inputs or the country select) were invalid, by id/name attribute only, as closed tokens.
+      invalidFields: await read(async () => {
+        const tokens: string[] = [];
+        for (const frame of this.page.frames()) {
+          const all = frame.locator('[aria-invalid="true"]');
+          for (let i = 0; i < await all.count(); i++) {
+            const el = all.nth(i);
+            if (!await el.isVisible()) continue;
+            tokens.push(invalidFieldToken({ id: await el.getAttribute('id', { timeout: HOSTED_READ_MS }), name: await el.getAttribute('name', { timeout: HOSTED_READ_MS }) }));
+          }
+        }
+        return tokens;
+      }),
+    };
+  }
+
+  /**
+   * Whether Stripe's payment form reports it can confirm (`data-can-confirm`, seen on the hosted page in the PO's DevTools), polled within
+   * the hosted-action bound: true once it says "true"; false if it was read but never became true; null if never read. Read only.
+   */
+  async formConfirmable(): Promise<boolean | null> {
+    const deadline = Date.now() + HOSTED_ACTION_MS;
+    let seenFalse = false;
+    do {
+      for (const frame of this.page.frames()) {
+        const form = frame.locator('[data-can-confirm]').first();
+        if (await form.count().catch(() => 0) === 0) continue;
+        const value = await form.getAttribute('data-can-confirm', { timeout: HOSTED_READ_MS }).catch(() => null);
+        if (value === 'true') return true;
+        if (value === 'false') seenFalse = true;
+      }
+      await sleep(500);
+    } while (Date.now() < deadline);
+    return seenFalse ? false : null;
+  }
+
   async payOnHostedPage(card: string): Promise<void> {
-    await this.fillCard(card, true);
-    await this.page.locator('button[type="submit"]').click();
+    // Email is filled when shown; it may be absent only on the exact session openCheckout bound to this run's customer.
+    this.checkpoint('hosted_fill_start');
+    await this.fillCard(card, 'after-binding');
+    this.checkpoint('hosted_fill_done');
+    // Link's "Save my information" opt-in is ticked by default and then requires a mobile number. Run 44098470690 clicked Subscribe and was
+    // never returned; a person who unticked it completed the same checkout. The real input sits under a styled wrapper, so it is read by
+    // its exact id and toggled through its label, then proven clear. The journey never creates a Link account or enters a phone number.
+    await this.clearLinkOptIn();
+    // A checkpoint, not a gate: the click below still happens, and a refusal is then named field by field from the page.
+    const confirmable = await this.formConfirmable();
+    this.checkpoint(confirmable === true ? 'hosted_form_confirmable' : confirmable === false ? 'hosted_form_not_confirmable' : 'hosted_form_confirm_unread');
+    // Exactly the Subscribe button (data-testid observed on the hosted page), never "the first submit button".
+    this.checkpoint('hosted_submit_search');
+    const submit = await this.visibleInFrames(HOSTED_SELECTORS.submit);
+    if (!submit) throw new Error(`BILLING_JOURNEY:${hostedSubmitUnavailable({ visible: false, enabled: null, invalidFields: null })}`);
+    await submit.click({ timeout: HOSTED_ACTION_MS }).catch(async () => {
+      const read = async <T>(f: () => Promise<T>): Promise<T | null> => { try { return await f(); } catch { return null; } };
+      const invalidFields = await read(async () => {
+        let n = 0;
+        for (const frame of this.page.frames()) {
+          const invalid = frame.locator('input[aria-invalid="true"]');
+          for (let i = 0; i < await invalid.count(); i++) if (await invalid.nth(i).isVisible()) n += 1;
+        }
+        return n;
+      });
+      throw new Error(`BILLING_JOURNEY:${hostedSubmitUnavailable({ visible: await read(() => submit.isVisible()), enabled: await read(() => submit.isEnabled({ timeout: HOSTED_READ_MS })), invalidFields })}`);
+    });
+    this.checkpoint('hosted_submit_clicked');
   }
 
   /** Nothing paid: no subscription of any status for this customer, no paid access, no Pro profile. */
@@ -236,8 +400,11 @@ class SandboxJourney {
    */
   async openCheckout(raw: string | null): Promise<string> {
     const session = checkoutSessionFromUrl(raw);
+    this.boundCheckout = null;
     assertCheckoutIdentity(await this.stripe(`checkout/sessions/${session}`),
       { session, customer: this.customer, uid: this.uid, app: this.targets.app });
+    // Set only after the positive binding above: the one session hostedEmailDecision may accept without an email field.
+    this.boundCheckout = session;
     await this.page.goto(raw as string);
     return session;
   }
@@ -316,7 +483,9 @@ class SandboxJourney {
     requireFact((await this.usage()).can_start === false, 'checkout_granted_before_payment');
     this.session = await this.openCheckout(checkoutUrl);
     await this.payOnHostedPage('4242424242424242');
-    await this.page.waitForURL(url => url.origin === this.targets.app && url.searchParams.get('checkout') === 'success', { timeout: 90_000 });
+    this.checkpoint('checkout_success_wait');
+    await this.page.waitForURL(url => url.origin === this.targets.app && url.searchParams.get('checkout') === 'success', { timeout: 90_000 })
+      .catch(async () => { throw new Error(`BILLING_JOURNEY:${checkoutNotReturned(await this.afterSubmitFacts())}`); });
     const complete = await this.stripe(`checkout/sessions/${this.session}`);
     requireFact(complete.livemode === false && complete.status === 'complete' && complete.payment_status === 'paid'
       && complete.customer === this.customer && complete.client_reference_id === this.uid, 'checkout_not_complete');
@@ -438,7 +607,7 @@ class SandboxJourney {
       requireFact(Array.isArray(listedBefore.data) && listedBefore.has_more === false, 'payment_method_page_incomplete');
       const before = (listedBefore.data as Obj[]).map(pm => String(pm.id));
       await add.click();
-      await this.fillCard('4242424242424242', false);
+      await this.fillCard('4242424242424242', 'none');
       await this.page.getByRole('button', { name: /^(Add|Save)/i }).last().click();
       const newCard = newlyAddedCard(await this.poll(cards, listed => {
         try { newlyAddedCard(listed, before, badCard); return true; } catch { return false; }

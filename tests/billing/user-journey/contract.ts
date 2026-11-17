@@ -21,9 +21,123 @@ export function requireFact(value: unknown, code: string): asserts value {
   if (!value) throw new Error(`BILLING_JOURNEY:${code}`);
 }
 
+/** The fields the journey fills on Stripe's hosted Checkout page (or the portal), named content-free. */
+export type HostedField = 'email' | 'card_number' | 'card_expiry' | 'card_cvc' | 'billing_country' | 'postal_code' | 'card_name';
+const HOSTED_FIELDS: readonly HostedField[] = ['email', 'card_number', 'card_expiry', 'card_cvc', 'billing_country', 'postal_code', 'card_name'];
+
+/**
+ * The failure code when a required hosted field never became visible (run 44055010939 stopped at a bare
+ * `hosted_field_unavailable`, which could not say which field). Names the field and whether a visible "Card" payment-method
+ * choice was on the page (a form behind such a choice), as a closed code that `safeFailureReason` keeps. Content-free: no
+ * page text, value or URL. It never relaxes the check: the field stays required.
+ */
+export function hostedFieldUnavailable(field: HostedField, cardChoiceShown: boolean | null): string {
+  requireFact(HOSTED_FIELDS.includes(field), 'hosted_field_unknown');
+  const choice = cardChoiceShown === true ? '_card_choice_shown' : cardChoiceShown === false ? '' : '_choice_unread';
+  return `hosted_field_unavailable_${field}${choice}`;
+}
+
+/**
+ * One content-free progress line, printed AS the journey runs (run 44080723593 timed out with no receipt, so its log named no step).
+ * Fixed names and whole seconds only; any other name prints as `invalid`. Never ids, emails, URLs or provider text.
+ */
+export function progressLine(kind: 'step' | 'stage' | 'checkpoint', name: string, elapsedMs: number): string {
+  const safe = typeof name === 'string' && /^[a-z0-9_.-]{1,64}$/.test(name) ? name : 'invalid';
+  const t = Number.isFinite(elapsedMs) && elapsedMs >= 0 ? Math.floor(elapsedMs / 1000) : -1;
+  return `BILLING_JOURNEY_PROGRESS ${kind}=${safe} t=${t}s`;
+}
+
+/** Every hosted-page fill and the Pay click are bounded (run 44080723593: an unbounded wait ran into the 10-minute test timeout). */
+export const HOSTED_ACTION_MS = 30_000;
+/** Diagnostic reads after a failed hosted action (isEnabled/isChecked wait for the element): bounded too, never the test timeout. */
+export const HOSTED_READ_MS = 2_000;
+
+/**
+ * The exact hosted-Checkout controls, read from Stripe's own markup on a run's open card-only session (17 Nov 2026, read-only, PO's
+ * browser DevTools): the Subscribe button (Link's express button is type="button", never this), and Link's "Save my information"
+ * opt-in, a custom checkbox whose real input sits under a styled wrapper and is toggled through its label.
+ */
+export const HOSTED_SELECTORS = Object.freeze({
+  submit: '[data-testid="payment-form-submit-button"]',
+  linkOptInInput: '#payment-linkOptInInput',
+  linkOptInLabel: '#Field-linkOptInCheckbox',
+  // Run 44141620120 (after #1889): Stripe marked 2 fields invalid and never returned. The PO's DevTools on that run's own open session
+  // show three REQUIRED billing fields (aria-required="true") even with billing_address_collection unset: the country <select>, the ZIP
+  // (autocomplete="billing postal-code", so the old exact `postal-code` selector never matched) and the name on card.
+  country: '#payment-countryInput',
+  postalCode: '#payment-postalCodeInput',
+  cardName: '#payment-nameInput',
+});
+
+/**
+ * The hosted field a visible invalid control belongs to, by its id or name attribute only (never its value), as a closed short token:
+ * a page change can only produce `other`, never page text.
+ */
+const INVALID_FIELD_TOKENS: Readonly<Record<string, string>> = Object.freeze({
+  'payment-nameInput': 'name', name: 'name', 'payment-postalCodeInput': 'zip', postalCode: 'zip', 'payment-countryInput': 'country',
+  country: 'country', cardNumber: 'number', 'payment-numberInput': 'number', cardExpiry: 'expiry', 'payment-expiryInput': 'expiry',
+  cardCvc: 'cvc', 'payment-cvcInput': 'cvc', email: 'email',
+});
+export function invalidFieldToken(attrs: { id: string | null; name: string | null }): string {
+  for (const key of [attrs.id, attrs.name]) if (typeof key === 'string' && Object.hasOwn(INVALID_FIELD_TOKENS, key)) return INVALID_FIELD_TOKENS[key];
+  return 'other';
+}
+
+/**
+ * Subscribe was clicked but Stripe never returned to the app within the bound. Content-free facts of what the hosted page showed then:
+ * the Link opt-in state, whether a phone field was shown, visible alerts and invalid inputs, and whether a challenge frame was shown.
+ * `null` is unread, never zero or false.
+ */
+export function checkoutNotReturned(f: { optIn: 'checked' | 'clear' | 'absent' | null; phoneShown: boolean | null; alerts: number | null;
+  invalid: number | null; challenge: boolean | null; invalidFields: readonly string[] | null }): string {
+  const n = (v: number | null) => (Number.isSafeInteger(v) && (v as number) >= 0 ? String(v) : 'unread');
+  const b = (v: boolean | null, yes: string, no: string) => (v === true ? yes : v === false ? no : 'unread');
+  const optIn = f.optIn === 'checked' || f.optIn === 'clear' || f.optIn === 'absent' ? f.optIn : 'unread';
+  // Which fields were invalid (closed tokens, sorted and de-duplicated), so a refused form names its field instead of a bare count.
+  const tokens = Array.isArray(f.invalidFields) ? [...new Set(f.invalidFields.map((t) => (Object.values(INVALID_FIELD_TOKENS).includes(t) ? t : 'other')))].sort() : null;
+  const fields = tokens === null ? 'unread' : tokens.length ? tokens.join('_') : 'none';
+  return `checkout_success_not_reached_optin_${optIn}_phone_${b(f.phoneShown, 'shown', 'none')}_alerts_${n(f.alerts)}_invalid_${n(f.invalid)}_challenge_${b(f.challenge, 'shown', 'none')}_fields_${fields}`;
+}
+
+/** Stripe Link's default-ticked "save my information" opt-in could not be cleared; the journey never creates a Link account. */
+export const HOSTED_LINK_OPT_IN_NOT_CLEARED = 'hosted_link_optin_not_cleared';
+
+/** A hosted field that was visible but did not accept input within the bound, named content-free. */
+export function hostedFieldNotEditable(field: HostedField): string {
+  requireFact(HOSTED_FIELDS.includes(field), 'hosted_field_unknown');
+  return `hosted_field_not_editable_${field}`;
+}
+
+/**
+ * The Pay button did not take the click within the bound. Content-free facts only: whether it was visible and enabled, and how
+ * many visible inputs the hosted page marked invalid (`null` = could not be read; never treated as zero).
+ */
+export function hostedSubmitUnavailable(facts: { visible: boolean | null; enabled: boolean | null; invalidFields: number | null }): string {
+  const state = facts.visible === false ? 'hidden' : facts.visible === null ? 'unread' : facts.enabled === false ? 'disabled' : facts.enabled === true ? 'enabled' : 'unread';
+  const invalid = Number.isSafeInteger(facts.invalidFields) && (facts.invalidFields as number) >= 0 ? String(facts.invalidFields) : 'unread';
+  return `hosted_submit_unavailable_${state}_invalid_${invalid}`;
+}
+
+/**
+ * Whether the hosted email field must be filled, when the card is entered (run 44066185734: hosted_field_unavailable_email).
+ * Email is REQUIRED by default. A visible editable field is always filled. It may be absent only when the page on screen is the
+ * exact Checkout session that `assertCheckoutIdentity` already proved is this run's open, unpaid test-mode session for the
+ * run-owned Stripe customer and app user (`boundSession`): Stripe renders no email input for an existing customer. A
+ * non-empty `customer` alone is not that proof, and an unbound, different or unknown session never skips it.
+ */
+export function hostedEmailDecision(input: { emailFieldVisible: boolean; shownSession: string | null; boundSession: string | null }):
+  'fill' | 'absent_after_binding' | 'missing' {
+  if (input.emailFieldVisible) return 'fill';
+  const bound = typeof input.boundSession === 'string' && /^cs_test_[A-Za-z0-9]+$/.test(input.boundSession)
+    && input.shownSession === input.boundSession;
+  return bound ? 'absent_after_binding' : 'missing';
+}
+
 export function safeFailureReason(error: unknown): string {
   const message = error instanceof Error ? error.message : '';
-  return /^BILLING_JOURNEY:([a-z_]{1,80})$/.exec(message)?.[1] ?? 'unclassified_step_failure';
+  // Closed token alphabet (lower-case letters, digits, underscore): named codes carry counts (run 44098470690's receipt lost them as
+  // `unclassified_step_failure` under the old [a-z_]{1,80}). Anything else, a URL or free text included, stays unclassified.
+  return /^BILLING_JOURNEY:([a-z0-9_]{1,160})$/.exec(message)?.[1] ?? 'unclassified_step_failure';
 }
 
 /** All output is a closed, content-free list. Never serialize provider responses or credentials. */

@@ -124,9 +124,10 @@ class VerdictLedger {
  * `scopeLegs` (optional) names the legs the run request selected and the run budget allocated. Their result is
  * labelled apart, as the selected scope, so a night where every one of them passed is visible without calling the
  * whole suite green: `scope.outcome` is PASS only when every scope leg PASSed, FAIL when one failed, and INCOMPLETE
- * otherwise. The scope never changes `outcome`.
+ * otherwise. The scope never changes `outcome`. A run-level cleanup blocker prevents either aggregate from PASSing
+ * without changing the underlying observations or masking a FAIL.
  */
-function runVerdict(verdicts, scopeLegs = []) {
+function runVerdict(verdicts, scopeLegs = [], cleanupBlocker = null) {
     const notGreen = [];
     let failed = false;
     for (const l of ALL_LEGS) {
@@ -145,28 +146,28 @@ function runVerdict(verdicts, scopeLegs = []) {
         failed = true;
         notGreen.push(...extra.map((k) => `${k} unknown leg`));
     }
-    const outcome = failed ? 'FAIL' : notGreen.length > 0 ? 'INCOMPLETE' : 'PASS';
+    const outcome = failed ? 'FAIL' : notGreen.length > 0 || cleanupBlocker ? 'INCOMPLETE' : 'PASS';
     const why = (id) => verdicts.get(id)?.reason ?? 'no verdict';
     const short = (t) => (t.length > 160 ? `${t.slice(0, 157)}...` : t);
     const notGreenWhy = ALL_LEGS.filter((l) => verdicts.get(l.id)?.outcome !== 'PASS').map((l) => `${l.id} ${verdicts.get(l.id)?.outcome ?? 'NOT RUN'} (${short(why(l.id))})`);
     const reason = outcome === 'PASS' ? 'every planned leg passed'
         : outcome === 'FAIL' ? `a leg failed: ${notGreen.filter((n) => / FAIL$| unknown leg$/.test(n)).join(', ')}`
-            : `not every planned leg passed, so this is not a full PASS: ${notGreenWhy.join('; ')}`;
-    return { outcome, reason, notGreen, scope: scopeVerdict(verdicts, scopeLegs, outcome) };
+            : notGreenWhy.length ? `not every planned leg passed, so this is not a full PASS: ${notGreenWhy.join('; ')}` : 'not a full PASS';
+    return { outcome, reason: cleanupBlocker ? `${reason}; ${cleanupBlocker}` : reason, notGreen, scope: scopeVerdict(verdicts, scopeLegs, outcome, cleanupBlocker) };
 }
 /**
  * The runnable legs' summary, kept apart from the full-suite result. "All runnable legs passed" only when every leg
  * the run request named and the budget allocated PASSed; it names how many ran and every planned leg left out, with
  * why, and it never changes the full-suite outcome.
  */
-function scopeVerdict(verdicts, scopeLegs, suite) {
+function scopeVerdict(verdicts, scopeLegs, suite, cleanupBlocker) {
     if (!Array.isArray(scopeLegs) || scopeLegs.length === 0)
         return null;
     for (const id of scopeLegs)
         legById(id);
     const legs = [...new Set(scopeLegs)];
     const outcomes = legs.map((id) => verdicts.get(id)?.outcome ?? 'NOT RUN');
-    const outcome = outcomes.includes('FAIL') ? 'FAIL' : outcomes.every((o) => o === 'PASS') ? 'PASS' : 'INCOMPLETE';
+    const outcome = outcomes.includes('FAIL') ? 'FAIL' : !cleanupBlocker && outcomes.every((o) => o === 'PASS') ? 'PASS' : 'INCOMPLETE';
     const excluded = ALL_LEGS.filter((l) => !legs.includes(l.id)).map((l) => {
         const v = verdicts.get(l.id);
         return Object.freeze({ leg: l.id, outcome: v?.outcome ?? 'NOT RUN', reason: v?.reason ?? 'not selected for this run' });
@@ -174,11 +175,11 @@ function scopeVerdict(verdicts, scopeLegs, suite) {
     // "Run" counts the scope legs that reached a result; a selected leg that never ran is NOT RUN and is not counted.
     const run = outcomes.filter((o) => o !== 'NOT RUN').length;
     const head = outcome === 'PASS' ? 'All runnable legs passed'
-        : outcome === 'FAIL' ? 'A runnable leg failed' : 'Not every runnable leg passed';
+        : outcome === 'FAIL' ? 'A runnable leg failed' : cleanupBlocker ? 'Scope acceptance incomplete' : 'Not every runnable leg passed';
     const ex = excluded.length > 0 ? `; excluded: ${excluded.map((e) => `${e.leg} ${e.outcome}`).join(', ')}` : '; nothing excluded';
     return {
         outcome, legs, selected: legs.length, run, excluded,
-        summary: `${head}: ${run} of ${ALL_LEGS.length} planned legs run${run === legs.length ? '' : ` (${legs.length} selected)`}${ex}. Full suite: ${suite}.`,
+        summary: `${head}: ${run} of ${ALL_LEGS.length} planned legs run${run === legs.length ? '' : ` (${legs.length} selected)`}${ex}. Full suite: ${suite}.${cleanupBlocker ? ` No acceptance: ${cleanupBlocker}.` : ''}`,
     };
 }
 /** One report line per leg. A sandbox result names its scope, so it can't be read as production billing proof. */

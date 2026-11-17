@@ -199,6 +199,13 @@ class Guard {
     Promise.resolve().then(()=>this.close('harness-fatal')).catch(()=>{});
     return this.fatalState;
   }
+  // #1884 J4.a: under the bound nightly capability, each coaching request is forwarded only on its own `coaching` grant, and the grant
+  // settles ok only once the request was written upstream (ticket.sent); anything else settles it lost (ticket.failed). No hook: unchanged.
+  async reserveNightlyCoaching(host,method,pathname) {
+    if(typeof this.opts.reserveCoaching!=='function')return null;
+    if(host!==FEEDBACK_HOST||method!=='POST'||pathname!=='/functions/v1/get-ai-suggestions')return null;
+    return this.opts.reserveCoaching();
+  }
   reserveTakeForRequest(host,method,pathname) {
     if(host!==FEEDBACK_HOST||method!=='POST'||pathname!=='/rest/v1/rpc/create_session_and_update_usage')return false;
     if(typeof this.opts.reserveTake!=='function'){if(this.policy.testOnly===true)return false;throw new Error('guard action budget unavailable');}
@@ -256,6 +263,15 @@ class Guard {
     const oracle=this.opts.readbackOracle;
     if(!isReviewedSessionOracleFactory(oracle)||this.saveReadbackInstalled)throw new Error('HARNESS_LIMITED: reviewed dynamic save oracle not available before Start');
     return Object.freeze({sourceSha:oracle.sourceSha,host:oracle.host,accountSubjectSha256:oracle.accountSubjectSha256});
+  }
+  // #1884 (Sam, option a): the guarded-signup owner, bound ONCE before any save readback. The adapter calls this only after the page's own
+  // session matched the owner the parent independently confirmed; no rebind, and never after the save readback is installed.
+  bindGuardedOwner(ownerId) {
+    const oracle=this.opts.readbackOracle;
+    if(!isReviewedSessionOracleFactory(oracle)||this.saveReadbackInstalled||this.faults.length||oracle.ownerBound!==false)throw new Error('HARNESS_LIMITED: guarded owner binding unavailable or already bound');
+    const accountSubjectSha256=oracle.bindOwner(ownerId);
+    this.durableLog({kind:'guarded-owner-bound',accountSubjectSha256});
+    return Object.freeze({accountSubjectSha256});
   }
   bindSaveReadback(input) {
     const oracle=this.opts.readbackOracle;
@@ -392,6 +408,7 @@ class Guard {
     this.inFlight.set(key, rec);
     this.c.inFlightMax = Math.max(this.c.inFlightMax, this.active);
     const finish = (outcome, extra = {}) => {
+      try{rec.coachingTicket?.failed?.();}catch{/* settled */}
       if (rec.outcome) return;
       rec.outcome = outcome;
       try{
@@ -449,6 +466,8 @@ class Guard {
       if(e?.code==='TAKE_CAP'){finish('case-take-cap');this.deny(res,'cap:case-takes',ev);return;}
       this.fatal('guard-action-budget-integrity','take-reservation');res.destroy();return;
     }
+    try{rec.coachingTicket=await this.reserveNightlyCoaching(host,req.method,u.pathname);}catch{rec.coachingTicket={granted:false};}
+    if(rec.coachingTicket&&rec.coachingTicket.granted!==true){rec.coachingTicket=null;finish('nightly-coaching-cap');this.deny(res,'cap:nightly-coaching',ev);return;}
     if(this.closing||rec.outcome)return;
     this.c.forwarded++; rec.forwarded = true;
     let sock;
@@ -471,6 +490,7 @@ class Guard {
     // http.request over the already-established upstream TLS socket: no agent, no DNS, no second
     // connection. (An agent would ignore createConnection and resolve the host directly.)
     const up = http.request({ createConnection: () => sock, method: req.method, path: u.pathname + u.search, headers, signal: ac.signal });
+    if(rec.coachingTicket){const t=rec.coachingTicket;up.once('finish',()=>{try{t.sent();}catch{/* settled */}});}
     this.watch(up,'response', (ur) => {
       const status = ur.statusCode;
       if (status >= 300 && status < 400) {

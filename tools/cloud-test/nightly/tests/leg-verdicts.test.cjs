@@ -229,6 +229,16 @@ describe('run verdict', () => {
     it('is PASS only when every planned leg passed', () => {
         expect(runVerdict(allPass()).outcome).toBe('PASS');
     });
+    it('keeps full and scoped acceptance incomplete even if every leg passed, when cleanup is not verified', () => {
+        const m = allPass();
+        const r = runVerdict(m, ['J4.a'], 'cleanup incomplete (J4)');
+        expect(r.outcome).toBe('INCOMPLETE');
+        expect(r.scope.outcome).toBe('INCOMPLETE');
+        expect(r.reason).toContain('cleanup incomplete (J4)');
+        expect(r.scope.summary).toContain('cleanup incomplete (J4)');
+        expect(r.notGreen).toEqual([]);
+        expect(m.get('J4.a').outcome).toBe('PASS');
+    });
     it('is INCOMPLETE on a night where everything else passed, because J1.d and J8 have no adapter and J9.b is NOT RUN by design', () => {
         const r = runVerdict(everyLegRun());
         expect(r.outcome).toBe('INCOMPLETE');

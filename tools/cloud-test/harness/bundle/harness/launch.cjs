@@ -48,7 +48,7 @@ async function launchGuarded(opts) {
   const b = readJson(opts.browserJson);
   const owned=await ownedLaunch({signal:opts.signal,onPhase:opts.onPhase,
     prepareMedia:()=>opts.media ? mediaFlags(opts.media,opts.runDir,b.runAsUid,opts.privateMediaParent):null,
-    createGuard:()=>startGuard(opts.policy,{signal:opts.signal,runDir:opts.runDir,ledgerFile:opts.ledgerFile,logFile:opts.logFile,securityApprovalFile:opts.securityApprovalFile,readbackOracle:opts.readbackOracle,expectedLedgerIdentity:opts.expectedLedgerIdentity,reserveTake:opts.reserveTake,caseRequestAllowance:opts.caseRequestAllowance,onAllowanceExhausted:opts.onAllowanceExhausted,onFatal:opts.onFatal}),
+    createGuard:()=>startGuard(opts.policy,{signal:opts.signal,runDir:opts.runDir,ledgerFile:opts.ledgerFile,logFile:opts.logFile,securityApprovalFile:opts.securityApprovalFile,readbackOracle:opts.readbackOracle,expectedLedgerIdentity:opts.expectedLedgerIdentity,reserveTake:opts.reserveTake,reserveCoaching:opts.reserveCoaching,caseRequestAllowance:opts.caseRequestAllowance,onAllowanceExhausted:opts.onAllowanceExhausted,onFatal:opts.onFatal}),
     createBrowser:async(guard,media)=>{
       if(media)guard.log({kind:'media',sha256:media.sha256});
       return chromium.launch({env:childEnvironment({node:process.execPath,bundleRoot:path.resolve(__dirname,'..'),approvalFile:path.resolve(opts.securityApprovalFile),port:guard.port,spki:guard.spki}),executablePath:b.wrapperPath,chromiumSandbox:true,

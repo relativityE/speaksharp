@@ -1,6 +1,6 @@
 # Shared harness / exact-release proof
 
-The shared harness only admits the originally inspected `5a7bf6a1` source. The observed deployment `446e09fa` is not a compatible substitute merely because its SHA is known: at least 54 of the 462 inspected paths changed. This draft stages the implementation and acceptance plan only; it does not change the sealed adapter or register a live result.
+The shared harness only admits the originally inspected `5a7bf6a1` source. The observed deployment `446e09fa` is not a compatible substitute merely because its SHA is known: the comparison recorded 103 refusals (55 changed paths, 46 new inputs, two unresolved imports). This draft stages the implementation and acceptance plan only; it does not change the sealed adapter or register a live result.
 
 ## Implementation plan
 
@@ -14,6 +14,21 @@ The shared harness only admits the originally inspected `5a7bf6a1` source. The o
 8. **Review and verify the seal.** Inspect the exact adapter and trusted inputs independently, regenerate only the affected seal from reviewed bytes, run the harness verifier and relevant regression tests, then qualify the exact PR head through the protected merge.
 9. **Prepare bounded J4.a proof.** Against the named served build, record the save/reopen evidence still missing, account and write bounds, cleanup read-back, and stop conditions. After separate approval, run only that proof and record PASS, FAIL, HOLD or NOT RUN as observed. Leave full J1–J9 qualification open.
 
+## J4.a supervised entry point
+
+A JavaScript callback in the parent is not the execution path. The sealed `campaign-runner.cjs` starts the separate supervised `run-guarded.cjs` process and currently forwards only the numeric case allowance from the options. The child verifies and loads its sealed driver, and the parent receives case and process-cleanup receipts. Neither boundary currently carries the nightly reservation contract or structured server cleanup.
+
+1. At the parent, bind the proposed J4.a route to the exact run, case, attempt, plan/config hashes and served SHA already used by the runtime-start receipt. Keep the existing supervision and browser/network guards.
+2. At the supervised child, expose only the reviewed, narrowly scoped J4.a capability. Charge the existing nightly budget and record the guarded signup attempt before the corresponding operation. Browser observation after a request is not a reservation. No fallback to the ordinary unbound path.
+3. Return the server cleanup observation for the same run and case through the supervised boundary. The parent checks the binding and the confirmed guarded signup, rather than accepting a claim from the driver or trusting the browser/process-cleanup receipt.
+4. Prove with fake transport through both ends of the actual supervised invocation: absent or mismatched binding sends nothing, no replay after an ambiguous signup, a wrong account cannot clear the run, and interrupted cleanup cannot convert a prior observation into PASS. No live run until this proof and the release binding are reviewed.
+
+## J4.a cleanup contract
+
+The draft source adapter closes its own pages and contexts; it does not delete the account or check server residue. The case runner's browser/process cleanup receipt is not server cleanup evidence. At the protected owner-cleanup boundary, reuse structured results from the existing auth deletion readback and counted session and recording-lease queries where the real route can call that implementation. Keep its other table checks. Do not infer server cleanup from a browser stop, a text verdict, an account-only query, or the absence of a recorded take.
+
+The runner must bind observed account, session and lease results to the confirmed run-owned account from the guarded signup attempt. Verify that the zero counts are post-cleanup and for that exact scope. A missing or different scope, a missing query, a nonzero count for an unrecorded take, or an incomplete ownership link prevents acceptance and keeps next-run admission held. Test those cases through the actual entry point with fake transport; the current stubs alone do not establish this behavior. Report only content-free outcomes in retained evidence.
+
 ## Existing records
 
 - #1883 is already merged. Its harness-pin comment tracks this dependency. The fix does not activate or prove J1.d.
@@ -22,3 +37,29 @@ The shared harness only admits the originally inspected `5a7bf6a1` source. The o
 - #1876 supplies the compatibility check. #1874 keeps diagnostics separate from acceptance.
 
 No live dispatch, deployment, production migration, payment activation, or J1.d/J8 enablement is authorized by this draft.
+
+## Release-binding review checkpoint (comparison only)
+
+Scope: the comparison SHA `7c126ea625e20e36423b33d1f070fdfe48721674` is
+not a deployment candidate approval. Revalidating the old 462-input seal
+against it refuses reuse: 58 changed inputs, 47 additions to the graph, and
+two unresolved dynamic imports. Only matched hashes and an explicit reviewed
+dependency closure can admit a replacement inspection.
+
+- Parakeet's ignored dynamic import receives a Blob produced from verified
+  runtime bytes. The three committed runtime assets match their pinned sizes and
+  SHA-256 digests; four upstream model files are pinned by immutable revision,
+  digest and size. The browser must still verify the bytes when it fetches them.
+- Granite's ignored dynamic import takes the CTC core URL produced by the Vite
+  `ctc-core.js?url` import. Its separate ORT loader takes a Blob from verified
+  runtime bytes. Its nine assets have committed immutable revisions, sizes and
+  digests. Include both imports, the URL producer and the asset verifier.
+- Keep the unresolved result unless review binds the exact worker callsite,
+  producer, registry/package validation, asset inventories, runtime bytes
+  and build inputs. No exemption based on a Vite comment or incumbent model.
+  A changed or missing input, swapped role, changed bytes of the same length,
+  extra import, or unknown producer must keep admission closed.
+- Re-derive for the final exact candidate, inspect the changed paths, run the
+  wrong-release and changed-input controls, then separately verify the served
+  marker. Do not use the comparison SHA, a repository build, or a manifest
+  supplied by an unreviewed candidate as a substitute for the served build.

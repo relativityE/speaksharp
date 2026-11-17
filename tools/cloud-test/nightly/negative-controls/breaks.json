@@ -830,8 +830,8 @@
       "id": "P6-scope-lifts-suite",
       "guards": "the runnable-legs summary never changes the full-suite verdict",
       "file": "leg-verdicts.cjs",
-      "find": "return { outcome, reason, notGreen, scope: scopeVerdict(verdicts, scopeLegs, outcome) };",
-      "replace": "const scope = scopeVerdict(verdicts, scopeLegs, outcome);\n    return { outcome: scope?.outcome === 'PASS' ? 'PASS' : outcome, reason, notGreen, scope };",
+      "find": "return { outcome, reason: cleanupBlocker ? `${reason}; ${cleanupBlocker}` : reason, notGreen, scope: scopeVerdict(verdicts, scopeLegs, outcome, cleanupBlocker) };",
+      "replace": "const scope = scopeVerdict(verdicts, scopeLegs, outcome, cleanupBlocker);\n    return { outcome: scope?.outcome === 'PASS' ? 'PASS' : outcome, reason, notGreen, scope };",
       "test": "tests/leg-verdicts.test.cjs"
     },
     {
@@ -1270,8 +1270,8 @@
       "id": "P8-caseless-legs-no-account",
       "guards": "legs with no harness case yet add one account to their journey",
       "file": "cleanup-plan.cjs",
-      "find": "    return cases.size + caseless.size;\n}\n\nconst CLEANUP_REQUEST_DEADLINE_S",
-      "replace": "    return cases.size;\n}\n\nconst CLEANUP_REQUEST_DEADLINE_S",
+      "find": "    return cases.size + caseless.size;",
+      "replace": "    return cases.size;",
       "test": "tests/cleanup.test.cjs"
     },
     {
@@ -2033,6 +2033,166 @@
       "find": "const signsUpNothing = (caseId) => MAINTAINED_CASES.includes(caseId) || REUSING_INVOCATIONS.includes(caseId);",
       "replace": "const signsUpNothing = (caseId) => MAINTAINED_CASES.includes(caseId);",
       "test": "tests/cleanup.test.cjs"
+    },
+    {
+      "id": "P28-runner-ignores-cleanup-for-acceptance",
+      "guards": "interim and final reports cannot PASS before verified zero residue",
+      "file": "runner-bridge.cjs",
+      "find": "budget.allocatedLegs() : [], cleanupBlocker)",
+      "replace": "budget.allocatedLegs() : [], null)",
+      "test": "tests/j4a-bridge.test.cjs"
+    },
+    {
+      "id": "P29-j4a-no-required-residue-queries",
+      "guards": "a take missing from the creation ledger cannot narrow J4.a cleanup",
+      "file": "cleanup-plan.cjs",
+      "find": "['account', 'session', 'lease']",
+      "replace": "['account']",
+      "test": "tests/j4a-bridge.test.cjs"
+    },
+    {
+      "id": "P29-j4a-accepts-foreign-cleanup-scope",
+      "guards": "zero counts from a different account do not clear run-owned J4.a cleanup",
+      "file": "cleanup-evidence.cjs",
+      "find": "q?.kind === kind && q.scope === confirmedScope && isCount(q.count)",
+      "replace": "q?.kind === kind && isCount(q.count)",
+      "test": "tests/j4a-bridge.test.cjs"
+    },
+    {
+      "id": "P30-j4a-child-accepts-wrong-identity",
+      "guards": "the child must compare the offer against independently bound run and release",
+      "file": "j4a-supervised-binding.cjs",
+      "find": "|| !matches(NONCE, offer.nonce) || offer.digest !== digest)",
+      "replace": "|| !matches(NONCE, offer.nonce))",
+      "test": "tests/j4a-supervised-binding.test.cjs"
+    },
+    {
+      "id": "P30-j4a-parent-accepts-replayed-reply",
+      "guards": "an acknowledgement is valid only for its one supervisor challenge",
+      "file": "j4a-supervised-binding.cjs",
+      "find": "|| ack.digest !== digest || ack.nonce !== nonce)",
+      "replace": "|| ack.digest !== digest)",
+      "test": "tests/j4a-supervised-binding.test.cjs"
+    },
+    {
+      "id": "P31-j4a-store-omitted-accepted",
+      "guards": "every named store needs its own scoped zero: an omitted trial-email read is HOLD (Sam, 17 Nov, #1884)",
+      "file": "cleanup-evidence.cjs",
+      "find": "    for (const store of requiredStores) {",
+      "replace": "    for (const store of []) {",
+      "test": "tests/j4a-parent-teardown.test.cjs"
+    },
+    {
+      "id": "P31-j4a-store-foreign-scope",
+      "guards": "a store's zero counts only on the confirmed account scope",
+      "file": "cleanup-evidence.cjs",
+      "find": "q?.store === store && q.scope === confirmedScope && isCount(q.count)",
+      "replace": "q?.store === store && isCount(q.count)",
+      "test": "tests/j4a-parent-teardown.test.cjs"
+    },
+    {
+      "id": "P31-admin-allowance-unenforced",
+      "guards": "each phase's allowance is enforced per actual send at the admin transport",
+      "file": "admin-transport.cjs",
+      "find": "if (sent[phase] >= allowances[phase])",
+      "replace": "if (false)",
+      "test": "tests/j4a-parent-teardown.test.cjs"
+    },
+    {
+      "id": "P31-admin-deadline-unenforced",
+      "guards": "a stalled admin request is aborted at its per-request deadline",
+      "file": "admin-transport.cjs",
+      "find": "const timer = setTimeout(() => deadline.abort(",
+      "replace": "const timer = setTimeout(() => void (",
+      "test": "tests/j4a-parent-teardown.test.cjs"
+    },
+    {
+      "id": "P31-admin-caller-signal-dropped",
+      "guards": "caller cancellation still reaches the admin request",
+      "file": "admin-transport.cjs",
+      "find": "const signal = init.signal ? AbortSignal.any([init.signal, deadline.signal]) : deadline.signal;",
+      "replace": "const signal = deadline.signal;",
+      "test": "tests/j4a-parent-teardown.test.cjs"
+    },
+    {
+      "id": "P31-j4a-unsettled-not-named",
+      "guards": "a deletion refused for an unsettled save is a named HOLD, never bypassed or retried",
+      "file": "j4a-parent-teardown.cjs",
+      "find": "if (deleted === 'unsettled') return hold(",
+      "replace": "if (false) return hold(",
+      "test": "tests/j4a-parent-teardown.test.cjs"
+    },
+    {
+      "id": "P31-j4a-time-unknown-accepted",
+      "guards": "teardown with no known time left sends nothing",
+      "file": "j4a-parent-teardown.cjs",
+      "find": "if (typeof timeLeftMs !== 'function') return hold(",
+      "replace": "if (false) return hold(",
+      "test": "tests/j4a-parent-teardown.test.cjs"
+    },
+    {
+      "id": "P31-j4a-time-not-covering",
+      "guards": "teardown stops before the first delete when time cannot cover every remaining request at its deadline",
+      "file": "j4a-parent-teardown.cjs",
+      "find": "|| time < needed * deadlineMs)",
+      "replace": "|| false)",
+      "test": "tests/j4a-parent-teardown.test.cjs"
+    },
+    {
+      "id": "P31-j4a-no-transport-accepted",
+      "guards": "teardown without the bounded transport sends nothing",
+      "file": "j4a-parent-teardown.cjs",
+      "find": "    if (!transport || typeof transport.setPhase !== 'function' || typeof transport.remaining !== 'function' || typeof transport.fetch !== 'function')\n        return hold(",
+      "replace": "    if (false)\n        return hold(",
+      "test": "tests/j4a-parent-teardown.test.cjs"
+    },
+    {
+      "id": "P31-j4a-reread-email-unchecked",
+      "guards": "the preserved owner re-read by id must carry the reserved email before deletion",
+      "file": "j4a-parent-teardown.cjs",
+      "find": "if (reread?.error || String(reread?.data?.user?.email ?? '').toLowerCase() !== pre.email) return hold('the preserved owner re-read",
+      "replace": "if (reread?.error) return hold('the preserved owner re-read",
+      "test": "tests/j4a-parent-teardown.test.cjs"
+    },
+    {
+      "id": "P31-j4a-journal-missing-accepted",
+      "guards": "with no reviewed, run-bound save-journal path, teardown is HOLD before any request (Sam, 17 Nov)",
+      "file": "j4a-parent-teardown.cjs",
+      "find": "    if (!journal || typeof journal.settle !== 'function' || typeof journal.remove !== 'function' || typeof journal.readBack !== 'function'\n        || journal.bound?.runId !== runId || journal.bound?.owner !== owner)\n",
+      "replace": "    if (false)\n",
+      "test": "tests/j4a-parent-teardown.test.cjs"
+    },
+    {
+      "id": "P31-j4a-journal-read-by-service-role",
+      "guards": "the save journal is read back by the journal path, never by a service-role read the migration refuses",
+      "file": "j4a-parent-teardown.cjs",
+      "find": "            if (s.table === 'account_save_obligations') {",
+      "replace": "            if (false) {",
+      "test": "tests/j4a-parent-teardown.test.cjs"
+    },
+    {
+      "id": "P31-j4a-journal-not-removed",
+      "guards": "completed journal rows survive the Auth delete, so teardown removes them after it",
+      "file": "j4a-parent-teardown.cjs",
+      "find": "    if (await step('remove-save-journal', () => journal.remove(owner)) !== 'done') return hold(",
+      "replace": "    if (false) return hold(",
+      "test": "tests/j4a-parent-teardown.test.cjs"
+    },
+    {
+      "id": "P31-j4a-admission-without-journal",
+      "guards": "no reviewed save-journal cleanup capability is HOLD at pilot admission: no lock, admin client, launch or signup (Sam, 17 Nov)",
+      "file": "j4a-nightly-entry.cjs",
+      "find": "    if (journalFault) return { exitCode: 78, reason: journalFault };\n",
+      "replace": "",
+      "test": "tests/j4a-nightly-entry.test.cjs"
+    },
+    {
+      "id": "P31-j4a-hooks-without-journal",
+      "guards": "the J4.a composition refuses to exist without the save-journal cleanup capability (defense in depth)",
+      "file": "j4a-nightly-entry.cjs",
+      "find": "    const fault = saveJournalCapabilityFault(saveJournal);\n    if (fault) throw new Error(fault);\n",
+      "replace": "",
+      "test": "tests/j4a-nightly-entry.test.cjs"
     }
   ]
 }
