@@ -42,8 +42,7 @@ concurrency:
 jobs:
   three-session-retention-proof:
     environment: production-db
-    # Pinned (#1840): ubuntu-latest is ubuntu-26.04, where the pinned Playwright 1.57 has no Chromium build; this job installs Playwright.
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     # REVISED after attempt 4 (run 32792672770), which hit the spec's 25-minute test ceiling while
     # stalled at `modelStatus: download-required`. Direct probes ruled out the environmental causes:
     # the deployed app is correctly cross-origin isolated, and the full 77MB model serves in ~2.5s.

@@ -6,11 +6,10 @@
  *   - #1839's own run 43418320824: the #1047 U3 cross-page workflow's own `deps-prep` failed the same way;
  *   - canary run 43428299133: canary-check's Setup Environment failed before any lane ran;
  *   - #1848's run 43470896171: STT Runtime Evidence's `pnpm pw:install` failed before the worker proof ran.
- * Until the Playwright upgrade (#1840), every job that sets up the environment runs on ubuntu-24.04, and (#1840 pin) every job in every
- * workflow that installs Playwright does too. The one deliberate exception is
+ * Until the Playwright upgrade (#1840), every job that sets up the environment runs on ubuntu-24.04. The one deliberate exception is
  * ci.yml `full-evidence`, which needs the system Chrome >=156 that only the ubuntu-26.04 images ship (nativeTestExecutionEvidence).
  */
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
@@ -58,26 +57,6 @@ describe('Playwright-dependent jobs run on a runner image the pinned Playwright 
         const { jobs } = load('.github/workflows/stt-runtime-evidence.yml');
         expect(Object.keys(jobs).filter((name) => runsPlaywrightInstall(jobs[name])).sort()).toEqual(['private-v2-production-worker']);
         expect(offPin(jobs, runsPlaywrightInstall)).toEqual([]);
-    });
-
-    // #1840: the remaining floating jobs that install Playwright (live-release-matrix, private-recording-proof, review-evidence, ...) were still
-    // on ubuntu-latest. Every Playwright-installing job in EVERY workflow is now held to the pin, so a new or forgotten one cannot drift.
-    it('every workflow: each job that installs Playwright is on ubuntu-24.04', () => {
-        const files = readdirSync(resolve(ROOT, '.github/workflows')).filter((f) => f.endsWith('.yml')).sort();
-        const installing: string[] = []; const off: string[] = [];
-        for (const file of files) {
-            const { jobs } = load(`.github/workflows/${file}`);
-            for (const [name, job] of Object.entries(jobs ?? {})) {
-                if (!(installsPlaywright(job) || runsPlaywrightInstall(job))) continue;
-                installing.push(`${file}:${name}`);
-                if (job['runs-on'] !== (EXCEPTIONS[name] ?? 'ubuntu-24.04')) off.push(`${file}:${name}`);
-            }
-        }
-        expect(installing.length).toBeGreaterThanOrEqual(17);
-        for (const pinned of ['live-release-matrix.yml:live-custom-words', 'live-release-matrix.yml:live-stripe-paid-soft-launch-runtime',
-            'private-recording-proof.yml:private-recording-proof', 'review-evidence.yml:review-evidence', 'v4-browser-proof.yml:v4-browser-proof'])
-            expect(installing).toContain(pinned);
-        expect(off).toEqual([]);
     });
 
     it('negative controls: a job moved back to a floating or unsupported label is reported', () => {

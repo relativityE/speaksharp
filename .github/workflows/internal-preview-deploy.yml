@@ -37,8 +37,7 @@ concurrency:
 jobs:
   internal-preview:
     name: internal-preview
-    # Pinned (#1840): ubuntu-latest is ubuntu-26.04, where the pinned Playwright 1.57 has no Chromium build; this job installs Playwright.
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: preview
     steps:

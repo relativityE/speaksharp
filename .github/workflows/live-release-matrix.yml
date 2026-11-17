@@ -36,8 +36,7 @@ jobs:
   live-custom-words:
     environment: trusted-main-credentials
     if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'custom-words' }}
-    # Pinned (#1840): ubuntu-latest is ubuntu-26.04, where the pinned Playwright 1.57 has no Chromium build; this job installs Playwright.
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - name: Checkout Code
@@ -171,8 +170,7 @@ jobs:
   live-stripe-paid-soft-launch-runtime:
     environment: trusted-main-credentials
     if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'stripe-paid-soft-launch-runtime' }}
-    # Pinned (#1840): ubuntu-latest is ubuntu-26.04, where the pinned Playwright 1.57 has no Chromium build; this job installs Playwright.
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - name: Checkout Code
