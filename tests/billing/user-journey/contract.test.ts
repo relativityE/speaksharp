@@ -2,7 +2,8 @@ import { strict as assert } from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { test } from 'vitest';
 import { RUNNER_JOURNEYS, POLICY_PENDING_STEPS, REQUIRED_STEPS, receipt, assertTestPrice, assertInvoice,
-  isCorrelatedDelivery, assertSandboxConfiguration, safeFailureReason, testClockCreateFields, localStackStatus } from './contract';
+  isCorrelatedDelivery, assertSandboxConfiguration, safeFailureReason, testClockCreateFields, localStackStatus,
+  hostedFieldUnavailable, type HostedField } from './contract';
 import { finaliseLocalStackReceipt, RECEIPT_KEYS } from './localStackReceipt.mjs';
 import { stackIdentitySha256 } from './localStackResources.mjs';
 
@@ -83,6 +84,19 @@ test('failure receipts preserve safe codes, not raw provider/credential-bearing 
   for (const value of [new Error('provider replied with a private URL'), new Error('BILLING_JOURNEY:https://private.example.com'), null]) {
     assert.equal(safeFailureReason(value), 'unclassified_step_failure');
   }
+});
+test('a missing hosted field is named (run 44055010939 could not say which), content-free, and survives the reason sanitizer', () => {
+  const fields: HostedField[] = ['email', 'card_number', 'card_expiry', 'card_cvc'];
+  for (const field of fields) {
+    for (const [choice, suffix] of [[false, ''], [true, '_card_choice_shown'], [null, '_choice_unread']] as const) {
+      const code = hostedFieldUnavailable(field, choice);
+      assert.equal(code, `hosted_field_unavailable_${field}${suffix}`);
+      // The receipt keeps exactly this code: it is a closed [a-z_] token under 80 characters.
+      assert.equal(safeFailureReason(new Error(`BILLING_JOURNEY:${code}`)), code);
+    }
+  }
+  // An unknown field name is refused, never reported as a free-form string.
+  assert.throws(() => hostedFieldUnavailable('card_holder' as HostedField, false), /BILLING_JOURNEY:hosted_field_unknown/);
 });
 test('local disposable stack admits loopback http only, and only under its own committed target', async () => {
   const localTarget = (await import('./sandbox-target.local.json', { with: { type: 'json' } })).default;
