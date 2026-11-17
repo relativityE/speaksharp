@@ -963,13 +963,21 @@ export const REVIEWED_UNRELATED_MIGRATIONS=Object.freeze([
   Object.freeze({name:'20261112130000_stripe_refund_followups.sql',version:'20261112130000',
     sha256:'47fce28446a1e8f56c27dd10a6bb92e803a5907db0fd9d7fa67cbf11f9701fe8'}),
 ]);
+// #1835 changes session/coaching behavior, but no historical profile installs it.
+// This pin recognizes repository presence; it is not proof of installed privacy behavior.
+const PRACTICE_PRIVACY_MIGRATION=Object.freeze({name:'20261117105700_practice_privacy_choices_1835.sql',
+  version:'20261117105700',sha256:'e864b6bb8b47d7848a66f1465a1ec110a9df134c904f14f10e45c30a7fed3cbf'});
+const COMMON_WITHHELD_MIGRATIONS=Object.freeze([
+  PAYMENT_WALL_MIGRATION,
+  ...REVIEWED_UNRELATED_MIGRATIONS,
+  PRACTICE_PRIVACY_MIGRATION,
+]);
 export const REVIEWED_WITHHELD_MIGRATIONS=Object.freeze([
   START_ABANDONMENT_MIGRATION,
   FEEDBACK_FENCE_MIGRATION,
-  PAYMENT_WALL_MIGRATION,
   Object.freeze({name:'20261110173548_account_coaching_local_retirement.sql',version:'20261110173548',
     sha256:'cc3ee4369dec74d2926557128a06265fb3019077b018cdc5dc848f055a6f8e04'}),
-  ...REVIEWED_UNRELATED_MIGRATIONS,
+  ...COMMON_WITHHELD_MIGRATIONS,
 ]);
 
 export function parseMainProofArguments(args) {
@@ -998,9 +1006,9 @@ export function buildMainU1ReplayPlan(rows, profile = 'main-120') {
   const repositoryVersioned = actual.filter(row => row.version !== null);
   assert.equal(new Set(repositoryVersioned.map(row => row.version)).size, repositoryVersioned.length, 'duplicate migration version');
   const withheldPins=profile===RETIREMENT_PROFILE
-    ?[MAIN_COMPLETION_BILLING_MIGRATION,START_ABANDONMENT_MIGRATION,FEEDBACK_FENCE_MIGRATION,PAYMENT_WALL_MIGRATION,...REVIEWED_UNRELATED_MIGRATIONS]
-    :profile===ABANDONMENT_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION,FEEDBACK_FENCE_MIGRATION,PAYMENT_WALL_MIGRATION,...REVIEWED_UNRELATED_MIGRATIONS]
-    :profile===FEEDBACK_FENCE_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION,PAYMENT_WALL_MIGRATION,...REVIEWED_UNRELATED_MIGRATIONS]
+    ?[MAIN_COMPLETION_BILLING_MIGRATION,START_ABANDONMENT_MIGRATION,FEEDBACK_FENCE_MIGRATION,...COMMON_WITHHELD_MIGRATIONS]
+    :profile===ABANDONMENT_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION,FEEDBACK_FENCE_MIGRATION,...COMMON_WITHHELD_MIGRATIONS]
+    :profile===FEEDBACK_FENCE_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION,...COMMON_WITHHELD_MIGRATIONS]
     :REVIEWED_WITHHELD_MIGRATIONS;
   const withheld=actual.filter(row=>withheldPins.some(pin=>pin.name===row.name));
   for(const row of withheld) assert.equal(row.sha256,withheldPins.find(pin=>pin.name===row.name).sha256,
