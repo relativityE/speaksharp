@@ -50,7 +50,7 @@ function validateReusedAdmission(receipt,plan){
 // only from the trusted residue reader held here (`trustedResidue(kind, scope)`), scoped to the confirmed create. Without
 // `opts.nightly` the ordinary path below is unchanged.
 const J4A_CASE='AHT-05';
-function createAdapter(plan,bundle,{executeR0=false,commandRunner=supervisedCommand,reusedAdmissionFile=null,reusedAdmissionSha256=null,trustedResidue=null,j4aTeardown=null,j4aOwner=null}={}) {
+function createAdapter(plan,bundle,{executeR0=false,commandRunner=supervisedCommand,reusedAdmissionFile=null,reusedAdmissionSha256=null,trustedResidue=null,j4aTeardown=null,j4aOwner=null,verifyJ4aStopped=null}={}) {
  const root=path.resolve(plan.runRoot),admissionDir=path.join(root,'admission'),admissionFile=path.join(admissionDir,'admission-receipt.json');let cfg=null,admission=null,interrupted=false;const configs=new Map();
  const timeout=max=>Math.max(1,Math.min(max,Date.parse(plan.deadlineAt)-Date.now()-plan.cleanupReserveMs));
  const command=async(argv,maxMs,env,extra={})=>{if(interrupted)throw new Error('BLOCKED_SETUP: campaign cancelled');const r=await commandRunner(process.execPath,argv,{cwd:cfg?.checkoutDir||process.cwd(),timeout:timeout(maxMs),cleanupReserveMs:plan.cleanupReserveMs,...extra},{env});if(r.reason?.startsWith('signal:')||r.reason==='parent-lost'||r.cleanupIncomplete)interrupted=true;return r;};
@@ -92,18 +92,47 @@ function createAdapter(plan,bundle,{executeR0=false,commandRunner=supervisedComm
    const j4a=c.id===J4A_CASE&&opts?.nightly&&typeof opts.nightly.send==='function';let channel=null;
    if(j4a)args.push('--j4a-binding','true','--runtime-start',runtimeStartFile,'--runtime-start-sha256',runtimeStartSha256);
    const r=await command(args,c.maxMs+plan.cleanupReserveMs,caseEnvironment(configs.get(c.id)),j4a?{ipc:child=>{const {attachParentChannel}=require('../../../nightly/j4a-supervised-channel.cjs');channel=attachParentChannel({port:child,identity:{campaignId:runtimeStart.campaignId,runId:runtimeStart.runId,attempt:1,caseId:c.id,requestSha256:runtimeStart.requestSha256,planSha256:runtimeStart.planSha256,configSha256:runtimeStart.configSha256,sourceSha:runtimeStart.sourceSha,servedSha:runtimeStart.servedSha},nightly:opts.nightly,confirmOwner:typeof j4aOwner==='function'?(lookupRef)=>j4aOwner({nightly:opts.nightly,confirmedAccount:lookupRef}):undefined});}}:{});
-   let nightlyCleanup=null,j4aBinding=null;
-   if(j4a){const readResidue=typeof trustedResidue==='function'?async(kind,scope)=>{const x=await opts.nightly.cleanup('J4.a',()=>trustedResidue(kind,scope));return x.sent?x.value:null;}:undefined;const out=channel?await channel.outcome({readResidue}):null;nightlyCleanup=out?.nightlyCleanup??{steps:[],left:[]};j4aBinding={bound:Boolean(out?.digest),refused:out?.refused??'no supervised channel',violations:out?.violations??[]};
-    // #1884 (Sam, 17 Nov): parent-owned teardown once the child has ENDED. It establishes ownership itself (durable record, reserved email,
-    // independent lookup) and never takes an id from the child; its result replaces any child report. Pages closed is the child's own
-    // owned-pages-closed row read from its case result; a missing row is not closed.
-    if(typeof j4aTeardown==='function'&&out?.digest){let pagesClosed=false;try{const rf=path.join(dir,'case-result.json');pagesClosed=fs.existsSync(rf)&&(JSON.parse(fs.readFileSync(rf,'utf8')).assertions||[]).some(x=>x.id==='owned-pages-closed'&&x.result==='PASS');}catch{pagesClosed=false;}
-     const td=await j4aTeardown({nightly:opts.nightly,confirmedAccount:out.confirmedAccount,preservedOwner:out.confirmedOwner,childClosed:{exited:Number.isInteger(r.status)&&r.cleanupIncomplete!==true,ownedPagesClosed:pagesClosed}});nightlyCleanup=td.nightlyCleanup;j4aBinding.teardownHold=td.hold;}
-    // Sam (seal review): a protocol violation (wrong-kind or replayed reply) is never accepted alongside a verification: the cleanup still ran,
-    // but its verification is withheld (cleanup unproven) and the case is a safety stop.
-    if(j4aBinding.violations.length>0){if(nightlyCleanup?.verification){const {verification:_withheld,...rest}=nightlyCleanup;nightlyCleanup=rest;}j4aBinding.violationStop=true;}}const resultFile=path.join(dir,'case-result.json'),summaryFile=path.join(dir,'summary.json');const result=fs.existsSync(resultFile)?JSON.parse(fs.readFileSync(resultFile,'utf8')):{assertions:[]};const summary=fs.existsSync(summaryFile)?JSON.parse(fs.readFileSync(summaryFile,'utf8')):null;
+   const resultFile=path.join(dir,'case-result.json'),summaryFile=path.join(dir,'summary.json');
+   const result=fs.existsSync(resultFile)?JSON.parse(fs.readFileSync(resultFile,'utf8')):{assertions:[]};
+   const summary=fs.existsSync(summaryFile)?JSON.parse(fs.readFileSync(summaryFile,'utf8')):null;
    for(const [ref,digest]of Object.entries(result.evidenceDigests||{})){const file=path.resolve(dir,ref);if(!file.startsWith(dir+path.sep)||sha(fs.readFileSync(file))!==digest)throw new Error('case evidence missing/tampered');}
    const boundary=evaluateCaseBoundary(result,summary,r);
+   let nightlyCleanup=null,j4aBinding=null;
+   if(j4a){
+    const hasTeardown=typeof j4aTeardown==='function';
+    const readResidue=!hasTeardown&&typeof trustedResidue==='function'?async(kind,scope)=>{const x=await opts.nightly.cleanup('J4.a',()=>trustedResidue(kind,scope));return x.sent?x.value:null;}:undefined;
+    const out=channel?await channel.outcome({readResidue}):null;
+    nightlyCleanup=out?.nightlyCleanup??{steps:[],left:[]};
+    j4aBinding={bound:Boolean(out?.digest),refused:out?.refused??(out?null:'no supervised channel'),violations:out?.violations??[]};
+    if(hasTeardown){
+     // Child-reported cleanup is not parent evidence or teardown authority.
+     nightlyCleanup={steps:[],left:out?.confirmedAccount?[{kind:'account',ref:out.confirmedAccount}]:[]};
+     const ce=summary?.cleanupEvidence;
+     const pagesClosed=result.assertions?.some(x=>x.id==='owned-pages-closed'&&x.result==='PASS')===true;
+     const cleanClose=r.status===0&&r.reason===null&&r.signal===null&&r.cleanupIncomplete===false
+        &&summary?.reason==='completed'&&summary.exitCode===0&&Array.isArray(summary.ownedProcessesRemaining)&&summary.ownedProcessesRemaining.length===0
+        &&ce?.schema==='speaksharp.cloud-test.case-cleanup-evidence.v1'&&ce.ownedProcessesRemaining===0&&ce.guardClosed===true
+        &&['launchCleanupFailure','mediaCleanupFailure','stopError','browserCloseError'].every(k=>ce[k]===false);
+     const expected={binding:out?.digest,runId:runtimeStart.runId,owner:out?.confirmedOwner};
+     const {readJ4aStoppedWriters}=require('../../../nightly/j4a-writer-evidence.cjs');
+     let stopped=null;
+     if(!out?.digest||out.refused||j4aBinding.violations.length)j4aBinding.teardownHold='the supervised identity binding is absent, refused or violated';
+     else if(!out.confirmedOwner)j4aBinding.teardownHold='no owner was preserved at binding';
+     else if(!cleanClose||!pagesClosed||boundary.safetyStop)j4aBinding.teardownHold='the child did not complete a clean supervised close';
+     else {
+      // No production verifier is wired. The explicit module-level seam is exercised only by offline fixtures;
+      // neither CLI nor IPC may supply a verifier or brand evidence.
+      if(typeof verifyJ4aStopped==='function'){try{stopped=await verifyJ4aStopped(expected);}catch{/* no evidence */}}
+      if(!readJ4aStoppedWriters(stopped,expected))j4aBinding.teardownHold='no verified stopped-writer evidence for this run and owner';
+      else {
+       const td=await j4aTeardown({nightly:opts.nightly,confirmedAccount:out.confirmedAccount,preservedOwner:out.confirmedOwner,
+        childClosed:{exited:true,ownedPagesClosed:true},stopped,binding:expected.binding});
+       nightlyCleanup=td.nightlyCleanup;j4aBinding.teardownHold=td.hold;
+      }
+     }
+    }
+    if(j4aBinding.violations.length>0){if(nightlyCleanup?.verification){const {verification:_withheld,...rest}=nightlyCleanup;nightlyCleanup=rest;}j4aBinding.violationStop=true;}
+   }
    // r15: outcome classes (what each result MEANS) and the case's cleanup receipt, both from the case's own sanitized files.
    let outcomeClasses=null;try{const {classifyCase}=require('./outcome-class.cjs'),facts={};for(const a of result.assertions||[]){const ref=(a.evidenceRefs||[])[0];if(!ref)continue;try{const f=path.resolve(dir,ref);if(f.startsWith(dir+path.sep))facts[a.id]=JSON.parse(fs.readFileSync(f,'utf8')).facts;}catch{/* evidence unreadable */}}outcomeClasses=classifyCase(result.assertions||[],facts);}catch{outcomeClasses=null;}
    const cleanup=summary?{ownedProcessesRemaining:Array.isArray(summary.ownedProcessesRemaining)?summary.ownedProcessesRemaining.length:null,exitCode:r.status,reason:typeof summary.reason==='string'&&/^[a-z-]{1,40}$/.test(summary.reason)?summary.reason:'other',endedAt:summary.endedAt||null}:null;

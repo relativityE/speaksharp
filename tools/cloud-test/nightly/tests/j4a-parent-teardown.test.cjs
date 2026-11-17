@@ -12,6 +12,8 @@ const { boundedAdminTransport } = require('../admin-transport.cjs');
 const { j4aRequiredStores } = require('../residue-inventory.cjs');
 const { unprovenCleanup } = require('../cleanup-evidence.cjs');
 
+const { offlineWriterProof } = require('./fixtures/j4a-writer-proof.cjs');
+const BINDING = 'd'.repeat(64);
 const RUN = '41325698722';
 const REF = `rwt-journey-j4-${RUN}-1`;
 const EMAIL = `${REF}@example.com`;
@@ -79,7 +81,8 @@ const bindTransport = () => boundedAdminTransport({ fetchImpl: async () => ({}),
 const okTransport = () => boundedAdminTransport({ fetchImpl: async () => ({}), deadlineMs: 10_000, allowances: { bind: 0, teardown: 70 } });
 const teardownArgs = (a, over = {}) => ({ nightly: fakeNightly(), admin: a.admin, transport: okTransport(), timeLeftMs: () => 700_000, saveJournal: a.journal(),
     createRecord: record(), runId: RUN, configuredDomain: 'example.com', confirmedAccount: REF,
-    childClosed: { exited: true, ownedPagesClosed: true }, preservedOwner: OWNER, ...over });
+    childClosed: { exited: true, ownedPagesClosed: true }, preservedOwner: OWNER, binding: BINDING,
+    stopped: offlineWriterProof({ binding: BINDING, runId: RUN, owner: OWNER }), ...over });
 
 // ---- Control 1: per-store identity; an omitted trial-email query is HOLD ----
 test('positive: one scoped zero per required store, each carrying its own store identity; the bridge rule accepts it', async () => {
@@ -188,19 +191,33 @@ test('CONTROL: an unsettled admitted save makes the delete refuse: named HOLD, n
     assert.ok(a.st.users.some((u) => u.id === OWNER), 'the account remains (and is reported left)');
 });
 
+test('CONTROL: zero closable takes does not authorize teardown without a verified run-bound writer capability', async () => {
+    for (const stopped of [null, { writersClosedAt: 1, unsettledSaveIds: [] }, offlineWriterProof({ binding: 'f'.repeat(64), runId: RUN, owner: OWNER }),
+        offlineWriterProof({ binding: BINDING, runId: 'foreign-run', owner: OWNER }), offlineWriterProof({ binding: BINDING, runId: RUN, owner: 'foreign-owner' })]) {
+        const a = fakeAdmin(); // Completed takes only; old code would have entered destructive teardown.
+        const args = teardownArgs(a, { stopped });
+        const r = await j4aParentTeardown(args);
+        assert.deepEqual([a.st.calls, args.nightly.used], [[], 0]);
+        assert.match(r.hold, /no verified stopped-writer evidence/);
+        assert.ok(a.st.users.some((u) => u.id === OWNER));
+        assert.equal(r.nightlyCleanup.verification, undefined);
+    }
+});
+
 test('settlement: an open take with no stopped-writer proof stops BEFORE any delete; with the proof it is closed first, then deleted', async () => {
     const open = [{ id: 'take-1', user_id: OWNER, status: 'active', lease_id: 'lease-1', recording_fenced_at: null }];
     const a = fakeAdmin({ rows: { sessions: open.map((x) => ({ ...x })) } });
-    const r = await j4aParentTeardown(teardownArgs(a));
-    assert.match(r.hold, /open take needs settlement/);
+    const r = await j4aParentTeardown(teardownArgs(a, { stopped: null }));
+    assert.match(r.hold, /no verified stopped-writer evidence/);
     assert.equal(a.st.calls.filter((c) => /^delete|deleteUser/.test(c)).length, 0);
     const b = fakeAdmin({ rows: { sessions: open.map((x) => ({ ...x })) } });
-    const ok = await j4aParentTeardown(teardownArgs(b, { stopped: { writersClosedAt: 1, unsettledSaveIds: [] } }));
+    const ok = await j4aParentTeardown(teardownArgs(b));
     assert.equal(ok.hold, null);
     assert.ok(b.st.calls.indexOf('update:sessions') < b.st.calls.indexOf('deleteUser'));
     const c = fakeAdmin({ rows: { sessions: open.map((x) => ({ ...x })) } });
     const inflight = await j4aParentTeardown(teardownArgs(c, { stopped: { writersClosedAt: 1, unsettledSaveIds: ['TAKE-1'] } }));
-    assert.match(inflight.hold, /may still be admitted/);
+    assert.match(inflight.hold, /no verified stopped-writer evidence/);
+    assert.deepEqual(c.st.calls, []);
 });
 
 test('settlement: an unsettleable take or a lease with no take stops before any delete', async () => {

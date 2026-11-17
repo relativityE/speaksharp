@@ -44,5 +44,6 @@ const pagesClosed = { id: 'owned-pages-closed', result: 'PASS', detail: 'offline
     wire(`owner:${owner.ok ? (owner.ownerId === uid ? 'confirmed-matches-page' : 'confirmed-other') : 'hold'}`);
     if (!owner.ok || owner.ownerId !== uid) return finishCase([pagesClosed], 'step-error', 1); // unbound: no Start, no save fault, no readback
     await routes.pressStart(async () => { wire('start-click'); db((d) => { d.sessions.push({ id: 'take-1', user_id: uid, status: 'completed', lease_id: 'lease-1', recording_fenced_at: null }); d.active_recording_lease.push({ user_id: uid, lease_id: 'lease-1' }); (d.account_save_obligations ??= []).push({ user_id: uid, lease_id: 'lease-1', phase: 'completed' }); }); });
+    if (process.env.J4A_FAKE_VIOLATION === '1') await new Promise((resolve, reject) => { process.send({ t: 'done', id: 'unsolicited' }, (e) => e ? reject(e) : resolve()); });
     return finishCase([pagesClosed], 'completed', 0);
 })();

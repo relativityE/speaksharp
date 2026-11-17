@@ -30,6 +30,7 @@ const { enumerateUsers, exactEmailLookup } = require('./account-lookup.cjs');
 const { reservationEmail } = require('./account-reservation.cjs');
 const { isCount } = require('./counts.cjs');
 const { LEG, RUN_OWNED_PREFIX } = require('./j4a-guarded-step.cjs');
+const { readJ4aStoppedWriters } = require('./j4a-writer-evidence.cjs');
 const { j4aRequiredStores } = require('./residue-inventory.cjs');
 
 const isNotFound = (e) => !!e && e.status === 404 && /user_not_found|not[_\s-]?found|does not exist|no user/i.test(`${e.code ?? ''} ${e.message ?? ''}`);
@@ -89,13 +90,13 @@ async function confirmJ4aOwner({ admin, transport, createRecord, runId, configur
 }
 
 /**
- * TEARDOWN. `preservedOwner`: the owner confirmed at bind (required). `stopped`: { writersClosedAt, unsettledSaveIds } from the parent's own
- * observation of the ended child, or null (no take is then closed). `transport` (required): the admin client's bounded transport, whose
+ * TEARDOWN. `preservedOwner`: the owner confirmed at bind. `stopped`: a verified parent-only stopped-writer capability
+ * for this binding, run and owner. Missing proof refuses all inline teardown, including when no takes need closing. `transport` (required): the admin client's bounded transport, whose
  * per-request deadline and teardown allowance are enforced where requests are sent. `timeLeftMs()` (required): teardown's remaining time;
  * unknown time is HOLD, never "unbounded". Resolves { hold, nightlyCleanup }.
  */
 async function j4aParentTeardown({ nightly, admin, transport, createRecord, runId, configuredDomain, confirmedAccount, childClosed, preservedOwner,
-    stopped = null, deadlineMs = transport?.deadlineMs ?? null, timeLeftMs = null, saveJournal = null, storesSource }) {
+    stopped = null, binding = null, deadlineMs = transport?.deadlineMs ?? null, timeLeftMs = null, saveJournal = null, storesSource }) {
     const steps = [];
     const ref = typeof createRecord?.sent?.lookupRef === 'string' ? createRecord.sent.lookupRef : null;
     const hold = (reason, left = ref ? [{ kind: 'account', ref }] : []) => ({ hold: reason, nightlyCleanup: { steps: [...steps], left } });
@@ -105,6 +106,8 @@ async function j4aParentTeardown({ nightly, admin, transport, createRecord, runI
     if (pre.hold) return hold(pre.hold);
     if (typeof preservedOwner !== 'string' || !UUID.test(preservedOwner)) return hold('no owner was preserved at binding, so teardown cannot know whom to delete (recovery required)');
     const owner = preservedOwner;
+    if (!readJ4aStoppedWriters(stopped, { binding, runId, owner }))
+        return hold('no verified stopped-writer evidence for this run and owner, so nothing is sent or deleted');
     let stores;
     try { stores = j4aRequiredStores(storesSource); } catch { return hold('the required store inventory could not be read'); }
     // Nothing is sent unless both bounds exist: the transport that enforces the deadline and allowance, and a clock for the time left.
@@ -139,15 +142,7 @@ async function j4aParentTeardown({ nightly, admin, transport, createRecord, runI
     const c = classifyTakes(takes.rows);
     if (c.unsettleable > 0) return hold(`${c.unsettleable} take(s) cannot be settled, so the unsettled-save guard would refuse deletion`);
     if (leaseOnlyTakes(takes.leases.map((x) => x.lease_id), takes.rows) > 0) return hold('a lease is held with no take under it, so the unsettled-save guard would refuse deletion');
-    let toClose = [];
-    if (c.closable.length > 0) {
-        const unsettled = stopped?.unsettledSaveIds;
-        if (!stopped || !Number.isFinite(stopped.writersClosedAt) || !Array.isArray(unsettled))
-            return hold('an open take needs settlement, but the stopped-writer and unsettled-save proof is missing');
-        const inFlight = new Set(unsettled.map((x) => String(x).toLowerCase()));
-        if (c.closable.some((r) => inFlight.has(String(r.id).toLowerCase()))) return hold('an open take has a save that may still be admitted, so it is not closed');
-        toClose = c.closable;
-    }
+    const toClose = c.closable; // The verified parent capability refuses any unresolved writer, not just observed open takes.
 
     // 4. Before the FIRST delete: every remaining request fits the remaining reserve, the transport allowance and the time left.
     const needed = toClose.length + 5 + stores.length; // closes, journal settle, pre-delete, delete, proof, journal remove, one read per store

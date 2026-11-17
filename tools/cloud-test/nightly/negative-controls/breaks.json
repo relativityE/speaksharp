@@ -2193,6 +2193,14 @@
       "find": "    const fault = saveJournalCapabilityFault(saveJournal);\n    if (fault) throw new Error(fault);\n",
       "replace": "",
       "test": "tests/j4a-nightly-entry.test.cjs"
+    },
+    {
+      "id": "P32-j4a-teardown-allowed-without-stopped-writers",
+      "guards": "completed takes cannot let an unauthenticated stopped-writer claim authorize J4.a teardown",
+      "file": "j4a-parent-teardown.cjs",
+      "find": "if (!readJ4aStoppedWriters(stopped, { binding, runId, owner }))",
+      "replace": "if (false)",
+      "test": "tests/j4a-parent-teardown.test.cjs"
     }
   ]
 }

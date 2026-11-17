@@ -30,6 +30,7 @@ function journalCapability(dbFile, transport, calls = []) {
         readBack: async (uid) => { calls.push('journal:readBack'); await transport.fetch('admin://journal'); return { count: (read().account_save_obligations ?? []).filter((r) => r.user_id === uid).length, error: null }; },
     }) };
 }
+const { offlineWriterProof } = require('./fixtures/j4a-writer-proof.cjs');
 const CHILD = path.join(__dirname, 'fixtures', 'j4a-entry-child.cjs');
 const hash = (b) => crypto.createHash('sha256').update(b).digest('hex');
 const sha = 'b'.repeat(40);
@@ -58,7 +59,7 @@ function fakeAdmin(dbFile, transport) {
     } };
 }
 
-function setup(t, { preUsers = [], caseExtra = {}, journal = true } = {}) {
+function setup(t, { preUsers = [], caseExtra = {}, journal = true, writerProof = true, forcedClose = false, protocolViolation = false } = {}) {
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'j4a-entry-')));
     const checkout = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'j4a-entry-checkout-')));
     fs.chmodSync(root, 0o700);
@@ -103,13 +104,14 @@ function setup(t, { preUsers = [], caseExtra = {}, journal = true } = {}) {
         }
         assert.ok(args[0].endsWith(path.join('harness', 'run-guarded.cjs')));
         envs.push({ kind: 'case', env: { ...(deps?.env ?? {}) } });
-        return supervisedCommand(node, [CHILD, ...args.slice(1)], options, { env: { ...deps.env, PATH: process.env.PATH, J4A_WIRE: wireFile, J4A_DB: dbFile, J4A_UID: UID } });
+        const r = await supervisedCommand(node, [CHILD, ...args.slice(1)], options, { env: { ...deps.env, PATH: process.env.PATH, J4A_WIRE: wireFile, J4A_DB: dbFile, J4A_UID: UID, J4A_FAKE_VIOLATION: protocolViolation ? '1' : '0' } });
+        return forcedClose ? { ...r, reason: 'command-deadline' } : r;
     };
     const evidenceDir = path.join(root, 'evidence'); fs.mkdirSync(evidenceDir);
     const transport = j4aAdminTransport(async () => ({}));
     const fa = fakeAdmin(dbFile, transport);
     const saveJournal = journal ? journalCapability(dbFile, transport, fa.calls) : undefined;
-    const composed = composeJ4aNightly({ plan, bundle: B, admin: fa.admin, transport, saveJournal, configuredDomain: 'example.com', adapterOptions: { commandRunner },
+    const composed = composeJ4aNightly({ plan, bundle: B, admin: fa.admin, transport, saveJournal, configuredDomain: 'example.com', adapterOptions: { commandRunner }, offlineStoppedWritersVerifier: writerProof ? offlineWriterProof : null,
         nightly: { runDir: path.join(root, 'nightly-run'), evidenceDir, runId: 'unit-entry-1', selected: ['J4.a'], satisfiedGates: [] } });
     const wire = () => fs.readFileSync(wireFile, 'utf8').trim().split('\n').filter(Boolean);
     const db = () => JSON.parse(fs.readFileSync(dbFile, 'utf8'));
@@ -169,6 +171,22 @@ test('entry point: an ambiguous reserved email (two accounts) is HOLD: no Start,
     assert.equal(ran.nightlyCleanup.verification, undefined);
     assert.equal(s.calls.filter((x) => /^delete/.test(x)).length, 0, 'nothing deleted');
     assert.equal(s.db().users.length, 3);
+});
+
+test('entry point refuses absent stopped evidence, a forced close or an IPC violation before invoking teardown', { timeout: 30_000 }, async (t) => {
+    for (const [setupOpts, why] of [
+        [{ writerProof: false }, /no verified stopped-writer evidence/],
+        [{ forcedClose: true }, /did not complete a clean supervised close/],
+        [{ protocolViolation: true }, /binding is absent, refused or violated/],
+    ]) {
+        const s = setup(t, setupOpts);
+        const ran = await runJ4a(s);
+        assert.deepEqual(s.transport.sent(), { bind: 2, teardown: 0 });
+        assert.match(ran.j4aBinding.teardownHold, why);
+        assert.equal(ran.nightlyCleanup.verification, undefined);
+        assert.ok(s.db().users.some((u) => u.id === UID));
+        assert.ok(!s.calls.some((c) => /delete|journal:/.test(c)));
+    }
 });
 
 test('guarded-signup mode refuses a case config that names credential variables, before admission', { timeout: 30_000 }, async (t) => {

@@ -14,7 +14,7 @@ REQUIRED = frozenset(NIGHTLY_ROOT + name + ".cjs" for name in (
     "account-lookup", "account-reservation", "admin-transport", "case-results", "cleanup-evidence",
     "cleanup-plan", "counts", "guarded-signup", "j4a-guarded-step",
     "j4a-nightly-entry", "j4a-parent-teardown", "j4a-supervised-binding",
-    "j4a-supervised-channel", "journey-plan", "leg-verdicts", "limits",
+    "j4a-supervised-channel", "j4a-writer-evidence", "journey-plan", "leg-verdicts", "limits",
     "residue-inventory", "run-budget", "runner-bridge",
 )) | {RESIDUE_HELPER}
 

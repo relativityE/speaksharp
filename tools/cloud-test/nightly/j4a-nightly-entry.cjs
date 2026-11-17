@@ -41,11 +41,11 @@ function j4aParentHooks({ admin, transport, saveJournal, evidenceDir, recordRunI
         // BIND: the transport's own `bind` allowance; never the journey's cleanup reserve.
         j4aOwner: ({ confirmedAccount }) => confirmJ4aOwner({ confirmedAccount, ...common() }),
         // TEARDOWN: its own window, the J4 cleanup reserve's seconds (requests x enforced deadline), started when teardown starts.
-        j4aTeardown: ({ nightly, confirmedAccount, preservedOwner, childClosed }) => {
+        j4aTeardown: ({ nightly, confirmedAccount, preservedOwner, childClosed, stopped, binding }) => {
             const endsAt = Date.now() + teardownWindowMs();
             let journal = null; // bound to THIS run and the preserved owner; a bind failure leaves none, so teardown HOLDs before any request
             try { journal = saveJournal.bind({ runId: emailRunId, owner: preservedOwner }); } catch { journal = null; }
-            return j4aParentTeardown({ nightly, confirmedAccount, preservedOwner, childClosed, timeLeftMs: () => endsAt - Date.now(), saveJournal: journal, ...common() });
+            return j4aParentTeardown({ nightly, confirmedAccount, preservedOwner, childClosed, stopped, binding, timeLeftMs: () => endsAt - Date.now(), saveJournal: journal, ...common() });
         },
     });
 }
@@ -68,11 +68,11 @@ const teardownWindowMs = () => require('./cleanup-plan.cjs').cleanupReserve('J4'
  * The nightly J4.a composition: createAdapter (sealed) with the parent hooks, wrapped by the nightly bridge. Returns the bridge's
  * { io, outcome, finish }; the caller drives it with campaign-core runCampaign (main) or case by case (offline proofs).
  */
-function composeJ4aNightly({ plan, bundle, admin, transport, saveJournal, configuredDomain, nightly, adapterOptions = {} }) {
+function composeJ4aNightly({ plan, bundle, admin, transport, saveJournal, configuredDomain, nightly, adapterOptions = {}, offlineStoppedWritersVerifier = null }) {
     const { createAdapter } = require(path.join(HARNESS, 'campaign-runner.cjs'));
     const hooks = j4aParentHooks({ admin, transport, saveJournal, evidenceDir: nightly.evidenceDir, recordRunId: nightly.runId,
         emailRunId: plan?.executionIdentity?.runId, configuredDomain });
-    const raw = createAdapter(plan, bundle, { executeR0: true, ...adapterOptions, j4aOwner: hooks.j4aOwner, j4aTeardown: hooks.j4aTeardown });
+    const raw = createAdapter(plan, bundle, { executeR0: true, ...adapterOptions, verifyJ4aStopped: offlineStoppedWritersVerifier, j4aOwner: hooks.j4aOwner, j4aTeardown: hooks.j4aTeardown });
     return nightlyAdapter(raw, nightly);
 }
 
