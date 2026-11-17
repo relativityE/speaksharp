@@ -830,8 +830,8 @@
       "id": "P6-scope-lifts-suite",
       "guards": "the runnable-legs summary never changes the full-suite verdict",
       "file": "leg-verdicts.cjs",
-      "find": "return { outcome, reason, notGreen, scope: scopeVerdict(verdicts, scopeLegs, outcome) };",
-      "replace": "const scope = scopeVerdict(verdicts, scopeLegs, outcome);\n    return { outcome: scope?.outcome === 'PASS' ? 'PASS' : outcome, reason, notGreen, scope };",
+      "find": "return { outcome, reason: cleanupBlocker ? `${reason}; ${cleanupBlocker}` : reason, notGreen, scope: scopeVerdict(verdicts, scopeLegs, outcome, cleanupBlocker) };",
+      "replace": "const scope = scopeVerdict(verdicts, scopeLegs, outcome, cleanupBlocker);\n    return { outcome: scope?.outcome === 'PASS' ? 'PASS' : outcome, reason, notGreen, scope };",
       "test": "tests/leg-verdicts.test.cjs"
     },
     {
@@ -2033,6 +2033,14 @@
       "find": "const signsUpNothing = (caseId) => MAINTAINED_CASES.includes(caseId) || REUSING_INVOCATIONS.includes(caseId);",
       "replace": "const signsUpNothing = (caseId) => MAINTAINED_CASES.includes(caseId);",
       "test": "tests/cleanup.test.cjs"
+    },
+    {
+      "id": "P28-runner-ignores-cleanup-for-acceptance",
+      "guards": "interim and final reports cannot PASS before verified zero residue",
+      "file": "runner-bridge.cjs",
+      "find": "budget.allocatedLegs() : [], cleanupBlocker)",
+      "replace": "budget.allocatedLegs() : [], null)",
+      "test": "tests/j4a-bridge.test.cjs"
     }
   ]
 }

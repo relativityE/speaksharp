@@ -307,12 +307,17 @@ function nightlyAdapter(io, opts) {
     }
     function outcome() {
         const verdicts = ledger.verdicts();
+        // Until final evidence exists, even a passing leg is only an observation.
+        const affected = evidence?.incompleteJourneys ?? [];
+        const cleanupBlocker = budget && evidence?.cleanup !== 'complete'
+            ? (evidence ? `cleanup incomplete${affected.length ? ` (${affected.join(', ')})` : ''}` : 'cleanup not yet verified')
+            : null;
         return {
             admitted: budget !== null,
             cleanup: evidence ? { result: evidence.cleanup, incompleteJourneys: evidence.incompleteJourneys, reasons: evidence.incompleteReasons } : null,
             journalTorn: budget ? budget.journalTorn() : null,
             legs: Object.fromEntries([...verdicts].map(([leg, v]) => [leg, { outcome: v.outcome, reason: v.reason }])),
-            run: runVerdict(verdicts, budget ? budget.allocatedLegs() : []),
+            run: runVerdict(verdicts, budget ? budget.allocatedLegs() : [], cleanupBlocker),
         };
     }
     return { io: wrapped, outcome, finish };

@@ -47,11 +47,12 @@ const rows = [...new Set(legsForCase(CASE).flatMap((l) => rowsForLeg(l))
 function stubIo(s, wire, evidenceDir) {
     const calls = [];
     const transportCalls = [];
+    const checkpoints = [];
     const attemptsOnDisk = () => fs.readdirSync(evidenceDir).filter((n) => n.includes('.attempt.') && n.endsWith('.sent.json')).length;
     return {
-        calls, transportCalls,
+        calls, transportCalls, checkpoints,
         now: () => NOW,
-        save: async () => {},
+        save: async (report) => { checkpoints.push(structuredClone(report.nightly)); },
         preflightCase: async () => {},
         admit: async () => {
             calls.push('admit');
@@ -111,7 +112,7 @@ async function j4aRun(d, runId, scenario = {}) {
     const { io, outcome, finish } = nightlyAdapter(raw, { runDir: d.runDir(runId), evidenceDir: d.evidenceDir, runId, selected: [LEG], satisfiedGates: [], coachingCeiling: scenario.coachingCeiling });
     const r = await runCampaign(campaignPlan([LEG]), io, { executeR0: true });
     await finish(r.report);
-    return { r, wire, calls: raw.calls, transportCalls: raw.transportCalls, outcome: outcome(), report: r.report };
+    return { r, wire, calls: raw.calls, transportCalls: raw.transportCalls, checkpoints: raw.checkpoints, outcome: outcome(), report: r.report };
 }
 const journal = (d, runId) => fs.readFileSync(path.join(d.runDir(runId), 'budget-journal.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
 
@@ -124,7 +125,7 @@ describe('J4.a guarded route (#1884 step 6, stub): AHT-05 through the real harne
     });
     it('PASS path: one guarded create recorded before it is sent, never retried; every send reserved; cleanup verified', async () => {
         const d = dirs();
-        const { wire, calls, transportCalls, outcome, report } = await j4aRun(d, 'p1');
+        const { wire, calls, transportCalls, checkpoints, outcome, report } = await j4aRun(d, 'p1');
         assert.deepEqual(calls.filter((c) => c.startsWith('run:')), [`run:${CASE}`]);
         assert.deepEqual(wire, ['create:account', 'starts', 'starts', 'coaching', 'coaching', 'cleanup:delete-account', 'cleanup:residue-query']);
         assert.equal(transportCalls.length, 1);
@@ -134,6 +135,10 @@ describe('J4.a guarded route (#1884 step 6, stub): AHT-05 through the real harne
         assert.equal(outcome.legs[LEG].outcome, 'PASS');
         assert.equal(outcome.cleanup.result, 'complete');
         assert.equal(report.nightly.run.scope.outcome, 'PASS');
+        const beforeCleanup = checkpoints.find((c) => c?.interim && c.legs[LEG]?.outcome === 'PASS');
+        assert.ok(beforeCleanup, 'a checkpoint captures the passing leg before cleanup is finalized');
+        assert.equal(beforeCleanup.run.scope.outcome, 'INCOMPLETE');
+        assert.match(beforeCleanup.run.scope.summary, /cleanup not yet verified/);
         assert.equal(admitRun(d.evidenceDir).admitted, true, 'verified cleanup admits the next run');
     });
     it('no write before admission: a refused budget or a refused harness admission sends nothing, creates nothing', async () => {
@@ -169,6 +174,14 @@ describe('J4.a guarded route (#1884 step 6, stub): AHT-05 through the real harne
         assert.equal(outcome.legs[LEG].outcome, 'FAIL');
         assert.equal(outcome.cleanup.result, 'complete');
     });
+    it('preserves scope and suite FAIL when cleanup is also incomplete', async () => {
+        const d = dirs();
+        const { outcome, report } = await j4aRun(d, 'f1', { starts: 3, skipVerify: true });
+        assert.equal(outcome.cleanup.result, 'incomplete');
+        assert.equal(outcome.legs[LEG].outcome, 'FAIL');
+        assert.equal(report.nightly.run.outcome, 'FAIL');
+        assert.equal(report.nightly.run.scope.outcome, 'FAIL');
+    });
     it('cleanup controls: an omitted teardown of the created account, a missing residue query or residue found is incomplete and refuses the next run', async () => {
         for (const [label, scenario, reason] of [
             ['teardown omits the created account', { omitTeardown: true }, `created account ${ACCOUNT} has no completed cleanup step`],
@@ -178,6 +191,10 @@ describe('J4.a guarded route (#1884 step 6, stub): AHT-05 through the real harne
             const d = dirs();
             const first = await j4aRun(d, 'k1', scenario);
             assert.equal(first.outcome.cleanup.result, 'incomplete', label);
+            assert.equal(first.outcome.legs[LEG].outcome, 'PASS', `${label}: the leg observations remain intact`);
+            assert.equal(first.report.nightly.run.scope.outcome, 'INCOMPLETE', label);
+            assert.match(first.report.nightly.run.scope.summary, /cleanup incomplete \(J4\)/, label);
+            assert.match(first.report.nightly.run.reason, /cleanup incomplete \(J4\)/, label);
             assert.ok(first.outcome.cleanup.reasons.J4.some((r) => r.includes(reason)), `${label}: ${JSON.stringify(first.outcome.cleanup.reasons)}`);
             const next = await j4aRun(d, 'k2');
             assert.equal(next.outcome.admitted, false, `${label}: the next run is refused`);
