@@ -22,8 +22,8 @@ export function requireFact(value: unknown, code: string): asserts value {
 }
 
 /** The fields the journey fills on Stripe's hosted Checkout page (or the portal), named content-free. */
-export type HostedField = 'email' | 'card_number' | 'card_expiry' | 'card_cvc';
-const HOSTED_FIELDS: readonly HostedField[] = ['email', 'card_number', 'card_expiry', 'card_cvc'];
+export type HostedField = 'email' | 'card_number' | 'card_expiry' | 'card_cvc' | 'billing_country' | 'postal_code' | 'card_name';
+const HOSTED_FIELDS: readonly HostedField[] = ['email', 'card_number', 'card_expiry', 'card_cvc', 'billing_country', 'postal_code', 'card_name'];
 
 /**
  * The failure code when a required hosted field never became visible (run 44055010939 stopped at a bare
@@ -61,7 +61,27 @@ export const HOSTED_SELECTORS = Object.freeze({
   submit: '[data-testid="payment-form-submit-button"]',
   linkOptInInput: '#payment-linkOptInInput',
   linkOptInLabel: '#Field-linkOptInCheckbox',
+  // Run 44141620120 (after #1889): Stripe marked 2 fields invalid and never returned. The PO's DevTools on that run's own open session
+  // show three REQUIRED billing fields (aria-required="true") even with billing_address_collection unset: the country <select>, the ZIP
+  // (autocomplete="billing postal-code", so the old exact `postal-code` selector never matched) and the name on card.
+  country: '#payment-countryInput',
+  postalCode: '#payment-postalCodeInput',
+  cardName: '#payment-nameInput',
 });
+
+/**
+ * The hosted field a visible invalid control belongs to, by its id or name attribute only (never its value), as a closed short token:
+ * a page change can only produce `other`, never page text.
+ */
+const INVALID_FIELD_TOKENS: Readonly<Record<string, string>> = Object.freeze({
+  'payment-nameInput': 'name', name: 'name', 'payment-postalCodeInput': 'zip', postalCode: 'zip', 'payment-countryInput': 'country',
+  country: 'country', cardNumber: 'number', 'payment-numberInput': 'number', cardExpiry: 'expiry', 'payment-expiryInput': 'expiry',
+  cardCvc: 'cvc', 'payment-cvcInput': 'cvc', email: 'email',
+});
+export function invalidFieldToken(attrs: { id: string | null; name: string | null }): string {
+  for (const key of [attrs.id, attrs.name]) if (typeof key === 'string' && Object.hasOwn(INVALID_FIELD_TOKENS, key)) return INVALID_FIELD_TOKENS[key];
+  return 'other';
+}
 
 /**
  * Subscribe was clicked but Stripe never returned to the app within the bound. Content-free facts of what the hosted page showed then:
@@ -69,11 +89,14 @@ export const HOSTED_SELECTORS = Object.freeze({
  * `null` is unread, never zero or false.
  */
 export function checkoutNotReturned(f: { optIn: 'checked' | 'clear' | 'absent' | null; phoneShown: boolean | null; alerts: number | null;
-  invalid: number | null; challenge: boolean | null }): string {
+  invalid: number | null; challenge: boolean | null; invalidFields: readonly string[] | null }): string {
   const n = (v: number | null) => (Number.isSafeInteger(v) && (v as number) >= 0 ? String(v) : 'unread');
   const b = (v: boolean | null, yes: string, no: string) => (v === true ? yes : v === false ? no : 'unread');
   const optIn = f.optIn === 'checked' || f.optIn === 'clear' || f.optIn === 'absent' ? f.optIn : 'unread';
-  return `checkout_success_not_reached_optin_${optIn}_phone_${b(f.phoneShown, 'shown', 'none')}_alerts_${n(f.alerts)}_invalid_${n(f.invalid)}_challenge_${b(f.challenge, 'shown', 'none')}`;
+  // Which fields were invalid (closed tokens, sorted and de-duplicated), so a refused form names its field instead of a bare count.
+  const tokens = Array.isArray(f.invalidFields) ? [...new Set(f.invalidFields.map((t) => (Object.values(INVALID_FIELD_TOKENS).includes(t) ? t : 'other')))].sort() : null;
+  const fields = tokens === null ? 'unread' : tokens.length ? tokens.join('_') : 'none';
+  return `checkout_success_not_reached_optin_${optIn}_phone_${b(f.phoneShown, 'shown', 'none')}_alerts_${n(f.alerts)}_invalid_${n(f.invalid)}_challenge_${b(f.challenge, 'shown', 'none')}_fields_${fields}`;
 }
 
 /** Stripe Link's default-ticked "save my information" opt-in could not be cleared; the journey never creates a Link account. */

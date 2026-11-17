@@ -9,7 +9,7 @@ import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, re
   assertFullRefund, isRefundCancellation, assertCheckoutGrantedNothing,
   checkoutSessionFromUrl, assertCheckoutIdentity, newlyAddedCard, assertNoSecondCharge,
   type RunnerJourney, type BillingEvent, hostedFieldUnavailable, hostedEmailDecision, type HostedField,
-  HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable } from './contract';
+  HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken } from './contract';
 import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { selectBenchmarkMode, preparePrivateModelIfPrompted, startBenchmarkRecording,
   expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput, stopBenchmarkRecording,
@@ -204,12 +204,18 @@ class SandboxJourney {
 
   /** Fills Stripe's hosted card form (Checkout or the portal) and submits. Never reads or reports its content. */
   async fillCard(card: string, email: 'required' | 'after-binding' | 'none'): Promise<void> {
-    const fill = async (selector: string, value: string, field: HostedField, absentAllowed = false) => {
+    const fill = async (selector: string, value: string, field: HostedField, absentAllowed = false, kind: 'input' | 'select' = 'input') => {
       for (let attempt = 0; attempt < 40; attempt++) {
         for (const frame of this.page.frames()) {
           const input = frame.locator(selector).first();
           if (await input.isVisible()) {
-            await input.fill(value, { timeout: HOSTED_ACTION_MS }).catch(() => { throw new Error(`BILLING_JOURNEY:${hostedFieldNotEditable(field)}`); });
+            if (kind === 'select') {
+              await input.selectOption(value, { timeout: HOSTED_ACTION_MS }).catch(() => { throw new Error(`BILLING_JOURNEY:${hostedFieldNotEditable(field)}`); });
+              // Proven chosen: the select's own value, never assumed from the call.
+              requireFact(await input.inputValue({ timeout: HOSTED_READ_MS }).catch(() => null) === value, hostedFieldNotEditable(field));
+            } else {
+              await input.fill(value, { timeout: HOSTED_ACTION_MS }).catch(() => { throw new Error(`BILLING_JOURNEY:${hostedFieldNotEditable(field)}`); });
+            }
             return;
           }
         }
@@ -237,12 +243,21 @@ class SandboxJourney {
     await fill('input[autocomplete="cc-number"],input[name="cardNumber"]', card, 'card_number');
     await fill('input[autocomplete="cc-exp"],input[name="cardExpiry"]', '1234', 'card_expiry');
     await fill('input[autocomplete="cc-csc"],input[name="cardCvc"]', '123', 'card_cvc');
-    for (const frame of this.page.frames()) {
-      for (const [selector, value] of [['input[autocomplete="cc-name"]', 'SpeakSharp Test'],
-        ['input[autocomplete="postal-code"]', '94105']] as const) {
-        const input = frame.locator(selector).first();
-        // Optional fields: filled when shown, bounded; a stuck optional field surfaces at the bounded Pay click below.
-        if (await input.isVisible()) await input.fill(value, { timeout: HOSTED_ACTION_MS }).catch(() => undefined);
+    // Run 44141620120: Checkout requires country, ZIP and name on card (aria-required, seen in the PO's DevTools on that run's own
+    // session); the ZIP's autocomplete is "billing postal-code", so the old exact `postal-code` selector never matched and the field
+    // stayed empty. On Checkout they are REQUIRED, by their exact ids, country first (the ZIP follows the country). The portal keeps
+    // them optional: filled when shown.
+    if (email !== 'none') {
+      await fill(HOSTED_SELECTORS.country, 'US', 'billing_country', false, 'select');
+      await fill(HOSTED_SELECTORS.postalCode, '94105', 'postal_code');
+      await fill(HOSTED_SELECTORS.cardName, 'SpeakSharp Test', 'card_name');
+    } else {
+      for (const frame of this.page.frames()) {
+        for (const [selector, value] of [[`${HOSTED_SELECTORS.cardName},input[autocomplete="cc-name"]`, 'SpeakSharp Test'],
+          [`${HOSTED_SELECTORS.postalCode},input[autocomplete="billing postal-code"],input[autocomplete="postal-code"]`, '94105']] as const) {
+          const input = frame.locator(selector).first();
+          if (await input.isVisible()) await input.fill(value, { timeout: HOSTED_ACTION_MS }).catch(() => undefined);
+        }
       }
     }
   }
@@ -303,7 +318,40 @@ class SandboxJourney {
       alerts: await visibleCount('[role="alert"]'),
       invalid: await visibleCount('input[aria-invalid="true"]'),
       challenge: challenges === null ? null : challenges > 0,
+      // Which controls (inputs or the country select) were invalid, by id/name attribute only, as closed tokens.
+      invalidFields: await read(async () => {
+        const tokens: string[] = [];
+        for (const frame of this.page.frames()) {
+          const all = frame.locator('[aria-invalid="true"]');
+          for (let i = 0; i < await all.count(); i++) {
+            const el = all.nth(i);
+            if (!await el.isVisible()) continue;
+            tokens.push(invalidFieldToken({ id: await el.getAttribute('id', { timeout: HOSTED_READ_MS }), name: await el.getAttribute('name', { timeout: HOSTED_READ_MS }) }));
+          }
+        }
+        return tokens;
+      }),
     };
+  }
+
+  /**
+   * Whether Stripe's payment form reports it can confirm (`data-can-confirm`, seen on the hosted page in the PO's DevTools), polled within
+   * the hosted-action bound: true once it says "true"; false if it was read but never became true; null if never read. Read only.
+   */
+  async formConfirmable(): Promise<boolean | null> {
+    const deadline = Date.now() + HOSTED_ACTION_MS;
+    let seenFalse = false;
+    do {
+      for (const frame of this.page.frames()) {
+        const form = frame.locator('[data-can-confirm]').first();
+        if (await form.count().catch(() => 0) === 0) continue;
+        const value = await form.getAttribute('data-can-confirm', { timeout: HOSTED_READ_MS }).catch(() => null);
+        if (value === 'true') return true;
+        if (value === 'false') seenFalse = true;
+      }
+      await sleep(500);
+    } while (Date.now() < deadline);
+    return seenFalse ? false : null;
   }
 
   async payOnHostedPage(card: string): Promise<void> {
@@ -315,6 +363,9 @@ class SandboxJourney {
     // never returned; a person who unticked it completed the same checkout. The real input sits under a styled wrapper, so it is read by
     // its exact id and toggled through its label, then proven clear. The journey never creates a Link account or enters a phone number.
     await this.clearLinkOptIn();
+    // A checkpoint, not a gate: the click below still happens, and a refusal is then named field by field from the page.
+    const confirmable = await this.formConfirmable();
+    this.checkpoint(confirmable === true ? 'hosted_form_confirmable' : confirmable === false ? 'hosted_form_not_confirmable' : 'hosted_form_confirm_unread');
     // Exactly the Subscribe button (data-testid observed on the hosted page), never "the first submit button".
     this.checkpoint('hosted_submit_search');
     const submit = await this.visibleInFrames(HOSTED_SELECTORS.submit);
