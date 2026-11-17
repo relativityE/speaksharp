@@ -408,7 +408,19 @@ export interface StopRecordingOptions {
     belowMinimumDuration?: boolean;
     /** G5: called with the session id when THIS stop arms Try again for its unsettled discard. */
     onUnsettledDiscard?: (sessionId: string) => void;
+    /**
+     * G5 (#1880, queued Stop): called once this call's queued turn has run, with what happened to the take that was
+     * recording when the call was made, whichever accepted Stop resolved it. An earlier queued Stop (a lease revoke, a
+     * page leave) may have resolved it already; the page reports a discard only when the take was in fact discarded.
+     */
+    onTakeOutcome?: (outcome: StopTakeOutcome) => void;
 }
+
+/**
+ * G5 (#1880): how the accepted Stop resolved a take. `unknown` means no accepted Stop recorded an outcome for that take
+ * (nothing was recording, the stop was superseded, or it failed before deciding).
+ */
+export type StopTakeOutcome = 'discarded' | 'discard_unsettled' | 'completed' | 'unknown';
 
 export interface LifecycleToken {
     version: number;
@@ -751,6 +763,15 @@ export class SpeechRuntimeController {
      * and moved it to READY — the failure vanished from the page while the unsaved take still refused the next Start.
      */
     private stopAcceptedForRecordingId: string | null = null;
+    /**
+     * G5 (#1880, queued Stop) — the recording the user's own short Stop judged too short, registered SYNCHRONOUSLY when
+     * that Stop is called, before its queued turn. An earlier queued Stop for the same take (lease revoke, page leave)
+     * that has not yet reached its save decision honours it, so the take the page calls too short is discarded rather
+     * than completed. Recording ids are unique per take, so a stale id never matches a later take.
+     */
+    private shortStopVerdictRecordingId: string | null = null;
+    /** G5 (#1880): how the accepted Stop resolved the most recent take, reported to every Stop call made for it. */
+    private lastStopOutcome: { recordingId: string; outcome: Exclude<StopTakeOutcome, 'unknown'> } | null = null;
     /** #1421 Option A: the attempt this take belongs to, snapshotted when the take enters RECORDING. */
     private currentRecordingSubject: RecordingSubject | null = null;
     /**
@@ -5241,6 +5262,8 @@ export class SpeechRuntimeController {
         this.pendingDiscardSettlement = null;
         // #1258 R1: a hard reset drops queued commands and starts a new lifecycle; no earlier Stop carries over.
         this.stopAcceptedForRecordingId = null;
+        // G5 (#1880): a hard reset retires the take; its verdict does not carry over. A recorded outcome stays true.
+        this.shortStopVerdictRecordingId = null;
         this.recordingProgressMode = { mode: 'unknown' };
         this.recordingLogin = null;
 
@@ -5564,6 +5587,34 @@ export class SpeechRuntimeController {
     public async stopRecording(options?: StopRecordingOptions): Promise<unknown> {
         // G5 (#1861): the caller already told the user this take is too short to save, so it must not be completed.
         const belowMinimumDuration = options?.belowMinimumDuration === true;
+        // G5 (#1880): the take this call is about, fixed now, before any queued turn runs.
+        const callRecordingId = this.currentRecordingId;
+        if (belowMinimumDuration && callRecordingId !== null) {
+            this.shortStopVerdictRecordingId = callRecordingId;
+        }
+        const result = await this.runStop(options, belowMinimumDuration);
+        if (options?.onTakeOutcome) {
+            const outcome: StopTakeOutcome = callRecordingId !== null && this.lastStopOutcome?.recordingId === callRecordingId
+                ? this.lastStopOutcome.outcome
+                : 'unknown';
+            try {
+                options.onTakeOutcome(outcome);
+            } catch {
+                /* the caller's note is best effort */
+            }
+        }
+        return result;
+    }
+
+    /** G5 (#1880): records how the accepted Stop resolved its take. */
+    private recordStopOutcome(recordingId: string | null, outcome: Exclude<StopTakeOutcome, 'unknown'>) {
+        if (recordingId === null) return;
+        this.lastStopOutcome = { recordingId, outcome };
+        // The take is decided; its verdict has done its job and must not outlive it.
+        if (this.shortStopVerdictRecordingId === recordingId) this.shortStopVerdictRecordingId = null;
+    }
+
+    private async runStop(options: StopRecordingOptions | undefined, belowMinimumDuration: boolean): Promise<unknown> {
         // #891 Phase 5.7: the shadow engine is torn down AFTER finalize (see below), not here, so its
         // snapshot includes the committed final transcript before parity is measured. A leftover engine
         // is always disposed by the next startShadowMetricsEngine.
@@ -5589,6 +5640,8 @@ export class SpeechRuntimeController {
                 return null;
             }
             this.stopAcceptedForRecordingId = this.currentRecordingId;
+            // G5 (#1880): the take THIS accepted stop resolves; its outcome is recorded against it.
+            const stopRecordingId = this.currentRecordingId;
             const stopSnapshotStore = useSessionStore.getState();
             const frozenAtStop = this.freezeTranscriptLifecycleAtStop();
             pushTranscriptLifecycleTrace('lifecycle:stop', {
@@ -6016,15 +6069,19 @@ export class SpeechRuntimeController {
                             preview: finalTranscript.slice(0, 80),
                         });
 
-                        if (meaningfulWordCount === 0 || belowMinimumDuration) {
+                        // G5 (#1880, queued Stop): read at the decision, not at stop entry. The user's short Stop may have
+                        // been pressed while this earlier queued Stop was finalizing; its verdict still decides this take.
+                        const takeBelowMinimum = belowMinimumDuration
+                            || (stopRecordingId !== null && this.shortStopVerdictRecordingId === stopRecordingId);
+                        if (meaningfulWordCount === 0 || takeBelowMinimum) {
                             logger.warn({
                                 sessionId,
                                 transcriptLength: finalTranscript.length,
                                 duration,
                                 mode: modeForFinalization,
                                 meaningfulWordCount,
-                                belowMinimumDuration,
-                            }, belowMinimumDuration
+                                belowMinimumDuration: takeBelowMinimum,
+                            }, takeBelowMinimum
                                 ? '[SESSION_SAVE_GUARD] Session below the minimum duration discarded'
                                 : '[SESSION_SAVE_GUARD] Empty or non-speech session discarded');
 
@@ -6033,7 +6090,7 @@ export class SpeechRuntimeController {
                                 finalTranscriptLength: finalTranscript.length,
                                 meaningfulWordCount,
                             }, '[DEBUG-STOP] completeSession failed-status starting');
-                            const discardReason = belowMinimumDuration
+                            const discardReason = takeBelowMinimum
                                 ? 'Session was shorter than the minimum duration; session was not saved to history.'
                                 : 'No meaningful speech detected; session was not saved to history.';
                             // G5 (Sam on 3a91a20): the discard is settled only when the `failed` mark is CONFIRMED.
@@ -6068,9 +6125,10 @@ export class SpeechRuntimeController {
                                 } else {
                                     logger.error({ existing: this.pendingDiscardSettlement.sessionId, sessionId }, '[controller] discard settlement slot held by another session — failing closed, not overwriting (G5)');
                                 }
-                                logger.error({ sessionId, belowMinimumDuration }, '[SESSION_SAVE_GUARD] discard NOT settled — row could not be marked failed; take stays unresolved for Try again (G5)');
+                                logger.error({ sessionId, belowMinimumDuration: takeBelowMinimum }, '[SESSION_SAVE_GUARD] discard NOT settled — row could not be marked failed; take stays unresolved for Try again (G5)');
                             }
                             logger.info({ sessionId, discardSettled }, '[DEBUG-STOP] completeSession failed-status done');
+                            this.recordStopOutcome(stopRecordingId, discardSettled ? 'discarded' : 'discard_unsettled');
                             if (token.cancelled) {
                                 logger.warn({
                                     mode: service.getMode?.() ?? stopEntryMode,
@@ -6087,7 +6145,7 @@ export class SpeechRuntimeController {
                             }
 
                             // G5: a too-short take's message is the page's own (it measured the take and says so).
-                            if (!discardSettled && !belowMinimumDuration) {
+                            if (!discardSettled && !takeBelowMinimum) {
                                 // Its message differs from the settled one on purpose: the store ignores a status that
                                 // changes only its detail, so Try again could not otherwise replace it.
                                 guardedStopStatus = {
@@ -6103,7 +6161,7 @@ export class SpeechRuntimeController {
                                         detail: 'Try recording again and speak for at least a few seconds.',
                                     });
                                 }
-                            } else if (!belowMinimumDuration) {
+                            } else if (!takeBelowMinimum) {
                                 guardedStopStatus = {
                                     type: 'warning',
                                     message: "We didn't detect enough speech to save this session.",
@@ -6370,6 +6428,7 @@ export class SpeechRuntimeController {
                             }
                             logger.info({ sessionId }, '[DEBUG-STOP] completeSession completed-status done');
                             sessionCompleted = true;
+                            this.recordStopOutcome(stopRecordingId, 'completed');
                             persistedSessionMarker = sessionId
                                 ? { sessionId, mode: modeForFinalization ?? stopEntryMode }
                                 : null;

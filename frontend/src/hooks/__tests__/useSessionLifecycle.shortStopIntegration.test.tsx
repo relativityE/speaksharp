@@ -116,6 +116,10 @@ describe('G5 INTEGRATED — page Stop under the minimum → real controller → 
         vi.mocked(useProfile).mockReturnValue({ profile: { id: 'u', subscription_status: 'free', email: 'e@e.com' }, isVerified: true } as never);
         controller = SpeechRuntimeController.getInstance();
         Object.assign(controller as unknown as Priv, { pendingDiscardSettlement: null, recordingStartedUnresolved: false });
+        // #1880: each test is its own take; no verdict or accepted Stop carries over on the shared controller.
+        Object.assign(controller as unknown as Record<string, unknown>, {
+            currentRecordingId: null, stopAcceptedForRecordingId: null, shortStopVerdictRecordingId: null, lastStopOutcome: null,
+        });
     });
 
     afterEach(() => {
@@ -189,6 +193,41 @@ describe('G5 INTEGRATED — page Stop under the minimum → real controller → 
         expect(statusesShown().some((m) => /too short/i.test(m)), 'a 5 s take is not refused').toBe(false);
         expect(completions('completed')).toHaveLength(1);
         expect(completions('failed')).toHaveLength(0);
+    });
+
+    // #1880 (queued Stop): a Stop without the page's verdict (a lease revoke, a page leave) is queued just before the
+    // user's short Stop, so the page still shows the take recording when the user presses Stop. Before the fix the
+    // earlier Stop completed the take and the page then said "Session too short" about a saved take. Now the user's
+    // verdict reaches the earlier Stop's save decision: the take is discarded, and the too-short message is true.
+    it('a short Stop pressed just after an unverdicted Stop was queued discards the take; nothing is completed', async () => {
+        const { result } = recordingFor(3_000);
+        Object.assign(controller as unknown as Record<string, unknown>, { currentRecordingId: 'rec-int', stopAcceptedForRecordingId: null });
+
+        await act(async () => {
+            const earlier = controller.stopRecording(); // no verdict, as a lease revoke or page leave calls it
+            const userStop = result.current.handleStartStop();
+            await Promise.all([earlier, userStop]);
+        });
+
+        expect(completions('completed'), 'the take the page calls too short is never completed').toHaveLength(0);
+        expect(completions('failed')).toHaveLength(1);
+        expect(statusesShown().some((m) => /too short \(3s\)/i.test(m))).toBe(true);
+        expect(store.getState().sessionSaved).toBe(false);
+    });
+
+    // #1880: if the take was in fact completed by another accepted Stop, the page must not call it too short.
+    it('when the controller reports the take completed, the page does not report it too short or discarded', async () => {
+        const { result } = recordingFor(3_000);
+        const stop = vi.spyOn(controller, 'stopRecording').mockImplementationOnce(async (opts) => {
+            opts?.onTakeOutcome?.('completed');
+            return null;
+        });
+
+        await act(async () => { await result.current.handleStartStop(); });
+
+        expect(stop).toHaveBeenCalledWith(expect.objectContaining({ belowMinimumDuration: true }));
+        expect(statusesShown().some((m) => /too short/i.test(m)), 'a saved take is never reported too short').toBe(false);
+        stop.mockRestore();
     });
 
     // KNOWN GAP, left for Sam to decide (not changed by G5): leaving the page ("Stop and save this session before

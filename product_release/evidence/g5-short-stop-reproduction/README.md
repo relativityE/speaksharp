@@ -74,16 +74,42 @@ is written again on release). A confirmed retry or Discard clears the record.
 - `tests/e2e/signal-contract.e2e.spec.ts`: its saved-take contract stopped at once and
   waited for a saved session, relying on the defect; it now records past the minimum.
 
+## Queued Stop race (#1880, fixed)
+
+Before: a Stop without the verdict (a lease revocation, a page leave) queued just
+before the user's short Stop completed the take; the user's Stop then found the take
+already stopped, and the page still said "Session too short" about a saved take.
+
+After: the user's verdict is registered when its Stop is called, before any queued turn
+runs, and an earlier Stop for the same take reads it at its save decision, so the take
+the page calls too short is discarded. Every Stop call is told how its take was
+actually resolved (`discarded`, `discard_unsettled`, `completed` or `unknown`); the page
+reports too short only when the take was not completed. The verdict is cleared once
+the take is decided and on hard reset, and a verdict for one take never applies to the
+next (recording ids are unique). A Stop pressed while the take is already STOPPING is
+still suppressed by the page, as before (#1258 R1).
+
+Tests (each fails when its guard is removed):
+- `frontend/src/services/__tests__/SpeechRuntimeController.queuedShortStop.test.ts`: a
+  short Stop while the earlier Stop is finalizing discards the take and both calls see
+  `discarded`; a short Stop after the earlier Stop decided to save is told `completed`
+  and nothing is marked failed; an unconfirmed discard is reported `discard_unsettled`
+  with Try again armed; a verdict for an earlier take does not discard the next take; a
+  Stop with nothing recording reports `unknown`.
+- `frontend/src/hooks/__tests__/useSessionLifecycle.shortStopIntegration.test.tsx`: the
+  page's short Stop pressed just after an unverdicted Stop was queued discards the take
+  (nothing completed, too short shown); a take the controller reports `completed` is
+  never reported too short.
+
 ## Known gaps (not fixed here, for review)
 
 - Leaving the page ("Stop and save this session before leaving?"), route-exit
   teardown and a revoked lease call the controller's Stop with no verdict, so a take
-  under five seconds still completes on those paths. No test covers these paths yet;
+  under five seconds still completes on those paths when the user has not pressed Stop.
+  The Product Owner's rule covers a manual Stop under five seconds; whether these
+  non-manual stops should also discard is for Sam to confirm or defer. No test covers these paths yet;
   the integration suite carries a KNOWN GAP comment instead of a pending test, because
   the changed-test execution evidence accepts only tests that run.
-- A stop without the verdict that is queued just before the user's short Stop (for
-  example a lease revocation) can complete the take; the user's Stop then finds
-  READY and the page still says "Session too short". Pre-existing and narrow.
 - An explicit sign-out clears all site storage (`AuthProvider.signOut` calls
   `localStorage.clear()`), so a sign-out followed by a reload or closed tab loses the
   record and the owner's Try again, as it already loses the recovery draft. Keeping the

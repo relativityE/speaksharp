@@ -20,6 +20,7 @@ import { getEffectiveSubscriptionStatus, isPro } from '@/constants/subscriptionT
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 import { speechRuntimeController,
     StartRefusedFinalizationError,
+    type StopTakeOutcome,
 } from '@/services/SpeechRuntimeController';
 import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
 import { PRIV_STT } from '@/services/transcription/sttConstants';
@@ -431,13 +432,26 @@ export const useSessionLifecycle = () => {
                 let discardSettled = false;
                 // The take whose unsettled discard THIS stop armed, if any; the warning below is registered only for it.
                 let armedDiscardSessionId: string | null = null;
+                // G5 (#1880, queued Stop): what actually happened to this take, whichever accepted Stop resolved it.
+                let takeOutcome = 'unknown' as StopTakeOutcome; // written by the callback; `as` keeps it from narrowing
                 try {
                     // G5 (#1861): this take is reported as too short below, so the controller must discard it, not
                     // complete it. An ordinary Stop here saved a completed session the user was told was not saved.
                     await speechRuntimeController.stopRecording({
                         belowMinimumDuration: true,
                         onUnsettledDiscard: (id: string) => { armedDiscardSessionId = id; },
+                        onTakeOutcome: (outcome: StopTakeOutcome) => { takeOutcome = outcome; },
                     });
+                    if (takeOutcome === 'completed') {
+                        // G5 (#1880): an earlier queued Stop (a lease revoke, a page leave) reached its save decision
+                        // before this one and completed the take. It was saved, so it must not be reported too short
+                        // or discarded; the review it produced is left as that stop published it.
+                        saveLatency.settle('saved');
+                        reviewLatency.settle('unavailable');
+                        reviewLatencyRef.current = null;
+                        isProcessingRef.current = false;
+                        return;
+                    }
                     // G5 (Sam on 3a91a20): the discard counts only once its `failed` mark was confirmed. Otherwise the
                     // controller keeps the take unresolved and the page offers Try again; it is not reported discarded.
                     discardSettled = speechRuntimeController.hasUnsettledDiscard?.() !== true;
