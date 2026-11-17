@@ -62,6 +62,20 @@ async function recordTake(page: Page, transcript: string, holdMs: number, until:
   await expect(page.locator('[data-testid="session-shell"][data-session-state="after"]')).toBeVisible({ timeout: 15_000 });
 }
 
+/**
+ * The live journey never picks Open Mic from a completed review: its last step before the switch is "next Start without a
+ * hold" (rwtJourney.ts nextStartEvidence), a fresh /session load and a short take that stops below the 5 s persist guard,
+ * so the switch starts from the session page at rest. Without this step the flow chose Open Mic from the Focus review,
+ * which stays in its after state with no Start (run 43995026716).
+ */
+async function nextStartWithoutHold(page: Page) {
+  await navigateToRoute(page, '/session'); // a fresh load, as the live probe's page.goto('/session')
+  await recordTake(page, '', 0, 'recording');
+  await page.waitForTimeout(1_500); // well below the 5 s persist guard: the take is discarded, not saved
+  await page.getByTestId('recorder-stop').click({ timeout: STEP_MS });
+  await expect(page.locator('[data-testid="session-shell"][data-session-state="before"]')).toBeVisible({ timeout: 15_000 });
+}
+
 async function controllerTrace(page: Page): Promise<TraceEvent[]> {
   const all = await page.evaluate(() => (window as unknown as { __NATIVE_BROWSER_TRACE__?: TraceEvent[] }).__NATIVE_BROWSER_TRACE__ ?? []);
   return all.filter((e) => String(e.event ?? '').startsWith('controller_'));
@@ -83,6 +97,7 @@ export async function runFocusSwitchFlow(page: Page, testInfo: TestInfo, stopAft
   await saveSet(page);
   await recordTake(page, ALL_POINTS, 5_200);
   if (stopAfter === 'first-focus-take') return stopped;
+  await nextStartWithoutHold(page);
 
   await openProductsItem(page, 'open-mic', STEP_MS);
   await page.waitForURL(/\/session/, { timeout: 45_000 });
