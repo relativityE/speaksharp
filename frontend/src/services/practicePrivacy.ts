@@ -39,7 +39,10 @@ export interface PracticePrivacyState {
   revision: number | null;
 }
 
-export type SavePracticePrivacyResult = { ok: true } | { ok: false; reason: 'not_signed_in' | 'invalid_choice' | 'failed' };
+export type SavePracticePrivacyResult = { ok: true } | {
+  ok: false; reason: 'not_signed_in' | 'invalid_choice' | 'failed' | 'changed';
+};
+type ChoiceBasis = Pick<PracticePrivacyState, 'ownerId' | 'status' | 'revision'>;
 
 const OFF = { transcriptSave: false, aiCoaching: false, revision: null } as const;
 
@@ -47,11 +50,15 @@ export const usePracticePrivacyStore = create<PracticePrivacyState>(() => ({ own
 
 /** Monotonic, so a read or write that settles after a newer one (or after an owner change) never lands. */
 let operation = 0;
+let pendingSave: { ownerId: string; operation: number } | null = null;
+let pendingWriteRefresh: { ownerId: string; operation: number } | null = null;
 
 type ChoiceRow = { transcript_save: unknown; ai_coaching: unknown; consent_version: unknown; choice_revision: unknown };
 
 /** A row this client understands, or null. Never trusts a value it did not check. */
-function parseChoiceRow(row: ChoiceRow | null | undefined): Pick<PracticePrivacyState, 'transcriptSave' | 'aiCoaching' | 'revision'> | null {
+function parseChoiceRow(row: ChoiceRow | null | undefined): {
+  transcriptSave: boolean; aiCoaching: boolean; revision: number;
+} | null {
   if (!row) return null;
   const { transcript_save: save, ai_coaching: ai, consent_version: version, choice_revision: revision } = row;
   if (typeof save !== 'boolean' || typeof ai !== 'boolean' || version !== 1) return null;
@@ -66,7 +73,10 @@ function parseChoiceRow(row: ChoiceRow | null | undefined): Pick<PracticePrivacy
  * re-reads without first dropping to off, so a settled choice does not flicker; a DIFFERENT owner is set to `loading`
  * synchronously, before anything else can read the previous owner's choice.
  */
-export async function loadPracticePrivacy(ownerId: string | null): Promise<void> {
+export async function loadPracticePrivacy(ownerId: string | null, newerThan?: number): Promise<void> {
+  // A same-owner auth refresh must not adopt an older read while the choice write is unsettled.
+  if (ownerId && ((pendingSave?.ownerId === ownerId && pendingSave.operation === operation)
+    || (pendingWriteRefresh?.ownerId === ownerId && pendingWriteRefresh.operation === operation))) return;
   const op = ++operation;
   const current = usePracticePrivacyStore.getState();
   if (!ownerId) {
@@ -84,11 +94,11 @@ export async function loadPracticePrivacy(ownerId: string | null): Promise<void>
       .eq('user_id', ownerId)
       .maybeSingle();
     if (error) throw new Error('read failed');
-    if (!data) {
-      next = { ownerId, status: 'unknown', ...OFF };
+    const parsed = parseChoiceRow(data as ChoiceRow | null);
+    if (parsed && (newerThan === undefined || parsed.revision > newerThan)) {
+      next = { ownerId, status: 'chosen', ...parsed };
     } else {
-      const parsed = parseChoiceRow(data as ChoiceRow);
-      next = parsed ? { ownerId, status: 'chosen', ...parsed } : { ownerId, status: 'unavailable', ...OFF };
+      next = { ownerId, status: !data && newerThan === undefined ? 'unknown' : 'unavailable', ...OFF };
     }
   } catch {
     // Content-free: a read failure is not consent, and nothing about the row is logged.
@@ -104,24 +114,45 @@ export async function loadPracticePrivacy(ownerId: string | null): Promise<void>
  * server. A turn-off takes effect in this client at once, before the server answers, so no new transcript text or
  * coaching request can start while it is in flight; a turn-on takes effect only once the server confirms it.
  */
-export async function savePracticePrivacy(transcriptSave: boolean, aiCoaching: boolean): Promise<SavePracticePrivacyResult> {
-  const { ownerId, transcriptSave: wasSave, aiCoaching: wasAi } = usePracticePrivacyStore.getState();
+export async function savePracticePrivacy(
+  transcriptSave: boolean,
+  aiCoaching: boolean,
+  basis: ChoiceBasis = usePracticePrivacyStore.getState(),
+): Promise<SavePracticePrivacyResult> {
+  const { ownerId, transcriptSave: wasSave, aiCoaching: wasAi, status, revision } = usePracticePrivacyStore.getState();
   if (!ownerId) return { ok: false, reason: 'not_signed_in' };
   if (aiCoaching && !transcriptSave) return { ok: false, reason: 'invalid_choice' };
+  // Never reinterpret a rendered choice against a newer row or replay it for a successor owner.
+  // Null means a verified absence, not loading, a failed read, or a pending turn-off.
+  if ((pendingSave?.ownerId === ownerId && pendingSave.operation === operation)
+    || (pendingWriteRefresh?.ownerId === ownerId && pendingWriteRefresh.operation === operation)
+    || basis.ownerId !== ownerId || basis.status !== status || basis.revision !== revision
+    || !((status === 'unknown' && revision === null) || (status === 'chosen' && revision !== null))) {
+    return { ok: false, reason: 'changed' };
+  }
   const op = ++operation;
+  const write = { ownerId, operation: op };
+  pendingSave = write;
   if ((wasSave && !transcriptSave) || (wasAi && !aiCoaching)) {
     // Immediate refusal for new work. The revision is cleared too, so a review requested under the old revision is
     // recognised as late and dropped when it settles.
     usePracticePrivacyStore.setState({ transcriptSave: wasSave && transcriptSave, aiCoaching: wasAi && aiCoaching, revision: null });
   }
+  let failure: 'failed' | 'changed' = 'failed';
   try {
     const { data, error } = await getSupabaseClient().rpc('set_practice_privacy_choices_v1', {
       p_transcript_save: transcriptSave,
       p_ai_coaching: aiCoaching,
+      p_expected_revision: revision,
     });
-    if (error) throw new Error('write failed');
-    const parsed = parseChoiceRow((Array.isArray(data) ? data[0] : data) as ChoiceRow | null);
-    if (!parsed || parsed.transcriptSave !== transcriptSave || parsed.aiCoaching !== aiCoaching) throw new Error('unexpected result');
+    if (error) {
+      if (error.code === 'P0001' && error.message === 'privacy_choices_changed') failure = 'changed';
+      throw new Error('write failed');
+    }
+    const parsed = parseChoiceRow((Array.isArray(data) ? data.length === 1 ? data[0] : null : data) as ChoiceRow | null);
+    const resultingRevision = revision === null ? 1 : revision + Number(transcriptSave !== wasSave || aiCoaching !== wasAi);
+    if (!parsed || parsed.revision !== resultingRevision
+      || parsed.transcriptSave !== transcriptSave || parsed.aiCoaching !== aiCoaching) throw new Error('unexpected result');
     if (op === operation && usePracticePrivacyStore.getState().ownerId === ownerId) {
       usePracticePrivacyStore.setState({ ownerId, status: 'chosen', ...parsed });
     }
@@ -130,8 +161,20 @@ export async function savePracticePrivacy(transcriptSave: boolean, aiCoaching: b
     logger.warn('[practicePrivacy] could not record the practice privacy choices');
     // The client no longer knows what the server holds. A turn-off already applied here stays applied until the re-read
     // answers; a turn-on was never applied. The re-read then shows the server's own state.
-    if (op === operation && usePracticePrivacyStore.getState().ownerId === ownerId) void loadPracticePrivacy(ownerId);
-    return { ok: false, reason: 'failed' };
+    if (op === operation && usePracticePrivacyStore.getState().ownerId === ownerId) {
+      // Unknown remains off and keeps the first-choice prompt mounted. A previous choice is not
+      // current authority after a conflict or unreadable response; drop it until the fresh read.
+      usePracticePrivacyStore.setState({ ownerId, status: status === 'unknown' ? 'unknown' : 'loading', ...OFF });
+      pendingSave = null;
+      // A read that echoes the rejected revision after a known conflict cannot restore consent.
+      const refresh = loadPracticePrivacy(ownerId, failure === 'changed' ? revision ?? 0 : undefined);
+      const reading = { ownerId, operation };
+      pendingWriteRefresh = reading;
+      void refresh.finally(() => { if (pendingWriteRefresh === reading) pendingWriteRefresh = null; });
+    }
+    return { ok: false, reason: failure };
+  } finally {
+    if (pendingSave === write) pendingSave = null;
   }
 }
 
@@ -164,5 +207,7 @@ export function coachingConsentStillHolds(token: { ownerId: string; revision: nu
 /** Test seam only. */
 export function resetPracticePrivacyForTests(): void {
   operation += 1;
+  pendingSave = null;
+  pendingWriteRefresh = null;
   usePracticePrivacyStore.setState({ ownerId: null, status: 'signed_out', ...OFF });
 }

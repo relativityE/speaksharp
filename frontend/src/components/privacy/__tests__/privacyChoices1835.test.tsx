@@ -84,7 +84,8 @@ describe('PracticePrivacyPrompt', () => {
         fireEvent.click(screen.getByTestId('privacy-continue'));
         await waitFor(() => expect(usePracticePrivacyStore.getState().status).toBe('chosen'));
         expect(client.rpc).toHaveBeenCalledTimes(1);
-        expect(client.rpc).toHaveBeenCalledWith('set_practice_privacy_choices_v1', { p_transcript_save: save, p_ai_coaching: ai });
+        expect(client.rpc).toHaveBeenCalledWith('set_practice_privacy_choices_v1',
+            { p_transcript_save: save, p_ai_coaching: ai, p_expected_revision: null });
     });
 
     it('a failed save says nothing changed and leaves the owner unknown (off)', async () => {
@@ -138,7 +139,8 @@ describe('PrivacySettingsCard', () => {
         render(<PrivacySettingsCard />);
         expect(screen.getByTestId('privacy-settings-unknown')).toHaveTextContent(PRIVACY_SETTINGS_COPY.unknown);
         fireEvent.click(screen.getByTestId('privacy-save-switch'));
-        await waitFor(() => expect(client.rpc).toHaveBeenCalledWith('set_practice_privacy_choices_v1', { p_transcript_save: true, p_ai_coaching: false }));
+        await waitFor(() => expect(client.rpc).toHaveBeenCalledWith('set_practice_privacy_choices_v1',
+            { p_transcript_save: true, p_ai_coaching: false, p_expected_revision: null }));
     });
 
     it('stopping saving asks first (S7); Cancel changes nothing', async () => {
@@ -161,7 +163,8 @@ describe('PrivacySettingsCard', () => {
         fireEvent.click(screen.getByTestId('privacy-save-switch'));
         fireEvent.click(await screen.findByTestId('privacy-stop-saving-confirm'));
         expect(usePracticePrivacyStore.getState()).toMatchObject({ transcriptSave: false, aiCoaching: false, revision: null });
-        expect(client.rpc).toHaveBeenCalledWith('set_practice_privacy_choices_v1', { p_transcript_save: false, p_ai_coaching: false });
+        expect(client.rpc).toHaveBeenCalledWith('set_practice_privacy_choices_v1',
+            { p_transcript_save: false, p_ai_coaching: false, p_expected_revision: 1 });
     });
 
     it('turning AI coaching off keeps saving on, takes effect at once, and needs no confirmation', async () => {
@@ -171,7 +174,21 @@ describe('PrivacySettingsCard', () => {
         act(() => { fireEvent.click(screen.getByTestId('privacy-ai-switch')); });
         expect(screen.queryByTestId('privacy-stop-saving-dialog')).toBeNull();
         expect(usePracticePrivacyStore.getState()).toMatchObject({ transcriptSave: true, aiCoaching: false });
-        expect(client.rpc).toHaveBeenCalledWith('set_practice_privacy_choices_v1', { p_transcript_save: true, p_ai_coaching: false });
+        expect(client.rpc).toHaveBeenCalledWith('set_practice_privacy_choices_v1',
+            { p_transcript_save: true, p_ai_coaching: false, p_expected_revision: 1 });
+    });
+
+    it('a stale coaching toggle shows the other tab’s revocation and does not retry it', async () => {
+        grantPracticePrivacy();
+        client.rpc.mockResolvedValue({ data: null, error: { code: 'P0001', message: 'privacy_choices_changed' } });
+        client.from.mockReturnValue({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: row(false, false, 2), error: null }) }) }) });
+        render(<PrivacySettingsCard />);
+        fireEvent.click(screen.getByTestId('privacy-ai-switch'));
+        expect(await screen.findByTestId('privacy-settings-error')).toHaveTextContent(PRIVACY_SETTINGS_COPY.changed);
+        expect(screen.getByTestId('privacy-save-switch')).toHaveAttribute('aria-checked', 'false');
+        expect(screen.getByTestId('privacy-ai-switch')).toBeDisabled();
+        expect(client.rpc).toHaveBeenCalledTimes(1);
+        expect(usePracticePrivacyStore.getState().revision).toBe(2);
     });
 
     it('a failed change says so', async () => {

@@ -9,7 +9,7 @@
 import React, { useState } from 'react';
 import { Check } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { savePracticePrivacy } from '@/services/practicePrivacy';
+import { savePracticePrivacy, usePracticePrivacyStore } from '@/services/practicePrivacy';
 import { PRIVACY_PROMPT_COPY } from './privacyCopy';
 
 
@@ -53,10 +53,11 @@ interface PracticePrivacyPromptProps {
 }
 
 export const PracticePrivacyPrompt: React.FC<PracticePrivacyPromptProps> = ({ returning }) => {
+  const privacy = usePracticePrivacyStore();
   const [save, setSave] = useState<boolean | null>(null);
   const [ai, setAi] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [error, setError] = useState<'failed' | 'changed' | null>(null);
   const aiUnavailable = save === false;
   // A "Don't save" answer settles the AI question too (it can only be off).
   const aiAnswer = aiUnavailable ? false : ai;
@@ -64,16 +65,16 @@ export const PracticePrivacyPrompt: React.FC<PracticePrivacyPromptProps> = ({ re
 
   const chooseSave = (value: boolean) => {
     setSave(value);
-    setFailed(false);
+    setError(null);
     if (!value) setAi(null);
   };
   const submit = async () => {
     if (!ready || saving || save === null || aiAnswer === null) return;
     setSaving(true);
-    setFailed(false);
-    const result = await savePracticePrivacy(save, save && aiAnswer);
+    setError(null);
+    const result = await savePracticePrivacy(save, save && aiAnswer, privacy);
     setSaving(false);
-    if (!result.ok) setFailed(true);
+    if (!result.ok) setError(result.reason === 'changed' ? 'changed' : 'failed');
   };
 
   return (
@@ -108,9 +109,9 @@ export const PracticePrivacyPrompt: React.FC<PracticePrivacyPromptProps> = ({ re
           </p>
           <div className="mt-3 flex gap-2.5" role="radiogroup" aria-label={PRIVACY_PROMPT_COPY.aiLegend}>
             <Option testId="privacy-ai-yes" title="Get AI coaching" consequence="A written review after each session."
-              selected={!aiUnavailable && ai === true} unavailable={aiUnavailable} onSelect={() => { setAi(true); setFailed(false); }} />
+              selected={!aiUnavailable && ai === true} unavailable={aiUnavailable} onSelect={() => { setAi(true); setError(null); }} />
             <Option testId="privacy-ai-no" title="No coaching" consequence="Measured results only. Nothing goes to the AI service."
-              selected={!aiUnavailable && ai === false} unavailable={aiUnavailable} onSelect={() => { setAi(false); setFailed(false); }} />
+              selected={!aiUnavailable && ai === false} unavailable={aiUnavailable} onSelect={() => { setAi(false); setError(null); }} />
           </div>
           {aiUnavailable && (
             <p className="mt-3 rounded-lg border border-neutral-border-soft bg-neutral-band px-3 py-2.5 text-[14px] font-semibold text-neutral-body"
@@ -141,9 +142,9 @@ export const PracticePrivacyPrompt: React.FC<PracticePrivacyPromptProps> = ({ re
             )}
           </div>
         </div>
-        {failed && (
+        {error && (
           <p role="alert" className="text-[14px] font-semibold text-state-error" data-testid="privacy-save-error">
-            {PRIVACY_PROMPT_COPY.saveFailed}
+            {error === 'changed' ? PRIVACY_PROMPT_COPY.changed : PRIVACY_PROMPT_COPY.saveFailed}
           </p>
         )}
       </CardContent>

@@ -25,6 +25,7 @@ DECLARE new_session uuid := '44444444-4444-4444-8444-444444444444';
 DECLARE rev integer;
 BEGIN
   ASSERT NOT EXISTS(SELECT 1 FROM public.practice_privacy_choices), 'must start unknown';
+  ASSERT to_regprocedure('public.set_practice_privacy_choices_v1(boolean,boolean)') IS NULL, 'unconditional write overload remains';
   BEGIN
     UPDATE public.sessions SET transcript='changed' WHERE id=old;
     RAISE EXCEPTION 'unknown transcript write allowed';
@@ -35,17 +36,27 @@ BEGIN
   ASSERT EXISTS(SELECT 1 FROM public.sessions WHERE id=new_session AND transcript IS NULL AND status='completed'), 'metrics-only write missing';
   ASSERT EXISTS(SELECT 1 FROM public.sessions WHERE id=old AND transcript='old value'), 'history changed';
   BEGIN
-    PERFORM public.set_practice_privacy_choices_v1(false,true);
+    PERFORM public.set_practice_privacy_choices_v1(false,true,NULL);
     RAISE EXCEPTION 'AI without saving allowed';
   EXCEPTION WHEN check_violation THEN NULL; END;
-  SELECT choice_revision INTO rev FROM public.set_practice_privacy_choices_v1(true,true);
+  SELECT choice_revision INTO rev FROM public.set_practice_privacy_choices_v1(true,true,NULL);
   ASSERT rev=1, 'unexpected initial revision';
-  SELECT choice_revision INTO rev FROM public.set_practice_privacy_choices_v1(true,true);
+  SELECT choice_revision INTO rev FROM public.set_practice_privacy_choices_v1(true,true,1);
   ASSERT rev=1, 'idempotent call invalidated a grant';
   UPDATE public.sessions SET transcript='new positive' WHERE id=new_session;
   ASSERT EXISTS(SELECT 1 FROM public.sessions WHERE id=new_session AND transcript='new positive'), 'opted-in write failed';
-  SELECT choice_revision INTO rev FROM public.set_practice_privacy_choices_v1(false,false);
+  SELECT choice_revision INTO rev FROM public.set_practice_privacy_choices_v1(false,false,1);
   ASSERT rev=2, 'revocation did not invalidate revision';
+  BEGIN
+    -- Tab B still sees rev 1 and only turns coaching off; it cannot restore saving revoked by tab A.
+    PERFORM public.set_practice_privacy_choices_v1(true,false,1);
+    RAISE EXCEPTION 'stale tab restored saving';
+  EXCEPTION WHEN raise_exception THEN
+    ASSERT SQLERRM = 'privacy_choices_changed', SQLERRM;
+  END;
+  ASSERT EXISTS(SELECT 1 FROM public.practice_privacy_choices
+                 WHERE user_id=u AND NOT transcript_save AND NOT ai_coaching AND choice_revision=2),
+      'stale write changed consent';
   BEGIN
     UPDATE public.sessions SET transcript='late unconsented edit' WHERE id=new_session;
     RAISE EXCEPTION 'revoked write allowed';
@@ -57,6 +68,13 @@ END $$;
 SET app.fixture_uid='22222222-2222-4222-8222-222222222222';
 DO $$ BEGIN
   ASSERT NOT EXISTS(SELECT 1 FROM public.practice_privacy_choices), 'foreign choice visible';
+  BEGIN
+    PERFORM public.set_practice_privacy_choices_v1(true,true,1);
+    RAISE EXCEPTION 'expected a conflict, not an upsert, for a missing row at revision 1';
+  EXCEPTION WHEN raise_exception THEN
+    ASSERT SQLERRM = 'privacy_choices_changed', SQLERRM;
+  END;
+  ASSERT NOT EXISTS(SELECT 1 FROM public.practice_privacy_choices), 'update path inserted a first choice';
   BEGIN
     INSERT INTO public.practice_privacy_choices(user_id,transcript_save,ai_coaching)
     VALUES('11111111-1111-4111-8111-111111111111',true,true);

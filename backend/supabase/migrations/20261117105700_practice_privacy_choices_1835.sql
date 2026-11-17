@@ -39,19 +39,35 @@ CREATE TRIGGER practice_privacy_choice_revision
     BEFORE UPDATE ON public.practice_privacy_choices
     FOR EACH ROW EXECUTE FUNCTION public.bump_practice_privacy_choice_revision_v1();
 
--- One owner-derived, atomic write. A retry of the same choice does not change the revision.
-CREATE FUNCTION public.set_practice_privacy_choices_v1(p_transcript_save boolean, p_ai_coaching boolean)
+-- A first choice can only insert an absent row. An existing choice can only update the exact
+-- revision the caller saw; the row lock/recheck or unique index decides concurrent writers.
+CREATE FUNCTION public.set_practice_privacy_choices_v1(
+    p_transcript_save boolean, p_ai_coaching boolean, p_expected_revision integer)
     RETURNS TABLE (transcript_save boolean, ai_coaching boolean, consent_version smallint, choice_revision integer)
-    LANGUAGE sql SECURITY INVOKER SET search_path = ''
+    LANGUAGE plpgsql SECURITY INVOKER SET search_path = ''
     AS $$
-    INSERT INTO public.practice_privacy_choices AS choice (user_id, transcript_save, ai_coaching)
-    VALUES ((SELECT auth.uid()), p_transcript_save, p_ai_coaching)
-    ON CONFLICT (user_id) DO UPDATE
-       SET transcript_save = EXCLUDED.transcript_save, ai_coaching = EXCLUDED.ai_coaching
-    RETURNING choice.transcript_save, choice.ai_coaching, choice.consent_version, choice.choice_revision;
+BEGIN
+    IF p_expected_revision IS NULL THEN
+        RETURN QUERY INSERT INTO public.practice_privacy_choices AS choice (user_id, transcript_save, ai_coaching)
+        VALUES ((SELECT auth.uid()), p_transcript_save, p_ai_coaching)
+        ON CONFLICT (user_id) DO NOTHING
+        RETURNING choice.transcript_save, choice.ai_coaching, choice.consent_version, choice.choice_revision;
+    ELSE
+        IF p_expected_revision < 1 THEN
+            RAISE EXCEPTION 'invalid_privacy_choice_revision' USING ERRCODE = '22023';
+        END IF;
+        RETURN QUERY UPDATE public.practice_privacy_choices AS choice
+        SET transcript_save = p_transcript_save, ai_coaching = p_ai_coaching
+        WHERE choice.user_id = (SELECT auth.uid()) AND choice.choice_revision = p_expected_revision
+        RETURNING choice.transcript_save, choice.ai_coaching, choice.consent_version, choice.choice_revision;
+    END IF;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'privacy_choices_changed' USING ERRCODE = 'P0001';
+    END IF;
+END;
 $$;
-REVOKE ALL ON FUNCTION public.set_practice_privacy_choices_v1(boolean, boolean) FROM PUBLIC, anon, authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.set_practice_privacy_choices_v1(boolean, boolean) TO authenticated;
+REVOKE ALL ON FUNCTION public.set_practice_privacy_choices_v1(boolean, boolean, integer) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.set_practice_privacy_choices_v1(boolean, boolean, integer) TO authenticated;
 
 -- Cover current and legacy session-write routes. Replays of the same stored text do not change it.
 -- Leaving this value null remains a normal metrics-only completion and does not discard the session.

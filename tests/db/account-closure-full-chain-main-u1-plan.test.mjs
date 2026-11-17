@@ -138,7 +138,7 @@ const PAYMENT_WALL=Object.freeze({name:'20261114170000_payment_wall_product_acce
   version:'20261114170000',sha256:'407a49072c928ed52015d5d696791e4506a25468f9a71098db418b1f18cf3f59'});
 // Reviewed #1835 bytes are physical inventory, not part of any historical replay profile.
 const PRACTICE_PRIVACY=Object.freeze({name:'20261117105700_practice_privacy_choices_1835.sql',
-  version:'20261117105700',sha256:'e864b6bb8b47d7848a66f1465a1ec110a9df134c904f14f10e45c30a7fed3cbf'});
+  version:'20261117105700',sha256:'8e21fe2237c70c75fcaeee8cb74e17b679ab187f6936b9ccd5c311c51dedf9b7'});
 const physical=repositoryPhysical.filter(row=>![WITHHELD.name,START_ABANDONMENT.name,REFUND.name,FEEDBACK_FENCE.name,PAYMENT_WALL.name,PRACTICE_PRIVACY.name].includes(row.name));
 const main = physical.filter(row => ![U1.name, ANALYTICS.name, ...ACCOUNT.map(row=>row.name), FENCE.name, RETENTION.name, BILLING.name].includes(row.name));
 const receiving = [...main, U1].sort((a, b) => a.name.localeCompare(b.name, 'en'));

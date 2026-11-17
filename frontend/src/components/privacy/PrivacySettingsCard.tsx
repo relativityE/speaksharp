@@ -12,31 +12,32 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { savePracticePrivacy, transcriptSaveAllowed, coachingAllowed, usePracticePrivacyStore } from '@/services/practicePrivacy';
+import { savePracticePrivacy, transcriptSaveAllowed, coachingAllowed, usePracticePrivacyStore,
+  type PracticePrivacyState } from '@/services/practicePrivacy';
 import { PRIVACY_SETTINGS_COPY } from './privacyCopy';
 
 
 export const PrivacySettingsCard: React.FC = () => {
   const privacy = usePracticePrivacyStore();
-  const [confirmStop, setConfirmStop] = useState(false);
+  const [confirmStop, setConfirmStop] = useState<PracticePrivacyState | null>(null);
   const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [error, setError] = useState<'failed' | 'changed' | null>(null);
   const loading = privacy.status === 'loading' || privacy.status === 'signed_out';
   const saveOn = transcriptSaveAllowed(privacy);
   const aiOn = coachingAllowed(privacy);
   const controlsDisabled = loading || privacy.status === 'unavailable' || busy;
 
-  const record = async (save: boolean, ai: boolean) => {
+  const record = async (save: boolean, ai: boolean, basis: PracticePrivacyState) => {
     setBusy(true);
-    setFailed(false);
-    const result = await savePracticePrivacy(save, save && ai);
+    setError(null);
+    const result = await savePracticePrivacy(save, save && ai, basis);
     setBusy(false);
-    if (!result.ok) setFailed(true);
+    if (!result.ok) setError(result.reason === 'changed' ? 'changed' : 'failed');
   };
 
   const onSaveChange = (next: boolean) => {
-    if (next) void record(true, aiOn);
-    else setConfirmStop(true);
+    if (next) void record(true, aiOn, privacy);
+    else setConfirmStop(privacy);
   };
 
   return (
@@ -74,15 +75,17 @@ export const PrivacySettingsCard: React.FC = () => {
           <div className="flex shrink-0 items-center gap-2">
             <span className="text-[13px] font-bold" aria-hidden="true">{aiOn ? 'On' : 'Off'}</span>
             <Switch id="privacy-ai-switch" checked={aiOn} disabled={controlsDisabled || !saveOn}
-              onCheckedChange={(next) => { void record(true, next); }} data-testid="privacy-ai-switch" />
+              onCheckedChange={(next) => { void record(true, next, privacy); }} data-testid="privacy-ai-switch" />
           </div>
         </div>
 
         <p className="pt-4 text-[14px] text-neutral-secondary">{PRIVACY_SETTINGS_COPY.note}</p>
-        {failed && <p role="alert" className="pt-2 text-sm text-destructive" data-testid="privacy-settings-error">{PRIVACY_SETTINGS_COPY.failed}</p>}
+        {error && <p role="alert" className="pt-2 text-sm text-destructive" data-testid="privacy-settings-error">
+          {error === 'changed' ? PRIVACY_SETTINGS_COPY.changed : PRIVACY_SETTINGS_COPY.failed}
+        </p>}
       </CardContent>
 
-      <AlertDialog open={confirmStop} onOpenChange={setConfirmStop}>
+      <AlertDialog open={confirmStop !== null} onOpenChange={(open) => { if (!open) setConfirmStop(null); }}>
         <AlertDialogContent data-testid="privacy-stop-saving-dialog">
           <AlertDialogHeader>
             <AlertDialogTitle>{PRIVACY_SETTINGS_COPY.stopTitle}</AlertDialogTitle>
@@ -90,7 +93,9 @@ export const PrivacySettingsCard: React.FC = () => {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel data-testid="privacy-stop-saving-cancel">Cancel</AlertDialogCancel>
-            <AlertDialogAction data-testid="privacy-stop-saving-confirm" onClick={() => { void record(false, false); }}>
+            <AlertDialogAction data-testid="privacy-stop-saving-confirm" onClick={() => {
+              if (confirmStop) void record(false, false, confirmStop);
+            }}>
               Stop saving
             </AlertDialogAction>
           </AlertDialogFooter>

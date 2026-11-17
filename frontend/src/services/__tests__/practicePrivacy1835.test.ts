@@ -146,7 +146,8 @@ describe('savePracticePrivacy', () => {
         await loadPracticePrivacy(OWNER_A);
         client.rpc.mockResolvedValue({ data: [row({ choice_revision: 1 })], error: null });
         await expect(savePracticePrivacy(true, true)).resolves.toEqual({ ok: true });
-        expect(client.rpc).toHaveBeenCalledWith('set_practice_privacy_choices_v1', { p_transcript_save: true, p_ai_coaching: true });
+        expect(client.rpc).toHaveBeenCalledWith('set_practice_privacy_choices_v1',
+            { p_transcript_save: true, p_ai_coaching: true, p_expected_revision: null });
         expect(usePracticePrivacyStore.getState()).toMatchObject({ status: 'chosen', transcriptSave: true, aiCoaching: true, revision: 1 });
     });
 
@@ -170,14 +171,16 @@ describe('savePracticePrivacy', () => {
         void savePracticePrivacy(true, false);
         expect(usePracticePrivacyStore.getState()).toMatchObject({ transcriptSave: true, aiCoaching: false, revision: null });
         expect([transcriptSaveAllowed(), coachingAllowed(), coachingConsentStillHolds(token)]).toEqual([true, false, false]);
-        void savePracticePrivacy(false, false);
-        expect([transcriptSaveAllowed(), coachingAllowed()]).toEqual([false, false]);
+        await expect(savePracticePrivacy(false, false)).resolves.toEqual({ ok: false, reason: 'changed' });
+        expect(client.rpc).toHaveBeenCalledTimes(1);
     });
 
     it('a re-recorded choice (new revision) invalidates a token taken under the old one', async () => {
         await chosen(row({ choice_revision: 5 }));
         const token = captureCoachingConsent();
-        client.rpc.mockResolvedValue({ data: [row({ choice_revision: 6 })], error: null });
+        client.rpc.mockResolvedValueOnce({ data: [row({ ai_coaching: false, choice_revision: 6 })], error: null })
+            .mockResolvedValueOnce({ data: [row({ choice_revision: 7 })], error: null });
+        await savePracticePrivacy(true, false);
         await savePracticePrivacy(true, true);
         expect(coachingConsentStillHolds(token)).toBe(false);
         expect(coachingConsentStillHolds(captureCoachingConsent())).toBe(true);
@@ -199,6 +202,8 @@ describe('savePracticePrivacy', () => {
         ['an RPC error', { data: null, error: { message: 'consent_unavailable' } }],
         ['a row that says something else', { data: [row({ ai_coaching: false })], error: null }],
         ['a malformed row', { data: [row({ consent_version: 9 })], error: null }],
+        ['a stale result revision', { data: [row({ choice_revision: 2 })], error: null }],
+        ['multiple claim rows', { data: [row(), row()], error: null }],
     ])('%s → failed; the server\'s state is re-read, and a refused turn-on never applied', async (_label, answer) => {
         reads.push(Promise.resolve({ data: null, error: null }));
         await loadPracticePrivacy(OWNER_A);
@@ -207,6 +212,38 @@ describe('savePracticePrivacy', () => {
         await expect(savePracticePrivacy(true, true)).resolves.toEqual({ ok: false, reason: 'failed' });
         await vi.waitFor(() => expect(client.from).toHaveBeenCalledTimes(2));
         expect(usePracticePrivacyStore.getState()).toMatchObject({ status: 'unknown', transcriptSave: false, aiCoaching: false });
+    });
+
+    it('rejects a revocation conflict, drops stale permission, re-reads and does not replay the write', async () => {
+        await chosen();
+        const current = deferred<{ data: unknown; error: unknown }>();
+        reads.push(current.promise);
+        client.rpc.mockResolvedValue({ data: null, error: { code: 'P0001', message: 'privacy_choices_changed' } });
+        await expect(savePracticePrivacy(true, false)).resolves.toEqual({ ok: false, reason: 'changed' });
+        expect(client.rpc).toHaveBeenCalledWith('set_practice_privacy_choices_v1',
+            { p_transcript_save: true, p_ai_coaching: false, p_expected_revision: 1 });
+        expect([transcriptSaveAllowed(), coachingAllowed()]).toEqual([false, false]);
+        current.resolve({ data: row({ transcript_save: false, ai_coaching: false, choice_revision: 2 }), error: null });
+        await vi.waitFor(() => expect(usePracticePrivacyStore.getState().revision).toBe(2));
+        expect(client.rpc).toHaveBeenCalledTimes(1);
+        expect([transcriptSaveAllowed(), coachingAllowed()]).toEqual([false, false]);
+    });
+
+    it('a conflict cannot restore the rejected revision from a stale read', async () => {
+        await chosen();
+        reads.push(Promise.resolve({ data: row(), error: null }));
+        client.rpc.mockResolvedValue({ data: null, error: { code: 'P0001', message: 'privacy_choices_changed' } });
+        await savePracticePrivacy(true, false);
+        await vi.waitFor(() => expect(usePracticePrivacyStore.getState().status).toBe('unavailable'));
+        expect([transcriptSaveAllowed(), coachingAllowed()]).toEqual([false, false]);
+    });
+
+    it('a control rendered before a refresh cannot use the refreshed revision to restore saving', async () => {
+        await chosen();
+        const staleBasis = usePracticePrivacyStore.getState();
+        await chosen(row({ transcript_save: false, ai_coaching: false, choice_revision: 2 }));
+        await expect(savePracticePrivacy(true, false, staleBasis)).resolves.toEqual({ ok: false, reason: 'changed' });
+        expect(client.rpc).not.toHaveBeenCalled();
     });
 
     it('a failed turn-off stays off in this client until the re-read shows the server\'s state', async () => {

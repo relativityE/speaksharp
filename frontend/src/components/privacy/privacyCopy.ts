@@ -15,7 +15,8 @@ export const PRIVACY_PROMPT_COPY = {
   aiHelp: 'After each saved session, your transcript and speaking measurements are sent to an AI service, which writes your review. Audio is never sent.',
   aiNeedsSave: 'AI coaching needs a saved transcript. Choose Save transcripts to use it.',
   continueReason: 'Choose both options to continue.',
-  saveFailed: 'Your choices couldn’t be saved. Nothing changed. Try again.',
+  saveFailed: 'We couldn’t confirm your choices. Review the current settings before trying again.',
+  changed: 'Your privacy settings changed elsewhere. Review the current settings before trying again.',
 } as const;
 
 export const PRIVACY_SETTINGS_COPY = {
@@ -29,6 +30,7 @@ export const PRIVACY_SETTINGS_COPY = {
   unavailable: 'Your privacy choices couldn’t be loaded, so saving and AI coaching stay off. Reload to try again.',
   unknown: 'You haven’t chosen yet, so saving and AI coaching are off.',
   failed: 'Your change couldn’t be saved. Your settings show what’s in effect now.',
+  changed: 'Your privacy settings changed elsewhere. Review the current settings before trying again.',
   stopTitle: 'Stop saving transcripts?',
   stopBody: 'New sessions won’t keep their transcript. AI coaching will turn off too, because it needs a saved transcript. Transcripts you’ve already saved stay until you delete them.',
 } as const;

@@ -34,7 +34,7 @@ test('#1835 current save chain preserves metrics and refuses new transcript text
     assert.deepEqual(await rows('SELECT status, transcript FROM sessions WHERE id=$1',[a.new_session.id]),[{status:'completed',transcript:null}]);
     assert.ok((await rows('SELECT transcript FROM sessions WHERE id=$1',[person.ids[0]]))[0].transcript);
     await owner(optedPerson.user);
-    await rows('SELECT * FROM set_practice_privacy_choices_v1(true,true)');
+    await rows('SELECT * FROM set_practice_privacy_choices_v1(true,true,NULL)');
     const b = await create();
     assert.ok(b.new_session?.id, JSON.stringify(b));
     const yes = await complete(b.new_session.id,'allowed synthetic transcript');

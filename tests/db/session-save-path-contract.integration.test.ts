@@ -423,7 +423,7 @@ async function newUser(db: PGlite, optIn = true): Promise<string> {
   const id = randomUUID();
   await db.query('INSERT INTO auth.users (id, email) VALUES ($1, $2)', [id, `save-path-${id}@example.test`]);
   if (optIn) await asRequestRole(db, { sub: id, role: 'authenticated' }, tx =>
-    tx.query('SELECT public.set_practice_privacy_choices_v1(true, false)'));
+    tx.query('SELECT public.set_practice_privacy_choices_v1(true, false, NULL)'));
   return id;
 }
 
@@ -790,7 +790,7 @@ describe('failures reach the caller and leave no partial completion', () => {
     const committed = await rowOf(db, id);
     expect(persistedMismatches(committed, asked)).toEqual([]);
     await asRequestRole(db, { sub: user, role: 'authenticated' }, tx =>
-      tx.query('SELECT public.set_practice_privacy_choices_v1(false, false)'));
+      tx.query('SELECT public.set_practice_privacy_choices_v1(false, false, 1)'));
     resetPracticePrivacyForTests();
     const start = rpcBodies.length;
     try {

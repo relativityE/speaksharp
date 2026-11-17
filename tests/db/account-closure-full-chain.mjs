@@ -966,7 +966,7 @@ export const REVIEWED_UNRELATED_MIGRATIONS=Object.freeze([
 // #1835 changes session/coaching behavior, but no historical profile installs it.
 // This pin recognizes repository presence; it is not proof of installed privacy behavior.
 const PRACTICE_PRIVACY_MIGRATION=Object.freeze({name:'20261117105700_practice_privacy_choices_1835.sql',
-  version:'20261117105700',sha256:'e864b6bb8b47d7848a66f1465a1ec110a9df134c904f14f10e45c30a7fed3cbf'});
+  version:'20261117105700',sha256:'8e21fe2237c70c75fcaeee8cb74e17b679ab187f6936b9ccd5c311c51dedf9b7'});
 const COMMON_WITHHELD_MIGRATIONS=Object.freeze([
   PAYMENT_WALL_MIGRATION,
   ...REVIEWED_UNRELATED_MIGRATIONS,
