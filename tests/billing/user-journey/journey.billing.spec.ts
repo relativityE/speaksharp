@@ -8,7 +8,7 @@ import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, re
   assertTestPrice, assertInvoice, isCorrelatedDelivery, safeFailureReason, testClockCreateFields, localStackStatus,
   assertFullRefund, isRefundCancellation, assertCheckoutGrantedNothing,
   checkoutSessionFromUrl, assertCheckoutIdentity, newlyAddedCard, assertNoSecondCharge,
-  type RunnerJourney, type BillingEvent, hostedFieldUnavailable, type HostedField } from './contract';
+  type RunnerJourney, type BillingEvent, hostedFieldUnavailable, hostedEmailDecision, type HostedField } from './contract';
 import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { selectBenchmarkMode, preparePrivateModelIfPrompted, startBenchmarkRecording,
   expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput, stopBenchmarkRecording,
@@ -49,6 +49,8 @@ class SandboxJourney {
     { auth: { autoRefreshToken: false, persistSession: false } });
   readonly eventIds = new Set<string>();
   uid = ''; customer = ''; subscription = ''; clock = ''; session = ''; savedSession = '';
+  /** The Checkout session openCheckout positively bound to this run (assertCheckoutIdentity); null until then. */
+  boundCheckout: string | null = null;
   signupAttempted = false;
   uncertainStripeCreate = false;
   stage = 'preflight';
@@ -192,8 +194,8 @@ class SandboxJourney {
   }
 
   /** Fills Stripe's hosted card form (Checkout or the portal) and submits. Never reads or reports its content. */
-  async fillCard(card: string, withEmail: boolean): Promise<void> {
-    const fill = async (selector: string, value: string, field: HostedField) => {
+  async fillCard(card: string, email: 'required' | 'after-binding' | 'none'): Promise<void> {
+    const fill = async (selector: string, value: string, field: HostedField, absentAllowed = false) => {
       for (let attempt = 0; attempt < 40; attempt++) {
         for (const frame of this.page.frames()) {
           const field = frame.locator(selector).first();
@@ -201,6 +203,8 @@ class SandboxJourney {
         }
         await sleep(500);
       }
+      // Email only: absent is accepted solely for the session openCheckout proved is this run's own (hostedEmailDecision).
+      if (absentAllowed) return;
       // Name the missing field and whether a visible "Card" choice was offered (content-free; the field stays required).
       let cardChoiceShown: boolean | null = false;
       try {
@@ -212,7 +216,12 @@ class SandboxJourney {
       } catch { cardChoiceShown = null; }
       throw new Error(`BILLING_JOURNEY:${hostedFieldUnavailable(field, cardChoiceShown)}`);
     };
-    if (withEmail) await fill('input[type="email"]', this.email, 'email');
+    if (email !== 'none') {
+      const decision = hostedEmailDecision({ emailFieldVisible: false,
+        shownSession: email === 'after-binding' ? (() => { try { return checkoutSessionFromUrl(this.page.url()); } catch { return null; } })() : null,
+        boundSession: email === 'after-binding' ? this.boundCheckout : null });
+      await fill('input[type="email"]', this.email, 'email', decision === 'absent_after_binding');
+    }
     await fill('input[autocomplete="cc-number"],input[name="cardNumber"]', card, 'card_number');
     await fill('input[autocomplete="cc-exp"],input[name="cardExpiry"]', '1234', 'card_expiry');
     await fill('input[autocomplete="cc-csc"],input[name="cardCvc"]', '123', 'card_cvc');
@@ -226,7 +235,8 @@ class SandboxJourney {
   }
 
   async payOnHostedPage(card: string): Promise<void> {
-    await this.fillCard(card, true);
+    // Email is filled when shown; it may be absent only on the exact session openCheckout bound to this run's customer.
+    await this.fillCard(card, 'after-binding');
     await this.page.locator('button[type="submit"]').click();
   }
 
@@ -245,8 +255,11 @@ class SandboxJourney {
    */
   async openCheckout(raw: string | null): Promise<string> {
     const session = checkoutSessionFromUrl(raw);
+    this.boundCheckout = null;
     assertCheckoutIdentity(await this.stripe(`checkout/sessions/${session}`),
       { session, customer: this.customer, uid: this.uid, app: this.targets.app });
+    // Set only after the positive binding above: the one session hostedEmailDecision may accept without an email field.
+    this.boundCheckout = session;
     await this.page.goto(raw as string);
     return session;
   }
@@ -447,7 +460,7 @@ class SandboxJourney {
       requireFact(Array.isArray(listedBefore.data) && listedBefore.has_more === false, 'payment_method_page_incomplete');
       const before = (listedBefore.data as Obj[]).map(pm => String(pm.id));
       await add.click();
-      await this.fillCard('4242424242424242', false);
+      await this.fillCard('4242424242424242', 'none');
       await this.page.getByRole('button', { name: /^(Add|Save)/i }).last().click();
       const newCard = newlyAddedCard(await this.poll(cards, listed => {
         try { newlyAddedCard(listed, before, badCard); return true; } catch { return false; }

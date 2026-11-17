@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'vitest';
 import { RUNNER_JOURNEYS, POLICY_PENDING_STEPS, REQUIRED_STEPS, receipt, assertTestPrice, assertInvoice,
   isCorrelatedDelivery, assertSandboxConfiguration, safeFailureReason, testClockCreateFields, localStackStatus,
-  hostedFieldUnavailable, type HostedField } from './contract';
+  hostedFieldUnavailable, hostedEmailDecision, assertCheckoutIdentity, type HostedField } from './contract';
 import { finaliseLocalStackReceipt, RECEIPT_KEYS } from './localStackReceipt.mjs';
 import { stackIdentitySha256 } from './localStackResources.mjs';
 
@@ -97,6 +97,30 @@ test('a missing hosted field is named (run 44055010939 could not say which), con
   }
   // An unknown field name is refused, never reported as a free-form string.
   assert.throws(() => hostedFieldUnavailable('card_holder' as HostedField, false), /BILLING_JOURNEY:hosted_field_unknown/);
+});
+test('hosted email (run 44066185734): required by default; absent only on the exact session positively bound to this run', () => {
+  const bound = 'cs_test_Bound123';
+  // A visible editable email field is always filled, bound or not.
+  assert.equal(hostedEmailDecision({ emailFieldVisible: true, shownSession: bound, boundSession: bound }), 'fill');
+  assert.equal(hostedEmailDecision({ emailFieldVisible: true, shownSession: null, boundSession: null }), 'fill');
+  // Owned + no field: the bound session on screen may lack an email input (Stripe renders none for an existing customer).
+  assert.equal(hostedEmailDecision({ emailFieldVisible: false, shownSession: bound, boundSession: bound }), 'absent_after_binding');
+  // Unbound, a different session on screen, an unreadable page, or a malformed binding never skips email.
+  for (const [shownSession, boundSession] of [[bound, null], ['cs_test_Other456', bound], [null, bound], ['', ''],
+    ['cs_live_Bound123', 'cs_live_Bound123'], [bound, `${bound}x!`]] as const) {
+    assert.equal(hostedEmailDecision({ emailFieldVisible: false, shownSession, boundSession }), 'missing', `${shownSession} / ${boundSession}`);
+  }
+});
+test('the binding that permits an absent email: a wrong customer, user, paid or live session never binds', () => {
+  const expected = { session: 'cs_test_Bound123', customer: 'cus_owned', uid: 'uid-1', app: 'http://localhost:5173' };
+  const session = { id: 'cs_test_Bound123', livemode: false, mode: 'subscription', status: 'open', payment_status: 'unpaid',
+    customer: 'cus_owned', client_reference_id: 'uid-1', metadata: { userId: 'uid-1' },
+    success_url: 'http://localhost:5173/?checkout=success', cancel_url: 'http://localhost:5173/?checkout=cancel' };
+  assert.doesNotThrow(() => assertCheckoutIdentity(session, expected));
+  for (const change of [{ customer: 'cus_other' }, { customer: null }, { client_reference_id: 'uid-2' }, { livemode: true },
+    { payment_status: 'paid' }, { status: 'complete' }, { metadata: { userId: 'uid-2' } }]) {
+    assert.throws(() => assertCheckoutIdentity({ ...session, ...change }, expected), /BILLING_JOURNEY:checkout_/, JSON.stringify(change));
+  }
 });
 test('local disposable stack admits loopback http only, and only under its own committed target', async () => {
   const localTarget = (await import('./sandbox-target.local.json', { with: { type: 'json' } })).default;

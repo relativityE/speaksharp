@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import sandboxTarget from './sandbox-target.json' with { type: 'json' };
 import localStackTarget from './sandbox-target.local.json' with { type: 'json' };
 import { requireFact, assertSandboxConfiguration, assertTestPrice, assertInvoice, isCorrelatedDelivery,
-  safeFailureReason, localStackStatus, testClockCreateFields, type BillingEvent, hostedFieldUnavailable, type HostedField } from './contract';
+  safeFailureReason, localStackStatus, testClockCreateFields, type BillingEvent, hostedFieldUnavailable, hostedEmailDecision, checkoutSessionFromUrl, assertCheckoutIdentity, type HostedField } from './contract';
 import { runnerPreflight } from './runnerPreflight.mjs';
 import { paidValueLoopReceipt, assertSavedTake, assertEligibleEvaluation, savedCoaching, coachingShownAsSaved,
   assertRecommendation, comparisonExpectation, assertComparisonShown } from './paidValueLoop';
@@ -203,8 +203,12 @@ class PaidValueLoop {
     requireFact(pending.livemode === false && pending.mode === 'subscription' && pending.customer === this.customer
       && pending.client_reference_id === this.uid && pending.metadata?.userId === this.uid, 'checkout_identity');
     requireFact(new URL(pending.success_url).origin === this.targets.app, 'checkout_return_origin');
+    // The full positive binding (open, unpaid, test-mode subscription for this customer and user, app return origins): only this
+    // exact session may later be accepted without a hosted email field.
+    assertCheckoutIdentity(pending, { session: this.session, customer: this.customer, uid: this.uid, app: this.targets.app });
+    const boundSession = this.session;
     await this.page.goto(checkout.data.checkoutUrl);
-    const fill = async (selector: string, value: string, field: HostedField) => {
+    const fill = async (selector: string, value: string, field: HostedField, absentAllowed = false) => {
       for (let attempt = 0; attempt < 40; attempt++) {
         for (const frame of this.page.frames()) {
           const field = frame.locator(selector).first();
@@ -212,6 +216,8 @@ class PaidValueLoop {
         }
         await sleep(500);
       }
+      // Email only: absent is accepted solely for the session proven above to be this run's own (hostedEmailDecision).
+      if (absentAllowed) return;
       // Name the missing field and whether a visible "Card" choice was offered (content-free; the field stays required).
       let cardChoiceShown: boolean | null = false;
       try {
@@ -223,7 +229,10 @@ class PaidValueLoop {
       } catch { cardChoiceShown = null; }
       throw new Error(`BILLING_JOURNEY:${hostedFieldUnavailable(field, cardChoiceShown)}`);
     };
-    await fill('input[type="email"]', this.email, 'email');
+    // Bound only after the identity checks above passed for this exact session (customer, user, test mode, return origin).
+    const shownSession = (() => { try { return checkoutSessionFromUrl(this.page.url()); } catch { return null; } })();
+    const emailDecision = hostedEmailDecision({ emailFieldVisible: false, shownSession, boundSession });
+    await fill('input[type="email"]', this.email, 'email', emailDecision === 'absent_after_binding');
     await fill('input[autocomplete="cc-number"],input[name="cardNumber"]', '4242424242424242', 'card_number');
     await fill('input[autocomplete="cc-exp"],input[name="cardExpiry"]', '1234', 'card_expiry');
     await fill('input[autocomplete="cc-csc"],input[name="cardCvc"]', '123', 'card_cvc');

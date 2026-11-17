@@ -37,6 +37,21 @@ export function hostedFieldUnavailable(field: HostedField, cardChoiceShown: bool
   return `hosted_field_unavailable_${field}${choice}`;
 }
 
+/**
+ * Whether the hosted email field must be filled, when the card is entered (run 44066185734: hosted_field_unavailable_email).
+ * Email is REQUIRED by default. A visible editable field is always filled. It may be absent only when the page on screen is the
+ * exact Checkout session that `assertCheckoutIdentity` already proved is this run's open, unpaid test-mode session for the
+ * run-owned Stripe customer and app user (`boundSession`): Stripe renders no email input for an existing customer. A
+ * non-empty `customer` alone is not that proof, and an unbound, different or unknown session never skips it.
+ */
+export function hostedEmailDecision(input: { emailFieldVisible: boolean; shownSession: string | null; boundSession: string | null }):
+  'fill' | 'absent_after_binding' | 'missing' {
+  if (input.emailFieldVisible) return 'fill';
+  const bound = typeof input.boundSession === 'string' && /^cs_test_[A-Za-z0-9]+$/.test(input.boundSession)
+    && input.shownSession === input.boundSession;
+  return bound ? 'absent_after_binding' : 'missing';
+}
+
 export function safeFailureReason(error: unknown): string {
   const message = error instanceof Error ? error.message : '';
   return /^BILLING_JOURNEY:([a-z_]{1,80})$/.exec(message)?.[1] ?? 'unclassified_step_failure';
