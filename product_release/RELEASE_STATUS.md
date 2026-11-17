@@ -309,6 +309,31 @@ an outside review on 15–16 November reported it unapplied.
   merged source above remain the evidence that can be checked.
 - **Instruction:** do not reapply this migration.
 
+### Outside-review findings: state on main, 16–17 November 2026
+
+The current state of each unresolved finding from Nat's 15–16 November reviews, read on main
+`db7b231d` on 16 November and refreshed on 17 November. The routing, owners and the evidence
+that closes each finding are in `ROADMAP.md` ("Reconciliation of Nat's 15–16 November
+findings"). A state here is an observation, not an acceptance result.
+
+| Finding | State on `db7b231d` |
+|---|---|
+| Harness preflight pins an old release | `draft-adapters/source-adapters.cjs:23` still pins `5a7bf6a1`; #1876 reuses inspection when inputs are unchanged; at least 54 inspected inputs changed on the observed deployment, so a SHA swap does not fix it |
+| Nine-journey gate has no qualifying run | #1796 map merged; no leg accepted; leg status, gates and #1883's J1.d leg are under "Unresolved proof, kept open" above |
+| Billing wall merged, paid loop never run | #1863 and #1879 merged; production fails closed; test-mode checkout proof not run |
+| Privacy opt-in gate absent | Save and coaching send still unconditional |
+| Clarity and pauses not sent to coaching | #1836's description now says "Do not merge the current clarity-and-pauses design for MVP" |
+| No rate limit on ops-status | `middleware.js` has constant-time auth, no throttle |
+| STT model decision unmade | Selector `v2:base.en`; registry unchanged |
+| **Feedback fence "unapplied" (corrected)** | Applied in production on 14 November 2026 and independently verified (receipt above); not a J1–J9 acceptance pass |
+| Smoke budgets for two retired R10 cases | `test-config.v1.json` smoke `caseMaxMs` still 10 s and 17 s |
+| Test-selector under-selection holes | Unchanged |
+| Take stopped under five seconds completes | Fix not merged |
+| #1837 retention numbers | Code on main keeps reuse artifacts 7 days, or 30 days on push; no 1-day value exists |
+| Twelve framework items with no PR | Each mapped to a PR, issue or explicit non-goal |
+| Review threads not blocking merges; stale PR bodies; closures without reasons | Process gaps, no code |
+| Merge-process optimizations (Nat, 16 Nov) | Sam's response: review and engineering CI are already separate; a manual queue does not emit GitHub's `merge_group` event; in three recent runs the Lighthouse wait saved nothing |
+
 ### Existing PR inventory to preserve
 
 Consolidation state was verified on 10 November 2026; the PR-state wording in this
