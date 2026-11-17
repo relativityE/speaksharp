@@ -14,6 +14,15 @@ The shared harness only admits the originally inspected `5a7bf6a1` source. The o
 8. **Review and verify the seal.** Inspect the exact adapter and trusted inputs independently, regenerate only the affected seal from reviewed bytes, run the harness verifier and relevant regression tests, then qualify the exact PR head through the protected merge.
 9. **Prepare bounded J4.a proof.** Against the named served build, record the save/reopen evidence still missing, account and write bounds, cleanup read-back, and stop conditions. After separate approval, run only that proof and record PASS, FAIL, HOLD or NOT RUN as observed. Leave full J1–J9 qualification open.
 
+## J4.a supervised entry point
+
+A JavaScript callback in the parent is not the execution path. The sealed `campaign-runner.cjs` starts the separate supervised `run-guarded.cjs` process and currently forwards only the numeric case allowance from the options. The child verifies and loads its sealed driver, and the parent receives case and process-cleanup receipts. Neither boundary currently carries the nightly reservation contract or structured server cleanup.
+
+1. At the parent, bind the proposed J4.a route to the exact run, case, attempt, plan/config hashes and served SHA already used by the runtime-start receipt. Keep the existing supervision and browser/network guards.
+2. At the supervised child, expose only the reviewed, narrowly scoped J4.a capability. Charge the existing nightly budget and record the guarded signup attempt before the corresponding operation. Browser observation after a request is not a reservation. No fallback to the ordinary unbound path.
+3. Return the server cleanup observation for the same run and case through the supervised boundary. The parent checks the binding and the confirmed guarded signup, rather than accepting a claim from the driver or trusting the browser/process-cleanup receipt.
+4. Prove with fake transport through both ends of the actual supervised invocation: absent or mismatched binding sends nothing, no replay after an ambiguous signup, a wrong account cannot clear the run, and interrupted cleanup cannot convert a prior observation into PASS. No live run until this proof and the release binding are reviewed.
+
 ## J4.a cleanup contract
 
 The draft source adapter closes its own pages and contexts; it does not delete the account or check server residue. The case runner's browser/process cleanup receipt is not server cleanup evidence. At the protected owner-cleanup boundary, reuse structured results from the existing auth deletion readback and counted session and recording-lease queries where the real route can call that implementation. Keep its other table checks. Do not infer server cleanup from a browser stop, a text verdict, an account-only query, or the absence of a recorded take.
