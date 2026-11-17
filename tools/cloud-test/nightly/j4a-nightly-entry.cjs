@@ -39,8 +39,23 @@ function composeJ4aNightly({ plan, bundle, admin, configuredDomain, nightly, ada
     return nightlyAdapter(raw, nightly);
 }
 
+/**
+ * Sam (release boundary 2): the parent admin client may target ONLY the approved project, bound before the client is built or any call
+ * is made. The approved identity is the reviewed save oracle's own readback host (draft-adapters durable-save-oracle readbackContract,
+ * the same host the adapter's preflight requires the case readback to match), never the environment's say-so. Exact https origin only:
+ * no other host, scheme, port, credentials, path, query or fragment. Returns the origin or throws (content-free).
+ */
+function approvedAdminOrigin(supabaseUrl, approvedHost = require(path.join(__dirname, '..', 'harness', 'draft-adapters', 'durable-save-oracle.cjs')).readbackContract.host) {
+    const refuse = () => { const e = new Error('BLOCKED_SETUP: SUPABASE_URL is not the approved project'); e.code = 'WRONG_PROJECT'; throw e; };
+    if (typeof approvedHost !== 'string' || !/^[a-z0-9]{20}\.supabase\.co$/.test(approvedHost)) refuse();
+    let u;
+    try { u = new URL(String(supabaseUrl)); } catch { refuse(); }
+    if (u.protocol !== 'https:' || u.host !== approvedHost || u.username || u.password || u.search || u.hash || !['', '/'].includes(u.pathname)) refuse();
+    return u.origin;
+}
+
 /** CLI: refuses unless explicitly executing with every input; the admin client is built here, in the parent, from the environment. */
-async function main(argv, env = process.env) {
+async function main(argv, env = process.env, deps = {}) {
     const a = {};
     for (let i = 0; i < argv.length; i += 2) a[argv[i]] = argv[i + 1];
     const need = ['--plan', '--bundle', '--evidence-dir', '--run-dir', '--run-id', '--execute'];
@@ -50,8 +65,10 @@ async function main(argv, env = process.env) {
         if (!env[k]) return { exitCode: 78, reason: `BLOCKED_SETUP: ${k} is not set in the parent` };
     const fs = require('node:fs');
     const plan = JSON.parse(fs.readFileSync(a['--plan'], 'utf8'));
-    const { createClient } = require('@supabase/supabase-js');
-    const admin = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
+    let origin;
+    try { origin = approvedAdminOrigin(env.SUPABASE_URL, deps.approvedHost); } catch (e) { return { exitCode: 78, reason: e.message }; }
+    const createClient = deps.createClient ?? require('@supabase/supabase-js').createClient;
+    const admin = createClient(origin, env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
     const { io, outcome, finish } = composeJ4aNightly({ plan, bundle: a['--bundle'], admin, configuredDomain: env.LIVE_TEST_EMAIL_DOMAIN,
         nightly: { runDir: a['--run-dir'], evidenceDir: a['--evidence-dir'], runId: a['--run-id'], selected: ['J4.a'], satisfiedGates: [] } });
     const { runCampaign } = require(path.join(HARNESS, 'campaign-core.cjs'));
@@ -61,4 +78,4 @@ async function main(argv, env = process.env) {
 }
 
 if (require.main === module) main(process.argv.slice(2)).then((r) => { if (r.reason) console.error(r.reason); process.exitCode = r.exitCode; });
-module.exports = { composeJ4aNightly, j4aParentHooks, main };
+module.exports = { approvedAdminOrigin, composeJ4aNightly, j4aParentHooks, main };

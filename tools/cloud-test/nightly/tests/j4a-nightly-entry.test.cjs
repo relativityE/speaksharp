@@ -14,7 +14,7 @@ const B = path.join(__dirname, '..', '..', 'harness', 'bundle');
 const { supervisedCommand } = require(path.join(B, 'harness', 'admission.cjs'));
 const { runIdentity } = require(path.join(B, 'harness', 'identity-check.cjs'));
 const { Ledger } = require(path.join(B, 'harness', 'campaign-ledger.cjs'));
-const { composeJ4aNightly, main } = require('../j4a-nightly-entry.cjs');
+const { approvedAdminOrigin, composeJ4aNightly, main } = require('../j4a-nightly-entry.cjs');
 const CHILD = path.join(__dirname, 'fixtures', 'j4a-entry-child.cjs');
 const hash = (b) => crypto.createHash('sha256').update(b).digest('hex');
 const sha = 'b'.repeat(40);
@@ -126,4 +126,28 @@ test('entry point: an ambiguous reserved email (two accounts) is HOLD: no Start,
 test('entry point CLI refuses without explicit execution, inputs and the parent environment (nothing is built or run)', async () => {
     assert.equal((await main([], {})).exitCode, 78);
     assert.equal((await main(['--plan', 'p', '--bundle', 'b', '--evidence-dir', 'e', '--run-dir', 'r', '--run-id', 'x', '--execute', 'true'], {})).exitCode, 78);
+});
+
+// Sam (release boundary 2): the parent admin client is bound to the approved project (the reviewed save oracle's readback host) BEFORE it is
+// built or any admin call is made. A wrong project makes zero client constructions and zero admin calls.
+test('CLI: a wrong or lookalike project builds no admin client and makes no admin call; the approved one is the only target', async (t) => {
+    const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'j4a-cli-')));
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const planFile = path.join(dir, 'plan.json'); fs.writeFileSync(planFile, JSON.stringify({ executionIdentity: { runId: RUN } }));
+    const argv = ['--plan', planFile, '--bundle', B, '--evidence-dir', dir, '--run-dir', path.join(dir, 'run'), '--run-id', 'cli-1', '--execute', 'true'];
+    const approved = require('../../harness/draft-adapters/durable-save-oracle.cjs').readbackContract.host;
+    for (const url of ['https://abcdefghijklmnopqrst.supabase.co', `https://${approved}.evil.example`, `http://${approved}`, `https://${approved}:8443`,
+        `https://user:pw@${approved}`, `https://${approved}/rest/v1`, `https://${approved}/?x=1`, 'not a url', '']) {
+        let built = 0;
+        const r = await main(argv, { SUPABASE_URL: url, SUPABASE_SERVICE_ROLE_KEY: 'unit-not-a-key', LIVE_TEST_EMAIL_DOMAIN: 'example.com' },
+            { createClient: () => { built += 1; throw new Error('must not be built'); } });
+        assert.equal(r.exitCode, 78, url);
+        assert.equal(built, 0, `no admin client for ${url || '(empty)'}`);
+    }
+    // The approved origin is the only target the client is ever built for (stopped right there: nothing runs).
+    let target = null;
+    await assert.rejects(main(argv, { SUPABASE_URL: `https://${approved}/`, SUPABASE_SERVICE_ROLE_KEY: 'unit-not-a-key', LIVE_TEST_EMAIL_DOMAIN: 'example.com' },
+        { createClient: (origin) => { target = origin; throw new Error('STOP_AFTER_BINDING'); } }), /STOP_AFTER_BINDING/);
+    assert.equal(target, `https://${approved}`);
+    assert.throws(() => approvedAdminOrigin(`https://${approved}`, 'not-a-project-host'), /not the approved project/);
 });

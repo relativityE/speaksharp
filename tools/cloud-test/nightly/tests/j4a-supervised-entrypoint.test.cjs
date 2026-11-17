@@ -12,6 +12,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 const { attachParentChannel } = require('../j4a-supervised-channel.cjs');
+const { beginBinding } = require('../j4a-supervised-binding.cjs');
 
 const CT = path.join(__dirname, '..', '..');
 const hash = (b) => crypto.createHash('sha256').update(b).digest('hex');
@@ -123,4 +124,25 @@ test('entry point: no IPC channel at all is refused before launch (exit 78), nev
 test('entry point: a parent that disconnects before offering is refused before launch (exit 78)', { timeout: 30_000 }, async (t) => {
     const f = fixture(t);
     assertRefusedBeforeLaunch(await supervise(t, f, (child) => { child.disconnect(); return null; }), 'J4A_CHANNEL_CLOSED');
+});
+
+// Sam (release boundary 1, seal review of 28ceb3bb): sending the acknowledgement is not enough. The child launches only on the parent's
+// explicit confirmation of the same digest. A parent that rejects, confirms another digest, or never confirms stops it before launch.
+const parentThat = (f, onAck) => (child) => {
+    const binding = beginBinding(f.identity);
+    child.on('message', (m) => { if (m?.t === 'ack') onAck(child, binding, m.ack); });
+    child.send({ t: 'offer', offer: binding.offer });
+    return null;
+};
+test('entry point: a parent that explicitly rejects the acknowledgement stops the child before launch (exit 78)', { timeout: 30_000 }, async (t) => {
+    const f = fixture(t);
+    assertRefusedBeforeLaunch(await supervise(t, f, parentThat(f, (child) => child.send({ t: 'rejected' }))), 'J4A_BINDING_REJECTED');
+});
+test('entry point: a parent that confirms a DIFFERENT digest stops the child before launch (exit 78)', { timeout: 30_000 }, async (t) => {
+    const f = fixture(t);
+    assertRefusedBeforeLaunch(await supervise(t, f, parentThat(f, (child) => child.send({ t: 'bound', digest: 'f'.repeat(64) }))), 'J4A_BINDING_REJECTED');
+});
+test('entry point: a parent that takes the acknowledgement but never confirms stops the child before launch (exit 78)', { timeout: 40_000 }, async (t) => {
+    const f = fixture(t);
+    assertRefusedBeforeLaunch(await supervise(t, f, parentThat(f, () => {})), 'J4A_CHANNEL_CLOSED');
 });

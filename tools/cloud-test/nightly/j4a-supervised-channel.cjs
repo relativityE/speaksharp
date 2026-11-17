@@ -120,8 +120,9 @@ function attachParentChannel({ port, identity, nightly, confirmOwner }) {
         if (state.ended || !m || typeof m !== 'object') return;
         if (m.t === 'ack') {
             if (state.digest !== null || state.refused) { state.violations.push('second binding reply'); return; }
-            try { state.digest = binding.accept(m.ack); resolveBound(state.digest); }
-            catch (e) { state.refused = e.message; resolveBound(null); }
+            // Sam (release boundary 1): the child launches only on this explicit confirmation of the SAME digest; a refusal is explicit too.
+            try { state.digest = binding.accept(m.ack); reply({ t: 'bound', digest: state.digest }); resolveBound(state.digest); }
+            catch (e) { state.refused = e.message; reply({ t: 'rejected' }); resolveBound(null); }
             return;
         }
         if (m.t === 'refusal') { if (state.digest === null && !state.refused) { state.refused = 'child refused the binding'; resolveBound(null); } return; }
@@ -173,21 +174,33 @@ function attachParentChannel({ port, identity, nightly, confirmOwner }) {
 function connectChildChannel({ port, identity, timeoutMs = 10_000 }) {
     let next = 0;
     let digest = null;
+    let pendingAck = null;
+    let confirmTimer = null;
     const waiting = new Map();
     const handlers = new Map();
     return new Promise((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error('J4A_CHANNEL_CLOSED')), timeoutMs);
-        port.on('disconnect', () => { clearTimeout(timer); reject(new Error('J4A_CHANNEL_CLOSED')); for (const [, w] of waiting) w({ ok: false, reason: 'channel closed' }); waiting.clear(); });
+        port.on('disconnect', () => { clearTimeout(timer); clearTimeout(confirmTimer); reject(new Error('J4A_CHANNEL_CLOSED')); for (const [, w] of waiting) w({ ok: false, reason: 'channel closed' }); waiting.clear(); });
         port.on('message', async (m) => {
             if (!m || typeof m !== 'object') return;
             if (m.t === 'offer' && digest === null) {
                 clearTimeout(timer);
                 let ack;
                 try { ack = acknowledgeBinding(identity, m.offer); } catch (e) { port.send({ t: 'refusal' }); return reject(e); }
-                digest = ack.digest;
                 port.send({ t: 'ack', ack });
+                // Not bound yet: the child waits for the parent's positive confirmation of this exact digest (Sam, seal review of 28ceb3bb).
+                // A rejection, another digest, no answer within the bound, or a disconnect rejects, and the supervisor stops before launch.
+                pendingAck = ack.digest;
+                confirmTimer = setTimeout(() => reject(new Error('J4A_CHANNEL_CLOSED')), timeoutMs);
+                return undefined;
+            }
+            if (m.t === 'bound' && pendingAck !== null && digest === null) {
+                clearTimeout(confirmTimer);
+                if (m.digest !== pendingAck) return reject(new Error('J4A_BINDING_REJECTED'));
+                digest = pendingAck;
                 return resolve(api);
             }
+            if (m.t === 'rejected' && digest === null) { clearTimeout(confirmTimer); return reject(new Error('J4A_BINDING_REJECTED')); }
             if ((m.t === 'go' || m.t === 'createGo') && handlers.has(m.id)) {
                 const act = handlers.get(m.id); handlers.delete(m.id);
                 let value = null;
