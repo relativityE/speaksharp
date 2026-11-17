@@ -2057,6 +2057,22 @@
       "find": "q.scope === confirmedScope && isCount(q.count)",
       "replace": "isCount(q.count)",
       "test": "tests/j4a-bridge.test.cjs"
+    },
+    {
+      "id": "P30-j4a-child-accepts-wrong-identity",
+      "guards": "the child must compare the offer against independently bound run and release",
+      "file": "j4a-supervised-binding.cjs",
+      "find": "|| !matches(NONCE, offer.nonce) || offer.digest !== digest)",
+      "replace": "|| !matches(NONCE, offer.nonce))",
+      "test": "tests/j4a-supervised-binding.test.cjs"
+    },
+    {
+      "id": "P30-j4a-parent-accepts-replayed-reply",
+      "guards": "an acknowledgement is valid only for its one supervisor challenge",
+      "file": "j4a-supervised-binding.cjs",
+      "find": "|| ack.digest !== digest || ack.nonce !== nonce)",
+      "replace": "|| ack.digest !== digest)",
+      "test": "tests/j4a-supervised-binding.test.cjs"
     }
   ]
 }
