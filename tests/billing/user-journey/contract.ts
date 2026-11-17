@@ -21,6 +21,22 @@ export function requireFact(value: unknown, code: string): asserts value {
   if (!value) throw new Error(`BILLING_JOURNEY:${code}`);
 }
 
+/** The fields the journey fills on Stripe's hosted Checkout page (or the portal), named content-free. */
+export type HostedField = 'email' | 'card_number' | 'card_expiry' | 'card_cvc';
+const HOSTED_FIELDS: readonly HostedField[] = ['email', 'card_number', 'card_expiry', 'card_cvc'];
+
+/**
+ * The failure code when a required hosted field never became visible (run 44055010939 stopped at a bare
+ * `hosted_field_unavailable`, which could not say which field). Names the field and whether a visible "Card" payment-method
+ * choice was on the page (a form behind such a choice), as a closed code that `safeFailureReason` keeps. Content-free: no
+ * page text, value or URL. It never relaxes the check: the field stays required.
+ */
+export function hostedFieldUnavailable(field: HostedField, cardChoiceShown: boolean | null): string {
+  requireFact(HOSTED_FIELDS.includes(field), 'hosted_field_unknown');
+  const choice = cardChoiceShown === true ? '_card_choice_shown' : cardChoiceShown === false ? '' : '_choice_unread';
+  return `hosted_field_unavailable_${field}${choice}`;
+}
+
 export function safeFailureReason(error: unknown): string {
   const message = error instanceof Error ? error.message : '';
   return /^BILLING_JOURNEY:([a-z_]{1,80})$/.exec(message)?.[1] ?? 'unclassified_step_failure';
