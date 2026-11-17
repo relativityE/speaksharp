@@ -32,8 +32,12 @@ const PROPOSED_MARGIN_PCT = Object.freeze({
     requests: Object.freeze({ pct: 11, evidence: 'largest difference across the five cases whose work matched in R4C and R5: AHT-01, 157 and 174 requests (10.8%)' }),
     minutes: Object.freeze({ pct: 14, evidence: 'largest difference across the same five cases: AHT-02, 128 and 145 seconds (13.3%)' }),
 });
-/** Gates no runner can satisfy: J9.b stays NOT RUN by design, so it never counts toward a limit, even in the all-legs column. */
-const NEVER_SATISFIED = Object.freeze(['no-safe-production-proof']);
+/**
+ * Gates no runner can satisfy: J9.b stays NOT RUN by design, so it never counts toward a limit, even in the all-legs column.
+ * J8 too, for now (Sam on a90e906a): there is no reviewed adapter, so no caller-supplied gate, all-gates estimate or receipt can
+ * make it run, allocate or pass. Its cleanup estimate stays available (cleanupReserve('J8')) but never qualifies a run.
+ */
+const NEVER_SATISFIED = Object.freeze(['no-safe-production-proof', 'no-j8-harness-adapter', 'no-j1d-harness-adapter']);
 /** A leg counts toward a limit only when every gate on it is satisfied. */
 function runnable(leg, satisfiedGates) {
     return leg.gates.every((g) => !NEVER_SATISFIED.includes(g.kind) && satisfiedGates.has(g.kind));
@@ -56,10 +60,12 @@ function caseUnits(legs) {
 const isFresh = (l) => JOURNEYS.find((j) => j.id === l.journey).account === 'fresh-run-owned';
 /**
  * The counted limits for the legs that can run, given the gate kinds the runner has established as met.
- * With every gate satisfied: 18 sign-ups, 31 takes, 43 starts, 32 coaching, 40 identity reads, 96 provider calls, $0
- * (J1.e's probe reserved at its worst case, Sam's review). With none it is today's column (13, 30, 40, 30, 28, 90 calls,
- * $0): J1.e is gated today, so its probe reserves nothing, and J1.d is gated until the sign-out recorder is wired. Sign-ups follow today's per-case accounts (signedUpAccounts in
- * cleanup-plan.cjs, AHT-15's maintained account excluded); #1864's one per journey (8 and 7) is `sharedAccountTarget`.
+ * With every satisfiable gate met: 15 sign-ups, 29 takes, 41 starts, 30 coaching, 32 identity reads, 90 provider calls, $0 (J8,
+ * J1.d and J9.b never count)
+ * (J1.e's probe reserved at its worst case, Sam's review). With none it is today's column (11, 28, 38, 28, 24, 84 calls,
+ * $0): J1.e is gated today, so its probe reserves nothing; J1.d and J8 until their one-invocation adapters land (J1D on
+ * J1.a's account, Sam 16 Nov; J8, #1870). Sign-ups follow today's per-case accounts (signedUpAccounts in
+ * cleanup-plan.cjs; an invocation reusing another leg's account adds none); #1864's one per journey (8 and 7) is `sharedAccountTarget`.
  * Identity reads are per harness case (caseUnits).
  */
 function countedLimits(satisfiedGates = new Set()) {

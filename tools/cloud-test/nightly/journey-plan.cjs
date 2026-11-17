@@ -18,19 +18,48 @@ const CANARY_GATE = Object.freeze({
 // exact-file harness handoff (in the description of #1865), and until it lands the leg reports NOT RUN.
 // The Start presses sum to 43: the 42 of the catalog's cases plus J1.c's short Stop.
 const HARNESS_CASES = Object.freeze({
-    'J1.a': ['AHT-01', 4], 'J1.b': ['AHT-01', 0], 'J1.c': ['AHT-01', 1], 'J1.d': ['AHT-15', 0],
+    'J1.a': ['AHT-01', 4], 'J1.b': ['AHT-01', 0], 'J1.c': ['AHT-01', 1], 'J1.d': ['J1D', 0],
     'J1.e': [null, 0], 'J1.f': [null, 0], 'J2': [null, 0],
     'J3.a': ['AHT-02', 7], 'J3.b': ['AHT-03', 4], 'J4.a': ['AHT-05', 2], 'J4.b': ['AHT-06', 2],
     'J5.a': ['AHT-04', 2], 'J5.b': ['AHT-09', 3], 'J5.c': ['AHT-10', 3], 'J6': ['AHT-11', 4],
     'J7.a': ['AHT-12', 3], 'J7.b': ['AHT-13', 3], 'J7.c': ['AHT-14', 3], 'J7.d': [null, 0],
-    'J8.a': ['AHT-08', 0], 'J8.b': ['AHT-07', 2], 'J8.c': [null, 0], 'J9.a': [null, 0], 'J9.b': [null, 0],
+    // J8 (Sam, #1870): ONE invocation of the same-account J8 spec covers all three legs on one run-owned account; no J8 leg
+    // falls back to the retired AHT-07/AHT-08 cases. Their catalog rows keep their homes and arrive prefixed by them.
+    'J8.a': ['J8', 0], 'J8.b': ['J8', 2], 'J8.c': ['J8', 0], 'J9.a': [null, 0], 'J9.b': [null, 0],
 });
-// Sam on 79320578: J1.d's sign-out rows need the wired recorder and its named protected probe (the offline recorder is parked
-// until the run-owned fixture handoff). Until then the leg reports NOT RUN and no offline result counts as its proof.
-const SIGNOUT_RECORDER_UNWIRED = Object.freeze({
-    kind: 'signout-recorder-unwired', outcome: 'NOT RUN',
-    reason: 'the sign-out recorder and its named protected probe are not wired into the run-owned J1 fixture yet',
+/**
+ * Journey invocations: one run of one journey spec that covers several legs (instead of a legacy AHT-NN harness case).
+ * `homes` are the legacy cases whose catalog rows it reports, each as `${home}:${assertion}` (the two share row names).
+ */
+const JOURNEY_INVOCATIONS = Object.freeze({
+    J8: Object.freeze({
+        homes: Object.freeze(['AHT-07', 'AHT-08']), suite: 'feedback-association-boundaries-j8',
+        // Historical row IDs only: which retired case's catalog rows (and catalog Start presses and takes) each leg carries.
+        legHomes: Object.freeze({ 'J8.a': 'AHT-08', 'J8.b': 'AHT-07', 'J8.c': null }),
+        spec: 'tests/live/rwt-feedback-association-boundaries.live.spec.ts', account: 'fresh-run-owned',
+    }),
+    // J1.d (Sam, 16 Nov): the canonical owner of its rows. A separate reporting leg (its own J1D receipt) that runs in J1.a's
+    // worker (Sam 1a): J1.a's spec, account, saved takes and in-memory sign-in closure. No legacy home, execution path or fallback.
+    J1D: Object.freeze({
+        homes: Object.freeze([]), suite: 'returning-signout-j1d',
+        legHomes: Object.freeze({ 'J1.d': null }),
+        spec: 'tests/live/rwt-open-mic-first-session.live.spec.ts', account: 'reuses:J1.a', worker: 'J1.a',
+    }),
 });
+const isInvocation = (caseId) => caseId !== null && Object.prototype.hasOwnProperty.call(JOURNEY_INVOCATIONS, caseId);
+/** The catalog case a leg's rows are counted under: its harness case, or for an invocation leg its historical home. */
+const historicalCase = (l) => (isInvocation(l.caseId) ? JOURNEY_INVOCATIONS[l.caseId].legHomes[l.id] ?? null : l.caseId);
+// Until its reviewed harness adapter lands (in the shared, sealed harness), no runner can select the invocation: NOT RUN.
+const NO_INVOCATION_ADAPTER = Object.freeze({
+    kind: 'no-j8-harness-adapter', outcome: 'NOT RUN',
+    reason: 'J8 runs as one invocation of its same-account spec, and that invocation has no reviewed harness adapter yet',
+});
+const NO_J1D_ADAPTER = Object.freeze({
+    kind: 'no-j1d-harness-adapter', outcome: 'NOT RUN',
+    reason: 'J1.d runs as one invocation of its returning/sign-out spec, and that invocation has no reviewed harness adapter yet',
+});
+/** Each invocation's own adapter gate: never satisfied until its reviewed adapter lands. */
+const INVOCATION_ADAPTER_GATES = Object.freeze({ J8: NO_INVOCATION_ADAPTER, J1D: NO_J1D_ADAPTER });
 const NO_HARNESS_CASE = Object.freeze({
     kind: 'no-harness-case', outcome: 'NOT RUN',
     reason: 'this leg has no harness adapter yet; it lands through the reviewed harness handoff',
@@ -49,7 +78,8 @@ const leg = (id, story, o = {}) => Object.freeze({
     // What the run budget reserves for the leg before the run starts: one per saved take's review, plus the worst case of
     // every probe the server should refuse (Sam's #1864 review: reserve the probe's cost before it is sent).
     coachingReserve: (o.coachingRequests ?? 0) + (o.coachingProbes ?? 0), proofScope: o.proofScope ?? 'deployed-production',
-    gates: Object.freeze([...(o.gates ?? []), ...(harnessCase(id)[0] === null ? [NO_HARNESS_CASE] : [])]),
+    gates: Object.freeze([...(o.gates ?? []), ...(harnessCase(id)[0] === null ? [NO_HARNESS_CASE] : []),
+        ...(isInvocation(harnessCase(id)[0]) ? [INVOCATION_ADAPTER_GATES[harnessCase(id)[0]]] : [])]),
 });
 const JOURNEYS = Object.freeze([
     {
@@ -58,7 +88,7 @@ const JOURNEYS = Object.freeze([
             leg('J1.a', 'sign up, trial length, first Open Mic take', { coachingRequests: 4 }),
             leg('J1.b', 'coaching, review, PDF, same-target repeat', { needs: ['J1.a'], needsCoaching: true, coachingRequests: 0 }),
             leg('J1.c', 'short Stop saves nothing; probe save isolation', { needs: ['J1.a'], needsCoaching: true, coachingRequests: 0 }),
-            leg('J1.d', 'sign out and return, deep link, history preserved', { needs: ['J1.a'], gates: [SIGNOUT_RECORDER_UNWIRED] }),
+            leg('J1.d', 'sign out and return, deep link, history preserved', { needs: ['J1.a'] }),
             // J1.e sends one coaching request with the expired account's token, which the server must refuse before any
             // provider work. If it wrongly accepts it, that request costs up to 3 provider calls, so the run reserves it
             // up front (Sam, #1864 review) instead of leaving it outside the ceiling.
@@ -160,8 +190,6 @@ function legById(id) {
 const NEW_ROWS = Object.freeze([
     { leg: 'J1.a', assertion: 'trial-length-thirty-days' },
     { leg: 'J1.c', assertion: 'short-stop-no-save' },
-    { leg: 'J1.d', assertion: 'signout-no-unauthorized-read' },
-    { leg: 'J1.d', assertion: 'signout-no-stale-request' },
     { leg: 'J1.e', assertion: 'trial-expired-wall-on-open-session' },
     { leg: 'J1.e', assertion: 'trial-expired-payment-wall' },
     { leg: 'J1.e', assertion: 'trial-expired-server-refuses' },
@@ -179,12 +207,25 @@ const NEW_ROWS = Object.freeze([
     { leg: 'J9.b', assertion: 'production-entitlement-after-upgrade' },
 ].map((r) => Object.freeze(r)));
 /** Every row a leg must report: the catalog rows homed there, the new rows homed there, and the four invariants. */
+/**
+ * Rows a leg owns natively (Sam, 16 Nov): routed as `${leg}:${assertion}`, never under a legacy case id. J1.d is the canonical
+ * owner of its returning/sign-out rows; the common invariants stay `invariant:*`.
+ */
+const NATIVE_LEG_ROWS = Object.freeze({
+    'J1.d': Object.freeze(['history-preserved', 'switches-mic-off', 'signed-out', 'return-owner-preserved',
+        'no-recording-or-session-write', 'return-entry-mic-off', 'deep-link-exact-return', 'deep-link-rendered-own-detail',
+        'deep-link-mic-off', 'return-signed-out', 'signout-no-unauthorized-read', 'signout-no-stale-request']),
+});
+/** Retired legacy cases: their catalog rows stay below as the archival migration record only, routed to no leg. */
+const RETIRED_CASES = Object.freeze(['AHT-15']);
 function rowsForLeg(legId) {
     legById(legId);
-    const homed = CATALOG_ROW_HOMES.filter((r) => r.legs.includes(legId)).map((r) => `${r.caseId}:${r.assertion}`);
+    const homed = CATALOG_ROW_HOMES.filter((r) => r.legs.includes(legId) && !RETIRED_CASES.includes(r.caseId))
+        .map((r) => `${r.caseId}:${r.assertion}`);
     const added = NEW_ROWS.filter((r) => r.leg === legId).map((r) => `new:${r.assertion}`);
+    const native = (NATIVE_LEG_ROWS[legId] ?? []).map((a) => `${legId}:${a}`);
     const inv = LEG_INVARIANTS.map((a) => `invariant:${a}`);
-    return Object.freeze([...new Set([...inv, ...homed, ...added])]);
+    return Object.freeze([...new Set([...inv, ...homed, ...added, ...native])]);
 }
 const CATALOG_ROW_HOMES = Object.freeze([
     { caseId: 'AHT-01', assertion: 'owner-bound', legs: ['J1.a', 'J1.b', 'J1.c'], change: 'kept' },
@@ -377,20 +418,20 @@ const CATALOG_ROW_HOMES = Object.freeze([
     { caseId: 'AHT-14', assertion: 'start-press-budget', legs: ['J7.c'], change: 'kept' },
     { caseId: 'AHT-14', assertion: 'no-cloud-stt', legs: ['J7.c'], change: 'kept' },
     { caseId: 'AHT-14', assertion: 'owned-pages-closed', legs: ['J7.c'], change: 'kept' },
-    { caseId: 'AHT-15', assertion: 'owner-bound', legs: ['J1.d'], change: 'kept' },
-    { caseId: 'AHT-15', assertion: 'history-preserved', legs: ['J1.d'], change: 'moved' },
-    { caseId: 'AHT-15', assertion: 'switches-mic-off', legs: ['J1.d'], change: 'moved' },
-    { caseId: 'AHT-15', assertion: 'signed-out', legs: ['J1.d'], change: 'moved' },
-    { caseId: 'AHT-15', assertion: 'return-owner-preserved', legs: ['J1.d'], change: 'moved' },
-    { caseId: 'AHT-15', assertion: 'no-recording-or-session-write', legs: ['J1.d'], change: 'moved' },
-    { caseId: 'AHT-15', assertion: 'start-press-budget', legs: ['J1.d'], change: 'kept' },
-    { caseId: 'AHT-15', assertion: 'no-cloud-stt', legs: ['J1.d'], change: 'kept' },
-    { caseId: 'AHT-15', assertion: 'owned-pages-closed', legs: ['J1.d'], change: 'kept' },
-    { caseId: 'AHT-15', assertion: 'return-entry-mic-off', legs: ['J1.d'], change: 'moved' },
-    { caseId: 'AHT-15', assertion: 'deep-link-exact-return', legs: ['J1.d'], change: 'moved' },
-    { caseId: 'AHT-15', assertion: 'deep-link-rendered-own-detail', legs: ['J1.d'], change: 'moved' },
-    { caseId: 'AHT-15', assertion: 'deep-link-mic-off', legs: ['J1.d'], change: 'moved' },
-    { caseId: 'AHT-15', assertion: 'return-signed-out', legs: ['J1.d'], change: 'moved' },
+    { caseId: 'AHT-15', retired: true, assertion: 'owner-bound', legs: ['J1.d'], change: 'kept' },
+    { caseId: 'AHT-15', retired: true, assertion: 'history-preserved', legs: ['J1.d'], change: 'moved' },
+    { caseId: 'AHT-15', retired: true, assertion: 'switches-mic-off', legs: ['J1.d'], change: 'moved' },
+    { caseId: 'AHT-15', retired: true, assertion: 'signed-out', legs: ['J1.d'], change: 'moved' },
+    { caseId: 'AHT-15', retired: true, assertion: 'return-owner-preserved', legs: ['J1.d'], change: 'moved' },
+    { caseId: 'AHT-15', retired: true, assertion: 'no-recording-or-session-write', legs: ['J1.d'], change: 'moved' },
+    { caseId: 'AHT-15', retired: true, assertion: 'start-press-budget', legs: ['J1.d'], change: 'kept' },
+    { caseId: 'AHT-15', retired: true, assertion: 'no-cloud-stt', legs: ['J1.d'], change: 'kept' },
+    { caseId: 'AHT-15', retired: true, assertion: 'owned-pages-closed', legs: ['J1.d'], change: 'kept' },
+    { caseId: 'AHT-15', retired: true, assertion: 'return-entry-mic-off', legs: ['J1.d'], change: 'moved' },
+    { caseId: 'AHT-15', retired: true, assertion: 'deep-link-exact-return', legs: ['J1.d'], change: 'moved' },
+    { caseId: 'AHT-15', retired: true, assertion: 'deep-link-rendered-own-detail', legs: ['J1.d'], change: 'moved' },
+    { caseId: 'AHT-15', retired: true, assertion: 'deep-link-mic-off', legs: ['J1.d'], change: 'moved' },
+    { caseId: 'AHT-15', retired: true, assertion: 'return-signed-out', legs: ['J1.d'], change: 'moved' },
 ]);
 
-module.exports = { ALL_LEGS, DESIGN_RUN_START_PRESSES, HARNESS_CASES, NO_HARNESS_CASE, CATALOG_ROW_HOMES, DESIGN_RUN_COACHING_CAP, JOURNEYS, JOURNEY_IDS, LEG_INVARIANTS, NEW_ROWS, legById, rowsForLeg };
+module.exports = { ALL_LEGS, DESIGN_RUN_START_PRESSES, HARNESS_CASES, INVOCATION_ADAPTER_GATES, JOURNEY_INVOCATIONS, NATIVE_LEG_ROWS, NO_HARNESS_CASE, NO_INVOCATION_ADAPTER, RETIRED_CASES, historicalCase, isInvocation, CATALOG_ROW_HOMES, DESIGN_RUN_COACHING_CAP, JOURNEYS, JOURNEY_IDS, LEG_INVARIANTS, NEW_ROWS, legById, rowsForLeg };

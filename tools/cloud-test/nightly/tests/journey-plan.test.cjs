@@ -5,7 +5,7 @@ const { readFileSync } = require('node:fs');
 const path = require('node:path');
 const { describe, it } = require('node:test');
 const { expect } = require('./expect-lite.cjs');
-const { ALL_LEGS, CATALOG_ROW_HOMES, DESIGN_RUN_COACHING_CAP, JOURNEYS, LEG_INVARIANTS, NEW_ROWS, legById, rowsForLeg } = require('../journey-plan.cjs');
+const { ALL_LEGS, CATALOG_ROW_HOMES, DESIGN_RUN_COACHING_CAP, JOURNEYS, LEG_INVARIANTS, NEW_ROWS, legById, rowsForLeg, NATIVE_LEG_ROWS } = require('../journey-plan.cjs');
 const root = path.resolve(__dirname, '../../../..');
 const catalog = JSON.parse(readFileSync(path.join(root, 'tools/cloud-test/config/assertion-catalog.json'), 'utf8'));
 const catalogRows = Object.entries(catalog.cases).flatMap(([c, v]) => v.requiredAssertions.map((a) => `${c}:${a}`));
@@ -36,10 +36,11 @@ describe('nightly plan coverage of the live catalog', () => {
     });
 });
 describe('nightly plan structure (#1864 design)', () => {
-    it('has the nine journeys and the nineteen new rows of #1864 (098f0ae)', () => {
+    it('has the nine journeys and the new rows of #1864 (098f0ae); J1.d owns its sign-out rows natively (Sam, 16 Nov)', () => {
         expect(JOURNEYS.map((j) => j.id)).toEqual(['J1', 'J2', 'J3', 'J4', 'J5', 'J6', 'J7', 'J8', 'J9']);
-        expect(NEW_ROWS).toHaveLength(19);
-        expect(NEW_ROWS.filter((r) => r.leg === 'J1.d').map((r) => r.assertion)).toEqual(['signout-no-unauthorized-read', 'signout-no-stale-request']);
+        expect(NEW_ROWS).toHaveLength(17);
+        expect(NEW_ROWS.filter((r) => r.leg === 'J1.d')).toEqual([]);
+        expect(NATIVE_LEG_ROWS['J1.d'].slice(-2)).toEqual(['signout-no-unauthorized-read', 'signout-no-stale-request']);
         expect(NEW_ROWS.filter((r) => r.leg === 'J9.a').map((r) => r.assertion))
             .toEqual(['pre-upgrade-history-opens', 'pre-upgrade-progress-opens', 'old-sessions-no-new-coaching', 'entitlement-survives-upgrade']);
         expect(NEW_ROWS.filter((r) => r.leg === 'J9.b').map((r) => r.assertion)).toEqual(['production-entitlement-after-upgrade']);
@@ -79,17 +80,18 @@ describe('nightly plan structure (#1864 design)', () => {
     it('gates the trial-ending legs on the canary claim, holds J7.a, and keeps J2 and J9 off', () => {
         const kinds = (id) => legById(id).gates.map((g) => `${g.kind}:${g.outcome}`);
         const NO_CASE = 'no-harness-case:NOT RUN';
-        // Sam on 79320578: J1.d stays NOT RUN until the sign-out recorder and its protected probe are wired.
-        expect(kinds('J1.d')).toEqual(['signout-recorder-unwired:NOT RUN']);
+        // Sam, 16 Nov: J1.d is one invocation of its own returning/sign-out spec, NOT RUN until its reviewed adapter lands.
+        expect(kinds('J1.d')).toEqual(['no-j1d-harness-adapter:NOT RUN']);
         expect(kinds('J1.e')).toEqual(['canary-claim-ack:NOT RUN', NO_CASE]);
         expect(kinds('J1.f')).toEqual(['canary-claim-ack:NOT RUN', NO_CASE]);
         expect(kinds('J2')).toEqual(['canary-claim-ack:NOT RUN', 'disabled-until-reviewed:NOT RUN', NO_CASE]);
         expect(kinds('J7.a')).toEqual(['unqualified:HOLD']);
         expect(kinds('J7.d')).toEqual([NO_CASE]);
-        expect(kinds('J8.c')).toEqual([NO_CASE]);
+        // J8 (Sam on #1870): one invocation, gated NOT RUN until its reviewed harness adapter lands.
+        for (const id of ['J8.a', 'J8.b', 'J8.c']) expect(kinds(id)).toEqual(['no-j8-harness-adapter:NOT RUN']);
         expect(kinds('J9.a')).toEqual(['test-mode-fixture:NOT RUN', NO_CASE]);
         expect(kinds('J9.b')).toEqual(['no-safe-production-proof:NOT RUN', NO_CASE]);
-        expect(ALL_LEGS.filter((l) => l.gates.length > 0).map((l) => l.id)).toEqual(['J1.d', 'J1.e', 'J1.f', 'J2', 'J7.a', 'J7.d', 'J8.c', 'J9.a', 'J9.b']);
+        expect(ALL_LEGS.filter((l) => l.gates.length > 0).map((l) => l.id)).toEqual(['J1.d', 'J1.e', 'J1.f', 'J2', 'J7.a', 'J7.d', 'J8.a', 'J8.b', 'J8.c', 'J9.a', 'J9.b']);
     });
     it('asserts the four invariants in every leg', () => {
         for (const l of ALL_LEGS)
@@ -104,5 +106,31 @@ describe('nightly plan structure (#1864 design)', () => {
     });
     it('labels only the sandbox leg as sandbox scope', () => {
         expect(ALL_LEGS.filter((l) => l.proofScope !== 'deployed-production').map((l) => l.id)).toEqual(['J9.a']);
+    });
+});
+
+// Sam, 16 Nov: J1.d is the canonical owner of its rows. Routing regression: every J1.d row has exactly one owner (J1.d),
+// no row is routed under the retired case, and the invocation carries no legacy home or executable fallback.
+describe('J1.d routing: one owner, no legacy executable fallback', () => {
+    const { JOURNEY_INVOCATIONS, RETIRED_CASES, historicalCase } = require('../journey-plan.cjs');
+    it('routes every native J1.d row to J1.d and to no other leg', () => {
+        for (const a of NATIVE_LEG_ROWS['J1.d']) {
+            const owners = ALL_LEGS.filter((l) => rowsForLeg(l.id).some((r) => r.endsWith(`:${a}`) && !r.startsWith('invariant:')));
+            expect({ a, owners: owners.map((l) => l.id) }).toEqual({ a, owners: ['J1.d'] });
+        }
+        expect(rowsForLeg('J1.d').filter((r) => !r.startsWith('invariant:')).every((r) => r.startsWith('J1.d:'))).toBe(true);
+    });
+    it('routes no row under a retired case, and keeps the catalog record only as an archive', () => {
+        expect(RETIRED_CASES).toEqual(['AHT-15']);
+        for (const l of ALL_LEGS) expect({ leg: l.id, legacy: rowsForLeg(l.id).filter((r) => r.startsWith('AHT-15:')) }).toEqual({ leg: l.id, legacy: [] });
+        expect(CATALOG_ROW_HOMES.filter((h) => h.caseId === 'AHT-15').every((h) => h.retired === true)).toBe(true);
+    });
+    it('runs J1.d only as its own invocation on J1.a\'s account, with no legacy home', () => {
+        const j1d = legById('J1.d');
+        expect(j1d.caseId).toBe('J1D');
+        expect(historicalCase(j1d)).toBe(null);
+        expect(JOURNEY_INVOCATIONS.J1D).toMatchObject({ account: 'reuses:J1.a', legHomes: { 'J1.d': null } });
+        expect([...JOURNEY_INVOCATIONS.J1D.homes]).toEqual([]);
+        expect(j1d.needs).toEqual(['J1.a']);
     });
 });

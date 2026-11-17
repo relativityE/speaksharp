@@ -21,7 +21,7 @@
 // A journey's time reserve is its requests times that deadline, so it is a ceiling, not an estimate.
 const fs = require('node:fs');
 const path = require('node:path');
-const { JOURNEYS } = require('./journey-plan.cjs');
+const { JOURNEYS, JOURNEY_INVOCATIONS, isInvocation } = require('./journey-plan.cjs');
 
 /**
  * Harness cases that run on a maintained, long-lived account instead of signing one up: read from each case's harness
@@ -29,14 +29,19 @@ const { JOURNEYS } = require('./journey-plan.cjs');
  */
 const CASE_TEMPLATES = path.join(__dirname, '..', 'harness', 'bundle', 'config', 'cases');
 const caseAccountMode = (caseId) => JSON.parse(fs.readFileSync(path.join(CASE_TEMPLATES, `${caseId}.TEMPLATE.json`), 'utf8')).account?.mode;
+// A journey invocation has no legacy template: its account comes from the plan (J8: one fresh run-owned account).
 const MAINTAINED_CASES = Object.freeze([...new Set(JOURNEYS.flatMap((j) => j.legs.map((l) => l.caseId)).filter(Boolean))]
+    .filter((c) => !isInvocation(c))
     .filter((c) => caseAccountMode(c) === 'maintained-read-only').sort());
+// An invocation that reuses another leg's run-owned account (J1D on J1.a's, Sam 16 Nov) signs up nothing of its own.
+const REUSING_INVOCATIONS = Object.freeze(Object.keys(JOURNEY_INVOCATIONS)
+    .filter((c) => String(JOURNEY_INVOCATIONS[c].account).startsWith('reuses:')).sort());
+const signsUpNothing = (caseId) => MAINTAINED_CASES.includes(caseId) || REUSING_INVOCATIONS.includes(caseId);
 /**
  * The run-owned accounts a set of legs signs up, as the harness is today: every harness case signs up its own account
  * (prepareRunOwnedAccount in each spec) except a case on a maintained account, and a journey's legs that have no
- * harness case yet add one account between them (their adapter signs up at least one). J8.c needs J8.b's takes, so it
- * may well reuse AHT-07's account: counting one for it errs high, never low. It falls to one per journey once the
- * harness handoff shares one signup across a journey's cases.
+ * harness case yet add one account between them (their adapter signs up at least one). A journey invocation (J8) is one
+ * signup for all its legs. It falls to one per journey once the harness handoff shares one signup across a journey's cases.
  */
 /**
  * Sam, 15 Nov (#1867): the leg that OWNS each sign-up, so the run budget freezes one sign-up per created account on that leg
@@ -50,7 +55,7 @@ function signupOwnerLegs(legs) {
     const seenCaseless = new Set();
     for (const l of legs) {
         if (l.caseId !== null) {
-            if (MAINTAINED_CASES.includes(l.caseId) || seenCases.has(l.caseId))
+            if (signsUpNothing(l.caseId) || seenCases.has(l.caseId))
                 continue;
             seenCases.add(l.caseId);
             owners.add(l.id);
@@ -63,14 +68,15 @@ function signupOwnerLegs(legs) {
     return owners;
 }
 function signedUpAccounts(legs) {
-    const cases = new Set(legs.map((l) => l.caseId).filter((c) => c !== null && !MAINTAINED_CASES.includes(c)));
+    const cases = new Set(legs.map((l) => l.caseId).filter((c) => c !== null && !signsUpNothing(c)));
     const caseless = new Set(legs.filter((l) => l.caseId === null).map((l) => l.journey));
     return cases.size + caseless.size;
 }
 
 const CLEANUP_REQUEST_DEADLINE_S = 10;
 /** Cases whose run writes feedback behind a fence (#1859, #1860): each needs its fence closed, cleaned and verified. */
-const FENCED_CASES = Object.freeze(['AHT-01', 'AHT-02', 'AHT-07', 'AHT-08']);
+// J8 is one invocation with ONE AHT-07+AHT-08 fence (#1870), so it closes, cleans and verifies one fence, not two.
+const FENCED_CASES = Object.freeze(['AHT-01', 'AHT-02', 'J8']);
 /** The counts read from the cleanup code. tests/cleanup.test.cjs re-reads them from the source and fails on drift. */
 const SOURCE_COUNTS = Object.freeze({
     residueChecks: 22, // RESIDUE_CHECKS entries

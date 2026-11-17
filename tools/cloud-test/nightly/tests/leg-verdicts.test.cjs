@@ -9,7 +9,7 @@ const { countedLimits } = require('../limits.cjs');
 const ALLOCATED = Object.freeze({ allocated: true, overrun: [] });
 // Most tests are about rows, gates and dependencies, so each leg has its allocation unless a test says otherwise.
 const legVerdict = (id, input) => rawLegVerdict(id, { budget: ALLOCATED, ...input });
-const ALL_GATES = new Set(['canary-claim-ack', 'unqualified', 'disabled-until-reviewed', 'test-mode-fixture', 'no-safe-production-proof', 'no-harness-case', 'signout-recorder-unwired']);
+const ALL_GATES = new Set(['canary-claim-ack', 'unqualified', 'disabled-until-reviewed', 'test-mode-fixture', 'no-safe-production-proof', 'no-harness-case', 'no-j8-harness-adapter', 'no-j1d-harness-adapter']);
 const NO_GATES = new Set();
 const results = (leg, o = 'PASS') => Object.fromEntries(rowsForLeg(leg).map((r) => [r, o]));
 const prior = (...vs) => new Map(vs.map((v) => [v.leg, v]));
@@ -21,11 +21,11 @@ describe('leg verdict', () => {
         r[Object.keys(r)[3]] = 'FAIL';
         expect(legVerdict('J1.a', { prior: new Map(), satisfiedGates: ALL_GATES, results: r }).outcome).toBe('FAIL');
     });
-    it('CONTROL (Sam on 79320578): J1.d is refused as NOT RUN while the sign-out recorder is unwired, even if every row reports PASS', () => {
-        const unwired = new Set([...ALL_GATES].filter((k) => k !== 'signout-recorder-unwired'));
+    it('CONTROL (Sam, 16 Nov): J1.d is refused as NOT RUN until its own invocation has a reviewed adapter, even if every row reports PASS', () => {
+        const unwired = new Set([...ALL_GATES].filter((k) => k !== 'no-j1d-harness-adapter'));
         const v = legVerdict('J1.d', { prior: prior(pass('J1.a')), satisfiedGates: unwired, results: results('J1.d') });
         expect(v.outcome).toBe('NOT RUN');
-        expect(v.reason).toContain('sign-out recorder');
+        expect(v.reason).toContain('no reviewed harness adapter');
         // The plan never schedules it: J1.d counts toward no limit and is named NOT RUN in every column until wired.
         expect(countedLimits(unwired).notRun).toContain('J1.d');
         expect(countedLimits(unwired).legs.includes('J1.d')).toBe(false);
@@ -132,6 +132,16 @@ describe('leg verdict', () => {
         expect(v.outcome).toBe('NOT RUN');
         expect(v.reason).toContain('NOT RUN by design');
     });
+    // Sam on a90e906a: no reviewed J8 adapter exists, so a caller supplying EVERY gate and an all-PASS receipt cannot make it run.
+    it('CONTROL: keeps J8 NOT RUN when a caller supplies every gate (its adapter gate included) and an all-PASS receipt', () => {
+        const prior = new Map();
+        for (const id of ['J8.a', 'J8.b', 'J8.c']) {
+            const v = legVerdict(id, { prior, satisfiedGates: ALL_GATES, results: results(id) });
+            prior.set(id, v);
+            expect(v.outcome).toBe('NOT RUN');
+            expect(v.reason).toContain('no reviewed harness adapter');
+        }
+    });
     it('makes a leg NOT RUN when it got no budget allocation before the run', () => {
         const v = legVerdict('J3.b', { prior: new Map(), satisfiedGates: ALL_GATES, results: undefined, budget: { allocated: false, reason: 'left out', overrun: [] } });
         expect(v.outcome).toBe('NOT RUN');
@@ -208,19 +218,21 @@ describe('run verdict', () => {
             m.set(l.id, legVerdict(l.id, { prior: m, satisfiedGates: ALL_GATES, results: results(l.id) }));
         return m;
     };
-    // J9.b is NOT RUN by design on every run, so to test the run rule itself this stands in a PASS for it.
+    // J9.b is NOT RUN by design on every run, and J8 is NOT RUN until a reviewed adapter exists (Sam on a90e906a), so to test
+    // the run rule itself this stands in a PASS for them.
+    const NEVER_RUN = ['J1.d', 'J8.a', 'J8.b', 'J8.c', 'J9.b'];
     const allPass = () => {
         const m = everyLegRun();
-        m.set('J9.b', { ...m.get('J9.b'), outcome: 'PASS' });
+        for (const id of NEVER_RUN) m.set(id, { ...m.get(id), outcome: 'PASS' });
         return m;
     };
     it('is PASS only when every planned leg passed', () => {
         expect(runVerdict(allPass()).outcome).toBe('PASS');
     });
-    it('is INCOMPLETE on a night where everything else passed, because J9.b is NOT RUN by design', () => {
+    it('is INCOMPLETE on a night where everything else passed, because J1.d and J8 have no adapter and J9.b is NOT RUN by design', () => {
         const r = runVerdict(everyLegRun());
         expect(r.outcome).toBe('INCOMPLETE');
-        expect(r.notGreen).toEqual(['J9.b NOT RUN']);
+        expect(r.notGreen).toEqual(['J1.d NOT RUN', 'J8.a NOT RUN', 'J8.b NOT RUN', 'J8.c NOT RUN', 'J9.b NOT RUN']);
         expect(r.scope).toBe(null);
         // It says why, and says it is not a full PASS.
         expect(r.reason).toContain('not a full PASS');
@@ -241,14 +253,15 @@ describe('run verdict', () => {
     });
     it('labels a selected scope apart: every scope leg passed reads as a scope PASS while the full suite stays INCOMPLETE', () => {
         const m = everyLegRun();
-        const scope = ALL_LEGS.map((l) => l.id).filter((id) => id !== 'J9.b');
+        const scope = ALL_LEGS.map((l) => l.id).filter((id) => !NEVER_RUN.includes(id));
         const r = runVerdict(m, scope);
         expect(r.outcome).toBe('INCOMPLETE');
         expect(r.scope.outcome).toBe('PASS');
         expect(r.scope.run).toBe(scope.length);
-        expect(r.scope.excluded.map((e) => e.leg)).toEqual(['J9.b']);
-        expect(r.scope.summary).toBe(`All runnable legs passed: ${scope.length} of ${ALL_LEGS.length} planned legs run; excluded: J9.b NOT RUN. Full suite: INCOMPLETE.`);
-        expect(r.scope.excluded[0].reason).toContain('NOT RUN by design');
+        expect(r.scope.excluded.map((e) => e.leg)).toEqual(NEVER_RUN);
+        expect(r.scope.summary).toBe(`All runnable legs passed: ${scope.length} of ${ALL_LEGS.length} planned legs run; excluded: J1.d NOT RUN, J8.a NOT RUN, J8.b NOT RUN, J8.c NOT RUN, J9.b NOT RUN. Full suite: INCOMPLETE.`);
+        expect(r.scope.excluded.find((e) => e.leg === 'J9.b').reason).toContain('NOT RUN by design');
+        expect(r.scope.excluded.find((e) => e.leg === 'J8.b').reason).toContain('no reviewed harness adapter');
     });
     it('never reads a scope as passed when a scope leg is missing, NOT RUN or HOLD, and fails it on a FAIL', () => {
         const scope = ['J1.a', 'J3.a'];

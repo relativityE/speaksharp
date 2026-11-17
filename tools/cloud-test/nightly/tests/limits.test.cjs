@@ -10,26 +10,31 @@ const counted = (l) => [l.freshSignUps, l.takes, l.startPresses, l.coachingReque
 const run = (value, complete = true) => ({ complete, value });
 
 describe('counted limits', () => {
-    it('matches the all-legs column with J1.e\'s probe reserved: 18 sign-ups, 31 takes, 43 starts, 32 coaching, 40 identity reads, 96 provider calls, $0', () => {
-        expect(counted(countedLimits(allGateKinds()))).toEqual([18, 31, 43, 32, 40, 96, 0]);
-        expect(countedLimits(allGateKinds()).sharedAccountTarget).toEqual({ freshSignUps: 8 });
+    it('matches the all-legs column with J1.e\'s probe reserved: 15 sign-ups, 29 takes, 41 starts, 30 coaching, 32 identity reads, 90 provider calls, $0', () => {
+        // J8 and J1.d never count for now (Sam on a90e906a; Sam 16 Nov): neither invocation has a reviewed adapter, so even the
+        // all-legs column leaves them out, like J9.b. J1.d's two identity reads leave it (34 -> 32); it adds no take or start.
+        expect(counted(countedLimits(allGateKinds()))).toEqual([15, 29, 41, 30, 32, 90, 0]);
+        expect(countedLimits(allGateKinds()).sharedAccountTarget).toEqual({ freshSignUps: 7 });
     });
-    it("matches today's column: 13 sign-ups, 30 takes, 40 starts, 30 coaching, 28 identity reads, 90 provider calls, $0", () => {
-        // One account per runnable harness case today, not one per journey (7); identity reads stay 2 per runnable harness
-        // case (13: J1.d's AHT-15 is gated NOT RUN until the sign-out recorder is wired, Sam on 79320578) plus 2.
-        expect(counted(countedLimits(new Set()))).toEqual([13, 30, 40, 30, 28, 90, 0]);
-        expect(countedLimits(new Set()).sharedAccountTarget).toEqual({ freshSignUps: 7 });
+    it("matches today's column: 11 sign-ups, 28 takes, 38 starts, 28 coaching, 24 identity reads, 84 provider calls, $0", () => {
+        // One account per runnable harness case today, not one per journey (6); identity reads stay 2 per runnable harness
+        // case (11) plus 2. Gated today: J1.d's AHT-15 until the sign-out recorder is wired (Sam on 79320578), and all of J8
+        // until its one-invocation adapter lands (#1870): J8.b's 2 takes, starts and coaching leave today's column.
+        expect(counted(countedLimits(new Set()))).toEqual([11, 28, 38, 28, 24, 84, 0]);
+        expect(countedLimits(new Set()).sharedAccountTarget).toEqual({ freshSignUps: 6 });
     });
     it('counts nothing for a leg that cannot run, and names it NOT RUN', () => {
         const today = countedLimits(new Set());
-        expect(today.notRun).toEqual(['J1.d', 'J1.e', 'J1.f', 'J2', 'J7.a', 'J7.d', 'J8.c', 'J9.a', 'J9.b']);
+        expect(today.notRun).toEqual(['J1.d', 'J1.e', 'J1.f', 'J2', 'J7.a', 'J7.d', 'J8.a', 'J8.b', 'J8.c', 'J9.a', 'J9.b']);
         for (const id of today.notRun)
             expect(today.legs.includes(id)).toBe(false);
     });
-    it('never counts J9: the sandbox leg is outside production limits and the production leg is NOT RUN by design', () => {
-        const all = countedLimits(new Set([...allGateKinds(), 'no-safe-production-proof']));
+    it('never counts J9, J8 or J1.d: the J9 sandbox leg is outside production limits, J9.b is NOT RUN by design, J8 and J1.d have no adapter', () => {
+        // A caller supplying every gate, the J8 and J1.d adapter gates and J9.b's production gate included, changes nothing.
+        const all = countedLimits(new Set([...allGateKinds(), 'no-safe-production-proof', 'no-j8-harness-adapter', 'no-j1d-harness-adapter']));
         expect(all.journeys.includes('J9')).toBe(false);
-        expect(all.notRun).toEqual(['J9.a', 'J9.b']);
+        expect(all.journeys.includes('J8')).toBe(false);
+        expect(all.notRun).toEqual(['J1.d', 'J8.a', 'J8.b', 'J8.c', 'J9.a', 'J9.b']);
     });
     it('allows 30 runs in 30 days and no paid action', () => {
         const l = countedLimits(allGateKinds());
@@ -39,8 +44,8 @@ describe('counted limits', () => {
     it('adds the canary legs once the canary claim is acknowledged: no take or start of their own, one probe reserved', () => {
         const withCanary = countedLimits(new Set(['canary-claim-ack', 'no-harness-case']));
         expect(withCanary.legs).toContain('J1.e');
-        expect(counted(withCanary).slice(1, 4)).toEqual([30, 40, 31]);
-        expect(withCanary.providerCalls).toBe(93);
+        expect(counted(withCanary).slice(1, 4)).toEqual([28, 38, 29]);
+        expect(withCanary.providerCalls).toBe(87);
     });
 });
 
@@ -113,7 +118,7 @@ describe('measured limits', () => {
         expect(dollarCap(93, 0.01)).toBe(0.93);
         expect(dollarCap(93, undefined)).toBe(null);
         expect(dollarCap(null, 0.01)).toBe(null);
-        expect(limitsTable(new Set(), {}, { providerPerCallUsd: 0.02 }).providerUsd).toBe(1.8);
+        expect(limitsTable(new Set(), {}, { providerPerCallUsd: 0.02 }).providerUsd).toBe(1.68);
     });
     // Codex P2 on 589e5882: a cap is never below the cost of its own counted work.
     it('rounds a fractional-cent cost UP to whole cents, so the cap covers its own counted work', () => {

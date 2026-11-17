@@ -532,7 +532,8 @@ const at = (needle: string, from = 0) => {
 };
 const olderStart = at("test('feedback selected for an older take links only to that take'");
 const noneStart = at("test('No session feedback stores no take or coaching link'");
-const older = spec.slice(olderStart, noneStart);
+// AHT-07's own body ends where the J8 test begins, so J8's code can never satisfy an AHT-07 pin.
+const older = spec.slice(olderStart, at("test('J8: one account"));
 const none = spec.slice(noneStart);
 
 describe('acceptance: bounded writes belong to the older-take suite; both suites require cleanup', () => {
@@ -571,10 +572,12 @@ describe('the AHT-07 spec wiring (source order)', () => {
         }
         expect(fn.indexOf("attempt.action === 'cap-abort'")).toBeLessThan(fn.indexOf('route.fetch()'));
         const fetch = fn.indexOf('response = await route.fetch()');
-        const drop = fn.indexOf("if (attempt.action === 'fault-stored-response-lost') return await route.abort('failed');");
+        const drop = fn.indexOf("if (attempt.action === 'fault-stored-response-lost') {");
         expect(fetch).toBeGreaterThan(0);
         expect(drop).toBeGreaterThan(fetch);
         expect(fn.indexOf('ledger.settle(attempt, { status, forwarded: true, replayNamed });')).toBeLessThan(drop);
+        // The drop is the real fetch's answer withheld: a 2xx is a commit whose response was dropped, never a send.
+        expect(fn.slice(drop).replace(/\s+/g, ' ')).toMatch(/^if \(attempt\.action === 'fault-stored-response-lost'\) \{ outcome = status >= 200 && status < 300 \? 'committed-response-dropped' : 'answered'; await route\.abort\('failed'\); return outcome; \}/);
     });
     it('each leg arms before its Submit, marks the Retry immediately before the Retry click, closes its window, and binds no readback action', () => {
         const fn = spec.slice(at('async function runFeedbackFaultLeg('), at('async function finishReceipt('));
@@ -758,8 +761,21 @@ describe('the recovery inventory is restricted, content-free and durable before 
         for (const act of ["route.abort('failed')", 'route.fulfill(syntheticRejection(', 'route.fetch()', 'route.fulfill({ response })']) {
             expect({ act, afterGate: fn.indexOf(act) > gate }).toEqual({ act, afterGate: true });
         }
-        expect(fn.slice(gate).replace(/\s+/g, ' ')).toMatch(/^if \(!fence\.writable\) \{ ledger\.settle\(attempt, \{ status: null, forwarded: false \}\); return await route\.abort\('failed'\); \}/);
+        expect(fn.slice(gate).replace(/\s+/g, ' ')).toMatch(/^if \(!fence\.writable\) \{ ledger\.settle\(attempt, \{ status: null, forwarded: false \}\); outcome = 'aborted-unsent'; await route\.abort\('failed'\); return outcome; \}/);
         expect(fn).not.toContain('inventory');
+    });
+    it('the J8 route decides each write at its gate first, and its own forward is sent only through the fence', () => {
+        const fn = spec.slice(at('async function installJ8WriteRoute('), at('async function runFeedbackFaultLeg('));
+        const enter = fn.indexOf('const decision = gate.enter(request.method(), () => request.postDataJSON());');
+        const ledgerPath = fn.indexOf('outcome = await handleLedgerWrite(route, ledger, fence);');
+        const fenceGate = fn.indexOf("if (!fence.writable) {");
+        const fetch = fn.indexOf('response = await route.fetch()');
+        expect(enter).toBeGreaterThan(0);
+        for (const later of [ledgerPath, fenceGate, fetch, fn.indexOf("route.abort('failed')"), fn.indexOf('route.fulfill({ response })')]) expect(later).toBeGreaterThan(enter);
+        expect(fenceGate).toBeGreaterThan(ledgerPath);
+        expect(fetch).toBeGreaterThan(fenceGate);
+        // Only a known outcome releases the gate; it is settled on every exit.
+        expect(fn.replace(/\s+/g, ' ')).toContain('} finally { gate.settle(decision.attempt, outcome); }');
     });
 });
 

@@ -255,6 +255,12 @@ export async function signUpDisposableAccount(page: Page, email: string): Promis
      * the real sign-in form. The password never leaves this closure.
      */
     signInOn: (other: Page) => Promise<void>;
+    /**
+     * J1.d (Sam 1a, 16 Nov): sign THIS account back in through the real sign-in form the page is ALREADY showing (a protected deep
+     * link redirected the signed-out page there), without navigating, so the product's own return-to-deep-link is exercised. The
+     * password never leaves this closure. Resolves once the page holds this account's session again.
+     */
+    signInOnShownForm: () => Promise<void>;
 }> {
     const password = `Rwt-${randomBytes(18).toString('base64url')}-9a!`;
     const startedAt = Date.now();
@@ -292,7 +298,14 @@ export async function signUpDisposableAccount(page: Page, email: string): Promis
         await other.getByTestId('sign-in-submit').click();
         await expect.poll(otherUid, { timeout: 60_000, message: 'the other device must sign in to the same account' }).toBe(uid);
     };
-    return { uid, signupMs, signOutAndSignIn, signInOn };
+    const signInOnShownForm = async () => {
+        await expect(page.getByTestId('auth-form')).toBeVisible({ timeout: 30_000 });
+        await page.getByTestId('email-input').fill(email);
+        await page.getByTestId('password-input').fill(password);
+        await page.getByTestId('sign-in-submit').click();
+        await expect.poll(readUid, { timeout: 60_000, message: 'sign-in must restore this account\'s session' }).toBe(uid);
+    };
+    return { uid, signupMs, signOutAndSignIn, signInOn, signInOnShownForm };
 }
 
 /**

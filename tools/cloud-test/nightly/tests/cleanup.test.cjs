@@ -62,14 +62,19 @@ describe('cleanup reserve: structural worst case, read from the cleanup code', (
         expect(runOwnedAccounts(JOURNEYS.find((x) => x.id === 'J6'))).toBe(1);
         expect(runOwnedAccounts(JOURNEYS.find((x) => x.id === 'J5'))).toBe(3);
         // J7: AHT-12, 13 and 14 plus one for J7.d, which has no harness case yet. J1: AHT-01 plus one for J1.e/J1.f;
-        // AHT-15 runs on a maintained account the run neither signs up nor deletes.
+        // J1.d's own invocation (J1D) reuses J1.a's account, so it signs up and deletes nothing of its own (Sam, 16 Nov).
         expect(runOwnedAccounts(JOURNEYS.find((x) => x.id === 'J7'))).toBe(4);
         expect(runOwnedAccounts(JOURNEYS.find((x) => x.id === 'J1'))).toBe(2);
-        expect(MAINTAINED_CASES).toEqual(['AHT-15']);
+        expect(MAINTAINED_CASES).toEqual([]);
         expect(cleanupReserve('J6').requests).toBe(perAccount + starts('J6'));
         expect(cleanupReserve('J5').requests).toBe(3 * perAccount + starts('J5'));
         expect(cleanupReserve('J1').requests).toBe(2 * perAccount + starts('J1') + 3);
-        expect(cleanupReserve('J8').requests).toBe(3 * perAccount + starts('J8') + 6);
+        // J8 (Sam on #1870): ONE invocation, so one account deletion and ONE fence's close, clean and verify, never zero.
+        expect(runOwnedAccounts(JOURNEYS.find((x) => x.id === 'J8'))).toBe(1);
+        expect(cleanupReserve('J8').requests).toBe(perAccount + starts('J8') + 3);
+        const j8 = cleanupReserve('J8').steps.map((st) => st.op);
+        expect(j8.filter((op) => op === 'delete the account (deleteUser)')).toHaveLength(1);
+        expect(j8.filter((op) => /feedback fence: close, clean, verify$/.test(op))).toEqual(['J8 feedback fence: close, clean, verify']);
         expect(cleanupReserve('J9').requests).toBe(0);
     });
     it('reads one signup per harness case from the specs as they are', () => {
@@ -222,5 +227,21 @@ describe('durable cleanup evidence and admission', () => {
     });
     it('refuses admission when the evidence directory is missing', () => {
         expect(admitRun(path.join(os.tmpdir(), 'nightly-evidence-does-not-exist-9f2')).admitted).toBe(false);
+    });
+});
+
+// Sam, 16 Nov: adding J1.d's own invocation (J1D, on J1.a's account) leaves the signup count and the cleanup owner exactly as
+// for J1.a alone. J1.a owns both; J1D signs up and deletes nothing of its own.
+describe('J1D reuses J1.a: no extra signup, no extra cleanup owner', () => {
+    const { signupOwnerLegs, signedUpAccounts } = require('../cleanup-plan.cjs');
+    const { legById: leg } = require('../journey-plan.cjs');
+    it('counts the same signups and the same owning leg with and without J1.d', () => {
+        const alone = [leg('J1.a')];
+        const withJ1d = [leg('J1.a'), leg('J1.d')];
+        expect(signedUpAccounts(withJ1d)).toBe(signedUpAccounts(alone));
+        expect(signedUpAccounts(withJ1d)).toBe(1);
+        expect([...signupOwnerLegs(withJ1d)]).toEqual([...signupOwnerLegs(alone)]);
+        expect([...signupOwnerLegs(withJ1d)]).toEqual(['J1.a']);
+        expect(signedUpAccounts([leg('J1.d')])).toBe(0);
     });
 });
