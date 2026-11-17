@@ -279,8 +279,10 @@ former case and are new rows. The leg list is the runner's own plan (`tools/clou
   receipt is evidence only and can never report acceptance; no current RWT path earns full
   acceptance. The runner bridge (#1875, merged 16 November) is proven offline only; the
   harness case process does not route through it yet. J8 and J1.d are not wired for a live
-  run: #1870 (merged 16 November) wires J8 offline only, as one gated invocation; J1.d runs
-  only inside J1.a's worker under the named runner's admission, and its leg stays gated.
+  run: #1870 (merged 16 November) wires J8 offline only, as one gated invocation. #1883
+  (merged 16 November, `db7b231d`) made J1.d its own reporting leg, offline only: it runs
+  in J1.a's worker on J1.a's account under the named runner's admission, has no reviewed
+  harness adapter yet (`no-j1d-harness-adapter`), and its leg stays gated.
 - **Earlier live evidence is partial.** AHT-05 (now J4.a), run 43725359185 on served
   `446e09fa`, ended INCOMPLETE (18 PASS, 2 HOLD); only its save-once, persisted-row and
   reopen observations are reusable, and the adapter inspection may be reused at a newer
