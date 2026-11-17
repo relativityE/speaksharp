@@ -1,0 +1,161 @@
+# #1882 (held branch only; delete before #1882 merges): the Focus switch sequence (Open Mic -> Focus Points -> reload
+# -> Edit) with REAL saves on a DISPOSABLE LOCAL stack: this commit's migrations, local Auth and Edge functions, and this
+# commit's app on http://localhost:5173 with real auth. It runs tests/live/focus-switch-real-saves-1882.localstack.spec.ts
+# and tears the stack down with a destruction proof.
+#
+# Why a push trigger: GitHub dispatches only workflows already on main, and #1882 is held. So this runs on a push to
+# #1882's own branch that touches the repro files, and it waits on the protected billing-local-stack environment: a
+# required reviewer approves each run before it starts. A newer push replaces a run still waiting for approval.
+#
+# No secret, no Stripe, no hosted project, no deploy, and never production. A PASS is about this commit on a throwaway
+# stack, not about production.
+name: Focus switch on a local stack (#1882)
+
+on:
+  push:
+    branches: [jack/focus-new-set-edit]
+    paths:
+      - .github/workflows/focus-local-stack-repro.yml
+      - playwright.focus-local-stack.config.ts
+      - tests/live/focus-switch-real-saves-1882.localstack.spec.ts
+
+permissions:
+  contents: read
+
+concurrency:
+  group: focus-local-stack-1882
+  cancel-in-progress: false
+
+jobs:
+  focus-switch:
+    name: focus switch with real saves (local stack)
+    # Only this branch's own pushes; never a fork, a tag or main.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/jack/focus-new-set-edit' && github.repository == 'relativityE/speaksharp'
+    # Pinned for Chromium, as the other browser workflows are.
+    runs-on: ubuntu-24.04
+    # The same protected environment as the billing local-stack journeys: nothing runs until a required reviewer approves
+    # this run. This job reads none of that environment's secrets or variables, and makes no Stripe call.
+    environment: billing-local-stack
+    timeout-minutes: 45
+    env:
+      SUPABASE_WORKDIR: backend
+      LOCAL_STACK_PROJECT: focus-local-stack-${{ github.run_id }}-${{ github.run_attempt }}
+      LOCAL_API_URL: http://127.0.0.1:54321
+      LOCAL_APP_URL: http://localhost:5173
+    steps:
+      - name: Refuse anything but this branch's own push
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [ "$EVENT" = 'push' ] && [ "$REF" = 'refs/heads/jack/focus-new-set-edit' ] \
+            || { echo '::error::Runs only on a push to #1882 branch jack/focus-new-set-edit.'; exit 1; }
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo '::error::No exact commit to test.'; exit 1; }
+
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - uses: supabase/setup-cli@v2
+        env:
+          SUPABASE_CLI_GITHUB_TOKEN: ${{ github.token }}
+        with:
+          version: 2.101.0
+
+      - name: Start the disposable local Supabase stack (migrations from this commit)
+        id: stack_start
+        run: |
+          set -euo pipefail
+          # Same as the billing local-stack journeys: seeding off (the stale seed stops the start; the spec makes its own
+          # throwaway account) and a run-unique project id, so the destruction proof can only match this run's stack.
+          printf '\n[db.seed]\nenabled = false\n' >> "$SUPABASE_WORKDIR/supabase/config.toml"
+          sed -i "s/^project_id = .*/project_id = \"$LOCAL_STACK_PROJECT\"/" "$SUPABASE_WORKDIR/supabase/config.toml"
+          grep -qx "project_id = \"$LOCAL_STACK_PROJECT\"" "$SUPABASE_WORKDIR/supabase/config.toml" \
+            || { echo '::error::Could not give the disposable stack its run-unique project id.'; exit 1; }
+          supabase start --workdir "$SUPABASE_WORKDIR" -x studio,imgproxy,vector,logflare
+          status="$(supabase status --workdir "$SUPABASE_WORKDIR" -o json)"
+          api_url="$(jq -r '.API_URL' <<<"$status")"
+          [ "$api_url" = "$LOCAL_API_URL" ] || { echo "::error::Unexpected local API URL."; exit 1; }
+          anon="$(jq -r '.ANON_KEY' <<<"$status")"; service="$(jq -r '.SERVICE_ROLE_KEY' <<<"$status")"
+          echo "::add-mask::$anon"; echo "::add-mask::$service"
+          { echo "LOCAL_ANON_KEY=$anon"; echo "LOCAL_SERVICE_ROLE_KEY=$service"; } >> "$GITHUB_ENV"
+
+      - name: Record this run's stack identity
+        run: |
+          set -euo pipefail
+          node tests/billing/user-journey/localStackResources.mjs capture "$LOCAL_STACK_PROJECT" \
+            > focus-local-stack-identity.json
+          jq -c '{project, containers: (.containers | length), volumes: (.volumes | length), networks: (.networks | length)}' \
+            focus-local-stack-identity.json
+
+      - name: Serve this commit's Edge functions locally
+        run: |
+          set -euo pipefail
+          # No provider or payment keys: coaching and checkout are not part of this sequence.
+          env_file="$RUNNER_TEMP/functions.env"
+          ( umask 077; echo "SITE_URL=$LOCAL_APP_URL" > "$env_file" )
+          nohup supabase functions serve --workdir "$SUPABASE_WORKDIR" --no-verify-jwt --env-file "$env_file" \
+            > "$RUNNER_TEMP/functions.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/functions.pid"
+          for _ in $(seq 1 60); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' -X OPTIONS -H "Origin: $LOCAL_APP_URL" \
+              "$LOCAL_API_URL/functions/v1/check-usage-limit" || true)"
+            [ "$code" = '204' ] || [ "$code" = '200' ] && break
+            sleep 2
+          done
+          [ "$code" = '204' ] || [ "$code" = '200' ] || { echo '::error::Local Edge functions did not come up.'; exit 1; }
+
+      - name: Build and serve this commit's app on the local origin
+        env:
+          VITE_SUPABASE_URL: ${{ env.LOCAL_API_URL }}
+          VITE_AUTH_MODE: real
+        run: |
+          set -euo pipefail
+          # Release id is GITHUB_SHA (vite release-inject), the pushed commit this job checked out.
+          VITE_SUPABASE_ANON_KEY="$LOCAL_ANON_KEY" pnpm --dir frontend exec vite build --mode production
+          nohup pnpm --dir frontend exec vite preview --host localhost --port 5173 --strictPort \
+            > "$RUNNER_TEMP/app.log" 2>&1 &
+          for _ in $(seq 1 30); do curl -fsS -o /dev/null "$LOCAL_APP_URL/" && break; sleep 2; done
+          curl -fsS -o /dev/null "$LOCAL_APP_URL/" || { echo '::error::Local app did not come up.'; exit 1; }
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run the Focus switch sequence against the local stack
+        env:
+          FOCUS_LOCAL_API_URL: ${{ env.LOCAL_API_URL }}
+          FOCUS_LOCAL_APP_URL: ${{ env.LOCAL_APP_URL }}
+          FOCUS_LOCAL_RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          FOCUS_LOCAL_SERVICE_ROLE_KEY="$LOCAL_SERVICE_ROLE_KEY" \
+            pnpm exec playwright test -c playwright.focus-local-stack.config.ts --reporter=list
+
+      - name: Tear down the local stack
+        id: stack_stop
+        if: always() && steps.stack_start.outcome != 'skipped'
+        run: |
+          set -euo pipefail
+          [ -f "$RUNNER_TEMP/functions.pid" ] && kill "$(cat "$RUNNER_TEMP/functions.pid")" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/functions.env"
+          supabase stop --workdir "$SUPABASE_WORKDIR" --no-backup
+
+      - name: Prove the disposable stack was destroyed
+        if: always() && steps.stack_start.outcome != 'skipped' && steps.stack_stop.outcome == 'success'
+        run: |
+          set -euo pipefail
+          node tests/billing/user-journey/localStackResources.mjs verify "$LOCAL_STACK_PROJECT" \
+            focus-local-stack-identity.json > focus-local-stack-destroyed.json \
+            || { echo '::error::The disposable stack was not proven destroyed.'; exit 1; }
+          cat focus-local-stack-destroyed.json
