@@ -22,7 +22,7 @@
 // handoff (§3). Until then this bridge is proven offline only and must not be given a live run.
 const fs = require('node:fs');
 const { CLEANUP, RunRefused, openSharedRunBudget, planRunBudget, writeSharedPlan } = require('./run-budget.cjs');
-const { CleanupUndefined, cleanupReserve } = require('./cleanup-plan.cjs');
+const { CleanupUndefined, REQUIRED_CASE_RESIDUE_KINDS, cleanupReserve } = require('./cleanup-plan.cjs');
 const { caseWorstCaseMs, safeReason } = require('../harness/bundle/harness/campaign-core.cjs');
 const { answerCreateAttempt, beginRun, recordCreateAttempt, unprovenCleanup, writeCleanupEvidence } = require('./cleanup-evidence.cjs');
 /** The default deadline an account-create transport is held to (it must fit inside LATE_COMPLETION_BOUND_MS). */
@@ -51,7 +51,7 @@ function combineCleanup(parts) {
         const who = p.caseId ?? `case ${i + 1}`;
         if (!VERIFICATION_SHAPE(p.verification))
             return [`${who}: its residue verification is malformed`];
-        return unprovenCleanup({ reserveExhausted: false, steps: p.steps ?? [], left: p.left ?? [], created: p.created ?? [], verification: p.verification })
+        return unprovenCleanup({ reserveExhausted: false, steps: p.steps ?? [], left: p.left ?? [], created: p.created ?? [], verification: p.verification }, p.residueRule)
             .map((r) => `${who}: ${r}`);
     });
     const withUnproven = (o) => (unproven.length > 0 ? { ...o, unproven } : o);
@@ -129,6 +129,7 @@ function nightlyAdapter(io, opts) {
                     throw new Error(`nightly: ${c.id} cannot send for ${leg}`);
             };
             const createdHere = [];
+            const confirmedCreateScopes = new Map();
             const record = (leg, resource) => {
                 own(leg);
                 const journey = legById(leg).journey;
@@ -183,6 +184,8 @@ function nightlyAdapter(io, opts) {
                     catch (e) {
                         return { sent: true, answered: false, reason: e.message, value };
                     }
+                    if (result.outcome === 'created')
+                        confirmedCreateScopes.set(leg, lookupRef);
                     return { sent: true, answered: true, value };
                 },
             });
@@ -205,7 +208,11 @@ function nightlyAdapter(io, opts) {
             finally {
                 // Each journey's cleanup is accounted from what the case reported; a case that threw reported nothing.
                 const journey = legById(legs[0]).journey;
-                const part = { ...(ran?.nightlyCleanup ?? { steps: [], left: [] }), caseId: c.id, created: [...createdHere] };
+                // Caller cleanup data cannot choose the audit scope or remove the pilot's required queries.
+                const residueRule = legs.includes('J4.a')
+                    ? { requiredKinds: REQUIRED_CASE_RESIDUE_KINDS['J4.a'], confirmedScope: confirmedCreateScopes.get('J4.a') }
+                    : undefined;
+                const part = { ...(ran?.nightlyCleanup ?? { steps: [], left: [] }), caseId: c.id, created: [...createdHere], residueRule };
                 cleanupParts.set(journey, [...(cleanupParts.get(journey) ?? []), part]);
             }
             let split = null;

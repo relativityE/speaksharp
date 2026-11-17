@@ -35,7 +35,7 @@ const VERIFICATION_KINDS = Object.freeze(['zero-residue', 'nothing-created']);
  * completed cleanup step for that exact resource, the residue verification must query every created kind, and
  * `nothing-created` is refused when anything was created.
  */
-function unprovenCleanup(j) {
+function unprovenCleanup(j, { requiredKinds = [], confirmedScope } = {}) {
     const reasons = [];
     if (j.reserveExhausted)
         reasons.push('cleanup reserve exhausted');
@@ -71,6 +71,15 @@ function unprovenCleanup(j) {
         for (const kind of new Set([...j.steps, ...j.left, ...created].map((r) => r.kind))) {
             if (!queried.has(kind))
                 reasons.push(`no residue query for ${kind}`);
+        }
+    }
+    if (requiredKinds.length > 0) {
+        if (typeof confirmedScope !== 'string' || !REF.test(confirmedScope))
+            reasons.push('no confirmed guarded-create scope for required residue queries');
+        const queries = v?.kind === 'zero-residue' && Array.isArray(v.queries) ? v.queries : [];
+        for (const kind of requiredKinds) {
+            if (!queries.some((q) => q?.kind === kind && q.scope === confirmedScope && isCount(q.count) && q.count === 0))
+                reasons.push(`no residue query for ${kind} with observed zero on the confirmed account scope`);
         }
     }
     return reasons;

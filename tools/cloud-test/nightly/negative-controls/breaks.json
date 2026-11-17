@@ -2041,6 +2041,22 @@
       "find": "budget.allocatedLegs() : [], cleanupBlocker)",
       "replace": "budget.allocatedLegs() : [], null)",
       "test": "tests/j4a-bridge.test.cjs"
+    },
+    {
+      "id": "P29-j4a-no-required-residue-queries",
+      "guards": "a take missing from the creation ledger cannot narrow J4.a cleanup",
+      "file": "cleanup-plan.cjs",
+      "find": "['account', 'session', 'lease']",
+      "replace": "['account']",
+      "test": "tests/j4a-bridge.test.cjs"
+    },
+    {
+      "id": "P29-j4a-accepts-foreign-cleanup-scope",
+      "guards": "zero counts from a different account do not clear run-owned J4.a cleanup",
+      "file": "cleanup-evidence.cjs",
+      "find": "q.scope === confirmedScope && isCount(q.count)",
+      "replace": "isCount(q.count)",
+      "test": "tests/j4a-bridge.test.cjs"
     }
   ]
 }

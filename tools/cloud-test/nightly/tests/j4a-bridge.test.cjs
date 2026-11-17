@@ -87,14 +87,27 @@ function stubIo(s, wire, evidenceDir) {
                 if (!r.sent) refused.push('coaching');
             }
             const del = await nightly.cleanup(leg, async () => { wire.push('cleanup:delete-account'); return true; });
-            const query = s.skipVerify ? { sent: false } : await nightly.cleanup(leg, async () => { wire.push('cleanup:residue-query'); return s.residue ?? 0; });
+            // Simulate residue left without either a runner creation record or a teardown report.
+            if (s.unrecordedTake) wire.push('untracked:session-left');
+            const queries = [];
+            if (!s.skipVerify) {
+                const kinds = s.unrecordedTake || s.recordSession ? ['account'] : ['account', 'session', 'lease'];
+                for (const kind of kinds) {
+                    const q = await nightly.cleanup(leg, async () => {
+                        wire.push(`cleanup:residue-${kind}`);
+                        return kind === 'account' ? s.residue ?? 0 : kind === 'session' ? s.hiddenSessionCount ?? 0 : 0;
+                    });
+                    if (q.sent) queries.push({ kind, scope: s.foreignScope ? 'another-account' : ACCOUNT, count: q.value });
+                }
+            }
             return {
                 assertions: rows.map((id) => ({ id, result: 'PASS', detail: 'offline stub', evidenceRefs: ['unit.json'] })),
                 cleanupEvidence: POSITIVE, refused, createResults: results,
                 nightlyCleanup: {
                     steps: s.omitTeardown || s.skipCreate ? [] : [{ kind: 'account', ref: ACCOUNT, action: 'delete', outcome: del.sent ? 'done' : 'not attempted' }],
                     left: s.leftUntracked ? [{ kind: 'session', ref: 'take-unit-1' }] : [],
-                    ...(query.sent ? { verification: { kind: 'zero-residue', queries: [{ kind: 'account', scope: `unit-run:${c.id}`, count: query.value }] } } : {}),
+                    ...(s.foreignScope ? { residueRule: { requiredKinds: [], confirmedScope: 'another-account' } } : {}),
+                    ...(!s.skipVerify ? { verification: { kind: 'zero-residue', queries } } : {}),
                 },
             };
         },
@@ -128,7 +141,7 @@ describe('J4.a guarded route (#1884 step 6, stub): AHT-05 through the real harne
         const d = dirs();
         const { wire, calls, transportCalls, checkpoints, outcome, report } = await j4aRun(d, 'p1');
         assert.deepEqual(calls.filter((c) => c.startsWith('run:')), [`run:${CASE}`]);
-        assert.deepEqual(wire, ['create:account', 'starts', 'starts', 'coaching', 'coaching', 'cleanup:delete-account', 'cleanup:residue-query']);
+        assert.deepEqual(wire, ['create:account', 'starts', 'starts', 'coaching', 'coaching', 'cleanup:delete-account', 'cleanup:residue-account', 'cleanup:residue-session', 'cleanup:residue-lease']);
         assert.equal(transportCalls.length, 1);
         assert.deepEqual(transportCalls[0], { attemptRecordedBeforeSend: true, retries: 0, signalIsAbortSignal: true });
         const grants = journal(d, 'p1').filter((e) => e.t === 'grant');
@@ -171,7 +184,7 @@ describe('J4.a guarded route (#1884 step 6, stub): AHT-05 through the real harne
         const d = dirs();
         const { wire, outcome } = await j4aRun(d, 'o1', { starts: 3 });
         assert.equal(wire.filter((w) => w === 'starts').length, 2);
-        assert.deepEqual(wire.slice(-2), ['cleanup:delete-account', 'cleanup:residue-query']);
+        assert.deepEqual(wire.slice(-4), ['cleanup:delete-account', 'cleanup:residue-account', 'cleanup:residue-session', 'cleanup:residue-lease']);
         assert.equal(outcome.legs[LEG].outcome, 'FAIL');
         assert.equal(outcome.cleanup.result, 'complete');
     });
@@ -212,6 +225,28 @@ describe('J4.a guarded route (#1884 step 6, stub): AHT-05 through the real harne
         assert.equal(first.outcome.cleanup.result, 'incomplete');
         assert.ok(first.outcome.cleanup.reasons.J4.some((r) => r.includes('left behind')), JSON.stringify(first.outcome.cleanup.reasons));
         assert.equal((await j4aRun(d, 't3')).outcome.admitted, false);
+    });
+    // Sam, 16 Nov (#1884): J4 cleanup must run post-cleanup account, session and lease queries scoped to the run-owned
+    // account, whatever the case recorded.
+    it('an unrecorded take: account-only residue proof cannot make J4 cleanup complete (required account, session, lease queries)', async () => {
+        const d = dirs();
+        const { outcome, wire } = await j4aRun(d, 'u1', { unrecordedTake: true });
+        assert.ok(wire.includes('untracked:session-left'), 'the stub left a take it never recorded');
+        assert.equal(outcome.cleanup.result, 'incomplete');
+        for (const kind of ['session', 'lease'])
+            assert.ok(outcome.cleanup.reasons.J4.some((r) => r.includes(kind)), `${kind}: ${JSON.stringify(outcome.cleanup.reasons)}`);
+        assert.equal((await j4aRun(d, 'u2')).outcome.admitted, false, 'the next run is refused');
+    });
+    it('cannot substitute another account or overlook observed unrecorded session residue', async () => {
+        for (const [scenario, reason] of [[{ foreignScope: true }, 'no residue query for account'], [{ hiddenSessionCount: 1 }, 'found 1']]) {
+            const d = dirs();
+            const { outcome, report } = await j4aRun(d, 's1', scenario);
+            assert.equal(outcome.cleanup.result, 'incomplete');
+            assert.equal(outcome.legs[LEG].outcome, 'PASS');
+            assert.equal(report.nightly.run.scope.outcome, 'INCOMPLETE');
+            assert.ok(outcome.cleanup.reasons.J4.some((r) => r.includes(reason)));
+            assert.equal((await j4aRun(d, 's2')).outcome.admitted, false);
+        }
     });
     it('cleanup controls: an omitted teardown of the created account, a missing residue query or residue found is incomplete and refuses the next run', async () => {
         for (const [label, scenario, reason] of [

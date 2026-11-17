@@ -114,6 +114,10 @@ function fakeIo(scenario, wire) {
                     if (g.unwritableEvidence) fs.chmodSync(scenario.evidenceDir, 0o700);
                 }
             }
+            else if (leg === 'J4.a') {
+                const created = await nightly.createAccount(leg, `acct-unit-${c.id}`, async () => ({ outcome: 'created', accountRef: 'unit-owner' }));
+                assert.equal(created.answered, true);
+            }
             else
                 nightly.created(leg, { kind: 'account', ref: `acct-unit-${c.id}` });
             if (scenario.createFence)
@@ -142,7 +146,7 @@ function fakeIo(scenario, wire) {
                     left: scenario.leftFor?.[c.id] ?? (j6 ? scenario.left : undefined) ?? [],
                     ...(scenario.claimNothingCreated ? { verification: { kind: 'nothing-created' } }
                         : scenario.emptyQueriesFor === c.id ? { verification: { kind: 'zero-residue', queries: [] } }
-                            : query.sent ? { verification: { kind: 'zero-residue', queries: [{ kind: 'account', scope: `unit-run:${c.id}`, count: query.value }] } } : {}),
+                            : query.sent ? { verification: { kind: 'zero-residue', queries: (leg === 'J4.a' ? ['account', 'session', 'lease'] : ['account']).map((kind) => ({ kind, scope: leg === 'J4.a' ? `acct-unit-${c.id}` : `unit-run:${c.id}`, count: query.value })) } } : {}),
                 },
             };
         },
