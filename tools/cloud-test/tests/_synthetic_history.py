@@ -233,14 +233,14 @@ _SHARED = None
 
 
 def shared():
-    """One synthetic history per test process (read-only use); tests that mutate must build their own SyntheticHistory()."""
+    """One synthetic history per test process (read-only use); tests that mutate must build their own SyntheticHistory."""
     global _SHARED
     if _SHARED is None:
         _SHARED = SyntheticHistory()
     return _SHARED
 
 
-# The workflow's control-plane pipeline runs on exactly this fixture (Sam 1793404770): current-code qualification on labelled SYNTHETIC inputs,
+# The workflow's control-plane pipeline runs on exactly this fixture : current-code qualification on labelled SYNTHETIC inputs,
 # never campaign evidence and never live credit. Any other request is refused, never reinterpreted as a synthetic success.
 WORKFLOW_FIXTURE = "tools/cloud-test/tests/fixtures/partial-request.json"
 

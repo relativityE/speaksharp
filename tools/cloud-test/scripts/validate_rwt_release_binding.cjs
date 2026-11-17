@@ -82,12 +82,14 @@ const TEST_PINS=Object.freeze({
 // Pin their exact reviewed postimages rather than treating every workflow or
 // authority-test change as proof-only source.
 const INTEGRATION_PINS=Object.freeze({
- // Inherited reviewed main: #1832 source-currency docs and #1830 AHT-01 save expectations.
- 'product_release/RELEASE_STATUS.md':'f823b945fa3d24dbb49ffb1a72e705fa84b767e0ce96229d6e861b9c44279779',
+ // Exact #1834 execution-evidence registration; siblings and changed bytes remain denied.
+ 'scripts/lib/nativeTestExecutionEvidence.mjs':'2d16b86019cda7c637f8cfa07461285b5b8d38e4e3c197762b1c7de5766704eb',
+ // Inherited reviewed main: #1833 R5 provenance correction, #1832 currency docs, #1830 AHT-01 save expectations.
+ 'product_release/RELEASE_STATUS.md':'2e53046bfc9fce44a81351dcf7dddd302224cb3a2a341cc1a1e1bf5001d32aae',
  'product_release/ROADMAP.md':'ac4e34c689c8575883a33f9cdd15d95267c3bae42f82a9daa65f85e32b5e8fb7',
  'tests/live/rwt-open-mic-first-session.live.spec.ts':'955bef27970a423a0586f069c5ebbeb8eaf1e02ee63d9079695af8ae71ef2de6',
  '.github/workflows/cloud-test.yml':'33a0d4ee002f59946ee3e09c1b3cad9c30e26741ae3ea5a841c7f55a97c5c285',
- 'tests/unit/modelComparisonRunAuthority.test.js':'95262458ac364c96c13a2a6d7c1164a4008914a04d626078a3ef57a2588088d6',
+ 'tests/unit/modelComparisonRunAuthority.test.js':'035a381a5764bfb3f831ab97b0c89d6722d6fe171f5331ad266e322fabc23e56',
 });
 const SOURCE_PINS=Object.freeze({...TEST_PINS,...INTEGRATION_PINS});
 const SPECS=Object.freeze([

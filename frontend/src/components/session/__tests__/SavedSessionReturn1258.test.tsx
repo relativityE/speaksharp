@@ -2,9 +2,13 @@
  * #1258 PR 4 (Rev 2 §4.2) — the completed session restored read-only from its saved row.
  */
 import React from 'react';
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import type { PracticeSession } from '@/types/session';
+import { grantPracticePrivacy } from '../../../../tests/test-utils/practicePrivacy';
+
+// #1835: these suites cover the coaching / transcript path as it runs once the owner has opted in.
+beforeEach(() => { grantPracticePrivacy(); });
 
 // The stub stands for a session with NO saved coaching whose review resolved the product to `resolvedProduct`.
 let resolvedProduct: 'open_mic' | 'focus_points' | null = 'open_mic';

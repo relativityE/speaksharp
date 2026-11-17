@@ -40,9 +40,12 @@ jobs:
   # as does any push, any force_full dispatch, any non-draft PR, and any unresolvable diff.
   scope:
     name: scope
-    runs-on: ubuntu-latest
+    # Pinned with rc-gates (#1839): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build and
+    # apt-prefetch gets no install-deps list (main CI 43413866919). Remove with the Playwright upgrade (#1840).
+    runs-on: ubuntu-24.04
     outputs:
       full_required: ${{ steps.classify.outputs.full_required }}
+      docs_lane: ${{ steps.classify.outputs.docs_lane }}
       docs_only: ${{ steps.classify.outputs.docs_only }}
       frontend_changed: ${{ steps.classify.outputs.frontend_changed }}
       edge_changed: ${{ steps.classify.outputs.edge_changed }}
@@ -53,29 +56,71 @@ jobs:
         with:
           fetch-depth: 0
 
+      # #1837: --no-renames lists BOTH sides of a rename or copy. With rename detection on, a file moved from
+      # code to Markdown would list only its Markdown destination and could pass for a docs-only change.
+      - name: Resolve Changed Files
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${BASE_SHA:-}" ]] && ! [[ "$BASE_SHA" =~ ^0+$ ]]; then
+            git diff --no-renames --name-only "$BASE_SHA"...HEAD > "$RUNNER_TEMP/changed.txt" || : > "$RUNNER_TEMP/changed.txt"
+          else
+            : > "$RUNNER_TEMP/changed.txt"
+          fi
+
+      # #1837 docs lane (drafts only): a DRAFT PR that changes only docs-lane Markdown is a CANDIDATE. It takes
+      # the docs lane only if the guard below shows, on this checkout, that no job the docs lane skips reads a
+      # changed file. A candidate the guard does not confirm (including any guard error) stays on the affected
+      # draft lane. A non-draft PR is a merge candidate and always takes the full lane, docs-only or not.
+      - name: Detect Docs Lane Candidate
+        id: candidate
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          IS_DRAFT: ${{ github.event.pull_request.draft || false }}
+          FORCE_FULL: ${{ github.event.inputs.force_full || false }}
+        run: node scripts/ci-change-scope.mjs "$RUNNER_TEMP/changed.txt"
+
+      - name: Setup Environment (docs-lane guard)
+        if: steps.candidate.outputs.docs_lane_candidate == 'true'
+        uses: ./.github/actions/setup-environment
+        with:
+          install-native-deps: 'false'
+          install-playwright: 'false'
+
+      - name: Check No Skipped Job Names The Changed Files (Static)
+        id: docs_guard
+        if: steps.candidate.outputs.docs_lane_candidate == 'true'
+        shell: bash
+        run: |
+          set -uo pipefail
+          if node scripts/ci-docs-lane-guard.mjs "$RUNNER_TEMP/changed.txt"; then
+            echo "confirmed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::docs-lane guard did not confirm this change; taking the affected draft lane"
+            echo "confirmed=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Classify Change
         id: classify
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
           IS_DRAFT: ${{ github.event.pull_request.draft || false }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           FORCE_FULL: ${{ github.event.inputs.force_full || false }}
-        run: |
-          set -euo pipefail
-          if [[ -n "${BASE_SHA:-}" ]] && ! [[ "$BASE_SHA" =~ ^0+$ ]]; then
-            git diff --name-only "$BASE_SHA"...HEAD > "$RUNNER_TEMP/changed.txt" || : > "$RUNNER_TEMP/changed.txt"
-          else
-            : > "$RUNNER_TEMP/changed.txt"
-          fi
-          node scripts/ci-change-scope.mjs "$RUNNER_TEMP/changed.txt"
+          DOCS_LANE_CONFIRMED: ${{ steps.docs_guard.outputs.confirmed == 'true' }}
+        run: node scripts/ci-change-scope.mjs "$RUNNER_TEMP/changed.txt"
 
   # ---- Affected draft lane (NEW, non-required names; drafts cannot merge) ------------------------
   draft-checks:
     name: draft-checks
     needs: scope
-    if: needs.scope.outputs.full_required != 'true'
-    runs-on: ubuntu-latest
+    if: needs.scope.outputs.full_required != 'true' && needs.scope.outputs.docs_lane != 'true'
+    # Pinned with rc-gates (#1839): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build and
+    # apt-prefetch gets no install-deps list (main CI 43413866919). Remove with the Playwright upgrade (#1840).
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -200,8 +245,11 @@ jobs:
   deps-prep:
     name: deps-prep
     needs: scope
-    if: always() && needs.scope.outputs.full_required == 'true'
-    runs-on: ubuntu-latest
+    # #1837: the docs lane runs the complete unit suite too, so it needs the shards' apt bundle.
+    if: always() && (needs.scope.outputs.full_required == 'true' || needs.scope.outputs.docs_lane == 'true')
+    # Pinned with rc-gates (#1839): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build and
+    # apt-prefetch gets no install-deps list (main CI 43413866919). Remove with the Playwright upgrade (#1840).
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout Code
@@ -249,8 +297,10 @@ jobs:
   unit-shard:
     name: unit-shard-${{ matrix.shard }}
     needs: [scope, deps-prep]
-    if: always() && needs.scope.outputs.full_required == 'true'
-    runs-on: ubuntu-latest
+    if: always() && (needs.scope.outputs.full_required == 'true' || needs.scope.outputs.docs_lane == 'true')
+    # Pinned with rc-gates (#1839): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build and
+    # apt-prefetch gets no install-deps list (main CI 43413866919). Remove with the Playwright upgrade (#1840).
+    runs-on: ubuntu-24.04
     # #1311 job-level backstop: bounds a stalled setup phase well above the 300s apt timeout but far
     # below GitHub's 6h default, so a hang fast-fails instead of zombie-running.
     timeout-minutes: 20
@@ -280,12 +330,17 @@ jobs:
 
       - name: Run Unit Shard Execution
         env:
+          # #1837: measured, not assumed. A third fork (run 43342354890) raised per-file cost by ~55% and left the
+          # summed shard wall time unchanged (37:47 vs 37:18 at two forks), so the shards are CPU-bound at two.
           VITEST_MAX_FORKS: '2'
         run: pnpm ci:unit:shard ${{ matrix.shard }} 4
 
       - name: Rename Unit Metrics
         if: always()
-        run: mv unit-metrics.json artifacts/coverage/shard-${{ matrix.shard }}/unit-metrics.json || true
+        run: |
+          mv unit-metrics.json artifacts/coverage/shard-${{ matrix.shard }}/unit-metrics.json || true
+          # #1837: the files this shard executed, for the partition check in unit-coverage-merge.
+          mv unit-file-timings.json artifacts/coverage/shard-${{ matrix.shard }}/unit-file-timings.json || true
 
       - name: Upload Unit Artifacts
         if: always()
@@ -296,17 +351,45 @@ jobs:
           retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
           if-no-files-found: warn
 
+  # Run the unchanged quality gate alongside unit shards, not on their critical-path tail.
+  quality:
+    name: quality
+    needs: scope
+    if: needs.scope.outputs.full_required == 'true' || needs.scope.outputs.docs_lane == 'true'
+    # Pinned with rc-gates (#1839): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build and
+    # apt-prefetch gets no install-deps list (main CI 43413866919). Remove with the Playwright upgrade (#1840).
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-native-deps: 'false'
+          install-playwright: 'false'
+
+      - name: Code Quality Gate
+        run: pnpm quality
+
   unit-coverage-merge:
     name: unit-coverage-merge
-    needs: [scope, unit-shard]
-    if: always() && !cancelled() && needs.scope.outputs.full_required == 'true'
-    runs-on: ubuntu-latest
+    needs: [scope, unit-shard, quality]
+    if: always() && !cancelled() && (needs.scope.outputs.full_required == 'true' || needs.scope.outputs.docs_lane == 'true')
+    # Pinned with rc-gates (#1839): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build and
+    # apt-prefetch gets no install-deps list (main CI 43413866919). Remove with the Playwright upgrade (#1840).
+    runs-on: ubuntu-24.04
     steps:
       - name: Require Upstream Success
         env:
           UNIT_RESULT: ${{ needs.unit-shard.result }}
+          QUALITY_RESULT: ${{ needs.quality.result }}
         run: |
           set -euo pipefail
+          if [[ "$QUALITY_RESULT" != "success" ]]; then
+            echo "::error::quality did not pass; refusing coverage qualification"
+            exit 1
+          fi
           if [[ "$UNIT_RESULT" == "skipped" || "$UNIT_RESULT" == "cancelled" ]]; then
             echo "::error::unit-shard was skipped or cancelled; skipping coverage merge"
             exit 1
@@ -332,8 +415,35 @@ jobs:
           pattern: 'unit-artifacts-*'
           merge-multiple: true
 
-      - name: Code Quality Gate
-        run: pnpm quality
+      # #1837: shards are partitioned by measured duration, so prove the partition, not just the shards.
+      # Every file Vitest discovers at this commit must have executed in exactly one shard (fail closed).
+      - name: Verify Every Unit Test File Executed Exactly Once
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm exec vitest list --filesOnly --config frontend/vitest.config.mjs --json="$RUNNER_TEMP/unit-discovered.json" > /dev/null
+          node scripts/ci-unit-partition-check.mjs "$RUNNER_TEMP/unit-discovered.json" artifacts/coverage
+
+      # #1837: shard balance is only as good as its hints. Derive fresh per-file costs from THIS run's executed-file
+      # records (scheduling hints only; the partition proof above is what guarantees every file ran), print the
+      # measured per-shard totals, and publish the refreshed hints so they can be committed from a real run.
+      - name: Report Shard Balance And Refreshed Scheduling Hints
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/ci-unit-durations-refresh.mjs artifacts/coverage --repository "$GITHUB_REPOSITORY" \
+            --commit "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --out "$RUNNER_TEMP/ci-unit-durations.json"
+          echo "::group::Refreshed scripts/ci-unit-durations.json"
+          cat "$RUNNER_TEMP/ci-unit-durations.json"
+          echo "::endgroup::"
+
+      - name: Upload Refreshed Scheduling Hints
+        uses: actions/upload-artifact@v6
+        with:
+          name: unit-duration-hints
+          path: ${{ runner.temp }}/ci-unit-durations.json
+          retention-days: 7
+          if-no-files-found: error
 
       - name: Run Coverage Merge
         run: pnpm ci:unit:merge
@@ -349,11 +459,74 @@ jobs:
           retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
           if-no-files-found: warn
 
+  # #1837 — THE DOCS LANE'S OWN EVIDENCE. Runs beside the unit shards. It re-derives the lane on its own
+  # checkout instead of trusting `scope`'s outputs, re-proves that no skipped job reads a changed file, runs the
+  # draft docs lane's remaining checks so the docs lane is never weaker than it, and uploads a receipt.
+  docs-evidence:
+    name: docs-evidence
+    needs: scope
+    if: needs.scope.outputs.docs_lane == 'true'
+    # Pinned with rc-gates (#1839): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build and
+    # apt-prefetch gets no install-deps list (main CI 43413866919). Remove with the Playwright upgrade (#1840).
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-native-deps: 'false'
+          install-playwright: 'false'
+
+      - name: Re-derive The Docs Lane On This Checkout
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          IS_DRAFT: ${{ github.event.pull_request.draft || false }}
+          DOCS_LANE_CONFIRMED: 'true'
+          REQUIRE_DOCS_LANE: 'true'
+          DOCS_LANE_RECEIPT: ${{ runner.temp }}/docs-lane-evidence.json
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::no pull request base; refusing docs-lane evidence"; exit 1; }
+          git diff --no-renames --name-only "$BASE_SHA"...HEAD > "$RUNNER_TEMP/changed.txt"
+          node scripts/ci-change-scope.mjs "$RUNNER_TEMP/changed.txt"
+          node scripts/ci-docs-lane-guard.mjs "$RUNNER_TEMP/changed.txt"
+
+      - name: Validate Environment Variables
+        run: node scripts/validate-env.mjs
+
+      - name: Diff Check
+        run: git diff --check ${{ github.event.pull_request.base.sha }}...HEAD
+
+      - name: Setup Deno (billing qualification)
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Billing Qualification Contract (Deno + PGlite)
+        run: pnpm test:billing-qualification
+
+      - name: Upload Docs Lane Evidence
+        uses: actions/upload-artifact@v6
+        with:
+          name: docs-lane-evidence
+          path: ${{ runner.temp }}/docs-lane-evidence.json
+          retention-days: 7
+          if-no-files-found: error
+
   edge-tests:
     name: edge-tests
     needs: scope
     if: needs.scope.outputs.full_required == 'true'
-    runs-on: ubuntu-latest
+    # Pinned with rc-gates (#1839): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build and
+    # apt-prefetch gets no install-deps list (main CI 43413866919). Remove with the Playwright upgrade (#1840).
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -373,9 +546,14 @@ jobs:
 
   build:
     name: build
+    permissions:
+      contents: read
+      actions: read
     needs: scope
     if: needs.scope.outputs.full_required == 'true'
-    runs-on: ubuntu-latest
+    # Pinned with rc-gates (#1839): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build and
+    # apt-prefetch gets no install-deps list (main CI 43413866919). Remove with the Playwright upgrade (#1840).
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -385,8 +563,29 @@ jobs:
         with:
           install-playwright: 'false'
 
-      - name: Build Test App
-        run: pnpm ci:build
+      - name: Verify Build Reuse Safety Contracts
+        run: node --test tests/unit/ciBuildOrigin.test.mjs tests/unit/ciBuildArtifactClient.test.mjs tests/unit/ciBuildInputs.test.mjs tests/unit/ciBuildTrace.test.mjs tests/unit/ciSmartBuild.test.mjs
+
+      # #1837 smart build: reuse a successful main run's build only when every input that build actually read
+      # (traced with strace, including failed lookups and directory listings) is identical here, in the same build
+      # environment; otherwise build fresh under the trace. All later gates still test this commit's output.
+      - name: Build Test App (Smart Build)
+        id: smart_build
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/ci-smart-build.mjs
+
+      # Uploaded by every traced build so the producer path is exercised on every PR. A consumer only ever trusts
+      # a receipt from a successful main push or dispatch run (scripts/ci-build-origin.mjs).
+      - name: Upload Smart Build Receipt
+        if: ${{ steps.smart_build.outputs.receipt_name != '' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ steps.smart_build.outputs.receipt_name }}
+          path: .ci-build-cache/receipt.json
+          include-hidden-files: true
+          retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
+          if-no-files-found: error
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v6
@@ -428,7 +627,9 @@ jobs:
     # edge tests or health-check. Those still gate the overall result via `report`.
     needs: [scope, build, deps-prep]
     if: success() && needs.scope.outputs.full_required == 'true'
-    runs-on: ubuntu-latest
+    # Pinned with rc-gates (#1839): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build and
+    # apt-prefetch gets no install-deps list (main CI 43413866919). Remove with the Playwright upgrade (#1840).
+    runs-on: ubuntu-24.04
     # #1311 job-level backstop (see unit-shard).
     timeout-minutes: 20
     strategy:
@@ -521,7 +722,9 @@ jobs:
     name: lighthouse-advisory
     needs: [scope, build]
     if: always() && !cancelled() && needs.scope.outputs.full_required == 'true'
-    runs-on: ubuntu-latest
+    # Pinned with rc-gates (#1839): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build and
+    # apt-prefetch gets no install-deps list (main CI 43413866919). Remove with the Playwright upgrade (#1840).
+    runs-on: ubuntu-24.04
     continue-on-error: true
     steps:
       - name: Checkout Code
@@ -753,6 +956,13 @@ jobs:
           retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
           if-no-files-found: warn
 
+      # #1837: whether the build job built fresh or reused a verified main build, the build under test is this commit's.
+      - name: Verify Build Release Is This Commit
+        run: |
+          set -euo pipefail
+          test -d artifacts/build-artifacts
+          node scripts/ci-verify-build-release.mjs artifacts/build-artifacts
+
       - name: Assert Required Evidence Is Present
         shell: bash
         run: |
@@ -850,15 +1060,18 @@ jobs:
   # the aggregate has already reported success.
   report:
     name: report
-    needs: [scope, draft-checks, unit-coverage-merge, edge-tests, build, health-check, e2e, full-evidence]
+    needs: [scope, draft-checks, quality, unit-coverage-merge, docs-evidence, edge-tests, build, health-check, e2e, full-evidence]
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     steps:
       - name: Enforce Selected Lane
         env:
           FULL_REQUIRED: ${{ needs.scope.outputs.full_required }}
+          DOCS_LANE: ${{ needs.scope.outputs.docs_lane }}
+          DOCS_RESULT: ${{ needs.docs-evidence.result }}
           SCOPE_RESULT: ${{ needs.scope.result }}
           DRAFT_RESULT: ${{ needs.draft-checks.result }}
+          QUALITY_RESULT: ${{ needs.quality.result }}
           UNIT_RESULT: ${{ needs.unit-coverage-merge.result }}
           EDGE_RESULT: ${{ needs.edge-tests.result }}
           BUILD_RESULT: ${{ needs.build.result }}
@@ -872,11 +1085,19 @@ jobs:
             exit 1
           fi
           if [[ "$FULL_REQUIRED" == "true" ]]; then
-            echo "Full merge-candidate lane: unit=$UNIT_RESULT edge=$EDGE_RESULT build=$BUILD_RESULT health=$HEALTH_RESULT e2e=$E2E_RESULT evidence=$EVIDENCE_RESULT"
-            for r in "$UNIT_RESULT" "$EDGE_RESULT" "$BUILD_RESULT" "$HEALTH_RESULT" "$E2E_RESULT" "$EVIDENCE_RESULT"; do
+            echo "Full merge-candidate lane: quality=$QUALITY_RESULT unit=$UNIT_RESULT edge=$EDGE_RESULT build=$BUILD_RESULT health=$HEALTH_RESULT e2e=$E2E_RESULT evidence=$EVIDENCE_RESULT"
+            for r in "$QUALITY_RESULT" "$UNIT_RESULT" "$EDGE_RESULT" "$BUILD_RESULT" "$HEALTH_RESULT" "$E2E_RESULT" "$EVIDENCE_RESULT"; do
               [[ "$r" == "success" ]] || { echo "::error::full lane failed"; exit 1; }
             done
             echo "Full merge-candidate lane passed."
+          elif [[ "$DOCS_LANE" == "true" ]]; then
+            # #1837: complete unit suite + coverage + quality + partition proof (unit-coverage-merge), and the
+            # docs lane's own re-derivation, reader guard and receipt (docs-evidence). Both must pass.
+            echo "Docs lane: quality=$QUALITY_RESULT unit=$UNIT_RESULT docs-evidence=$DOCS_RESULT"
+            for r in "$QUALITY_RESULT" "$UNIT_RESULT" "$DOCS_RESULT"; do
+              [[ "$r" == "success" ]] || { echo "::error::docs lane failed"; exit 1; }
+            done
+            echo "Docs lane passed."
           else
             echo "Affected draft lane: draft-checks=$DRAFT_RESULT"
             [[ "$DRAFT_RESULT" == "success" ]] || { echo "::error::draft lane failed"; exit 1; }
@@ -935,7 +1156,7 @@ jobs:
   # CI cycle per case.
   merge-qualification:
     name: merge-qualification
-    needs: [scope, build, edge-tests, unit-shard, unit-coverage-merge, e2e, health-check, full-evidence, review-qualification]
+    needs: [scope, build, quality, edge-tests, unit-shard, unit-coverage-merge, e2e, health-check, full-evidence, review-qualification]
     # always(), NOT always() && !cancelled(): a cancelled upstream job must be REPORTED as unqualified
     # rather than skipping the gate that would have caught it.
     if: always()
@@ -990,3 +1211,4 @@ jobs:
               process.exit(1);
             }
           '
+

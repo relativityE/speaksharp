@@ -41,3 +41,26 @@ test('v3 integration pins include every changed cleanup, watchdog and registry p
 test('an unreviewed sibling of a v3 helper still refuses',t=>{const f=fixture(t),head=f.commit('tests/live/helpers/runOwnedCleanupUnreviewed.ts','unreviewed sibling');assert.throws(()=>verify({...f.env,GITHUB_SHA:head},f.dir),/PRODUCT_OR_LIVE_TEST_SOURCE_DIFFERS/);});
 
 test('inherited main proof inputs stay individually pinned',()=>{for(const p of ['product_release/RELEASE_STATUS.md', 'product_release/ROADMAP.md', 'tests/live/rwt-open-mic-first-session.live.spec.ts'])assert.ok(Object.hasOwn(INTEGRATION_PINS,p), p);});
+
+// Exact #1834 integration delta against main 4787338d, materialized with current
+// checkout bytes so shallow CI does not depend on fetching historical commits.
+const RUNTIME_DISCOVERY_PATHS=[
+ '.github/workflows/rc-gates.yml',
+ 'scripts/lib/nativeTestExecutionEvidence.mjs',
+ 'tests/unit/modelComparisonRunAuthority.test.js',
+ 'tools/cloud-test/scripts/resolve_rwt_served_release.mjs',
+ 'tools/cloud-test/scripts/validate_rwt_release_binding.cjs',
+ 'tools/cloud-test/tests/rwt_served_release.test.mjs',
+ 'tools/cloud-test/tests/rwt_release_binding.test.cjs',
+];
+test('runtime-discovery integration delta accepts exact registered proof postimages',t=>{
+ const f=fixture(t);let head=f.head;
+ for(const p of RUNTIME_DISCOVERY_PATHS)head=f.commit(p,fs.readFileSync(path.resolve(__dirname,'../../..',p)));
+ assert.equal(verify({...f.env,GITHUB_SHA:head},f.dir).servedSha,f.release);
+ const altered=f.commit('scripts/lib/nativeTestExecutionEvidence.mjs','unreviewed registry alteration');
+ assert.throws(()=>verify({...f.env,GITHUB_SHA:altered},f.dir),/DIAGNOSTIC_TEST_SOURCE_PIN_DIFFERS/);
+});
+test('runtime-discovery does not exempt registry siblings',t=>{
+ const f=fixture(t),head=f.commit('scripts/lib/unreviewedNativeRegistry.mjs','unreviewed sibling');
+ assert.throws(()=>verify({...f.env,GITHUB_SHA:head},f.dir),/PRODUCT_OR_LIVE_TEST_SOURCE_DIFFERS/);
+});

@@ -42,6 +42,8 @@ import { BrowserWarning } from '@/components/BrowserWarning';
 import { useBrowserSupport } from '@/hooks/useBrowserSupport';
 import { LandingPricingSection } from '@/components/landing/LandingPricingSection';
 import { ClosingCTASection } from '@/components/landing/ClosingCTASection';
+import { PracticePrivacyPrompt } from '@/components/privacy/PracticePrivacyPrompt';
+import { usePracticePrivacyStore } from '@/services/practicePrivacy';
 
 export default function PracticePage() {
   const navigate = useNavigate();
@@ -54,6 +56,10 @@ export default function PracticePage() {
   // #1042 PR4: narrow recent-session read (authed only; the hook is disabled without a user).
   const { data: recentSessions, isLoading: recentLoading, error: recentError } = useRecentPracticeSummary();
   const lastSession = recentSessions && recentSessions.length > 0 ? recentSessions[0] : null;
+  // #1835: an owner with no recorded privacy choice is asked here, on their next Practice visit. Until they answer, saving
+  // and coaching stay off. Existing users (with saved practice) get the S2 copy; past data is left as it is.
+  const privacyStatus = usePracticePrivacyStore((state) => (state.ownerId === user?.id ? state.status : 'loading'));
+  const askPrivacy = isAuthed && privacyStatus === 'unknown' && !recentLoading;
   // #1093: the streak is now server-authoritative (get_practice_streak, #1098) — NOT the dead
   // check-usage-limit.streak_count and NOT a localStorage guess. Keyed by user id with stale-response
   // protection; the chip is always visible (loading → skeleton, else a settled label).
@@ -142,6 +148,7 @@ export default function PracticePage() {
       // App.tsx owns the single <main id="main-content"> landmark; this is a plain content container.
       <div className="practice-root ss-landing-canvas min-h-screen font-sans antialiased" data-testid="practice-root">
         <div className="practice-content">
+          {askPrivacy && <PracticePrivacyPrompt returning={Boolean(lastSession)} />}
           <AuthenticatedHome
             lastSession={lastSession}
             recentLoading={recentLoading}

@@ -11,6 +11,7 @@ import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '@/lib/logger';
 import { profileService } from '@/services/domainServices';
 import { membershipPresentation, trialPresentationState } from './membershipPresentation';
+import { PrivacySettingsCard } from '@/components/privacy/PrivacySettingsCard';
 
 export default function AccountPage() {
   const location = useLocation();
@@ -125,6 +126,8 @@ export default function AccountPage() {
             )}
           </CardContent>
         </Card>
+        {/* #1835: Privacy & data sits between Membership and Delete account (design spec S6). */}
+        <PrivacySettingsCard />
         {/* #1643: plain text in normal ink, below membership. Not the signature colour (reserved for practice) and not a
             destructive button; the deletion page holds the consequences and the deliberate confirmation. */}
         <p>

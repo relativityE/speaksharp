@@ -1,0 +1,76 @@
+{
+ "jobs": [
+  {
+   "completed_at": "2026-11-07T19:34:22Z",
+   "conclusion": "success",
+   "head_sha": "22918b4467934cb4dd66a279e2bb8cfba17f70ae",
+   "id": 128506288449,
+   "name": "Record the attempt (latest-record comment; no live credentials)",
+   "run_attempt": 1,
+   "run_id": 42406851270,
+   "started_at": "2026-11-07T19:34:14Z",
+   "status": "completed"
+  },
+  {
+   "completed_at": "2026-11-07T19:34:12Z",
+   "conclusion": "skipped",
+   "head_sha": "22918b4467934cb4dd66a279e2bb8cfba17f70ae",
+   "id": 128506289476,
+   "name": "Nightly gate (switch, attempt, activated writer, standing approval; no credentials)",
+   "run_attempt": 1,
+   "run_id": 42406851270,
+   "started_at": "2026-11-07T19:34:12Z",
+   "status": "completed"
+  },
+  {
+   "completed_at": "2026-11-07T19:34:36Z",
+   "conclusion": "success",
+   "head_sha": "22918b4467934cb4dd66a279e2bb8cfba17f70ae",
+   "id": 128506331888,
+   "name": "Reserve the run on the state-ref journal (the one push before the run)",
+   "run_attempt": 1,
+   "run_id": 42406851270,
+   "started_at": "2026-11-07T19:34:24Z",
+   "status": "completed"
+  },
+  {
+   "check_run_url": "https://api.github.com/repos/relativityE/speaksharp/check-runs/128506390478",
+   "completed_at": "2026-11-07T19:34:38Z",
+   "conclusion": "failure",
+   "head_sha": "22918b4467934cb4dd66a279e2bb8cfba17f70ae",
+   "id": 128506390478,
+   "name": "Selected live journeys (existing stage runner; preinstalled browser)",
+   "run_attempt": 1,
+   "run_id": 42406851270,
+   "runner_group_id": 0,
+   "runner_id": 0,
+   "runner_name": "",
+   "started_at": "2026-11-07T19:34:36Z",
+   "status": "completed",
+   "steps": []
+  },
+  {
+   "completed_at": "2026-11-07T19:34:49Z",
+   "conclusion": "success",
+   "head_sha": "22918b4467934cb4dd66a279e2bb8cfba17f70ae",
+   "id": 128506397232,
+   "name": "Settle the run's reservation on the state-ref journal (the one push after the run)",
+   "run_attempt": 1,
+   "run_id": 42406851270,
+   "started_at": "2026-11-07T19:34:40Z",
+   "status": "completed"
+  },
+  {
+   "completed_at": "2026-11-07T19:35:02Z",
+   "conclusion": "success",
+   "head_sha": "22918b4467934cb4dd66a279e2bb8cfba17f70ae",
+   "id": 128506447565,
+   "name": "Complete or interrupt the attempt in the latest record (no live credentials)",
+   "run_attempt": 1,
+   "run_id": 42406851270,
+   "started_at": "2026-11-07T19:34:52Z",
+   "status": "completed"
+  }
+ ],
+ "total_count": 6
+}

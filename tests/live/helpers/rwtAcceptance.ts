@@ -7,6 +7,7 @@
  * suite, deployed SHA, journey ids and observation set, requires a PASS/FAIL and an observer for every observation,
  * and recomputes acceptance over ALL rows. Content-free throughout: ids, verdicts, SHAs and observer names only.
  */
+import { createHash } from 'node:crypto';
 import { coherentCoachingResult } from '../../../frontend/src/services/telemetry/coachingDiagnosticReceipt';
 import { SAVE_RETRY_SUITE } from './rwtSaveRetry';
 import { ABANDON_SUITE, TWO_TAB_SUITE } from './rwtAbandonTakeover';
@@ -55,6 +56,52 @@ export function runJourneyIds(plan: { journeys: readonly ReadbackBinding[]; repo
 export type Verdict = 'PASS' | 'FAIL' | 'HOLD' | 'HUMAN' | 'EXTERNAL';
 export interface ReceiptRow { step: string; verdict: Verdict; detail: string; evidence?: Record<string, string | number | boolean | null> }
 export type Acceptance = 'PASS' | 'FAIL' | 'INCOMPLETE';
+
+/**
+ * Sam, 16 Nov (B): WHAT KIND OF RUN WROTE THE RECEIPT. Only rc-gates' full Gate 3 step sets `RWT_RUN_SCOPE=full-gate`; the
+ * diagnostic single-spec step sets `diagnostic`. The writer records it in `meta`, and nothing infers it: not a missing input, not
+ * a matching SHA, not all-green rows. Only a clean `full-gate` scope may carry an acceptance PASS. A diagnostic, missing,
+ * malformed or contradictory scope keeps every row (the observations stay useful) and a genuine observed FAIL, but a PASS is
+ * held as INCOMPLETE.
+ */
+export const RUN_SCOPE_ENV = 'RWT_RUN_SCOPE';
+/**
+ * Content-free (Sam on d7068c26): the free-text grep is never recorded, only its SHA-256; the spec only as a plain repository
+ * test path (anything else is recorded as `unrecognized`); the release source as a closed word.
+ */
+export type RunScopeMeta = { runScope: string | null; diagnosticSpec: string | null; diagnosticGrepSha256: string | null; diagnosticReleaseSource: string | null };
+const SPEC_PATH = /^tests\/[A-Za-z0-9_./-]{1,200}\.spec\.ts$/;
+/** The scope fields the receipt writer records from the workflow's environment (no inference). */
+export function runScopeMeta(env: Readonly<Record<string, string | undefined>>): RunScopeMeta {
+    const text = (v: string | undefined) => (typeof v === 'string' && v.length > 0 ? v : null);
+    const spec = text(env.DIAGNOSTIC_SPEC);
+    const grep = text(env.DIAGNOSTIC_GREP);
+    return {
+        runScope: text(env[RUN_SCOPE_ENV]),
+        diagnosticSpec: spec === null ? null : SPEC_PATH.test(spec) && !spec.includes('..') ? spec : 'unrecognized',
+        diagnosticGrepSha256: grep === null ? null : createHash('sha256').update(grep, 'utf8').digest('hex'),
+        diagnosticReleaseSource: text(env.DIAGNOSTIC_RELEASE) ? 'diagnostic_release_sha' : null,
+    };
+}
+/** Whether a receipt's recorded scope may carry an acceptance PASS, with the reason when it may not. */
+export function runScopeVerdict(meta: Record<string, unknown> | undefined): { qualifies: boolean; reason: string } {
+    const m = meta ?? {};
+    const scope = m.runScope;
+    const diagnosticFields = ['diagnosticSpec', 'diagnosticGrepSha256', 'diagnosticReleaseSource'].filter((k) => m[k] !== null && m[k] !== undefined);
+    if (scope === undefined || scope === null)
+        return { qualifies: false, reason: 'no recorded run scope: an old or unscoped receipt cannot qualify as acceptance' };
+    if (scope === 'diagnostic')
+        return { qualifies: false, reason: 'a diagnostic single-spec run: its observations are evidence, not a Gate 3 acceptance' };
+    if (scope !== 'full-gate')
+        return { qualifies: false, reason: 'the recorded run scope is malformed, so it cannot qualify as acceptance' };
+    if (diagnosticFields.length > 0)
+        return { qualifies: false, reason: `the run scope is contradictory: full-gate with diagnostic inputs (${diagnosticFields.join(', ')})` };
+    return { qualifies: true, reason: 'a full Gate 3 run' };
+}
+/** An acceptance under the receipt's scope: a PASS the scope cannot carry is INCOMPLETE; FAIL and INCOMPLETE are unchanged. */
+export function scopedAcceptance(acceptance: Acceptance, scope: { qualifies: boolean }): Acceptance {
+    return acceptance === 'PASS' && !scope.qualifies ? 'INCOMPLETE' : acceptance;
+}
 
 export interface HumanObservationState { id: string; runbookRow: string; result: 'pending' | 'PASS' | 'FAIL' | 'not_exercised' }
 
@@ -358,6 +405,7 @@ export function requiredHumanObservations(receipt: ReceiptForFinalization): stri
         // #1594 (PM 6120326867): the supplemental boundary scenarios are fully automated; they carry no human check.
         case FEEDBACK_OLDER_TAKE_SUITE:
         case FEEDBACK_NO_SESSION_SUITE:
+        case FEEDBACK_J8_SUITE:
         case PENDING_START_SUITE:
         case SAVE_RETRY_REQUEST_LOST_SUITE:
         case SAVE_RETRY_RESPONSE_LOST_SUITE:
@@ -512,6 +560,20 @@ const FEEDBACK_NO_SESSION_PRODUCT_ROWS = Object.freeze([
     // AHT-08 (#1811): this submit's own acknowledgement, and one attempted + one storage_ok for it.
     'fresh acknowledgment', 'received feedback',
 ]);
+/**
+ * J8 (nine-journey design; Sam's disposition 2026-11-15): one account, three legs, ONE receipt. Account-level rows stay unscoped;
+ * each leg's rows are the older-take / no-session rows under its own `J8.x: ` prefix, so no leg can pass on another's row.
+ * Literal suite name (this module is loaded by AHT-01, so it imports no case-only helper; rwtJ8Journey.ts's J8_SUITE must equal it).
+ */
+export const FEEDBACK_J8_SUITE = 'feedback-association-boundaries-j8';
+const J8_ACCOUNT_ROWS: ReadonlySet<string> = new Set([...SUPPLEMENTAL_ACCOUNT_ROWS, 'coaching request budget', 'feedback retention', 'zero residue']);
+const j8LegRows = (leg: string, rows: readonly string[]) => rows.filter((r) => !J8_ACCOUNT_ROWS.has(r)).map((r) => `${leg}: ${r}`);
+const FEEDBACK_J8_PRODUCT_ROWS = Object.freeze([
+    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'coaching request budget', 'feedback retention', 'zero residue', 'J8 write windows', 'J8 leg readback bindings',
+    ...j8LegRows('J8.a', FEEDBACK_NO_SESSION_PRODUCT_ROWS), 'J8.a: no coaching before any take',
+    ...j8LegRows('J8.b', FEEDBACK_OLDER_TAKE_PRODUCT_ROWS),
+    ...j8LegRows('J8.c', FEEDBACK_NO_SESSION_PRODUCT_ROWS), 'J8.c: both saved takes unchanged', 'J8.c: no extra Start or coaching',
+]);
 const PENDING_START_PRODUCT_ROWS = Object.freeze([
     ...SUPPLEMENTAL_ACCOUNT_ROWS, 'cold Start is pending', 'Start transition observed', 'abandoned Start settles after leaving',
     'leaving pending Start releases microphone', 'leaving pending Start creates no session',
@@ -596,6 +658,10 @@ export function requiredAutomatedRows(suite: string): { required: readonly strin
             return { required: [...ALWAYS_AUTOMATED_ROWS, ...JOURNEY_READBACK_ROWS], product: FEEDBACK_OLDER_TAKE_PRODUCT_ROWS, absent: ['coaching prompt binding'] };
         case FEEDBACK_NO_SESSION_SUITE:
             return { required: [...ALWAYS_AUTOMATED_ROWS, ...JOURNEY_READBACK_ROWS], product: FEEDBACK_NO_SESSION_PRODUCT_ROWS, absent: NO_COACHING_RESULT_ROWS };
+        case FEEDBACK_J8_SUITE:
+            // J8.a and J8.c carry no coaching result; only J8.b's older take does (its chain row is J8.b-scoped).
+            return { required: [...ALWAYS_AUTOMATED_ROWS, ...JOURNEY_READBACK_ROWS], product: FEEDBACK_J8_PRODUCT_ROWS,
+                absent: ['coaching prompt binding', 'feedback diagnostic chain', 'J8.a: feedback diagnostic chain', 'J8.c: feedback diagnostic chain'] };
         case PENDING_START_SUITE:
             return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: PENDING_START_PRODUCT_ROWS,
                 absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };
@@ -743,6 +809,8 @@ export interface FinalizationResult {
     /** PM 6171519534: proved external provider outcomes stay visible after finalization — never folded into PASS or FAIL. */
     external: { step: string; detail: string }[];
     successfulCoachingOutstanding: boolean;
+    /** Sam, 16 Nov (B): whether the receipt's recorded run scope may carry an acceptance PASS, and why not. */
+    runScope?: { qualifies: boolean; reason: string };
 }
 
 /**
@@ -776,6 +844,13 @@ const RECEIVED_ROW = 'journey telemetry received';
 /** The coaching rows whose EXTERNAL verdict explains a readback HOLD on the success chain (D1). */
 const EXTERNAL_COACHING_PARENTS: ReadonlySet<string> = new Set(['coaching rendered', 'Focus coaching rendered']);
 const FEEDBACK_CHAIN_ROW = 'feedback diagnostic chain';
+/**
+ * The suite's ONE coaching-diagnostic chain row: J8 scopes it to J8.b, the only leg with a coaching result (Codex on 127d6239).
+ * rc-gates' readback step finds the same row by these names to bind the received result to it.
+ */
+export function feedbackChainRowFor(suite: string): string {
+    return suite === FEEDBACK_J8_SUITE ? `J8.b: ${FEEDBACK_CHAIN_ROW}` : FEEDBACK_CHAIN_ROW;
+}
 /** The row's sent-boundary binding, in the evaluator's expectation shape (compared field by field, exactly). */
 const rowBinding = (row: ReceiptRow): Record<string, unknown> | null => {
     const e = row.evidence ?? {};
@@ -797,8 +872,8 @@ const sameBinding = (a: Record<string, unknown> | undefined, b: Record<string, u
  * received verdict replaces it: PASS → PASS, FAIL → FAIL, HOLD → HOLD. An in-run FAIL, a HOLD for any other reason, or a
  * row without the binding is never rewritten — generic journey qualification can never promote it.
  */
-function settleFeedbackChain(row: ReceiptRow, received: ReadbackVerdicts['coachingDiagnostic']): ReceiptRow {
-    if (row.step !== FEEDBACK_CHAIN_ROW || row.verdict !== 'HOLD' || !received) return row;
+function settleFeedbackChain(row: ReceiptRow, received: ReadbackVerdicts['coachingDiagnostic'], chainStep: string): ReceiptRow {
+    if (row.step !== chainStep || row.verdict !== 'HOLD' || !received) return row;
     if (row.evidence?.reasons !== 'telemetry_not_received' || !rowBinding(row)) return row;
     // Only a result computed for THIS row's exact binding settles it (validated in applyReadback); an unbound HOLD cannot.
     if (!sameBinding(received.expected, rowBinding(row))) return row;
@@ -860,6 +935,7 @@ function applyReadback(receipt: ReceiptForFinalization, readback: unknown, error
     }
     if (journeys.some((j) => j.verdict !== 'QUALIFIED' && j.verdict !== 'HOLD' && j.verdict !== 'FAIL')) return bad('carry an unknown journey verdict');
     const coaching = rb.coachingDiagnostic;
+    const chainStep = feedbackChainRowFor(receipt.suite);
     if (coaching !== undefined) {
         if (!coaching || typeof coaching !== 'object' || Array.isArray(coaching)
             || !Object.keys(coaching).every((k) => ['verdict', 'reasons', 'release', 'expected'].includes(k))
@@ -870,7 +946,7 @@ function applyReadback(receipt: ReceiptForFinalization, readback: unknown, error
         // A PASS or FAIL is evidence about a specific request, so it must name the release and binding it was computed for.
         if (coaching.verdict !== 'HOLD' && !bound) return bad('carry a coaching diagnostic verdict with no binding');
         if (bound) {
-            const chainRow = receipt.rows.find((r) => r.step === FEEDBACK_CHAIN_ROW);
+            const chainRow = receipt.rows.find((r) => r.step === chainStep);
             if (coaching.release !== receipt.release) return bad('carry a coaching diagnostic result for a different release');
             if (!chainRow || !sameBinding(coaching.expected, rowBinding(chainRow))) {
                 return bad('carry a coaching diagnostic result bound to a different request, attempt, product, model or outcome');
@@ -883,7 +959,7 @@ function applyReadback(receipt: ReceiptForFinalization, readback: unknown, error
     // whose coaching was provably unavailable cannot qualify it. That HOLD is named, never relabelled received PASS or
     // EXTERNAL; an observed FAIL still dominates.
     const externalCoaching = receipt.rows.some((r) => r.verdict === 'EXTERNAL' && EXTERNAL_COACHING_PARENTS.has(r.step));
-    return receipt.rows.map((r) => (r.step === FEEDBACK_CHAIN_ROW ? settleFeedbackChain(r, coaching) : r.step !== RECEIVED_ROW ? settleBlindHold(receipt.suite, r, journeys) : {
+    return receipt.rows.map((r) => (r.step === chainStep ? settleFeedbackChain(r, coaching, chainStep) : r.step !== RECEIVED_ROW ? settleBlindHold(receipt.suite, r, journeys) : {
         ...r,
         verdict: failed > 0 ? 'FAIL' : qualified ? 'PASS' : 'HOLD',
         detail: failed > 0 ? 'the PostHog readback RECEIVED an observed failure for a bound journey (merged at finalization)'
@@ -967,8 +1043,10 @@ export function finalizeReceipt(raw: unknown, worksheet: ParsedWorksheet, readba
         return { ...r, verdict, detail: `recorded by the human reviewer: ${verdict}`, evidence: { ...r.evidence!, recorded: verdict, observer: entry.observer } };
     });
     const a = receiptAcceptance(rows);
-    return { status: 'final', finalAcceptance: a.acceptance, errors: [], rows, humanObservations: a.humanObservations, automatedRowsAllPass: a.automatedRowsAllPass,
-        external: a.external, successfulCoachingOutstanding: a.successfulCoachingOutstanding };
+    // Sam, 16 Nov (B): the rows stand as observed; only the acceptance word is bounded by the run's recorded scope.
+    const runScope = runScopeVerdict(receipt.meta);
+    return { status: 'final', finalAcceptance: scopedAcceptance(a.acceptance, runScope), errors: [], rows, humanObservations: a.humanObservations,
+        automatedRowsAllPass: a.automatedRowsAllPass, external: a.external, successfulCoachingOutstanding: a.successfulCoachingOutstanding, runScope };
 }
 
 /**

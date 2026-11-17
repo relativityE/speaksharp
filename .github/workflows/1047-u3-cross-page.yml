@@ -23,7 +23,9 @@ jobs:
   # Reuse CI's image/lock/prefetch-bound bundle producer in this same run.
   # Both jobs check out the reviewed SHA; the consumer never borrows another run's artifact.
   deps-prep:
-    runs-on: ubuntu-latest
+    # Pinned with ci.yml and rc-gates (#1839): pinned Playwright 1.57 has no Chromium build for ubuntu-26.04, and this
+    # deps-prep/consumer pair must share one image for its apt bundle. Remove with the Playwright upgrade (#1840).
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout reviewed commit
@@ -80,7 +82,9 @@ jobs:
 
   cross-page-evidence:
     needs: [deps-prep]
-    runs-on: ubuntu-latest
+    # Pinned with ci.yml and rc-gates (#1839): pinned Playwright 1.57 has no Chromium build for ubuntu-26.04, and this
+    # deps-prep/consumer pair must share one image for its apt bundle. Remove with the Playwright upgrade (#1840).
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Checkout reviewed commit

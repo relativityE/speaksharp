@@ -165,7 +165,8 @@ SpeakSharp is one product, not a feature-tier ladder:
 - Trial UI must describe a trial, not imply that the user is already paid.
 - Expiry is determined from server-authoritative time. Client-clock changes cannot extend access.
 - At exact expiry, an unpaid user cannot create, record, save, or analyze new practice.
-- An expired user retains exact-session review, History, Progress, PDF/export, account management and deletion, billing management where applicable, and upgrade access.
+- PO 2026-11-14: "No payment, no service or access to their past data. They have the option to delete account." An expired, unpaid user loses exact-session review, History, Progress and PDF/export along with all practice; nothing is deleted, and paying restores the same saved work. They keep account management, billing management where applicable, the payment/upgrade path, and account deletion. There is no export before deletion.
+- A recording in progress at expiry may finish, but its save is refused; the payment wall then says that recording was not saved. An interrupted save must never block account deletion: the owner can discard it as not saved, and it is never marked saved.
 - Existing paid users retain the complete product and billing-management access.
 - Commercial-trial grants are immutable and one-time. Activation must not reset, shorten, or extend a prior grant, and paid accounts must not be changed by legacy activation.
 - Payments, checkout, webhook entitlement, and commercial activation remain fail-closed until separately authorized and configured.
@@ -282,7 +283,7 @@ consent controls, settings, revocation, deletion, or audio-locality proof have s
 | Billing confirmation delayed or uncertain | Do not grant paid access until authoritative confirmation succeeds. |
 | Save delayed | Show a saving state until persistence is confirmed; do not claim completion early. |
 | Objective registration fails or throws ambiguously | Do not create a Focus Points evaluation. |
-| Trial expires during a journey | Enforce the server-authoritative access boundary while preserving read/export/account/upgrade access. |
+| Trial expires during a journey | Enforce the server-authoritative access boundary: the payment wall replaces product and saved-work routes, a recording already in progress may finish but is not saved (and the wall says so), and account, billing, payment and deletion stay reachable. |
 
 ---
 

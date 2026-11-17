@@ -1,5 +1,5 @@
 'use strict';
-// Proof v2, live-sampler correction (Sam 1793383008): the ACTUAL in-page Focus sampler of the vendored presentation-controls.cjs is run in a
+// Proof v2, live-sampler correction : the ACTUAL in-page Focus sampler of the vendored presentation-controls.cjs is run in a
 // vm sandbox over a fake rail (as the vendored presentation-controls test does), so the marker count per sample is produced by the sampler
 // itself, never handed to the oracle. PRESENTATION_CONTROLS points at a mutated temp copy for the mutation controls.
 // Run: node --test --test-reporter=tap tools/cloud-test/tests/node/focus-sampler-controls.test.cjs

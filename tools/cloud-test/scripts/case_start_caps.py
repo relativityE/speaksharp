@@ -24,6 +24,9 @@ FULL_TAKES = dict(zip(CASE_IDS, (4, 7, 4, 1, 2, 2, 2, 0, 2, 2, 2, 1, 1, 1, 0)))
 MINIMAL_MINIMA = dict(zip(CASE_IDS, (2, 1, 1, 1, 1, 1, 1, 0, 1, 1, 3, 1, 1, 1, 0)))
 MODES = {("partial", "minimal"): "minimal", ("partial", "full"): "selected-full", ("smoke", "smoke"): "smoke", ("full", "full"): "full"}
 RUNTIMES = ("Claude SpeakSharp R4", "GitHub Actions SpeakSharp")
+# The one campaign whose smoke run may select a subset: its admission binds the pinned one-off grant's exact selectedCases
+# (init_run_inputs.one_off_grant).
+R10_ONE_OFF_RUN_ID = "R10-3b040043-smoke15"
 
 
 def obj(value, code):
@@ -75,8 +78,11 @@ def request_caps(request, *, execution=False):
         require(cap >= minimum[cid], "selection-minimum")
         integer(row.get("plannedRequests"), "selection-requests")
         caps[cid] = cap
-    if mode in ("full", "smoke"):
+    if mode == "full" or (mode == "smoke" and r.get("runId") != R10_ONE_OFF_RUN_ID):
         require(tuple(caps) == CASE_IDS, "full-selection")
+    elif mode == "smoke":
+        # the R10 one-off campaign's selected subset (its admission binds the pinned grant's exact selectedCases); catalog order only
+        require(tuple(caps) == tuple(c for c in CASE_IDS if c in caps), "full-selection")
     for name, group in (("proposed", proposed), ("approved", approved)):
         value = group.get("startPressCaps")
         if name == "approved" and value is None and not execution:
@@ -175,10 +181,13 @@ def bind_inputs(env, facts):
     require(env.get("BP_MODE") == mode, "mode-binding")
     require(env.get("BP_RUNTIME", RUNTIMES[0]) == r.get("executionRuntime", RUNTIMES[0]), "runtime-binding")
     for key, value in (("BP_CAMPAIGN", r["runId"]), ("BP_SOURCE_SHA", r["release"]["testedSha"]),
-                       ("BP_T0", r["window"]["startUtc"]), ("BP_T1", r["window"]["endUtc"]),
+                       ("BP_T0", r["window"]["startUtc"]),
                        ("BP_SELECT_REF", r["selectionApprovalRef"]),
                        ("BP_SELECT", ",".join(str(int(cid[-2:])) for cid in caps))):
         require(env.get(key) == value, "environment-binding")
+    # BP_T1 is the run's one execution deadline (init_run_inputs.execution_deadline via run_env.py), never later than the occurrence end.
+    require(isinstance(env.get("BP_T1"), str) and utc(r["window"]["startUtc"]) < utc(env["BP_T1"]) <= utc(r["window"]["endUtc"]),
+            "environment-binding")
     require(not env.get("BP_PRESS_EXTRA"), "press-extra-forbidden")
     return {"request": r, "reconciliation": rc, "mode": mode, "caps": caps,
             "requestSha256": request_sha, "reconciliationSha256": rc_sha, "approval": approval}

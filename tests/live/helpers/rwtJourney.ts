@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { gunzipSync, inflateSync } from 'node:zlib';
 import { expect, type Locator, type Page, type Request, type TestInfo } from '@playwright/test';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { COACHING_DEPENDENT_ANALYTICS_ROWS, guardReceiptOutput, humanWorksheet, receiptAcceptance, rowAfterHalt, type ReadbackActionBinding, type ReadbackActionStage, type ReceiptRow, type Verdict } from './rwtAcceptance';
+import { COACHING_DEPENDENT_ANALYTICS_ROWS, guardReceiptOutput, humanWorksheet, receiptAcceptance, rowAfterHalt, runScopeMeta, runScopeVerdict, scopedAcceptance, type ReadbackActionBinding, type ReadbackActionStage, type ReceiptRow, type Verdict } from './rwtAcceptance';
 import { RWT_BROWSER_IDENTITY_ARGS } from './rwtBrowserIdentity';
 import { documentTrackerOf } from './rwtDocumentIdentity';
 import {
@@ -255,6 +255,12 @@ export async function signUpDisposableAccount(page: Page, email: string): Promis
      * the real sign-in form. The password never leaves this closure.
      */
     signInOn: (other: Page) => Promise<void>;
+    /**
+     * J1.d (Sam 1a, 16 Nov): sign THIS account back in through the real sign-in form the page is ALREADY showing (a protected deep
+     * link redirected the signed-out page there), without navigating, so the product's own return-to-deep-link is exercised. The
+     * password never leaves this closure. Resolves once the page holds this account's session again.
+     */
+    signInOnShownForm: () => Promise<void>;
 }> {
     const password = `Rwt-${randomBytes(18).toString('base64url')}-9a!`;
     const startedAt = Date.now();
@@ -292,7 +298,14 @@ export async function signUpDisposableAccount(page: Page, email: string): Promis
         await other.getByTestId('sign-in-submit').click();
         await expect.poll(otherUid, { timeout: 60_000, message: 'the other device must sign in to the same account' }).toBe(uid);
     };
-    return { uid, signupMs, signOutAndSignIn, signInOn };
+    const signInOnShownForm = async () => {
+        await expect(page.getByTestId('auth-form')).toBeVisible({ timeout: 30_000 });
+        await page.getByTestId('email-input').fill(email);
+        await page.getByTestId('password-input').fill(password);
+        await page.getByTestId('sign-in-submit').click();
+        await expect.poll(readUid, { timeout: 60_000, message: 'sign-in must restore this account\'s session' }).toBe(uid);
+    };
+    return { uid, signupMs, signOutAndSignIn, signInOn, signInOnShownForm };
 }
 
 /**
@@ -1221,6 +1234,9 @@ export class RwtReceipt {
             this.row('receipt content-free', 'PASS', 'the leak guard found no registered value in the receipt, worksheet or log line');
         }
         const journeyIds = runJourneyIds(plan);
+        // Sam, 16 Nov (B): the run's scope, exactly as the workflow set it; the receipt's own acceptance is bounded by it.
+        Object.assign(this.meta, runScopeMeta(process.env));
+        const acceptance = receiptAcceptance(this.rows);
         const dir = path.resolve('test-results', 'rwt');
         mkdirSync(dir, { recursive: true });
         const body = {
@@ -1239,7 +1255,8 @@ export class RwtReceipt {
              * observation (recorded PASS). Any open HOLD or HUMAN row makes it INCOMPLETE, so an all-green automated
              * part can never be read as a completed runbook. `automatedRowsAllPass` states the automated part alone.
              */
-            ...receiptAcceptance(this.rows),
+            ...acceptance,
+            acceptance: scopedAcceptance(acceptance.acceptance, runScopeVerdict(this.meta)),
             // For the readback step: which journeys to read back, under which traffic class and declared stages.
             readback: {
                 journeys: plan.journeys, reportedJourneyIds: plan.reportedJourneyIds, missingBindings: plan.missingBindings,

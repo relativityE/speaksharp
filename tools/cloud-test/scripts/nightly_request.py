@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""The GitHub nightly regression's ONE immutable execution request per scheduled occurrence (Sam 1793553158.013909, RETURN 1793553793.785919).
+"""The GitHub nightly regression's ONE immutable execution request per scheduled occurrence (RETURN ).
 SOURCE ONLY and refusing today: the cron lives in config/nightly/schedule.proposed.yml (a proposed artifact, not a registered schedule), the
 standing approval is NOT APPROVED, the state-ref writer is not activated, and neither a reviewed nightly template nor an accepted budget
 proposal is anchored yet (TEMPLATE_SHA256 / BUDGET_SHA256 are None until independently reviewed inputs are received).
 
-  gate     before anything else: the repository switch must be exactly "true" (decided BEFORE any file is read, so an inactive nightly is quiet
+  gate before anything else: the repository switch must be exactly "true" (decided BEFORE any file is read, so an inactive nightly is quiet
            even with a missing approval), attempt 1, the state-ref writer activated, the standing approval complete, typed, chronological,
            within the package's structural limits and valid, and the run's ORIGINAL trigger time bound to exactly one scheduled slot.
-  derive   the request bytes from the anchored template, the standing approval (bound by digest), the accepted budget proposal (the derived
+  derive the request bytes from the anchored template, the standing approval (bound by digest), the accepted budget proposal (the derived
            need, bound by digest) and the occurrence. Every derived allocation must fit the approval and the structural limits; the whole window
            [slot, slot + approved minutes] must lie inside the approval's validity and its period; the caller's own ceiling and window-fit checks
            (init_run_inputs) prove the full setup + live + collect run still fits from `now`. The occurrence id is the approval period plus the
            slot; a run id is only the execution identity.
-  verify   re-derive and require byte equality, so a substituted template, approval, budget or request never passes.
+  verify re-derive and require byte equality, so a substituted template, approval, budget or request never passes.
 Replay state: `occurrences_from_chain` reads reserved occurrence ids from the VERIFIED state-ref chain (pinned root through head). It is
 UNQUALIFIED until the writer is activated: admission is only atomic at the writer's compare-and-swap reserve, never at this read.
 Exit 78 on every refusal except a switched-off nightly (exit 0); no value is printed.
@@ -46,7 +46,7 @@ BUDGET_PATH, BUDGET_SHA256 = None, None
 RUNTIME = "GitHub Actions SpeakSharp"
 # GitHub may start a scheduled run late; a trigger later than this after a slot cannot be bound to exactly one occurrence.
 SCHEDULER_MAX_DELAY_MINUTES = 30
-# Sam 1793554593.723039: a SEPARATE nightly full-run window ceiling (the reviewed full-mode 330 plus the maximum trigger delay). The package
+# a SEPARATE nightly full-run window ceiling (the reviewed full-mode 330 plus the maximum trigger delay). The package
 # config, manual runs and their approvals are unchanged; the window stays anchored to its slot and the remaining fit is checked before effects.
 NIGHTLY_MAX_WINDOW_MINUTES = 360
 SHA40 = re.compile(r"[0-9a-f]{40}")
@@ -96,7 +96,8 @@ JOB_TIMEOUT = re.compile(r"^  ([A-Za-z0-9_-]+):\n(?:(?!^  \S).*\n)*?^    timeout
 # This only verifies the workflow's manual-vs-scheduled selector; it never dispatches a workflow.
 # Keep the event name assembled so the package boundary scan can reserve the complete token for actual dispatch code.
 MANUAL_EVENT = "workflow_" + "dispatch"
-SPLIT_LIVE_TIMEOUT = "${{ fromJSON(github.event_name == '%s' && '65' || '340') }}" % MANUAL_EVENT
+SPLIT_LIVE_TIMEOUT = ("${{ fromJSON(github.event_name == '%s' && needs.record-begin.outputs.manual_runner_minutes || '340') }}"
+                      % MANUAL_EVENT)
 
 
 def workflow_job_timeouts(text):
@@ -107,7 +108,7 @@ def workflow_job_timeouts(text):
         if raw.isdecimal():
             found[name] = int(raw)
         elif name == "live" and raw == SPLIT_LIVE_TIMEOUT:
-            found[name] = 340  # scheduled/nightly arm; manual dispatch is 65
+            found[name] = 340  # scheduled/nightly arm; a manual dispatch is bounded by its occurrence's reserved runner minutes
         else:
             raise Refused("nightly-workflow-timeouts")
     _need(found and {"nightly-gate", "record-begin", "live", "record-complete"} <= set(found), "nightly-workflow-timeouts")
@@ -264,7 +265,7 @@ def derived_need(budget):
 
 
 def check_estimate_requests(budget, tpl, est):
-    """Nightly check (Sam 1793617478.811419): the derived request's planned, cleanup-reserve and pooled-slack requests are exactly the
+    """Nightly check : the derived request's planned, cleanup-reserve and pooled-slack requests are exactly the
     accepted budget's, its planned sum is the template rows' own, and the three sum to its run cap."""
     try:
         r, q = budget["requests"], est["requests"]

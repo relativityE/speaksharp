@@ -46,6 +46,7 @@ interface MockOptions {
   entitlement?: Record<string, unknown>;
   entitlementError?: unknown;
   userId?: string | null;
+  consentReads?: Array<{ data: unknown; error?: unknown }>;
   session?: Record<string, unknown> | null;
   sessionError?: unknown;
   /** #1538: errors for successive `sessions` reads BEFORE the normal answer (models the pre-migration column retry). */
@@ -226,6 +227,7 @@ function mockSupabase(options: MockOptions = {}) {
     legacyUpdateCount: 0,
     sessionColumns: [] as string[],
   };
+  const consentReads = [...(options.consentReads ?? [])];
   const sessionSelectErrors = [...(options.sessionSelectErrors ?? [])];
   const profile = options.profile ?? 'pro';
   const userId = options.userId === undefined ? 'pro-user' : options.userId;
@@ -270,7 +272,7 @@ function mockSupabase(options: MockOptions = {}) {
         state.authorityReadCount++;
         return Promise.resolve({ data: options.authorityReadback ?? [], error: null });
       }
-      if (name === 'persist_ai_suggestion_with_authority_v1' || name === 'persist_account_coaching_v1') {
+      if (name === 'persist_ai_suggestion_with_authority_v1' || name === 'persist_account_coaching_with_consent_v1') {
         state.authorityRpcCount++;
         state.authorityArgs = args ?? null;
         if (options.persistThrows !== undefined) return Promise.reject(options.persistThrows);
@@ -300,6 +302,12 @@ function mockSupabase(options: MockOptions = {}) {
         if (table === 'sessions') state.sessionColumns.push(columns);
         // #1258: the Focus Points reads (objective tables) resolve from `options.focus`.
         const focusResult = (): { data: unknown; error: unknown } => {
+          if (table === 'practice_privacy_choices') {
+            const consent = consentReads.shift() ?? {
+              data: { transcript_save: true, ai_coaching: true, consent_version: 1, choice_revision: 1 },
+            };
+            return { data: consent.data, error: consent.error ?? null };
+          }
           const f = options.focus;
           if (table === 'objective_session') return { data: f?.objective ?? null, error: f?.objectiveError ?? null };
           if (table === 'objective_brief') return { data: f?.brief ?? null, error: null };
@@ -391,6 +399,81 @@ function resetProvider() {
   attemptTimeouts = [];
   Deno.env.set('GEMINI_API_KEY', 'test-key');
 }
+
+Deno.test('#1835 legacy History retry without recorded consent never reaches the provider', async () => {
+  resetProvider();
+  // A valid, previously saved take without a coaching review, owned by an authenticated paid user.
+  // Nothing in the mock database or request grants transcript storage / AI coaching consent.
+  const existing = Object.freeze(savedSession());
+  const before = { ...existing };
+  const mock = mockSupabase({ session: existing, consentReads: [{ data: null }] });
+  const response = await handler(request({ sessionId: 'session-a', product: 'open_mic' }), mock.create);
+  const body = await response.json();
+
+  assertEquals({
+    refused: !response.ok,
+    code: body.code ?? null,
+    providerAttempts: fetchCount,
+    outboundRequests: outboundRequests.length,
+    quotaWrites: mock.state.quotaCount,
+    reviewWrites: mock.state.updated,
+    existing,
+  }, {
+    refused: true,
+    code: 'consent_required',
+    providerAttempts: 0,
+    outboundRequests: 0,
+    quotaWrites: 0,
+    reviewWrites: null,
+    existing: before,
+  });
+});
+
+Deno.test('#1835 fresh coaching proceeds only with both positive owner choices', async () => {
+  resetProvider();
+  const allowed = await handler(request(), mockSupabase().create);
+  assertEquals(allowed.status, 200);
+  assertEquals(fetchCount, 1);
+  resetProvider();
+  const off = { transcript_save: true, ai_coaching: false, consent_version: 1, choice_revision: 1 };
+  const blocked = await handler(request(), mockSupabase({ consentReads: [{ data: off }] }).create);
+  assertEquals(blocked.status, 403);
+  assertEquals(fetchCount, 0);
+});
+
+Deno.test('#1835 unknown schema or a changed choice stops new provider attempts and review writes', async () => {
+  const yes = { transcript_save: true, ai_coaching: true, consent_version: 1, choice_revision: 1 };
+  resetProvider();
+  const unavailable = mockSupabase({ consentReads: [{ data: null, error: { code: 'BOUNDARY_UNAVAILABLE' } }] });
+  const unavailableResponse = await handler(request(), unavailable.create);
+  assertEquals(unavailableResponse.status, 503);
+  assertEquals(fetchCount, 0);
+  assertEquals(unavailable.state.quotaCount, 0);
+
+  resetProvider();
+  fetchStatusQueue = [503, 200];
+  // Consent changes after the first provider error, during the retry wait. A newer grant is not the old one.
+  const revoked = mockSupabase({ consentReads: [{ data: yes }, { data: yes }, { data: { ...yes, choice_revision: 3 } }] });
+  const retry = await handler(request(), revoked.create);
+  assertEquals(retry.status, 403);
+  assertEquals(fetchCount, 1);
+  assertEquals(revoked.state.updated, null);
+
+  resetProvider();
+  const after = mockSupabase({ consentReads: [{ data: yes }, { data: yes }, { data: { ...yes, ai_coaching: false } }] });
+  const result = await handler(request(), after.create);
+  assertEquals(result.status, 403);
+  assertEquals(fetchCount, 1);
+  assertEquals(after.state.updated, null);
+
+  resetProvider();
+  const raced = mockSupabase({ updateError: { code: '42501', message: 'coaching_consent_required' } });
+  const racedResponse = await handler(request(), raced.create);
+  assertEquals(racedResponse.status, 403);
+  assertEquals((await racedResponse.json()).code, 'consent_required');
+  assertEquals(raced.state.authorityArgs?.p_choice_revision, 1);
+  assertEquals(raced.state.updated, null);
+});
 
 Deno.test('get-ai-suggestions saved-session contract', async (t) => {
   resetProvider();
@@ -693,17 +776,47 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(mock.state.authorityArgs, { p_session_id: 'session-a', p_user_id: 'pro-user' });
   });
 
-  await t.step('keeps cached coaching readable for an expired account without new analysis', async () => {
+  // PO 2026-11-14 payment wall: an expired, unpaid account has no access to saved work, cached coaching included.
+  await t.step('payment wall: refuses cached coaching to an expired unpaid account; nothing replayed, receipted or spent', async () => {
     resetProvider();
     const mock = mockSupabase({
       profile: 'free',
       session: savedSession({ ai_suggestions: suggestionA }),
     });
     const res = await handler(request(), mock.create);
+    assertEquals(res.status, 403);
+    const body = await res.json();
+    assertEquals(body.suggestions, undefined);
+    assertEquals(body.code, 'payment_required');
+    assertEquals(fetchCount, 0);
+    assertEquals(mock.state.rpcCount, 0);
+    assertEquals(mock.state.authorityRpcCount, 0);
+    assertEquals(mock.state.authorityReadCount, 0);
+  });
+
+  await t.step('payment wall: an unverifiable entitlement fails closed on the cached path too (503, nothing replayed)', async () => {
+    resetProvider();
+    const mock = mockSupabase({
+      session: savedSession({ ai_suggestions: suggestionA }),
+      entitlementError: { message: 'database unavailable' },
+    });
+    const res = await handler(request(), mock.create);
+    assertEquals(res.status, 503);
+    assertEquals((await res.json()).suggestions, undefined);
+    assertEquals(mock.state.authorityRpcCount, 0);
+  });
+
+  await t.step('payment wall CONTROL: confirmed paid or active-trial access replays the same retained coaching', async () => {
+    resetProvider();
+    const mock = mockSupabase({
+      profile: 'free',
+      entitlement: { can_start: true, is_pro: true, trial_active: false },
+      session: savedSession({ ai_suggestions: suggestionA }),
+    });
+    const res = await handler(request(), mock.create);
     assertEquals(res.status, 200);
     assertEquals((await res.json()).suggestions, suggestionA);
     assertEquals(fetchCount, 0);
-    assertEquals(mock.state.rpcCount, 0);
     assertEquals(mock.state.authorityRpcCount, 1);
   });
 
@@ -897,6 +1010,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(saved.state.authorityArgs, {
       p_operation_id: saved.state.admissionArgs?.p_operation_id,
       p_provider_settled: true,
+      p_choice_revision: 1,
       p_session_id: 'session-a',
       p_user_id: 'pro-user',
       p_suggestions: suggestionA,

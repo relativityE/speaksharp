@@ -1,0 +1,31 @@
+{
+  "schema": "speaksharp.cloud-test.one-off-grant.v1",
+  "status": "APPROVED",
+  "approvalRef": "approval-bcde5476311b392d618839dd2ae6b2f0",
+  "scopeApprovalRef": "approval-2c749f7fca826f9e54d962517a702665",
+  "approvedBy": "product-owner",
+  "runId": "R10-3b040043-smoke15",
+  "attempt": 1,
+  "selectedCases": [
+    "AHT-01"
+  ],
+  "requestTemplateSha256": "259cc10ba76ca8a8128a746784971d810cb3257ad0614ae8b1a0542fc931325b",
+  "testedSha": "5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2",
+  "backendSha": "c32319f9121d4fef64dc48bb40fae5464dc6b65a",
+  "periodScopeSha256": "ab44af95da89cb07e28c6680f0f2e92278574f6c6bd4611dfb15afe60416eff4",
+  "preReserveStateHead": "39ec9ab27559662d003ad1a9b8f9b6586f86196f",
+  "notBeforeUtc": "2026-11-08T15:36:22Z",
+  "expiresUtc": "2026-11-12T00:00:00Z",
+  "windowSourceRef": "approval-fb2fcd4eedc39684b339a8f069bdf3ea",
+  "limits": {
+    "endToEndMinutes": 100,
+    "liveMinutes": 60,
+    "requestsIncludingIdentity": 454,
+    "identityReads": 4,
+    "starts": 2,
+    "takes": 2,
+    "coachingCalls": 3,
+    "retries": 0
+  },
+  "olderReleaseDiagnostic": true
+}

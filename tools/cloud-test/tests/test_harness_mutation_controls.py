@@ -1,4 +1,4 @@
-"""Proof mutation controls (Sam 1793382389, 1793383008): each mutation of a temp copy must turn its correction's OWN named tests red; the pinned
+"""Proof mutation controls : each mutation of a temp copy must turn its correction's OWN named tests red; the pinned
 harness is never written; an anchor that does not occur exactly once is refused; a mutation that only breaks module loading is not a kill."""
 import hashlib
 import os
@@ -8,7 +8,7 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-import harness_mutation_controls as M  # noqa: E402  (pure until main(); the network guard loads only there)
+import harness_mutation_controls as M  # noqa: E402 (pure until main; the network guard loads only there)
 
 NODE = shutil.which("node")
 

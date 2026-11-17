@@ -187,6 +187,9 @@ describe('AHT-04 — leaving a cold Start mid-download, then returning, still re
         db.rpcCalls.length = 0;
         engine = new ControlledEngine();
         vi.resetModules();
+        // #1835: these takes save their transcript, which needs the owner's recorded yes. Granted on the fresh module
+        // instance that storage.ts will read after the reset.
+        (await import('../../../tests/test-utils/practicePrivacy')).grantPracticePrivacy();
         const { sttRegistry } = await import('../transcription/STTRegistry');
         sttRegistry.register('transformers-js', () => engine as never);
         sttRegistry.register('private', () => engine as never);
@@ -262,6 +265,12 @@ describe('AHT-04 — leaving a cold Start mid-download, then returning, still re
         await press(back);
         expect(controller.getState(), `after pressing ${describeControl(back)}`).toBe('RECORDING');
         expect(engine.startCalls).toBe(1);
+
+        // G5 (#1861): a take under the five-second minimum is discarded, never saved. This journey is about a take that
+        // records and saves, so its live clock is moved past the minimum before Stop rather than lowering the minimum.
+        const liveStart = useSessionStore.getState().startTime;
+        expect(liveStart, 'the take has a live clock').not.toBeNull();
+        useSessionStore.getState().setStartTime((liveStart as number) - 6_000);
 
         await back.stop();
         expect(controller.getState()).toBe('READY');

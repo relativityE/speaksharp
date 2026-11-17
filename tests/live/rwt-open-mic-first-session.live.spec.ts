@@ -26,6 +26,9 @@
  * With no comparison cell the run records the deployed default and is labelled diagnostic.
  */
 import { createClient } from '@supabase/supabase-js';
+import { readFileSync } from 'node:fs';
+import { J1D_LEG, J1D_ROWS, J1D_SUITE, j1dCaseAssertions, j1dRunnerAdmission, j1dVerdicts } from './helpers/rwtJ1dJourney';
+import { runJ1dLeg } from './helpers/rwtJ1dLeg';
 import { test } from './helpers/rwtProductionTest';
 import { MainThreadTrace, TRACE_OP_TIMEOUT_MS, TRACE_START_WORST_CASE_MS, TRACE_STOP_WORST_CASE_MS, boundedStopWithTrace, withDeadline } from './helpers/rwtMainThreadTrace';
 import { DiagnosticRecord, ProcessSampler, diagnosticWindowFor, requireWindowBudget, runBoundedWindow } from './helpers/rwtDiagnosticWindow';
@@ -102,6 +105,8 @@ import {
     observeCoachingPhrase,
     visibleCoachingAbsence,
 } from './helpers/rwtJourney';
+import { JourneyFeedbackFence } from './helpers/feedbackFence';
+import { currentRunBinding } from './helpers/runBinding';
 import {
     classifySavedCoaching, coachingParentVerdict, failureTelemetryBinding, coachingRequestBindingRow, coachingTelemetryVerdict, successDependentRow, takeExchangeEvidence,
     type CoachingParentVerdict,
@@ -120,6 +125,8 @@ import {
     type PanelObservation, type ServerEvidence,
 } from './helpers/repeatMetricWording';
 
+/** #1811: each fence step is two or three service-role RPCs; bounded tightly so the declared finalizer worst case stays in budget. */
+const FEEDBACK_FENCE_STEP_MS = 10_000;
 const SUITE = 'open-mic-first-session';
 /** Smoke item 2 (run 38654466793): the first take's save-time families the readback held as never received. */
 const FIRST_TAKE_SAVE_FAMILIES = ['session_saved', 'transcript_authority', 'filler_measurement', 'model_attribution_receipt'] as const;
@@ -208,6 +215,9 @@ test.describe('RWT — Open Mic first session @live', () => {
     let createdEmail = '';
     let capturedUid = '';
     let feedbackReportId: string | null = null;
+    // #1811 (Sam, #1859 review): the run's feedback fence — confirmed open before the one feedback write, closed at the final
+    // boundary, cleaned (fence-recorded reports only) after the account deletion and its retention proof.
+    let feedbackFence: JourneyFeedbackFence | null = null;
 
     test.afterEach(async () => {
         // #1593 (Sam, #1662 RETURN control 1): the journey's ONE owned finalization (rows, account cleanup, receipt) — the
@@ -225,6 +235,7 @@ test.describe('RWT — Open Mic first session @live', () => {
         createdEmail = '';
         capturedUid = '';
         feedbackReportId = null;
+        feedbackFence = null;
     });
 
     test('a new person completes a first Open Mic session end to end', async ({ page, browser }, testInfo) => {
@@ -310,6 +321,10 @@ test.describe('RWT — Open Mic first session @live', () => {
         /** The Practice-again save-take duration actually used (undefined until that step runs). */
         let saveTakeMs: number | undefined;
         let coachingCapture: ReturnType<typeof createCoachingTakeCapture> | null = null;
+        // J1.d (Sam 1a, 16 Nov): a separate reporting leg in THIS worker, on THIS account, reusing its in-memory sign-in closure.
+        // Without the named runner's admission it does nothing and J1.d stays NOT RUN.
+        const j1dAdmission = j1dRunnerAdmission(process.env, (f) => readFileSync(f, 'utf8'));
+        let signInOnShownForm: (() => Promise<void>) | null = null;
         const finish = finalizer.once(async () => {
             // Sam, #1662 RETURN: every step is bounded and isolated, so the account cleanup and the receipt always run.
             const steps = new FinalizationSteps();
@@ -427,6 +442,9 @@ test.describe('RWT — Open Mic first session @live', () => {
                 else aliveReceipt(receipt, alive).row('probe saves isolated', 'HOLD', 'no server read is available in this run');
             });
             await steps.step('owned pages closed', (alive) => parity.ownedPagesClosedRow(aliveReceipt(receipt, alive)), PARITY_CLOSE_STEP_MS);
+            // #1811: every owned page is closed, so no feedback write can still come from a page: close the fence (acknowledged).
+            const fence = feedbackFence;
+            if (fence) await steps.step('feedback fence close', async (alive) => { await fence.close(aliveReceipt(receipt, alive)); }, FEEDBACK_FENCE_STEP_MS);
             // Only the run-owned account is deleted (PM contract #1258 §3). The feedback report is retained by product policy
             // (user_issue_reports.user_id is SET NULL on account deletion), so retention is proven only after the account is
             // deleted (#1532 Codex P1 r4105978630).
@@ -440,6 +458,8 @@ test.describe('RWT — Open Mic first session @live', () => {
                     ? (alive) => feedbackRetentionAfterDeletionRow(aliveReceipt(receipt, alive), admin as never, report, () => cleanup.run())
                     : undefined);
             }
+            // #1811: AFTER the retention proof, delete exactly the fence-recorded reports and verify zero independently.
+            if (fence) await steps.step('feedback fence cleanup', async (alive) => { await fence.cleanRow(aliveReceipt(receipt, alive)); }, FEEDBACK_FENCE_STEP_MS);
             // Last, so it covers every row above, including cleanup.
             await steps.step('receipt content check', () => {
                 const leaks = receiptContentLeaks(receipt, [createdEmail, SERVICE_ROLE, shownWell, shownNext, savedWell, savedNext].filter(Boolean));
@@ -471,8 +491,11 @@ test.describe('RWT — Open Mic first session @live', () => {
                 await requireApprovedSurface(page, receipt);
                 createdEmail = newDisposableEmail('open-mic');
                 receipt.forbid(createdEmail);
+                // With a J1.d admission, the email is the lookup reference the named runner recorded for J1.a's create.
+                if (j1dAdmission.admitted) { createdEmail = j1dAdmission.lookupRef; receipt.forbid(createdEmail); }
                 const account = await signUpDisposableAccount(page, createdEmail);
                 capturedUid = account.uid;
+                signInOnShownForm = account.signInOnShownForm;
                 const identity = await runOwnedIdentityFailures(admin as never, capturedUid, createdEmail);
                 if (identity.length > 0) throw new Error(`FAIL first-visit identity: ${identity.join('; ')}`);
                 receipt.row('signup', 'PASS', 'fresh account created through the real form; UID, email and profile verified', { signupMs: account.signupMs });
@@ -898,6 +921,14 @@ test.describe('RWT — Open Mic first session @live', () => {
             // minted a new journey, so feedback is bound and qualified there for its own stages (share_feedback); the recording
             // journey keeps the take, the Products menu and the first saved-review revisit; the PDF binds where it lands. ───────────────────────────
             await test.step('row 7 — share feedback', async () => {
+                // #1811: no feedback write without a confirmed-open fence for this run-owned account.
+                feedbackFence = new JourneyFeedbackFence(admin as never, 'AHT-01', 1);
+                if (admin) await feedbackFence.open(capturedUid, currentRunBinding());
+                feedbackFence.openRow(receipt);
+                if (!feedbackFence.writable) {
+                    receipt.row('feedback', 'HOLD', 'no confirmed feedback fence for this run, so no feedback was written');
+                    return;
+                }
                 feedbackReportId = await shareFeedbackRows(page, receipt, admin as never, capturedUid, tap);
             });
 
@@ -1179,6 +1210,27 @@ test.describe('RWT — Open Mic first session @live', () => {
                 }
                 numericComparisonRow(receipt, result, repeatEligibility, saveTakeMs);
             });
+
+            // ── J1.d: sign out and return, on this account and its saved takes (a separate J1D receipt) ─────────────────────
+            if (j1dAdmission.admitted) {
+                await test.step('J1.d — sign out, deep link, sign back in, history preserved', async () => {
+                    const j1d = new RwtReceipt(J1D_SUITE);
+                    j1d.forbid(createdEmail, capturedUid, persistedId, repeatSessionId, SERVICE_ROLE);
+                    const takeIds = [persistedId, repeatSessionId].filter((id): id is string => typeof id === 'string' && id.length > 0);
+                    const origin = (() => { try { return new URL(SUPABASE_URL).origin; } catch { return ''; } })();
+                    try {
+                        if (!signInOnShownForm || !capturedUid || takeIds.length === 0 || !origin) throw new Error('J1.a left no account, sign-in or saved take');
+                        const obs = await runJ1dLeg({ page, backendOrigin: origin, ownerUid: capturedUid, takeIds, signInOnShownForm });
+                        const verdicts = j1dVerdicts(obs);
+                        for (const a of j1dCaseAssertions(verdicts)) j1d.row(a.id, a.result, verdicts[a.id.slice(J1D_LEG.length + 1) as keyof typeof verdicts].detail);
+                    } catch (error) {
+                        // Only the error class leaves this step: a Playwright message can carry ids.
+                        const name = error instanceof Error && /^[A-Za-z]{1,40}Error$/.test(error.name) ? error.name : 'Error';
+                        for (const row of J1D_ROWS) j1d.row(`${J1D_LEG}:${row}`, 'HOLD', `the J1.d leg did not complete (${name})`);
+                    }
+                    j1d.write(testInfo, { journeys: [], reportedJourneyIds: [], missingBindings: [] }, []);
+                });
+            }
         } finally {
             await finish();
         }

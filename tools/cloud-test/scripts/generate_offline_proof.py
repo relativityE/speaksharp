@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Generates the offline proof for the vendored harness IN THIS JOB (proof v2): same-job provenance for every TAP and control file.
 1. placeholder plan (build_plan.py phase 1+2, dummy account id and key, NOT A RUN), stimulus receipt on the pinned Chrome, plan rebuilt bound to it;
-2. the packet's own tests and the ported proof tests (serially), as TAP;
+2. the packet's own tests, the ported proof tests and the explicitly named egress service tests (serially), as TAP;
 3. the eleven original mutation controls plus the additional A- controls (harness_mutation_controls.py);
 4. the 3 positive / 11 negative plan controls on the real runner;
 5. offline_proof.py (fail-closed) over all of it, bound to the pinned code manifest.
-Only statuses and counts are printed; TAP, plans and the proof stay in --work on the runner. No network beyond loopback, no credentials.
+Only statuses, counts and, for EVERY test, its suite, inventory ordinal, status, closed category and REVIEWED title from
+config/proof-test-titles.v1.json (proof_title_inventory.py; an unknown or malformed title refuses the proof) are printed; TAP, plans and
+the proof stay in --work on the runner. No network beyond loopback, no credentials.
 Usage: generate_offline_proof.py --work NEW_DIR --proof-out FILE [--chrome PINNED_CHROME] [--playwright-cwd DIR]"""
 import argparse
 import glob
@@ -19,6 +21,10 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 HARNESS = os.path.join(ROOT, "harness")
+# the PO-approved loopback CONNECT egress service's controls are part of this proof, named explicitly (never a glob over
+# tests/, so no unrelated top-level suite enters the claim), each with its exact expected test count: a missing file, a different count,
+# any SKIP or failure refuses the proof. Paths are relative to ROOT; the suite identity is "service:<path>".
+SERVICE_TEST_COUNTS = {"tests/egress-connect-proxy.test.cjs": 10}
 
 
 def config():
@@ -53,12 +59,31 @@ def node_tap(args, cwd, env, out):
     return r.returncode, r.stdout
 
 
-def run_problems(suites, plan_run, mutations, refusals, expected_controls, proof_run, proof, plan_inventory):
-    """Every reason this run cannot yield an accepted proof (Sam 1793385574); empty means accept. Pure: inputs are completed results.
-    suites: {name: (returncode, tap_text)}; plan_run: (returncode, stdout); proof_run: returncode of offline_proof.py."""
+def title_report(suites, inventory):
+    """Every run test resolved through the reviewed title inventory: (rows, problems). A suite whose TAP cannot be
+    judged resolves as None, so all of its inventoried tests are NOT RUN; unknown or malformed titles are counted, never printed."""
+    sys.path.insert(0, HERE)
+    import harness_mutation_controls as M
+    import proof_title_inventory as PT
+    results = {}
+    for name, (rc, text) in suites.items():
+        try:
+            results[name] = M.parse_tap(text, rc)
+        except M.TapError:
+            results[name] = None
+    return PT.resolve(inventory, results)
+
+
+def run_problems(suites, plan_run, mutations, refusals, expected_controls, proof_run, proof, plan_inventory, service_counts=None,
+                 title_inventory=None):
+    """Every reason this run cannot yield an accepted proof ; empty means accept. Pure: inputs are completed results.
+    suites: {name: (returncode, tap_text)}; plan_run: (returncode, stdout); proof_run: returncode of offline_proof.py;
+    title_inventory: the reviewed {suite: [title]} every run test must resolve through (None only in legacy unit fixtures)."""
     sys.path.insert(0, HERE)
     import harness_mutation_controls as M
     problems = []
+    if title_inventory is not None:
+        problems += title_report(suites, title_inventory)[1]
     for name, (rc, text) in suites.items():
         try:
             tests = M.parse_tap(text, rc)
@@ -67,6 +92,17 @@ def run_problems(suites, plan_run, mutations, refusals, expected_controls, proof
             continue
         if rc != 0 or not tests or any(t["status"] != "PASS" for t in tests):
             problems.append("%s suite: %d of %d tests did not pass (exit %d)" % (name, sum(t["status"] != "PASS" for t in tests), len(tests), rc))
+    for rel, expected in (service_counts or {}).items():
+        name = "service:%s" % rel
+        if name not in suites:
+            problems.append("%s suite: not run" % name)
+            continue
+        try:
+            ran = len(M.parse_tap(suites[name][1], suites[name][0]))
+        except M.TapError:
+            continue  # already reported above
+        if ran != expected:
+            problems.append("%s suite: %d tests ran, %d expected" % (name, ran, expected))
     rc, out = plan_run
     try:
         controls = json.loads(out)
@@ -92,6 +128,7 @@ def main():
     import harness_mutation_controls as M
     import offline_proof
     import proof_prep_cases as prep
+    import proof_title_inventory as PT
     a = argparse.ArgumentParser()
     a.add_argument("--work", required=True)
     a.add_argument("--proof-out", required=True)
@@ -103,6 +140,10 @@ def main():
     if os.path.exists(proof_out) or os.path.exists(work):
         raise SystemExit("BLOCKED_SETUP: --proof-out or --work already exists; a previous run's output can never satisfy this run")
     cfg = config()
+    try:
+        titles = PT.load()
+    except PT.InventoryError as e:
+        raise SystemExit("BLOCKED_SETUP: the reviewed proof test-title inventory is invalid (%s)" % e)
     if not x.chrome:
         raise SystemExit("BLOCKED_SETUP: --chrome or CT_CHROME (the discovered preinstalled browser) is required")
     if not x.browser_receipt:
@@ -123,15 +164,18 @@ def main():
     plan = os.path.join(work, "plan")
     prep.build(plan, HARNESS, phases=("phase1", "phase2"), stimulus_receipt=receipt, browser_identity=browser_receipt)
 
-    # One node process and one TAP file per test file (Sam 1793390819): a test's identity is file + title, so equal titles in two packet
+    # One node process and one TAP file per test file : a test's identity is file + title, so equal titles in two packet
     # files are two tests. Proof test files run one at a time (serially), as the original suite requires.
     packet_tests = sorted(glob.glob(os.path.join(HARNESS, "draft-adapters", "tests", "*.test.cjs")) + glob.glob(os.path.join(HARNESS, "bundle", "selftest", "*.test.cjs"))
                           + glob.glob(os.path.join(HARNESS, "bundle", "qualification", "*.test.cjs")))
     proof_tests = sorted(glob.glob(os.path.join(ROOT, "tests", "node", "proof", "*.test.cjs")))
+    service_tests = [os.path.join(ROOT, rel) for rel in sorted(SERVICE_TEST_COUNTS)]
+    if not all(os.path.isfile(path) for path in service_tests):
+        raise SystemExit("BLOCKED_SETUP: a named egress service test file is missing")
     proof_env = dict(base, CT_PROOF_CASES_DIR=plan, CT_CHROME=chrome, NODE_PATH=os.path.join(pw, "node_modules"))
     os.makedirs(os.path.join(work, "tap"))
     suites, tap_files = {}, []
-    for kind, files, cwd, env in (("packet", packet_tests, HARNESS, base), ("proof", proof_tests, ROOT, proof_env)):
+    for kind, files, cwd, env in (("packet", packet_tests, HARNESS, base), ("proof", proof_tests, ROOT, proof_env), ("service", service_tests, ROOT, base)):
         for i, path in enumerate(files):
             rel = os.path.relpath(path, HARNESS if kind == "packet" else ROOT)
             out = os.path.join(work, "tap", "%s-%03d-%s.tap" % (kind, i, os.path.basename(path)))
@@ -165,7 +209,7 @@ def main():
     except (OSError, ValueError):
         proof = None
     problems = run_problems(suites, plan_run, mutations, refusals, list(M.PACKET) + list(M.ADDITIONAL), r.returncode, proof,
-                            offline_proof.PLAN_CONTROLS)
+                            offline_proof.PLAN_CONTROLS, service_counts=SERVICE_TEST_COUNTS, title_inventory=titles)
     print("mutation controls: %d caught of %d; %d refused" % (sum(isinstance(v, dict) and v.get("fail", 0) > 0 for v in mutations.values()), len(mutations), len(refusals)))
     if isinstance(proof, dict):
         print("plan controls: %s" % {k: v for k, v in proof.get("planControls", {}).items() if k != "mismatched"})
@@ -174,6 +218,10 @@ def main():
             print("plan-control mismatches: %s" % ", ".join(str(v)[:120] for v in mismatched))
         print("corrections: %s" % ", ".join("%s %s" % (c["id"], c["result"]) for c in proof.get("corrections", [])))
         print("proof %s; refusals: %s" % (proof.get("result"), "; ".join(proof.get("refusals", [])) or "none"))
+    rows, _ = title_report(suites, titles)
+    print("tests by reviewed title: %s" % {st: sum(r["status"] == st for r in rows) for st in PT.STATUSES})
+    for line in PT.all_lines(rows):
+        print(line)
     for problem in problems:
         print("NOT ACCEPTED: " + problem)
     if problems:

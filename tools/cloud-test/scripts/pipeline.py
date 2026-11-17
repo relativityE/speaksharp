@@ -30,7 +30,7 @@ RUN_ID = re.compile(r"[1-9][0-9]{0,19}")
 
 
 def execution_run_id(env=None):
-    """THIS execution's run id for G11's reserve binding (Sam 1793593791.820389), one strict selector for both routes: inside GitHub
+    """THIS execution's run id for G11's reserve binding , one strict selector for both routes: inside GitHub
     Actions only a valid GITHUB_RUN_ID counts (the offline override is never consulted there); outside GitHub only a valid
     CT_EXECUTION_RUN_ID. Anything else is None, so check_gates refuses the snapshot rather than bind it to a guessed run."""
     env = os.environ if env is None else env
@@ -174,7 +174,7 @@ def main():
             g += ["--journal-snapshot", x.journal_snapshot, "--occurrence-reconciliation", x.occurrence_reconciliation,
                   "--occurrence-release-verification", x.occurrence_release_verification]
         if req.get("priority") == "nightly-regression":
-            # Sam RETURN 1793624502.797169 #1: the history index is forwarded below only when the file exists; on the verified journal-
+            # the reviewer RETURN #1: the history index is forwarded below only when the file exists; on the verified journal-
             # snapshot route G11 admits the snapshot without it (approval and reservations are added below with the recurring inputs).
             g += ["--receipts-root", x.receipts_root]
         if x.offline_checks:
@@ -186,7 +186,7 @@ def main():
         nightly = req.get("priority") == "nightly-regression"
         accepted_reporting = nightly or req.get("coverageMode") == "smoke"
         if nightly:
-            # Sam 1793589877.215059: a scheduled run on the accepted-input route still evaluates its recurring gates (G11 from the journal
+            # a scheduled run on the accepted-input route still evaluates its recurring gates (G11 from the journal
             # snapshot the runner passes as --reservations, the history index and the standing approval) and G7 from the carried history.
             g += ["--approval", approval, "--reservations", reservations] + now_args
             run_id = execution_run_id()
@@ -215,7 +215,7 @@ def main():
             with open(O("nightly-history.html"), "w", encoding="utf-8") as f:
                 f.write(render_nightly_history({"nightlyHistory": nh}))
         if accepted_reporting:
-            # Option A (owner-approved; Sam 1793616419.679859): the real executive summary and report on the accepted route, through the
+            # Option A (owner-approved): the real executive summary and report on the accepted route, through the
             # ordinary unchanged consumers. Smoke uses its distinct assertion catalog and can never be represented as a full live run. The
             # gap ledger is receipt-free: historical verdicts come from the verified accepted comparison, raw evidence and signals remain
             # UNOBSERVABLE, and no latest run is supplied, so no gap closes merely because the report rendered.

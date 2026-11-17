@@ -181,6 +181,161 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         vi.useRealTimers();
     });
 
+    describe('#1848 the finalize summary names its take', () => {
+        const timing = () => (window as unknown as { __PRIVATE_TIMING__?: { takeSeq: number | null; finalizeDecodeMs: number | null; finalizeWaitMs: number | null } }).__PRIVATE_TIMING__;
+        const speakingMic = () => {
+            let frameCallback: ((frame: Float32Array) => void) | undefined;
+            const mic: MicStream = {
+                state: 'ready',
+                sampleRate: PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ,
+                onFrame: vi.fn((cb: (frame: Float32Array) => void) => { frameCallback = cb; return () => { }; }),
+                offFrame: vi.fn(),
+                stop: vi.fn(),
+                close: vi.fn(),
+                _mediaStream: new MediaStream(),
+            };
+            return { mic, speak: () => frameCallback?.(new Float32Array(PRIV_STT_DERIVED.MIN_TRANSCRIPTION_SAMPLES).fill(0.5)) };
+        };
+
+        it('stamps a fresh take number at each recording start, and keeps it through Stop', async () => {
+            vi.useFakeTimers();
+            await privateWhisper.init();
+
+            const first = speakingMic();
+            await privateWhisper.start(first.mic);
+            const takeA = privateWhisper.getFinalizeTakeSeq();
+            expect(takeA).toEqual(expect.any(Number));
+            expect(timing()?.takeSeq).toBe(takeA);
+            first.speak();
+            await privateWhisper.stop();
+            expect(timing()?.takeSeq, 'the finalize numbers are published under the stopping take').toBe(takeA);
+            expect(timing()?.finalizeDecodeMs).toEqual(expect.any(Number));
+
+            const second = speakingMic();
+            await privateWhisper.start(second.mic);
+            const takeB = privateWhisper.getFinalizeTakeSeq();
+            expect(takeB).toBeGreaterThan(takeA as number);
+            expect(timing()?.takeSeq).toBe(takeB);
+            await privateWhisper.stop();
+            vi.useRealTimers();
+        });
+
+        type Internals = { isProcessing: boolean; finalizeWaitMs: number | null; finalizePrepMs: number | null; finalizeDecodeMs: number | null };
+
+        it('OVERLAP (decode): a newer start while the old whole-utterance decode is in flight keeps the old decode time out', async () => {
+            vi.useFakeTimers();
+            await privateWhisper.init();
+            let finishDecode: (v: unknown) => void = () => undefined;
+            mocks.transcribe.mockImplementationOnce(() => new Promise((resolve) => { finishDecode = resolve; }));
+
+            const older = speakingMic();
+            await privateWhisper.start(older.mic);
+            older.speak();
+            const stopping = privateWhisper.stop();
+            await vi.advanceTimersByTimeAsync(0);
+            // The older take is past its finalize ceiling; the next recording starts on this same instance.
+            const newer = speakingMic();
+            await privateWhisper.start(newer.mic);
+            const newerTake = privateWhisper.getFinalizeTakeSeq();
+            finishDecode(Result.ok('late text'));
+            await stopping;
+
+            const internals = privateWhisper as unknown as Internals;
+            expect(internals.finalizeDecodeMs, 'the older take\'s decode time must not land in the newer take').toBeNull();
+            expect(timing()?.takeSeq).toBe(newerTake);
+            expect(timing()?.finalizeDecodeMs).toBeNull();
+            vi.useRealTimers();
+        });
+
+        it('OVERLAP (engine start pending): the take is current from the start call, not from the engine\'s reply', async () => {
+            vi.useFakeTimers();
+            await privateWhisper.init();
+            let finishDecode: (v: unknown) => void = () => undefined;
+            mocks.transcribe.mockImplementationOnce(() => new Promise((resolve) => { finishDecode = resolve; }));
+
+            const older = speakingMic();
+            await privateWhisper.start(older.mic);
+            older.speak();
+            const stopping = privateWhisper.stop();
+            await vi.advanceTimersByTimeAsync(0);
+            // The newer start is waiting on the engine when the older decode finishes.
+            let engineReady: () => void = () => undefined;
+            mocks.engineStart.mockImplementationOnce(() => new Promise<void>((resolve) => { engineReady = resolve; }));
+            const newer = speakingMic();
+            const starting = privateWhisper.start(newer.mic);
+            await vi.advanceTimersByTimeAsync(0);
+            finishDecode(Result.ok('late text'));
+            await stopping;
+            // Before the engine replies, the newer take already has empty intervals of its own.
+            expect(timing()).toMatchObject({ takeSeq: privateWhisper.getFinalizeTakeSeq(), finalizeWaitMs: null, finalizePrepMs: null, finalizeDecodeMs: null });
+            engineReady();
+            await starting;
+
+            expect((privateWhisper as unknown as Internals).finalizeDecodeMs, 'the older decode must not survive into the newer take').toBeNull();
+            expect(timing()).toMatchObject({ takeSeq: privateWhisper.getFinalizeTakeSeq(), finalizeDecodeMs: null });
+            vi.useRealTimers();
+        });
+
+        it('OVERLAP (wait): an older drain that ends during the newer take\'s own Stop does not overwrite its wait', async () => {
+            vi.useFakeTimers();
+            await privateWhisper.init();
+            const internals = privateWhisper as unknown as Internals;
+
+            const older = speakingMic();
+            await privateWhisper.start(older.mic);
+            older.speak();
+            // A live decode stays in flight, so each stop waits in its drain until the drain cap.
+            internals.isProcessing = true;
+            const olderStop = privateWhisper.stop();
+            await vi.advanceTimersByTimeAsync(20);
+            const newer = speakingMic();
+            await privateWhisper.start(newer.mic);
+            newer.speak();
+            await vi.advanceTimersByTimeAsync(980);
+            // The newer take's own Stop starts at ~1s; the older drain hits its cap at ~5s, first.
+            const newerStop = privateWhisper.stop();
+            await vi.advanceTimersByTimeAsync(4_100);
+            await olderStop;
+            expect(internals.finalizeWaitMs, 'the older drain must not write a wait into the newer take').toBeNull();
+
+            // CONTROL: the newer stop's own drain then writes its own wait.
+            internals.isProcessing = false;
+            await vi.advanceTimersByTimeAsync(20);
+            await newerStop;
+            expect(internals.finalizeWaitMs).toEqual(expect.any(Number));
+            vi.useRealTimers();
+        });
+
+        it('OVERLAP (wait, prep): a newer start during the old stop\'s drain keeps every older interval out', async () => {
+            vi.useFakeTimers();
+            await privateWhisper.init();
+            const internals = privateWhisper as unknown as Internals;
+
+            const older = speakingMic();
+            await privateWhisper.start(older.mic);
+            older.speak();
+            // A live decode is in flight at Stop, so the older stop waits in its drain.
+            internals.isProcessing = true;
+            const stopping = privateWhisper.stop();
+            await vi.advanceTimersByTimeAsync(20);
+            // The newer take starts and speaks enough that the older stop's commit reaches prep and decode.
+            const newer = speakingMic();
+            await privateWhisper.start(newer.mic);
+            const newerTake = privateWhisper.getFinalizeTakeSeq();
+            newer.speak();
+            internals.isProcessing = false;
+            await vi.advanceTimersByTimeAsync(20);
+            await stopping;
+
+            expect(mocks.transcribe, 'the older stop\'s commit must have run its decode').toHaveBeenCalled();
+            expect(internals.finalizeWaitMs, 'older drain wait').toBeNull();
+            expect(internals.finalizePrepMs, 'older prep').toBeNull();
+            expect(internals.finalizeDecodeMs, 'older decode').toBeNull();
+            expect(timing()).toMatchObject({ takeSeq: newerTake, finalizeWaitMs: null, finalizePrepMs: null, finalizeDecodeMs: null });
+            vi.useRealTimers();
+        });
+    });
+
     it('finality: live windows are non-final and public stop() commits exactly one final decode', async () => {
         /**
          * #1405 — the terminal commit is the transcript authority, and it must SAY so.
@@ -1309,6 +1464,17 @@ describe('buildPrivateTimingSummary (window.__PRIVATE_TIMING__, Quality-Push Sli
         expect(s.utteranceSeconds).toBe(0);
         expect(s.peakBufferedSeconds).toBe(0);
         expect(s.updatedAtMs).toBe(1234);
+    });
+
+    it('#1848: carries the take number through, null when none is given', () => {
+        const base = {
+            streamStartAtMs: null, speechStartAtMs: null,
+            firstProvisionalAtMs: null, firstFinalAtMs: null, finalizeDecodeMs: null,
+            finalizeWaitMs: null, finalizePrepMs: null,
+            utteranceSampleCount: 0, decodedSampleCount: 0, peakBufferedSamples: 0, nowMs: 1,
+        };
+        expect(buildPrivateTimingSummary(base).takeSeq).toBeNull();
+        expect(buildPrivateTimingSummary({ ...base, takeSeq: 12 }).takeSeq).toBe(12);
     });
 
     it('measures timeToFirst* from speech-start when available', () => {

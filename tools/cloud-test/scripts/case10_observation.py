@@ -1,10 +1,10 @@
-"""Case 10 nightly current-state observation (Sam 1793570217.800529, design A). INACTIVE: no reader is trusted today.
+"""Case 10 nightly current-state observation (design A). INACTIVE: no reader is trusted today.
 
 A nightly occurrence's Case 10 projection must come from a fresh read of the bound account's current state, never a historical projection
 relabelled with a new runId. The admitted request's AHT-10 row pins the observation contract (reader, record schema, allowed projection keys,
-freshness). observe() asks a READER for the projection and binds it to the admitted request digest, campaign/run/attempt, source, account
-and observation time; admit() is the check prepare applies (the builder applies its own variant). Only synthetic readers exist here: no
-credentials, no network and no live read. reserve_then_read() (Sam 1793570557.244339) reserves the read's pinned budget on the SAME
+freshness). observe asks a READER for the projection and binds it to the admitted request digest, campaign/run/attempt, source, account
+and observation time; admit is the check prepare applies (the builder applies its own variant). Only synthetic readers exist here: no
+credentials, no network and no live read. reserve_then_read reserves the read's pinned budget on the SAME
 state-ref journal through the reviewed writer's propose BEFORE invoking any reader; a failed or partial read leaves that reservation open,
 so the accepted rollup keeps counting it.
 """
@@ -34,7 +34,7 @@ READ_TIMEOUT_SECONDS = 120
 
 
 def subprocess_reader(account_id, budget, email=None, environ=None, run=None):
-    """The registered reader (Sam 1793582780.014609): the read runs in case10_reader's own subprocess, the one admitted network path, while
+    """The registered reader : the read runs in case10_reader's own subprocess, the one admitted network path, while
     this process keeps the blanket _netguard. Its environment is built from scratch: PATH plus exactly case10_reader.CHILD_ENV (the account
     id and email from the private bundle, the password and anon key from this step's Secrets); nothing else is inherited. Only the numeric
     projection comes back; a refusal or any failure raises, so the reservation stays counted. `environ`/`run` are TEST-ONLY."""
@@ -57,7 +57,7 @@ def _registered():
 
 
 # The reviewed readers: identity -> factory(account id, read budget, email) -> callable(projection keys) -> projection. The real reader is
-# registered; it is TRUSTED only once its project origin and schedule are pinned (case10_reader.activated(), false today), so admit()
+# registered; it is TRUSTED only once its project origin and schedule are pinned (case10_reader.activated, false today), so admit
 # refuses every record and observe refuses before any reserve until then.
 READERS, _READER_PINNED = _registered()
 TRUSTED_READERS = frozenset(READERS) if _READER_PINNED else frozenset()
@@ -186,8 +186,8 @@ def subprocess_ok(argv):
 
 
 def reserve_observation(journal, req, request_sha256, run_id, attempt, now):
-    """The observation's reserve on the journal (Sam 1793570557.244339, RETURN 1793572741.370569), run by the write-capable journal-reserve
-    job (Sam 1793580806.654369: the live job stays read-only): the headroom is the accepted checkpoint at the exact head the reserve is appended
+    """The observation's reserve on the journal (RETURN ), run by the write-capable journal-reserve
+    job (the live job stays read-only): the headroom is the accepted checkpoint at the exact head the reserve is appended
     on (the writer's expected-head lease refuses any other), the receipt must be for exactly this event on that head, and the reserve must be
     PERSISTED at the receipt's commit on a fresh chain read. Returns (event, receipt, the persisted events)."""
     event = reservation_event(req, request_sha256, run_id, attempt, now)
@@ -217,7 +217,7 @@ def reserve_observation(journal, req, request_sha256, run_id, attempt, now):
 
 
 def reconcile_lost_reserve(journal, event, head):
-    """Recovery for a lost push response (Sam 1793575063.458039): one fresh verified chain read decides. The reserve counts as landed only when
+    """Recovery for a lost push response : one fresh verified chain read decides. The reserve counts as landed only when
     the commit directly after `head` (the lease it was proposed on) ends with exactly this event; then the run continues with no receipt.
     Otherwise it refuses without retrying or re-appending; if the push did land later in some other form, the rollup still counts it."""
     try:
@@ -321,7 +321,7 @@ def settled_digest(settle_raw, req, request_sha256, run_id):
 
 
 def main(argv):
-    """Three steps, one per job, so the live job never writes (Sam 1793580806.654369):
+    """Three steps, one per job, so the live job never writes :
     `reserve` (journal-reserve, contents: write) appends the observation's reserve; `observe` (live, contents: read) reads only when the
     verified chain already holds that open reserve and writes the record; `settle` (journal-settle, contents: write) closes the reserve with
     the record's digest from the closed settle input, and with no record leaves it open and counted. Each reads exactly the gate-admitted request bytes and does nothing

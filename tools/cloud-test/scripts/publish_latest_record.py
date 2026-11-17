@@ -1,4 +1,4 @@
-"""The ONE latest-run record of the live lane: a bot-owned issue comment, updated in place (Sam 1793471205.454429).
+"""The ONE latest-run record of the live lane: a bot-owned issue comment, updated in place .
 
 This module only selects, validates and renders; it never touches the network. The workflow's isolated publication job reads the
 issue comments with `gh api` and PATCHes (or, once, creates) the selected comment with the body rendered here.
@@ -11,17 +11,17 @@ Only run/source identity, case statuses, row counts and closed codes are accepte
 identifier or a payload is refused, never dropped silently.
 
 Usage:
-  publish_latest_record.py select    --comments COMMENTS.json --issue-url URL [--comment-id ID] [--bot-login LOGIN]
+  publish_latest_record.py select --comments COMMENTS.json --issue-url URL [--comment-id ID] [--bot-login LOGIN]
                                                                                        prints {"commentId": id|null, "body": "..."}
-  publish_latest_record.py begin     --previous BODY --run-id N --attempt N --source-sha SHA --started-utc TS --out BODY
-  publish_latest_record.py complete  --previous BODY --record RECORD.json --out BODY
+  publish_latest_record.py begin --previous BODY --run-id N --attempt N --source-sha SHA --started-utc TS --out BODY
+  publish_latest_record.py complete --previous BODY --record RECORD.json --out BODY
   publish_latest_record.py interrupt --previous BODY --run-id N --attempt N --status cancelled|incomplete --out BODY
-  publish_latest_record.py pending   --previous BODY --record RECORD.json --completion-deadline-utc TS
+  publish_latest_record.py pending --previous BODY --record RECORD.json --completion-deadline-utc TS
                                       --settle-receipt-sha256 SHA --occurrence-sha256 SHA --out BODY
   publish_latest_record.py reconcile --previous BODY --published-at TS --artifact-created-at TS
                                       --attestation ATTESTATION.json --settle-receipt RECEIPT.json
                                       --occurrence OCCURRENCE.json --out BODY
-  publish_latest_record.py attest    --candidate BODY --public-body BODY --published RESPONSE.json
+  publish_latest_record.py attest --candidate BODY --public-body BODY --published RESPONSE.json
                                       --settle-receipt-sha256 SHA --occurrence-sha256 SHA --out ATTESTATION.json
   publish_latest_record.py unreserved-candidate --previous BODY
                                       prints the run id and exits 0 only when the in-progress attempt is exactly RETIRABLE_ATTEMPT, `incomplete`,
@@ -33,6 +33,11 @@ Usage:
                                       completion, and is exactly the run the unexecuted-attempt evidence is about
   publish_latest_record.py retire-unexecuted --previous BODY --evidence EVIDENCE.json --out BODY
                                       retires that attempt as `reserved-not-executed` history, only on the closed evidence (see retire_unexecuted)
+  publish_latest_record.py settled-candidate --previous BODY --evidence EVIDENCE.json
+                                      prints the run id and exits 0 only when the in-progress attempt is `incomplete`, with no pending
+                                      completion, and is exactly the run the settled-attempt evidence is about
+  publish_latest_record.py retire-settled --previous BODY --evidence EVIDENCE.json --out BODY
+                                      retires that attempt as `settled-unpublished` history, only on the closed evidence (see retire_settled)
   publish_latest_record.py verify-predecessor --selected SELECTED.json --current COMMENT.json
                                       refuses unless the stored comment is still exactly the one `select` returned (body, id and updated_at)
 Exit 78 (BLOCKED_SETUP) on every refusal.
@@ -94,13 +99,13 @@ def _attempt(run_id, attempt):
 def sanitize_record(rec, require_source=False):
     """The terminal record exactly as published; refuses anything outside the closed shape."""
     # Three identities, never conflated: the workflow source that ran the harness, the product release the request tested, and the release
-    # observed served at admission (Sam 1793539017 RETURN, finding 4).
+    # observed served at admission (RETURN, finding 4).
     _keys(rec, {"runId", "attempt", "sourceSha", "testedSha", "servedSha", "campaignId", "coverage", "coverageMode", "assertionDepth", "requestSha256", "catalogSha256",
                 "startedUtc", "endedUtc", "outcome", "cases", "codes", "rowVerdicts", "comparability", "evidence"}, "record")
     _attempt(rec.get("runId"), rec.get("attempt"))
     _need(isinstance(rec.get("sourceSha"), str) and SHA40.match(rec["sourceSha"]), "source-sha")
     _need(isinstance(rec.get("testedSha"), str) and SHA40.match(rec["testedSha"]), "tested-sha")
-    # coverage (Sam 1793547120.015339): full/batch/smoke when every selected required row EXECUTED (PASS or FAIL), incomplete when any did
+    # coverage : full/batch/smoke when every selected required row EXECUTED (PASS or FAIL), incomplete when any did
     # not, unqualified when the qualification was not bound to this record. Smoke is a diagnostic result, never full/nightly history.
     # Coverage is not the outcome: a fully executed baseline may still be failed.
     _need(rec.get("coverage") in ("batch", "smoke", "full", "incomplete", "unqualified"), "coverage")
@@ -126,11 +131,18 @@ def sanitize_record(rec, require_source=False):
         _keys(c, {"caseId", "result", "rows", "codes"}, "case")
         _need(isinstance(c.get("caseId"), str) and CASE.match(c["caseId"]) and c["caseId"] not in seen, "case-id")
         seen.add(c["caseId"])
-        _need(c.get("result") in ("PASS", "FAIL", "NOT RUN", "NOT SELECTED"), "case-result")
+        # UNKNOWN (the reviewer N1): a selected case of a run that started but left no verified results; like NOT RUN it is never an executed
+        # verdict and never erases history, but it does not claim the case did not run.
+        _need(c.get("result") in ("PASS", "FAIL", "NOT RUN", "NOT SELECTED", "UNKNOWN"), "case-result")
         _keys(c.get("rows"), {"pass", "fail", "notRun"}, "rows")
         _need(set(c["rows"]) == {"pass", "fail", "notRun"} and all(_count(v) for v in c["rows"].values()), "rows")
         _need((c["result"] == "PASS") == (c["rows"]["fail"] == 0 and c["rows"]["notRun"] == 0 and c["rows"]["pass"] > 0), "case-result-rows")
-        _need(c["result"] != "NOT SELECTED" or (rec["coverage"] in ("batch", "incomplete") and not any(c["rows"].values()) and not c.get("codes")),
+        _need(c["result"] != "UNKNOWN" or not any(c["rows"].values()), "unknown-rows")
+        # A selected smoke (the R10 one-off campaign's explicit selectedCases) keeps the fifteen-row display: its
+        # unselected rows are NOT SELECTED like a batch's. Any other smoke still has no unselected row.
+        _need(c["result"] != "NOT SELECTED" or ((rec["coverage"] in ("batch", "incomplete")
+                                                 or (rec["coverage"] == "smoke" and rec.get("campaignId") == R10_ONE_OFF_CAMPAIGN))
+                                                and not any(c["rows"].values()) and not c.get("codes")),
               "not-selected-rows")
         out.append({"caseId": c["caseId"], "result": c["result"], "rows": dict(c["rows"]), "codes": _codes(c.get("codes", []), 8)})
     ran = [c for c in out if c["result"] != "NOT SELECTED"]
@@ -161,7 +173,7 @@ def sanitize_record(rec, require_source=False):
         out_rec["rowVerdicts"] = dict(sorted(rv.items()))
     comp = rec.get("comparability")
     if comp is not None:
-        # the identities a row verdict is comparable under (Sam 1793573813.598689): harness/observer code, packet, media, backend
+        # the identities a row verdict is comparable under : harness/observer code, packet, media, backend
         _keys(comp, COMPARABILITY_KEYS, "comparability")
         _need(set(comp) == COMPARABILITY_KEYS and all(isinstance(v, str) and (SHA64.match(v) or SHA40.match(v)) for v in comp.values()), "comparability")
         out_rec["comparability"] = dict(sorted(comp.items()))
@@ -174,7 +186,7 @@ def sanitize_record(rec, require_source=False):
     return out_rec
 
 
-# G7 durable carry-forward (Sam 1793573813.598689): the bounded history every completed run folds into this same record. Per case: the last
+# G7 durable carry-forward : the bounded history every completed run folds into this same record. Per case: the last
 # EXECUTED verdict (PASS/FAIL) and the last-known-good, each bound to the occurrence that produced it; NOT RUN and NOT SELECTED never erase
 # them. Each fold binds the expected predecessor (its digest and sequence), refuses a replayed run and an out-of-order occurrence, and fails
 # closed when the serialized history would exceed its bound rather than drop required history.
@@ -187,6 +199,7 @@ COMPARABILITY_KEYS = {"codeManifestSha256", "packetManifestSha256", "mediaManife
 MAX_OCCURRENCES = 62          # two 31-day periods of nightly occurrences, retained in order
 MAX_HISTORY_BYTES = 48000     # serialized-size bound for the history block
 MAX_BODY_CHARS = 60000        # the whole rendered comment, under GitHub's 65536-character body limit
+R10_ONE_OFF_CAMPAIGN = "R10-3b040043-smoke15"   # the one campaign whose smoke may select a subset (init_run_inputs.R10_ONE_OFF_RUN_ID)
 
 
 def canon(doc):
@@ -199,7 +212,7 @@ def _smoke_source(rec):
 
 
 def _occurrence(rec, identity):
-    # usable row evidence needs at least one EXECUTED row (PASS or FAIL): an all-NOT-RUN map is not evidence (RETURN 1793576632.959179)
+    # usable row evidence needs at least one EXECUTED row (PASS or FAIL): an all-NOT-RUN map is not evidence (RETURN )
     executed = any(ch in "PF" for v in (rec.get("rowVerdicts") or {}).values() for ch in v)
     # Smoke rows remain visible in latestCompleted but never become G7/full/nightly carry-forward evidence.
     qualified_rows = executed and not _smoke_source(rec) and rec["coverage"] in ("batch", "full", "incomplete") and rec.get("evidence") is not None
@@ -373,9 +386,10 @@ def render(state):
     done, live = state["latestCompleted"], state["inProgress"]
     lines = [MARKER, "**Cloud test: latest run record** (bot-maintained; replaced only by the next terminal run)", ""]
     if done:
-        tally = {r: sum(1 for c in done["cases"] if c["result"] == r) for r in ("PASS", "FAIL", "NOT RUN")}
-        lines.append("Latest completed: run %s attempt %d at `%s`: **%s** (%d PASS, %d FAIL, %d NOT RUN)" % (
-            done["runId"], done["attempt"], done["sourceSha"][:12], done["outcome"], tally["PASS"], tally["FAIL"], tally["NOT RUN"]))
+        tally = {r: sum(1 for c in done["cases"] if c["result"] == r) for r in ("PASS", "FAIL", "NOT RUN", "UNKNOWN")}
+        lines.append("Latest completed: run %s attempt %d at `%s`: **%s** (%d PASS, %d FAIL, %d NOT RUN%s)" % (
+            done["runId"], done["attempt"], done["sourceSha"][:12], done["outcome"], tally["PASS"], tally["FAIL"], tally["NOT RUN"],
+            ", %d UNKNOWN" % tally["UNKNOWN"] if tally["UNKNOWN"] else ""))
     else:
         lines.append("Latest completed: none yet.")
     lc = (state.get("history") or {}).get("lastComparison")
@@ -390,6 +404,21 @@ def render(state):
                          "0 product usage, %d runner minute(s), evidence `%s`." % (
                              r["runId"], r["attempt"], r["sourceSha"][:12], r["startedUtc"], r["evidence"]["runnerMinutes"], r["evidence"]["evidenceSha256"][:12]))
             continue
+        if r["retiredReason"] == SETTLED_REASON:
+            e = r["evidence"]
+            lines.append("Settled, record unpublished (not a completed run; case execution not asserted; no case results recorded): run %s attempt %d at `%s`, started %s; "
+                         "settled on the journal at `%s` over reserve `%s`, %d runner minute(s), evidence `%s`." % (
+                             r["runId"], r["attempt"], r["sourceSha"][:12], r["startedUtc"], e["settleSha"][:12], e["reserveSha"][:12],
+                             e["runnerMinutes"], e["evidenceSha256"][:12]))
+            continue
+        if r["retiredReason"] == UNVERIFIED_REASON:
+            e = r["evidence"]
+            lines.append("Completion unverified (not a completed run; its pending candidate was not folded; no case result asserted): run %s attempt %d "
+                         "at `%s`, started %s, run %s; settled on the journal at `%s` over reserve `%s`; no unexpired completion attestation "
+                         "for the run at %s (listing `%s`), pending candidate `%s`, evidence `%s`." % (
+                             r["runId"], r["attempt"], r["sourceSha"][:12], r["startedUtc"], e["runConclusion"], e["settleSha"][:12],
+                             e["reserveSha"][:12], e["listedUtc"], e["listingSha256"][:12], e["candidateSha256"][:12], e["evidenceSha256"][:12]))
+            continue
         if r["retiredReason"] in RESERVED_REASONS:
             lines.append("%s (not a completed run): run %s attempt %d at `%s`, started %s; %d runner minute(s), evidence `%s`." % (
                 RESERVED_REASONS[r["retiredReason"]], r["runId"], r["attempt"], r["sourceSha"][:12], r["startedUtc"],
@@ -400,9 +429,10 @@ def render(state):
     pending = state.get("pendingCompletion")
     if pending:
         rec = pending["record"]
-        tally = {r: sum(1 for c in rec["cases"] if c["result"] == r) for r in ("PASS", "FAIL", "NOT RUN")}
-        lines.append("Pending completion: run %s attempt %d: **%s** (%d PASS, %d FAIL, %d NOT RUN); next admitted run reconciles it from GitHub server time." %
-                     (rec["runId"], rec["attempt"], rec["outcome"], tally["PASS"], tally["FAIL"], tally["NOT RUN"]))
+        tally = {r: sum(1 for c in rec["cases"] if c["result"] == r) for r in ("PASS", "FAIL", "NOT RUN", "UNKNOWN")}
+        lines.append("Pending completion: run %s attempt %d: **%s** (%d PASS, %d FAIL, %d NOT RUN%s); next admitted run reconciles it from GitHub server time." %
+                     (rec["runId"], rec["attempt"], rec["outcome"], tally["PASS"], tally["FAIL"], tally["NOT RUN"],
+                      ", %d UNKNOWN" % tally["UNKNOWN"] if tally["UNKNOWN"] else ""))
     lines += ["", "```json", json.dumps(state, sort_keys=True, separators=(",", ":")), "```"]
     body = "\n".join(lines) + "\n"
     _need(len(body) <= MAX_BODY_CHARS, "record-overflow")  # fail closed: never publish a truncated or rejected record
@@ -470,7 +500,10 @@ def interrupt(state, run_id, attempt, status):
 # retirement does NOT manufacture a completed run: latestCompleted and history are untouched, no usage, attempt or reservation record is read
 # for change or written, and the attempt is kept in the record as `retiredAttempts` history with the evidence that it never reserved.
 RETIRABLE_ATTEMPT = {"runId": "41933223835", "attempt": 1, "sourceSha": "af1781ba6e07524c82dea3a66a1b7cb772c14e51"}
-RETIRED_MAX = 8
+# Run 42472935773 (setup failure, reserved-not-executed) would be the 9th retired attempt: with a bound of 8 the next record-begin refused
+# `retired-attempts-bound` before any reserve, so no run could start. The bound only keeps the public record small; the rendered comment is
+# independently held under MAX_BODY_CHARS (fail closed `record-overflow`), and 32 retired entries render well inside it (tested).
+RETIRED_MAX = 32
 RETIRED_KEYS = {"runId", "attempt", "sourceSha", "startedUtc", "retiredReason", "predecessorSha256", "evidence"}
 RETIRED_EVIDENCE_KEYS = {"runStatus", "runConclusion", "runUpdatedUtc", "collectedUtc", "reserveJob", "liveJob", "settleJob", "journalRootSha",
                          "journalHeadSha", "journalEventsNamingRun"}
@@ -485,22 +518,64 @@ UNRESERVED_EVIDENCE_KEYS = {"run", "jobs", "journal", "collectedAt"}
 # The retirement reason follows the evidence's accounting (unexecuted_attempt_evidence.ACCOUNTING); the settle carries the usage itself.
 RESERVED_REASONS = {"reserved-not-executed": "Reserved, not executed: no credential-bearing step ran; 0 product usage",
                     "reserved-preflight-only": "Reserved, setup failed: only the prerequisite preflight ran; settled at its bounded request charge",
-                    "reserved-capped": "Reserved, setup failed after a credential-bearing step ran; usage unknown, settled at the reserved caps"}
-ACCOUNTING_REASON = {"none": "reserved-not-executed", "preflight-bound": "reserved-preflight-only", "capped": "reserved-capped"}
+                    "reserved-capped": "Reserved, setup failed after a credential-bearing step ran; usage unknown, settled at the reserved caps",
+                    "reserved-terminated-capped": "Reserved, the run was cancelled or timed out; usage unknown, settled at the reserved caps"}
+ACCOUNTING_REASON = {"none": "reserved-not-executed", "preflight-bound": "reserved-preflight-only", "capped": "reserved-capped",
+                     "terminated-capped": "reserved-terminated-capped"}
 UNEXECUTED_EVIDENCE_KEYS = {"runStatus", "runConclusion", "runUpdatedUtc", "evidenceSha256", "journalHeadSha", "runnerMinutes", "settleAtUtc"}
+# Run 42483030590 : reserved, its live job completed (failed), SETTLED, but its record was not
+# publishable, so the attempt stayed `incomplete` with no completion and every later begin refused. It retires as history bound to its
+# exact reserve/settle pair; it asserts the settlement, not case execution; nothing is re-settled and no case result is invented.
+SETTLED_REASON = "settled-unpublished"
+SETTLED_EVIDENCE_KEYS = {"runStatus", "runConclusion", "runUpdatedUtc", "collectedUtc", "evidenceSha256", "journalHeadSha", "reserveSha",
+                          "settleSha", "settleAtUtc", "runnerMinutes"}
+# (owner, Nov 7: "We only want repository artifacts stored for 1 day"): the completion attestation is kept one day, so the
+# next admitted run can find a pending completion whose run has no unexpired attestation artifact. That candidate can never be reconciled:
+# it is retired as `completion-unverified` history bound to the artifact listing it was judged on and to the pending candidate's digests.
+# The candidate is NOT folded, no attestation is recreated and no result is upgraded; latestCompleted and history are unchanged.
+UNVERIFIED_REASON = "completion-unverified"
+UNVERIFIED_EVIDENCE_KEYS = {"listedUtc", "listingSha256", "namedArtifacts", "unexpiredArtifacts", "candidateSha256", "settleReceiptSha256",
+                            "occurrenceSha256", "completionDeadlineUtc", "evidenceSha256", "runConclusion", "runUpdatedUtc", "journalHeadSha",
+                            "reserveSha", "settleSha", "settleAtUtc"}
+COMPLETION_ARTIFACT = "cloud-test-completion-attestation"
 
 
 def sanitize_retired(r):
     """A retired-attempt entry exactly as stored; anything outside the closed shape of its reason refuses."""
     _keys(r, RETIRED_KEYS, "retired-attempt")
-    _need(set(r) == RETIRED_KEYS and (r["retiredReason"] == "never-reserved" or r["retiredReason"] in RESERVED_REASONS), "retired-attempt")
+    _need(set(r) == RETIRED_KEYS and (r["retiredReason"] in ("never-reserved", SETTLED_REASON, UNVERIFIED_REASON)
+                                      or r["retiredReason"] in RESERVED_REASONS), "retired-attempt")
     _need(isinstance(r["predecessorSha256"], str) and SHA64.match(r["predecessorSha256"]), "retired-attempt")
     _attempt(r["runId"], r["attempt"])
     _need(isinstance(r["sourceSha"], str) and SHA40.match(r["sourceSha"]) and isinstance(r["startedUtc"], str) and UTC.match(r["startedUtc"]), "retired-attempt")
     ev = r["evidence"]
+    if r["retiredReason"] == UNVERIFIED_REASON:
+        _keys(ev, UNVERIFIED_EVIDENCE_KEYS, "retired-evidence")
+        _need(set(ev) == UNVERIFIED_EVIDENCE_KEYS and ev["unexpiredArtifacts"] == 0
+              and type(ev["namedArtifacts"]) is int and 0 <= ev["namedArtifacts"] <= 100 and type(ev["unexpiredArtifacts"]) is int
+              and ev["runConclusion"] in ("success", "failure")
+              and all(isinstance(ev[k], str) and UTC.match(ev[k]) for k in ("listedUtc", "completionDeadlineUtc", "runUpdatedUtc", "settleAtUtc"))
+              and ev["settleAtUtc"] <= ev["runUpdatedUtc"] <= ev["listedUtc"]
+              and all(isinstance(ev[k], str) and SHA64.match(ev[k]) for k in ("listingSha256", "candidateSha256", "settleReceiptSha256",
+                                                                               "occurrenceSha256", "evidenceSha256"))
+              and all(isinstance(ev[k], str) and SHA40.match(ev[k]) for k in ("journalHeadSha", "reserveSha", "settleSha"))
+              and ev["reserveSha"] != ev["settleSha"], "retired-evidence")
+        return {k: (dict(sorted(v.items())) if k == "evidence" else v) for k, v in sorted(r.items())}
+    if r["retiredReason"] == SETTLED_REASON:
+        _keys(ev, SETTLED_EVIDENCE_KEYS, "retired-evidence")
+        _need(set(ev) == SETTLED_EVIDENCE_KEYS and ev["runStatus"] == "completed" and ev["runConclusion"] == "failure"
+              and type(ev["runnerMinutes"]) is int and 0 <= ev["runnerMinutes"] <= 1000
+              and all(isinstance(ev[k], str) and UTC.match(ev[k]) for k in ("runUpdatedUtc", "collectedUtc", "settleAtUtc"))
+              and ev["settleAtUtc"] <= ev["runUpdatedUtc"] <= ev["collectedUtc"]
+              and isinstance(ev["evidenceSha256"], str) and SHA64.match(ev["evidenceSha256"])
+              and all(isinstance(ev[k], str) and SHA40.match(ev[k]) for k in ("journalHeadSha", "reserveSha", "settleSha"))
+              and ev["reserveSha"] != ev["settleSha"], "retired-evidence")
+        return {k: (dict(sorted(v.items())) if k == "evidence" else v) for k, v in sorted(r.items())}
     if r["retiredReason"] in RESERVED_REASONS:
         _keys(ev, UNEXECUTED_EVIDENCE_KEYS, "retired-evidence")
-        _need(set(ev) == UNEXECUTED_EVIDENCE_KEYS and ev["runStatus"] == "completed" and ev["runConclusion"] == "failure"
+        # a cancelled or timed-out run retires only as reserved-terminated-capped; every other reserved reason is a failed run
+        conclusions = ("failure", "cancelled", "timed_out") if r["retiredReason"] == "reserved-terminated-capped" else ("failure",)
+        _need(set(ev) == UNEXECUTED_EVIDENCE_KEYS and ev["runStatus"] == "completed" and ev["runConclusion"] in conclusions
               and type(ev["runnerMinutes"]) is int and 0 < ev["runnerMinutes"] <= 1000
               and all(isinstance(ev[k], str) and UTC.match(ev[k]) for k in ("runUpdatedUtc", "settleAtUtc"))
               and isinstance(ev["evidenceSha256"], str) and SHA64.match(ev["evidenceSha256"])
@@ -517,7 +592,7 @@ def sanitize_retired(r):
 
 def unreserved_candidate(state):
     """The run id when the in-progress attempt is `incomplete` with no pending completion, else None. The workflow tries the reserved-attempt
-    retirement first, so a reserved attempt reaching here is refused below (the journal names it). Sam 1793881260.206739: any manual attempt that stopped before reserving (41933223835, or a later run interrupted
+    retirement first, so a reserved attempt reaching here is refused below (the journal names it). any manual attempt that stopped before reserving (41933223835, or a later run interrupted
     before its reserve) must be retirable, or one setup failure wedges every later run. Being a candidate proves nothing: retire_unreserved
     retires it only on GitHub's evidence and a journal that names no event for it; otherwise it refuses and `begin` keeps refusing."""
     live = state.get("inProgress")
@@ -587,9 +662,16 @@ def retire_unreserved(state, evidence, predecessor_sha256):
 def unexecuted_candidate(state, evidence):
     """The run id when the in-progress attempt is `incomplete`, with no pending completion, and is exactly the run (id, attempt and head) the
     unexecuted-attempt evidence is about; else None. Which run that is comes from the journal's open reserve (unexecuted_attempt_evidence
-    pending), never from a pinned list (Sam 1793881491.714239)."""
+    pending), never from a pinned list ."""
     live = state.get("inProgress")
-    if live is None or live.get("status") != "incomplete" or state.get("pendingCompletion") is not None or not isinstance(evidence, dict):
+    # record-complete marks a cancelled attempt `cancelled`; only a terminated-capped settlement may retire one.
+    # when cancellation also kills record-complete, the record still says `running`. GitHub's authenticated evidence (run and
+    # EVERY job completed, re-verified in check_evidence) proves it is not active; only terminated-capped evidence may retire such a record, so
+    # an actually active run is never read as stopped.
+    status = live.get("status") if live is not None else None
+    if (live is None or status not in ("incomplete", "cancelled", "running") or state.get("pendingCompletion") is not None
+            or not isinstance(evidence, dict)
+            or (status in ("cancelled", "running") and evidence.get("accounting") != "terminated-capped")):
         return None
     ident = evidence.get("identity") or {}
     if (live.get("runId"), live.get("attempt"), live.get("sourceSha")) != (ident.get("runId"), ident.get("attempt"), ident.get("headSha")):
@@ -627,6 +709,134 @@ def retire_unexecuted(state, evidence, predecessor_sha256):
     for key in ("latestCompleted", "history", "pendingCompletion"):
         _need(canon(out.get(key)) == canon(state.get(key)), "unexecuted-history-changed")
     _need(out["retiredAttempts"][:len(prior)] == prior, "unexecuted-history-changed")
+    return out
+
+
+def settled_candidate(state, evidence):
+    """The run id when the in-progress attempt is `incomplete`, with no pending completion, and is exactly the run (id, attempt and head) the
+    settled-attempt evidence is about; else None. A `running` or `cancelled` record is never a candidate here."""
+    live = state.get("inProgress")
+    if (live is None or live.get("status") != "incomplete" or state.get("pendingCompletion") is not None or not isinstance(evidence, dict)):
+        return None
+    ident = evidence.get("identity") or {}
+    if (live.get("runId"), live.get("attempt"), live.get("sourceSha")) != (ident.get("runId"), ident.get("attempt"), ident.get("headSha")):
+        return None
+    return live["runId"]
+
+
+def retire_settled(state, evidence, predecessor_sha256):
+    """The state after retiring a RESERVED and SETTLED attempt whose record was not publishable, or a refusal . It asserts
+    a settled attempt, NOT that any case or driver executed: a completed failed live job plus reserve and settle prove only the settlement.
+    `evidence` is the closed document of settled_attempt_evidence. `collect` in the workflow is the authority (it reads GitHub's run and jobs
+    and freshly validates the journal from the pinned root); the check here is STRUCTURAL validation of that document, not an independent
+    authentication of supplied JSON: the run, attempt and head equal to the record's attempt, completed and failed; the record-begin,
+    reserve, settle and record-complete jobs succeeded and the live job completed with failure; exactly this run's one reserve and the
+    directly following settle. Nothing is settled or re-settled: the entry only names the existing reserve/settle commits and the settled
+    runner minutes. No case result is recorded, so it is never a completed run. `predecessor_sha256` binds the exact record body consumed.
+    Only inProgress and retiredAttempts change; latestCompleted, history, pendingCompletion and the earlier retired entries come back exactly
+    as read, which is checked, not assumed."""
+    import settled_attempt_evidence as E
+    _need(settled_candidate(state, evidence) is not None, "settled-not-a-candidate")
+    live = state["inProgress"]
+    _need(isinstance(predecessor_sha256, str) and SHA64.match(predecessor_sha256), "settled-predecessor")
+    try:
+        digest, settled = E.check_evidence(evidence)
+    except E.Refused as err:
+        raise Refused(str(err))
+    import state_ref_writer
+    run, journal = evidence["run"], evidence["journal"]
+    _need(journal["rootSha"] == state_ref_writer.REVIEWED_ROOT, "settled-journal-unverified")
+    _need(live["startedUtc"] <= journal["settleAtUtc"] <= run["updatedAt"], "settled-time")
+    entry = sanitize_retired({"runId": live["runId"], "attempt": live["attempt"], "sourceSha": live["sourceSha"], "startedUtc": live["startedUtc"],
+                              "retiredReason": SETTLED_REASON, "predecessorSha256": predecessor_sha256,
+                              "evidence": {"runStatus": run["status"], "runConclusion": run["conclusion"], "runUpdatedUtc": run["updatedAt"],
+                                           "collectedUtc": evidence["collectedUtc"], "evidenceSha256": digest,
+                                           "journalHeadSha": journal["headSha"], "reserveSha": journal["reserveSha"],
+                                           "settleSha": journal["settleSha"], "settleAtUtc": journal["settleAtUtc"],
+                                           "runnerMinutes": settled["runnerMinutes"]}})
+    prior = list(state.get("retiredAttempts") or [])
+    _need(all(r["runId"] != entry["runId"] for r in prior) and len(prior) < RETIRED_MAX, "retired-attempts-bound")
+    out = _with_retired(state, entry)
+    for key in ("latestCompleted", "history", "pendingCompletion"):
+        _need(canon(out.get(key)) == canon(state.get(key)), "settled-history-changed")
+    _need(out["retiredAttempts"][:len(prior)] == prior, "settled-history-changed")
+    return out
+
+
+def completion_artifacts(pages, run_id):
+    """(`present`, its {id, created_at}) when the run's listing holds exactly one unexpired completion attestation; (`absent`, None) when it
+    holds none (expired, never uploaded, or the upload failed); refuses on more than one, or on a listing that is not this run's."""
+    pages = pages if isinstance(pages, list) else [pages]
+    _need(pages and all(isinstance(p, dict) and isinstance(p.get("artifacts"), list) for p in pages), "completion-artifact-listing")
+    # only a COMPLETE successful listing may say "no artifact". Every page carries GitHub's total_count, all agree, and the
+    # rows received are exactly that many: a pagination gap, a truncated or partial response, or an error body is never read as absence.
+    # (An API failure already stops the step: the gh call is not guarded, under set -euo pipefail.)
+    totals = {p.get("total_count") for p in pages}
+    _need(len(totals) == 1 and type(next(iter(totals))) is int, "completion-artifact-listing-incomplete")
+    rows = [a for p in pages for a in p["artifacts"]]
+    _need(len(rows) == next(iter(totals)), "completion-artifact-listing-incomplete")
+    _need(all(isinstance(a, dict) for a in rows), "completion-artifact-listing")
+    _need(len({a.get("id") for a in rows}) == len(rows), "completion-artifact-listing-incomplete")
+    named = [a for a in rows if a.get("name") == COMPLETION_ARTIFACT]
+    for a in named:
+        wr = a.get("workflow_run")
+        _need(isinstance(wr, dict) and str(wr.get("id")) == str(run_id) and isinstance(a.get("expired"), bool), "completion-artifact-listing")
+    live = [a for a in named if a["expired"] is False]
+    _need(len(live) <= 1, "completion-artifact-ambiguous")
+    if not live:
+        return "absent", None, len(named)
+    _need(isinstance(live[0].get("id"), int) and isinstance(live[0].get("created_at"), str), "completion-artifact-listing")
+    return "present", {"id": live[0]["id"], "created_at": live[0]["created_at"]}, len(named)
+
+
+def retire_unattested(state, pages, listed_utc, predecessor_sha256, evidence):
+    """The state after retiring a pending completion whose run has no unexpired completion attestation, or a refusal .
+
+    An empty or expired listing alone is not terminal or settlement evidence : `evidence` is settled_attempt_evidence's
+    pending-attempt document for exactly the pending run/attempt/source (GitHub's terminal run and jobs, the freshly validated journal from
+    the pinned root holding exactly its one reserve and the directly following settle), and only then is a COMPLETE listing judged. The
+    journal's settle is recorded beside the pending settle-receipt digest; nothing is re-settled and no amount changes.
+    Only the pending record's own run is judged, from GitHub's artifact listing for that run. The candidate is not folded and nothing is
+    recreated: the entry keeps the candidate's digest and the settlement/occurrence digests it was bound to, so it stays identifiable but is
+    never a completed run, never row evidence and never a result. `predecessor_sha256` binds the exact record body consumed. inProgress
+    and pendingCompletion are cleared; latestCompleted, history and the earlier retired entries come back exactly as read (checked)."""
+    pending, live = state.get("pendingCompletion"), state.get("inProgress")
+    _need(pending is not None and live is not None and live.get("status") == "incomplete", "unattested-not-a-candidate")
+    rec = pending["record"]
+    _need((live.get("runId"), live.get("attempt"), live.get("sourceSha")) == (rec["runId"], rec["attempt"], rec["sourceSha"]),
+          "unattested-not-a-candidate")
+    _need(isinstance(predecessor_sha256, str) and SHA64.match(predecessor_sha256), "unattested-predecessor")
+    _need(isinstance(listed_utc, str) and UTC.match(listed_utc) and live["startedUtc"] <= listed_utc, "unattested-listed-at")
+    import settled_attempt_evidence as E
+    import state_ref_writer
+    try:
+        digest, _settled = E.check_pending_evidence(evidence)
+    except E.Refused as err:
+        raise Refused(str(err))
+    ident, run, journal = evidence["identity"], evidence["run"], evidence["journal"]
+    _need((ident["runId"], ident["attempt"], ident["headSha"]) == (live["runId"], live["attempt"], live["sourceSha"]), "unattested-evidence-identity")
+    _need(journal["rootSha"] == state_ref_writer.REVIEWED_ROOT, "unattested-journal-unverified")
+    _need(live["startedUtc"] <= journal["settleAtUtc"] <= run["updatedAt"] <= evidence["collectedUtc"] <= listed_utc, "unattested-time")
+    status, _row, named = completion_artifacts(pages, rec["runId"])
+    _need(status == "absent", "unattested-artifact-present")
+    entry = sanitize_retired({"runId": live["runId"], "attempt": live["attempt"], "sourceSha": live["sourceSha"], "startedUtc": live["startedUtc"],
+                              "retiredReason": UNVERIFIED_REASON, "predecessorSha256": predecessor_sha256,
+                              "evidence": {"listedUtc": listed_utc, "listingSha256": hashlib.sha256(canon(pages)).hexdigest(),
+                                           "namedArtifacts": named, "unexpiredArtifacts": 0,
+                                           "candidateSha256": hashlib.sha256(canon(rec)).hexdigest(),
+                                           "settleReceiptSha256": pending["settleReceiptSha256"],
+                                           "occurrenceSha256": pending["occurrenceSha256"],
+                                           "completionDeadlineUtc": pending["completionDeadlineUtc"],
+                                           "evidenceSha256": digest, "runConclusion": run["conclusion"], "runUpdatedUtc": run["updatedAt"],
+                                           "journalHeadSha": journal["headSha"], "reserveSha": journal["reserveSha"],
+                                           "settleSha": journal["settleSha"], "settleAtUtc": journal["settleAtUtc"]}})
+    prior = list(state.get("retiredAttempts") or [])
+    _need(all(r["runId"] != entry["runId"] for r in prior) and len(prior) < RETIRED_MAX, "retired-attempts-bound")
+    out = _with_retired(state, entry)
+    out.pop("pendingCompletion", None)
+    for key in ("latestCompleted", "history"):
+        _need(canon(out.get(key)) == canon(state.get(key)), "unattested-history-changed")
+    _need(out["retiredAttempts"][:len(prior)] == prior and "pendingCompletion" not in out, "unattested-history-changed")
     return out
 
 
@@ -715,8 +925,22 @@ def reconcile_pending(state, published_at, attestation, settle_receipt_raw, occu
         occurrence = json.loads(occurrence_raw)
     except ValueError:
         raise Refused("completion-occurrence-bytes")
-    _need(isinstance(occurrence, dict) and occurrence.get("runId") == record.get("campaignId"), "completion-occurrence-identity")
+    _need(isinstance(occurrence, dict) and isinstance(occurrence.get("runId"), str) and occurrence["runId"]
+          and (occurrence["runId"] == record.get("campaignId") or _unqualified(record)), "completion-occurrence-identity")
     return expected
+
+
+def _unqualified(record):
+    """init_run_inputs.project's UNQUALIFIED record, exactly: it names no campaign, request or catalog identity (all three are emitted only
+    when qualified), is `failed`, coverage `unqualified`, and its codes begin with `not-qualified`. Its occurrence is bound by the pinned
+    digests, not a campaign field it never carries. Run 42284568156 (refused in admission, every case UNKNOWN) refused here as
+    completion-occurrence-identity; run 42423408284 (admission PASS, campaign refused before its first case, every case NOT RUN) refused the
+    same way, and so would every incomplete or unqualified run that did execute cases, because the projection drops the campaign identity
+    for all of them. An unqualified record never becomes row evidence (`_occurrence`: coverage `unqualified` is not batch/full/incomplete),
+    so folding it is history, never a pass. A record that names a campaign must still name the occurrence's own."""
+    codes = record.get("codes") or []
+    return (record.get("campaignId") is None and record.get("requestSha256") is None and record.get("catalogSha256") is None
+            and record.get("outcome") == "failed" and record.get("coverage") == "unqualified" and codes[:1] == ["not-qualified"])
 
 
 def completion_attestation(candidate_body, public_body, published, settle_receipt_sha256, occurrence_sha256):
@@ -764,11 +988,12 @@ def main(argv):
     a = argparse.ArgumentParser()
     a.add_argument("command", choices=("select", "begin", "complete", "interrupt", "pending", "reconcile", "verify", "attest",
                                        "unreserved-candidate", "retire-unreserved", "unexecuted-candidate", "retire-unexecuted",
-                                       "verify-predecessor"))
+                                       "settled-candidate", "retire-settled", "verify-predecessor", "completion-artifact",
+                                       "retire-unattested"))
     for flag in ("--comments", "--previous", "--record", "--run-id", "--source-sha", "--started-utc", "--status", "--out", "--issue-url",
                  "--candidate", "--public-body", "--published", "--settle-receipt-sha256", "--occurrence-sha256",
                  "--completion-deadline-utc", "--published-at", "--artifact-created-at", "--attestation",
-                 "--settle-receipt", "--occurrence", "--evidence", "--selected", "--current"):
+                 "--settle-receipt", "--occurrence", "--evidence", "--selected", "--current", "--artifact-pages", "--listed-utc"):
         a.add_argument(flag)
     a.add_argument("--attempt", type=int)
     a.add_argument("--comment-id", type=int)
@@ -796,6 +1021,16 @@ def main(argv):
                 f.write("\n")
             return 0
         state = parse_body(_read(x.previous))
+        if x.command == "completion-artifact":
+            # exit 0 with the artifact's {id, created_at} written to --out when present; exit 1 when absent; refuses (78) otherwise
+            pending = state.get("pendingCompletion")
+            _need(pending is not None, "no-pending-completion")
+            status, row, _named = completion_artifacts(json.loads(_read(x.artifact_pages)), pending["record"]["runId"])
+            if status == "absent":
+                return 1
+            with open(x.out, "w", encoding="utf-8") as f:
+                json.dump(row, f, sort_keys=True)
+            return 0
         if x.command == "unreserved-candidate":
             run_id = unreserved_candidate(state)
             if run_id is None:
@@ -808,7 +1043,18 @@ def main(argv):
                 return 1
             print(run_id)
             return 0
-        if x.command == "retire-unexecuted":
+        if x.command == "settled-candidate":
+            run_id = settled_candidate(state, json.loads(_read(x.evidence)) if x.evidence else None)
+            if run_id is None:
+                return 1
+            print(run_id)
+            return 0
+        if x.command == "retire-unattested":
+            state = retire_unattested(state, json.loads(_read(x.artifact_pages)), x.listed_utc,
+                                      hashlib.sha256(_read(x.previous).encode("utf-8")).hexdigest(), json.loads(_read(x.evidence)))
+        elif x.command == "retire-settled":
+            state = retire_settled(state, json.loads(_read(x.evidence)), hashlib.sha256(_read(x.previous).encode("utf-8")).hexdigest())
+        elif x.command == "retire-unexecuted":
             state = retire_unexecuted(state, json.loads(_read(x.evidence)), hashlib.sha256(_read(x.previous).encode("utf-8")).hexdigest())
         elif x.command == "retire-unreserved":
             state = retire_unreserved(state, json.loads(_read(x.evidence)), hashlib.sha256(_read(x.previous).encode("utf-8")).hexdigest())

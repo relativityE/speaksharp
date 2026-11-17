@@ -92,7 +92,7 @@ These govern behavior and take precedence over implementation preference:
 - **Session** — only one active session per tab (mutex-guarded).
 - **FSM** — transcription cannot enter RECORDING before a verified engine `READY` handshake.
 - **Finalized-producer** — the "finalized" signal is published exactly once, at the terminal join, session-guarded; it feeds exactly one post-save surface and discards signals from a superseded session.
-- **Commercial access** — access decisions fail closed. Active-trial and paid users receive the same Private capability; expired users retain only the documented read/export/account/upgrade permissions. Private STT never routes to another producer.
+- **Commercial access** — access decisions fail closed. Active-trial and paid users receive the same Private capability; expired, unpaid users keep only account, billing-management, payment/upgrade and deletion access; saved work (History, Progress, exact-session review, PDF/export) stays closed until payment, enforced by the database (#1863). Private STT never routes to another producer.
 - **Data** — final transcripts are append-only and monotonic (see §5).
 - **Subscription (lifecycle)** — unmount detaches listeners but never destroys active sessions.
 
@@ -142,7 +142,7 @@ There is **no `version.json` endpoint** and no `__BUILD_ID__` JS define (removed
   - Trial access requires the immutable server-side grant marker and server-authoritative window defined by `ENTITLEMENTS_AND_BILLING.md`.
   - Browser, Cloud, Native, provider names, and Private implementation variants never become customer capabilities through a tier or legacy grant.
   - Usage counters may remain for sanitized telemetry or compatibility, but they are not entitlement authority and cannot deny an active-trial or paid user.
-  - Expired users lose create/record/save/analyze capability while retaining the read/export/history/progress/account/billing-management/upgrade surfaces defined by the product contract.
+  - Expired, unpaid users lose create/record/save/analyze capability and read access to saved work (history, progress, exact-session review, PDF/export); they keep only the account, billing-management, payment/upgrade and deletion surfaces defined by the product contract. Paying restores the same retained rows.
 - **ADR-2 — Storage & retention boundary.**
   - Final transcript / session data MAY persist in `sessions` under RLS (see §5).
   - Raw Private audio remains on-device and is **never uploaded or persisted server-side**.
