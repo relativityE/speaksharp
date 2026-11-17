@@ -21,6 +21,7 @@ import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbac
 import { cleanupRunOwnedAccount } from './runOwnedCleanup';
 import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, armWatchdog, watchProfileFor, type JourneyFinalizer } from './rwtWatchdog';
 import { savedFocusIdentityVerdict } from './rwtSavedFocusIdentity';
+import { holdLiveTake, railSettled, readRailRowCount } from './rwtLiveTimedTake';
 import { recordRunOwnedCleanup } from './rwtAcceptance';
 import { HarnessParityTap, numericComparisonRow, probeSaveIsolationRow, readRepeatEligibility, type NumericResult, type RepeatEligibility, type StartPressBudget } from './rwtHarnessParity';
 import { focusCapturedTakes, focusDesignedSaves } from './rwtFocusSaveIsolation';
@@ -631,9 +632,10 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             persistedId = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
             receipt.row('session saved', persistedId ? 'PASS' : 'FAIL', persistedId ? 'the take saved' : 'no persisted session id');
 
-            // The rail's after-state settles once coverage is no longer pending.
-            await expect.poll(async () => (await readRail(page, points.length)).statuses.every((s) => s !== 'pending'), { timeout: 60_000 })
-                .toBe(true).catch(() => undefined);
+            // The rail's after-state settles only with all four actual rows on screen, none pending (#1882: an empty rail reads
+            // null statuses, and null is not 'pending', so "nothing pending" settled at once and graded four nulls).
+            await expect.poll(async () => railSettled(await readRailRowCount(page), (await readRail(page, points.length)).statuses, points.length),
+                { timeout: 60_000 }).toBe(true).catch(() => undefined);
             const final = (await readRail(page, points.length)).statuses;
             firstTakeRail = final;
             const perPoint = final.map((s, i) => meetsExpectation(expectedFinal[i] ?? '', s));
@@ -1145,15 +1147,21 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     w.__NATIVE_BROWSER_TRACE__ = w.__NATIVE_BROWSER_TRACE__ ?? [];
                     return performance.now();
                 }).catch(() => null);
+                // #1882: the page measures this take on its LIVE clock (re-based when capture goes live), so hold it for
+                // shortTakeSeconds from the live moment, not from the Start click; a slow capture start otherwise leaves under five
+                // live seconds and the take goes down the "too short" branch with no rail rows and no Start a new set.
+                const switchPressedAt = Date.now();
                 await startBenchmarkRecording(page, `${suite}-switch-focus`);
-                await page.waitForTimeout(shortTakeSeconds * 1000);
+                const switchTake = await holdLiveTake(page, shortTakeSeconds, switchPressedAt);
                 await stopBenchmarkRecording(page, `${suite}-switch-focus`, 180_000);
                 await waitForBenchmarkSaveCandidate(page, `${suite}-switch-focus`, 180_000);
                 const focusId = await waitForNewPersistedSession(page, openMicId);
                 switchFocusId = focusId && focusId !== openMicId ? focusId : null;
                 switchFocusTakeId = switchFocusId;
-                await expect.poll(async () => (await readRail(page, points.length)).statuses.every((s) => s !== 'pending'), { timeout: 60_000 })
-                    .toBe(true).catch(() => undefined);
+                // #1882: settled only with exactly four actual rail rows, none pending. An empty rail is never settled.
+                await expect.poll(async () => railSettled(await readRailRowCount(page), (await readRail(page, points.length)).statuses, points.length),
+                    { timeout: 60_000 }).toBe(true).catch(() => undefined);
+                const railRowCount = await readRailRowCount(page);
                 const finalStatuses = (await readRail(page, points.length)).statuses;
                 const switchTrace = switchTraceFrom === null ? null : await page.evaluate((from) => {
                     const keep = new Set(['controller_progress_mode_snapshot', 'controller_progress_unresolved', 'controller_completed_brief',
@@ -1169,11 +1177,12 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 const openMicAfter = openMicId && openMicId !== before ? await sessionRow(openMicId) : unavailable('missing');
                 const iso = switchIsolationVerdict({
                     railPendingBefore, openMicId: openMicId !== before ? openMicId : null, focusId: focusId !== openMicId ? focusId : null,
-                    savedProduct, finalStatuses, staleCoachingBeforeStart, markerSupport,
+                    savedProduct, finalStatuses, railRowCount, staleCoachingBeforeStart, markerSupport,
                     openMicBefore, openMicAfter, ownerId: owner.uid,
                 });
                 receipt.row('take after switching products is clean', iso.verdict, iso.detail, {
-                    railPendingBefore, shortTakeSeconds, final: finalStatuses.join(','), staleCoachingBeforeStart, markerSupport: markerSupport.join(','),
+                    railPendingBefore, shortTakeSeconds, pressToLiveMs: switchTake.pressToLiveMs, heldLiveSeconds: switchTake.heldLiveSeconds,
+                    railRowCount, final: finalStatuses.join(','), staleCoachingBeforeStart, markerSupport: markerSupport.join(','),
                     openMicSaved: Boolean(openMicId && openMicId !== before), openMicUnchanged: openMicBefore.digest !== null && openMicBefore.digest === openMicAfter.digest,
                     openMicRetentionState: openMicAfter.state ?? 'unknown',
                     openMicExpiredAfterWitness: iso.verdict === 'PASS' && openMicAfter.state === 'expired',
@@ -1327,8 +1336,9 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                         await waitForBenchmarkSaveCandidate(page, `${suite}-edited`, 180_000);
                         // Bound to its IMMEDIATE predecessor, the switch take whose review offered New Set.
                         takeBId = await waitForNewPersistedSession(page, predecessor);
-                        await expect.poll(async () => (await readRail(page, edited.length)).statuses.every((s) => s !== 'pending'), { timeout: 60_000 })
-                            .toBe(true).catch(() => undefined);
+                        // #1882: settled only with the edited set's actual rows on screen, none pending; an empty rail is never settled.
+                        await expect.poll(async () => railSettled(await readRailRowCount(page), (await readRail(page, edited.length)).statuses, edited.length),
+                            { timeout: 60_000 }).toBe(true).catch(() => undefined);
                         const statuses = (await readRail(page, edited.length)).statuses;
                         railOrdered = await Promise.all(statuses.map(async (status, i) => ({
                             label: await page.getByTestId(`focus-point-${i}`).innerText().catch(() => ''), status,
