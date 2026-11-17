@@ -26,7 +26,7 @@ import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { estimateFinalizeSeconds } from '@/services/transcription/finalizeRateStore';
 import { reconciliationStatusCopy } from '@/utils/finalizedSessionAnalysis';
-import { useLocation, useNavigate, useNavigationType, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import AISuggestions from '@/components/session/AISuggestions';
 import { progressGateNotice } from '@/services/progress/progressStartGate';
 import { useSession } from '@/hooks/useSession';
@@ -99,20 +99,26 @@ export const SessionPage: React.FC = () => {
     const finalizedAnalysis = useSessionStore(state => state.finalizedAnalysis);
     const completedSessionId = useSessionStore(state => state.completedSessionId);
     const location = useLocation();
-    const navigationType = useNavigationType();
     const [localTranscriptReview, setLocalTranscriptReview] = React.useState<
         (LocalTranscriptReview & { locationKey: string }) | null
     >(null);
     const localReviewGeneration = useRef(0);
     const previousReviewScope = useRef({ owner: authUserId, key: location.key });
-    const ownReviewReplace = useRef<{ fromKey: string; pathname: string; search: string } | null>(null);
+    const ownReviewReplace = useRef<{ marker: string; fromKey: string; pathname: string; search: string } | null>(null);
+    const locationState: unknown = location.state;
+    const navigationState = locationState && typeof locationState === 'object'
+        && Object.getPrototypeOf(locationState) === Object.prototype
+        ? locationState as Record<string, unknown> : null;
     const clearLocalTranscriptReview = React.useCallback(() => {
         localReviewGeneration.current += 1;
         ownReviewReplace.current = null;
         setLocalTranscriptReview(null);
     }, []);
-    const fromOwnReviewReplace = navigationType === 'REPLACE' && Boolean(
-        ownReviewReplace.current?.fromKey === previousReviewScope.current.key
+    // <Routes location={location}> supplies POP even for a real replace. Only our in-flight
+    // replace carries this one-use marker; URL, owner and history-entry boundaries still apply.
+    const fromOwnReviewReplace = Boolean(
+        ownReviewReplace.current && navigationState?.practiceLocalReviewReplace === ownReviewReplace.current.marker
+        && ownReviewReplace.current.fromKey === previousReviewScope.current.key
         && ownReviewReplace.current.fromKey !== location.key
         && ownReviewReplace.current.pathname === location.pathname
         && ownReviewReplace.current.search === location.search && location.hash === '',
@@ -508,24 +514,31 @@ export const SessionPage: React.FC = () => {
     const idleState = !isListening && !showAnalyticsPrompt && !isTranscriptFinalizing;
     const [searchParams, setSearchParams] = useSearchParams();
     const reviewParam = searchParams.get('review');
-    const setReviewParam = React.useCallback((id: string | null) => {
+    const setReviewParam = React.useCallback((id: string | null, state = locationState) => {
         setSearchParams((prev) => {
             const next = new URLSearchParams(prev);
             if (id) next.set('review', id); else next.delete('review');
             return next;
-        }, { replace: true }); // the save must not add a history entry (§4.1)
-    }, [setSearchParams]);
+        }, { replace: true, state }); // the save must not add a history entry (§4.1)
+    }, [setSearchParams, locationState]);
     // §4.1: the confirmed save puts the saved session's id in the URL.
     useEffect(() => {
         if (showAnalyticsPrompt && completedSessionId && reviewParam !== completedSessionId) {
             if (localTranscriptReview?.sessionId === completedSessionId && localTranscriptReview.locationKey === location.key) {
-                const next = new URLSearchParams(location.search);
-                next.set('review', completedSessionId);
-                ownReviewReplace.current = { fromKey: location.key, pathname: location.pathname, search: `?${next}` };
+                if (ownReviewReplace.current?.fromKey === location.key) return;
+                // Do not reshape non-record state. No secure marker or mergeable state means no handoff.
+                const marker = (locationState == null || navigationState) ? globalThis.crypto?.randomUUID?.() : undefined;
+                if (marker) {
+                    const next = new URLSearchParams(location.search);
+                    next.set('review', completedSessionId);
+                    ownReviewReplace.current = { marker, fromKey: location.key, pathname: location.pathname, search: `?${next}` };
+                    setReviewParam(completedSessionId, { ...navigationState, practiceLocalReviewReplace: marker });
+                    return;
+                }
             }
             setReviewParam(completedSessionId);
         }
-    }, [showAnalyticsPrompt, completedSessionId, reviewParam, setReviewParam, localTranscriptReview, location]);
+    }, [showAnalyticsPrompt, completedSessionId, reviewParam, setReviewParam, localTranscriptReview, location, locationState, navigationState]);
     // The in-memory after state wins: only a page that never showed it (Back, reload) restores from the URL. Leaving the
     // live after state in place ("Practice again?", a new set) is a fresh take, so it drops the parameter.
     const sawAfterStateRef = useRef(false);

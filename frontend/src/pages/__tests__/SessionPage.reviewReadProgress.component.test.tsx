@@ -13,7 +13,7 @@
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, act, fireEvent } from '../../../tests/support/test-utils';
-import { useNavigate } from 'react-router-dom';
+import { Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import SessionPage from '../SessionPage';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { reconcileFinalizedFillers } from '@/utils/finalizedSessionAnalysis';
@@ -176,6 +176,38 @@ describe('#1835 — an unsaved transcript belongs only to its original completed
         mockLifecycle.mockReturnValue({ ...mockLifecycle(), showAnalyticsPrompt: false });
         render(<SessionPage />, { route: { pathname: '/session', search: `?review=${SESSION_ID}` } });
         expect(screen.getByTestId('saved-session-return-transcript-not_captured')).toBeInTheDocument();
+        expect(screen.queryByText(TEXT)).not.toBeInTheDocument();
+    });
+
+    it('keeps the local review across its own URL replace under the production explicit-location Routes', () => {
+        const otherRouteState = { preservedField: 'unrelated navigation state' };
+        const Host = () => {
+            const location = useLocation();
+            const navigate = useNavigate();
+            return <>
+                <output data-testid="review-location">{location.search}</output>
+                <output data-testid="navigation-state">{JSON.stringify(location.state)}</output>
+                <button type="button" onClick={() => navigate(location.pathname + location.search, { state: location.state })}>
+                    Push same URL with copied state
+                </button>
+                <button type="button" onClick={() => navigate(-1)}>Back one entry</button>
+                <button type="button" onClick={() => navigate(1)}>Forward one entry</button>
+                <Routes location={location}><Route path="/session" element={<SessionPage />} /></Routes>
+            </>;
+        };
+        const ui = <Host />;
+        const view = render(ui, { route: { pathname: '/session', search: '?existing=1', state: otherRouteState } });
+        finish(view, ui);
+        expect(screen.getByTestId('review-location')).toHaveTextContent(`?existing=1&review=${SESSION_ID}`);
+        expect(screen.getByTestId('local-review-transcript')).toHaveTextContent(TEXT);
+        expect(JSON.parse(screen.getByTestId('navigation-state').textContent ?? 'null')).toMatchObject(otherRouteState);
+        expect(screen.getByTestId('navigation-state')).not.toHaveTextContent(TEXT);
+
+        fireEvent.click(screen.getByText('Push same URL with copied state'));
+        expect(screen.queryByText(TEXT)).not.toBeInTheDocument();
+        fireEvent.click(screen.getByText('Back one entry'));
+        expect(screen.queryByText(TEXT)).not.toBeInTheDocument();
+        fireEvent.click(screen.getByText('Forward one entry'));
         expect(screen.queryByText(TEXT)).not.toBeInTheDocument();
     });
 

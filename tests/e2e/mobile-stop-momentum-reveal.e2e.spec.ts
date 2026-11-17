@@ -67,6 +67,81 @@ async function confirmationOnScreen(page: Page): Promise<boolean> {
   return Boolean(box && box.y >= 0 && box.y + box.height <= VIEWPORT_HEIGHT);
 }
 
+// The metrics-only after layout can change height while a fling is still running. Record geometry
+// and existing settlement markers, never DOM text, paths, session IDs, or event targets.
+async function startFlingTrace(page: Page) {
+  await page.evaluate(() => {
+    const start = performance.now();
+    const snapshot = () => {
+      const header = document.querySelector('[data-testid="live-session-header"]')?.getBoundingClientRect();
+      return {
+        ms: Math.round(performance.now() - start),
+        y: Math.round(window.scrollY),
+        height: document.scrollingElement?.scrollHeight ?? null,
+        viewport: window.innerHeight,
+        after: !!document.querySelector('[data-testid="session-shell"][data-session-state="after"]'),
+        persisted: document.documentElement.getAttribute('data-session-persisted') === 'true',
+        confirmation: !!document.querySelector('[data-testid="post-save-review-session-link"]'),
+        localReview: !!document.querySelector('[data-testid="local-review-transcript"]'),
+        headerTop: header ? Math.round(header.top) : null,
+        headerBottom: header ? Math.round(header.bottom) : null,
+      };
+    };
+    const samples: ReturnType<typeof snapshot>[] = [];
+    const scrollToCalls: ReturnType<typeof snapshot>[] = [];
+    const trustedInputs = ['touchstart', 'touchmove', 'pointerdown', 'wheel', 'keydown'] as const;
+    let inputCount = 0;
+    const countInput = (event: Event) => { if (event.isTrusted) inputCount += 1; };
+    for (const type of trustedInputs) window.addEventListener(type, countInput, { capture: true, passive: true });
+    const originalScrollTo = window.scrollTo;
+    const observedScrollTo = (...args: unknown[]) => {
+      if (scrollToCalls.length < 16) scrollToCalls.push(snapshot());
+      Reflect.apply(originalScrollTo, window, args);
+    };
+    window.scrollTo = observedScrollTo;
+    const sample = () => { if (samples.length < 80) samples.push(snapshot()); };
+    // Don't force layout on each animation frame of the movement under test.
+    const timer = window.setInterval(sample, 100);
+    const landmarks = new MutationObserver(sample);
+    landmarks.observe(document.body, {
+      subtree: true, attributes: true, attributeFilter: ['data-session-state', 'data-session-saved'],
+    });
+    landmarks.observe(document.documentElement, {
+      attributes: true, attributeFilter: ['data-session-persisted'],
+    });
+    sample();
+    const stopSampling = () => { window.clearInterval(timer); landmarks.disconnect(); };
+    const deadline = window.setTimeout(stopSampling, 7_000);
+    const w = window as unknown as { __mobileStopTrace?: () => unknown };
+    w.__mobileStopTrace = () => {
+      window.clearTimeout(deadline);
+      stopSampling();
+      if (window.scrollTo === observedScrollTo) window.scrollTo = originalScrollTo;
+      for (const type of trustedInputs) window.removeEventListener(type, countInput, true);
+      delete w.__mobileStopTrace;
+      return { samples, scrollToCalls, inputCount, final: snapshot() };
+    };
+  });
+}
+const finishFlingTrace = (page: Page) => page.evaluate(() =>
+  (window as unknown as { __mobileStopTrace?: () => unknown }).__mobileStopTrace?.());
+
+async function tapSavedStatusText(page: Page) {
+  const target = page.getByTestId('status-message-text');
+  await expect(target).toBeVisible();
+  const point = await target.evaluate((el) => {
+    const { left, top, width, height } = el.getBoundingClientRect();
+    const x = left + width / 2;
+    const y = top + height / 2;
+    const hit = document.elementFromPoint(x, y);
+    const interactive = 'a, button, input, select, textarea, label, summary, [role="button"], [role="link"], [contenteditable="true"]';
+    return hit && el.contains(hit) && !hit.closest(interactive) ? { x, y } : null;
+  });
+  expect(point, 'the touchscreen point hits visible, noninteractive saved status text').not.toBeNull();
+  if (point === null) throw new Error('No safe touchscreen point on saved status text');
+  await page.touchscreen.tap(point.x, point.y);
+}
+
 async function recordUntilSavable(page: Page) {
   await programmaticLoginWithRoutes(page, { userType: 'pro' });
   await navigateToRoute(page, '/session');
@@ -84,18 +159,30 @@ async function tapStopAndSave(page: Page) {
 }
 
 test.describe('#1258 mobile — Stop during a fling still shows that the take saved', () => {
-  test('CASUALTY: Stop tapped while momentum is still carrying the page → once at rest, the saved confirmation is on screen', async ({ page }) => {
+  test('CASUALTY: Stop tapped while momentum is still carrying the page → once at rest, the saved confirmation is on screen', async ({ page }, testInfo) => {
     test.setTimeout(90_000);
     await recordUntilSavable(page);
-    // The page is still moving down when Stop is tapped, keeps moving after the reveal, pauses (>150 ms), then resumes —
-    // a decelerating fling that ends inside the guard's accepted 3 s bound (motion lasting beyond it is out of contract).
-    await momentum(page, [{ px: 900, ms: 1200 }, { pause: 300 }, { px: 250, ms: 300 }]);
-    await expect.poll(() => page.evaluate(() => window.scrollY), { timeout: 5_000, message: 'precondition: the page is moving' }).toBeGreaterThan(0);
-    await tapStopAndSave(page);
-    await momentumDone(page);
-    await waitForRest(page);
-    expect(await confirmationOnScreen(page), 'the saved confirmation is on screen after the momentum ends').toBe(true);
-    expect(await page.evaluate(() => window.scrollY), 'the page is back at its top').toBe(0);
+    await startFlingTrace(page);
+    try {
+      // The page is still moving down when Stop is tapped, keeps moving after the reveal, pauses (>150 ms), then resumes —
+      // a decelerating fling that ends inside the guard's accepted 3 s bound (motion lasting beyond it is out of contract).
+      await momentum(page, [{ px: 900, ms: 1200 }, { pause: 300 }, { px: 250, ms: 300 }]);
+      await expect.poll(() => page.evaluate(() => window.scrollY), { timeout: 5_000, message: 'precondition: the page is moving' }).toBeGreaterThan(0);
+      await tapStopAndSave(page);
+      await momentumDone(page);
+      await waitForRest(page);
+      expect(await confirmationOnScreen(page), 'the saved confirmation is on screen after the momentum ends').toBe(true);
+      expect(await page.evaluate(() => window.scrollY), 'the page is back at its top').toBe(0);
+    } catch (error) {
+      // Output survives a blob reporter size rejection and does not obscure the original assertion.
+      const trace = await finishFlingTrace(page).catch(() => undefined);
+      if (trace) {
+        console.log(`[mobile-stop-fling] ${JSON.stringify(trace)}`);
+        await testInfo.attach('mobile-stop-fling', { body: JSON.stringify(trace), contentType: 'application/json' }).catch(() => undefined);
+      }
+      throw error;
+    }
+    await finishFlingTrace(page);
   });
 
   test('CONTROL: Stop tapped after the page came to rest → the saved confirmation is on screen', async ({ page }) => {
@@ -119,11 +206,17 @@ test.describe('#1258 mobile — Stop during a fling still shows that the take sa
     await tapStopAndSave(page);
     await waitForRest(page);
     expect(await confirmationOnScreen(page), 'precondition: revealed').toBe(true);
-    // The person touches the screen and scrolls down to read — deliberate input, inside any re-check window.
-    await page.touchscreen.tap(187, 400);
+    const id = await page.locator('html').getAttribute('data-session-persisted-id');
+    expect(id, 'the saved review has a session id').toBeTruthy();
+    await expect(page).toHaveURL(url => url.pathname === '/session' && url.searchParams.get('review') === id);
+    const reviewUrl = page.url();
+    // Real deliberate touch, but never hit a review action, such as the no-consent Privacy link.
+    await tapSavedStatusText(page);
+    await expect(page).toHaveURL(reviewUrl);
     await momentum(page, [{ px: 400, ms: 300 }]);
     await momentumDone(page);
     await waitForRest(page);
+    await expect(page).toHaveURL(reviewUrl);
     expect(await page.evaluate(() => window.scrollY), 'the page stays where the person scrolled it').toBeGreaterThan(0);
   });
 
