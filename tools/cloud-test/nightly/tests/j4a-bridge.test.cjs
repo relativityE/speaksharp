@@ -58,7 +58,7 @@ function stubIo(s, wire, evidenceDir) {
             if (s.harnessAdmission === 'refuse') throw new Error('ADMISSION REFUSED (unit: harness admission)');
             return { result: 'ADMISSION PASS' };
         },
-        identity: async (phase) => { calls.push(`identity:${phase}`); return { result: 'MATCH', servedSha: commit }; },
+        identity: async (phase) => { calls.push(`identity:${phase}`); return { result: 'MATCH', servedSha: phase === s.wrongReleaseAt ? 'c'.repeat(40) : commit }; },
         caseConfig: async (c) => ({ caseId: c.id, sourceSha: commit, servedSha: commit, targetUrl: 'https://speaksharp-public.vercel.app/', requiredAssertions: rows }),
         runCase: async (c, _plan, _admission, { nightly }) => {
             calls.push(`run:${c.id}`);
@@ -75,6 +75,7 @@ function stubIo(s, wire, evidenceDir) {
                     results.push(await nightly.createAccount(leg, ACCOUNT, transport).catch((e) => ({ threw: e.message })));
                 if (results[0]?.threw) throw new Error(`the guarded create did not return: ${results[0].threw}`);
             }
+            if (s.recordSession) nightly.created(leg, { kind: 'session', ref: 'take-unit-1' });
             const refused = [];
             for (let i = 0; i < (s.starts ?? 2); i += 1) {
                 const r = await nightly.send(leg, 'starts', async () => wire.push('starts'));
@@ -91,7 +92,7 @@ function stubIo(s, wire, evidenceDir) {
                 cleanupEvidence: POSITIVE, refused, createResults: results,
                 nightlyCleanup: {
                     steps: s.omitTeardown || s.skipCreate ? [] : [{ kind: 'account', ref: ACCOUNT, action: 'delete', outcome: del.sent ? 'done' : 'not attempted' }],
-                    left: [],
+                    left: s.leftUntracked ? [{ kind: 'session', ref: 'take-unit-1' }] : [],
                     ...(query.sent ? { verification: { kind: 'zero-residue', queries: [{ kind: 'account', scope: `unit-run:${c.id}`, count: query.value }] } } : {}),
                 },
             };
@@ -168,6 +169,35 @@ describe('J4.a guarded route (#1884 step 6, stub): AHT-05 through the real harne
         assert.deepEqual(wire.slice(-2), ['cleanup:delete-account', 'cleanup:residue-query']);
         assert.equal(outcome.legs[LEG].outcome, 'FAIL');
         assert.equal(outcome.cleanup.result, 'complete');
+    });
+    it('wrong release before the case: nothing is sent, no account is created, and the leg is not PASS', async () => {
+        const d = dirs();
+        const run = await j4aRun(d, 'w1', { wrongReleaseAt: `before-${CASE}` }).catch((e) => ({ threw: e.message }));
+        assert.deepEqual(run.wire ?? [], [], JSON.stringify(run.threw ?? run.calls));
+        assert.equal((run.transportCalls ?? []).length, 0);
+        assert.notEqual(run.outcome?.legs?.[LEG]?.outcome, 'PASS');
+        assert.notEqual(run.report?.nightly?.run?.scope?.outcome, 'PASS');
+    });
+    it('wrong release after the case or at the campaign end: the leg PASS becomes HOLD and the scope is not PASS', async () => {
+        for (const phase of [`after-${CASE}`, 'campaign-end']) {
+            const { outcome, report } = await j4aRun(dirs(), 'w2', { wrongReleaseAt: phase });
+            assert.equal(outcome.legs[LEG].outcome, 'HOLD', `${phase}: ${outcome.legs[LEG].reason}`);
+            assert.notEqual(report.nightly.run.scope.outcome, 'PASS', phase);
+        }
+    });
+    it('tracked resource: a recorded take (session) with no completed teardown step and no session residue query is incomplete', async () => {
+        const d = dirs();
+        const { outcome } = await j4aRun(d, 't1', { recordSession: true });
+        assert.equal(outcome.cleanup.result, 'incomplete');
+        assert.ok(outcome.cleanup.reasons.J4.some((r) => r.includes('created session take-unit-1 has no completed cleanup step')), JSON.stringify(outcome.cleanup.reasons));
+        assert.ok(outcome.cleanup.reasons.J4.some((r) => r.includes('no residue query for session')));
+    });
+    it('a resource the teardown reports left behind (even one the runner never recorded) is incomplete and refuses the next run', async () => {
+        const d = dirs();
+        const first = await j4aRun(d, 't2', { leftUntracked: true });
+        assert.equal(first.outcome.cleanup.result, 'incomplete');
+        assert.ok(first.outcome.cleanup.reasons.J4.some((r) => r.includes('left behind')), JSON.stringify(first.outcome.cleanup.reasons));
+        assert.equal((await j4aRun(d, 't3')).outcome.admitted, false);
     });
     it('cleanup controls: an omitted teardown of the created account, a missing residue query or residue found is incomplete and refuses the next run', async () => {
         for (const [label, scenario, reason] of [
