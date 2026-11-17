@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'vitest';
 import { RUNNER_JOURNEYS, POLICY_PENDING_STEPS, REQUIRED_STEPS, receipt, assertTestPrice, assertInvoice,
   isCorrelatedDelivery, assertSandboxConfiguration, safeFailureReason, testClockCreateFields, localStackStatus,
-  hostedFieldUnavailable, hostedEmailDecision, assertCheckoutIdentity, type HostedField,
+  hostedFieldUnavailable, hostedEmailDecision, assertCheckoutIdentity, type HostedField, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl,
   HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken } from './contract';
 import { finaliseLocalStackReceipt, RECEIPT_KEYS } from './localStackReceipt.mjs';
 import { stackIdentitySha256 } from './localStackResources.mjs';
@@ -101,15 +101,19 @@ test('a missing hosted field is named (run 44055010939 could not say which), con
 });
 test('hosted email (run 44066185734): required by default; absent only on the exact session positively bound to this run', () => {
   const bound = 'cs_test_Bound123';
-  // A visible editable email field is always filled, bound or not.
-  assert.equal(hostedEmailDecision({ emailFieldVisible: true, shownSession: bound, boundSession: bound }), 'fill');
-  assert.equal(hostedEmailDecision({ emailFieldVisible: true, shownSession: null, boundSession: null }), 'fill');
-  // Owned + no field: the bound session on screen may lack an email input (Stripe renders none for an existing customer).
-  assert.equal(hostedEmailDecision({ emailFieldVisible: false, shownSession: bound, boundSession: bound }), 'absent_after_binding');
-  // Unbound, a different session on screen, an unreadable page, or a malformed binding never skips email.
+  // A visible editable email field is always filled, bound or not, whatever the customer carries.
+  for (const boundCustomerHasEmail of [true, false, null])
+    assert.equal(hostedEmailDecision({ emailFieldVisible: true, shownSession: bound, boundSession: bound, boundCustomerHasEmail }), 'fill');
+  assert.equal(hostedEmailDecision({ emailFieldVisible: true, shownSession: null, boundSession: null, boundCustomerHasEmail: null }), 'fill');
+  // Email already supplied: the bound session's customer carries an email, so no field is rendered and none is needed.
+  assert.equal(hostedEmailDecision({ emailFieldVisible: false, shownSession: bound, boundSession: bound, boundCustomerHasEmail: true }), 'absent_after_binding');
+  // CONTROL (run 44157731067): the bound customer has NO email (or its presence is unread), so a missing field is never "absent".
+  for (const boundCustomerHasEmail of [false, null])
+    assert.equal(hostedEmailDecision({ emailFieldVisible: false, shownSession: bound, boundSession: bound, boundCustomerHasEmail }), 'missing', String(boundCustomerHasEmail));
+  // Unbound, a different session on screen, an unreadable page, or a malformed binding never skips email, even with a customer email.
   for (const [shownSession, boundSession] of [[bound, null], ['cs_test_Other456', bound], [null, bound], ['', ''],
     ['cs_live_Bound123', 'cs_live_Bound123'], [bound, `${bound}x!`]] as const) {
-    assert.equal(hostedEmailDecision({ emailFieldVisible: false, shownSession, boundSession }), 'missing', `${shownSession} / ${boundSession}`);
+    assert.equal(hostedEmailDecision({ emailFieldVisible: false, shownSession, boundSession, boundCustomerHasEmail: true }), 'missing', `${shownSession} / ${boundSession}`);
   }
 });
 test('the binding that permits an absent email: a wrong customer, user, paid or live session never binds', () => {
@@ -389,7 +393,7 @@ test('the journey prints a checkpoint for every step and stage, and around every
 // unticked. Stripe's own markup (read in the PO's DevTools, read-only) fixes the exact controls; a missing return now names what was shown.
 test('the hosted controls are the exact ones observed on Stripe Checkout', () => {
   assert.deepEqual({ ...HOSTED_SELECTORS }, { submit: '[data-testid="payment-form-submit-button"]', linkOptInInput: '#payment-linkOptInInput', linkOptInLabel: '#Field-linkOptInCheckbox',
-    country: '#payment-countryInput', postalCode: '#payment-postalCodeInput', cardName: '#payment-nameInput' });
+    country: '#payment-countryInput', postalCode: '#payment-postalCodeInput', cardName: '#payment-nameInput', email: '#linkAuthentication-emailInput' });
   assert.ok(Object.isFrozen(HOSTED_SELECTORS));
 });
 
@@ -460,4 +464,73 @@ test('the form-confirmable read is a bounded, read-only checkpoint taken after t
   assert.ok(optIn > 0 && check > optIn && submit > check);
   for (const name of ['hosted_form_confirmable', 'hosted_form_not_confirmable', 'hosted_form_confirm_unread'])
     assert.equal(progressLine('checkpoint', name, 1000), `BILLING_JOURNEY_PROGRESS checkpoint=${name} t=1s`);
+});
+
+// Sam on run 44157731067 (receipt `fields_email`, `hosted_form_not_confirmable`): the fixture's Stripe customer has no email, so the
+// optional-email path must be closed for it, and a form that never reports it can confirm must not be submitted.
+test('existing-customer sandbox conversion: the fixture Customer carries the fixture email; only a presence flag is read, never the value', () => {
+  const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
+  const create = spec.slice(spec.indexOf("const customer = await this.stripe('customers', 'POST'"), spec.indexOf("requireFact(customer.livemode === false"));
+  assert.ok(create.length > 0);
+  // The request is built by fixtureCustomerFields for THIS journey; the email is the fixture's own run-owned address, never a user's.
+  assert.match(create, /fixtureCustomerFields\(this\.journey, \{ clock: this\.clock, email: this\.email, marker: this\.marker \}\)/);
+  assert.match(spec, /readonly email = `\$\{this\.marker\}@example\.com`;/);
+  assert.match(spec, /if \(this\.journey === 'conversion'\) this\.checkpoint\('existing_customer_fixture'\);/);
+  assert.doesNotMatch(spec, /^\s*this\.checkpoint\('existing_customer_fixture'\);/m, 'never unconditional');
+  const open = spec.slice(spec.indexOf('async openCheckout('), spec.indexOf('async checkout(): Promise<void> {'));
+  const identity = open.indexOf('assertCheckoutIdentity('), presence = open.indexOf('this.boundCustomerHasEmail = typeof bound.email'), bind = open.indexOf('this.boundCheckout = session;');
+  assert.ok(identity > 0 && presence > identity && bind > presence, 'presence is read after the identity proof and before the session is bound');
+  // The email value is never stored or reported: only a boolean (or null when unread) leaves that expression.
+  assert.match(open, /this\.boundCustomerHasEmail = typeof bound\.email === 'string' \? bound\.email\.length > 0 : bound\.email === null \? false : null;/);
+  assert.equal((open.match(/bound\.email/g) ?? []).length, 3);
+  // The decision is fed the presence flag only on the bound after-binding path.
+  assert.match(spec, /boundCustomerHasEmail: email === 'after-binding' \? this\.boundCustomerHasEmail : null \}\);/);
+});
+
+test('an unconfirmable form is not submitted: the stop names the invalid controls; an unread state still proceeds', () => {
+  assert.equal(hostedFormNotConfirmable(['email']), 'hosted_form_not_confirmable_fields_email');
+  assert.equal(hostedFormNotConfirmable(['zip', 'email', 'zip', 'free text']), 'hosted_form_not_confirmable_fields_email_other_zip');
+  assert.equal(hostedFormNotConfirmable([]), 'hosted_form_not_confirmable_fields_none');
+  assert.equal(hostedFormNotConfirmable(null), 'hosted_form_not_confirmable_fields_unread');
+  const longest = hostedFormNotConfirmable(['name', 'zip', 'country', 'number', 'expiry', 'cvc', 'email', 'other']);
+  for (const code of [longest, hostedFormNotConfirmable(null)]) assert.equal(safeFailureReason(new Error(`BILLING_JOURNEY:${code}`)), code);
+  const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
+  const pay = spec.slice(spec.indexOf('async payOnHostedPage('), spec.indexOf('async noPaidAccess('));
+  const stop = pay.indexOf('if (confirmable === false) throw new Error(`BILLING_JOURNEY:${hostedFormNotConfirmable((await this.afterSubmitFacts()).invalidFields)}`);');
+  const submit = pay.indexOf('visibleInFrames(HOSTED_SELECTORS.submit)'), click = pay.indexOf('submit.click(');
+  assert.ok(stop > 0 && submit > stop && click > submit, 'the unconfirmable stop comes before Subscribe is searched or clicked');
+  // Only `false` stops: `true` and the unread `null` reach Subscribe.
+  assert.doesNotMatch(pay, /if \(confirmable !== true\)|if \(!confirmable\)/);
+});
+
+test('the hosted email is found by the observed control first: Link\'s text input, which `input[type="email"]` alone never matched', () => {
+  assert.equal(HOSTED_SELECTORS.email, '#linkAuthentication-emailInput');
+  assert.equal(invalidFieldToken({ id: 'linkAuthentication-emailInput', name: 'email' }), 'email');
+  const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
+  // Two selectors in priority order, never one combined selector (whose .first() follows document order, not priority).
+  assert.match(spec, /await fill\(\[HOSTED_SELECTORS\.email, 'input\[type="email"\]'\], this\.email, 'email', decision === 'absent_after_binding'\);/);
+  assert.doesNotMatch(spec, /`\$\{HOSTED_SELECTORS\.email\},input\[type="email"\]`/);
+  const fillBody = spec.slice(spec.indexOf('const fill = async ('), spec.indexOf('// Email only: absent is accepted'));
+  assert.match(fillBody, /const pick = firstVisibleControl\(visible\);/);
+  assert.doesNotMatch(fillBody, /\.first\(\)/, 'no first-in-document-order pick in the fill');
+});
+
+// Sam on #1892 (a3fb4404): the fixture email was unconditional in shared setup, and a combined selector's .first() did not give the
+// observed control priority.
+test('only conversion\'s Customer carries the fixture email; every other journey\'s Customer request is unchanged', () => {
+  const f = { clock: 'clock_1', email: 'rwt-journey-billing-x@example.com', marker: 'rwt-journey-billing-x' };
+  const before = { test_clock: 'clock_1', 'metadata[speaksharp_test]': 'rwt-journey-billing-x' }; // the request every journey sent before #1892
+  assert.deepEqual(fixtureCustomerFields('conversion', f), { ...before, email: f.email });
+  const others = RUNNER_JOURNEYS.filter((j) => j !== 'conversion');
+  assert.ok(others.length >= 2, String(others));
+  for (const journey of others) assert.deepEqual(fixtureCustomerFields(journey, f), before, journey);
+});
+
+test('the observed control wins over a generic match, and a hidden match before a visible one never hides it', () => {
+  assert.deepEqual(firstVisibleControl([[true], [true]]), { selector: 0, match: 0 }, 'observed control first');
+  assert.deepEqual(firstVisibleControl([[false, true], [true]]), { selector: 0, match: 1 }, 'hidden observed match before a visible one');
+  assert.deepEqual(firstVisibleControl([[false], [false, true]]), { selector: 1, match: 1 }, 'observed hidden: the visible generic match, not its hidden first');
+  assert.deepEqual(firstVisibleControl([[], [true]]), { selector: 1, match: 0 });
+  assert.equal(firstVisibleControl([[false], [false]]), null);
+  assert.equal(firstVisibleControl([]), null);
 });

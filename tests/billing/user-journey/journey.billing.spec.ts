@@ -9,7 +9,7 @@ import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, re
   assertFullRefund, isRefundCancellation, assertCheckoutGrantedNothing,
   checkoutSessionFromUrl, assertCheckoutIdentity, newlyAddedCard, assertNoSecondCharge,
   type RunnerJourney, type BillingEvent, hostedFieldUnavailable, hostedEmailDecision, type HostedField,
-  HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken } from './contract';
+  HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl } from './contract';
 import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { selectBenchmarkMode, preparePrivateModelIfPrompted, startBenchmarkRecording,
   expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput, stopBenchmarkRecording,
@@ -58,6 +58,8 @@ class SandboxJourney {
   uid = ''; customer = ''; subscription = ''; clock = ''; session = ''; savedSession = '';
   /** The Checkout session openCheckout positively bound to this run (assertCheckoutIdentity); null until then. */
   boundCheckout: string | null = null;
+  /** Whether the bound Stripe customer carries an email: a presence flag only, never the value; null when unread. */
+  boundCustomerHasEmail: boolean | null = null;
   signupAttempted = false;
   uncertainStripeCreate = false;
   private currentStage = 'preflight';
@@ -192,11 +194,15 @@ class SandboxJourney {
     this.clock = clock.id;
     this.uncertainStripeCreate = false;
     this.uncertainStripeCreate = true;
-    const customer = await this.stripe('customers', 'POST', { test_clock: this.clock,
-      'metadata[speaksharp_test]': this.marker });
+    // EXISTING-CUSTOMER sandbox conversion (Sam on run 44157731067): the journey preassigns a clock-backed Customer, so Checkout gets
+    // `customer`, never `customer_email` as an ordinary first conversion does. For CONVERSION only, that Customer carries the fixture's
+    // own email, as an existing customer would, so Checkout has an email without asking; every other journey's request is unchanged. This is NOT the no-email hosted path (still a regression case in
+    // hostedEmailDecision) and NOT true first conversion, which needs its own proof of initial webhook binding, dedup and cleanup.
+    const customer = await this.stripe('customers', 'POST', fixtureCustomerFields(this.journey, { clock: this.clock, email: this.email, marker: this.marker }));
     requireFact(customer.livemode === false && typeof customer.id === 'string', 'customer_identity_missing');
     this.customer = customer.id;
     this.uncertainStripeCreate = false;
+    if (this.journey === 'conversion') this.checkpoint('existing_customer_fixture');
     const seeded = await this.admin.from('user_profiles').update({ stripe_customer_id: this.customer }).eq('id', this.uid);
     requireFact(!seeded.error, 'fixture_customer_binding_failed');
     await this.login();
@@ -204,20 +210,33 @@ class SandboxJourney {
 
   /** Fills Stripe's hosted card form (Checkout or the portal) and submits. Never reads or reports its content. */
   async fillCard(card: string, email: 'required' | 'after-binding' | 'none'): Promise<void> {
-    const fill = async (selector: string, value: string, field: HostedField, absentAllowed = false, kind: 'input' | 'select' = 'input') => {
+    // `selector`: one selector, or several in PRIORITY order (the observed control first). Every match of every selector is checked,
+    // so a hidden match before a visible one never hides it (firstVisibleControl).
+    const fill = async (selector: string | readonly string[], value: string, field: HostedField, absentAllowed = false, kind: 'input' | 'select' = 'input') => {
+      const selectors = typeof selector === 'string' ? [selector] : selector;
       for (let attempt = 0; attempt < 40; attempt++) {
-        for (const frame of this.page.frames()) {
-          const input = frame.locator(selector).first();
-          if (await input.isVisible()) {
-            if (kind === 'select') {
-              await input.selectOption(value, { timeout: HOSTED_ACTION_MS }).catch(() => { throw new Error(`BILLING_JOURNEY:${hostedFieldNotEditable(field)}`); });
-              // Proven chosen: the select's own value, never assumed from the call.
-              requireFact(await input.inputValue({ timeout: HOSTED_READ_MS }).catch(() => null) === value, hostedFieldNotEditable(field));
-            } else {
-              await input.fill(value, { timeout: HOSTED_ACTION_MS }).catch(() => { throw new Error(`BILLING_JOURNEY:${hostedFieldNotEditable(field)}`); });
-            }
-            return;
+        const matches: import('@playwright/test').Locator[][] = [];
+        const visible: boolean[][] = [];
+        for (const sel of selectors) {
+          const found: import('@playwright/test').Locator[] = []; const shown: boolean[] = [];
+          for (const frame of this.page.frames()) {
+            const all = frame.locator(sel);
+            const n = Math.min(await all.count().catch(() => 0), 10);
+            for (let i = 0; i < n; i++) { found.push(all.nth(i)); shown.push(await all.nth(i).isVisible().catch(() => false)); }
           }
+          matches.push(found); visible.push(shown);
+        }
+        const pick = firstVisibleControl(visible);
+        if (pick) {
+          const input = matches[pick.selector][pick.match];
+          if (kind === 'select') {
+            await input.selectOption(value, { timeout: HOSTED_ACTION_MS }).catch(() => { throw new Error(`BILLING_JOURNEY:${hostedFieldNotEditable(field)}`); });
+            // Proven chosen: the select's own value, never assumed from the call.
+            requireFact(await input.inputValue({ timeout: HOSTED_READ_MS }).catch(() => null) === value, hostedFieldNotEditable(field));
+          } else {
+            await input.fill(value, { timeout: HOSTED_ACTION_MS }).catch(() => { throw new Error(`BILLING_JOURNEY:${hostedFieldNotEditable(field)}`); });
+          }
+          return;
         }
         await sleep(500);
       }
@@ -237,8 +256,10 @@ class SandboxJourney {
     if (email !== 'none') {
       const decision = hostedEmailDecision({ emailFieldVisible: false,
         shownSession: email === 'after-binding' ? (() => { try { return checkoutSessionFromUrl(this.page.url()); } catch { return null; } })() : null,
-        boundSession: email === 'after-binding' ? this.boundCheckout : null });
-      await fill('input[type="email"]', this.email, 'email', decision === 'absent_after_binding');
+        boundSession: email === 'after-binding' ? this.boundCheckout : null,
+        boundCustomerHasEmail: email === 'after-binding' ? this.boundCustomerHasEmail : null });
+      // The observed control first (run 44157731067), then the generic email input.
+      await fill([HOSTED_SELECTORS.email, 'input[type="email"]'], this.email, 'email', decision === 'absent_after_binding');
     }
     await fill('input[autocomplete="cc-number"],input[name="cardNumber"]', card, 'card_number');
     await fill('input[autocomplete="cc-exp"],input[name="cardExpiry"]', '1234', 'card_expiry');
@@ -363,9 +384,11 @@ class SandboxJourney {
     // never returned; a person who unticked it completed the same checkout. The real input sits under a styled wrapper, so it is read by
     // its exact id and toggled through its label, then proven clear. The journey never creates a Link account or enters a phone number.
     await this.clearLinkOptIn();
-    // A checkpoint, not a gate: the click below still happens, and a refusal is then named field by field from the page.
+    // Sam on run 44157731067: a form that never reports it can confirm is NOT submitted; the stop names the invalid controls. An unread
+    // state (no data-can-confirm on the page) still proceeds, so a page change cannot block a payable form.
     const confirmable = await this.formConfirmable();
     this.checkpoint(confirmable === true ? 'hosted_form_confirmable' : confirmable === false ? 'hosted_form_not_confirmable' : 'hosted_form_confirm_unread');
+    if (confirmable === false) throw new Error(`BILLING_JOURNEY:${hostedFormNotConfirmable((await this.afterSubmitFacts()).invalidFields)}`);
     // Exactly the Subscribe button (data-testid observed on the hosted page), never "the first submit button".
     this.checkpoint('hosted_submit_search');
     const submit = await this.visibleInFrames(HOSTED_SELECTORS.submit);
@@ -401,8 +424,12 @@ class SandboxJourney {
   async openCheckout(raw: string | null): Promise<string> {
     const session = checkoutSessionFromUrl(raw);
     this.boundCheckout = null;
+    this.boundCustomerHasEmail = null;
     assertCheckoutIdentity(await this.stripe(`checkout/sessions/${session}`),
       { session, customer: this.customer, uid: this.uid, app: this.targets.app });
+    // Presence only (the value is never kept or reported): whether Checkout has an email for this customer without asking.
+    const bound = await this.stripe(`customers/${this.customer}`);
+    this.boundCustomerHasEmail = typeof bound.email === 'string' ? bound.email.length > 0 : bound.email === null ? false : null;
     // Set only after the positive binding above: the one session hostedEmailDecision may accept without an email field.
     this.boundCheckout = session;
     await this.page.goto(raw as string);
