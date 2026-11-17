@@ -8,7 +8,8 @@ import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, re
   assertTestPrice, assertInvoice, isCorrelatedDelivery, safeFailureReason, testClockCreateFields, localStackStatus,
   assertFullRefund, isRefundCancellation, assertCheckoutGrantedNothing,
   checkoutSessionFromUrl, assertCheckoutIdentity, newlyAddedCard, assertNoSecondCharge,
-  type RunnerJourney, type BillingEvent, hostedFieldUnavailable, hostedEmailDecision, type HostedField } from './contract';
+  type RunnerJourney, type BillingEvent, hostedFieldUnavailable, hostedEmailDecision, type HostedField,
+  HOSTED_ACTION_MS, hostedFieldNotEditable, hostedSubmitUnavailable } from './contract';
 import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { selectBenchmarkMode, preparePrivateModelIfPrompted, startBenchmarkRecording,
   expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput, stopBenchmarkRecording,
@@ -198,8 +199,11 @@ class SandboxJourney {
     const fill = async (selector: string, value: string, field: HostedField, absentAllowed = false) => {
       for (let attempt = 0; attempt < 40; attempt++) {
         for (const frame of this.page.frames()) {
-          const field = frame.locator(selector).first();
-          if (await field.isVisible()) { await field.fill(value); return; }
+          const input = frame.locator(selector).first();
+          if (await input.isVisible()) {
+            await input.fill(value, { timeout: HOSTED_ACTION_MS }).catch(() => { throw new Error(`BILLING_JOURNEY:${hostedFieldNotEditable(field)}`); });
+            return;
+          }
         }
         await sleep(500);
       }
@@ -228,8 +232,9 @@ class SandboxJourney {
     for (const frame of this.page.frames()) {
       for (const [selector, value] of [['input[autocomplete="cc-name"]', 'SpeakSharp Test'],
         ['input[autocomplete="postal-code"]', '94105']] as const) {
-        const field = frame.locator(selector).first();
-        if (await field.isVisible()) await field.fill(value);
+        const input = frame.locator(selector).first();
+        // Optional fields: filled when shown, bounded; a stuck optional field surfaces at the bounded Pay click below.
+        if (await input.isVisible()) await input.fill(value, { timeout: HOSTED_ACTION_MS }).catch(() => undefined);
       }
     }
   }
@@ -237,7 +242,19 @@ class SandboxJourney {
   async payOnHostedPage(card: string): Promise<void> {
     // Email is filled when shown; it may be absent only on the exact session openCheckout bound to this run's customer.
     await this.fillCard(card, 'after-binding');
-    await this.page.locator('button[type="submit"]').click();
+    const submit = this.page.locator('button[type="submit"]').first();
+    await submit.click({ timeout: HOSTED_ACTION_MS }).catch(async () => {
+      const read = async <T>(f: () => Promise<T>): Promise<T | null> => { try { return await f(); } catch { return null; } };
+      const invalidFields = await read(async () => {
+        let n = 0;
+        for (const frame of this.page.frames()) {
+          const invalid = frame.locator('input[aria-invalid="true"]');
+          for (let i = 0; i < await invalid.count(); i++) if (await invalid.nth(i).isVisible()) n += 1;
+        }
+        return n;
+      });
+      throw new Error(`BILLING_JOURNEY:${hostedSubmitUnavailable({ visible: await read(() => submit.isVisible()), enabled: await read(() => submit.isEnabled()), invalidFields })}`);
+    });
   }
 
   /** Nothing paid: no subscription of any status for this customer, no paid access, no Pro profile. */

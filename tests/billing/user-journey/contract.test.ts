@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import { test } from 'vitest';
 import { RUNNER_JOURNEYS, POLICY_PENDING_STEPS, REQUIRED_STEPS, receipt, assertTestPrice, assertInvoice,
   isCorrelatedDelivery, assertSandboxConfiguration, safeFailureReason, testClockCreateFields, localStackStatus,
-  hostedFieldUnavailable, hostedEmailDecision, assertCheckoutIdentity, type HostedField } from './contract';
+  hostedFieldUnavailable, hostedEmailDecision, assertCheckoutIdentity, type HostedField,
+  HOSTED_ACTION_MS, hostedFieldNotEditable, hostedSubmitUnavailable } from './contract';
 import { finaliseLocalStackReceipt, RECEIPT_KEYS } from './localStackReceipt.mjs';
 import { stackIdentitySha256 } from './localStackResources.mjs';
 
@@ -318,4 +319,30 @@ test('smoke (Sam): conversion proves repeated click, cancel and retry before it 
     'retry_created_second_session']) assert.ok(checkout.includes(`'${code}'`), code);
   // Payment happens only after all three were recorded.
   assert.ok(checkout.indexOf("this.steps.add('checkout_retried')") < checkout.indexOf('this.session = await this.openCheckout(checkoutUrl);'));
+});
+
+// Run 44080723593: the hosted page never confirmed a payment and an unbounded wait ran into the 10-minute test timeout, so the
+// receipt named no step. Every hosted fill and the Pay click are now bounded and fail with a named, content-free code.
+test('a stuck hosted field or Pay button fails fast with a named, content-free code', () => {
+  assert.ok(HOSTED_ACTION_MS > 0 && HOSTED_ACTION_MS <= 30_000);
+  for (const field of ['email', 'card_number', 'card_expiry', 'card_cvc'] as HostedField[])
+    assert.equal(hostedFieldNotEditable(field), `hosted_field_not_editable_${field}`);
+  assert.throws(() => hostedFieldNotEditable('card_holder' as HostedField), /hosted_field_unknown/);
+  assert.equal(hostedSubmitUnavailable({ visible: true, enabled: false, invalidFields: 2 }), 'hosted_submit_unavailable_disabled_invalid_2');
+  assert.equal(hostedSubmitUnavailable({ visible: true, enabled: true, invalidFields: 0 }), 'hosted_submit_unavailable_enabled_invalid_0');
+  assert.equal(hostedSubmitUnavailable({ visible: false, enabled: null, invalidFields: null }), 'hosted_submit_unavailable_hidden_invalid_unread');
+  assert.equal(hostedSubmitUnavailable({ visible: null, enabled: true, invalidFields: -1 }), 'hosted_submit_unavailable_unread_invalid_unread');
+  for (const code of [hostedSubmitUnavailable({ visible: true, enabled: false, invalidFields: 3 }), hostedFieldNotEditable('card_cvc')])
+    assert.match(code, /^[a-z0-9_]+$/);
+});
+
+test('no fill or click on the hosted card path can wait without a bound', () => {
+  const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
+  const start = spec.indexOf('async fillCard(');
+  const end = spec.indexOf('\n  }\n', spec.indexOf('async payOnHostedPage('));
+  assert.ok(start > 0 && end > start);
+  const body = spec.slice(start, end);
+  const actions = body.match(/\.(fill|click)\([^;]*/g) ?? [];
+  assert.ok(actions.length >= 3);
+  for (const call of actions) assert.match(call, /timeout: HOSTED_ACTION_MS/, call);
 });
