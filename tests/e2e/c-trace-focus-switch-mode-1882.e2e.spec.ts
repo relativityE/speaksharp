@@ -1,15 +1,13 @@
-import { test, expect } from './fixtures';
-import { POINTS, runFocusSwitchFlow, SWITCH_FLOW_TIMEOUT_MS } from './focusSwitch1882Flow';
+import { test } from './fixtures';
+import { runFocusSwitchFlow, SWITCH_FLOW_TIMEOUT_MS } from './focusSwitch1882Flow';
 
 /**
- * #1882 trace check (diagnostic; removed before merge): the switch take must be recorded as a Focus take with all
- * four points, decided at Start. Red here names the cause: the take started with no active brief (Open Mic mode).
+ * #1882 step probe 1 of 3 (diagnostic; removed before merge). Shard logs name no test, so each probe stops the shared
+ * flow at a different step in its own shard: red here means login, the first set or the first Focus take failed.
  */
-test.describe('#1882 Focus switch trace: mode at Start', () => {
-  test('the switch take starts as focus_points with four points', async ({ page }, testInfo) => {
+test.describe('#1882 Focus switch flow, step 1', () => {
+  test('the first Focus take saves and reaches its review', async ({ page }, testInfo) => {
     test.setTimeout(SWITCH_FLOW_TIMEOUT_MS);
-    const { switchTrace } = await runFocusSwitchFlow(page, testInfo);
-    const snapshots = switchTrace.filter((e) => e.event === 'controller_progress_mode_snapshot');
-    expect(snapshots.map((e) => `${e.mode}:${e.pointCount}`), JSON.stringify(switchTrace)).toEqual([`focus_points:${POINTS.length}`]);
+    await runFocusSwitchFlow(page, testInfo, 'first-focus-take');
   });
 });
