@@ -522,6 +522,14 @@ export interface SwitchIsolationObservation {
     ownerId?: string;
 }
 
+/**
+ * #1882 diagnostic readout: are the rail rows on screen exactly this set's four Focus points, in order? A missing row, an
+ * extra row, a reordered or reworded label, a row that could not be read, or a set that is not four points is false.
+ */
+export function railShowsExactFourPoints(labels: ReadonlyArray<string | null>, points: readonly string[]): boolean {
+    return points.length === 4 && labels.length === 4 && labels.every((label, i) => label !== null && label === points[i].trim());
+}
+
 export function switchIsolationVerdict(o: SwitchIsolationObservation): { verdict: 'PASS' | 'FAIL' | 'HOLD'; detail: string } {
     const fail = (detail: string) => ({ verdict: 'FAIL' as const, detail });
     const hold = (detail: string) => ({ verdict: 'HOLD' as const, detail });

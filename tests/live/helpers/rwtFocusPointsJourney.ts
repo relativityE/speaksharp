@@ -17,7 +17,7 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './benchmark-utils';
 import { MODEL_COMPARISON_AUTH_KEY } from './practiceLoopJourney';
-import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches, newSetSourcePoints, newSetEditVerdicts, setupIsBlank, switchIsolationVerdict, labelHeardIn, focusBackReloadVerdict, focusIdentityObservation, firstTakeSavedExactlyOnceVerdict, type SwitchSourceSnapshot } from './rwtOracles';
+import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches, newSetSourcePoints, newSetEditVerdicts, setupIsBlank, switchIsolationVerdict, railShowsExactFourPoints, labelHeardIn, focusBackReloadVerdict, focusIdentityObservation, firstTakeSavedExactlyOnceVerdict, type SwitchSourceSnapshot } from './rwtOracles';
 import { cleanupRunOwnedAccount } from './runOwnedCleanup';
 import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, armWatchdog, watchProfileFor, type JourneyFinalizer } from './rwtWatchdog';
 import { savedFocusIdentityVerdict } from './rwtSavedFocusIdentity';
@@ -132,6 +132,18 @@ const readRail = async (page: Page, count: number): Promise<{ statuses: (RailSta
         if (next === null && (await row.getByText('Still to cover', { exact: true }).count().catch(() => 0)) > 0) next = i;
     }
     return { statuses, next };
+};
+
+/**
+ * #1882 diagnostic readout: how many Focus point rows are on screen, and whether they are exactly this set's four points in
+ * order (`railShowsExactFourPoints`). It returns a count and a boolean only, never the labels (the receipt forbids them).
+ */
+const readRailRows = async (page: Page, points: readonly string[]): Promise<{ rows: number; exactFourPoints: boolean }> => {
+    const labels = await page.locator('[data-testid^="focus-point-"]').evaluateAll((els) => els
+        .filter((el) => /^focus-point-\d+$/.test(el.getAttribute('data-testid') ?? ''))
+        .map((el) => el.querySelector('p')?.textContent?.trim() ?? null)).catch(() => null);
+    if (labels === null) return { rows: -1, exactFourPoints: false };
+    return { rows: labels.length, exactFourPoints: railShowsExactFourPoints(labels, points) };
 };
 
 const parseClock = (text: string): number | null => {
@@ -1127,7 +1139,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 // Past point 1's window, short of point 2's start (focus_points_tts: [2.91,6.21] then [11.98,…]).
                 const shortTakeSeconds = windows[1] ? Math.max(8, Math.min(9, windows[1][0] - 2)) : 9;
                 // #1882 diagnostic: was the rail on screen before Start, and what did the controller decide for this take?
-                const railRowsBeforeStart = await page.getByTestId('focus-point-0').count().catch(() => -1);
+                const railBeforeStart = await readRailRows(page, points);
                 const switchTraceFrom = await page.evaluate(() => {
                     const w = window as unknown as { __NATIVE_BROWSER_TRACE__?: unknown[] };
                     w.__NATIVE_BROWSER_TRACE__ = w.__NATIVE_BROWSER_TRACE__ ?? [];
@@ -1148,9 +1160,9 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                         'controller_progress_publication_refused', 'controller_brief_retirement_refused']);
                     const trace = (window as unknown as { __NATIVE_BROWSER_TRACE__?: Array<Record<string, unknown>> }).__NATIVE_BROWSER_TRACE__ ?? [];
                     return trace.filter((e) => typeof e.t === 'number' && e.t >= from && keep.has(String(e.event)))
-                        .map((e) => [e.event, e.mode, e.reason, e.published].filter((v) => v !== undefined && v !== null).join(':')).join('|');
+                        .map((e) => [e.event, e.mode, e.pointCount, e.reason, e.published].filter((v) => v !== undefined && v !== null).join(':')).join('|');
                 }, switchTraceFrom).catch(() => 'trace-read-failed');
-                const afterRailRows = await page.getByTestId('focus-point-0').count().catch(() => -1);
+                const railAfter = await readRailRows(page, points);
                 const newSetVisibleAfterSwitch = await page.getByTestId('focus-points-new-set').isVisible().catch(() => false);
                 const savedFocus = focusId && focusId !== openMicId ? await sessionRow(focusId) : unavailable('missing');
                 const savedProduct = savedFocus.state === 'available' && savedFocus.sessionId === focusId && savedFocus.userId === owner.uid ? savedFocus.product : null;
@@ -1165,7 +1177,8 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     openMicSaved: Boolean(openMicId && openMicId !== before), openMicUnchanged: openMicBefore.digest !== null && openMicBefore.digest === openMicAfter.digest,
                     openMicRetentionState: openMicAfter.state ?? 'unknown',
                     openMicExpiredAfterWitness: iso.verdict === 'PASS' && openMicAfter.state === 'expired',
-                    railRowsBeforeStart, afterRailRows, newSetVisibleAfterSwitch, switchTrace: switchTrace ?? 'not-armed',
+                    railRowsBeforeStart: railBeforeStart.rows, railExactFourPointsBeforeStart: railBeforeStart.exactFourPoints,
+                    afterRailRows: railAfter.rows, railExactFourPointsAfter: railAfter.exactFourPoints, newSetVisibleAfterSwitch, switchTrace: switchTrace ?? 'not-armed',
                 });
                 // Read again at the end of the step, so an objective row written late for the Open Mic take is still seen.
                 if (savedOpenMicId) openMicObjectiveRowReads.push(await objectiveRowsFor(savedOpenMicId));

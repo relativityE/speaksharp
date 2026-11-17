@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useSessionStore } from '@/stores/useSessionStore';
 import { SpeechRuntimeController } from '../SpeechRuntimeController';
+import { OBJECTIVE_MAX_POINTS } from '../objective/objectiveBriefService';
 
 vi.mock('../../lib/logger', () => ({
     default: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
@@ -139,5 +140,19 @@ describe('#1882 Focus switch-take trace', () => {
         const ours = (traceWindow().__NATIVE_BROWSER_TRACE__ ?? []).filter((e) => String(e.event) in allowed);
         expect(new Set(ours.map((e) => e.event))).toEqual(new Set(Object.keys(allowed)));
         for (const e of ours) expect([String(e.event), Object.keys(e).sort()]).toEqual([String(e.event), [...allowed[String(e.event)]].sort()]);
+
+        // Each field carries only an approved state or a count (Sam, 17 Nov).
+        const approvedModes = new Set(['focus_points', 'open_mic', 'unknown']);
+        const approvedReasons = new Set(['unknown_mode', 'metrics_not_persisted']);
+        const isCount = (v: unknown) => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= OBJECTIVE_MAX_POINTS;
+        const offending = ours.filter((e) => typeof e.t !== 'number'
+            || ('mode' in e && !approvedModes.has(e.mode as string))
+            || ('reason' in e && !approvedReasons.has(e.reason as string))
+            || ('pointCount' in e && !isCount(e.pointCount))
+            || ('published' in e && typeof e.published !== 'boolean'));
+        expect(offending).toEqual([]);
+        // No brief text reaches the trace, even under a name it is not checked against above.
+        expect(JSON.stringify(ours)).not.toContain('Name the price');
+        expect(JSON.stringify(ours)).not.toContain('name the price');
     });
 });
