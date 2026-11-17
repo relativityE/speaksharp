@@ -771,7 +771,12 @@ export class SpeechRuntimeController {
      */
     private shortStopVerdictRecordingId: string | null = null;
     /** G5 (#1880): how the accepted Stop resolved the most recent take, reported to every Stop call made for it. */
-    private lastStopOutcome: { recordingId: string; outcome: Exclude<StopTakeOutcome, 'unknown'> } | null = null;
+    private lastStopOutcome: {
+        recordingId: string;
+        outcome: Exclude<StopTakeOutcome, 'unknown'>;
+        /** The session whose unsettled discard this take armed for Try again, whichever accepted Stop armed it. */
+        armedDiscardSessionId?: string;
+    } | null = null;
     /** #1421 Option A: the attempt this take belongs to, snapshotted when the take enters RECORDING. */
     private currentRecordingSubject: RecordingSubject | null = null;
     /**
@@ -5592,11 +5597,30 @@ export class SpeechRuntimeController {
         if (belowMinimumDuration && callRecordingId !== null) {
             this.shortStopVerdictRecordingId = callRecordingId;
         }
-        const result = await this.runStop(options, belowMinimumDuration);
+        // G5 (#1880, Codex P2 on 0610880d): whether THIS call was told which take it armed for Try again.
+        let toldArmedDiscard = false;
+        const callerOnUnsettledDiscard = options?.onUnsettledDiscard;
+        const runOptions: StopRecordingOptions | undefined = callerOnUnsettledDiscard
+            ? { ...options, onUnsettledDiscard: (sessionId: string) => { toldArmedDiscard = true; callerOnUnsettledDiscard(sessionId); } }
+            : options;
+        const result = await this.runStop(runOptions, belowMinimumDuration);
+        const takeResult = callRecordingId !== null && this.lastStopOutcome?.recordingId === callRecordingId
+            ? this.lastStopOutcome
+            : null;
+        // An earlier queued Stop for the same take may have armed the discard slot on this call's verdict; this call
+        // was then a no-op and never saw it. Tell the caller about that take's own slot, so its warning is registered
+        // and a confirmed Try again retires it. Only that take's session, and only while its slot is still armed.
+        if (callerOnUnsettledDiscard && !toldArmedDiscard && takeResult?.outcome === 'discard_unsettled'
+            && takeResult.armedDiscardSessionId !== undefined
+            && this.pendingDiscardSettlement?.sessionId === takeResult.armedDiscardSessionId) {
+            try {
+                callerOnUnsettledDiscard(takeResult.armedDiscardSessionId);
+            } catch {
+                /* the caller's note is best effort */
+            }
+        }
         if (options?.onTakeOutcome) {
-            const outcome: StopTakeOutcome = callRecordingId !== null && this.lastStopOutcome?.recordingId === callRecordingId
-                ? this.lastStopOutcome.outcome
-                : 'unknown';
+            const outcome: StopTakeOutcome = takeResult ? takeResult.outcome : 'unknown';
             try {
                 options.onTakeOutcome(outcome);
             } catch {
@@ -5607,9 +5631,15 @@ export class SpeechRuntimeController {
     }
 
     /** G5 (#1880): records how the accepted Stop resolved its take. */
-    private recordStopOutcome(recordingId: string | null, outcome: Exclude<StopTakeOutcome, 'unknown'>) {
+    private recordStopOutcome(
+        recordingId: string | null,
+        outcome: Exclude<StopTakeOutcome, 'unknown'>,
+        armedDiscardSessionId?: string,
+    ) {
         if (recordingId === null) return;
-        this.lastStopOutcome = { recordingId, outcome };
+        this.lastStopOutcome = armedDiscardSessionId !== undefined
+            ? { recordingId, outcome, armedDiscardSessionId }
+            : { recordingId, outcome };
         // The take is decided; its verdict has done its job and must not outlive it.
         if (this.shortStopVerdictRecordingId === recordingId) this.shortStopVerdictRecordingId = null;
     }
@@ -6097,6 +6127,8 @@ export class SpeechRuntimeController {
                             // `{ success: false }` (RPC error, invalid response) or a throw leaves the row and its
                             // lease obligation unsettled: arm Try again and keep the take unresolved.
                             let discardSettled = false;
+                            // The session this stop armed for Try again, if it did (#1880, Codex P2 on 0610880d).
+                            let armedDiscardSessionId: string | undefined;
                             const discardOwner = stopOwner; // the take's owner from stop entry, never a successor's
                             try {
                                 const discardMark = await completeSession(sessionId, { status: 'failed', reason: discardReason });
@@ -6117,6 +6149,7 @@ export class SpeechRuntimeController {
                                     logger.error({ sessionId }, '[SESSION_SAVE_GUARD] discard NOT settled and the stop was superseded — not arming Try again for the successor (G5)');
                                 } else if (!this.pendingDiscardSettlement || this.pendingDiscardSettlement.sessionId === sessionId) {
                                     this.pendingDiscardSettlement = { sessionId, reason: discardReason, ownerId: discardOwner, warning: null };
+                                    armedDiscardSessionId = sessionId;
                                     try {
                                         options?.onUnsettledDiscard?.(sessionId);
                                     } catch {
@@ -6128,7 +6161,7 @@ export class SpeechRuntimeController {
                                 logger.error({ sessionId, belowMinimumDuration: takeBelowMinimum }, '[SESSION_SAVE_GUARD] discard NOT settled — row could not be marked failed; take stays unresolved for Try again (G5)');
                             }
                             logger.info({ sessionId, discardSettled }, '[DEBUG-STOP] completeSession failed-status done');
-                            this.recordStopOutcome(stopRecordingId, discardSettled ? 'discarded' : 'discard_unsettled');
+                            this.recordStopOutcome(stopRecordingId, discardSettled ? 'discarded' : 'discard_unsettled', armedDiscardSessionId);
                             if (token.cancelled) {
                                 logger.warn({
                                     mode: service.getMode?.() ?? stopEntryMode,

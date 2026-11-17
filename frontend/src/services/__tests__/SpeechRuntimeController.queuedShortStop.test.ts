@@ -127,16 +127,49 @@ describe('G5 (#1880) — a short Stop queued behind an earlier Stop', () => {
         const svc = engine(finalize.promise);
         vi.mocked(completeSession).mockResolvedValueOnce({ success: false } as never);
         const outcomes: Record<string, StopTakeOutcome> = {};
+        const armed: string[] = [];
 
         const earlier = controller.stopRecording();
         await vi.waitFor(() => expect(svc.stopTranscription).toHaveBeenCalled());
-        const userShortStop = controller.stopRecording({ belowMinimumDuration: true, onTakeOutcome: (o) => { outcomes.user = o; } });
+        const userShortStop = controller.stopRecording({
+            belowMinimumDuration: true,
+            onUnsettledDiscard: (id) => { armed.push(id); },
+            onTakeOutcome: (o) => { outcomes.user = o; },
+        });
         finalize.resolve();
         await Promise.all([earlier, userShortStop]);
 
         expect(completions('completed')).toHaveLength(0);
         expect(outcomes.user).toBe('discard_unsettled');
         expect(controller.pendingResolutionKind()).toBe('discard');
+        // Codex P2 on 0610880d: the earlier Stop armed the slot, so the user's no-op Stop is told which take it is.
+        expect(armed, "the user's Stop learns the take's armed discard session").toEqual(['test-sess']);
+    });
+
+    it("a short Stop that arms its own unsettled discard is told once, not twice", async () => {
+        engine();
+        vi.mocked(completeSession).mockResolvedValueOnce({ success: false } as never);
+        const armed: string[] = [];
+
+        await controller.stopRecording({ belowMinimumDuration: true, onUnsettledDiscard: (id) => { armed.push(id); } });
+
+        expect(armed).toEqual(['test-sess']);
+        expect(controller.pendingResolutionKind()).toBe('discard');
+    });
+
+    it("a settled discard by the earlier Stop does not tell the user's Stop that anything was armed", async () => {
+        const finalize = deferred();
+        const svc = engine(finalize.promise);
+        const armed: string[] = [];
+
+        const earlier = controller.stopRecording();
+        await vi.waitFor(() => expect(svc.stopTranscription).toHaveBeenCalled());
+        const userShortStop = controller.stopRecording({ belowMinimumDuration: true, onUnsettledDiscard: (id) => { armed.push(id); } });
+        finalize.resolve();
+        await Promise.all([earlier, userShortStop]);
+
+        expect(armed).toEqual([]);
+        expect(controller.pendingResolutionKind()).toBeNull();
     });
 
     it("a verdict for an earlier take does not discard the next take's ordinary Stop", async () => {

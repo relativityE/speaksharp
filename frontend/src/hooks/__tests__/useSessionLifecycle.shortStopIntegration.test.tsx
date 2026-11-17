@@ -215,6 +215,29 @@ describe('G5 INTEGRATED — page Stop under the minimum → real controller → 
         expect(store.getState().sessionSaved).toBe(false);
     });
 
+    // #1880 (Codex P2 on 0610880d): the earlier queued Stop arms Try again on the user's verdict when the take's failed
+    // mark is not confirmed. The user's Stop was then a no-op, but its warning must still be registered for that take,
+    // so a confirmed Try again replaces "couldn't finish clearing it" with the too-short message.
+    it('after a queued unverdicted Stop leaves the discard unsettled, a confirmed Try again replaces the warning', async () => {
+        const { result } = recordingFor(3_000);
+        Object.assign(controller as unknown as Record<string, unknown>, { currentRecordingId: 'rec-int', stopAcceptedForRecordingId: null });
+        vi.mocked(completeSession).mockResolvedValueOnce({ success: false } as never);
+
+        await act(async () => {
+            const earlier = controller.stopRecording(); // no verdict, as a lease revoke or page leave calls it
+            const userStop = result.current.handleStartStop();
+            await Promise.all([earlier, userStop]);
+        });
+        expect(controller.pendingResolutionKind()).toBe('discard');
+        expect(store.getState().sttStatus.message).toMatch(/couldn't finish clearing it/i);
+
+        await act(async () => { expect(await controller.retryRecordingSave()).toBe(true); });
+
+        expect(controller.pendingResolutionKind()).toBeNull();
+        expect(store.getState().sttStatus).toEqual({ type: 'info', message: '⚠️ Session too short (3s). Minimum 5s required.' });
+        expect(completions('completed')).toHaveLength(0);
+    });
+
     // #1880: if the take was in fact completed by another accepted Stop, the page must not call it too short.
     it('when the controller reports the take completed, the page does not report it too short or discarded', async () => {
         const { result } = recordingFor(3_000);
