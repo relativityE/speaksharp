@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import { test } from 'vitest';
 import { RUNNER_JOURNEYS, POLICY_PENDING_STEPS, REQUIRED_STEPS, receipt, assertTestPrice, assertInvoice,
   isCorrelatedDelivery, assertSandboxConfiguration, safeFailureReason, testClockCreateFields, localStackStatus,
-  hostedFieldUnavailable, hostedEmailDecision, assertCheckoutIdentity, type HostedField } from './contract';
+  hostedFieldUnavailable, hostedEmailDecision, assertCheckoutIdentity, type HostedField,
+  HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken } from './contract';
 import { finaliseLocalStackReceipt, RECEIPT_KEYS } from './localStackReceipt.mjs';
 import { stackIdentitySha256 } from './localStackResources.mjs';
 
@@ -318,4 +319,145 @@ test('smoke (Sam): conversion proves repeated click, cancel and retry before it 
     'retry_created_second_session']) assert.ok(checkout.includes(`'${code}'`), code);
   // Payment happens only after all three were recorded.
   assert.ok(checkout.indexOf("this.steps.add('checkout_retried')") < checkout.indexOf('this.session = await this.openCheckout(checkoutUrl);'));
+});
+
+// Run 44080723593: the hosted page never confirmed a payment and an unbounded wait ran into the 10-minute test timeout, so the
+// receipt named no step. Every hosted fill and the Pay click are now bounded and fail with a named, content-free code.
+test('a stuck hosted field or Pay button fails fast with a named, content-free code', () => {
+  assert.ok(HOSTED_ACTION_MS > 0 && HOSTED_ACTION_MS <= 30_000);
+  for (const field of ['email', 'card_number', 'card_expiry', 'card_cvc'] as HostedField[])
+    assert.equal(hostedFieldNotEditable(field), `hosted_field_not_editable_${field}`);
+  assert.throws(() => hostedFieldNotEditable('card_holder' as HostedField), /hosted_field_unknown/);
+  assert.equal(hostedSubmitUnavailable({ visible: true, enabled: false, invalidFields: 2 }), 'hosted_submit_unavailable_disabled_invalid_2');
+  assert.equal(hostedSubmitUnavailable({ visible: true, enabled: true, invalidFields: 0 }), 'hosted_submit_unavailable_enabled_invalid_0');
+  assert.equal(hostedSubmitUnavailable({ visible: false, enabled: null, invalidFields: null }), 'hosted_submit_unavailable_hidden_invalid_unread');
+  assert.equal(hostedSubmitUnavailable({ visible: null, enabled: true, invalidFields: -1 }), 'hosted_submit_unavailable_unread_invalid_unread');
+  for (const code of [hostedSubmitUnavailable({ visible: true, enabled: false, invalidFields: 3 }), hostedFieldNotEditable('card_cvc')])
+    assert.match(code, /^[a-z0-9_]+$/);
+});
+
+test('no fill or click on the hosted card path can wait without a bound', () => {
+  const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
+  const start = spec.indexOf('async fillCard(');
+  const end = spec.indexOf('\n  }\n', spec.indexOf('async payOnHostedPage('));
+  assert.ok(start > 0 && end > start);
+  const body = spec.slice(start, end);
+  const actions = body.match(/\.(fill|click|uncheck|selectOption)\([^;]*/g) ?? [];
+  assert.ok(actions.length >= 4);
+  for (const call of actions) assert.match(call, /timeout: HOSTED_ACTION_MS/, call);
+  // Reads that wait for their element (Codex P2 on 011932fd: isEnabled after a failed click) carry their own small bound.
+  const waitingReads = body.match(/\.(isEnabled|isChecked)\([^)]*\)/g) ?? [];
+  assert.ok(waitingReads.length >= 2);
+  for (const call of waitingReads) assert.match(call, /timeout: HOSTED_READ_MS/, call);
+  assert.ok(HOSTED_READ_MS > 0 && HOSTED_READ_MS < HOSTED_ACTION_MS);
+  // The Pay button is in Stripe's embedded frame (run 44080723593): it must be found across frames, never on the top document alone.
+  assert.doesNotMatch(body, /button\[type="submit"\]/, 'never "the first submit button": Link and other buttons share the frame');
+  assert.match(body, /visibleInFrames\(HOSTED_SELECTORS\.submit\)/);
+  const pay = spec.slice(spec.indexOf('async payOnHostedPage('), spec.indexOf('async noPaidAccess('));
+  assert.ok(pay.indexOf('await this.clearLinkOptIn();') > 0 && pay.indexOf('await this.clearLinkOptIn();') < pay.indexOf('visibleInFrames(HOSTED_SELECTORS.submit)'), 'the opt-in is cleared before Subscribe is searched');
+  // The default-ticked Link opt-in is cleared through its label and proven unticked on its real input, never filled with a phone number.
+  assert.match(body, /attachedInFrames\(HOSTED_SELECTORS\.linkOptInInput\)/);
+  assert.match(body, /attachedInFrames\(HOSTED_SELECTORS\.linkOptInLabel\)/);
+  // The fill path never targets a phone field; the post-submit facts only READ (no fill, click or check of any kind).
+  const fillBody = spec.slice(spec.indexOf('async fillCard('), spec.indexOf('async attachedInFrames('));
+  assert.doesNotMatch(fillBody, /type="tel"|autocomplete="tel|name="phone|getByLabel\([^)]*(phone|mobile)/i);
+  const factsBody = spec.slice(spec.indexOf('async afterSubmitFacts('), spec.indexOf('async payOnHostedPage('));
+  assert.ok(factsBody.length > 100);
+  assert.doesNotMatch(factsBody, /\.(fill|click|check|uncheck|press|type)\(/);
+  assert.equal(HOSTED_LINK_OPT_IN_NOT_CLEARED, 'hosted_link_optin_not_cleared');
+});
+
+// Sam on run 44080723593: the next attempt needs progress checkpoints. Each completed step and stage change prints one content-free line
+// as it happens, so a timeout still leaves the last step reached in the log.
+test('progress lines are content-free: fixed names and whole seconds only', () => {
+  assert.equal(progressLine('step', 'hosted_checkout', 12_999), 'BILLING_JOURNEY_PROGRESS step=hosted_checkout t=12s');
+  assert.equal(progressLine('stage', 'stripe_delivery', 0), 'BILLING_JOURNEY_PROGRESS stage=stripe_delivery t=0s');
+  for (const leak of ['cus_123 user@example.com', 'https://checkout.stripe.com/x', 'a'.repeat(65), '']) assert.equal(progressLine('checkpoint', leak, 1000), 'BILLING_JOURNEY_PROGRESS checkpoint=invalid t=1s');
+  assert.equal(progressLine('step', 'cleanup', Number.NaN), 'BILLING_JOURNEY_PROGRESS step=cleanup t=-1s');
+});
+
+test('the journey prints a checkpoint for every step and stage, and around every hosted action', () => {
+  const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
+  assert.match(spec, /set\.add = \(name: string\) => \{ if \(!set\.has\(name\)\) this\.checkpoint\(name, 'step'\)/);
+  assert.match(spec, /set stage\(name: string\) \{ this\.currentStage = name; this\.checkpoint\(name, 'stage'\); \}/);
+  for (const name of ['hosted_fill_start', 'hosted_fill_done', 'hosted_submit_search', 'hosted_submit_clicked', 'checkout_success_wait'])
+    assert.match(spec, new RegExp(`this\\.checkpoint\\('${name}'\\)`), name);
+  assert.doesNotMatch(spec, /console\.log\((?!progressLine)/, 'no other console output in the journey');
+});
+
+// Run 44098470690 clicked Subscribe and was never returned; the PO's manual walkthrough on the same price completed once Link's opt-in was
+// unticked. Stripe's own markup (read in the PO's DevTools, read-only) fixes the exact controls; a missing return now names what was shown.
+test('the hosted controls are the exact ones observed on Stripe Checkout', () => {
+  assert.deepEqual({ ...HOSTED_SELECTORS }, { submit: '[data-testid="payment-form-submit-button"]', linkOptInInput: '#payment-linkOptInInput', linkOptInLabel: '#Field-linkOptInCheckbox',
+    country: '#payment-countryInput', postalCode: '#payment-postalCodeInput', cardName: '#payment-nameInput' });
+  assert.ok(Object.isFrozen(HOSTED_SELECTORS));
+});
+
+test('a missing return after Subscribe is named content-free, and every named code survives into the receipt', () => {
+  assert.equal(checkoutNotReturned({ optIn: 'checked', phoneShown: true, alerts: 1, invalid: 1, challenge: false, invalidFields: ['zip'] }),
+    'checkout_success_not_reached_optin_checked_phone_shown_alerts_1_invalid_1_challenge_none_fields_zip');
+  assert.equal(checkoutNotReturned({ optIn: null, phoneShown: null, alerts: null, invalid: null, challenge: null, invalidFields: null }),
+    'checkout_success_not_reached_optin_unread_phone_unread_alerts_unread_invalid_unread_challenge_unread_fields_unread');
+  assert.equal(checkoutNotReturned({ optIn: 'clear', phoneShown: false, alerts: -1, invalid: Number.NaN, challenge: true, invalidFields: [] }),
+    'checkout_success_not_reached_optin_clear_phone_none_alerts_unread_invalid_unread_challenge_shown_fields_none');
+  // Run 44141620120's shape, now naming the fields: sorted, de-duplicated, and anything outside the closed tokens is `other`.
+  assert.equal(checkoutNotReturned({ optIn: 'clear', phoneShown: false, alerts: 4, invalid: 2, challenge: false, invalidFields: ['zip', 'country', 'zip', 'Card declined'] }),
+    'checkout_success_not_reached_optin_clear_phone_none_alerts_4_invalid_2_challenge_none_fields_country_other_zip');
+  // The longest possible code (every count unread, every field token) still fits the receipt's closed alphabet and length.
+  const longest = checkoutNotReturned({ optIn: null, phoneShown: null, alerts: null, invalid: null, challenge: null,
+    invalidFields: ['name', 'zip', 'country', 'number', 'expiry', 'cvc', 'email', 'other'] });
+  assert.ok(longest.length <= 160, String(longest.length));
+  for (const code of [longest, checkoutNotReturned({ optIn: 'absent', phoneShown: false, alerts: 0, invalid: 0, challenge: false, invalidFields: [] }),
+    hostedSubmitUnavailable({ visible: true, enabled: false, invalidFields: 2 }), hostedFieldNotEditable('card_number'), HOSTED_LINK_OPT_IN_NOT_CLEARED])
+    assert.equal(safeFailureReason(new Error(`BILLING_JOURNEY:${code}`)), code, code);
+  for (const leak of ['BILLING_JOURNEY:https://checkout.stripe.com/x', 'BILLING_JOURNEY:Card declined', `BILLING_JOURNEY:${'a'.repeat(161)}`, 'BILLING_JOURNEY:cus_ABC'])
+    assert.equal(safeFailureReason(new Error(leak)), 'unclassified_step_failure', leak);
+});
+
+test('the success wait after Subscribe names what the hosted page showed instead of a bare timeout', () => {
+  const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
+  assert.match(spec, /checkout_success_wait'\);\n\s+await this\.page\.waitForURL\([^;]*\.catch\(async \(\) => \{ throw new Error\(`BILLING_JOURNEY:\$\{checkoutNotReturned\(await this\.afterSubmitFacts\(\)\)\}`\)/);
+});
+
+// Run 44141620120 (after #1889): Stripe refused the form with 2 invalid fields. The PO's DevTools on that run's own session: country
+// <select id="payment-countryInput">, ZIP <input id="payment-postalCodeInput" autocomplete="billing postal-code">, name
+// <input id="payment-nameInput" autocomplete="cc-name">, all aria-required="true".
+test('invalid hosted controls are named by id or name attribute only, as closed tokens', () => {
+  assert.equal(invalidFieldToken({ id: 'payment-postalCodeInput', name: 'postalCode' }), 'zip');
+  assert.equal(invalidFieldToken({ id: 'payment-countryInput', name: null }), 'country');
+  assert.equal(invalidFieldToken({ id: null, name: 'name' }), 'name');
+  assert.equal(invalidFieldToken({ id: 'payment-numberInput', name: 'cardNumber' }), 'number');
+  for (const leak of [{ id: 'user@example.com', name: null }, { id: null, name: null }, { id: '__proto__', name: 'constructor' }])
+    assert.equal(invalidFieldToken(leak), 'other');
+  for (const field of ['billing_country', 'postal_code', 'card_name'] as HostedField[])
+    assert.equal(hostedFieldNotEditable(field), `hosted_field_not_editable_${field}`);
+});
+
+test('on Checkout the country, ZIP and name are REQUIRED fills by their exact ids, country first; the portal keeps them optional', () => {
+  const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
+  const body = spec.slice(spec.indexOf('async fillCard('), spec.indexOf('async visibleInFrames('));
+  const required = body.slice(body.indexOf("if (email !== 'none') {\n      await fill(HOSTED_SELECTORS.country"));
+  assert.ok(required.length > 0);
+  const country = required.indexOf("await fill(HOSTED_SELECTORS.country, 'US', 'billing_country', false, 'select');");
+  const zip = required.indexOf("await fill(HOSTED_SELECTORS.postalCode, '94105', 'postal_code');");
+  const name = required.indexOf("await fill(HOSTED_SELECTORS.cardName, 'SpeakSharp Test', 'card_name');");
+  assert.ok(country >= 0 && zip > country && name > zip, 'country, then ZIP, then name; none absent-allowed');
+  // The chosen country is read back from the select itself.
+  assert.match(body, /requireFact\(await input\.inputValue\(\{ timeout: HOSTED_READ_MS \}\)\.catch\(\(\) => null\) === value, hostedFieldNotEditable\(field\)\)/);
+  // The old exact `postal-code` selector alone (which never matched Stripe's "billing postal-code") is gone from the required path.
+  assert.doesNotMatch(required.slice(0, required.indexOf('} else {')), /autocomplete="postal-code"/);
+});
+
+test('the form-confirmable read is a bounded, read-only checkpoint taken after the opt-in and before Subscribe', () => {
+  const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
+  const read = spec.slice(spec.indexOf('async formConfirmable('), spec.indexOf('async payOnHostedPage('));
+  assert.ok(read.length > 100);
+  assert.doesNotMatch(read, /\.(fill|click|check|uncheck|press|type|selectOption)\(/);
+  assert.match(read, /getAttribute\('data-can-confirm', \{ timeout: HOSTED_READ_MS \}\)/);
+  assert.match(read, /const deadline = Date\.now\(\) \+ HOSTED_ACTION_MS;/);
+  const pay = spec.slice(spec.indexOf('async payOnHostedPage('), spec.indexOf('async noPaidAccess('));
+  const optIn = pay.indexOf('await this.clearLinkOptIn();'), check = pay.indexOf('await this.formConfirmable();'), submit = pay.indexOf('visibleInFrames(HOSTED_SELECTORS.submit)');
+  assert.ok(optIn > 0 && check > optIn && submit > check);
+  for (const name of ['hosted_form_confirmable', 'hosted_form_not_confirmable', 'hosted_form_confirm_unread'])
+    assert.equal(progressLine('checkpoint', name, 1000), `BILLING_JOURNEY_PROGRESS checkpoint=${name} t=1s`);
 });
