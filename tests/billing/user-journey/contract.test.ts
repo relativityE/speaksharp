@@ -4,7 +4,7 @@ import { test } from 'vitest';
 import { RUNNER_JOURNEYS, POLICY_PENDING_STEPS, REQUIRED_STEPS, receipt, assertTestPrice, assertInvoice,
   isCorrelatedDelivery, assertSandboxConfiguration, safeFailureReason, testClockCreateFields, localStackStatus,
   hostedFieldUnavailable, hostedEmailDecision, assertCheckoutIdentity, type HostedField,
-  HOSTED_ACTION_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, hostedFieldNotEditable, hostedSubmitUnavailable } from './contract';
+  HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, hostedFieldNotEditable, hostedSubmitUnavailable } from './contract';
 import { finaliseLocalStackReceipt, RECEIPT_KEYS } from './localStackReceipt.mjs';
 import { stackIdentitySha256 } from './localStackResources.mjs';
 
@@ -345,6 +345,11 @@ test('no fill or click on the hosted card path can wait without a bound', () => 
   const actions = body.match(/\.(fill|click|uncheck)\([^;]*/g) ?? [];
   assert.ok(actions.length >= 4);
   for (const call of actions) assert.match(call, /timeout: HOSTED_ACTION_MS/, call);
+  // Reads that wait for their element (Codex P2 on 011932fd: isEnabled after a failed click) carry their own small bound.
+  const waitingReads = body.match(/\.(isEnabled|isChecked)\([^)]*\)/g) ?? [];
+  assert.ok(waitingReads.length >= 2);
+  for (const call of waitingReads) assert.match(call, /timeout: HOSTED_READ_MS/, call);
+  assert.ok(HOSTED_READ_MS > 0 && HOSTED_READ_MS < HOSTED_ACTION_MS);
   // The Pay button is in Stripe's embedded frame (run 44080723593): it must be found across frames, never on the top document alone.
   assert.doesNotMatch(body, /this\.page\.locator\('button\[type="submit"\]'\)/);
   assert.match(body, /visibleInFrames\('button\[type="submit"\]'\)/);

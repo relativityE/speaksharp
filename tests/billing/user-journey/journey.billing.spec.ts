@@ -9,7 +9,7 @@ import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, re
   assertFullRefund, isRefundCancellation, assertCheckoutGrantedNothing,
   checkoutSessionFromUrl, assertCheckoutIdentity, newlyAddedCard, assertNoSecondCharge,
   type RunnerJourney, type BillingEvent, hostedFieldUnavailable, hostedEmailDecision, type HostedField,
-  HOSTED_ACTION_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, hostedFieldNotEditable, hostedSubmitUnavailable } from './contract';
+  HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, hostedFieldNotEditable, hostedSubmitUnavailable } from './contract';
 import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { selectBenchmarkMode, preparePrivateModelIfPrompted, startBenchmarkRecording,
   expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput, stopBenchmarkRecording,
@@ -261,9 +261,9 @@ class SandboxJourney {
     for (const frame of this.page.frames()) {
       const optIn = frame.getByRole('checkbox', { name: /save my information for faster checkout/i }).first();
       if (!await optIn.isVisible().catch(() => false)) continue;
-      if (await optIn.isChecked().catch(() => null) !== false) {
+      if (await optIn.isChecked({ timeout: HOSTED_READ_MS }).catch(() => null) !== false) {
         await optIn.uncheck({ timeout: HOSTED_ACTION_MS }).catch(() => undefined);
-        if (await optIn.isChecked().catch(() => null) !== false) throw new Error(`BILLING_JOURNEY:${HOSTED_LINK_OPT_IN_NOT_CLEARED}`);
+        if (await optIn.isChecked({ timeout: HOSTED_READ_MS }).catch(() => null) !== false) throw new Error(`BILLING_JOURNEY:${HOSTED_LINK_OPT_IN_NOT_CLEARED}`);
       }
     }
     // The Pay/Subscribe button lives in Stripe's embedded form frame, not the top document (run 44080723593 waited 10 minutes on a
@@ -280,7 +280,7 @@ class SandboxJourney {
         }
         return n;
       });
-      throw new Error(`BILLING_JOURNEY:${hostedSubmitUnavailable({ visible: await read(() => submit.isVisible()), enabled: await read(() => submit.isEnabled()), invalidFields })}`);
+      throw new Error(`BILLING_JOURNEY:${hostedSubmitUnavailable({ visible: await read(() => submit.isVisible()), enabled: await read(() => submit.isEnabled({ timeout: HOSTED_READ_MS })), invalidFields })}`);
     });
   }
 
