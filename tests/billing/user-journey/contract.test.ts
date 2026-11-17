@@ -4,7 +4,7 @@ import { test } from 'vitest';
 import { RUNNER_JOURNEYS, POLICY_PENDING_STEPS, REQUIRED_STEPS, receipt, assertTestPrice, assertInvoice,
   isCorrelatedDelivery, assertSandboxConfiguration, safeFailureReason, testClockCreateFields, localStackStatus,
   hostedFieldUnavailable, hostedEmailDecision, assertCheckoutIdentity, type HostedField,
-  HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, hostedFieldNotEditable, hostedSubmitUnavailable } from './contract';
+  HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable } from './contract';
 import { finaliseLocalStackReceipt, RECEIPT_KEYS } from './localStackReceipt.mjs';
 import { stackIdentitySha256 } from './localStackResources.mjs';
 
@@ -351,11 +351,19 @@ test('no fill or click on the hosted card path can wait without a bound', () => 
   for (const call of waitingReads) assert.match(call, /timeout: HOSTED_READ_MS/, call);
   assert.ok(HOSTED_READ_MS > 0 && HOSTED_READ_MS < HOSTED_ACTION_MS);
   // The Pay button is in Stripe's embedded frame (run 44080723593): it must be found across frames, never on the top document alone.
-  assert.doesNotMatch(body, /this\.page\.locator\('button\[type="submit"\]'\)/);
-  assert.match(body, /visibleInFrames\('button\[type="submit"\]'\)/);
-  // The default-ticked Link opt-in is cleared and proven unticked, never filled with a phone number.
-  assert.match(body, /save my information for faster checkout/i);
-  assert.doesNotMatch(body, /type="tel"|autocomplete="tel|name="phone|getByLabel\([^)]*(phone|mobile)/i);
+  assert.doesNotMatch(body, /button\[type="submit"\]/, 'never "the first submit button": Link and other buttons share the frame');
+  assert.match(body, /visibleInFrames\(HOSTED_SELECTORS\.submit\)/);
+  const pay = spec.slice(spec.indexOf('async payOnHostedPage('), spec.indexOf('async noPaidAccess('));
+  assert.ok(pay.indexOf('await this.clearLinkOptIn();') > 0 && pay.indexOf('await this.clearLinkOptIn();') < pay.indexOf('visibleInFrames(HOSTED_SELECTORS.submit)'), 'the opt-in is cleared before Subscribe is searched');
+  // The default-ticked Link opt-in is cleared through its label and proven unticked on its real input, never filled with a phone number.
+  assert.match(body, /attachedInFrames\(HOSTED_SELECTORS\.linkOptInInput\)/);
+  assert.match(body, /attachedInFrames\(HOSTED_SELECTORS\.linkOptInLabel\)/);
+  // The fill path never targets a phone field; the post-submit facts only READ (no fill, click or check of any kind).
+  const fillBody = spec.slice(spec.indexOf('async fillCard('), spec.indexOf('async attachedInFrames('));
+  assert.doesNotMatch(fillBody, /type="tel"|autocomplete="tel|name="phone|getByLabel\([^)]*(phone|mobile)/i);
+  const factsBody = spec.slice(spec.indexOf('async afterSubmitFacts('), spec.indexOf('async payOnHostedPage('));
+  assert.ok(factsBody.length > 100);
+  assert.doesNotMatch(factsBody, /\.(fill|click|check|uncheck|press|type)\(/);
   assert.equal(HOSTED_LINK_OPT_IN_NOT_CLEARED, 'hosted_link_optin_not_cleared');
 });
 
@@ -375,4 +383,30 @@ test('the journey prints a checkpoint for every step and stage, and around every
   for (const name of ['hosted_fill_start', 'hosted_fill_done', 'hosted_submit_search', 'hosted_submit_clicked', 'checkout_success_wait'])
     assert.match(spec, new RegExp(`this\\.checkpoint\\('${name}'\\)`), name);
   assert.doesNotMatch(spec, /console\.log\((?!progressLine)/, 'no other console output in the journey');
+});
+
+// Run 44098470690 clicked Subscribe and was never returned; the PO's manual walkthrough on the same price completed once Link's opt-in was
+// unticked. Stripe's own markup (read in the PO's DevTools, read-only) fixes the exact controls; a missing return now names what was shown.
+test('the hosted controls are the exact ones observed on Stripe Checkout', () => {
+  assert.deepEqual({ ...HOSTED_SELECTORS }, { submit: '[data-testid="payment-form-submit-button"]', linkOptInInput: '#payment-linkOptInInput', linkOptInLabel: '#Field-linkOptInCheckbox' });
+  assert.ok(Object.isFrozen(HOSTED_SELECTORS));
+});
+
+test('a missing return after Subscribe is named content-free, and every named code survives into the receipt', () => {
+  assert.equal(checkoutNotReturned({ optIn: 'checked', phoneShown: true, alerts: 1, invalid: 1, challenge: false }),
+    'checkout_success_not_reached_optin_checked_phone_shown_alerts_1_invalid_1_challenge_none');
+  const longest = checkoutNotReturned({ optIn: null, phoneShown: null, alerts: null, invalid: null, challenge: null });
+  assert.equal(longest, 'checkout_success_not_reached_optin_unread_phone_unread_alerts_unread_invalid_unread_challenge_unread');
+  assert.equal(checkoutNotReturned({ optIn: 'clear', phoneShown: false, alerts: -1, invalid: Number.NaN, challenge: true }),
+    'checkout_success_not_reached_optin_clear_phone_none_alerts_unread_invalid_unread_challenge_shown');
+  for (const code of [longest, checkoutNotReturned({ optIn: 'absent', phoneShown: false, alerts: 0, invalid: 0, challenge: false }),
+    hostedSubmitUnavailable({ visible: true, enabled: false, invalidFields: 2 }), hostedFieldNotEditable('card_number'), HOSTED_LINK_OPT_IN_NOT_CLEARED])
+    assert.equal(safeFailureReason(new Error(`BILLING_JOURNEY:${code}`)), code, code);
+  for (const leak of ['BILLING_JOURNEY:https://checkout.stripe.com/x', 'BILLING_JOURNEY:Card declined', `BILLING_JOURNEY:${'a'.repeat(161)}`, 'BILLING_JOURNEY:cus_ABC'])
+    assert.equal(safeFailureReason(new Error(leak)), 'unclassified_step_failure', leak);
+});
+
+test('the success wait after Subscribe names what the hosted page showed instead of a bare timeout', () => {
+  const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
+  assert.match(spec, /checkout_success_wait'\);\n\s+await this\.page\.waitForURL\([^;]*\.catch\(async \(\) => \{ throw new Error\(`BILLING_JOURNEY:\$\{checkoutNotReturned\(await this\.afterSubmitFacts\(\)\)\}`\)/);
 });
