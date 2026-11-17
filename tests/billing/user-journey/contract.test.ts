@@ -468,11 +468,14 @@ test('the form-confirmable read is a bounded, read-only checkpoint taken after t
 
 // Sam on run 44157731067 (receipt `fields_email`, `hosted_form_not_confirmable`): the fixture's Stripe customer has no email, so the
 // optional-email path must be closed for it, and a form that never reports it can confirm must not be submitted.
-test('the fixture creates its customer without an email, and only a presence flag for it is read, never the value', () => {
+test('existing-customer sandbox conversion: the fixture Customer carries the fixture email; only a presence flag is read, never the value', () => {
   const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
   const create = spec.slice(spec.indexOf("const customer = await this.stripe('customers', 'POST'"), spec.indexOf("requireFact(customer.livemode === false"));
   assert.ok(create.length > 0);
-  assert.doesNotMatch(create, /email/, 'the fixture customer carries no email, which is why Checkout asks for one');
+  // The clock and owner marker stay; the email is the fixture's own run-owned address (an existing customer's shape), never a user's.
+  assert.match(create, /\{ test_clock: this\.clock, email: this\.email,\s+'metadata\[speaksharp_test\]': this\.marker \}/);
+  assert.match(spec, /readonly email = `\$\{this\.marker\}@example\.com`;/);
+  assert.match(spec, /this\.checkpoint\('existing_customer_fixture'\);/);
   const open = spec.slice(spec.indexOf('async openCheckout('), spec.indexOf('async checkout(): Promise<void> {'));
   const identity = open.indexOf('assertCheckoutIdentity('), presence = open.indexOf('this.boundCustomerHasEmail = typeof bound.email'), bind = open.indexOf('this.boundCheckout = session;');
   assert.ok(identity > 0 && presence > identity && bind > presence, 'presence is read after the identity proof and before the session is bound');

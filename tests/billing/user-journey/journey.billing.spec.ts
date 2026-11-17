@@ -194,11 +194,16 @@ class SandboxJourney {
     this.clock = clock.id;
     this.uncertainStripeCreate = false;
     this.uncertainStripeCreate = true;
-    const customer = await this.stripe('customers', 'POST', { test_clock: this.clock,
+    // EXISTING-CUSTOMER sandbox conversion (Sam on run 44157731067): the journey preassigns a clock-backed Customer, so Checkout gets
+    // `customer`, never `customer_email` as an ordinary first conversion does. That Customer now carries the fixture's own email, as an
+    // existing customer would, so Checkout has an email without asking. This is NOT the no-email hosted path (still a regression case in
+    // hostedEmailDecision) and NOT true first conversion, which needs its own proof of initial webhook binding, dedup and cleanup.
+    const customer = await this.stripe('customers', 'POST', { test_clock: this.clock, email: this.email,
       'metadata[speaksharp_test]': this.marker });
     requireFact(customer.livemode === false && typeof customer.id === 'string', 'customer_identity_missing');
     this.customer = customer.id;
     this.uncertainStripeCreate = false;
+    this.checkpoint('existing_customer_fixture');
     const seeded = await this.admin.from('user_profiles').update({ stripe_customer_id: this.customer }).eq('id', this.uid);
     requireFact(!seeded.error, 'fixture_customer_binding_failed');
     await this.login();
