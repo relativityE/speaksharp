@@ -40,6 +40,9 @@ export function hostedFieldUnavailable(field: HostedField, cardChoiceShown: bool
 /** Every hosted-page fill and the Pay click are bounded (run 44080723593: an unbounded wait ran into the 10-minute test timeout). */
 export const HOSTED_ACTION_MS = 30_000;
 
+/** Stripe Link's default-ticked "save my information" opt-in could not be cleared; the journey never creates a Link account. */
+export const HOSTED_LINK_OPT_IN_NOT_CLEARED = 'hosted_link_optin_not_cleared';
+
 /** A hosted field that was visible but did not accept input within the bound, named content-free. */
 export function hostedFieldNotEditable(field: HostedField): string {
   requireFact(HOSTED_FIELDS.includes(field), 'hosted_field_unknown');

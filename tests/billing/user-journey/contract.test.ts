@@ -4,7 +4,7 @@ import { test } from 'vitest';
 import { RUNNER_JOURNEYS, POLICY_PENDING_STEPS, REQUIRED_STEPS, receipt, assertTestPrice, assertInvoice,
   isCorrelatedDelivery, assertSandboxConfiguration, safeFailureReason, testClockCreateFields, localStackStatus,
   hostedFieldUnavailable, hostedEmailDecision, assertCheckoutIdentity, type HostedField,
-  HOSTED_ACTION_MS, hostedFieldNotEditable, hostedSubmitUnavailable } from './contract';
+  HOSTED_ACTION_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, hostedFieldNotEditable, hostedSubmitUnavailable } from './contract';
 import { finaliseLocalStackReceipt, RECEIPT_KEYS } from './localStackReceipt.mjs';
 import { stackIdentitySha256 } from './localStackResources.mjs';
 
@@ -342,7 +342,14 @@ test('no fill or click on the hosted card path can wait without a bound', () => 
   const end = spec.indexOf('\n  }\n', spec.indexOf('async payOnHostedPage('));
   assert.ok(start > 0 && end > start);
   const body = spec.slice(start, end);
-  const actions = body.match(/\.(fill|click)\([^;]*/g) ?? [];
-  assert.ok(actions.length >= 3);
+  const actions = body.match(/\.(fill|click|uncheck)\([^;]*/g) ?? [];
+  assert.ok(actions.length >= 4);
   for (const call of actions) assert.match(call, /timeout: HOSTED_ACTION_MS/, call);
+  // The Pay button is in Stripe's embedded frame (run 44080723593): it must be found across frames, never on the top document alone.
+  assert.doesNotMatch(body, /this\.page\.locator\('button\[type="submit"\]'\)/);
+  assert.match(body, /visibleInFrames\('button\[type="submit"\]'\)/);
+  // The default-ticked Link opt-in is cleared and proven unticked, never filled with a phone number.
+  assert.match(body, /save my information for faster checkout/i);
+  assert.doesNotMatch(body, /type="tel"|autocomplete="tel|name="phone|getByLabel\([^)]*(phone|mobile)/i);
+  assert.equal(HOSTED_LINK_OPT_IN_NOT_CLEARED, 'hosted_link_optin_not_cleared');
 });

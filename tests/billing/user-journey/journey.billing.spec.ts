@@ -9,7 +9,7 @@ import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, re
   assertFullRefund, isRefundCancellation, assertCheckoutGrantedNothing,
   checkoutSessionFromUrl, assertCheckoutIdentity, newlyAddedCard, assertNoSecondCharge,
   type RunnerJourney, type BillingEvent, hostedFieldUnavailable, hostedEmailDecision, type HostedField,
-  HOSTED_ACTION_MS, hostedFieldNotEditable, hostedSubmitUnavailable } from './contract';
+  HOSTED_ACTION_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, hostedFieldNotEditable, hostedSubmitUnavailable } from './contract';
 import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { selectBenchmarkMode, preparePrivateModelIfPrompted, startBenchmarkRecording,
   expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput, stopBenchmarkRecording,
@@ -239,10 +239,37 @@ class SandboxJourney {
     }
   }
 
+  /** The first visible match of `selector` in ANY frame, polled within the hosted-action bound; null when none appears. */
+  async visibleInFrames(selector: string): Promise<import('@playwright/test').Locator | null> {
+    const deadline = Date.now() + HOSTED_ACTION_MS;
+    do {
+      for (const frame of this.page.frames()) {
+        const candidate = frame.locator(selector).first();
+        if (await candidate.isVisible().catch(() => false)) return candidate;
+      }
+      await sleep(500);
+    } while (Date.now() < deadline);
+    return null;
+  }
+
   async payOnHostedPage(card: string): Promise<void> {
     // Email is filled when shown; it may be absent only on the exact session openCheckout bound to this run's customer.
     await this.fillCard(card, 'after-binding');
-    const submit = this.page.locator('button[type="submit"]').first();
+    // Stripe Link's "Save my information for faster checkout" is ticked by default and then requires a mobile number (seen on run
+    // 44080723593's own session). The journey never creates a Link account (it would be external residue): it unticks the opt-in when
+    // shown and proves it is unticked, or stops with a named code. Not shown: nothing to clear.
+    for (const frame of this.page.frames()) {
+      const optIn = frame.getByRole('checkbox', { name: /save my information for faster checkout/i }).first();
+      if (!await optIn.isVisible().catch(() => false)) continue;
+      if (await optIn.isChecked().catch(() => null) !== false) {
+        await optIn.uncheck({ timeout: HOSTED_ACTION_MS }).catch(() => undefined);
+        if (await optIn.isChecked().catch(() => null) !== false) throw new Error(`BILLING_JOURNEY:${HOSTED_LINK_OPT_IN_NOT_CLEARED}`);
+      }
+    }
+    // The Pay/Subscribe button lives in Stripe's embedded form frame, not the top document (run 44080723593 waited 10 minutes on a
+    // top-document locator that never matched). Searched in every frame, bounded.
+    const submit = await this.visibleInFrames('button[type="submit"]');
+    if (!submit) throw new Error(`BILLING_JOURNEY:${hostedSubmitUnavailable({ visible: false, enabled: null, invalidFields: null })}`);
     await submit.click({ timeout: HOSTED_ACTION_MS }).catch(async () => {
       const read = async <T>(f: () => Promise<T>): Promise<T | null> => { try { return await f(); } catch { return null; } };
       const invalidFields = await read(async () => {
