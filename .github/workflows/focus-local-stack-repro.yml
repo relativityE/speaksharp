@@ -36,7 +36,9 @@ jobs:
     timeout-minutes: 45
     env:
       SUPABASE_WORKDIR: backend
-      LOCAL_STACK_PROJECT: focus-local-stack-${{ github.run_id }}-${{ github.run_attempt }}
+      # localStackResources.mjs (shared with the billing journeys, unchanged) accepts only billing-local-stack-<run>-<attempt>
+      # ids. The run id is unique across workflows, so this name still matches only this run's stack.
+      LOCAL_STACK_PROJECT: billing-local-stack-${{ github.run_id }}-${{ github.run_attempt }}
       LOCAL_API_URL: http://127.0.0.1:54321
       LOCAL_APP_URL: http://localhost:5173
     steps:
