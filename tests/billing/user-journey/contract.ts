@@ -81,6 +81,28 @@ const INVALID_FIELD_TOKENS: Readonly<Record<string, string>> = Object.freeze({
   country: 'country', cardNumber: 'number', 'payment-numberInput': 'number', cardExpiry: 'expiry', 'payment-expiryInput': 'expiry',
   cardCvc: 'cvc', 'payment-cvcInput': 'cvc', email: 'email',
 });
+/**
+ * The disposable Stripe Customer the journey preassigns. Only CONVERSION gets the fixture's own run-owned email (Sam on #1892:
+ * "existing-customer sandbox conversion"); every other journey's Customer request is exactly what it was before (clock + owner marker).
+ */
+export function fixtureCustomerFields(journey: string, f: { clock: string; email: string; marker: string }): Record<string, string> {
+  const base: Record<string, string> = { test_clock: f.clock, 'metadata[speaksharp_test]': f.marker };
+  return journey === 'conversion' ? { ...base, email: f.email } : base;
+}
+
+/**
+ * Which hosted control to use, given each candidate selector's matches in PRIORITY order (`visible[s][m]`: whether match m of selector
+ * s is visible, across frames). The first selector with ANY visible match wins, at its first visible match: a hidden match before a
+ * visible one never hides it, and a generic selector never outranks the observed control. Null when nothing is visible.
+ */
+export function firstVisibleControl(visible: readonly (readonly boolean[])[]): { selector: number; match: number } | null {
+  for (let s = 0; s < visible.length; s++) {
+    const m = visible[s].indexOf(true);
+    if (m >= 0) return { selector: s, match: m };
+  }
+  return null;
+}
+
 export function invalidFieldToken(attrs: { id: string | null; name: string | null }): string {
   for (const key of [attrs.id, attrs.name]) if (typeof key === 'string' && Object.hasOwn(INVALID_FIELD_TOKENS, key)) return INVALID_FIELD_TOKENS[key];
   return 'other';

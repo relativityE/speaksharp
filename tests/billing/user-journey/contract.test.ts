@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'vitest';
 import { RUNNER_JOURNEYS, POLICY_PENDING_STEPS, REQUIRED_STEPS, receipt, assertTestPrice, assertInvoice,
   isCorrelatedDelivery, assertSandboxConfiguration, safeFailureReason, testClockCreateFields, localStackStatus,
-  hostedFieldUnavailable, hostedEmailDecision, assertCheckoutIdentity, type HostedField, hostedFormNotConfirmable,
+  hostedFieldUnavailable, hostedEmailDecision, assertCheckoutIdentity, type HostedField, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl,
   HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken } from './contract';
 import { finaliseLocalStackReceipt, RECEIPT_KEYS } from './localStackReceipt.mjs';
 import { stackIdentitySha256 } from './localStackResources.mjs';
@@ -472,10 +472,11 @@ test('existing-customer sandbox conversion: the fixture Customer carries the fix
   const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
   const create = spec.slice(spec.indexOf("const customer = await this.stripe('customers', 'POST'"), spec.indexOf("requireFact(customer.livemode === false"));
   assert.ok(create.length > 0);
-  // The clock and owner marker stay; the email is the fixture's own run-owned address (an existing customer's shape), never a user's.
-  assert.match(create, /\{ test_clock: this\.clock, email: this\.email,\s+'metadata\[speaksharp_test\]': this\.marker \}/);
+  // The request is built by fixtureCustomerFields for THIS journey; the email is the fixture's own run-owned address, never a user's.
+  assert.match(create, /fixtureCustomerFields\(this\.journey, \{ clock: this\.clock, email: this\.email, marker: this\.marker \}\)/);
   assert.match(spec, /readonly email = `\$\{this\.marker\}@example\.com`;/);
-  assert.match(spec, /this\.checkpoint\('existing_customer_fixture'\);/);
+  assert.match(spec, /if \(this\.journey === 'conversion'\) this\.checkpoint\('existing_customer_fixture'\);/);
+  assert.doesNotMatch(spec, /^\s*this\.checkpoint\('existing_customer_fixture'\);/m, 'never unconditional');
   const open = spec.slice(spec.indexOf('async openCheckout('), spec.indexOf('async checkout(): Promise<void> {'));
   const identity = open.indexOf('assertCheckoutIdentity('), presence = open.indexOf('this.boundCustomerHasEmail = typeof bound.email'), bind = open.indexOf('this.boundCheckout = session;');
   assert.ok(identity > 0 && presence > identity && bind > presence, 'presence is read after the identity proof and before the session is bound');
@@ -502,9 +503,34 @@ test('an unconfirmable form is not submitted: the stop names the invalid control
   assert.doesNotMatch(pay, /if \(confirmable !== true\)|if \(!confirmable\)/);
 });
 
-test('the hosted email is found by the observed control: Link\'s text input, which `input[type="email"]` alone never matched', () => {
+test('the hosted email is found by the observed control first: Link\'s text input, which `input[type="email"]` alone never matched', () => {
   assert.equal(HOSTED_SELECTORS.email, '#linkAuthentication-emailInput');
   assert.equal(invalidFieldToken({ id: 'linkAuthentication-emailInput', name: 'email' }), 'email');
   const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
-  assert.match(spec, /await fill\(`\$\{HOSTED_SELECTORS\.email\},input\[type="email"\]`, this\.email, 'email', decision === 'absent_after_binding'\);/);
+  // Two selectors in priority order, never one combined selector (whose .first() follows document order, not priority).
+  assert.match(spec, /await fill\(\[HOSTED_SELECTORS\.email, 'input\[type="email"\]'\], this\.email, 'email', decision === 'absent_after_binding'\);/);
+  assert.doesNotMatch(spec, /`\$\{HOSTED_SELECTORS\.email\},input\[type="email"\]`/);
+  const fillBody = spec.slice(spec.indexOf('const fill = async ('), spec.indexOf('// Email only: absent is accepted'));
+  assert.match(fillBody, /const pick = firstVisibleControl\(visible\);/);
+  assert.doesNotMatch(fillBody, /\.first\(\)/, 'no first-in-document-order pick in the fill');
+});
+
+// Sam on #1892 (a3fb4404): the fixture email was unconditional in shared setup, and a combined selector's .first() did not give the
+// observed control priority.
+test('only conversion\'s Customer carries the fixture email; every other journey\'s Customer request is unchanged', () => {
+  const f = { clock: 'clock_1', email: 'rwt-journey-billing-x@example.com', marker: 'rwt-journey-billing-x' };
+  const before = { test_clock: 'clock_1', 'metadata[speaksharp_test]': 'rwt-journey-billing-x' }; // the request every journey sent before #1892
+  assert.deepEqual(fixtureCustomerFields('conversion', f), { ...before, email: f.email });
+  const others = RUNNER_JOURNEYS.filter((j) => j !== 'conversion');
+  assert.ok(others.length >= 2, String(others));
+  for (const journey of others) assert.deepEqual(fixtureCustomerFields(journey, f), before, journey);
+});
+
+test('the observed control wins over a generic match, and a hidden match before a visible one never hides it', () => {
+  assert.deepEqual(firstVisibleControl([[true], [true]]), { selector: 0, match: 0 }, 'observed control first');
+  assert.deepEqual(firstVisibleControl([[false, true], [true]]), { selector: 0, match: 1 }, 'hidden observed match before a visible one');
+  assert.deepEqual(firstVisibleControl([[false], [false, true]]), { selector: 1, match: 1 }, 'observed hidden: the visible generic match, not its hidden first');
+  assert.deepEqual(firstVisibleControl([[], [true]]), { selector: 1, match: 0 });
+  assert.equal(firstVisibleControl([[false], [false]]), null);
+  assert.equal(firstVisibleControl([]), null);
 });

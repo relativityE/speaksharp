@@ -9,7 +9,7 @@ import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, re
   assertFullRefund, isRefundCancellation, assertCheckoutGrantedNothing,
   checkoutSessionFromUrl, assertCheckoutIdentity, newlyAddedCard, assertNoSecondCharge,
   type RunnerJourney, type BillingEvent, hostedFieldUnavailable, hostedEmailDecision, type HostedField,
-  HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken, hostedFormNotConfirmable } from './contract';
+  HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl } from './contract';
 import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { selectBenchmarkMode, preparePrivateModelIfPrompted, startBenchmarkRecording,
   expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput, stopBenchmarkRecording,
@@ -195,15 +195,14 @@ class SandboxJourney {
     this.uncertainStripeCreate = false;
     this.uncertainStripeCreate = true;
     // EXISTING-CUSTOMER sandbox conversion (Sam on run 44157731067): the journey preassigns a clock-backed Customer, so Checkout gets
-    // `customer`, never `customer_email` as an ordinary first conversion does. That Customer now carries the fixture's own email, as an
-    // existing customer would, so Checkout has an email without asking. This is NOT the no-email hosted path (still a regression case in
+    // `customer`, never `customer_email` as an ordinary first conversion does. For CONVERSION only, that Customer carries the fixture's
+    // own email, as an existing customer would, so Checkout has an email without asking; every other journey's request is unchanged. This is NOT the no-email hosted path (still a regression case in
     // hostedEmailDecision) and NOT true first conversion, which needs its own proof of initial webhook binding, dedup and cleanup.
-    const customer = await this.stripe('customers', 'POST', { test_clock: this.clock, email: this.email,
-      'metadata[speaksharp_test]': this.marker });
+    const customer = await this.stripe('customers', 'POST', fixtureCustomerFields(this.journey, { clock: this.clock, email: this.email, marker: this.marker }));
     requireFact(customer.livemode === false && typeof customer.id === 'string', 'customer_identity_missing');
     this.customer = customer.id;
     this.uncertainStripeCreate = false;
-    this.checkpoint('existing_customer_fixture');
+    if (this.journey === 'conversion') this.checkpoint('existing_customer_fixture');
     const seeded = await this.admin.from('user_profiles').update({ stripe_customer_id: this.customer }).eq('id', this.uid);
     requireFact(!seeded.error, 'fixture_customer_binding_failed');
     await this.login();
@@ -211,20 +210,33 @@ class SandboxJourney {
 
   /** Fills Stripe's hosted card form (Checkout or the portal) and submits. Never reads or reports its content. */
   async fillCard(card: string, email: 'required' | 'after-binding' | 'none'): Promise<void> {
-    const fill = async (selector: string, value: string, field: HostedField, absentAllowed = false, kind: 'input' | 'select' = 'input') => {
+    // `selector`: one selector, or several in PRIORITY order (the observed control first). Every match of every selector is checked,
+    // so a hidden match before a visible one never hides it (firstVisibleControl).
+    const fill = async (selector: string | readonly string[], value: string, field: HostedField, absentAllowed = false, kind: 'input' | 'select' = 'input') => {
+      const selectors = typeof selector === 'string' ? [selector] : selector;
       for (let attempt = 0; attempt < 40; attempt++) {
-        for (const frame of this.page.frames()) {
-          const input = frame.locator(selector).first();
-          if (await input.isVisible()) {
-            if (kind === 'select') {
-              await input.selectOption(value, { timeout: HOSTED_ACTION_MS }).catch(() => { throw new Error(`BILLING_JOURNEY:${hostedFieldNotEditable(field)}`); });
-              // Proven chosen: the select's own value, never assumed from the call.
-              requireFact(await input.inputValue({ timeout: HOSTED_READ_MS }).catch(() => null) === value, hostedFieldNotEditable(field));
-            } else {
-              await input.fill(value, { timeout: HOSTED_ACTION_MS }).catch(() => { throw new Error(`BILLING_JOURNEY:${hostedFieldNotEditable(field)}`); });
-            }
-            return;
+        const matches: import('@playwright/test').Locator[][] = [];
+        const visible: boolean[][] = [];
+        for (const sel of selectors) {
+          const found: import('@playwright/test').Locator[] = []; const shown: boolean[] = [];
+          for (const frame of this.page.frames()) {
+            const all = frame.locator(sel);
+            const n = Math.min(await all.count().catch(() => 0), 10);
+            for (let i = 0; i < n; i++) { found.push(all.nth(i)); shown.push(await all.nth(i).isVisible().catch(() => false)); }
           }
+          matches.push(found); visible.push(shown);
+        }
+        const pick = firstVisibleControl(visible);
+        if (pick) {
+          const input = matches[pick.selector][pick.match];
+          if (kind === 'select') {
+            await input.selectOption(value, { timeout: HOSTED_ACTION_MS }).catch(() => { throw new Error(`BILLING_JOURNEY:${hostedFieldNotEditable(field)}`); });
+            // Proven chosen: the select's own value, never assumed from the call.
+            requireFact(await input.inputValue({ timeout: HOSTED_READ_MS }).catch(() => null) === value, hostedFieldNotEditable(field));
+          } else {
+            await input.fill(value, { timeout: HOSTED_ACTION_MS }).catch(() => { throw new Error(`BILLING_JOURNEY:${hostedFieldNotEditable(field)}`); });
+          }
+          return;
         }
         await sleep(500);
       }
@@ -247,7 +259,7 @@ class SandboxJourney {
         boundSession: email === 'after-binding' ? this.boundCheckout : null,
         boundCustomerHasEmail: email === 'after-binding' ? this.boundCustomerHasEmail : null });
       // The observed control first (run 44157731067), then the generic email input.
-      await fill(`${HOSTED_SELECTORS.email},input[type="email"]`, this.email, 'email', decision === 'absent_after_binding');
+      await fill([HOSTED_SELECTORS.email, 'input[type="email"]'], this.email, 'email', decision === 'absent_after_binding');
     }
     await fill('input[autocomplete="cc-number"],input[name="cardNumber"]', card, 'card_number');
     await fill('input[autocomplete="cc-exp"],input[name="cardExpiry"]', '1234', 'card_expiry');
