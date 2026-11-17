@@ -15,7 +15,8 @@ import { selectBenchmarkMode, preparePrivateModelIfPrompted, startBenchmarkRecor
  * recording through the Private engine, and checks Sam's three facts at the source:
  *   1. Open Mic is active for the Open Mic take (no Focus rail on the page, and its saved row says open_mic);
  *   2. the Focus take after the switch actually saves (exactly one new completed focus_points row);
- *   3. after a reload the same Focus set is shown, and Edit reopens it with the same topic and points.
+ *   3. after a reload the saved take shows the same points, its Practice again re-enters that set, and Edit reopens it
+ *      with the same topic and points.
  * It also records what the post-switch review shows (rail rows, Start a new set), which is the live symptom, and the
  * switch take's controller trace from this branch (states and counts only), so a failure names the branch taken.
  *
@@ -78,11 +79,14 @@ async function realTake(page: Page, label: string, before: string | null, alread
   await expectBenchmarkRecordingStarted(page, label);
   await sleep(TAKE_MS);
   await stopBenchmarkRecording(page, label, 120_000);
-  await expect.poll(() => persistedId(page), { timeout: 120_000 }).not.toBe(before);
   await expect(page.locator('[data-testid="session-shell"][data-session-state="after"]')).toBeVisible({ timeout: 60_000 });
-  const id = await persistedId(page);
-  expect(id && UUID.test(id), `${label}: a persisted session id`).toBeTruthy();
-  return id as string;
+  // A new take clears the attribute when it starts, so "different from before" alone also matches the cleared (null)
+  // value; wait for a NEW persisted id. A timeout here means the take never saved.
+  await expect.poll(async () => {
+    const id = await persistedId(page);
+    return id !== null && UUID.test(id) && id !== before;
+  }, { message: `${label}: the take saves and the page names its new persisted session id`, timeout: 120_000 }).toBe(true);
+  return (await persistedId(page)) as string;
 }
 
 test.use({ trace: 'off', video: 'off', screenshot: 'off', permissions: ['microphone'] });
@@ -169,8 +173,21 @@ test('#1882 local stack: Open Mic → Focus switch → reload → Edit, with rea
     expect(railRows, `the post-switch review shows the four points; trace ${switchTrace}`).toBeGreaterThanOrEqual(POINTS.length);
     expect(newSetOffered, `the post-switch review offers Start a new set; trace ${switchTrace}`).toBe(1);
 
-    // ── 4. Reload: the same Focus set comes back, and Edit reopens it unchanged ──
+    // ── 4. Reload: the saved take comes back with its points, and Practice again rebinds the same set ──
+    // A saved take puts its id in ?review=, so a reload shows the read-only saved review (SavedSessionReturn), not the
+    // live rail; it has no topic or Edit control. Check the saved points there first, then use its own practice action
+    // to re-enter the saved Focus set before checking the topic and Edit.
     await page.reload();
+    const savedReturn = page.getByTestId('saved-session-return');
+    await expect(savedReturn, 'check 3: the reload restores the saved take').toHaveAttribute('data-session-id', switched,
+      { timeout: 60_000 });
+    for (let i = 0; i < POINTS.length; i += 1) {
+      await expect(savedReturn.getByTestId(`focus-point-${i}`), `check 3: saved point ${i + 1} after reload`)
+        .toContainText(POINTS[i], { timeout: 60_000 });
+    }
+    const practiceAgain = page.getByTestId('saved-review-practice');
+    await expect(practiceAgain).toBeEnabled({ timeout: 60_000 });
+    await practiceAgain.click({ timeout: STEP_MS });
     await expect(page.getByTestId('focus-points-topic')).toHaveText(TOPIC, { timeout: 60_000 });
     for (let i = 0; i < POINTS.length; i += 1) {
       await expect(page.getByTestId(`focus-point-${i}`), `check 3: point ${i + 1} after reload`).toContainText(POINTS[i]);
