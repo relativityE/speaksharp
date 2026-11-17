@@ -9,7 +9,7 @@ import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, re
   assertFullRefund, isRefundCancellation, assertCheckoutGrantedNothing,
   checkoutSessionFromUrl, assertCheckoutIdentity, newlyAddedCard, assertNoSecondCharge,
   type RunnerJourney, type BillingEvent, hostedFieldUnavailable, hostedEmailDecision, type HostedField,
-  HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken } from './contract';
+  HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken, hostedFormNotConfirmable } from './contract';
 import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { selectBenchmarkMode, preparePrivateModelIfPrompted, startBenchmarkRecording,
   expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput, stopBenchmarkRecording,
@@ -58,6 +58,8 @@ class SandboxJourney {
   uid = ''; customer = ''; subscription = ''; clock = ''; session = ''; savedSession = '';
   /** The Checkout session openCheckout positively bound to this run (assertCheckoutIdentity); null until then. */
   boundCheckout: string | null = null;
+  /** Whether the bound Stripe customer carries an email: a presence flag only, never the value; null when unread. */
+  boundCustomerHasEmail: boolean | null = null;
   signupAttempted = false;
   uncertainStripeCreate = false;
   private currentStage = 'preflight';
@@ -237,7 +239,8 @@ class SandboxJourney {
     if (email !== 'none') {
       const decision = hostedEmailDecision({ emailFieldVisible: false,
         shownSession: email === 'after-binding' ? (() => { try { return checkoutSessionFromUrl(this.page.url()); } catch { return null; } })() : null,
-        boundSession: email === 'after-binding' ? this.boundCheckout : null });
+        boundSession: email === 'after-binding' ? this.boundCheckout : null,
+        boundCustomerHasEmail: email === 'after-binding' ? this.boundCustomerHasEmail : null });
       await fill('input[type="email"]', this.email, 'email', decision === 'absent_after_binding');
     }
     await fill('input[autocomplete="cc-number"],input[name="cardNumber"]', card, 'card_number');
@@ -363,9 +366,11 @@ class SandboxJourney {
     // never returned; a person who unticked it completed the same checkout. The real input sits under a styled wrapper, so it is read by
     // its exact id and toggled through its label, then proven clear. The journey never creates a Link account or enters a phone number.
     await this.clearLinkOptIn();
-    // A checkpoint, not a gate: the click below still happens, and a refusal is then named field by field from the page.
+    // Sam on run 44157731067: a form that never reports it can confirm is NOT submitted; the stop names the invalid controls. An unread
+    // state (no data-can-confirm on the page) still proceeds, so a page change cannot block a payable form.
     const confirmable = await this.formConfirmable();
     this.checkpoint(confirmable === true ? 'hosted_form_confirmable' : confirmable === false ? 'hosted_form_not_confirmable' : 'hosted_form_confirm_unread');
+    if (confirmable === false) throw new Error(`BILLING_JOURNEY:${hostedFormNotConfirmable((await this.afterSubmitFacts()).invalidFields)}`);
     // Exactly the Subscribe button (data-testid observed on the hosted page), never "the first submit button".
     this.checkpoint('hosted_submit_search');
     const submit = await this.visibleInFrames(HOSTED_SELECTORS.submit);
@@ -401,8 +406,12 @@ class SandboxJourney {
   async openCheckout(raw: string | null): Promise<string> {
     const session = checkoutSessionFromUrl(raw);
     this.boundCheckout = null;
+    this.boundCustomerHasEmail = null;
     assertCheckoutIdentity(await this.stripe(`checkout/sessions/${session}`),
       { session, customer: this.customer, uid: this.uid, app: this.targets.app });
+    // Presence only (the value is never kept or reported): whether Checkout has an email for this customer without asking.
+    const bound = await this.stripe(`customers/${this.customer}`);
+    this.boundCustomerHasEmail = typeof bound.email === 'string' ? bound.email.length > 0 : bound.email === null ? false : null;
     // Set only after the positive binding above: the one session hostedEmailDecision may accept without an email field.
     this.boundCheckout = session;
     await this.page.goto(raw as string);

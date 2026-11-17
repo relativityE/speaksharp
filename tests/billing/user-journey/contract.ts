@@ -122,15 +122,29 @@ export function hostedSubmitUnavailable(facts: { visible: boolean | null; enable
  * Whether the hosted email field must be filled, when the card is entered (run 44066185734: hosted_field_unavailable_email).
  * Email is REQUIRED by default. A visible editable field is always filled. It may be absent only when the page on screen is the
  * exact Checkout session that `assertCheckoutIdentity` already proved is this run's open, unpaid test-mode session for the
- * run-owned Stripe customer and app user (`boundSession`): Stripe renders no email input for an existing customer. A
- * non-empty `customer` alone is not that proof, and an unbound, different or unknown session never skips it.
+ * run-owned Stripe customer and app user (`boundSession`) AND that bound customer already carries an email
+ * (`boundCustomerHasEmail === true`, read from Stripe as a presence flag only): only then is there no email for Checkout to ask for.
+ * Run 44157731067 (after #1890): the fixture creates its customer WITHOUT an email, Checkout still required one, and the old rule
+ * (bound session alone) let the journey skip it: the form stayed unconfirmable with `fields_email`. A customer without an email, or
+ * one whose email presence is unread, never takes the absent path. A non-empty `customer` alone is not proof, and an unbound,
+ * different or unknown session never skips it.
  */
-export function hostedEmailDecision(input: { emailFieldVisible: boolean; shownSession: string | null; boundSession: string | null }):
-  'fill' | 'absent_after_binding' | 'missing' {
+export function hostedEmailDecision(input: { emailFieldVisible: boolean; shownSession: string | null; boundSession: string | null;
+  boundCustomerHasEmail: boolean | null }): 'fill' | 'absent_after_binding' | 'missing' {
   if (input.emailFieldVisible) return 'fill';
   const bound = typeof input.boundSession === 'string' && /^cs_test_[A-Za-z0-9]+$/.test(input.boundSession)
     && input.shownSession === input.boundSession;
-  return bound ? 'absent_after_binding' : 'missing';
+  return bound && input.boundCustomerHasEmail === true ? 'absent_after_binding' : 'missing';
+}
+
+/**
+ * The hosted form never reported it can confirm (`data-can-confirm` read "false" within the bound): Subscribe is NOT clicked, and the
+ * stop names the controls Stripe marked invalid (closed tokens, as in `checkoutNotReturned`). An unread state does not stop the run.
+ */
+export function hostedFormNotConfirmable(invalidFields: readonly string[] | null): string {
+  const known = new Set(Object.values(INVALID_FIELD_TOKENS));
+  const tokens = Array.isArray(invalidFields) ? [...new Set(invalidFields.map((t) => (known.has(t) ? t : 'other')))].sort() : null;
+  return `hosted_form_not_confirmable_fields_${tokens === null ? 'unread' : tokens.length ? tokens.join('_') : 'none'}`;
 }
 
 export function safeFailureReason(error: unknown): string {
