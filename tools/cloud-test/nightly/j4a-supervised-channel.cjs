@@ -192,4 +192,37 @@ function connectChildChannel({ port, identity, timeoutMs = 10_000 }) {
     });
 }
 
-module.exports = { RESIDUE_KINDS, attachParentChannel, connectChildChannel, validCleanupReport };
+// The child's OWN identity, built inside run-guarded.cjs before browser launch. Campaign, case, config hash and the exact
+// source/served release come from what the child itself validated (the admitted --campaign-id, the hash-checked case config);
+// only run id, request and plan hashes come from the runtime-start receipt, and only when its bytes match the SHA-256 pinned on
+// the command line and every overlapping field agrees with the child's own values. Any mismatch refuses: no fall-through.
+const RUNTIME_START_SCHEMA = 'speaksharp.cloud-test.runtime-start-consumption.v1';
+function childIdentity({ runtimeStartBytes, runtimeStartSha256, campaignId, caseConfig, caseConfigSha256 }) {
+    const refuse = (why) => { const e = new Error(`J4A_BINDING_REFUSED: ${why}`); e.code = 'J4A_BINDING_REFUSED'; throw e; };
+    if (!caseConfig || caseConfig.caseId !== 'AHT-05') refuse('not the J4.a case');
+    if (!Buffer.isBuffer(runtimeStartBytes) || !/^[a-f0-9]{64}$/.test(runtimeStartSha256 || '')) refuse('runtime-start receipt unbound');
+    if (require('node:crypto').createHash('sha256').update(runtimeStartBytes).digest('hex') !== runtimeStartSha256) refuse('runtime-start receipt changed');
+    let rs; try { rs = JSON.parse(runtimeStartBytes); } catch { refuse('runtime-start receipt unreadable'); }
+    if (!rs || rs.schema !== RUNTIME_START_SCHEMA || rs.consumer !== 'runtime-start' || rs.attempt !== 1) refuse('runtime-start receipt invalid');
+    const own = { campaignId, caseId: caseConfig.caseId, configSha256: caseConfigSha256, sourceSha: caseConfig.sourceSha, servedSha: caseConfig.servedSha };
+    if (caseConfig.campaignId !== campaignId) refuse('campaign differs');
+    for (const [k, v] of Object.entries(own)) if (rs[k] !== v) refuse(`${k} differs`);
+    return Object.freeze({ campaignId, runId: rs.runId, attempt: 1, caseId: own.caseId, requestSha256: rs.requestSha256,
+        planSha256: rs.planSha256, configSha256: own.configSha256, sourceSha: own.sourceSha, servedSha: own.servedSha });
+}
+
+/**
+ * The supervisor's pre-launch step (run-guarded.cjs calls exactly this, before launchGuarded): `args` are run-guarded's parsed
+ * arguments, `caseConfig` the hash-checked, validated case config. Resolves to the step's narrow capability, or throws, and the
+ * supervisor then stops with exit 78 before any browser launch.
+ */
+async function bindSupervisedChild(args, caseConfig, { port = process, readFile = require('node:fs').readFileSync, timeoutMs } = {}) {
+    if (args['j4a-binding'] !== 'true' || !port || typeof port.send !== 'function') {
+        const e = new Error('J4A_BINDING_REFUSED: no supervised channel'); e.code = 'J4A_BINDING_REFUSED'; throw e;
+    }
+    const identity = childIdentity({ runtimeStartBytes: readFile(args['runtime-start']), runtimeStartSha256: args['runtime-start-sha256'],
+        campaignId: args['campaign-id'], caseConfig, caseConfigSha256: args['case-config-sha256'] });
+    return connectChildChannel({ port, identity, timeoutMs });
+}
+
+module.exports = { RESIDUE_KINDS, attachParentChannel, bindSupervisedChild, childIdentity, connectChildChannel, validCleanupReport };

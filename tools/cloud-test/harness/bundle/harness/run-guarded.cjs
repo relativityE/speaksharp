@@ -40,7 +40,7 @@ const producerAbort=new AbortController();
 const launchAbort=new AbortController();
 let pendingLaunch=null;
 let authenticationRejected=false,actionBudget=null;
-let h = null; let stopping = null; let caseRecorder=null; let caseConfig=null;
+let h = null; let stopping = null; let caseRecorder=null; let caseConfig=null; let j4aNightly=null;
 
 function stepLog(msg) { fs.appendFileSync(path.join(runDir, 'step.log'), new Date().toISOString() + ' ' + msg + '\n'); }
 
@@ -97,6 +97,10 @@ setTimeout(() => stop('deadline', 4), hardMs).unref();
 (async () => {
   try {
     if(a['case-config']) {const bytes=fs.readFileSync(a['case-config']);if(crypto.createHash('sha256').update(bytes).digest('hex')!==a['case-config-sha256'])throw new Error('NOT_RUN: case config hash unbound or changed');caseConfig=validateCaseConfig(JSON.parse(bytes));if(caseConfig.campaignId!==a['campaign-id'])throw new Error('NOT_RUN: case campaign identity differs from admitted campaign');caseRecorder=createCaseRecorder(caseConfig,runDir,{interrupted:()=>h?.guard?.ledger?.caseAllowanceState?.()?.exhausted===true});}
+    // #1884 J4.a: bind this child's own validated identity to the parent over IPC BEFORE any browser launch. Any refusal
+    // (no IPC, wrong case, changed/mismatched runtime-start receipt, rejected or replayed offer, disconnect) stops here with
+    // exit 78 and no launch; there is no unbound fall-through.
+    if(a['j4a-binding']!==undefined){try{const {bindSupervisedChild}=require('../../../nightly/j4a-supervised-channel.cjs');j4aNightly=await bindSupervisedChild(a,caseConfig,{port:process});stepLog('j4a binding accepted');}catch(e){stepLog('j4a binding refused: '+String(e?.code||e?.message||'unclassified').replace(/[^A-Za-z0-9_.:-]/g,'').slice(0,64));await stop('binding-refused',78);return;}}
     verifyReviewedStep({manifestFile:a['step-manifest'],expectedManifestSha256:a['step-manifest-sha256'],stepRoot:a['step-root'],stepFile:a.script});
     const readbackOracle = a['oracle-config'] ? loadReviewedOracle(JSON.parse(fs.readFileSync(a['oracle-config'],'utf8'))) : null;
     const producerReceiver=a['producer-receiver']?loadReviewedProducerReceiver({manifestFile:a['step-manifest'],expectedManifestSha256:a['step-manifest-sha256'],stepRoot:a['step-root'],receiverFile:a['producer-receiver']}):null;
@@ -117,7 +121,7 @@ setTimeout(() => stop('deadline', 4), hardMs).unref();
     verifyReviewedStep({manifestFile:a['step-manifest'],expectedManifestSha256:a['step-manifest-sha256'],stepRoot:a['step-root'],stepFile:a.script});
     let oracles=Object.freeze({});
     if(a['case-oracles']) {verifyReviewedStep({manifestFile:a['step-manifest'],expectedManifestSha256:a['step-manifest-sha256'],stepRoot:a['step-root'],stepFile:a['case-oracles']}); const factory=require(path.resolve(a['case-oracles']));if(typeof factory.createOracles!=='function')throw new Error('NOT_RUN: oracle factory unavailable');oracles=await factory.createOracles({context:h.context,guard:h.guard,caseConfig,writeEvidence:caseRecorder?.writeEvidence,readPrivateEvidence,pdfTextExtractor:createPdfTextExtractor(runDir)});}
-    const capabilities=Object.freeze({recordStartPress:actionBudget?input=>actionBudget.reserveStart(input):undefined,credentials,oracles,recordAssertion:caseRecorder?.recordAssertion,writeEvidence:caseRecorder?.writeEvidence});
+    const capabilities=Object.freeze({recordStartPress:actionBudget?input=>actionBudget.reserveStart(input):undefined,credentials,oracles,recordAssertion:caseRecorder?.recordAssertion,writeEvidence:caseRecorder?.writeEvidence,...(j4aNightly?{nightly:j4aNightly}:{})});
     const returned=await step({ context: h.context, browser: h.browser, guard: h.guard, log: stepLog, runDir,caseConfig,capabilities });
     authenticationRejected=returned?.executionSignals?.authenticationRejected===true;
     if(caseRecorder) caseRecorder.finish(returned);

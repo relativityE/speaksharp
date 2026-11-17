@@ -32,8 +32,10 @@ function supervisedCommand(cmd,argv,options,deps={}){
     for(const[s,fn]of signals)owner.on(s,fn);
     const deadline=setTimeout(()=>stop('command-deadline',124),options.timeout);
     poll=setInterval(()=>{if(owner.ppid!==parent)stop('parent-lost',5);if(closed&&forced&&!alive())finish(forced.code,{cleanupIncomplete:false});},Math.min(100,grace));
-    try{child=spawn(cmd,argv,{cwd:options.cwd,env,detached:true,stdio:['ignore','pipe','pipe']});}
+    // #1884 J4.a: an optional IPC channel to the supervised child, handed to options.ipc(child) right after spawn (nothing else).
+    try{child=spawn(cmd,argv,{cwd:options.cwd,env,detached:true,stdio:['ignore','pipe','pipe',...(typeof options.ipc==='function'?['ipc']:[])]});}
     catch{finish(127,{spawnError:true});return;}
+    if(typeof options.ipc==='function'){try{options.ipc(child);}catch{stop('ipc-attach-failed',78);}}
     const capture=(kind,bytes)=>{const value=String(bytes);if(kind==='stdout')stdout+=value;else stderr+=value;if(stdout.length+stderr.length>16*1024*1024){stdout=stdout.slice(0,1024);stderr='';stop('command-output-limit',78);}};
     child.stdout?.on('data',b=>capture('stdout',b));child.stderr?.on('data',b=>capture('stderr',b));
     child.once('error',()=>{if(!forced)forced={reason:'spawn-error',code:127};});
