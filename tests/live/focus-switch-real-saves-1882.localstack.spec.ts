@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { openProductsItem } from './helpers/productsMenu';
 import { selectBenchmarkMode, preparePrivateModelIfPrompted, startBenchmarkRecording, expectBenchmarkRecordingStarted,
   stopBenchmarkRecording } from './helpers/benchmark-utils';
+import { waitForAppVisibleReady } from '../e2e/helpers';
 
 /**
  * #1882 — the Focus switch sequence with REAL saves, on a DISPOSABLE LOCAL stack only.
@@ -112,6 +113,7 @@ test('#1882 local stack: Open Mic → Focus switch → reload → Edit, with rea
     await page.addInitScript(() => { (window as unknown as { __NATIVE_BROWSER_TRACE__: unknown[] }).__NATIVE_BROWSER_TRACE__ = []; });
     // ── The served app is this commit's build against the loopback API with real auth ──
     await page.goto(`${APP}/auth/signin`);
+    await waitForAppVisibleReady(page, STEP_MS);
     await expect(page.getByTestId('auth-form')).toBeVisible({ timeout: STEP_MS });
     const runtime = await page.evaluate(() => ({ release: window.__APP_RELEASE__,
       api: window.__APP_RUNTIME_CONFIG__?.supabaseUrl, authMode: window.__APP_RUNTIME_CONFIG__?.authMode }));
@@ -128,6 +130,7 @@ test('#1882 local stack: Open Mic → Focus switch → reload → Edit, with rea
 
     // ── 1. A Focus take on the set ──
     await page.goto(`${APP}/practice`);
+    await waitForAppVisibleReady(page, STEP_MS);
     await page.getByTestId('practice-card-objective').click({ timeout: STEP_MS });
     await saveSet(page);
     await expect(page).toHaveURL(/\/session/, { timeout: 45_000 });
@@ -140,6 +143,7 @@ test('#1882 local stack: Open Mic → Focus switch → reload → Edit, with rea
 
     // ── 2. Open Mic, reached from the session page at rest (as the live journey does) ──
     await page.goto(`${APP}/session`);
+    await waitForAppVisibleReady(page, STEP_MS);
     await openProductsItem(page, 'open-mic', STEP_MS);
     await page.waitForURL(/\/session/, { timeout: 45_000 });
     await expect(page.getByTestId('focus-points-rail'), 'Open Mic is active: no Focus rail').toHaveCount(0);
@@ -178,6 +182,7 @@ test('#1882 local stack: Open Mic → Focus switch → reload → Edit, with rea
     // live rail; it has no topic or Edit control. Check the saved points there first, then use its own practice action
     // to re-enter the saved Focus set before checking the topic and Edit.
     await page.reload();
+    await waitForAppVisibleReady(page, STEP_MS);
     const savedReturn = page.getByTestId('saved-session-return');
     await expect(savedReturn, 'check 3: the reload restores the saved take').toHaveAttribute('data-session-id', switched,
       { timeout: 60_000 });
