@@ -2,7 +2,8 @@
 // #1884 step 6: the supervised J4.a capability across a REAL process boundary, offline. The real harness runner
 // (campaign-core.runCampaign, unmodified) and runner-bridge.cjs drive the case; the case's io spawns a separate child process
 // (tests/fixtures/j4a-supervised-child.cjs) and attaches the parent end of j4a-supervised-channel.cjs with the bridge's own
-// `nightly` routes. The child holds its own identity and acts only on the parent's grants, over fake bounded transports.
+// `nightly` routes. The child holds its own identity and acts only on the parent's grants, over fake bounded transports. Residue
+// counts come only from the parent's trusted reader (a fake database the child's actions change), scoped to the confirmed create.
 // Refusals proven: wrong identity, replay, disconnect, unreserved (over-allocation) send, ambiguous create, foreign cleanup and
 // interrupted cleanup. No browser, network, production, Stripe or Edge effect; the sealed supervisor wiring is not yet attached.
 const assert = require('node:assert/strict');
@@ -45,7 +46,7 @@ function campaignPlan() {
 }
 
 /** The case io: its runCase spawns the real child and attaches the parent channel to the bridge's `nightly` for this case. */
-function supervisedIo({ scenario = 'ok', childIdentity = IDENTITY, wireFile, channels }) {
+function supervisedIo({ scenario = 'ok', childIdentity = IDENTITY, wireFile, dbFile, channels }) {
     return {
         now: () => NOW,
         save: async () => {},
@@ -54,13 +55,21 @@ function supervisedIo({ scenario = 'ok', childIdentity = IDENTITY, wireFile, cha
         identity: async () => ({ result: 'MATCH', servedSha: commit }),
         caseConfig: async (c) => ({ caseId: c.id, sourceSha: commit, servedSha: commit, targetUrl: 'https://speaksharp-public.vercel.app/', requiredAssertions: rows }),
         runCase: async (c, _plan, _admission, { nightly }) => {
-            const child = spawn(process.execPath, [CHILD, JSON.stringify({ identity: childIdentity, scenario, account: ACCOUNT, wireFile })],
+            const child = spawn(process.execPath, [CHILD, JSON.stringify({ identity: childIdentity, scenario, account: ACCOUNT, wireFile, dbFile })],
                 { stdio: ['ignore', 'ignore', 'inherit', 'ipc'], env: {} });
             const exited = once(child, 'exit');
             const channel = attachParentChannel({ port: child, identity: IDENTITY, nightly });
-            channels.push(channel);
             const [code] = await exited;
-            const out = channel.outcome();
+            // The trusted reader: the parent's own reserved cleanup reads of the fake database, never the child's claim.
+            const readResidue = async (kind, scope) => {
+                const r = await nightly.cleanup(LEG, async () => {
+                    fs.appendFileSync(wireFile, `trusted-residue:${kind}\n`);
+                    return JSON.parse(fs.readFileSync(dbFile, 'utf8'))[kind][scope] ?? 0;
+                });
+                return r.sent ? r.value : null;
+            };
+            const out = await channel.outcome({ readResidue });
+            channels.push(out);
             return {
                 // The step's rows count only for a bound child that completed; anything else carries no PASS.
                 assertions: out.digest && code === 0 ? rows.map((id) => ({ id, result: 'PASS', detail: 'offline supervised child', evidenceRefs: ['unit.json'] })) : [],
@@ -76,18 +85,19 @@ const dirs = () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nightly-j4a-supervised-'));
     const evidenceDir = path.join(root, 'evidence');
     fs.mkdirSync(evidenceDir);
-    return { root, evidenceDir, runDir: (id) => path.join(root, `run-${id}`), wireFile: path.join(root, 'wire.log') };
+    return { root, evidenceDir, runDir: (id) => path.join(root, `run-${id}`), wireFile: path.join(root, 'wire.log'), dbFile: path.join(root, 'db.json') };
 };
 async function supervisedRun(d, runId, opts = {}) {
     const channels = [];
     fs.writeFileSync(d.wireFile, '');
-    const raw = supervisedIo({ ...opts, wireFile: d.wireFile, channels });
+    fs.writeFileSync(d.dbFile, JSON.stringify({ account: {}, session: {}, lease: {} }));
+    const raw = supervisedIo({ ...opts, wireFile: d.wireFile, dbFile: d.dbFile, channels });
     const { io, outcome, finish } = nightlyAdapter(raw, { runDir: d.runDir(runId), evidenceDir: d.evidenceDir, runId, selected: [LEG],
         satisfiedGates: [], createDeadlineMs: opts.createDeadlineMs });
     const r = await runCampaign(campaignPlan(), io, { executeR0: true }).catch((e) => ({ threw: e.message }));
     if (r.report) await finish(r.report);
     const wire = fs.readFileSync(d.wireFile, 'utf8').split('\n').filter(Boolean);
-    return { wire, outcome: outcome(), report: r.report, threw: r.threw, channel: channels[0]?.outcome() };
+    return { wire, outcome: outcome(), report: r.report, threw: r.threw, channel: channels[0] };
 }
 
 describe('J4.a supervised channel (#1884 step 6): a real child process, the real runner and bridge, fake transports', () => {
@@ -95,7 +105,8 @@ describe('J4.a supervised channel (#1884 step 6): a real child process, the real
         const d = dirs();
         const { wire, outcome, report, channel } = await supervisedRun(d, 's1');
         assert.deepEqual(wire, ['create:account:retries=0', 'create-result:created', 'starts', 'starts', 'coaching', 'coaching',
-            'cleanup:delete-account', 'cleanup:residue-account', 'cleanup:residue-session', 'cleanup:residue-lease', 'report:accepted']);
+            'cleanup:delete-account', 'report:accepted', 'trusted-residue:account', 'trusted-residue:session', 'trusted-residue:lease']);
+        assert.equal(channel.confirmedAccount, ACCOUNT);
         assert.match(channel.digest, /^[a-f0-9]{64}$/);
         assert.deepEqual(channel.violations, []);
         assert.equal(outcome.legs[LEG].outcome, 'PASS');
@@ -137,9 +148,13 @@ describe('J4.a supervised channel (#1884 step 6): a real child process, the real
         assert.ok(next.blocking.some((b) => /no terminal result; recover that exact account first/.test(b)), JSON.stringify(next.blocking));
         assert.notEqual(outcome.legs[LEG]?.outcome, 'PASS');
     });
-    it('foreign cleanup: zero-residue queries on another account cannot clear the run', { timeout: 20_000 }, async () => {
+    it('foreign cleanup: deleting another account leaves the confirmed account counted by the trusted reader; never complete', { timeout: 20_000 }, async () => {
         const d = dirs();
-        const { outcome } = await supervisedRun(d, 'f1', { scenario: 'foreign-cleanup' });
+        const { outcome, channel } = await supervisedRun(d, 'f1', { scenario: 'foreign-cleanup' });
+        // The channel's own trusted reads are scoped to the parent-confirmed account, not the account the child deleted.
+        const queries = channel.nightlyCleanup.verification.queries;
+        assert.deepEqual(queries.map((q) => q.scope), [ACCOUNT, ACCOUNT, ACCOUNT]);
+        assert.equal(queries.find((q) => q.kind === 'account').count, 1, 'the confirmed account is still there');
         assert.equal(outcome.cleanup.result, 'incomplete');
         assert.ok(outcome.cleanup.reasons.J4.some((r) => /confirmed account scope/.test(r)), JSON.stringify(outcome.cleanup.reasons));
         assert.notEqual(outcome.run.scope.outcome, 'PASS');
@@ -148,8 +163,9 @@ describe('J4.a supervised channel (#1884 step 6): a real child process, the real
     it('interrupted cleanup: observations made before the child ended without a report do not verify cleanup', { timeout: 20_000 }, async () => {
         const d = dirs();
         const { wire, outcome } = await supervisedRun(d, 'i1', { scenario: 'interrupted-cleanup' });
-        assert.ok(wire.includes('cleanup:residue-lease'), 'the zero observations were made');
+        assert.ok(wire.includes('cleanup:delete-account'), 'the deletion was made');
         assert.ok(!wire.some((w) => w.startsWith('report:')));
+        assert.ok(!wire.some((w) => w.startsWith('trusted-residue:')), 'no report: nothing is read or credited');
         assert.equal(outcome.cleanup.result, 'incomplete');
         assert.notEqual(outcome.run.scope.outcome, 'PASS');
         assert.equal(admitRun(d.evidenceDir).admitted, false);
@@ -174,15 +190,30 @@ describe('J4.a supervised channel (#1884 step 6): a real child process, the real
         await new Promise((r) => { setImmediate(r); });
         assert.equal(calls, 0, 'nothing reached the nightly routes');
         assert.equal(await ch.bound, null);
-        assert.deepEqual(ch.outcome().nightlyCleanup, { steps: [], left: [] });
-        assert.match(ch.outcome().refused, /ended before binding/);
+        const out = await ch.outcome({ readResidue: async () => 0 });
+        assert.deepEqual(out.nightlyCleanup, { steps: [], left: [] });
+        assert.match(out.refused, /ended before binding/);
     });
-    it('cleanup reports must be well formed and content-free (kinds, refs, counts)', () => {
-        const ok = { steps: [{ kind: 'account', ref: ACCOUNT, action: 'delete', outcome: 'done' }], left: [],
-            verification: { kind: 'zero-residue', queries: [{ kind: 'account', scope: ACCOUNT, count: 0 }] } };
+    it('the child report carries steps only (content-free refs); any count it claims makes the report malformed', () => {
+        const ok = { steps: [{ kind: 'account', ref: ACCOUNT, action: 'delete', outcome: 'done' }], left: [] };
         assert.equal(validCleanupReport(ok), true);
-        for (const bad of [null, { ...ok, verification: { kind: 'nothing-created' } }, { ...ok, steps: [{ kind: 'account', ref: 'a@b', action: 'x', outcome: 'done' }] },
-            { ...ok, verification: { kind: 'zero-residue', queries: [{ kind: 'account', scope: ACCOUNT, count: -1 }] } }])
+        for (const bad of [null, { ...ok, verification: { kind: 'zero-residue', queries: [{ kind: 'account', scope: ACCOUNT, count: 0 }] } },
+            { ...ok, steps: [{ kind: 'account', ref: 'a@b', action: 'x', outcome: 'done' }] }, { steps: ok.steps }])
             assert.equal(validCleanupReport(bad), false, JSON.stringify(bad));
+    });
+    it('a leftover take under the confirmed account is counted by the trusted reader: cleanup incomplete, no PASS', { timeout: 20_000 }, async () => {
+        const d = dirs();
+        const { outcome, channel } = await supervisedRun(d, 'l1', { scenario: 'leave-session' });
+        assert.equal(channel.confirmedAccount, ACCOUNT);
+        assert.equal(outcome.cleanup.result, 'incomplete');
+        assert.ok(outcome.cleanup.reasons.J4.some((r) => /session/.test(r)), JSON.stringify(outcome.cleanup.reasons));
+        assert.notEqual(outcome.run.scope.outcome, 'PASS');
+    });
+    it('a child report that claims its own zero counts is refused; counts come only from the trusted reader', { timeout: 20_000 }, async () => {
+        const d = dirs();
+        const { wire, outcome, channel } = await supervisedRun(d, 'c1', { scenario: 'claimed-counts' });
+        assert.ok(wire.includes('report:refused'));
+        assert.ok(channel.violations.includes('malformed cleanup report'), JSON.stringify(channel.violations));
+        assert.equal(outcome.cleanup.result, 'incomplete');
     });
 });

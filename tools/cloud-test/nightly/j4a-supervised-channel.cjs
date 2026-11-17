@@ -11,9 +11,11 @@
 //   - createAccount: through `nightly.createAccount` (reserved, recorded durably, then sent once with retries 0). The child acts
 //     on "createGo" and answers with a terminal outcome; a lost or ambiguous answer leaves the attempt unresolved, and the
 //     bridge refuses any second create for the journey;
-//   - reportCleanup: accepted once, only under the bound digest, before the child ends. It becomes the case's
-//     `nightlyCleanup`; the bridge still checks the required account/session/lease queries against the CONFIRMED create
-//     scope, so the child cannot choose the audit scope. A disconnect or exit before the report leaves cleanup unproven.
+//   - reportCleanup: the child's teardown STEPS (what it deleted), accepted once, only under the bound digest, before the
+//     child ends. A matching digest identifies the report; it proves no counts (Sam, 17 Nov). The residue counts come from a
+//     TRUSTED reader the parent holds (never the child), scoped to the account whose create the parent itself saw confirmed;
+//     the bridge then checks the required account/session/lease queries against that same confirmed scope. A disconnect or
+//     exit before the report, a refused binding, or no confirmed create leaves cleanup unproven.
 // Every request id is used once; a replayed id is refused and recorded as a violation. Content-free: kinds, counts, refs.
 const { acknowledgeBinding, beginBinding } = require('./j4a-supervised-binding.cjs');
 
@@ -24,16 +26,16 @@ const ID = /^[a-z0-9-]{1,40}$/;
 const REF = /^[A-Za-z0-9._:-]{1,120}$/;
 const COUNT = (v) => Number.isSafeInteger(v) && v >= 0;
 
-/** A cleanup report's shape: steps, leftovers and a zero-residue verification; content-free refs, kinds and counts only. */
+/** The child's cleanup report: teardown steps and reported leftovers only (content-free refs). It never carries counts. */
 function validCleanupReport(r) {
     const resource = (x) => x && typeof x === 'object' && typeof x.kind === 'string' && typeof x.ref === 'string' && REF.test(x.ref);
-    return !!r && typeof r === 'object' && Array.isArray(r.steps) && Array.isArray(r.left)
+    return !!r && typeof r === 'object' && Object.keys(r).sort().join() === 'left,steps' && Array.isArray(r.steps) && Array.isArray(r.left)
         && r.steps.every((s) => resource(s) && typeof s.action === 'string' && ['done', 'failed', 'not attempted'].includes(s.outcome))
-        && r.left.every(resource)
-        && r.verification && r.verification.kind === 'zero-residue' && Array.isArray(r.verification.queries)
-        && r.verification.queries.every((q) => q && typeof q.kind === 'string' && typeof q.scope === 'string' && REF.test(q.scope)
-            && (q.count === null || COUNT(q.count)));
+        && r.left.every(resource);
 }
+
+/** The residue kinds the parent's trusted reader must observe, scoped to the confirmed run-owned account (J4.a). */
+const RESIDUE_KINDS = Object.freeze(['account', 'session', 'lease']);
 
 /**
  * Parent end. `port`: the ChildProcess (send / on('message') / on('disconnect') / on('exit')). `nightly`: the bridge's object
@@ -42,7 +44,8 @@ function validCleanupReport(r) {
  */
 function attachParentChannel({ port, identity, nightly }) {
     const binding = beginBinding(identity);
-    const state = { digest: null, refused: null, ended: false, report: null, violations: [], seen: new Set(), pending: new Map() };
+    const state = { digest: null, refused: null, ended: false, report: null, violations: [], seen: new Set(), pending: new Map(),
+        confirmedAccount: null };
     const reply = (msg) => { if (!state.ended) try { port.send(msg); } catch { /* the child is gone */ } };
     const refuse = (id, reason) => { state.violations.push(reason); reply({ t: 'res', id, ok: false, reason }); };
     /** Waits for the child's "done"/"createResult" for `id`; a disconnect or exit settles it as lost (never success). */
@@ -75,6 +78,9 @@ function attachParentChannel({ port, identity, nightly }) {
                 if (answer.lost) throw new Error('create answer lost');
                 return answer.value;
             }).catch(() => ({ sent: true, answered: false }));
+            // The parent's own record of the confirmed create: the only scope the trusted residue reader may use.
+            if (r.sent === true && r.answered === true && r.value?.outcome === 'created' && state.confirmedAccount === null)
+                state.confirmedAccount = m.lookupRef;
             return reply({ t: 'res', id, ok: r.sent === true && r.answered === true, sent: r.sent === true, answered: r.answered === true,
                 outcome: r.answered ? r.value?.outcome ?? null : null, reason: r.sent ? undefined : r.reason });
         }
@@ -87,7 +93,7 @@ function attachParentChannel({ port, identity, nightly }) {
         if (state.report !== null) return refuse(id, 'cleanup already reported');
         if (m.digest !== state.digest) return refuse(id, 'cleanup report not under the bound digest');
         if (!validCleanupReport(m.report)) return refuse(id, 'malformed cleanup report');
-        state.report = { steps: m.report.steps, left: m.report.left, verification: m.report.verification };
+        state.report = { steps: m.report.steps, left: m.report.left };
         return reply({ t: 'res', id, ok: true });
     }
 
@@ -114,13 +120,25 @@ function attachParentChannel({ port, identity, nightly }) {
     return Object.freeze({
         bound,
         /**
-         * The case's nightlyCleanup for runner-bridge, from the verified report only. No report (child ended, refused or never
-         * bound) is { steps: [], left: [] } with no verification: cleanup unproven, so the journey can never PASS on it.
+         * The case's nightlyCleanup for runner-bridge. Counts come ONLY from `readResidue(kind, scope)`, the parent's trusted
+         * reader, scoped to the confirmed account; the child's report supplies the teardown steps. No report, no confirmed
+         * create, or no trusted reader leaves { steps, left } with no verification: cleanup unproven, never PASS.
          */
-        outcome: () => Object.freeze({
-            digest: state.digest, refused: state.refused, violations: [...state.violations],
-            nightlyCleanup: state.report ? { ...state.report } : { steps: [], left: [] },
-        }),
+        async outcome({ readResidue } = {}) {
+            const base = { digest: state.digest, refused: state.refused, violations: [...state.violations], confirmedAccount: state.confirmedAccount };
+            if (!state.report || state.digest === null)
+                return Object.freeze({ ...base, nightlyCleanup: { steps: [], left: [] } });
+            const cleanup = { steps: state.report.steps, left: state.report.left };
+            if (state.confirmedAccount === null || typeof readResidue !== 'function')
+                return Object.freeze({ ...base, nightlyCleanup: cleanup });
+            const queries = [];
+            for (const kind of RESIDUE_KINDS) {
+                let count = null;
+                try { count = await readResidue(kind, state.confirmedAccount); } catch { count = null; }
+                queries.push({ kind, scope: state.confirmedAccount, count: COUNT(count) ? count : null });
+            }
+            return Object.freeze({ ...base, nightlyCleanup: { ...cleanup, verification: { kind: 'zero-residue', queries } } });
+        },
     });
 }
 
@@ -174,4 +192,4 @@ function connectChildChannel({ port, identity, timeoutMs = 10_000 }) {
     });
 }
 
-module.exports = { attachParentChannel, connectChildChannel, validCleanupReport };
+module.exports = { RESIDUE_KINDS, attachParentChannel, connectChildChannel, validCleanupReport };
