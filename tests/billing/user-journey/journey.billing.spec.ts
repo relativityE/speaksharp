@@ -9,7 +9,7 @@ import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, re
   assertFullRefund, isRefundCancellation, assertCheckoutGrantedNothing,
   checkoutSessionFromUrl, assertCheckoutIdentity, newlyAddedCard, assertNoSecondCharge,
   type RunnerJourney, type BillingEvent, hostedFieldUnavailable, hostedEmailDecision, type HostedField,
-  HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, hostedFieldNotEditable, hostedSubmitUnavailable } from './contract';
+  HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, hostedFieldNotEditable, hostedSubmitUnavailable } from './contract';
 import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { selectBenchmarkMode, preparePrivateModelIfPrompted, startBenchmarkRecording,
   expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput, stopBenchmarkRecording,
@@ -39,7 +39,13 @@ const id = (value: unknown): string => typeof value === 'string' ? value
 
 /** No POST to stripe-webhook, no signing key, no local replay, and no entitlement writes after fixture setup. */
 class SandboxJourney {
-  readonly steps = new Set<string>();
+  readonly started = Date.now();
+  /** Prints a content-free progress line as it happens, so a timeout still shows the last step reached. */
+  checkpoint(name: string, kind: 'step' | 'stage' | 'checkpoint' = 'checkpoint'): void {
+    console.log(progressLine(kind, name, Date.now() - this.started));
+  }
+  readonly steps = (() => { const set = new Set<string>(); const add = set.add.bind(set);
+    set.add = (name: string) => { if (!set.has(name)) this.checkpoint(name, 'step'); return add(name); }; return set; })();
   readonly marker = `rwt-journey-billing-${randomUUID()}`;
   readonly email = `${this.marker}@example.com`;
   readonly password = `Test-${randomUUID()}!`;
@@ -54,7 +60,9 @@ class SandboxJourney {
   boundCheckout: string | null = null;
   signupAttempted = false;
   uncertainStripeCreate = false;
-  stage = 'preflight';
+  private currentStage = 'preflight';
+  get stage(): string { return this.currentStage; }
+  set stage(name: string) { this.currentStage = name; this.checkpoint(name, 'stage'); }
   startedAt = Math.floor(Date.now() / 1000) - 5;
   constructor(readonly journey: RunnerJourney, readonly page: Page) {}
 
@@ -254,7 +262,9 @@ class SandboxJourney {
 
   async payOnHostedPage(card: string): Promise<void> {
     // Email is filled when shown; it may be absent only on the exact session openCheckout bound to this run's customer.
+    this.checkpoint('hosted_fill_start');
     await this.fillCard(card, 'after-binding');
+    this.checkpoint('hosted_fill_done');
     // Stripe Link's "Save my information for faster checkout" is ticked by default and then requires a mobile number (seen on run
     // 44080723593's own session). The journey never creates a Link account (it would be external residue): it unticks the opt-in when
     // shown and proves it is unticked, or stops with a named code. Not shown: nothing to clear.
@@ -268,6 +278,7 @@ class SandboxJourney {
     }
     // The Pay/Subscribe button lives in Stripe's embedded form frame, not the top document (run 44080723593 waited 10 minutes on a
     // top-document locator that never matched). Searched in every frame, bounded.
+    this.checkpoint('hosted_submit_search');
     const submit = await this.visibleInFrames('button[type="submit"]');
     if (!submit) throw new Error(`BILLING_JOURNEY:${hostedSubmitUnavailable({ visible: false, enabled: null, invalidFields: null })}`);
     await submit.click({ timeout: HOSTED_ACTION_MS }).catch(async () => {
@@ -282,6 +293,7 @@ class SandboxJourney {
       });
       throw new Error(`BILLING_JOURNEY:${hostedSubmitUnavailable({ visible: await read(() => submit.isVisible()), enabled: await read(() => submit.isEnabled({ timeout: HOSTED_READ_MS })), invalidFields })}`);
     });
+    this.checkpoint('hosted_submit_clicked');
   }
 
   /** Nothing paid: no subscription of any status for this customer, no paid access, no Pro profile. */
@@ -382,6 +394,7 @@ class SandboxJourney {
     requireFact((await this.usage()).can_start === false, 'checkout_granted_before_payment');
     this.session = await this.openCheckout(checkoutUrl);
     await this.payOnHostedPage('4242424242424242');
+    this.checkpoint('checkout_success_wait');
     await this.page.waitForURL(url => url.origin === this.targets.app && url.searchParams.get('checkout') === 'success', { timeout: 90_000 });
     const complete = await this.stripe(`checkout/sessions/${this.session}`);
     requireFact(complete.livemode === false && complete.status === 'complete' && complete.payment_status === 'paid'

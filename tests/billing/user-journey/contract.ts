@@ -37,6 +37,16 @@ export function hostedFieldUnavailable(field: HostedField, cardChoiceShown: bool
   return `hosted_field_unavailable_${field}${choice}`;
 }
 
+/**
+ * One content-free progress line, printed AS the journey runs (run 44080723593 timed out with no receipt, so its log named no step).
+ * Fixed names and whole seconds only; any other name prints as `invalid`. Never ids, emails, URLs or provider text.
+ */
+export function progressLine(kind: 'step' | 'stage' | 'checkpoint', name: string, elapsedMs: number): string {
+  const safe = typeof name === 'string' && /^[a-z0-9_.-]{1,64}$/.test(name) ? name : 'invalid';
+  const t = Number.isFinite(elapsedMs) && elapsedMs >= 0 ? Math.floor(elapsedMs / 1000) : -1;
+  return `BILLING_JOURNEY_PROGRESS ${kind}=${safe} t=${t}s`;
+}
+
 /** Every hosted-page fill and the Pay click are bounded (run 44080723593: an unbounded wait ran into the 10-minute test timeout). */
 export const HOSTED_ACTION_MS = 30_000;
 /** Diagnostic reads after a failed hosted action (isEnabled/isChecked wait for the element): bounded too, never the test timeout. */

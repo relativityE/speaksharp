@@ -4,7 +4,7 @@ import { test } from 'vitest';
 import { RUNNER_JOURNEYS, POLICY_PENDING_STEPS, REQUIRED_STEPS, receipt, assertTestPrice, assertInvoice,
   isCorrelatedDelivery, assertSandboxConfiguration, safeFailureReason, testClockCreateFields, localStackStatus,
   hostedFieldUnavailable, hostedEmailDecision, assertCheckoutIdentity, type HostedField,
-  HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, hostedFieldNotEditable, hostedSubmitUnavailable } from './contract';
+  HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, hostedFieldNotEditable, hostedSubmitUnavailable } from './contract';
 import { finaliseLocalStackReceipt, RECEIPT_KEYS } from './localStackReceipt.mjs';
 import { stackIdentitySha256 } from './localStackResources.mjs';
 
@@ -357,4 +357,22 @@ test('no fill or click on the hosted card path can wait without a bound', () => 
   assert.match(body, /save my information for faster checkout/i);
   assert.doesNotMatch(body, /type="tel"|autocomplete="tel|name="phone|getByLabel\([^)]*(phone|mobile)/i);
   assert.equal(HOSTED_LINK_OPT_IN_NOT_CLEARED, 'hosted_link_optin_not_cleared');
+});
+
+// Sam on run 44080723593: the next attempt needs progress checkpoints. Each completed step and stage change prints one content-free line
+// as it happens, so a timeout still leaves the last step reached in the log.
+test('progress lines are content-free: fixed names and whole seconds only', () => {
+  assert.equal(progressLine('step', 'hosted_checkout', 12_999), 'BILLING_JOURNEY_PROGRESS step=hosted_checkout t=12s');
+  assert.equal(progressLine('stage', 'stripe_delivery', 0), 'BILLING_JOURNEY_PROGRESS stage=stripe_delivery t=0s');
+  for (const leak of ['cus_123 user@example.com', 'https://checkout.stripe.com/x', 'a'.repeat(65), '']) assert.equal(progressLine('checkpoint', leak, 1000), 'BILLING_JOURNEY_PROGRESS checkpoint=invalid t=1s');
+  assert.equal(progressLine('step', 'cleanup', Number.NaN), 'BILLING_JOURNEY_PROGRESS step=cleanup t=-1s');
+});
+
+test('the journey prints a checkpoint for every step and stage, and around every hosted action', () => {
+  const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
+  assert.match(spec, /set\.add = \(name: string\) => \{ if \(!set\.has\(name\)\) this\.checkpoint\(name, 'step'\)/);
+  assert.match(spec, /set stage\(name: string\) \{ this\.currentStage = name; this\.checkpoint\(name, 'stage'\); \}/);
+  for (const name of ['hosted_fill_start', 'hosted_fill_done', 'hosted_submit_search', 'hosted_submit_clicked', 'checkout_success_wait'])
+    assert.match(spec, new RegExp(`this\\.checkpoint\\('${name}'\\)`), name);
+  assert.doesNotMatch(spec, /console\.log\((?!progressLine)/, 'no other console output in the journey');
 });
