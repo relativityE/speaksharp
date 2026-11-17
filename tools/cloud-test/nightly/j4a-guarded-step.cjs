@@ -16,6 +16,24 @@ const RUN_OWNED_PREFIX = 'rwt-journey-';
 const fail = (code, why) => Object.assign(new Error(`${code}: ${why}`), { code });
 
 /**
+ * For the guard proxy, before it forwards a coaching request: resolves { granted: false } (deny; nothing forwarded) or
+ * { granted: true, sent(), failed() }. The parent's reservation settles ok only on sent() (after the upstream write), lost otherwise.
+ */
+function reserveCoaching(cap) {
+    return new Promise((resolve) => {
+        let settled = false;
+        const result = cap.send('coaching', () => new Promise((sent, failed) => {
+            if (settled) { failed(new Error('late grant')); return; }
+            settled = true;
+            resolve(Object.freeze({ granted: true, sent: () => sent(null), failed: () => failed(new Error('forward failed')) }));
+        }));
+        Promise.resolve(result).then((r) => {
+            if (!settled) { settled = true; resolve({ granted: false, reason: r?.reason ?? 'the coaching reservation was refused' }); }
+        }, () => { if (!settled) { settled = true; resolve({ granted: false, reason: 'the coaching reservation failed' }); } });
+    });
+}
+
+/**
  * `cap`: the bound child capability. `identity`: the child's own bound identity (its runId names the reservation email).
  * `domain` / `configuredDomain`: the run's test domain, fixed when the step starts and checked against the configured one.
  * `factory(page, email)`: the signup UI action; called at most once, only inside the guarded create.
@@ -41,20 +59,8 @@ function j4aGuardedRoutes(cap, { identity, domain, configuredDomain, factory }) 
             if (r?.granted !== true) throw fail('START_PRESS_CAP', 'the starts reservation was refused; nothing was clicked');
             if (r.ok !== true || r.lost === true) throw fail('NOT_RUN', 'the Start click did not complete after its grant');
         },
-        reserveCoaching() {
-            return new Promise((resolve) => {
-                let settled = false;
-                const result = cap.send('coaching', () => new Promise((sent, failed) => {
-                    if (settled) { failed(new Error('late grant')); return; }
-                    settled = true;
-                    resolve(Object.freeze({ granted: true, sent: () => sent(null), failed: () => failed(new Error('forward failed')) }));
-                }));
-                Promise.resolve(result).then((r) => {
-                    if (!settled) { settled = true; resolve({ granted: false, reason: r?.reason ?? 'the coaching reservation was refused' }); }
-                }, () => { if (!settled) { settled = true; resolve({ granted: false, reason: 'the coaching reservation failed' }); } });
-            });
-        },
+        reserveCoaching: () => reserveCoaching(cap),
     });
 }
 
-module.exports = { LEG, RUN_OWNED_PREFIX, j4aGuardedRoutes };
+module.exports = { LEG, RUN_OWNED_PREFIX, j4aGuardedRoutes, reserveCoaching };

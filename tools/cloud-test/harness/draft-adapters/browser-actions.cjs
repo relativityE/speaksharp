@@ -9,7 +9,9 @@ async function pressStart(page,control,options={timeout:15000}){if(!START_CONTRO
   const loc=page.getByTestId(control),limit=Date.now()+(options.timeout||15000);let ready=typeof loc.first!=='function'||typeof page.waitForTimeout!=='function';
   while(!ready&&Date.now()<limit){try{if(await loc.first().isVisible()&&await loc.first().isEnabled()){ready=true;break;}}catch{/* page transitioning */}await page.waitForTimeout(100).catch(()=>{});}
   if(!ready)throw Object.assign(new Error('Start control '+control+' not visible and enabled before press'),{code:'START_CONTROL_NOT_READY'});
-  await startRecorders.get(page)(control);await loc.click({timeout:5000});}
+  // #1884 J4.a: a recorder marked wrapsClick runs the click INSIDE its reservation (the click is the guarded send); otherwise unchanged.
+  const recorder=startRecorders.get(page);if(recorder.wrapsClick===true){await recorder(control,()=>loc.click({timeout:5000}));return;}
+  await recorder(control);await loc.click({timeout:5000});}
 const pageStages=new WeakMap(),failedStages=new WeakMap(),pageTrails=new WeakMap();
 // Ordered, closed navigation/sign-in breadcrumbs (Sam 1794154809 / 1794156291): event, route, response status class, allowlisted net error and
 // ms since the page's first event. No URL, header, body, credential or free text. At most TRAIL_MAX entries per page (the newest are kept).
@@ -221,4 +223,17 @@ function safeErrorSummary(error){try{const msg=String(error&&error.message||'');
   const ids=[];for(const m of msg.matchAll(/getByTestId\('([a-z][a-z0-9-]{1,40})'\)/g)){const id=m[1];if(!/\d{6,}/.test(id)&&!ids.includes(id)&&ids.length<5)ids.push(id);}
   const nm=/net::(ERR_[A-Z_]{1,48})/.exec(msg);const netError=nm?(NET_ERRORS.has(nm[1])?nm[1]:'other'):null;
   return {name,code,api:api&&/^[A-Za-z]{2,24}\.[A-Za-z]{2,24}$/.test(api)?api:null,kind,timeoutMs:t?Math.min(Number(t[1]),3600000):null,testIds:ids,netError};}catch{return {name:'Error',code:null,api:null,kind:'other',timeoutMs:null,testIds:[],netError:null};}}
-module.exports={stopReason,guardDenyCode,NET_ERRORS,TRAIL_EVENTS,TRAIL_ROUTES,navigationTrail,trackedGoto,productsSnapshot,productsDiagnostic,KNOWN_UI_COPY,uiCopyIds,safeErrorSummary,currentStage,failurePage,failureStage,controlTrace,installControlTrace,bindStartPressRecorder,pressStart,submitLogin:auth.submit,visible,attr,login,products,privateMode,openMic,primary,recording,start,stop,saved,speak,take,repeat,setupFocus,closeFocus,reopen,fingerprint,sessionCleared,signout};
+// #1884 J4.a (nightly only): the disposable signup the guarded create runs ONCE, inside its reservation (j4a-guarded-step.cjs).
+// Fills the product's own signup form with the exact reserved email and a random password that never leaves this call and is never
+// logged (the parent deletes the account; it is never signed into again). Resolves { uid } once the page holds that account's
+// session, or { uid: null } when no session appeared (the create stays unanswered: never retried).
+async function signUpDisposable(page,c,email){
+  await trackedGoto(page,c.targetUrl+'/auth/signup','route-signin',{waitUntil:'domcontentloaded',timeout:45000});
+  await visible(page,'auth-form');
+  const password='Rwt-'+require('node:crypto').randomBytes(18).toString('base64url')+'-9a!';
+  await page.getByTestId('email-input').fill(email);await page.getByTestId('password-input').fill(password);
+  await page.getByTestId('sign-up-submit').click({timeout:15000});
+  const uid=await page.waitForFunction(()=>{for(const k of Object.keys(localStorage)){if(!/sb-.*-auth-token/.test(k))continue;try{const p=JSON.parse(localStorage.getItem(k)||'');const id=p?.user?.id??p?.currentSession?.user?.id;if(id)return id;}catch{/* not a session */}}return null;},null,{timeout:60000}).then(h=>h.jsonValue(),()=>null);
+  return {uid:typeof uid==='string'&&uid?uid:null};
+}
+module.exports={signUpDisposable,stopReason,guardDenyCode,NET_ERRORS,TRAIL_EVENTS,TRAIL_ROUTES,navigationTrail,trackedGoto,productsSnapshot,productsDiagnostic,KNOWN_UI_COPY,uiCopyIds,safeErrorSummary,currentStage,failurePage,failureStage,controlTrace,installControlTrace,bindStartPressRecorder,pressStart,submitLogin:auth.submit,visible,attr,login,products,privateMode,openMic,primary,recording,start,stop,saved,speak,take,repeat,setupFocus,closeFocus,reopen,fingerprint,sessionCleared,signout};

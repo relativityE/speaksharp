@@ -25,13 +25,17 @@ const COUNTED = Object.freeze([['session', 'sessions'], ['lease', 'active_record
  * the confirmed create. `childClosed`: { exited, ownedPagesClosed } observed by the parent after the child ended.
  * Resolves { hold: null | reason, nightlyCleanup }.
  */
-async function j4aParentTeardown({ nightly, admin, createRecord, runId, configuredDomain, confirmedAccount, childClosed }) {
-    const steps = [];
+/**
+ * The parent's independent owner confirmation (shared by the guard binding and teardown): the journey's ONE durable create record
+ * answered `created` on this leg under the run's fixed domain, the reserved email rebuilt from it, the parent channel's confirmed
+ * reference, and an exact-email lookup of exactly one run-owned account, re-read by id to that email. Admin calls under
+ * nightly.cleanup. Resolves { owner } or { hold } (content-free).
+ */
+async function confirmJ4aOwner({ nightly, admin, createRecord, runId, configuredDomain, confirmedAccount }) {
     const sent = createRecord?.sent;
     const ref = typeof sent?.lookupRef === 'string' ? sent.lookupRef : null;
-    const hold = (reason, left = ref ? [{ kind: 'account', ref }] : []) => ({ hold: reason, nightlyCleanup: { steps: [...steps], left } });
-    if (childClosed?.exited !== true || childClosed?.ownedPagesClosed !== true) return hold('the child has not exited with its owned pages verified closed');
-    if (!sent) return hold('no single durable create record for the journey', []);
+    const hold = (reason) => ({ hold: reason, ref });
+    if (!sent) return hold('no single durable create record for the journey');
     if (createRecord.answered?.result?.outcome !== 'created') return hold('the durable create record is not answered created');
     if (sent.leg !== LEG || typeof sent.emailDomain !== 'string' || typeof configuredDomain !== 'string' || sent.emailDomain !== configuredDomain.toLowerCase())
         return hold('the durable create record is not this leg under the run\'s fixed test domain');
@@ -39,7 +43,6 @@ async function j4aParentTeardown({ nightly, admin, createRecord, runId, configur
     try { email = reservationEmail({ prefix: RUN_OWNED_PREFIX, journey: 'J4', runId, runAttempt: '1', domain: sent.emailDomain }); }
     catch { return hold('the reserved email cannot be rebuilt from the durable record'); }
     if (email.slice(0, email.indexOf('@')) !== ref || confirmedAccount !== ref) return hold('ownership mismatched: the durable record, the reserved email and the confirmed create disagree');
-
     const call = async (fn) => {
         const r = await nightly.cleanup(LEG, fn);
         if (!r || r.sent !== true) { const e = new Error('cleanup reservation refused'); e.code = 'CLEANUP_REFUSED'; throw e; }
@@ -47,11 +50,30 @@ async function j4aParentTeardown({ nightly, admin, createRecord, runId, configur
     };
     const found = exactEmailLookup(await enumerateUsers((args) => call(() => admin.auth.admin.listUsers(args))), { email, runOwnedPrefix: RUN_OWNED_PREFIX });
     if (found.lookup !== 'one') return hold(`the independent lookup is ${found.lookup}, so nothing is deleted`);
-    const owner = found.uid;
     try {
-        const reread = await call(() => admin.auth.admin.getUserById(owner));
+        const reread = await call(() => admin.auth.admin.getUserById(found.uid));
         if (reread?.error || String(reread?.data?.user?.email ?? '').toLowerCase() !== email) return hold('the account re-read by id does not carry the reserved email');
     } catch { return hold('the account could not be re-read by id'); }
+    return { owner: found.uid, ref };
+}
+
+async function j4aParentTeardown({ nightly, admin, createRecord, runId, configuredDomain, confirmedAccount, childClosed, preservedOwner }) {
+    const steps = [];
+    const sent = createRecord?.sent;
+    const ref = typeof sent?.lookupRef === 'string' ? sent.lookupRef : null;
+    const hold = (reason, left = ref ? [{ kind: 'account', ref }] : []) => ({ hold: reason, nightlyCleanup: { steps: [...steps], left } });
+    if (childClosed?.exited !== true || childClosed?.ownedPagesClosed !== true) return hold('the child has not exited with its owned pages verified closed');
+    if (!sent) return hold('no single durable create record for the journey', []);
+    const confirmed = await confirmJ4aOwner({ nightly, admin, createRecord, runId, configuredDomain, confirmedAccount });
+    if (confirmed.hold) return hold(confirmed.hold);
+    const owner = confirmed.owner;
+    // Sam: the SAME owner the guard was bound to. A preserved owner that differs from the one found now deletes nothing.
+    if (preservedOwner !== undefined && preservedOwner !== null && preservedOwner !== owner) return hold('the owner found now is not the owner preserved at binding');
+    const call = async (fn) => {
+        const r = await nightly.cleanup(LEG, fn);
+        if (!r || r.sent !== true) { const e = new Error('cleanup reservation refused'); e.code = 'CLEANUP_REFUSED'; throw e; }
+        return r.value;
+    };
 
     const step = async (action, fn) => {
         try { const r = await call(fn); if (r?.error) throw new Error('admin error'); steps.push({ kind: 'account', ref, action, outcome: 'done' }); return true; }
@@ -80,4 +102,4 @@ async function j4aParentTeardown({ nightly, admin, createRecord, runId, configur
     return { hold: null, nightlyCleanup: { steps, left: [], verification: { kind: 'zero-residue', queries } } };
 }
 
-module.exports = { j4aParentTeardown };
+module.exports = { confirmJ4aOwner, j4aParentTeardown };

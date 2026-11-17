@@ -14,7 +14,7 @@ const SOURCE_ADAPTERS=fs.realpathSync(P+'/draft-adapters/source-adapters.cjs');
 const cfgOf=id=>({...JSON.parse(fs.readFileSync(PRIV+'/cases/'+id+'.json','utf8')),sourceSha:PIN,servedSha:PIN});
 const MIN_NEEDS={'AHT-01':[2,2],'AHT-02':[1,1],'AHT-03':[1,1],'AHT-04':[0,1],'AHT-05':[1,1],'AHT-06':[1,1],'AHT-07':[1,1],'AHT-08':[0,0],'AHT-09':[1,1],'AHT-10':[1,1],'AHT-11':[1,3],'AHT-12':[0,1],'AHT-13':[0,1],'AHT-14':[0,1],'AHT-15':[0,0]};
 const minCfg=id=>({...cfgOf(id),sampleMode:'minimal',takeCap:MIN_NEEDS[id][0],startPressCap:MIN_NEEDS[id][1]});
-function anyChain(over={}){const c={isVisible:async()=>true,count:async()=>0,innerText:async()=>'Your words are still here. Retry to save.',getAttribute:async()=>'full_save',evaluateAll:async()=>true,waitFor:async()=>{},click:async()=>{},fill:async()=>{},selectOption:async()=>{},first(){return c;},filter(){return c;},or(){return c;},nth(){return c;},...over};return c;}
+function anyChain(over={}){const c={isVisible:async()=>true,isEnabled:async()=>true,count:async()=>0,innerText:async()=>'Your words are still here. Retry to save.',getAttribute:async()=>'full_save',evaluateAll:async()=>true,waitFor:async()=>{},click:async()=>{},fill:async()=>{},selectOption:async()=>{},first(){return c;},filter(){return c;},or(){return c;},nth(){return c;},...over};return c;}
 function fake(caseId,o={}){
  let FINAL=()=>[];
  const real=id=>require(P+'/draft-adapters/'+id);const counts={start:0,primary:0,take:0,repeat:0,pressStart:0,resume:0,retryRun:0,finalize:0,products:0};
@@ -38,7 +38,7 @@ function fake(caseId,o={}){
  const c={...minCfg(caseId),...(o.cfg||{})};FINAL=()=>c.focus?.expectedFinal||[];const recorded=[],evidence=[];let n=0;
  const oracle=r=>async a=>a.phase==='assert'||a.phase==='numeric'?{result:'PASS',contentSafe:true,evidenceRefs:['unit.json'],observed:true,...r}:{observed:true};
  const oracles={coaching:oracle({}),pdfOwnerTake:oracle({}),sameTarget:oracle({}),feedbackReceived:oracle({}),feedbackAssociation:oracle(o.association||{}),coachingAssociation:oracle({}),focusEvidence:oracle({}),abandonmentLease:oracle({}),takeoverLease:oracle({}),...(o.oracles||{})};
- const cap={credentials:{email:'a@b.c',password:'x'},writeEvidence:async(name,v)=>{evidence.push({name,v});return 'e'+(++n)+'.json';},recordAssertion:async a=>{recorded.push(a);},recordStartPress:async()=>{},oracles};
+ const cap={credentials:{email:'a@b.c',password:'x'},writeEvidence:async(name,v)=>{evidence.push({name,v});return 'e'+(++n)+'.json';},recordAssertion:async a=>{recorded.push(a);},recordStartPress:async()=>{},oracles,...(o.capabilities||{})};
  const pagesCreated=[pageA];let first=true;const context={newPage:async()=>{if(first){first=false;return pageA;}const p=mkPage();pagesCreated.push(p);return p;},grantPermissions:async()=>{},clearPermissions:async()=>{}};
  const guard=o.guard||{armDownloadFault:()=> 'dl1',resumeDownloadNetwork:async()=>{counts.resume++;},summary:()=>({faults:[{id:'f1',fired:true}],downloadFaults:[{id:'dl1',fired:true,bytesForwarded:5,browserOfflineApplied:true}]})};
  const browser={newContext:async()=>({newPage:async()=>{const p=mkPage();pagesCreated.push(p);return p;},close:async()=>{}})};

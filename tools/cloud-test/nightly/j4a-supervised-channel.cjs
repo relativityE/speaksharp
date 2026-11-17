@@ -20,7 +20,7 @@
 const { acknowledgeBinding, beginBinding } = require('./j4a-supervised-binding.cjs');
 
 const LEG = 'J4.a';
-const OPS = Object.freeze(['send', 'cleanup', 'createAccount', 'created', 'reportCleanup']);
+const OPS = Object.freeze(['send', 'cleanup', 'createAccount', 'created', 'reportCleanup', 'confirmOwner']);
 const KINDS = Object.freeze(['starts', 'coaching']);
 const ID = /^[a-z0-9-]{1,40}$/;
 const REF = /^[A-Za-z0-9._:-]{1,120}$/;
@@ -43,10 +43,10 @@ const RESIDUE_KINDS = Object.freeze(['account', 'session', 'lease']);
  * for this case (runner-bridge.cjs `runCase` opts). Returns { bound, outcome() }. Never throws into the supervisor's flow:
  * every refusal is recorded in `violations`, and nothing reaches `nightly` without a bound digest.
  */
-function attachParentChannel({ port, identity, nightly }) {
+function attachParentChannel({ port, identity, nightly, confirmOwner }) {
     const binding = beginBinding(identity);
     const state = { digest: null, refused: null, ended: false, report: null, violations: [], seen: new Set(), pending: new Map(),
-        confirmedAccount: null };
+        confirmedAccount: null, confirmedOwner: null, ownerAsked: false };
     const reply = (msg) => { if (!state.ended) try { port.send(msg); } catch { /* the child is gone */ } };
     const refuse = (id, reason) => { state.violations.push(reason); reply({ t: 'res', id, ok: false, reason }); };
     /** Waits for the child's "done"/"createResult" for `id`; a disconnect or exit settles it as lost (never success). */
@@ -85,6 +85,18 @@ function attachParentChannel({ port, identity, nightly }) {
                 state.confirmedAccount = m.lookupRef;
             return reply({ t: 'res', id, ok: r.sent === true && r.answered === true, sent: r.sent === true, answered: r.answered === true,
                 outcome: r.answered ? r.value?.outcome ?? null : null, reason: r.sent ? undefined : r.reason });
+        }
+        // #1884 (Sam, option a): the owner the guard may bind, confirmed by the PARENT independently (durable create record, reserved
+        // email, exact lookup), asked once, only after the parent saw the create confirmed. The child never supplies it.
+        if (op === 'confirmOwner') {
+            if (state.ownerAsked) return refuse(id, 'owner already confirmed or refused; no rebind');
+            state.ownerAsked = true;
+            if (state.confirmedAccount === null || typeof confirmOwner !== 'function') return reply({ t: 'res', id, ok: false, reason: 'HOLD: no confirmed create or no parent owner confirmation' });
+            let r;
+            try { r = await confirmOwner(state.confirmedAccount); } catch { r = { hold: 'the parent owner confirmation failed' }; }
+            if (!r || typeof r.owner !== 'string' || r.hold) return reply({ t: 'res', id, ok: false, reason: `HOLD: ${r?.hold ?? 'unconfirmed'}` });
+            state.confirmedOwner = r.owner;
+            return reply({ t: 'res', id, ok: true, ownerId: r.owner });
         }
         if (op === 'created') {
             if (!m.resource || typeof m.resource.kind !== 'string' || !REF.test(String(m.resource.ref ?? ''))) return refuse(id, 'malformed resource');
@@ -131,7 +143,7 @@ function attachParentChannel({ port, identity, nightly }) {
          * create, or no trusted reader leaves { steps, left } with no verification: cleanup unproven, never PASS.
          */
         async outcome({ readResidue } = {}) {
-            const base = { digest: state.digest, refused: state.refused, violations: [...state.violations], confirmedAccount: state.confirmedAccount };
+            const base = { digest: state.digest, refused: state.refused, violations: [...state.violations], confirmedAccount: state.confirmedAccount, confirmedOwner: state.confirmedOwner };
             if (!state.report || state.digest === null)
                 return Object.freeze({ ...base, nightlyCleanup: { steps: [], left: [] } });
             const cleanup = { steps: state.report.steps, left: state.report.left };
@@ -187,6 +199,8 @@ function connectChildChannel({ port, identity, timeoutMs = 10_000 }) {
             port.send({ t: 'req', id, op, ...fields });
         });
         const api = Object.freeze({
+            /** The child's own bound identity (its runId names the J4.a reservation email). */
+            identity,
             get digest() { return digest; },
             /** Reserved first; `act()` runs only on the parent's grant. Resolves { granted, ok, value }. */
             send: (kind, act) => request('send', { kind }, () => act()),
@@ -195,6 +209,8 @@ function connectChildChannel({ port, identity, timeoutMs = 10_000 }) {
             /** `options.emailDomain`: the run's fixed test domain, recorded durably with the attempt before it is sent. */
             createAccount: (lookupRef, act, { emailDomain } = {}) => request('createAccount', { lookupRef, ...(emailDomain === undefined ? {} : { emailDomain }) }, (m) => act({ retries: m.retries })),
             created: (resource) => request('created', { resource }),
+            /** The owner the parent independently confirmed for the guarded create: { ok, ownerId } or { ok: false, reason: 'HOLD: ...' }. Once. */
+            confirmOwner: () => request('confirmOwner', {}),
             reportCleanup: (report) => request('reportCleanup', { digest, report }),
         });
     });

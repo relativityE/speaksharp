@@ -13,6 +13,7 @@ const nonempty = s => typeof s === 'string' && s.trim().length > 0 && s.length <
 const loadedOracles = new WeakSet();
 const sessionFactories = new WeakSet();
 function isReviewedSessionOracleFactory(value) { return !!value && typeof value==='object' && sessionFactories.has(value); }
+const GUARDED_SIGNUP_OWNER='guarded-signup-unbound';
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 function sessionReadbackBinding(contract,{host,ownerId,sessionId,sourceSha}) {
   if(!contract||contract.version!==1||contract.kind!=='own-session-v1'||contract.pathname!=='/rest/v1/sessions'||contract.host!==host||contract.sourceSha!==sourceSha||!UUID.test(ownerId||'')||!isCanonicalSessionUuid(sessionId)||!Array.isArray(contract.columns)||!contract.columns.length||contract.columns.some(c=>!/^[_a-z]+$/.test(c))||new Set(contract.columns).size!==contract.columns.length) throw new Error('source-reviewed exact own-session contract required');
@@ -128,19 +129,32 @@ function loadReviewedOracle(options) {
   }
   if(options.readbackBinding)return makeBound(normalizeReadbackBinding(options.readbackBinding));
   const d=options.dynamicSessionBinding;
-  if(!d||Object.keys(d).sort().join(',')!=='host,ownerId,sourceSha'||!UUID.test(d.ownerId||'')||!/^[0-9a-f]{40}$/.test(d.sourceSha||''))throw new Error('dynamic readback source/owner configuration invalid');
+  // #1884 (Sam, 17 Nov, option a): the explicit guarded-signup mode starts with NO owner. bindOwner binds it exactly once (the guard calls it
+  // only after the page session matched the owner the parent confirmed); until then bindSession refuses. Pre-provisioned runs are unchanged.
+  const guarded=d?.ownerId===GUARDED_SIGNUP_OWNER;
+  if(!d||Object.keys(d).sort().join(',')!=='host,ownerId,sourceSha'||(!guarded&&!UUID.test(d.ownerId||''))||!/^[0-9a-f]{40}$/.test(d.sourceSha||''))throw new Error('dynamic readback source/owner configuration invalid');
   const contractDescriptor=Object.getOwnPropertyDescriptor(module,'readbackContract');
   if(!contractDescriptor||!Object.hasOwn(contractDescriptor,'value'))throw new Error('reviewed oracle must export source-derived readbackContract');
   const contract=immutableJsonCopy(contractDescriptor.value), configured=immutableJsonCopy(d);
-  sessionReadbackBinding(contract,{...configured,sessionId:configured.ownerId});
+  let owner=guarded?null:configured.ownerId;const UNBOUND_PROBE='00000000-0000-4000-8000-000000000000';
+  sessionReadbackBinding(contract,{...configured,ownerId:owner??UNBOUND_PROBE,sessionId:owner??UNBOUND_PROBE});
   const baselineValidator=Object.getOwnPropertyDescriptor(module,'validateBaseline');
   if(!baselineValidator||typeof baselineValidator.value!=='function')throw new Error('reviewed oracle must validate the pre-Stop baseline');
   let bound=false;
-  const factory=Object.freeze({sha256:verified.stepSha256,sourceId,scope:'trusted-reviewed-node-not-sandbox',sourceSha:configured.sourceSha,host:configured.host,accountSubjectSha256:hash(configured.ownerId),
+  const factory=Object.freeze({sha256:verified.stepSha256,sourceId,scope:'trusted-reviewed-node-not-sandbox',sourceSha:configured.sourceSha,host:configured.host,
+    get accountSubjectSha256(){return owner===null?null:hash(owner);},
+    get ownerBound(){return owner!==null;},
+    bindOwner(ownerId) {
+      if(!guarded)throw new Error('the reviewed owner is fixed by configuration; no runtime owner binding');
+      if(owner!==null)throw new Error('the guarded-signup owner is already bound; no rebind');
+      if(typeof ownerId!=='string'||!UUID.test(ownerId))throw new Error('the guarded-signup owner must be an exact account UUID');
+      owner=ownerId;return hash(owner);
+    },
     bindSession(input) {
+      if(owner===null)throw new Error('the guarded-signup owner is unbound; save readback refuses');
       if(bound)throw new Error('reviewed session readback already bound; cannot retarget');
-      if(!input||Object.keys(input).sort().join(',')!=='baselineRow,ownerId,sessionId,sourceSha'||input.ownerId!==configured.ownerId||input.sourceSha!==configured.sourceSha)throw new Error('dynamic readback owner/source mismatch or override');
-      const requestBinding=sessionReadbackBinding(contract,{...configured,sessionId:input.sessionId});
+      if(!input||Object.keys(input).sort().join(',')!=='baselineRow,ownerId,sessionId,sourceSha'||input.ownerId!==owner||input.sourceSha!==configured.sourceSha)throw new Error('dynamic readback owner/source mismatch or override');
+      const requestBinding=sessionReadbackBinding(contract,{...configured,ownerId:owner,sessionId:input.sessionId});
       const beforeRow=immutableJsonCopy(input.baselineRow);baselineValidator.value(beforeRow,input.ownerId,input.sessionId);
       const loaded=makeBound(requestBinding,immutableJsonCopy({ownerId:input.ownerId,sessionId:input.sessionId,beforeRow}));
       bound=true;return loaded;
@@ -149,4 +163,4 @@ function loadReviewedOracle(options) {
   sessionFactories.add(factory);return factory;
 }
 
-module.exports = { loadReviewedOracle, normalizeReadbackBinding, readbackRequestHash, isReviewedOracle, isReviewedSessionOracleFactory, sessionReadbackBinding };
+module.exports = { GUARDED_SIGNUP_OWNER, loadReviewedOracle, normalizeReadbackBinding, readbackRequestHash, isReviewedOracle, isReviewedSessionOracleFactory, sessionReadbackBinding };
