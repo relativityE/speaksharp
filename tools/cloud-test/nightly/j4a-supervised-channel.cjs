@@ -50,8 +50,13 @@ function attachParentChannel({ port, identity, nightly, confirmOwner }) {
     const reply = (msg) => { if (!state.ended) try { port.send(msg); } catch { /* the child is gone */ } };
     const refuse = (id, reason) => { state.violations.push(reason); reply({ t: 'res', id, ok: false, reason }); };
     /** Waits for the child's "done"/"createResult" for `id`; a disconnect or exit settles it as lost (never success). */
-    const awaitChild = (id) => new Promise((resolve) => { state.pending.set(id, resolve); });
-    const settleAll = () => { for (const [, resolve] of state.pending) resolve({ lost: true }); state.pending.clear(); };
+    // Sam (seal review of f34804e1): each pending reply is bound to the operation that issued it. A send/cleanup grant is answered only
+    // by `done`, a create only by `createResult` (or `failed` for either). A wrong-kind reply, a reply for an id that is not pending (a
+    // replay or an unsolicited answer) is a protocol violation: the pending operation settles LOST, and any violation keeps cleanup
+    // verification out of the outcome (never accepted alongside violations).
+    const awaitChild = (id, expect) => new Promise((resolve) => { state.pending.set(id, { resolve, expect }); });
+    const settleAll = () => { for (const [, p] of state.pending) p.resolve({ lost: true }); state.pending.clear(); };
+    const answered = new Set();
     let resolveBound;
     const bound = new Promise((r) => { resolveBound = r; });
 
@@ -65,7 +70,7 @@ function attachParentChannel({ port, identity, nightly, confirmOwner }) {
             if (op === 'send' && !KINDS.includes(m.kind)) return refuse(id, 'unknown send kind');
             const route = op === 'send' ? (a) => nightly.send(LEG, m.kind, a) : (a) => nightly.cleanup(LEG, a);
             let childResult = null;
-            const r = await route(async () => { reply({ t: 'go', id }); childResult = await awaitChild(id); if (childResult.lost) throw new Error('lost'); return childResult.value; })
+            const r = await route(async () => { reply({ t: 'go', id }); childResult = await awaitChild(id, 'done'); if (childResult.lost) throw new Error('lost'); return childResult.value; })
                 .catch(() => ({ sent: true, lost: true }));
             return reply({ t: 'res', id, ok: r.sent === true && !r.lost, granted: r.sent === true, lost: r.lost === true || childResult?.lost === true,
                 value: r.sent && !r.lost ? r.value ?? null : null, reason: r.sent ? undefined : r.reason });
@@ -75,7 +80,7 @@ function attachParentChannel({ port, identity, nightly, confirmOwner }) {
             if (m.emailDomain !== undefined && (typeof m.emailDomain !== 'string' || !DOMAIN.test(m.emailDomain))) return refuse(id, 'malformed emailDomain');
             const r = await nightly.createAccount(LEG, m.lookupRef, async ({ signal, retries }) => {
                 reply({ t: 'createGo', id, retries });
-                const answer = await Promise.race([awaitChild(id),
+                const answer = await Promise.race([awaitChild(id, 'createResult'),
                     new Promise((res) => signal.addEventListener('abort', () => res({ lost: true }), { once: true }))]);
                 if (answer.lost) throw new Error('create answer lost');
                 return answer.value;
@@ -120,12 +125,13 @@ function attachParentChannel({ port, identity, nightly, confirmOwner }) {
             return;
         }
         if (m.t === 'refusal') { if (state.digest === null && !state.refused) { state.refused = 'child refused the binding'; resolveBound(null); } return; }
-        if ((m.t === 'done' || m.t === 'createResult') && state.pending.has(m.id)) {
-            const resolve = state.pending.get(m.id); state.pending.delete(m.id); resolve({ value: m.value ?? null });
-            return;
-        }
-        if (m.t === 'failed' && state.pending.has(m.id)) {
-            const resolve = state.pending.get(m.id); state.pending.delete(m.id); resolve({ lost: true });
+        if (m.t === 'done' || m.t === 'createResult' || m.t === 'failed') {
+            const p = state.pending.get(m.id);
+            if (!p) { state.violations.push(answered.has(m.id) ? `replayed reply ${String(m.id).slice(0, 40)}` : 'reply for no pending operation'); return; }
+            state.pending.delete(m.id); answered.add(m.id);
+            if (m.t === 'failed') { p.resolve({ lost: true }); return; }
+            if (m.t !== p.expect) { state.violations.push(`wrong-kind reply ${m.t} for ${p.expect}`); p.resolve({ lost: true }); return; }
+            p.resolve({ value: m.value ?? null });
             return;
         }
         if (m.t === 'req') void handleRequest(m);
@@ -144,8 +150,8 @@ function attachParentChannel({ port, identity, nightly, confirmOwner }) {
          */
         async outcome({ readResidue } = {}) {
             const base = { digest: state.digest, refused: state.refused, violations: [...state.violations], confirmedAccount: state.confirmedAccount, confirmedOwner: state.confirmedOwner };
-            if (!state.report || state.digest === null)
-                return Object.freeze({ ...base, nightlyCleanup: { steps: [], left: [] } });
+            if (!state.report || state.digest === null || state.violations.length > 0)
+                return Object.freeze({ ...base, nightlyCleanup: { steps: state.report?.steps ?? [], left: state.report?.left ?? [] } });
             const cleanup = { steps: state.report.steps, left: state.report.left };
             if (state.confirmedAccount === null || typeof readResidue !== 'function')
                 return Object.freeze({ ...base, nightlyCleanup: cleanup });
