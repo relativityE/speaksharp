@@ -12,13 +12,15 @@
  * page is faked.
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, act } from '../../../tests/support/test-utils';
+import { render, screen, act, fireEvent } from '../../../tests/support/test-utils';
+import { useNavigate } from 'react-router-dom';
 import SessionPage from '../SessionPage';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { reconcileFinalizedFillers } from '@/utils/finalizedSessionAnalysis';
 import * as SessionLifecycleHook from '@/hooks/useSessionLifecycle';
 import * as RecoveryHook from '@/hooks/useUnresolvedRecovery';
 import { getSupabaseClient } from '@/lib/supabaseClient';
+import { grantPracticePrivacy, resetPracticePrivacyForTests } from '../../../tests/test-utils/practicePrivacy';
 
 vi.mock('@/hooks/useSessionLifecycle', () => ({ useSessionLifecycle: vi.fn() }));
 vi.mock('@/hooks/useUnresolvedRecovery', () => ({ useUnresolvedRecovery: vi.fn() }));
@@ -28,22 +30,33 @@ vi.mock('@/components/session/MobileActionBar', () => ({ MobileActionBar: () => 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), id: vi.fn() } }));
 vi.mock('@/contexts/AuthProvider', async (orig) => {
     const actual = await orig<typeof import('@/contexts/AuthProvider')>();
-    const user = { id: 'owner-1' };
-    return { ...actual, useAuthProvider: () => ({ session: { user }, user }) };
+    return { ...actual, useAuthProvider: () => {
+        const user = currentOwner.id ? { id: currentOwner.id } : null;
+        return { session: user ? { user } : null, user };
+    } };
 });
 
 // The returned functions are STABLE. Fresh `vi.fn()`s per render would change identity on every render,
 // re-running the bound's effect and restarting its timer no matter what `failureCount` did — the test
 // would then pass with the fix removed, which is exactly what it did before this was noticed.
-const { readState, stableRefetch, stableAbandon } = vi.hoisted(() => ({
-    readState: { current: { failureCount: 0 } },
+const { readState, currentOwner, stableRefetch, stableAbandon } = vi.hoisted(() => ({
+    readState: {
+        current: {
+            failureCount: 0,
+            data: undefined as { id: string; user_id: string; transcript_state: string; transcript: null } | undefined,
+        },
+    },
+    currentOwner: { id: 'owner-1' as string | null },
     stableRefetch: vi.fn(),
     stableAbandon: vi.fn(),
 }));
 vi.mock('@/hooks/useSession', () => ({
     useSession: () => ({
-        data: undefined,
+        data: readState.current.data,
         isFetching: true,                       // the read never answers in this test
+        isFetchedAfterMount: Boolean(readState.current.data),
+        isSuccess: Boolean(readState.current.data),
+        isError: false,
         failureCount: readState.current.failureCount,
         refetch: stableRefetch,
         abandonCurrentRead: stableAbandon,
@@ -56,7 +69,9 @@ const invoke = vi.fn();
 
 beforeEach(() => {
     vi.clearAllMocks();
-    readState.current = { failureCount: 0 };
+    resetPracticePrivacyForTests();
+    readState.current = { failureCount: 0, data: undefined };
+    currentOwner.id = 'owner-1';
     vi.mocked(getSupabaseClient).mockReturnValue({ functions: { invoke } } as never);
     mockRecovery.mockReturnValue({ pendingResolutionKind: null } as never);
     mockLifecycle.mockReturnValue({
@@ -99,7 +114,7 @@ describe('#1422 — a retrying read is not a stalled read', () => {
             // far past two bounds; the read has never gone fifteen seconds without an attempt.
             for (let attempt = 1; attempt <= 4; attempt += 1) {
                 await act(async () => { vi.advanceTimersByTime(14_000); });
-                readState.current = { failureCount: attempt };
+                readState.current.failureCount = attempt;
                 view.rerender(<SessionPage />);
                 await act(async () => { await Promise.resolve(); });
             }
@@ -126,5 +141,98 @@ describe('#1422 — a retrying read is not a stalled read', () => {
         } finally {
             vi.useRealTimers();
         }
+    });
+});
+
+describe('#1835 — an unsaved transcript belongs only to its original completed review', () => {
+    const SESSION_ID = 'session-progress-1';
+    const TEXT = 'This completed speech stays only on this page.';
+    const delivery = { sessionId: SESSION_ID, recordingId: 'take-1', ownerId: 'owner-1', text: TEXT };
+    const finish = (view: ReturnType<typeof render>, ui = <SessionPage />, fields = delivery) => {
+        const receive = mockLifecycle.mock.lastCall?.[0]?.beginLocalTranscriptReview?.();
+        act(() => {
+            receive?.(fields);
+            useSessionStore.getState().setCompletedSessionId(SESSION_ID);
+        });
+        mockLifecycle.mockReturnValue({ ...mockLifecycle(), showAnalyticsPrompt: true });
+        view.rerender(ui);
+    };
+
+    beforeEach(() => {
+        useSessionStore.getState().setCompletedSessionId(null);
+        readState.current.data = { id: SESSION_ID, user_id: 'owner-1', transcript_state: 'not_captured', transcript: null };
+        mockLifecycle.mockReturnValue({ ...mockLifecycle(), showAnalyticsPrompt: false });
+    });
+
+    it('shows only the page-local text after Stop, without giving coaching saved-transcript authority', () => {
+        // Even a stale opted-in settings view must not make the non-retained receipt eligible for coaching.
+        grantPracticePrivacy({ ownerId: 'owner-1' });
+        const view = render(<SessionPage />);
+        finish(view);
+        expect(screen.getByTestId('local-review-transcript')).toHaveTextContent(TEXT);
+        expect(useSessionStore.getState().transcript.transcript).not.toContain(TEXT);
+        expect(invoke.mock.calls.some(([endpoint]) => endpoint === 'get-ai-suggestions')).toBe(false);
+        view.unmount();
+        mockLifecycle.mockReturnValue({ ...mockLifecycle(), showAnalyticsPrompt: false });
+        render(<SessionPage />, { route: { pathname: '/session', search: `?review=${SESSION_ID}` } });
+        expect(screen.getByTestId('saved-session-return-transcript-not_captured')).toBeInTheDocument();
+        expect(screen.queryByText(TEXT)).not.toBeInTheDocument();
+    });
+
+    it.each([
+        ['another owner', { ...delivery, ownerId: 'owner-2' }],
+        ['another completed session', { ...delivery, sessionId: 'a-different-session' }],
+    ])('refuses a handoff for %s', (_label, fields) => {
+        const view = render(<SessionPage />);
+        finish(view, <SessionPage />, fields);
+        expect(screen.queryByTestId('local-review-transcript')).not.toBeInTheDocument();
+    });
+
+    it('a new recording retires the text and a prior in-flight Stop receiver', () => {
+        const view = render(<SessionPage />);
+        finish(view);
+        const receiver = mockLifecycle.mock.lastCall?.[0]?.beginLocalTranscriptReview?.();
+        act(() => {
+            mockLifecycle.mock.lastCall?.[0]?.clearLocalTranscriptReview?.();
+            receiver?.(delivery);
+        });
+        expect(screen.queryByText(TEXT)).not.toBeInTheDocument();
+    });
+
+    it('sign-out and later sign-in do not restore the local copy', () => {
+        const view = render(<SessionPage />);
+        finish(view);
+        currentOwner.id = null;
+        view.rerender(<SessionPage />);
+        expect(screen.queryByText(TEXT)).not.toBeInTheDocument();
+        currentOwner.id = 'owner-1';
+        view.rerender(<SessionPage />);
+        expect(screen.queryByText(TEXT)).not.toBeInTheDocument();
+    });
+
+    it('navigation away and back does not restore the local copy even if this component stays mounted', () => {
+        const Controls = () => {
+            const navigate = useNavigate();
+            return <>
+                <button type="button" onClick={() => navigate('/history')}>Leave the practice page</button>
+                <button type="button" onClick={() => navigate(-1)}>Return to the practice page</button>
+            </>;
+        };
+        const ui = <><SessionPage /><Controls /></>;
+        const view = render(ui);
+        finish(view, ui);
+        expect(screen.getByText(TEXT)).toBeInTheDocument();
+        fireEvent.click(screen.getByText('Leave the practice page'));
+        expect(screen.queryByText(TEXT)).not.toBeInTheDocument();
+        fireEvent.click(screen.getByText('Return to the practice page'));
+        expect(screen.queryByText(TEXT)).not.toBeInTheDocument();
+    });
+
+    it('retires the page-local copy on pagehide without needing a React unmount', () => {
+        const view = render(<SessionPage />);
+        finish(view);
+        expect(screen.getByText(TEXT)).toBeInTheDocument();
+        act(() => { window.dispatchEvent(new Event('pagehide')); });
+        expect(screen.queryByText(TEXT)).not.toBeInTheDocument();
     });
 });

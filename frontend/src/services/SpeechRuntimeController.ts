@@ -406,6 +406,8 @@ export type RuntimeState =
  */
 export interface StopRecordingOptions {
     belowMinimumDuration?: boolean;
+    /** A one-shot handoff to the mounted caller, never stored in the controller or session store. */
+    onLocalTranscriptReview?: (review: LocalTranscriptReview) => void;
     /** G5: called with the session id when THIS stop arms Try again for its unsettled discard. */
     onUnsettledDiscard?: (sessionId: string) => void;
     /**
@@ -414,6 +416,13 @@ export interface StopRecordingOptions {
      * page leave) may have resolved it already; the page reports a discard only when the take was in fact discarded.
      */
     onTakeOutcome?: (outcome: StopTakeOutcome) => void;
+}
+
+export interface LocalTranscriptReview {
+    recordingId: string;
+    sessionId: string;
+    ownerId: string;
+    text: string;
 }
 
 /**
@@ -5672,6 +5681,7 @@ export class SpeechRuntimeController {
             this.stopAcceptedForRecordingId = this.currentRecordingId;
             // G5 (#1880): the take THIS accepted stop resolves; its outcome is recorded against it.
             const stopRecordingId = this.currentRecordingId;
+            const stopOwnerId = this.capturedUserId;
             const stopSnapshotStore = useSessionStore.getState();
             const frozenAtStop = this.freezeTranscriptLifecycleAtStop();
             pushTranscriptLifecycleTrace('lifecycle:stop', {
@@ -6474,6 +6484,17 @@ export class SpeechRuntimeController {
                                 // reconciliation failure meant no id, a disabled query, and a saved session stuck on "Loading…".
                                 // AHT-01 Option 1: the review card names the take that saved this session, not the ambient one.
                                 noteSavedTake(sessionId, takeSubject);
+                                if (options?.onLocalTranscriptReview && stopRecordingId && stopOwnerId
+                                    && userId === stopOwnerId && this.currentRecordingId === stopRecordingId
+                                    && completion.transcriptOutcome === 'not_provided' && finalTranscript.trim()) {
+                                    try {
+                                        options.onLocalTranscriptReview({
+                                            recordingId: stopRecordingId, sessionId, ownerId: stopOwnerId, text: finalTranscript,
+                                        });
+                                    } catch {
+                                        // A page-only review must not change the outcome of a successful save.
+                                    }
+                                }
                                 useSessionStore.getState().setCompletedSessionId(sessionId ?? null);
                             });
 

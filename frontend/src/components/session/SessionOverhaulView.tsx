@@ -88,6 +88,8 @@ export interface SessionOverhaulViewProps {
      * raw text "never affects the save, a Retry Save, or the review reader" — this is that reader.
      */
     reviewTranscript?: TranscriptView;
+    /** Consent-off text stays in this page's transcript panel, off the saved review and telemetry paths. */
+    localReviewText?: string | null;
     /**
      * True while the retained read has not settled — finalization still running, or the fetch in
      * flight. Distinct from `isFinalizing`, which describes the TRANSCRIPT lifecycle: a settled
@@ -194,6 +196,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     micLevel,
     transcriptContent,
     reviewTranscript,
+    localReviewText,
     reviewStillSettling = false,
     onRetryReviewTranscript = null,
     finalizedWordCount,
@@ -1099,7 +1102,12 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                 // #1046 Focus Points: highlights mean coverage here, not fillers — the footer says so, and
                 // the filler breakdown is deferred to the delivery strip below (spec §4/§5).
                 slotBNotice={inAfter && effectiveReview.kind !== 'available'
-                    ? <ReviewTranscriptNotice view={effectiveReview} isFinalizing={reviewStillSettling} onRetry={onRetryReviewTranscript} />
+                    ? localReviewText
+                        ? <div data-testid="local-review-transcript" data-sentry-block className="space-y-2">
+                            <p className="text-sm text-neutral-secondary">This transcript isn’t saved. You can read it until you leave.</p>
+                            <p className="whitespace-pre-wrap break-words">{localReviewText}</p>
+                        </div>
+                        : <ReviewTranscriptNotice view={effectiveReview} isFinalizing={reviewStillSettling} onRetry={onRetryReviewTranscript} />
                     : undefined}
                 fillerFooter={isObjective
                     ? (coverage && coverage.coveredQuotes.length > 0

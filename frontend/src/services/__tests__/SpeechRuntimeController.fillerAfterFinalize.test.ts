@@ -138,4 +138,31 @@ describe('#1258 — the saved filler count is finalized like the transcript', ()
         expect(saved().metrics?.fillerCounts?.um).toBe(3);
         expect(fillerMeasurements[0].reportedFillers).toBe(3);
     });
+
+    it.each([
+        ['not_provided', 'test-user', true],
+        ['retained', 'test-user', false],
+        ['not_captured', 'test-user', false],
+        ['not_provided', 'different-owner', false],
+    ] as const)('passes the completed text once to its page only (%s, %s)', async (transcriptOutcome, owner, expected) => {
+        const fixture = controller as unknown as { service: unknown; currentRecordingId: string; capturedUserId: string | null };
+        fixture.service = engine(DECODED_DURING_FINALIZING);
+        fixture.currentRecordingId = `review-take-${transcriptOutcome}-${owner}`;
+        fixture.capturedUserId = owner;
+        vi.mocked(completeSession).mockResolvedValueOnce({ success: true, transcriptOutcome });
+        const receive = vi.fn();
+        try {
+            await controller.stopRecording({ onLocalTranscriptReview: receive });
+            expect(saved().finalTranscript?.toLowerCase()).toContain(DECODED_DURING_FINALIZING);
+            expect(useSessionStore.getState().transcript.transcript).toBe('');
+            expect(receive.mock.calls).toEqual(expected ? [[{
+                recordingId: fixture.currentRecordingId,
+                sessionId: 'test-sess',
+                ownerId: owner,
+                text: saved().finalTranscript,
+            }]] : []);
+        } finally {
+            fixture.capturedUserId = null;
+        }
+    });
 });
