@@ -38,6 +38,40 @@ export function hostedFieldUnavailable(field: HostedField, cardChoiceShown: bool
 }
 
 /**
+ * One content-free progress line, printed AS the journey runs (run 44080723593 timed out with no receipt, so its log named no step).
+ * Fixed names and whole seconds only; any other name prints as `invalid`. Never ids, emails, URLs or provider text.
+ */
+export function progressLine(kind: 'step' | 'stage' | 'checkpoint', name: string, elapsedMs: number): string {
+  const safe = typeof name === 'string' && /^[a-z0-9_.-]{1,64}$/.test(name) ? name : 'invalid';
+  const t = Number.isFinite(elapsedMs) && elapsedMs >= 0 ? Math.floor(elapsedMs / 1000) : -1;
+  return `BILLING_JOURNEY_PROGRESS ${kind}=${safe} t=${t}s`;
+}
+
+/** Every hosted-page fill and the Pay click are bounded (run 44080723593: an unbounded wait ran into the 10-minute test timeout). */
+export const HOSTED_ACTION_MS = 30_000;
+/** Diagnostic reads after a failed hosted action (isEnabled/isChecked wait for the element): bounded too, never the test timeout. */
+export const HOSTED_READ_MS = 2_000;
+
+/** Stripe Link's default-ticked "save my information" opt-in could not be cleared; the journey never creates a Link account. */
+export const HOSTED_LINK_OPT_IN_NOT_CLEARED = 'hosted_link_optin_not_cleared';
+
+/** A hosted field that was visible but did not accept input within the bound, named content-free. */
+export function hostedFieldNotEditable(field: HostedField): string {
+  requireFact(HOSTED_FIELDS.includes(field), 'hosted_field_unknown');
+  return `hosted_field_not_editable_${field}`;
+}
+
+/**
+ * The Pay button did not take the click within the bound. Content-free facts only: whether it was visible and enabled, and how
+ * many visible inputs the hosted page marked invalid (`null` = could not be read; never treated as zero).
+ */
+export function hostedSubmitUnavailable(facts: { visible: boolean | null; enabled: boolean | null; invalidFields: number | null }): string {
+  const state = facts.visible === false ? 'hidden' : facts.visible === null ? 'unread' : facts.enabled === false ? 'disabled' : facts.enabled === true ? 'enabled' : 'unread';
+  const invalid = Number.isSafeInteger(facts.invalidFields) && (facts.invalidFields as number) >= 0 ? String(facts.invalidFields) : 'unread';
+  return `hosted_submit_unavailable_${state}_invalid_${invalid}`;
+}
+
+/**
  * Whether the hosted email field must be filled, when the card is entered (run 44066185734: hosted_field_unavailable_email).
  * Email is REQUIRED by default. A visible editable field is always filled. It may be absent only when the page on screen is the
  * exact Checkout session that `assertCheckoutIdentity` already proved is this run's open, unpaid test-mode session for the

@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import { test } from 'vitest';
 import { RUNNER_JOURNEYS, POLICY_PENDING_STEPS, REQUIRED_STEPS, receipt, assertTestPrice, assertInvoice,
   isCorrelatedDelivery, assertSandboxConfiguration, safeFailureReason, testClockCreateFields, localStackStatus,
-  hostedFieldUnavailable, hostedEmailDecision, assertCheckoutIdentity, type HostedField } from './contract';
+  hostedFieldUnavailable, hostedEmailDecision, assertCheckoutIdentity, type HostedField,
+  HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, hostedFieldNotEditable, hostedSubmitUnavailable } from './contract';
 import { finaliseLocalStackReceipt, RECEIPT_KEYS } from './localStackReceipt.mjs';
 import { stackIdentitySha256 } from './localStackResources.mjs';
 
@@ -318,4 +319,60 @@ test('smoke (Sam): conversion proves repeated click, cancel and retry before it 
     'retry_created_second_session']) assert.ok(checkout.includes(`'${code}'`), code);
   // Payment happens only after all three were recorded.
   assert.ok(checkout.indexOf("this.steps.add('checkout_retried')") < checkout.indexOf('this.session = await this.openCheckout(checkoutUrl);'));
+});
+
+// Run 44080723593: the hosted page never confirmed a payment and an unbounded wait ran into the 10-minute test timeout, so the
+// receipt named no step. Every hosted fill and the Pay click are now bounded and fail with a named, content-free code.
+test('a stuck hosted field or Pay button fails fast with a named, content-free code', () => {
+  assert.ok(HOSTED_ACTION_MS > 0 && HOSTED_ACTION_MS <= 30_000);
+  for (const field of ['email', 'card_number', 'card_expiry', 'card_cvc'] as HostedField[])
+    assert.equal(hostedFieldNotEditable(field), `hosted_field_not_editable_${field}`);
+  assert.throws(() => hostedFieldNotEditable('card_holder' as HostedField), /hosted_field_unknown/);
+  assert.equal(hostedSubmitUnavailable({ visible: true, enabled: false, invalidFields: 2 }), 'hosted_submit_unavailable_disabled_invalid_2');
+  assert.equal(hostedSubmitUnavailable({ visible: true, enabled: true, invalidFields: 0 }), 'hosted_submit_unavailable_enabled_invalid_0');
+  assert.equal(hostedSubmitUnavailable({ visible: false, enabled: null, invalidFields: null }), 'hosted_submit_unavailable_hidden_invalid_unread');
+  assert.equal(hostedSubmitUnavailable({ visible: null, enabled: true, invalidFields: -1 }), 'hosted_submit_unavailable_unread_invalid_unread');
+  for (const code of [hostedSubmitUnavailable({ visible: true, enabled: false, invalidFields: 3 }), hostedFieldNotEditable('card_cvc')])
+    assert.match(code, /^[a-z0-9_]+$/);
+});
+
+test('no fill or click on the hosted card path can wait without a bound', () => {
+  const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
+  const start = spec.indexOf('async fillCard(');
+  const end = spec.indexOf('\n  }\n', spec.indexOf('async payOnHostedPage('));
+  assert.ok(start > 0 && end > start);
+  const body = spec.slice(start, end);
+  const actions = body.match(/\.(fill|click|uncheck)\([^;]*/g) ?? [];
+  assert.ok(actions.length >= 4);
+  for (const call of actions) assert.match(call, /timeout: HOSTED_ACTION_MS/, call);
+  // Reads that wait for their element (Codex P2 on 011932fd: isEnabled after a failed click) carry their own small bound.
+  const waitingReads = body.match(/\.(isEnabled|isChecked)\([^)]*\)/g) ?? [];
+  assert.ok(waitingReads.length >= 2);
+  for (const call of waitingReads) assert.match(call, /timeout: HOSTED_READ_MS/, call);
+  assert.ok(HOSTED_READ_MS > 0 && HOSTED_READ_MS < HOSTED_ACTION_MS);
+  // The Pay button is in Stripe's embedded frame (run 44080723593): it must be found across frames, never on the top document alone.
+  assert.doesNotMatch(body, /this\.page\.locator\('button\[type="submit"\]'\)/);
+  assert.match(body, /visibleInFrames\('button\[type="submit"\]'\)/);
+  // The default-ticked Link opt-in is cleared and proven unticked, never filled with a phone number.
+  assert.match(body, /save my information for faster checkout/i);
+  assert.doesNotMatch(body, /type="tel"|autocomplete="tel|name="phone|getByLabel\([^)]*(phone|mobile)/i);
+  assert.equal(HOSTED_LINK_OPT_IN_NOT_CLEARED, 'hosted_link_optin_not_cleared');
+});
+
+// Sam on run 44080723593: the next attempt needs progress checkpoints. Each completed step and stage change prints one content-free line
+// as it happens, so a timeout still leaves the last step reached in the log.
+test('progress lines are content-free: fixed names and whole seconds only', () => {
+  assert.equal(progressLine('step', 'hosted_checkout', 12_999), 'BILLING_JOURNEY_PROGRESS step=hosted_checkout t=12s');
+  assert.equal(progressLine('stage', 'stripe_delivery', 0), 'BILLING_JOURNEY_PROGRESS stage=stripe_delivery t=0s');
+  for (const leak of ['cus_123 user@example.com', 'https://checkout.stripe.com/x', 'a'.repeat(65), '']) assert.equal(progressLine('checkpoint', leak, 1000), 'BILLING_JOURNEY_PROGRESS checkpoint=invalid t=1s');
+  assert.equal(progressLine('step', 'cleanup', Number.NaN), 'BILLING_JOURNEY_PROGRESS step=cleanup t=-1s');
+});
+
+test('the journey prints a checkpoint for every step and stage, and around every hosted action', () => {
+  const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
+  assert.match(spec, /set\.add = \(name: string\) => \{ if \(!set\.has\(name\)\) this\.checkpoint\(name, 'step'\)/);
+  assert.match(spec, /set stage\(name: string\) \{ this\.currentStage = name; this\.checkpoint\(name, 'stage'\); \}/);
+  for (const name of ['hosted_fill_start', 'hosted_fill_done', 'hosted_submit_search', 'hosted_submit_clicked', 'checkout_success_wait'])
+    assert.match(spec, new RegExp(`this\\.checkpoint\\('${name}'\\)`), name);
+  assert.doesNotMatch(spec, /console\.log\((?!progressLine)/, 'no other console output in the journey');
 });
