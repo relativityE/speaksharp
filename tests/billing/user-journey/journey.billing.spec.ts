@@ -721,22 +721,33 @@ class SandboxJourney {
 // Not serial: one failed branch cannot suppress collection/execution of the others. No skips or retries.
 // No mode keeps today's three journeys; BILLING_RUNNER_MODE=smoke or full selects the runner's branches.
 const { journeys: RUN_JOURNEYS } = selectRunnerJourneys(env.BILLING_RUNNER_MODE);
-function journeyTest(journey: RunnerJourney): void {
-  test(`billing ${journey}: genuine Stripe sandbox delivery`, async ({ page }, info) => {
-    let run: SandboxJourney | undefined;
-    let failed = false;
-    let reason: string | null = null;
+/**
+ * Owner teardown, receipt and verdict run in a test-scoped fixture's TEARDOWN, not the test body's `finally`. Playwright runs fixture
+ * teardown after the body ends, including after the test timeout, in its own bounded window (CLEANUP_WINDOW_MS), so a journey that
+ * hangs is still cleaned up by its exact owner (the SandboxJourney's own registered resources), residue-checked and receipted (proven
+ * offline in timeout-cleanup/). A killed worker runs no in-process hook at all; the workflow's always() residue and destruction steps
+ * remain the out-of-process backstop for that case.
+ */
+const CLEANUP_WINDOW_MS = 180_000;
+type JourneyHold = { journey?: RunnerJourney; run?: SandboxJourney; failed: boolean; reason: string | null };
+const journeyCase = test.extend<{ hold: JourneyHold }>({
+  hold: [async ({ playwright }, use, info) => {
+    void playwright; // a cheap built-in fixture: Playwright requires a destructured first argument
+    const hold: JourneyHold = { failed: false, reason: null };
+    await use(hold);
+    const timedOut = info.status === 'timedOut';
+    const failed = hold.failed || timedOut;
+    const reason = hold.reason ?? (timedOut ? 'journey_timeout' : null);
+    const run = hold.run;
     let cleanupFailed = false;
-    try { run = new SandboxJourney(journey, page); await run.run(); }
-    catch (error) { failed = true; reason = safeFailureReason(error); }
-    finally {
-      if (run) { try { await run.cleanup(); } catch { cleanupFailed = true; } }
-      const result = receipt(journey, run?.steps ?? new Set());
-      // On the local stack the receipt never says PASSED/VERIFIED by itself; the workflow finalises it only
-      // after the checked teardown and destruction proof (localStackReceipt.mjs).
-      const status = localStackStatus(failed || cleanupFailed ? 'INCOMPLETE' : result.result,
+    if (run) { try { await run.cleanup(); } catch { cleanupFailed = true; } }
+    requireFact(hold.journey, 'journey_unnamed');
+    const result = receipt(hold.journey, run?.steps ?? new Set());
+    // On the local stack the receipt never says PASSED/VERIFIED by itself; the workflow finalises it only
+    // after the checked teardown and destruction proof (localStackReceipt.mjs).
+    const status = localStackStatus(failed || cleanupFailed ? 'INCOMPLETE' : result.result,
         cleanupFailed ? 'UNPROVEN' : run?.steps.has('cleanup') ? 'VERIFIED' : 'NOT_RUN', useLocalStack);
-      await info.attach('billing-user-journey.json', { body: JSON.stringify({ ...result,
+    await info.attach('billing-user-journey.json', { body: JSON.stringify({ ...result,
         result: status.result,
         failureStage: failed ? run?.stage ?? 'preflight' : null,
         reason,
@@ -746,10 +757,17 @@ function journeyTest(journey: RunnerJourney): void {
         testedRelease: env.BILLING_SANDBOX_RELEASE_SHA?.match(/^[a-f0-9]{40}$/)?.[0] ?? null,
         // Binds this receipt to this run's disposable stack; the finalizer refuses any other run's receipt.
         stackRun: useLocalStack ? env.LOCAL_STACK_PROJECT?.match(/^billing-local-stack-[0-9]{1,20}-[0-9]{1,6}$/)?.[0] ?? null : null,
-      }), contentType: 'application/json' });
-      requireFact(failed || cleanupFailed || result.result !== PENDING_POLICY, 'access_after_end_policy_pending');
-      requireFact(!failed && !cleanupFailed && result.result === 'PASSED', 'journey_incomplete_see_sanitized_receipt');
-    }
+    }), contentType: 'application/json' });
+    requireFact(failed || cleanupFailed || result.result !== PENDING_POLICY, 'access_after_end_policy_pending');
+    requireFact(!failed && !cleanupFailed && result.result === 'PASSED', 'journey_incomplete_see_sanitized_receipt');
+  }, { timeout: CLEANUP_WINDOW_MS }],
+});
+
+function journeyTest(journey: RunnerJourney): void {
+  journeyCase(`billing ${journey}: genuine Stripe sandbox delivery`, async ({ page, hold }) => {
+    hold.journey = journey;
+    try { hold.run = new SandboxJourney(journey, page); await hold.run.run(); }
+    catch (error) { hold.failed = true; hold.reason = safeFailureReason(error); }
   });
 }
 // The three lifecycle branches first, then the full-mode branches, each only when the mode selects it.
