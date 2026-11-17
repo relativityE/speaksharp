@@ -1301,8 +1301,15 @@ export class SpeechRuntimeController {
         /** #1033 (1): present when the placeholder row was never created. Retry must CREATE the row first,
          *  using this recording's idempotency identity so a retry can never produce a duplicate session. */
         initialSave?: { userId: string; recordingId: string; mode: string; engineVersion?: string; modelName?: string; deviceType?: string };
-        // #1306: transcript-free. A finalized retry replays the exact content-free metrics + one next action.
+        // A live retry replays the exact completion payload. A rehydrated retry has no transcript.
         completeArgs: CompleteSessionOptions & { status: 'completed' };
+        // The original Stop page's receiver, never a new page attached on Retry. It owns its own
+        // lifetime fence. No transcript copy is kept here, and durable recovery never gets a receiver.
+        localReview?: {
+            recordingId: string;
+            ownerId: string;
+            receive: NonNullable<StopRecordingOptions['onLocalTranscriptReview']>;
+        };
         attributionEvidence: RuntimeEvidence | null;
         progressContext: ProgressCompletionContext;
         progressMetrics: ProgressMetricsState;
@@ -1752,6 +1759,16 @@ export class SpeechRuntimeController {
                          */
                         // AHT-01 Option 1: the review card names the take that saved this session, not the ambient one.
                         noteSavedTake(targetSessionId, fullSave.subject);
+                        const review = fullSave.localReview;
+                        const text = fullSave.completeArgs.finalTranscript;
+                        if (review && targetSessionId && text?.trim() && completion.transcriptOutcome === 'not_provided'
+                            && this.currentRecordingId === review.recordingId && this.capturedUserId === review.ownerId) {
+                            try {
+                                review.receive({ recordingId: review.recordingId, ownerId: review.ownerId, sessionId: targetSessionId, text });
+                            } catch {
+                                // A page-only review must not change the outcome of a successful save.
+                            }
+                        }
                         useSessionStore.getState().setCompletedSessionId(targetSessionId);
                         /**
                          * #1258 RWT round 2 C — AND THE PAGE ENTERS THAT REVIEW. Only a successful Stop enters the
@@ -6399,13 +6416,16 @@ export class SpeechRuntimeController {
                                 // persisted (a strictly worse state than an attribution-only miss). Keep the
                                 // recording locked (recordingStartedUnresolved stays true from RECORDING) and
                                 // stash a FULL-SAVE retry so Retry Save re-runs the ACTUAL failed op
-                                // (completeSession + attribution), not just the attribution write. The transcript
-                                // is preserved in the recovery draft (saved just above). Session-safe: never
-                                // overwrite a different session's outstanding retry.
+                                // (completeSession + attribution), not just the attribution write. The recovery
+                                // draft remains content-free. Never overwrite a different session's retry.
                                 if (!this.pendingFullSaveRetry || this.pendingFullSaveRetry.sessionId === sessionId) {
                                     this.pendingFullSaveRetry = {
                                         sessionId,
                                         completeArgs,
+                                        localReview: options?.onLocalTranscriptReview && stopRecordingId && stopOwnerId
+                                            && userId === stopOwnerId
+                                            ? { recordingId: stopRecordingId, ownerId: stopOwnerId, receive: options.onLocalTranscriptReview }
+                                            : undefined,
                                         attributionEvidence: attestationEvidence,
                                         subject: takeSubject,
                                         progressContext,

@@ -235,4 +235,34 @@ describe('#1835 — an unsaved transcript belongs only to its original completed
         act(() => { window.dispatchEvent(new Event('pagehide')); });
         expect(screen.queryByText(TEXT)).not.toBeInTheDocument();
     });
+    it.each(['successor', 'owner change', 'unmount', 'revoked saved row'] as const)(
+        'a late Retry Save receipt cannot display text after %s',
+        (transition) => {
+            let view = render(<SessionPage />);
+            const receive = mockLifecycle.mock.lastCall?.[0]?.beginLocalTranscriptReview?.();
+            expect(receive).toBeDefined();
+            if (transition === 'successor') {
+                act(() => mockLifecycle.mock.lastCall?.[0]?.clearLocalTranscriptReview?.());
+            } else if (transition === 'owner change') {
+                currentOwner.id = 'owner-2';
+                view.rerender(<SessionPage />);
+                currentOwner.id = 'owner-1'; // Even returning to the same account does not renew the old receipt.
+                view.rerender(<SessionPage />);
+            } else if (transition === 'unmount') {
+                view.unmount();
+                view = render(<SessionPage />);
+            } else {
+                readState.current.data = { id: SESSION_ID, user_id: 'owner-1', transcript_state: 'expired', transcript: null };
+            }
+            act(() => {
+                receive?.(delivery);
+                useSessionStore.getState().setCompletedSessionId(SESSION_ID);
+                useSessionStore.getState().setRecoveredSaveSessionId(SESSION_ID);
+            });
+            mockLifecycle.mockReturnValue({ ...mockLifecycle(), showAnalyticsPrompt: true });
+            view.rerender(<SessionPage />);
+            expect(screen.queryByText(TEXT)).not.toBeInTheDocument();
+        },
+    );
+
 });
