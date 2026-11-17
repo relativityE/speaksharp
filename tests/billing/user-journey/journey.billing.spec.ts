@@ -9,7 +9,7 @@ import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, re
   assertFullRefund, isRefundCancellation, assertCheckoutGrantedNothing,
   checkoutSessionFromUrl, assertCheckoutIdentity, newlyAddedCard, assertNoSecondCharge,
   type RunnerJourney, type BillingEvent, hostedFieldUnavailable, hostedEmailDecision, type HostedField,
-  HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, hostedFieldNotEditable, hostedSubmitUnavailable } from './contract';
+  HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable } from './contract';
 import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { selectBenchmarkMode, preparePrivateModelIfPrompted, startBenchmarkRecording,
   expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput, stopBenchmarkRecording,
@@ -260,26 +260,64 @@ class SandboxJourney {
     return null;
   }
 
+  /** The first ATTACHED match of `selector` in any frame (no wait; a styled-over input is attached but may not be visible), or null. */
+  async attachedInFrames(selector: string): Promise<import('@playwright/test').Locator | null> {
+    for (const frame of this.page.frames()) {
+      const candidate = frame.locator(selector).first();
+      if (await candidate.count().catch(() => 0) > 0) return candidate;
+    }
+    return null;
+  }
+
+  /** Clears Link's opt-in through its label and proves the real input unticked; absent (both parts missing) is nothing to clear. */
+  async clearLinkOptIn(): Promise<'clear' | 'absent'> {
+    const input = await this.attachedInFrames(HOSTED_SELECTORS.linkOptInInput);
+    const label = await this.attachedInFrames(HOSTED_SELECTORS.linkOptInLabel);
+    if (!input && !label) { this.checkpoint('hosted_link_optin_absent'); return 'absent'; }
+    if (!input || !label) throw new Error(`BILLING_JOURNEY:${HOSTED_LINK_OPT_IN_NOT_CLEARED}`);
+    if (await input.isChecked({ timeout: HOSTED_READ_MS }).catch(() => null) !== false)
+      await label.click({ timeout: HOSTED_ACTION_MS }).catch(() => undefined);
+    if (await input.isChecked({ timeout: HOSTED_READ_MS }).catch(() => null) !== false) throw new Error(`BILLING_JOURNEY:${HOSTED_LINK_OPT_IN_NOT_CLEARED}`);
+    this.checkpoint('hosted_link_optin_cleared');
+    return 'clear';
+  }
+
+  /** Content-free facts of the hosted page after Subscribe when Stripe did not return (each read bounded; unread is null). */
+  async afterSubmitFacts(): Promise<Parameters<typeof checkoutNotReturned>[0]> {
+    const read = async <T>(f: () => Promise<T>): Promise<T | null> => { try { return await f(); } catch { return null; } };
+    const visibleCount = (selector: string) => read(async () => {
+      let n = 0;
+      for (const frame of this.page.frames()) {
+        const all = frame.locator(selector);
+        for (let i = 0; i < await all.count(); i++) if (await all.nth(i).isVisible()) n += 1;
+      }
+      return n;
+    });
+    const input = await this.attachedInFrames(HOSTED_SELECTORS.linkOptInInput).catch(() => null);
+    const checked = input ? await read(() => input.isChecked({ timeout: HOSTED_READ_MS })) : undefined;
+    const phones = await visibleCount('input[type="tel"],input[autocomplete="tel"],input[autocomplete="tel-national"]');
+    const challenges = await visibleCount('iframe[src*="hcaptcha"]');
+    return {
+      optIn: input === null ? 'absent' : checked === true ? 'checked' : checked === false ? 'clear' : null,
+      phoneShown: phones === null ? null : phones > 0,
+      alerts: await visibleCount('[role="alert"]'),
+      invalid: await visibleCount('input[aria-invalid="true"]'),
+      challenge: challenges === null ? null : challenges > 0,
+    };
+  }
+
   async payOnHostedPage(card: string): Promise<void> {
     // Email is filled when shown; it may be absent only on the exact session openCheckout bound to this run's customer.
     this.checkpoint('hosted_fill_start');
     await this.fillCard(card, 'after-binding');
     this.checkpoint('hosted_fill_done');
-    // Stripe Link's "Save my information for faster checkout" is ticked by default and then requires a mobile number (seen on run
-    // 44080723593's own session). The journey never creates a Link account (it would be external residue): it unticks the opt-in when
-    // shown and proves it is unticked, or stops with a named code. Not shown: nothing to clear.
-    for (const frame of this.page.frames()) {
-      const optIn = frame.getByRole('checkbox', { name: /save my information for faster checkout/i }).first();
-      if (!await optIn.isVisible().catch(() => false)) continue;
-      if (await optIn.isChecked({ timeout: HOSTED_READ_MS }).catch(() => null) !== false) {
-        await optIn.uncheck({ timeout: HOSTED_ACTION_MS }).catch(() => undefined);
-        if (await optIn.isChecked({ timeout: HOSTED_READ_MS }).catch(() => null) !== false) throw new Error(`BILLING_JOURNEY:${HOSTED_LINK_OPT_IN_NOT_CLEARED}`);
-      }
-    }
-    // The Pay/Subscribe button lives in Stripe's embedded form frame, not the top document (run 44080723593 waited 10 minutes on a
-    // top-document locator that never matched). Searched in every frame, bounded.
+    // Link's "Save my information" opt-in is ticked by default and then requires a mobile number. Run 44098470690 clicked Subscribe and was
+    // never returned; a person who unticked it completed the same checkout. The real input sits under a styled wrapper, so it is read by
+    // its exact id and toggled through its label, then proven clear. The journey never creates a Link account or enters a phone number.
+    await this.clearLinkOptIn();
+    // Exactly the Subscribe button (data-testid observed on the hosted page), never "the first submit button".
     this.checkpoint('hosted_submit_search');
-    const submit = await this.visibleInFrames('button[type="submit"]');
+    const submit = await this.visibleInFrames(HOSTED_SELECTORS.submit);
     if (!submit) throw new Error(`BILLING_JOURNEY:${hostedSubmitUnavailable({ visible: false, enabled: null, invalidFields: null })}`);
     await submit.click({ timeout: HOSTED_ACTION_MS }).catch(async () => {
       const read = async <T>(f: () => Promise<T>): Promise<T | null> => { try { return await f(); } catch { return null; } };
@@ -395,7 +433,8 @@ class SandboxJourney {
     this.session = await this.openCheckout(checkoutUrl);
     await this.payOnHostedPage('4242424242424242');
     this.checkpoint('checkout_success_wait');
-    await this.page.waitForURL(url => url.origin === this.targets.app && url.searchParams.get('checkout') === 'success', { timeout: 90_000 });
+    await this.page.waitForURL(url => url.origin === this.targets.app && url.searchParams.get('checkout') === 'success', { timeout: 90_000 })
+      .catch(async () => { throw new Error(`BILLING_JOURNEY:${checkoutNotReturned(await this.afterSubmitFacts())}`); });
     const complete = await this.stripe(`checkout/sessions/${this.session}`);
     requireFact(complete.livemode === false && complete.status === 'complete' && complete.payment_status === 'paid'
       && complete.customer === this.customer && complete.client_reference_id === this.uid, 'checkout_not_complete');

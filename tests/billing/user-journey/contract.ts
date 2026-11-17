@@ -52,6 +52,30 @@ export const HOSTED_ACTION_MS = 30_000;
 /** Diagnostic reads after a failed hosted action (isEnabled/isChecked wait for the element): bounded too, never the test timeout. */
 export const HOSTED_READ_MS = 2_000;
 
+/**
+ * The exact hosted-Checkout controls, read from Stripe's own markup on a run's open card-only session (17 Nov 2026, read-only, PO's
+ * browser DevTools): the Subscribe button (Link's express button is type="button", never this), and Link's "Save my information"
+ * opt-in, a custom checkbox whose real input sits under a styled wrapper and is toggled through its label.
+ */
+export const HOSTED_SELECTORS = Object.freeze({
+  submit: '[data-testid="payment-form-submit-button"]',
+  linkOptInInput: '#payment-linkOptInInput',
+  linkOptInLabel: '#Field-linkOptInCheckbox',
+});
+
+/**
+ * Subscribe was clicked but Stripe never returned to the app within the bound. Content-free facts of what the hosted page showed then:
+ * the Link opt-in state, whether a phone field was shown, visible alerts and invalid inputs, and whether a challenge frame was shown.
+ * `null` is unread, never zero or false.
+ */
+export function checkoutNotReturned(f: { optIn: 'checked' | 'clear' | 'absent' | null; phoneShown: boolean | null; alerts: number | null;
+  invalid: number | null; challenge: boolean | null }): string {
+  const n = (v: number | null) => (Number.isSafeInteger(v) && (v as number) >= 0 ? String(v) : 'unread');
+  const b = (v: boolean | null, yes: string, no: string) => (v === true ? yes : v === false ? no : 'unread');
+  const optIn = f.optIn === 'checked' || f.optIn === 'clear' || f.optIn === 'absent' ? f.optIn : 'unread';
+  return `checkout_success_not_reached_optin_${optIn}_phone_${b(f.phoneShown, 'shown', 'none')}_alerts_${n(f.alerts)}_invalid_${n(f.invalid)}_challenge_${b(f.challenge, 'shown', 'none')}`;
+}
+
 /** Stripe Link's default-ticked "save my information" opt-in could not be cleared; the journey never creates a Link account. */
 export const HOSTED_LINK_OPT_IN_NOT_CLEARED = 'hosted_link_optin_not_cleared';
 
@@ -88,7 +112,9 @@ export function hostedEmailDecision(input: { emailFieldVisible: boolean; shownSe
 
 export function safeFailureReason(error: unknown): string {
   const message = error instanceof Error ? error.message : '';
-  return /^BILLING_JOURNEY:([a-z_]{1,80})$/.exec(message)?.[1] ?? 'unclassified_step_failure';
+  // Closed token alphabet (lower-case letters, digits, underscore): named codes carry counts (run 44098470690's receipt lost them as
+  // `unclassified_step_failure` under the old [a-z_]{1,80}). Anything else, a URL or free text included, stays unclassified.
+  return /^BILLING_JOURNEY:([a-z0-9_]{1,160})$/.exec(message)?.[1] ?? 'unclassified_step_failure';
 }
 
 /** All output is a closed, content-free list. Never serialize provider responses or credentials. */
