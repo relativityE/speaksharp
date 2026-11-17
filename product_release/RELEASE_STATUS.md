@@ -279,8 +279,10 @@ former case and are new rows. The leg list is the runner's own plan (`tools/clou
   receipt is evidence only and can never report acceptance; no current RWT path earns full
   acceptance. The runner bridge (#1875, merged 16 November) is proven offline only; the
   harness case process does not route through it yet. J8 and J1.d are not wired for a live
-  run: #1870 (merged 16 November) wires J8 offline only, as one gated invocation; J1.d runs
-  only inside J1.a's worker under the named runner's admission, and its leg stays gated.
+  run: #1870 (merged 16 November) wires J8 offline only, as one gated invocation. #1883
+  (merged 16 November, `db7b231d`) made J1.d its own reporting leg, offline only: it runs
+  in J1.a's worker on J1.a's account under the named runner's admission, has no reviewed
+  harness adapter yet (`no-j1d-harness-adapter`), and its leg stays gated.
 - **Earlier live evidence is partial.** AHT-05 (now J4.a), run 43725359185 on served
   `446e09fa`, ended INCOMPLETE (18 PASS, 2 HOLD); only its save-once, persisted-row and
   reopen observations are reusable, and the adapter inspection may be reused at a newer
@@ -289,6 +291,48 @@ former case and are new rows. The leg list is the runner's own plan (`tools/clou
   release proof on one exact served release with cleanup evidence. It stays unexecuted until
   the qualifying path above exists; billing (J2, J9) and human/device evidence remain
   separate from it.
+
+### Production migration receipt: feedback fence, 14 November 2026
+
+Migration `20261114100000_rwt_feedback_fence_1811.sql` (#1859, with the harness side in #1860)
+is applied in production. Recorded here on 17 November as a documentation correction, because
+an outside review on 15–16 November reported it unapplied.
+
+- **Apply:** run 43621378194, dispatched once at 17:29:31Z on 14 November from `main`
+  `8673fa74`, target-only; `postflight_20261114100000=success`; the withheld migrations stayed
+  pending. Sam independently verified the production ledger and catalog at 17:32Z.
+- **After the apply:** a 15 November diagnostic run verified the fence closed, removed one test
+  report and left zero residue. That run is diagnostic evidence only and is not a J1–J9
+  acceptance pass.
+- **Evidence still checkable:** the run page above returned not found through the GitHub API on
+  16 November. The apply and verification reports in the team channel (14 November) and the
+  merged source above remain the evidence that can be checked.
+- **Instruction:** do not reapply this migration.
+
+### Outside-review findings: state on main, 16–17 November 2026
+
+The current state of each unresolved finding from Nat's 15–16 November reviews, read on main
+`db7b231d` on 16 November and refreshed on 17 November. The routing, owners and the evidence
+that closes each finding are in `ROADMAP.md` ("Reconciliation of Nat's 15–16 November
+findings"). A state here is an observation, not an acceptance result.
+
+| Finding | State on `db7b231d` |
+|---|---|
+| Harness preflight pins an old release | `draft-adapters/source-adapters.cjs:23` still pins `5a7bf6a1`; #1876 reuses inspection when inputs are unchanged; at least 54 inspected inputs changed on the observed deployment, so a SHA swap does not fix it |
+| Nine-journey gate has no qualifying run | #1796 map merged; no leg accepted; leg status, gates and #1883's J1.d leg are under "Unresolved proof, kept open" above |
+| Billing wall merged, paid loop never run | #1863 and #1879 merged; production fails closed; test-mode checkout proof not run |
+| Privacy opt-in gate absent | Save and coaching send still unconditional |
+| Clarity and pauses not sent to coaching | #1836's description now says "Do not merge the current clarity-and-pauses design for MVP" |
+| No rate limit on ops-status | `middleware.js` has constant-time auth, no throttle |
+| STT model decision unmade | Selector `v2:base.en`; registry unchanged |
+| **Feedback fence "unapplied" (corrected)** | Applied in production on 14 November 2026 and independently verified (receipt above); not a J1–J9 acceptance pass |
+| Smoke budgets for two retired R10 cases | `test-config.v1.json` smoke `caseMaxMs` still 10 s and 17 s |
+| Test-selector under-selection holes | Unchanged |
+| Take stopped under five seconds completes | Fix not merged |
+| #1837 retention numbers | Code on main keeps reuse artifacts 7 days, or 30 days on push; no 1-day value exists |
+| Twelve framework items with no PR | Each mapped to a PR, issue or explicit non-goal |
+| Review threads not blocking merges; stale PR bodies; closures without reasons | Process gaps, no code |
+| Merge-process optimizations (Nat, 16 Nov) | Sam's response: review and engineering CI are already separate; a manual queue does not emit GitHub's `merge_group` event; in three recent runs the Lighthouse wait saved nothing |
 
 ### Existing PR inventory to preserve
 
