@@ -2,8 +2,8 @@
 // #1884 (J4.a pilot evidence, Sam 17 Nov): what the coaching tap can and cannot say about a coaching request, offline. The
 // sealed tap port (`oracles/pure/coachingGenerationTap.cjs`, read only) is driven by a fake page that emits Playwright-shaped
 // request/response/requestfailed events. Four cases: a paired fast response, a request still unanswered at the existing
-// cutoff, a real browser abort, and an HTTP response that arrives after the cutoff. Rules: a late response never becomes an
-// answer (or a PASS), and a browser abort is never read as the provider ending the request. Evidence is states, counts and
+// cutoff, a browser request failure, and an HTTP response that arrives after the cutoff. Rules: a late response never becomes an
+// answer (or a PASS), and a browser request failure is never read as the provider ending the request. Evidence is states, counts and
 // timings only: no request or response content leaves this test.
 const assert = require('node:assert/strict');
 const { describe, it } = require('node:test');
@@ -39,12 +39,12 @@ const sleep = (ms) => new Promise((r) => { setTimeout(r, ms); });
 /**
  * The content-free J4.a observation of one take's coaching exchanges: per request a state and a client-side duration, plus
  * counts. `answered` needs a status the page received inside the cutoff; `unanswered_at_cutoff` is no status by the
- * cutoff; `browser_abort` is a request the browser failed (no provider outcome is known); `body_pending` is a status whose
+ * cutoff; `browser_failed` means the browser emitted requestfailed (cause and provider outcome are unknown); `body_pending` is a status whose
  * body did not finish. Only `answered` exchanges carry provider facts, and a take is provable only when every sent
  * request was answered: otherwise HOLD, never PASS.
  */
 function observe(tap) {
-    const state = { answered: 'answered', unanswered: 'unanswered_at_cutoff', failed: 'browser_abort', body_pending: 'body_pending' };
+    const state = { answered: 'answered', unanswered: 'unanswered_at_cutoff', failed: 'browser_failed', body_pending: 'body_pending' };
     const requests = tap.exchanges.map((e) => ({
         state: state[e.outcome] ?? 'unknown',
         status: e.outcome === 'answered' ? e.status : null,
@@ -52,17 +52,22 @@ function observe(tap) {
         providerAttemptsKnown: e.outcome === 'answered' && Number.isSafeInteger(e.diagnostics?.provider_attempts),
     }));
     const count = (s) => requests.filter((r) => r.state === s).length;
-    const allAnswered = requests.length === tap.sentCount && requests.every((r) => r.state === 'answered' && r.providerAttemptsKnown);
+    const allAnswered = tap.sentCount > 0 && requests.length === tap.sentCount && requests.every((r) => r.state === 'answered' && r.providerAttemptsKnown);
     return {
         sent: tap.sentCount, answered: count('answered'), unansweredAtCutoff: count('unanswered_at_cutoff'),
-        browserAborts: count('browser_abort'), bodyPending: count('body_pending'), inFlight: tap.sentCount - requests.length,
+        browserFailures: count('browser_failed'), bodyPending: count('body_pending'), inFlight: tap.sentCount - requests.length,
         requests, verdict: allAnswered ? 'PROVABLE' : 'HOLD',
     };
 }
 
 describe('J4.a coaching observation (#1884 pilot evidence): fast, unanswered, aborted and late requests', () => {
-    it('the existing cutoff is the Edge provider budget plus the 15 s transport allowance', () => {
+    it('the sealed tap cutoff is its pinned Edge budget plus the 15 s transport allowance', () => {
         assert.equal(COACHING_SETTLE_BOUND_MS, 60_000);
+    });
+    it('empty observation is not proof that the paired request answered', () => {
+        const observation = observe(new CoachingGenerationTap());
+        assert.equal(observation.verdict, 'HOLD');
+        assert.equal(observation.sent, 0);
     });
     it('paired fast response: answered inside the cutoff, with its status, a duration and provider facts', async () => {
         const page = fakePage();
@@ -96,7 +101,7 @@ describe('J4.a coaching observation (#1884 pilot evidence): fast, unanswered, ab
         assert.ok(unanswered.clientMs >= CUTOFF_MS, 'recorded only once its own cutoff passed');
         assert.equal(unanswered.providerAttemptsKnown, false);
     });
-    it('a real browser abort is browser_abort: no status, no provider outcome, never provider termination, never PASS', async () => {
+    it('a browser request failure is browser_failed: no status, no provider outcome, never provider termination, never PASS', async () => {
         const page = fakePage();
         const tap = new CoachingGenerationTap();
         tap.attach(page);
@@ -105,11 +110,11 @@ describe('J4.a coaching observation (#1884 pilot evidence): fast, unanswered, ab
         page.emit('requestfailed', req);
         await tap.settle(CUTOFF_MS);
         const o = observe(tap);
-        assert.deepEqual({ browserAborts: o.browserAborts, unansweredAtCutoff: o.unansweredAtCutoff, verdict: o.verdict },
-            { browserAborts: 1, unansweredAtCutoff: 0, verdict: 'HOLD' });
-        assert.equal(o.requests[0].status, null, 'the abort carries no provider status');
-        assert.equal(o.requests[0].providerAttemptsKnown, false, 'no provider attempt count is inferred from an abort');
-        assert.ok(o.requests[0].clientMs !== null && o.requests[0].clientMs < CUTOFF_MS, 'the abort is timed when it happened');
+        assert.deepEqual({ browserFailures: o.browserFailures, unansweredAtCutoff: o.unansweredAtCutoff, verdict: o.verdict },
+            { browserFailures: 1, unansweredAtCutoff: 0, verdict: 'HOLD' });
+        assert.equal(o.requests[0].status, null, 'the failed browser request carries no provider status');
+        assert.equal(o.requests[0].providerAttemptsKnown, false, 'no provider attempt count is inferred from requestfailed');
+        assert.ok(o.requests[0].clientMs !== null && o.requests[0].clientMs < CUTOFF_MS, 'the request failure is timed when it happened');
     });
     it('a late HTTP response after the cutoff stays unanswered_at_cutoff: one record, no status, no answer, never PASS', async () => {
         const page = fakePage();
