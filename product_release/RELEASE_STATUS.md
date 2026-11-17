@@ -290,6 +290,23 @@ former case and are new rows. The leg list is the runner's own plan (`tools/clou
   the qualifying path above exists; billing (J2, J9) and human/device evidence remain
   separate from it.
 
+### Production migration receipt: feedback fence, 14 November 2026
+
+Migration `20261114100000_rwt_feedback_fence_1811.sql` (#1859, with the harness side in #1860)
+is applied in production. Recorded here on 17 November as a documentation correction, because
+an outside review on 15–16 November reported it unapplied.
+
+- **Apply:** run 43621378194, dispatched once at 17:29:31Z on 14 November from `main`
+  `8673fa74`, target-only; `postflight_20261114100000=success`; the withheld migrations stayed
+  pending. Sam independently verified the production ledger and catalog at 17:32Z.
+- **After the apply:** a 15 November diagnostic run verified the fence closed, removed one test
+  report and left zero residue. That run is diagnostic evidence only and is not a J1–J9
+  acceptance pass.
+- **Evidence still checkable:** the run page above returned not found through the GitHub API on
+  16 November. The apply and verification reports in the team channel (14 November) and the
+  merged source above remain the evidence that can be checked.
+- **Instruction:** do not reapply this migration.
+
 ### Existing PR inventory to preserve
 
 Consolidation state was verified on 10 November 2026; the PR-state wording in this
