@@ -87,6 +87,9 @@ function stubIo(s, wire, evidenceDir) {
             }
             const del = await nightly.cleanup(leg, async () => { wire.push('cleanup:delete-account'); return true; });
             const query = s.skipVerify ? { sent: false } : await nightly.cleanup(leg, async () => { wire.push('cleanup:residue-query'); return s.residue ?? 0; });
+            // An unrecorded take: the case saved it but never called nightly.created, and its teardown neither deletes nor
+            // reports it. Only the account is queried, so the take's residue is never looked for.
+            if (s.unrecordedTake) wire.push('untracked:session-left');
             return {
                 assertions: rows.map((id) => ({ id, result: 'PASS', detail: 'offline stub', evidenceRefs: ['unit.json'] })),
                 cleanupEvidence: POSITIVE, refused, createResults: results,
@@ -198,6 +201,17 @@ describe('J4.a guarded route (#1884 step 6, stub): AHT-05 through the real harne
         assert.equal(first.outcome.cleanup.result, 'incomplete');
         assert.ok(first.outcome.cleanup.reasons.J4.some((r) => r.includes('left behind')), JSON.stringify(first.outcome.cleanup.reasons));
         assert.equal((await j4aRun(d, 't3')).outcome.admitted, false);
+    });
+    // Sam, 16 Nov (#1884): J4 cleanup must run post-cleanup account, session and lease queries scoped to the run-owned
+    // account, whatever the case recorded. RED until that rule lands in cleanup-plan.cjs / cleanup-evidence.cjs; ship together.
+    it('an unrecorded take: account-only residue proof cannot make J4 cleanup complete (required account, session, lease queries)', async () => {
+        const d = dirs();
+        const { outcome, wire } = await j4aRun(d, 'u1', { unrecordedTake: true });
+        assert.ok(wire.includes('untracked:session-left'), 'the stub left a take it never recorded');
+        assert.equal(outcome.cleanup.result, 'incomplete');
+        for (const kind of ['session', 'lease'])
+            assert.ok(outcome.cleanup.reasons.J4.some((r) => r.includes(kind)), `${kind}: ${JSON.stringify(outcome.cleanup.reasons)}`);
+        assert.equal((await j4aRun(d, 'u2')).outcome.admitted, false, 'the next run is refused');
     });
     it('cleanup controls: an omitted teardown of the created account, a missing residue query or residue found is incomplete and refuses the next run', async () => {
         for (const [label, scenario, reason] of [
