@@ -689,7 +689,8 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
     const isCurrentRequest = () =>
       mountedRef.current
       && activeSessionRef.current === requestSessionId
-      && requestGenerationRef.current === requestGeneration;
+      && requestGenerationRef.current === requestGeneration
+      && usePracticePrivacyStore.getState().ownerId === consent.ownerId;
 
     const diagnosticRequestId = createCoachingDiagnosticId();
     if (diagnosticRequestId) rememberCoachingDiagnostic(requestSessionId, diagnosticRequestId);
@@ -854,8 +855,12 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
         logger.error({ err }, "Error fetching AI suggestions:");
         const closedFailure = await readClosedFailure(err);
         failure = getSafeAiSuggestionError(err, closedFailure.code, closedFailure.coachingMessage);
-        // #1835 — the server holds a different choice than this client (changed on another device): re-read it.
-        if (closedFailure.code === CONSENT_REQUIRED_CODE) void loadPracticePrivacy(consent.ownerId);
+        // Decoding can outlive this request or account. Only the current request's still-current
+        // consent may trigger a refresh; loadPracticePrivacy also switches owners for AuthProvider.
+        if (closedFailure.code === CONSENT_REQUIRED_CODE && errorStatus(err) === 403
+          && isCurrentRequest() && coachingConsentStillHolds(consent)) {
+          void loadPracticePrivacy(consent.ownerId);
+        }
       }
 
       if (!isCurrentRequest()) {

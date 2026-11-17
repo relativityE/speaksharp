@@ -162,14 +162,58 @@ describe('#1835 AISuggestions: no coaching request without the owner\'s recorded
         expect(client.functions.invoke).toHaveBeenCalledTimes(1);
     });
 
-    it('consent_required re-reads the owner\'s choice, so a server-side "no" turns the client off too', async () => {
-        grantPracticePrivacy();
+    it('a refusal decoded after switching owners cannot refresh or replace the new owner', async () => {
+        const nextOwner = 'replacement-owner';
+        grantPracticePrivacy({ revision: 1 });
         serveChoiceRow(null);
-        client.functions.invoke.mockResolvedValue(httpError(403, 'consent_required'));
-        render(<AISuggestions canReview sessionId="s-reread" product="open_mic" />);
-        await waitFor(() => expect(usePracticePrivacyStore.getState().status).toBe('unknown'));
-        expect(client.from).toHaveBeenCalledWith('practice_privacy_choices');
+        let finishDecode: (body: unknown) => void = () => {};
+        const closedBody = vi.fn(() => new Promise((resolve) => { finishDecode = resolve; }));
+        const { error } = httpError(403, 'consent_required');
+        // The diagnostics read is different from the refusal decode. Let the latter START before switching owners.
+        vi.spyOn(error.context, 'clone')
+            .mockReturnValueOnce({ json: async () => ({}) } as Response)
+            .mockReturnValueOnce({ json: closedBody } as unknown as Response);
+        client.functions.invoke.mockResolvedValue({ data: null, error });
+        render(<AISuggestions canReview sessionId="s-replaced-owner" product="open_mic" />);
+        await waitFor(() => expect(closedBody).toHaveBeenCalledTimes(1));
+
+        // Keep the same card mounted to rule out relying on a session/key change.
+        act(() => {
+            usePracticePrivacyStore.setState({
+                ownerId: nextOwner, status: 'chosen', revision: 5, transcriptSave: true, aiCoaching: true,
+            });
+        });
+        const nextPrivacy = usePracticePrivacyStore.getState();
+        await act(async () => { finishDecode({ code: 'consent_required' }); });
+        await flush();
+
+        expect(client.from).not.toHaveBeenCalled();
+        expect(usePracticePrivacyStore.getState()).toEqual(nextPrivacy);
+        expect(client.functions.invoke).toHaveBeenCalledTimes(1);
+        expect(screen.queryByText(CONSENT_REQUIRED_MESSAGE)).toBeNull();
     });
+
+    it('a current consent refusal stops the request immediately and re-reads the owner’s choice', async () => {
+        grantPracticePrivacy();
+        let finishRefresh: (value: { data: null; error: null }) => void = () => {};
+        const eq = vi.fn(() => ({
+            maybeSingle: () => new Promise((resolve) => { finishRefresh = resolve; }),
+        }));
+        client.from.mockReturnValue({ select: () => ({ eq }) });
+        client.functions.invoke.mockResolvedValue(httpError(403, 'consent_required'));
+        render(<AISuggestions canReview sessionId="s-reread" product="open_mic" retryBackoffMs={1} />);
+        await waitFor(() => expect(screen.getByText(CONSENT_REQUIRED_MESSAGE)).toBeInTheDocument());
+        expect(screen.queryByRole('button', { name: /try again/i })).toBeNull();
+        expect(client.functions.invoke).toHaveBeenCalledTimes(1);
+        expect(client.from).toHaveBeenCalledExactlyOnceWith('practice_privacy_choices');
+        expect(eq).toHaveBeenCalledExactlyOnceWith('user_id', TEST_PRIVACY_OWNER);
+
+        await act(async () => { finishRefresh({ data: null, error: null }); });
+        await waitFor(() => expect(usePracticePrivacyStore.getState()).toMatchObject({
+            ownerId: TEST_PRIVACY_OWNER, status: 'unknown', aiCoaching: false,
+        }));
+    });
+
 });
 
 describe('#1835 History: a legacy saved transcript opened before visiting Practice', () => {
