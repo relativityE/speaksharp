@@ -40,7 +40,9 @@ concurrency:
 jobs:
   journey:
     name: billing ${{ inputs.journey }} (local stack, test mode)
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest became Ubuntu 26.04, where Playwright 1.57 cannot install Chromium (run 43989874044,
+    # "Playwright does not support chromium on ubuntu26.04-x64"). The other browser workflows already pin 24.04.
+    runs-on: ubuntu-24.04
     # Protected environment: required reviewers must approve each run before any secret is exposed.
     environment: billing-local-stack
     # The paid loop records audio and waits on coaching; the billing journeys keep their 60 minutes.
