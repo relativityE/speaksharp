@@ -537,12 +537,17 @@ jobs:
       - name: Diagnostic single-spec notice (NOT a Gate 3 pass)
         timeout-minutes: 1
         if: ${{ always() && github.event.inputs.diagnostic_dast_spec != '' }}
+        # Inputs are data, never script text (Codex security review on #1891): passed through env and printed verbatim. This step only
+        # prints; it launches nothing.
+        env:
+          NOTICE_SPEC: ${{ github.event.inputs.diagnostic_dast_spec }}
+          NOTICE_GREP: ${{ github.event.inputs.diagnostic_dast_grep }}
         run: |
           {
             echo "### ⚠️ DIAGNOSTIC single-spec run — NOT a full Gate 3 pass"
             echo ""
-            echo "- spec: \`${{ github.event.inputs.diagnostic_dast_spec }}\`"
-            echo "- grep: \`${{ github.event.inputs.diagnostic_dast_grep }}\`"
+            printf -- '- spec: `%s`\n' "$NOTICE_SPEC"
+            printf -- '- grep: `%s`\n' "$NOTICE_GREP"
             echo ""
             echo "Root-cause classification only. The release gate stays **FAIL** until a FULL Gate 3 (no diagnostic input) passes."
           } >> "$GITHUB_STEP_SUMMARY"
