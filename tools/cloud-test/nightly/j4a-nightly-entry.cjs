@@ -54,27 +54,42 @@ function approvedAdminOrigin(supabaseUrl, approvedHost = require(path.join(__dir
     return u.origin;
 }
 
-/** CLI: refuses unless explicitly executing with every input; the admin client is built here, in the parent, from the environment. */
+/**
+ * CLI (Sam, seal review of dc7a5ccb): the campaign runner's OWN admission path (loadPinnedCampaign: sha-pinned plan bytes, the fixed
+ * bundle, validated paths, no replay, exclusive lock), a plan that selects exactly the J4.a case, then the approved admin target, all
+ * before any admin client is built. No --bundle and no unknown or repeated argument. Refusals return 78 with nothing built or run.
+ */
 async function main(argv, env = process.env, deps = {}) {
+    const ALLOWED = ['--plan', '--plan-sha256', '--evidence-dir', '--run-dir', '--run-id', '--execute'];
     const a = {};
-    for (let i = 0; i < argv.length; i += 2) a[argv[i]] = argv[i + 1];
-    const need = ['--plan', '--bundle', '--evidence-dir', '--run-dir', '--run-id', '--execute'];
-    if (need.some((k) => typeof a[k] !== 'string' || !a[k]) || a['--execute'] !== 'true')
-        return { exitCode: 78, reason: 'BLOCKED_SETUP: --plan, --bundle, --evidence-dir, --run-dir, --run-id and --execute true are required' };
+    if (argv.length % 2) return { exitCode: 78, reason: 'BLOCKED_SETUP: explicit key/value arguments required' };
+    for (let i = 0; i < argv.length; i += 2) {
+        if (!ALLOWED.includes(argv[i]) || argv[i] in a) return { exitCode: 78, reason: `BLOCKED_SETUP: unknown or repeated argument ${String(argv[i]).slice(0, 40)}` };
+        a[argv[i]] = argv[i + 1];
+    }
+    if (ALLOWED.some((k) => typeof a[k] !== 'string' || !a[k]) || a['--execute'] !== 'true' || !/^[a-f0-9]{64}$/.test(a['--plan-sha256']))
+        return { exitCode: 78, reason: 'BLOCKED_SETUP: --plan, --plan-sha256, --evidence-dir, --run-dir, --run-id and --execute true are required' };
     for (const k of ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'LIVE_TEST_EMAIL_DOMAIN'])
         if (!env[k]) return { exitCode: 78, reason: `BLOCKED_SETUP: ${k} is not set in the parent` };
-    const fs = require('node:fs');
-    const plan = JSON.parse(fs.readFileSync(a['--plan'], 'utf8'));
-    let origin;
-    try { origin = approvedAdminOrigin(env.SUPABASE_URL, deps.approvedHost); } catch (e) { return { exitCode: 78, reason: e.message }; }
-    const createClient = deps.createClient ?? require('@supabase/supabase-js').createClient;
-    const admin = createClient(origin, env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
-    const { io, outcome, finish } = composeJ4aNightly({ plan, bundle: a['--bundle'], admin, configuredDomain: env.LIVE_TEST_EMAIL_DOMAIN,
-        nightly: { runDir: a['--run-dir'], evidenceDir: a['--evidence-dir'], runId: a['--run-id'], selected: ['J4.a'], satisfiedGates: [] } });
-    const { runCampaign } = require(path.join(HARNESS, 'campaign-core.cjs'));
-    const r = await runCampaign(plan, io, { executeR0: true });
-    if (r.report) await finish(r.report);
-    return { exitCode: r.exitCode, nightly: outcome() };
+    const runner = require(path.join(HARNESS, 'campaign-runner.cjs'));
+    let pinned = null;
+    try {
+        try { pinned = runner.loadPinnedCampaign({ planFile: a['--plan'], planSha256: a['--plan-sha256'], execute: true }); }
+        catch (e) { return { exitCode: 78, reason: `BLOCKED_SETUP: ${String(e.message).slice(0, 160)}` }; }
+        const { plan, bundle, root } = pinned;
+        const { selectedOrder, runCampaign } = require(path.join(HARNESS, 'campaign-core.cjs'));
+        const selected = selectedOrder(plan);
+        if (selected.length !== 1 || selected[0] !== 'AHT-05') return { exitCode: 78, reason: 'BLOCKED_SETUP: the J4.a entry runs exactly the AHT-05 case' };
+        let origin;
+        try { origin = approvedAdminOrigin(env.SUPABASE_URL, deps.approvedHost); } catch (e) { return { exitCode: 78, reason: e.message }; }
+        const createClient = deps.createClient ?? require('@supabase/supabase-js').createClient;
+        const admin = createClient(origin, env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
+        const { io, outcome, finish } = composeJ4aNightly({ plan: { ...plan, runRoot: root }, bundle, admin, configuredDomain: env.LIVE_TEST_EMAIL_DOMAIN,
+            nightly: { runDir: a['--run-dir'], evidenceDir: a['--evidence-dir'], runId: a['--run-id'], selected: ['J4.a'], satisfiedGates: [] } });
+        const r = await runCampaign(plan, io, { executeR0: true });
+        if (r.report) await finish(r.report);
+        return { exitCode: r.exitCode, nightly: outcome() };
+    } finally { pinned?.release(); }
 }
 
 if (require.main === module) main(process.argv.slice(2)).then((r) => { if (r.reason) console.error(r.reason); process.exitCode = r.exitCode; });

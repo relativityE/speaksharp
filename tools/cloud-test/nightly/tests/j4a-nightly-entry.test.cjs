@@ -41,7 +41,7 @@ function fakeAdmin(dbFile) {
     } };
 }
 
-function setup(t, { preUsers = [] } = {}) {
+function setup(t, { preUsers = [], caseExtra = {} } = {}) {
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'j4a-entry-')));
     const checkout = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'j4a-entry-checkout-')));
     fs.chmodSync(root, 0o700);
@@ -60,14 +60,17 @@ function setup(t, { preUsers = [] } = {}) {
         identityLedger: cfg.identityLedger, campaignLedger: cfg.campaignLedger, admissionConfigFile, admissionConfigSha256: hash(fs.readFileSync(admissionConfigFile)), stepRoot: root, stepManifestFile,
         stepManifestSha256: hash(fs.readFileSync(stepManifestFile)), runRoot: root, cleanupReserveMs: 1000, requestSha256: '1'.repeat(64), executionIdentity: { runId: RUN, attempt: 1 },
         consumedPlanSha256: '2'.repeat(64), runIdentity: { runner: { codeManifestSha256: hash(fs.readFileSync(path.join(B, 'CODE.sha256'))) }, frontend: { sourceSha: sha }, cases: {} } };
-    fs.writeFileSync(configFile, JSON.stringify({ caseId: 'AHT-05', campaignId: cfg.campaignId, sourceSha: sha, servedSha: sha, targetUrl: 'https://speaksharp-public.vercel.app', requiredAssertions: ['unit-not-live'], account: { mode: 'nightly-guarded-signup', emailDomain: 'example.com' } }), { mode: 0o600 });
+    fs.writeFileSync(configFile, JSON.stringify({ caseId: 'AHT-05', campaignId: cfg.campaignId, sourceSha: sha, servedSha: sha, targetUrl: 'https://speaksharp-public.vercel.app', requiredAssertions: ['unit-not-live'], account: { mode: 'nightly-guarded-signup', emailDomain: 'example.com' }, ...caseExtra }), { mode: 0o600 });
     const c = { id: 'AHT-05', driverFile, driverSha256: hash(code), configFile, configSha256: hash(fs.readFileSync(configFile)), maxMs: 8000 };
     plan.cases = [c];
+    plan.selection = { ids: ['AHT-05'], ownerApprovalReference: 'unit-offline-proof-not-a-run', reason: 'J4.a entry offline proof' };
     const wireFile = path.join(root, 'wire.log'), dbFile = path.join(root, 'db.json');
     fs.writeFileSync(wireFile, '');
     fs.writeFileSync(dbFile, JSON.stringify({ users: [{ id: 'other-uid', email: 'someone@example.com' }, ...preUsers], sessions: [{ user_id: 'other-uid' }], active_recording_lease: [], trial_entitlements: [] }));
     const body = '<html><script>window.__APP_RELEASE__ = {"sha":"' + sha + '"};</script></html>';
+    const envs = [];
     const commandRunner = async (node, args, options, deps) => {
+        if (!args[0].endsWith(path.join('harness', 'run-guarded.cjs'))) envs.push({ kind: path.basename(args[0]), env: { ...(deps?.env ?? {}) } });
         if (args[0].endsWith('admission.cjs')) {
             const out = args[args.indexOf('--out') + 1]; fs.mkdirSync(out, { recursive: true, mode: 0o700 });
             fs.writeFileSync(path.join(out, 'browser.json'), '{}', { mode: 0o600 }); fs.writeFileSync(runtimeQualification, '{}', { mode: 0o600 });
@@ -82,7 +85,8 @@ function setup(t, { preUsers = [] } = {}) {
             return { status: r.exitCode, stdout: JSON.stringify(r.receipt) + '\n', stderr: '', cleanupIncomplete: false };
         }
         assert.ok(args[0].endsWith(path.join('harness', 'run-guarded.cjs')));
-        return supervisedCommand(node, [CHILD, ...args.slice(1)], options, { env: { ...deps.env, PATH: process.env.PATH, J4A_WIRE: wireFile, J4A_DB: dbFile, J4A_UID: UID, LIVE_TEST_EMAIL_DOMAIN: 'example.com' } });
+        envs.push({ kind: 'case', env: { ...(deps?.env ?? {}) } });
+        return supervisedCommand(node, [CHILD, ...args.slice(1)], options, { env: { ...deps.env, PATH: process.env.PATH, J4A_WIRE: wireFile, J4A_DB: dbFile, J4A_UID: UID } });
     };
     const evidenceDir = path.join(root, 'evidence'); fs.mkdirSync(evidenceDir);
     const fa = fakeAdmin(dbFile);
@@ -90,7 +94,7 @@ function setup(t, { preUsers = [] } = {}) {
         nightly: { runDir: path.join(root, 'nightly-run'), evidenceDir, runId: 'unit-entry-1', selected: ['J4.a'], satisfiedGates: [] } });
     const wire = () => fs.readFileSync(wireFile, 'utf8').trim().split('\n').filter(Boolean);
     const db = () => JSON.parse(fs.readFileSync(dbFile, 'utf8'));
-    return { ...composed, plan, c, wire, db, calls: fa.calls };
+    return { ...composed, plan, c, wire, db, calls: fa.calls, envs, root };
 }
 
 async function runJ4a(s) {
@@ -99,7 +103,14 @@ async function runJ4a(s) {
     return s.io.runCase(s.c, s.plan, admission, {});
 }
 
+const PARENT_SECRET = 'unit-parent-only-service-role-value';
+function withParentSecret(t) {
+    const saved = { k: process.env.SUPABASE_SERVICE_ROLE_KEY, d: process.env.LIVE_TEST_EMAIL_DOMAIN };
+    process.env.SUPABASE_SERVICE_ROLE_KEY = PARENT_SECRET; process.env.LIVE_TEST_EMAIL_DOMAIN = 'example.com';
+    t.after(() => { for (const [name, v] of [['SUPABASE_SERVICE_ROLE_KEY', saved.k], ['LIVE_TEST_EMAIL_DOMAIN', saved.d]]) { if (v === undefined) delete process.env[name]; else process.env[name] = v; } });
+}
 test('entry point: signup, parent-confirmed owner, Start in its grant, then parent teardown and zero residue for that owner', { timeout: 30_000 }, async (t) => {
+    withParentSecret(t);
     const s = setup(t);
     const ran = await runJ4a(s);
     assert.deepEqual(s.wire(), ['signup', 'signup:created', 'owner:confirmed-matches-page', 'start-click']);
@@ -111,6 +122,14 @@ test('entry point: signup, parent-confirmed owner, Start in its grant, then pare
     assert.deepEqual(s.db().users.map((u) => u.id), ['other-uid'], 'only the run-owned account was deleted');
     assert.deepEqual(s.db().sessions, [{ user_id: 'other-uid' }]);
     assert.ok(s.calls.includes('listUsers') && s.calls.includes('deleteUser'), 'the parent confirmation and teardown were reached');
+    // Sam: the child gets the validated non-secret domain explicitly; the parent-only key reaches NO subprocess (admission, identity, case).
+    // Every subprocess this path starts (admission and the case; identity reads belong to runCampaign) is checked.
+    assert.deepEqual([...new Set(s.envs.map((e) => e.kind))].sort(), ['admission.cjs', 'case']);
+    assert.equal(s.envs.find((e) => e.kind === 'case').env.LIVE_TEST_EMAIL_DOMAIN, 'example.com');
+    for (const e of s.envs) {
+        assert.equal(e.env.SUPABASE_SERVICE_ROLE_KEY, undefined, `${e.kind} env carries no service-role key`);
+        assert.ok(!Object.values(e.env).includes(PARENT_SECRET), `${e.kind} env carries the secret under no name`);
+    }
 });
 
 test('entry point: an ambiguous reserved email (two accounts) is HOLD: no Start, no delete, no verification', { timeout: 30_000 }, async (t) => {
@@ -123,31 +142,51 @@ test('entry point: an ambiguous reserved email (two accounts) is HOLD: no Start,
     assert.equal(s.db().users.length, 3);
 });
 
-test('entry point CLI refuses without explicit execution, inputs and the parent environment (nothing is built or run)', async () => {
-    assert.equal((await main([], {})).exitCode, 78);
-    assert.equal((await main(['--plan', 'p', '--bundle', 'b', '--evidence-dir', 'e', '--run-dir', 'r', '--run-id', 'x', '--execute', 'true'], {})).exitCode, 78);
+test('guarded-signup mode refuses a case config that names credential variables, before admission', { timeout: 30_000 }, async (t) => {
+    const s = setup(t, { caseExtra: { credentialVars: { email: 'THROWAWAY_TEST_EMAIL', password: 'THROWAWAY_TEST_PASSWORD' } } });
+    await assert.rejects(s.io.preflightCase(s.c), /must not name credential variables/);
 });
 
-// Sam (release boundary 2): the parent admin client is bound to the approved project (the reviewed save oracle's readback host) BEFORE it is
-// built or any admin call is made. A wrong project makes zero client constructions and zero admin calls.
-test('CLI: a wrong or lookalike project builds no admin client and makes no admin call; the approved one is the only target', async (t) => {
-    const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'j4a-cli-')));
-    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-    const planFile = path.join(dir, 'plan.json'); fs.writeFileSync(planFile, JSON.stringify({ executionIdentity: { runId: RUN } }));
-    const argv = ['--plan', planFile, '--bundle', B, '--evidence-dir', dir, '--run-dir', path.join(dir, 'run'), '--run-id', 'cli-1', '--execute', 'true'];
-    const approved = require('../../harness/draft-adapters/durable-save-oracle.cjs').readbackContract.host;
-    for (const url of ['https://abcdefghijklmnopqrst.supabase.co', `https://${approved}.evil.example`, `http://${approved}`, `https://${approved}:8443`,
-        `https://user:pw@${approved}`, `https://${approved}/rest/v1`, `https://${approved}/?x=1`, 'not a url', '']) {
-        let built = 0;
-        const r = await main(argv, { SUPABASE_URL: url, SUPABASE_SERVICE_ROLE_KEY: 'unit-not-a-key', LIVE_TEST_EMAIL_DOMAIN: 'example.com' },
-            { createClient: () => { built += 1; throw new Error('must not be built'); } });
-        assert.equal(r.exitCode, 78, url);
-        assert.equal(built, 0, `no admin client for ${url || '(empty)'}`);
+// Sam (seal review of dc7a5ccb): the CLI uses the campaign runner's own admission path (pinned plan bytes, fixed bundle, validated paths,
+// no-replay lock) and the approved admin target; every refusal happens before any admin client is built.
+function pinnedPlan(t, mutate = (p) => p) {
+    const s = setup(t);
+    const bytes = Buffer.from(JSON.stringify(mutate(JSON.parse(JSON.stringify(s.plan)))));
+    const file = path.join(s.root, 'plan.json'); fs.writeFileSync(file, bytes, { mode: 0o600 });
+    return { s, file, digest: crypto.createHash('sha256').update(bytes).digest('hex') };
+}
+const cliArgs = (file, digest, extra = []) => ['--plan', file, '--plan-sha256', digest, '--evidence-dir', path.join(path.dirname(file), 'evidence'),
+    '--run-dir', path.join(path.dirname(file), 'cli-run'), '--run-id', 'cli-1', '--execute', 'true', ...extra];
+const parentEnv = (url) => ({ SUPABASE_URL: url, SUPABASE_SERVICE_ROLE_KEY: 'unit-not-a-key', LIVE_TEST_EMAIL_DOMAIN: 'example.com' });
+const APPROVED = require('../../harness/draft-adapters/durable-save-oracle.cjs').readbackContract.host;
+
+test('CLI: altered plan bytes, another case, an alternate bundle, missing inputs or a wrong project build no admin client', { timeout: 30_000 }, async (t) => {
+    const cases = [];
+    { const p = pinnedPlan(t); cases.push(['altered plan bytes', cliArgs(p.file, 'f'.repeat(64)), APPROVED]); }
+    { const p = pinnedPlan(t, (x) => ({ ...x, selection: { ...x.selection, ids: ['AHT-06'] } })); cases.push(['another case', cliArgs(p.file, p.digest), APPROVED]); }
+    { const p = pinnedPlan(t); cases.push(['alternate bundle', cliArgs(p.file, p.digest, ['--bundle', '/tmp/other-bundle']), APPROVED]); }
+    { const p = pinnedPlan(t); cases.push(['no execute', cliArgs(p.file, p.digest).slice(0, -2), APPROVED]); }
+    for (const url of ['https://abcdefghijklmnopqrst.supabase.co', `https://${APPROVED}.evil.example`, `http://${APPROVED}`, `https://${APPROVED}:8443`,
+        `https://user:pw@${APPROVED}`, `https://${APPROVED}/rest/v1`, `https://${APPROVED}/?x=1`, 'not a url']) {
+        const p = pinnedPlan(t); cases.push([`wrong project ${url}`, cliArgs(p.file, p.digest), url]);
     }
-    // The approved origin is the only target the client is ever built for (stopped right there: nothing runs).
+    for (const [name, argv, host] of cases) {
+        let built = 0;
+        const r = await main(argv, parentEnv(host.includes('://') || host === 'not a url' ? host : `https://${host}`), { createClient: () => { built += 1; throw new Error('must not be built'); } });
+        assert.equal(r.exitCode, 78, name);
+        assert.equal(built, 0, `no admin client: ${name}`);
+        const runRoot = path.dirname(argv[1]);
+        assert.equal(fs.existsSync(path.join(runRoot, '.campaign.lock')), false, `lock released: ${name}`);
+    }
+    assert.equal((await main([], {})).exitCode, 78);
+});
+
+test('CLI: the pinned J4.a-only plan and the approved project reach the admin client, built for that origin only', { timeout: 30_000 }, async (t) => {
+    const p = pinnedPlan(t);
     let target = null;
-    await assert.rejects(main(argv, { SUPABASE_URL: `https://${approved}/`, SUPABASE_SERVICE_ROLE_KEY: 'unit-not-a-key', LIVE_TEST_EMAIL_DOMAIN: 'example.com' },
+    await assert.rejects(main(cliArgs(p.file, p.digest), parentEnv(`https://${APPROVED}/`),
         { createClient: (origin) => { target = origin; throw new Error('STOP_AFTER_BINDING'); } }), /STOP_AFTER_BINDING/);
-    assert.equal(target, `https://${approved}`);
-    assert.throws(() => approvedAdminOrigin(`https://${approved}`, 'not-a-project-host'), /not the approved project/);
+    assert.equal(target, `https://${APPROVED}`);
+    assert.equal(fs.existsSync(path.join(p.s.root, '.campaign.lock')), false, 'lock released after the stop');
+    assert.throws(() => approvedAdminOrigin(`https://${APPROVED}`, 'not-a-project-host'), /not the approved project/);
 });
