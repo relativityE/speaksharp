@@ -1,6 +1,6 @@
 # Shared harness / exact-release proof
 
-The shared harness only admits the originally inspected `5a7bf6a1` source. The observed deployment `446e09fa` is not a compatible substitute merely because its SHA is known: at least 54 of the 462 inspected paths changed. This draft stages the implementation and acceptance plan only; it does not change the sealed adapter or register a live result.
+The shared harness only admits the originally inspected `5a7bf6a1` source. The observed deployment `446e09fa` is not a compatible substitute merely because its SHA is known: the comparison recorded 103 refusals (55 changed paths, 46 new inputs, two unresolved imports). This draft stages the implementation and acceptance plan only; it does not change the sealed adapter or register a live result.
 
 ## Implementation plan
 
@@ -13,6 +13,12 @@ The shared harness only admits the originally inspected `5a7bf6a1` source. The o
 7. **Add passing and failing controls.** Prove the vetted baseline and an actually reviewed compatible candidate can admit. Prove changed or unreadable files, added/removed dependencies, forged verdicts, and release drift cannot admit or trigger writes.
 8. **Review and verify the seal.** Inspect the exact adapter and trusted inputs independently, regenerate only the affected seal from reviewed bytes, run the harness verifier and relevant regression tests, then qualify the exact PR head through the protected merge.
 9. **Prepare bounded J4.a proof.** Against the named served build, record the save/reopen evidence still missing, account and write bounds, cleanup read-back, and stop conditions. After separate approval, run only that proof and record PASS, FAIL, HOLD or NOT RUN as observed. Leave full J1–J9 qualification open.
+
+## J4.a cleanup contract
+
+The draft source adapter closes its own pages and contexts; it does not delete the account or check server residue. The case runner's browser/process cleanup receipt is not server cleanup evidence. At the protected owner-cleanup boundary, reuse structured results from the existing auth deletion readback and counted session and recording-lease queries where the real route can call that implementation. Keep its other table checks. Do not infer server cleanup from a browser stop, a text verdict, an account-only query, or the absence of a recorded take.
+
+The runner must bind observed account, session and lease results to the confirmed run-owned account from the guarded signup attempt. Verify that the zero counts are post-cleanup and for that exact scope. A missing or different scope, a missing query, a nonzero count for an unrecorded take, or an incomplete ownership link prevents acceptance and keeps next-run admission held. Test those cases through the actual entry point with fake transport; the current stubs alone do not establish this behavior. Report only content-free outcomes in retained evidence.
 
 ## Existing records
 
