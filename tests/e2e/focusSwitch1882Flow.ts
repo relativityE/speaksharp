@@ -22,8 +22,13 @@ export const SWITCH_FLOW_TIMEOUT_MS = 240_000;
 /** Every single action is bounded, so a missing control fails in seconds instead of eating the whole budget. */
 const STEP_MS = 20_000;
 
-/** Where the flow stops: after the first Focus take, after the Open Mic take, or after the switch take. */
-export type SwitchFlowStop = 'first-focus-take' | 'open-mic-take' | 'switch-take';
+/**
+ * Where the flow stops. bb7786ce (run 43995026716) passed the first Focus take and failed somewhere in the Open Mic
+ * step, so that step is now split: the Products choice, Start offered, recording, and the saved take with its review.
+ */
+export type SwitchFlowStop =
+  | 'first-focus-take' | 'open-mic-menu' | 'open-mic-ready' | 'open-mic-recording' | 'open-mic-take' | 'switch-take';
+type TakeStop = 'ready' | 'recording' | 'review';
 
 type Page = Parameters<typeof programmaticLoginWithRoutes>[0];
 export type TraceEvent = Record<string, unknown> & { event?: string };
@@ -43,11 +48,13 @@ async function saveSet(page: Page) {
   await expect(dialog).toHaveCount(0, { timeout: STEP_MS });
 }
 
-async function recordTake(page: Page, transcript: string, holdMs: number) {
+async function recordTake(page: Page, transcript: string, holdMs: number, until: TakeStop = 'review') {
   const before = await page.locator('html').getAttribute('data-session-persisted-id');
   // startRecording/stopRecording click without a bound; prove each control is there first.
   await expect(page.getByTestId('mic-start')).toBeVisible({ timeout: 30_000 });
+  if (until === 'ready') return;
   await startRecording(page);
+  if (until === 'recording') return;
   await simulateTranscription(page, transcript, true);
   await page.waitForTimeout(holdMs); // past the app's 5 s minimum-duration persistence guard
   await page.getByTestId('recorder-stop').click({ timeout: STEP_MS });
@@ -79,8 +86,10 @@ export async function runFocusSwitchFlow(page: Page, testInfo: TestInfo, stopAft
 
   await openProductsItem(page, 'open-mic', STEP_MS);
   await page.waitForURL(/\/session/, { timeout: 45_000 });
-  await recordTake(page, ALL_POINTS, 5_200);
-  if (stopAfter === 'open-mic-take') return stopped;
+  if (stopAfter === 'open-mic-menu') return stopped;
+  const openMicStop: Partial<Record<SwitchFlowStop, TakeStop>> = { 'open-mic-ready': 'ready', 'open-mic-recording': 'recording' };
+  await recordTake(page, ALL_POINTS, 5_200, openMicStop[stopAfter] ?? 'review');
+  if (stopAfter in openMicStop || stopAfter === 'open-mic-take') return stopped;
 
   await openProductsItem(page, 'focus-points', STEP_MS);
   await saveSet(page);
