@@ -8,7 +8,7 @@ import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, re
   assertTestPrice, assertInvoice, isCorrelatedDelivery, safeFailureReason, testClockCreateFields, localStackStatus,
   assertFullRefund, isRefundCancellation, assertCheckoutGrantedNothing,
   checkoutSessionFromUrl, assertCheckoutIdentity, newlyAddedCard, assertNoSecondCharge,
-  type RunnerJourney, type BillingEvent } from './contract';
+  type RunnerJourney, type BillingEvent, hostedFieldUnavailable, type HostedField } from './contract';
 import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { selectBenchmarkMode, preparePrivateModelIfPrompted, startBenchmarkRecording,
   expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput, stopBenchmarkRecording,
@@ -193,7 +193,7 @@ class SandboxJourney {
 
   /** Fills Stripe's hosted card form (Checkout or the portal) and submits. Never reads or reports its content. */
   async fillCard(card: string, withEmail: boolean): Promise<void> {
-    const fill = async (selector: string, value: string) => {
+    const fill = async (selector: string, value: string, field: HostedField) => {
       for (let attempt = 0; attempt < 40; attempt++) {
         for (const frame of this.page.frames()) {
           const field = frame.locator(selector).first();
@@ -201,12 +201,21 @@ class SandboxJourney {
         }
         await sleep(500);
       }
-      throw new Error('BILLING_JOURNEY:hosted_field_unavailable');
+      // Name the missing field and whether a visible "Card" choice was offered (content-free; the field stays required).
+      let cardChoiceShown: boolean | null = false;
+      try {
+        for (const frame of this.page.frames()) {
+          for (const role of ['radio', 'tab', 'button'] as const) {
+            if (await frame.getByRole(role, { name: /^card$/i }).first().isVisible()) cardChoiceShown = true;
+          }
+        }
+      } catch { cardChoiceShown = null; }
+      throw new Error(`BILLING_JOURNEY:${hostedFieldUnavailable(field, cardChoiceShown)}`);
     };
-    if (withEmail) await fill('input[type="email"]', this.email);
-    await fill('input[autocomplete="cc-number"],input[name="cardNumber"]', card);
-    await fill('input[autocomplete="cc-exp"],input[name="cardExpiry"]', '1234');
-    await fill('input[autocomplete="cc-csc"],input[name="cardCvc"]', '123');
+    if (withEmail) await fill('input[type="email"]', this.email, 'email');
+    await fill('input[autocomplete="cc-number"],input[name="cardNumber"]', card, 'card_number');
+    await fill('input[autocomplete="cc-exp"],input[name="cardExpiry"]', '1234', 'card_expiry');
+    await fill('input[autocomplete="cc-csc"],input[name="cardCvc"]', '123', 'card_cvc');
     for (const frame of this.page.frames()) {
       for (const [selector, value] of [['input[autocomplete="cc-name"]', 'SpeakSharp Test'],
         ['input[autocomplete="postal-code"]', '94105']] as const) {
