@@ -687,7 +687,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         coveredLatch.current = new Map();
     }
     previousCoverageState.current = sessionState;
-    // The terminal result exists only when the retained transcript exists. Treating a pending/failed read
+    // Ordinarily a terminal result accompanies a retained transcript. Treating a pending/failed read
     // as an empty transcript turns "we cannot read it" into the confident false result 0/N + every point
     // "Not detected". Before/during still derive from working memory; after derives only from the retained
     // authority and withholds the entire transcript-derived result until that authority is available.
@@ -700,7 +700,15 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         && (!inAfter || effectiveReview.kind === 'available')
         && (!terminalAuthorityExpected || objectiveCoverage !== null);
     let coverage: FocusCoverage | null = null;
-    if (canDeriveCoverage) {
+    // SessionPage only supplies this handoff for the owning take after confirmed metrics-only
+    // completion (never for a reopened/expired take). Use its existence to display the separate
+    // finalized Focus verdicts, not its text to score, quote, highlight, or report a saved transcript.
+    if (isObjective && reviewSettled && localReviewText
+        && (effectiveReview.kind === 'not_captured' || effectiveReview.kind === 'unavailable')) {
+        if (!objectiveCoverageFailed) {
+            coverage = applyFinalizedCoverageAuthority(null, effObjectivePoints ?? [], objectiveCoverage ?? null);
+        }
+    } else if (canDeriveCoverage) {
         /**
          * MERGE (#1421 x #1427/#1423): BOTH the settled-emission gate and the finalized authority.
          *

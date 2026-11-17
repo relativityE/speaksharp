@@ -164,7 +164,7 @@ test.describe('Post-save consolidation', () => {
     // was being cut off by the test budget rather than by the product. Same allowance the metric-parity
     // test in this file already takes.
     test.setTimeout(90_000);
-    await programmaticLoginWithRoutes(page, { userType: 'pro' });
+    await programmaticLoginWithRoutes(page, { userType: 'pro', practicePrivacy: { transcriptSave: true, aiCoaching: false } });
     await navigateToRoute(page, '/session');
     await recordAndStop(page);
     // Let finalization reach terminal (metrics captured, session persisted).

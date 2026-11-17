@@ -28,7 +28,7 @@ test.describe('User-facing session and analytics regressions', () => {
   });
 
   test('offers the after-state actions and fabricates no verdict prose', async ({ page }) => {
-    await programmaticLoginWithRoutes(page, { userType: 'pro' });
+    await programmaticLoginWithRoutes(page, { userType: 'pro', practicePrivacy: { transcriptSave: true, aiCoaching: true } });
     await navigateToRoute(page, '/session?coaching=treatment');
     await selectTranscriptionEngine(page, 'private');
 
@@ -102,7 +102,7 @@ test.describe('User-facing session and analytics regressions', () => {
   test('preserves metric parity from session to analytics detail after save and reload', async ({ page }) => {
     test.setTimeout(90_000);
 
-    await programmaticLoginWithRoutes(page, { userType: 'pro' });
+    await programmaticLoginWithRoutes(page, { userType: 'pro', practicePrivacy: { transcriptSave: true, aiCoaching: false } });
     await navigateToRoute(page, '/session');
     await selectTranscriptionEngine(page, 'private');
 

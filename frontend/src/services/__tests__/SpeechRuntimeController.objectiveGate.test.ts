@@ -174,56 +174,62 @@ describe('#1265 SpeechRuntimeController — Focus Points Progress gating (direct
         expect(useSessionStore.getState().objectiveCoverageResult).toEqual([{ id: 'p1', label: 'pricing', status: 'covered' }]);
     });
 
-    it('composes controller → real finalizer → store → rendered terminal rail', async () => {
-        objectiveHarness.useRealFinalizer = true;
-        window.__PRIVATE_OBJECTIVE_PUBLICATIONS_ENABLED__ = true;
-        objectiveHarness.registerObjectiveSource.mockResolvedValue({ ok: true });
-        objectiveHarness.startObjectiveSession.mockResolvedValue({ ok: true, sessionId: 'objective-session' });
-        objectiveHarness.pointsRows = [
-            { id: 'p1', label: 'pricing cost', cue: null, sort_order: 0 },
-            { id: 'p2', label: 'support guarantee', cue: null, sort_order: 1 },
-        ];
-        objectiveHarness.finalizeObjectiveEvidence.mockResolvedValue(2);
-        await gate(
-            BRIEF,
-            'composed-take',
-            [{ text: 'our pricing cost is predictable', startSec: 8 }],
-            60,
-            runProgressEval,
-            () => true,
-        );
-        const authority = useSessionStore.getState().objectiveCoverageResult;
-        expect(authority).toEqual([
-            { id: 'p1', label: 'pricing cost', status: 'covered' },
-            { id: 'p2', label: 'support guarantee', status: 'missing' },
-        ]);
-        expect(objectiveHarness.finalizeObjectiveEvidence).toHaveBeenCalledWith('objective-session', [
-            { brief_point_id: 'p1', detected_at_seconds: 8 },
-            { brief_point_id: 'p2', detected_at_seconds: null },
-        ]);
-        useSessionStore.setState({ progressGate: null, progressGateResolvedFor: 'viewer', captureLive: false });
-        render(React.createElement(SessionOverhaulView, {
-            authUserId: 'viewer',
-            isListening: false,
-            sttStatus: { type: 'idle' } as SttStatus,
-            elapsedTime: 0,
-            scoringElapsedSeconds: 60,
-            micLevel: 0,
-            transcriptContent: '',
-            reviewTranscript: { kind: 'available', text: 'our pricing cost is predictable' },
-            showAnalyticsPrompt: true,
-            metricsFillerCount: 0,
-            onStartStop: vi.fn(),
-            history: [],
-            completedObjectivePoints: ['pricing cost', 'support guarantee'],
-            objectiveCoverage: authority,
-        }));
-        expect(screen.getByTestId('focus-point-0')).toHaveAttribute('data-status', 'covered');
-        expect(screen.getByTestId('focus-point-1')).toHaveAttribute('data-status', 'missing');
-        const publications = await window.__PRIVATE_OBJECTIVE_PUBLICATIONS__?.read() ?? [];
-        const witness = publications[publications.length - 1];
-        expect(witness).toMatchObject({ pointCount: 2, coveredCount: 1, missingCount: 1 });
-    });
+    it.each(['retained', 'metrics-only'] as const)(
+        'composes controller → real finalizer → store → rendered terminal rail (%s)',
+        async (retention) => {
+            objectiveHarness.useRealFinalizer = true;
+            window.__PRIVATE_OBJECTIVE_PUBLICATIONS_ENABLED__ = true;
+            objectiveHarness.registerObjectiveSource.mockResolvedValue({ ok: true });
+            objectiveHarness.startObjectiveSession.mockResolvedValue({ ok: true, sessionId: 'objective-session' });
+            objectiveHarness.pointsRows = [
+                { id: 'p1', label: 'pricing cost', cue: null, sort_order: 0 },
+                { id: 'p2', label: 'support guarantee', cue: null, sort_order: 1 },
+            ];
+            objectiveHarness.finalizeObjectiveEvidence.mockResolvedValue(2);
+            await gate(
+                BRIEF,
+                'composed-take',
+                [{ text: 'our pricing cost is predictable', startSec: 8 }],
+                60,
+                runProgressEval,
+                () => true,
+            );
+            const authority = useSessionStore.getState().objectiveCoverageResult;
+            expect(authority).toEqual([
+                { id: 'p1', label: 'pricing cost', status: 'covered' },
+                { id: 'p2', label: 'support guarantee', status: 'missing' },
+            ]);
+            expect(objectiveHarness.finalizeObjectiveEvidence).toHaveBeenCalledWith('objective-session', [
+                { brief_point_id: 'p1', detected_at_seconds: 8 },
+                { brief_point_id: 'p2', detected_at_seconds: null },
+            ]);
+            useSessionStore.setState({ progressGate: null, progressGateResolvedFor: 'viewer', captureLive: false });
+            render(React.createElement(SessionOverhaulView, {
+                authUserId: 'viewer',
+                isListening: false,
+                sttStatus: { type: 'idle' } as SttStatus,
+                elapsedTime: 0,
+                scoringElapsedSeconds: 60,
+                micLevel: 0,
+                transcriptContent: '',
+                reviewTranscript: retention === 'retained'
+                    ? { kind: 'available', text: 'our pricing cost is predictable' }
+                    : { kind: 'not_captured' },
+                localReviewText: retention === 'metrics-only' ? 'our pricing cost is predictable' : null,
+                showAnalyticsPrompt: true,
+                metricsFillerCount: 0,
+                onStartStop: vi.fn(),
+                history: [],
+                completedObjectivePoints: ['pricing cost', 'support guarantee'],
+                objectiveCoverage: authority,
+            }));
+            expect(screen.getByTestId('focus-point-0')).toHaveAttribute('data-status', 'covered');
+            expect(screen.getByTestId('focus-point-1')).toHaveAttribute('data-status', 'missing');
+            const publications = await window.__PRIVATE_OBJECTIVE_PUBLICATIONS__?.read() ?? [];
+            const witness = publications[publications.length - 1];
+            expect(witness).toMatchObject({ pointCount: 2, coveredCount: 1, missingCount: 1 });
+        },
+    );
 
     it.each([
         ['full', PINNED_FULL, PINNED_FULL.points.map((text, index) => ({ text, startSec: 3 + index * 9 }))],
