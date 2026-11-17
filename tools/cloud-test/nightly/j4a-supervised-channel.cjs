@@ -24,6 +24,7 @@ const OPS = Object.freeze(['send', 'cleanup', 'createAccount', 'created', 'repor
 const KINDS = Object.freeze(['starts', 'coaching']);
 const ID = /^[a-z0-9-]{1,40}$/;
 const REF = /^[A-Za-z0-9._:-]{1,120}$/;
+const DOMAIN = /^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/;
 const COUNT = (v) => Number.isSafeInteger(v) && v >= 0;
 
 /** The child's cleanup report: teardown steps and reported leftovers only (content-free refs). It never carries counts. */
@@ -71,13 +72,14 @@ function attachParentChannel({ port, identity, nightly }) {
         }
         if (op === 'createAccount') {
             if (typeof m.lookupRef !== 'string' || !REF.test(m.lookupRef)) return refuse(id, 'malformed lookupRef');
+            if (m.emailDomain !== undefined && (typeof m.emailDomain !== 'string' || !DOMAIN.test(m.emailDomain))) return refuse(id, 'malformed emailDomain');
             const r = await nightly.createAccount(LEG, m.lookupRef, async ({ signal, retries }) => {
                 reply({ t: 'createGo', id, retries });
                 const answer = await Promise.race([awaitChild(id),
                     new Promise((res) => signal.addEventListener('abort', () => res({ lost: true }), { once: true }))]);
                 if (answer.lost) throw new Error('create answer lost');
                 return answer.value;
-            }).catch(() => ({ sent: true, answered: false }));
+            }, m.emailDomain === undefined ? undefined : { emailDomain: m.emailDomain }).catch(() => ({ sent: true, answered: false }));
             // The parent's own record of the confirmed create: the only scope the trusted residue reader may use.
             if (r.sent === true && r.answered === true && r.value?.outcome === 'created' && state.confirmedAccount === null)
                 state.confirmedAccount = m.lookupRef;
@@ -108,6 +110,10 @@ function attachParentChannel({ port, identity, nightly }) {
         if (m.t === 'refusal') { if (state.digest === null && !state.refused) { state.refused = 'child refused the binding'; resolveBound(null); } return; }
         if ((m.t === 'done' || m.t === 'createResult') && state.pending.has(m.id)) {
             const resolve = state.pending.get(m.id); state.pending.delete(m.id); resolve({ value: m.value ?? null });
+            return;
+        }
+        if (m.t === 'failed' && state.pending.has(m.id)) {
+            const resolve = state.pending.get(m.id); state.pending.delete(m.id); resolve({ lost: true });
             return;
         }
         if (m.t === 'req') void handleRequest(m);
@@ -167,7 +173,8 @@ function connectChildChannel({ port, identity, timeoutMs = 10_000 }) {
             if ((m.t === 'go' || m.t === 'createGo') && handlers.has(m.id)) {
                 const act = handlers.get(m.id); handlers.delete(m.id);
                 let value = null;
-                try { value = await act(m); } catch { return; } // a throwing act sends nothing back: the parent sees it as lost
+                // A throwing act is reported at once as failed (never as done), so the parent records the grant as lost now, not at exit.
+                try { value = await act(m); } catch { try { port.send({ t: 'failed', id: m.id }); } catch { /* the parent is gone */ } return; }
                 port.send({ t: m.t === 'go' ? 'done' : 'createResult', id: m.id, value });
                 return;
             }
@@ -185,7 +192,8 @@ function connectChildChannel({ port, identity, timeoutMs = 10_000 }) {
             send: (kind, act) => request('send', { kind }, () => act()),
             cleanup: (act) => request('cleanup', {}, () => act()),
             /** One guarded create: `act({ retries })` runs once, only after the parent recorded the attempt durably. */
-            createAccount: (lookupRef, act) => request('createAccount', { lookupRef }, (m) => act({ retries: m.retries })),
+            /** `options.emailDomain`: the run's fixed test domain, recorded durably with the attempt before it is sent. */
+            createAccount: (lookupRef, act, { emailDomain } = {}) => request('createAccount', { lookupRef, ...(emailDomain === undefined ? {} : { emailDomain }) }, (m) => act({ retries: m.retries })),
             created: (resource) => request('created', { resource }),
             reportCleanup: (report) => request('reportCleanup', { digest, report }),
         });

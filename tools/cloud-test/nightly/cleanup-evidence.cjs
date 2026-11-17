@@ -327,6 +327,22 @@ function recordCreateAttempt(dir, runId, { attemptId, leg, lookupRef, transportD
     }
     durableWrite(attemptFile(dir, runId, attemptId, 'sent'), { runId, attemptId, leg, kind: 'account', lookupRef, ...(emailDomain === undefined ? {} : { emailDomain }), transportDeadlineMs, recordedAt: at });
 }
+/**
+ * #1884 parent-owned teardown: the journey's ONE durable create record in this run, `{ sent, answered }` (answered null when no
+ * validated terminal result was written), or null when there is none, more than one, or any record can't be read. Teardown
+ * establishes ownership from this record, never from the child.
+ */
+function journeyCreateRecord(dir, runId, journey) {
+    checkRunId(runId);
+    const docs = journeyAttempts(dir, runId, journey);
+    if (docs === null || docs.length !== 1) return null;
+    const sent = docs[0];
+    if (typeof sent?.attemptId !== 'string' || !ATTEMPT_ID.test(sent.attemptId)) return null;
+    const file = attemptFile(dir, runId, sent.attemptId, 'answered');
+    if (!fs.existsSync(file)) return { sent, answered: null };
+    const answered = readAttempt(file);
+    return answered === null ? null : { sent, answered };
+}
 /** The recorded (sent) account-create attempt, or null when it was never recorded or can't be read. */
 function readSentAttempt(dir, runId, attemptId) {
     checkRunId(runId);
@@ -570,5 +586,5 @@ function admitRun(dir, opts = {}) {
 
 module.exports = {
     ADMISSION_LOCK, AdmissionRefused, MAX_TRANSPORT_DEADLINE_MS, RESOURCE_KINDS, SERVER_CREATE_DEADLINE, VERIFICATION_KINDS, admitRun, answerCreateAttempt, beginRun,
-    readSentAttempt, recordAttemptLanded, recordAttemptRecovery, recordCreateAttempt, recordRecovery, unprovenCleanup, writeCleanupEvidence,
+    journeyCreateRecord, readSentAttempt, recordAttemptLanded, recordAttemptRecovery, recordCreateAttempt, recordRecovery, unprovenCleanup, writeCleanupEvidence,
 };
