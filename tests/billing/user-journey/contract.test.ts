@@ -393,7 +393,7 @@ test('the journey prints a checkpoint for every step and stage, and around every
 // unticked. Stripe's own markup (read in the PO's DevTools, read-only) fixes the exact controls; a missing return now names what was shown.
 test('the hosted controls are the exact ones observed on Stripe Checkout', () => {
   assert.deepEqual({ ...HOSTED_SELECTORS }, { submit: '[data-testid="payment-form-submit-button"]', linkOptInInput: '#payment-linkOptInInput', linkOptInLabel: '#Field-linkOptInCheckbox',
-    country: '#payment-countryInput', postalCode: '#payment-postalCodeInput', cardName: '#payment-nameInput' });
+    country: '#payment-countryInput', postalCode: '#payment-postalCodeInput', cardName: '#payment-nameInput', email: '#linkAuthentication-emailInput' });
   assert.ok(Object.isFrozen(HOSTED_SELECTORS));
 });
 
@@ -500,4 +500,11 @@ test('an unconfirmable form is not submitted: the stop names the invalid control
   assert.ok(stop > 0 && submit > stop && click > submit, 'the unconfirmable stop comes before Subscribe is searched or clicked');
   // Only `false` stops: `true` and the unread `null` reach Subscribe.
   assert.doesNotMatch(pay, /if \(confirmable !== true\)|if \(!confirmable\)/);
+});
+
+test('the hosted email is found by the observed control: Link\'s text input, which `input[type="email"]` alone never matched', () => {
+  assert.equal(HOSTED_SELECTORS.email, '#linkAuthentication-emailInput');
+  assert.equal(invalidFieldToken({ id: 'linkAuthentication-emailInput', name: 'email' }), 'email');
+  const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
+  assert.match(spec, /await fill\(`\$\{HOSTED_SELECTORS\.email\},input\[type="email"\]`, this\.email, 'email', decision === 'absent_after_binding'\);/);
 });

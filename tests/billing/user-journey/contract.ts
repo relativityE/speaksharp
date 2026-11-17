@@ -67,6 +67,9 @@ export const HOSTED_SELECTORS = Object.freeze({
   country: '#payment-countryInput',
   postalCode: '#payment-postalCodeInput',
   cardName: '#payment-nameInput',
+  // Run 44157731067 (`fields_email`): read in the PO's DevTools on that run's own open session. The email box is Link's
+  // authentication input, `type="text"` with `inputmode="email"`, so the journey's old `input[type="email"]` could never match it.
+  email: '#linkAuthentication-emailInput',
 });
 
 /**
@@ -74,7 +77,7 @@ export const HOSTED_SELECTORS = Object.freeze({
  * a page change can only produce `other`, never page text.
  */
 const INVALID_FIELD_TOKENS: Readonly<Record<string, string>> = Object.freeze({
-  'payment-nameInput': 'name', name: 'name', 'payment-postalCodeInput': 'zip', postalCode: 'zip', 'payment-countryInput': 'country',
+  'payment-nameInput': 'name', name: 'name', 'linkAuthentication-emailInput': 'email', 'payment-postalCodeInput': 'zip', postalCode: 'zip', 'payment-countryInput': 'country',
   country: 'country', cardNumber: 'number', 'payment-numberInput': 'number', cardExpiry: 'expiry', 'payment-expiryInput': 'expiry',
   cardCvc: 'cvc', 'payment-cvcInput': 'cvc', email: 'email',
 });

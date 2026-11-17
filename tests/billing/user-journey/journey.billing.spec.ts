@@ -246,7 +246,8 @@ class SandboxJourney {
         shownSession: email === 'after-binding' ? (() => { try { return checkoutSessionFromUrl(this.page.url()); } catch { return null; } })() : null,
         boundSession: email === 'after-binding' ? this.boundCheckout : null,
         boundCustomerHasEmail: email === 'after-binding' ? this.boundCustomerHasEmail : null });
-      await fill('input[type="email"]', this.email, 'email', decision === 'absent_after_binding');
+      // The observed control first (run 44157731067), then the generic email input.
+      await fill(`${HOSTED_SELECTORS.email},input[type="email"]`, this.email, 'email', decision === 'absent_after_binding');
     }
     await fill('input[autocomplete="cc-number"],input[name="cardNumber"]', card, 'card_number');
     await fill('input[autocomplete="cc-exp"],input[name="cardExpiry"]', '1234', 'card_expiry');
