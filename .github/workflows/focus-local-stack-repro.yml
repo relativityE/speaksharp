@@ -4,11 +4,11 @@
 # and tears the stack down with a destruction proof.
 #
 # Why a push trigger: GitHub dispatches only workflows already on main, and #1882 is held. So this runs on a push to
-# #1882's own branch that touches the repro files, and it waits on the protected billing-local-stack environment: a
-# required reviewer approves each run before it starts. A newer push replaces a run still waiting for approval.
+# #1882's own branch that touches the repro files.
 #
-# No secret, no Stripe, no hosted project, no deploy, and never production. A PASS is about this commit on a throwaway
-# stack, not about production.
+# An ordinary checkout-only job: no protected environment, no repository secret or variable, no production .env, no
+# Stripe, no AI provider key, no hosted project and no deploy. Everything it talks to is on the runner's loopback, and
+# the stack is torn down with a destruction proof. A PASS is about this commit on a throwaway stack, not production.
 name: Focus switch on a local stack (#1882)
 
 on:
@@ -33,9 +33,6 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/jack/focus-new-set-edit' && github.repository == 'relativityE/speaksharp'
     # Pinned for Chromium, as the other browser workflows are.
     runs-on: ubuntu-24.04
-    # The same protected environment as the billing local-stack journeys: nothing runs until a required reviewer approves
-    # this run. This job reads none of that environment's secrets or variables, and makes no Stripe call.
-    environment: billing-local-stack
     timeout-minutes: 45
     env:
       SUPABASE_WORKDIR: backend

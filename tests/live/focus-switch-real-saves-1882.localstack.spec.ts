@@ -69,10 +69,12 @@ async function saveSet(page: Page) {
   await expect(dialog).toHaveCount(0, { timeout: STEP_MS });
 }
 
-/** One real take from a page on /session with Start offered; returns the NEW persisted session id. */
-async function realTake(page: Page, label: string): Promise<string> {
-  const before = await persistedId(page);
-  await startBenchmarkRecording(page, label, 600_000);
+/**
+ * One real take from a page on /session; returns the NEW persisted session id. `alreadyRunning` is for the first take on a
+ * cold model: the one setup press downloads the model AND starts the take, so Start must not be pressed again.
+ */
+async function realTake(page: Page, label: string, before: string | null, alreadyRunning = false): Promise<string> {
+  if (!alreadyRunning) await startBenchmarkRecording(page, label, 600_000);
   await expectBenchmarkRecordingStarted(page, label);
   await sleep(TAKE_MS);
   await stopBenchmarkRecording(page, label, 120_000);
@@ -126,9 +128,10 @@ test('#1882 local stack: Open Mic → Focus switch → reload → Edit, with rea
     await saveSet(page);
     await expect(page).toHaveURL(/\/session/, { timeout: 45_000 });
     await selectBenchmarkMode(page, 'private');
+    // Read before the setup press: on a cold model that press also starts the first take.
+    const beforeFirst = await persistedId(page);
     const setup = await preparePrivateModelIfPrompted(page, 600_000);
-    expect(setup.recordingAlreadyStarted, 'the model setup press did not start a take').toBe(false);
-    const firstFocus = await realTake(page, 'focus-1882-first');
+    const firstFocus = await realTake(page, 'focus-1882-first', beforeFirst, setup.recordingAlreadyStarted);
     expect(await row(firstFocus), 'first Focus take saved').toMatchObject({ status: 'completed', product: 'focus_points' });
 
     // ── 2. Open Mic, reached from the session page at rest (as the live journey does) ──
@@ -136,7 +139,7 @@ test('#1882 local stack: Open Mic → Focus switch → reload → Edit, with rea
     await openProductsItem(page, 'open-mic', STEP_MS);
     await page.waitForURL(/\/session/, { timeout: 45_000 });
     await expect(page.getByTestId('focus-points-rail'), 'Open Mic is active: no Focus rail').toHaveCount(0);
-    const openMic = await realTake(page, 'focus-1882-openmic');
+    const openMic = await realTake(page, 'focus-1882-openmic', await persistedId(page));
     expect(await row(openMic), 'check 1: the Open Mic take saved as open_mic')
       .toMatchObject({ status: 'completed', product: 'open_mic' });
     await expect(page.getByTestId('focus-points-rail'), 'still no Focus rail on the Open Mic review').toHaveCount(0);
@@ -148,7 +151,7 @@ test('#1882 local stack: Open Mic → Focus switch → reload → Edit, with rea
     await expect(page.getByTestId('focus-points-rail')).toBeVisible({ timeout: 45_000 });
     const countBefore = (await rows()).length;
     const traceBefore = (await controllerTrace(page)).length;
-    const switched = await realTake(page, 'focus-1882-switch');
+    const switched = await realTake(page, 'focus-1882-switch', await persistedId(page));
     const after = await rows();
     expect(after.length, 'check 2: exactly one new row for the take after the switch').toBe(countBefore + 1);
     expect(await row(switched), 'check 2: the take after the switch saved as focus_points')
