@@ -66,6 +66,24 @@ export function recordingHoldRemainingMs(startedObservedAt: number, now: number)
   if (!Number.isFinite(startedObservedAt) || !Number.isFinite(now)) return RECORDING_HOLD_MS;
   return Math.max(0, RECORDING_HOLD_MS - Math.max(0, now - startedObservedAt));
 }
+/**
+ * Holds the take, then presses Stop exactly once. `startedObservedAt` is taken only after the page shows the capture-live state
+ * (`data-session-state="during"`, which the app renders only once capture is live; its clock is re-based in that same update), so
+ * the app's elapsed time at Stop is at least the time held here. A sleep that wakes early is re-checked; the loop is bounded.
+ * Returns the held time measured on the same clock.
+ */
+export async function holdThenStop(opts: { startedObservedAt: number; clock: { now(): number; sleep(ms: number): Promise<void> };
+  stop(): Promise<void> }): Promise<number> {
+  for (let i = 0; i < 20; i++) {
+    const remaining = recordingHoldRemainingMs(opts.startedObservedAt, opts.clock.now());
+    if (remaining === 0) break;
+    await opts.clock.sleep(remaining);
+  }
+  requireFact(recordingHoldRemainingMs(opts.startedObservedAt, opts.clock.now()) === 0, 'recording_hold_not_met');
+  await opts.stop();
+  return opts.clock.now() - opts.startedObservedAt;
+}
+
 /** The app's own too-short status (useSessionLifecycle): the take was discarded, so no save will ever arrive. */
 export const APP_TOO_SHORT_STATUS = 'Session too short';
 

@@ -12,7 +12,7 @@ import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, re
   checkoutSessionFromUrl, assertCheckoutIdentity, newlyAddedCard, assertNoSecondCharge,
   type RunnerJourney, type BillingEvent, hostedFieldUnavailable, hostedEmailDecision, type HostedField,
   HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl,
-  recordingHoldRemainingMs, APP_TOO_SHORT_STATUS,
+  holdThenStop, APP_TOO_SHORT_STATUS,
   privacyOptInFact, privacyBuildState, privacyAnswerRecorded, PRIVACY_PROMPT, type PrivacyTableRead } from './contract';
 import { fillHostedEmail } from './hostedEmail';
 import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
@@ -591,13 +591,15 @@ class SandboxJourney {
     const setup = await preparePrivateModelIfPrompted(this.page, 180_000);
     if (!setup.recordingAlreadyStarted) await startBenchmarkRecording(this.page, 'billing-journey');
     await expectBenchmarkRecordingStarted(this.page, 'billing-journey');
+    // The hold is timed from CONFIRMED capture live, not the Start click or the first words: the app renders `during` only once
+    // capture is live, and re-bases its own clock in that same update (useSessionStore.setCaptureLive).
+    const liveState = await this.page.getByTestId('session-shell').getAttribute('data-session-state', { timeout: HOSTED_READ_MS }).catch(() => null);
+    requireFact(liveState === 'during', 'capture_live_unconfirmed');
     const startedObservedAt = Date.now();
     await expectBenchmarkTranscriptOutput(this.page, 'billing-journey', 60_000, 3);
     // Run 44284831241: hold the take past the app's minimum duration, or it is discarded as too short (contract.ts).
-    const hold = recordingHoldRemainingMs(startedObservedAt, Date.now());
-    if (hold > 0) await this.page.waitForTimeout(hold);
-    this.checkpoint('recording_hold_met');
-    await stopBenchmarkRecording(this.page, 'billing-journey');
+    await holdThenStop({ startedObservedAt, clock: { now: () => Date.now(), sleep: (ms) => this.page.waitForTimeout(ms) },
+      stop: async () => { this.checkpoint('recording_hold_met'); await stopBenchmarkRecording(this.page, 'billing-journey'); } });
     await waitForBenchmarkSaveCandidate(this.page, 'billing-journey', 120_000);
     // A discarded take never saves: name it at once rather than waiting out the persistence bound.
     const settled = await this.poll(() => this.page.evaluate((tooShort) => {

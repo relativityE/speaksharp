@@ -5,7 +5,7 @@ import { RUNNER_JOURNEYS, POLICY_PENDING_STEPS, REQUIRED_STEPS, receipt, assertT
   isCorrelatedDelivery, assertSandboxConfiguration, safeFailureReason, testClockCreateFields, localStackStatus,
   hostedFieldUnavailable, hostedEmailDecision, assertCheckoutIdentity, type HostedField, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl, hostedEmailFieldAction,
   HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken ,
-  APP_MIN_SESSION_DURATION_SECONDS, RECORDING_HOLD_MS, recordingHoldRemainingMs, APP_TOO_SHORT_STATUS,
+  APP_MIN_SESSION_DURATION_SECONDS, RECORDING_HOLD_MS, recordingHoldRemainingMs, holdThenStop, APP_TOO_SHORT_STATUS,
   privacyOptInFact, PRIVACY_PROMPT, privacyBuildState, PRIVACY_MIGRATION, privacyAnswerRecorded } from './contract';
 import { finaliseLocalStackReceipt, RECEIPT_KEYS } from './localStackReceipt.mjs';
 import { stackIdentitySha256 } from './localStackResources.mjs';
@@ -596,16 +596,18 @@ test('recording hold: past the app\'s own minimum duration, timed from the obser
   // The app's own too-short text is the one the journey names.
   const lifecycle = readFileSync('frontend/src/hooks/useSessionLifecycle.ts', 'utf8');
   assert.ok(lifecycle.includes(`${APP_TOO_SHORT_STATUS} (\${elapsedAtStop}s)`), 'the app status the journey detects');
-  // Order in record(): started observed, then transcript, then the hold, then Stop, then the save.
+  // Order in record(): capture live confirmed, started observed, transcript, then the hold-then-Stop, then the save.
   const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
   const rec = spec.slice(spec.indexOf('  async record(): Promise<void> {'), spec.indexOf('  async advance('));
-  const order = ["await expectBenchmarkRecordingStarted(this.page, 'billing-journey');", 'const startedObservedAt = Date.now();',
-    "await expectBenchmarkTranscriptOutput(this.page, 'billing-journey', 60_000, 3);", 'const hold = recordingHoldRemainingMs(startedObservedAt, Date.now());',
-    'if (hold > 0) await this.page.waitForTimeout(hold);', "await stopBenchmarkRecording(this.page, 'billing-journey');",
+  const order = ["await expectBenchmarkRecordingStarted(this.page, 'billing-journey');",
+    "getByTestId('session-shell').getAttribute('data-session-state'", "requireFact(liveState === 'during', 'capture_live_unconfirmed');",
+    'const startedObservedAt = Date.now();', "await expectBenchmarkTranscriptOutput(this.page, 'billing-journey', 60_000, 3);",
+    'await holdThenStop({ startedObservedAt,', "await stopBenchmarkRecording(this.page, 'billing-journey');",
     "requireFact(!settled.tooShort, 'recording_discarded_too_short');", 'this.savedSession = settled.id;'];
   let at = -1;
   for (const step of order) { const i = rec.indexOf(step); assert.ok(i > at, step); at = i; }
   assert.equal((rec.match(/stopBenchmarkRecording\(/g) ?? []).length, 1);
+  assert.equal((rec.match(/holdThenStop\(/g) ?? []).length, 1);
 });
 
 // #1835 makes transcript saving opt-in; the billing recording step needs a saved transcript (paid_recording_not_proven).
@@ -695,4 +697,54 @@ test('the answer is recorded only when the same owner\'s row shows saving on AND
     assert.equal(privacyOptInFact(row(o), uid, 'includes'), 'opted_in');
     assert.equal(privacyAnswerRecorded(row(o), uid), false, JSON.stringify(o));
   }
+});
+
+// The app's own facts the hold relies on, pinned: `during` (which shows the recorder bar) exists only once capture is live, and
+// the app's clock is re-based to that moment in the same store update.
+test('capture live: the app renders the recording state only once capture is live, and starts its clock at that moment', () => {
+  const store = readFileSync('frontend/src/stores/useSessionStore.ts', 'utf8');
+  assert.match(store, /setCaptureLive: \(captureLive\) => set\(\(state\) => \(captureLive && !state\.captureLive && state\.isListening\s*\? \{ captureLive, startTime: Date\.now\(\), elapsedTime: 0 \}/);
+  const view = readFileSync('frontend/src/components/session/SessionOverhaulView.tsx', 'utf8');
+  assert.match(view, /firstAudioFrameReceived: isListening && captureLiveForState,/);
+  const machine = readFileSync('frontend/src/utils/sessionStateMachine.ts', 'utf8');
+  assert.match(machine, /if \(firstAudioFrameReceived\) return 'during';/);
+  assert.match(readFileSync('frontend/src/components/session/SessionShell.tsx', 'utf8'), /data-session-state=\{sessionState\}/);
+  const lifecycle = readFileSync('frontend/src/hooks/useSessionLifecycle.ts', 'utf8');
+  assert.match(lifecycle, /const liveStart = useSessionStore\.getState\(\)\.startTime;\s+const elapsedAtStop = liveStart \? Math\.floor\(\(Date\.now\(\) - liveStart\) \/ 1000\) : elapsedTime;/);
+});
+
+// Behaviour with a controlled clock. The app's rule at Stop is mirrored from useSessionLifecycle (pinned above):
+// too short when floor((stopAt - startTime) / 1000) < MIN_SESSION_DURATION_SECONDS.
+const appKeepsTake = (appStartTime: number, stopAt: number) => Math.floor((stopAt - appStartTime) / 1000) >= APP_MIN_SESSION_DURATION_SECONDS;
+function fakeClock(start: number, wakeFraction = 1) {
+  let t = start; const slept: number[] = [];
+  return { clock: { now: () => t, sleep: async (ms: number) => { slept.push(ms); t += Math.max(1, Math.ceil(ms * wakeFraction)); } },
+    advance: (ms: number) => { t += ms; }, slept, at: () => t };
+}
+
+test('hold-then-Stop: Stop never comes before the hold, so the app keeps the take (run 9\'s timings)', async () => {
+  // Run 9: capture live (app startTime) at 0; the journey saw it at +50 ms; the first words at +940 ms.
+  for (const wakeFraction of [1, 0.5]) { // a sleep that wakes early (halfway) is re-checked
+    const f = fakeClock(50, wakeFraction);
+    f.advance(890);
+    let stoppedAt: number | null = null;
+    const held = await holdThenStop({ startedObservedAt: 50, clock: f.clock, stop: async () => { stoppedAt = f.at(); } });
+    assert.ok(stoppedAt !== null && stoppedAt - 50 >= RECORDING_HOLD_MS, `stopped at ${stoppedAt}`);
+    assert.ok(held >= RECORDING_HOLD_MS);
+    assert.equal(appKeepsTake(0, stoppedAt!), true);
+  }
+  // Stop is pressed exactly once.
+  const f = fakeClock(0); let stops = 0;
+  await holdThenStop({ startedObservedAt: 0, clock: f.clock, stop: async () => { stops += 1; } });
+  assert.equal(stops, 1);
+});
+
+test('CONTROL: the run-9 premature Stop (as soon as three words appear) is the case the app discards', async () => {
+  // Without the hold, Stop lands at the first words (~0.94 s after capture live): the app's own rule discards it.
+  assert.equal(appKeepsTake(0, 940), false);
+  // A clock that never advances cannot satisfy the hold: Stop is refused, never pressed early.
+  const frozen = { now: () => 1_000, sleep: async () => {} };
+  let stopped = false;
+  await assert.rejects(holdThenStop({ startedObservedAt: 1_000, clock: frozen, stop: async () => { stopped = true; } }), /recording_hold_not_met/);
+  assert.equal(stopped, false);
 });
