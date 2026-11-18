@@ -103,6 +103,23 @@ export function firstVisibleControl(visible: readonly (readonly boolean[])[]): {
   return null;
 }
 
+/**
+ * Run 44203911253: the bound existing Customer carries the fixture email, so Checkout showed it PREFILLED and not editable, and filling it
+ * failed (hosted_field_not_editable_email). What to do with a VISIBLE email control (Sam, 17 Nov):
+ *   - editable: fill it (the caller then reads the value back);
+ *   - not editable and holding exactly the expected fixture email, with the bound Customer's email proven to BE that fixture email:
+ *     supplied, nothing typed;
+ *   - not editable with another value, or the Customer's email not proven to be the fixture's: `hosted_email_prefilled_mismatch`;
+ *   - editability or the value unreadable: `hosted_email_unreadable`.
+ * Values are compared only; no email ever leaves this function.
+ */
+export function hostedEmailFieldAction(input: { editable: boolean | null; current: string | null; expected: string; ownerBound: boolean }):
+  'fill' | 'supplied' | 'hosted_email_prefilled_mismatch' | 'hosted_email_unreadable' {
+  if (input.editable === true) return 'fill';
+  if (input.editable !== false || typeof input.current !== 'string') return 'hosted_email_unreadable';
+  return input.ownerBound && input.current === input.expected ? 'supplied' : 'hosted_email_prefilled_mismatch';
+}
+
 export function invalidFieldToken(attrs: { id: string | null; name: string | null }): string {
   for (const key of [attrs.id, attrs.name]) if (typeof key === 'string' && Object.hasOwn(INVALID_FIELD_TOKENS, key)) return INVALID_FIELD_TOKENS[key];
   return 'other';
@@ -147,19 +164,20 @@ export function hostedSubmitUnavailable(facts: { visible: boolean | null; enable
  * Whether the hosted email field must be filled, when the card is entered (run 44066185734: hosted_field_unavailable_email).
  * Email is REQUIRED by default. A visible editable field is always filled. It may be absent only when the page on screen is the
  * exact Checkout session that `assertCheckoutIdentity` already proved is this run's open, unpaid test-mode session for the
- * run-owned Stripe customer and app user (`boundSession`) AND that bound customer already carries an email
- * (`boundCustomerHasEmail === true`, read from Stripe as a presence flag only): only then is there no email for Checkout to ask for.
- * Run 44157731067 (after #1890): the fixture creates its customer WITHOUT an email, Checkout still required one, and the old rule
- * (bound session alone) let the journey skip it: the form stayed unconfirmable with `fields_email`. A customer without an email, or
- * one whose email presence is unread, never takes the absent path. A non-empty `customer` alone is not proof, and an unbound,
- * different or unknown session never skips it.
+ * run-owned Stripe customer and app user (`boundSession`) AND that bound customer's email is EXACTLY this run's fixture email
+ * (`boundCustomerEmailIsFixture === true`: compared from Stripe's own Customer read, never kept or reported). Only then is there no
+ * email for Checkout to ask for. Run 44157731067 (after #1890): the customer had no email, Checkout still required one, and the old
+ * rule (bound session alone) skipped it: the form stayed unconfirmable with `fields_email`. Sam's hold on #1895 (18f006c6): mere
+ * presence of a non-empty email is not enough either, because a bound customer carrying some OTHER email would let the journey
+ * skip the field. A customer without an email, with a different one, or whose email is unread never takes the absent path; an
+ * unbound, different or unknown session never skips it.
  */
 export function hostedEmailDecision(input: { emailFieldVisible: boolean; shownSession: string | null; boundSession: string | null;
-  boundCustomerHasEmail: boolean | null }): 'fill' | 'absent_after_binding' | 'missing' {
+  boundCustomerEmailIsFixture: boolean | null }): 'fill' | 'absent_after_binding' | 'missing' {
   if (input.emailFieldVisible) return 'fill';
   const bound = typeof input.boundSession === 'string' && /^cs_test_[A-Za-z0-9]+$/.test(input.boundSession)
     && input.shownSession === input.boundSession;
-  return bound && input.boundCustomerHasEmail === true ? 'absent_after_binding' : 'missing';
+  return bound && input.boundCustomerEmailIsFixture === true ? 'absent_after_binding' : 'missing';
 }
 
 /**
@@ -331,11 +349,21 @@ export function assertCheckoutGrantedNothing(input: unknown, expectedStatus: 'op
     && (session.subscription === null || session.subscription === undefined), 'failed_checkout_granted_something');
 }
 
+/**
+ * A Stripe event's `api_version` is the account's default API version when the event was CREATED, and it never changes: the
+ * `Stripe-Version` header on the read does not re-render it. This sandbox account's events carry `2025-07-30.basil` (the owner's
+ * `customer.created` list for run 44203911253, an event the journey caused while sending `2024-06-20`), so an exact `2024-06-20`
+ * check could never accept a genuine delivery. The correlation reads only id, type, livemode, data.object.id and
+ * data.object.customer, which both versions render the same; the version must still be a real Stripe version string.
+ */
+export const STRIPE_EVENT_API_VERSION = /^20\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])(\.[a-z]+)?$/;
+
 export function isCorrelatedDelivery(input: unknown, expected: {
   type: string; objectId: string; customer: string;
 }, ledger: { event_id?: unknown; event_type?: unknown; processed_at?: unknown } | null): boolean {
   const event = (input ?? {}) as Partial<BillingEvent>;
-  return /^evt_[A-Za-z0-9]+$/.test(event.id ?? '') && event.livemode === false && event.api_version === '2024-06-20'
+  return /^evt_[A-Za-z0-9]+$/.test(event.id ?? '') && event.livemode === false
+    && typeof event.api_version === 'string' && STRIPE_EVENT_API_VERSION.test(event.api_version)
     && event.type === expected.type && event.data?.object?.id === expected.objectId
     && event.data?.object?.customer === expected.customer
     && ledger?.event_id === event.id && ledger?.event_type === 'subscription.snapshot'

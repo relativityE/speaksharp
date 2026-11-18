@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'vitest';
 import { RUNNER_JOURNEYS, POLICY_PENDING_STEPS, REQUIRED_STEPS, receipt, assertTestPrice, assertInvoice,
   isCorrelatedDelivery, assertSandboxConfiguration, safeFailureReason, testClockCreateFields, localStackStatus,
-  hostedFieldUnavailable, hostedEmailDecision, assertCheckoutIdentity, type HostedField, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl,
+  hostedFieldUnavailable, hostedEmailDecision, assertCheckoutIdentity, type HostedField, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl, hostedEmailFieldAction,
   HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken } from './contract';
 import { finaliseLocalStackReceipt, RECEIPT_KEYS } from './localStackReceipt.mjs';
 import { stackIdentitySha256 } from './localStackResources.mjs';
@@ -45,7 +45,11 @@ for (const journey of RUNNER_JOURNEYS) {
 }
 test('real-event correlation rejects wrong object/customer/type/ledger and missing delivery', () => {
   assert.equal(isCorrelatedDelivery(event, expected, ledger), true);
-  for (const wrong of [{ ...event, livemode: true }, { ...event, api_version: 'unknown' }, { ...event, id: 'evt_synthetic_local' },
+  // The account's own event version (run 44203911253's events: 2025-07-30.basil) and the pinned one both correlate.
+  for (const api_version of ['2025-07-30.basil', '2024-06-20']) assert.equal(isCorrelatedDelivery({ ...event, api_version }, expected, ledger), true, api_version);
+  for (const api_version of ['unknown', '', 'latest', '2025-13-01', '2025-07-30.', '2025-07-30.Basil', ' 2024-06-20', null, undefined, 20240620])
+    assert.equal(isCorrelatedDelivery({ ...event, api_version }, expected, ledger), false, String(api_version));
+  for (const wrong of [{ ...event, livemode: true }, { ...event, id: 'evt_synthetic_local' },
     { ...event, type: 'invoice.paid' }, { ...event, data: { object: { ...event.data.object, customer: 'cus_other' } } },
     { ...event, data: { object: { ...event.data.object, id: 'cs_test_other' } } }]) {
     assert.equal(isCorrelatedDelivery(wrong, expected, ledger), false);
@@ -102,19 +106,30 @@ test('a missing hosted field is named (run 44055010939 could not say which), con
 test('hosted email (run 44066185734): required by default; absent only on the exact session positively bound to this run', () => {
   const bound = 'cs_test_Bound123';
   // A visible editable email field is always filled, bound or not, whatever the customer carries.
-  for (const boundCustomerHasEmail of [true, false, null])
-    assert.equal(hostedEmailDecision({ emailFieldVisible: true, shownSession: bound, boundSession: bound, boundCustomerHasEmail }), 'fill');
-  assert.equal(hostedEmailDecision({ emailFieldVisible: true, shownSession: null, boundSession: null, boundCustomerHasEmail: null }), 'fill');
-  // Email already supplied: the bound session's customer carries an email, so no field is rendered and none is needed.
-  assert.equal(hostedEmailDecision({ emailFieldVisible: false, shownSession: bound, boundSession: bound, boundCustomerHasEmail: true }), 'absent_after_binding');
-  // CONTROL (run 44157731067): the bound customer has NO email (or its presence is unread), so a missing field is never "absent".
-  for (const boundCustomerHasEmail of [false, null])
-    assert.equal(hostedEmailDecision({ emailFieldVisible: false, shownSession: bound, boundSession: bound, boundCustomerHasEmail }), 'missing', String(boundCustomerHasEmail));
-  // Unbound, a different session on screen, an unreadable page, or a malformed binding never skips email, even with a customer email.
+  for (const boundCustomerEmailIsFixture of [true, false, null])
+    assert.equal(hostedEmailDecision({ emailFieldVisible: true, shownSession: bound, boundSession: bound, boundCustomerEmailIsFixture }), 'fill');
+  assert.equal(hostedEmailDecision({ emailFieldVisible: true, shownSession: null, boundSession: null, boundCustomerEmailIsFixture: null }), 'fill');
+  // Email already supplied: the bound session's customer carries EXACTLY the fixture email, so no field is needed.
+  assert.equal(hostedEmailDecision({ emailFieldVisible: false, shownSession: bound, boundSession: bound, boundCustomerEmailIsFixture: true }), 'absent_after_binding');
+  // CONTROLS: no email (run 44157731067), a DIFFERENT non-empty email (Sam's hold on #1895, 18f006c6), or unread: a missing field
+  // is never "absent". `false` is what openCheckout records for both no email and another email (see the static check below).
+  for (const boundCustomerEmailIsFixture of [false, null])
+    assert.equal(hostedEmailDecision({ emailFieldVisible: false, shownSession: bound, boundSession: bound, boundCustomerEmailIsFixture }), 'missing', String(boundCustomerEmailIsFixture));
+  // Unbound, a different session on screen, an unreadable page, or a malformed binding never skips email, even with the fixture email.
   for (const [shownSession, boundSession] of [[bound, null], ['cs_test_Other456', bound], [null, bound], ['', ''],
     ['cs_live_Bound123', 'cs_live_Bound123'], [bound, `${bound}x!`]] as const) {
-    assert.equal(hostedEmailDecision({ emailFieldVisible: false, shownSession, boundSession, boundCustomerHasEmail: true }), 'missing', `${shownSession} / ${boundSession}`);
+    assert.equal(hostedEmailDecision({ emailFieldVisible: false, shownSession, boundSession, boundCustomerEmailIsFixture: true }), 'missing', `${shownSession} / ${boundSession}`);
   }
+  // The flag openCheckout computes, evaluated on Stripe Customer shapes: only the exact fixture email is true; another non-empty
+  // email, no email and an unreadable value are not.
+  const fixtureEmail = 'rwt-journey-billing-1-1@example.com';
+  const flag = (email: unknown) => typeof email === 'string' ? email === fixtureEmail : email === null ? false : null;
+  assert.equal(flag(fixtureEmail), true);
+  for (const other of ['someone-else@example.com', `${fixtureEmail} `, fixtureEmail.toUpperCase(), '', null]) {
+    assert.equal(flag(other), false, String(other));
+    assert.equal(hostedEmailDecision({ emailFieldVisible: false, shownSession: bound, boundSession: bound, boundCustomerEmailIsFixture: flag(other) }), 'missing', String(other));
+  }
+  assert.equal(flag(undefined), null);
 });
 test('the binding that permits an absent email: a wrong customer, user, paid or live session never binds', () => {
   const expected = { session: 'cs_test_Bound123', customer: 'cus_owned', uid: 'uid-1', app: 'http://localhost:5173' };
@@ -468,7 +483,7 @@ test('the form-confirmable read is a bounded, read-only checkpoint taken after t
 
 // Sam on run 44157731067 (receipt `fields_email`, `hosted_form_not_confirmable`): the fixture's Stripe customer has no email, so the
 // optional-email path must be closed for it, and a form that never reports it can confirm must not be submitted.
-test('existing-customer sandbox conversion: the fixture Customer carries the fixture email; only a presence flag is read, never the value', () => {
+test('existing-customer sandbox conversion: the fixture Customer carries the fixture email; only booleans are kept from it, never the value', () => {
   const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
   const create = spec.slice(spec.indexOf("const customer = await this.stripe('customers', 'POST'"), spec.indexOf("requireFact(customer.livemode === false"));
   assert.ok(create.length > 0);
@@ -478,13 +493,15 @@ test('existing-customer sandbox conversion: the fixture Customer carries the fix
   assert.match(spec, /if \(this\.journey === 'conversion'\) this\.checkpoint\('existing_customer_fixture'\);/);
   assert.doesNotMatch(spec, /^\s*this\.checkpoint\('existing_customer_fixture'\);/m, 'never unconditional');
   const open = spec.slice(spec.indexOf('async openCheckout('), spec.indexOf('async checkout(): Promise<void> {'));
-  const identity = open.indexOf('assertCheckoutIdentity('), presence = open.indexOf('this.boundCustomerHasEmail = typeof bound.email'), bind = open.indexOf('this.boundCheckout = session;');
+  const identity = open.indexOf('assertCheckoutIdentity('), presence = open.indexOf('this.boundCustomerEmailIsFixture = typeof bound.email'), bind = open.indexOf('this.boundCheckout = session;');
   assert.ok(identity > 0 && presence > identity && bind > presence, 'presence is read after the identity proof and before the session is bound');
-  // The email value is never stored or reported: only a boolean (or null when unread) leaves that expression.
-  assert.match(open, /this\.boundCustomerHasEmail = typeof bound\.email === 'string' \? bound\.email\.length > 0 : bound\.email === null \? false : null;/);
+  // One boolean only (Sam on run 44203911253 and the #1895 hold): whether the bound email IS this run's fixture email. Compared, never
+  // kept or reported; no presence-only flag remains, so a different non-empty email can never satisfy either email path.
   assert.equal((open.match(/bound\.email/g) ?? []).length, 3);
-  // The decision is fed the presence flag only on the bound after-binding path.
-  assert.match(spec, /boundCustomerHasEmail: email === 'after-binding' \? this\.boundCustomerHasEmail : null \}\);/);
+  assert.doesNotMatch(spec, /boundCustomerHasEmail/);
+  assert.match(open, /this\.boundCustomerEmailIsFixture = typeof bound\.email === 'string' \? bound\.email === this\.email : bound\.email === null \? false : null;/);
+  // The absent-field decision is fed the exact-fixture flag, only on the bound after-binding path.
+  assert.match(spec, /boundCustomerEmailIsFixture: email === 'after-binding' \? this\.boundCustomerEmailIsFixture : null \}\);/);
 });
 
 test('an unconfirmable form is not submitted: the stop names the invalid controls; an unread state still proceeds', () => {
@@ -533,4 +550,30 @@ test('the observed control wins over a generic match, and a hidden match before 
   assert.deepEqual(firstVisibleControl([[], [true]]), { selector: 1, match: 0 });
   assert.equal(firstVisibleControl([[false], [false]]), null);
   assert.equal(firstVisibleControl([]), null);
+});
+
+// Run 44203911253 (after #1892): the existing Customer's email was shown PREFILLED and not editable; filling it failed with
+// hosted_field_not_editable_email. Sam: skip only for the exact owner-bound fixture email; test each case; keep values out of logs.
+test('hosted email: read-only exact owner-bound match is supplied; mismatch or unreadable stops; editable is filled and read back', () => {
+  const expected = 'rwt-journey-billing-x@example.com';
+  assert.equal(hostedEmailFieldAction({ editable: false, current: expected, expected, ownerBound: true }), 'supplied');
+  assert.equal(hostedEmailFieldAction({ editable: false, current: 'someone@example.com', expected, ownerBound: true }), 'hosted_email_prefilled_mismatch');
+  assert.equal(hostedEmailFieldAction({ editable: false, current: expected, expected, ownerBound: false }), 'hosted_email_prefilled_mismatch', 'not proven owner-bound');
+  assert.equal(hostedEmailFieldAction({ editable: false, current: '', expected, ownerBound: true }), 'hosted_email_prefilled_mismatch');
+  assert.equal(hostedEmailFieldAction({ editable: false, current: null, expected, ownerBound: true }), 'hosted_email_unreadable');
+  assert.equal(hostedEmailFieldAction({ editable: null, current: expected, expected, ownerBound: true }), 'hosted_email_unreadable');
+  for (const current of [null, '', expected]) assert.equal(hostedEmailFieldAction({ editable: true, current, expected, ownerBound: false }), 'fill');
+  for (const code of ['hosted_email_prefilled_mismatch', 'hosted_email_unreadable']) assert.equal(safeFailureReason(new Error(`BILLING_JOURNEY:${code}`)), code);
+  // The journey's email step is the shared helper (exercised in a real browser by tests/e2e/billing-hosted-email-fixture.e2e.spec.ts).
+  const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
+  const fill = spec.slice(spec.indexOf('const fill = async ('), spec.indexOf('// Email only: absent is accepted'));
+  assert.match(fill, /if \(field === 'email'\) \{\s+await fillHostedEmail\(input, \{ value, ownerBound: this\.boundCustomerEmailIsFixture === true, checkpoint: \(name\) => this\.checkpoint\(name\) \}\);\s+return;\s+\}/);
+  assert.match(spec, /this\.boundCustomerEmailIsFixture = typeof bound\.email === 'string' \? bound\.email === this\.email : bound\.email === null \? false : null;/);
+  const helper = readFileSync('tests/billing/user-journey/hostedEmail.ts', 'utf8');
+  const decide = helper.indexOf('const action = hostedEmailFieldAction('), typed = helper.indexOf('await input.fill(opts.value, { timeout: HOSTED_ACTION_MS })');
+  const readback = helper.indexOf("requireFact(await input.inputValue({ timeout: HOSTED_READ_MS }).catch(() => null) === opts.value, hostedFieldNotEditable('email'));");
+  assert.ok(decide > 0 && typed > decide && readback > typed, 'decide, then fill, then read back');
+  // Email values never reach a log, a return value or an error: fixed codes and a fixed checkpoint name only.
+  assert.doesNotMatch(helper, /console\.|logger\./);
+  assert.match(helper, /opts\.checkpoint\('hosted_email_prefilled'\)/);
 });
