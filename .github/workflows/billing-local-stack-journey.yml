@@ -59,6 +59,7 @@ jobs:
       STRIPE_LIST_COUNT: 'if type == "object" and .object == "list" and (.data | type) == "array" then (.data | length) else error("not a Stripe list") end'
     steps:
       - name: Refuse an unacknowledged or inexact dispatch
+        id: dispatch_check
         env:
           ACK: ${{ inputs.acknowledge_test_mode }}
           REQUESTED_SHA: ${{ inputs.commit_sha }}
@@ -193,7 +194,38 @@ jobs:
           sed -i "s/^project_id = .*/project_id = \"$LOCAL_STACK_PROJECT\"/" "$SUPABASE_WORKDIR/supabase/config.toml"
           grep -qx "project_id = \"$LOCAL_STACK_PROJECT\"" "$SUPABASE_WORKDIR/supabase/config.toml" \
             || { echo '::error::Could not give the disposable stack its run-unique project id.'; exit 1; }
-          supabase start --workdir "$SUPABASE_WORKDIR" -x studio,imgproxy,vector,logflare
+          # Run 44312735386: the edge runtime never became healthy, its log was empty and the CLI removed every container
+          # before anything else could look. While the start runs, sample each of THIS run's containers every 3 s: state,
+          # exit code, OOM, health, failing streak and the last health probe's exit code. Fixed status fields and numbers
+          # only: never probe output, environment or config (Sam: probe text can carry credentials or private URLs).
+          # Printed only if the start fails.
+          health_log="$RUNNER_TEMP/stack-start-health.jsonl"
+          : > "$health_log"
+          (
+            while :; do
+              t="$(date -u +%H:%M:%S)"
+              for c in $(docker ps -aq --filter "label=com.supabase.cli.project=$LOCAL_STACK_PROJECT" 2>/dev/null); do
+                docker inspect "$c" 2>/dev/null | jq -c --arg t "$t" '.[0] | {t: $t, name: (.Name | ltrimstr("/")),
+                  state: .State.Status, exit: .State.ExitCode, oom: .State.OOMKilled,
+                  health: (.State.Health.Status // "none"), failing: (.State.Health.FailingStreak // 0),
+                  probe_exit: (.State.Health.Log[-1].ExitCode // null)}' >> "$health_log" 2>/dev/null || true
+              done
+              sleep 3
+            done
+          ) &
+          sampler=$!
+          start_status=0
+          supabase start --workdir "$SUPABASE_WORKDIR" -x studio,imgproxy,vector,logflare || start_status=$?
+          kill "$sampler" 2>/dev/null || true
+          wait "$sampler" 2>/dev/null || true
+          if [ "$start_status" != '0' ]; then
+            echo '::group::Container health while the stack was starting (this run only)'
+            cat "$health_log"
+            echo '::endgroup::'
+            echo "::error::The disposable stack did not start (supabase start exit $start_status); container health above."
+            exit "$start_status"
+          fi
+          echo "Stack started; $(wc -l < "$health_log" | tr -d " ") container health samples recorded (printed only after a failed start)."
           status="$(supabase status --workdir "$SUPABASE_WORKDIR" -o json)"
           api_url="$(jq -r '.API_URL' <<<"$status")"
           [ "$api_url" = "$LOCAL_API_URL" ] || { echo "::error::Unexpected local API URL."; exit 1; }
@@ -457,6 +489,7 @@ jobs:
             if [ -f billing-local-stack-combined.json ]; then
               echo "- Combined result: $(jq -r '.result' billing-local-stack-combined.json)"
               echo "- Stack identity SHA-256: \`$(jq -r '.stackIdentitySha256 // "not proven"' billing-local-stack-combined.json)\`"
+              echo "- Test account: $(jq -r '.testAccount // "not proven"' billing-local-stack-combined.json) (Auth delete: $(jq -r '.authDelete // "unknown"' billing-local-stack-combined.json))"
             else
               echo '- Combined result: not produced'
             fi

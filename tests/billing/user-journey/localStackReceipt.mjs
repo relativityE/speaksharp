@@ -17,7 +17,7 @@ import { LOCAL_STACK_JOURNEYS, PENDING_POLICY, POLICY_PENDING_STEPS, REQUIRED_ST
 import { DESTROYED_SCHEMA, PROJECT_PATTERN, stackIdentitySha256 } from './localStackResources.mjs';
 
 export const PENDING = 'PENDING_STACK_DESTRUCTION';
-export const RECEIPT_KEYS = Object.freeze(['billingRowResidue', 'cleanup', 'failureStage', 'journey', 'reason', 'result',
+export const RECEIPT_KEYS = Object.freeze(['accountRemoval', 'billingRowResidue', 'cleanup', 'failureStage', 'journey', 'reason', 'result',
   'schema', 'stackRun', 'steps', 'stripeMode', 'testedRelease']);
 const SHA = /^[0-9a-f]{40}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
@@ -39,6 +39,8 @@ export function journeyReceiptDefects(receipt, expected) {
   else if (receipt.result !== PENDING) defects.push('result_not_pending');
   if (receipt.cleanup !== PENDING) defects.push('cleanup_not_pending');
   if (receipt.billingRowResidue !== 'NOT_READ_REQUIRES_STACK_DESTRUCTION_PROOF') defects.push('residue_claim');
+  // PO + Sam, 18 Nov: on the local stack the run's account is never Auth-deleted; only the destruction proof removes it.
+  if (receipt.accountRemoval !== 'AUTH_DELETE_NOT_RUN_REQUIRES_STACK_DESTRUCTION') defects.push('account_removal_claim');
   if (receipt.failureStage !== null || receipt.reason !== null) defects.push('failure_recorded');
   if (!SHA.test(`${expected?.release ?? ''}`) || receipt.testedRelease !== expected.release) defects.push('release_mismatch');
   if (!PROJECT_PATTERN.test(`${expected?.stackRun ?? ''}`) || receipt.stackRun !== expected.stackRun) defects.push('stack_run_mismatch');
@@ -103,7 +105,7 @@ export function finaliseLocalStackReceipt(journeyReceipts, checks, expected = {}
   const all = [...defects, ...destruction];
   const passed = all.length === 0 && Object.values(parts).every((value) => value === 'PASSED');
   return {
-    schema: 'billing-local-stack-combined/v3',
+    schema: 'billing-local-stack-combined/v4',
     // What this run was dispatched for, never read from the receipt.
     journey: LOCAL_STACK_JOURNEYS.includes(expected.journey) ? expected.journey : null,
     release: SHA.test(`${expected.release ?? ''}`) ? expected.release : null,
@@ -115,6 +117,9 @@ export function finaliseLocalStackReceipt(journeyReceipts, checks, expected = {}
     ...parts,
     // The rows were never read; they are covered only because the whole database was destroyed.
     billingRowResidue: parts.stackDestroyed === 'PASSED' ? 'NOT_READ_DATABASE_DESTROYED' : 'NOT_READ_NOT_PROVEN',
+    // The run's test account: gone only because this exact run's database and volume were proven destroyed. Not customer deletion.
+    testAccount: parts.stackDestroyed === 'PASSED' && defects.length === 0 ? 'REMOVED_BY_VERIFIED_STACK_DESTRUCTION' : 'NOT_PROVEN',
+    authDelete: 'NOT_RUN',
     defects: all,
     result: passed ? 'PASSED' : 'NOT_PROVEN',
   };

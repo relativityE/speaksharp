@@ -174,8 +174,8 @@ export function planRun(mode, read = readRepoFile) {
   };
 }
 
-const COMBINED_KEYS = ['billingRowResidue', 'defects', 'journey', 'journeyReceipt', 'rawReceiptSha256', 'release', 'result',
-  'schema', 'stackDestroyed', 'stackIdentitySha256', 'stackRun', 'stackStopped', 'stripeFixturesRemoved'].join(',');
+const COMBINED_KEYS = ['authDelete', 'billingRowResidue', 'defects', 'journey', 'journeyReceipt', 'rawReceiptSha256', 'release', 'result',
+  'schema', 'stackDestroyed', 'stackIdentitySha256', 'stackRun', 'stackStopped', 'stripeFixturesRemoved', 'testAccount'].join(',');
 const SHA = /^[0-9a-f]{40}$/;
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 /** The raw receipt as handed over: the file's text, or better its exact bytes (readFileSync without an encoding). */
@@ -202,13 +202,15 @@ function localPhaseResult(id, held, item, release) {
   const { combined, rawReceipt, destruction, identity } = item;
   const why = [];
   if (Object.keys(combined).sort().join(',') !== COMBINED_KEYS) why.push('combined_shape');
-  if (combined.schema !== 'billing-local-stack-combined/v3') why.push('combined_schema');
+  if (combined.schema !== 'billing-local-stack-combined/v4') why.push('combined_schema');
   if (combined.journey !== id) why.push('combined_journey');
   if (combined.release !== release) why.push('combined_release');
   if (!PROJECT_PATTERN.test(`${combined.stackRun ?? ''}`)) why.push('combined_stack_run');
   if (createHash('sha256').update(rawReceipt).digest('hex') !== combined.rawReceiptSha256) why.push('raw_receipt_hash');
   for (const part of ['stackStopped', 'stackDestroyed', 'stripeFixturesRemoved']) if (combined[part] !== 'PASSED') why.push(`combined_${part}`);
   if (combined.billingRowResidue !== 'NOT_READ_DATABASE_DESTROYED') why.push('combined_residue');
+  // PO + Sam, 18 Nov: the test account is removed only by the verified destruction of this run's stack; no Auth delete runs.
+  if (combined.testAccount !== 'REMOVED_BY_VERIFIED_STACK_DESTRUCTION' || combined.authDelete !== 'NOT_RUN') why.push('combined_test_account');
   why.push(...destructionDefects(destruction, combined.stackRun, identity));
   if (typeof combined.stackIdentitySha256 !== 'string' || combined.stackIdentitySha256 !== destruction?.identitySha256) why.push('combined_identity');
   // The workflow writes the receipt file as a JSON array of the spec's receipt attachments (jq '[...]'), and the

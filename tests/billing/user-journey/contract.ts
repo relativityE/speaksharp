@@ -437,6 +437,49 @@ export function safeFailureReason(error: unknown): string {
   return /^BILLING_JOURNEY:([a-z0-9_]{1,160})$/.exec(message)?.[1] ?? 'unclassified_step_failure';
 }
 
+/**
+ * Run 44302168905: every journey step passed and the in-test cleanup failed, but the journey's `catch { ... }` dropped the reason,
+ * so the receipt said only `cleanup: UNPROVEN`. The failure is now named by a FIXED code from the cleanup helpers' own messages
+ * (runOwnedCleanup.ts, the journey's Stripe checks), never the message itself. A residue table is named only when it is a plain
+ * table identifier. Unrecognized failures are `<scope>_cleanup_other`.
+ */
+export function cleanupFailureCode(scope: 'stripe' | 'account', error: unknown): string {
+  const message = error instanceof Error ? error.message : '';
+  const table = (m: RegExpExecArray | null) => (m && /^[a-z_]{1,40}$/.test(m[1]) ? m[1] : 'unnamed');
+  if (scope === 'stripe') {
+    const code = /^BILLING_JOURNEY:(clock_cleanup_not_proven|customer_cleanup_not_proven|stripe_request_failed|stripe_transport_uncertain)$/.exec(message);
+    return code ? `stripe_cleanup_${code[1]}` : 'stripe_cleanup_other';
+  }
+  if (/deleteUser blocked by an unsettled take/.test(message)) return 'account_cleanup_unsettled_take';
+  if (/cleanup deleteUser failed/.test(message)) return 'account_cleanup_deleteuser_failed';
+  // The helper's post-delete re-read: an API error, or a user still returned (its expect(...).toBeNull() message).
+  if (/post-delete verify|auth user must be gone|expect\(received\)\.toBeNull\(\)/.test(message)) return 'account_cleanup_delete_unproven';
+  if (/cleanup found run-owned residue in /.test(message)) return `account_cleanup_residue_${table(/residue in ([a-z_]+) /.exec(message))}`;
+  if (/cleanup residue (count|query) on /.test(message)) return `account_cleanup_residue_unread_${table(/residue (?:count|query) on ([a-z_]+) /.exec(message))}`;
+  if (/pre-delete failed/.test(message)) return 'account_cleanup_predelete_failed';
+  if (/take settlement/.test(message)) return 'account_cleanup_take_settlement_failed';
+  if (/cleanup_uid_email_disagreement|cleanup_refused_non_run_owned_account|cleanup_run_binding_mismatch|getUserById failed/.test(message))
+    return 'account_cleanup_identity_refused';
+  return 'account_cleanup_other';
+}
+
+/**
+ * The journey's Stripe fixture cleanup: deleting the run's Test Clock owns its customer and subscriptions; the deletion and the
+ * customer's `deleted` mark are both read back. Returns whether the run's Stripe fixtures are proven gone (true when it never
+ * created any); a fixture it cannot prove deleted throws a named code. Nothing is retried or widened.
+ */
+export async function proveStripeFixtureDeleted(stripe: (path: string, method?: string) => Promise<Record<string, unknown>>,
+  ids: { clock: string | null; customer: string | null }): Promise<boolean> {
+  if (!ids.clock) return !ids.customer;
+  const deleted = await stripe(`test_helpers/test_clocks/${ids.clock}`, 'DELETE');
+  requireFact(deleted.deleted === true && deleted.id === ids.clock, 'clock_cleanup_not_proven');
+  if (ids.customer) {
+    const customer = await stripe(`customers/${ids.customer}`);
+    requireFact(customer.deleted === true, 'customer_cleanup_not_proven');
+  }
+  return true;
+}
+
 /** All output is a closed, content-free list. Never serialize provider responses or credentials. */
 export function receipt(journey: LocalStackJourney, steps: ReadonlySet<string>) {
   const required = REQUIRED_STEPS[journey];
