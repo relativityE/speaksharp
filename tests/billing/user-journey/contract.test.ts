@@ -705,20 +705,36 @@ test('capture live: the app renders the recording state only once capture is liv
 
 // ---- Executable controls: the ACTUAL page scripts run against a fake DOM, and the actual consent sequence against fakes. ----
 
-/** A fake page: shell state, runtime take/session, a Stop button, a controllable MutationObserver and interval. */
+/**
+ * A fake page: shell state, runtime take/session, a Stop button, real-shaped MutationObservers (records with oldValue, delivery
+ * in batches, takeRecords for undelivered ones) and an interval backstop that only fires on tick().
+ */
 function fakePage(o: { state?: string; lifecycle?: number; session?: string | null } = {}) {
   const page = { state: o.state ?? 'during', lifecycle: o.lifecycle ?? 7, session: o.session === undefined ? 'sess-1' : o.session, clicks: 0, disabled: false };
-  const observers: Array<() => void> = []; const intervals: Array<() => void> = [];
-  const shell = { getAttribute: (n: string) => (n === 'data-session-state' ? page.state : null) };
+  type Obs = { cb: (r: Array<{ oldValue: string | null }>) => void; target: unknown; attrs: boolean; queue: Array<{ oldValue: string | null }> };
+  const observers: Obs[] = []; const intervals: Array<() => void> = [];
+  const makeShell = () => ({ getAttribute: (n: string) => (n === 'data-session-state' ? page.state : null) });
+  let shell = makeShell();
   const stop = { click: () => { page.clicks += 1; }, get disabled() { return page.disabled; } };
   const document = { documentElement: {}, querySelector: (sel: string) => (sel.includes('session-shell') ? shell : sel.includes('recorder-stop') ? stop : null) };
+  class FakeObserver { o: Obs; constructor(cb: Obs['cb']) { this.o = { cb, target: null, attrs: false, queue: [] }; observers.push(this.o); }
+    observe(target: unknown, opts: { attributes?: boolean; attributeOldValue?: boolean }) { this.o.target = target; this.o.attrs = !!opts.attributeOldValue; }
+    takeRecords() { const q = this.o.queue; this.o.queue = []; return q; } disconnect() {} }
   const window: Record<string, unknown> = {
     __SPEECH_RUNTIME_DEBUG__: () => ({ lifecycleVersion: page.lifecycle, sessionId: page.session }),
-    setInterval: (fn: () => void) => { intervals.push(fn); return intervals.length; }, clearInterval: () => {},
-    MutationObserver: class { cb: () => void; constructor(cb: () => void) { this.cb = cb; observers.push(cb); } observe() {} disconnect() {} },
+    setInterval: (fn: () => void) => { intervals.push(fn); return intervals.length; }, clearInterval: () => {}, MutationObserver: FakeObserver,
   };
   const run = <T,>(body: string): T => new Function('window', 'document', body)(window, document) as T;
-  return { page, window, run, mutate: (change: () => void) => { change(); observers.forEach(cb => cb()); }, tick: () => intervals.forEach(fn => fn()) };
+  /** Set the shell state, queueing a record (with the old value) for observers of that shell; delivery is separate. */
+  const setState = (next: string) => { for (const ob of observers) if (ob.attrs && ob.target === shell) ob.queue.push({ oldValue: page.state }); page.state = next; };
+  const deliver = () => { for (const ob of observers) { const q = ob.queue; ob.queue = []; ob.cb(q); } };
+  return { page, run, setState, deliver, tick: () => intervals.forEach(fn => fn()),
+    /** Each change delivered on its own (the common case). */
+    mutate: (next: string) => { setState(next); deliver(); },
+    /** The shell element is replaced by a new node (the tree observer fires). */
+    replaceShell: () => { shell = makeShell(); deliver(); },
+    /** Replaced with no observer callback delivered yet (only the Stop task's own check can see it). */
+    replaceShellSilently: () => { shell = makeShell(); } };
 }
 
 test('page take watch: installs only when capture is live; the gate clicks Stop once for the same intact take', () => {
@@ -734,11 +750,35 @@ test('page take watch: installs only when capture is live; the gate clicks Stop 
 
 test('CONTROL: capture dropping and resuming during the hold breaks the take for good; Stop is not clicked', () => {
   const f = fakePage(); const key = f.run<string>(WATCH_INSTALL_SCRIPT);
-  f.mutate(() => { f.page.state = 'before'; });
-  f.mutate(() => { f.page.state = 'during'; }); // resumed: must not repair the watch
+  f.mutate('before');
+  f.mutate('during'); // resumed: must not repair the watch
   assert.equal(f.run<string | null>(takeStatusScript(key)), null);
   assert.deepEqual(f.run(stopGateScript(key)), { clicked: false, reason: 'capture_dropped', session: null });
   assert.equal(f.page.clicks, 0);
+});
+
+test('CONTROL: a drop and re-entry delivered in ONE batch, or still undelivered at Stop, is caught from the records', () => {
+  // during -> before -> during inside a single callback: sampling the DOM would see only "during".
+  const batched = fakePage(); const kb = batched.run<string>(WATCH_INSTALL_SCRIPT);
+  batched.setState('before'); batched.setState('during'); batched.deliver();
+  assert.equal(batched.run<string | null>(takeStatusScript(kb)), null);
+  assert.deepEqual(batched.run(stopGateScript(kb)), { clicked: false, reason: 'capture_dropped', session: null });
+  // The same pair never delivered (no callback, no interval tick): the Stop task drains the pending records first.
+  const pending = fakePage(); const kp = pending.run<string>(WATCH_INSTALL_SCRIPT);
+  pending.setState('before'); pending.setState('during');
+  assert.deepEqual(pending.run(stopGateScript(kp)), { clicked: false, reason: 'capture_dropped', session: null });
+  // A same-value write (during -> during) is not a drop.
+  const same = fakePage(); const ks = same.run<string>(WATCH_INSTALL_SCRIPT);
+  same.setState('during'); same.deliver();
+  assert.equal(same.run<{ clicked: boolean }>(stopGateScript(ks)).clicked, true);
+  // The watched shell replaced by a new element (even one that also says "during"): the take changed.
+  const replaced = fakePage(); const kr = replaced.run<string>(WATCH_INSTALL_SCRIPT);
+  replaced.replaceShell();
+  assert.deepEqual(replaced.run(stopGateScript(kr)), { clicked: false, reason: 'take_changed', session: null });
+  const silent = fakePage(); const kq = silent.run<string>(WATCH_INSTALL_SCRIPT);
+  silent.replaceShellSilently();
+  assert.deepEqual(silent.run(stopGateScript(kq)), { clicked: false, reason: 'take_changed', session: null });
+  for (const x of [batched, pending, replaced, silent]) assert.equal(x.page.clicks, 0);
 });
 
 test('CONTROL: a take replaced between the last check and the click, a session change, or a reload: Stop is not clicked', () => {

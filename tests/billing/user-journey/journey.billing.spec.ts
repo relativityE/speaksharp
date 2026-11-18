@@ -584,7 +584,8 @@ class SandboxJourney {
     // The hold counts from OBSERVED capture live (not the Start click or the first words); an in-page watch keeps the take bound
     // to this document and session, and the page clicks Stop in the same task as its final check (contract.ts). Run 44284831241:
     // a take under the app's minimum is discarded as too short.
-    const clock = { now: () => Date.now(), sleep: (ms: number) => this.page.waitForTimeout(ms) };
+    // Monotonic elapsed clock (a wall-clock step can never shorten or lengthen the hold).
+    const clock = { now: () => performance.now(), sleep: (ms: number) => this.page.waitForTimeout(ms) };
     const live = await observeCaptureLive({ clock, timeoutMs: 60_000,
       probe: () => this.page.evaluate<string | null>(pageScript(WATCH_INSTALL_SCRIPT)).catch(() => null) });
     await expectBenchmarkTranscriptOutput(this.page, 'billing-journey', 60_000, 3);

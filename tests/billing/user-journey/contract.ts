@@ -87,38 +87,69 @@ const TAKE_BROKEN = `
   if (lifecycle !== w.lifecycle) return 'take_changed';
   if (w.session !== null && session !== w.session) return 'take_changed';
   return null;`;
-/** Installs the watch when capture is live; returns `doc|lifecycle`, or null while capture is not live (nothing installed). */
+/**
+ * Installs the watch when capture is live; returns `doc|lifecycle`, or null while capture is not live (nothing installed).
+ * Every change of the watched shell's `data-session-state` is read from its records with old values (the rwtAdverse.ts pattern:
+ * each record's successor is the next record's oldValue, the last one's is the current value), so `during -> before -> during`
+ * delivered in ONE callback still breaks the take. A second observer fails the take if the watched shell element is replaced.
+ */
 export const WATCH_INSTALL_SCRIPT = `${TAKE_READ}
   if (!live || lifecycle === null) return null;
   if (window.__billingTake) return null;
-  const w = { doc: 'doc-' + Math.random().toString(36).slice(2) + '-' + Date.now(), lifecycle, session, broken: null, timer: null, observer: null };
+  const w = { doc: 'doc-' + Math.random().toString(36).slice(2) + '-' + Date.now(), lifecycle, session, shell, broken: null,
+    timer: null, stateObserver: null, treeObserver: null };
+  const recordState = (records) => {
+    for (let i = 0; i < records.length; i++) {
+      const before = records[i].oldValue;
+      const after = i + 1 < records.length ? records[i + 1].oldValue : w.shell.getAttribute('data-session-state');
+      if (!w.broken && (before !== 'during' || after !== 'during')) w.broken = 'capture_dropped';
+    }
+  };
   const check = () => {
     if (w.broken) return;
     ${TAKE_READ}
+    if (shell !== w.shell) { w.broken = 'take_changed'; return; }
     const reason = (() => { ${TAKE_BROKEN} })();
     if (reason) { w.broken = reason; return; }
     if (w.session === null && session !== null) w.session = session;
   };
   w.timer = window.setInterval(check, 50);
   if (typeof window.MutationObserver === 'function') {
-    w.observer = new window.MutationObserver(check);
-    w.observer.observe(document.documentElement, { attributes: true, childList: true, subtree: true });
+    w.stateObserver = new window.MutationObserver((records) => { recordState(records); check(); });
+    w.stateObserver.observe(shell, { attributes: true, attributeFilter: ['data-session-state'], attributeOldValue: true });
+    w.treeObserver = new window.MutationObserver(() => check());
+    w.treeObserver.observe(document.documentElement, { childList: true, subtree: true });
   }
   window.__billingTake = w;
   return w.doc + '|' + lifecycle;`;
-/** The watch's current verdict for `expectedKey`: the same key while the take is intact, else null. Read only. */
+const TAKE_DRAIN = `
+  if (w.stateObserver) {
+    const pending = w.stateObserver.takeRecords();
+    for (let i = 0; i < pending.length; i++) {
+      const before = pending[i].oldValue;
+      const after = i + 1 < pending.length ? pending[i + 1].oldValue : w.shell.getAttribute('data-session-state');
+      if (!w.broken && (before !== 'during' || after !== 'during')) w.broken = 'capture_dropped';
+    }
+  }
+  if (w.treeObserver) w.treeObserver.takeRecords();
+  if (!w.broken && shell !== w.shell) w.broken = 'take_changed';`;
+/** The watch's current verdict for `expectedKey`: the same key while the take is intact, else null (drains pending records). */
 export const takeStatusScript = (expectedKey: string) => `${TAKE_READ}
   const w = window.__billingTake;
-  if (!w || (w.doc + '|' + w.lifecycle) !== ${JSON.stringify(expectedKey)} || w.broken) return null;
+  if (!w || (w.doc + '|' + w.lifecycle) !== ${JSON.stringify(expectedKey)}) return null;
+  ${TAKE_DRAIN}
+  if (w.broken) return null;
   const reason = (() => { ${TAKE_BROKEN} })();
   return reason ? null : ${JSON.stringify(expectedKey)};`;
 /**
- * The final check and the Stop click, in ONE synchronous page task. Returns { clicked, reason, session }: clicked only for the
- * exact watched take, still live and never broken; the session is the take's own id (null if the runtime never named one).
+ * The final check and the Stop click, in ONE synchronous page task, after draining every pending record. Returns
+ * { clicked, reason, session }: clicked only for the exact watched take, still live and never broken; the session is the
+ * take's own id (null if the runtime never named one).
  */
 export const stopGateScript = (expectedKey: string) => `${TAKE_READ}
   const w = window.__billingTake;
   if (!w || (w.doc + '|' + w.lifecycle) !== ${JSON.stringify(expectedKey)}) return { clicked: false, reason: 'take_watch_missing', session: null };
+  ${TAKE_DRAIN}
   if (w.broken) return { clicked: false, reason: w.broken, session: null };
   const reason = (() => { ${TAKE_BROKEN} })();
   if (reason) { w.broken = reason; return { clicked: false, reason, session: null }; }
@@ -127,7 +158,8 @@ export const stopGateScript = (expectedKey: string) => `${TAKE_READ}
   const takeSession = w.session !== null ? w.session : session;
   stop.click();
   if (w.timer !== null) window.clearInterval(w.timer);
-  if (w.observer) w.observer.disconnect();
+  if (w.stateObserver) w.stateObserver.disconnect();
+  if (w.treeObserver) w.treeObserver.disconnect();
   w.stopped = true;
   return { clicked: true, reason: null, session: takeSession };`;
 /** Wraps a body for page.evaluate. */
