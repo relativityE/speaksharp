@@ -82,6 +82,39 @@ test('raw replay refuses a terminal callback before its begin or outside the run
   const afterRun=records();afterRun.push(afterRun.splice(5,1)[0]);assert.throws(()=>replay(afterRun));
 });
 
+test('CI browser shards keep both evidence reporters and expose named failures without masking exit status',()=>{
+  const bin=fs.mkdtempSync(path.join(os.tmpdir(),'e2e-command-contract-'));
+  try {
+    fs.writeFileSync(path.join(bin,'pnpm'),`#!/bin/bash
+printf 'ARG:%s\\n' "$@"
+case " $* " in
+  *"--reporter=blob,./scripts/efficacy-playwright-reporter.mjs,line "*) echo 'named diagnostic failure';;
+esac
+exit 7
+`,{mode:0o755});
+    const run=(args,env)=>spawnSync('bash',[path.join(root,'scripts/test-audit.sh'),'test',...args],
+      {cwd:root,env:{PATH:[bin,'/usr/bin','/bin'].join(path.delimiter),...env},encoding:'utf8',timeout:5000});
+    const args=result=>result.stdout.split('\n').filter(line=>line.startsWith('ARG:')).map(line=>line.slice(4));
+    const base=['exec','playwright','test','--project=full-suite','--no-deps'];
+    const output='--output=test-results/playwright';
+    const ci={GITHUB_ACTIONS:'true',GITHUB_JOB:'e2e'};
+    const live=run(['3'],ci);
+    assert.equal(live.status,7,live.stderr);
+    assert.deepEqual(args(live),[...base,'--shard=3/4','--reporter=blob,./scripts/efficacy-playwright-reporter.mjs,line',output]);
+    assert.match(live.stdout,/^named diagnostic failure$/m);
+    for(const [shard,env,extra] of [
+      [['3'],{},['--shard=3/4']],
+      [['3'],{...ci,GITHUB_JOB:'report'},['--shard=3/4']],
+      [[],ci,[]],
+    ]) {
+      const debug=run(shard,env);
+      assert.equal(debug.status,7,debug.stderr);
+      assert.deepEqual(args(debug),[...base,...extra,'--reporter=blob',output]);
+      assert.doesNotMatch(debug.stdout,/named diagnostic failure/);
+    }
+  } finally { fs.rmSync(bin,{recursive:true,force:true}); }
+});
+
 function installedFixture() {
   const directory=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'ordinary-playwright-receipt-')));
   const write=(file,bytes)=>{fs.mkdirSync(path.dirname(path.join(directory,file)),{recursive:true});fs.writeFileSync(path.join(directory,file),bytes);};
@@ -117,7 +150,7 @@ function installedFixture() {
     fs.rmSync(path.join(directory,'blob-report'),{recursive:true,force:true});
     fs.rmSync(path.join(directory,'test-results'),{recursive:true,force:true});
     const result=spawnSync(process.execPath,[cli,'test','--config=playwright.config.cjs','--project=full-suite',
-      '--workers=1',`--shard=${current}/4`,'--reporter=blob,./scripts/efficacy-playwright-reporter.mjs','--output=test-results/playwright'],
+      '--workers=1',`--shard=${current}/4`,'--reporter=blob,./scripts/efficacy-playwright-reporter.mjs,line','--output=test-results/playwright'],
     {cwd:directory,env:environment(),encoding:'utf8',timeout:30000,maxBuffer:2*1024*1024});
     const artifact=path.join(directory,`artifacts/shard-report-${current}`);
     fs.rmSync(artifact,{recursive:true,force:true});fs.mkdirSync(artifact,{recursive:true});
@@ -144,6 +177,7 @@ if(process.env.GITHUB_ACTIONS==='true'||process.env.TEST_EFFICACY_REAL_RUNTIME==
       for(let shard=1;shard<=4;shard++) {
         const result=f.run(shard);
         assert.equal(result.status,0,`${result.error?.message || ''}\n${result.stdout}\n${result.stderr}`);
+        assert.match(result.stdout,/independent arithmetic body/,'line reporter emits the named test');
       }
       const expected=f.expected();
       const wrapper=collectPlaywrightExecution({root:f.directory,expected,requiredFiles:f.files});

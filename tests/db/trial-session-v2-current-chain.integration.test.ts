@@ -121,6 +121,7 @@ async function take(db: PGlite, expire: boolean): Promise<TakeResult> {
     let sessionId = '';
     await db.exec('SET ROLE authenticated');
     try {
+        await db.query('SELECT public.set_practice_privacy_choices_v1(true, false, NULL)');
         const acquired = (await db.query<{ r: { acquired: boolean } }>(
             `SELECT public.acquire_recording_lease($1::uuid, 'rf1', false) AS r`, [lease])).rows[0].r;
         expect(acquired.acquired).toBe(true);

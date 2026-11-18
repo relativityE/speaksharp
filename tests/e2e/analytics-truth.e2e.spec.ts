@@ -55,8 +55,11 @@ const readSavedRows = (page: Page): Promise<SavedRow[]> => page.evaluate(() => {
  * and moved to T0 + elapsedMs for Stop (timers keep running). Checks the Session review, then returns the ONE row this
  * take created and saved.
  */
-async function recordTake(page: Page, take: Take): Promise<SavedRow> {
-  await programmaticLoginWithRoutes(page, { userType: 'pro' });
+async function recordTake(page: Page, take: Take, retainTranscript = false): Promise<SavedRow> {
+  await programmaticLoginWithRoutes(page, {
+    userType: 'pro',
+    practicePrivacy: retainTranscript ? { transcriptSave: true, aiCoaching: false } : undefined,
+  });
   await navigateToRoute(page, '/session');
   await selectTranscriptionEngine(page, 'private');
   const before = new Set((await readSavedRows(page)).map((r) => r.id));
@@ -108,7 +111,7 @@ async function expectAnalyticsShows(page: Page, sessionId: string, take: Take) {
 
 // #1184: Private is the only engine — the former native/cloud matrix collapses to a single Private run.
 test(`Gate 2 mocked private: a 10-second take shows its exact metrics on Analytics and after reload`, async ({ page }) => {
-  const saved = await recordTake(page, TEN_SECONDS);
+  const saved = await recordTake(page, TEN_SECONDS, true);
   // The save boundary: the captured Start→Stop length and the metrics persisted for this session.
   expect(saved).toMatchObject({
     status: 'completed', duration: TEN_SECONDS.durationSeconds, total_words: WORDS, wpm: TEN_SECONDS.wpm, clarity_score: TEN_SECONDS.clarity,

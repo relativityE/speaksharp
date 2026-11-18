@@ -96,7 +96,7 @@ test.describe('#1258 PR 4 — Back returns to the completed session', () => {
     // PO 2026-10-09: a reopened session with no saved coaching offers Try again. Re-entry requests nothing; only the press
     // asks for coaching, once, for THAT saved session (it still keeps its transcript, so the retry is real).
     test('Try again on a reopened session requests coaching once, only on the press, for that session', async ({ page }) => {
-        await programmaticLoginWithRoutes(page, { userType: 'pro' });
+        await programmaticLoginWithRoutes(page, { userType: 'pro', practicePrivacy: { transcriptSave: true, aiCoaching: true } });
         await navigateToRoute(page, '/session');
         await startRecording(page);
         await mockLiveTranscript(page, MOCK_TRANSCRIPTS as unknown as string[]);

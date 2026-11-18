@@ -61,6 +61,10 @@ function keyedStore({ crossWired = false } = {}) {
         const filters: Record<string, unknown> = {};
         const result = (): { data: unknown; error: unknown } => {
           if (table === 'user_profiles') return { data: { id: OWNER }, error: null };
+          if (table === 'practice_privacy_choices') {
+            return { data: filters.user_id === OWNER
+              ? { transcript_save: true, ai_coaching: true, consent_version: 1, choice_revision: 1 } : null, error: null };
+          }
           if (table === 'sessions') {
             sessionReads.push({ ...filters });
             const found = crossWired ? ROWS.at(-1) : ROWS.find((r) => r.id === filters.id && r.user_id === filters.user_id);

@@ -28,6 +28,7 @@ import { deriveFocusCoverage } from '@/utils/focusCoverage';
 import { flattenToFillerCounts, deriveNextActionSignal } from '@/utils/nextAction';
 import { countedFillerTotal } from '@/utils/fillerTiers';
 import { saveSession, completeSession } from '@/lib/storage';
+import { grantPracticePrivacy, resetPracticePrivacyForTests } from '../../../tests/test-utils/practicePrivacy';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import {
   saveSessionRecoveryDraft,
@@ -58,10 +59,13 @@ const containsCanaryWords = (serialized: string): boolean => {
 beforeEach(() => {
   vi.clearAllMocks();
   window.localStorage.clear();
+  // #1835: the one retention channel is only open under the owner's recorded yes to saving.
+  grantPracticePrivacy();
 });
 
 afterEach(() => {
   window.localStorage.clear();
+  resetPracticePrivacyForTests();
 });
 
 describe('guard — live transcript is ephemeral working memory feeding detection', () => {
