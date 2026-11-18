@@ -48,7 +48,7 @@ test('cleanup failure codes: each helper failure is named, content-free, and fit
 // Run 44302168905 follow-up: the ACTUAL cleanup paths executed against a stand-in admin client and a stand-in Stripe, failing at
 // each stage; every real error is classified, and the cleanup gate still refuses (nothing here passes a failed cleanup).
 const UID = '11111111-1111-4111-8111-111111111111', EMAIL = 'rwt-journey-billing-1-1@example.com';
-type Fail = 'none' | 'settle_read' | 'predelete' | 'delete' | 'readback' | 'residue_read' | 'residue_found';
+type Fail = 'none' | 'settle_read' | 'predelete' | 'delete' | 'readback' | 'readback_present' | 'residue_read' | 'residue_found';
 function fakeAdmin(fail: Fail) {
   let deleted = false;
   const result = (r: object) => ({ then: (ok: (v: object) => unknown) => Promise.resolve(r).then(ok) });
@@ -70,7 +70,7 @@ function fakeAdmin(fail: Fail) {
     return chain;
   };
   return { from: query, auth: { admin: {
-    getUserById: async () => deleted
+    getUserById: async () => deleted && fail !== 'readback_present'
       ? (fail === 'readback' ? { data: null, error: { status: 500, message: 'boom' } } : { data: null, error: { status: 404, code: 'user_not_found', message: 'User not found' } })
       : { data: { user: { id: UID, email: EMAIL, app_metadata: {} } }, error: null },
     deleteUser: async () => { if (fail === 'delete') return { error: { message: 'Database error deleting user' } }; deleted = true; return { error: null }; },
@@ -86,7 +86,7 @@ test('account cleanup, executed: each stage that fails is named; a clean run ver
   assert.equal(await run('none'), 'verified');
   const expected: Record<Exclude<Fail, 'none' | 'settle_read'>, string> = {
     predelete: 'account_cleanup_predelete_failed', delete: 'account_cleanup_deleteuser_failed',
-    readback: 'account_cleanup_delete_unproven', residue_read: 'account_cleanup_residue_unread_objective_session',
+    readback: 'account_cleanup_delete_unproven', readback_present: 'account_cleanup_delete_unproven', residue_read: 'account_cleanup_residue_unread_objective_session',
     residue_found: 'account_cleanup_residue_session_attribution_authority',
   };
   for (const fail of Object.keys(expected) as Array<Exclude<Fail, 'none' | 'settle_read'>>) assert.equal(await run(fail), expected[fail], fail);

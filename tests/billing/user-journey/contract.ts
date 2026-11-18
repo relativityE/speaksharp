@@ -452,7 +452,8 @@ export function cleanupFailureCode(scope: 'stripe' | 'account', error: unknown):
   }
   if (/deleteUser blocked by an unsettled take/.test(message)) return 'account_cleanup_unsettled_take';
   if (/cleanup deleteUser failed/.test(message)) return 'account_cleanup_deleteuser_failed';
-  if (/post-delete verify|auth user must be gone/.test(message)) return 'account_cleanup_delete_unproven';
+  // The helper's post-delete re-read: an API error, or a user still returned (its expect(...).toBeNull() message).
+  if (/post-delete verify|auth user must be gone|expect\(received\)\.toBeNull\(\)/.test(message)) return 'account_cleanup_delete_unproven';
   if (/cleanup found run-owned residue in /.test(message)) return `account_cleanup_residue_${table(/residue in ([a-z_]+) /.exec(message))}`;
   if (/cleanup residue (count|query) on /.test(message)) return `account_cleanup_residue_unread_${table(/residue (?:count|query) on ([a-z_]+) /.exec(message))}`;
   if (/pre-delete failed/.test(message)) return 'account_cleanup_predelete_failed';
