@@ -33,6 +33,11 @@ export const SQL_CONTRACTS=Object.freeze([
   // the native database is NOT RUN (no ledger-12 full-chain stage yet).
   Object.freeze({consumer:'tests/db/payment-wall-guards-1863.integration.test.ts',
     files:Object.freeze(['backend/supabase/migrations/20261114170000_payment_wall_product_access_1863.sql'])}),
+  Object.freeze({consumer:'tests/db/practicePrivacyCurrentChain.integration.test.ts',
+    files:Object.freeze([
+      'backend/supabase/migrations/20261117105700_practice_privacy_choices_1835.sql',
+      'tests/db/fixtures/practice-privacy-choices-1835.sql',
+    ])}),
 ]);
 export const sqlContract=file=>SQL_CONTRACTS.find(item=>item.files.includes(file));
 export const NATIVE_HELPERS=Object.freeze([

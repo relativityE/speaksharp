@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { readFileSync, writeFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { PGlite } from '@electric-sql/pglite';
 import { test } from 'vitest';
@@ -45,4 +46,38 @@ test('#1835 current save chain preserves metrics and refuses new transcript text
   } finally {
     await db.close();
   }
+});
+
+// Run every SQL statement in the same native fixture. Only the two psql transport directives
+// are handled by this PGlite driver: errors already reject db.exec; the include is the actual migration.
+// The separate node:test suite still exercises the native psql entry and concurrency.
+test('#1835 exact privacy fixture and migration exercise revocation, history and role boundaries', async () => {
+  const migration = 'backend/supabase/migrations/20261117105700_practice_privacy_choices_1835.sql';
+  const fixture = 'tests/db/fixtures/practice-privacy-choices-1835.sql';
+  const migrationBytes = readFileSync(migration);
+  const fixtureBytes = readFileSync(fixture);
+  const include = '\n\\i :migration\n';
+  const stopOnError = '\\set ON_ERROR_STOP on\n';
+  const [bootstrap, controls, ...extra] = fixtureBytes.toString('utf8').split(include);
+  assert.ok(controls && extra.length === 0 && bootstrap.startsWith(stopOnError), 'unknown native fixture transport');
+  const db = new PGlite();
+  try {
+    await db.exec(bootstrap.slice(stopOnError.length));
+    await db.exec(migrationBytes.toString('utf8'));
+    await db.exec(controls);
+  } finally {
+    await db.close();
+  }
+  const sha = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
+  const consumed = ([[migration, migrationBytes], [fixture, fixtureBytes]] as const).map(([file, bytes]) => {
+    const beforeSha256 = sha(bytes);
+    const afterSha256 = sha(readFileSync(file));
+    assert.equal(afterSha256, beforeSha256, 'SQL bytes changed during execution');
+    return { file, sha256: beforeSha256, beforeSha256, afterSha256 };
+  });
+  const binding = JSON.parse(process.env.TEST_EFFICACY_BINDING ?? 'null');
+  if (binding?.sql) writeFileSync(binding.sql.witnessFile, JSON.stringify({
+    schemaVersion: 1, phaseId: binding.phaseId, bindingSha256: sha(JSON.stringify(binding)),
+    consumer: 'tests/db/practicePrivacyCurrentChain.integration.test.ts', consumed,
+  }));
 });
