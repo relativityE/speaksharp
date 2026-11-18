@@ -348,8 +348,6 @@ jobs:
           # Collects all six branches; -g below runs only the dispatched one.
           BILLING_RUNNER_MODE: full
           PLAYWRIGHT_JSON_OUTPUT_NAME: ${{ runner.temp }}/playwright-report.json
-          # #1898: runner-local owner binding for the cleanup witness (a digest; never uploaded).
-          BILLING_OWNER_BINDING_FILE: ${{ runner.temp }}/billing-owner-binding.json
         run: |
           set -euo pipefail
           # The outcome 8 paid value loop has its own config (longer audio and timeout); the three billing journeys share one.
@@ -369,36 +367,6 @@ jobs:
               "$report" > billing-local-stack-receipt.json
             sha256sum billing-local-stack-receipt.json | tee billing-local-stack-receipt.sha256
           fi
-
-      # Runs 44302168905 and 44316016932: every journey step passed, then Auth refused to delete the run's account
-      # (account_cleanup_deleteuser_failed) while the take settlement read zeros. Before teardown, and only for that exact
-      # receipt reason, the witness (localStackResources.mjs, tested offline) checks in order: the preflight steps passed;
-      # the receipt is the exact hashed file, in the full Auth-refused shape (test mode, INCOMPLETE, cleanup UNPROVEN), for
-      # this dispatch's journey, release and stack; the owner binding is this stack run's; the database
-      # container is the recorded one. Then ONE read-only, time-bounded statement returns the database identity, the
-      # owner check and the counts from one snapshot (save obligations by phase and what can settle them, leases by
-      # state, sessions by status and lease binding). Log phrase totals are whole-container, supporting evidence only.
-      # No grant, write or guard bypass; no id, email, marker, system identifier, row or log line is printed.
-      # Diagnostic only: it never changes the verdict.
-      - name: Diagnose an Auth-refused cleanup (counts only, disposable stack)
-        id: cleanup_witness
-        if: ${{ always() && hashFiles('billing-local-stack-receipt.json') != '' && hashFiles('billing-local-stack-identity.json') != '' }}
-        env:
-          JOURNEY: ${{ inputs.journey }}
-          RELEASE: ${{ inputs.commit_sha }}
-          # Step outcomes (fixed words), checked by the witness before it touches Docker.
-          PREFLIGHT_DISPATCH_CHECK: ${{ steps.dispatch_check.outcome }}
-          PREFLIGHT_STRIPE_ACCOUNT: ${{ steps.stripe_account.outcome }}
-          PREFLIGHT_STACK_START: ${{ steps.stack_start.outcome }}
-          PREFLIGHT_STACK_IDENTITY: ${{ steps.stack_identity.outcome }}
-        run: |
-          set -euo pipefail
-          reason="$(jq -r 'if (type == "array" and length == 1) then (.[0].reason // "") else "" end' billing-local-stack-receipt.json 2>/dev/null || true)"
-          # A fixed code either way: the receipt's own text is never echoed.
-          [ "$reason" = 'account_cleanup_deleteuser_failed' ] || { echo 'CLEANUP_WITNESS_SKIPPED_NOT_AUTH_REFUSED'; exit 0; }
-          node tests/billing/user-journey/localStackResources.mjs witness "$LOCAL_STACK_PROJECT" billing-local-stack-identity.json \
-            billing-local-stack-receipt.json billing-local-stack-receipt.sha256 "$RUNNER_TEMP/billing-owner-binding.json" \
-            "$JOURNEY" "$RELEASE"
 
       - name: Verify no Stripe test fixture remains
         id: stripe_residue

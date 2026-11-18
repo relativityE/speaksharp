@@ -223,8 +223,11 @@ test('the receipt the spec writes has exactly the shape the finalizer requires',
   const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
   const attached = spec.slice(spec.indexOf("info.attach('billing-user-journey.json'"), spec.indexOf("contentType: 'application/json'"));
   const added = [...attached.matchAll(/^ {8}([a-zA-Z]+)[:,]/gm)].map(m => m[1]);
+  // The local-stack-only field (the finalizer only ever reads local-stack receipts); hosted/shared receipts omit it.
+  const localOnly = [...attached.matchAll(/^ {8}\.\.\.\(useLocalStack \? \{ ([a-zA-Z]+):/gm)].map(m => m[1]);
+  assert.deepEqual(localOnly, ['accountRemoval']);
   // receipt() supplies schema, journey, stripeMode, result and steps; the attach adds the rest.
-  const written = new Set([...Object.keys(receipt('conversion', new Set())), ...added]);
+  const written = new Set([...Object.keys(receipt('conversion', new Set())), ...added, ...localOnly]);
   assert.deepEqual([...written].sort(), [...RECEIPT_KEYS]);
 });
 
@@ -965,7 +968,8 @@ test('(PO + Sam, 18 Nov) on the local stack neither journey spec calls the Auth 
     const calls = text.split('await cleanupRunOwnedAccount(').length - 1;
     assert.equal(calls, 1, `${file}: one delete path`);
     assert.match(text, /if \(this\.signupAttempted && !useLocalStack\) await cleanupRunOwnedAccount\(/, file);
-    assert.match(text, /accountRemoval: useLocalStack \? 'AUTH_DELETE_NOT_RUN_REQUIRES_STACK_DESTRUCTION' : status\.cleanup === 'VERIFIED' \? 'AUTH_DELETED' : 'NOT_PROVEN',/, file);
+    // Only the disposable raw receipt carries it; the hosted/shared raw receipt keeps its exact v1 shape (Sam on 62b022a4).
+    assert.match(text, /\.\.\.\(useLocalStack \? \{ accountRemoval: 'AUTH_DELETE_NOT_RUN_REQUIRES_STACK_DESTRUCTION' \} : \{\}\),/, file);
   }
   // The in-test Stripe fixture cleanup is unchanged and still gates the cleanup step.
   const conversion = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');

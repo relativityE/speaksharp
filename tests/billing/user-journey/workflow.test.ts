@@ -183,8 +183,7 @@ test('(b) destruction is proven against those identities, and only after a check
 
 test('(Sam, 6cd45e76) the captured identity list is kept as evidence and the finalizer checks the proof against it', () => {
   // One file, written at capture, read by the destruction proof and the finalizer, and uploaded with the receipts.
-  // 5 uses + the cleanup witness's file guard and argument (#1898).
-  assert.equal(workflowText.match(/billing-local-stack-identity\.json/g)?.length, 7);
+  assert.equal(workflowText.match(/billing-local-stack-identity\.json/g)?.length, 5);
   assert.doesNotMatch(workflowText, /RUNNER_TEMP\/stack-identity\.json/);
   assert.ok((step('combined').run ?? '').includes('--identity billing-local-stack-identity.json'));
   const upload = (job.steps as unknown as { uses?: string; with?: { path?: string } }[])
@@ -244,46 +243,13 @@ test('(c) the finalizer CLI binds the combined result to the raw receipt file, a
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('(#1898) the cleanup witness runs only for the exact Auth-refused reason, before teardown, through the tested helper', () => {
-  const witness = step('cleanup_witness');
-  const order = job.steps.map(s => s.id ?? s.name);
-  assert.ok(order.indexOf('cleanup_witness') > order.indexOf('Extract the content-free receipt only'), 'after the receipt exists');
-  assert.ok(order.indexOf('cleanup_witness') < order.indexOf('stack_stop'), 'before the stack is torn down');
-  assert.match(witness.if ?? '', /always\(\)/);
-  assert.match(witness.if ?? '', /hashFiles\('billing-local-stack-identity\.json'\) != ''/);
-  assert.equal(witness.env?.JOURNEY, '${{ inputs.journey }}');
-  assert.equal(witness.env?.RELEASE, '${{ inputs.commit_sha }}');
-  for (const [name, id] of [['DISPATCH_CHECK', 'dispatch_check'], ['STRIPE_ACCOUNT', 'stripe_account'], ['STACK_START', 'stack_start'], ['STACK_IDENTITY', 'stack_identity']]) {
-    step(id);
-    assert.equal(witness.env?.[`PREFLIGHT_${name}`], "${{ steps." + id + ".outcome }}");
+test('(#1898, Sam on 62b022a4) no Auth-refusal witness runs in this workflow and no owner binding is written', () => {
+  // Local Auth delete is deliberately NOT RUN, so the witness has no legitimate trigger here and keeps no privileged access.
+  assert.equal(job.steps.some(s => s.id === 'cleanup_witness' || /Auth-refused cleanup/.test(s.name ?? '')), false);
+  assert.doesNotMatch(workflowText, /localStackResources\.mjs witness|BILLING_OWNER_BINDING_FILE|billing-owner-binding/);
+  for (const file of ['tests/billing/user-journey/journey.billing.spec.ts', 'tests/billing/user-journey/paid-value-loop.billing.spec.ts']) {
+    assert.doesNotMatch(readFileSync(file, 'utf8'), /ownerBindingRecord|BILLING_OWNER_BINDING_FILE/, file);
   }
-  // The journey writes the runner-local owner binding the witness reads; it is never uploaded.
-  assert.equal(job.steps.find(s => s.name === 'Run the billing journey against the local stack')?.env?.BILLING_OWNER_BINDING_FILE, '${{ runner.temp }}/billing-owner-binding.json');
-  assert.doesNotMatch(workflowText, /path:[^\n]*\n(?:\s+[^\n]*\n)*?\s+[^\n]*billing-owner-binding/);
-  // No direct database URL, psql, key or grant in the step: only the helper, against the recorded identity.
-  assert.doesNotMatch(witness.run ?? '', /psql|DB_URL|SERVICE_ROLE|GRANT|supabase status/);
-  const dir = mkdtempSync(join(tmpdir(), 'witness-step-'));
-  try {
-    writeFileSync(join(dir, 'node'), '#!/bin/sh\necho "NODE $*"\n', { mode: 0o755 });
-    const runWith = (receipt: string) => {
-      writeFileSync(join(dir, 'billing-local-stack-receipt.json'), receipt);
-      return spawnSync('bash', ['-c', witness.run ?? ''], { cwd: dir, encoding: 'utf8',
-        env: { PATH: `${dir}:${process.env.PATH}`, LOCAL_STACK_PROJECT: 'billing-local-stack-1-1', RUNNER_TEMP: '/rt',
-          JOURNEY: 'conversion', RELEASE: 'a'.repeat(40) } });
-    };
-    // Any other value, including near-misses and hostile text, gets the same fixed code and never reaches the helper.
-    const hostile = 'account_cleanup_x_$(touch pwned)_<script>';
-    for (const receipt of ['[{"reason":"account_cleanup_other"}]', '[{"reason":null}]', '[]', 'not json',
-      '[{"reason":"account_cleanup_deleteuser_failed "}]', `[{"reason":"${hostile}"}]`,
-      '[{"reason":"account_cleanup_deleteuser_failed"},{"reason":"account_cleanup_deleteuser_failed"}]']) {
-      const r = runWith(receipt);
-      assert.equal(r.status, 0, receipt);
-      assert.equal(r.stdout.trim(), 'CLEANUP_WITNESS_SKIPPED_NOT_AUTH_REFUSED', receipt);
-    }
-    const r = runWith('[{"reason":"account_cleanup_deleteuser_failed"}]');
-    assert.equal(r.status, 0);
-    assert.equal(r.stdout.trim(), `NODE tests/billing/user-journey/localStackResources.mjs witness billing-local-stack-1-1 billing-local-stack-identity.json billing-local-stack-receipt.json billing-local-stack-receipt.sha256 /rt/billing-owner-binding.json conversion ${'a'.repeat(40)}`);
-  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('(run 44312735386) a failed stack start prints each container\'s sampled health; inspect environment never leaves', () => {

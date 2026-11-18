@@ -1,12 +1,11 @@
 import { test, expect, type Page } from '@playwright/test';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
-import { readdirSync, writeFileSync } from 'node:fs';
+import { readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import sandboxTarget from './sandbox-target.json' with { type: 'json' };
 import localStackTarget from './sandbox-target.local.json' with { type: 'json' };
 import { runnerPreflight } from './runnerPreflight.mjs';
-import { ownerBindingRecord } from './localStackResources.mjs';
 import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, requireFact, assertSandboxConfiguration, PENDING_POLICY,
   assertTestPrice, assertInvoice, isCorrelatedDelivery, safeFailureReason, testClockCreateFields, localStackStatus,
   assertFullRefund, isRefundCancellation, assertCheckoutGrantedNothing,
@@ -169,11 +168,6 @@ class SandboxJourney {
     requireFact(runtime.release === env.BILLING_SANDBOX_RELEASE_SHA && runtime.api === this.targets.api
       && realAuth && runtime.stripeKeyClass === 'test', 'served_identity_or_backend_mismatch');
 
-    // #1898 (Sam): binds the cleanup witness to THIS run's owner. A digest of the stack run and this run's marker, written
-    // runner-local (never uploaded, never in the receipt) before the account exists. Local stack only.
-    if (useLocalStack && env.BILLING_OWNER_BINDING_FILE) {
-      writeFileSync(env.BILLING_OWNER_BINDING_FILE, JSON.stringify(ownerBindingRecord(`${env.LOCAL_STACK_PROJECT ?? ''}`, this.marker)));
-    }
     this.signupAttempted = true;
     const { data, error } = await this.admin.auth.admin.createUser({ email: this.email,
       password: this.password, email_confirm: true });
@@ -891,7 +885,8 @@ function journeyTest(journey: RunnerJourney): void {
         // Never reported as checked on the local stack; only the workflow's destruction proof covers them.
         billingRowResidue: useLocalStack ? 'NOT_READ_REQUIRES_STACK_DESTRUCTION_PROOF' : 'COUNTED_ZERO_OR_FAILED',
         // The run's account: removed by the verified stack destruction on the local stack (no Auth delete), else by the in-test delete.
-        accountRemoval: useLocalStack ? 'AUTH_DELETE_NOT_RUN_REQUIRES_STACK_DESTRUCTION' : status.cleanup === 'VERIFIED' ? 'AUTH_DELETED' : 'NOT_PROVEN',
+        // Local stack only, so the hosted/shared raw receipt (billing-user-journey/v1) keeps its exact shape.
+        ...(useLocalStack ? { accountRemoval: 'AUTH_DELETE_NOT_RUN_REQUIRES_STACK_DESTRUCTION' } : {}),
         testedRelease: env.BILLING_SANDBOX_RELEASE_SHA?.match(/^[a-f0-9]{40}$/)?.[0] ?? null,
         // Binds this receipt to this run's disposable stack; the finalizer refuses any other run's receipt.
         stackRun: useLocalStack ? env.LOCAL_STACK_PROJECT?.match(/^billing-local-stack-[0-9]{1,20}-[0-9]{1,6}$/)?.[0] ?? null : null,
