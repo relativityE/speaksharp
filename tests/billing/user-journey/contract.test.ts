@@ -45,7 +45,11 @@ for (const journey of RUNNER_JOURNEYS) {
 }
 test('real-event correlation rejects wrong object/customer/type/ledger and missing delivery', () => {
   assert.equal(isCorrelatedDelivery(event, expected, ledger), true);
-  for (const wrong of [{ ...event, livemode: true }, { ...event, api_version: 'unknown' }, { ...event, id: 'evt_synthetic_local' },
+  // The account's own event version (run 44203911253's events: 2025-07-30.basil) and the pinned one both correlate.
+  for (const api_version of ['2025-07-30.basil', '2024-06-20']) assert.equal(isCorrelatedDelivery({ ...event, api_version }, expected, ledger), true, api_version);
+  for (const api_version of ['unknown', '', 'latest', '2025-13-01', '2025-07-30.', '2025-07-30.Basil', ' 2024-06-20', null, undefined, 20240620])
+    assert.equal(isCorrelatedDelivery({ ...event, api_version }, expected, ledger), false, String(api_version));
+  for (const wrong of [{ ...event, livemode: true }, { ...event, id: 'evt_synthetic_local' },
     { ...event, type: 'invoice.paid' }, { ...event, data: { object: { ...event.data.object, customer: 'cus_other' } } },
     { ...event, data: { object: { ...event.data.object, id: 'cs_test_other' } } }]) {
     assert.equal(isCorrelatedDelivery(wrong, expected, ledger), false);

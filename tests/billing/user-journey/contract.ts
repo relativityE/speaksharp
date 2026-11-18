@@ -348,11 +348,21 @@ export function assertCheckoutGrantedNothing(input: unknown, expectedStatus: 'op
     && (session.subscription === null || session.subscription === undefined), 'failed_checkout_granted_something');
 }
 
+/**
+ * A Stripe event's `api_version` is the account's default API version when the event was CREATED, and it never changes: the
+ * `Stripe-Version` header on the read does not re-render it. This sandbox account's events carry `2025-07-30.basil` (the owner's
+ * `customer.created` list for run 44203911253, an event the journey caused while sending `2024-06-20`), so an exact `2024-06-20`
+ * check could never accept a genuine delivery. The correlation reads only id, type, livemode, data.object.id and
+ * data.object.customer, which both versions render the same; the version must still be a real Stripe version string.
+ */
+export const STRIPE_EVENT_API_VERSION = /^20\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])(\.[a-z]+)?$/;
+
 export function isCorrelatedDelivery(input: unknown, expected: {
   type: string; objectId: string; customer: string;
 }, ledger: { event_id?: unknown; event_type?: unknown; processed_at?: unknown } | null): boolean {
   const event = (input ?? {}) as Partial<BillingEvent>;
-  return /^evt_[A-Za-z0-9]+$/.test(event.id ?? '') && event.livemode === false && event.api_version === '2024-06-20'
+  return /^evt_[A-Za-z0-9]+$/.test(event.id ?? '') && event.livemode === false
+    && typeof event.api_version === 'string' && STRIPE_EVENT_API_VERSION.test(event.api_version)
     && event.type === expected.type && event.data?.object?.id === expected.objectId
     && event.data?.object?.customer === expected.customer
     && ledger?.event_id === event.id && ledger?.event_type === 'subscription.snapshot'
