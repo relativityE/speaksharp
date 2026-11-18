@@ -17,10 +17,11 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './benchmark-utils';
 import { MODEL_COMPARISON_AUTH_KEY } from './practiceLoopJourney';
-import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches, newSetSourcePoints, newSetEditVerdicts, setupIsBlank, switchIsolationVerdict, labelHeardIn, focusBackReloadVerdict, focusIdentityObservation, firstTakeSavedExactlyOnceVerdict, type SwitchSourceSnapshot } from './rwtOracles';
+import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches, newSetSourcePoints, newSetEditVerdicts, setupIsBlank, switchIsolationVerdict, railShowsExactFourPoints, labelHeardIn, focusBackReloadVerdict, focusIdentityObservation, firstTakeSavedExactlyOnceVerdict, type SwitchSourceSnapshot } from './rwtOracles';
 import { cleanupRunOwnedAccount } from './runOwnedCleanup';
 import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, armWatchdog, watchProfileFor, type JourneyFinalizer } from './rwtWatchdog';
 import { savedFocusIdentityVerdict } from './rwtSavedFocusIdentity';
+import { holdLiveTake, railSettled, readRailRowCount } from './rwtLiveTimedTake';
 import { recordRunOwnedCleanup } from './rwtAcceptance';
 import { HarnessParityTap, numericComparisonRow, probeSaveIsolationRow, readRepeatEligibility, type NumericResult, type RepeatEligibility, type StartPressBudget } from './rwtHarnessParity';
 import { focusCapturedTakes, focusDesignedSaves } from './rwtFocusSaveIsolation';
@@ -132,6 +133,18 @@ const readRail = async (page: Page, count: number): Promise<{ statuses: (RailSta
         if (next === null && (await row.getByText('Still to cover', { exact: true }).count().catch(() => 0)) > 0) next = i;
     }
     return { statuses, next };
+};
+
+/**
+ * #1882 diagnostic readout: how many Focus point rows are on screen, and whether they are exactly this set's four points in
+ * order (`railShowsExactFourPoints`). It returns a count and a boolean only, never the labels (the receipt forbids them).
+ */
+const readRailRows = async (page: Page, points: readonly string[]): Promise<{ rows: number; exactFourPoints: boolean }> => {
+    const labels = await page.locator('[data-testid^="focus-point-"]').evaluateAll((els) => els
+        .filter((el) => /^focus-point-\d+$/.test(el.getAttribute('data-testid') ?? ''))
+        .map((el) => el.querySelector('p')?.textContent?.trim() ?? null)).catch(() => null);
+    if (labels === null) return { rows: -1, exactFourPoints: false };
+    return { rows: labels.length, exactFourPoints: railShowsExactFourPoints(labels, points) };
 };
 
 const parseClock = (text: string): number | null => {
@@ -619,9 +632,10 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             persistedId = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
             receipt.row('session saved', persistedId ? 'PASS' : 'FAIL', persistedId ? 'the take saved' : 'no persisted session id');
 
-            // The rail's after-state settles once coverage is no longer pending.
-            await expect.poll(async () => (await readRail(page, points.length)).statuses.every((s) => s !== 'pending'), { timeout: 60_000 })
-                .toBe(true).catch(() => undefined);
+            // The rail's after-state settles only with all four actual rows on screen, none pending (#1882: an empty rail reads
+            // null statuses, and null is not 'pending', so "nothing pending" settled at once and graded four nulls).
+            await expect.poll(async () => railSettled(await readRailRowCount(page), (await readRail(page, points.length)).statuses, points.length),
+                { timeout: 60_000 }).toBe(true).catch(() => undefined);
             const final = (await readRail(page, points.length)).statuses;
             firstTakeRail = final;
             const perPoint = final.map((s, i) => meetsExpectation(expectedFinal[i] ?? '', s));
@@ -1126,29 +1140,54 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 const windows = fixture.entry.pointAudioWindows ?? [];
                 // Past point 1's window, short of point 2's start (focus_points_tts: [2.91,6.21] then [11.98,…]).
                 const shortTakeSeconds = windows[1] ? Math.max(8, Math.min(9, windows[1][0] - 2)) : 9;
+                // #1882 diagnostic: was the rail on screen before Start, and what did the controller decide for this take?
+                const railBeforeStart = await readRailRows(page, points);
+                const switchTraceFrom = await page.evaluate(() => {
+                    const w = window as unknown as { __NATIVE_BROWSER_TRACE__?: unknown[] };
+                    w.__NATIVE_BROWSER_TRACE__ = w.__NATIVE_BROWSER_TRACE__ ?? [];
+                    return performance.now();
+                }).catch(() => null);
+                // #1882: the page measures this take on its LIVE clock (re-based when capture goes live), so hold it for
+                // shortTakeSeconds from the live moment, not from the Start click; a slow capture start otherwise leaves under five
+                // live seconds and the take goes down the "too short" branch with no rail rows and no Start a new set.
+                const switchPressedAt = Date.now();
                 await startBenchmarkRecording(page, `${suite}-switch-focus`);
-                await page.waitForTimeout(shortTakeSeconds * 1000);
+                const switchTake = await holdLiveTake(page, shortTakeSeconds, switchPressedAt);
                 await stopBenchmarkRecording(page, `${suite}-switch-focus`, 180_000);
                 await waitForBenchmarkSaveCandidate(page, `${suite}-switch-focus`, 180_000);
                 const focusId = await waitForNewPersistedSession(page, openMicId);
                 switchFocusId = focusId && focusId !== openMicId ? focusId : null;
                 switchFocusTakeId = switchFocusId;
-                await expect.poll(async () => (await readRail(page, points.length)).statuses.every((s) => s !== 'pending'), { timeout: 60_000 })
-                    .toBe(true).catch(() => undefined);
+                // #1882: settled only with exactly four actual rail rows, none pending. An empty rail is never settled.
+                await expect.poll(async () => railSettled(await readRailRowCount(page), (await readRail(page, points.length)).statuses, points.length),
+                    { timeout: 60_000 }).toBe(true).catch(() => undefined);
+                const railRowCount = await readRailRowCount(page);
                 const finalStatuses = (await readRail(page, points.length)).statuses;
+                const switchTrace = switchTraceFrom === null ? null : await page.evaluate((from) => {
+                    const keep = new Set(['controller_progress_mode_snapshot', 'controller_progress_unresolved', 'controller_completed_brief',
+                        'controller_progress_publication_refused', 'controller_brief_retirement_refused']);
+                    const trace = (window as unknown as { __NATIVE_BROWSER_TRACE__?: Array<Record<string, unknown>> }).__NATIVE_BROWSER_TRACE__ ?? [];
+                    return trace.filter((e) => typeof e.t === 'number' && e.t >= from && keep.has(String(e.event)))
+                        .map((e) => [e.event, e.mode, e.pointCount, e.reason, e.published].filter((v) => v !== undefined && v !== null).join(':')).join('|');
+                }, switchTraceFrom).catch(() => 'trace-read-failed');
+                const railAfter = await readRailRows(page, points);
+                const newSetVisibleAfterSwitch = await page.getByTestId('focus-points-new-set').isVisible().catch(() => false);
                 const savedFocus = focusId && focusId !== openMicId ? await sessionRow(focusId) : unavailable('missing');
                 const savedProduct = savedFocus.state === 'available' && savedFocus.sessionId === focusId && savedFocus.userId === owner.uid ? savedFocus.product : null;
                 const openMicAfter = openMicId && openMicId !== before ? await sessionRow(openMicId) : unavailable('missing');
                 const iso = switchIsolationVerdict({
                     railPendingBefore, openMicId: openMicId !== before ? openMicId : null, focusId: focusId !== openMicId ? focusId : null,
-                    savedProduct, finalStatuses, staleCoachingBeforeStart, markerSupport,
+                    savedProduct, finalStatuses, railRowCount, staleCoachingBeforeStart, markerSupport,
                     openMicBefore, openMicAfter, ownerId: owner.uid,
                 });
                 receipt.row('take after switching products is clean', iso.verdict, iso.detail, {
-                    railPendingBefore, shortTakeSeconds, final: finalStatuses.join(','), staleCoachingBeforeStart, markerSupport: markerSupport.join(','),
+                    railPendingBefore, shortTakeSeconds, pressToLiveMs: switchTake.pressToLiveMs, heldLiveSeconds: switchTake.heldLiveSeconds,
+                    railRowCount, final: finalStatuses.join(','), staleCoachingBeforeStart, markerSupport: markerSupport.join(','),
                     openMicSaved: Boolean(openMicId && openMicId !== before), openMicUnchanged: openMicBefore.digest !== null && openMicBefore.digest === openMicAfter.digest,
                     openMicRetentionState: openMicAfter.state ?? 'unknown',
                     openMicExpiredAfterWitness: iso.verdict === 'PASS' && openMicAfter.state === 'expired',
+                    railRowsBeforeStart: railBeforeStart.rows, railExactFourPointsBeforeStart: railBeforeStart.exactFourPoints,
+                    afterRailRows: railAfter.rows, railExactFourPointsAfter: railAfter.exactFourPoints, newSetVisibleAfterSwitch, switchTrace: switchTrace ?? 'not-armed',
                 });
                 // Read again at the end of the step, so an objective row written late for the Open Mic take is still seen.
                 if (savedOpenMicId) openMicObjectiveRowReads.push(await objectiveRowsFor(savedOpenMicId));
@@ -1297,8 +1336,9 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                         await waitForBenchmarkSaveCandidate(page, `${suite}-edited`, 180_000);
                         // Bound to its IMMEDIATE predecessor, the switch take whose review offered New Set.
                         takeBId = await waitForNewPersistedSession(page, predecessor);
-                        await expect.poll(async () => (await readRail(page, edited.length)).statuses.every((s) => s !== 'pending'), { timeout: 60_000 })
-                            .toBe(true).catch(() => undefined);
+                        // #1882: settled only with the edited set's actual rows on screen, none pending; an empty rail is never settled.
+                        await expect.poll(async () => railSettled(await readRailRowCount(page), (await readRail(page, edited.length)).statuses, edited.length),
+                            { timeout: 60_000 }).toBe(true).catch(() => undefined);
                         const statuses = (await readRail(page, edited.length)).statuses;
                         railOrdered = await Promise.all(statuses.map(async (status, i) => ({
                             label: await page.getByTestId(`focus-point-${i}`).innerText().catch(() => ''), status,
