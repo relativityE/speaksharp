@@ -158,7 +158,16 @@ test('payment-wall and practice-privacy T2 deltas name only existing ledger-11 o
   assert.match(wall, /ALTER TABLE public\.recording_start_abandonments ADD CONSTRAINT recording_start_abandonments_outcome_check/);
   assert.deepEqual(Object.keys(PRACTICE_PRIVACY_T2_CATALOG_DELTA),
     ['function:public.persist_account_coaching_v1(uuid, boolean, uuid, uuid, jsonb, text, text, text, date, integer, integer)']);
-  assert.match(privacy, /REVOKE EXECUTE ON FUNCTION public\.persist_account_coaching_v1\(uuid,boolean,uuid,uuid,jsonb,text,text,text,date,integer,integer\)/);
+  assert.match(privacy, /REVOKE EXECUTE ON FUNCTION public\.persist_account_coaching_v1\(uuid,boolean,uuid,uuid,jsonb,text,text,text,date,integer,integer\)\s+FROM PUBLIC, anon, authenticated, service_role;/);
+});
+
+test('the practice-privacy native proof restores the revoked legacy service_role grant as a rollback-only refusal control', () => {
+  const driver = readFileSync(new URL('./account-closure-full-chain.mjs', import.meta.url), 'utf8');
+  const observer = driver.slice(driver.indexOf('export function observePracticePrivacyReleaseCatalog'));
+  assert.match(observer.slice(0, observer.indexOf('\n}\n')),
+    /'GRANT EXECUTE ON FUNCTION public\.persist_account_coaching_v1\(uuid,boolean,uuid,uuid,jsonb,text,text,text,date,integer,integer\) TO service_role;'/);
+  // Each control runs inside BEGIN ... ROLLBACK and must be refused before the restored catalog is re-verified.
+  assert.ok(driver.includes('sql(`BEGIN; ${mutation}\\n${snapshot}\\nROLLBACK;`)'));
 });
 
 test('installed payment-wall profile replays the feedback fence then 20261114170000, withholding billing129, the refund and #1835', () => {

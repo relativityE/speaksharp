@@ -156,6 +156,9 @@ export function observePaymentWallReleaseCatalog({ sql, root, apply, retain }) {
 export function observePracticePrivacyReleaseCatalog({ sql, root, apply, retain }) {
   return observeSuccessorReleaseCatalog({ sql, root, apply, retain, from: 'post-1863-payment-wall', to: 'post-1835-practice-privacy',
     mutations: [
+      // #1835 revokes the legacy writer from service_role too: restoring that exact grant must be refused.
+      ['coaching-persist-service-role-execute-restored',
+        'GRANT EXECUTE ON FUNCTION public.persist_account_coaching_v1(uuid,boolean,uuid,uuid,jsonb,text,text,text,date,integer,integer) TO service_role;'],
       ['coaching-persist-authenticated-execute',
         'GRANT EXECUTE ON FUNCTION public.persist_account_coaching_v1(uuid,boolean,uuid,uuid,jsonb,text,text,text,date,integer,integer) TO authenticated;'],
       ['analytics-wrapper-search-path', 'ALTER FUNCTION public.get_analytics_summary(uuid) SET search_path TO pg_catalog;'],
