@@ -381,7 +381,7 @@ const wiring={
     "await this.delivery('customer.subscription.deleted', this.subscription);",
     "for (const table of ['account_billing_fences', 'account_checkout_operations', 'account_save_obligations'])",
     'if (readback.error || readback.count !== 0) accountFailed = true;',
-    "requireFact(!stripeFailed && !accountFailed && stripeClean && !this.uncertainStripeCreate, 'cleanup_unproven');",
+    "requireFact(!stripeFailed && !accountFailed && stripeClean && !this.uncertainStripeCreate, failure ?? 'cleanup_unproven');",
     'for (const journey of BILLING_JOURNEYS)',
     "requireFact(!failed && !cleanupFailed && result.result === 'PASSED', 'journey_incomplete_see_sanitized_receipt');",
   ],
