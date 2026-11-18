@@ -19,7 +19,8 @@
  * Every clock in the verdict is the page's own Date.now (the clock the app's live timer uses); the Node-side press time is
  * only a fallback when the Start press happened inside a helper the monitor could not see.
  *
- * Read-only: nothing here presses anything except through the caller's own Stop, so the Start-press budget is unchanged.
+ * Nothing here presses Start, so the Start-press budget is unchanged. The ONLY press is Stop, and only through
+ * `guardedStopClick`: the final take check and the click run together in one page task (#1897, Sam's f2bb1ae HOLD).
  */
 import type { Page } from '@playwright/test';
 
@@ -108,7 +109,7 @@ export function installTakeMonitor(cfg: MonitorConfig): { ok: boolean; reason?: 
         }
     };
     const observer = new MutationObserver(observe);
-    observer.observe(html, { subtree: true, childList: true, characterData: true, attributes: true,
+    observer.observe(html, { subtree: true, childList: true, characterData: true, attributes: true, attributeOldValue: true,
         attributeFilter: ['data-session-state', 'data-session-persisted', 'data-session-persisted-id'] });
     const tick = setInterval(() => {
         const now = Date.now();
@@ -130,8 +131,40 @@ export function installTakeMonitor(cfg: MonitorConfig): { ok: boolean; reason?: 
     };
     window.addEventListener('click', onClick, true);
     observe();
+    /**
+     * #1897 review (Sam, f2bb1ae HOLD): the final take check and the Stop click in ONE synchronous page task, so no
+     * replacement take can arrive between them. Drains every pending mutation record first (a drop not yet delivered to the
+     * observer still counts), re-reads the page, and clicks only when the take this monitor saw go live is still that same
+     * take, still live, never dropped or replaced since, not already stopped, and Stop is enabled. Otherwise nothing is
+     * clicked. `expectedKey` null binds to the monitor's own first live take.
+     */
+    const guardedStop = (expectedKey: string | null): { clicked: boolean; reason: string } => {
+        if (snap.disposed) return { clicked: false, reason: 'monitor_unreadable' };
+        let pendingDrop = false;
+        for (const record of observer.takeRecords()) {
+            if (record.type !== 'attributes' || record.attributeName !== 'data-session-state') continue;
+            // A pending change FROM a non-live state means capture left and came back before the observer saw it.
+            const el = record.target as Element;
+            if (typeof el.matches === 'function' && el.matches(cfg.shellSelector) && record.oldValue !== null && record.oldValue !== 'during') pendingDrop = true;
+        }
+        observe();
+        const live = snap.edges.find((e) => e.state === 'during' && e.key !== null);
+        if (!live) return { clicked: false, reason: 'capture_never_live' };
+        if (expectedKey !== null && live.key !== expectedKey) return { clicked: false, reason: 'take_replaced' };
+        const broke = snap.edges.find((e) => e.seq > live.seq && (e.state !== 'during' || e.key !== live.key));
+        if (broke) return { clicked: false, reason: broke.state === 'during' && broke.key !== live.key ? 'take_replaced' : 'capture_dropped' };
+        const cur = read();
+        if (cur.key !== live.key) return { clicked: false, reason: 'take_replaced' };
+        if (pendingDrop || cur.state !== 'during') return { clicked: false, reason: 'capture_dropped' };
+        if (snap.stops.length > 0) return { clicked: false, reason: 'already_stopped' };
+        const stop = document.querySelector(`[data-testid="${cfg.stopTestId}"]`) as HTMLButtonElement | null;
+        if (!stop || stop.disabled || stop.getAttribute('aria-disabled') === 'true') return { clicked: false, reason: 'stop_unavailable' };
+        stop.click();
+        return { clicked: true, reason: 'held_and_live' };
+    };
     w.__SS_LIVE_TAKE_MONITOR__ = {
         token: cfg.token,
+        guardedStop,
         snapshot: () => JSON.parse(JSON.stringify(snap)) as MonitorSnapshot,
         dispose: () => {
             if (snap.disposed) return;
@@ -149,6 +182,13 @@ export function installTakeMonitor(cfg: MonitorConfig): { ok: boolean; reason?: 
 export function readTakeMonitorInPage(token: string): MonitorSnapshot | null {
     const m = (window as unknown as { __SS_LIVE_TAKE_MONITOR__?: { token: string; snapshot: () => MonitorSnapshot } }).__SS_LIVE_TAKE_MONITOR__;
     return m && m.token === token ? m.snapshot() : null;
+}
+
+/** Runs IN THE PAGE: the monitor's own atomic check-and-click (`guardedStop`), or no click when no monitor has this token. */
+export function guardedStopInPage(arg: { token: string; expectedKey: string | null }): { clicked: boolean; reason: string } {
+    const m = (window as unknown as { __SS_LIVE_TAKE_MONITOR__?: { token: string; guardedStop?: (k: string | null) => { clicked: boolean; reason: string } } }).__SS_LIVE_TAKE_MONITOR__;
+    if (!m || m.token !== arg.token || typeof m.guardedStop !== 'function') return { clicked: false, reason: 'monitor_unreadable' };
+    return m.guardedStop(arg.expectedKey);
 }
 
 /** Runs IN THE PAGE. */
@@ -238,16 +278,16 @@ export async function holdMeasuredLiveTake(page: Page, armed: ArmedTakeMonitor, 
 }
 
 export interface GuardedStop {
-    /** True only when the Stop step was actually run for this take. */
+    /** True only when Stop was actually clicked for this take (by the page's own atomic check-and-click). */
     pressed: boolean;
-    reason: 'held_and_live' | Exclude<MeasuredHold['ended'], 'held'>;
+    reason: 'held_and_live' | Exclude<MeasuredHold['ended'], 'held'> | 'already_stopped' | 'stop_unavailable';
 }
 
 /**
  * Pure. #1897 review 2 (Sam, Nov 18): may the journey press Stop on this take? Only when the hold reports `held` AND a fresh
  * monitor read still shows the SAME take live, with no drop or replacement since its live edge. A hold that ended early
- * (capture dropped, take replaced, never live, unreadable) never leads to a Stop press: the generic Stop would land on
- * whatever take is live now, which may be a replacement, and its result would be read as this take's.
+ * (capture dropped, take replaced, never live, unreadable) never leads to a Stop press. This is the Node-side early-out
+ * only: the click itself is decided again, atomically, in the page (`guardedStopClick`).
  */
 export function stopGuardVerdict(hold: MeasuredHold, snap: MonitorSnapshot | null): GuardedStop {
     if (hold.ended !== 'held') return { pressed: false, reason: hold.ended };
@@ -259,15 +299,53 @@ export function stopGuardVerdict(hold: MeasuredHold, snap: MonitorSnapshot | nul
     return { pressed: true, reason: 'held_and_live' };
 }
 
+const GUARDED_STOP_REASONS = new Set<GuardedStop['reason']>(['held_and_live', 'capture_never_live', 'capture_dropped', 'take_replaced',
+    'monitor_unreadable', 'already_stopped', 'stop_unavailable']);
+
 /**
- * Press Stop (through the caller's own Stop step) only when `stopGuardVerdict` allows it on a fresh read of the monitor.
- * Otherwise nothing is pressed, and the take's rows record the break with no Stop press.
+ * #1897 review (Sam, f2bb1ae HOLD): the final check and the Stop click happen together, in one page task
+ * (`guardedStopInPage`), never as a read followed by a separate Playwright click a replacement take could receive. Only a
+ * disabled or missing Stop is retried (each retry is again one atomic check-and-click), up to `enabledTimeoutMs`; every
+ * other refusal is final and clicks nothing.
  */
-export async function stopMeasuredTake(page: Page, armed: ArmedTakeMonitor, hold: MeasuredHold, pressStop: () => Promise<unknown>): Promise<GuardedStop> {
+export async function guardedStopClick(page: Page, armed: ArmedTakeMonitor, expectedKey: string | null,
+    opts: { enabledTimeoutMs?: number; pollMs?: number } = {}): Promise<GuardedStop> {
+    if (!armed.ok) return { pressed: false, reason: 'monitor_unreadable' };
+    const deadline = Date.now() + (opts.enabledTimeoutMs ?? 10_000);
+    for (;;) {
+        const r = await page.evaluate(guardedStopInPage, { token: armed.token, expectedKey })
+            .catch(() => ({ clicked: false, reason: 'monitor_unreadable' }));
+        const reason = GUARDED_STOP_REASONS.has(r.reason as GuardedStop['reason']) ? r.reason as GuardedStop['reason'] : 'monitor_unreadable';
+        if (r.clicked && reason === 'held_and_live') return { pressed: true, reason };
+        if (reason !== 'stop_unavailable' || Date.now() >= deadline) return { pressed: false, reason: reason === 'held_and_live' ? 'monitor_unreadable' : reason };
+        await page.waitForTimeout(opts.pollMs ?? 100);
+    }
+}
+
+/**
+ * A measured take's Stop: no click after a hold that ended early, and otherwise ONE atomic check-and-click bound to the
+ * held take's own key. `afterClick` (the recorder bar closing, the phase log) runs only after Stop was really clicked.
+ */
+export async function stopMeasuredTake(page: Page, armed: ArmedTakeMonitor, hold: MeasuredHold, afterClick: () => Promise<unknown>,
+    opts: { enabledTimeoutMs?: number; pollMs?: number } = {}): Promise<GuardedStop> {
     const guard = stopGuardVerdict(hold, armed.ok ? await readTakeMonitor(page, armed.token) : null);
     if (!guard.pressed) return guard;
-    await pressStop();
-    return guard;
+    const clicked = await guardedStopClick(page, armed, hold.takeKey, opts);
+    if (!clicked.pressed) return clicked;
+    await afterClick();
+    return clicked;
+}
+
+/**
+ * A monitored take with no measured hold (the first Focus take, the Open Mic source take): the same atomic check-and-click,
+ * bound to the take this monitor saw go live first. Nothing is clicked if that take dropped, was replaced or never went live.
+ */
+export async function stopMonitoredTake(page: Page, armed: ArmedTakeMonitor, afterClick: () => Promise<unknown>,
+    opts: { enabledTimeoutMs?: number; pollMs?: number } = {}): Promise<GuardedStop> {
+    const clicked = await guardedStopClick(page, armed, null, opts);
+    if (!clicked.pressed) return clicked;
+    await afterClick();
+    return clicked;
 }
 
 export type TakeOutcome =

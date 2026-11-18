@@ -15,7 +15,7 @@ import {
     preparePrivateModelIfPrompted,
     waitForPrivateEngineReady,
     startBenchmarkRecording,
-    stopBenchmarkRecording,
+    confirmBenchmarkStopped,
     waitForBenchmarkSaveCandidate,
 } from './benchmark-utils';
 import { MODEL_COMPARISON_AUTH_KEY } from './practiceLoopJourney';
@@ -24,7 +24,7 @@ import { cleanupRunOwnedAccount } from './runOwnedCleanup';
 import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, armWatchdog, watchProfileFor, type JourneyFinalizer } from './rwtWatchdog';
 import { savedFocusIdentityVerdict } from './rwtSavedFocusIdentity';
 import { railSettled, readRailRowCount } from './rwtLiveTimedTake';
-import { armTakeMonitor, awaitTakeOutcome, disposeTakeMonitor, holdMeasuredLiveTake, readTakeMonitor, stopMeasuredTake, takeEvidenceRows, type ArmedTakeMonitor, type TakeOutcome } from './rwtLiveTakeMonitor';
+import { armTakeMonitor, awaitTakeOutcome, disposeTakeMonitor, holdMeasuredLiveTake, readTakeMonitor, stopMeasuredTake, stopMonitoredTake, takeEvidenceRows, type ArmedTakeMonitor, type TakeOutcome } from './rwtLiveTakeMonitor';
 import { consentModeFrom, consentReadbackVerdict, settlePracticeConsent, type ChoiceClient, type SavedSessionRead, type SettledConsent } from './rwtPracticeConsent';
 import { FOCUS_COACHING_OFF_ROW, FOCUS_OFF_NO_COACHING_ROW, FOCUS_OFF_REPEAT_ROW, offNoCoachingVerdict, offRepeatVerdict, analyticsOffThroughActions, coachingOffVerdict, offAnalyticsRows, offBackReloadVerdict, readCoachingOffAfterStop, readOffRestoredView, reviewModeOf } from './rwtCoachingOff';
 import { recordRunOwnedCleanup } from './rwtAcceptance';
@@ -657,9 +657,18 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             await page.waitForTimeout(Math.max(0, startedAt + sourceTakeMs - Date.now()));
             stoppedAt = Date.now();
             rowsStoppedAt = stoppedAt;
-            await stopBenchmarkRecording(page, suite, 180_000);
+            // #1897 (Sam, f2bb1ae HOLD): the final take check and the Stop click run together in one page task, bound to the
+            // take this monitor saw go live; a dropped, replaced or never-live take gets no click, and the journey stops here.
+            const firstMonitor = firstTakeMonitor;
+            const firstStop = firstMonitor
+                ? await stopMonitoredTake(page, firstMonitor, () => confirmBenchmarkStopped(page, suite, 180_000))
+                : { pressed: false, reason: 'monitor_unreadable' as const };
+            if (!firstStop.pressed) {
+                if (firstMonitor) await measuredTakeRows('Focus first take', firstMonitor, fixture.entry.speechSeconds, firstPressedAt, null);
+                throw new Error(`FOCUS_JOURNEY:first_take_not_stopped_${firstStop.reason}`);
+            }
             // #1882: a discarded take is named at once instead of waiting out the save-candidate bound.
-            const firstOutcome = firstTakeMonitor ? await awaitTakeOutcome(page, firstTakeMonitor.token, 180_000) : null;
+            const firstOutcome = firstMonitor ? await awaitTakeOutcome(page, firstMonitor.token, 180_000) : null;
             if (firstOutcome?.kind !== 'too_short') {
                 await waitForBenchmarkSaveCandidate(page, suite, 180_000);
                 await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 120_000 });
@@ -1224,9 +1233,15 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 const before = await lastSaved();
                 await openProduct('open-mic');
                 await page.waitForURL(/\/session/, { timeout: 45_000 });
+                // #1897 (Sam, f2bb1ae HOLD): armed before the press so its Stop is the same atomic check-and-click, bound to
+                // this Open Mic take; a dropped, replaced or never-live take gets no click and the switch step stops here.
+                const openMicMonitor = await armTakeMonitor(page, `${suite}-switch-openmic`);
                 await startBenchmarkRecording(page, `${suite}-switch-openmic`);
                 await page.waitForTimeout(Math.round((fixture.entry.speechSeconds + 4) * 1000));
-                await stopBenchmarkRecording(page, `${suite}-switch-openmic`, 180_000);
+                const openMicStop = await stopMonitoredTake(page, openMicMonitor,
+                    () => confirmBenchmarkStopped(page, `${suite}-switch-openmic`, 180_000));
+                await disposeTakeMonitor(page, openMicMonitor.token);
+                if (!openMicStop.pressed) throw new Error(`FOCUS_JOURNEY:open_mic_take_not_stopped_${openMicStop.reason}`);
                 await waitForBenchmarkSaveCandidate(page, `${suite}-switch-openmic`, 180_000);
                 const openMicId = await waitForNewPersistedSession(page, before);
                 const openMicBefore = openMicId && openMicId !== before ? await sessionRow(openMicId) : unavailable('missing');
@@ -1277,10 +1292,11 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 const switchPressedAt = Date.now();
                 await startBenchmarkRecording(page, `${suite}-switch-focus`);
                 const switchHold = await holdMeasuredLiveTake(page, switchMonitor, shortTakeSeconds, { nodePressedAt: switchPressedAt });
-                // #1897 review 2 (Sam): a hold that reports a drop or a replacement never presses the generic Stop, which would
-                // land on the replacement take. Nothing is saved or read for this take then; its rows record the break.
+                // #1897 review 2 (Sam): a hold that reports a drop or a replacement never presses Stop. Otherwise the final take
+                // check and the click run together in one page task (f2bb1ae HOLD), so a replacement can never receive it.
+                // Nothing is saved or read for a take that got no click; its rows record the break.
                 const switchStop = await stopMeasuredTake(page, switchMonitor, switchHold,
-                    () => stopBenchmarkRecording(page, `${suite}-switch-focus`, 180_000));
+                    () => confirmBenchmarkStopped(page, `${suite}-switch-focus`, 180_000));
                 const switchOutcome: TakeOutcome = switchStop.pressed ? await awaitTakeOutcome(page, switchMonitor.token, 180_000) : { kind: 'unsettled' };
                 if (switchStop.pressed && switchOutcome.kind !== 'too_short') await waitForBenchmarkSaveCandidate(page, `${suite}-switch-focus`, 180_000);
                 const focusId = !switchStop.pressed || switchOutcome.kind === 'too_short' ? null : await waitForNewPersistedSession(page, openMicId);
@@ -1482,9 +1498,10 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                         const editedPressedAt = Date.now();
                         await startBenchmarkRecording(page, `${suite}-edited`);
                         const editedHold = await holdMeasuredLiveTake(page, editedMonitor, fixture.entry.speechSeconds + 10, { nodePressedAt: editedPressedAt });
-                        // #1897 review 2 (Sam): no generic Stop after a hold that reports a drop or a replacement.
+                        // #1897 review 2 (Sam): no Stop after a hold that reports a drop or a replacement; otherwise one atomic
+                        // check-and-click in the page, bound to this take (f2bb1ae HOLD).
                         const editedStop = await stopMeasuredTake(page, editedMonitor, editedHold,
-                            () => stopBenchmarkRecording(page, `${suite}-edited`, 180_000));
+                            () => confirmBenchmarkStopped(page, `${suite}-edited`, 180_000));
                         editedStopPressed = editedStop.pressed;
                         const editedOutcome: TakeOutcome = editedStop.pressed ? await awaitTakeOutcome(page, editedMonitor.token, 180_000) : { kind: 'unsettled' };
                         if (editedStop.pressed && editedOutcome.kind !== 'too_short') await waitForBenchmarkSaveCandidate(page, `${suite}-edited`, 180_000);

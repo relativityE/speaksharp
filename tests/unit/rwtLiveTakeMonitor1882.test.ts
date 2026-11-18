@@ -19,7 +19,7 @@ import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
 import {
     armTakeMonitor, awaitTakeOutcome, disposeTakeMonitor, holdMeasuredLiveTake, liveTakeVerdict, readTakeMonitor, savedTakeBinding,
     takeOutcomeOf, firstLiveEdge, firstBreakAfter, installTakeMonitor, readTakeMonitorInPage, disposeTakeMonitorInPage, takeEvidenceRows,
-    stopGuardVerdict, stopMeasuredTake,
+    stopGuardVerdict, stopMeasuredTake, guardedStopInPage, guardedStopClick, stopMonitoredTake,
     type MonitorSnapshot,
 } from '../live/helpers/rwtLiveTakeMonitor';
 
@@ -343,7 +343,8 @@ describe('#1882 — the Focus take is measured live, continuously, through the a
                 const hold = await holdMeasuredLiveTake(page, armed, LIVE_SECONDS, { nodePressedAt: pressedAt });
                 afterHold(app);
                 await vi.advanceTimersByTimeAsync(200); // one monitor tick sees the swap
-                const stop = await stopMeasuredTake(page, armed, hold, async () => { pressed += 1; app.stopButton.click(); });
+                // afterClick only confirms: the click itself is the page's own atomic check-and-click.
+                const stop = await stopMeasuredTake(page, armed, hold, async () => { pressed += 1; });
                 return { hold, stop };
             })());
             const snap = await readTakeMonitor(page, armed.token);
@@ -362,13 +363,16 @@ describe('#1882 — the Focus take is measured live, continuously, through the a
         const armed = await armTakeMonitor(page, 'held');
         app.press(500);
         let pressed = 0;
+        let stoppedWhenConfirmed: boolean | null = null;
         const stop = await run((async () => {
             const hold = await holdMeasuredLiveTake(page, armed, LIVE_SECONDS);
-            return stopMeasuredTake(page, armed, hold, async () => { pressed += 1; app.stopButton.click(); });
+            return stopMeasuredTake(page, armed, hold, async () => { pressed += 1; stoppedWhenConfirmed = app.stopped; });
         })());
         expect(stop).toEqual({ pressed: true, reason: 'held_and_live' });
         expect(pressed).toBe(1);
+        expect(stoppedWhenConfirmed).toBe(true); // confirmed only AFTER the page clicked Stop
         expect(app.stopped).toBe(true);
+        expect((await readTakeMonitor(page, armed.token))?.stops.map((x) => x.key)).toEqual(['take:2']);
     });
 
     it('#1897 review 2 — the stop guard, pure', () => {
@@ -497,5 +501,193 @@ describe('#1882 — the Focus take is measured live, continuously, through the a
         await takeEvidenceRows({ sink, name: 'y', snap: null, liveSeconds: LIVE_SECONDS, pressedAt: null, savedId: null,
             readRow: async () => null, readback: () => ({ verdict: 'PASS', reason: 'model' }) });
         expect(rows.map((x) => x.verdict)).toEqual(['HOLD', 'FAIL', 'FAIL']);
+    });
+});
+
+/**
+ * #1897 f2bb1ae HOLD (Sam, Nov 18): the final take check and the Stop click must be ONE page task, for all four takes.
+ * The forced race: a page whose next round trip after the last Node-side read swaps the live take for a replacement (the
+ * shell still reads live), exactly the gap between f2bb1ae's snapshot read and its separate Playwright Stop.
+ */
+describe('#1897 — Stop is one atomic check-and-click; a replacement take never receives it', () => {
+    beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-11-18T12:00:00Z')); });
+    afterEach(() => { vi.useRealTimers(); });
+
+    const replace = (a: ModelApp) => { a.debug = { lifecycleVersion: a.debug.lifecycleVersion + 7, sessionId: 'row-replacement' }; };
+    /** pageOf, plus a hook that runs right AFTER a chosen in-page function returns, or right BEFORE it runs. */
+    const hookedPage = (hook: { after?: (fn: unknown) => void; before?: (fn: unknown) => void }): Page => ({
+        evaluate: async <A, R>(fn: (arg: A) => R, arg: A) => { hook.before?.(fn); const r = fn(arg); hook.after?.(fn); return r; },
+        waitForTimeout: (ms: number) => new Promise<void>((r) => setTimeout(r, ms)),
+    } as unknown as Page);
+    const liveTake = async (app: ModelApp, page: Page, label: string) => {
+        const armed = await armTakeMonitor(page, label);
+        app.press(500);
+        const hold = await run(holdMeasuredLiveTake(page, armed, LIVE_SECONDS));
+        expect(hold.ended).toBe('held');
+        return { armed, hold };
+    };
+
+    it('FORCED RACE (measured takes): a replacement right after the last read gets ZERO clicks; nothing is confirmed or saved', async () => {
+        const app = new ModelApp();
+        let armRace = false;
+        const page = hookedPage({ after: (fn) => { if (armRace && fn === readTakeMonitorInPage) { armRace = false; replace(app); } } });
+        const { armed, hold } = await liveTake(app, page, 'race-measured');
+        armRace = true;
+        let confirmed = 0;
+        const stop = await run(stopMeasuredTake(page, armed, hold, async () => { confirmed += 1; }));
+        const snap = await readTakeMonitor(page, armed.token);
+        log('forced_race_measured', { stop, stops: snap?.stops.length });
+        expect(armRace).toBe(false); // the race really fired between the read and the click step
+        expect(stop).toEqual({ pressed: false, reason: 'take_replaced' });
+        expect(confirmed).toBe(0);
+        expect(app.stopped).toBe(false);
+        expect(snap?.stops).toEqual([]);
+    });
+
+    it('MECHANISM: f2bb1ae\'s read-then-separate-click, under the same forced race, stops the REPLACEMENT take', async () => {
+        const app = new ModelApp();
+        let armRace = false;
+        const page = hookedPage({ after: (fn) => { if (armRace && fn === readTakeMonitorInPage) { armRace = false; replace(app); } } });
+        const { armed, hold } = await liveTake(app, page, 'race-mechanism');
+        armRace = true;
+        // f2bb1ae verbatim in behaviour: guard on a snapshot, then await the generic Playwright Stop as a separate step.
+        const guard = stopGuardVerdict(hold, await readTakeMonitor(page, armed.token));
+        if (guard.pressed) await Promise.resolve().then(() => app.stopButton.click());
+        const snap = await readTakeMonitor(page, armed.token);
+        log('forced_race_mechanism', { guard, stopKey: snap?.stops[0]?.key, heldKey: hold.takeKey });
+        expect(guard.pressed).toBe(true);
+        expect(app.stopped).toBe(true);
+        expect(snap?.stops[0].key).not.toBe(hold.takeKey); // the click landed on the replacement
+    });
+
+    it('FORCED RACE (first Focus and Open Mic takes): a replacement just before the page task gets ZERO clicks', async () => {
+        for (const [name, swap, reason] of [
+            ['replaced', (a: ModelApp) => replace(a), 'take_replaced'],
+            // A drop and resume inside one task: the observer has not seen it, only the drained records show it.
+            ['dropped_and_resumed', (a: ModelApp) => { a.shell.setAttribute('data-session-state', 'before'); a.shell.setAttribute('data-session-state', 'during'); }, 'capture_dropped'],
+            ['ended', (a: ModelApp) => { a.shell.setAttribute('data-session-state', 'after'); }, 'capture_dropped'],
+        ] as const) {
+            const app = new ModelApp();
+            let armRace = false;
+            const page = hookedPage({ before: (fn) => { if (armRace && fn === guardedStopInPage) { armRace = false; swap(app); } } });
+            const armed = await armTakeMonitor(page, name);
+            app.press(500);
+            await vi.advanceTimersByTimeAsync(5_000);
+            armRace = true;
+            let confirmed = 0;
+            const stop = await run(stopMonitoredTake(page, armed, async () => { confirmed += 1; }));
+            const snap = await readTakeMonitor(page, armed.token);
+            log('forced_race_monitored', { name, stop, stops: snap?.stops.length });
+            expect(armRace).toBe(false);
+            expect(stop).toEqual({ pressed: false, reason });
+            expect(confirmed).toBe(0);
+            expect(app.stopped).toBe(false);
+            expect(snap?.stops).toEqual([]);
+        }
+    });
+
+    it('the same take, still live: exactly one click, on that take, and only then the confirmation', async () => {
+        const app = new ModelApp();
+        const page = pageOf();
+        const armed = await armTakeMonitor(page, 'first');
+        app.press(500);
+        await vi.advanceTimersByTimeAsync(5_000);
+        const order: string[] = [];
+        app.stopButton.addEventListener('click', () => order.push('click'));
+        const stop = await run(stopMonitoredTake(page, armed, async () => { order.push(`confirm:${app.stopped}`); }));
+        const snap = await readTakeMonitor(page, armed.token);
+        expect(stop).toEqual({ pressed: true, reason: 'held_and_live' });
+        expect(order).toEqual(['click', 'confirm:true']);
+        expect(snap?.stops.map((x) => [x.key, x.state])).toEqual([['take:2', 'during']]);
+    });
+
+    it('zero-click controls: never live, a second Stop, a wrong key, a foreign token, an unreadable page', async () => {
+        // Never live.
+        let app = new ModelApp();
+        let page = pageOf();
+        let armed = await armTakeMonitor(page, 'never');
+        app.press(null);
+        expect(await run(guardedStopClick(page, armed, null))).toEqual({ pressed: false, reason: 'capture_never_live' });
+        expect(app.stopped).toBe(false);
+        // A Stop already pressed on this take (the app ignored it): never a second press.
+        app = new ModelApp();
+        page = pageOf();
+        armed = await armTakeMonitor(page, 'twice');
+        app.press(0);
+        await vi.advanceTimersByTimeAsync(1_000);
+        app.stopped = true;
+        app.stopButton.click();
+        let clicks = 0;
+        app.stopButton.addEventListener('click', () => { clicks += 1; });
+        expect(await run(guardedStopClick(page, armed, null))).toEqual({ pressed: false, reason: 'already_stopped' });
+        expect(clicks).toBe(0);
+        // The held take's key is not the take that went live.
+        app = new ModelApp();
+        page = pageOf();
+        armed = await armTakeMonitor(page, 'key');
+        app.press(0);
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(await run(guardedStopClick(page, armed, 'take:99'))).toEqual({ pressed: false, reason: 'take_replaced' });
+        expect(app.stopped).toBe(false);
+        // A foreign token, a disposed monitor, a missing monitor: nothing to bind, nothing clicked.
+        expect(guardedStopInPage({ token: 'other', expectedKey: null })).toEqual({ clicked: false, reason: 'monitor_unreadable' });
+        await disposeTakeMonitor(page, armed.token);
+        expect(guardedStopInPage({ token: armed.token, expectedKey: null })).toEqual({ clicked: false, reason: 'monitor_unreadable' });
+        delete (window as unknown as Record<string, unknown>).__SS_LIVE_TAKE_MONITOR__;
+        expect(guardedStopInPage({ token: armed.token, expectedKey: null })).toEqual({ clicked: false, reason: 'monitor_unreadable' });
+        expect(app.stopped).toBe(false);
+        // An unreadable page or an unknown page answer is never a press.
+        const broken = { evaluate: async () => { throw new Error('detached'); }, waitForTimeout: async () => undefined } as unknown as Page;
+        expect(await guardedStopClick(broken, { ...armed, ok: true }, null)).toEqual({ pressed: false, reason: 'monitor_unreadable' });
+        const odd = { evaluate: async () => ({ clicked: true, reason: 'surprise' }), waitForTimeout: async () => undefined } as unknown as Page;
+        expect(await guardedStopClick(odd, { ...armed, ok: true }, null)).toEqual({ pressed: false, reason: 'monitor_unreadable' });
+        expect(await guardedStopClick(pageOf(), { ...armed, ok: false }, null)).toEqual({ pressed: false, reason: 'monitor_unreadable' });
+        let confirmed = 0;
+        expect(await stopMonitoredTake(pageOf(), { ...armed, ok: false }, async () => { confirmed += 1; })).toEqual({ pressed: false, reason: 'monitor_unreadable' });
+        expect(confirmed).toBe(0);
+    });
+
+    it('Stop disabled: retried as fresh atomic checks only while disabled; never clicked disabled; times out with zero clicks', async () => {
+        let app = new ModelApp();
+        let page = pageOf();
+        let armed = await armTakeMonitor(page, 'disabled');
+        app.press(0);
+        await vi.advanceTimersByTimeAsync(1_000);
+        app.stopButton.disabled = true;
+        expect(await run(guardedStopClick(page, armed, null, { enabledTimeoutMs: 1_000 }), 5_000)).toEqual({ pressed: false, reason: 'stop_unavailable' });
+        expect(app.stopped).toBe(false);
+        expect((await readTakeMonitor(page, armed.token))?.stops).toEqual([]);
+        // Enabled after 600 ms: one click, on the same take.
+        app = new ModelApp();
+        page = pageOf();
+        armed = await armTakeMonitor(page, 'enabled-later');
+        app.press(0);
+        await vi.advanceTimersByTimeAsync(1_000);
+        app.stopButton.disabled = true;
+        setTimeout(() => { app.stopButton.disabled = false; }, 600);
+        expect(await run(guardedStopClick(page, armed, 'take:2', { enabledTimeoutMs: 2_000 }), 5_000)).toEqual({ pressed: true, reason: 'held_and_live' });
+        expect((await readTakeMonitor(page, armed.token))?.stops.map((x) => x.key)).toEqual(['take:2']);
+        // Replaced while Stop was disabled: the retry re-checks and clicks nothing.
+        app = new ModelApp();
+        page = pageOf();
+        armed = await armTakeMonitor(page, 'replaced-while-disabled');
+        app.press(0);
+        await vi.advanceTimersByTimeAsync(1_000);
+        app.stopButton.disabled = true;
+        setTimeout(() => { replace(app); app.stopButton.disabled = false; }, 300);
+        expect(await run(guardedStopClick(page, armed, 'take:2', { enabledTimeoutMs: 2_000 }), 5_000)).toEqual({ pressed: false, reason: 'take_replaced' });
+        expect(app.stopped).toBe(false);
+        // aria-disabled counts as disabled too.
+        app = new ModelApp();
+        page = pageOf();
+        armed = await armTakeMonitor(page, 'aria');
+        app.press(0);
+        await vi.advanceTimersByTimeAsync(1_000);
+        app.stopButton.setAttribute('aria-disabled', 'true');
+        expect(await run(guardedStopClick(page, armed, null, { enabledTimeoutMs: 300 }), 2_000)).toEqual({ pressed: false, reason: 'stop_unavailable' });
+        expect(app.stopped).toBe(false);
+        // No Stop on the page at all.
+        app.stopButton.remove();
+        expect(await run(guardedStopClick(page, armed, null, { enabledTimeoutMs: 300 }), 2_000)).toEqual({ pressed: false, reason: 'stop_unavailable' });
     });
 });

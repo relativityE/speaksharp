@@ -61,20 +61,53 @@ describe('#1882 — every Focus take is measured live through its own Stop', () 
         for (const [take, at, name, v] of [[switchTake, switchStop, 'switch-focus', 'switchStop'], [editedTake, editedStop, 'edited', 'editedStop']] as const) {
             const held = take.slice(0, at);
             const after = take.slice(at);
-            // The ONLY Stop is the guarded one, through the take's own Stop step; never a bare press after the hold.
+            // The ONLY Stop is the guarded atomic one (#1897 f2bb1ae HOLD); the take's own step only confirms it afterwards.
             expect(held).not.toContain('stopBenchmarkRecording(');
-            expect(after.split('stopBenchmarkRecording(').length - 1).toBe(1);
-            expect(after).toContain('() => stopBenchmarkRecording(page, `${suite}-' + name + '`, 180_000));');
+            expect(after).not.toContain('stopBenchmarkRecording(');
+            expect(after.split('confirmBenchmarkStopped(').length - 1).toBe(1);
+            expect(after).toContain('() => confirmBenchmarkStopped(page, `${suite}-' + name + '`, 180_000));');
             expect(after).toContain(`Outcome: TakeOutcome = ${v}.pressed ? await awaitTakeOutcome(`);
             expect(after).toMatch(new RegExp(`if \\(${v}\\.pressed && \\w+Outcome\\.kind !== 'too_short'\\) await waitForBenchmarkSaveCandidate\\(`));
             expect(after).toMatch(new RegExp(`= !${v}\\.pressed \\|\\| \\w+Outcome\\.kind === 'too_short' \\? null : await waitForNewPersistedSession\\(`));
         }
     });
 
+    it('#1897 f2bb1ae HOLD: no take in the journey uses the generic Playwright Stop; all four use the atomic check-and-click', () => {
+        // The generic helper (a separate Playwright click after a separate check) is neither imported nor called.
+        expect(src).not.toMatch(/\bstopBenchmarkRecording\b/);
+        expect(src).not.toMatch(/getByTestId\(['"`]recorder-stop['"`]\)\.click\(|RECORDER_STOP/);
+        expect(src.split('await stopMeasuredTake(page, ').length - 1).toBe(2); // switch and edited takes
+        expect(src.split('await stopMonitoredTake(page, ').length - 1).toBe(2); // first Focus and Open Mic takes
+        expect(src.split('confirmBenchmarkStopped(page, ').length - 1).toBe(4);
+    });
+
+    it('#1897 f2bb1ae HOLD: the first Focus take stops only through its own monitor, and a refused Stop ends the journey', () => {
+        const stopAt = firstTake.indexOf('await stopMonitoredTake(page, firstMonitor, () => confirmBenchmarkStopped(page, suite, 180_000))');
+        expect(stopAt).toBeGreaterThan(0);
+        const after = firstTake.slice(stopAt);
+        expect(after).toMatch(/if \(!firstStop\.pressed\) \{\n\s*if \(firstMonitor\) await measuredTakeRows\('Focus first take', firstMonitor, fixture\.entry\.speechSeconds, firstPressedAt, null\);\n\s*throw new Error\(`FOCUS_JOURNEY:first_take_not_stopped_\$\{firstStop\.reason\}`\);/);
+        const refused = after.indexOf('throw new Error(`FOCUS_JOURNEY:first_take_not_stopped_');
+        expect(refused).toBeGreaterThan(0);
+        expect(refused).toBeLessThan(after.indexOf('await awaitTakeOutcome(page, firstMonitor.token'));
+    });
+
+    it('#1897 f2bb1ae HOLD: the Open Mic source take is armed before its press and stops only through that monitor', () => {
+        const take = between('const openMicMonitor = await armTakeMonitor(page, `${suite}-switch-openmic`);', 'const openMicId = await waitForNewPersistedSession(page, before);');
+        expect(take.length).toBeGreaterThan(0);
+        expect(take.indexOf('await startBenchmarkRecording(page, `${suite}-switch-openmic`);')).toBeGreaterThan(0);
+        const stopAt = take.indexOf('const openMicStop = await stopMonitoredTake(page, openMicMonitor,');
+        expect(stopAt).toBeGreaterThan(take.indexOf('await startBenchmarkRecording(page, `${suite}-switch-openmic`);'));
+        expect(take.slice(stopAt)).toContain('() => confirmBenchmarkStopped(page, `${suite}-switch-openmic`, 180_000));');
+        // A refused Stop never waits for a save candidate.
+        const refused = take.indexOf('if (!openMicStop.pressed) throw new Error(`FOCUS_JOURNEY:open_mic_take_not_stopped_${openMicStop.reason}`);');
+        expect(refused).toBeGreaterThan(stopAt);
+        expect(refused).toBeLessThan(take.indexOf('await waitForBenchmarkSaveCandidate(page, `${suite}-switch-openmic`, 180_000);'));
+    });
+
     it('the first take: armed before anything that may press Start, and measured for the whole spoken fixture', () => {
         expect(firstTake.indexOf('await selectBenchmarkMode(page, \'private\');')).toBeGreaterThan(0);
         expect(firstTake).toMatch(/firstPressedAt = Date\.now\(\);\n\s*await startBenchmarkRecording\(page, suite\);/);
-        expect(firstTake).toMatch(/await awaitTakeOutcome\(page, firstTakeMonitor\.token, 180_000\)/);
+        expect(firstTake).toMatch(/await awaitTakeOutcome\(page, firstMonitor\.token, 180_000\)/);
         expect(firstTake).toMatch(/await measuredTakeRows\('Focus first take', firstTakeMonitor, fixture\.entry\.speechSeconds, firstPressedAt, persistedId\)/);
     });
 

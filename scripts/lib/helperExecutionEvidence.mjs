@@ -185,7 +185,7 @@ export const HELPER_CONTRACTS = Object.freeze([{
 }, {
   // #1882 live timing (Nov 18): the take measured live on the page through the actual Stop, bound to its saved row.
   helperFile:'tests/live/helpers/rwtLiveTakeMonitor.ts',testFile:'tests/unit/rwtLiveTakeMonitor1882.test.ts',
-  callables:["installTakeMonitor","readTakeMonitorInPage","disposeTakeMonitorInPage","armTakeMonitor","readTakeMonitor","disposeTakeMonitor","firstLiveEdge","firstBreakAfter","holdMeasuredLiveTake","stopGuardVerdict","stopMeasuredTake","awaitTakeOutcome","takeOutcomeOf","liveTakeVerdict","savedTakeBinding","takeEvidenceRows"],
+  callables:["installTakeMonitor","readTakeMonitorInPage","disposeTakeMonitorInPage","armTakeMonitor","readTakeMonitor","disposeTakeMonitor","firstLiveEdge","firstBreakAfter","holdMeasuredLiveTake","stopGuardVerdict","guardedStopInPage","guardedStopClick","stopMeasuredTake","stopMonitoredTake","awaitTakeOutcome","takeOutcomeOf","liveTakeVerdict","savedTakeBinding","takeEvidenceRows"],
 }, {
   // #1882 on the post-#1835 build: the run's consent settled before any take, and each saved take read back against it.
   helperFile:'tests/live/helpers/rwtPracticeConsent.ts',testFile:'tests/unit/rwtPracticeConsent1882.test.ts',
