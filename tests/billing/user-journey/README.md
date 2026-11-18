@@ -235,6 +235,12 @@ What each branch must prove before it may say so (Sam's fa7e7180 return):
   they check the other journeys.
 - The stack-identity list captured right after `supabase start` is kept as `billing-local-stack-identity.json` and
   uploaded with the receipts (Sam's 6cd45e76 review). The destruction proof (`billing-local-stack-destroyed/v2`)
-  names it by a canonical sha256, and the combined receipt (`billing-local-stack-combined/v3`) carries the same
+  names it by a canonical sha256, and the combined receipt (`billing-local-stack-combined/v4`) carries the same
   digest. A missing, foreign or edited list, or a proof whose digest, database or counts disagree with it, is
   `NOT_PROVEN`.
+- The run's test account on the disposable stack (PO + Sam, 18 Nov; runs 44316016932, 44358400794): no Auth delete runs
+  there, because the Stripe listener can forward writes into the account during cleanup that the test can neither stop nor
+  observe. The raw receipt says `accountRemoval: AUTH_DELETE_NOT_RUN_REQUIRES_STACK_DESTRUCTION` (local stack only; the
+  hosted/shared raw receipt is unchanged), and the combined receipt reports `testAccount: REMOVED_BY_VERIFIED_STACK_DESTRUCTION`
+  only with this exact run's destruction proof, plus `authDelete: NOT_RUN`. That proves no test-account residue, not that a
+  customer can delete their account (a separate test). The in-test Stripe fixture cleanup is unchanged.

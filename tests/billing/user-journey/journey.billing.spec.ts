@@ -11,7 +11,7 @@ import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, re
   assertFullRefund, isRefundCancellation, assertCheckoutGrantedNothing,
   checkoutSessionFromUrl, assertCheckoutIdentity, newlyAddedCard, assertNoSecondCharge,
   type RunnerJourney, type BillingEvent, hostedFieldUnavailable, hostedEmailDecision, type HostedField,
-  HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl,
+  HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl, cleanupFailureCode, proveStripeFixtureDeleted,
   observeCaptureLive, holdThenStop, APP_TOO_SHORT_STATUS, WATCH_INSTALL_SCRIPT, takeStatusScript, stopGateScript, pageScript, takeOutcome,
   type StopGateResult, privacyBuildState, PRIVACY_PROMPT, optInThroughPrompt, type PrivacyTableRead } from './contract';
 import { fillHostedEmail } from './hostedEmail';
@@ -822,22 +822,22 @@ class SandboxJourney {
     let stripeClean = !this.clock && !this.customer;
     let stripeFailed = false;
     let accountFailed = false;
+    // Run 44302168905: the first failure is named by a fixed code (cleanupFailureCode), never its message.
+    let failure: string | null = null;
+    const note = (code: string) => { failure ??= code; this.checkpoint(`cleanup_failed_${code}`.slice(0, 64)); };
     try {
-      if (this.clock) {
-        const deleted = await this.stripe(`test_helpers/test_clocks/${this.clock}`, 'DELETE');
-        requireFact(deleted.deleted === true && deleted.id === this.clock, 'clock_cleanup_not_proven');
-        stripeClean = true;
-        if (this.customer) {
-          const customer = await this.stripe(`customers/${this.customer}`);
-          requireFact(customer.deleted === true, 'customer_cleanup_not_proven');
-        }
-      }
-    } catch { stripeFailed = true; }
+      stripeClean = await proveStripeFixtureDeleted((path, method) => this.stripe(path, method), { clock: this.clock || null, customer: this.customer || null });
+    } catch (error) { stripeFailed = true; note(cleanupFailureCode('stripe', error)); }
+    // PO + Sam, 18 Nov (runs 44316016932, 44358400794): on the disposable local stack the run's account exists only in that
+    // run's database, which the workflow destroys and proves destroyed (the same proof that covers the billing rows). The Stripe
+    // listener can forward writes into the account during cleanup that the test can neither stop nor observe, so no Auth delete
+    // runs here. The receipt says so (accountRemoval) and the finalizer requires the destruction proof for this exact run.
+    // Any non-local target keeps the in-test delete unchanged. This proves no test-account residue, not customer deletion.
     // Shared cleanup checks auth/profile/session residue and exact fixture ownership.
     try {
-      if (this.signupAttempted) await cleanupRunOwnedAccount({ admin: this.admin as never,
+      if (this.signupAttempted && !useLocalStack) await cleanupRunOwnedAccount({ admin: this.admin as never,
         capturedUid: this.uid, createdEmail: this.email, runOwnedPrefix: 'rwt-journey-billing-' });
-    } catch { accountFailed = true; }
+    } catch (error) { accountFailed = true; note(cleanupFailureCode('account', error)); }
     // Billing lifecycle records do not cascade with auth deletion. Missing permissions/counts are
     // NOT zero. A reviewed sandbox cleanup path must settle and remove these fixtures without
     // bypassing the account-deletion/save-obligation guards before cleanup can ever be qualified.
@@ -851,7 +851,10 @@ class SandboxJourney {
         if (readback.error || readback.count !== 0) accountFailed = true;
       }
     }
-    requireFact(!stripeFailed && !accountFailed && stripeClean && !this.uncertainStripeCreate, 'cleanup_unproven');
+    if (!failure && !stripeClean) note('stripe_cleanup_not_attempted');
+    if (!failure && this.uncertainStripeCreate) note('stripe_cleanup_uncertain_create');
+    if (!failure && (stripeFailed || accountFailed)) note('cleanup_unproven');
+    requireFact(!stripeFailed && !accountFailed && stripeClean && !this.uncertainStripeCreate, failure ?? 'cleanup_unproven');
     this.steps.add('cleanup');
   }
 }
@@ -868,7 +871,7 @@ function journeyTest(journey: RunnerJourney): void {
     try { run = new SandboxJourney(journey, page); await run.run(); }
     catch (error) { failed = true; reason = safeFailureReason(error); }
     finally {
-      if (run) { try { await run.cleanup(); } catch { cleanupFailed = true; } }
+      if (run) { try { await run.cleanup(); } catch (error) { cleanupFailed = true; reason ??= safeFailureReason(error); } }
       const result = receipt(journey, run?.steps ?? new Set());
       // On the local stack the receipt never says PASSED/VERIFIED by itself; the workflow finalises it only
       // after the checked teardown and destruction proof (localStackReceipt.mjs).
@@ -881,6 +884,9 @@ function journeyTest(journey: RunnerJourney): void {
         cleanup: status.cleanup,
         // Never reported as checked on the local stack; only the workflow's destruction proof covers them.
         billingRowResidue: useLocalStack ? 'NOT_READ_REQUIRES_STACK_DESTRUCTION_PROOF' : 'COUNTED_ZERO_OR_FAILED',
+        // The run's account: removed by the verified stack destruction on the local stack (no Auth delete), else by the in-test delete.
+        // Local stack only, so the hosted/shared raw receipt (billing-user-journey/v1) keeps its exact shape.
+        ...(useLocalStack ? { accountRemoval: 'AUTH_DELETE_NOT_RUN_REQUIRES_STACK_DESTRUCTION' } : {}),
         testedRelease: env.BILLING_SANDBOX_RELEASE_SHA?.match(/^[a-f0-9]{40}$/)?.[0] ?? null,
         // Binds this receipt to this run's disposable stack; the finalizer refuses any other run's receipt.
         stackRun: useLocalStack ? env.LOCAL_STACK_PROJECT?.match(/^billing-local-stack-[0-9]{1,20}-[0-9]{1,6}$/)?.[0] ?? null : null,

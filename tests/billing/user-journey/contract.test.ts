@@ -195,7 +195,7 @@ const STACK_RUN = 'billing-local-stack-123456-1';
 const pendingReceipt = { schema: 'billing-user-journey/v1', journey: 'conversion', stripeMode: 'test',
   result: 'PENDING_STACK_DESTRUCTION', steps: REQUIRED_STEPS.conversion.map(step => ({ step, result: 'PASSED' })),
   failureStage: null, reason: null, cleanup: 'PENDING_STACK_DESTRUCTION',
-  billingRowResidue: 'NOT_READ_REQUIRES_STACK_DESTRUCTION_PROOF', testedRelease: RELEASE, stackRun: STACK_RUN };
+  accountRemoval: 'AUTH_DELETE_NOT_RUN_REQUIRES_STACK_DESTRUCTION', billingRowResidue: 'NOT_READ_REQUIRES_STACK_DESTRUCTION_PROOF', testedRelease: RELEASE, stackRun: STACK_RUN };
 const allChecks = { stackStopped: 'success', stackDestroyed: 'success', stripeClean: 'success' };
 const identityFor = (stackRun: string) => ({ schema: 'billing-local-stack-identity/v1', project: stackRun,
   database: { container: 'c_db', volume: `supabase_db_${stackRun}`, systemIdentifier: '7300000000000000001' },
@@ -223,8 +223,11 @@ test('the receipt the spec writes has exactly the shape the finalizer requires',
   const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
   const attached = spec.slice(spec.indexOf("info.attach('billing-user-journey.json'"), spec.indexOf("contentType: 'application/json'"));
   const added = [...attached.matchAll(/^ {8}([a-zA-Z]+)[:,]/gm)].map(m => m[1]);
+  // The local-stack-only field (the finalizer only ever reads local-stack receipts); hosted/shared receipts omit it.
+  const localOnly = [...attached.matchAll(/^ {8}\.\.\.\(useLocalStack \? \{ ([a-zA-Z]+):/gm)].map(m => m[1]);
+  assert.deepEqual(localOnly, ['accountRemoval']);
   // receipt() supplies schema, journey, stripeMode, result and steps; the attach adds the rest.
-  const written = new Set([...Object.keys(receipt('conversion', new Set())), ...added]);
+  const written = new Set([...Object.keys(receipt('conversion', new Set())), ...added, ...localOnly]);
   assert.deepEqual([...written].sort(), [...RECEIPT_KEYS]);
 });
 
@@ -933,4 +936,43 @@ test('consent, #1835 build: a recorded choice is never rewritten — zero clicks
     await assert.rejects(optInThroughPrompt(f.deps), code);
     assert.ok(!f.log.some(l => l.startsWith('click') || l === 'wait'), JSON.stringify(r));
   }
+});
+
+test('(PO + Sam, 18 Nov) the local test account is removed only by this run\'s verified stack destruction; no Auth delete is claimed', () => {
+  const passed = finaliseLocalStackReceipt([pendingReceipt], allChecks, finaliserExpected);
+  assert.equal(passed.result, 'PASSED', JSON.stringify(passed.defects));
+  assert.equal(passed.testAccount, 'REMOVED_BY_VERIFIED_STACK_DESTRUCTION');
+  assert.equal(passed.authDelete, 'NOT_RUN');
+  // The account is never "removed" without the destruction proof for this exact stack and identity list.
+  for (const [checks, expected] of [[{ ...allChecks, stackDestroyed: 'failure' }, finaliserExpected],
+    [allChecks, { ...finaliserExpected, destruction: undefined }],
+    [allChecks, { ...finaliserExpected, destruction: destroyedFor('billing-local-stack-1-1') }],
+    [allChecks, { ...finaliserExpected, identity: identityFor('billing-local-stack-1-1') }]] as const) {
+    const combined = finaliseLocalStackReceipt([pendingReceipt], checks, expected);
+    assert.equal(combined.testAccount, 'NOT_PROVEN');
+    assert.equal(combined.result, 'NOT_PROVEN');
+  }
+  // A receipt that claims an Auth delete, omits the field or forges another value is refused, even with a valid destruction.
+  for (const accountRemoval of ['AUTH_DELETED', 'NOT_PROVEN', 'REMOVED_BY_VERIFIED_STACK_DESTRUCTION', undefined]) {
+    const forged = { ...pendingReceipt, accountRemoval } as Record<string, unknown>;
+    if (accountRemoval === undefined) delete forged.accountRemoval;
+    const combined = finaliseLocalStackReceipt([forged], allChecks, finaliserExpected);
+    assert.equal(combined.result, 'NOT_PROVEN', String(accountRemoval));
+    assert.equal(combined.testAccount, 'NOT_PROVEN', String(accountRemoval));
+  }
+});
+
+test('(PO + Sam, 18 Nov) on the local stack neither journey spec calls the Auth delete; any other target still does', () => {
+  for (const file of ['tests/billing/user-journey/journey.billing.spec.ts', 'tests/billing/user-journey/paid-value-loop.billing.spec.ts']) {
+    const text = readFileSync(file, 'utf8');
+    const calls = text.split('await cleanupRunOwnedAccount(').length - 1;
+    assert.equal(calls, 1, `${file}: one delete path`);
+    assert.match(text, /if \(this\.signupAttempted && !useLocalStack\) await cleanupRunOwnedAccount\(/, file);
+    // Only the disposable raw receipt carries it; the hosted/shared raw receipt keeps its exact v1 shape (Sam on 62b022a4).
+    assert.match(text, /\.\.\.\(useLocalStack \? \{ accountRemoval: 'AUTH_DELETE_NOT_RUN_REQUIRES_STACK_DESTRUCTION' \} : \{\}\),/, file);
+  }
+  // The in-test Stripe fixture cleanup is unchanged and still gates the cleanup step.
+  const conversion = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
+  assert.match(conversion, /stripeClean = await proveStripeFixtureDeleted\(/);
+  assert.match(conversion, /requireFact\(!stripeFailed && !accountFailed && stripeClean && !this\.uncertainStripeCreate, failure \?\? 'cleanup_unproven'\);/);
 });

@@ -209,6 +209,7 @@ test('(c) the finalizer CLI binds the combined result to the raw receipt file, a
     const full = { schema: 'billing-user-journey/v1', journey: 'conversion', stripeMode: 'test', result: 'PENDING_STACK_DESTRUCTION',
       steps: REQUIRED_STEPS.conversion.map(s => ({ step: s, result: 'PASSED' })), failureStage: null, reason: null,
       cleanup: 'PENDING_STACK_DESTRUCTION', billingRowResidue: 'NOT_READ_REQUIRES_STACK_DESTRUCTION_PROOF',
+      accountRemoval: 'AUTH_DELETE_NOT_RUN_REQUIRES_STACK_DESTRUCTION',
       testedRelease: release, stackRun: project };
     const identity = { schema: 'billing-local-stack-identity/v1', project,
       database: { container: 'c_db', volume: `supabase_db_${project}`, systemIdentifier: '1' },
@@ -239,5 +240,50 @@ test('(c) the finalizer CLI binds the combined result to the raw receipt file, a
     const edited = finalise([full]);
     assert.equal(edited.status, 1);
     assert.ok(JSON.parse(edited.stdout).defects.includes('destruction_identity_mismatch'));
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('(#1898, Sam on 62b022a4) no Auth-refusal witness runs in this workflow and no owner binding is written', () => {
+  // Local Auth delete is deliberately NOT RUN, so the witness has no legitimate trigger here and keeps no privileged access.
+  assert.equal(job.steps.some(s => s.id === 'cleanup_witness' || /Auth-refused cleanup/.test(s.name ?? '')), false);
+  assert.doesNotMatch(workflowText, /localStackResources\.mjs witness|BILLING_OWNER_BINDING_FILE|billing-owner-binding/);
+  for (const file of ['tests/billing/user-journey/journey.billing.spec.ts', 'tests/billing/user-journey/paid-value-loop.billing.spec.ts']) {
+    assert.doesNotMatch(readFileSync(file, 'utf8'), /ownerBindingRecord|BILLING_OWNER_BINDING_FILE/, file);
+  }
+});
+
+test('(run 44312735386) a failed stack start prints each container\'s sampled health; inspect environment never leaves', () => {
+  const start = step('stack_start');
+  const run = start.run ?? '';
+  const from = run.indexOf('health_log=');
+  const to = run.indexOf('echo "Stack started;');
+  assert.ok(from > 0 && to > from, 'sampler block present');
+  const block = run.slice(from, run.indexOf('\n', to) + 1);
+  const dir = mkdtempSync(join(tmpdir(), 'start-health-'));
+  try {
+    const inspect = JSON.stringify([{ Name: '/supabase_edge_runtime_billing-local-stack-1-1', Config: { Env: ['JWT_SECRET=topsecret-value'] },
+      State: { Status: 'running', ExitCode: 0, OOMKilled: false, Health: { Status: 'starting', FailingStreak: 3,
+        Log: [{ ExitCode: 1, Output: 'old' }, { ExitCode: 7, Output: 'curl: (7) http://user:PROBE-CANARY-printable@host/x' }] } } }]);
+    writeFileSync(join(dir, 'inspect.json'), inspect);
+    writeFileSync(join(dir, 'docker'), `#!/bin/sh\ncase "$1" in ps) echo c_edge ;; inspect) cat "${dir}/inspect.json" ;; esac\n`, { mode: 0o755 });
+    const runStart = (exitCode: number) => {
+      writeFileSync(join(dir, 'supabase'), `#!/bin/sh\nsleep 4\nexit ${exitCode}\n`, { mode: 0o755 });
+      return spawnSync('bash', ['-c', `set -euo pipefail\n${block}`], { cwd: dir, encoding: 'utf8',
+        env: { PATH: `${dir}:${process.env.PATH}`, LOCAL_STACK_PROJECT: 'billing-local-stack-1-1', RUNNER_TEMP: dir, SUPABASE_WORKDIR: 'backend' } });
+    };
+    const failed = runStart(1);
+    assert.equal(failed.status, 1, failed.stderr);
+    const sample = failed.stdout.split('\n').find(line => line.startsWith('{')) ?? '';
+    assert.deepEqual(JSON.parse(sample).name, 'supabase_edge_runtime_billing-local-stack-1-1');
+    assert.deepEqual({ ...JSON.parse(sample), t: 'T' }, { t: 'T', name: 'supabase_edge_runtime_billing-local-stack-1-1', state: 'running', exit: 0,
+      oom: false, health: 'starting', failing: 3, probe_exit: 7 });
+    assert.ok(!failed.stdout.includes('topsecret') && !failed.stdout.includes('JWT_SECRET'), 'inspect environment leaked');
+    assert.ok(!failed.stdout.includes('PROBE-CANARY') && !failed.stdout.includes('curl'), 'probe output leaked');
+    assert.doesNotMatch(run, /\.Output/);
+    assert.match(failed.stdout, /::error::The disposable stack did not start \(supabase start exit 1\)/);
+    const started = runStart(0);
+    assert.equal(started.status, 0, started.stderr);
+    assert.doesNotMatch(started.stdout, /\{"t"/);
+    assert.match(started.stdout, /Stack started; [0-9]+ container health samples recorded/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

@@ -3,7 +3,7 @@ export declare const RECEIPT_KEYS: readonly string[];
 export interface LocalStackChecks { stackStopped?: string; stackDestroyed?: string; stripeClean?: string }
 export interface LocalStackExpected { journey?: string; release?: string; stackRun?: string; receiptSha256?: string; destruction?: unknown; identity?: unknown }
 export interface CombinedLocalStackReceipt {
-  schema: 'billing-local-stack-combined/v3';
+  schema: 'billing-local-stack-combined/v4';
   journey: string | null;
   release: string | null;
   stackRun: string | null;
@@ -14,6 +14,8 @@ export interface CombinedLocalStackReceipt {
   stackDestroyed: 'PASSED' | 'NOT_PROVEN';
   stripeFixturesRemoved: 'PASSED' | 'NOT_PROVEN';
   billingRowResidue: 'NOT_READ_DATABASE_DESTROYED' | 'NOT_READ_NOT_PROVEN';
+  testAccount: 'REMOVED_BY_VERIFIED_STACK_DESTRUCTION' | 'NOT_PROVEN';
+  authDelete: 'NOT_RUN';
   defects: string[];
   result: 'PASSED' | 'NOT_PROVEN';
 }
