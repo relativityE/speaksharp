@@ -14,6 +14,10 @@ import { authEpoch, setCurrentLogin } from '@/services/loginSessionLog';
 import { clearOpenAttempt, getOpenAttemptForUser, setOpenAttempt } from '@/services/progress/openAttempt';
 import { progressOutcomeAllowsNextRecording, wireProgressEvaluationOnSave } from '@/services/progress/recordProgress';
 import { validateDisplayedTarget } from '@/services/progress/repeatPracticeTarget';
+import { grantPracticePrivacy } from '../../../tests/test-utils/practicePrivacy';
+
+// #1835: these suites cover the coaching / transcript path as it runs once the owner has opted in.
+beforeEach(() => { grantPracticePrivacy(); });
 
 /** #1538 Codex P1 r4118176188: every coaching request declares the closed capability. */
 const ACCEPTED_COACHING_VERSIONS = ['gemini_coaching_v1', 'gemini_coaching_focus_v1'];

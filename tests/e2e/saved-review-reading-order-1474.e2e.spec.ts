@@ -94,7 +94,7 @@ function expectIsolated(isolation: Isolation) {
 
 /** A saved Open Mic take whose review is answered once, on localhost, with the longest pair. */
 async function recordSavedTake(page: Page): Promise<void> {
-    await programmaticLoginWithRoutes(page, { userType: 'pro' });
+    await programmaticLoginWithRoutes(page, { userType: 'pro', practicePrivacy: { transcriptSave: true, aiCoaching: true } });
     await navigateToRoute(page, '/session');
     await page.waitForFunction(() => Boolean((window as unknown as { supabase?: unknown }).supabase));
     await page.evaluate((pair) => {

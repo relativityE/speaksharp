@@ -1,6 +1,7 @@
 import { render, screen } from '../../../../tests/support/test-utils';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SessionOverhaulView, type SessionOverhaulViewProps } from '../SessionOverhaulView';
+import { StatusNotificationBar } from '../StatusNotificationBar';
 import type { SttStatus } from '@/types/transcription';
 import { useSessionStore } from '@/stores/useSessionStore';
 
@@ -236,8 +237,8 @@ describe('#1466 Practice Loop reveal — stopped while scrolled down', () => {
 });
 
 // #1258 RWT (PM: VALID P2) — a Stop tapped during a phone fling: the momentum carried the page past the one reveal.
-// The reveal now arms a bounded re-check. These pin its bounds: a correction each time scrolling comes to rest away from
-// the top (a fling can pause and resume), at most 3; it ends at rest-at-top, at the person's own input, or after 3 s.
+// The bounded re-check corrects an obscured confirmation after a quiet gap (a fling can resume),
+// at most 3 times. Deliberate input or the 3 s deadline ends the check.
 describe('#1258 Practice Loop reveal — momentum after the reveal (bounded re-check)', () => {
     let y = 0;
     let scrollTo: ReturnType<typeof vi.spyOn>;
@@ -287,6 +288,29 @@ describe('#1258 Practice Loop reveal — momentum after the reveal (bounded re-c
         vi.advanceTimersByTime(150);
         expect(scrollTo).toHaveBeenCalledTimes(3);
         expect(y).toBe(0);
+    });
+
+    it('CASUALTY: a tiny rebound with the saved confirmation still visible does not spend the final correction', () => {
+        render(<>
+            <StatusNotificationBar status={{ type: 'ready', message: 'Session saved.' }} analyticsAction={{}} />
+            <SessionOverhaulView {...base} showAnalyticsPrompt practiceLoopReview={REVIEW_STATES[0][1]} />
+        </>);
+        const confirmation = screen.getByTestId('live-session-header');
+        vi.spyOn(confirmation, 'getBoundingClientRect').mockImplementation(() => new DOMRect(0, 80 - y, 375, 54));
+        expect(scrollTo).toHaveBeenCalledTimes(1);
+
+        // A short review clamps at its bottom (y=225), causing apparent rest while momentum continues.
+        // After two real corrections there is a tiny rebound (y=11), then the final resumed drift.
+        for (const offset of [225, 225, 11]) {
+            momentum(offset);
+            vi.advanceTimersByTime(310);
+        }
+        momentum(225);
+        vi.advanceTimersByTime(149);
+        expect(y).toBe(225);
+        vi.advanceTimersByTime(1);
+        expect(y).toBe(0);
+        expect(scrollTo).toHaveBeenCalledTimes(4); // initial reveal + three obscured positions
     });
 
     it('CONTROL: never a loop — at most 3 corrections even if the page keeps drifting', () => {

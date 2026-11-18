@@ -165,7 +165,7 @@ async function expectIsolated(isolation: Isolation) {
 }
 
 async function recordSavedTake(page: Page, answers: Answer[], pair: Pair = PAIR): Promise<() => Promise<number>> {
-    await programmaticLoginWithRoutes(page, { userType: 'pro' });
+    await programmaticLoginWithRoutes(page, { userType: 'pro', practicePrivacy: { transcriptSave: true, aiCoaching: true } });
     await navigateToRoute(page, '/session');
     const requests = await scriptReview(page, answers, pair);
     await startRecording(page);
@@ -440,7 +440,7 @@ type GammaState = 'full' | 'partial' | 'pending' | 'terminal';
 
 /** A saved Focus Points take on a full (7-point) brief whose speech covers five points, so the saved evidence is real. */
 async function focusSavedTake(page: Page, answers: Answer[], pair: Pair): Promise<() => Promise<number>> {
-    await programmaticLoginWithRoutes(page, { userType: 'pro' });
+    await programmaticLoginWithRoutes(page, { userType: 'pro', practicePrivacy: { transcriptSave: true, aiCoaching: true } });
     await navigateToRoute(page, '/practice');
     await page.getByTestId('practice-card-objective').click();
     await expect(page.getByTestId('objective-setup-dialog')).toBeVisible();

@@ -14,6 +14,7 @@
 import { getSupabaseClient } from './supabaseClient';
 import { currentTakeLeaseId } from '@/services/recordingLease';
 import logger from './logger';
+import { transcriptSaveAllowed } from '@/services/practicePrivacy';
 import type { PracticeSession } from '../types/session';
 import type { UserProfile } from '../types/user';
 import type { AnalyticsSummary } from '../types/analytics';
@@ -372,6 +373,14 @@ export function resolveTranscriptView(session: {
  * statement — which, for a completion, contains the transcript — so none of them may be logged. Only a
  * short code matching a conservative shape is kept; anything else becomes a fixed label.
  */
+/** #1835: sessions completed (or being completed) without transcript text, so a replay never adds text later. */
+const metricsOnlySessions = new Set<string>();
+
+/** #1835: the transcript trigger's refusal. Matched exactly; the message is never logged or returned. */
+function isTranscriptConsentRefusal(error: unknown): boolean {
+  return (error as { message?: unknown } | null)?.message === 'transcript_consent_required';
+}
+
 function sanitizeRpcErrorCode(error: unknown): string {
   const code = (error as { code?: unknown } | null)?.code;
   return typeof code === 'string' && /^[A-Za-z0-9_]{1,16}$/.test(code) ? code : 'unspecified';
@@ -460,12 +469,17 @@ export const completeSession = async (
 
   // A `failed`/discarded session must never carry transcript text to the server. Normalising here — rather
   // than trusting every caller — means one boundary decides it.
-  const transcriptArg = status === 'completed' ? (finalTranscript ?? null) : null;
+  // #1835: nor does a completion whose owner has not opted in to saving (unknown, declined, still loading or
+  // unreadable all count as off). The session still completes metrics-only, so progress is kept. A session that was
+  // once completed metrics-only stays metrics-only on a replay, so an identical replay stays identical.
+  const transcriptArg = status === 'completed' && transcriptSaveAllowed() && !metricsOnlySessions.has(sessionId)
+    ? (finalTranscript ?? null) : null;
+  if (transcriptArg === null) metricsOnlySessions.add(sessionId);
 
   // ONE atomic server transaction: metrics, the single next action, the eligible transcript, and newest-one
   // retention all commit together. ALL ELEVEN arguments are named explicitly, nulls included — an omitted
   // argument would let PostgREST resolve a DIFFERENT overload than the one that was reviewed and verified.
-  const { data, error } = await supabase.rpc('complete_session_v2', {
+  const call = (finalTranscriptArg: string | null) => supabase.rpc('complete_session_v2', {
     p_session_id: sessionId,
     p_status: status,
     p_final_duration: duration ?? null,
@@ -476,8 +490,17 @@ export const completeSession = async (
     p_wpm: metrics?.wpm ?? null,
     p_filler_counts: metrics?.fillerCounts ?? null,
     p_pause_metrics: metrics?.pauseMetrics ?? null,
-    p_final_transcript: transcriptArg,
+    p_final_transcript: finalTranscriptArg,
   });
+  let { data, error } = await call(transcriptArg);
+
+  // #1835: the server refused the text because saving is off there (turned off on another device, or this client's
+  // view was stale). The whole transaction was rolled back, so complete the same session metrics-only, once.
+  if (error && transcriptArg !== null && isTranscriptConsentRefusal(error)) {
+    logger.warn({ sessionId }, '[Supabase DB] 🏁 transcript saving is off on the server; completing metrics-only');
+    metricsOnlySessions.add(sessionId);
+    ({ data, error } = await call(null));
+  }
 
   if (error) {
     // NO v1 FALLBACK. A retry replays this same v2 call with the same immutable payload; it never downgrades
