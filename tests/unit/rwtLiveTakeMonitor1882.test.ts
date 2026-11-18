@@ -586,6 +586,42 @@ describe('#1897 — Stop is one atomic check-and-click; a replacement take never
         }
     });
 
+    it('#1897 Codex P2 — BATCHED DROP: a drop and resume in one task, already delivered to the observer, is a witnessed drop', async () => {
+        const app = new ModelApp();
+        const page = pageOf();
+        const armed = await armTakeMonitor(page, 'batched');
+        const pressedAt = Date.now();
+        app.press(500);
+        await vi.advanceTimersByTimeAsync(5_000);
+        // during -> before -> during inside one task; then yield so the observer receives both records as one batch.
+        app.shell.setAttribute('data-session-state', 'before');
+        app.shell.setAttribute('data-session-state', 'during');
+        await Promise.resolve();
+        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(5_000);
+        const snap = await readTakeMonitor(page, armed.token);
+        const live = snap ? firstLiveEdge(snap) : null;
+        expect(live).not.toBeNull();
+        expect(firstBreakAfter(snap!, live!, Number.POSITIVE_INFINITY)).toMatchObject({ state: 'before', key: live!.key });
+        // The hold sees it, the guard refuses with zero clicks, and the take can never read as live through Stop.
+        let confirmed = 0;
+        const stop = await run(stopMonitoredTake(page, armed, async () => { confirmed += 1; }));
+        expect(stop).toEqual({ pressed: false, reason: 'capture_dropped' });
+        expect(confirmed).toBe(0);
+        expect(app.stopped).toBe(false);
+        const after = await readTakeMonitor(page, armed.token);
+        expect(after?.stops).toEqual([]);
+        expect(liveTakeVerdict(after, { liveSeconds: LIVE_SECONDS, pressedAt }).verdict).toBe('FAIL');
+        // And a measured hold over the same batched drop ends at the drop, never 'held'.
+        const app2 = new ModelApp();
+        const page2 = pageOf();
+        const armed2 = await armTakeMonitor(page2, 'batched-hold');
+        app2.press(0);
+        setTimeout(() => { app2.shell.setAttribute('data-session-state', 'before'); app2.shell.setAttribute('data-session-state', 'during'); }, 3_000);
+        const hold = await run(holdMeasuredLiveTake(page2, armed2, LIVE_SECONDS));
+        expect(hold.ended).toBe('capture_dropped');
+    });
+
     it('the same take, still live: exactly one click, on that take, and only then the confirmation', async () => {
         const app = new ModelApp();
         const page = pageOf();

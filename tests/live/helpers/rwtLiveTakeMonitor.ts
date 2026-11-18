@@ -108,7 +108,25 @@ export function installTakeMonitor(cfg: MonitorConfig): { ok: boolean; reason?: 
             if (status && (status.textContent ?? '').includes(cfg.tooShortText)) snap.tooShort = { seq: ++snap.seq, t: now, key: cur.key };
         }
     };
-    const observer = new MutationObserver(observe);
+    /**
+     * #1897 Codex P2 (10a04d9): a shell that leaves and re-enters `during` within one task arrives as a BATCH of records,
+     * and `observe` alone reads only the final state. Every state record in the batch becomes an edge (the value it changed
+     * TO is the next record's oldValue, or the shell's current value for the last), so a drop seen only in the records is
+     * kept as a witness for the hold, the verdict and the Stop guard alike.
+     */
+    const applyStateRecords = (records: MutationRecord[]) => {
+        const shellRecords = records.filter((r) => r.type === 'attributes' && r.attributeName === 'data-session-state'
+            && typeof (r.target as Element).matches === 'function' && (r.target as Element).matches(cfg.shellSelector));
+        if (shellRecords.length === 0) return;
+        const now = Date.now();
+        const cur = read();
+        shellRecords.forEach((record, i) => {
+            const to = i + 1 < shellRecords.length ? shellRecords[i + 1].oldValue : (record.target as Element).getAttribute('data-session-state');
+            const last = snap.edges[snap.edges.length - 1];
+            if (!last || last.state !== to || last.key !== cur.key) snap.edges.push({ seq: ++snap.seq, t: now, state: to, key: cur.key, sessionId: cur.sessionId });
+        });
+    };
+    const observer = new MutationObserver((records) => { if (!snap.disposed) applyStateRecords(records); observe(); });
     observer.observe(html, { subtree: true, childList: true, characterData: true, attributes: true, attributeOldValue: true,
         attributeFilter: ['data-session-state', 'data-session-persisted', 'data-session-persisted-id'] });
     const tick = setInterval(() => {
@@ -140,13 +158,8 @@ export function installTakeMonitor(cfg: MonitorConfig): { ok: boolean; reason?: 
      */
     const guardedStop = (expectedKey: string | null): { clicked: boolean; reason: string } => {
         if (snap.disposed) return { clicked: false, reason: 'monitor_unreadable' };
-        let pendingDrop = false;
-        for (const record of observer.takeRecords()) {
-            if (record.type !== 'attributes' || record.attributeName !== 'data-session-state') continue;
-            // A pending change FROM a non-live state means capture left and came back before the observer saw it.
-            const el = record.target as Element;
-            if (typeof el.matches === 'function' && el.matches(cfg.shellSelector) && record.oldValue !== null && record.oldValue !== 'during') pendingDrop = true;
-        }
+        // Records not yet delivered to the observer are drained into edges too, so a drop inside this very task counts.
+        applyStateRecords(observer.takeRecords());
         observe();
         const live = snap.edges.find((e) => e.state === 'during' && e.key !== null);
         if (!live) return { clicked: false, reason: 'capture_never_live' };
@@ -155,7 +168,7 @@ export function installTakeMonitor(cfg: MonitorConfig): { ok: boolean; reason?: 
         if (broke) return { clicked: false, reason: broke.state === 'during' && broke.key !== live.key ? 'take_replaced' : 'capture_dropped' };
         const cur = read();
         if (cur.key !== live.key) return { clicked: false, reason: 'take_replaced' };
-        if (pendingDrop || cur.state !== 'during') return { clicked: false, reason: 'capture_dropped' };
+        if (cur.state !== 'during') return { clicked: false, reason: 'capture_dropped' };
         if (snap.stops.length > 0) return { clicked: false, reason: 'already_stopped' };
         const stop = document.querySelector(`[data-testid="${cfg.stopTestId}"]`) as HTMLButtonElement | null;
         if (!stop || stop.disabled || stop.getAttribute('aria-disabled') === 'true') return { clicked: false, reason: 'stop_unavailable' };
