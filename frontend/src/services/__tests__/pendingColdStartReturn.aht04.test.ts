@@ -187,6 +187,9 @@ describe('AHT-04 — leaving a cold Start mid-download, then returning, still re
         db.rpcCalls.length = 0;
         engine = new ControlledEngine();
         vi.resetModules();
+        // #1835: these takes save their transcript, which needs the owner's recorded yes. Granted on the fresh module
+        // instance that storage.ts will read after the reset.
+        (await import('../../../tests/test-utils/practicePrivacy')).grantPracticePrivacy();
         const { sttRegistry } = await import('../transcription/STTRegistry');
         sttRegistry.register('transformers-js', () => engine as never);
         sttRegistry.register('private', () => engine as never);

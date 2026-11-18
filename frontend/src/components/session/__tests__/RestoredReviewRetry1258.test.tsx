@@ -6,6 +6,10 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { grantPracticePrivacy } from '../../../../tests/test-utils/practicePrivacy';
+
+// #1835: these suites cover the coaching / transcript path as it runs once the owner has opted in.
+beforeEach(() => { grantPracticePrivacy(); });
 
 const mounted = vi.fn();
 vi.mock('../AISuggestions', () => ({

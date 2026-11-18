@@ -5,6 +5,10 @@ import { getSessionHistory, getSessionById, saveSession, deleteSession, exportDa
 import { getSupabaseClient } from '../supabaseClient';
 import logger from '../logger';
 import { UserProfile } from '@/types/user';
+import { grantPracticePrivacy } from '../../../tests/test-utils/practicePrivacy';
+
+// #1835: these suites cover the coaching / transcript path as it runs once the owner has opted in.
+beforeEach(() => { grantPracticePrivacy(); });
 
 // Mock dependencies
 vi.mock('../supabaseClient');

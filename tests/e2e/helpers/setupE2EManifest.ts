@@ -110,6 +110,10 @@ export type ProfileFault = 'error' | 'swallowed';
 /**
  * setupE2EManifest — Atomic T=0 injection.
  */
+export type PracticePrivacyFixture =
+  | { transcriptSave: true; aiCoaching: boolean }
+  | { transcriptSave: false; aiCoaching: false };
+
 export async function setupE2EManifest(
   page: Page,
   config: {
@@ -128,6 +132,8 @@ export async function setupE2EManifest(
     userType?: 'free' | 'pro';
     mockProfile?: Record<string, unknown>;
     emptySessions?: boolean;
+    /** An explicit choice for the seeded owner only. Omit it to model no recorded choice. */
+    practicePrivacy?: PracticePrivacyFixture;
     /** #1047: seed the in-browser mock session DB (e.g. transcript_state variants) instead of defaults. */
     sessions?: Array<Record<string, unknown>>;
     /** #1047 U3: seed the same in-browser Supabase authority used by the Progress product path. */
@@ -139,7 +145,7 @@ export async function setupE2EManifest(
     preserveRecoveryDraftAcrossLoads?: boolean;
   }
 ) {
-  const { storage = {}, userType = 'free', mockProfile, emptySessions = false, sessions, progressFixtures, preserveRecoveryDraftAcrossLoads = false, ...manifest } = config;
+  const { storage = {}, userType = 'free', mockProfile, emptySessions = false, sessions, progressFixtures, practicePrivacy, preserveRecoveryDraftAcrossLoads = false, ...manifest } = config;
   
   // 🛡️ Fix 5: Analytics Mock (Mandated Stabilization)
   // Decouples telemetry from UI readiness to prevent network-induced flakiness
@@ -153,7 +159,7 @@ export async function setupE2EManifest(
     globalThis.__name = __name;
   `);
 
-  await page.addInitScript(({ m, s, ut, mp, es, seed, progress, keepDraft }: { m: unknown; s: Record<string, string>; ut: string; mp?: Record<string, unknown>; es?: boolean; seed?: Array<Record<string, unknown>>; progress?: ProgressFixtures; keepDraft?: boolean }) => {
+  await page.addInitScript(({ m, s, ut, mp, es, seed, progress, privacy, keepDraft }: { m: unknown; s: Record<string, string>; ut: string; mp?: Record<string, unknown>; es?: boolean; seed?: Array<Record<string, unknown>>; progress?: ProgressFixtures; privacy?: PracticePrivacyFixture; keepDraft?: boolean }) => {
     // Playwright serializes this callback into the browser. Some TS/esbuild
     // transforms preserve function names by emitting __name(...) calls inside
     // the serialized body, but the helper itself is otherwise outside that
@@ -398,6 +404,15 @@ export async function setupE2EManifest(
           return Promise.resolve({ data: null, error: null, count: 0 });
         }
         return Promise.resolve({ data: single ? e2eProfile : [e2eProfile], error: null, count: 1 });
+      }
+      if (table === 'practice_privacy_choices') {
+        const ownerId = authSession?.user?.id;
+        const row = privacy && typeof ownerId === 'string' && currentSession?.user?.id === ownerId
+          ? { user_id: ownerId, transcript_save: privacy.transcriptSave, ai_coaching: privacy.aiCoaching,
+            consent_version: 1, choice_revision: 1 }
+          : null;
+        const rows = row && matchesFilters(row, filters) ? [row] : [];
+        return Promise.resolve({ data: single ? rows[0] ?? null : rows, error: null, count: rows.length });
       }
       if (table === 'user_goals') {
         return Promise.resolve({ data: single ? userGoals : [userGoals], error: null, count: 1 });
@@ -1185,5 +1200,5 @@ export async function setupE2EManifest(
       }
     };
     stampDuration();
-  }, { m: manifest, s: storage, ut: userType, mp: mockProfile, es: emptySessions, seed: sessions, progress: progressFixtures, keepDraft: preserveRecoveryDraftAcrossLoads });
+  }, { m: manifest, s: storage, ut: userType, mp: mockProfile, es: emptySessions, seed: sessions, progress: progressFixtures, privacy: practicePrivacy, keepDraft: preserveRecoveryDraftAcrossLoads });
 }

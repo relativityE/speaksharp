@@ -5,6 +5,7 @@ import { PresenceContext } from 'framer-motion';
 import { useLocation } from 'react-router-dom';
 import { PracticeSurfaceProvider, usePracticeSurface } from '@/components/practice/PracticeSurfaceContext';
 import { PRODUCT_NAMES } from '@/constants/productNames';
+import { resetPracticePrivacyForTests, usePracticePrivacyStore } from '@/services/practicePrivacy';
 
 const navigateSpy = vi.fn();
 vi.mock('react-router-dom', async (orig) => {
@@ -294,5 +295,62 @@ describe('the Report Issue surface is owned by the present page only', () => {
     await vi.waitFor(() => expect(screen.getByTestId('probe-surface')).toHaveTextContent('practice_home'));
     rerender(<PracticeSurfaceProvider><SurfaceProbe /></PracticeSurfaceProvider>);
     await vi.waitFor(() => expect(screen.getByTestId('probe-surface')).toHaveTextContent('null'));
+  });
+});
+
+// #1835 (PO-approved policy, 17 Nov): the privacy prompt shows on Practice only while THIS signed-in owner has no
+// recorded choice. A recorded choice, a choice still loading or unreadable, another owner's state, and signed-out all
+// show no prompt; an existing user (with saved practice) gets the returning variant.
+describe('PracticePage — #1835 privacy prompt', () => {
+  beforeEach(() => {
+    navigateSpy.mockReset();
+    mockUser = { id: 'u-1', email: 'me@example.com' };
+    mockHistory.mockReturnValue({ data: [], isLoading: false } as unknown as HistoryReturn);
+    resetPracticePrivacyForTests();
+  });
+
+  const setStatus = (status: 'loading' | 'unknown' | 'chosen' | 'unavailable', ownerId = 'u-1') =>
+    usePracticePrivacyStore.setState({ ownerId, status, transcriptSave: status === 'chosen', aiCoaching: false, revision: status === 'chosen' ? 1 : null });
+
+  it('unknown, new user → the S1 prompt above the product cards', () => {
+    setStatus('unknown');
+    render(<PracticePage />);
+    expect(screen.getByTestId('practice-privacy-prompt')).toHaveAttribute('data-variant', 'new');
+    expect(screen.getByTestId('practice-card-objective')).toBeInTheDocument();
+  });
+
+  it('unknown, existing user with saved practice → the S2 returning prompt', () => {
+    setStatus('unknown');
+    mockHistory.mockReturnValue({
+      data: [{ id: 'sess-9', created_at: '2026-07-20T00:00:00.000Z', duration: 120, status: 'completed' }], isLoading: false,
+    } as unknown as HistoryReturn);
+    render(<PracticePage />);
+    expect(screen.getByTestId('practice-privacy-prompt')).toHaveAttribute('data-variant', 'returning');
+  });
+
+  it('unknown but recent practice still loading → no prompt yet (the right variant is not known)', () => {
+    setStatus('unknown');
+    mockHistory.mockReturnValue({ data: undefined, isLoading: true } as unknown as HistoryReturn);
+    render(<PracticePage />);
+    expect(screen.queryByTestId('practice-privacy-prompt')).toBeNull();
+  });
+
+  it.each(['loading', 'chosen', 'unavailable'] as const)('%s → no prompt', (status) => {
+    setStatus(status);
+    render(<PracticePage />);
+    expect(screen.queryByTestId('practice-privacy-prompt')).toBeNull();
+  });
+
+  it('another owner\'s "unknown" is not this owner\'s → no prompt', () => {
+    setStatus('unknown', 'someone-else');
+    render(<PracticePage />);
+    expect(screen.queryByTestId('practice-privacy-prompt')).toBeNull();
+  });
+
+  it('signed out → no prompt', () => {
+    mockUser = null;
+    setStatus('unknown');
+    render(<PracticePage />);
+    expect(screen.queryByTestId('practice-privacy-prompt')).toBeNull();
   });
 });

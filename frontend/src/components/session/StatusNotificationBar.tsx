@@ -270,6 +270,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
             data-recording={isListening}
             data-engine={activeEngine || 'none'}
             data-session-saved={displayMessage?.includes('✓') || status.message?.includes('✓')}
+            data-post-save-confirmation={carriesPostSaveActions ? true : undefined}
         >
             {/* Primary Status Indicator */}
             <div className="flex min-w-0 items-start gap-3" data-testid="session-status-indicator">

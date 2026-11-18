@@ -30,7 +30,7 @@ test.describe('Private mode trust-state + save/detail', () => {
   test('Private: live -> final lifecycle, cumulative transcript, save -> detail correctness', async ({ page }) => {
     test.setTimeout(90_000);
 
-    await programmaticLoginWithRoutes(page, { userType: 'pro' });
+    await programmaticLoginWithRoutes(page, { userType: 'pro', practicePrivacy: { transcriptSave: true, aiCoaching: false } });
     await navigateToRoute(page, '/session');
     await selectTranscriptionEngine(page, 'private');
 

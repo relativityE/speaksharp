@@ -16,6 +16,10 @@ import { __resetPracticeLoopTelemetryForTests } from '@/services/telemetry/pract
 import { __resetJourneyIdentityForTests, beginJourney, beginRecordingAttempt } from '@/services/telemetry/journeyIdentity';
 import { __resetCompletionStagesForTests } from '@/services/telemetry/completionStages';
 import { projectEventProps } from '@/services/telemetryAllowlist';
+import { grantPracticePrivacy } from '../../../../tests/test-utils/practicePrivacy';
+
+// #1835: these suites cover the coaching / transcript path as it runs once the owner has opted in.
+beforeEach(() => { grantPracticePrivacy(); });
 
 vi.mock('@/lib/supabaseClient');
 

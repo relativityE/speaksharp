@@ -49,28 +49,29 @@ export interface FocusCoverage {
  * the stop seam evaluated timestamped segments against the immutable brief (including its configured
  * cues). Re-running the weaker view matcher over flattened text can disagree and turn a detected point
  * into a false negative. A missing/misaligned authority returns null so the caller can render an honest
- * pending state instead of manufacturing a score.
+ * pending state instead of manufacturing a score. A null derivation renders only the verified
+ * verdicts; the original metrics-only review has no retained text to derive from.
  */
 export function applyFinalizedCoverageAuthority(
-    derived: FocusCoverage,
+    derived: FocusCoverage | null,
     points: string[],
     authority: CoverageRailPoint[] | null,
 ): FocusCoverage | null {
     const cleanPoints = (points ?? []).filter((p) => (p ?? '').trim() !== '');
-    if (!authority || authority.length !== cleanPoints.length || derived.rows.length !== cleanPoints.length) {
+    if (!authority || authority.length !== cleanPoints.length || (derived && derived.rows.length !== cleanPoints.length)) {
         return null;
     }
     if (authority.some((row, index) =>
         row.label !== cleanPoints[index] || !['covered', 'partial', 'missing'].includes(row.status))) return null;
 
-    const rows = derived.rows.map((row, index) => {
+    const rows = cleanPoints.map((label, index) => {
         const status = authority[index].status;
         // The stop seam sends an evidence offset for both `covered` and `partial`; both are therefore
         // detected. Preserve the richer status for the amber/green rail while keeping the binary count
         // aligned with the server verdict.
         const covered = status === 'covered' || status === 'partial';
         return {
-            ...row,
+            label,
             status,
             covered,
             // The persisted stop-seam authority currently carries status only. Even when the weaker

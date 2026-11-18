@@ -6,6 +6,18 @@ import {fileURLToPath} from 'node:url';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 export const HELPER_CONTRACTS = Object.freeze([{
+  helperFile: 'frontend/tests/test-utils/practicePrivacy.ts',
+  testFile: 'tests/unit/practicePrivacyFixture1835.test.ts',
+  callables: ['grantPracticePrivacy'],
+}, {
+  helperFile: 'tests/e2e/helpers.ts',
+  testFile: 'tests/unit/practicePrivacyE2EFixtures1835.test.ts',
+  callables: ['programmaticLoginWithRoutes'],
+}, {
+  helperFile: 'tests/e2e/helpers/setupE2EManifest.ts',
+  testFile: 'tests/unit/practicePrivacyE2EFixtures1835.test.ts',
+  callables: ['setupE2EManifest'],
+}, {
   helperFile: 'tests/live/helpers/rwtMarkerObserver.ts',
   testFile: 'tests/unit/rwtMarkerObserver1593.test.ts',
   callables: ['armMarkerObserverInPage', 'freezeMarkerObserverInPage', 'classifyMarkerTiming'],

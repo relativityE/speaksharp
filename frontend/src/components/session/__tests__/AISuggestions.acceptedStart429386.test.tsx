@@ -14,6 +14,10 @@ import { SpeechRuntimeController } from '@/services/SpeechRuntimeController';
 import { __resetRecordingIntentForTests } from '@/services/recordingIntent';
 import { captureRecordingSubject } from '@/services/telemetry/recordingSubject';
 import { __resetSavedTakesForTests, noteSavedTake, savedTakeAttempt } from '@/services/telemetry/savedTakeTarget';
+import { grantPracticePrivacy } from '../../../../tests/test-utils/practicePrivacy';
+
+// #1835: these suites cover the coaching / transcript path as it runs once the owner has opted in.
+beforeEach(() => { grantPracticePrivacy(); });
 
 vi.mock('@/lib/supabaseClient');
 const invoke = vi.fn();

@@ -60,7 +60,7 @@ test.describe('#1422 P7 — a completed session offers coaching and a way to go 
     test(`${viewport.name}: the practice loop is reachable after save`, async ({ page }) => {
       test.setTimeout(90_000);
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
-      await programmaticLoginWithRoutes(page, { userType: 'pro' });
+      await programmaticLoginWithRoutes(page, { userType: 'pro', practicePrivacy: { transcriptSave: true, aiCoaching: true } });
       await navigateToRoute(page, '/session');
       await recordAndStop(page);
 
