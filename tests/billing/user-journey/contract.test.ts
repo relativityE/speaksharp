@@ -549,15 +549,16 @@ test('hosted email: read-only exact owner-bound match is supplied; mismatch or u
   assert.equal(hostedEmailFieldAction({ editable: null, current: expected, expected, ownerBound: true }), 'hosted_email_unreadable');
   for (const current of [null, '', expected]) assert.equal(hostedEmailFieldAction({ editable: true, current, expected, ownerBound: false }), 'fill');
   for (const code of ['hosted_email_prefilled_mismatch', 'hosted_email_unreadable']) assert.equal(safeFailureReason(new Error(`BILLING_JOURNEY:${code}`)), code);
+  // The journey's email step is the shared helper (exercised in a real browser by tests/e2e/billing-hosted-email-fixture.e2e.spec.ts).
   const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
   const fill = spec.slice(spec.indexOf('const fill = async ('), spec.indexOf('// Email only: absent is accepted'));
-  const decide = fill.indexOf('const action = hostedEmailFieldAction(');
-  const typed = fill.indexOf('await input.fill(value, { timeout: HOSTED_ACTION_MS })');
-  const readback = fill.indexOf("if (field === 'email') requireFact(await input.inputValue({ timeout: HOSTED_READ_MS }).catch(() => null) === value, hostedFieldNotEditable(field));");
-  assert.ok(decide > 0 && typed > decide && readback > typed, 'decide, then fill, then read back');
-  assert.match(fill, /ownerBound: this\.boundCustomerEmailIsFixture === true/);
+  assert.match(fill, /if \(field === 'email'\) \{\s+await fillHostedEmail\(input, \{ value, ownerBound: this\.boundCustomerEmailIsFixture === true, checkpoint: \(name\) => this\.checkpoint\(name\) \}\);\s+return;\s+\}/);
   assert.match(spec, /this\.boundCustomerEmailIsFixture = typeof bound\.email === 'string' \? bound\.email === this\.email : bound\.email === null \? false : null;/);
-  // Email values never reach a log or the receipt: no logging in the fill, only a fixed checkpoint name.
-  assert.doesNotMatch(fill, /console\.|logger\./);
-  assert.match(fill, /this\.checkpoint\('hosted_email_prefilled'\)/);
+  const helper = readFileSync('tests/billing/user-journey/hostedEmail.ts', 'utf8');
+  const decide = helper.indexOf('const action = hostedEmailFieldAction('), typed = helper.indexOf('await input.fill(opts.value, { timeout: HOSTED_ACTION_MS })');
+  const readback = helper.indexOf("requireFact(await input.inputValue({ timeout: HOSTED_READ_MS }).catch(() => null) === opts.value, hostedFieldNotEditable('email'));");
+  assert.ok(decide > 0 && typed > decide && readback > typed, 'decide, then fill, then read back');
+  // Email values never reach a log, a return value or an error: fixed codes and a fixed checkpoint name only.
+  assert.doesNotMatch(helper, /console\.|logger\./);
+  assert.match(helper, /opts\.checkpoint\('hosted_email_prefilled'\)/);
 });

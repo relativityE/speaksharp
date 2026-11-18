@@ -9,7 +9,8 @@ import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, re
   assertFullRefund, isRefundCancellation, assertCheckoutGrantedNothing,
   checkoutSessionFromUrl, assertCheckoutIdentity, newlyAddedCard, assertNoSecondCharge,
   type RunnerJourney, type BillingEvent, hostedFieldUnavailable, hostedEmailDecision, type HostedField,
-  HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl, hostedEmailFieldAction } from './contract';
+  HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl } from './contract';
+import { fillHostedEmail } from './hostedEmail';
 import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { selectBenchmarkMode, preparePrivateModelIfPrompted, startBenchmarkRecording,
   expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput, stopBenchmarkRecording,
@@ -236,18 +237,13 @@ class SandboxJourney {
             // Proven chosen: the select's own value, never assumed from the call.
             requireFact(await input.inputValue({ timeout: HOSTED_READ_MS }).catch(() => null) === value, hostedFieldNotEditable(field));
           } else {
+            // Run 44203911253: the email step is the shared helper the browser fixture exercises (hostedEmail.ts): an editable control is
+            // filled and read back; a prefilled, non-editable one is accepted only as exactly the owner-bound fixture email.
             if (field === 'email') {
-              // Run 44203911253: the bound Customer's email is shown prefilled and not editable. Skip typing only for exactly the
-              // owner-bound fixture email; values are compared, never logged (hostedEmailFieldAction).
-              const action = hostedEmailFieldAction({ editable: await input.isEditable({ timeout: HOSTED_READ_MS }).catch(() => null),
-                current: await input.inputValue({ timeout: HOSTED_READ_MS }).catch(() => null), expected: value,
-                ownerBound: this.boundCustomerEmailIsFixture === true });
-              if (action === 'supplied') { this.checkpoint('hosted_email_prefilled'); return; }
-              if (action !== 'fill') throw new Error(`BILLING_JOURNEY:${action}`);
+              await fillHostedEmail(input, { value, ownerBound: this.boundCustomerEmailIsFixture === true, checkpoint: (name) => this.checkpoint(name) });
+              return;
             }
             await input.fill(value, { timeout: HOSTED_ACTION_MS }).catch(() => { throw new Error(`BILLING_JOURNEY:${hostedFieldNotEditable(field)}`); });
-            // An editable email is proven by reading the value back.
-            if (field === 'email') requireFact(await input.inputValue({ timeout: HOSTED_READ_MS }).catch(() => null) === value, hostedFieldNotEditable(field));
           }
           return;
         }
