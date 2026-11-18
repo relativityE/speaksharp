@@ -103,6 +103,23 @@ export function firstVisibleControl(visible: readonly (readonly boolean[])[]): {
   return null;
 }
 
+/**
+ * Run 44203911253: the bound existing Customer carries the fixture email, so Checkout showed it PREFILLED and not editable, and filling it
+ * failed (hosted_field_not_editable_email). What to do with a VISIBLE email control (Sam, 17 Nov):
+ *   - editable: fill it (the caller then reads the value back);
+ *   - not editable and holding exactly the expected fixture email, with the bound Customer's email proven to BE that fixture email:
+ *     supplied, nothing typed;
+ *   - not editable with another value, or the Customer's email not proven to be the fixture's: `hosted_email_prefilled_mismatch`;
+ *   - editability or the value unreadable: `hosted_email_unreadable`.
+ * Values are compared only; no email ever leaves this function.
+ */
+export function hostedEmailFieldAction(input: { editable: boolean | null; current: string | null; expected: string; ownerBound: boolean }):
+  'fill' | 'supplied' | 'hosted_email_prefilled_mismatch' | 'hosted_email_unreadable' {
+  if (input.editable === true) return 'fill';
+  if (input.editable !== false || typeof input.current !== 'string') return 'hosted_email_unreadable';
+  return input.ownerBound && input.current === input.expected ? 'supplied' : 'hosted_email_prefilled_mismatch';
+}
+
 export function invalidFieldToken(attrs: { id: string | null; name: string | null }): string {
   for (const key of [attrs.id, attrs.name]) if (typeof key === 'string' && Object.hasOwn(INVALID_FIELD_TOKENS, key)) return INVALID_FIELD_TOKENS[key];
   return 'other';

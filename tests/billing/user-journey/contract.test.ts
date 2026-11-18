@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'vitest';
 import { RUNNER_JOURNEYS, POLICY_PENDING_STEPS, REQUIRED_STEPS, receipt, assertTestPrice, assertInvoice,
   isCorrelatedDelivery, assertSandboxConfiguration, safeFailureReason, testClockCreateFields, localStackStatus,
-  hostedFieldUnavailable, hostedEmailDecision, assertCheckoutIdentity, type HostedField, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl,
+  hostedFieldUnavailable, hostedEmailDecision, assertCheckoutIdentity, type HostedField, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl, hostedEmailFieldAction,
   HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken } from './contract';
 import { finaliseLocalStackReceipt, RECEIPT_KEYS } from './localStackReceipt.mjs';
 import { stackIdentitySha256 } from './localStackResources.mjs';
@@ -468,7 +468,7 @@ test('the form-confirmable read is a bounded, read-only checkpoint taken after t
 
 // Sam on run 44157731067 (receipt `fields_email`, `hosted_form_not_confirmable`): the fixture's Stripe customer has no email, so the
 // optional-email path must be closed for it, and a form that never reports it can confirm must not be submitted.
-test('existing-customer sandbox conversion: the fixture Customer carries the fixture email; only a presence flag is read, never the value', () => {
+test('existing-customer sandbox conversion: the fixture Customer carries the fixture email; only booleans are kept from it, never the value', () => {
   const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
   const create = spec.slice(spec.indexOf("const customer = await this.stripe('customers', 'POST'"), spec.indexOf("requireFact(customer.livemode === false"));
   assert.ok(create.length > 0);
@@ -482,7 +482,9 @@ test('existing-customer sandbox conversion: the fixture Customer carries the fix
   assert.ok(identity > 0 && presence > identity && bind > presence, 'presence is read after the identity proof and before the session is bound');
   // The email value is never stored or reported: only a boolean (or null when unread) leaves that expression.
   assert.match(open, /this\.boundCustomerHasEmail = typeof bound\.email === 'string' \? bound\.email\.length > 0 : bound\.email === null \? false : null;/);
-  assert.equal((open.match(/bound\.email/g) ?? []).length, 3);
+  // Two booleans only: presence, and (Sam on run 44203911253) whether it IS this run's fixture email. Compared, never kept or reported.
+  assert.equal((open.match(/bound\.email/g) ?? []).length, 6);
+  assert.match(open, /this\.boundCustomerEmailIsFixture = typeof bound\.email === 'string' \? bound\.email === this\.email : bound\.email === null \? false : null;/);
   // The decision is fed the presence flag only on the bound after-binding path.
   assert.match(spec, /boundCustomerHasEmail: email === 'after-binding' \? this\.boundCustomerHasEmail : null \}\);/);
 });
@@ -533,4 +535,29 @@ test('the observed control wins over a generic match, and a hidden match before 
   assert.deepEqual(firstVisibleControl([[], [true]]), { selector: 1, match: 0 });
   assert.equal(firstVisibleControl([[false], [false]]), null);
   assert.equal(firstVisibleControl([]), null);
+});
+
+// Run 44203911253 (after #1892): the existing Customer's email was shown PREFILLED and not editable; filling it failed with
+// hosted_field_not_editable_email. Sam: skip only for the exact owner-bound fixture email; test each case; keep values out of logs.
+test('hosted email: read-only exact owner-bound match is supplied; mismatch or unreadable stops; editable is filled and read back', () => {
+  const expected = 'rwt-journey-billing-x@example.com';
+  assert.equal(hostedEmailFieldAction({ editable: false, current: expected, expected, ownerBound: true }), 'supplied');
+  assert.equal(hostedEmailFieldAction({ editable: false, current: 'someone@example.com', expected, ownerBound: true }), 'hosted_email_prefilled_mismatch');
+  assert.equal(hostedEmailFieldAction({ editable: false, current: expected, expected, ownerBound: false }), 'hosted_email_prefilled_mismatch', 'not proven owner-bound');
+  assert.equal(hostedEmailFieldAction({ editable: false, current: '', expected, ownerBound: true }), 'hosted_email_prefilled_mismatch');
+  assert.equal(hostedEmailFieldAction({ editable: false, current: null, expected, ownerBound: true }), 'hosted_email_unreadable');
+  assert.equal(hostedEmailFieldAction({ editable: null, current: expected, expected, ownerBound: true }), 'hosted_email_unreadable');
+  for (const current of [null, '', expected]) assert.equal(hostedEmailFieldAction({ editable: true, current, expected, ownerBound: false }), 'fill');
+  for (const code of ['hosted_email_prefilled_mismatch', 'hosted_email_unreadable']) assert.equal(safeFailureReason(new Error(`BILLING_JOURNEY:${code}`)), code);
+  const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
+  const fill = spec.slice(spec.indexOf('const fill = async ('), spec.indexOf('// Email only: absent is accepted'));
+  const decide = fill.indexOf('const action = hostedEmailFieldAction(');
+  const typed = fill.indexOf('await input.fill(value, { timeout: HOSTED_ACTION_MS })');
+  const readback = fill.indexOf("if (field === 'email') requireFact(await input.inputValue({ timeout: HOSTED_READ_MS }).catch(() => null) === value, hostedFieldNotEditable(field));");
+  assert.ok(decide > 0 && typed > decide && readback > typed, 'decide, then fill, then read back');
+  assert.match(fill, /ownerBound: this\.boundCustomerEmailIsFixture === true/);
+  assert.match(spec, /this\.boundCustomerEmailIsFixture = typeof bound\.email === 'string' \? bound\.email === this\.email : bound\.email === null \? false : null;/);
+  // Email values never reach a log or the receipt: no logging in the fill, only a fixed checkpoint name.
+  assert.doesNotMatch(fill, /console\.|logger\./);
+  assert.match(fill, /this\.checkpoint\('hosted_email_prefilled'\)/);
 });
