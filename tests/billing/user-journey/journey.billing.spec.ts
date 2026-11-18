@@ -10,6 +10,7 @@ import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, re
   checkoutSessionFromUrl, assertCheckoutIdentity, newlyAddedCard, assertNoSecondCharge,
   type RunnerJourney, type BillingEvent, hostedFieldUnavailable, hostedEmailDecision, type HostedField,
   HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl } from './contract';
+import { fillHostedEmail } from './hostedEmail';
 import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { selectBenchmarkMode, preparePrivateModelIfPrompted, startBenchmarkRecording,
   expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput, stopBenchmarkRecording,
@@ -58,8 +59,8 @@ class SandboxJourney {
   uid = ''; customer = ''; subscription = ''; clock = ''; session = ''; savedSession = '';
   /** The Checkout session openCheckout positively bound to this run (assertCheckoutIdentity); null until then. */
   boundCheckout: string | null = null;
-  /** Whether the bound Stripe customer carries an email: a presence flag only, never the value; null when unread. */
-  boundCustomerHasEmail: boolean | null = null;
+  /** Whether the bound Customer's email IS this run's fixture email: compared only, never kept or reported; null when unread. */
+  boundCustomerEmailIsFixture: boolean | null = null;
   signupAttempted = false;
   uncertainStripeCreate = false;
   private currentStage = 'preflight';
@@ -234,6 +235,12 @@ class SandboxJourney {
             // Proven chosen: the select's own value, never assumed from the call.
             requireFact(await input.inputValue({ timeout: HOSTED_READ_MS }).catch(() => null) === value, hostedFieldNotEditable(field));
           } else {
+            // Run 44203911253: the email step is the shared helper the browser fixture exercises (hostedEmail.ts): an editable control is
+            // filled and read back; a prefilled, non-editable one is accepted only as exactly the owner-bound fixture email.
+            if (field === 'email') {
+              await fillHostedEmail(input, { value, ownerBound: this.boundCustomerEmailIsFixture === true, checkpoint: (name) => this.checkpoint(name) });
+              return;
+            }
             await input.fill(value, { timeout: HOSTED_ACTION_MS }).catch(() => { throw new Error(`BILLING_JOURNEY:${hostedFieldNotEditable(field)}`); });
           }
           return;
@@ -257,7 +264,7 @@ class SandboxJourney {
       const decision = hostedEmailDecision({ emailFieldVisible: false,
         shownSession: email === 'after-binding' ? (() => { try { return checkoutSessionFromUrl(this.page.url()); } catch { return null; } })() : null,
         boundSession: email === 'after-binding' ? this.boundCheckout : null,
-        boundCustomerHasEmail: email === 'after-binding' ? this.boundCustomerHasEmail : null });
+        boundCustomerEmailIsFixture: email === 'after-binding' ? this.boundCustomerEmailIsFixture : null });
       // The observed control first (run 44157731067), then the generic email input.
       await fill([HOSTED_SELECTORS.email, 'input[type="email"]'], this.email, 'email', decision === 'absent_after_binding');
     }
@@ -424,12 +431,13 @@ class SandboxJourney {
   async openCheckout(raw: string | null): Promise<string> {
     const session = checkoutSessionFromUrl(raw);
     this.boundCheckout = null;
-    this.boundCustomerHasEmail = null;
+    this.boundCustomerEmailIsFixture = null;
     assertCheckoutIdentity(await this.stripe(`checkout/sessions/${session}`),
       { session, customer: this.customer, uid: this.uid, app: this.targets.app });
-    // Presence only (the value is never kept or reported): whether Checkout has an email for this customer without asking.
+    // Compared only (the value is never kept or reported): whether the bound Customer's email IS this run's fixture email (Sam's hold
+    // on #1895: a non-empty email alone could be another address). It gates both the absent-field path and the locked-field path.
     const bound = await this.stripe(`customers/${this.customer}`);
-    this.boundCustomerHasEmail = typeof bound.email === 'string' ? bound.email.length > 0 : bound.email === null ? false : null;
+    this.boundCustomerEmailIsFixture = typeof bound.email === 'string' ? bound.email === this.email : bound.email === null ? false : null;
     // Set only after the positive binding above: the one session hostedEmailDecision may accept without an email field.
     this.boundCheckout = session;
     await this.page.goto(raw as string);
