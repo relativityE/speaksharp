@@ -4,7 +4,8 @@ import { test } from 'vitest';
 import { RUNNER_JOURNEYS, POLICY_PENDING_STEPS, REQUIRED_STEPS, receipt, assertTestPrice, assertInvoice,
   isCorrelatedDelivery, assertSandboxConfiguration, safeFailureReason, testClockCreateFields, localStackStatus,
   hostedFieldUnavailable, hostedEmailDecision, assertCheckoutIdentity, type HostedField, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl, hostedEmailFieldAction,
-  HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken } from './contract';
+  HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken ,
+  APP_MIN_SESSION_DURATION_SECONDS, RECORDING_HOLD_MS, recordingHoldRemainingMs, APP_TOO_SHORT_STATUS } from './contract';
 import { finaliseLocalStackReceipt, RECEIPT_KEYS } from './localStackReceipt.mjs';
 import { stackIdentitySha256 } from './localStackResources.mjs';
 
@@ -576,4 +577,32 @@ test('hosted email: read-only exact owner-bound match is supplied; mismatch or u
   // Email values never reach a log, a return value or an error: fixed codes and a fixed checkpoint name only.
   assert.doesNotMatch(helper, /console\.|logger\./);
   assert.match(helper, /opts\.checkpoint\('hosted_email_prefilled'\)/);
+});
+
+// Run 44284831241: a take under the app's minimum is discarded as too short, so the journey must hold past it before Stop.
+test('recording hold: past the app\'s own minimum duration, timed from the observed start, then Stop; a too-short status is named', () => {
+  const env = readFileSync('frontend/src/config/env.ts', 'utf8');
+  const appMin = Number(/export const MIN_SESSION_DURATION_SECONDS = (\d+);/.exec(env)?.[1]);
+  assert.ok(Number.isInteger(appMin) && appMin > 0, 'the app minimum is readable');
+  assert.equal(APP_MIN_SESSION_DURATION_SECONDS, appMin, 'the journey uses the app\'s own minimum');
+  assert.ok(RECORDING_HOLD_MS >= (appMin + 2) * 1000, 'a margin over the minimum');
+  assert.equal(recordingHoldRemainingMs(1_000, 1_000), RECORDING_HOLD_MS);
+  assert.equal(recordingHoldRemainingMs(1_000, 1_900), RECORDING_HOLD_MS - 900); // run 9: text at ~0.9 s
+  assert.equal(recordingHoldRemainingMs(1_000, 1_000 + RECORDING_HOLD_MS), 0);
+  assert.equal(recordingHoldRemainingMs(1_000, 1_000 + RECORDING_HOLD_MS + 5_000), 0);
+  assert.equal(recordingHoldRemainingMs(5_000, 1_000), RECORDING_HOLD_MS); // a clock going backwards never shortens it
+  assert.equal(recordingHoldRemainingMs(Number.NaN, 1_000), RECORDING_HOLD_MS);
+  // The app's own too-short text is the one the journey names.
+  const lifecycle = readFileSync('frontend/src/hooks/useSessionLifecycle.ts', 'utf8');
+  assert.ok(lifecycle.includes(`${APP_TOO_SHORT_STATUS} (\${elapsedAtStop}s)`), 'the app status the journey detects');
+  // Order in record(): started observed, then transcript, then the hold, then Stop, then the save.
+  const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
+  const rec = spec.slice(spec.indexOf('  async record(): Promise<void> {'), spec.indexOf('  async advance('));
+  const order = ["await expectBenchmarkRecordingStarted(this.page, 'billing-journey');", 'const startedObservedAt = Date.now();',
+    "await expectBenchmarkTranscriptOutput(this.page, 'billing-journey', 60_000, 3);", 'const hold = recordingHoldRemainingMs(startedObservedAt, Date.now());',
+    'if (hold > 0) await this.page.waitForTimeout(hold);', "await stopBenchmarkRecording(this.page, 'billing-journey');",
+    "requireFact(!settled.tooShort, 'recording_discarded_too_short');", 'this.savedSession = settled.id;'];
+  let at = -1;
+  for (const step of order) { const i = rec.indexOf(step); assert.ok(i > at, step); at = i; }
+  assert.equal((rec.match(/stopBenchmarkRecording\(/g) ?? []).length, 1);
 });

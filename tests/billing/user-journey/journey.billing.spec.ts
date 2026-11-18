@@ -9,7 +9,8 @@ import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, re
   assertFullRefund, isRefundCancellation, assertCheckoutGrantedNothing,
   checkoutSessionFromUrl, assertCheckoutIdentity, newlyAddedCard, assertNoSecondCharge,
   type RunnerJourney, type BillingEvent, hostedFieldUnavailable, hostedEmailDecision, type HostedField,
-  HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl } from './contract';
+  HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl,
+  recordingHoldRemainingMs, APP_TOO_SHORT_STATUS } from './contract';
 import { fillHostedEmail } from './hostedEmail';
 import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { selectBenchmarkMode, preparePrivateModelIfPrompted, startBenchmarkRecording,
@@ -551,12 +552,22 @@ class SandboxJourney {
     const setup = await preparePrivateModelIfPrompted(this.page, 180_000);
     if (!setup.recordingAlreadyStarted) await startBenchmarkRecording(this.page, 'billing-journey');
     await expectBenchmarkRecordingStarted(this.page, 'billing-journey');
+    const startedObservedAt = Date.now();
     await expectBenchmarkTranscriptOutput(this.page, 'billing-journey', 60_000, 3);
+    // Run 44284831241: hold the take past the app's minimum duration, or it is discarded as too short (contract.ts).
+    const hold = recordingHoldRemainingMs(startedObservedAt, Date.now());
+    if (hold > 0) await this.page.waitForTimeout(hold);
+    this.checkpoint('recording_hold_met');
     await stopBenchmarkRecording(this.page, 'billing-journey');
     await waitForBenchmarkSaveCandidate(this.page, 'billing-journey', 120_000);
-    this.savedSession = await this.poll(() => this.page.evaluate(() =>
-      document.documentElement.getAttribute('data-session-persisted') === 'true'
-        ? document.documentElement.getAttribute('data-session-persisted-id') ?? '' : ''), Boolean, 'recording_not_persisted');
+    // A discarded take never saves: name it at once rather than waiting out the persistence bound.
+    const settled = await this.poll(() => this.page.evaluate((tooShort) => {
+      if (document.documentElement.getAttribute('data-session-persisted') === 'true')
+        return { id: document.documentElement.getAttribute('data-session-persisted-id') ?? '', tooShort: false };
+      return { id: '', tooShort: document.body.innerText.includes(tooShort) };
+    }, APP_TOO_SHORT_STATUS), (r) => Boolean(r.id) || r.tooShort, 'recording_not_persisted');
+    requireFact(!settled.tooShort, 'recording_discarded_too_short');
+    this.savedSession = settled.id;
     const row = await this.admin.from('sessions').select('id,user_id,status,transcript,engine')
       .eq('id', this.savedSession).eq('user_id', this.uid).single();
     requireFact(!row.error && row.data?.status === 'completed' && row.data.engine === 'private'

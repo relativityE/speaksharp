@@ -53,6 +53,23 @@ export const HOSTED_ACTION_MS = 30_000;
 export const HOSTED_READ_MS = 2_000;
 
 /**
+ * Run 44284831241: the app discards a take shorter than its minimum (frontend/src/config/env.ts MIN_SESSION_DURATION_SECONDS,
+ * measured from its own start time at Stop) as "too short", and saves nothing. The journey stopped as soon as three words
+ * appeared, about 1 s in, so the take was discarded and `recording_not_persisted` waited out its bound. The journey now holds
+ * the take for the app's minimum plus a margin, timed from its own observation of the start (which is never before the app's
+ * own start time), so the app's elapsed time at Stop is at least the hold. A static check pins the minimum to env.ts.
+ */
+export const APP_MIN_SESSION_DURATION_SECONDS = 5;
+export const RECORDING_HOLD_MS = (APP_MIN_SESSION_DURATION_SECONDS + 2) * 1000;
+/** How much longer to keep recording before Stop; 0 once the hold is met. Never negative; a non-finite start holds the full time. */
+export function recordingHoldRemainingMs(startedObservedAt: number, now: number): number {
+  if (!Number.isFinite(startedObservedAt) || !Number.isFinite(now)) return RECORDING_HOLD_MS;
+  return Math.max(0, RECORDING_HOLD_MS - Math.max(0, now - startedObservedAt));
+}
+/** The app's own too-short status (useSessionLifecycle): the take was discarded, so no save will ever arrive. */
+export const APP_TOO_SHORT_STATUS = 'Session too short';
+
+/**
  * The exact hosted-Checkout controls, read from Stripe's own markup on a run's open card-only session (17 Nov 2026, read-only, PO's
  * browser DevTools): the Subscribe button (Link's express button is type="button", never this), and Link's "Save my information"
  * opt-in, a custom checkbox whose real input sits under a styled wrapper and is toggled through its label.
