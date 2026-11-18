@@ -88,6 +88,50 @@ describe('PracticePrivacyPrompt', () => {
             { p_transcript_save: save, p_ai_coaching: ai, p_expected_revision: null });
     });
 
+    it('holds the submitted answers until the write settles, then allows an explicit retry after refusal', async () => {
+        unknownOwner();
+        let rejectWrite: (error: Error) => void = () => {};
+        client.rpc.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectWrite = reject; }));
+        render(<PracticePrivacyPrompt returning={false} />);
+        const saveYes = screen.getByRole('radio', { name: /Save transcripts/i });
+        const saveNo = screen.getByRole('radio', { name: /Don.t save/i });
+        const aiYes = screen.getByRole('radio', { name: /Get AI coaching/i });
+        const aiNo = screen.getByRole('radio', { name: /No coaching/i });
+        const proceed = screen.getByRole('button', { name: 'Continue' });
+        fireEvent.click(saveYes);
+        fireEvent.click(aiYes);
+
+        act(() => {
+            // Multiple activations before React must commit the disabled props.
+            fireEvent.click(proceed);
+            fireEvent.click(proceed);
+            fireEvent.click(aiNo, { detail: 0 }); // native keyboard activation produces a click with no pointer detail
+            fireEvent.click(saveNo);
+        });
+        expect(saveYes).toHaveAttribute('aria-checked', 'true');
+        expect(saveNo).toHaveAttribute('aria-checked', 'false');
+        expect(aiYes).toHaveAttribute('aria-checked', 'true');
+        expect(aiNo).toHaveAttribute('aria-checked', 'false');
+        for (const option of [saveYes, saveNo, aiYes, aiNo, proceed]) expect(option).toBeDisabled();
+        expect(client.rpc).toHaveBeenCalledExactlyOnceWith('set_practice_privacy_choices_v1',
+            { p_transcript_save: true, p_ai_coaching: true, p_expected_revision: null });
+        expect(usePracticePrivacyStore.getState()).toMatchObject({ status: 'unknown', transcriptSave: false, aiCoaching: false });
+
+        await act(async () => { rejectWrite(new Error('read unavailable')); });
+        expect(await screen.findByRole('alert')).toHaveTextContent(PRIVACY_PROMPT_COPY.saveFailed);
+        for (const option of [saveYes, saveNo, aiYes, aiNo, proceed]) expect(option).toBeEnabled();
+
+        client.rpc.mockResolvedValueOnce({ data: [row(false, false)], error: null });
+        fireEvent.click(saveNo);
+        fireEvent.click(proceed);
+        await waitFor(() => expect(usePracticePrivacyStore.getState()).toMatchObject({
+            status: 'chosen', transcriptSave: false, aiCoaching: false,
+        }));
+        expect(client.rpc).toHaveBeenCalledTimes(2);
+        expect(client.rpc).toHaveBeenLastCalledWith('set_practice_privacy_choices_v1',
+            { p_transcript_save: false, p_ai_coaching: false, p_expected_revision: null });
+    });
+
     it('a failed save says nothing changed and leaves the owner unknown (off)', async () => {
         unknownOwner();
         client.rpc.mockResolvedValue({ data: null, error: { message: 'consent_unavailable' } });

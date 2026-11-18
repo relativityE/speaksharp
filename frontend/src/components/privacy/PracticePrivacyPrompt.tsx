@@ -6,7 +6,7 @@
  * stated reason. Continue records both answers through the one atomic RPC; until then the owner's choice stays unknown,
  * which every surface treats as off: no transcript text is saved and no coaching is requested.
  */
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Check } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { savePracticePrivacy, usePracticePrivacyStore } from '@/services/practicePrivacy';
@@ -19,14 +19,16 @@ interface OptionProps {
   consequence: string;
   selected: boolean;
   unavailable?: boolean;
+  disabled?: boolean;
   onSelect: () => void;
 }
 
-const Option: React.FC<OptionProps> = ({ testId, title, consequence, selected, unavailable = false, onSelect }) => (
+const Option: React.FC<OptionProps> = ({ testId, title, consequence, selected, unavailable = false, disabled = false, onSelect }) => (
   <button
     type="button"
     role="radio"
     aria-checked={selected}
+    disabled={disabled}
     aria-disabled={unavailable || undefined}
     onClick={() => { if (!unavailable) onSelect(); }}
     data-testid={testId}
@@ -57,6 +59,8 @@ export const PracticePrivacyPrompt: React.FC<PracticePrivacyPromptProps> = ({ re
   const [save, setSave] = useState<boolean | null>(null);
   const [ai, setAi] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
+  // Guard events in the same batch, before React publishes the disabled controls.
+  const submissionPending = useRef(false);
   const [error, setError] = useState<'failed' | 'changed' | null>(null);
   const aiUnavailable = save === false;
   // A "Don't save" answer settles the AI question too (it can only be off).
@@ -64,17 +68,30 @@ export const PracticePrivacyPrompt: React.FC<PracticePrivacyPromptProps> = ({ re
   const ready = save !== null && aiAnswer !== null;
 
   const chooseSave = (value: boolean) => {
+    if (submissionPending.current) return;
     setSave(value);
     setError(null);
     if (!value) setAi(null);
   };
+  const chooseAi = (value: boolean) => {
+    if (submissionPending.current) return;
+    setAi(value);
+    setError(null);
+  };
   const submit = async () => {
-    if (!ready || saving || save === null || aiAnswer === null) return;
+    if (!ready || submissionPending.current || save === null || aiAnswer === null) return;
+    submissionPending.current = true;
     setSaving(true);
     setError(null);
-    const result = await savePracticePrivacy(save, save && aiAnswer, privacy);
-    setSaving(false);
-    if (!result.ok) setError(result.reason === 'changed' ? 'changed' : 'failed');
+    try {
+      const result = await savePracticePrivacy(save, save && aiAnswer, privacy);
+      if (!result.ok) setError(result.reason === 'changed' ? 'changed' : 'failed');
+    } catch {
+      setError('failed');
+    } finally {
+      submissionPending.current = false;
+      setSaving(false);
+    }
   };
 
   return (
@@ -94,9 +111,9 @@ export const PracticePrivacyPrompt: React.FC<PracticePrivacyPromptProps> = ({ re
           <p className="mt-1 text-[14px] font-medium leading-normal text-neutral-secondary">{PRIVACY_PROMPT_COPY.saveHelp}</p>
           <div className="mt-3 flex gap-2.5" role="radiogroup" aria-label={PRIVACY_PROMPT_COPY.saveLegend}>
             <Option testId="privacy-save-yes" title="Save transcripts" consequence="Reread it and download a report later."
-              selected={save === true} onSelect={() => chooseSave(true)} />
+              selected={save === true} disabled={saving} onSelect={() => chooseSave(true)} />
             <Option testId="privacy-save-no" title="Don't save" consequence="See it now. It's gone when you leave."
-              selected={save === false} onSelect={() => chooseSave(false)} />
+              selected={save === false} disabled={saving} onSelect={() => chooseSave(false)} />
           </div>
         </fieldset>
 
@@ -109,9 +126,9 @@ export const PracticePrivacyPrompt: React.FC<PracticePrivacyPromptProps> = ({ re
           </p>
           <div className="mt-3 flex gap-2.5" role="radiogroup" aria-label={PRIVACY_PROMPT_COPY.aiLegend}>
             <Option testId="privacy-ai-yes" title="Get AI coaching" consequence="A written review after each session."
-              selected={!aiUnavailable && ai === true} unavailable={aiUnavailable} onSelect={() => { setAi(true); setError(null); }} />
+              selected={!aiUnavailable && ai === true} unavailable={aiUnavailable} disabled={saving} onSelect={() => chooseAi(true)} />
             <Option testId="privacy-ai-no" title="No coaching" consequence="Measured results only. Nothing goes to the AI service."
-              selected={!aiUnavailable && ai === false} unavailable={aiUnavailable} onSelect={() => { setAi(false); setError(null); }} />
+              selected={!aiUnavailable && ai === false} unavailable={aiUnavailable} disabled={saving} onSelect={() => chooseAi(false)} />
           </div>
           {aiUnavailable && (
             <p className="mt-3 rounded-lg border border-neutral-border-soft bg-neutral-band px-3 py-2.5 text-[14px] font-semibold text-neutral-body"
@@ -130,6 +147,7 @@ export const PracticePrivacyPrompt: React.FC<PracticePrivacyPromptProps> = ({ re
               type="button"
               onClick={() => { void submit(); }}
               disabled={!ready || saving}
+              aria-busy={saving || undefined}
               data-testid="privacy-continue"
               className="min-h-[46px] rounded-[10px] bg-ink px-[26px] text-[16px] font-extrabold text-ink-text disabled:bg-neutral-border-soft disabled:text-neutral-secondary"
             >
