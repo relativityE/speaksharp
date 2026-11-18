@@ -513,6 +513,8 @@ export interface SwitchIsolationObservation {
     focusId: string | null;
     savedProduct: string | null;
     finalStatuses: readonly (string | null)[];
+    /** #1882: actual rows the rail showed after the take. When given, anything but exactly four FAILs (an empty rail included). */
+    railRowCount?: number | null;
     staleCoachingBeforeStart: boolean;
     /** Points 2–4: did the earlier Open Mic take's saved transcript contain each label? */
     markerSupport: readonly boolean[];
@@ -520,6 +522,14 @@ export interface SwitchIsolationObservation {
     openMicAfter: SwitchSourceSnapshot;
     /** Needed to prove a retention transition; legacy unchanged-row observations do not infer one. */
     ownerId?: string;
+}
+
+/**
+ * #1882 diagnostic readout: are the rail rows on screen exactly this set's four Focus points, in order? A missing row, an
+ * extra row, a reordered or reworded label, a row that could not be read, or a set that is not four points is false.
+ */
+export function railShowsExactFourPoints(labels: ReadonlyArray<string | null>, points: readonly string[]): boolean {
+    return points.length === 4 && labels.length === 4 && labels.every((label, i) => label !== null && label === points[i].trim());
 }
 
 export function switchIsolationVerdict(o: SwitchIsolationObservation): { verdict: 'PASS' | 'FAIL' | 'HOLD'; detail: string } {
@@ -531,6 +541,7 @@ export function switchIsolationVerdict(o: SwitchIsolationObservation): { verdict
     if (o.staleCoachingBeforeStart) return fail('the Open Mic take\'s coaching was shown on Focus Points before the new take started');
     if (!o.focusId || o.focusId === o.openMicId) return fail('the take after the switch did not save as its own session');
     if (o.savedProduct !== 'focus_points') return fail('the take after the switch was not saved as Focus Points');
+    if (o.railRowCount !== undefined && o.railRowCount !== 4) return fail(`incomplete marker observation: the rail showed ${o.railRowCount ?? 'unreadable'} point rows, not exactly four`);
     if (o.finalStatuses.length !== 4 || o.finalStatuses.some((s) => s === null)) return fail('incomplete marker observation: the rail did not show exactly four readable point verdicts');
     if (o.finalStatuses[0] !== 'covered') return fail('no current-take recognition: point 1, the only point this take heard, was not detected');
     if (o.finalStatuses.slice(1).some((s) => s !== 'missing')) return fail('old-take carry-over: a point spoken only in the earlier Open Mic take was detected in the new take');
