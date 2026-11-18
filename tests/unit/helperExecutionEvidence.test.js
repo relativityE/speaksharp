@@ -29,6 +29,8 @@ const AHT1811_HELPERS=[
     "ModelTransferTracker#onRequest","ModelTransferTracker#onResponse","ModelTransferTracker#onFinished","ModelTransferTracker#onFailed",
     "ModelTransferTracker#snapshot"]],
   ['tests/live/helpers/rwtFocusEditCancel.ts','tests/unit/rwtFocusEditCancel.test.ts',["editCancelVerdict"]],
+  // #1882: the Focus switch take on the live clock and the rail settled on actual rows.
+  ['tests/live/helpers/rwtLiveTimedTake.ts','tests/unit/rwtFocusSwitchLiveClock1882.test.ts',["holdLiveTake","readRailRowCount","railSettled"]],
   ['tests/live/helpers/rwtFocusNextMarker.ts','tests/unit/rwtFocusNextMarker.test.ts',["expectedNextMarker","nextPointMarkedVerdict","sampleFocusRail"]],
   ['tests/live/helpers/rwtFocusOpenMicIsolation.ts','tests/unit/rwtFocusOpenMicIsolation.test.ts',["openMicIsolationVerdict"]],
   ['tests/live/helpers/rwtFocusPresentation.ts','tests/unit/rwtFocusPresentation.test.ts',["focusPresentationRow","focusSignInRow"]],

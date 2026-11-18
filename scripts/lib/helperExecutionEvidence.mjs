@@ -163,6 +163,10 @@ export const HELPER_CONTRACTS = Object.freeze([{
   helperFile:'tests/live/helpers/rwtFocusEditCancel.ts',testFile:'tests/unit/rwtFocusEditCancel.test.ts',
   callables:["editCancelVerdict"],
 }, {
+  // #1882: the Focus switch take held on the page's live clock, and the rail settled on actual rows.
+  helperFile:'tests/live/helpers/rwtLiveTimedTake.ts',testFile:'tests/unit/rwtFocusSwitchLiveClock1882.test.ts',
+  callables:["holdLiveTake","readRailRowCount","railSettled"],
+}, {
   helperFile:'tests/live/helpers/rwtFocusNextMarker.ts',testFile:'tests/unit/rwtFocusNextMarker.test.ts',
   callables:["expectedNextMarker","nextPointMarkedVerdict","sampleFocusRail"],
 }, {
