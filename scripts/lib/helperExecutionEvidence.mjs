@@ -187,6 +187,10 @@ export const HELPER_CONTRACTS = Object.freeze([{
   helperFile:'tests/live/helpers/rwtLiveTakeMonitor.ts',testFile:'tests/unit/rwtLiveTakeMonitor1882.test.ts',
   callables:["installTakeMonitor","readTakeMonitorInPage","disposeTakeMonitorInPage","armTakeMonitor","readTakeMonitor","disposeTakeMonitor","firstLiveEdge","firstBreakAfter","holdMeasuredLiveTake","stopGuardVerdict","guardedStopInPage","guardedStopClick","stopMeasuredTake","stopMonitoredTake","awaitTakeOutcome","takeOutcomeOf","liveTakeVerdict","savedTakeBinding","takeEvidenceRows"],
 }, {
+  // #1897 (Sam, f2bb1ae HOLD): the post-click half of Stop, after the take monitor's own atomic check-and-click.
+  helperFile:'tests/live/helpers/benchmark-utils.ts',testFile:'tests/unit/rwtStopClickCallback1258.test.ts',
+  callables:["confirmBenchmarkStopped"],
+}, {
   // #1882 on the post-#1835 build: the run's consent settled before any take, and each saved take read back against it.
   helperFile:'tests/live/helpers/rwtPracticeConsent.ts',testFile:'tests/unit/rwtPracticeConsent1882.test.ts',
   callables:["consentModeFrom","privacyBuildOf","privacyChoiceVerdict","aiControlsVerdict","answerPracticePrivacyPrompt","consentReadbackVerdict","readPracticeChoice","probePrivacyTable","settlePracticeConsent"],
