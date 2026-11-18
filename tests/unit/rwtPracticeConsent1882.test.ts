@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Page } from '@playwright/test';
 import {
-    answerPracticePrivacyPrompt, CONSENT_MODES, consentModeFrom, consentReadbackVerdict, PRACTICE_PRIVACY_PROMPT, PRIVACY_MIGRATION_1835,
+    aiControlsVerdict, answerPracticePrivacyPrompt, CONSENT_MODES, consentModeFrom, consentReadbackVerdict, PRACTICE_PRIVACY_PROMPT, PRIVACY_MIGRATION_1835,
     privacyBuildOf, privacyChoiceVerdict, probePrivacyTable, readPracticeChoice, settlePracticeConsent, type ChoiceClient, type SavedSessionRead,
 } from '../live/helpers/rwtPracticeConsent';
 
@@ -17,6 +17,50 @@ const OFF_ROW: SavedSessionRead = { ...ROW, transcript: null, transcript_state: 
 const verdict = (over: Partial<Parameters<typeof consentReadbackVerdict>[0]>) => consentReadbackVerdict({
     build: 'includes_1835', choice: CONSENT_MODES.save_on, row: ROW, ownerId: OWNER, sessionId: 's1', minDurationSeconds: 9, ...over,
 });
+
+/**
+ * A model of #1835's PracticePrivacyPrompt (204a183d) under Playwright's click rule. The component renders each AI option
+ * with `aria-disabled="true"` while "Don't save" is chosen and ignores a press on it; Playwright refuses to click a control
+ * that is aria-disabled ("element is not enabled") and waits until its timeout. Continue is enabled only once both answers
+ * are settled, and "Don't save" settles the AI answer to off by itself.
+ */
+function modelPrompt(opts: { aiStaysAvailable?: boolean; hideNeedsSave?: boolean; aiPressIgnored?: boolean; onContinue?: () => void; shown?: boolean } = {}) {
+    const state = { save: null as boolean | null, ai: null as boolean | null, open: true };
+    const clicks: string[] = [];
+    let submitted: { save: boolean; ai: boolean } | null = null;
+    const aiUnavailable = () => state.save === false && !opts.aiStaysAvailable;
+    const ready = () => state.save !== null && (state.save === false ? true : state.ai !== null);
+    const attrs = (id: string): Record<string, string | null> => {
+        if (id === 'privacy-ai-yes' || id === 'privacy-ai-no') {
+            const value = id === 'privacy-ai-yes';
+            return { 'aria-disabled': aiUnavailable() ? 'true' : null, 'aria-checked': String(!aiUnavailable() && state.ai === value) };
+        }
+        if (id === 'privacy-save-yes' || id === 'privacy-save-no') return { 'aria-disabled': null, 'aria-checked': String(state.save === (id === 'privacy-save-yes')) };
+        if (id === 'privacy-continue') return { disabled: ready() ? null : '' };
+        return {};
+    };
+    const notEnabled = (id: string) => (id.startsWith('privacy-ai-') && aiUnavailable()) || (id === 'privacy-continue' && !ready());
+    const control = (id: string) => ({
+        click: async () => {
+            if (notEnabled(id)) throw new Error(`locator.click: Timeout exceeded. element is not enabled (${id})`);
+            clicks.push(id);
+            if (id === 'privacy-save-yes') state.save = true;
+            if (id === 'privacy-save-no') { state.save = false; state.ai = null; }
+            if ((id === 'privacy-ai-yes' || id === 'privacy-ai-no') && !opts.aiPressIgnored) state.ai = id === 'privacy-ai-yes';
+            if (id === 'privacy-continue') { submitted = { save: state.save as boolean, ai: state.save ? state.ai as boolean : false }; state.open = false; opts.onContinue?.(); }
+        },
+        getAttribute: async (name: string) => attrs(id)[name] ?? null,
+        isVisible: async () => id === 'privacy-ai-needs-save' ? state.save === false && !opts.hideNeedsSave : true,
+    });
+    const prompt = {
+        waitFor: async (o?: { state?: string }) => {
+            if (o?.state === 'hidden' ? state.open : opts.shown === false) throw new Error('Timeout');
+        },
+        getByTestId: control,
+    };
+    const page = { getByTestId: (id: string) => (id === PRACTICE_PRIVACY_PROMPT.root ? prompt : control(id)) } as unknown as Page;
+    return { page, clicks, get submitted() { return submitted; } };
+}
 
 describe('#1882 consent — the build and the choice', () => {
     it('the run\'s mode comes only from the three named modes', () => {
@@ -51,18 +95,54 @@ describe('#1882 consent — the build and the choice', () => {
     });
 
     it('answers the prompt with the chosen controls, and refuses coaching without saving', async () => {
-        const clicks: string[] = [];
-        const control = (id: string) => ({ click: async () => { clicks.push(id); } });
-        const prompt = { waitFor: async () => undefined, getByTestId: control };
-        const page = { getByTestId: (id: string) => (id === PRACTICE_PRIVACY_PROMPT.root ? prompt : control(id)) } as unknown as Page;
-        expect(await answerPracticePrivacyPrompt(page, CONSENT_MODES.save_off)).toBe(true);
-        expect(clicks).toEqual(['privacy-save-no', 'privacy-ai-no', 'privacy-continue']);
-        clicks.length = 0;
-        expect(await answerPracticePrivacyPrompt(page, CONSENT_MODES.save_on_coaching_on)).toBe(true);
-        expect(clicks).toEqual(['privacy-save-yes', 'privacy-ai-yes', 'privacy-continue']);
-        await expect(answerPracticePrivacyPrompt(page, { transcriptSave: false, aiCoaching: true })).rejects.toThrow(/INVALID_SETUP/);
+        const save_off = modelPrompt();
+        expect(await answerPracticePrivacyPrompt(save_off.page, CONSENT_MODES.save_off, 50)).toBe(true);
+        // #1835's disabled-control contract: Save No settles AI off; the unavailable AI options are never pressed.
+        expect(save_off.clicks).toEqual(['privacy-save-no', 'privacy-continue']);
+        expect(save_off.submitted).toEqual({ save: false, ai: false });
+        const on = modelPrompt();
+        expect(await answerPracticePrivacyPrompt(on.page, CONSENT_MODES.save_on, 50)).toBe(true);
+        expect(on.clicks).toEqual(['privacy-save-yes', 'privacy-ai-no', 'privacy-continue']);
+        expect(on.submitted).toEqual({ save: true, ai: false });
+        const coaching = modelPrompt();
+        expect(await answerPracticePrivacyPrompt(coaching.page, CONSENT_MODES.save_on_coaching_on, 50)).toBe(true);
+        expect(coaching.clicks).toEqual(['privacy-save-yes', 'privacy-ai-yes', 'privacy-continue']);
+        expect(coaching.submitted).toEqual({ save: true, ai: true });
+        await expect(answerPracticePrivacyPrompt(modelPrompt().page, { transcriptSave: false, aiCoaching: true })).rejects.toThrow(/INVALID_SETUP/);
         const hidden = { getByTestId: () => ({ waitFor: async () => { throw new Error('Timeout'); } }) } as unknown as Page;
         expect(await answerPracticePrivacyPrompt(hidden, CONSENT_MODES.save_on, 10)).toBe(false);
+    });
+
+    it('#1897 review 1: a prompt that does not show the disabled-control contract stops before Continue', async () => {
+        // Save No that leaves the AI options available (a build without #1835's contract): never Continue.
+        const enabledAfterSaveNo = modelPrompt({ aiStaysAvailable: true });
+        await expect(answerPracticePrivacyPrompt(enabledAfterSaveNo.page, CONSENT_MODES.save_off, 50))
+            .rejects.toThrow('HOLD practice consent: ai_controls_not_unavailable');
+        expect(enabledAfterSaveNo.clicks).toEqual(['privacy-save-no']);
+        const noReason = modelPrompt({ hideNeedsSave: true });
+        await expect(answerPracticePrivacyPrompt(noReason.page, CONSENT_MODES.save_off, 50)).rejects.toThrow('ai_needs_save_reason_missing');
+        // An AI press that did not take: the chosen option is not checked, so no Continue.
+        const ignoredPress = modelPrompt({ aiPressIgnored: true });
+        await expect(answerPracticePrivacyPrompt(ignoredPress.page, CONSENT_MODES.save_on, 50)).rejects.toThrow('ai_choice_not_checked');
+        expect(ignoredPress.clicks).not.toContain('privacy-continue');
+    });
+
+    it('#1897 review 1: the AI controls verdict, both ways', () => {
+        const off = { ariaDisabled: 'true', ariaChecked: 'false' };
+        const on = (checked: boolean) => ({ ariaDisabled: null, ariaChecked: String(checked) });
+        expect(aiControlsVerdict(CONSENT_MODES.save_off, { yes: off, no: off, needsSaveShown: true }, 'before_ai')).toEqual({ ok: true });
+        expect(aiControlsVerdict(CONSENT_MODES.save_off, { yes: off, no: on(false), needsSaveShown: true }, 'before_ai'))
+            .toEqual({ ok: false, reason: 'ai_controls_not_unavailable' });
+        expect(aiControlsVerdict(CONSENT_MODES.save_off, { yes: off, no: { ...off, ariaChecked: 'true' }, needsSaveShown: true }, 'before_ai'))
+            .toEqual({ ok: false, reason: 'ai_option_checked_while_off' });
+        expect(aiControlsVerdict(CONSENT_MODES.save_on, { yes: on(false), no: on(false), needsSaveShown: false }, 'before_ai')).toEqual({ ok: true });
+        expect(aiControlsVerdict(CONSENT_MODES.save_on, { yes: on(false), no: on(true), needsSaveShown: false }, 'after_ai')).toEqual({ ok: true });
+        expect(aiControlsVerdict(CONSENT_MODES.save_on, { yes: on(true), no: on(false), needsSaveShown: false }, 'after_ai'))
+            .toEqual({ ok: false, reason: 'ai_choice_not_checked' });
+        expect(aiControlsVerdict(CONSENT_MODES.save_on, { yes: off, no: off, needsSaveShown: false }, 'before_ai'))
+            .toEqual({ ok: false, reason: 'ai_controls_unavailable_while_saving' });
+        expect(aiControlsVerdict(CONSENT_MODES.save_on, { yes: on(false), no: on(false), needsSaveShown: true }, 'before_ai'))
+            .toEqual({ ok: false, reason: 'ai_needs_save_reason_while_saving' });
     });
 });
 
@@ -116,12 +196,7 @@ function clientOf(table: { rows: Array<Record<string, unknown>> } | 'absent' | '
 
 describe('#1882 consent — settled on the Practice page before any take', () => {
     const listing = ['a.sql', PRIVACY_MIGRATION_1835];
-    const promptPage = (onContinue: () => void, shown = true) => {
-        const clicks: string[] = [];
-        const control = (id: string) => ({ click: async () => { clicks.push(id); if (id === 'privacy-continue') onContinue(); } });
-        const prompt = { waitFor: async () => { if (!shown) throw new Error('Timeout'); }, getByTestId: control };
-        return { clicks, page: { getByTestId: (id: string) => (id === PRACTICE_PRIVACY_PROMPT.root ? prompt : control(id)) } as unknown as Page };
-    };
+    const promptPage = (onContinue: () => void, shown = true) => modelPrompt({ onContinue, shown });
 
     it('reads the table and the owner\'s row; a missing table is absent, any other error unreadable', async () => {
         expect(await probePrivacyTable(clientOf({ rows: [] }))).toBe('present');
@@ -140,7 +215,8 @@ describe('#1882 consent — settled on the Practice page before any take', () =>
         const { page, clicks } = promptPage(() => table.rows.push({ user_id: OWNER, transcript_save: choice.transcriptSave, ai_coaching: choice.aiCoaching, consent_version: 1 }));
         const settled = await settlePracticeConsent({ page, client: clientOf(table), ownerId: OWNER, migrationFiles: listing, mode });
         expect(settled).toEqual({ build: 'includes_1835', choice, mode });
-        expect(clicks).toEqual([choice.transcriptSave ? 'privacy-save-yes' : 'privacy-save-no', 'privacy-ai-no', 'privacy-continue']);
+        // Saving off: the owner's recorded row is false/false, reached through the disabled-control contract (no AI press).
+        expect(clicks).toEqual(choice.transcriptSave ? ['privacy-save-yes', 'privacy-ai-no', 'privacy-continue'] : ['privacy-save-no', 'privacy-continue']);
     });
 
     it('stops before any take on an unknown build, an unset mode, an existing choice, no prompt, or a choice not recorded', async () => {

@@ -19,13 +19,14 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './benchmark-utils';
 import { MODEL_COMPARISON_AUTH_KEY } from './practiceLoopJourney';
-import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches, newSetSourcePoints, newSetEditVerdicts, setupIsBlank, switchIsolationVerdict, switchSourceState, railShowsExactFourPoints, labelHeardIn, focusBackReloadVerdict, focusIdentityObservation, firstTakeSavedExactlyOnceVerdict, type SwitchSourceSnapshot } from './rwtOracles';
+import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches, newSetSourcePoints, newSetEditVerdicts, setupIsBlank, switchIsolationVerdict, switchSaveOffVerdicts, completingPageMarkersInPage, SWITCH_METRICS_ONLY_ROW, SWITCH_CARRY_OVER_TESTED_ROW, switchSourceState, railShowsExactFourPoints, labelHeardIn, focusBackReloadVerdict, focusIdentityObservation, firstTakeSavedExactlyOnceVerdict, type SwitchSourceSnapshot } from './rwtOracles';
 import { cleanupRunOwnedAccount } from './runOwnedCleanup';
 import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, armWatchdog, watchProfileFor, type JourneyFinalizer } from './rwtWatchdog';
 import { savedFocusIdentityVerdict } from './rwtSavedFocusIdentity';
 import { railSettled, readRailRowCount } from './rwtLiveTimedTake';
-import { armTakeMonitor, awaitTakeOutcome, disposeTakeMonitor, holdMeasuredLiveTake, readTakeMonitor, takeEvidenceRows, type ArmedTakeMonitor } from './rwtLiveTakeMonitor';
+import { armTakeMonitor, awaitTakeOutcome, disposeTakeMonitor, holdMeasuredLiveTake, readTakeMonitor, stopMeasuredTake, takeEvidenceRows, type ArmedTakeMonitor, type TakeOutcome } from './rwtLiveTakeMonitor';
 import { consentModeFrom, consentReadbackVerdict, settlePracticeConsent, type ChoiceClient, type SavedSessionRead, type SettledConsent } from './rwtPracticeConsent';
+import { FOCUS_COACHING_OFF_ROW, analyticsOffThroughActions, coachingOffVerdict, offAnalyticsRows, offBackReloadVerdict, readCoachingOffAfterStop, readOffRestoredView, reviewModeOf } from './rwtCoachingOff';
 import { recordRunOwnedCleanup } from './rwtAcceptance';
 import { HarnessParityTap, numericComparisonRow, probeSaveIsolationRow, readRepeatEligibility, type NumericResult, type RepeatEligibility, type StartPressBudget } from './rwtHarnessParity';
 import { focusCapturedTakes, focusDesignedSaves } from './rwtFocusSaveIsolation';
@@ -737,6 +738,20 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         });
 
         await test.step('row 11 — Focus Points coaching after Stop', async () => {
+            // #1897 review 4 (Sam): with coaching off (or saving off) on a #1835 build, the evidence is that NO review was
+            // requested, shown or saved, with the band for this choice; the coaching-on rows below could only hold or fail.
+            const offMode = reviewModeOf(consent);
+            if (offMode === 'coaching_off_saved' || offMode === 'saving_off') {
+                if (!persistedId) { receipt.row(FOCUS_COACHING_OFF_ROW, 'HOLD', 'no saved session'); return; }
+                const shown = await readCoachingOffAfterStop(page);
+                const { data: savedRow, error: savedErr } = await admin!.from('sessions').select('ai_suggestions').eq('id', persistedId).eq('user_id', owner.uid).maybeSingle();
+                const savedSuggestions = savedErr || !savedRow ? 'read_failed' as const
+                    : (savedRow as { ai_suggestions?: unknown }).ai_suggestions === null || (savedRow as { ai_suggestions?: unknown }).ai_suggestions === undefined ? 'none' as const : 'present' as const;
+                const off = coachingOffVerdict(offMode, { ...shown, coachingRequests: coaching.requests, savedSuggestions });
+                receipt.row(FOCUS_COACHING_OFF_ROW, off.verdict, off.detail, { reason: off.reason, reviewMode: offMode, bandMode: shown.bandMode,
+                    reviewState: shown.reviewState, reviewPhrasesShown: shown.reviewPhrasesShown, coachingRequests: coaching.requests, savedSuggestions });
+                return;
+            }
             if (!persistedId) { receipt.row('Focus coaching rendered', 'HOLD', 'no saved session'); return; }
             // focusCoachingRows settles the reason after its own terminal wait (Codex r4189408865).
             // #1258 R4: the rail's final statuses, so the advice can be checked against a point that is still open.
@@ -771,6 +786,33 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             };
             const before = await savedIdentity();
             const requestsBefore = coaching.requests;
+            // #1897 review 4 (Sam): coaching off or saving off restores to that mode's band, transcript and saved results.
+            const offMode = reviewModeOf(consent);
+            if (offMode === 'coaching_off_saved' || offMode === 'saving_off') {
+                const back = await backFromProgressRestoresSession(page, persistedId);
+                const afterBack = back.restored ? await readOffRestoredView(page, before.digest) : null;
+                const reload = back.restored ? await reloadRestoredSession(page, persistedId, before.digest)
+                    : { restored: false, sameSession: false, idleShown: back.idleShown, liveTracks: null, transcriptMatches: false, review: 'missing' as const };
+                const afterReload = reload.sameSession ? await readOffRestoredView(page, before.digest) : null;
+                const after = await savedIdentity();
+                const result = offBackReloadVerdict(offMode, {
+                    leftForProgress: back.left, restoredAfterBack: back.restored, liveMicTracksAfterBack: back.liveTracks,
+                    restoredAfterReload: reload.restored, sameSessionAfterReload: reload.sameSession,
+                    idleRecorderShown: back.idleShown || reload.idleShown, liveMicTracks: reload.liveTracks, afterBack, afterReload,
+                    firstTakeRail, verdictsBefore: before.verdicts, verdictsAfter: after.verdicts,
+                    coachingRequestsBefore: requestsBefore, coachingRequestsAfter: coaching.requests,
+                });
+                receipt.row('Focus Back from Progress and reload keep the saved session', result.verdict, result.detail, {
+                    reason: result.reason, reviewMode: offMode, left: back.left, restoredAfterBack: back.restored, liveTracksAfterBack: back.liveTracks,
+                    restoredAfterReload: reload.restored, sameSession: reload.sameSession, idleShown: back.idleShown || reload.idleShown, liveTracks: reload.liveTracks,
+                    reviewAfterBack: afterBack?.review ?? null, reviewAfterReload: afterReload?.review ?? null,
+                    transcriptAfterBack: afterBack?.transcript ?? null, transcriptAfterReload: afterReload?.transcript ?? null,
+                    focusAfterBack: afterBack?.focus?.join(',') ?? null, focusAfterReload: afterReload?.focus?.join(',') ?? null,
+                    verdictsUnchanged: before.verdicts.length > 0 && before.verdicts.join(',') === after.verdicts.join(','),
+                    coachingRequestsBefore: requestsBefore, coachingRequestsAfter: coaching.requests,
+                });
+                return;
+            }
             const back = await backFromProgressRestoresSession(page, persistedId, savedCoaching ?? undefined);
             const reload = back.restored ? await reloadRestoredSession(page, persistedId, before.digest, savedCoaching ?? undefined)
                 : { restored: false, sameSession: false, idleShown: back.idleShown, liveTracks: null, transcriptMatches: false, review: 'missing' as const };
@@ -798,6 +840,16 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             const digest = sha256Hex(row?.transcript);
             // Through the on-screen Analytics action the person clicks after Stop, then the session's own control.
             const requestsBefore = coaching.requests;
+            // #1897 review 4 (Sam): coaching off or saving off: the transcript per mode, no AI suggestions, the saved results.
+            const offMode = reviewModeOf(consent);
+            if (offMode === 'coaching_off_saved' || offMode === 'saving_off') {
+                const seen = await analyticsOffThroughActions(page, persistedId, digest);
+                for (const r of offAnalyticsRows(offMode, seen, firstTakeRail)) receipt.row(r.step, r.verdict, r.detail, { ...r.evidence, reviewMode: offMode });
+                receipt.row('Analytics generates no coaching', coaching.requests === requestsBefore ? 'PASS' : 'FAIL',
+                    coaching.requests === requestsBefore ? 'opening and reloading Analytics requested no new review' : 'Analytics requested coaching while coaching is off',
+                    { coachingRequestsBefore: requestsBefore, coachingRequestsAfter: coaching.requests });
+                return;
+            }
             // #1258 (PM 6175763509 §2): under a proved EXTERNAL outage `analyticsRows` writes every coaching-dependent row as
             // not exercised; otherwise a missing saved pair is the existing HOLD.
             const focusExternalCoaching = receipt.rows.some((r) => r.step === 'Focus coaching rendered' && r.verdict === 'EXTERNAL');
@@ -1157,7 +1209,13 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 const openMicObjectiveRowReads: Array<number | null> = savedOpenMicId ? [await objectiveRowsFor(savedOpenMicId)] : [];
                 const firstFocusAfter = await firstFocusEvidence();
                 // A point is a carry-over marker only if the Open Mic take actually recognised it (6090552875).
-                const markerSupport = points.slice(1).map((label) => labelHeardIn(label, openMicBefore.transcript));
+                // #1897 review 5 (Sam): with saving off there is no saved transcript, so the three markers are read as
+                // content-free booleans from the Open Mic take's own bound completing page (the transcript never leaves the
+                // page, and nothing is saved or logged). No reading leaves them empty, and isolation HOLDs.
+                const switchSavingOff = Boolean(consent.choice && !consent.choice.transcriptSave);
+                const pageMarkers = switchSavingOff && savedOpenMicId
+                    ? await page.evaluate(completingPageMarkersInPage, { sessionId: savedOpenMicId, labels: points.slice(1) }).catch(() => null) : null;
+                const markerSupport = switchSavingOff ? (pageMarkers ?? []) : points.slice(1).map((label) => labelHeardIn(label, openMicBefore.transcript));
 
                 // 2. Products → Focus Points, the fixture's four points, then a short take that hears only point 1.
                 await openProduct('focus-points');
@@ -1193,10 +1251,13 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 const switchPressedAt = Date.now();
                 await startBenchmarkRecording(page, `${suite}-switch-focus`);
                 const switchHold = await holdMeasuredLiveTake(page, switchMonitor, shortTakeSeconds, { nodePressedAt: switchPressedAt });
-                await stopBenchmarkRecording(page, `${suite}-switch-focus`, 180_000);
-                const switchOutcome = await awaitTakeOutcome(page, switchMonitor.token, 180_000);
-                if (switchOutcome.kind !== 'too_short') await waitForBenchmarkSaveCandidate(page, `${suite}-switch-focus`, 180_000);
-                const focusId = switchOutcome.kind === 'too_short' ? null : await waitForNewPersistedSession(page, openMicId);
+                // #1897 review 2 (Sam): a hold that reports a drop or a replacement never presses the generic Stop, which would
+                // land on the replacement take. Nothing is saved or read for this take then; its rows record the break.
+                const switchStop = await stopMeasuredTake(page, switchMonitor, switchHold,
+                    () => stopBenchmarkRecording(page, `${suite}-switch-focus`, 180_000));
+                const switchOutcome: TakeOutcome = switchStop.pressed ? await awaitTakeOutcome(page, switchMonitor.token, 180_000) : { kind: 'unsettled' };
+                if (switchStop.pressed && switchOutcome.kind !== 'too_short') await waitForBenchmarkSaveCandidate(page, `${suite}-switch-focus`, 180_000);
+                const focusId = !switchStop.pressed || switchOutcome.kind === 'too_short' ? null : await waitForNewPersistedSession(page, openMicId);
                 const switchTake = await measuredTakeRows('Focus switch take', switchMonitor, shortTakeSeconds, switchPressedAt,
                     focusId && focusId !== openMicId ? focusId : null);
                 switchFocusId = focusId && focusId !== openMicId ? focusId : null;
@@ -1225,10 +1286,19 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     // #1835: saving off replaces the transcript assertions with metrics-only checks; a pre-#1835 build always saved.
                     transcriptSaving: consent.choice && !consent.choice.transcriptSave ? 'off' : 'on',
                 });
+                // #1897 review 5 (Sam): saving off keeps "stayed metrics-only" and "carry-over tested" as separate verdicts.
+                if (switchSavingOff) {
+                    const parts = switchSaveOffVerdicts({ openMicBefore, openMicAfter, markerSupport });
+                    receipt.row(SWITCH_METRICS_ONLY_ROW, parts.metricsOnly.verdict, parts.metricsOnly.detail,
+                        { openMicStateBefore: openMicBefore.state ?? 'unknown', openMicStateAfter: openMicAfter.state ?? 'unknown' });
+                    receipt.row(SWITCH_CARRY_OVER_TESTED_ROW, parts.carryOverTested.verdict, parts.carryOverTested.detail,
+                        { markerSource: 'completing_page', markersRead: pageMarkers !== null, markerSupport: markerSupport.join(',') });
+                }
                 receipt.row('take after switching products is clean', iso.verdict, iso.detail, {
                     railPendingBefore, shortTakeSeconds, pressToLiveMs: switchTake.timing.pressToLiveMs, liveSecondsAtStop: switchTake.timing.liveSecondsAtStop,
-                    liveTiming: switchTake.timing.reason, holdEnded: switchHold.ended, switchOutcome: switchOutcome.kind,
+                    liveTiming: switchTake.timing.reason, holdEnded: switchHold.ended, stopPressed: switchStop.pressed, switchOutcome: switchOutcome.kind,
                     railRowCount, final: finalStatuses.join(','), staleCoachingBeforeStart, markerSupport: markerSupport.join(','),
+                    markerSource: switchSavingOff ? 'completing_page' : 'saved_transcript',
                     transcriptSaving: consent.choice && !consent.choice.transcriptSave ? 'off' : 'on', openMicState: openMicBefore.state ?? 'unknown',
                     openMicSaved: Boolean(openMicId && openMicId !== before), openMicUnchanged: openMicBefore.digest !== null && openMicBefore.digest === openMicAfter.digest,
                     openMicRetentionState: openMicAfter.state ?? 'unknown',
@@ -1308,6 +1378,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 let editSeeded = false;
                 let railLabelsMatchEdit = false;
                 let takeBId: string | null = null;
+                let editedStopPressed: boolean | null = null;
                 let railOrdered: Array<{ label: string; status: RailStatus | null }> = [];
                 // AHT-02 focus-edit-cancel-save (review fix 6): the cancel half of Edit. Nothing here presses Start or requests coaching.
                 const cancel: EditCancelObservation = { editOpened: false, editSeeded: false, changeTyped: false, focusedInDialog: false,
@@ -1381,12 +1452,15 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                         const editedMonitor = await armTakeMonitor(page, `${suite}-edited`);
                         const editedPressedAt = Date.now();
                         await startBenchmarkRecording(page, `${suite}-edited`);
-                        await holdMeasuredLiveTake(page, editedMonitor, fixture.entry.speechSeconds + 10, { nodePressedAt: editedPressedAt });
-                        await stopBenchmarkRecording(page, `${suite}-edited`, 180_000);
-                        const editedOutcome = await awaitTakeOutcome(page, editedMonitor.token, 180_000);
-                        if (editedOutcome.kind !== 'too_short') await waitForBenchmarkSaveCandidate(page, `${suite}-edited`, 180_000);
+                        const editedHold = await holdMeasuredLiveTake(page, editedMonitor, fixture.entry.speechSeconds + 10, { nodePressedAt: editedPressedAt });
+                        // #1897 review 2 (Sam): no generic Stop after a hold that reports a drop or a replacement.
+                        const editedStop = await stopMeasuredTake(page, editedMonitor, editedHold,
+                            () => stopBenchmarkRecording(page, `${suite}-edited`, 180_000));
+                        editedStopPressed = editedStop.pressed;
+                        const editedOutcome: TakeOutcome = editedStop.pressed ? await awaitTakeOutcome(page, editedMonitor.token, 180_000) : { kind: 'unsettled' };
+                        if (editedStop.pressed && editedOutcome.kind !== 'too_short') await waitForBenchmarkSaveCandidate(page, `${suite}-edited`, 180_000);
                         // Bound to its IMMEDIATE predecessor, the switch take whose review offered New Set.
-                        takeBId = editedOutcome.kind === 'too_short' ? null : await waitForNewPersistedSession(page, predecessor);
+                        takeBId = !editedStop.pressed || editedOutcome.kind === 'too_short' ? null : await waitForNewPersistedSession(page, predecessor);
                         await measuredTakeRows('Focus edited take', editedMonitor, fixture.entry.speechSeconds + 10, editedPressedAt,
                             takeBId && takeBId !== predecessor ? takeBId : null);
                         // #1882: settled only with the edited set's actual rows on screen, none pending; an empty rail is never settled.
@@ -1406,7 +1480,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     takeAVerdictsBefore: takeA.verdicts, takeAVerdictsAfter: takeAAfter.verdicts,
                     editedLabels: edited, railOrdered, takeBSavedOrdered: takeB.ordered,
                 });
-                const evidence = { onPredecessorReview, offered, newSetBlank, editSeeded, railLabelsMatchEdit, takeBSaved: takeBId !== null && takeBId !== predecessor && takeBId !== persistedId, final: railOrdered.map((r) => r.status).join(','), savedVerdicts: takeB.ordered.map((r) => r.verdict).join(',') };
+                const evidence = { onPredecessorReview, offered, newSetBlank, editSeeded, railLabelsMatchEdit, editedStopPressed, takeBSaved: takeBId !== null && takeBId !== predecessor && takeBId !== persistedId, final: railOrdered.map((r) => r.status).join(','), savedVerdicts: takeB.ordered.map((r) => r.verdict).join(',') };
                 receipt.row('Focus New Set', v.newSet.verdict, v.newSet.detail, evidence);
                 receipt.row('Focus Edit', v.edit.verdict, v.edit.detail, evidence);
                 const cancelRow = editCancelVerdict(cancel);

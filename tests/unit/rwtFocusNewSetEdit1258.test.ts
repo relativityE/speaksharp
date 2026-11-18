@@ -112,7 +112,7 @@ describe('Focus New Set / Edit oracle', () => {
         expect(step).toContain('const predecessor = switchFocusId;');
         expect(step).toMatch(/const offered = onPredecessorReview && await newSetButton\.waitFor\(/);
         // #1882: a take the page discarded as too short is named at once, never bound; a saved one is bound to its predecessor.
-        expect(step).toContain('takeBId = editedOutcome.kind === \'too_short\' ? null : await waitForNewPersistedSession(page, predecessor);');
+        expect(step).toContain('takeBId = !editedStop.pressed || editedOutcome.kind === \'too_short\' ? null : await waitForNewPersistedSession(page, predecessor);');
         expect(step).not.toContain('waitForNewPersistedSession(page, persistedId)');
         expect(step).toContain('takeBId !== predecessor && takeBId !== persistedId ? await savedFocus(takeBId)');
     });

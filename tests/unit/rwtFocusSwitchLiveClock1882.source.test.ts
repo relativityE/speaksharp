@@ -18,10 +18,10 @@ const between = (from: string, to: string): string => {
 
 /** The switch take: from the line before its Start press to the switch verdict. */
 const switchTake = between('const switchPressedAt = Date.now();', 'const iso = switchIsolationVerdict({');
-const switchStop = switchTake.indexOf('await stopBenchmarkRecording(page, `${suite}-switch-focus`');
+const switchStop = switchTake.indexOf('const switchStop = await stopMeasuredTake(page, switchMonitor, switchHold,');
 /** The edited-set take: from its Start press to its rail settle. */
 const editedTake = between('const editedPressedAt = Date.now();', 'railSettled(await readRailRowCount(page), (await readRail(page, edited.length)).statuses, edited.length)');
-const editedStop = editedTake.indexOf('await stopBenchmarkRecording(page, `${suite}-edited`');
+const editedStop = editedTake.indexOf('const editedStop = await stopMeasuredTake(page, editedMonitor, editedHold,');
 /** The first take: from the model setup to its final rail read. */
 const firstTake = between('firstTakeMonitor = await armTakeMonitor(page, suite);', 'firstTakeRail = final;');
 
@@ -36,7 +36,7 @@ describe('#1882 — every Focus take is measured live through its own Stop', () 
         expect(src.indexOf('const switchMonitor = await armTakeMonitor(page, `${suite}-switch-focus`);'))
             .toBeLessThan(src.indexOf('await startBenchmarkRecording(page, `${suite}-switch-focus`);'));
         const held = switchTake.slice(0, switchStop);
-        expect(held).toMatch(/await holdMeasuredLiveTake\(page, switchMonitor, shortTakeSeconds, \{ nodePressedAt: switchPressedAt \}\);/);
+        expect(held).toMatch(/const switchHold = await holdMeasuredLiveTake\(page, switchMonitor, shortTakeSeconds, \{ nodePressedAt: switchPressedAt \}\);/);
         expect(held).not.toMatch(/waitForTimeout\(|holdLiveTake\(/);
     });
 
@@ -52,9 +52,23 @@ describe('#1882 — every Focus take is measured live through its own Stop', () 
         expect(src.indexOf('const editedMonitor = await armTakeMonitor(page, `${suite}-edited`);'))
             .toBeLessThan(src.indexOf('await startBenchmarkRecording(page, `${suite}-edited`);'));
         const held = editedTake.slice(0, editedStop);
-        expect(held).toMatch(/await holdMeasuredLiveTake\(page, editedMonitor, fixture\.entry\.speechSeconds \+ 10, \{ nodePressedAt: editedPressedAt \}\);/);
+        expect(held).toMatch(/const editedHold = await holdMeasuredLiveTake\(page, editedMonitor, fixture\.entry\.speechSeconds \+ 10, \{ nodePressedAt: editedPressedAt \}\);/);
         expect(held).not.toMatch(/waitForTimeout\(/);
         expect(editedTake.slice(editedStop)).toMatch(/await measuredTakeRows\('Focus edited take', editedMonitor, fixture\.entry\.speechSeconds \+ 10, editedPressedAt,/);
+    });
+
+    it('#1897 review 2: after a failed hold neither take presses the generic Stop, waits for a save or reads a row', () => {
+        for (const [take, at, name, v] of [[switchTake, switchStop, 'switch-focus', 'switchStop'], [editedTake, editedStop, 'edited', 'editedStop']] as const) {
+            const held = take.slice(0, at);
+            const after = take.slice(at);
+            // The ONLY Stop is the guarded one, through the take's own Stop step; never a bare press after the hold.
+            expect(held).not.toContain('stopBenchmarkRecording(');
+            expect(after.split('stopBenchmarkRecording(').length - 1).toBe(1);
+            expect(after).toContain('() => stopBenchmarkRecording(page, `${suite}-' + name + '`, 180_000));');
+            expect(after).toContain(`Outcome: TakeOutcome = ${v}.pressed ? await awaitTakeOutcome(`);
+            expect(after).toMatch(new RegExp(`if \\(${v}\\.pressed && \\w+Outcome\\.kind !== 'too_short'\\) await waitForBenchmarkSaveCandidate\\(`));
+            expect(after).toMatch(new RegExp(`= !${v}\\.pressed \\|\\| \\w+Outcome\\.kind === 'too_short' \\? null : await waitForNewPersistedSession\\(`));
+        }
     });
 
     it('the first take: armed before anything that may press Start, and measured for the whole spoken fixture', () => {

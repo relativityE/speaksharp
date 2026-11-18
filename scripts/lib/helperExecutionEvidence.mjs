@@ -173,11 +173,15 @@ export const HELPER_CONTRACTS = Object.freeze([{
 }, {
   // #1882 live timing (Nov 18): the take measured live on the page through the actual Stop, bound to its saved row.
   helperFile:'tests/live/helpers/rwtLiveTakeMonitor.ts',testFile:'tests/unit/rwtLiveTakeMonitor1882.test.ts',
-  callables:["installTakeMonitor","readTakeMonitorInPage","disposeTakeMonitorInPage","armTakeMonitor","readTakeMonitor","disposeTakeMonitor","firstLiveEdge","firstBreakAfter","holdMeasuredLiveTake","awaitTakeOutcome","takeOutcomeOf","liveTakeVerdict","savedTakeBinding","takeEvidenceRows"],
+  callables:["installTakeMonitor","readTakeMonitorInPage","disposeTakeMonitorInPage","armTakeMonitor","readTakeMonitor","disposeTakeMonitor","firstLiveEdge","firstBreakAfter","holdMeasuredLiveTake","stopGuardVerdict","stopMeasuredTake","awaitTakeOutcome","takeOutcomeOf","liveTakeVerdict","savedTakeBinding","takeEvidenceRows"],
 }, {
   // #1882 on the post-#1835 build: the run's consent settled before any take, and each saved take read back against it.
   helperFile:'tests/live/helpers/rwtPracticeConsent.ts',testFile:'tests/unit/rwtPracticeConsent1882.test.ts',
-  callables:["consentModeFrom","privacyBuildOf","privacyChoiceVerdict","answerPracticePrivacyPrompt","consentReadbackVerdict","readPracticeChoice","probePrivacyTable","settlePracticeConsent"],
+  callables:["consentModeFrom","privacyBuildOf","privacyChoiceVerdict","aiControlsVerdict","answerPracticePrivacyPrompt","consentReadbackVerdict","readPracticeChoice","probePrivacyTable","settlePracticeConsent"],
+}, {
+  // #1897 review 4: with coaching off or saving off on a #1835 build, the Focus review checks use affirmative evidence.
+  helperFile:'tests/live/helpers/rwtCoachingOff.ts',testFile:'tests/unit/rwtCoachingOff1897.test.ts',
+  callables:["reviewModeOf","expectedSavedFocus","savedFocusMatches","coachingOffVerdict","offBackReloadVerdict","offAnalyticsRows","readSavedFocusStatuses","readCoachingOffAfterStop","readOffRestoredView","analyticsOffThroughActions"],
 }, {
   helperFile:'tests/live/helpers/rwtFocusNextMarker.ts',testFile:'tests/unit/rwtFocusNextMarker.test.ts',
   callables:["expectedNextMarker","nextPointMarkedVerdict","sampleFocusRail"],

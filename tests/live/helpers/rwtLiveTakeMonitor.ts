@@ -237,6 +237,39 @@ export async function holdMeasuredLiveTake(page: Page, armed: ArmedTakeMonitor, 
     }
 }
 
+export interface GuardedStop {
+    /** True only when the Stop step was actually run for this take. */
+    pressed: boolean;
+    reason: 'held_and_live' | Exclude<MeasuredHold['ended'], 'held'>;
+}
+
+/**
+ * Pure. #1897 review 2 (Sam, Nov 18): may the journey press Stop on this take? Only when the hold reports `held` AND a fresh
+ * monitor read still shows the SAME take live, with no drop or replacement since its live edge. A hold that ended early
+ * (capture dropped, take replaced, never live, unreadable) never leads to a Stop press: the generic Stop would land on
+ * whatever take is live now, which may be a replacement, and its result would be read as this take's.
+ */
+export function stopGuardVerdict(hold: MeasuredHold, snap: MonitorSnapshot | null): GuardedStop {
+    if (hold.ended !== 'held') return { pressed: false, reason: hold.ended };
+    if (!snap) return { pressed: false, reason: 'monitor_unreadable' };
+    const live = firstLiveEdge(snap);
+    if (!live || hold.takeKey === null || live.key !== hold.takeKey) return { pressed: false, reason: 'take_replaced' };
+    const broke = firstBreakAfter(snap, live, Number.POSITIVE_INFINITY);
+    if (broke) return { pressed: false, reason: broke.state === 'during' && broke.key !== live.key ? 'take_replaced' : 'capture_dropped' };
+    return { pressed: true, reason: 'held_and_live' };
+}
+
+/**
+ * Press Stop (through the caller's own Stop step) only when `stopGuardVerdict` allows it on a fresh read of the monitor.
+ * Otherwise nothing is pressed, and the take's rows record the break with no Stop press.
+ */
+export async function stopMeasuredTake(page: Page, armed: ArmedTakeMonitor, hold: MeasuredHold, pressStop: () => Promise<unknown>): Promise<GuardedStop> {
+    const guard = stopGuardVerdict(hold, armed.ok ? await readTakeMonitor(page, armed.token) : null);
+    if (!guard.pressed) return guard;
+    await pressStop();
+    return guard;
+}
+
 export type TakeOutcome =
     | { kind: 'saved'; id: string; t: number; seq: number }
     | { kind: 'too_short'; t: number; seq: number }
@@ -273,7 +306,8 @@ export type Verdict = 'PASS' | 'FAIL' | 'HOLD';
 export interface LiveTakeVerdict {
     verdict: Verdict;
     reason: 'live_through_stop' | 'capture_never_live' | 'no_stop_press' | 'capture_dropped' | 'take_replaced'
-        | 'capture_not_live_at_stop' | 'take_replaced_before_stop' | 'hold_short' | 'monitor_gap' | 'monitor_unreadable' | 'too_short';
+        | 'capture_not_live_at_stop' | 'take_replaced_before_stop' | 'hold_short' | 'monitor_gap' | 'monitor_unreadable' | 'too_short'
+        | 'stop_count';
     takeKey: string | null;
     pressToLiveMs: number | null;
     /** Page-clock seconds from the first live edge to the actual Stop press (measured). */
@@ -288,6 +322,8 @@ export interface LiveTakeVerdict {
  * Pure. PASS only when ONE take went live, stayed live with the same identity, observed without a tick gap, until the
  * actual Stop press, which itself saw that same take live, at least `liveSeconds` after the live edge, and the app did not
  * report the take too short. Anything the monitor could not see is HOLD, never PASS.
+ * #1897 review 3 (Sam, Nov 18): exactly ONE Stop press per take. A second press (a Stop on a replacement take, or a
+ * repeated press) FAILs `stop_count`: the take's evidence must come from one press, never the first of several.
  */
 export function liveTakeVerdict(snap: MonitorSnapshot | null, opts: { liveSeconds: number; pressedAt?: number | null }): LiveTakeVerdict {
     const base = { takeKey: null, pressToLiveMs: null, liveSecondsAtStop: 0, appElapsedSecondsAtStop: null, breakAtSeconds: null, stopPresses: snap?.stops.length ?? 0 };
@@ -305,6 +341,7 @@ export function liveTakeVerdict(snap: MonitorSnapshot | null, opts: { liveSecond
             liveSecondsAtStop: stop ? (stop.t - live.t) / 1000 : 0 };
     }
     if (!stop) return { ...withLive, verdict: 'FAIL', reason: 'no_stop_press' };
+    if (snap.stops.length !== 1) return { ...withLive, verdict: 'FAIL', reason: 'stop_count', liveSecondsAtStop: (stop.t - live.t) / 1000 };
     const liveSecondsAtStop = (stop.t - live.t) / 1000;
     const appElapsedSecondsAtStop = stop.appStartTime === null ? null : Math.floor((stop.t - stop.appStartTime) / 1000);
     const measured = { ...withLive, liveSecondsAtStop, appElapsedSecondsAtStop };
@@ -319,17 +356,21 @@ export function liveTakeVerdict(snap: MonitorSnapshot | null, opts: { liveSecond
 
 export interface SavedBinding {
     verdict: Verdict;
-    reason: 'bound' | 'not_saved' | 'too_short' | 'stale_marker' | 'session_id_mismatch' | 'another_take_before_save' | 'no_stop_press';
+    reason: 'bound' | 'not_saved' | 'too_short' | 'stale_marker' | 'session_id_mismatch' | 'another_take_before_save' | 'no_stop_press'
+        | 'stop_count' | 'session_id_missing';
     persistedId: string | null;
 }
 
 /**
- * Pure. The saved row is THIS take's only when the saved marker was set after this take's Stop press with an id, no other
- * take went live between that Stop and the marker, and (when the controller already named a session at Stop) the id is
- * the one it named. A marker already present at arming that never changed is stale, never this take's.
+ * Pure. The saved row is THIS take's only when the saved marker was set after this take's ONE Stop press with an id, no
+ * other take went live between that Stop and the marker, and the id is exactly the non-empty session id the controller
+ * named at that Stop. A marker already present at arming that never changed is stale, never this take's.
+ * #1897 review 3 (Sam, Nov 18): a missing or empty session id at Stop can never pass (it used to skip the comparison), and
+ * more than one Stop press FAILs `stop_count`.
  */
 export function savedTakeBinding(snap: MonitorSnapshot | null): SavedBinding {
     if (!snap || snap.stops.length === 0) return { verdict: 'FAIL', reason: 'no_stop_press', persistedId: null };
+    if (snap.stops.length !== 1) return { verdict: 'FAIL', reason: 'stop_count', persistedId: null };
     const stop = snap.stops[0];
     const outcome = takeOutcomeOf(snap);
     if (outcome.kind === 'too_short') return { verdict: 'FAIL', reason: 'too_short', persistedId: null };
@@ -339,7 +380,8 @@ export function savedTakeBinding(snap: MonitorSnapshot | null): SavedBinding {
     }
     const otherLive = snap.edges.some((e) => e.seq > stop.seq && e.seq < outcome.seq && e.state === 'during' && e.key !== stop.key);
     if (otherLive) return { verdict: 'FAIL', reason: 'another_take_before_save', persistedId: outcome.id };
-    if (stop.sessionId !== null && stop.sessionId !== outcome.id) return { verdict: 'FAIL', reason: 'session_id_mismatch', persistedId: outcome.id };
+    if (typeof stop.sessionId !== 'string' || stop.sessionId.trim() === '') return { verdict: 'FAIL', reason: 'session_id_missing', persistedId: outcome.id };
+    if (stop.sessionId !== outcome.id) return { verdict: 'FAIL', reason: 'session_id_mismatch', persistedId: outcome.id };
     return { verdict: 'PASS', reason: 'bound', persistedId: outcome.id };
 }
 
@@ -360,6 +402,7 @@ const TIMING_DETAIL: Record<LiveTakeVerdict['reason'], string> = {
     monitor_gap: 'the page was not observed continuously while the take was live',
     monitor_unreadable: 'the take monitor could not be read',
     too_short: 'the app reported the take too short and saved nothing',
+    stop_count: 'more than one Stop press was observed for this take',
 };
 
 /**

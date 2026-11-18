@@ -22,6 +22,8 @@ export const PRACTICE_PRIVACY_PROMPT = Object.freeze({
     saveNo: 'privacy-save-no',
     aiYes: 'privacy-ai-yes',
     aiNo: 'privacy-ai-no',
+    /** Shown only while "Don't save" is chosen: AI coaching needs saving in v1, so both AI options are unavailable. */
+    aiNeedsSave: 'privacy-ai-needs-save',
     continue: 'privacy-continue',
 });
 
@@ -70,9 +72,70 @@ export function privacyChoiceVerdict(read: ChoiceRead, ownerId: string, choice: 
         ? { verdict: 'PASS', reason: 'recorded' } : { verdict: 'FAIL', reason: 'differs' };
 }
 
+/** One AI option as the page renders it: `aria-disabled` and `aria-checked` read from the control itself. */
+export interface AiOptionRead { ariaDisabled: string | null; ariaChecked: string | null }
+export interface AiControlsRead { yes: AiOptionRead; no: AiOptionRead; needsSaveShown: boolean }
+
+/**
+ * Pure: the #1835 prompt's AI controls are in the state this choice requires (PracticePrivacyPrompt.tsx on the #1835 branch).
+ *   - "Don't save" chosen: AI coaching can only be off, so the prompt itself settles it. BOTH AI options are unavailable
+ *     (`aria-disabled="true"`), neither is checked, and the needs-saving reason is shown. Neither is pressed: a press on an
+ *     unavailable option does nothing, and Playwright refuses it as not enabled, so the old helper never reached Continue.
+ *   - "Save transcripts" chosen: both AI options are available; after the press, exactly the chosen one is checked.
+ * `stage` says which reading this is: `before_ai` (after the save press) or `after_ai` (after the AI press, saving on only).
+ */
+export function aiControlsVerdict(choice: PracticeChoice, read: AiControlsRead, stage: 'before_ai' | 'after_ai'):
+    { ok: true } | { ok: false; reason: 'ai_controls_not_unavailable' | 'ai_option_checked_while_off' | 'ai_needs_save_reason_missing'
+        | 'ai_controls_unavailable_while_saving' | 'ai_needs_save_reason_while_saving' | 'ai_choice_not_checked' } {
+    const unavailable = (o: AiOptionRead) => o.ariaDisabled === 'true';
+    const checked = (o: AiOptionRead) => o.ariaChecked === 'true';
+    if (!choice.transcriptSave) {
+        if (!unavailable(read.yes) || !unavailable(read.no)) return { ok: false, reason: 'ai_controls_not_unavailable' };
+        if (checked(read.yes) || checked(read.no)) return { ok: false, reason: 'ai_option_checked_while_off' };
+        if (!read.needsSaveShown) return { ok: false, reason: 'ai_needs_save_reason_missing' };
+        return { ok: true };
+    }
+    if (unavailable(read.yes) || unavailable(read.no)) return { ok: false, reason: 'ai_controls_unavailable_while_saving' };
+    if (read.needsSaveShown) return { ok: false, reason: 'ai_needs_save_reason_while_saving' };
+    if (stage === 'after_ai') {
+        const chosen = choice.aiCoaching ? read.yes : read.no;
+        const other = choice.aiCoaching ? read.no : read.yes;
+        if (!checked(chosen) || checked(other)) return { ok: false, reason: 'ai_choice_not_checked' };
+    }
+    return { ok: true };
+}
+
+type PromptLocator = ReturnType<Page['getByTestId']>;
+
+async function readAiControls(prompt: PromptLocator): Promise<AiControlsRead> {
+    const option = async (testId: string): Promise<AiOptionRead> => {
+        const control = prompt.getByTestId(testId);
+        return { ariaDisabled: await control.getAttribute('aria-disabled').catch(() => null),
+            ariaChecked: await control.getAttribute('aria-checked').catch(() => null) };
+    };
+    return { yes: await option(PRACTICE_PRIVACY_PROMPT.aiYes), no: await option(PRACTICE_PRIVACY_PROMPT.aiNo),
+        needsSaveShown: await prompt.getByTestId(PRACTICE_PRIVACY_PROMPT.aiNeedsSave).isVisible().catch(() => false) };
+}
+
+/** Re-read the AI controls until they match (React commits the press asynchronously), or the last reading's reason. */
+async function awaitAiControls(prompt: PromptLocator, choice: PracticeChoice, stage: 'before_ai' | 'after_ai', timeoutMs: number,
+    pollMs = 100): Promise<ReturnType<typeof aiControlsVerdict>> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+        const verdict = aiControlsVerdict(choice, await readAiControls(prompt), stage);
+        if (verdict.ok || Date.now() >= deadline) return verdict;
+        await new Promise((resolve) => setTimeout(resolve, pollMs));
+    }
+}
+
 /**
  * Answer the Practice prompt as a user would. Only a FRESH owner (no recorded choice) is answered: the caller must not
  * rewrite an existing choice. Returns false when the prompt never showed.
+ *
+ * #1882 (Sam, Nov 18, review point 1): "Don't save" uses #1835's disabled-control contract. Both AI options become
+ * unavailable and the prompt settles coaching off by itself, so they are checked, not pressed, and Continue is next. The
+ * owner's recorded false/false row is then verified by the caller (`settlePracticeConsent`). A prompt that does not show
+ * that contract stops with `HOLD practice consent: <reason>` before Continue.
  */
 export async function answerPracticePrivacyPrompt(page: Page, choice: PracticeChoice, timeoutMs = 30_000): Promise<boolean> {
     if (choice.aiCoaching && !choice.transcriptSave) throw new Error('INVALID_SETUP AI coaching requires transcript saving (#1835)');
@@ -80,7 +143,13 @@ export async function answerPracticePrivacyPrompt(page: Page, choice: PracticeCh
     const shown = await prompt.waitFor({ state: 'visible', timeout: timeoutMs }).then(() => true, () => false);
     if (!shown) return false;
     await prompt.getByTestId(choice.transcriptSave ? PRACTICE_PRIVACY_PROMPT.saveYes : PRACTICE_PRIVACY_PROMPT.saveNo).click({ timeout: timeoutMs });
-    await prompt.getByTestId(choice.aiCoaching ? PRACTICE_PRIVACY_PROMPT.aiYes : PRACTICE_PRIVACY_PROMPT.aiNo).click({ timeout: timeoutMs });
+    const afterSave = await awaitAiControls(prompt, choice, 'before_ai', timeoutMs);
+    if (!afterSave.ok) throw new Error(`HOLD practice consent: ${afterSave.reason}`);
+    if (choice.transcriptSave) {
+        await prompt.getByTestId(choice.aiCoaching ? PRACTICE_PRIVACY_PROMPT.aiYes : PRACTICE_PRIVACY_PROMPT.aiNo).click({ timeout: timeoutMs });
+        const afterAi = await awaitAiControls(prompt, choice, 'after_ai', timeoutMs);
+        if (!afterAi.ok) throw new Error(`HOLD practice consent: ${afterAi.reason}`);
+    }
     await prompt.getByTestId(PRACTICE_PRIVACY_PROMPT.continue).click({ timeout: timeoutMs });
     await prompt.waitFor({ state: 'hidden', timeout: timeoutMs }).catch(() => undefined);
     return true;

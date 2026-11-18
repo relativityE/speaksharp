@@ -19,6 +19,7 @@ import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
 import {
     armTakeMonitor, awaitTakeOutcome, disposeTakeMonitor, holdMeasuredLiveTake, liveTakeVerdict, readTakeMonitor, savedTakeBinding,
     takeOutcomeOf, firstLiveEdge, firstBreakAfter, installTakeMonitor, readTakeMonitorInPage, disposeTakeMonitorInPage, takeEvidenceRows,
+    stopGuardVerdict, stopMeasuredTake,
     type MonitorSnapshot,
 } from '../live/helpers/rwtLiveTakeMonitor';
 
@@ -64,7 +65,9 @@ class ModelApp {
             document.documentElement.removeAttribute('data-session-persisted');
             document.documentElement.removeAttribute('data-session-persisted-id');
         }
-        this.debug = { lifecycleVersion: this.debug.lifecycleVersion + 1, sessionId: this.opts.sessionIdAtStart ?? null };
+        // Like SpeechRuntimeController, the session row (and its id) is created at the start of the take.
+        const next = this.debug.lifecycleVersion + 1;
+        this.debug = { lifecycleVersion: next, sessionId: this.opts.sessionIdAtStart === undefined ? `row-${next}` : this.opts.sessionIdAtStart };
         if (pressToLiveMs !== null) setTimeout(() => this.goLive(), pressToLiveMs);
     }
 
@@ -96,7 +99,7 @@ class ModelApp {
             return;
         }
         setTimeout(() => {
-            this.savedId = this.opts.savedIdOverride ?? `row-${this.debug.lifecycleVersion}`;
+            this.savedId = this.opts.savedIdOverride ?? this.debug.sessionId ?? `row-${this.debug.lifecycleVersion}`;
             document.documentElement.setAttribute('data-session-persisted', 'true');
             document.documentElement.setAttribute('data-session-persisted-id', this.savedId);
         }, this.opts.saveDelayMs ?? 1_500);
@@ -319,6 +322,102 @@ describe('#1882 — the Focus take is measured live, continuously, through the a
         expect(r.binding).toMatchObject({ verdict: 'FAIL', reason: 'session_id_mismatch', persistedId: 'row-other' });
         const same = new ModelApp({ sessionIdAtStart: 'row-named', savedIdOverride: 'row-named' });
         expect((await run(measuredTake(same, 500))).binding).toMatchObject({ verdict: 'PASS', persistedId: 'row-named' });
+    });
+
+    it('#1897 review 2 — GUARDED STOP: a hold that reports a drop or a replacement never presses Stop on the take now live', async () => {
+        const cases: Array<[string, (a: ModelApp) => void, (a: ModelApp) => void, string]> = [
+            ['take_replaced', (a) => a.replaceTake(500 + 5_000), () => undefined, 'take_replaced'],
+            ['capture_dropped', (a) => a.dropCapture(500 + 3_000, 1_000), () => undefined, 'capture_dropped'],
+            // Held in full, then replaced after the hold's last read and before the guard's fresh read.
+            ['replaced_after_hold', () => undefined, (a) => { a.debug = { lifecycleVersion: a.debug.lifecycleVersion + 7, sessionId: 'row-replacement' }; }, 'take_replaced'],
+        ];
+        for (const [name, during, afterHold, reason] of cases) {
+            const app = new ModelApp();
+            const page = pageOf();
+            const armed = await armTakeMonitor(page, name);
+            const pressedAt = Date.now();
+            app.press(500);
+            during(app);
+            let pressed = 0;
+            const r = await run((async () => {
+                const hold = await holdMeasuredLiveTake(page, armed, LIVE_SECONDS, { nodePressedAt: pressedAt });
+                afterHold(app);
+                await vi.advanceTimersByTimeAsync(200); // one monitor tick sees the swap
+                const stop = await stopMeasuredTake(page, armed, hold, async () => { pressed += 1; app.stopButton.click(); });
+                return { hold, stop };
+            })());
+            const snap = await readTakeMonitor(page, armed.token);
+            log('guarded_stop', { name, hold: r.hold.ended, stop: r.stop, stops: snap?.stops.length });
+            expect(r.hold.ended).toBe(name === 'replaced_after_hold' ? 'held' : reason);
+            expect(r.stop).toEqual({ pressed: false, reason });
+            expect(pressed).toBe(0);
+            expect(app.stopped).toBe(false);
+            expect(snap?.stops.length).toBe(0);
+            expect(savedTakeBinding(snap)).toMatchObject({ verdict: 'FAIL', reason: 'no_stop_press' });
+            expect(liveTakeVerdict(snap, { liveSeconds: LIVE_SECONDS, pressedAt }).verdict).toBe('FAIL');
+        }
+        // The same take, held in full and still live: the Stop step runs exactly once.
+        const app = new ModelApp();
+        const page = pageOf();
+        const armed = await armTakeMonitor(page, 'held');
+        app.press(500);
+        let pressed = 0;
+        const stop = await run((async () => {
+            const hold = await holdMeasuredLiveTake(page, armed, LIVE_SECONDS);
+            return stopMeasuredTake(page, armed, hold, async () => { pressed += 1; app.stopButton.click(); });
+        })());
+        expect(stop).toEqual({ pressed: true, reason: 'held_and_live' });
+        expect(pressed).toBe(1);
+        expect(app.stopped).toBe(true);
+    });
+
+    it('#1897 review 2 — the stop guard, pure', () => {
+        const snap: MonitorSnapshot = {
+            token: 't', armedAt: 0, seq: 9, disposed: false, lastTick: 11_000, persisted: [], tooShort: null, tickGaps: [], stops: [],
+            edges: [{ seq: 1, t: 1_000, state: 'during', key: 'take:2', sessionId: 'row-2' }],
+        };
+        const held = { pressToLiveMs: 0, measuredLiveMs: 9_000, ended: 'held' as const, takeKey: 'take:2' };
+        expect(stopGuardVerdict(held, snap)).toEqual({ pressed: true, reason: 'held_and_live' });
+        expect(stopGuardVerdict({ ...held, ended: 'capture_never_live', takeKey: null }, snap)).toEqual({ pressed: false, reason: 'capture_never_live' });
+        expect(stopGuardVerdict({ ...held, ended: 'monitor_unreadable' }, snap)).toEqual({ pressed: false, reason: 'monitor_unreadable' });
+        expect(stopGuardVerdict(held, null)).toEqual({ pressed: false, reason: 'monitor_unreadable' });
+        expect(stopGuardVerdict({ ...held, takeKey: 'take:1' }, snap)).toEqual({ pressed: false, reason: 'take_replaced' });
+        expect(stopGuardVerdict({ ...held, takeKey: null }, snap)).toEqual({ pressed: false, reason: 'take_replaced' });
+        const swapped = { ...snap, edges: [...snap.edges, { seq: 2, t: 10_000, state: 'during', key: 'take:9', sessionId: null }] };
+        expect(stopGuardVerdict(held, swapped)).toEqual({ pressed: false, reason: 'take_replaced' });
+        const dropped = { ...snap, edges: [...snap.edges, { seq: 2, t: 10_000, state: 'before', key: 'take:2', sessionId: 'row-2' }] };
+        expect(stopGuardVerdict(held, dropped)).toEqual({ pressed: false, reason: 'capture_dropped' });
+    });
+
+    it('#1897 review 3 — MISSING SESSION ID: a Stop that names no session (or an empty one) can never bind the saved row', async () => {
+        for (const id of [null, '', '   ']) {
+            const app = new ModelApp({ sessionIdAtStart: id, savedIdOverride: 'row-saved' });
+            const r = await run(measuredTake(app, 500));
+            log('session_id_missing', { id, binding: r.binding });
+            expect(r.verdict.verdict).toBe('PASS');
+            expect(r.outcome).toMatchObject({ kind: 'saved', id: 'row-saved' });
+            expect(r.binding).toMatchObject({ verdict: 'FAIL', reason: 'session_id_missing', persistedId: 'row-saved' });
+        }
+    });
+
+    it('#1897 review 3 — STOP COUNT: two Stop presses on one take FAIL both the timing and the binding', async () => {
+        const app = new ModelApp();
+        const page = pageOf();
+        const armed = await armTakeMonitor(page, 'two-stops');
+        const pressedAt = Date.now();
+        app.press(500);
+        const outcome = await run((async () => {
+            await holdMeasuredLiveTake(page, armed, LIVE_SECONDS, { nodePressedAt: pressedAt });
+            app.stopButton.click();
+            app.stopButton.click();
+            return awaitTakeOutcome(page, armed.token, 10_000);
+        })());
+        const snap = await readTakeMonitor(page, armed.token);
+        log('stop_count', { stops: snap?.stops.length, outcome });
+        expect(snap?.stops.length).toBe(2);
+        expect(outcome.kind).toBe('saved');
+        expect(liveTakeVerdict(snap, { liveSeconds: LIVE_SECONDS, pressedAt })).toMatchObject({ verdict: 'FAIL', reason: 'stop_count' });
+        expect(savedTakeBinding(snap)).toMatchObject({ verdict: 'FAIL', reason: 'stop_count', persistedId: null });
     });
 
     it('ANOTHER TAKE BEFORE SAVE: a second live take between this Stop and the saved marker unbinds the row', () => {
