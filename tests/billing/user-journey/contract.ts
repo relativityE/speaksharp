@@ -67,12 +67,31 @@ export function recordingHoldRemainingMs(startedObservedAt: number, now: number)
   return Math.max(0, RECORDING_HOLD_MS - Math.max(0, now - startedObservedAt));
 }
 /**
- * Holds the take, then presses Stop exactly once. `startedObservedAt` is taken only after the page shows the capture-live state
- * (`data-session-state="during"`, which the app renders only once capture is live; its clock is re-based in that same update), so
- * the app's elapsed time at Stop is at least the time held here. A sleep that wakes early is re-checked; the loop is bounded.
- * Returns the held time measured on the same clock.
+ * The live take's identity, read from the page: non-null only while the shell shows the capture-live state
+ * (`data-session-state="during"`, rendered only once capture is live, with the app's clock re-based in that same update) AND the
+ * runtime names its take (`__SPEECH_RUNTIME_DEBUG__().lifecycleVersion`, the controller's own same-take test). Stopping is
+ * allowed only for the take observed at capture live, still live at Stop.
  */
-export async function holdThenStop(opts: { startedObservedAt: number; clock: { now(): number; sleep(ms: number): Promise<void> };
+export type TakeProbe = () => Promise<string | null>;
+type Clock = { now(): number; sleep(ms: number): Promise<void> };
+
+/** Polls until capture is live and returns that take's identity and the moment it was OBSERVED live (never the Start or the words). */
+export async function observeCaptureLive(opts: { probe: TakeProbe; clock: Clock; timeoutMs: number }): Promise<{ takeKey: string; observedAt: number }> {
+  const deadline = opts.clock.now() + opts.timeoutMs;
+  do {
+    const key = await opts.probe();
+    if (key !== null) return { takeKey: key, observedAt: opts.clock.now() };
+    await opts.clock.sleep(250);
+  } while (opts.clock.now() < deadline);
+  throw new Error('BILLING_JOURNEY:capture_live_unconfirmed');
+}
+
+/**
+ * Holds the take from its observed capture-live moment, then presses Stop exactly once, and only if the SAME take is still live.
+ * A sleep that wakes early is re-checked (bounded); a hold that cannot be met, or a take that ended or changed, is never stopped.
+ * Returns the held time on the same clock.
+ */
+export async function holdThenStop(opts: { startedObservedAt: number; takeKey: string; probe: TakeProbe; clock: Clock;
   stop(): Promise<void> }): Promise<number> {
   for (let i = 0; i < 20; i++) {
     const remaining = recordingHoldRemainingMs(opts.startedObservedAt, opts.clock.now());
@@ -80,6 +99,7 @@ export async function holdThenStop(opts: { startedObservedAt: number; clock: { n
     await opts.clock.sleep(remaining);
   }
   requireFact(recordingHoldRemainingMs(opts.startedObservedAt, opts.clock.now()) === 0, 'recording_hold_not_met');
+  requireFact(await opts.probe() === opts.takeKey, 'take_not_live_at_stop');
   await opts.stop();
   return opts.clock.now() - opts.startedObservedAt;
 }

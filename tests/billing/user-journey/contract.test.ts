@@ -5,7 +5,7 @@ import { RUNNER_JOURNEYS, POLICY_PENDING_STEPS, REQUIRED_STEPS, receipt, assertT
   isCorrelatedDelivery, assertSandboxConfiguration, safeFailureReason, testClockCreateFields, localStackStatus,
   hostedFieldUnavailable, hostedEmailDecision, assertCheckoutIdentity, type HostedField, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl, hostedEmailFieldAction,
   HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken ,
-  APP_MIN_SESSION_DURATION_SECONDS, RECORDING_HOLD_MS, recordingHoldRemainingMs, holdThenStop, APP_TOO_SHORT_STATUS,
+  APP_MIN_SESSION_DURATION_SECONDS, RECORDING_HOLD_MS, recordingHoldRemainingMs, holdThenStop, observeCaptureLive, APP_TOO_SHORT_STATUS,
   privacyOptInFact, PRIVACY_PROMPT, privacyBuildState, PRIVACY_MIGRATION, privacyAnswerRecorded } from './contract';
 import { finaliseLocalStackReceipt, RECEIPT_KEYS } from './localStackReceipt.mjs';
 import { stackIdentitySha256 } from './localStackResources.mjs';
@@ -600,14 +600,15 @@ test('recording hold: past the app\'s own minimum duration, timed from the obser
   const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
   const rec = spec.slice(spec.indexOf('  async record(): Promise<void> {'), spec.indexOf('  async advance('));
   const order = ["await expectBenchmarkRecordingStarted(this.page, 'billing-journey');",
-    "getByTestId('session-shell').getAttribute('data-session-state'", "requireFact(liveState === 'during', 'capture_live_unconfirmed');",
-    'const startedObservedAt = Date.now();', "await expectBenchmarkTranscriptOutput(this.page, 'billing-journey', 60_000, 3);",
-    'await holdThenStop({ startedObservedAt,', "await stopBenchmarkRecording(this.page, 'billing-journey');",
+    "if (shell?.getAttribute('data-session-state') !== 'during') return null;", "return typeof debug?.lifecycleVersion === 'number' ? `take:${debug.lifecycleVersion}` : null;",
+    'const live = await observeCaptureLive({ probe, clock, timeoutMs: 60_000 });', "await expectBenchmarkTranscriptOutput(this.page, 'billing-journey', 60_000, 3);",
+    'await holdThenStop({ startedObservedAt: live.observedAt, takeKey: live.takeKey, probe, clock,', "await stopBenchmarkRecording(this.page, 'billing-journey');",
     "requireFact(!settled.tooShort, 'recording_discarded_too_short');", 'this.savedSession = settled.id;'];
   let at = -1;
   for (const step of order) { const i = rec.indexOf(step); assert.ok(i > at, step); at = i; }
   assert.equal((rec.match(/stopBenchmarkRecording\(/g) ?? []).length, 1);
   assert.equal((rec.match(/holdThenStop\(/g) ?? []).length, 1);
+  assert.doesNotMatch(rec, /startedObservedAt = Date\.now\(\)/, 'the hold starts at observed capture live, never a bare clock read');
 });
 
 // #1835 makes transcript saving opt-in; the billing recording step needs a saved transcript (paid_recording_not_proven).
@@ -713,38 +714,63 @@ test('capture live: the app renders the recording state only once capture is liv
   assert.match(lifecycle, /const liveStart = useSessionStore\.getState\(\)\.startTime;\s+const elapsedAtStop = liveStart \? Math\.floor\(\(Date\.now\(\) - liveStart\) \/ 1000\) : elapsedTime;/);
 });
 
-// Behaviour with a controlled clock. The app's rule at Stop is mirrored from useSessionLifecycle (pinned above):
-// too short when floor((stopAt - startTime) / 1000) < MIN_SESSION_DURATION_SECONDS.
+// Behaviour with a controlled clock and a scripted page. The app's rule at Stop is mirrored from useSessionLifecycle (pinned
+// above): too short when floor((stopAt - startTime) / 1000) < MIN_SESSION_DURATION_SECONDS, startTime = the capture-live moment.
 const appKeepsTake = (appStartTime: number, stopAt: number) => Math.floor((stopAt - appStartTime) / 1000) >= APP_MIN_SESSION_DURATION_SECONDS;
-function fakeClock(start: number, wakeFraction = 1) {
-  let t = start; const slept: number[] = [];
-  return { clock: { now: () => t, sleep: async (ms: number) => { slept.push(ms); t += Math.max(1, Math.ceil(ms * wakeFraction)); } },
-    advance: (ms: number) => { t += ms; }, slept, at: () => t };
+/** A page whose capture goes live at `liveAt` as take `key`, and (optionally) ends at `endsAt` or is replaced by `nextKey`. */
+function scriptedTake(o: { liveAt: number; endsAt?: number; nextKey?: string; wakeFraction?: number }) {
+  let t = 0;
+  const clock = { now: () => t, sleep: async (ms: number) => { t += Math.max(1, Math.ceil(ms * (o.wakeFraction ?? 1))); } };
+  const probe = async () => {
+    if (t < o.liveAt || (o.endsAt !== undefined && t >= o.endsAt && !o.nextKey)) return null;
+    return o.endsAt !== undefined && t >= o.endsAt && o.nextKey ? o.nextKey : 'take:1';
+  };
+  return { clock, probe, at: () => t, advance: (ms: number) => { t += ms; } };
+}
+async function journeyTake(page: ReturnType<typeof scriptedTake>, wordsAt: number) {
+  const live = await observeCaptureLive({ probe: page.probe, clock: page.clock, timeoutMs: 60_000 });
+  if (page.at() < wordsAt) page.advance(wordsAt - page.at()); // the first words arrive
+  let stoppedAt: number | null = null;
+  try {
+    await holdThenStop({ startedObservedAt: live.observedAt, takeKey: live.takeKey, probe: page.probe, clock: page.clock,
+      stop: async () => { stoppedAt = page.at(); } });
+    return { live, stoppedAt, error: null as string | null };
+  } catch (e) { return { live, stoppedAt, error: (e as Error).message }; }
 }
 
-test('hold-then-Stop: Stop never comes before the hold, so the app keeps the take (run 9\'s timings)', async () => {
-  // Run 9: capture live (app startTime) at 0; the journey saw it at +50 ms; the first words at +940 ms.
+test('hold-then-Stop: from observed capture live, the same take, then Stop; the app keeps it (run 9\'s timings)', async () => {
   for (const wakeFraction of [1, 0.5]) { // a sleep that wakes early (halfway) is re-checked
-    const f = fakeClock(50, wakeFraction);
-    f.advance(890);
-    let stoppedAt: number | null = null;
-    const held = await holdThenStop({ startedObservedAt: 50, clock: f.clock, stop: async () => { stoppedAt = f.at(); } });
-    assert.ok(stoppedAt !== null && stoppedAt - 50 >= RECORDING_HOLD_MS, `stopped at ${stoppedAt}`);
-    assert.ok(held >= RECORDING_HOLD_MS);
-    assert.equal(appKeepsTake(0, stoppedAt!), true);
+    const page = scriptedTake({ liveAt: 0, wakeFraction });
+    const r = await journeyTake(page, 940); // run 9: first words ~0.94 s after capture live
+    assert.equal(r.error, null);
+    assert.ok(r.stoppedAt !== null && r.stoppedAt - r.live.observedAt >= RECORDING_HOLD_MS);
+    assert.equal(appKeepsTake(0, r.stoppedAt!), true);
   }
-  // Stop is pressed exactly once.
-  const f = fakeClock(0); let stops = 0;
-  await holdThenStop({ startedObservedAt: 0, clock: f.clock, stop: async () => { stops += 1; } });
-  assert.equal(stops, 1);
 });
 
-test('CONTROL: the run-9 premature Stop (as soon as three words appear) is the case the app discards', async () => {
-  // Without the hold, Stop lands at the first words (~0.94 s after capture live): the app's own rule discards it.
+test('CONTROL: delayed capture with instant words: the hold counts from capture, so Stop is not early', async () => {
+  // Words are "ready" at once, but capture only goes live at 3 s: the timer must start at 3 s, not at Start or the words.
+  const page = scriptedTake({ liveAt: 3_000 });
+  const r = await journeyTake(page, 0);
+  assert.equal(r.error, null);
+  assert.ok(r.live.observedAt >= 3_000, `observed live at ${r.live.observedAt}`);
+  assert.ok(r.stoppedAt! - 3_000 >= RECORDING_HOLD_MS);
+  assert.equal(appKeepsTake(3_000, r.stoppedAt!), true);
+  // The run-9 premature Stop (at the words) would have been discarded by the app.
   assert.equal(appKeepsTake(0, 940), false);
-  // A clock that never advances cannot satisfy the hold: Stop is refused, never pressed early.
-  const frozen = { now: () => 1_000, sleep: async () => {} };
+});
+
+test('CONTROL: capture ending during the hold, or a different take at Stop: Stop is never pressed', async () => {
+  for (const o of [{ liveAt: 0, endsAt: 4_000 }, { liveAt: 0, endsAt: 4_000, nextKey: 'take:2' }]) {
+    const r = await journeyTake(scriptedTake(o), 500);
+    assert.equal(r.error, 'BILLING_JOURNEY:take_not_live_at_stop', JSON.stringify(o));
+    assert.equal(r.stoppedAt, null, 'Stop not pressed');
+  }
+  // A capture that never goes live is a named stop before any hold.
+  await assert.rejects(observeCaptureLive({ probe: async () => null, clock: scriptedTake({ liveAt: 1e9 }).clock, timeoutMs: 2_000 }), /capture_live_unconfirmed/);
+  // A frozen clock cannot satisfy the hold: Stop refused.
   let stopped = false;
-  await assert.rejects(holdThenStop({ startedObservedAt: 1_000, clock: frozen, stop: async () => { stopped = true; } }), /recording_hold_not_met/);
+  await assert.rejects(holdThenStop({ startedObservedAt: 1_000, takeKey: 'take:1', probe: async () => 'take:1',
+    clock: { now: () => 1_000, sleep: async () => {} }, stop: async () => { stopped = true; } }), /recording_hold_not_met/);
   assert.equal(stopped, false);
 });
