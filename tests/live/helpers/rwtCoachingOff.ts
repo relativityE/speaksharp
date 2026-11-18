@@ -92,6 +92,60 @@ export function coachingOffVerdict(mode: OffMode, o: CoachingOffObservation): Of
     return { verdict: 'PASS', reason: 'no_review_requested', detail: 'coaching is off: the band for this choice was shown, no review was requested, shown or saved' };
 }
 
+// ── The later coaching comparisons (Codex P2 on ccca307) ─────────────────────────────────────────────────────────
+
+/** In off modes these rows replace "coaching prompt binding" and the takes-differ row, which need coaching to exist. */
+export const FOCUS_OFF_NO_COACHING_ROW = 'Focus coaching off: neither take requested or saved coaching';
+/** In off modes this row replaces the same-target row, which needs the first take's saved coaching target. */
+export const FOCUS_OFF_REPEAT_ROW = 'Focus coaching off: the repeat shows no practice target and keeps the set';
+
+type SavedSuggestions = CoachingOffObservation['savedSuggestions'];
+
+export interface OffNoCoachingObservation {
+    /** Coaching requests over the whole journey, both takes included. */
+    coachingRequests: number;
+    firstSaved: SavedSuggestions;
+    /** The Practice-again take's saved `ai_suggestions`, or no_repeat when there is no distinct saved repeat take. */
+    repeatSaved: SavedSuggestions | 'no_repeat';
+}
+
+/** Pure. PASS only when neither saved take requested or saved coaching; a missing repeat or a failed read is HOLD. */
+export function offNoCoachingVerdict(o: OffNoCoachingObservation): OffVerdict {
+    const fail = (reason: string, detail: string): OffVerdict => ({ verdict: 'FAIL', reason, detail });
+    if (o.coachingRequests !== 0) return fail('coaching_requested_while_off', 'a coaching request was made while coaching is off');
+    if (o.firstSaved === 'present' || o.repeatSaved === 'present') return fail('coaching_saved_while_off', 'coaching was saved on a take while coaching is off');
+    if (o.repeatSaved === 'no_repeat') return { verdict: 'HOLD', reason: 'no_repeat', detail: 'there is no distinct saved Practice-again take to check' };
+    if (o.firstSaved === 'read_failed' || o.repeatSaved === 'read_failed') return { verdict: 'HOLD', reason: 'saved_unreadable', detail: 'a saved row could not be read' };
+    return { verdict: 'PASS', reason: 'no_coaching_either_take', detail: 'coaching is off: neither take requested coaching or saved any' };
+}
+
+type FocusSetRead = { briefId: string; labels: readonly string[] } | null | 'error';
+
+export interface OffRepeatObservation {
+    sourceId: string | null;
+    repeatSessionId: string | null;
+    /** The page reads taken while the Practice-again take recorded (`readTargetInPage`). */
+    reads: readonly { kind: 'ready' | 'pending' | 'unavailable' | 'absent' }[];
+    sourceFocus: FocusSetRead;
+    repeatFocus: FocusSetRead;
+}
+
+/** Pure. PASS only when the repeat was observed showing no practice target and saved under the first take's Focus set. */
+export function offRepeatVerdict(o: OffRepeatObservation): OffVerdict {
+    const hold = (reason: string, detail: string): OffVerdict => ({ verdict: 'HOLD', reason, detail });
+    if (o.sourceFocus === 'error' || !o.sourceFocus || o.sourceFocus.labels.length === 0) return hold('source_set_unread', 'the first take\'s Focus set could not be read');
+    if (!o.repeatSessionId || o.repeatSessionId === o.sourceId) return hold('no_distinct_repeat', 'the Practice-again take is not a distinct saved take');
+    if (o.reads.length === 0) return hold('not_observed', 'the page was not read while the Practice-again take recorded');
+    if (o.reads.some((r) => r.kind === 'ready')) return { verdict: 'FAIL', reason: 'target_shown_while_off', detail: 'a coaching practice target was shown while coaching is off' };
+    const last = o.reads[o.reads.length - 1];
+    if (last.kind !== 'absent') return hold(`target_${last.kind}`, `the page still read the practice target as ${last.kind} at the end of the take`);
+    if (o.repeatFocus === 'error') return hold('repeat_set_unread', 'the repeat take\'s Focus set could not be read');
+    const same = !!o.repeatFocus && o.repeatFocus.briefId === o.sourceFocus.briefId
+        && o.repeatFocus.labels.length === o.sourceFocus.labels.length && o.repeatFocus.labels.every((l, i) => l === (o.sourceFocus as { labels: readonly string[] }).labels[i]);
+    if (!same) return { verdict: 'FAIL', reason: 'set_changed', detail: 'the repeat take was not saved under the same Focus set' };
+    return { verdict: 'PASS', reason: 'no_target_same_set', detail: 'coaching is off: the repeat showed no practice target and saved under the same Focus set' };
+}
+
 // ── Back from Progress and reload ─────────────────────────────────────────────────────────────────────────────────
 
 export type TranscriptShown = 'matches' | 'differs' | 'not_captured' | 'missing';

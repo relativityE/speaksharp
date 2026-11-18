@@ -181,7 +181,7 @@ export const HELPER_CONTRACTS = Object.freeze([{
 }, {
   // #1897 review 4: with coaching off or saving off on a #1835 build, the Focus review checks use affirmative evidence.
   helperFile:'tests/live/helpers/rwtCoachingOff.ts',testFile:'tests/unit/rwtCoachingOff1897.test.ts',
-  callables:["reviewModeOf","expectedSavedFocus","savedFocusMatches","coachingOffVerdict","offBackReloadVerdict","offAnalyticsRows","readSavedFocusStatuses","readCoachingOffAfterStop","readOffRestoredView","analyticsOffThroughActions"],
+  callables:["reviewModeOf","expectedSavedFocus","savedFocusMatches","coachingOffVerdict","offBackReloadVerdict","offAnalyticsRows","readSavedFocusStatuses","readCoachingOffAfterStop","readOffRestoredView","analyticsOffThroughActions","offNoCoachingVerdict","offRepeatVerdict"],
 }, {
   helperFile:'tests/live/helpers/rwtFocusNextMarker.ts',testFile:'tests/unit/rwtFocusNextMarker.test.ts',
   callables:["expectedNextMarker","nextPointMarkedVerdict","sampleFocusRail"],

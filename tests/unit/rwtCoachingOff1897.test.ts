@@ -11,7 +11,7 @@ import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Page } from '@playwright/test';
 import {
-    FOCUS_COACHING_OFF_ROW, analyticsOffThroughActions, coachingOffVerdict, expectedSavedFocus, offAnalyticsRows, offBackReloadVerdict,
+    FOCUS_COACHING_OFF_ROW, FOCUS_OFF_NO_COACHING_ROW, FOCUS_OFF_REPEAT_ROW, analyticsOffThroughActions, offNoCoachingVerdict, offRepeatVerdict, coachingOffVerdict, expectedSavedFocus, offAnalyticsRows, offBackReloadVerdict,
     readCoachingOffAfterStop, readOffRestoredView, readSavedFocusStatuses, reviewModeOf, savedFocusMatches,
     type CoachingOffObservation, type OffAnalyticsObservation, type OffBackReloadObservation, type OffRestoredView,
 } from '../live/helpers/rwtCoachingOff';
@@ -286,5 +286,48 @@ describe('#1897 review 4 — Analytics', () => {
         document.body.innerHTML = '';
         const none = await analyticsOffThroughActions(fakePage({}, { path: '/session' }), 's1', digest(TRANSCRIPT));
         expect(none.actionClicked).toBe(false);
+    });
+});
+
+describe('#1897 Codex P2 (ccca307) — the coaching comparison steps with coaching off', () => {
+    const none = { coachingRequests: 0, firstSaved: 'none', repeatSaved: 'none' } as const;
+    it('rows are named for what they prove', () => {
+        expect(FOCUS_OFF_NO_COACHING_ROW).toMatch(/coaching off/);
+        expect(FOCUS_OFF_REPEAT_ROW).toMatch(/coaching off/);
+    });
+    it('PASS: no coaching requested and neither take saved any', () => {
+        expect(offNoCoachingVerdict(none)).toMatchObject({ verdict: 'PASS', reason: 'no_coaching_either_take' });
+    });
+    it.each([
+        ['a request was made', { coachingRequests: 1 }, 'FAIL', 'coaching_requested_while_off'],
+        ['the first take saved coaching', { firstSaved: 'present' }, 'FAIL', 'coaching_saved_while_off'],
+        ['the repeat saved coaching', { repeatSaved: 'present' }, 'FAIL', 'coaching_saved_while_off'],
+        ['there was no repeat', { repeatSaved: 'no_repeat' }, 'HOLD', 'no_repeat'],
+        ['the first take could not be read', { firstSaved: 'read_failed' }, 'HOLD', 'saved_unreadable'],
+        ['the repeat could not be read', { repeatSaved: 'read_failed' }, 'HOLD', 'saved_unreadable'],
+    ] as const)('no-coaching control: %s', (_name, change, verdict, reason) => {
+        expect(offNoCoachingVerdict({ ...none, ...change } as never)).toMatchObject({ verdict, reason });
+    });
+
+    const set = { briefId: 'brief-1', labels: ['pace', 'fillers'] } as const;
+    const repeat = { sourceId: 's1', repeatSessionId: 's2', reads: [{ kind: 'absent' }, { kind: 'absent' }],
+        sourceFocus: set, repeatFocus: set } as const;
+    it('PASS: no practice target shown and the repeat keeps the Focus set', () => {
+        expect(offRepeatVerdict(repeat as never)).toMatchObject({ verdict: 'PASS', reason: 'no_target_same_set' });
+    });
+    it.each([
+        ['the source set was unreadable', { sourceFocus: 'error' }, 'HOLD', 'source_set_unread'],
+        ['the source set was missing', { sourceFocus: null }, 'HOLD', 'source_set_unread'],
+        ['the source set had no labels', { sourceFocus: { briefId: 'brief-1', labels: [] } }, 'HOLD', 'source_set_unread'],
+        ['the repeat is the same session', { repeatSessionId: 's1' }, 'HOLD', 'no_distinct_repeat'],
+        ['there was no repeat session', { repeatSessionId: null }, 'HOLD', 'no_distinct_repeat'],
+        ['the target was never read', { reads: [] }, 'HOLD', 'not_observed'],
+        ['a target was shown', { reads: [{ kind: 'absent' }, { kind: 'ready' }] }, 'FAIL', 'target_shown_while_off'],
+        ['the last read was still pending', { reads: [{ kind: 'absent' }, { kind: 'pending' }] }, 'HOLD', 'target_pending'],
+        ['the repeat set was unreadable', { repeatFocus: 'error' }, 'HOLD', 'repeat_set_unread'],
+        ['the repeat used another brief', { repeatFocus: { ...set, briefId: 'brief-2' } }, 'FAIL', 'set_changed'],
+        ['the repeat changed the labels', { repeatFocus: { ...set, labels: ['pace'] } }, 'FAIL', 'set_changed'],
+    ] as const)('repeat control: %s', (_name, change, verdict, reason) => {
+        expect(offRepeatVerdict({ ...repeat, ...change } as never)).toMatchObject({ verdict, reason });
     });
 });

@@ -26,7 +26,7 @@ import { savedFocusIdentityVerdict } from './rwtSavedFocusIdentity';
 import { railSettled, readRailRowCount } from './rwtLiveTimedTake';
 import { armTakeMonitor, awaitTakeOutcome, disposeTakeMonitor, holdMeasuredLiveTake, readTakeMonitor, stopMeasuredTake, takeEvidenceRows, type ArmedTakeMonitor, type TakeOutcome } from './rwtLiveTakeMonitor';
 import { consentModeFrom, consentReadbackVerdict, settlePracticeConsent, type ChoiceClient, type SavedSessionRead, type SettledConsent } from './rwtPracticeConsent';
-import { FOCUS_COACHING_OFF_ROW, analyticsOffThroughActions, coachingOffVerdict, offAnalyticsRows, offBackReloadVerdict, readCoachingOffAfterStop, readOffRestoredView, reviewModeOf } from './rwtCoachingOff';
+import { FOCUS_COACHING_OFF_ROW, FOCUS_OFF_NO_COACHING_ROW, FOCUS_OFF_REPEAT_ROW, offNoCoachingVerdict, offRepeatVerdict, analyticsOffThroughActions, coachingOffVerdict, offAnalyticsRows, offBackReloadVerdict, readCoachingOffAfterStop, readOffRestoredView, reviewModeOf } from './rwtCoachingOff';
 import { recordRunOwnedCleanup } from './rwtAcceptance';
 import { HarnessParityTap, numericComparisonRow, probeSaveIsolationRow, readRepeatEligibility, type NumericResult, type RepeatEligibility, type StartPressBudget } from './rwtHarnessParity';
 import { focusCapturedTakes, focusDesignedSaves } from './rwtFocusSaveIsolation';
@@ -986,6 +986,16 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             // #1258 / #1537: every session this journey saved (its take + the Practice-again take) is marked Focus Points.
             await productMarkerRows(receipt, admin as never, owner.uid, 'focus_points', [persistedId, again.savedSessionId]);
             // Judge: the shown target, its retention after the repeat (harness boundary) and the repeat's Focus set.
+            // #1897 Codex P2 (ccca307): with coaching off or saving off there is no saved coaching target to practise, so the
+            // repeat must show none and still save under the first take's Focus set.
+            const repeatMode = reviewModeOf(consent);
+            if (repeatMode === 'coaching_off_saved' || repeatMode === 'saving_off') {
+                const repeatFocus = repeatSessionId ? await readFocusSet(repeatSessionId).then((f) => f === 'error' || f === null ? f : { briefId: f.briefId, labels: f.labels }) : null;
+                const offRepeat = offRepeatVerdict({ sourceId: persistedId, repeatSessionId, reads: targetReads,
+                    sourceFocus: sameTargetSet === 'error' || sameTargetSet === null ? sameTargetSet : { briefId: sameTargetSet.briefId, labels: sameTargetSet.labels }, repeatFocus });
+                receipt.row(FOCUS_OFF_REPEAT_ROW, offRepeat.verdict, offRepeat.detail, { reason: offRepeat.reason, reviewMode: repeatMode, reads: targetReads.length });
+                return;
+            }
             const firstWitness = coachingCapture.get(persistedId);
             const sameTarget = focusSameTargetVerdict({
                 ownerId: owner.uid, source: sameTargetSource, sourceFocus: sameTargetSet, reads: targetReads,
@@ -1005,6 +1015,22 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         await test.step('coaching prompt binding — restricted synthetic artifact', async () => {
             await generations.settle();
             await coachingCapture?.stop();
+            // #1897 Codex P2 (ccca307): with coaching off or saving off neither take has coaching to bind or compare, so the
+            // evidence is that neither take requested or saved any.
+            const bindingMode = reviewModeOf(consent);
+            if (bindingMode === 'coaching_off_saved' || bindingMode === 'saving_off') {
+                const saved = async (id: string | null): Promise<'none' | 'present' | 'read_failed'> => {
+                    if (!id) return 'read_failed';
+                    const row = await readFocusSource(id);
+                    if (row === 'error' || row === null) return 'read_failed';
+                    return row.ai_suggestions === null || row.ai_suggestions === undefined ? 'none' : 'present';
+                };
+                const distinctRepeat = repeatSessionId && repeatSessionId !== persistedId ? repeatSessionId : null;
+                const off = offNoCoachingVerdict({ coachingRequests: coaching.requests, firstSaved: await saved(persistedId),
+                    repeatSaved: distinctRepeat ? await saved(distinctRepeat) : 'no_repeat' });
+                receipt.row(FOCUS_OFF_NO_COACHING_ROW, off.verdict, off.detail, { reason: off.reason, reviewMode: bindingMode, coachingRequests: coaching.requests });
+                return;
+            }
             if (repeatSessionId) await coachingCapture?.sample(repeatSessionId);
             await coachingPromptBindingRow({
                 receipt, page, admin: admin as never, exchanges: generations.exchanges,
