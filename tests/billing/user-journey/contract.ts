@@ -67,6 +67,9 @@ export const HOSTED_SELECTORS = Object.freeze({
   country: '#payment-countryInput',
   postalCode: '#payment-postalCodeInput',
   cardName: '#payment-nameInput',
+  // Run 44157731067 (`fields_email`): read in the PO's DevTools on that run's own open session. The email box is Link's
+  // authentication input, `type="text"` with `inputmode="email"`, so the journey's old `input[type="email"]` could never match it.
+  email: '#linkAuthentication-emailInput',
 });
 
 /**
@@ -74,10 +77,32 @@ export const HOSTED_SELECTORS = Object.freeze({
  * a page change can only produce `other`, never page text.
  */
 const INVALID_FIELD_TOKENS: Readonly<Record<string, string>> = Object.freeze({
-  'payment-nameInput': 'name', name: 'name', 'payment-postalCodeInput': 'zip', postalCode: 'zip', 'payment-countryInput': 'country',
+  'payment-nameInput': 'name', name: 'name', 'linkAuthentication-emailInput': 'email', 'payment-postalCodeInput': 'zip', postalCode: 'zip', 'payment-countryInput': 'country',
   country: 'country', cardNumber: 'number', 'payment-numberInput': 'number', cardExpiry: 'expiry', 'payment-expiryInput': 'expiry',
   cardCvc: 'cvc', 'payment-cvcInput': 'cvc', email: 'email',
 });
+/**
+ * The disposable Stripe Customer the journey preassigns. Only CONVERSION gets the fixture's own run-owned email (Sam on #1892:
+ * "existing-customer sandbox conversion"); every other journey's Customer request is exactly what it was before (clock + owner marker).
+ */
+export function fixtureCustomerFields(journey: string, f: { clock: string; email: string; marker: string }): Record<string, string> {
+  const base: Record<string, string> = { test_clock: f.clock, 'metadata[speaksharp_test]': f.marker };
+  return journey === 'conversion' ? { ...base, email: f.email } : base;
+}
+
+/**
+ * Which hosted control to use, given each candidate selector's matches in PRIORITY order (`visible[s][m]`: whether match m of selector
+ * s is visible, across frames). The first selector with ANY visible match wins, at its first visible match: a hidden match before a
+ * visible one never hides it, and a generic selector never outranks the observed control. Null when nothing is visible.
+ */
+export function firstVisibleControl(visible: readonly (readonly boolean[])[]): { selector: number; match: number } | null {
+  for (let s = 0; s < visible.length; s++) {
+    const m = visible[s].indexOf(true);
+    if (m >= 0) return { selector: s, match: m };
+  }
+  return null;
+}
+
 export function invalidFieldToken(attrs: { id: string | null; name: string | null }): string {
   for (const key of [attrs.id, attrs.name]) if (typeof key === 'string' && Object.hasOwn(INVALID_FIELD_TOKENS, key)) return INVALID_FIELD_TOKENS[key];
   return 'other';
@@ -122,15 +147,29 @@ export function hostedSubmitUnavailable(facts: { visible: boolean | null; enable
  * Whether the hosted email field must be filled, when the card is entered (run 44066185734: hosted_field_unavailable_email).
  * Email is REQUIRED by default. A visible editable field is always filled. It may be absent only when the page on screen is the
  * exact Checkout session that `assertCheckoutIdentity` already proved is this run's open, unpaid test-mode session for the
- * run-owned Stripe customer and app user (`boundSession`): Stripe renders no email input for an existing customer. A
- * non-empty `customer` alone is not that proof, and an unbound, different or unknown session never skips it.
+ * run-owned Stripe customer and app user (`boundSession`) AND that bound customer already carries an email
+ * (`boundCustomerHasEmail === true`, read from Stripe as a presence flag only): only then is there no email for Checkout to ask for.
+ * Run 44157731067 (after #1890): the fixture creates its customer WITHOUT an email, Checkout still required one, and the old rule
+ * (bound session alone) let the journey skip it: the form stayed unconfirmable with `fields_email`. A customer without an email, or
+ * one whose email presence is unread, never takes the absent path. A non-empty `customer` alone is not proof, and an unbound,
+ * different or unknown session never skips it.
  */
-export function hostedEmailDecision(input: { emailFieldVisible: boolean; shownSession: string | null; boundSession: string | null }):
-  'fill' | 'absent_after_binding' | 'missing' {
+export function hostedEmailDecision(input: { emailFieldVisible: boolean; shownSession: string | null; boundSession: string | null;
+  boundCustomerHasEmail: boolean | null }): 'fill' | 'absent_after_binding' | 'missing' {
   if (input.emailFieldVisible) return 'fill';
   const bound = typeof input.boundSession === 'string' && /^cs_test_[A-Za-z0-9]+$/.test(input.boundSession)
     && input.shownSession === input.boundSession;
-  return bound ? 'absent_after_binding' : 'missing';
+  return bound && input.boundCustomerHasEmail === true ? 'absent_after_binding' : 'missing';
+}
+
+/**
+ * The hosted form never reported it can confirm (`data-can-confirm` read "false" within the bound): Subscribe is NOT clicked, and the
+ * stop names the controls Stripe marked invalid (closed tokens, as in `checkoutNotReturned`). An unread state does not stop the run.
+ */
+export function hostedFormNotConfirmable(invalidFields: readonly string[] | null): string {
+  const known = new Set(Object.values(INVALID_FIELD_TOKENS));
+  const tokens = Array.isArray(invalidFields) ? [...new Set(invalidFields.map((t) => (known.has(t) ? t : 'other')))].sort() : null;
+  return `hosted_form_not_confirmable_fields_${tokens === null ? 'unread' : tokens.length ? tokens.join('_') : 'none'}`;
 }
 
 export function safeFailureReason(error: unknown): string {

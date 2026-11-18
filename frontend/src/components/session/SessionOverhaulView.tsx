@@ -336,9 +336,10 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
      *
      * #1258 RWT (PM: VALID P2) — MOMENTUM. On a phone, Stop tapped during a fling leaves the momentum scroll running,
      * and it carried the page past this reveal to the bottom (the saved confirmation ~757 px off screen). So when the
-     * reveal moves the page, it arms a bounded re-check: each time scrolling comes to rest (150 ms idle) away from the
-     * top, the page is returned there — at most 3 times, because a fling can pause and then resume after a correction
-     * (traced). Resting AT the top does not end it (Codex P2 r4112253576): the correction's own scrollTo(0) emits a
+     * reveal moves the page, it arms a bounded re-check: when scrolling comes to rest (150 ms idle), reveal the
+     * confirmation if it is obscured, at most 3 times. A clamped or paused fling may resume, so a small shift that
+     * leaves the confirmation fully visible must not spend a correction. Resting AT the top does not end the check
+     * (Codex P2 r4112253576): the correction's own scrollTo(0) emits a
      * scroll event, and a fling that pauses >150 ms and then resumes must still be caught. It ends only at the first
      * touch, wheel, key or pointer input from the person (their own scrolling is never fought), after 3 corrections,
      * after 3 s, or when the view leaves `after`/unmounts. A finger that went down BEFORE the guard armed only sends
@@ -373,7 +374,11 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         const onScroll = () => {
             clearTimeout(idleTimer);
             idleTimer = setTimeout(() => {
-                if (window.scrollY <= 0) return; // at rest at the top: nothing to do, stay armed for a resumed fling
+                if (window.scrollY <= 0) return; // stay armed for a resumed fling
+                const confirmation = document.querySelector('[data-post-save-confirmation="true"]')
+                    ?.getBoundingClientRect();
+                if (confirmation && confirmation.height > 0 && confirmation.top >= 0
+                    && confirmation.bottom <= window.innerHeight) return;
                 if (corrections >= MAX_CORRECTIONS) {
                     endMomentumGuard();
                     return;
