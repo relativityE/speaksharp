@@ -136,6 +136,52 @@ export function hostedEmailFieldAction(input: { editable: boolean | null; curren
   if (input.editable !== false || typeof input.current !== 'string') return 'hosted_email_unreadable';
   return input.ownerBound && input.current === input.expected ? 'supplied' : 'hosted_email_prefilled_mismatch';
 }
+/**
+ * #1835 (practice privacy choices): transcript saving is OFF until the owner opts in, so a paid recording keeps its transcript only
+ * after THIS run's own account recorded "Save transcripts". The fact comes from the server row read for the exact owner, never from
+ * the UI alone:
+ *   - table absent: `not_applicable` ONLY when the tested build is independently known to predate #1835 (its own migrations, which
+ *     the local stack applied, have no #1835 migration). If the build includes #1835, or its schema identity is unknown, a missing
+ *     or unreadable table stops before recording (Sam, 17 Nov);
+ *   - this owner's row with saving on: `opted_in`;
+ *   - no row (no choice recorded), saving off, another owner's row, a malformed row or an unreadable read: a named stop BEFORE any
+ *     recording, never a generic `paid_recording_not_proven` later.
+ */
+export type PrivacyTableRead = { state: 'absent' } | { state: 'unreadable' } | { state: 'read'; row: unknown };
+/** The #1835 migration, by exact file name, in the tested commit's own migrations directory. */
+export const PRIVACY_MIGRATION = '20261117105700_practice_privacy_choices_1835.sql';
+export type PrivacyBuild = 'includes' | 'predates' | 'unknown';
+/** From the tested checkout's migration file names; an unreadable or empty listing is `unknown`, never "predates". */
+export function privacyBuildState(migrationFiles: readonly string[] | null): PrivacyBuild {
+  if (!Array.isArray(migrationFiles) || migrationFiles.length === 0) return 'unknown';
+  return migrationFiles.includes(PRIVACY_MIGRATION) ? 'includes' : 'predates';
+}
+export function privacyOptInFact(read: PrivacyTableRead, ownerId: string, build: PrivacyBuild): 'not_applicable' | 'opted_in' | `privacy_choice_${'missing' | 'declined' | 'wrong_owner' | 'unreadable'}` | `privacy_schema_${'missing' | 'unknown' | 'unexpected'}` {
+  if (read.state === 'absent') return build === 'predates' ? 'not_applicable' : build === 'includes' ? 'privacy_schema_missing' : 'privacy_schema_unknown';
+  if (read.state !== 'read') return build === 'unknown' ? 'privacy_schema_unknown' : 'privacy_choice_unreadable';
+  // A build known to predate #1835 has no such table: one that answers means the schema is not the tested build's.
+  if (build === 'predates') return 'privacy_schema_unexpected';
+  const row = read.row as { user_id?: unknown; transcript_save?: unknown; consent_version?: unknown } | null;
+  if (row === null || row === undefined) return 'privacy_choice_missing';
+  if (row.user_id !== ownerId) return 'privacy_choice_wrong_owner';
+  if (row.consent_version !== 1 || typeof row.transcript_save !== 'boolean') return 'privacy_choice_unreadable';
+  return row.transcript_save ? 'opted_in' : 'privacy_choice_declined';
+}
+
+/**
+ * After the journey answered the prompt (Save transcripts, No coaching): the same owner's server row must show exactly that, saving
+ * on AND coaching off, before `privacy_opted_in` is emitted. Anything else is `privacy_choice_not_recorded`.
+ */
+export function privacyAnswerRecorded(read: PrivacyTableRead, ownerId: string): boolean {
+  if (read.state !== 'read') return false;
+  const row = read.row as { user_id?: unknown; transcript_save?: unknown; ai_coaching?: unknown; consent_version?: unknown } | null;
+  return !!row && row.user_id === ownerId && row.consent_version === 1 && row.transcript_save === true && row.ai_coaching === false;
+}
+
+/** The #1835 Practice privacy prompt's own controls (frontend/src/components/privacy/PracticePrivacyPrompt.tsx). */
+export const PRIVACY_PROMPT = Object.freeze({
+  prompt: 'practice-privacy-prompt', saveYes: 'privacy-save-yes', aiNo: 'privacy-ai-no', continue: 'privacy-continue',
+});
 
 export function invalidFieldToken(attrs: { id: string | null; name: string | null }): string {
   for (const key of [attrs.id, attrs.name]) if (typeof key === 'string' && Object.hasOwn(INVALID_FIELD_TOKENS, key)) return INVALID_FIELD_TOKENS[key];

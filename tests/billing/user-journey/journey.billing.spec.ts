@@ -1,6 +1,8 @@
 import { test, expect, type Page } from '@playwright/test';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
+import { readdirSync } from 'node:fs';
+import { resolve } from 'node:path';
 import sandboxTarget from './sandbox-target.json' with { type: 'json' };
 import localStackTarget from './sandbox-target.local.json' with { type: 'json' };
 import { runnerPreflight } from './runnerPreflight.mjs';
@@ -10,7 +12,8 @@ import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, re
   checkoutSessionFromUrl, assertCheckoutIdentity, newlyAddedCard, assertNoSecondCharge,
   type RunnerJourney, type BillingEvent, hostedFieldUnavailable, hostedEmailDecision, type HostedField,
   HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl,
-  recordingHoldRemainingMs, APP_TOO_SHORT_STATUS } from './contract';
+  recordingHoldRemainingMs, APP_TOO_SHORT_STATUS,
+  privacyOptInFact, privacyBuildState, privacyAnswerRecorded, PRIVACY_PROMPT, type PrivacyTableRead } from './contract';
 import { fillHostedEmail } from './hostedEmail';
 import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { selectBenchmarkMode, preparePrivateModelIfPrompted, startBenchmarkRecording,
@@ -545,8 +548,44 @@ class SandboxJourney {
     this.steps.add('paid_entitlement');
   }
 
+  /**
+   * #1835: opt THIS run's account in to transcript saving through the actual Practice prompt, as a user would ("Save transcripts",
+   * "No coaching": the recording step never needed coaching), then prove it from the owner's own server row. A build without
+   * #1835 has no table and no prompt: nothing to do. No choice, a declined or foreign row, or an unreadable read stops here.
+   */
+  async ensureTranscriptSaving(): Promise<void> {
+    const readChoice = async (): Promise<PrivacyTableRead> => {
+      const r = await this.admin.from('practice_privacy_choices').select('user_id,transcript_save,ai_coaching,consent_version').eq('user_id', this.uid).maybeSingle();
+      if (r.error) return r.error.code === '42P01' || r.error.code === 'PGRST205' ? { state: 'absent' } : { state: 'unreadable' };
+      return { state: 'read', row: r.data };
+    };
+    // Independent schema identity: the tested commit's own migrations (the local stack applied exactly these).
+    const build = privacyBuildState((() => { try { return readdirSync(resolve(process.cwd(), 'backend/supabase/migrations')); } catch { return null; } })());
+    const first = await readChoice();
+    const before = privacyOptInFact(first, this.uid, build);
+    // An existing choice is never rewritten. A recorded opt-in proceeds only on the same server proof as a fresh answer (saving on,
+    // coaching off); saving on with coaching on or unreadable stops as it is. Any other recorded or unreadable state stops too.
+    if (before === 'not_applicable') return;
+    if (before === 'opted_in') { requireFact(privacyAnswerRecorded(first, this.uid), 'privacy_choice_coaching_not_off'); return; }
+    if (before !== 'privacy_choice_missing') requireFact(false, before);
+    // A real bounded wait, not a one-shot visibility snapshot (which would stop on a prompt still hydrating).
+    const prompt = this.page.getByTestId(PRIVACY_PROMPT.prompt);
+    const shown = await prompt.waitFor({ state: 'visible', timeout: HOSTED_ACTION_MS }).then(() => true, () => false);
+    requireFact(shown, 'privacy_choice_missing');
+    await prompt.getByTestId(PRIVACY_PROMPT.saveYes).click({ timeout: HOSTED_ACTION_MS });
+    await prompt.getByTestId(PRIVACY_PROMPT.aiNo).click({ timeout: HOSTED_ACTION_MS });
+    await prompt.getByTestId(PRIVACY_PROMPT.continue).click({ timeout: HOSTED_ACTION_MS });
+    await prompt.waitFor({ state: 'hidden', timeout: HOSTED_ACTION_MS }).catch(() => undefined);
+    // Proven by the same owner's server row (saving on, coaching off) before the checkpoint, never by the UI alone.
+    const recorded = await readChoice();
+    requireFact(privacyAnswerRecorded(recorded, this.uid), 'privacy_choice_not_recorded');
+    this.checkpoint('privacy_opted_in');
+    requireFact(privacyOptInFact(recorded, this.uid, build) === 'opted_in', 'privacy_choice_not_recorded');
+  }
+
   async record(): Promise<void> {
     await this.page.goto(`${this.targets.app}/practice`);
+    await this.ensureTranscriptSaving();
     await this.page.getByTestId('practice-card-freeform').click();
     await selectBenchmarkMode(this.page, 'private');
     const setup = await preparePrivateModelIfPrompted(this.page, 180_000);

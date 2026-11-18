@@ -1,11 +1,12 @@
 import { strict as assert } from 'node:assert';
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { test } from 'vitest';
 import { RUNNER_JOURNEYS, POLICY_PENDING_STEPS, REQUIRED_STEPS, receipt, assertTestPrice, assertInvoice,
   isCorrelatedDelivery, assertSandboxConfiguration, safeFailureReason, testClockCreateFields, localStackStatus,
   hostedFieldUnavailable, hostedEmailDecision, assertCheckoutIdentity, type HostedField, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl, hostedEmailFieldAction,
   HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken ,
-  APP_MIN_SESSION_DURATION_SECONDS, RECORDING_HOLD_MS, recordingHoldRemainingMs, APP_TOO_SHORT_STATUS } from './contract';
+  APP_MIN_SESSION_DURATION_SECONDS, RECORDING_HOLD_MS, recordingHoldRemainingMs, APP_TOO_SHORT_STATUS,
+  privacyOptInFact, PRIVACY_PROMPT, privacyBuildState, PRIVACY_MIGRATION, privacyAnswerRecorded } from './contract';
 import { finaliseLocalStackReceipt, RECEIPT_KEYS } from './localStackReceipt.mjs';
 import { stackIdentitySha256 } from './localStackResources.mjs';
 
@@ -605,4 +606,93 @@ test('recording hold: past the app\'s own minimum duration, timed from the obser
   let at = -1;
   for (const step of order) { const i = rec.indexOf(step); assert.ok(i > at, step); at = i; }
   assert.equal((rec.match(/stopBenchmarkRecording\(/g) ?? []).length, 1);
+});
+
+// #1835 makes transcript saving opt-in; the billing recording step needs a saved transcript (paid_recording_not_proven).
+test('privacy opt-in fact: only THIS owner\'s row with saving on proceeds; no choice is a named stop, not a later generic failure', () => {
+  const uid = 'uid-owner';
+  const own = (save: unknown, version: unknown = 1, user = uid) => ({ state: 'read' as const, row: { user_id: user, transcript_save: save, consent_version: version } });
+  for (const build of ['includes', 'unknown'] as const) {
+    assert.equal(privacyOptInFact(own(true), uid, build), 'opted_in', build);
+    // CONTROL: no recorded choice (the prompt was never answered) stops before any recording.
+    assert.equal(privacyOptInFact({ state: 'read', row: null }, uid, build), 'privacy_choice_missing', build);
+    assert.equal(privacyOptInFact(own(false), uid, build), 'privacy_choice_declined', build);
+    assert.equal(privacyOptInFact(own(true, 1, 'uid-other'), uid, build), 'privacy_choice_wrong_owner', build);
+    for (const row of [own('yes'), own(true, 2)]) assert.equal(privacyOptInFact(row, uid, build), 'privacy_choice_unreadable', build);
+  }
+  for (const code of ['privacy_choice_missing', 'privacy_choice_declined', 'privacy_choice_wrong_owner', 'privacy_choice_unreadable',
+    'privacy_schema_missing', 'privacy_schema_unknown', 'privacy_schema_unexpected'])
+    assert.equal(safeFailureReason(new Error(`BILLING_JOURNEY:${code}`)), code);
+});
+
+// Sam, 17 Nov: a missing consent table is not_applicable ONLY for a build independently known to predate #1835.
+test('a missing or unreadable consent table: not_applicable only for a build known to predate #1835; otherwise a stop', () => {
+  const uid = 'uid-owner';
+  assert.equal(privacyOptInFact({ state: 'absent' }, uid, 'predates'), 'not_applicable', 'pre-#1835 build: existing scope unchanged');
+  assert.equal(privacyOptInFact({ state: 'absent' }, uid, 'includes'), 'privacy_schema_missing', 'a #1835 build without its table');
+  assert.equal(privacyOptInFact({ state: 'absent' }, uid, 'unknown'), 'privacy_schema_unknown');
+  assert.equal(privacyOptInFact({ state: 'unreadable' }, uid, 'unknown'), 'privacy_schema_unknown');
+  assert.equal(privacyOptInFact({ state: 'unreadable' }, uid, 'includes'), 'privacy_choice_unreadable');
+  assert.equal(privacyOptInFact({ state: 'unreadable' }, uid, 'predates'), 'privacy_choice_unreadable');
+  // A pre-#1835 build whose database answers for the table is not the tested schema.
+  assert.equal(privacyOptInFact({ state: 'read', row: null }, uid, 'predates'), 'privacy_schema_unexpected');
+  // Schema identity comes from the tested commit's own migrations; an unreadable or empty listing is unknown, never "predates".
+  assert.equal(PRIVACY_MIGRATION, '20261117105700_practice_privacy_choices_1835.sql');
+  assert.equal(privacyBuildState(['20260101000000_a.sql', PRIVACY_MIGRATION]), 'includes');
+  assert.equal(privacyBuildState(['20260101000000_a.sql']), 'predates');
+  assert.equal(privacyBuildState([]), 'unknown');
+  assert.equal(privacyBuildState(null), 'unknown');
+  // This checkout's real migrations: this base predates #1835, so the reading is `predates` (it flips to `includes` with #1835).
+  assert.equal(privacyBuildState(readdirSync('backend/supabase/migrations')), existsSync(`backend/supabase/migrations/${PRIVACY_MIGRATION}`) ? 'includes' : 'predates');
+});
+
+test('the recording step opts in through the actual prompt (save yes, coaching no) for the exact owner, before any recording', () => {
+  assert.deepEqual({ ...PRIVACY_PROMPT }, { prompt: 'practice-privacy-prompt', saveYes: 'privacy-save-yes', aiNo: 'privacy-ai-no', continue: 'privacy-continue' });
+  const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
+  const record = spec.slice(spec.indexOf('async record(): Promise<void> {'), spec.indexOf('async advance('));
+  const ensure = record.indexOf('await this.ensureTranscriptSaving();');
+  assert.ok(ensure > 0 && ensure < record.indexOf("getByTestId('practice-card-freeform')"), 'opt-in comes before the recording starts');
+  const step = spec.slice(spec.indexOf('async ensureTranscriptSaving('), spec.indexOf('async record(): Promise<void> {'));
+  assert.match(step, /\.from\('practice_privacy_choices'\)\.select\('user_id,transcript_save,ai_coaching,consent_version'\)\.eq\('user_id', this\.uid\)/);
+  assert.match(step, /getByTestId\(PRIVACY_PROMPT\.saveYes\)/);
+  assert.match(step, /getByTestId\(PRIVACY_PROMPT\.aiNo\)/);
+  assert.doesNotMatch(step, /aiYes|privacy-ai-yes/, 'the recording step never turns on AI coaching');
+  assert.match(step, /requireFact\(privacyOptInFact\(recorded, this\.uid, build\) === 'opted_in', 'privacy_choice_not_recorded'\);/);
+  // The build's schema identity is read from the tested checkout's migrations, and both reads use it.
+  assert.match(step, /const build = privacyBuildState\(\(\(\) => \{ try \{ return readdirSync\(resolve\(process\.cwd\(\), 'backend\/supabase\/migrations'\)\); \} catch \{ return null; \} \}\)\(\)\)/);
+  assert.match(step, /const first = await readChoice\(\);\s+const before = privacyOptInFact\(first, this\.uid, build\);/);
+  assert.equal((step.match(/privacyOptInFact\(recorded, this\.uid, build\)/g) ?? []).length, 1);
+  // Anything other than an observed absence of a choice stops before the prompt is touched.
+  assert.match(step, /if \(before !== 'privacy_choice_missing'\) requireFact\(false, before\);/);
+  // Only an observed absence of a choice may answer the prompt; an existing choice (opted in, declined, foreign) is never rewritten.
+  const firstClick = step.indexOf('.click(');
+  assert.ok(step.indexOf("if (before === 'not_applicable') return;") < firstClick);
+  // Sam (17 Nov): the existing-choice path needs the same server proof; saving on with coaching on or unreadable stops unrewritten.
+  const existing = step.indexOf("if (before === 'opted_in') { requireFact(privacyAnswerRecorded(first, this.uid), 'privacy_choice_coaching_not_off'); return; }");
+  assert.ok(existing > 0 && existing < firstClick);
+  assert.ok(step.indexOf("if (before !== 'privacy_choice_missing') requireFact(false, before);") < firstClick);
+  // Sam on 9dcf0259: a real bounded visibility wait, not the isVisible() snapshot (hydration must not falsely stop the run).
+  assert.doesNotMatch(step, /isVisible\(/);
+  assert.match(step, /prompt\.waitFor\(\{ state: 'visible', timeout: HOSTED_ACTION_MS \}\)/);
+  // privacy_opted_in is emitted only after the same owner's server row proves saving on and coaching off.
+  const proof = step.indexOf("requireFact(privacyAnswerRecorded(recorded, this.uid), 'privacy_choice_not_recorded');");
+  const mark = step.indexOf("this.checkpoint('privacy_opted_in');");
+  assert.ok(step.lastIndexOf('.click(') < proof && proof < mark, 'clicks, then server proof, then the checkpoint');
+  for (const call of step.match(/\.click\([^;]*/g) ?? []) assert.match(call, /timeout: HOSTED_ACTION_MS/);
+});
+
+test('the answer is recorded only when the same owner\'s row shows saving on AND coaching off', () => {
+  const uid = 'uid-owner';
+  const row = (o: Record<string, unknown>) => ({ state: 'read' as const, row: { user_id: uid, transcript_save: true, ai_coaching: false, consent_version: 1, ...o } });
+  assert.equal(privacyAnswerRecorded(row({}), uid), true);
+  for (const [label, read] of [['coaching on', row({ ai_coaching: true })], ['saving off', row({ transcript_save: false })],
+    ['another owner', row({ user_id: 'uid-other' })], ['coaching unread', row({ ai_coaching: null })], ['another version', row({ consent_version: 2 })],
+    ['no row', { state: 'read' as const, row: null }], ['absent', { state: 'absent' as const }], ['unreadable', { state: 'unreadable' as const }]] as const)
+    assert.equal(privacyAnswerRecorded(read, uid), false, label);
+  for (const code of ['privacy_choice_not_recorded', 'privacy_choice_coaching_not_off']) assert.equal(safeFailureReason(new Error(`BILLING_JOURNEY:${code}`)), code);
+  // The existing-choice cases: saving on with coaching on, or coaching unread, are opted in by privacyOptInFact but not proven.
+  for (const o of [{ ai_coaching: true }, { ai_coaching: null }]) {
+    assert.equal(privacyOptInFact(row(o), uid, 'includes'), 'opted_in');
+    assert.equal(privacyAnswerRecorded(row(o), uid), false, JSON.stringify(o));
+  }
 });
