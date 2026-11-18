@@ -243,32 +243,74 @@ test('(c) the finalizer CLI binds the combined result to the raw receipt file, a
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('(#1898) the cleanup witness runs only for an Auth-refused cleanup, before teardown, and reads only through the tested helper', () => {
+test('(#1898) the cleanup witness runs only for the exact Auth-refused reason, before teardown, through the tested helper', () => {
   const witness = step('cleanup_witness');
   const order = job.steps.map(s => s.id ?? s.name);
   assert.ok(order.indexOf('cleanup_witness') > order.indexOf('Extract the content-free receipt only'), 'after the receipt exists');
   assert.ok(order.indexOf('cleanup_witness') < order.indexOf('stack_stop'), 'before the stack is torn down');
   assert.match(witness.if ?? '', /always\(\)/);
   assert.match(witness.if ?? '', /hashFiles\('billing-local-stack-identity\.json'\) != ''/);
+  assert.equal(witness.env?.JOURNEY, '${{ inputs.journey }}');
+  assert.equal(witness.env?.RELEASE, '${{ inputs.commit_sha }}');
+  // The journey writes the runner-local owner binding the witness reads; it is never uploaded.
+  assert.equal(job.steps.find(s => s.name === 'Run the billing journey against the local stack')?.env?.BILLING_OWNER_BINDING_FILE, '${{ runner.temp }}/billing-owner-binding.json');
+  assert.doesNotMatch(workflowText, /path:[^\n]*\n(?:\s+[^\n]*\n)*?\s+[^\n]*billing-owner-binding/);
   // No direct database URL, psql, key or grant in the step: only the helper, against the recorded identity.
   assert.doesNotMatch(witness.run ?? '', /psql|DB_URL|SERVICE_ROLE|GRANT|supabase status/);
   const dir = mkdtempSync(join(tmpdir(), 'witness-step-'));
   try {
-    writeFileSync(join(dir, 'node'), '#!/bin/sh\necho "NODE $*"\necho \'{"schema":"billing-local-stack-cleanup-witness/v1"}\'\n', { mode: 0o755 });
-    const runWith = (receipt: string | null) => {
-      if (receipt === null) rmSync(join(dir, 'billing-local-stack-receipt.json'), { force: true });
-      else writeFileSync(join(dir, 'billing-local-stack-receipt.json'), receipt);
+    writeFileSync(join(dir, 'node'), '#!/bin/sh\necho "NODE $*"\n', { mode: 0o755 });
+    const runWith = (receipt: string) => {
+      writeFileSync(join(dir, 'billing-local-stack-receipt.json'), receipt);
       return spawnSync('bash', ['-c', witness.run ?? ''], { cwd: dir, encoding: 'utf8',
-        env: { PATH: `${dir}:${process.env.PATH}`, LOCAL_STACK_PROJECT: 'billing-local-stack-1-1' } });
+        env: { PATH: `${dir}:${process.env.PATH}`, LOCAL_STACK_PROJECT: 'billing-local-stack-1-1', RUNNER_TEMP: '/rt',
+          JOURNEY: 'conversion', RELEASE: 'a'.repeat(40) } });
     };
-    for (const receipt of ['[{"reason":"account_cleanup_other"}]', '[{"reason":null}]', '[]', 'not json']) {
+    // Any other value, including near-misses and hostile text, gets the same fixed code and never reaches the helper.
+    const hostile = 'account_cleanup_x_$(touch pwned)_<script>';
+    for (const receipt of ['[{"reason":"account_cleanup_other"}]', '[{"reason":null}]', '[]', 'not json',
+      '[{"reason":"account_cleanup_deleteuser_failed "}]', `[{"reason":"${hostile}"}]`,
+      '[{"reason":"account_cleanup_deleteuser_failed"},{"reason":"account_cleanup_deleteuser_failed"}]']) {
       const r = runWith(receipt);
       assert.equal(r.status, 0, receipt);
-      assert.match(r.stdout, /No Auth-refused cleanup to diagnose/);
-      assert.doesNotMatch(r.stdout, /NODE/);
+      assert.equal(r.stdout.trim(), 'CLEANUP_WITNESS_SKIPPED_NOT_AUTH_REFUSED', receipt);
     }
     const r = runWith('[{"reason":"account_cleanup_deleteuser_failed"}]');
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /NODE tests\/billing\/user-journey\/localStackResources\.mjs witness billing-local-stack-1-1 billing-local-stack-identity\.json/);
+    assert.equal(r.stdout.trim(), `NODE tests/billing/user-journey/localStackResources.mjs witness billing-local-stack-1-1 billing-local-stack-identity.json billing-local-stack-receipt.json billing-local-stack-receipt.sha256 /rt/billing-owner-binding.json conversion ${'a'.repeat(40)}`);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('(run 44312735386) a failed stack start prints each container\'s sampled health; inspect environment never leaves', () => {
+  const start = step('stack_start');
+  const run = start.run ?? '';
+  const from = run.indexOf('health_log=');
+  const to = run.indexOf('echo "Stack started;');
+  assert.ok(from > 0 && to > from, 'sampler block present');
+  const block = run.slice(from, run.indexOf('\n', to) + 1);
+  const dir = mkdtempSync(join(tmpdir(), 'start-health-'));
+  try {
+    const inspect = JSON.stringify([{ Name: '/supabase_edge_runtime_billing-local-stack-1-1', Config: { Env: ['JWT_SECRET=topsecret-value'] },
+      State: { Status: 'running', ExitCode: 0, OOMKilled: false, Health: { Status: 'starting', FailingStreak: 3,
+        Log: [{ ExitCode: 1, Output: 'old' }, { ExitCode: 7, Output: 'curl: (7) Failed to connect\n' }] } } }]);
+    writeFileSync(join(dir, 'inspect.json'), inspect);
+    writeFileSync(join(dir, 'docker'), `#!/bin/sh\ncase "$1" in ps) echo c_edge ;; inspect) cat "${dir}/inspect.json" ;; esac\n`, { mode: 0o755 });
+    const runStart = (exitCode: number) => {
+      writeFileSync(join(dir, 'supabase'), `#!/bin/sh\nsleep 4\nexit ${exitCode}\n`, { mode: 0o755 });
+      return spawnSync('bash', ['-c', `set -euo pipefail\n${block}`], { cwd: dir, encoding: 'utf8',
+        env: { PATH: `${dir}:${process.env.PATH}`, LOCAL_STACK_PROJECT: 'billing-local-stack-1-1', RUNNER_TEMP: dir, SUPABASE_WORKDIR: 'backend' } });
+    };
+    const failed = runStart(1);
+    assert.equal(failed.status, 1, failed.stderr);
+    const sample = failed.stdout.split('\n').find(line => line.startsWith('{')) ?? '';
+    assert.deepEqual(JSON.parse(sample).name, 'supabase_edge_runtime_billing-local-stack-1-1');
+    assert.deepEqual({ ...JSON.parse(sample), t: 'T' }, { t: 'T', name: 'supabase_edge_runtime_billing-local-stack-1-1', state: 'running', exit: 0,
+      oom: false, health: 'starting', failing: 3, probe_exit: 7, probe: 'curl: (7) Failed to connect ' });
+    assert.ok(!failed.stdout.includes('topsecret') && !failed.stdout.includes('JWT_SECRET'), 'inspect environment leaked');
+    assert.match(failed.stdout, /::error::The disposable stack did not start \(supabase start exit 1\)/);
+    const started = runStart(0);
+    assert.equal(started.status, 0, started.stderr);
+    assert.doesNotMatch(started.stdout, /\{"t"/);
+    assert.match(started.stdout, /Stack started; [0-9]+ container health samples recorded/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

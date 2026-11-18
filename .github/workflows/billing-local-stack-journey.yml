@@ -193,7 +193,38 @@ jobs:
           sed -i "s/^project_id = .*/project_id = \"$LOCAL_STACK_PROJECT\"/" "$SUPABASE_WORKDIR/supabase/config.toml"
           grep -qx "project_id = \"$LOCAL_STACK_PROJECT\"" "$SUPABASE_WORKDIR/supabase/config.toml" \
             || { echo '::error::Could not give the disposable stack its run-unique project id.'; exit 1; }
-          supabase start --workdir "$SUPABASE_WORKDIR" -x studio,imgproxy,vector,logflare
+          # Run 44312735386: the edge runtime never became healthy, its log was empty and the CLI removed every container
+          # before anything else could look. While the start runs, sample each of THIS run's containers every 3 s: state,
+          # exit code, health, failing streak and the last health probe's exit code and first 160 printable characters.
+          # Only those fields leave `docker inspect` (never its environment or config). Printed only if the start fails.
+          health_log="$RUNNER_TEMP/stack-start-health.jsonl"
+          : > "$health_log"
+          (
+            while :; do
+              t="$(date -u +%H:%M:%S)"
+              for c in $(docker ps -aq --filter "label=com.supabase.cli.project=$LOCAL_STACK_PROJECT" 2>/dev/null); do
+                docker inspect "$c" 2>/dev/null | jq -c --arg t "$t" '.[0] | {t: $t, name: (.Name | ltrimstr("/")),
+                  state: .State.Status, exit: .State.ExitCode, oom: .State.OOMKilled,
+                  health: (.State.Health.Status // "none"), failing: (.State.Health.FailingStreak // 0),
+                  probe_exit: (.State.Health.Log[-1].ExitCode // null),
+                  probe: ((.State.Health.Log[-1].Output // "") | gsub("[^ -~]"; " ") | .[0:160])}' >> "$health_log" 2>/dev/null || true
+              done
+              sleep 3
+            done
+          ) &
+          sampler=$!
+          start_status=0
+          supabase start --workdir "$SUPABASE_WORKDIR" -x studio,imgproxy,vector,logflare || start_status=$?
+          kill "$sampler" 2>/dev/null || true
+          wait "$sampler" 2>/dev/null || true
+          if [ "$start_status" != '0' ]; then
+            echo '::group::Container health while the stack was starting (this run only)'
+            cat "$health_log"
+            echo '::endgroup::'
+            echo "::error::The disposable stack did not start (supabase start exit $start_status); container health above."
+            exit "$start_status"
+          fi
+          echo "Stack started; $(wc -l < "$health_log" | tr -d " ") container health samples recorded (printed only after a failed start)."
           status="$(supabase status --workdir "$SUPABASE_WORKDIR" -o json)"
           api_url="$(jq -r '.API_URL' <<<"$status")"
           [ "$api_url" = "$LOCAL_API_URL" ] || { echo "::error::Unexpected local API URL."; exit 1; }
@@ -316,6 +347,8 @@ jobs:
           # Collects all six branches; -g below runs only the dispatched one.
           BILLING_RUNNER_MODE: full
           PLAYWRIGHT_JSON_OUTPUT_NAME: ${{ runner.temp }}/playwright-report.json
+          # #1898: runner-local owner binding for the cleanup witness (a digest; never uploaded).
+          BILLING_OWNER_BINDING_FILE: ${{ runner.temp }}/billing-owner-binding.json
         run: |
           set -euo pipefail
           # The outcome 8 paid value loop has its own config (longer audio and timeout); the three billing journeys share one.
@@ -337,22 +370,28 @@ jobs:
           fi
 
       # Runs 44302168905 and 44316016932: every journey step passed, then Auth refused to delete the run's account
-      # (account_cleanup_deleteuser_failed) while the take settlement read zeros. Before teardown, and only for that
-      # receipt reason, the witness (localStackResources.mjs, tested offline) first proves this is the exact recorded
-      # database (container id + system identifier) holding exactly one user, the run's synthetic owner. It then
-      # returns only that owner's counts (save obligations by phase and what can settle them, leases by state, sessions
-      # by status and lease binding) and how many Auth/database log lines carry each allowlisted failure phrase.
-      # Local superuser inside the recorded container; no grant, no write, no guard bypass, no ids/emails/rows/log
-      # lines printed. Diagnostic only: it never changes the verdict.
+      # (account_cleanup_deleteuser_failed) while the take settlement read zeros. Before teardown, and only for that exact
+      # receipt reason, the witness (localStackResources.mjs, tested offline) checks in order: the receipt is the exact
+      # hashed file for this dispatch's journey, release and stack; the owner binding is this stack run's; the database
+      # container is the recorded one. Then ONE read-only, time-bounded statement returns the database identity, the
+      # owner check and the counts from one snapshot (save obligations by phase and what can settle them, leases by
+      # state, sessions by status and lease binding). Log phrase totals are whole-container, supporting evidence only.
+      # No grant, write or guard bypass; no id, email, marker, system identifier, row or log line is printed.
+      # Diagnostic only: it never changes the verdict.
       - name: Diagnose an Auth-refused cleanup (counts only, disposable stack)
         id: cleanup_witness
         if: ${{ always() && hashFiles('billing-local-stack-receipt.json') != '' && hashFiles('billing-local-stack-identity.json') != '' }}
+        env:
+          JOURNEY: ${{ inputs.journey }}
+          RELEASE: ${{ inputs.commit_sha }}
         run: |
           set -euo pipefail
-          reason="$(jq -r '.[0].reason // empty' billing-local-stack-receipt.json 2>/dev/null || true)"
-          [ "$reason" = 'account_cleanup_deleteuser_failed' ] || { echo "No Auth-refused cleanup to diagnose (reason: ${reason:-none})."; exit 0; }
-          node tests/billing/user-journey/localStackResources.mjs witness "$LOCAL_STACK_PROJECT" \
-            billing-local-stack-identity.json | tee billing-local-stack-cleanup-witness.json
+          reason="$(jq -r 'if (type == "array" and length == 1) then (.[0].reason // "") else "" end' billing-local-stack-receipt.json 2>/dev/null || true)"
+          # A fixed code either way: the receipt's own text is never echoed.
+          [ "$reason" = 'account_cleanup_deleteuser_failed' ] || { echo 'CLEANUP_WITNESS_SKIPPED_NOT_AUTH_REFUSED'; exit 0; }
+          node tests/billing/user-journey/localStackResources.mjs witness "$LOCAL_STACK_PROJECT" billing-local-stack-identity.json \
+            billing-local-stack-receipt.json billing-local-stack-receipt.sha256 "$RUNNER_TEMP/billing-owner-binding.json" \
+            "$JOURNEY" "$RELEASE"
 
       - name: Verify no Stripe test fixture remains
         id: stripe_residue

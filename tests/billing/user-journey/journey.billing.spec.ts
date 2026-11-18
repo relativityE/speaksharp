@@ -1,11 +1,12 @@
 import { test, expect, type Page } from '@playwright/test';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
-import { readdirSync } from 'node:fs';
+import { readdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import sandboxTarget from './sandbox-target.json' with { type: 'json' };
 import localStackTarget from './sandbox-target.local.json' with { type: 'json' };
 import { runnerPreflight } from './runnerPreflight.mjs';
+import { ownerBindingRecord } from './localStackResources.mjs';
 import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, requireFact, assertSandboxConfiguration, PENDING_POLICY,
   assertTestPrice, assertInvoice, isCorrelatedDelivery, safeFailureReason, testClockCreateFields, localStackStatus,
   assertFullRefund, isRefundCancellation, assertCheckoutGrantedNothing,
@@ -168,6 +169,11 @@ class SandboxJourney {
     requireFact(runtime.release === env.BILLING_SANDBOX_RELEASE_SHA && runtime.api === this.targets.api
       && realAuth && runtime.stripeKeyClass === 'test', 'served_identity_or_backend_mismatch');
 
+    // #1898 (Sam): binds the cleanup witness to THIS run's owner. A digest of the stack run and this run's marker, written
+    // runner-local (never uploaded, never in the receipt) before the account exists. Local stack only.
+    if (useLocalStack && env.BILLING_OWNER_BINDING_FILE) {
+      writeFileSync(env.BILLING_OWNER_BINDING_FILE, JSON.stringify(ownerBindingRecord(`${env.LOCAL_STACK_PROJECT ?? ''}`, this.marker)));
+    }
     this.signupAttempted = true;
     const { data, error } = await this.admin.auth.admin.createUser({ email: this.email,
       password: this.password, email_confirm: true });
