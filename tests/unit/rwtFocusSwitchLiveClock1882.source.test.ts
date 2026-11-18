@@ -71,6 +71,12 @@ describe('#1882 — every Focus take is measured live through its own Stop', () 
         expect(src).toMatch(/readback: \(row, sessionId, liveSecondsAtStop\) => consentReadbackVerdict\(\{ build: consent\.build, choice: consent\.choice, row, ownerId: owner\.uid,/);
     });
 
+    it('saving off: the switch verdict gets the run\'s choice and the Open Mic row is read as metrics only, not "malformed"', () => {
+        expect(src).toMatch(/transcriptSaving: consent\.choice && !consent\.choice\.transcriptSave \? 'off' : 'on',\n\s*\}\);/);
+        expect(src).toMatch(/select\('id,user_id,product,status,duration,transcript,transcript_state'\)/);
+        expect(src).toMatch(/const state = switchSourceState\(data\);/);
+    });
+
     it('waits for the rail to settle on four actual rows, not on "nothing pending"', () => {
         const after = switchTake.slice(switchStop);
         expect(after).toMatch(/railSettled\(await readRailRowCount\(page\), \(await readRail\(page, points\.length\)\)\.statuses, points\.length\)/);

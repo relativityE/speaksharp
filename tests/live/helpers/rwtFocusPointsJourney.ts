@@ -19,7 +19,7 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './benchmark-utils';
 import { MODEL_COMPARISON_AUTH_KEY } from './practiceLoopJourney';
-import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches, newSetSourcePoints, newSetEditVerdicts, setupIsBlank, switchIsolationVerdict, railShowsExactFourPoints, labelHeardIn, focusBackReloadVerdict, focusIdentityObservation, firstTakeSavedExactlyOnceVerdict, type SwitchSourceSnapshot } from './rwtOracles';
+import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches, newSetSourcePoints, newSetEditVerdicts, setupIsBlank, switchIsolationVerdict, switchSourceState, railShowsExactFourPoints, labelHeardIn, focusBackReloadVerdict, focusIdentityObservation, firstTakeSavedExactlyOnceVerdict, type SwitchSourceSnapshot } from './rwtOracles';
 import { cleanupRunOwnedAccount } from './runOwnedCleanup';
 import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, armWatchdog, watchProfileFor, type JourneyFinalizer } from './rwtWatchdog';
 import { savedFocusIdentityVerdict } from './rwtSavedFocusIdentity';
@@ -1106,11 +1106,12 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 // The transcript stays in Node (marker support only); the receipt gets the product, a digest and booleans.
                 const unavailable = (state: 'missing' | 'query_error'): SwitchSourceSnapshot & { transcript: string } => ({ product: null, digest: null, transcript: '', state });
                 const sessionRow = async (id: string): Promise<SwitchSourceSnapshot & { transcript: string }> => {
-                    const { data, error } = await admin!.from('sessions').select('id,user_id,product,transcript,transcript_state').eq('id', id).eq('user_id', owner.uid).maybeSingle();
+                    const { data, error } = await admin!.from('sessions').select('id,user_id,product,status,duration,transcript,transcript_state').eq('id', id).eq('user_id', owner.uid).maybeSingle();
                     if (error) return unavailable('query_error'); // fail closed: an unreadable row is never expiry.
                     if (!data) return unavailable('missing');
-                    const available = data.transcript_state === 'available' && typeof data.transcript === 'string' && data.transcript.trim() !== '';
-                    const state = available ? 'available' : data.transcript_state === 'expired' && data.transcript === null ? 'expired' : 'malformed';
+                    // #1882 / #1835: a saving-off row is metrics_only (completed, positive duration, no transcript), never 'malformed'.
+                    const state = switchSourceState(data);
+                    const available = state === 'available';
                     return { product: (data.product as string | null) ?? null, digest: available ? sha256Hex(data.transcript) : null,
                         transcript: available ? data.transcript as string : '', state, sessionId: data.id as string, userId: data.user_id as string };
                 };
@@ -1221,11 +1222,14 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     railPendingBefore, openMicId: openMicId !== before ? openMicId : null, focusId: focusId !== openMicId ? focusId : null,
                     savedProduct, finalStatuses, railRowCount, staleCoachingBeforeStart, markerSupport,
                     openMicBefore, openMicAfter, ownerId: owner.uid,
+                    // #1835: saving off replaces the transcript assertions with metrics-only checks; a pre-#1835 build always saved.
+                    transcriptSaving: consent.choice && !consent.choice.transcriptSave ? 'off' : 'on',
                 });
                 receipt.row('take after switching products is clean', iso.verdict, iso.detail, {
                     railPendingBefore, shortTakeSeconds, pressToLiveMs: switchTake.timing.pressToLiveMs, liveSecondsAtStop: switchTake.timing.liveSecondsAtStop,
                     liveTiming: switchTake.timing.reason, holdEnded: switchHold.ended, switchOutcome: switchOutcome.kind,
                     railRowCount, final: finalStatuses.join(','), staleCoachingBeforeStart, markerSupport: markerSupport.join(','),
+                    transcriptSaving: consent.choice && !consent.choice.transcriptSave ? 'off' : 'on', openMicState: openMicBefore.state ?? 'unknown',
                     openMicSaved: Boolean(openMicId && openMicId !== before), openMicUnchanged: openMicBefore.digest !== null && openMicBefore.digest === openMicAfter.digest,
                     openMicRetentionState: openMicAfter.state ?? 'unknown',
                     openMicExpiredAfterWitness: iso.verdict === 'PASS' && openMicAfter.state === 'expired',

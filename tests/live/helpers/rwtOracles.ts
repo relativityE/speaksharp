@@ -501,10 +501,27 @@ export function labelHeardIn(label: string, transcript: string): boolean {
 export interface SwitchSourceSnapshot {
     product: string | null;
     digest: string | null;
-    /** Available means a positively read nonempty transcript; expired means explicit expired state + SQL NULL. */
-    state?: 'available' | 'expired' | 'missing' | 'query_error' | 'malformed';
+    /**
+     * Available means a positively read nonempty transcript; expired means explicit expired state + SQL NULL; metrics_only
+     * (#1835, saving off) means a completed row with a positive duration, SQL NULL transcript and state `not_captured`.
+     */
+    state?: 'available' | 'expired' | 'metrics_only' | 'missing' | 'query_error' | 'malformed';
     sessionId?: string | null;
     userId?: string | null;
+}
+
+/**
+ * #1882 / #1835: a saved session row's transcript state, read fail closed. `metrics_only` needs ALL of: SQL NULL transcript,
+ * state `not_captured`, status `completed` and a finite positive duration. Anything that is neither a clean transcript,
+ * a lawful expiry nor a clean metrics-only row is `malformed`.
+ */
+export function switchSourceState(row: { transcript?: unknown; transcript_state?: unknown; status?: unknown; duration?: unknown }):
+    'available' | 'expired' | 'metrics_only' | 'malformed' {
+    if (row.transcript_state === 'available' && typeof row.transcript === 'string' && row.transcript.trim() !== '') return 'available';
+    if (row.transcript_state === 'expired' && row.transcript === null) return 'expired';
+    if (row.transcript_state === 'not_captured' && row.transcript === null && row.status === 'completed'
+        && typeof row.duration === 'number' && Number.isFinite(row.duration) && row.duration > 0) return 'metrics_only';
+    return 'malformed';
 }
 
 export interface SwitchIsolationObservation {
@@ -522,6 +539,12 @@ export interface SwitchIsolationObservation {
     openMicAfter: SwitchSourceSnapshot;
     /** Needed to prove a retention transition; legacy unchanged-row observations do not infer one. */
     ownerId?: string;
+    /**
+     * #1835: this run's transcript-saving choice. Absent or 'on' keeps every transcript assertion. 'off' REPLACES the two
+     * transcript-dependent ones (the Open Mic digest and marker support) with explicit metrics-only checks: both reads of
+     * the Open Mic row must be metrics only, with no transcript, same identity and product. Nothing is skipped.
+     */
+    transcriptSaving?: 'on' | 'off';
 }
 
 /**
@@ -554,6 +577,20 @@ export function switchIsolationVerdict(o: SwitchIsolationObservation): { verdict
     for (const source of [o.openMicBefore, o.openMicAfter]) {
         if (source.state === 'missing' || source.state === 'query_error') return hold('the Open Mic source row could not be read; retention and isolation are unproven');
         if (source.state && (!o.ownerId || !source.sessionId || !source.userId)) return hold('the Open Mic source identity is incomplete');
+    }
+    if (o.transcriptSaving === 'off') {
+        // #1835 saving OFF: no transcript exists to compare, so the digest and marker-support assertions are replaced, not
+        // skipped: both reads must be a clean metrics-only row (completed, positive duration, no transcript) of the same
+        // Open Mic session. A transcript saved while off is a FAIL, never a PASS.
+        for (const source of [o.openMicBefore, o.openMicAfter]) {
+            if (source.state === 'available' || source.digest !== null) return fail('saving off: the Open Mic take saved a transcript');
+            if (source.state !== 'metrics_only') return fail('saving off: the Open Mic take is not a completed metrics-only row');
+            if (source.product !== 'open_mic') return fail('no saved Open Mic source take to switch from');
+        }
+        return { verdict: 'PASS', detail: 'saving off: the Focus take after Open Mic detected only point 1 (points 2–4 absent) and saved as Focus Points; the Open Mic take stayed a metrics-only row with no saved transcript, same session and product, before and after' };
+    }
+    for (const source of [o.openMicBefore, o.openMicAfter]) {
+        if (source.state === 'metrics_only') return fail('saving on: the Open Mic take saved no transcript');
     }
     if (o.openMicAfter.state === 'expired' && (o.openMicBefore.state !== 'available' || !o.openMicBefore.digest)) {
         return hold('expiry without a prior positive saved transcript does not prove an unchanged source take');
