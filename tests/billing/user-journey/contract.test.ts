@@ -5,7 +5,7 @@ import { RUNNER_JOURNEYS, POLICY_PENDING_STEPS, REQUIRED_STEPS, receipt, assertT
   isCorrelatedDelivery, assertSandboxConfiguration, safeFailureReason, testClockCreateFields, localStackStatus,
   hostedFieldUnavailable, hostedEmailDecision, assertCheckoutIdentity, type HostedField, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl, hostedEmailFieldAction,
   HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken ,
-  APP_MIN_SESSION_DURATION_SECONDS, RECORDING_HOLD_MS, recordingHoldRemainingMs, holdThenStop, observeCaptureLive, APP_TOO_SHORT_STATUS,
+  APP_MIN_SESSION_DURATION_SECONDS, RECORDING_HOLD_MS, recordingHoldRemainingMs, holdThenStop, observeCaptureLive, APP_TOO_SHORT_STATUS, WATCH_INSTALL_SCRIPT, takeStatusScript, stopGateScript, takeOutcome, optInThroughPrompt,
   privacyOptInFact, PRIVACY_PROMPT, privacyBuildState, PRIVACY_MIGRATION, privacyAnswerRecorded } from './contract';
 import { finaliseLocalStackReceipt, RECEIPT_KEYS } from './localStackReceipt.mjs';
 import { stackIdentitySha256 } from './localStackResources.mjs';
@@ -600,15 +600,21 @@ test('recording hold: past the app\'s own minimum duration, timed from the obser
   const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
   const rec = spec.slice(spec.indexOf('  async record(): Promise<void> {'), spec.indexOf('  async advance('));
   const order = ["await expectBenchmarkRecordingStarted(this.page, 'billing-journey');",
-    "if (shell?.getAttribute('data-session-state') !== 'during') return null;", "return typeof debug?.lifecycleVersion === 'number' ? `take:${debug.lifecycleVersion}` : null;",
-    'const live = await observeCaptureLive({ probe, clock, timeoutMs: 60_000 });', "await expectBenchmarkTranscriptOutput(this.page, 'billing-journey', 60_000, 3);",
-    'await holdThenStop({ startedObservedAt: live.observedAt, takeKey: live.takeKey, probe, clock,', "await stopBenchmarkRecording(this.page, 'billing-journey');",
-    "requireFact(!settled.tooShort, 'recording_discarded_too_short');", 'this.savedSession = settled.id;'];
+    'const live = await observeCaptureLive({ clock, timeoutMs: 60_000,', 'pageScript(WATCH_INSTALL_SCRIPT)',
+    "await expectBenchmarkTranscriptOutput(this.page, 'billing-journey', 60_000, 3);",
+    'const held = await holdThenStop({ startedObservedAt: live.observedAt, takeKey: live.takeKey, clock,',
+    'pageScript(takeStatusScript(live.takeKey))', 'pageScript(stopGateScript(live.takeKey))',
+    "await expect(this.page.getByTestId('recorder-bar')).toHaveCount(0", 'const outcome = await this.poll(async () => takeOutcome(',
+    "requireFact(outcome === 'saved', outcome);", 'this.savedSession = held.session as string;'];
   let at = -1;
   for (const step of order) { const i = rec.indexOf(step); assert.ok(i > at, step); at = i; }
-  assert.equal((rec.match(/stopBenchmarkRecording\(/g) ?? []).length, 1);
+  // The only Stop is the page's own gated click; no generic Stop helper that could wait and resolve again after the check.
+  assert.doesNotMatch(rec, /stopBenchmarkRecording\(|getByTestId\('recorder-stop'\)/);
   assert.equal((rec.match(/holdThenStop\(/g) ?? []).length, 1);
-  assert.doesNotMatch(rec, /startedObservedAt = Date\.now\(\)/, 'the hold starts at observed capture live, never a bare clock read');
+  assert.doesNotMatch(rec, /waitForBenchmarkSaveCandidate\(/, 'the outcome read replaces the candidate-first wait');
+  const consent = spec.slice(spec.indexOf('  async ensureTranscriptSaving('), spec.indexOf('  async record(): Promise<void> {'));
+  assert.match(consent, /await optInThroughPrompt\(\{/);
+  assert.doesNotMatch(consent, /\.click\((?!\{ timeout: HOSTED_ACTION_MS \}\))/, 'the only click is the sequence\'s own control click');
 });
 
 // #1835 makes transcript saving opt-in; the billing recording step needs a saved transcript (paid_recording_not_proven).
@@ -649,39 +655,22 @@ test('a missing or unreadable consent table: not_applicable only for a build kno
   assert.equal(privacyBuildState(readdirSync('backend/supabase/migrations')), existsSync(`backend/supabase/migrations/${PRIVACY_MIGRATION}`) ? 'includes' : 'predates');
 });
 
-test('the recording step opts in through the actual prompt (save yes, coaching no) for the exact owner, before any recording', () => {
+test('the recording step delegates consent to the tested sequence, wired to the real prompt and the same owner\'s row', () => {
   assert.deepEqual({ ...PRIVACY_PROMPT }, { prompt: 'practice-privacy-prompt', saveYes: 'privacy-save-yes', aiNo: 'privacy-ai-no', continue: 'privacy-continue' });
   const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
   const record = spec.slice(spec.indexOf('async record(): Promise<void> {'), spec.indexOf('async advance('));
   const ensure = record.indexOf('await this.ensureTranscriptSaving();');
   assert.ok(ensure > 0 && ensure < record.indexOf("getByTestId('practice-card-freeform')"), 'opt-in comes before the recording starts');
   const step = spec.slice(spec.indexOf('async ensureTranscriptSaving('), spec.indexOf('async record(): Promise<void> {'));
+  // Wiring only: the behaviour is executed against both build states in the optInThroughPrompt tests below.
   assert.match(step, /\.from\('practice_privacy_choices'\)\.select\('user_id,transcript_save,ai_coaching,consent_version'\)\.eq\('user_id', this\.uid\)/);
-  assert.match(step, /getByTestId\(PRIVACY_PROMPT\.saveYes\)/);
-  assert.match(step, /getByTestId\(PRIVACY_PROMPT\.aiNo\)/);
-  assert.doesNotMatch(step, /aiYes|privacy-ai-yes/, 'the recording step never turns on AI coaching');
-  assert.match(step, /requireFact\(privacyOptInFact\(recorded, this\.uid, build\) === 'opted_in', 'privacy_choice_not_recorded'\);/);
-  // The build's schema identity is read from the tested checkout's migrations, and both reads use it.
   assert.match(step, /const build = privacyBuildState\(\(\(\) => \{ try \{ return readdirSync\(resolve\(process\.cwd\(\), 'backend\/supabase\/migrations'\)\); \} catch \{ return null; \} \}\)\(\)\)/);
-  assert.match(step, /const first = await readChoice\(\);\s+const before = privacyOptInFact\(first, this\.uid, build\);/);
-  assert.equal((step.match(/privacyOptInFact\(recorded, this\.uid, build\)/g) ?? []).length, 1);
-  // Anything other than an observed absence of a choice stops before the prompt is touched.
-  assert.match(step, /if \(before !== 'privacy_choice_missing'\) requireFact\(false, before\);/);
-  // Only an observed absence of a choice may answer the prompt; an existing choice (opted in, declined, foreign) is never rewritten.
-  const firstClick = step.indexOf('.click(');
-  assert.ok(step.indexOf("if (before === 'not_applicable') return;") < firstClick);
-  // Sam (17 Nov): the existing-choice path needs the same server proof; saving on with coaching on or unreadable stops unrewritten.
-  const existing = step.indexOf("if (before === 'opted_in') { requireFact(privacyAnswerRecorded(first, this.uid), 'privacy_choice_coaching_not_off'); return; }");
-  assert.ok(existing > 0 && existing < firstClick);
-  assert.ok(step.indexOf("if (before !== 'privacy_choice_missing') requireFact(false, before);") < firstClick);
-  // Sam on 9dcf0259: a real bounded visibility wait, not the isVisible() snapshot (hydration must not falsely stop the run).
-  assert.doesNotMatch(step, /isVisible\(/);
-  assert.match(step, /prompt\.waitFor\(\{ state: 'visible', timeout: HOSTED_ACTION_MS \}\)/);
-  // privacy_opted_in is emitted only after the same owner's server row proves saving on and coaching off.
-  const proof = step.indexOf("requireFact(privacyAnswerRecorded(recorded, this.uid), 'privacy_choice_not_recorded');");
-  const mark = step.indexOf("this.checkpoint('privacy_opted_in');");
-  assert.ok(step.lastIndexOf('.click(') < proof && proof < mark, 'clicks, then server proof, then the checkpoint');
-  for (const call of step.match(/\.click\([^;]*/g) ?? []) assert.match(call, /timeout: HOSTED_ACTION_MS/);
+  assert.match(step, /await optInThroughPrompt\(\{\s+build, ownerId: this\.uid,/);
+  assert.match(step, /click: \(control\) => prompt\.getByTestId\(PRIVACY_PROMPT\[control\]\)\.click\(\{ timeout: HOSTED_ACTION_MS \}\)/);
+  assert.doesNotMatch(step, /aiYes|privacy-ai-yes/, 'the recording step never turns on AI coaching');
+  // The sequence itself never offers a coaching-yes control.
+  assert.doesNotMatch(readFileSync('tests/billing/user-journey/contract.ts', 'utf8').slice(
+    readFileSync('tests/billing/user-journey/contract.ts', 'utf8').indexOf('export async function optInThroughPrompt(')), /'aiYes'/);
 });
 
 test('the answer is recorded only when the same owner\'s row shows saving on AND coaching off', () => {
@@ -714,63 +703,194 @@ test('capture live: the app renders the recording state only once capture is liv
   assert.match(lifecycle, /const liveStart = useSessionStore\.getState\(\)\.startTime;\s+const elapsedAtStop = liveStart \? Math\.floor\(\(Date\.now\(\) - liveStart\) \/ 1000\) : elapsedTime;/);
 });
 
-// Behaviour with a controlled clock and a scripted page. The app's rule at Stop is mirrored from useSessionLifecycle (pinned
-// above): too short when floor((stopAt - startTime) / 1000) < MIN_SESSION_DURATION_SECONDS, startTime = the capture-live moment.
-const appKeepsTake = (appStartTime: number, stopAt: number) => Math.floor((stopAt - appStartTime) / 1000) >= APP_MIN_SESSION_DURATION_SECONDS;
-/** A page whose capture goes live at `liveAt` as take `key`, and (optionally) ends at `endsAt` or is replaced by `nextKey`. */
-function scriptedTake(o: { liveAt: number; endsAt?: number; nextKey?: string; wakeFraction?: number }) {
-  let t = 0;
-  const clock = { now: () => t, sleep: async (ms: number) => { t += Math.max(1, Math.ceil(ms * (o.wakeFraction ?? 1))); } };
-  const probe = async () => {
-    if (t < o.liveAt || (o.endsAt !== undefined && t >= o.endsAt && !o.nextKey)) return null;
-    return o.endsAt !== undefined && t >= o.endsAt && o.nextKey ? o.nextKey : 'take:1';
+// ---- Executable controls: the ACTUAL page scripts run against a fake DOM, and the actual consent sequence against fakes. ----
+
+/** A fake page: shell state, runtime take/session, a Stop button, a controllable MutationObserver and interval. */
+function fakePage(o: { state?: string; lifecycle?: number; session?: string | null } = {}) {
+  const page = { state: o.state ?? 'during', lifecycle: o.lifecycle ?? 7, session: o.session === undefined ? 'sess-1' : o.session, clicks: 0, disabled: false };
+  const observers: Array<() => void> = []; const intervals: Array<() => void> = [];
+  const shell = { getAttribute: (n: string) => (n === 'data-session-state' ? page.state : null) };
+  const stop = { click: () => { page.clicks += 1; }, get disabled() { return page.disabled; } };
+  const document = { documentElement: {}, querySelector: (sel: string) => (sel.includes('session-shell') ? shell : sel.includes('recorder-stop') ? stop : null) };
+  const window: Record<string, unknown> = {
+    __SPEECH_RUNTIME_DEBUG__: () => ({ lifecycleVersion: page.lifecycle, sessionId: page.session }),
+    setInterval: (fn: () => void) => { intervals.push(fn); return intervals.length; }, clearInterval: () => {},
+    MutationObserver: class { cb: () => void; constructor(cb: () => void) { this.cb = cb; observers.push(cb); } observe() {} disconnect() {} },
   };
-  return { clock, probe, at: () => t, advance: (ms: number) => { t += ms; } };
-}
-async function journeyTake(page: ReturnType<typeof scriptedTake>, wordsAt: number) {
-  const live = await observeCaptureLive({ probe: page.probe, clock: page.clock, timeoutMs: 60_000 });
-  if (page.at() < wordsAt) page.advance(wordsAt - page.at()); // the first words arrive
-  let stoppedAt: number | null = null;
-  try {
-    await holdThenStop({ startedObservedAt: live.observedAt, takeKey: live.takeKey, probe: page.probe, clock: page.clock,
-      stop: async () => { stoppedAt = page.at(); } });
-    return { live, stoppedAt, error: null as string | null };
-  } catch (e) { return { live, stoppedAt, error: (e as Error).message }; }
+  const run = <T,>(body: string): T => new Function('window', 'document', body)(window, document) as T;
+  return { page, window, run, mutate: (change: () => void) => { change(); observers.forEach(cb => cb()); }, tick: () => intervals.forEach(fn => fn()) };
 }
 
-test('hold-then-Stop: from observed capture live, the same take, then Stop; the app keeps it (run 9\'s timings)', async () => {
-  for (const wakeFraction of [1, 0.5]) { // a sleep that wakes early (halfway) is re-checked
-    const page = scriptedTake({ liveAt: 0, wakeFraction });
-    const r = await journeyTake(page, 940); // run 9: first words ~0.94 s after capture live
-    assert.equal(r.error, null);
-    assert.ok(r.stoppedAt !== null && r.stoppedAt - r.live.observedAt >= RECORDING_HOLD_MS);
-    assert.equal(appKeepsTake(0, r.stoppedAt!), true);
+test('page take watch: installs only when capture is live; the gate clicks Stop once for the same intact take', () => {
+  const f = fakePage({ state: 'before' });
+  assert.equal(f.run<string | null>(WATCH_INSTALL_SCRIPT), null, 'not live yet: nothing installed');
+  f.page.state = 'during';
+  const key = f.run<string | null>(WATCH_INSTALL_SCRIPT);
+  assert.ok(key && key.endsWith('|7'));
+  assert.equal(f.run<string | null>(takeStatusScript(key!)), key);
+  assert.deepEqual(f.run(stopGateScript(key!)), { clicked: true, reason: null, session: 'sess-1' });
+  assert.equal(f.page.clicks, 1);
+});
+
+test('CONTROL: capture dropping and resuming during the hold breaks the take for good; Stop is not clicked', () => {
+  const f = fakePage(); const key = f.run<string>(WATCH_INSTALL_SCRIPT);
+  f.mutate(() => { f.page.state = 'before'; });
+  f.mutate(() => { f.page.state = 'during'; }); // resumed: must not repair the watch
+  assert.equal(f.run<string | null>(takeStatusScript(key)), null);
+  assert.deepEqual(f.run(stopGateScript(key)), { clicked: false, reason: 'capture_dropped', session: null });
+  assert.equal(f.page.clicks, 0);
+});
+
+test('CONTROL: a take replaced between the last check and the click, a session change, or a reload: Stop is not clicked', () => {
+  // Replacement with no observer or interval firing in between: the gate's own same-task check refuses.
+  const a = fakePage(); const ka = a.run<string>(WATCH_INSTALL_SCRIPT);
+  assert.equal(a.run<string | null>(takeStatusScript(ka)), ka);
+  a.page.lifecycle = 8;
+  assert.deepEqual(a.run(stopGateScript(ka)), { clicked: false, reason: 'take_changed', session: null });
+  // The runtime's session changes under the same lifecycle number.
+  const b = fakePage(); const kb = b.run<string>(WATCH_INSTALL_SCRIPT);
+  b.page.session = 'sess-2'; b.tick();
+  assert.equal(b.run<{ clicked: boolean }>(stopGateScript(kb)).clicked, false);
+  // A session bound after install is then fixed: a later different id breaks the take.
+  const c = fakePage({ session: null }); const kc = c.run<string>(WATCH_INSTALL_SCRIPT);
+  c.page.session = 'sess-9'; c.tick(); c.page.session = 'sess-10';
+  assert.equal(c.run<{ clicked: boolean }>(stopGateScript(kc)).clicked, false);
+  // A reload is a new document with no watch, even if the lifecycle number repeats.
+  const reloaded = fakePage();
+  assert.deepEqual(reloaded.run(stopGateScript(ka)), { clicked: false, reason: 'take_watch_missing', session: null });
+  // ...and after the reload a NEW watch on the same lifecycle number is a different document: the old take's key never matches.
+  const relive = fakePage({ lifecycle: 7 }); const kOld = relive.run<string>(WATCH_INSTALL_SCRIPT);
+  const fresh = fakePage({ lifecycle: 7 }); const kNew = fresh.run<string>(WATCH_INSTALL_SCRIPT);
+  assert.notEqual(kOld, kNew);
+  assert.ok(kOld.endsWith('|7') && kNew.endsWith('|7'), 'same lifecycle number in both documents');
+  assert.equal(fresh.run<string | null>(takeStatusScript(kOld)), null);
+  assert.deepEqual(fresh.run(stopGateScript(kOld)), { clicked: false, reason: 'take_watch_missing', session: null });
+  assert.equal(fresh.page.clicks, 0);
+  // A disabled Stop control is never clicked.
+  const d = fakePage(); const kd = d.run<string>(WATCH_INSTALL_SCRIPT); d.page.disabled = true;
+  assert.deepEqual(d.run(stopGateScript(kd)), { clicked: false, reason: 'stop_unavailable', session: null });
+  for (const x of [a, b, c, reloaded, d]) assert.equal(x.page.clicks, 0);
+});
+
+// The app's rule at Stop is mirrored from useSessionLifecycle (pinned above): too short when floor((stopAt - startTime)/1000)
+// < MIN_SESSION_DURATION_SECONDS, startTime = the capture-live moment.
+const appKeepsTake = (appStartTime: number, stopAt: number) => Math.floor((stopAt - appStartTime) / 1000) >= APP_MIN_SESSION_DURATION_SECONDS;
+function scriptedClock(liveAt: number, wakeFraction = 1) {
+  let t = 0;
+  return { clock: { now: () => t, sleep: async (ms: number) => { t += Math.max(1, Math.ceil(ms * wakeFraction)); } }, at: () => t,
+    probe: async () => (t >= liveAt ? 'doc-1|7' : null), advance: (ms: number) => { t += ms; } };
+}
+
+test('hold-then-Stop: timed from observed capture live; the gate is asked once, after the hold; the app keeps the take', async () => {
+  for (const wakeFraction of [1, 0.5]) {
+    const c = scriptedClock(0, wakeFraction);
+    const live = await observeCaptureLive({ probe: c.probe, clock: c.clock, timeoutMs: 60_000 });
+    c.advance(940); // run 9: first words ~0.94 s after capture live
+    let gateAt: number | null = null; let gates = 0;
+    const r = await holdThenStop({ startedObservedAt: live.observedAt, takeKey: live.takeKey, probe: c.probe, clock: c.clock,
+      stop: async () => { gates += 1; gateAt = c.at(); return { clicked: true, reason: null, session: 'sess-1' }; } });
+    assert.equal(gates, 1);
+    assert.ok(gateAt !== null && gateAt - live.observedAt >= RECORDING_HOLD_MS);
+    assert.equal(appKeepsTake(0, gateAt!), true);
+    assert.equal(r.session, 'sess-1');
   }
 });
 
-test('CONTROL: delayed capture with instant words: the hold counts from capture, so Stop is not early', async () => {
-  // Words are "ready" at once, but capture only goes live at 3 s: the timer must start at 3 s, not at Start or the words.
-  const page = scriptedTake({ liveAt: 3_000 });
-  const r = await journeyTake(page, 0);
-  assert.equal(r.error, null);
-  assert.ok(r.live.observedAt >= 3_000, `observed live at ${r.live.observedAt}`);
-  assert.ok(r.stoppedAt! - 3_000 >= RECORDING_HOLD_MS);
-  assert.equal(appKeepsTake(3_000, r.stoppedAt!), true);
-  // The run-9 premature Stop (at the words) would have been discarded by the app.
+test('CONTROL: delayed capture with instant words is timed from capture; the run-9 Stop at the words is what the app discards', async () => {
+  const c = scriptedClock(3_000);
+  const live = await observeCaptureLive({ probe: c.probe, clock: c.clock, timeoutMs: 60_000 });
+  assert.ok(live.observedAt >= 3_000);
+  let gateAt = 0;
+  await holdThenStop({ startedObservedAt: live.observedAt, takeKey: live.takeKey, probe: c.probe, clock: c.clock,
+    stop: async () => { gateAt = c.at(); return { clicked: true, reason: null, session: 's' }; } });
+  assert.equal(appKeepsTake(3_000, gateAt), true);
   assert.equal(appKeepsTake(0, 940), false);
 });
 
-test('CONTROL: capture ending during the hold, or a different take at Stop: Stop is never pressed', async () => {
-  for (const o of [{ liveAt: 0, endsAt: 4_000 }, { liveAt: 0, endsAt: 4_000, nextKey: 'take:2' }]) {
-    const r = await journeyTake(scriptedTake(o), 500);
-    assert.equal(r.error, 'BILLING_JOURNEY:take_not_live_at_stop', JSON.stringify(o));
-    assert.equal(r.stoppedAt, null, 'Stop not pressed');
+test('CONTROL: a take broken during the hold, a gate that refuses, a never-live capture or a frozen clock never stops', async () => {
+  // Broken mid-hold: the probe stops returning the key, so no gate call.
+  let t = 0, gates = 0;
+  const clock = { now: () => t, sleep: async (ms: number) => { t += ms; } };
+  await assert.rejects(holdThenStop({ startedObservedAt: 0, takeKey: 'k', clock, probe: async () => (t < 3_000 ? 'k' : null),
+    stop: async () => { gates += 1; return { clicked: true, reason: null, session: 's' }; } }).then(() => { t = 0; }), /take_not_live_at_stop/);
+  // A gate that refuses names its reason.
+  t = 0;
+  await assert.rejects(holdThenStop({ startedObservedAt: 0, takeKey: 'k', clock: { now: () => t, sleep: async (ms: number) => { t += ms; } }, probe: async () => 'k',
+    stop: async () => ({ clicked: false, reason: 'capture_dropped', session: null }) }), /take_not_live_at_stop_capture_dropped/);
+  await assert.rejects(observeCaptureLive({ probe: async () => null, clock: scriptedClock(1e9).clock, timeoutMs: 2_000 }), /capture_live_unconfirmed/);
+  await assert.rejects(holdThenStop({ startedObservedAt: 1_000, takeKey: 'k', probe: async () => 'k', clock: { now: () => 1_000, sleep: async () => {} },
+    stop: async () => { gates += 1; return { clicked: true, reason: null, session: 's' }; } }), /recording_hold_not_met/);
+  assert.equal(gates, 0);
+});
+
+test('outcome after Stop: too short ends at once even with no candidate; only the take\'s own saved row counts', () => {
+  assert.equal(takeOutcome({ tooShort: true, candidateSession: null, persistedId: null }, 'sess-1'), 'recording_discarded_too_short');
+  assert.equal(takeOutcome({ tooShort: false, candidateSession: null, persistedId: null }, 'sess-1'), 'pending');
+  assert.equal(takeOutcome({ tooShort: false, candidateSession: 'sess-1', persistedId: null }, 'sess-1'), 'pending');
+  assert.equal(takeOutcome({ tooShort: false, candidateSession: 'sess-1', persistedId: 'sess-1' }, 'sess-1'), 'saved');
+  assert.equal(takeOutcome({ tooShort: false, candidateSession: 'sess-2', persistedId: null }, 'sess-1'), 'save_candidate_not_this_take');
+  assert.equal(takeOutcome({ tooShort: false, candidateSession: null, persistedId: 'sess-2' }, 'sess-1'), 'saved_row_not_this_take');
+  assert.equal(takeOutcome({ tooShort: false, candidateSession: null, persistedId: 'sess-1' }, null), 'saved_row_not_this_take');
+});
+
+/** The consent sequence's collaborators, recording every read and click. */
+function consentFakes(o: { build: 'includes' | 'predates' | 'unknown'; rows: Array<import('./contract').PrivacyTableRead>; shown?: boolean }) {
+  const log: string[] = []; const checkpoints: string[] = []; let reads = 0;
+  return { log, checkpoints, deps: {
+    build: o.build, ownerId: 'uid-owner',
+    readChoice: async () => { log.push('read'); return o.rows[Math.min(reads++, o.rows.length - 1)]; },
+    prompt: { waitVisible: async () => { log.push('wait'); return o.shown ?? true; },
+      click: async (c: 'saveYes' | 'aiNo' | 'continue') => { log.push(`click:${c}`); }, waitHidden: async () => { log.push('hidden'); } },
+    checkpoint: (n: string) => { checkpoints.push(n); },
+  } };
+}
+const row = (r: object) => ({ state: 'read' as const, row: { user_id: 'uid-owner', consent_version: 1, ...r } });
+
+test('consent, pre-#1835 build: skipped only when proven; the table answering on such a build stops; no prompt either way', async () => {
+  const pre = consentFakes({ build: 'predates', rows: [{ state: 'absent' }] });
+  assert.equal(await optInThroughPrompt(pre.deps), 'not_applicable');
+  assert.deepEqual(pre.log, ['read']);
+  const odd = consentFakes({ build: 'predates', rows: [row({ transcript_save: true, ai_coaching: false })] });
+  await assert.rejects(optInThroughPrompt(odd.deps), /privacy_schema_unexpected/);
+  assert.ok(!odd.log.some(l => l.startsWith('click') || l === 'wait'));
+});
+
+test('consent, unknown build: stops before any read, prompt or click', async () => {
+  for (const rows of [[{ state: 'absent' as const }], [{ state: 'read' as const, row: null }]]) {
+    const u = consentFakes({ build: 'unknown', rows });
+    await assert.rejects(optInThroughPrompt(u.deps), /privacy_schema_unknown/);
+    assert.deepEqual(u.log, []);
   }
-  // A capture that never goes live is a named stop before any hold.
-  await assert.rejects(observeCaptureLive({ probe: async () => null, clock: scriptedTake({ liveAt: 1e9 }).clock, timeoutMs: 2_000 }), /capture_live_unconfirmed/);
-  // A frozen clock cannot satisfy the hold: Stop refused.
-  let stopped = false;
-  await assert.rejects(holdThenStop({ startedObservedAt: 1_000, takeKey: 'take:1', probe: async () => 'take:1',
-    clock: { now: () => 1_000, sleep: async () => {} }, stop: async () => { stopped = true; } }), /recording_hold_not_met/);
-  assert.equal(stopped, false);
+});
+
+test('consent, #1835 build: the real prompt is answered save yes, coaching no, then proven by the same owner\'s row', async () => {
+  const f = consentFakes({ build: 'includes', rows: [{ state: 'read', row: null }, row({ transcript_save: true, ai_coaching: false })] });
+  assert.equal(await optInThroughPrompt(f.deps), 'answered');
+  assert.deepEqual(f.log, ['read', 'wait', 'click:saveYes', 'click:aiNo', 'click:continue', 'hidden', 'read']);
+  assert.deepEqual(f.checkpoints, ['privacy_opted_in']);
+  // The answer not recorded (still no row, coaching on, another owner) stops without the checkpoint.
+  for (const after of [{ state: 'read' as const, row: null }, row({ transcript_save: true, ai_coaching: true }),
+    { state: 'read' as const, row: { user_id: 'uid-other', consent_version: 1, transcript_save: true, ai_coaching: false } }]) {
+    const g = consentFakes({ build: 'includes', rows: [{ state: 'read', row: null }, after] });
+    await assert.rejects(optInThroughPrompt(g.deps), /privacy_choice_not_recorded/);
+    assert.deepEqual(g.checkpoints, []);
+  }
+  // A prompt that never appears stops before any click.
+  const hidden = consentFakes({ build: 'includes', rows: [{ state: 'read', row: null }], shown: false });
+  await assert.rejects(optInThroughPrompt(hidden.deps), /privacy_choice_missing/);
+  assert.ok(!hidden.log.some(l => l.startsWith('click')));
+});
+
+test('consent, #1835 build: a recorded choice is never rewritten — zero clicks, and anything but save=yes/coaching=no stops', async () => {
+  const ok = consentFakes({ build: 'includes', rows: [row({ transcript_save: true, ai_coaching: false })] });
+  assert.equal(await optInThroughPrompt(ok.deps), 'existing_choice');
+  assert.deepEqual(ok.log, ['read']);
+  for (const [r, code] of [[row({ transcript_save: true, ai_coaching: true }), /privacy_choice_coaching_not_off/],
+    [row({ transcript_save: false, ai_coaching: false }), /privacy_choice_declined/],
+    [{ state: 'read', row: { user_id: 'uid-other', consent_version: 1, transcript_save: true, ai_coaching: false } }, /privacy_choice_wrong_owner/],
+    [{ state: 'absent' }, /privacy_schema_missing/], [{ state: 'unreadable' }, /privacy_choice_unreadable/]] as const) {
+    const f = consentFakes({ build: 'includes', rows: [r as import('./contract').PrivacyTableRead] });
+    await assert.rejects(optInThroughPrompt(f.deps), code);
+    assert.ok(!f.log.some(l => l.startsWith('click') || l === 'wait'), JSON.stringify(r));
+  }
 });

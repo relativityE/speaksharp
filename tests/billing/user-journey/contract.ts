@@ -67,15 +67,75 @@ export function recordingHoldRemainingMs(startedObservedAt: number, now: number)
   return Math.max(0, RECORDING_HOLD_MS - Math.max(0, now - startedObservedAt));
 }
 /**
- * The live take's identity, read from the page: non-null only while the shell shows the capture-live state
- * (`data-session-state="during"`, rendered only once capture is live, with the app's clock re-based in that same update) AND the
- * runtime names its take (`__SPEECH_RUNTIME_DEBUG__().lifecycleVersion`, the controller's own same-take test). Stopping is
- * allowed only for the take observed at capture live, still live at Stop.
+ * The live take, watched IN the page from the moment capture is observed live (review of #1896 at 0db646a2):
+ *  - live = the shell's capture-live state (`data-session-state="during"`, rendered only once capture is live, the app's clock
+ *    re-based in that same update) AND the runtime naming its take (`__SPEECH_RUNTIME_DEBUG__().lifecycleVersion`);
+ *  - the watch tags THIS document (a reload has no watch), and binds the runtime's session id once it is known;
+ *  - any drop of the live state, take change or session change marks the watch broken for good (a later resume never repairs
+ *    it): a MutationObserver reacts to every attribute/child change, with a 50 ms interval as a backstop;
+ *  - Stop is clicked by the page itself in the same synchronous task as the final check, so nothing can change in between.
+ * These are function BODIES run in the page (and executed against a fake DOM in the tests); they return content-free values.
  */
+const TAKE_READ = `
+  const shell = document.querySelector('[data-testid="session-shell"]');
+  const debug = typeof window.__SPEECH_RUNTIME_DEBUG__ === 'function' ? window.__SPEECH_RUNTIME_DEBUG__() : null;
+  const live = !!shell && shell.getAttribute('data-session-state') === 'during';
+  const lifecycle = debug && typeof debug.lifecycleVersion === 'number' ? debug.lifecycleVersion : null;
+  const session = debug && typeof debug.sessionId === 'string' ? debug.sessionId : null;`;
+const TAKE_BROKEN = `
+  if (!live) return 'capture_dropped';
+  if (lifecycle !== w.lifecycle) return 'take_changed';
+  if (w.session !== null && session !== w.session) return 'take_changed';
+  return null;`;
+/** Installs the watch when capture is live; returns `doc|lifecycle`, or null while capture is not live (nothing installed). */
+export const WATCH_INSTALL_SCRIPT = `${TAKE_READ}
+  if (!live || lifecycle === null) return null;
+  if (window.__billingTake) return null;
+  const w = { doc: 'doc-' + Math.random().toString(36).slice(2) + '-' + Date.now(), lifecycle, session, broken: null, timer: null, observer: null };
+  const check = () => {
+    if (w.broken) return;
+    ${TAKE_READ}
+    const reason = (() => { ${TAKE_BROKEN} })();
+    if (reason) { w.broken = reason; return; }
+    if (w.session === null && session !== null) w.session = session;
+  };
+  w.timer = window.setInterval(check, 50);
+  if (typeof window.MutationObserver === 'function') {
+    w.observer = new window.MutationObserver(check);
+    w.observer.observe(document.documentElement, { attributes: true, childList: true, subtree: true });
+  }
+  window.__billingTake = w;
+  return w.doc + '|' + lifecycle;`;
+/** The watch's current verdict for `expectedKey`: the same key while the take is intact, else null. Read only. */
+export const takeStatusScript = (expectedKey: string) => `${TAKE_READ}
+  const w = window.__billingTake;
+  if (!w || (w.doc + '|' + w.lifecycle) !== ${JSON.stringify(expectedKey)} || w.broken) return null;
+  const reason = (() => { ${TAKE_BROKEN} })();
+  return reason ? null : ${JSON.stringify(expectedKey)};`;
+/**
+ * The final check and the Stop click, in ONE synchronous page task. Returns { clicked, reason, session }: clicked only for the
+ * exact watched take, still live and never broken; the session is the take's own id (null if the runtime never named one).
+ */
+export const stopGateScript = (expectedKey: string) => `${TAKE_READ}
+  const w = window.__billingTake;
+  if (!w || (w.doc + '|' + w.lifecycle) !== ${JSON.stringify(expectedKey)}) return { clicked: false, reason: 'take_watch_missing', session: null };
+  if (w.broken) return { clicked: false, reason: w.broken, session: null };
+  const reason = (() => { ${TAKE_BROKEN} })();
+  if (reason) { w.broken = reason; return { clicked: false, reason, session: null }; }
+  const stop = document.querySelector('[data-testid="recorder-stop"]');
+  if (!stop || stop.disabled) return { clicked: false, reason: 'stop_unavailable', session: null };
+  const takeSession = w.session !== null ? w.session : session;
+  stop.click();
+  if (w.timer !== null) window.clearInterval(w.timer);
+  if (w.observer) w.observer.disconnect();
+  w.stopped = true;
+  return { clicked: true, reason: null, session: takeSession };`;
+/** Wraps a body for page.evaluate. */
+export const pageScript = (body: string) => `(() => {${body}\n})()`;
 export type TakeProbe = () => Promise<string | null>;
 type Clock = { now(): number; sleep(ms: number): Promise<void> };
 
-/** Polls until capture is live and returns that take's identity and the moment it was OBSERVED live (never the Start or the words). */
+/** Polls until capture is live and the watch is installed; returns that take's key and the moment it was OBSERVED live. */
 export async function observeCaptureLive(opts: { probe: TakeProbe; clock: Clock; timeoutMs: number }): Promise<{ takeKey: string; observedAt: number }> {
   const deadline = opts.clock.now() + opts.timeoutMs;
   do {
@@ -86,22 +146,39 @@ export async function observeCaptureLive(opts: { probe: TakeProbe; clock: Clock;
   throw new Error('BILLING_JOURNEY:capture_live_unconfirmed');
 }
 
+export type StopGateResult = { clicked: boolean; reason: string | null; session: string | null };
 /**
- * Holds the take from its observed capture-live moment, then presses Stop exactly once, and only if the SAME take is still live.
- * A sleep that wakes early is re-checked (bounded); a hold that cannot be met, or a take that ended or changed, is never stopped.
- * Returns the held time on the same clock.
+ * Holds from the observed capture-live moment (bounded re-check of an early-waking sleep), then hands the final check and the
+ * click to the page in one task (`stop`). A take that broke at any point, or a gate that did not click, is a named stop.
+ * Returns the take's own session id and the held time.
  */
 export async function holdThenStop(opts: { startedObservedAt: number; takeKey: string; probe: TakeProbe; clock: Clock;
-  stop(): Promise<void> }): Promise<number> {
+  stop(): Promise<StopGateResult> }): Promise<{ session: string | null; heldMs: number }> {
   for (let i = 0; i < 20; i++) {
     const remaining = recordingHoldRemainingMs(opts.startedObservedAt, opts.clock.now());
     if (remaining === 0) break;
+    requireFact(await opts.probe() === opts.takeKey, 'take_not_live_at_stop');
     await opts.clock.sleep(remaining);
   }
   requireFact(recordingHoldRemainingMs(opts.startedObservedAt, opts.clock.now()) === 0, 'recording_hold_not_met');
   requireFact(await opts.probe() === opts.takeKey, 'take_not_live_at_stop');
-  await opts.stop();
-  return opts.clock.now() - opts.startedObservedAt;
+  const gate = await opts.stop();
+  if (!gate.clicked) throw new Error(`BILLING_JOURNEY:take_not_live_at_stop_${gate.reason === 'capture_dropped' || gate.reason === 'take_changed'
+    || gate.reason === 'take_watch_missing' || gate.reason === 'stop_unavailable' ? gate.reason : 'unread'}`);
+  return { session: gate.session, heldMs: opts.clock.now() - opts.startedObservedAt };
+}
+
+/**
+ * After Stop, one read of everything that can end the take: the app's too-short status, the save candidate and the persisted id.
+ * Too short ends it at once even with no candidate; a candidate or saved row for another session is the wrong take.
+ */
+export type TakeOutcomeRead = { tooShort: boolean; candidateSession: string | null; persistedId: string | null };
+export function takeOutcome(read: TakeOutcomeRead, takeSession: string | null): 'pending' | 'saved' | 'recording_discarded_too_short'
+  | 'save_candidate_not_this_take' | 'saved_row_not_this_take' {
+  if (read.tooShort) return 'recording_discarded_too_short';
+  if (read.persistedId) return takeSession !== null && read.persistedId === takeSession ? 'saved' : 'saved_row_not_this_take';
+  if (read.candidateSession !== null && takeSession !== null && read.candidateSession !== takeSession) return 'save_candidate_not_this_take';
+  return 'pending';
 }
 
 /** The app's own too-short status (useSessionLifecycle): the take was discarded, so no save will ever arrive. */
@@ -220,6 +297,36 @@ export function privacyAnswerRecorded(read: PrivacyTableRead, ownerId: string): 
 export const PRIVACY_PROMPT = Object.freeze({
   prompt: 'practice-privacy-prompt', saveYes: 'privacy-save-yes', aiNo: 'privacy-ai-no', continue: 'privacy-continue',
 });
+
+/**
+ * The consent step before the paid recording, as ONE sequence the journey calls (executed against both build states in the
+ * tests). Only a build proven by its own migration list to predate #1835 skips it; an unknown build stops before any read of
+ * the prompt or any click. On a #1835 build an existing choice is never rewritten: it must already be the same owner's
+ * save=yes / coaching=no, with zero clicks. Otherwise the real prompt is answered save yes, coaching no, continue, and the
+ * answer is proven by the same owner's server row before the checkpoint.
+ */
+export async function optInThroughPrompt(deps: {
+  build: PrivacyBuild; ownerId: string; readChoice(): Promise<PrivacyTableRead>;
+  prompt: { waitVisible(): Promise<boolean>; click(control: 'saveYes' | 'aiNo' | 'continue'): Promise<void>; waitHidden(): Promise<void> };
+  checkpoint(name: string): void;
+}): Promise<'not_applicable' | 'existing_choice' | 'answered'> {
+  requireFact(deps.build !== 'unknown', 'privacy_schema_unknown');
+  const first = await deps.readChoice();
+  const before = privacyOptInFact(first, deps.ownerId, deps.build);
+  if (before === 'not_applicable') return 'not_applicable';
+  if (before === 'opted_in') { requireFact(privacyAnswerRecorded(first, deps.ownerId), 'privacy_choice_coaching_not_off'); return 'existing_choice'; }
+  if (before !== 'privacy_choice_missing') requireFact(false, before);
+  requireFact(await deps.prompt.waitVisible(), 'privacy_choice_missing');
+  await deps.prompt.click('saveYes');
+  await deps.prompt.click('aiNo');
+  await deps.prompt.click('continue');
+  await deps.prompt.waitHidden();
+  const recorded = await deps.readChoice();
+  requireFact(privacyAnswerRecorded(recorded, deps.ownerId), 'privacy_choice_not_recorded');
+  requireFact(privacyOptInFact(recorded, deps.ownerId, deps.build) === 'opted_in', 'privacy_choice_not_recorded');
+  deps.checkpoint('privacy_opted_in');
+  return 'answered';
+}
 
 export function invalidFieldToken(attrs: { id: string | null; name: string | null }): string {
   for (const key of [attrs.id, attrs.name]) if (typeof key === 'string' && Object.hasOwn(INVALID_FIELD_TOKENS, key)) return INVALID_FIELD_TOKENS[key];
