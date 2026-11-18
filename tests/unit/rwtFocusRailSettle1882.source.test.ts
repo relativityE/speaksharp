@@ -22,7 +22,7 @@ const between = (from: string, to: string): string => {
 /** Row 11, the first Focus take: from its save to the first read of its final rail. */
 const firstTake = between('receipt.row(\'session saved\'', 'firstTakeRail = final;');
 /** The take on the edited set: from its save to the read of its ordered rail. */
-const editedTake = between('takeBId = await waitForNewPersistedSession(page, predecessor);', 'railOrdered = await Promise.all(');
+const editedTake = between('takeBId = editedOutcome.kind === \'too_short\' ? null : await waitForNewPersistedSession(page, predecessor);', 'railOrdered = await Promise.all(');
 
 describe('#1882 — the first and edited Focus takes settle on actual rail rows', () => {
     it('both takes are found', () => {

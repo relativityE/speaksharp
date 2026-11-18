@@ -1,0 +1,185 @@
+/**
+ * #1882 live wave on the post-#1835 build (Sam's Nov 18 reset, row 3.2): run the Focus journey with transcript saving ON and
+ * with it OFF, and read each saved take back against that choice.
+ *
+ * #1835 (PO-approved, 17 Nov): saving is OFF until the owner opts in; AI coaching is a separate opt-in that requires saving;
+ * an owner with no recorded choice is asked on the next Practice visit. The server enforces it: `practice_privacy_choices`
+ * holds the owner's row, and a trigger refuses any transcript for an owner who has not opted in, so a take saved with saving
+ * off is a normal metrics-only completion with a null transcript.
+ *
+ * Fail closed everywhere: an unknown build, an unreadable choice, a foreign or malformed row, or a row that does not match
+ * the choice this run made is a named stop or FAIL, never a PASS.
+ */
+import type { Page } from '@playwright/test';
+
+/** The #1835 migration, by exact file name (backend/supabase/migrations on the #1835 branch). */
+export const PRIVACY_MIGRATION_1835 = '20261117105700_practice_privacy_choices_1835.sql';
+
+/** PracticePrivacyPrompt.tsx's own controls on the #1835 branch. */
+export const PRACTICE_PRIVACY_PROMPT = Object.freeze({
+    root: 'practice-privacy-prompt',
+    saveYes: 'privacy-save-yes',
+    saveNo: 'privacy-save-no',
+    aiYes: 'privacy-ai-yes',
+    aiNo: 'privacy-ai-no',
+    continue: 'privacy-continue',
+});
+
+export type PrivacyBuild = 'includes_1835' | 'predates_1835' | 'unknown';
+export interface PracticeChoice { transcriptSave: boolean; aiCoaching: boolean }
+export type ConsentMode = 'save_on' | 'save_on_coaching_on' | 'save_off';
+
+export const CONSENT_MODES: Readonly<Record<ConsentMode, PracticeChoice>> = Object.freeze({
+    save_on: { transcriptSave: true, aiCoaching: false },
+    save_on_coaching_on: { transcriptSave: true, aiCoaching: true },
+    save_off: { transcriptSave: false, aiCoaching: false },
+});
+
+/** The run's consent mode from its environment; null when unset or not one of the three. */
+export function consentModeFrom(value: string | undefined): ConsentMode | null {
+    return value !== undefined && Object.prototype.hasOwnProperty.call(CONSENT_MODES, value) ? value as ConsentMode : null;
+}
+
+/**
+ * The build's #1835 state from TWO independent reads: the tested checkout's migration file names and whether the target's
+ * `practice_privacy_choices` table answers. They must agree; an empty or unreadable listing, an unreadable table, or a
+ * disagreement is `unknown`, never "predates".
+ */
+export function privacyBuildOf(migrationFiles: readonly string[] | null, table: 'present' | 'absent' | 'unreadable'): PrivacyBuild {
+    if (!Array.isArray(migrationFiles) || migrationFiles.length === 0 || table === 'unreadable') return 'unknown';
+    const listed = migrationFiles.includes(PRIVACY_MIGRATION_1835);
+    if (listed && table === 'present') return 'includes_1835';
+    if (!listed && table === 'absent') return 'predates_1835';
+    return 'unknown';
+}
+
+export type ChoiceRead = { state: 'read'; row: unknown } | { state: 'absent' } | { state: 'unreadable' };
+
+/** Pure: the owner's server row records exactly `choice` (consent version 1). */
+export function privacyChoiceVerdict(read: ChoiceRead, ownerId: string, choice: PracticeChoice):
+    { verdict: 'PASS' | 'FAIL'; reason: 'recorded' | 'unreadable' | 'missing' | 'wrong_owner' | 'malformed' | 'differs' } {
+    if (read.state === 'absent') return { verdict: 'FAIL', reason: 'missing' };
+    if (read.state !== 'read') return { verdict: 'FAIL', reason: 'unreadable' };
+    const row = read.row as { user_id?: unknown; transcript_save?: unknown; ai_coaching?: unknown; consent_version?: unknown } | null;
+    if (!row) return { verdict: 'FAIL', reason: 'missing' };
+    if (row.user_id !== ownerId) return { verdict: 'FAIL', reason: 'wrong_owner' };
+    if (row.consent_version !== 1 || typeof row.transcript_save !== 'boolean' || typeof row.ai_coaching !== 'boolean') {
+        return { verdict: 'FAIL', reason: 'malformed' };
+    }
+    return row.transcript_save === choice.transcriptSave && row.ai_coaching === choice.aiCoaching
+        ? { verdict: 'PASS', reason: 'recorded' } : { verdict: 'FAIL', reason: 'differs' };
+}
+
+/**
+ * Answer the Practice prompt as a user would. Only a FRESH owner (no recorded choice) is answered: the caller must not
+ * rewrite an existing choice. Returns false when the prompt never showed.
+ */
+export async function answerPracticePrivacyPrompt(page: Page, choice: PracticeChoice, timeoutMs = 30_000): Promise<boolean> {
+    if (choice.aiCoaching && !choice.transcriptSave) throw new Error('INVALID_SETUP AI coaching requires transcript saving (#1835)');
+    const prompt = page.getByTestId(PRACTICE_PRIVACY_PROMPT.root);
+    const shown = await prompt.waitFor({ state: 'visible', timeout: timeoutMs }).then(() => true, () => false);
+    if (!shown) return false;
+    await prompt.getByTestId(choice.transcriptSave ? PRACTICE_PRIVACY_PROMPT.saveYes : PRACTICE_PRIVACY_PROMPT.saveNo).click({ timeout: timeoutMs });
+    await prompt.getByTestId(choice.aiCoaching ? PRACTICE_PRIVACY_PROMPT.aiYes : PRACTICE_PRIVACY_PROMPT.aiNo).click({ timeout: timeoutMs });
+    await prompt.getByTestId(PRACTICE_PRIVACY_PROMPT.continue).click({ timeout: timeoutMs });
+    await prompt.waitFor({ state: 'hidden', timeout: timeoutMs }).catch(() => undefined);
+    return true;
+}
+
+export interface SavedSessionRead {
+    id?: unknown; user_id?: unknown; status?: unknown; duration?: unknown; transcript?: unknown; transcript_state?: unknown;
+}
+
+export interface ConsentReadback {
+    verdict: 'PASS' | 'FAIL' | 'HOLD';
+    reason: 'transcript_saved' | 'metrics_only' | 'build_unknown' | 'row_missing' | 'wrong_row' | 'not_completed'
+        | 'no_metrics' | 'transcript_missing_while_on' | 'transcript_saved_while_off';
+}
+
+/**
+ * Pure. A saved take read back by its exact id and owner:
+ *   - saving ON (or a verified pre-#1835 build, which always saved): completed, a positive duration, and a non-empty
+ *     available transcript;
+ *   - saving OFF: completed, a positive duration (the metrics), and NO transcript (null, not available).
+ * `minDurationSeconds` binds the row to the measured take: the stored duration must be at least the take's measured live
+ * seconds, floored, minus one second of rounding.
+ */
+export function consentReadbackVerdict(input: {
+    build: PrivacyBuild; choice: PracticeChoice | null; row: SavedSessionRead | null; ownerId: string; sessionId: string;
+    minDurationSeconds: number;
+}): ConsentReadback {
+    if (input.build === 'unknown' || (input.build === 'includes_1835' && !input.choice)) return { verdict: 'HOLD', reason: 'build_unknown' };
+    const row = input.row;
+    if (!row) return { verdict: 'FAIL', reason: 'row_missing' };
+    if (row.id !== input.sessionId || row.user_id !== input.ownerId) return { verdict: 'FAIL', reason: 'wrong_row' };
+    if (row.status !== 'completed') return { verdict: 'FAIL', reason: 'not_completed' };
+    const floor = Math.max(0, Math.floor(input.minDurationSeconds) - 1);
+    if (typeof row.duration !== 'number' || !Number.isFinite(row.duration) || row.duration <= 0 || row.duration < floor) {
+        return { verdict: 'FAIL', reason: 'no_metrics' };
+    }
+    const hasTranscript = typeof row.transcript === 'string' && row.transcript.trim() !== '' && row.transcript_state === 'available';
+    const saving = input.build === 'predates_1835' ? true : input.choice!.transcriptSave;
+    if (saving) return hasTranscript ? { verdict: 'PASS', reason: 'transcript_saved' } : { verdict: 'FAIL', reason: 'transcript_missing_while_on' };
+    const noTranscript = row.transcript === null && row.transcript_state !== 'available';
+    return noTranscript ? { verdict: 'PASS', reason: 'metrics_only' } : { verdict: 'FAIL', reason: 'transcript_saved_while_off' };
+}
+
+/** The few calls of a Supabase service client this module uses (the journey's own admin client). */
+export interface ChoiceClient {
+    from(table: string): {
+        select(cols: string): { eq(col: string, v: string): { maybeSingle(): PromiseLike<{ data: unknown; error: { code?: string } | null }> };
+            limit(n: number): PromiseLike<{ data: unknown; error: { code?: string } | null }> };
+    };
+}
+
+const MISSING_TABLE = new Set(['42P01', 'PGRST205']);
+
+/** Reads the owner's own choice row through the service client; a missing table is `absent`, any other error `unreadable`. */
+export async function readPracticeChoice(client: ChoiceClient, ownerId: string): Promise<ChoiceRead> {
+    try {
+        const r = await client.from('practice_privacy_choices').select('user_id,transcript_save,ai_coaching,consent_version').eq('user_id', ownerId).maybeSingle();
+        if (r.error) return MISSING_TABLE.has(r.error.code ?? '') ? { state: 'absent' } : { state: 'unreadable' };
+        return { state: 'read', row: r.data };
+    } catch { return { state: 'unreadable' }; }
+}
+
+/** Whether the target answers for `practice_privacy_choices` at all (the build's applied schema, independent of any owner). */
+export async function probePrivacyTable(client: ChoiceClient): Promise<'present' | 'absent' | 'unreadable'> {
+    try {
+        const r = await client.from('practice_privacy_choices').select('user_id').limit(1);
+        if (r.error) return MISSING_TABLE.has(r.error.code ?? '') ? 'absent' : 'unreadable';
+        return 'present';
+    } catch { return 'unreadable'; }
+}
+
+export interface SettledConsent {
+    build: PrivacyBuild;
+    /** The choice this run recorded; null on a verified pre-#1835 build, where there is no choice to make. */
+    choice: PracticeChoice | null;
+    mode: ConsentMode | null;
+}
+
+/**
+ * On the Practice page, before any recording: settle the run's consent for a FRESH run-owned owner.
+ *   - verified pre-#1835 build: nothing to answer, `choice: null`;
+ *   - #1835 build: the run's mode is required; the owner must have NO recorded choice (never rewritten); the prompt is
+ *     answered as a user would; the owner's own server row must then record exactly that choice;
+ *   - unknown build: stops.
+ * Every stop throws `HOLD practice consent: <reason>` before any take exists.
+ */
+export async function settlePracticeConsent(input: {
+    page: Page; client: ChoiceClient; ownerId: string; migrationFiles: readonly string[] | null; mode: ConsentMode | null;
+}): Promise<SettledConsent> {
+    const build = privacyBuildOf(input.migrationFiles, await probePrivacyTable(input.client));
+    if (build === 'unknown') throw new Error('HOLD practice consent: build_unknown');
+    if (build === 'predates_1835') return { build, choice: null, mode: input.mode };
+    if (!input.mode) throw new Error('HOLD practice consent: mode_unset (RWT_PRACTICE_CONSENT is save_on, save_on_coaching_on or save_off)');
+    const choice = CONSENT_MODES[input.mode];
+    const before = await readPracticeChoice(input.client, input.ownerId);
+    if (before.state !== 'read') throw new Error(`HOLD practice consent: choice_${before.state}`);
+    if (before.row !== null && before.row !== undefined) throw new Error('HOLD practice consent: choice_already_recorded');
+    if (!(await answerPracticePrivacyPrompt(input.page, choice))) throw new Error('HOLD practice consent: prompt_not_shown');
+    const recorded = privacyChoiceVerdict(await readPracticeChoice(input.client, input.ownerId), input.ownerId, choice);
+    if (recorded.verdict !== 'PASS') throw new Error(`HOLD practice consent: choice_${recorded.reason}`);
+    return { build, choice, mode: input.mode };
+}

@@ -169,7 +169,15 @@ export const HELPER_CONTRACTS = Object.freeze([{
 }, {
   // #1882: the Focus switch take held on the page's live clock, and the rail settled on actual rows.
   helperFile:'tests/live/helpers/rwtLiveTimedTake.ts',testFile:'tests/unit/rwtFocusSwitchLiveClock1882.test.ts',
-  callables:["holdLiveTake","readRailRowCount","railSettled"],
+  callables:["readRailRowCount","railSettled"],
+}, {
+  // #1882 live timing (Nov 18): the take measured live on the page through the actual Stop, bound to its saved row.
+  helperFile:'tests/live/helpers/rwtLiveTakeMonitor.ts',testFile:'tests/unit/rwtLiveTakeMonitor1882.test.ts',
+  callables:["installTakeMonitor","readTakeMonitorInPage","disposeTakeMonitorInPage","armTakeMonitor","readTakeMonitor","disposeTakeMonitor","firstLiveEdge","firstBreakAfter","holdMeasuredLiveTake","awaitTakeOutcome","takeOutcomeOf","liveTakeVerdict","savedTakeBinding","takeEvidenceRows"],
+}, {
+  // #1882 on the post-#1835 build: the run's consent settled before any take, and each saved take read back against it.
+  helperFile:'tests/live/helpers/rwtPracticeConsent.ts',testFile:'tests/unit/rwtPracticeConsent1882.test.ts',
+  callables:["consentModeFrom","privacyBuildOf","privacyChoiceVerdict","answerPracticePrivacyPrompt","consentReadbackVerdict","readPracticeChoice","probePrivacyTable","settlePracticeConsent"],
 }, {
   helperFile:'tests/live/helpers/rwtFocusNextMarker.ts',testFile:'tests/unit/rwtFocusNextMarker.test.ts',
   callables:["expectedNextMarker","nextPointMarkedVerdict","sampleFocusRail"],

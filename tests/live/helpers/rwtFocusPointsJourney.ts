@@ -3,7 +3,9 @@
  * (`rwt-focus-points-session.live.spec.ts`) and the partial Dev fixture (`rwt-focus-points-partial.live.spec.ts`).
  * Each spec owns its browser (the fake microphone file is a launch option), account, receipt and cleanup.
  */
+import { readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createClient } from '@supabase/supabase-js';
 import { test } from './rwtProductionTest';
@@ -21,7 +23,9 @@ import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbac
 import { cleanupRunOwnedAccount } from './runOwnedCleanup';
 import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, armWatchdog, watchProfileFor, type JourneyFinalizer } from './rwtWatchdog';
 import { savedFocusIdentityVerdict } from './rwtSavedFocusIdentity';
-import { holdLiveTake, railSettled, readRailRowCount } from './rwtLiveTimedTake';
+import { railSettled, readRailRowCount } from './rwtLiveTimedTake';
+import { armTakeMonitor, awaitTakeOutcome, disposeTakeMonitor, holdMeasuredLiveTake, readTakeMonitor, takeEvidenceRows, type ArmedTakeMonitor } from './rwtLiveTakeMonitor';
+import { consentModeFrom, consentReadbackVerdict, settlePracticeConsent, type ChoiceClient, type SavedSessionRead, type SettledConsent } from './rwtPracticeConsent';
 import { recordRunOwnedCleanup } from './rwtAcceptance';
 import { HarnessParityTap, numericComparisonRow, probeSaveIsolationRow, readRepeatEligibility, type NumericResult, type RepeatEligibility, type StartPressBudget } from './rwtHarnessParity';
 import { focusCapturedTakes, focusDesignedSaves } from './rwtFocusSaveIsolation';
@@ -310,6 +314,20 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     // Codex r4199883470: step markers the finally-block "sent" rows read — a blind beacon sent before a step cannot carry
     // that step's events. Declared here because the rows run in `finally`, outside the steps' scope.
     let rowsStoppedAt = 0;
+    // #1882 live timing (Sam, Nov 18 reset row 3): every Focus take is measured live on the page, bound to its own Stop and
+    // saved row, and read back against this run's consent (settled on the first Practice visit, before any take).
+    let consent: SettledConsent = { build: 'unknown', choice: null, mode: consentModeFrom(process.env.RWT_PRACTICE_CONSENT) };
+    const readSavedForConsent = async (id: string): Promise<SavedSessionRead | null> => {
+        const { data, error } = await admin!.from('sessions').select('id,user_id,status,duration,transcript,transcript_state').eq('id', id).eq('user_id', owner.uid).maybeSingle();
+        return error ? null : (data as SavedSessionRead | null);
+    };
+    const measuredTakeRows = async (name: string, monitor: ArmedTakeMonitor, liveSeconds: number, pressedAt: number | null, savedId: string | null) => {
+        const snap = await readTakeMonitor(page, monitor.token);
+        await disposeTakeMonitor(page, monitor.token);
+        return takeEvidenceRows({ sink: receipt, name, snap, liveSeconds, pressedAt, savedId, readRow: readSavedForConsent,
+            readback: (row, sessionId, liveSecondsAtStop) => consentReadbackVerdict({ build: consent.build, choice: consent.choice, row, ownerId: owner.uid,
+                sessionId, minDurationSeconds: liveSecondsAtStop }) });
+    };
     let focusInventoryFrom = 0;
     let rowsGenerationsAt = 0;
     // #1593 case 3: the take-bound marker observer, disposed (bounded, idempotent) by the one finalization.
@@ -477,6 +495,12 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         await test.step('row 8 — Products → Focus Points opens the setup', async () => {
             await page.goto('/practice');
             await expect(page.getByTestId('practice-root')).toBeVisible({ timeout: 60_000 });
+            // #1835: a fresh owner is asked on this first Practice visit. Settled before any take; an unknown build stops here.
+            const migrationFiles = (() => { try { return readdirSync(resolvePath(process.cwd(), 'backend/supabase/migrations')); } catch { return null; } })();
+            consent = await settlePracticeConsent({ page, client: admin as unknown as ChoiceClient, ownerId: owner.uid, migrationFiles, mode: consent.mode });
+            receipt.row('practice privacy choice', 'PASS', consent.choice ? 'this run\'s owner recorded its choice through the Practice prompt, read back from the server'
+                : 'verified pre-#1835 build: no choice to make', { build: consent.build, mode: consent.mode ?? 'none',
+                transcriptSave: consent.choice?.transcriptSave ?? null, aiCoaching: consent.choice?.aiCoaching ?? null });
             const switched = await performCandidateSwitch(page, run, JOURNEY);
             receipt.meta.switchOutcome = switched;
             if (run.mode === 'switch' && switched !== 'ok') throw new Error(`HOLD candidate switch: ${switched}`);
@@ -529,6 +553,9 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         // ── Row 10 — live markers ───────────────────────────────────────────────────────────────────────
         let startedAt = 0;
         let stoppedAt = 0;
+        let firstTakeMonitor: ArmedTakeMonitor | null = null;
+        /** Node time just before the journey's own Start press; null when the model setup started the take itself. */
+        let firstPressedAt: number | null = null;
         const firstChange: Array<{ status: RailStatus; atSec: number; atMs: number } | null> = points.map(() => null);
         // AHT-02/03 `next point marked` (owner decision, Akin 2026-11-11): the live window as [ms, marked point, statuses] samples.
         const markerWindow = new MarkerTimeline();
@@ -545,10 +572,13 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             markerToken = armed.token;
 
             const acquisitionStarted = Date.now();
+            // #1882: armed before anything that may press Start (preparePrivateModelIfPrompted can start the take itself).
+            firstTakeMonitor = await armTakeMonitor(page, suite);
             await selectBenchmarkMode(page, 'private');
             const setup = await preparePrivateModelIfPrompted(page, 900_000);
             if (!setup.recordingAlreadyStarted) {
                 await waitForPrivateEngineReady(page, 600_000);
+                firstPressedAt = Date.now();
                 await startBenchmarkRecording(page, suite);
             }
             startedAt = Date.now();
@@ -627,10 +657,16 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             stoppedAt = Date.now();
             rowsStoppedAt = stoppedAt;
             await stopBenchmarkRecording(page, suite, 180_000);
-            await waitForBenchmarkSaveCandidate(page, suite, 180_000);
-            await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 120_000 });
-            persistedId = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
+            // #1882: a discarded take is named at once instead of waiting out the save-candidate bound.
+            const firstOutcome = firstTakeMonitor ? await awaitTakeOutcome(page, firstTakeMonitor.token, 180_000) : null;
+            if (firstOutcome?.kind !== 'too_short') {
+                await waitForBenchmarkSaveCandidate(page, suite, 180_000);
+                await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 120_000 });
+                persistedId = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
+            }
             receipt.row('session saved', persistedId ? 'PASS' : 'FAIL', persistedId ? 'the take saved' : 'no persisted session id');
+            // The first take must be live for the whole spoken fixture, measured from capture live (it is held past that).
+            if (firstTakeMonitor) await measuredTakeRows('Focus first take', firstTakeMonitor, fixture.entry.speechSeconds, firstPressedAt, persistedId);
 
             // The rail's after-state settles only with all four actual rows on screen, none pending (#1882: an empty rail reads
             // null statuses, and null is not 'pending', so "nothing pending" settled at once and graded four nulls).
@@ -1150,12 +1186,18 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 // #1882: the page measures this take on its LIVE clock (re-based when capture goes live), so hold it for
                 // shortTakeSeconds from the live moment, not from the Start click; a slow capture start otherwise leaves under five
                 // live seconds and the take goes down the "too short" branch with no rail rows and no Start a new set.
+                // #1882 (Sam, Nov 18): MEASURED, not claimed. The monitor is armed before the press and records every live edge,
+                // the take's identity and the actual Stop press; the hold ends early if capture drops or the take changes.
+                const switchMonitor = await armTakeMonitor(page, `${suite}-switch-focus`);
                 const switchPressedAt = Date.now();
                 await startBenchmarkRecording(page, `${suite}-switch-focus`);
-                const switchTake = await holdLiveTake(page, shortTakeSeconds, switchPressedAt);
+                const switchHold = await holdMeasuredLiveTake(page, switchMonitor, shortTakeSeconds, { nodePressedAt: switchPressedAt });
                 await stopBenchmarkRecording(page, `${suite}-switch-focus`, 180_000);
-                await waitForBenchmarkSaveCandidate(page, `${suite}-switch-focus`, 180_000);
-                const focusId = await waitForNewPersistedSession(page, openMicId);
+                const switchOutcome = await awaitTakeOutcome(page, switchMonitor.token, 180_000);
+                if (switchOutcome.kind !== 'too_short') await waitForBenchmarkSaveCandidate(page, `${suite}-switch-focus`, 180_000);
+                const focusId = switchOutcome.kind === 'too_short' ? null : await waitForNewPersistedSession(page, openMicId);
+                const switchTake = await measuredTakeRows('Focus switch take', switchMonitor, shortTakeSeconds, switchPressedAt,
+                    focusId && focusId !== openMicId ? focusId : null);
                 switchFocusId = focusId && focusId !== openMicId ? focusId : null;
                 switchFocusTakeId = switchFocusId;
                 // #1882: settled only with exactly four actual rail rows, none pending. An empty rail is never settled.
@@ -1181,7 +1223,8 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     openMicBefore, openMicAfter, ownerId: owner.uid,
                 });
                 receipt.row('take after switching products is clean', iso.verdict, iso.detail, {
-                    railPendingBefore, shortTakeSeconds, pressToLiveMs: switchTake.pressToLiveMs, heldLiveSeconds: switchTake.heldLiveSeconds,
+                    railPendingBefore, shortTakeSeconds, pressToLiveMs: switchTake.timing.pressToLiveMs, liveSecondsAtStop: switchTake.timing.liveSecondsAtStop,
+                    liveTiming: switchTake.timing.reason, holdEnded: switchHold.ended, switchOutcome: switchOutcome.kind,
                     railRowCount, final: finalStatuses.join(','), staleCoachingBeforeStart, markerSupport: markerSupport.join(','),
                     openMicSaved: Boolean(openMicId && openMicId !== before), openMicUnchanged: openMicBefore.digest !== null && openMicBefore.digest === openMicAfter.digest,
                     openMicRetentionState: openMicAfter.state ?? 'unknown',
@@ -1330,12 +1373,18 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
 
                     // The next take, on the deployed engine with the same spoken fixture, is scored on the EDITED set.
                     if (railLabelsMatchEdit) {
+                        // #1882: held from capture live (measured), not from the click; bound to its own Stop and saved row.
+                        const editedMonitor = await armTakeMonitor(page, `${suite}-edited`);
+                        const editedPressedAt = Date.now();
                         await startBenchmarkRecording(page, `${suite}-edited`);
-                        await page.waitForTimeout(Math.round((fixture.entry.speechSeconds + 10) * 1000));
+                        await holdMeasuredLiveTake(page, editedMonitor, fixture.entry.speechSeconds + 10, { nodePressedAt: editedPressedAt });
                         await stopBenchmarkRecording(page, `${suite}-edited`, 180_000);
-                        await waitForBenchmarkSaveCandidate(page, `${suite}-edited`, 180_000);
+                        const editedOutcome = await awaitTakeOutcome(page, editedMonitor.token, 180_000);
+                        if (editedOutcome.kind !== 'too_short') await waitForBenchmarkSaveCandidate(page, `${suite}-edited`, 180_000);
                         // Bound to its IMMEDIATE predecessor, the switch take whose review offered New Set.
-                        takeBId = await waitForNewPersistedSession(page, predecessor);
+                        takeBId = editedOutcome.kind === 'too_short' ? null : await waitForNewPersistedSession(page, predecessor);
+                        await measuredTakeRows('Focus edited take', editedMonitor, fixture.entry.speechSeconds + 10, editedPressedAt,
+                            takeBId && takeBId !== predecessor ? takeBId : null);
                         // #1882: settled only with the edited set's actual rows on screen, none pending; an empty rail is never settled.
                         await expect.poll(async () => railSettled(await readRailRowCount(page), (await readRail(page, edited.length)).statuses, edited.length),
                             { timeout: 60_000 }).toBe(true).catch(() => undefined);
