@@ -11,6 +11,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
+import { LOCAL_STACK_JOURNEYS, REQUIRED_STEPS } from './journeySteps.mjs';
 
 export const IDENTITY_SCHEMA = 'billing-local-stack-identity/v1';
 export const DESTROYED_SCHEMA = 'billing-local-stack-destroyed/v2';
@@ -189,11 +190,11 @@ function witnessSql(project, digest) {
 o AS (SELECT id FROM auth.users WHERE ${bound} AND (SELECT n FROM total) = 1),
 cur AS (SELECT lease_id, state FROM public.active_recording_lease WHERE user_id IN (SELECT id FROM o)),
 rows AS (
-  SELECT 'obligation' AS kind, phase AS k, CASE WHEN session_id IS NOT NULL THEN 'session_linked'
+  SELECT 'obligation' AS kind, coalesce(phase, 'null') AS k, CASE WHEN session_id IS NOT NULL THEN 'session_linked'
     WHEN lease_id IN (SELECT lease_id FROM cur) THEN 'lease_only_current' ELSE 'lease_only_superseded' END AS b
     FROM public.account_save_obligations WHERE user_id IN (SELECT id FROM o)
-  UNION ALL SELECT 'lease', state, '-' FROM cur
-  UNION ALL SELECT 'session', status, CASE WHEN lease_id IS NULL THEN 'unleased' ELSE 'lease_linked' END
+  UNION ALL SELECT 'lease', coalesce(state, 'null'), '-' FROM cur
+  UNION ALL SELECT 'session', coalesce(status, 'null'), CASE WHEN lease_id IS NULL THEN 'unleased' ELSE 'lease_linked' END
     FROM public.sessions WHERE user_id IN (SELECT id FROM o))
 SELECT line FROM (
   SELECT 0 AS ord, 'sysid|' || (SELECT system_identifier::text FROM pg_control_system()) AS line
@@ -201,7 +202,13 @@ SELECT line FROM (
   UNION ALL SELECT 2, kind || '|' || k || '|' || b || '|' || count(*) FROM rows GROUP BY kind, k, b) AS w
 ORDER BY ord, line`;
 }
-const COUNT_ROW = /^(obligation|lease|session)\|([a-z_]{1,32})\|(session_linked|lease_only_current|lease_only_superseded|-|unleased|lease_linked)\|([0-9]{1,9})$/;
+const COUNT_ROW = /^(obligation|lease|session)\|([^|]{0,64})\|([^|]{0,32})\|([0-9]{1,9})$/;
+// Closed vocabulary: every category the schema can produce today. Anything else, NULL included, fails closed.
+const CATEGORIES = Object.freeze({
+  obligation: { k: ['admitted', 'completed'], b: ['session_linked', 'lease_only_current', 'lease_only_superseded'] },
+  lease: { k: ['recording'], b: ['-'] },
+  session: { k: ['active', 'completed', 'failed'], b: ['unleased', 'lease_linked'] },
+});
 // Allowlisted phrases. Whole-container totals since the stack started, NOT scoped to the delete attempt: supporting
 // evidence only, never a cause on their own.
 const LOG_PHRASES = { guard_admitted_save_unsettled: 'account admitted save unsettled', auth_database_error_deleting_user: 'Database error deleting user' };
@@ -222,18 +229,39 @@ function recordedContainer(docker, identity, project, service) {
   return id;
 }
 
-/** The receipt must be the exact file this run hashed, for this dispatch's journey, release and stack, refused by Auth. */
+// The journey receipt's keys (localStackReceipt.mjs RECEIPT_KEYS; a test pins the two together) and the one shape an
+// Auth-refused cleanup leaves: the spec's own schema, Stripe test mode, an INCOMPLETE result, UNPROVEN cleanup, the residue
+// left to the destruction proof, every required step of this journey in order, and the cleanup step itself not proven.
+export const WITNESS_RECEIPT_KEYS = Object.freeze(['billingRowResidue', 'cleanup', 'failureStage', 'journey', 'reason', 'result',
+  'schema', 'stackRun', 'steps', 'stripeMode', 'testedRelease']);
+const STEP_RESULTS = new Set(['PASSED', 'NOT_PROVEN']);
+/** The workflow steps that must have succeeded before this run can be a witnessed one (outcomes, not claims). */
+export const WITNESS_PREFLIGHT = Object.freeze(['dispatch_check', 'stripe_account', 'stack_start', 'stack_identity']);
+
+/** The receipt must be the exact file this run hashed, in the full Auth-refused shape, for this dispatch; preflight passed. */
 function assertReceiptIsThisRun(evidence, project) {
-  const { receiptText, receiptSha256, journey, release } = evidence ?? {};
+  const { receiptText, receiptSha256, journey, release, preflight } = evidence ?? {};
+  if (!preflight || typeof preflight !== 'object' || Object.keys(preflight).sort().join(',') !== [...WITNESS_PREFLIGHT].sort().join(',')
+    || WITNESS_PREFLIGHT.some(id => preflight[id] !== 'success')) fail('witness_preflight_not_passed');
   if (typeof receiptText !== 'string' || !DIGEST.test(`${receiptSha256 ?? ''}`)
     || createHash('sha256').update(receiptText, 'utf8').digest('hex') !== receiptSha256) fail('witness_receipt_unbound');
-  if (!JOURNEY.test(`${journey ?? ''}`) || !RELEASE.test(`${release ?? ''}`)) fail('witness_dispatch_invalid');
+  if (!LOCAL_STACK_JOURNEYS.includes(journey) || !RELEASE.test(`${release ?? ''}`)) fail('witness_dispatch_invalid');
   let receipts = null;
   try { receipts = JSON.parse(receiptText); } catch { receipts = null; }
-  if (!Array.isArray(receipts) || receipts.length !== 1 || !receipts[0] || typeof receipts[0] !== 'object') fail('witness_receipt_shape');
+  if (!Array.isArray(receipts) || receipts.length !== 1 || !receipts[0] || typeof receipts[0] !== 'object' || Array.isArray(receipts[0])) fail('witness_receipt_shape');
   const [r] = receipts;
+  if (Object.keys(r).sort().join(',') !== WITNESS_RECEIPT_KEYS.join(',')) fail('witness_receipt_shape');
   if (r.journey !== journey || r.testedRelease !== release || r.stackRun !== project) fail('witness_receipt_not_this_run');
+  if (r.schema !== 'billing-user-journey/v1' || r.stripeMode !== 'test') fail('witness_receipt_not_test_mode');
   if (r.reason !== AUTH_REFUSED_REASON) fail('witness_reason_not_auth_refused');
+  if (r.result !== 'INCOMPLETE' || r.cleanup !== 'UNPROVEN' || r.billingRowResidue !== 'NOT_READ_REQUIRES_STACK_DESTRUCTION_PROOF'
+    || !(r.failureStage === null || (typeof r.failureStage === 'string' && /^[a-z_]{1,48}$/.test(r.failureStage)))) fail('witness_receipt_not_cleanup_refused');
+  const required = REQUIRED_STEPS[journey];
+  const steps = Array.isArray(r.steps) ? r.steps : [];
+  if (steps.length !== required.length || steps.some((s, i) => !s || typeof s !== 'object' || Object.keys(s).sort().join(',') !== 'result,step'
+    || s.step !== required[i] || !STEP_RESULTS.has(s.result)) || steps.find(s => s.step === 'cleanup')?.result !== 'NOT_PROVEN') {
+    fail('witness_receipt_not_cleanup_refused');
+  }
 }
 
 function assertOwnerBinding(binding, project) {
@@ -270,7 +298,10 @@ export function witnessCleanupRefusal(evidence, identity, project, docker = runD
   for (const line of lines.slice(2)) {
     const m = COUNT_ROW.exec(line);
     if (!m) fail('witness_count_unreadable');
-    counts[m[1]][m[3] === '-' ? m[2] : `${m[2]}:${m[3]}`] = Number(m[4]);
+    if (!CATEGORIES[m[1]].k.includes(m[2]) || !CATEGORIES[m[1]].b.includes(m[3])) fail('witness_count_category_unexpected');
+    const key = m[3] === '-' ? m[2] : `${m[2]}:${m[3]}`;
+    if (key in counts[m[1]]) fail('witness_count_unreadable');
+    counts[m[1]][key] = Number(m[4]);
   }
   const auth = recordedContainer(docker, identity, project, 'auth');
   const supportingLogPhraseLines = {};
@@ -304,7 +335,8 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
       const [receiptFile, shaFile, bindingFile, journey, release] = process.argv.slice(5);
       const read = (path, parse) => { try { const text = readFileSync(path ?? '', 'utf8'); return parse ? JSON.parse(text) : text; } catch { return null; } };
       const evidence = { receiptText: read(receiptFile, false), receiptSha256: `${read(shaFile, false) ?? ''}`.split(/\s+/)[0],
-        binding: read(bindingFile, true), journey, release };
+        binding: read(bindingFile, true), journey, release,
+        preflight: Object.fromEntries(WITNESS_PREFLIGHT.map(id => [id, process.env[`PREFLIGHT_${id.toUpperCase()}`] ?? ''])) };
       process.stdout.write(`${JSON.stringify(witnessCleanupRefusal(evidence, read(file, true), project))}\n`);
     } else {
       fail('unknown_command');

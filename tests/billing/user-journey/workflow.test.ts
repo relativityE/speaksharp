@@ -252,6 +252,10 @@ test('(#1898) the cleanup witness runs only for the exact Auth-refused reason, b
   assert.match(witness.if ?? '', /hashFiles\('billing-local-stack-identity\.json'\) != ''/);
   assert.equal(witness.env?.JOURNEY, '${{ inputs.journey }}');
   assert.equal(witness.env?.RELEASE, '${{ inputs.commit_sha }}');
+  for (const [name, id] of [['DISPATCH_CHECK', 'dispatch_check'], ['STRIPE_ACCOUNT', 'stripe_account'], ['STACK_START', 'stack_start'], ['STACK_IDENTITY', 'stack_identity']]) {
+    step(id);
+    assert.equal(witness.env?.[`PREFLIGHT_${name}`], "${{ steps." + id + ".outcome }}");
+  }
   // The journey writes the runner-local owner binding the witness reads; it is never uploaded.
   assert.equal(job.steps.find(s => s.name === 'Run the billing journey against the local stack')?.env?.BILLING_OWNER_BINDING_FILE, '${{ runner.temp }}/billing-owner-binding.json');
   assert.doesNotMatch(workflowText, /path:[^\n]*\n(?:\s+[^\n]*\n)*?\s+[^\n]*billing-owner-binding/);
@@ -292,7 +296,7 @@ test('(run 44312735386) a failed stack start prints each container\'s sampled he
   try {
     const inspect = JSON.stringify([{ Name: '/supabase_edge_runtime_billing-local-stack-1-1', Config: { Env: ['JWT_SECRET=topsecret-value'] },
       State: { Status: 'running', ExitCode: 0, OOMKilled: false, Health: { Status: 'starting', FailingStreak: 3,
-        Log: [{ ExitCode: 1, Output: 'old' }, { ExitCode: 7, Output: 'curl: (7) Failed to connect\n' }] } } }]);
+        Log: [{ ExitCode: 1, Output: 'old' }, { ExitCode: 7, Output: 'curl: (7) http://user:PROBE-CANARY-printable@host/x' }] } } }]);
     writeFileSync(join(dir, 'inspect.json'), inspect);
     writeFileSync(join(dir, 'docker'), `#!/bin/sh\ncase "$1" in ps) echo c_edge ;; inspect) cat "${dir}/inspect.json" ;; esac\n`, { mode: 0o755 });
     const runStart = (exitCode: number) => {
@@ -305,8 +309,10 @@ test('(run 44312735386) a failed stack start prints each container\'s sampled he
     const sample = failed.stdout.split('\n').find(line => line.startsWith('{')) ?? '';
     assert.deepEqual(JSON.parse(sample).name, 'supabase_edge_runtime_billing-local-stack-1-1');
     assert.deepEqual({ ...JSON.parse(sample), t: 'T' }, { t: 'T', name: 'supabase_edge_runtime_billing-local-stack-1-1', state: 'running', exit: 0,
-      oom: false, health: 'starting', failing: 3, probe_exit: 7, probe: 'curl: (7) Failed to connect ' });
+      oom: false, health: 'starting', failing: 3, probe_exit: 7 });
     assert.ok(!failed.stdout.includes('topsecret') && !failed.stdout.includes('JWT_SECRET'), 'inspect environment leaked');
+    assert.ok(!failed.stdout.includes('PROBE-CANARY') && !failed.stdout.includes('curl'), 'probe output leaked');
+    assert.doesNotMatch(run, /\.Output/);
     assert.match(failed.stdout, /::error::The disposable stack did not start \(supabase start exit 1\)/);
     const started = runStart(0);
     assert.equal(started.status, 0, started.stderr);

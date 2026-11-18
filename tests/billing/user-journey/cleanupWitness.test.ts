@@ -9,7 +9,9 @@ import { readFileSync } from 'node:fs';
 import { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, test } from 'vitest';
 import { bootstrapSql, candidate, seed } from '../../db/content-free-retention-evidence.realpg.mjs';
-import { StackProofError, ownerBindingRecord, witnessCleanupRefusal, type DockerAnswer, type StackIdentity } from './localStackResources.mjs';
+import { REQUIRED_STEPS } from './journeySteps.mjs';
+import { RECEIPT_KEYS } from './localStackReceipt.mjs';
+import { StackProofError, WITNESS_RECEIPT_KEYS, ownerBindingRecord, witnessCleanupRefusal, type DockerAnswer, type StackIdentity } from './localStackResources.mjs';
 
 const PROJECT = 'billing-local-stack-123456-1';
 const OTHER_PROJECT = 'billing-local-stack-123456-2';
@@ -22,10 +24,15 @@ const identity: StackIdentity = { schema: 'billing-local-stack-identity/v1', pro
   containers: ['c_auth', 'c_db'], volumes: [`supabase_db_${PROJECT}`], networks: ['n_net'] };
 const ok = (stdout = ''): DockerAnswer => ({ code: 0, stdout, stderr: '' });
 const sha = (text: string) => createHash('sha256').update(text, 'utf8').digest('hex');
-const receiptText = (over: Record<string, unknown> = {}) => JSON.stringify([{ journey: 'conversion', testedRelease: RELEASE,
-  stackRun: PROJECT, reason: 'account_cleanup_deleteuser_failed', ...over }]);
+/** The receipt run 44316016932 produced: every journey step PASSED, cleanup NOT_PROVEN, refused by Auth. */
+const fullReceipt = () => ({ schema: 'billing-user-journey/v1', journey: 'conversion', stripeMode: 'test', result: 'INCOMPLETE',
+  steps: REQUIRED_STEPS.conversion.map(step => ({ step, result: step === 'cleanup' ? 'NOT_PROVEN' : 'PASSED' })),
+  failureStage: null, reason: 'account_cleanup_deleteuser_failed', cleanup: 'UNPROVEN',
+  billingRowResidue: 'NOT_READ_REQUIRES_STACK_DESTRUCTION_PROOF', testedRelease: RELEASE, stackRun: PROJECT });
+const receiptText = (over: Record<string, unknown> = {}) => JSON.stringify([{ ...fullReceipt(), ...over }]);
+const PREFLIGHT = { dispatch_check: 'success', stripe_account: 'success', stack_start: 'success', stack_identity: 'success' };
 const evidence = (over: Record<string, unknown> = {}, receipt = receiptText()) => ({ receiptText: receipt, receiptSha256: sha(receipt),
-  binding: ownerBindingRecord(PROJECT, MARKER), journey: 'conversion', release: RELEASE, ...over });
+  binding: ownerBindingRecord(PROJECT, MARKER), journey: 'conversion', release: RELEASE, preflight: PREFLIGHT, ...over });
 
 let db: PGlite;
 let user: string;
@@ -156,6 +163,27 @@ test('receipt, dispatch, reason and binding controls refuse before Docker is tou
   }
   const two = JSON.stringify([JSON.parse(text)[0], JSON.parse(text)[0]]);
   await expectRefusal('witness_receipt_shape', evidence({}, two));
+  // Correctly hashed, right reason, but not the Auth-refused shape: each is refused before Docker.
+  const missingKey: Record<string, unknown> = fullReceipt();
+  delete missingKey.cleanup;
+  await expectRefusal('witness_receipt_shape', evidence({}, JSON.stringify([missingKey])));
+  await expectRefusal('witness_receipt_shape', evidence({}, receiptText({ extra: 1 })));
+  await expectRefusal('witness_receipt_not_test_mode', evidence({}, receiptText({ stripeMode: 'live' })));
+  await expectRefusal('witness_receipt_not_test_mode', evidence({}, receiptText({ schema: 'billing-user-journey/v0' })));
+  for (const over of [{ cleanup: 'PENDING_STACK_DESTRUCTION' }, { result: 'PENDING_STACK_DESTRUCTION' }, { billingRowResidue: 'COUNTED_ZERO_OR_FAILED' },
+    { failureStage: 'Bad Stage' }, { steps: fullReceipt().steps.slice(1) },
+    { steps: fullReceipt().steps.map(s => ({ ...s, result: 'PASSED' })) },
+    { steps: fullReceipt().steps.map(s => (s.step === 'paid_ui' ? { ...s, result: 'MAYBE' } : s)) },
+    { steps: [...fullReceipt().steps].reverse() }]) {
+    await expectRefusal('witness_receipt_not_cleanup_refused', evidence({}, receiptText(over)));
+  }
+  // The workflow preflight must have passed: each failed, skipped or missing outcome refuses.
+  for (const id of Object.keys(PREFLIGHT)) {
+    await expectRefusal('witness_preflight_not_passed', evidence({ preflight: { ...PREFLIGHT, [id]: 'failure' } }));
+    await expectRefusal('witness_preflight_not_passed', evidence({ preflight: { ...PREFLIGHT, [id]: 'skipped' } }));
+  }
+  await expectRefusal('witness_preflight_not_passed', evidence({ preflight: { dispatch_check: 'success' } }));
+  await expectRefusal('witness_preflight_not_passed', evidence({ preflight: undefined }));
   // Owner binding swaps: another stack run's binding, a malformed digest, an extra field, or none.
   await expectRefusal('witness_owner_binding_invalid', evidence({ binding: ownerBindingRecord(OTHER_PROJECT, MARKER) }));
   await expectRefusal('witness_owner_binding_invalid', evidence({ binding: { ...ownerBindingRecord(PROJECT, MARKER), ownerBindingSha256: 'x' } }));
@@ -204,4 +232,20 @@ test('an unreadable count row, a failed or timed-out query, or unreadable logs i
   assert.throws(() => witnessCleanupRefusal(evidence(), identity, PROJECT, (args) => (args[0] === 'logs' ? { code: 1, stdout: '', stderr: 'x' } : base(good)(args))),
     refusedWith('witness_auth_logs_unreadable'));
   assert.equal(witnessCleanupRefusal(evidence(), identity, PROJECT, base(good)).owner, 'bound');
+  // Closed vocabulary: an unknown or NULL category fails closed; nothing is silently dropped.
+  for (const row of ['session|archived|lease_linked|1', 'session|null|lease_linked|1', 'lease|null|-|1', 'obligation|refused|lease_only_current|1',
+    'obligation|admitted|lease_only_somewhere|1', 'lease|recording|x|1']) {
+    assert.throws(() => witnessCleanupRefusal(evidence(), identity, PROJECT, base(`${good}${row}\n`)), refusedWith('witness_count_category_unexpected'), row);
+  }
+  assert.throws(() => witnessCleanupRefusal(evidence(), identity, PROJECT, base(`${good}lease|recording|-|1\nlease|recording|-|1\n`)), refusedWith('witness_count_unreadable'));
+});
+
+test('the witness receipt keys are the finalizer\'s; a NULL session status reaches the witness as a category, not a dropped row', async () => {
+  assert.deepEqual([...WITNESS_RECEIPT_KEYS], [...RECEIPT_KEYS]);
+  await asOwner('SELECT acquire_recording_lease($1,$2,false)', [randomUUID(), 'p']);
+  await savedTake((await asOwner("SELECT lease_id FROM active_recording_lease")).rows[0].lease_id as string);
+  await db.exec('ALTER TABLE public.sessions DISABLE TRIGGER USER; UPDATE public.sessions SET status = NULL; ALTER TABLE public.sessions ENABLE TRIGGER USER;');
+  const d = daemon();
+  await assert.rejects(witness(d), refusedWith('witness_count_category_unexpected'));
+  assert.match(d.execOut.at(-1) ?? '', /^session\|null\|lease_linked\|1$/m);
 });
