@@ -5,7 +5,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {execFileSync} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
-import {HELPER_CONTRACTS} from '../../scripts/lib/helperExecutionEvidence.mjs';
+import {registeredHelper} from '../../scripts/lib/helperExecutionEvidence.mjs';
 import {runVitestExecution,dependencyPaths} from '../../scripts/run-test-efficacy.mjs';
 import {executionContext, validateVitestExecution, registeredFixture, fixtureSourceBinding, validateFixtureWitness} from '../../scripts/lib/testExecutionEvidence.mjs';
 import {TEST_EFFICACY_CONTRACTS} from '../../scripts/lib/softwareQualityEvidenceQualification.mjs';
@@ -13,7 +13,9 @@ const {test: frameworkTest} = process.env.NODE_TEST_CONTEXT ? await import('node
 const test = (name, run) => process.env.NODE_TEST_CONTEXT
   ? frameworkTest(name, {timeout:120_000}, run) : frameworkTest(name, run, 120_000);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const contract = HELPER_CONTRACTS[0];
+// This synthetic consumer imports rwtMarkerObserver; unrelated registry entries may move.
+const contract = registeredHelper('tests/live/helpers/rwtMarkerObserver.ts');
+assert.ok(contract, 'Synthetic fixture requires the registered rwtMarkerObserver helper');
 
 function fixture() {
   const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'helper-evidence-')));
