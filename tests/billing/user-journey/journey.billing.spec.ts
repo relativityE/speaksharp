@@ -834,9 +834,14 @@ class SandboxJourney {
     try {
       stripeClean = await proveStripeFixtureDeleted((path, method) => this.stripe(path, method), { clock: this.clock || null, customer: this.customer || null });
     } catch (error) { stripeFailed = true; note(cleanupFailureCode('stripe', error)); }
+    // PO + Sam, 18 Nov (runs 44316016932, 44358400794): on the disposable local stack the run's account exists only in that
+    // run's database, which the workflow destroys and proves destroyed (the same proof that covers the billing rows). The Stripe
+    // listener can forward writes into the account during cleanup that the test can neither stop nor observe, so no Auth delete
+    // runs here. The receipt says so (accountRemoval) and the finalizer requires the destruction proof for this exact run.
+    // Any non-local target keeps the in-test delete unchanged. This proves no test-account residue, not customer deletion.
     // Shared cleanup checks auth/profile/session residue and exact fixture ownership.
     try {
-      if (this.signupAttempted) await cleanupRunOwnedAccount({ admin: this.admin as never,
+      if (this.signupAttempted && !useLocalStack) await cleanupRunOwnedAccount({ admin: this.admin as never,
         capturedUid: this.uid, createdEmail: this.email, runOwnedPrefix: 'rwt-journey-billing-' });
     } catch (error) { accountFailed = true; note(cleanupFailureCode('account', error)); }
     // Billing lifecycle records do not cascade with auth deletion. Missing permissions/counts are
@@ -885,6 +890,8 @@ function journeyTest(journey: RunnerJourney): void {
         cleanup: status.cleanup,
         // Never reported as checked on the local stack; only the workflow's destruction proof covers them.
         billingRowResidue: useLocalStack ? 'NOT_READ_REQUIRES_STACK_DESTRUCTION_PROOF' : 'COUNTED_ZERO_OR_FAILED',
+        // The run's account: removed by the verified stack destruction on the local stack (no Auth delete), else by the in-test delete.
+        accountRemoval: useLocalStack ? 'AUTH_DELETE_NOT_RUN_REQUIRES_STACK_DESTRUCTION' : status.cleanup === 'VERIFIED' ? 'AUTH_DELETED' : 'NOT_PROVEN',
         testedRelease: env.BILLING_SANDBOX_RELEASE_SHA?.match(/^[a-f0-9]{40}$/)?.[0] ?? null,
         // Binds this receipt to this run's disposable stack; the finalizer refuses any other run's receipt.
         stackRun: useLocalStack ? env.LOCAL_STACK_PROJECT?.match(/^billing-local-stack-[0-9]{1,20}-[0-9]{1,6}$/)?.[0] ?? null : null,

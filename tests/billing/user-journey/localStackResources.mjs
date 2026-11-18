@@ -232,7 +232,7 @@ function recordedContainer(docker, identity, project, service) {
 // The journey receipt's keys (localStackReceipt.mjs RECEIPT_KEYS; a test pins the two together) and the one shape an
 // Auth-refused cleanup leaves: the spec's own schema, Stripe test mode, an INCOMPLETE result, UNPROVEN cleanup, the residue
 // left to the destruction proof, every required step of this journey in order, and the cleanup step itself not proven.
-export const WITNESS_RECEIPT_KEYS = Object.freeze(['billingRowResidue', 'cleanup', 'failureStage', 'journey', 'reason', 'result',
+export const WITNESS_RECEIPT_KEYS = Object.freeze(['accountRemoval', 'billingRowResidue', 'cleanup', 'failureStage', 'journey', 'reason', 'result',
   'schema', 'stackRun', 'steps', 'stripeMode', 'testedRelease']);
 const STEP_RESULTS = new Set(['PASSED', 'NOT_PROVEN']);
 /** The workflow steps that must have succeeded before this run can be a witnessed one (outcomes, not claims). */

@@ -28,7 +28,7 @@ const sha = (text: string) => createHash('sha256').update(text, 'utf8').digest('
 const fullReceipt = () => ({ schema: 'billing-user-journey/v1', journey: 'conversion', stripeMode: 'test', result: 'INCOMPLETE',
   steps: REQUIRED_STEPS.conversion.map(step => ({ step, result: step === 'cleanup' ? 'NOT_PROVEN' : 'PASSED' })),
   failureStage: null, reason: 'account_cleanup_deleteuser_failed', cleanup: 'UNPROVEN',
-  billingRowResidue: 'NOT_READ_REQUIRES_STACK_DESTRUCTION_PROOF', testedRelease: RELEASE, stackRun: PROJECT });
+  accountRemoval: 'AUTH_DELETE_NOT_RUN_REQUIRES_STACK_DESTRUCTION', billingRowResidue: 'NOT_READ_REQUIRES_STACK_DESTRUCTION_PROOF', testedRelease: RELEASE, stackRun: PROJECT });
 const receiptText = (over: Record<string, unknown> = {}) => JSON.stringify([{ ...fullReceipt(), ...over }]);
 const PREFLIGHT = { dispatch_check: 'success', stripe_account: 'success', stack_start: 'success', stack_identity: 'success' };
 const evidence = (over: Record<string, unknown> = {}, receipt = receiptText()) => ({ receiptText: receipt, receiptSha256: sha(receipt),

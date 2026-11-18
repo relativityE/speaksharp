@@ -521,6 +521,7 @@ jobs:
             if [ -f billing-local-stack-combined.json ]; then
               echo "- Combined result: $(jq -r '.result' billing-local-stack-combined.json)"
               echo "- Stack identity SHA-256: \`$(jq -r '.stackIdentitySha256 // "not proven"' billing-local-stack-combined.json)\`"
+              echo "- Test account: $(jq -r '.testAccount // "not proven"' billing-local-stack-combined.json) (Auth delete: $(jq -r '.authDelete // "unknown"' billing-local-stack-combined.json))"
             else
               echo '- Combined result: not produced'
             fi

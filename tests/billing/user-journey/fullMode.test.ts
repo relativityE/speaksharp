@@ -183,7 +183,7 @@ const pendingFor = (journey: keyof typeof REQUIRED_STEPS) => {
   const built = receipt(journey, new Set(REQUIRED_STEPS[journey].filter(step => !held.includes(step))));
   return { ...built, failureStage: null, reason: null, cleanup: 'PENDING_STACK_DESTRUCTION',
     result: built.result === 'PASSED' ? 'PENDING_STACK_DESTRUCTION' : built.result,
-    billingRowResidue: 'NOT_READ_REQUIRES_STACK_DESTRUCTION_PROOF', testedRelease: RELEASE, stackRun: STACK_RUN };
+    accountRemoval: 'AUTH_DELETE_NOT_RUN_REQUIRES_STACK_DESTRUCTION', billingRowResidue: 'NOT_READ_REQUIRES_STACK_DESTRUCTION_PROOF', testedRelease: RELEASE, stackRun: STACK_RUN };
 };
 const checks = { stackStopped: 'success', stackDestroyed: 'success', stripeClean: 'success' };
 const identityFor = (stackRun: string) => ({ schema: 'billing-local-stack-identity/v1', project: stackRun,
@@ -579,6 +579,10 @@ test('mode result negative controls: a bare or summary-only PASSED, or evidence 
     ['identity list edited after the run', { ...good, identity: { ...good.identity, containers: ['c_db'] } }, 'destruction_identity_mismatch'],
     ['combined summary naming another list', { ...good, combined: { ...good.combined, stackIdentitySha256: 'c'.repeat(64) } }, 'combined_identity'],
     ['raw receipt unreadable', { ...good, rawReceipt: 'not json' }, 'raw_receipt_unreadable'],
+    // PO + Sam, 18 Nov: the test account is removed only by the verified destruction of this run's stack, never claimed.
+    ['raw receipt claiming an Auth delete on the local stack', evidenceFor('conversion', 1, { accountRemoval: 'AUTH_DELETED' }), 'account_removal_claim'],
+    ['combined summary without the destruction-removed account', { ...good, combined: { ...good.combined, testAccount: 'NOT_PROVEN' } }, 'combined_test_account'],
+    ['combined summary claiming an Auth delete ran', { ...good, combined: { ...good.combined, authDelete: 'RUN' } }, 'combined_test_account'],
     ['raw receipt bytes not UTF-8', { ...good, rawReceipt: Uint8Array.from([0x5b, 0xff, 0x5d]) }, 'raw_receipt_unreadable'],
   ];
   for (const [name, entry, expected] of cases) {

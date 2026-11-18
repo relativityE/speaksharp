@@ -210,6 +210,7 @@ test('(c) the finalizer CLI binds the combined result to the raw receipt file, a
     const full = { schema: 'billing-user-journey/v1', journey: 'conversion', stripeMode: 'test', result: 'PENDING_STACK_DESTRUCTION',
       steps: REQUIRED_STEPS.conversion.map(s => ({ step: s, result: 'PASSED' })), failureStage: null, reason: null,
       cleanup: 'PENDING_STACK_DESTRUCTION', billingRowResidue: 'NOT_READ_REQUIRES_STACK_DESTRUCTION_PROOF',
+      accountRemoval: 'AUTH_DELETE_NOT_RUN_REQUIRES_STACK_DESTRUCTION',
       testedRelease: release, stackRun: project };
     const identity = { schema: 'billing-local-stack-identity/v1', project,
       database: { container: 'c_db', volume: `supabase_db_${project}`, systemIdentifier: '1' },
