@@ -6130,18 +6130,23 @@ export class SpeechRuntimeController {
                             // The session this stop armed for Try again, if it did (#1880, Codex P2 on 0610880d).
                             let armedDiscardSessionId: string | undefined;
                             const discardOwner = stopOwner; // the take's owner from stop entry, never a successor's
+                            // Sam on a58a348: the slot is memory only, so the unsettled row is recorded for its owner.
+                            // A reload, hard reset or sign-out drops the slot; the same owner returning re-arms Try again
+                            // for this row (rehydrateUnresolvedRecording). Recorded even when the stop is superseded,
+                            // because the row stays unsettled either way and only its owner sees it.
+                            // Recovery successor to #1880 (page-leave): written BEFORE the mark is sent, because a page
+                            // closed or reloaded while the mark is in flight never runs the code after the await, and the
+                            // row would be left unsettled with no Try again. Cleared once the mark is confirmed. If the lost
+                            // mark did land, the replayed mark is an idempotent no-op on complete_session_v2.
+                            saveUnsettledDiscardRecord({ sessionId, userId: discardOwner, reason: discardReason });
                             try {
                                 const discardMark = await completeSession(sessionId, { status: 'failed', reason: discardReason });
                                 discardSettled = Boolean(discardMark?.success);
                             } catch (discardError) {
                                 logger.warn({ discardError, sessionId }, '[DEBUG-STOP] completeSession failed-status threw');
                             }
+                            if (discardSettled) clearUnsettledDiscardRecord(discardOwner, sessionId);
                             if (!discardSettled) {
-                                // Sam on a58a348: the slot is memory only, so first record the unsettled row for its owner.
-                                // A reload, hard reset or sign-out drops the slot; the same owner returning re-arms Try
-                                // again for this row (rehydrateUnresolvedRecording). Recorded even when the stop was
-                                // superseded, because the row stays unsettled either way and only its owner sees it.
-                                saveUnsettledDiscardRecord({ sessionId, userId: discardOwner, reason: discardReason });
                                 // Only the stop that still owns the runtime may arm Try again. A hard reset or account
                                 // switch during the awaited mark already retired this take; arming afterwards would lock
                                 // the next owner behind a row it cannot settle (reviewer on 523e682).
