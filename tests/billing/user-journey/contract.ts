@@ -53,6 +53,170 @@ export const HOSTED_ACTION_MS = 30_000;
 export const HOSTED_READ_MS = 2_000;
 
 /**
+ * Run 44284831241: the app discards a take shorter than its minimum (frontend/src/config/env.ts MIN_SESSION_DURATION_SECONDS,
+ * measured from its own start time at Stop) as "too short", and saves nothing. The journey stopped as soon as three words
+ * appeared, about 1 s in, so the take was discarded and `recording_not_persisted` waited out its bound. The journey now holds
+ * the take for the app's minimum plus a margin, timed from its own observation of the start (which is never before the app's
+ * own start time), so the app's elapsed time at Stop is at least the hold. A static check pins the minimum to env.ts.
+ */
+export const APP_MIN_SESSION_DURATION_SECONDS = 5;
+export const RECORDING_HOLD_MS = (APP_MIN_SESSION_DURATION_SECONDS + 2) * 1000;
+/** How much longer to keep recording before Stop; 0 once the hold is met. Never negative; a non-finite start holds the full time. */
+export function recordingHoldRemainingMs(startedObservedAt: number, now: number): number {
+  if (!Number.isFinite(startedObservedAt) || !Number.isFinite(now)) return RECORDING_HOLD_MS;
+  return Math.max(0, RECORDING_HOLD_MS - Math.max(0, now - startedObservedAt));
+}
+/**
+ * The live take, watched IN the page from the moment capture is observed live (review of #1896 at 0db646a2):
+ *  - live = the shell's capture-live state (`data-session-state="during"`, rendered only once capture is live, the app's clock
+ *    re-based in that same update) AND the runtime naming its take (`__SPEECH_RUNTIME_DEBUG__().lifecycleVersion`);
+ *  - the watch tags THIS document (a reload has no watch), and binds the runtime's session id once it is known;
+ *  - any drop of the live state, take change or session change marks the watch broken for good (a later resume never repairs
+ *    it): a MutationObserver reacts to every attribute/child change, with a 50 ms interval as a backstop;
+ *  - Stop is clicked by the page itself in the same synchronous task as the final check, so nothing can change in between.
+ * These are function BODIES run in the page (and executed against a fake DOM in the tests); they return content-free values.
+ */
+const TAKE_READ = `
+  const shell = document.querySelector('[data-testid="session-shell"]');
+  const debug = typeof window.__SPEECH_RUNTIME_DEBUG__ === 'function' ? window.__SPEECH_RUNTIME_DEBUG__() : null;
+  const live = !!shell && shell.getAttribute('data-session-state') === 'during';
+  const lifecycle = debug && typeof debug.lifecycleVersion === 'number' ? debug.lifecycleVersion : null;
+  const session = debug && typeof debug.sessionId === 'string' ? debug.sessionId : null;`;
+const TAKE_BROKEN = `
+  if (!live) return 'capture_dropped';
+  if (lifecycle !== w.lifecycle) return 'take_changed';
+  if (w.session !== null && session !== w.session) return 'take_changed';
+  return null;`;
+/**
+ * Installs the watch when capture is live; returns `doc|lifecycle`, or null while capture is not live (nothing installed).
+ * Every change of the watched shell's `data-session-state` is read from its records with old values (the rwtAdverse.ts pattern:
+ * each record's successor is the next record's oldValue, the last one's is the current value), so `during -> before -> during`
+ * delivered in ONE callback still breaks the take. A second observer fails the take if the watched shell element is replaced.
+ */
+export const WATCH_INSTALL_SCRIPT = `${TAKE_READ}
+  if (!live || lifecycle === null) return null;
+  if (window.__billingTake) return null;
+  const w = { doc: 'doc-' + Math.random().toString(36).slice(2) + '-' + Date.now(), lifecycle, session, shell, broken: null,
+    timer: null, stateObserver: null, treeObserver: null };
+  const recordState = (records) => {
+    for (let i = 0; i < records.length; i++) {
+      const before = records[i].oldValue;
+      const after = i + 1 < records.length ? records[i + 1].oldValue : w.shell.getAttribute('data-session-state');
+      if (!w.broken && (before !== 'during' || after !== 'during')) w.broken = 'capture_dropped';
+    }
+  };
+  const check = () => {
+    if (w.broken) return;
+    ${TAKE_READ}
+    if (shell !== w.shell) { w.broken = 'take_changed'; return; }
+    const reason = (() => { ${TAKE_BROKEN} })();
+    if (reason) { w.broken = reason; return; }
+    if (w.session === null && session !== null) w.session = session;
+  };
+  w.timer = window.setInterval(check, 50);
+  if (typeof window.MutationObserver === 'function') {
+    w.stateObserver = new window.MutationObserver((records) => { recordState(records); check(); });
+    w.stateObserver.observe(shell, { attributes: true, attributeFilter: ['data-session-state'], attributeOldValue: true });
+    w.treeObserver = new window.MutationObserver(() => check());
+    w.treeObserver.observe(document.documentElement, { childList: true, subtree: true });
+  }
+  window.__billingTake = w;
+  return w.doc + '|' + lifecycle;`;
+const TAKE_DRAIN = `
+  if (w.stateObserver) {
+    const pending = w.stateObserver.takeRecords();
+    for (let i = 0; i < pending.length; i++) {
+      const before = pending[i].oldValue;
+      const after = i + 1 < pending.length ? pending[i + 1].oldValue : w.shell.getAttribute('data-session-state');
+      if (!w.broken && (before !== 'during' || after !== 'during')) w.broken = 'capture_dropped';
+    }
+  }
+  if (w.treeObserver) w.treeObserver.takeRecords();
+  if (!w.broken && shell !== w.shell) w.broken = 'take_changed';`;
+/** The watch's current verdict for `expectedKey`: the same key while the take is intact, else null (drains pending records). */
+export const takeStatusScript = (expectedKey: string) => `${TAKE_READ}
+  const w = window.__billingTake;
+  if (!w || (w.doc + '|' + w.lifecycle) !== ${JSON.stringify(expectedKey)}) return null;
+  ${TAKE_DRAIN}
+  if (w.broken) return null;
+  const reason = (() => { ${TAKE_BROKEN} })();
+  return reason ? null : ${JSON.stringify(expectedKey)};`;
+/**
+ * The final check and the Stop click, in ONE synchronous page task, after draining every pending record. Returns
+ * { clicked, reason, session }: clicked only for the exact watched take, still live and never broken; the session is the
+ * take's own id (null if the runtime never named one).
+ */
+export const stopGateScript = (expectedKey: string) => `${TAKE_READ}
+  const w = window.__billingTake;
+  if (!w || (w.doc + '|' + w.lifecycle) !== ${JSON.stringify(expectedKey)}) return { clicked: false, reason: 'take_watch_missing', session: null };
+  ${TAKE_DRAIN}
+  if (w.broken) return { clicked: false, reason: w.broken, session: null };
+  const reason = (() => { ${TAKE_BROKEN} })();
+  if (reason) { w.broken = reason; return { clicked: false, reason, session: null }; }
+  const stop = document.querySelector('[data-testid="recorder-stop"]');
+  if (!stop || stop.disabled) return { clicked: false, reason: 'stop_unavailable', session: null };
+  const takeSession = w.session !== null ? w.session : session;
+  stop.click();
+  if (w.timer !== null) window.clearInterval(w.timer);
+  if (w.stateObserver) w.stateObserver.disconnect();
+  if (w.treeObserver) w.treeObserver.disconnect();
+  w.stopped = true;
+  return { clicked: true, reason: null, session: takeSession };`;
+/** Wraps a body for page.evaluate. */
+export const pageScript = (body: string) => `(() => {${body}\n})()`;
+export type TakeProbe = () => Promise<string | null>;
+type Clock = { now(): number; sleep(ms: number): Promise<void> };
+
+/** Polls until capture is live and the watch is installed; returns that take's key and the moment it was OBSERVED live. */
+export async function observeCaptureLive(opts: { probe: TakeProbe; clock: Clock; timeoutMs: number }): Promise<{ takeKey: string; observedAt: number }> {
+  const deadline = opts.clock.now() + opts.timeoutMs;
+  do {
+    const key = await opts.probe();
+    if (key !== null) return { takeKey: key, observedAt: opts.clock.now() };
+    await opts.clock.sleep(250);
+  } while (opts.clock.now() < deadline);
+  throw new Error('BILLING_JOURNEY:capture_live_unconfirmed');
+}
+
+export type StopGateResult = { clicked: boolean; reason: string | null; session: string | null };
+/**
+ * Holds from the observed capture-live moment (bounded re-check of an early-waking sleep), then hands the final check and the
+ * click to the page in one task (`stop`). A take that broke at any point, or a gate that did not click, is a named stop.
+ * Returns the take's own session id and the held time.
+ */
+export async function holdThenStop(opts: { startedObservedAt: number; takeKey: string; probe: TakeProbe; clock: Clock;
+  stop(): Promise<StopGateResult> }): Promise<{ session: string | null; heldMs: number }> {
+  for (let i = 0; i < 20; i++) {
+    const remaining = recordingHoldRemainingMs(opts.startedObservedAt, opts.clock.now());
+    if (remaining === 0) break;
+    requireFact(await opts.probe() === opts.takeKey, 'take_not_live_at_stop');
+    await opts.clock.sleep(remaining);
+  }
+  requireFact(recordingHoldRemainingMs(opts.startedObservedAt, opts.clock.now()) === 0, 'recording_hold_not_met');
+  requireFact(await opts.probe() === opts.takeKey, 'take_not_live_at_stop');
+  const gate = await opts.stop();
+  if (!gate.clicked) throw new Error(`BILLING_JOURNEY:take_not_live_at_stop_${gate.reason === 'capture_dropped' || gate.reason === 'take_changed'
+    || gate.reason === 'take_watch_missing' || gate.reason === 'stop_unavailable' ? gate.reason : 'unread'}`);
+  return { session: gate.session, heldMs: opts.clock.now() - opts.startedObservedAt };
+}
+
+/**
+ * After Stop, one read of everything that can end the take: the app's too-short status, the save candidate and the persisted id.
+ * Too short ends it at once even with no candidate; a candidate or saved row for another session is the wrong take.
+ */
+export type TakeOutcomeRead = { tooShort: boolean; candidateSession: string | null; persistedId: string | null };
+export function takeOutcome(read: TakeOutcomeRead, takeSession: string | null): 'pending' | 'saved' | 'recording_discarded_too_short'
+  | 'save_candidate_not_this_take' | 'saved_row_not_this_take' {
+  if (read.tooShort) return 'recording_discarded_too_short';
+  if (read.persistedId) return takeSession !== null && read.persistedId === takeSession ? 'saved' : 'saved_row_not_this_take';
+  if (read.candidateSession !== null && takeSession !== null && read.candidateSession !== takeSession) return 'save_candidate_not_this_take';
+  return 'pending';
+}
+
+/** The app's own too-short status (useSessionLifecycle): the take was discarded, so no save will ever arrive. */
+export const APP_TOO_SHORT_STATUS = 'Session too short';
+
+/**
  * The exact hosted-Checkout controls, read from Stripe's own markup on a run's open card-only session (17 Nov 2026, read-only, PO's
  * browser DevTools): the Subscribe button (Link's express button is type="button", never this), and Link's "Save my information"
  * opt-in, a custom checkbox whose real input sits under a styled wrapper and is toggled through its label.
@@ -103,6 +267,99 @@ export function firstVisibleControl(visible: readonly (readonly boolean[])[]): {
   return null;
 }
 
+/**
+ * Run 44203911253: the bound existing Customer carries the fixture email, so Checkout showed it PREFILLED and not editable, and filling it
+ * failed (hosted_field_not_editable_email). What to do with a VISIBLE email control (Sam, 17 Nov):
+ *   - editable: fill it (the caller then reads the value back);
+ *   - not editable and holding exactly the expected fixture email, with the bound Customer's email proven to BE that fixture email:
+ *     supplied, nothing typed;
+ *   - not editable with another value, or the Customer's email not proven to be the fixture's: `hosted_email_prefilled_mismatch`;
+ *   - editability or the value unreadable: `hosted_email_unreadable`.
+ * Values are compared only; no email ever leaves this function.
+ */
+export function hostedEmailFieldAction(input: { editable: boolean | null; current: string | null; expected: string; ownerBound: boolean }):
+  'fill' | 'supplied' | 'hosted_email_prefilled_mismatch' | 'hosted_email_unreadable' {
+  if (input.editable === true) return 'fill';
+  if (input.editable !== false || typeof input.current !== 'string') return 'hosted_email_unreadable';
+  return input.ownerBound && input.current === input.expected ? 'supplied' : 'hosted_email_prefilled_mismatch';
+}
+/**
+ * #1835 (practice privacy choices): transcript saving is OFF until the owner opts in, so a paid recording keeps its transcript only
+ * after THIS run's own account recorded "Save transcripts". The fact comes from the server row read for the exact owner, never from
+ * the UI alone:
+ *   - table absent: `not_applicable` ONLY when the tested build is independently known to predate #1835 (its own migrations, which
+ *     the local stack applied, have no #1835 migration). If the build includes #1835, or its schema identity is unknown, a missing
+ *     or unreadable table stops before recording (Sam, 17 Nov);
+ *   - this owner's row with saving on: `opted_in`;
+ *   - no row (no choice recorded), saving off, another owner's row, a malformed row or an unreadable read: a named stop BEFORE any
+ *     recording, never a generic `paid_recording_not_proven` later.
+ */
+export type PrivacyTableRead = { state: 'absent' } | { state: 'unreadable' } | { state: 'read'; row: unknown };
+/** The #1835 migration, by exact file name, in the tested commit's own migrations directory. */
+export const PRIVACY_MIGRATION = '20261117105700_practice_privacy_choices_1835.sql';
+export type PrivacyBuild = 'includes' | 'predates' | 'unknown';
+/** From the tested checkout's migration file names; an unreadable or empty listing is `unknown`, never "predates". */
+export function privacyBuildState(migrationFiles: readonly string[] | null): PrivacyBuild {
+  if (!Array.isArray(migrationFiles) || migrationFiles.length === 0) return 'unknown';
+  return migrationFiles.includes(PRIVACY_MIGRATION) ? 'includes' : 'predates';
+}
+export function privacyOptInFact(read: PrivacyTableRead, ownerId: string, build: PrivacyBuild): 'not_applicable' | 'opted_in' | `privacy_choice_${'missing' | 'declined' | 'wrong_owner' | 'unreadable'}` | `privacy_schema_${'missing' | 'unknown' | 'unexpected'}` {
+  if (read.state === 'absent') return build === 'predates' ? 'not_applicable' : build === 'includes' ? 'privacy_schema_missing' : 'privacy_schema_unknown';
+  if (read.state !== 'read') return build === 'unknown' ? 'privacy_schema_unknown' : 'privacy_choice_unreadable';
+  // A build known to predate #1835 has no such table: one that answers means the schema is not the tested build's.
+  if (build === 'predates') return 'privacy_schema_unexpected';
+  const row = read.row as { user_id?: unknown; transcript_save?: unknown; consent_version?: unknown } | null;
+  if (row === null || row === undefined) return 'privacy_choice_missing';
+  if (row.user_id !== ownerId) return 'privacy_choice_wrong_owner';
+  if (row.consent_version !== 1 || typeof row.transcript_save !== 'boolean') return 'privacy_choice_unreadable';
+  return row.transcript_save ? 'opted_in' : 'privacy_choice_declined';
+}
+
+/**
+ * After the journey answered the prompt (Save transcripts, No coaching): the same owner's server row must show exactly that, saving
+ * on AND coaching off, before `privacy_opted_in` is emitted. Anything else is `privacy_choice_not_recorded`.
+ */
+export function privacyAnswerRecorded(read: PrivacyTableRead, ownerId: string): boolean {
+  if (read.state !== 'read') return false;
+  const row = read.row as { user_id?: unknown; transcript_save?: unknown; ai_coaching?: unknown; consent_version?: unknown } | null;
+  return !!row && row.user_id === ownerId && row.consent_version === 1 && row.transcript_save === true && row.ai_coaching === false;
+}
+
+/** The #1835 Practice privacy prompt's own controls (frontend/src/components/privacy/PracticePrivacyPrompt.tsx). */
+export const PRIVACY_PROMPT = Object.freeze({
+  prompt: 'practice-privacy-prompt', saveYes: 'privacy-save-yes', aiNo: 'privacy-ai-no', continue: 'privacy-continue',
+});
+
+/**
+ * The consent step before the paid recording, as ONE sequence the journey calls (executed against both build states in the
+ * tests). Only a build proven by its own migration list to predate #1835 skips it; an unknown build stops before any read of
+ * the prompt or any click. On a #1835 build an existing choice is never rewritten: it must already be the same owner's
+ * save=yes / coaching=no, with zero clicks. Otherwise the real prompt is answered save yes, coaching no, continue, and the
+ * answer is proven by the same owner's server row before the checkpoint.
+ */
+export async function optInThroughPrompt(deps: {
+  build: PrivacyBuild; ownerId: string; readChoice(): Promise<PrivacyTableRead>;
+  prompt: { waitVisible(): Promise<boolean>; click(control: 'saveYes' | 'aiNo' | 'continue'): Promise<void>; waitHidden(): Promise<void> };
+  checkpoint(name: string): void;
+}): Promise<'not_applicable' | 'existing_choice' | 'answered'> {
+  requireFact(deps.build !== 'unknown', 'privacy_schema_unknown');
+  const first = await deps.readChoice();
+  const before = privacyOptInFact(first, deps.ownerId, deps.build);
+  if (before === 'not_applicable') return 'not_applicable';
+  if (before === 'opted_in') { requireFact(privacyAnswerRecorded(first, deps.ownerId), 'privacy_choice_coaching_not_off'); return 'existing_choice'; }
+  if (before !== 'privacy_choice_missing') requireFact(false, before);
+  requireFact(await deps.prompt.waitVisible(), 'privacy_choice_missing');
+  await deps.prompt.click('saveYes');
+  await deps.prompt.click('aiNo');
+  await deps.prompt.click('continue');
+  await deps.prompt.waitHidden();
+  const recorded = await deps.readChoice();
+  requireFact(privacyAnswerRecorded(recorded, deps.ownerId), 'privacy_choice_not_recorded');
+  requireFact(privacyOptInFact(recorded, deps.ownerId, deps.build) === 'opted_in', 'privacy_choice_not_recorded');
+  deps.checkpoint('privacy_opted_in');
+  return 'answered';
+}
+
 export function invalidFieldToken(attrs: { id: string | null; name: string | null }): string {
   for (const key of [attrs.id, attrs.name]) if (typeof key === 'string' && Object.hasOwn(INVALID_FIELD_TOKENS, key)) return INVALID_FIELD_TOKENS[key];
   return 'other';
@@ -147,19 +404,20 @@ export function hostedSubmitUnavailable(facts: { visible: boolean | null; enable
  * Whether the hosted email field must be filled, when the card is entered (run 44066185734: hosted_field_unavailable_email).
  * Email is REQUIRED by default. A visible editable field is always filled. It may be absent only when the page on screen is the
  * exact Checkout session that `assertCheckoutIdentity` already proved is this run's open, unpaid test-mode session for the
- * run-owned Stripe customer and app user (`boundSession`) AND that bound customer already carries an email
- * (`boundCustomerHasEmail === true`, read from Stripe as a presence flag only): only then is there no email for Checkout to ask for.
- * Run 44157731067 (after #1890): the fixture creates its customer WITHOUT an email, Checkout still required one, and the old rule
- * (bound session alone) let the journey skip it: the form stayed unconfirmable with `fields_email`. A customer without an email, or
- * one whose email presence is unread, never takes the absent path. A non-empty `customer` alone is not proof, and an unbound,
- * different or unknown session never skips it.
+ * run-owned Stripe customer and app user (`boundSession`) AND that bound customer's email is EXACTLY this run's fixture email
+ * (`boundCustomerEmailIsFixture === true`: compared from Stripe's own Customer read, never kept or reported). Only then is there no
+ * email for Checkout to ask for. Run 44157731067 (after #1890): the customer had no email, Checkout still required one, and the old
+ * rule (bound session alone) skipped it: the form stayed unconfirmable with `fields_email`. Sam's hold on #1895 (18f006c6): mere
+ * presence of a non-empty email is not enough either, because a bound customer carrying some OTHER email would let the journey
+ * skip the field. A customer without an email, with a different one, or whose email is unread never takes the absent path; an
+ * unbound, different or unknown session never skips it.
  */
 export function hostedEmailDecision(input: { emailFieldVisible: boolean; shownSession: string | null; boundSession: string | null;
-  boundCustomerHasEmail: boolean | null }): 'fill' | 'absent_after_binding' | 'missing' {
+  boundCustomerEmailIsFixture: boolean | null }): 'fill' | 'absent_after_binding' | 'missing' {
   if (input.emailFieldVisible) return 'fill';
   const bound = typeof input.boundSession === 'string' && /^cs_test_[A-Za-z0-9]+$/.test(input.boundSession)
     && input.shownSession === input.boundSession;
-  return bound && input.boundCustomerHasEmail === true ? 'absent_after_binding' : 'missing';
+  return bound && input.boundCustomerEmailIsFixture === true ? 'absent_after_binding' : 'missing';
 }
 
 /**
@@ -331,11 +589,21 @@ export function assertCheckoutGrantedNothing(input: unknown, expectedStatus: 'op
     && (session.subscription === null || session.subscription === undefined), 'failed_checkout_granted_something');
 }
 
+/**
+ * A Stripe event's `api_version` is the account's default API version when the event was CREATED, and it never changes: the
+ * `Stripe-Version` header on the read does not re-render it. This sandbox account's events carry `2025-07-30.basil` (the owner's
+ * `customer.created` list for run 44203911253, an event the journey caused while sending `2024-06-20`), so an exact `2024-06-20`
+ * check could never accept a genuine delivery. The correlation reads only id, type, livemode, data.object.id and
+ * data.object.customer, which both versions render the same; the version must still be a real Stripe version string.
+ */
+export const STRIPE_EVENT_API_VERSION = /^20\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])(\.[a-z]+)?$/;
+
 export function isCorrelatedDelivery(input: unknown, expected: {
   type: string; objectId: string; customer: string;
 }, ledger: { event_id?: unknown; event_type?: unknown; processed_at?: unknown } | null): boolean {
   const event = (input ?? {}) as Partial<BillingEvent>;
-  return /^evt_[A-Za-z0-9]+$/.test(event.id ?? '') && event.livemode === false && event.api_version === '2024-06-20'
+  return /^evt_[A-Za-z0-9]+$/.test(event.id ?? '') && event.livemode === false
+    && typeof event.api_version === 'string' && STRIPE_EVENT_API_VERSION.test(event.api_version)
     && event.type === expected.type && event.data?.object?.id === expected.objectId
     && event.data?.object?.customer === expected.customer
     && ledger?.event_id === event.id && ledger?.event_type === 'subscription.snapshot'
