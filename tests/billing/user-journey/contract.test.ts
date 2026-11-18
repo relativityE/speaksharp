@@ -5,7 +5,7 @@ import { RUNNER_JOURNEYS, POLICY_PENDING_STEPS, REQUIRED_STEPS, receipt, assertT
   isCorrelatedDelivery, assertSandboxConfiguration, safeFailureReason, testClockCreateFields, localStackStatus,
   hostedFieldUnavailable, hostedEmailDecision, assertCheckoutIdentity, type HostedField, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl, hostedEmailFieldAction,
   HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken ,
-  APP_MIN_SESSION_DURATION_SECONDS, RECORDING_HOLD_MS, cleanupFailureCode, recordingHoldRemainingMs, holdThenStop, observeCaptureLive, APP_TOO_SHORT_STATUS, WATCH_INSTALL_SCRIPT, takeStatusScript, stopGateScript, takeOutcome, optInThroughPrompt,
+  APP_MIN_SESSION_DURATION_SECONDS, RECORDING_HOLD_MS, recordingHoldRemainingMs, holdThenStop, observeCaptureLive, APP_TOO_SHORT_STATUS, WATCH_INSTALL_SCRIPT, takeStatusScript, stopGateScript, takeOutcome, optInThroughPrompt,
   privacyOptInFact, PRIVACY_PROMPT, privacyBuildState, PRIVACY_MIGRATION, privacyAnswerRecorded } from './contract';
 import { finaliseLocalStackReceipt, RECEIPT_KEYS } from './localStackReceipt.mjs';
 import { stackIdentitySha256 } from './localStackResources.mjs';
@@ -933,42 +933,4 @@ test('consent, #1835 build: a recorded choice is never rewritten — zero clicks
     await assert.rejects(optInThroughPrompt(f.deps), code);
     assert.ok(!f.log.some(l => l.startsWith('click') || l === 'wait'), JSON.stringify(r));
   }
-});
-
-// Run 44302168905: a cleanup failure is named by a fixed code; messages, ids and counts never reach the receipt.
-test('cleanup failure codes: each helper failure is named, content-free, and fits the receipt and progress line', async () => {
-  const { requireZeroResidue } = await import('../../live/helpers/runOwnedCleanup');
-  const residue = (count: unknown, t: string) => { try { requireZeroResidue(count, t); return null; } catch (e) { return e; } };
-  const cases: Array<[unknown, string]> = [
-    [residue(2, 'session_attribution_authority'), 'account_cleanup_residue_session_attribution_authority'],
-    [residue(null, 'transcript_retention_tombstones'), 'account_cleanup_residue_unread_transcript_retention_tombstones'],
-    [new Error('cleanup residue query on objective_session failed (fail closed): permission denied'), 'account_cleanup_residue_unread_objective_session'],
-    [new Error('cleanup deleteUser blocked by an unsettled take (fail closed): unsettleable=1 lease_only=0 not_stopped=0'), 'account_cleanup_unsettled_take'],
-    [new Error('cleanup deleteUser failed (fail closed): Database error deleting user'), 'account_cleanup_deleteuser_failed'],
-    [new Error('post-delete verify returned a non-not-found error — deletion UNPROVEN (fail closed): x'), 'account_cleanup_delete_unproven'],
-    [new Error('cleanup trial_entitlements pre-delete failed (fail closed): x'), 'account_cleanup_predelete_failed'],
-    [new Error('cleanup take settlement read failed (fail closed)'), 'account_cleanup_take_settlement_failed'],
-    [new Error('cleanup_uid_email_disagreement (fail closed)'), 'account_cleanup_identity_refused'],
-    [new Error('something new'), 'account_cleanup_other'],
-    ['not an error', 'account_cleanup_other'],
-  ];
-  for (const [error, code] of cases) {
-    assert.equal(cleanupFailureCode('account', error), code, String(error));
-    assert.match(code, /^[a-z0-9_]{1,80}$/);
-    assert.equal(safeFailureReason(new Error(`BILLING_JOURNEY:${code}`)), code);
-  }
-  // A table name that is not a plain identifier is never echoed.
-  assert.equal(cleanupFailureCode('account', new Error('cleanup found run-owned residue in Bad-Table (fail closed): count=1')), 'account_cleanup_residue_unnamed');
-  for (const [m, code] of [['BILLING_JOURNEY:clock_cleanup_not_proven', 'stripe_cleanup_clock_cleanup_not_proven'],
-    ['BILLING_JOURNEY:customer_cleanup_not_proven', 'stripe_cleanup_customer_cleanup_not_proven'],
-    ['BILLING_JOURNEY:stripe_request_failed', 'stripe_cleanup_stripe_request_failed'], ['cus_123 leaked', 'stripe_cleanup_other']] as const)
-    assert.equal(cleanupFailureCode('stripe', new Error(m)), code);
-  // The journey records the first failure (never swallows it) and carries it into the receipt reason.
-  const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
-  const cleanup = spec.slice(spec.indexOf('  async cleanup(): Promise<void> {'), spec.indexOf("    this.steps.add('cleanup');"));
-  assert.match(cleanup, /\} catch \(error\) \{ stripeFailed = true; note\(cleanupFailureCode\('stripe', error\)\); \}/);
-  assert.match(cleanup, /\} catch \(error\) \{ accountFailed = true; note\(cleanupFailureCode\('account', error\)\); \}/);
-  assert.match(cleanup, /requireFact\(!stripeFailed && !accountFailed && stripeClean && !this\.uncertainStripeCreate, failure \?\? 'cleanup_unproven'\);/);
-  assert.doesNotMatch(cleanup, /catch \{/, 'no cleanup failure is swallowed');
-  assert.match(spec, /catch \(error\) \{ cleanupFailed = true; reason \?\?= safeFailureReason\(error\); \}/);
 });

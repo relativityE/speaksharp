@@ -462,6 +462,23 @@ export function cleanupFailureCode(scope: 'stripe' | 'account', error: unknown):
   return 'account_cleanup_other';
 }
 
+/**
+ * The journey's Stripe fixture cleanup: deleting the run's Test Clock owns its customer and subscriptions; the deletion and the
+ * customer's `deleted` mark are both read back. Returns whether the run's Stripe fixtures are proven gone (true when it never
+ * created any); a fixture it cannot prove deleted throws a named code. Nothing is retried or widened.
+ */
+export async function proveStripeFixtureDeleted(stripe: (path: string, method?: string) => Promise<Record<string, unknown>>,
+  ids: { clock: string | null; customer: string | null }): Promise<boolean> {
+  if (!ids.clock) return !ids.customer;
+  const deleted = await stripe(`test_helpers/test_clocks/${ids.clock}`, 'DELETE');
+  requireFact(deleted.deleted === true && deleted.id === ids.clock, 'clock_cleanup_not_proven');
+  if (ids.customer) {
+    const customer = await stripe(`customers/${ids.customer}`);
+    requireFact(customer.deleted === true, 'customer_cleanup_not_proven');
+  }
+  return true;
+}
+
 /** All output is a closed, content-free list. Never serialize provider responses or credentials. */
 export function receipt(journey: LocalStackJourney, steps: ReadonlySet<string>) {
   const required = REQUIRED_STEPS[journey];

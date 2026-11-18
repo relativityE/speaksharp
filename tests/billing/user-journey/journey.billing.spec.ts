@@ -11,7 +11,7 @@ import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, re
   assertFullRefund, isRefundCancellation, assertCheckoutGrantedNothing,
   checkoutSessionFromUrl, assertCheckoutIdentity, newlyAddedCard, assertNoSecondCharge,
   type RunnerJourney, type BillingEvent, hostedFieldUnavailable, hostedEmailDecision, type HostedField,
-  HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl, cleanupFailureCode,
+  HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl, cleanupFailureCode, proveStripeFixtureDeleted,
   observeCaptureLive, holdThenStop, APP_TOO_SHORT_STATUS, WATCH_INSTALL_SCRIPT, takeStatusScript, stopGateScript, pageScript, takeOutcome,
   type StopGateResult, privacyBuildState, PRIVACY_PROMPT, optInThroughPrompt, type PrivacyTableRead } from './contract';
 import { fillHostedEmail } from './hostedEmail';
@@ -826,15 +826,7 @@ class SandboxJourney {
     let failure: string | null = null;
     const note = (code: string) => { failure ??= code; this.checkpoint(`cleanup_failed_${code}`.slice(0, 64)); };
     try {
-      if (this.clock) {
-        const deleted = await this.stripe(`test_helpers/test_clocks/${this.clock}`, 'DELETE');
-        requireFact(deleted.deleted === true && deleted.id === this.clock, 'clock_cleanup_not_proven');
-        stripeClean = true;
-        if (this.customer) {
-          const customer = await this.stripe(`customers/${this.customer}`);
-          requireFact(customer.deleted === true, 'customer_cleanup_not_proven');
-        }
-      }
+      stripeClean = await proveStripeFixtureDeleted((path, method) => this.stripe(path, method), { clock: this.clock || null, customer: this.customer || null });
     } catch (error) { stripeFailed = true; note(cleanupFailureCode('stripe', error)); }
     // Shared cleanup checks auth/profile/session residue and exact fixture ownership.
     try {
