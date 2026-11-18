@@ -59,8 +59,6 @@ class SandboxJourney {
   uid = ''; customer = ''; subscription = ''; clock = ''; session = ''; savedSession = '';
   /** The Checkout session openCheckout positively bound to this run (assertCheckoutIdentity); null until then. */
   boundCheckout: string | null = null;
-  /** Whether the bound Stripe customer carries an email: a presence flag only, never the value; null when unread. */
-  boundCustomerHasEmail: boolean | null = null;
   /** Whether the bound Customer's email IS this run's fixture email: compared only, never kept or reported; null when unread. */
   boundCustomerEmailIsFixture: boolean | null = null;
   signupAttempted = false;
@@ -266,7 +264,7 @@ class SandboxJourney {
       const decision = hostedEmailDecision({ emailFieldVisible: false,
         shownSession: email === 'after-binding' ? (() => { try { return checkoutSessionFromUrl(this.page.url()); } catch { return null; } })() : null,
         boundSession: email === 'after-binding' ? this.boundCheckout : null,
-        boundCustomerHasEmail: email === 'after-binding' ? this.boundCustomerHasEmail : null });
+        boundCustomerEmailIsFixture: email === 'after-binding' ? this.boundCustomerEmailIsFixture : null });
       // The observed control first (run 44157731067), then the generic email input.
       await fill([HOSTED_SELECTORS.email, 'input[type="email"]'], this.email, 'email', decision === 'absent_after_binding');
     }
@@ -433,13 +431,12 @@ class SandboxJourney {
   async openCheckout(raw: string | null): Promise<string> {
     const session = checkoutSessionFromUrl(raw);
     this.boundCheckout = null;
-    this.boundCustomerHasEmail = null;
     this.boundCustomerEmailIsFixture = null;
     assertCheckoutIdentity(await this.stripe(`checkout/sessions/${session}`),
       { session, customer: this.customer, uid: this.uid, app: this.targets.app });
-    // Presence only (the value is never kept or reported): whether Checkout has an email for this customer without asking.
+    // Compared only (the value is never kept or reported): whether the bound Customer's email IS this run's fixture email (Sam's hold
+    // on #1895: a non-empty email alone could be another address). It gates both the absent-field path and the locked-field path.
     const bound = await this.stripe(`customers/${this.customer}`);
-    this.boundCustomerHasEmail = typeof bound.email === 'string' ? bound.email.length > 0 : bound.email === null ? false : null;
     this.boundCustomerEmailIsFixture = typeof bound.email === 'string' ? bound.email === this.email : bound.email === null ? false : null;
     // Set only after the positive binding above: the one session hostedEmailDecision may accept without an email field.
     this.boundCheckout = session;

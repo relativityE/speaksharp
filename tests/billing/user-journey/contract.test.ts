@@ -106,19 +106,30 @@ test('a missing hosted field is named (run 44055010939 could not say which), con
 test('hosted email (run 44066185734): required by default; absent only on the exact session positively bound to this run', () => {
   const bound = 'cs_test_Bound123';
   // A visible editable email field is always filled, bound or not, whatever the customer carries.
-  for (const boundCustomerHasEmail of [true, false, null])
-    assert.equal(hostedEmailDecision({ emailFieldVisible: true, shownSession: bound, boundSession: bound, boundCustomerHasEmail }), 'fill');
-  assert.equal(hostedEmailDecision({ emailFieldVisible: true, shownSession: null, boundSession: null, boundCustomerHasEmail: null }), 'fill');
-  // Email already supplied: the bound session's customer carries an email, so no field is rendered and none is needed.
-  assert.equal(hostedEmailDecision({ emailFieldVisible: false, shownSession: bound, boundSession: bound, boundCustomerHasEmail: true }), 'absent_after_binding');
-  // CONTROL (run 44157731067): the bound customer has NO email (or its presence is unread), so a missing field is never "absent".
-  for (const boundCustomerHasEmail of [false, null])
-    assert.equal(hostedEmailDecision({ emailFieldVisible: false, shownSession: bound, boundSession: bound, boundCustomerHasEmail }), 'missing', String(boundCustomerHasEmail));
-  // Unbound, a different session on screen, an unreadable page, or a malformed binding never skips email, even with a customer email.
+  for (const boundCustomerEmailIsFixture of [true, false, null])
+    assert.equal(hostedEmailDecision({ emailFieldVisible: true, shownSession: bound, boundSession: bound, boundCustomerEmailIsFixture }), 'fill');
+  assert.equal(hostedEmailDecision({ emailFieldVisible: true, shownSession: null, boundSession: null, boundCustomerEmailIsFixture: null }), 'fill');
+  // Email already supplied: the bound session's customer carries EXACTLY the fixture email, so no field is needed.
+  assert.equal(hostedEmailDecision({ emailFieldVisible: false, shownSession: bound, boundSession: bound, boundCustomerEmailIsFixture: true }), 'absent_after_binding');
+  // CONTROLS: no email (run 44157731067), a DIFFERENT non-empty email (Sam's hold on #1895, 18f006c6), or unread: a missing field
+  // is never "absent". `false` is what openCheckout records for both no email and another email (see the static check below).
+  for (const boundCustomerEmailIsFixture of [false, null])
+    assert.equal(hostedEmailDecision({ emailFieldVisible: false, shownSession: bound, boundSession: bound, boundCustomerEmailIsFixture }), 'missing', String(boundCustomerEmailIsFixture));
+  // Unbound, a different session on screen, an unreadable page, or a malformed binding never skips email, even with the fixture email.
   for (const [shownSession, boundSession] of [[bound, null], ['cs_test_Other456', bound], [null, bound], ['', ''],
     ['cs_live_Bound123', 'cs_live_Bound123'], [bound, `${bound}x!`]] as const) {
-    assert.equal(hostedEmailDecision({ emailFieldVisible: false, shownSession, boundSession, boundCustomerHasEmail: true }), 'missing', `${shownSession} / ${boundSession}`);
+    assert.equal(hostedEmailDecision({ emailFieldVisible: false, shownSession, boundSession, boundCustomerEmailIsFixture: true }), 'missing', `${shownSession} / ${boundSession}`);
   }
+  // The flag openCheckout computes, evaluated on Stripe Customer shapes: only the exact fixture email is true; another non-empty
+  // email, no email and an unreadable value are not.
+  const fixtureEmail = 'rwt-journey-billing-1-1@example.com';
+  const flag = (email: unknown) => typeof email === 'string' ? email === fixtureEmail : email === null ? false : null;
+  assert.equal(flag(fixtureEmail), true);
+  for (const other of ['someone-else@example.com', `${fixtureEmail} `, fixtureEmail.toUpperCase(), '', null]) {
+    assert.equal(flag(other), false, String(other));
+    assert.equal(hostedEmailDecision({ emailFieldVisible: false, shownSession: bound, boundSession: bound, boundCustomerEmailIsFixture: flag(other) }), 'missing', String(other));
+  }
+  assert.equal(flag(undefined), null);
 });
 test('the binding that permits an absent email: a wrong customer, user, paid or live session never binds', () => {
   const expected = { session: 'cs_test_Bound123', customer: 'cus_owned', uid: 'uid-1', app: 'http://localhost:5173' };
@@ -482,15 +493,15 @@ test('existing-customer sandbox conversion: the fixture Customer carries the fix
   assert.match(spec, /if \(this\.journey === 'conversion'\) this\.checkpoint\('existing_customer_fixture'\);/);
   assert.doesNotMatch(spec, /^\s*this\.checkpoint\('existing_customer_fixture'\);/m, 'never unconditional');
   const open = spec.slice(spec.indexOf('async openCheckout('), spec.indexOf('async checkout(): Promise<void> {'));
-  const identity = open.indexOf('assertCheckoutIdentity('), presence = open.indexOf('this.boundCustomerHasEmail = typeof bound.email'), bind = open.indexOf('this.boundCheckout = session;');
+  const identity = open.indexOf('assertCheckoutIdentity('), presence = open.indexOf('this.boundCustomerEmailIsFixture = typeof bound.email'), bind = open.indexOf('this.boundCheckout = session;');
   assert.ok(identity > 0 && presence > identity && bind > presence, 'presence is read after the identity proof and before the session is bound');
-  // The email value is never stored or reported: only a boolean (or null when unread) leaves that expression.
-  assert.match(open, /this\.boundCustomerHasEmail = typeof bound\.email === 'string' \? bound\.email\.length > 0 : bound\.email === null \? false : null;/);
-  // Two booleans only: presence, and (Sam on run 44203911253) whether it IS this run's fixture email. Compared, never kept or reported.
-  assert.equal((open.match(/bound\.email/g) ?? []).length, 6);
+  // One boolean only (Sam on run 44203911253 and the #1895 hold): whether the bound email IS this run's fixture email. Compared, never
+  // kept or reported; no presence-only flag remains, so a different non-empty email can never satisfy either email path.
+  assert.equal((open.match(/bound\.email/g) ?? []).length, 3);
+  assert.doesNotMatch(spec, /boundCustomerHasEmail/);
   assert.match(open, /this\.boundCustomerEmailIsFixture = typeof bound\.email === 'string' \? bound\.email === this\.email : bound\.email === null \? false : null;/);
-  // The decision is fed the presence flag only on the bound after-binding path.
-  assert.match(spec, /boundCustomerHasEmail: email === 'after-binding' \? this\.boundCustomerHasEmail : null \}\);/);
+  // The absent-field decision is fed the exact-fixture flag, only on the bound after-binding path.
+  assert.match(spec, /boundCustomerEmailIsFixture: email === 'after-binding' \? this\.boundCustomerEmailIsFixture : null \}\);/);
 });
 
 test('an unconfirmable form is not submitted: the stop names the invalid controls; an unread state still proceeds', () => {

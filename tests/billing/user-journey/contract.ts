@@ -164,19 +164,20 @@ export function hostedSubmitUnavailable(facts: { visible: boolean | null; enable
  * Whether the hosted email field must be filled, when the card is entered (run 44066185734: hosted_field_unavailable_email).
  * Email is REQUIRED by default. A visible editable field is always filled. It may be absent only when the page on screen is the
  * exact Checkout session that `assertCheckoutIdentity` already proved is this run's open, unpaid test-mode session for the
- * run-owned Stripe customer and app user (`boundSession`) AND that bound customer already carries an email
- * (`boundCustomerHasEmail === true`, read from Stripe as a presence flag only): only then is there no email for Checkout to ask for.
- * Run 44157731067 (after #1890): the fixture creates its customer WITHOUT an email, Checkout still required one, and the old rule
- * (bound session alone) let the journey skip it: the form stayed unconfirmable with `fields_email`. A customer without an email, or
- * one whose email presence is unread, never takes the absent path. A non-empty `customer` alone is not proof, and an unbound,
- * different or unknown session never skips it.
+ * run-owned Stripe customer and app user (`boundSession`) AND that bound customer's email is EXACTLY this run's fixture email
+ * (`boundCustomerEmailIsFixture === true`: compared from Stripe's own Customer read, never kept or reported). Only then is there no
+ * email for Checkout to ask for. Run 44157731067 (after #1890): the customer had no email, Checkout still required one, and the old
+ * rule (bound session alone) skipped it: the form stayed unconfirmable with `fields_email`. Sam's hold on #1895 (18f006c6): mere
+ * presence of a non-empty email is not enough either, because a bound customer carrying some OTHER email would let the journey
+ * skip the field. A customer without an email, with a different one, or whose email is unread never takes the absent path; an
+ * unbound, different or unknown session never skips it.
  */
 export function hostedEmailDecision(input: { emailFieldVisible: boolean; shownSession: string | null; boundSession: string | null;
-  boundCustomerHasEmail: boolean | null }): 'fill' | 'absent_after_binding' | 'missing' {
+  boundCustomerEmailIsFixture: boolean | null }): 'fill' | 'absent_after_binding' | 'missing' {
   if (input.emailFieldVisible) return 'fill';
   const bound = typeof input.boundSession === 'string' && /^cs_test_[A-Za-z0-9]+$/.test(input.boundSession)
     && input.shownSession === input.boundSession;
-  return bound && input.boundCustomerHasEmail === true ? 'absent_after_binding' : 'missing';
+  return bound && input.boundCustomerEmailIsFixture === true ? 'absent_after_binding' : 'missing';
 }
 
 /**
