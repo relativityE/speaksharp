@@ -560,6 +560,21 @@ export const SWITCH_METRICS_ONLY_ROW = 'switch: Open Mic take stayed metrics-onl
 export const SWITCH_CARRY_OVER_TESTED_ROW = 'switch: carry-over tested';
 
 /**
+ * #1897 Codex P2 (eeab028): the product of the take saved after the switch, read only from a row that is that exact take,
+ * owned by the run's account, and in the state its consent asks for: a transcript when saving is on, a metrics-only row
+ * (no transcript) when saving is off. Any other row gives null, which `switchIsolationVerdict` FAILs by name. Before this,
+ * a correctly saved saving-off Focus take (metrics_only) gave null and FAILed before the saving-off branch was reached.
+ */
+export function switchSavedFocusProduct(o: {
+    saved: SwitchSourceSnapshot; focusId: string | null; ownerId: string | null; transcriptSaving: 'on' | 'off';
+}): string | null {
+    if (!o.focusId || !o.ownerId) return null;
+    if (o.saved.sessionId !== o.focusId || o.saved.userId !== o.ownerId) return null;
+    const expected = o.transcriptSaving === 'off' ? 'metrics_only' : 'available';
+    return o.saved.state === expected ? o.saved.product : null;
+}
+
+/**
  * #1897 review 5 (Sam, Nov 18): on a saving-OFF run, two SEPARATE verdicts that were one:
  *   - `metricsOnly`: both reads of the Open Mic row are a completed metrics-only row (positive duration, no transcript) of
  *     the same session and product. A transcript saved while off FAILs.

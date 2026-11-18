@@ -19,7 +19,7 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './benchmark-utils';
 import { MODEL_COMPARISON_AUTH_KEY } from './practiceLoopJourney';
-import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches, newSetSourcePoints, newSetEditVerdicts, setupIsBlank, switchIsolationVerdict, switchSaveOffVerdicts, completingPageMarkersInPage, SWITCH_METRICS_ONLY_ROW, SWITCH_CARRY_OVER_TESTED_ROW, switchSourceState, railShowsExactFourPoints, labelHeardIn, focusBackReloadVerdict, focusIdentityObservation, firstTakeSavedExactlyOnceVerdict, type SwitchSourceSnapshot } from './rwtOracles';
+import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches, newSetSourcePoints, newSetEditVerdicts, setupIsBlank, switchIsolationVerdict, switchSaveOffVerdicts, switchSavedFocusProduct, completingPageMarkersInPage, SWITCH_METRICS_ONLY_ROW, SWITCH_CARRY_OVER_TESTED_ROW, switchSourceState, railShowsExactFourPoints, labelHeardIn, focusBackReloadVerdict, focusIdentityObservation, firstTakeSavedExactlyOnceVerdict, type SwitchSourceSnapshot } from './rwtOracles';
 import { cleanupRunOwnedAccount } from './runOwnedCleanup';
 import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, armWatchdog, watchProfileFor, type JourneyFinalizer } from './rwtWatchdog';
 import { savedFocusIdentityVerdict } from './rwtSavedFocusIdentity';
@@ -1303,7 +1303,10 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 const railAfter = await readRailRows(page, points);
                 const newSetVisibleAfterSwitch = await page.getByTestId('focus-points-new-set').isVisible().catch(() => false);
                 const savedFocus = focusId && focusId !== openMicId ? await sessionRow(focusId) : unavailable('missing');
-                const savedProduct = savedFocus.state === 'available' && savedFocus.sessionId === focusId && savedFocus.userId === owner.uid ? savedFocus.product : null;
+                // #1897 Codex P2 (eeab028): a saving-off Focus take is a metrics-only row; accept it only when saving is off, for
+                // this exact take and owner. Saving on still needs a saved transcript.
+                const savedProduct = switchSavedFocusProduct({ saved: savedFocus, focusId: focusId && focusId !== openMicId ? focusId : null,
+                    ownerId: owner.uid, transcriptSaving: switchSavingOff ? 'off' : 'on' });
                 const openMicAfter = openMicId && openMicId !== before ? await sessionRow(openMicId) : unavailable('missing');
                 const iso = switchIsolationVerdict({
                     railPendingBefore, openMicId: openMicId !== before ? openMicId : null, focusId: focusId !== openMicId ? focusId : null,
