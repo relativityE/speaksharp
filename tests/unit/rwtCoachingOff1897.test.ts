@@ -120,7 +120,7 @@ describe('#1897 review 4 — after Stop: no review requested, shown or saved', (
         ['review_requested_state', { reviewState: 'error' }],
         ['coaching_requested_while_off', { coachingRequests: 1 }],
         ['coaching_saved_while_off', { savedSuggestions: 'present' }],
-    ] as const)('control %s FAILs', (reason, change) => {
+    ] as const)('control %s FAILs given %j', (reason, change) => {
         expect(coachingOffVerdict('coaching_off_saved', { ...good('coaching_off_saved'), ...change })).toMatchObject({ verdict: 'FAIL', reason });
     });
 
@@ -169,7 +169,7 @@ describe('#1897 review 4 — Back from Progress and reload', () => {
         ['verdicts_changed', { verdictsAfter: ['p1:not_detected'] }],
         ['verdicts_changed', { verdictsBefore: [], verdictsAfter: [] }],
         ['coaching_requested', { coachingRequestsAfter: 1 }],
-    ] as const)('control %s FAILs', (reason, change) => {
+    ] as const)('control %s FAILs given %j', (reason, change) => {
         expect(offBackReloadVerdict('coaching_off_saved', { ...obs('coaching_off_saved'), ...change })).toMatchObject({ verdict: 'FAIL', reason });
     });
 
@@ -183,7 +183,7 @@ describe('#1897 review 4 — Back from Progress and reload', () => {
         ['transcript_wrong', 'saving_off', { transcript: 'missing' }],
         ['focus_results_wrong', 'coaching_off_saved', { focus: ['covered', 'partial', 'missing', 'covered'] }],
         ['focus_results_wrong', 'saving_off', { focus: null }],
-    ] as const)('control %s (%s) FAILs after Back and after the reload', (reason, mode, change) => {
+    ] as const)('control %s (%s) FAILs after Back and after the reload given %j', (reason, mode, change) => {
         expect(offBackReloadVerdict(mode, { ...obs(mode), afterBack: { ...view(mode), ...change } })).toMatchObject({ verdict: 'FAIL', reason });
         expect(offBackReloadVerdict(mode, { ...obs(mode), afterReload: { ...view(mode), ...change } })).toMatchObject({ verdict: 'FAIL', reason });
     });
@@ -243,7 +243,7 @@ describe('#1897 review 4 — Analytics', () => {
         ['Analytics shows no AI suggestions while coaching is off', 'saving_off', { reviewPhrasesShown: true }],
         ['analytics point detail', 'coaching_off_saved', { focusAfterReload: null }],
         ['analytics point detail', 'saving_off', { focusBefore: ['missing', 'covered', 'missing', 'covered'] }],
-    ] as const)('control: %s FAILs (%s)', (step, mode, change) => {
+    ] as const)('control: %s FAILs (%s) given %j', (step, mode, change) => {
         expect(verdicts(offAnalyticsRows(mode, { ...seen(mode), ...change }, RAIL))[step]).toBe('FAIL');
     });
 
