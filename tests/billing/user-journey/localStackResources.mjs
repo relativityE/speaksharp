@@ -6,7 +6,7 @@
 //  (a) every Docker query is checked on its own; a failed query is an error, never an empty answer;
 //  (b) an empty selector after stop is not proof. The identities are captured after creation and each one
 //      must be absent after a checked stop; a selector that matched the wrong thing (or nothing) fails.
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import process from 'node:process';
@@ -153,9 +153,88 @@ export function verifyStackDestroyed(identity, project, docker = runDocker) {
     containers: identity.containers.length, volumes: identity.volumes.length, networks: identity.networks.length, destroyed: true };
 }
 
+export const WITNESS_SCHEMA = 'billing-local-stack-cleanup-witness/v1';
+// The run's one synthetic owner (journey.billing.spec.ts `marker`@example.com). Never printed.
+const OWNER_EMAIL = '^rwt-journey-billing-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}@example\\.com$';
+const OWNER_SQL = `SELECT count(*) || '|' || count(*) FILTER (WHERE email ~ '${OWNER_EMAIL}') FROM auth.users`;
+// Counts only, for that one owner. An admitted obligation is split by what can settle it: linked to a session, or
+// lease-only and either still the current lease or a superseded one (no lease row carries its lease_id).
+const COUNTS_SQL = `WITH o AS (SELECT id FROM auth.users WHERE email ~ '${OWNER_EMAIL}'),
+cur AS (SELECT lease_id, state FROM public.active_recording_lease WHERE user_id IN (SELECT id FROM o)),
+rows AS (
+  SELECT 'obligation' AS kind, phase AS k, CASE WHEN session_id IS NOT NULL THEN 'session_linked'
+    WHEN lease_id IN (SELECT lease_id FROM cur) THEN 'lease_only_current' ELSE 'lease_only_superseded' END AS b
+    FROM public.account_save_obligations WHERE user_id IN (SELECT id FROM o)
+  UNION ALL SELECT 'lease', state, '-' FROM cur
+  UNION ALL SELECT 'session', status, CASE WHEN lease_id IS NULL THEN 'unleased' ELSE 'lease_linked' END
+    FROM public.sessions WHERE user_id IN (SELECT id FROM o))
+SELECT kind || '|' || k || '|' || b || '|' || count(*) FROM rows GROUP BY kind, k, b ORDER BY kind, k, b`;
+const COUNT_ROW = /^(obligation|lease|session)\|([a-z_]{1,32})\|(session_linked|lease_only_current|lease_only_superseded|-|unleased|lease_linked)\|([0-9]{1,9})$/;
+// Allowlisted failure categories: the only thing read from logs is how many lines contain each fixed phrase.
+const CATEGORIES = { guard_admitted_save_unsettled: 'account admitted save unsettled', auth_database_error_deleting_user: 'Database error deleting user' };
+
+/** Full answer for logs (a container writes its log to both streams); never throws. */
+export function runDockerFull(args) {
+  const r = spawnSync('docker', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  return { code: typeof r.status === 'number' ? r.status : 1, stdout: `${r.stdout ?? ''}`, stderr: `${r.stderr ?? ''}` };
+}
+
+/** The recorded container for `supabase_<service>_<project>`: same id, same name, this run's label, or a failure. */
+function recordedContainer(docker, identity, project, service) {
+  const name = `supabase_${service}_${project}`;
+  const answer = docker(['container', 'inspect', '--format', `{{.Id}} {{.Name}} {{index .Config.Labels "${LABEL}"}}`, name]);
+  if (!answer || answer.code !== 0) fail(`witness_${service}_container_unreadable`);
+  const [id, containerName, label] = `${answer.stdout}`.trim().split(/\s+/);
+  if (containerName !== `/${name}` || label !== project || !identity.containers.includes(id)) fail(`witness_${service}_container_not_recorded`);
+  return id;
+}
+
+function psql(docker, container, sql) {
+  const answer = docker(['exec', container, 'psql', '-U', 'postgres', '-v', 'ON_ERROR_STOP=1', '-tAc', sql]);
+  if (!answer || answer.code !== 0) fail('witness_query_failed');
+  return `${answer.stdout}`.split('\n').map(line => line.trim()).filter(Boolean);
+}
+
+/**
+ * Sam's 18 Nov ask on #1898, before teardown and only after an Auth-refused cleanup: prove this is the exact recorded
+ * database (container id and system identifier) and that it holds exactly one user, the run's synthetic owner; then
+ * return only bounded counts for that owner and how often each allowlisted failure phrase appeared in the Auth and
+ * database logs. No ids, emails, rows or log lines leave this function; anything unexpected is a failure code.
+ */
+export function witnessCleanupRefusal(identity, project, docker = runDockerFull) {
+  assertIdentityShape(identity, project);
+  const db = recordedContainer(docker, identity, project, 'db');
+  if (db !== identity.database.container) fail('witness_database_not_recorded');
+  const [sysid] = psql(docker, db, 'select system_identifier from pg_control_system()');
+  if (sysid !== `${identity.database.systemIdentifier}`) fail('witness_database_identity_mismatch');
+  const [owners] = psql(docker, db, OWNER_SQL);
+  if (owners !== '1|1') fail('witness_owner_unbound');
+  const counts = { obligation: {}, lease: {}, session: {} };
+  for (const line of psql(docker, db, COUNTS_SQL)) {
+    const m = COUNT_ROW.exec(line);
+    if (!m) fail('witness_count_unreadable');
+    const key = m[3] === '-' ? m[2] : `${m[2]}:${m[3]}`;
+    counts[m[1]][key] = Number(m[4]);
+  }
+  const auth = recordedContainer(docker, identity, project, 'auth');
+  const failureCategories = {};
+  for (const [source, container] of [['auth', auth], ['db', db]]) {
+    const answer = docker(['logs', container]);
+    if (!answer || answer.code !== 0) fail(`witness_${source}_logs_unreadable`);
+    const lines = `${answer.stdout}\n${answer.stderr}`.split('\n');
+    for (const [category, phrase] of Object.entries(CATEGORIES)) {
+      const n = lines.filter(line => line.includes(phrase)).length;
+      if (n > 0) failureCategories[`${source}:${category}`] = n;
+    }
+  }
+  return { schema: WITNESS_SCHEMA, project, databaseSystemIdentifier: `${identity.database.systemIdentifier}`, owner: 'bound',
+    counts, failureCategories };
+}
+
 // CLI:
 //   node localStackResources.mjs capture <project>                > identity.json
 //   node localStackResources.mjs verify  <project> <identity.json>
+//   node localStackResources.mjs witness <project> <identity.json>
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const [command, project, file] = process.argv.slice(2);
   try {
@@ -165,6 +244,10 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
       let identity = null;
       try { identity = JSON.parse(readFileSync(file ?? '', 'utf8')); } catch { identity = null; }
       process.stdout.write(`${JSON.stringify(verifyStackDestroyed(identity, project), null, 2)}\n`);
+    } else if (command === 'witness') {
+      let identity = null;
+      try { identity = JSON.parse(readFileSync(file ?? '', 'utf8')); } catch { identity = null; }
+      process.stdout.write(`${JSON.stringify(witnessCleanupRefusal(identity, project))}\n`);
     } else {
       fail('unknown_command');
     }

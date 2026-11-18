@@ -336,6 +336,24 @@ jobs:
             sha256sum billing-local-stack-receipt.json | tee billing-local-stack-receipt.sha256
           fi
 
+      # Runs 44302168905 and 44316016932: every journey step passed, then Auth refused to delete the run's account
+      # (account_cleanup_deleteuser_failed) while the take settlement read zeros. Before teardown, and only for that
+      # receipt reason, the witness (localStackResources.mjs, tested offline) first proves this is the exact recorded
+      # database (container id + system identifier) holding exactly one user, the run's synthetic owner. It then
+      # returns only that owner's counts (save obligations by phase and what can settle them, leases by state, sessions
+      # by status and lease binding) and how many Auth/database log lines carry each allowlisted failure phrase.
+      # Local superuser inside the recorded container; no grant, no write, no guard bypass, no ids/emails/rows/log
+      # lines printed. Diagnostic only: it never changes the verdict.
+      - name: Diagnose an Auth-refused cleanup (counts only, disposable stack)
+        id: cleanup_witness
+        if: ${{ always() && hashFiles('billing-local-stack-receipt.json') != '' && hashFiles('billing-local-stack-identity.json') != '' }}
+        run: |
+          set -euo pipefail
+          reason="$(jq -r '.[0].reason // empty' billing-local-stack-receipt.json 2>/dev/null || true)"
+          [ "$reason" = 'account_cleanup_deleteuser_failed' ] || { echo "No Auth-refused cleanup to diagnose (reason: ${reason:-none})."; exit 0; }
+          node tests/billing/user-journey/localStackResources.mjs witness "$LOCAL_STACK_PROJECT" \
+            billing-local-stack-identity.json | tee billing-local-stack-cleanup-witness.json
+
       - name: Verify no Stripe test fixture remains
         id: stripe_residue
         # Only after the dispatch check AND the approved test-account check succeeded: a rejected ACK, SHA or
