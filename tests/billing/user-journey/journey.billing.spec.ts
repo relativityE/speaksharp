@@ -1,6 +1,8 @@
 import { test, expect, type Page } from '@playwright/test';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
+import { readdirSync } from 'node:fs';
+import { resolve } from 'node:path';
 import sandboxTarget from './sandbox-target.json' with { type: 'json' };
 import localStackTarget from './sandbox-target.local.json' with { type: 'json' };
 import { runnerPreflight } from './runnerPreflight.mjs';
@@ -9,12 +11,13 @@ import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, re
   assertFullRefund, isRefundCancellation, assertCheckoutGrantedNothing,
   checkoutSessionFromUrl, assertCheckoutIdentity, newlyAddedCard, assertNoSecondCharge,
   type RunnerJourney, type BillingEvent, hostedFieldUnavailable, hostedEmailDecision, type HostedField,
-  HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl } from './contract';
+  HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl,
+  observeCaptureLive, holdThenStop, APP_TOO_SHORT_STATUS, WATCH_INSTALL_SCRIPT, takeStatusScript, stopGateScript, pageScript, takeOutcome,
+  type StopGateResult, privacyBuildState, PRIVACY_PROMPT, optInThroughPrompt, type PrivacyTableRead } from './contract';
 import { fillHostedEmail } from './hostedEmail';
 import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { selectBenchmarkMode, preparePrivateModelIfPrompted, startBenchmarkRecording,
-  expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput, stopBenchmarkRecording,
-  waitForBenchmarkSaveCandidate } from '../../live/helpers/benchmark-utils';
+  expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput } from '../../live/helpers/benchmark-utils';
 
 // Untrusted provider fields are checked at their assertion boundary before being counted as evidence.
 type Obj = {
@@ -544,19 +547,68 @@ class SandboxJourney {
     this.steps.add('paid_entitlement');
   }
 
+  /**
+   * #1835: opt THIS run's account in to transcript saving through the actual Practice prompt, as a user would ("Save transcripts",
+   * "No coaching": the recording step never needed coaching), then prove it from the owner's own server row. A build without
+   * #1835 has no table and no prompt: nothing to do. No choice, a declined or foreign row, or an unreadable read stops here.
+   */
+  async ensureTranscriptSaving(): Promise<void> {
+    // Independent schema identity: the tested commit's own migrations (the local stack applied exactly these).
+    const build = privacyBuildState((() => { try { return readdirSync(resolve(process.cwd(), 'backend/supabase/migrations')); } catch { return null; } })());
+    const prompt = this.page.getByTestId(PRIVACY_PROMPT.prompt);
+    await optInThroughPrompt({
+      build, ownerId: this.uid,
+      readChoice: async (): Promise<PrivacyTableRead> => {
+        const r = await this.admin.from('practice_privacy_choices').select('user_id,transcript_save,ai_coaching,consent_version').eq('user_id', this.uid).maybeSingle();
+        if (r.error) return r.error.code === '42P01' || r.error.code === 'PGRST205' ? { state: 'absent' } : { state: 'unreadable' };
+        return { state: 'read', row: r.data };
+      },
+      prompt: {
+        // A real bounded wait, not a one-shot visibility snapshot (which would stop on a prompt still hydrating).
+        waitVisible: () => prompt.waitFor({ state: 'visible', timeout: HOSTED_ACTION_MS }).then(() => true, () => false),
+        click: (control) => prompt.getByTestId(PRIVACY_PROMPT[control]).click({ timeout: HOSTED_ACTION_MS }),
+        waitHidden: () => prompt.waitFor({ state: 'hidden', timeout: HOSTED_ACTION_MS }).catch(() => undefined),
+      },
+      checkpoint: (name) => this.checkpoint(name),
+    });
+  }
+
   async record(): Promise<void> {
     await this.page.goto(`${this.targets.app}/practice`);
+    await this.ensureTranscriptSaving();
     await this.page.getByTestId('practice-card-freeform').click();
     await selectBenchmarkMode(this.page, 'private');
     const setup = await preparePrivateModelIfPrompted(this.page, 180_000);
     if (!setup.recordingAlreadyStarted) await startBenchmarkRecording(this.page, 'billing-journey');
     await expectBenchmarkRecordingStarted(this.page, 'billing-journey');
+    // The hold counts from OBSERVED capture live (not the Start click or the first words); an in-page watch keeps the take bound
+    // to this document and session, and the page clicks Stop in the same task as its final check (contract.ts). Run 44284831241:
+    // a take under the app's minimum is discarded as too short.
+    // Monotonic elapsed clock (a wall-clock step can never shorten or lengthen the hold).
+    const clock = { now: () => performance.now(), sleep: (ms: number) => this.page.waitForTimeout(ms) };
+    const live = await observeCaptureLive({ clock, timeoutMs: 60_000,
+      probe: () => this.page.evaluate<string | null>(pageScript(WATCH_INSTALL_SCRIPT)).catch(() => null) });
     await expectBenchmarkTranscriptOutput(this.page, 'billing-journey', 60_000, 3);
-    await stopBenchmarkRecording(this.page, 'billing-journey');
-    await waitForBenchmarkSaveCandidate(this.page, 'billing-journey', 120_000);
-    this.savedSession = await this.poll(() => this.page.evaluate(() =>
-      document.documentElement.getAttribute('data-session-persisted') === 'true'
-        ? document.documentElement.getAttribute('data-session-persisted-id') ?? '' : ''), Boolean, 'recording_not_persisted');
+    const held = await holdThenStop({ startedObservedAt: live.observedAt, takeKey: live.takeKey, clock,
+      probe: () => this.page.evaluate<string | null>(pageScript(takeStatusScript(live.takeKey))).catch(() => null),
+      stop: async () => {
+        this.checkpoint('recording_hold_met');
+        return this.page.evaluate<StopGateResult>(pageScript(stopGateScript(live.takeKey)))
+          .catch(() => ({ clicked: false, reason: 'unread', session: null }));
+      } });
+    await expect(this.page.getByTestId('recorder-bar')).toHaveCount(0, { timeout: 120_000 })
+      .catch(() => { throw new Error('BILLING_JOURNEY:recording_not_stopped'); });
+    // One read of every way the take can end: too short ends it at once even with no candidate; another session is the wrong take.
+    const outcome = await this.poll(async () => takeOutcome(await this.page.evaluate((tooShort) => {
+      const debug = (window as unknown as { __SPEECH_RUNTIME_DEBUG__?: () => { saveCandidate?: { sessionId?: unknown } | null } }).__SPEECH_RUNTIME_DEBUG__?.();
+      const candidateSession = typeof debug?.saveCandidate?.sessionId === 'string' ? debug.saveCandidate.sessionId : null;
+      const persisted = document.documentElement.getAttribute('data-session-persisted') === 'true'
+        ? document.documentElement.getAttribute('data-session-persisted-id') : null;
+      return { tooShort: document.body.innerText.includes(tooShort), candidateSession, persistedId: persisted || null };
+    }, APP_TOO_SHORT_STATUS), held.session), (o) => o !== 'pending', 'recording_not_persisted');
+    requireFact(outcome === 'saved', outcome);
+    requireFact(typeof held.session === 'string', 'take_session_unknown');
+    this.savedSession = held.session as string;
     const row = await this.admin.from('sessions').select('id,user_id,status,transcript,engine')
       .eq('id', this.savedSession).eq('user_id', this.uid).single();
     requireFact(!row.error && row.data?.status === 'completed' && row.data.engine === 'private'
