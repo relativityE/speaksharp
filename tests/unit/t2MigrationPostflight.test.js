@@ -14,6 +14,7 @@ import { assertT2Sources, assertT2Catalog, t2CatalogQuery, T2_VERSIONS, T2_INVEN
 import { EXACT_MIGRATION_ALLOWLIST } from '../../scripts/lib/exactMigrationGate.mjs';
 import { ABANDONMENT_CATALOG_DELTA } from '../../scripts/lib/abandonmentCatalogPins.mjs';
 import { FEEDBACK_FENCE_CATALOG_DELTA } from '../../scripts/lib/feedbackFenceCatalogPins.mjs';
+import { PAYMENT_WALL_T2_CATALOG_DELTA, PRACTICE_PRIVACY_T2_CATALOG_DELTA, PENDING_NATIVE_PIN } from '../../scripts/lib/paymentWallPrivacyT2CatalogPins.mjs';
 
 // #1811 execution-evidence witness (scripts/lib/nativeTestExecutionEvidence.mjs SQL_CONTRACTS): this file is the registered
 // executing consumer of the feedback fence migration. Written only when the quality run binds it, naming the exact bytes that ran.
@@ -324,6 +325,56 @@ console.log(query.includes('objects AS')?rows.join('\\n'):rows[0]);});\n`);
       [...ledger.slice(0, -2), ledger.at(-1)],                          // the fence without the abandonment
     ]) expect(() => t2ReleaseContract(process.cwd(), bad)).toThrow('ledger');
   });
+  it('selects only the exact ledger-12 payment-wall and ledger-13 practice-privacy successors; refuses skipped, reordered, withheld or later ledgers', () => {
+    const eleven = [...T2_VERSIONS, ...c1Versions, '20261110173548', '20261112133000', '20261114100000'];
+    const twelve = [...eleven, '20261114170000'], thirteen = [...twelve, '20261117105700'];
+    const wall = t2ReleaseContract(process.cwd(), twelve), privacy = t2ReleaseContract(process.cwd(), thirteen);
+    expect([wall.profile, wall.stage, privacy.profile, privacy.stage]).toEqual(['post-1863-payment-wall', 6, 'post-1835-practice-privacy', 7]);
+    expect(wall.pins.map(pin => pin.version)).toEqual(twelve);
+    expect(privacy.pins.map(pin => pin.version)).toEqual(thirteen);
+    // Each stage keeps every earlier object (the feedback fence included) and adds only its measured delta.
+    const eleventh = t2ReleaseContract(process.cwd(), eleven);
+    for (const contract of [wall, privacy]) {
+      expect(contract.inventory).toEqual(eleventh.inventory);
+      expect(contract.knownAbsent).toEqual(eleventh.knownAbsent);
+      for (const [key, digest] of Object.entries(FEEDBACK_FENCE_CATALOG_DELTA)) expect(contract.expected[key]).toBe(digest);
+      for (const [key, digest] of Object.entries(PAYMENT_WALL_T2_CATALOG_DELTA)) expect(contract.expected[key]).toBe(digest);
+      expect(t2EdgeReleaseContract(process.cwd(), contract.ledger).profile).toBe(contract.profile);
+    }
+    const changed = (a, b) => Object.keys({ ...a.expected, ...b.expected }).filter(key => a.expected[key] !== b.expected[key]).sort();
+    expect(changed(eleventh, wall)).toEqual(Object.keys(PAYMENT_WALL_T2_CATALOG_DELTA).sort());
+    expect(changed(wall, privacy)).toEqual(Object.keys(PRACTICE_PRIVACY_T2_CATALOG_DELTA).sort());
+    for (const key of Object.keys(PRACTICE_PRIVACY_T2_CATALOG_DELTA)) expect(wall.expected[key]).toBe(eleventh.expected[key]);
+    // Every delta key names an object the ledger-11 inventory already attests.
+    for (const key of [...Object.keys(PAYMENT_WALL_T2_CATALOG_DELTA), ...Object.keys(PRACTICE_PRIVACY_T2_CATALOG_DELTA)]) {
+      expect(Object.hasOwn(eleventh.expected, key)).toBe(true);
+    }
+    for (const bad of [
+      [...eleven, '20261117105700'],                                       // privacy without the payment wall
+      [...eleven, '20261117105700', '20261114170000'],                     // reordered successors
+      [...eleven, '20261112130000', '20261114170000'],                     // the withheld refund applied
+      [...eleven.slice(0, -1), '20261027192550', ...twelve.slice(-2)],     // the withheld billing129 applied
+      [...eleven.slice(0, -1), '20261114170000'],                          // the payment wall without the feedback fence
+      [...thirteen, '20261117105701'],                                     // an unknown fourteenth entry
+    ]) expect(() => t2ReleaseContract(process.cwd(), bad)).toThrow('ledger');
+  });
+
+  it('refuses a ledger-12/13 catalog while any delta digest is still a pending native observation', () => {
+    const thirteen = [...T2_VERSIONS, ...c1Versions, '20261110173548', '20261112133000', '20261114100000', '20261114170000', '20261117105700'];
+    for (const contract of [t2ReleaseContract(process.cwd(), thirteen.slice(0, -1)), t2ReleaseContract(process.cwd(), thirteen)]) {
+      const pending = Object.entries(contract.expected).filter(([, digest]) => digest === PENDING_NATIVE_PIN).map(([key]) => key);
+      // Until pinned, even an actual catalog that reproduces the expectation verbatim cannot pass: a pending value is not a digest.
+      const verbatim = () => assertT2Catalog({ ...contract.expected }, contract.expected);
+      expect(pending.length === 0 ? verbatim().passed : (() => { try { verbatim(); return 'passed'; } catch (error) { return error.message; } })())
+        .toSatisfy(result => result === true || /^T2 catalog mismatch: /.test(result));
+      const malformed = Object.entries(contract.expected).filter(([, digest]) => digest !== PENDING_NATIVE_PIN && !/^[a-f0-9]{32}$/.test(digest));
+      expect(malformed).toEqual([]);
+      // A pinned stage still refuses one changed object.
+      const key = Object.keys(contract.expected).find(k => /^[a-f0-9]{32}$/.test(contract.expected[k]));
+      expect(() => assertT2Catalog({ ...contract.expected, [key]: '0'.repeat(32) }, contract.expected)).toThrow('T2 catalog mismatch');
+    }
+  });
+
   it('attests the installed ledger-11 feedback-fence catalog and refuses widened grants, a disabled trigger and wrong-stage snapshots', async () => {
     for (const platformFunctionDefaults of [false, true]) {
       const context = platformFunctionDefaults ? 'native-replay' : 'retained-production';

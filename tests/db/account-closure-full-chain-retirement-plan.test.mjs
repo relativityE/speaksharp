@@ -8,6 +8,7 @@ import { functionDefinitions } from '../../scripts/lib/c1MigrationPostflight.mjs
 import { RETIREMENT_CATALOG_DELTA } from '../../scripts/lib/retirementCatalogPins.mjs';
 import { ABANDONMENT_CATALOG_DELTA } from '../../scripts/lib/abandonmentCatalogPins.mjs';
 import { FEEDBACK_FENCE_CATALOG_DELTA } from '../../scripts/lib/feedbackFenceCatalogPins.mjs';
+import { PAYMENT_WALL_T2_CATALOG_DELTA, PRACTICE_PRIVACY_T2_CATALOG_DELTA } from '../../scripts/lib/paymentWallPrivacyT2CatalogPins.mjs';
 
 const directory = new URL('../../backend/supabase/migrations/', import.meta.url);
 const rows = readdirSync(directory).filter(name => name.endsWith('.sql')).map(name => ({
@@ -22,9 +23,9 @@ const abandonment = '20261112133000';
 const refund = '20261112130000';
 // #1811 AHT-02/07/08 feedback fence (ledger 11): withheld by every profile before main-feedback-fence-131.
 const feedbackFence = '20261114100000';
-// #1863 payment wall: pinned repository inventory, withheld from every profile until its ledger-12 stage exists.
+// #1863 payment wall: withheld by every profile before main-payment-wall-132 (ledger 12).
 const paymentWall = '20261114170000';
-// #1835 practice privacy is future inventory, not evidence for these historical profiles.
+// #1835 practice privacy: withheld by every profile before main-practice-privacy-133 (ledger 13).
 const practicePrivacy = '20261117105700';
 
 test('successor delta covers every source-defined function and changed table exactly', () => {
@@ -141,4 +142,60 @@ test('feedback-fence profile refuses changed installed or withheld bytes and unk
   assert.throws(() => buildMainU1ReplayPlan([...rows, {
     name: '20261115120000_unknown.sql', version: '20261115120000', sha256: '0'.repeat(64),
   }], feedbackFenceProfile), /unreviewed migration/);
+});
+
+// #1863 payment wall (ledger 12) and #1835 practice privacy (ledger 13): each stages after its predecessor and is observed
+// against the same release contract; the full-chain run retains the native catalog the pending T2 pins are taken from.
+const paymentWallProfile = 'main-payment-wall-132';
+const practicePrivacyProfile = 'main-practice-privacy-133';
+
+test('payment-wall and practice-privacy T2 deltas name only existing ledger-11 objects the migrations alter', () => {
+  const wall = readFileSync(new URL('20261114170000_payment_wall_product_access_1863.sql', directory), 'utf8');
+  const privacy = readFileSync(new URL('20261117105700_practice_privacy_choices_1835.sql', directory), 'utf8');
+  assert.deepEqual(Object.keys(PAYMENT_WALL_T2_CATALOG_DELTA).sort(),
+    ['function:public.get_analytics_summary(uuid)', 'table:public.recording_start_abandonments']);
+  assert.match(wall, /ALTER FUNCTION public\.get_analytics_summary\(p_user_id uuid\) RENAME TO get_analytics_summary__unguarded;/);
+  assert.match(wall, /ALTER TABLE public\.recording_start_abandonments ADD CONSTRAINT recording_start_abandonments_outcome_check/);
+  assert.deepEqual(Object.keys(PRACTICE_PRIVACY_T2_CATALOG_DELTA),
+    ['function:public.persist_account_coaching_v1(uuid, boolean, uuid, uuid, jsonb, text, text, text, date, integer, integer)']);
+  assert.match(privacy, /REVOKE EXECUTE ON FUNCTION public\.persist_account_coaching_v1\(uuid,boolean,uuid,uuid,jsonb,text,text,text,date,integer,integer\)/);
+});
+
+test('installed payment-wall profile replays the feedback fence then 20261114170000, withholding billing129, the refund and #1835', () => {
+  assert.equal(parseMainProofArguments([`--profile=${paymentWallProfile}`]).profile, paymentWallProfile);
+  const plan = buildMainU1ReplayPlan(rows, paymentWallProfile);
+  assert.equal(plan.migrations, 132);
+  assert.deepEqual(plan.withheld.map(row => [row.version, row.status]), [[billing, 'NOT REPLAYED'], [refund, 'NOT REPLAYED'],
+    [practicePrivacy, 'NOT REPLAYED']]);
+  assert.deepEqual(plan.stages.slice(-3).map(stage => stage.name), ['start-abandonment', 'feedback-fence', 'payment-wall']);
+  assert.deepEqual(plan.stages.at(-1).versions, [...plan.stages.at(-2).versions, paymentWall]);
+  assert.deepEqual(plan.stages.at(-2).versions, buildMainU1ReplayPlan(rows, feedbackFenceProfile).stages.at(-1).versions);
+  assert.ok(plan.stages.every(stage => ![billing, refund, practicePrivacy].some(v => stage.versions.includes(v))));
+  assert.ok(plan.stages.slice(0, -1).every(stage => !stage.versions.includes(paymentWall)));
+  assert.equal(plan.executed, false);
+});
+
+test('installed practice-privacy profile replays the payment wall then 20261117105700, withholding billing129 and the refund', () => {
+  assert.equal(parseMainProofArguments([`--profile=${practicePrivacyProfile}`]).profile, practicePrivacyProfile);
+  const plan = buildMainU1ReplayPlan(rows, practicePrivacyProfile);
+  assert.equal(plan.migrations, 133);
+  assert.deepEqual(plan.withheld.map(row => [row.version, row.status]), [[billing, 'NOT REPLAYED'], [refund, 'NOT REPLAYED']]);
+  assert.deepEqual(plan.stages.slice(-3).map(stage => stage.name), ['feedback-fence', 'payment-wall', 'practice-privacy']);
+  assert.deepEqual(plan.stages.at(-1).versions, [...plan.stages.at(-2).versions, practicePrivacy]);
+  assert.deepEqual(plan.stages.at(-2).versions, buildMainU1ReplayPlan(rows, paymentWallProfile).stages.at(-1).versions);
+  assert.ok(plan.stages.slice(0, -1).every(stage => !stage.versions.includes(practicePrivacy)));
+  assert.equal(plan.executed, false);
+});
+
+test('payment-wall and practice-privacy profiles refuse changed installed or withheld bytes and unknown successors', () => {
+  for (const [profile, versions] of [[paymentWallProfile, [paymentWall, feedbackFence, billing, refund, practicePrivacy]],
+    [practicePrivacyProfile, [practicePrivacy, paymentWall, feedbackFence, billing, refund]]]) {
+    for (const version of versions) {
+      assert.throws(() => buildMainU1ReplayPlan(rows.map(row => row.version === version
+        ? { ...row, sha256: '0'.repeat(64) } : row), profile), /digest changed/, `${profile} ${version}`);
+    }
+    assert.throws(() => buildMainU1ReplayPlan([...rows, {
+      name: '20261118120000_unknown.sql', version: '20261118120000', sha256: '0'.repeat(64),
+    }], profile), /unreviewed migration/);
+  }
 });

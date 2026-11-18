@@ -16,6 +16,7 @@ on:
       - 'scripts/lib/retirementCatalogPins.mjs'
       - 'scripts/lib/abandonmentCatalogPins.mjs'
       - 'scripts/lib/feedbackFenceCatalogPins.mjs'
+      - 'scripts/lib/paymentWallPrivacyT2CatalogPins.mjs'
       - 'scripts/lib/retirementMigrationPostflight.mjs'
       - 'scripts/retirement-migration-postflight.mjs'
       - 'scripts/t2-migration-postflight.mjs'
@@ -75,7 +76,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        profile: [main-completion-billing-129, main-coaching-retirement-129, main-start-abandonment-130, main-feedback-fence-131]
+        profile: [main-completion-billing-129, main-coaching-retirement-129, main-start-abandonment-130, main-feedback-fence-131, main-payment-wall-132, main-practice-privacy-133]
     # Pinned with #1839/#1841/#1845: on ubuntu-26.04 the historical Supabase replay refuses ('running image configuration
     # differs from immutable pin', run 43467911148); the last green proof ran on ubuntu-24.04. Remove with #1840.
     runs-on: ubuntu-24.04
