@@ -162,7 +162,7 @@ describe('wiring in rwtFocusPointsJourney.ts', () => {
         const record = src.indexOf('markerWindow.record(atMs - startedAt, now);');
         const judge = src.indexOf('const nextMarker = nextPointMarkedVerdict(markerWindow.freeze());');
         const row = src.indexOf("receipt.row('next point marked', nextMarker.verdict, nextMarker.detail, nextMarker.evidence);");
-        const stop = src.indexOf('await stopBenchmarkRecording(page, suite, 180_000);');
+        const stop = src.indexOf('await stopMonitoredTake(page, firstMonitor, () => confirmBenchmarkStopped(page, suite, 180_000))'); // #1897: the first take's atomic Stop
         for (const at of [start, window, sample, record, judge, row, stop]) expect(at).toBeGreaterThan(0);
         expect(window).toBeLessThan(start);
         expect(start).toBeLessThan(sample);

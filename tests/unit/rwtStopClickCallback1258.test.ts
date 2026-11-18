@@ -37,7 +37,7 @@ vi.mock('../live/helpers/rwtStepDiagnostics', async (importOriginal) => ({
     readPracticeActionState: async () => null,
 }));
 
-const { stopBenchmarkRecording } = await import('../live/helpers/benchmark-utils');
+const { stopBenchmarkRecording, confirmBenchmarkStopped } = await import('../live/helpers/benchmark-utils');
 const { practiceAgainEvidence, practiceAgainRows, RwtReceipt } = await import('../live/helpers/rwtJourney');
 
 /** A scripted page: `recorder-stop` click may reject; `page.evaluate` (the phase log's snapshot) may reject. */
@@ -98,6 +98,18 @@ describe('stopBenchmarkRecording — onClicked fires exactly when the Stop click
     it.each(['click', 'bar', 'phase'] as const)('a caller that omits the callback keeps its existing failure behavior (fail=%s)', async (fail) => {
         page$.fail = fail;
         await expect(stopBenchmarkRecording(fakePage(), 'other-caller')).rejects.toThrow(/Benchmark stop precondition failed for other-caller/);
+    });
+});
+
+describe('#1897 confirmBenchmarkStopped — the post-click half only; it never clicks Stop itself', () => {
+    it('success: checks the recorder bar and logs the phase, with no click of its own', async () => {
+        await expect(confirmBenchmarkStopped(fakePage(), 'switch-focus')).resolves.toBeUndefined();
+        expect(page$.calls).toEqual(['bar-check']);
+    });
+    it.each(['bar', 'phase'] as const)('a failed postcondition (fail=%s) throws the same named error, still with no click', async (fail) => {
+        page$.fail = fail;
+        await expect(confirmBenchmarkStopped(fakePage(), 'switch-focus')).rejects.toThrow(/Benchmark stop precondition failed for switch-focus/);
+        expect(page$.calls.filter((c) => c.startsWith('click:'))).toEqual([]);
     });
 });
 
