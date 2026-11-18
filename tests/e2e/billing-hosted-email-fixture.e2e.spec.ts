@@ -46,6 +46,13 @@ test.describe('billing hosted-Checkout email step (offline fixture)', () => {
     await expect(page.locator('#email')).toHaveValue(FIXTURE);
   });
 
+  test('Stripe\'s observed prefilled markup (readonly AND disabled, the owner\'s DevTools 18 Nov): supplied, reaches Submit', async ({ page }) => {
+    await checkout(page, `<input dir="ltr" type="text" inputmode="email" name="email" id="email" autocomplete="email" readonly="" disabled=""
+      aria-invalid="false" class="p-Input-input p-LinkInput p-Input--disabled" value="${FIXTURE}">`);
+    const r = await journey(page, { ownerBound: true });
+    expect(r).toEqual({ outcome: 'supplied', checkpoints: ['hosted_email_prefilled'], typed: 0, submits: 1, next: '4242424242424242' });
+  });
+
   test('a disabled (not editable) matching email is treated the same as read-only', async ({ page }) => {
     await checkout(page, `<input id="email" type="text" disabled value="${FIXTURE}">`);
     const r = await journey(page, { ownerBound: true });
