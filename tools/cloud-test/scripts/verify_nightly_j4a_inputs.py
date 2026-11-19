@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import sys
 
 SCHEMA = "speaksharp.nightly-j4a-reviewed-inputs.v1"
 HEX = re.compile(r"[0-9a-f]{64}\Z")
@@ -75,4 +76,6 @@ def main():
 
 
 if __name__ == "__main__":
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import _netguard  # noqa: F401: activates the offline socket guard
     raise SystemExit(main())

@@ -205,7 +205,7 @@ function pinnedPlan(t, mutate = (p) => p) {
 }
 const cliArgs = (file, digest, extra = []) => ['--plan', file, '--plan-sha256', digest, '--evidence-dir', path.join(path.dirname(file), 'evidence'),
     '--run-dir', path.join(path.dirname(file), 'cli-run'), '--run-id', 'cli-1', '--execute', 'true', ...extra];
-const parentEnv = (url) => ({ SUPABASE_URL: url, SUPABASE_SERVICE_ROLE_KEY: 'unit-not-a-key', LIVE_TEST_EMAIL_DOMAIN: 'example.com' });
+const parentEnv = (url) => ({ SUPABASE_URL: url, LIVE_TEST_EMAIL_DOMAIN: 'example.com' });
 const APPROVED = require('../../harness/draft-adapters/durable-save-oracle.cjs').readbackContract.host;
 
 const servedRelease = (sha) => ({
@@ -230,6 +230,10 @@ test('CLI: a different or unreadable production marker refuses before building a
 
 test('CLI: altered plan bytes, another case, an alternate bundle, missing inputs or a wrong project build no admin client', { timeout: 30_000 }, async (t) => {
     const cases = [];
+    const proof = {
+        ...servedRelease('f'.repeat(40)),
+        saveJournal: journalCapability('/nonexistent', null),
+    };
     { const p = pinnedPlan(t); cases.push(['altered plan bytes', cliArgs(p.file, 'f'.repeat(64)), APPROVED]); }
     { const p = pinnedPlan(t, (x) => ({ ...x, selection: { ...x.selection, ids: ['AHT-06'] } })); cases.push(['another case', cliArgs(p.file, p.digest), APPROVED]); }
     { const p = pinnedPlan(t); cases.push(['alternate bundle', cliArgs(p.file, p.digest, ['--bundle', '/tmp/other-bundle']), APPROVED]); }
@@ -240,13 +244,19 @@ test('CLI: altered plan bytes, another case, an alternate bundle, missing inputs
     }
     for (const [name, argv, host] of cases) {
         let built = 0;
-        const r = await main(argv, parentEnv(host.includes('://') || host === 'not a url' ? host : `https://${host}`), { createClient: () => { built += 1; throw new Error('must not be built'); } });
+        const r = await main(argv, parentEnv(host.includes('://') || host === 'not a url' ? host : `https://${host}`), { ...proof, createClient: () => { built += 1; throw new Error('must not be built'); } });
         assert.equal(r.exitCode, 78, name);
         assert.equal(built, 0, `no admin client: ${name}`);
         const runRoot = path.dirname(argv[1]);
         assert.equal(fs.existsSync(path.join(runRoot, '.campaign.lock')), false, `lock released: ${name}`);
     }
     assert.equal((await main([], {})).exitCode, 78);
+    const missingFixtures = pinnedPlan(t);
+    const denied = await main(cliArgs(missingFixtures.file, missingFixtures.digest), parentEnv(`https://${APPROVED}`),
+        { saveJournal: proof.saveJournal });
+    assert.equal(denied.exitCode, 78);
+    assert.match(denied.reason, /no offline admin and release fixtures/);
+    assert.equal(fs.existsSync(path.join(missingFixtures.s.root, '.campaign.lock')), false);
 });
 
 test('CLI: the pinned J4.a-only plan and the approved project reach the admin client, built for that origin only', { timeout: 30_000 }, async (t) => {

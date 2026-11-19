@@ -5,7 +5,7 @@
 //   - j4aOwner: confirmJ4aOwner over the journey's durable create record (evidenceDir, the bridge's runId), the reserved email (the
 //     campaign's execution runId and the run's fixed test domain) and an exact lookup with the parent's admin client;
 //   - j4aTeardown: j4aParentTeardown with the same inputs and the owner preserved at binding.
-// The admin client is the parent's only (injected for offline proofs; built from the environment only by `main`, never in the child).
+// The parent admin client is injected for offline proofs. This entry never reads a privileged credential from its environment.
 // Nothing here dispatches, deploys or reseals; `main` refuses unless every input is present and explicitly asked to execute.
 const path = require('node:path');
 const { confirmJ4aOwner, j4aParentTeardown } = require('./j4a-parent-teardown.cjs');
@@ -117,12 +117,14 @@ async function main(argv, env = process.env, deps = {}) {
     }
     if (ALLOWED.some((k) => typeof a[k] !== 'string' || !a[k]) || a['--execute'] !== 'true' || !/^[a-f0-9]{64}$/.test(a['--plan-sha256']))
         return { exitCode: 78, reason: 'BLOCKED_SETUP: --plan, --plan-sha256, --evidence-dir, --run-dir, --run-id and --execute true are required' };
-    for (const k of ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'LIVE_TEST_EMAIL_DOMAIN'])
+    for (const k of ['SUPABASE_URL', 'LIVE_TEST_EMAIL_DOMAIN'])
         if (!env[k]) return { exitCode: 78, reason: `BLOCKED_SETUP: ${k} is not set in the parent` };
     // Pilot ADMISSION (Sam, 17 Nov): no reviewed save-journal cleanup capability, no run. Nothing is locked, built, launched or sent.
     // Production supplies none today; `deps.saveJournal` exists for the reviewed capability and for offline proofs only.
     const journalFault = saveJournalCapabilityFault(deps.saveJournal);
     if (journalFault) return { exitCode: 78, reason: journalFault };
+    if (typeof deps.createClient !== 'function' || typeof deps.releaseFetch !== 'function' || typeof deps.readReleaseGitHub !== 'function')
+        return { exitCode: 78, reason: 'HOLD: no offline admin and release fixtures; this entry cannot take production credentials' };
     const runner = require(path.join(HARNESS, 'campaign-runner.cjs'));
     let pinned = null;
     try {
@@ -136,9 +138,8 @@ async function main(argv, env = process.env, deps = {}) {
         try { origin = approvedAdminOrigin(env.SUPABASE_URL, deps.approvedHost); } catch (e) { return { exitCode: 78, reason: e.message }; }
         const releaseFault = await j4aProductionBinding(plan, deps);
         if (releaseFault) return { exitCode: 78, reason: releaseFault };
-        const createClient = deps.createClient ?? require('@supabase/supabase-js').createClient;
         const transport = j4aAdminTransport(deps.fetchImpl);
-        const admin = createClient(origin, env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false, autoRefreshToken: false }, global: { fetch: transport.fetch } });
+        const admin = deps.createClient(origin, { auth: { persistSession: false, autoRefreshToken: false }, global: { fetch: transport.fetch } });
         const { io, outcome, finish } = composeJ4aNightly({ plan: { ...plan, runRoot: root }, bundle, admin, transport, saveJournal: deps.saveJournal,
             adapterOptions: deps.adapterOptions ?? {}, configuredDomain: env.LIVE_TEST_EMAIL_DOMAIN,
             nightly: { runDir: a['--run-dir'], evidenceDir: a['--evidence-dir'], runId: a['--run-id'], selected: ['J4.a'], satisfiedGates: [] } });
