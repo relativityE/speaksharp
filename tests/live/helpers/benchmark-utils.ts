@@ -930,6 +930,22 @@ export async function stopBenchmarkRecording(page: Page, label: string, timeout 
 }
 
 /**
+ * #1897 (Sam, f2bb1ae HOLD): the part of `stopBenchmarkRecording` that runs AFTER the click, for a Stop that was clicked by
+ * the take monitor's own atomic check-and-click (`guardedStopClick`) rather than by a separate Playwright click. Same
+ * postconditions and the same failure snapshot as `stopBenchmarkRecording`.
+ */
+export async function confirmBenchmarkStopped(page: Page, label: string, timeout = 120_000) {
+    try {
+        await expect(page.getByTestId(RECORDER_BAR), `${label}: the recorder bar must disappear on stop`)
+            .toHaveCount(0, { timeout });
+        await logBenchmarkPhase(page, `PROOF_RUNTIME_RECORDING_STOPPED_${label.toUpperCase()}`);
+    } catch (error) {
+        const snapshot = await collectBenchmarkPreconditionSnapshot(page, `${label}-recording-not-stopped`);
+        throw new Error(`Benchmark stop precondition failed for ${label}\n${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`);
+    }
+}
+
+/**
  * ATOMIC, PRIVACY-SAFE diagnostics for the live transcript surface.
  *
  * Attempt 6 read `transcript-container.textContent` as empty while the page visibly showed 122 words

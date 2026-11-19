@@ -5,37 +5,16 @@
  * `useSessionLifecycle` sends a take under `MIN_SESSION_DURATION_SECONDS` (5) down the "too short" branch. The journey timed
  * the switch take from the Start click, so a slow capture start left under five live seconds of a nine-second press.
  *
- * These helpers only wait and read. They never press anything, so the Start-press budget is unchanged.
+ * These helpers only read. They never press anything, so the Start-press budget is unchanged.
+ *
+ * Nov 18 (Sam's reset, row 3): the take's hold moved to rwtLiveTakeMonitor.ts. The former `holdLiveTake` here waited for the
+ * live state once, slept, and reported the full hold as held live seconds without looking again; the monitor measures the
+ * take continuously through the actual Stop press instead.
  */
 import type { Page } from '@playwright/test';
 
-/** The page's own "take is live" state: listening AND capture live (SessionOverhaulView `resolveSessionState`). */
-export const LIVE_TAKE_SELECTOR = '[data-testid="session-shell"][data-session-state="during"]';
-
 /** The Focus points rail's actual rows: one `<li data-testid="focus-point-i">` per point (FocusPointsRail.tsx). */
 export const RAIL_ROW_SELECTOR = '[data-testid="focus-points-rail-list"] > li';
-
-export interface LiveTimedTake {
-    /** Ms from just before the Start press to the page showing the live take; null when it never went live in budget. */
-    pressToLiveMs: number | null;
-    /** Live seconds the take was held for (0 when capture never went live). */
-    heldLiveSeconds: number;
-}
-
-/**
- * Hold the current take for `liveSeconds` on the page's live clock. Call right after `startBenchmarkRecording`, passing the
- * time read just before it. When capture never goes live within `liveTimeoutMs`, it returns at once with
- * `pressToLiveMs: null` and holds nothing, so the caller still stops the take and the row reads the real outcome.
- */
-export async function holdLiveTake(page: Page, liveSeconds: number, pressedAtMs: number, liveTimeoutMs = 60_000): Promise<LiveTimedTake> {
-    if (!Number.isFinite(liveSeconds) || liveSeconds <= 0) throw new Error('INVALID_SETUP live take seconds must be finite and positive');
-    const live = await page.locator(LIVE_TAKE_SELECTOR).first().waitFor({ state: 'visible', timeout: liveTimeoutMs })
-        .then(() => true, () => false);
-    if (!live) return { pressToLiveMs: null, heldLiveSeconds: 0 };
-    const pressToLiveMs = Math.max(0, Date.now() - pressedAtMs);
-    await page.waitForTimeout(Math.round(liveSeconds * 1000));
-    return { pressToLiveMs, heldLiveSeconds: liveSeconds };
-}
 
 /** How many actual rows the rail shows now; null when it cannot be read. */
 export async function readRailRowCount(page: Page): Promise<number | null> {

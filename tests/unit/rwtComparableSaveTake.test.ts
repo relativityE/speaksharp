@@ -47,7 +47,7 @@ describe('save-take duration is behavioural: default, fallback and time budget',
         expect(callers[0]).toContain("const sourceTakeMs = fixtureKey === 'focus_points_partial_tts' ? 60_000 : Math.round((fixture.entry.speechSeconds + 4) * 1000);");
         const frozen = callers[0].indexOf('await freezeMarkerObserver(page, armed.token)');
         const extended = callers[0].indexOf('await page.waitForTimeout(Math.max(0, startedAt + sourceTakeMs - Date.now()))');
-        const stopped = callers[0].indexOf('await stopBenchmarkRecording(page, suite, 180_000)', extended);
+        const stopped = callers[0].indexOf('await stopMonitoredTake(page, firstMonitor, () => confirmBenchmarkStopped(page, suite, 180_000))', extended); // #1897: the first take's atomic Stop
         expect(frozen).toBeGreaterThan(0);
         expect(extended).toBeGreaterThan(frozen);
         expect(stopped).toBeGreaterThan(extended);
