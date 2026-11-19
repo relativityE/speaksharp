@@ -20,7 +20,7 @@
         },
         {
           "path": "bundle/harness/reviewed-oracle-loader.cjs",
-          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
+          "sha256": "a701e50c9733631ada6efb11a43231758c8c3adbb33596821a646f824b5f57d4"
         },
         {
           "path": "bundle/harness/reviewed-step.cjs",
@@ -36,7 +36,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
+          "sha256": "72da66ddd6fae71cfa56d5a54ee865691cd4f3c3290f6396217037480e3d1961"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -196,11 +196,11 @@
         },
         {
           "path": "draft-adapters/save-fault-binding.cjs",
-          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
+          "sha256": "8e344514b9dd3e73f2aabbdaf1a679389fc3627d48125ea722983fac4a778a78"
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
+          "sha256": "8342923c4c01b9920784dec667417dbde592ba03976678ab7896d629ed8f976a"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -226,7 +226,7 @@
         },
         {
           "path": "bundle/harness/reviewed-oracle-loader.cjs",
-          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
+          "sha256": "a701e50c9733631ada6efb11a43231758c8c3adbb33596821a646f824b5f57d4"
         },
         {
           "path": "bundle/harness/reviewed-step.cjs",
@@ -242,7 +242,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
+          "sha256": "72da66ddd6fae71cfa56d5a54ee865691cd4f3c3290f6396217037480e3d1961"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -402,11 +402,11 @@
         },
         {
           "path": "draft-adapters/save-fault-binding.cjs",
-          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
+          "sha256": "8e344514b9dd3e73f2aabbdaf1a679389fc3627d48125ea722983fac4a778a78"
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
+          "sha256": "8342923c4c01b9920784dec667417dbde592ba03976678ab7896d629ed8f976a"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -432,7 +432,7 @@
         },
         {
           "path": "bundle/harness/reviewed-oracle-loader.cjs",
-          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
+          "sha256": "a701e50c9733631ada6efb11a43231758c8c3adbb33596821a646f824b5f57d4"
         },
         {
           "path": "bundle/harness/reviewed-step.cjs",
@@ -448,7 +448,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
+          "sha256": "72da66ddd6fae71cfa56d5a54ee865691cd4f3c3290f6396217037480e3d1961"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -608,11 +608,11 @@
         },
         {
           "path": "draft-adapters/save-fault-binding.cjs",
-          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
+          "sha256": "8e344514b9dd3e73f2aabbdaf1a679389fc3627d48125ea722983fac4a778a78"
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
+          "sha256": "8342923c4c01b9920784dec667417dbde592ba03976678ab7896d629ed8f976a"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -638,7 +638,7 @@
         },
         {
           "path": "bundle/harness/reviewed-oracle-loader.cjs",
-          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
+          "sha256": "a701e50c9733631ada6efb11a43231758c8c3adbb33596821a646f824b5f57d4"
         },
         {
           "path": "bundle/harness/reviewed-step.cjs",
@@ -654,7 +654,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
+          "sha256": "72da66ddd6fae71cfa56d5a54ee865691cd4f3c3290f6396217037480e3d1961"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -814,11 +814,11 @@
         },
         {
           "path": "draft-adapters/save-fault-binding.cjs",
-          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
+          "sha256": "8e344514b9dd3e73f2aabbdaf1a679389fc3627d48125ea722983fac4a778a78"
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
+          "sha256": "8342923c4c01b9920784dec667417dbde592ba03976678ab7896d629ed8f976a"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -844,7 +844,7 @@
         },
         {
           "path": "bundle/harness/reviewed-oracle-loader.cjs",
-          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
+          "sha256": "a701e50c9733631ada6efb11a43231758c8c3adbb33596821a646f824b5f57d4"
         },
         {
           "path": "bundle/harness/reviewed-step.cjs",
@@ -860,7 +860,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
+          "sha256": "72da66ddd6fae71cfa56d5a54ee865691cd4f3c3290f6396217037480e3d1961"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -1020,11 +1020,11 @@
         },
         {
           "path": "draft-adapters/save-fault-binding.cjs",
-          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
+          "sha256": "8e344514b9dd3e73f2aabbdaf1a679389fc3627d48125ea722983fac4a778a78"
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
+          "sha256": "8342923c4c01b9920784dec667417dbde592ba03976678ab7896d629ed8f976a"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1050,7 +1050,7 @@
         },
         {
           "path": "bundle/harness/reviewed-oracle-loader.cjs",
-          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
+          "sha256": "a701e50c9733631ada6efb11a43231758c8c3adbb33596821a646f824b5f57d4"
         },
         {
           "path": "bundle/harness/reviewed-step.cjs",
@@ -1066,7 +1066,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
+          "sha256": "72da66ddd6fae71cfa56d5a54ee865691cd4f3c3290f6396217037480e3d1961"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -1226,11 +1226,11 @@
         },
         {
           "path": "draft-adapters/save-fault-binding.cjs",
-          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
+          "sha256": "8e344514b9dd3e73f2aabbdaf1a679389fc3627d48125ea722983fac4a778a78"
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
+          "sha256": "8342923c4c01b9920784dec667417dbde592ba03976678ab7896d629ed8f976a"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1256,7 +1256,7 @@
         },
         {
           "path": "bundle/harness/reviewed-oracle-loader.cjs",
-          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
+          "sha256": "a701e50c9733631ada6efb11a43231758c8c3adbb33596821a646f824b5f57d4"
         },
         {
           "path": "bundle/harness/reviewed-step.cjs",
@@ -1272,7 +1272,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
+          "sha256": "72da66ddd6fae71cfa56d5a54ee865691cd4f3c3290f6396217037480e3d1961"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -1432,11 +1432,11 @@
         },
         {
           "path": "draft-adapters/save-fault-binding.cjs",
-          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
+          "sha256": "8e344514b9dd3e73f2aabbdaf1a679389fc3627d48125ea722983fac4a778a78"
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
+          "sha256": "8342923c4c01b9920784dec667417dbde592ba03976678ab7896d629ed8f976a"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1462,7 +1462,7 @@
         },
         {
           "path": "bundle/harness/reviewed-oracle-loader.cjs",
-          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
+          "sha256": "a701e50c9733631ada6efb11a43231758c8c3adbb33596821a646f824b5f57d4"
         },
         {
           "path": "bundle/harness/reviewed-step.cjs",
@@ -1478,7 +1478,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
+          "sha256": "72da66ddd6fae71cfa56d5a54ee865691cd4f3c3290f6396217037480e3d1961"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -1638,11 +1638,11 @@
         },
         {
           "path": "draft-adapters/save-fault-binding.cjs",
-          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
+          "sha256": "8e344514b9dd3e73f2aabbdaf1a679389fc3627d48125ea722983fac4a778a78"
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
+          "sha256": "8342923c4c01b9920784dec667417dbde592ba03976678ab7896d629ed8f976a"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1668,7 +1668,7 @@
         },
         {
           "path": "bundle/harness/reviewed-oracle-loader.cjs",
-          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
+          "sha256": "a701e50c9733631ada6efb11a43231758c8c3adbb33596821a646f824b5f57d4"
         },
         {
           "path": "bundle/harness/reviewed-step.cjs",
@@ -1684,7 +1684,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
+          "sha256": "72da66ddd6fae71cfa56d5a54ee865691cd4f3c3290f6396217037480e3d1961"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -1844,11 +1844,11 @@
         },
         {
           "path": "draft-adapters/save-fault-binding.cjs",
-          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
+          "sha256": "8e344514b9dd3e73f2aabbdaf1a679389fc3627d48125ea722983fac4a778a78"
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
+          "sha256": "8342923c4c01b9920784dec667417dbde592ba03976678ab7896d629ed8f976a"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1874,7 +1874,7 @@
         },
         {
           "path": "bundle/harness/reviewed-oracle-loader.cjs",
-          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
+          "sha256": "a701e50c9733631ada6efb11a43231758c8c3adbb33596821a646f824b5f57d4"
         },
         {
           "path": "bundle/harness/reviewed-step.cjs",
@@ -1890,7 +1890,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
+          "sha256": "72da66ddd6fae71cfa56d5a54ee865691cd4f3c3290f6396217037480e3d1961"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -2050,11 +2050,11 @@
         },
         {
           "path": "draft-adapters/save-fault-binding.cjs",
-          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
+          "sha256": "8e344514b9dd3e73f2aabbdaf1a679389fc3627d48125ea722983fac4a778a78"
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
+          "sha256": "8342923c4c01b9920784dec667417dbde592ba03976678ab7896d629ed8f976a"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2080,7 +2080,7 @@
         },
         {
           "path": "bundle/harness/reviewed-oracle-loader.cjs",
-          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
+          "sha256": "a701e50c9733631ada6efb11a43231758c8c3adbb33596821a646f824b5f57d4"
         },
         {
           "path": "bundle/harness/reviewed-step.cjs",
@@ -2096,7 +2096,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
+          "sha256": "72da66ddd6fae71cfa56d5a54ee865691cd4f3c3290f6396217037480e3d1961"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -2256,11 +2256,11 @@
         },
         {
           "path": "draft-adapters/save-fault-binding.cjs",
-          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
+          "sha256": "8e344514b9dd3e73f2aabbdaf1a679389fc3627d48125ea722983fac4a778a78"
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
+          "sha256": "8342923c4c01b9920784dec667417dbde592ba03976678ab7896d629ed8f976a"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2286,7 +2286,7 @@
         },
         {
           "path": "bundle/harness/reviewed-oracle-loader.cjs",
-          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
+          "sha256": "a701e50c9733631ada6efb11a43231758c8c3adbb33596821a646f824b5f57d4"
         },
         {
           "path": "bundle/harness/reviewed-step.cjs",
@@ -2302,7 +2302,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
+          "sha256": "72da66ddd6fae71cfa56d5a54ee865691cd4f3c3290f6396217037480e3d1961"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -2462,11 +2462,11 @@
         },
         {
           "path": "draft-adapters/save-fault-binding.cjs",
-          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
+          "sha256": "8e344514b9dd3e73f2aabbdaf1a679389fc3627d48125ea722983fac4a778a78"
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
+          "sha256": "8342923c4c01b9920784dec667417dbde592ba03976678ab7896d629ed8f976a"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2492,7 +2492,7 @@
         },
         {
           "path": "bundle/harness/reviewed-oracle-loader.cjs",
-          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
+          "sha256": "a701e50c9733631ada6efb11a43231758c8c3adbb33596821a646f824b5f57d4"
         },
         {
           "path": "bundle/harness/reviewed-step.cjs",
@@ -2508,7 +2508,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
+          "sha256": "72da66ddd6fae71cfa56d5a54ee865691cd4f3c3290f6396217037480e3d1961"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -2668,11 +2668,11 @@
         },
         {
           "path": "draft-adapters/save-fault-binding.cjs",
-          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
+          "sha256": "8e344514b9dd3e73f2aabbdaf1a679389fc3627d48125ea722983fac4a778a78"
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
+          "sha256": "8342923c4c01b9920784dec667417dbde592ba03976678ab7896d629ed8f976a"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2698,7 +2698,7 @@
         },
         {
           "path": "bundle/harness/reviewed-oracle-loader.cjs",
-          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
+          "sha256": "a701e50c9733631ada6efb11a43231758c8c3adbb33596821a646f824b5f57d4"
         },
         {
           "path": "bundle/harness/reviewed-step.cjs",
@@ -2714,7 +2714,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
+          "sha256": "72da66ddd6fae71cfa56d5a54ee865691cd4f3c3290f6396217037480e3d1961"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -2874,11 +2874,11 @@
         },
         {
           "path": "draft-adapters/save-fault-binding.cjs",
-          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
+          "sha256": "8e344514b9dd3e73f2aabbdaf1a679389fc3627d48125ea722983fac4a778a78"
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
+          "sha256": "8342923c4c01b9920784dec667417dbde592ba03976678ab7896d629ed8f976a"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2904,7 +2904,7 @@
         },
         {
           "path": "bundle/harness/reviewed-oracle-loader.cjs",
-          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
+          "sha256": "a701e50c9733631ada6efb11a43231758c8c3adbb33596821a646f824b5f57d4"
         },
         {
           "path": "bundle/harness/reviewed-step.cjs",
@@ -2920,7 +2920,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
+          "sha256": "72da66ddd6fae71cfa56d5a54ee865691cd4f3c3290f6396217037480e3d1961"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -3080,11 +3080,11 @@
         },
         {
           "path": "draft-adapters/save-fault-binding.cjs",
-          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
+          "sha256": "8e344514b9dd3e73f2aabbdaf1a679389fc3627d48125ea722983fac4a778a78"
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
+          "sha256": "8342923c4c01b9920784dec667417dbde592ba03976678ab7896d629ed8f976a"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
