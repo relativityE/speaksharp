@@ -39,7 +39,7 @@ import {
     parseCompletionAttempt, reviewReopenVerdict, transcriptDigest,
 } from './helpers/rwtSaveRetryAttempts';
 import {
-    J4A_COACHING_MAXIMUM, J4A_COACHING_ROUTE, J4A_START_PRESS_BUDGET, j4aCoachingBlockedVerdict, j4aCoachingGuard, j4aNoSecondTakeVerdict,
+    J4A_COACHING_MAXIMUM, J4A_COACHING_ROUTE, J4A_START_PRESS_BUDGET, j4aCoachingBlockedRow, j4aCoachingGuard, j4aNoSecondTakeVerdict,
     j4aOneSaveForAccountVerdict, j4aPrivacyCleanupVerdict, j4aRequestNeverReachedVerdict, saveRetryPrivacyVerdict,
 } from './helpers/rwtJ4aEvidence';
 import { SAVE_RETRY_CONSENT_MODE, type ChoiceClient, readPracticeChoice, settlePracticeConsent } from './helpers/rwtPracticeConsent';
@@ -195,11 +195,6 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         // J4.b: two saved takes, at most one coaching request each. J4.a: coaching off, so none at all (Sam, Nov 19).
         await steps.step('coaching budget', () => coachingRequestBudgetRow(receipt, generations,
             { maximum: j4a ? J4A_COACHING_MAXIMUM : 2, oneRequestPerSession: takes }));
-        if (j4a) await steps.step('J4.a coaching blocked', (alive) => {
-            const v = j4aCoachingBlockedVerdict(coachingGuard);
-            aliveReceipt(receipt, alive).row('J4.a: no coaching request left the browser', v.status, v.detail,
-                { reason: v.reason, armed: coachingGuard.armed, blocked: coachingGuard.blocked });
-        });
         // Harness parity rows (catalog AHT-05/AHT-06: no-cloud-stt, start-press-budget, owned-pages-closed), before the account is
         // deleted. Bounded steps, rows only while each step is alive, and the page close in its own step, last before cleanup.
         await steps.step('harness parity counts', (alive) => {
@@ -207,6 +202,12 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
             parity.startPressRow(aliveReceipt(receipt, alive), j4a ? J4A_START_PRESS_BUDGET : SAVE_RETRY_START_PRESS_BUDGET);
         });
         await steps.step('owned pages closed', (alive) => parity.ownedPagesClosedRow(aliveReceipt(receipt, alive)), PARITY_CLOSE_STEP_MS);
+        // J4.a coaching block (Sam, Nov 19 on 2b57bd47): read the block count only AFTER every owned page is proven closed, so an
+        // attempt made between the checks above and the close is counted. The route stays armed through the close; an unproven
+        // closure HOLDs.
+        if (j4a) await steps.step('J4.a coaching blocked', (alive) => {
+            j4aCoachingBlockedRow(aliveReceipt(receipt, alive), coachingGuard, parity.ownedPagesClosedAt);
+        });
         // Harness `completion-attempts` at the FINAL boundary (final-attempts.cjs): every owned page is closed, so no completion
         // request can still arrive; a late attempt after the in-journey checks is counted here, never missed.
         await steps.step('completion attempts', (alive) => {

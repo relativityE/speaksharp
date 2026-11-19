@@ -212,9 +212,34 @@ export function j4aCoachingGuard(): J4aCoachingGuard {
     return guard;
 }
 
-export function j4aCoachingBlockedVerdict(o: { armed: boolean; blocked: number }): J4aVerdict {
+/**
+ * Pure. Judged only at the final boundary (Sam, Nov 19 on 2b57bd47): the block count is read AFTER every owned page is proven
+ * closed (`HarnessParityTap.ownedPagesClosedAt`), so a coaching attempt made between the in-journey checks and the page close
+ * is still counted, never missed. Any blocked attempt FAILs, closed or not (it is proof the page asked for coaching with
+ * coaching off). With none counted, an unproven closure HOLDs: a page still open could yet ask, so zero is not yet proof.
+ */
+export function j4aCoachingBlockedVerdict(o: { armed: boolean; blocked: number; pagesClosedAt: number | null }): J4aVerdict {
     if (!o.armed) return { status: 'HOLD', reason: 'block_not_armed', detail: 'the coaching block was not in place before the first page, so nothing is proved' };
     if (!Number.isSafeInteger(o.blocked) || o.blocked < 0) return { status: 'HOLD', reason: 'block_uncounted', detail: 'the coaching block returned no counted integer' };
     if (o.blocked > 0) return { status: 'FAIL', reason: 'coaching_requested', detail: 'the page asked for coaching with coaching off; the block stopped it in the browser, so it never reached the provider' };
-    return { status: 'PASS', reason: 'none_requested', detail: 'the coaching block was in place for the whole run and the page asked for no coaching' };
+    if (o.pagesClosedAt === null || !Number.isFinite(o.pagesClosedAt)) {
+        return { status: 'HOLD', reason: 'closure_unproved', detail: 'the journey\'s pages were not proven closed, so a later coaching request cannot be ruled out' };
+    }
+    return { status: 'PASS', reason: 'none_requested', detail: 'the coaching block was in place for the whole run, every page was proven closed, and the page asked for no coaching' };
+}
+
+/** The receipt surface the J4.a row needs (an `RwtReceipt`, or a step's `aliveReceipt`). */
+export interface J4aRowSink { row(step: string, verdict: 'PASS' | 'FAIL' | 'HOLD', detail: string, evidence?: Record<string, string | number | boolean | null>): void }
+export const J4A_COACHING_BLOCKED_ROW = 'J4.a: no coaching request left the browser';
+
+/**
+ * The spec's one writer of the required J4.a coaching row, called at the final boundary right after `owned pages closed`.
+ * `pagesClosedAt` is `HarnessParityTap.ownedPagesClosedAt`, read at that moment. Shared with the real-browser control
+ * (tests/e2e/rwt-j4a-coaching-close.e2e.spec.ts), so the control exercises exactly what the journey writes.
+ */
+export function j4aCoachingBlockedRow(sink: J4aRowSink, guard: Pick<J4aCoachingGuard, 'armed' | 'blocked'>, pagesClosedAt: number | null): J4aVerdict {
+    const v = j4aCoachingBlockedVerdict({ armed: guard.armed, blocked: guard.blocked, pagesClosedAt });
+    sink.row(J4A_COACHING_BLOCKED_ROW, v.status, v.detail,
+        { reason: v.reason, armed: guard.armed, blocked: guard.blocked, pagesClosedProved: pagesClosedAt !== null });
+    return v;
 }

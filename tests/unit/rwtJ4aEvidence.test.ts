@@ -5,7 +5,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
-    COMPLETION_WRITTEN_COLUMNS, J4A_COACHING_MAXIMUM, J4A_COACHING_ROUTE, J4A_START_PRESS_BUDGET, j4aCoachingBlockedVerdict, j4aCoachingGuard, SAVED_ROW_AGREEMENT_COLUMNS, j4aNoSecondTakeVerdict,
+    COMPLETION_WRITTEN_COLUMNS, J4A_COACHING_MAXIMUM, J4A_COACHING_ROUTE, J4A_START_PRESS_BUDGET, j4aCoachingBlockedVerdict, j4aCoachingBlockedRow, J4A_COACHING_BLOCKED_ROW, j4aCoachingGuard, SAVED_ROW_AGREEMENT_COLUMNS, j4aNoSecondTakeVerdict,
     j4aOneSaveForAccountVerdict, j4aPrivacyCleanupVerdict, j4aRequestNeverReachedVerdict, saveRetryPrivacyVerdict,
     type J4aFaultObservation, type J4aSaveObservation,
 } from '../live/helpers/rwtJ4aEvidence';
@@ -320,18 +320,53 @@ describe('J4.a coaching block (Sam, Nov 19 on c558f4c): an unexpected coaching c
         expect(spec).not.toMatch(/unroute\(J4A_COACHING_ROUTE/);
     });
     it.each([
-        [{ armed: false, blocked: 0 }, 'HOLD', 'block_not_armed'],
-        [{ armed: true, blocked: -1 }, 'HOLD', 'block_uncounted'],
-        [{ armed: true, blocked: 1.5 }, 'HOLD', 'block_uncounted'],
-        [{ armed: true, blocked: 1 }, 'FAIL', 'coaching_requested'],
-        [{ armed: true, blocked: 3 }, 'FAIL', 'coaching_requested'],
-        [{ armed: true, blocked: 0 }, 'PASS', 'none_requested'],
+        [{ armed: false, blocked: 0, pagesClosedAt: 1 }, 'HOLD', 'block_not_armed'],
+        [{ armed: true, blocked: -1, pagesClosedAt: 1 }, 'HOLD', 'block_uncounted'],
+        [{ armed: true, blocked: 1.5, pagesClosedAt: 1 }, 'HOLD', 'block_uncounted'],
+        [{ armed: true, blocked: 1, pagesClosedAt: 1 }, 'FAIL', 'coaching_requested'],
+        [{ armed: true, blocked: 3, pagesClosedAt: 1 }, 'FAIL', 'coaching_requested'],
+        // A blocked attempt is proof whether or not the pages closed.
+        [{ armed: true, blocked: 1, pagesClosedAt: null }, 'FAIL', 'coaching_requested'],
+        // Sam, Nov 19 on 2b57bd47: zero counted with the pages not proven closed is not yet proof.
+        [{ armed: true, blocked: 0, pagesClosedAt: null }, 'HOLD', 'closure_unproved'],
+        [{ armed: true, blocked: 0, pagesClosedAt: Number.NaN }, 'HOLD', 'closure_unproved'],
+        [{ armed: true, blocked: 0, pagesClosedAt: 1 }, 'PASS', 'none_requested'],
     ] as const)('%o → %s %s', (o, status, reason) => {
         expect(j4aCoachingBlockedVerdict(o)).toMatchObject({ status, reason });
+    });
+    it('the row writer writes exactly the verdict, with the closure proof in its evidence', () => {
+        const rows: Array<[string, string, Record<string, unknown> | undefined]> = [];
+        const sink = { row: (step: string, verdict: string, _d: string, e?: Record<string, unknown>) => { rows.push([step, verdict, e]); } };
+        expect(j4aCoachingBlockedRow(sink, { armed: true, blocked: 0 }, null).status).toBe('HOLD');
+        expect(j4aCoachingBlockedRow(sink, { armed: true, blocked: 0 }, 5).status).toBe('PASS');
+        expect(rows).toEqual([
+            [J4A_COACHING_BLOCKED_ROW, 'HOLD', { reason: 'closure_unproved', armed: true, blocked: 0, pagesClosedProved: false }],
+            [J4A_COACHING_BLOCKED_ROW, 'PASS', { reason: 'none_requested', armed: true, blocked: 0, pagesClosedProved: true }],
+        ]);
+    });
+    it('fails before (Sam, Nov 19 on 2b57bd47): a count read before the close misses an attempt made before the close', async () => {
+        // The journey's order, simulated: the count is read, then the page asks for coaching, then the pages close.
+        const guard = j4aCoachingGuard(); guard.armed = true;
+        const atOldPoint = guard.blocked;
+        await guard.handler({ abort: async () => undefined });
+        const closedAt = 1_000;
+        expect(atOldPoint).toBe(0);
+        expect(j4aCoachingBlockedVerdict({ armed: true, blocked: atOldPoint, pagesClosedAt: closedAt }).status).toBe('PASS');
+        expect(j4aCoachingBlockedVerdict({ armed: true, blocked: guard.blocked, pagesClosedAt: closedAt })).toMatchObject({ status: 'FAIL', reason: 'coaching_requested' });
+    });
+    it('the spec reads the count only after every owned page is proven closed, and before cleanup', () => {
+        const step = spec.indexOf("if (j4a) await steps.step('J4.a coaching blocked'");
+        expect(step).toBeGreaterThan(spec.indexOf("await steps.step('owned pages closed'"));
+        expect(step).toBeLessThan(spec.indexOf('accountDeleted = (await finalizeOwnedCleanup('));
+        expect(spec).toContain('j4aCoachingBlockedRow(aliveReceipt(receipt, alive), coachingGuard, parity.ownedPagesClosedAt);');
+        // One writer: the row is never written anywhere else in the spec.
+        expect(spec.split('J4.a: no coaching request left the browser').length).toBe(1);
+        expect(spec.split('j4aCoachingBlockedRow(').length).toBe(2);
     });
     it('the block row is J4.a-only, required for request lost, and written at the final boundary', () => {
         expect(spec).toContain("if (j4a) await steps.step('J4.a coaching blocked'");
         expect(spec.indexOf("await steps.step('J4.a coaching blocked'")).toBeGreaterThan(spec.indexOf("await steps.step('coaching budget'"));
+        expect(J4A_COACHING_BLOCKED_ROW).toBe('J4.a: no coaching request left the browser');
         expect(requiredAutomatedRows(SAVE_RETRY_REQUEST_LOST_SUITE)!.product).toContain('J4.a: no coaching request left the browser');
         expect(requiredAutomatedRows(SAVE_RETRY_RESPONSE_LOST_SUITE)!.product).not.toContain('J4.a: no coaching request left the browser');
     });
