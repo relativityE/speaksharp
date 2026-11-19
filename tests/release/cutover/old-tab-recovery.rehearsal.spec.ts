@@ -155,6 +155,18 @@ test('cutover B (browser/database only): an old tab\'s refused save after #1863 
       settle();
     })();
   });
+  // The entitlement answers the app receives (both builds), as content-free facts: phase, HTTP status, can_start, error code.
+  const usageAnswers: Array<{ phase: string; status: number; canStart: boolean | null; trialActive: boolean | null; error: string | null }> = [];
+  let usagePhase = 'old';
+  page.on('response', response => {
+    if (!response.url().includes('/functions/v1/check-usage-limit') || response.request().method() !== 'POST') return;
+    const at = usagePhase;
+    void response.json().then((body: { can_start?: unknown; trial_active?: unknown; error?: unknown }) => {
+      usageAnswers.push({ phase: at, status: response.status(), canStart: typeof body?.can_start === 'boolean' ? body.can_start : null,
+        trialActive: typeof body?.trial_active === 'boolean' ? body.trial_active : null,
+        error: typeof body?.error === 'string' && /^[a-z_]{1,40}$/.test(body.error) ? body.error : body?.error == null ? null : 'unrecognized' });
+    }, () => { usageAnswers.push({ phase: at, status: response.status(), canStart: null, trialActive: null, error: 'unreadable' }); });
+  });
   page.on('requestfailed', request => {
     const tracked = byRequest.get(request);
     if (!tracked) return;
@@ -250,8 +262,15 @@ test('cutover B (browser/database only): an old tab\'s refused save after #1863 
     receipt.beforeReloadRoute = new URL(page.url()).pathname.replace(/[0-9a-f-]{36}/gi, ':id');
     // Content-free rehydration signal: only whether the controller's fixed rehydration log line appeared.
     let rehydrationLogged = false;
-    page.on('console', message => { if (message.text().includes('rehydrated FINALIZED unresolved recording')) rehydrationLogged = true; });
+    let chunkLoadError = false;
+    page.on('console', message => {
+      const text = message.text();
+      if (text.includes('rehydrated FINALIZED unresolved recording')) rehydrationLogged = true;
+      if (/Failed to fetch dynamically imported module|ChunkLoadError|Importing a module script failed/.test(text)) chunkLoadError = true;
+    });
+    page.on('pageerror', error => { if (/dynamically imported module|ChunkLoadError/.test(error.message)) chunkLoadError = true; });
     served.root = NEW_DIST;
+    usagePhase = 'new';
     await page.reload();
     expect(await release(page)).toBe(NEW_SHA);
     expect(await page.evaluate(() => window.crossOriginIsolated)).toBe(true);
@@ -274,6 +293,15 @@ test('cutover B (browser/database only): an old tab\'s refused save after #1863 
         recoveryActionsPresent: Boolean(document.querySelector('[data-testid="session-recovery-actions"]')),
         recoveryActionsState: document.querySelector('[data-testid="session-recovery-actions"]')?.getAttribute('data-recovery-state') ?? null,
         micFound: Boolean(mic), micDisabled: mic ? mic.disabled : null,
+        accessChecking: Boolean(document.querySelector('[data-testid="trial-access-checking"]')),
+        paymentWall: Boolean(document.querySelector('[data-testid="trial-payment-wall"]')),
+        takeNotSavedNotice: Boolean(document.querySelector('[data-testid="trial-take-not-saved"]')),
+        // Not the gate: a lazy route still loading, an error boundary, or the stale-chunk recovery overlay.
+        errorBoundary: /Oops! Something went wrong/.test(document.body.innerText),
+        staleChunkOverlay: Boolean(document.querySelector('#ss-stale-chunk-recovery')),
+        // App.tsx's route Suspense fallback (PageLoader) has no test id; its unique wrapper class identifies it.
+        routeLoader: Boolean(document.querySelector('[class*="min-h-[calc(100vh-var(--header-height))]"]')),
+        mainChildren: document.querySelector('main')?.childElementCount ?? null,
       };
     }, { uid });
     (receipt.afterReload as Record<string, unknown>).draft = afterReloadDraft === null ? null : {
@@ -282,6 +310,8 @@ test('cutover B (browser/database only): an old tab\'s refused save after #1863 
       nextActionValid: Boolean((afterReloadDraft as { nextActionSignal?: unknown }).nextActionSignal
         && typeof (afterReloadDraft as { nextActionSignal?: unknown }).nextActionSignal === 'object') };
     (receipt.afterReload as Record<string, unknown>).rehydrationLogged = rehydrationLogged;
+    (receipt.afterReload as Record<string, unknown>).chunkLoadError = chunkLoadError;
+    receipt.usageAnswers = usageAnswers;
     save();
     await expect(page.getByTestId('session-unresolved-recovery')).toBeVisible({ timeout: 60_000 });
     const retry = page.getByTestId('session-retry-save');
