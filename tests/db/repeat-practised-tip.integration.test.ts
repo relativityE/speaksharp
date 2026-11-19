@@ -469,6 +469,33 @@ describe('outcome 4 D2 rev 3: the tip chosen for a repeat is bound to it by the 
         expect(await state(attempt)).toMatchObject({ tip_session_id: null });
     });
 
+    for (const how of ['discarded as failed', 'deleted'] as const) {
+        it(`Codex P2: a registration released (${how}) after another take expired the original takes the copy with it`, async () => {
+            await seed(A, 60, 6);
+            const attempt = await accept(await recommendOnA());
+            await start(B);                                  // registered
+            await start(C, { tab: 'other' });
+            await save(C);                                   // expires A; the copy is kept only for B
+            expect(await state(attempt)).toMatchObject({ practised_tip: TIP, tip_session_id: null });
+            if (how === 'deleted') await db.query('DELETE FROM public.sessions WHERE id = $1', [B]);
+            else await db.query(`UPDATE public.sessions SET status = 'failed' WHERE id = $1`, [B]);
+            expect(await state(attempt)).toMatchObject({ practised_tip: null, tip_session_id: null, lifecycle: 'pending' });
+        });
+    }
+
+    it('NEGATIVE CONTROL: without the release check, the copy outlives its expired original with no take', async () => {
+        await mutate('public._prec_att_guard_tip()',
+            `IF OLD.registered_session_id IS NOT NULL AND NEW.registered_session_id IS NULL AND NEW.tip_session_id IS NULL`,
+            `IF false AND NEW.tip_session_id IS NULL`);
+        await seed(A, 60, 6);
+        const attempt = await accept(await recommendOnA());
+        await start(B);
+        await start(C, { tab: 'other' });
+        await save(C);
+        await db.query(`UPDATE public.sessions SET status = 'failed' WHERE id = $1`, [B]);
+        expect(await state(attempt)).toMatchObject({ practised_tip: TIP, tip_session_id: null });
+    });
+
     it('Codex P2: the registered take saving after a newer save already completed retires the copy instead of binding it', async () => {
         await seed(A, 60, 6);
         const attempt = await accept(await recommendOnA());

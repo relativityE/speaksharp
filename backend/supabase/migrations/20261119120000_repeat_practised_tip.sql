@@ -233,6 +233,19 @@ BEGIN
        OR (OLD.tip_session_id IS NOT NULL AND NEW.tip_session_id IS NULL) THEN
         NEW.practised_tip := NULL;
     END IF;
+    -- A registration released (the take discarded as failed, or deleted) before any repeat bound: the copy survived only
+    -- for that take, so it goes now if its original has already expired or a newer save has superseded the original.
+    IF OLD.registered_session_id IS NOT NULL AND NEW.registered_session_id IS NULL AND NEW.tip_session_id IS NULL
+       AND NEW.practised_tip IS NOT NULL AND EXISTS (
+           SELECT 1 FROM public.progress_recommendations r
+             JOIN public.sessions src ON src.id = r.source_session_id
+            WHERE r.id = NEW.recommendation_id
+              AND (src.transcript_state = 'expired' OR EXISTS (
+                   SELECT 1 FROM public.sessions n
+                    WHERE n.user_id = src.user_id AND n.status = 'completed' AND n.id <> src.id
+                      AND (n.created_at, n.id) > (src.created_at, src.id)))) THEN
+        NEW.practised_tip := NULL;
+    END IF;
     RETURN NEW;
 END;
 $$;
