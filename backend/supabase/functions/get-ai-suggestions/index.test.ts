@@ -45,6 +45,8 @@ interface MockOptions {
   profileError?: unknown;
   entitlement?: Record<string, unknown>;
   entitlementError?: unknown;
+  /** Successive check_usage_limit answers (admission first, then the pre-save recheck); `entitlement` once exhausted. */
+  entitlementReads?: Array<{ data: unknown; error?: unknown }>;
   userId?: string | null;
   consentReads?: Array<{ data: unknown; error?: unknown }>;
   session?: Record<string, unknown> | null;
@@ -221,6 +223,7 @@ function mockSupabase(options: MockOptions = {}) {
     // #1486 — counted on its own. `rpcCount` also counts other rpc traffic, so it cannot answer
     // "how many slots did this one generation action spend?".
     quotaCount: 0,
+    entitlementChecks: 0,
     admissionArgs: null as Record<string, unknown> | null,
     settlementArgs: null as Record<string, unknown> | null,
     localRetirementArgs: null as Record<string, unknown> | null,
@@ -228,6 +231,7 @@ function mockSupabase(options: MockOptions = {}) {
     sessionColumns: [] as string[],
   };
   const consentReads = [...(options.consentReads ?? [])];
+  const entitlementReads = [...(options.entitlementReads ?? [])];
   const sessionSelectErrors = [...(options.sessionSelectErrors ?? [])];
   const profile = options.profile ?? 'pro';
   const userId = options.userId === undefined ? 'pro-user' : options.userId;
@@ -253,6 +257,9 @@ function mockSupabase(options: MockOptions = {}) {
         return Promise.resolve({ data: !options.settlementError, error: options.settlementError ?? null });
       }
       if (name === 'check_usage_limit') {
+        state.entitlementChecks++;
+        const next = entitlementReads.shift();
+        if (next) return Promise.resolve({ data: next.data, error: next.error ?? null });
         return Promise.resolve({
           data: options.entitlement ?? (profile === 'free'
             ? { can_start: false, is_pro: false, error: 'trial_expired' }
@@ -473,6 +480,38 @@ Deno.test('#1835 unknown schema or a changed choice stops new provider attempts 
   assertEquals((await racedResponse.json()).code, 'consent_required');
   assertEquals(raced.state.authorityArgs?.p_choice_revision, 1);
   assertEquals(raced.state.updated, null);
+});
+
+Deno.test('#1899 an answer that finishes after the trial ended is neither stored nor returned', async () => {
+  const entitled = { can_start: true, is_pro: true };
+  const expired = { can_start: false, is_pro: false, error: 'trial_expired' };
+  // Control: entitled at admission and at the pre-save recheck -> served and saved once.
+  resetProvider();
+  const control = mockSupabase({ entitlementReads: [{ data: entitled }, { data: entitled }] });
+  const served = await handler(request(), control.create);
+  assertEquals(served.status, 200);
+  assertEquals([control.state.entitlementChecks, fetchCount, control.state.quotaCount, control.state.authorityRpcCount],
+    [2, 1, 1, 1]);
+
+  // Expiry during the provider call: admitted and charged once, then refused before persistence; nothing written or returned.
+  resetProvider();
+  const lapsed = mockSupabase({ entitlementReads: [{ data: entitled }, { data: expired }] });
+  const refused = await handler(request(), lapsed.create);
+  const body = await refused.json();
+  assertEquals({
+    status: refused.status, error: body.error, suggestions: body.suggestions ?? null,
+    entitlementChecks: lapsed.state.entitlementChecks, providerAttempts: fetchCount, quotaWrites: lapsed.state.quotaCount,
+    persistCalls: lapsed.state.authorityRpcCount, reviewWrites: lapsed.state.updated,
+  }, {
+    status: 403, error: 'Your account cannot request coaching right now.', suggestions: null,
+    entitlementChecks: 2, providerAttempts: 1, quotaWrites: 1, persistCalls: 0, reviewWrites: null,
+  });
+
+  // An unverifiable recheck fails closed the same way, as 503.
+  resetProvider();
+  const unverified = mockSupabase({ entitlementReads: [{ data: entitled }, { data: null, error: { message: 'unavailable' } }] });
+  const unknown = await handler(request(), unverified.create);
+  assertEquals([unknown.status, unverified.state.authorityRpcCount, unverified.state.updated], [503, 0, null]);
 });
 
 Deno.test('get-ai-suggestions saved-session contract', async (t) => {
