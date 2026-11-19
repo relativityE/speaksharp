@@ -5,9 +5,11 @@
 // Postgres 17.6.1.155 observation from the full-chain proof (profiles main-payment-wall-132 / main-practice-privacy-133),
 // never a PGlite value. A pending value is not a digest, so assertT2Catalog refuses that stage until it is pinned.
 export const PENDING_NATIVE_PIN = 'PENDING_NATIVE_PG17_OBSERVATION';
+// Observed natively by full-chain run 44424646936 (head d74ea9ee), identically in profiles 132 and 133, after the ledger-11
+// reference passed against the current pins (referenceVerified: true).
 export const PAYMENT_WALL_T2_CATALOG_DELTA = Object.freeze({
-  "function:public.get_analytics_summary(uuid)": PENDING_NATIVE_PIN,
-  "table:public.recording_start_abandonments": PENDING_NATIVE_PIN
+  "function:public.get_analytics_summary(uuid)": "59a8264bf7c34d8117722d00b21f6506",
+  "table:public.recording_start_abandonments": "a599a366c15a1026c4604f9b23291c19"
 });
 export const PRACTICE_PRIVACY_T2_CATALOG_DELTA = Object.freeze({
   "function:public.persist_account_coaching_v1(uuid, boolean, uuid, uuid, jsonb, text, text, text, date, integer, integer)": PENDING_NATIVE_PIN
