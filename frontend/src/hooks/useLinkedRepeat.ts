@@ -5,7 +5,7 @@ import { useAuthProvider } from '@/contexts/AuthProvider';
 import { loadSessionProgress } from '@/services/progress/loadSessionProgress';
 import { abandonRecommendationAttempt, readPendingRecommendationAttempt, recordRecommendationAttempt } from '@/services/progress/recordProgress';
 import { getOpenAttemptForUser, openAttemptSnapshot, setOpenAttempt } from '@/services/progress/openAttempt';
-import { declarePracticeAgainRegistration, getPracticeAgainIntent, registeredTakeFor, setPracticeAgainIntent } from '@/services/progress/practiceAgainIntent';
+import { declarePracticeAgainRegistration, setPracticeAgainIntent } from '@/services/progress/practiceAgainIntent';
 import { isCurrentTargetOwner, resolveRepeatTarget, validateDisplayedTarget, type DisplayedRepeatTarget } from '@/services/progress/repeatPracticeTarget';
 import { authEpoch } from '@/services/loginSessionLog';
 import logger from '@/lib/logger';
@@ -107,16 +107,10 @@ export function useLinkedRepeat(sessionId: string) {
             // proves which earlier press — on this device or another — created it, and the server's clock is never mixed
             // into client ordering. Known limitation: a take recorded between the lost create and this press stays
             // unlinked; it is never bound to a take that may predate the attempt.
-            // #1827 D2 rev 4 (Codex P2): reusing an attempt whose take is already registered keeps that registration (and its
-            // bound resolution): the server never moves a registration, so dropping it locally would strand the repeat.
-            const registeredTake = registeredTakeFor(userId);
-            const prior = getOpenAttemptForUser(userId);
-            const carried = prior?.attemptId === attemptId ? {
-                ...(registeredTake ? { registeredSessionId: registeredTake } : {}),
-                ...(prior.resolutionSessionId ? { resolutionSessionId: prior.resolutionSessionId } : {}),
-            } : {};
+            // #1827 D2 rev 4: this client registers its repeat. Which take that is lives only on the server and is read when
+            // needed, so reusing an attempt carries nothing local that could go stale.
             const handoffStored = setOpenAttempt({ attemptId, userId, sourceSessionId: sessionId, acceptedAtIso, registrationRequired: true,
-                ...carried, ...(reference ? { repeatTarget: reference } : {}) });
+                ...(reference ? { repeatTarget: reference } : {}) });
             if (!handoffStored) {
                 // A replacement account must never issue this original owner's cleanup request.
                 if (authEpoch() !== startedEpoch || (target && !isCurrentTargetOwner(target.ownerId, target.epoch))) return;
@@ -135,12 +129,8 @@ export function useLinkedRepeat(sessionId: string) {
                 outcome = abandoned ? 'handoff_failed_abandoned' : 'handoff_failed_unclosed';
                 return;
             }
-            // #1827 D2 rev 4: this tab's next Start is the repeat; only it is registered with the attempt.
-            // Reusing the same attempt keeps this tab's whole registration state, including an unconfirmed candidate (Codex P2).
-            const priorIntent = getPracticeAgainIntent(userId);
-            setPracticeAgainIntent(priorIntent?.attemptId === attemptId
-                ? { ...priorIntent, ...('registeredSessionId' in carried ? { registeredSessionId: carried.registeredSessionId } : {}) }
-                : { attemptId, userId, ...('registeredSessionId' in carried ? { registeredSessionId: carried.registeredSessionId } : {}) });
+            // #1827 D2 rev 4: this tab's next Start is the repeat; only it registers with the attempt.
+            setPracticeAgainIntent({ attemptId, userId });
             if (authEpoch() !== startedEpoch || generation.current !== startedGeneration) return;
             if (target) {
                 const stored = getOpenAttemptForUser(userId);

@@ -85,7 +85,6 @@ import {
     type ProgressEvaluationOutcome,
 } from '@/services/progress/recordProgress';
 import { evaluateStartGate, startGateMessage } from '@/services/progress/progressStartGate';
-import { releaseDiscardedTake } from '@/services/progress/practiceAgainIntent';
 import { installSttEvidenceCollector } from '@/services/transcription/sttEvidenceCollector';
 import { installSttIdentityAccessor } from '@/services/transcription/sttIdentity';
 import { evaluateRuntimeCandidateTakeGate } from '@/services/transcription/runtimeCandidateTakeGate';
@@ -6172,8 +6171,6 @@ export class SpeechRuntimeController {
                             try {
                                 const discardMark = await completeSession(sessionId, { status: 'failed', reason: discardReason });
                                 discardSettled = Boolean(discardMark?.success);
-                                // #1827 D2 rev 4: the server released this take's registration; so does the handoff.
-                                if (discardSettled) releaseDiscardedTake(sessionId);
                             } catch (discardError) {
                                 logger.warn({ discardError, sessionId }, '[DEBUG-STOP] completeSession failed-status threw');
                             }

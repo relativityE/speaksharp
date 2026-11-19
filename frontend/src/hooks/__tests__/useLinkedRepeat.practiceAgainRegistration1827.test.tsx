@@ -12,7 +12,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useLinkedRepeat } from '../useLinkedRepeat';
 import { saveSession } from '@/lib/storage';
 import { clearOpenAttempt, getOpenAttemptForUser } from '@/services/progress/openAttempt';
-import { clearPracticeAgainIntent, getPracticeAgainIntent, releaseDiscardedTake, setPracticeAgainIntent } from '@/services/progress/practiceAgainIntent';
+import { clearPracticeAgainIntent, getPracticeAgainIntent } from '@/services/progress/practiceAgainIntent';
 
 const USER = 'user-1827';
 const rpc = vi.fn();
@@ -64,25 +64,14 @@ async function pressPracticeAgain() {
 }
 
 describe('#1827 Practice again → Start registers only this tab\'s take', () => {
-    it('this tab: the take created after the click is registered with that attempt, once', async () => {
+    it('this tab: the take created after the click is registered; later Starts in this tab ask the server, which decides', async () => {
         await pressPracticeAgain();
         expect((await saveSession({ user_id: USER, duration: 0 } as never, 'private' as never)).status).toBe('saved');
         expect(registrations()).toEqual([{ p_attempt: 'attempt-1', p_session: 'take-b' }]);
-        // A later take in this tab never replaces the registered repeat: no second registration is sent.
         nextTake = 'take-d';
         await saveSession({ user_id: USER, duration: 0 } as never, 'private' as never);
-        expect(registrations()).toEqual([{ p_attempt: 'attempt-1', p_session: 'take-b' }]);
-        expect(getOpenAttemptForUser(USER)?.registeredSessionId).toBe('take-b');
-    });
-
-    it('a discarded registered take (released by the server) is replaced by the next take from this tab', async () => {
-        await pressPracticeAgain();
-        await saveSession({ user_id: USER, duration: 0 } as never, 'private' as never);
-        registered = null;                            // take-b ended 'failed': the server released its registration
-        releaseDiscardedTake('take-b');               // …and so does the handoff, as the controller does on the discard
-        nextTake = 'take-e';
-        await saveSession({ user_id: USER, duration: 0 } as never, 'private' as never);
-        expect(getOpenAttemptForUser(USER)?.registeredSessionId).toBe('take-e');
+        expect(registered).toBe('take-b');                    // the server refused take-d: take-b stays the repeat
+        expect(getOpenAttemptForUser(USER)).not.toHaveProperty('registeredSessionId');
     });
 
     it('another tab: the same owner-wide handoff, but no intent in that tab, so its take is never registered', async () => {
@@ -93,21 +82,22 @@ describe('#1827 Practice again → Start registers only this tab\'s take', () =>
         expect(registrations()).toEqual([]);
     });
 
-    it('Codex P2: pressing Practice again again reuses the pending attempt and keeps the take already registered', async () => {
+    it('a discarded repeat (released by the server) is replaced by the next take from this tab, with no client state to clear', async () => {
         await pressPracticeAgain();
-        await saveSession({ user_id: USER, duration: 0 } as never, 'private' as never);   // take-b registered
-        expect(getOpenAttemptForUser(USER)?.registeredSessionId).toBe('take-b');
-        readPending.mockResolvedValueOnce({ status: 'one', attemptId: 'attempt-1' });     // its advance failed; still pending
-        await pressPracticeAgain();
-        expect(getOpenAttemptForUser(USER)).toMatchObject({ attemptId: 'attempt-1', registeredSessionId: 'take-b' });
+        await saveSession({ user_id: USER, duration: 0 } as never, 'private' as never);
+        registered = null;                            // take-b ended 'failed': the server released its registration
+        nextTake = 'take-e';
+        await saveSession({ user_id: USER, duration: 0 } as never, 'private' as never);
+        expect(registered).toBe('take-e');
     });
 
-    it('Codex P2: reusing the pending attempt keeps an unconfirmed registration candidate', async () => {
+    it('reusing the pending attempt writes a fresh handoff and intent; the repeat identity stays on the server', async () => {
         await pressPracticeAgain();
-        setPracticeAgainIntent({ attemptId: 'attempt-1', userId: USER, candidateSessionId: 'take-b', candidateSaved: true });
+        await saveSession({ user_id: USER, duration: 0 } as never, 'private' as never);
         readPending.mockResolvedValueOnce({ status: 'one', attemptId: 'attempt-1' });
         await pressPracticeAgain();
-        expect(getPracticeAgainIntent(USER)).toMatchObject({ attemptId: 'attempt-1', candidateSessionId: 'take-b', candidateSaved: true });
+        expect(getOpenAttemptForUser(USER)).toMatchObject({ attemptId: 'attempt-1', registrationRequired: true });
+        expect(getPracticeAgainIntent(USER)).toEqual({ attemptId: 'attempt-1', userId: USER });
+        expect(registered).toBe('take-b');
     });
 });
-

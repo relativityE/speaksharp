@@ -15,7 +15,7 @@ import { getSupabaseClient } from './supabaseClient';
 import { currentTakeLeaseId } from '@/services/recordingLease';
 import logger from './logger';
 import { transcriptSaveAllowed } from '@/services/practicePrivacy';
-import { confirmCandidateRegistration, getPracticeAgainIntent, hasRegistrationCandidate, recordRegisteredTake, registeredTakeFor, setPracticeAgainIntent } from '@/services/progress/practiceAgainIntent';
+import { getPracticeAgainIntent } from '@/services/progress/practiceAgainIntent';
 import type { PracticeSession } from '../types/session';
 import type { UserProfile } from '../types/user';
 import type { AnalyticsSummary } from '../types/analytics';
@@ -255,35 +255,18 @@ export const saveSession = async (
 };
 
 /**
- * #1827 D2 rev 4: register the take this tab just created with this tab's Practice-again attempt. Non-blocking: a
- * failure never fails the save; the take is then simply not the repeat (no link, no tip). The intent stays for this
- * tab while the attempt is open (it is dropped once the attempt resolves): the server refuses a second take while one
- * is registered, and a take discarded without completing releases its registration, so the next take re-registers.
+ * #1827 D2 rev 4: the originating tab's intended Start registers the take it just created with that tab's Practice-again
+ * attempt. Nothing is stored from the answer: the server's registered take is the one authority, and later decisions read
+ * it (`readRepeatIdentity`). A take from a tab without the intent is never registered. Non-blocking: a failure never fails
+ * the save. Idempotent: re-sent for the registered take it confirms; any other take is refused.
  */
 async function registerPracticeAgainTake(userId: string | undefined, sessionId: string | undefined): Promise<void> {
   if (!userId || !sessionId) return;
-  // A registration sent earlier and never answered is confirmed first. Only a definitive refusal frees this new take to be
-  // registered; while the earlier take is confirmed or still unknown, this take starts normally but is not registered (Sam).
-  if (hasRegistrationCandidate(userId) && await confirmCandidateRegistration(userId) !== 'refused') return;
   const intent = getPracticeAgainIntent(userId);
   if (!intent) return;
-  // The repeat is already registered (or, before the migration, recorded locally): a later take never replaces it (Codex P2).
-  if (registeredTakeFor(userId)) return;
-  // Persist the candidate BEFORE the request, so a lost response can be confirmed for this same take (Codex P2).
-  setPracticeAgainIntent({ ...intent, candidateSessionId: sessionId });
   try {
-    const { data, error } = await getSupabaseClient().rpc('register_practice_again_take_v1', { p_attempt: intent.attemptId, p_session: sessionId });
-    // A database without the registration migration has no such function (the frontend ships first): this tab's take is
-    // still the exact repeat, and that database links any take, so record it locally and keep the existing link/comparison.
-    const registrationUnavailable = !!error && (error.code === 'PGRST202' || error.code === '42883');
-    if ((!error && data === true) || registrationUnavailable) {
-      // The owner-wide handoff learns which take is the repeat, so every tab binds and resolves only that take. If that
-      // write fails, this tab holds the registration and writes it back when storage accepts it (Codex P2).
-      recordRegisteredTake(userId, intent, sessionId);
-    } else if (!error) {
-      setPracticeAgainIntent(intent);                                  // refused: not this take; no candidate to confirm
-    }
-    else if (error) logger.warn({ code: error.code }, '[Supabase DB] Practice again take not registered');
+    const { error } = await getSupabaseClient().rpc('register_practice_again_take_v1', { p_attempt: intent.attemptId, p_session: sessionId });
+    if (error) logger.warn({ code: error.code }, '[Supabase DB] Practice again take not registered');
   } catch {
     logger.warn('[Supabase DB] Practice again take not registered');
   }

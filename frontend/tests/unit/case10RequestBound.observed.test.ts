@@ -254,9 +254,8 @@ describe('Case 10 observed: Progress evaluation and debt (recordProgress.ts, pro
             error: { code: '22023', message: i === 0 ? 'outcome mismatch: use not_comparable' : 'attempt already resolved' },
         }));
         handlers.set('from:progress_recommendation_attempts', () => ok(null));
-        // #1827 rev 4: only the registered take is ever advanced, so the bound repeat is the registered one.
-        expect(setOpenAttempt({ attemptId: 'att-1', userId: OWNER, sourceSessionId: 'sess-source', resolutionSessionId: 'sess-repeat',
-            registeredSessionId: 'sess-repeat' })).toBe(true);
+        expect(setOpenAttempt({ attemptId: 'att-1', userId: OWNER, sourceSessionId: 'sess-source', resolutionSessionId: 'sess-repeat' }))
+            .toBe(true);
 
         await reconcileProgressEvaluations(OWNER, []);
         expect(sent).toEqual([

@@ -44,13 +44,9 @@ export interface OpenAttempt {
     /** Once resolution starts, retries remain durably bound to this exact repeat session. */
     resolutionSessionId?: string;
     /**
-     * #1827 D2 rev 4: the take the server registered for this attempt (`register_practice_again_take_v1`), written by the
-     * tab where Practice again was pressed. Only this take may resolve the attempt; the server refuses any other.
-     */
-    registeredSessionId?: string;
-    /**
-     * #1827 D2 rev 4: set by a client that registers the repeat (this one). Such an attempt binds only its registered
-     * take. An attempt without it was accepted by an older client and keeps the earlier first-take rules.
+     * #1827 D2 rev 4: set by a client that registers the repeat (this one). Such an attempt is bound only from the server's
+     * registered take (read, never stored). An attempt without it was accepted by an older client and keeps the earlier
+     * first-take rules.
      */
     registrationRequired?: boolean;
     /**
@@ -78,7 +74,6 @@ export function setOpenAttempt(a: OpenAttempt): boolean {
         const safe: OpenAttempt = { attemptId: a.attemptId, userId: a.userId, sourceSessionId: a.sourceSessionId,
             ...(a.acceptedAtIso === undefined ? {} : { acceptedAtIso: a.acceptedAtIso }),
             ...(a.resolutionSessionId === undefined ? {} : { resolutionSessionId: a.resolutionSessionId }),
-            ...(typeof a.registeredSessionId === 'string' ? { registeredSessionId: a.registeredSessionId } : {}),
             ...(a.registrationRequired === true ? { registrationRequired: true } : {}),
             ...(a.repeatTarget === undefined ? {} : { repeatTarget: sanitizeRepeatTarget(a.repeatTarget) }) };
         const raw = JSON.stringify(safe);
@@ -102,7 +97,6 @@ export function getOpenAttemptForUser(userId: string): OpenAttempt | null {
             attemptId: a.attemptId, userId: a.userId, sourceSessionId: a.sourceSessionId,
             ...(a.acceptedAtIso === undefined ? {} : { acceptedAtIso: a.acceptedAtIso }),
             ...(a.resolutionSessionId === undefined ? {} : { resolutionSessionId: a.resolutionSessionId }),
-            ...(typeof a.registeredSessionId === 'string' ? { registeredSessionId: a.registeredSessionId } : {}),
             ...(a.registrationRequired === true ? { registrationRequired: true } : {}),
             ...(a.repeatTarget === undefined ? {} : { repeatTarget: sanitizeRepeatTarget(a.repeatTarget) }),
         };
