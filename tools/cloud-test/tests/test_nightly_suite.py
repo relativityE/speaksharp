@@ -40,6 +40,15 @@ REVIEWED_J4A_FIXTURE_SHA256 = {
 }
 
 
+# Candidate-only test sources must never run against the historical packet.
+REVIEWED_OFFLINE_TEST_SHA256 = {
+    "j4a-guarded-owner.test.cjs.fixture": "d4d4c73eeff7b9a2e1e43195ecdf71f27ff933c1235cd3be56d709709847f131",
+    "j4a-nightly-entry.test.cjs.fixture": "5559fd070a6ed04a6ea151de685897c904c3781a444bd02d7454cf28a658bef9",
+    "j4a-supervised-adapter.test.cjs.fixture": "6009e95031e30fc9d6f434e05074e4dd94d7cebb4cb55dff3fff5d8751151d0e",
+    "j4a-supervised-entrypoint.test.cjs.fixture": "7e7a22a5a9914e963e945075084b01061fee3a87f19b4c6886161eca58eae696",
+    "j4a-supervisor-termination.test.cjs.fixture": "4e96f432f4a5a1c217851b693df89456a5c8f8faba31be0a71d197b1cdc597c7",
+}
+
 class NightlySuite(unittest.TestCase):
     def test_exact_j4a_fixture_bytes(self):
         for name, expected in REVIEWED_J4A_FIXTURE_SHA256.items():
@@ -91,6 +100,13 @@ class NightlySuite(unittest.TestCase):
                 capture_output=True, text=True, env=env, timeout=30)
             self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
             nightly = candidate / "nightly"
+            for name, expected in REVIEWED_OFFLINE_TEST_SHA256.items():
+                fixture = nightly / "tests" / name
+                self.assertFalse(fixture.is_symlink())
+                self.assertEqual(hashlib.sha256(fixture.read_bytes()).hexdigest(), expected)
+                executable = fixture.with_suffix("")
+                self.assertFalse(executable.exists())
+                fixture.rename(executable)
             files = sorted(str(p) for p in (nightly / "tests").glob("*.test.cjs"))
             self.assertTrue(files, "no nightly test files found")
             r = subprocess.run(["node", "--test", "--test-reporter=tap", *files], capture_output=True,
@@ -104,7 +120,9 @@ class NightlySuite(unittest.TestCase):
     def test_every_nightly_module_is_covered_by_a_test_file(self):
         modules = sorted(p.relative_to(NIGHTLY).as_posix() for p in NIGHTLY.rglob("*.cjs")
                          if "tests" not in p.relative_to(NIGHTLY).parts and "negative-controls" not in p.relative_to(NIGHTLY).parts)
-        tests = "\n".join(p.read_text(encoding="utf-8") for p in (NIGHTLY / "tests").glob("*.test.cjs"))
+        sources = list((NIGHTLY / "tests").glob("*.test.cjs"))
+        sources += [NIGHTLY / "tests" / name for name in REVIEWED_OFFLINE_TEST_SHA256]
+        tests = "\n".join(p.read_text(encoding="utf-8") for p in sources)
         uncovered = [m for m in modules if f"'../{m}'" not in tests]
         self.assertEqual(uncovered, [])
 
