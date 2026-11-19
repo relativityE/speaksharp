@@ -45,7 +45,9 @@ const SOURCE_MIGRATIONS = resolve(need('CUTOVER_SOURCE_MIGRATIONS'));
 const DB_URL = need('CUTOVER_LOCAL_DB_URL');
 const PAYMENT_WALL = '20261114170000_payment_wall_product_access_1863.sql';
 const PRACTICE_PRIVACY = '20261117105700_practice_privacy_choices_1835.sql';
-const PORT = 4791;
+// An origin on the Edge CORS allowlist (_shared/cors.ts BUILTIN_ALLOWED_ORIGINS): any other local port gets 403 before
+// function logic, which the new build's access boundary correctly reads as "no access" (run 44507757071).
+const PORT = 5173;
 const APP = `http://127.0.0.1:${PORT}`;
 const UUID = /^[0-9a-f-]{36}$/i;
 const DRAFT_KEY = 'speaksharp_unsaved_session_draft';
