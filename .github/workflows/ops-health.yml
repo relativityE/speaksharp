@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   ops-health:
+    environment: trusted-main-credentials
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

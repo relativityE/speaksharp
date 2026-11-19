@@ -8,11 +8,17 @@
  * doesn't (transcript retention), the band is terminal — "Review isn't available for this session" — with no button,
  * never a fake retry. A transcript that expires between render and press still ends terminal: the function answers 409
  * and `AISuggestions` shows its no-transcript message.
+ *
+ * #1835 — a Retry is a fresh coaching request, so it needs the owner's own recorded choice to allow coaching. An existing
+ * user who opens a saved session from History before visiting Practice has no recorded choice: the saved data stays
+ * readable, but no Try again is offered and nothing is requested. The press re-checks the choice, too.
  */
 import React, { useState } from 'react';
 import { Sparkles } from 'lucide-react';
-import AISuggestions from './AISuggestions';
-import { FOCUS_POINTS_DISCLOSURE, NOT_AVAILABLE_FOR_SESSION_MESSAGE, OPEN_MIC_DISCLOSURE, UNAVAILABLE_MESSAGE } from './reviewCopy';
+import AISuggestions, { COACHING_OFF_SAVE_OFF, COACHING_OFF_SAVE_ON } from './AISuggestions';
+import { coachingAllowed, transcriptSaveAllowed, usePracticePrivacyStore } from '@/services/practicePrivacy';
+import { NOT_AVAILABLE_FOR_SESSION_MESSAGE, UNAVAILABLE_MESSAGE } from './reviewCopy';
+import { CoachingDisclosure } from './CoachingDisclosure';
 import type { SessionProduct } from '@/types/session';
 
 interface RestoredReviewRetryProps {
@@ -29,10 +35,16 @@ interface RestoredReviewRetryProps {
 
 export const RestoredReviewRetry: React.FC<RestoredReviewRetryProps> = ({ sessionId, product, sessionLabel, transcriptAvailable, action, resultsReady = true }) => {
     const [requested, setRequested] = useState(false);
+    const privacy = usePracticePrivacyStore();
+    const coachingOn = coachingAllowed(privacy);
+    const privacySettled = privacy.status !== 'loading';
     // #1577 Codex P2 4235535994: with no resolved product the coaching function answers product_unknown, so a retry could
     // never generate coaching. Terminal: no button, no claimed send, no request.
     // #1577 Codex P2 4236200867: a Focus take without saved point results is refused (425) on every request: terminal too.
-    const canRetry = transcriptAvailable && product !== null && resultsReady;
+    const retryable = transcriptAvailable && product !== null && resultsReady;
+    const canRetry = retryable && coachingOn;
+    // #1835: the owner's choice does not allow coaching (unknown, declined or unreadable). Not a retry, not "unavailable".
+    const coachingOff = retryable && privacySettled && !coachingOn;
     if (requested) {
         // #1577 Codex P2 4235535990: AISuggestions has no ground of its own; loading, failure and success all stay on the
         // same ink review surface, with the practice action.
@@ -44,7 +56,8 @@ export const RestoredReviewRetry: React.FC<RestoredReviewRetryProps> = ({ sessio
         );
     }
     return (
-        <section className="rounded-2xl bg-ink p-6" data-testid="restored-review-retry" data-retry={canRetry ? 'available' : 'unavailable'} aria-label="Practice Loop review">
+        <section className="rounded-2xl bg-ink p-6" data-testid="restored-review-retry"
+            data-retry={canRetry ? 'available' : coachingOff ? 'coaching_off' : retryable ? 'checking' : 'unavailable'} aria-label="Practice Loop review">
             <h2 className="mb-4 inline-flex items-center gap-2 text-[12px] font-extrabold uppercase tracking-[0.09em] text-signature">
                 <Sparkles className="h-[15px] w-[15px]" aria-hidden="true" />
                 Practice Loop review
@@ -54,16 +67,34 @@ export const RestoredReviewRetry: React.FC<RestoredReviewRetryProps> = ({ sessio
                     <p className="max-w-[560px] text-[17px] font-bold leading-snug text-ink-text">{UNAVAILABLE_MESSAGE}</p>
                     <button
                         type="button"
-                        onClick={() => setRequested(true)}
+                        onClick={() => { if (coachingAllowed()) setRequested(true); }}
                         className="mt-3.5 inline-flex h-10 items-center rounded-lg border border-ink-muted px-4 text-[14px] font-extrabold text-ink-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signature focus-visible:ring-offset-2 focus-visible:ring-offset-ink"
                         data-testid="restored-review-retry-button"
                     >
                         Try again
                     </button>
                     <p className="mt-2 text-[12px] font-semibold text-ink-muted">
-                        {product === 'focus_points' ? FOCUS_POINTS_DISCLOSURE : OPEN_MIC_DISCLOSURE}
+                        <CoachingDisclosure product={product} />
                     </p>
                 </>
+            ) : coachingOff ? (
+                <div data-testid="restored-review-coaching-off">
+                    <p className="max-w-[560px] text-[17px] font-bold leading-snug text-ink-text">
+                        {transcriptSaveAllowed(privacy) ? COACHING_OFF_SAVE_ON : COACHING_OFF_SAVE_OFF}
+                    </p>
+                    <a
+                        href="/account#privacy-data"
+                        className="mt-3.5 inline-flex min-h-[44px] items-center rounded-lg border border-ink-hairline px-4 text-[14px] font-extrabold text-ink-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signature focus-visible:ring-offset-2 focus-visible:ring-offset-ink"
+                        data-testid="restored-review-privacy-link"
+                    >
+                        {transcriptSaveAllowed(privacy) ? 'Turn on AI coaching' : 'Change in Privacy & data'}
+                    </a>
+                </div>
+            ) : retryable ? (
+                // This owner's choice is still being read: nothing is offered or requested until it is.
+                <p className="max-w-[560px] text-[17px] font-bold leading-snug text-ink-text" data-testid="restored-review-checking">
+                    {UNAVAILABLE_MESSAGE}
+                </p>
             ) : (
                 <p className="max-w-[560px] text-[17px] font-bold leading-snug text-ink-text" data-testid="restored-review-not-available">
                     {NOT_AVAILABLE_FOR_SESSION_MESSAGE}

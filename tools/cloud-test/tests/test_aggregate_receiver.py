@@ -29,7 +29,7 @@ class AggregateReceiver(unittest.TestCase):
         self.request, self.ledger = approved(fixture["req"], fixture["ledger"])
         self.config, self.workflow = copy.deepcopy(fixture["cfg"]), copy.deepcopy(fixture["wf"])
         self.request["release"]["testedSha"] = "a" * 40
-        self.request["approvedLimits"] = {**(self.request.get("approvedLimits") or {}), "approvalRef": "slack-1793000000.000001"}
+        self.request["approvedLimits"] = {**(self.request.get("approvedLimits") or {}), "approvalRef": "slack-1000000003.000003"}
         labels = [p["label"] for p in self.request["priorRuns"]]
         configured = {r["label"]: r["receiptsManifestSha256"] for r in self.config["history"]["runs"]}
         rc = reconciliation()
@@ -286,14 +286,14 @@ class AggregateReceiver(unittest.TestCase):
         coverage = json.loads((output / "coverage.json").read_text())
         self.assertEqual(coverage["kind"], "NO RUN")
         self.assertEqual(coverage["coverageMode"], "smoke")
-        self.assertEqual(coverage["rowsRequired"], 139)
+        self.assertEqual(coverage["rowsRequired"], 142)    # + AHT-07 older-take-association, + AHT-02/03 smoke-focus-readback
         self.assertEqual(coverage["casesRequired"], 15)
         self.assertFalse(coverage["fullLiveRun"])
         summary = json.loads((output / "summary.json").read_text())
         self.assertEqual(summary["fields"]["readinessBasis"]["runKind"], "NO RUN")
         report = json.loads((output / "report" / "report.json").read_text())
         self.assertEqual(report["coverageMode"], "smoke")
-        self.assertEqual(report["coverage"]["rowsRequired"], 139)
+        self.assertEqual(report["coverage"]["rowsRequired"], 142)
 
     def test_verified_buffers_are_consumed_even_if_the_caller_substitutes_after_validation(self):
         config = self.root / "active-config-substitution.json"; config.write_text(json.dumps(self.config))
@@ -487,7 +487,7 @@ class RecurringOccurrenceEnvelope(unittest.TestCase):
 
 
 class OccurrenceEnvelopeOnARealStateRef(unittest.TestCase):
-    """Jensen RETURN 1793647288.547869: the receiver authenticates the occurrence snapshot itself, through G11's own boundary
+    """the CLI developer RETURN : the receiver authenticates the occurrence snapshot itself, through G11's own boundary
     (check_gates.authenticated_chain: a fresh fetch of the approved ref and whole-chain validation), before any accepted bytes or receipt.
     A REAL state ref (the writer tests' local bare repository) carries two occurrences; well-shaped fabricated, reduced, stale and
     unauthenticated snapshots never produce a receipt."""

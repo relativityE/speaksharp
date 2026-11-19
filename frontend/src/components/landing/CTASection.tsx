@@ -18,7 +18,7 @@ export const CTASection = () => {
                         <span className="text-amber-700">matters?</span>
                     </h2>
                     <p className="mx-auto max-w-xl text-base font-medium text-foreground/70">
-                        Start the complete product free for 30 days. Your recordings stay Private on this device.
+                        Start the complete product free for 30 days. Your audio is transcribed on your device and never uploaded.
                     </p>
                     <div className="flex justify-center pt-4">
                         <Button

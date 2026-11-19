@@ -238,7 +238,7 @@ test.describe('#1480 theme matrix — authenticated product surfaces', () => {
   test('Open Mic session: before, during, and after with the review-unavailable state', async ({ page }) => {
     test.setTimeout(240_000);
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await programmaticLoginWithRoutes(page, { userType: 'pro' });
+    await programmaticLoginWithRoutes(page, { userType: 'pro', practicePrivacy: { transcriptSave: true, aiCoaching: true } });
     await navigateToRoute(page, '/session');
     await evidence(page, 'open-mic-before');
 

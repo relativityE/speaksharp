@@ -501,10 +501,27 @@ export function labelHeardIn(label: string, transcript: string): boolean {
 export interface SwitchSourceSnapshot {
     product: string | null;
     digest: string | null;
-    /** Available means a positively read nonempty transcript; expired means explicit expired state + SQL NULL. */
-    state?: 'available' | 'expired' | 'missing' | 'query_error' | 'malformed';
+    /**
+     * Available means a positively read nonempty transcript; expired means explicit expired state + SQL NULL; metrics_only
+     * (#1835, saving off) means a completed row with a positive duration, SQL NULL transcript and state `not_captured`.
+     */
+    state?: 'available' | 'expired' | 'metrics_only' | 'missing' | 'query_error' | 'malformed';
     sessionId?: string | null;
     userId?: string | null;
+}
+
+/**
+ * #1882 / #1835: a saved session row's transcript state, read fail closed. `metrics_only` needs ALL of: SQL NULL transcript,
+ * state `not_captured`, status `completed` and a finite positive duration. Anything that is neither a clean transcript,
+ * a lawful expiry nor a clean metrics-only row is `malformed`.
+ */
+export function switchSourceState(row: { transcript?: unknown; transcript_state?: unknown; status?: unknown; duration?: unknown }):
+    'available' | 'expired' | 'metrics_only' | 'malformed' {
+    if (row.transcript_state === 'available' && typeof row.transcript === 'string' && row.transcript.trim() !== '') return 'available';
+    if (row.transcript_state === 'expired' && row.transcript === null) return 'expired';
+    if (row.transcript_state === 'not_captured' && row.transcript === null && row.status === 'completed'
+        && typeof row.duration === 'number' && Number.isFinite(row.duration) && row.duration > 0) return 'metrics_only';
+    return 'malformed';
 }
 
 export interface SwitchIsolationObservation {
@@ -513,6 +530,8 @@ export interface SwitchIsolationObservation {
     focusId: string | null;
     savedProduct: string | null;
     finalStatuses: readonly (string | null)[];
+    /** #1882: actual rows the rail showed after the take. When given, anything but exactly four FAILs (an empty rail included). */
+    railRowCount?: number | null;
     staleCoachingBeforeStart: boolean;
     /** Points 2–4: did the earlier Open Mic take's saved transcript contain each label? */
     markerSupport: readonly boolean[];
@@ -520,6 +539,89 @@ export interface SwitchIsolationObservation {
     openMicAfter: SwitchSourceSnapshot;
     /** Needed to prove a retention transition; legacy unchanged-row observations do not infer one. */
     ownerId?: string;
+    /**
+     * #1835: this run's transcript-saving choice. Absent or 'on' keeps every transcript assertion. 'off' REPLACES the two
+     * transcript-dependent ones (the Open Mic digest and marker support) with explicit metrics-only checks: both reads of
+     * the Open Mic row must be metrics only, with no transcript, same identity and product. Nothing is skipped.
+     */
+    transcriptSaving?: 'on' | 'off';
+}
+
+/**
+ * #1882 diagnostic readout: are the rail rows on screen exactly this set's four Focus points, in order? A missing row, an
+ * extra row, a reordered or reworded label, a row that could not be read, or a set that is not four points is false.
+ */
+export function railShowsExactFourPoints(labels: ReadonlyArray<string | null>, points: readonly string[]): boolean {
+    return points.length === 4 && labels.length === 4 && labels.every((label, i) => label !== null && label === points[i].trim());
+}
+
+/** #1897 review 5: the saving-off switch's two separate rows. */
+export const SWITCH_METRICS_ONLY_ROW = 'switch: Open Mic take stayed metrics-only';
+export const SWITCH_CARRY_OVER_TESTED_ROW = 'switch: carry-over tested';
+
+/**
+ * #1897 Codex P2 (eeab028): the product of the take saved after the switch, read only from a row that is that exact take,
+ * owned by the run's account, and in the state its consent asks for: a transcript when saving is on, a metrics-only row
+ * (no transcript) when saving is off. Any other row gives null, which `switchIsolationVerdict` FAILs by name. Before this,
+ * a correctly saved saving-off Focus take (metrics_only) gave null and FAILed before the saving-off branch was reached.
+ */
+export function switchSavedFocusProduct(o: {
+    saved: SwitchSourceSnapshot; focusId: string | null; ownerId: string | null; transcriptSaving: 'on' | 'off';
+}): string | null {
+    if (!o.focusId || !o.ownerId) return null;
+    if (o.saved.sessionId !== o.focusId || o.saved.userId !== o.ownerId) return null;
+    const expected = o.transcriptSaving === 'off' ? 'metrics_only' : 'available';
+    return o.saved.state === expected ? o.saved.product : null;
+}
+
+/**
+ * #1897 review 5 (Sam, Nov 18): on a saving-OFF run, two SEPARATE verdicts that were one:
+ *   - `metricsOnly`: both reads of the Open Mic row are a completed metrics-only row (positive duration, no transcript) of
+ *     the same session and product. A transcript saved while off FAILs.
+ *   - `carryOverTested`: the earlier Open Mic take recognised every marker point (2–4), read as three content-free booleans
+ *     from THAT take's bound completing page (`completingPageMarkersInPage`). Without all three, the Focus take's "points
+ *     2–4 absent" cannot prove isolation: HOLD, never PASS. The rail's own carry-over check is unchanged and still FAILs.
+ */
+export function switchSaveOffVerdicts(o: Pick<SwitchIsolationObservation, 'openMicBefore' | 'openMicAfter' | 'markerSupport'>): {
+    metricsOnly: { verdict: 'PASS' | 'FAIL'; detail: string }; carryOverTested: { verdict: 'PASS' | 'HOLD'; detail: string };
+} {
+    let metricsOnly: { verdict: 'PASS' | 'FAIL'; detail: string } = { verdict: 'PASS', detail: 'saving off: the Open Mic take stayed a metrics-only row with no saved transcript, same session and product, before and after' };
+    for (const source of [o.openMicBefore, o.openMicAfter]) {
+        if (source.state === 'available' || source.digest !== null) { metricsOnly = { verdict: 'FAIL', detail: 'saving off: the Open Mic take saved a transcript' }; break; }
+        if (source.state !== 'metrics_only') { metricsOnly = { verdict: 'FAIL', detail: 'saving off: the Open Mic take is not a completed metrics-only row' }; break; }
+        if (source.product !== 'open_mic') { metricsOnly = { verdict: 'FAIL', detail: 'no saved Open Mic source take to switch from' }; break; }
+    }
+    const heard = o.markerSupport.length === 3 && o.markerSupport.every((m) => m === true);
+    const carryOverTested = heard
+        ? { verdict: 'PASS' as const, detail: 'the Open Mic take\'s own completing page heard every marker point (2–4), so their absence in the Focus take tests carry-over' }
+        : { verdict: 'HOLD' as const, detail: o.markerSupport.length === 3
+            ? 'the Open Mic take\'s completing page did not hear every marker point, so their absence cannot prove isolation'
+            : 'no marker reading from the Open Mic take\'s bound completing page, so carry-over was not tested' };
+    return { metricsOnly, carryOverTested };
+}
+
+/**
+ * Runs IN THE PAGE. #1897 review 5: on a saving-off run the completing page of the take bound to `sessionId` shows the
+ * take's transcript locally (`local-review-transcript`; not saved). Returns ONLY whether each label's content words were
+ * heard in it, as `labelHeardIn` judges; null when the page is not that take's bound completing page or shows no text.
+ * Self-contained (it is serialised into the page); the transcript never leaves the page.
+ */
+export function completingPageMarkersInPage(arg: { sessionId: string; labels: readonly string[] }): boolean[] | null {
+    const root = document.documentElement;
+    if (root.getAttribute('data-session-persisted') !== 'true' || root.getAttribute('data-session-persisted-id') !== arg.sessionId) return null;
+    // Rendered only by #1835's saving-off completing page (not yet on main); reached only on a saving-off run.
+    const localReviewTranscript = 'local-review-transcript';
+    const box = document.querySelector(`[data-testid="${localReviewTranscript}"]`);
+    const paragraphs = box ? box.querySelectorAll('p') : null;
+    const text = paragraphs && paragraphs.length >= 2 ? paragraphs[paragraphs.length - 1].textContent ?? '' : '';
+    if (text.trim() === '') return null;
+    const STOP = new Set(['the', 'and', 'for', 'you', 'your', 'our', 'with', 'that', 'this', 'are', 'will']);
+    const words = (s: string) => s.toLowerCase().replace(/[^a-z0-9\s']/g, ' ').split(/\s+/).filter(Boolean);
+    const heard = new Set(words(text));
+    return arg.labels.map((label) => {
+        const content = words(label).filter((w) => w.length >= 3 && !STOP.has(w));
+        return content.length > 0 && content.every((w) => heard.has(w));
+    });
 }
 
 export function switchIsolationVerdict(o: SwitchIsolationObservation): { verdict: 'PASS' | 'FAIL' | 'HOLD'; detail: string } {
@@ -531,6 +633,7 @@ export function switchIsolationVerdict(o: SwitchIsolationObservation): { verdict
     if (o.staleCoachingBeforeStart) return fail('the Open Mic take\'s coaching was shown on Focus Points before the new take started');
     if (!o.focusId || o.focusId === o.openMicId) return fail('the take after the switch did not save as its own session');
     if (o.savedProduct !== 'focus_points') return fail('the take after the switch was not saved as Focus Points');
+    if (o.railRowCount !== undefined && o.railRowCount !== 4) return fail(`incomplete marker observation: the rail showed ${o.railRowCount ?? 'unreadable'} point rows, not exactly four`);
     if (o.finalStatuses.length !== 4 || o.finalStatuses.some((s) => s === null)) return fail('incomplete marker observation: the rail did not show exactly four readable point verdicts');
     if (o.finalStatuses[0] !== 'covered') return fail('no current-take recognition: point 1, the only point this take heard, was not detected');
     if (o.finalStatuses.slice(1).some((s) => s !== 'missing')) return fail('old-take carry-over: a point spoken only in the earlier Open Mic take was detected in the new take');
@@ -543,6 +646,18 @@ export function switchIsolationVerdict(o: SwitchIsolationObservation): { verdict
     for (const source of [o.openMicBefore, o.openMicAfter]) {
         if (source.state === 'missing' || source.state === 'query_error') return hold('the Open Mic source row could not be read; retention and isolation are unproven');
         if (source.state && (!o.ownerId || !source.sessionId || !source.userId)) return hold('the Open Mic source identity is incomplete');
+    }
+    if (o.transcriptSaving === 'off') {
+        // #1835 saving OFF: no transcript exists to compare, so the digest is replaced by the metrics-only check, and marker
+        // support comes from the bound completing page (switchSaveOffVerdicts). #1897 review 5 (Sam): the two are separate
+        // verdicts; staying metrics-only never stands in for a carry-over test, and absent markers HOLD, never PASS.
+        const parts = switchSaveOffVerdicts(o);
+        if (parts.metricsOnly.verdict !== 'PASS') return parts.metricsOnly;
+        if (parts.carryOverTested.verdict !== 'PASS') return parts.carryOverTested;
+        return { verdict: 'PASS', detail: 'saving off: the Open Mic take heard every marker point on its own completing page, the Focus take after it detected only point 1 (points 2–4 absent) and saved as Focus Points, and the Open Mic take stayed a metrics-only row with no saved transcript, same session and product, before and after' };
+    }
+    for (const source of [o.openMicBefore, o.openMicAfter]) {
+        if (source.state === 'metrics_only') return fail('saving on: the Open Mic take saved no transcript');
     }
     if (o.openMicAfter.state === 'expired' && (o.openMicBefore.state !== 'available' || !o.openMicBefore.digest)) {
         return hold('expiry without a prior positive saved transcript does not prove an unchanged source take');

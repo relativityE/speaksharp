@@ -14,6 +14,10 @@ import { StatusNotificationBar } from '@/components/session/StatusNotificationBa
 import { FreeformHelpOverlay } from '@/components/session/FreeformHelpOverlay';
 import { SttStatus } from '@/types/transcription';
 import { SessionOverhaulView } from '@/components/session/SessionOverhaulView';
+import { TrialCountdownChip } from '@/components/session/TrialCountdownChip';
+import { TrialEndedPanel } from '@/components/session/TrialEndedPanel';
+import { isTrialExpiredRefusal, trialCountdown } from '@/components/session/trialStatus';
+import { arePaymentsEnabled } from '@/config/appRuntimeConfig';
 import { SavedSessionReturn } from '@/components/session/SavedSessionReturn';
 import { restorableSession, restoreRefused } from '@/components/session/restorableSession';
 import { ObjectiveSetupDialog } from '@/components/practice/ObjectiveSetupDialog';
@@ -22,13 +26,14 @@ import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { estimateFinalizeSeconds } from '@/services/transcription/finalizeRateStore';
 import { reconciliationStatusCopy } from '@/utils/finalizedSessionAnalysis';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import AISuggestions from '@/components/session/AISuggestions';
 import { progressGateNotice } from '@/services/progress/progressStartGate';
 import { useSession } from '@/hooks/useSession';
 import { useQueryClient } from '@tanstack/react-query';
 import { resolveTranscriptView } from '@/lib/storage';
 import { useRepeatPracticeTarget } from '@/services/progress/repeatPracticeTarget';
+import type { LocalTranscriptReview } from '@/services/SpeechRuntimeController';
 
 /**
  * #1258 PR 4: a `?review=` value is read only when it has a session id's shape (a UUID in production; the E2E double
@@ -93,6 +98,66 @@ export const SessionPage: React.FC = () => {
     const completedSessionDurationSeconds = useSessionStore(state => state.completedSessionDurationSeconds);
     const finalizedAnalysis = useSessionStore(state => state.finalizedAnalysis);
     const completedSessionId = useSessionStore(state => state.completedSessionId);
+    const location = useLocation();
+    const [localTranscriptReview, setLocalTranscriptReview] = React.useState<
+        (LocalTranscriptReview & { locationKey: string }) | null
+    >(null);
+    const localReviewGeneration = useRef(0);
+    const previousReviewScope = useRef({ owner: authUserId, key: location.key });
+    const ownReviewReplace = useRef<{ marker: string; fromKey: string; pathname: string; search: string } | null>(null);
+    const locationState: unknown = location.state;
+    const navigationState = locationState && typeof locationState === 'object'
+        && Object.getPrototypeOf(locationState) === Object.prototype
+        ? locationState as Record<string, unknown> : null;
+    const clearLocalTranscriptReview = React.useCallback(() => {
+        localReviewGeneration.current += 1;
+        ownReviewReplace.current = null;
+        setLocalTranscriptReview(null);
+    }, []);
+    // <Routes location={location}> supplies POP even for a real replace. Only our in-flight
+    // replace carries this one-use marker; URL, owner and history-entry boundaries still apply.
+    const fromOwnReviewReplace = Boolean(
+        ownReviewReplace.current && navigationState?.practiceLocalReviewReplace === ownReviewReplace.current.marker
+        && ownReviewReplace.current.fromKey === previousReviewScope.current.key
+        && ownReviewReplace.current.fromKey !== location.key
+        && ownReviewReplace.current.pathname === location.pathname
+        && ownReviewReplace.current.search === location.search && location.hash === '',
+    );
+    React.useLayoutEffect(() => {
+        const previous = previousReviewScope.current;
+        previousReviewScope.current = { owner: authUserId, key: location.key };
+        if (signedOutByUser || previous.owner !== authUserId || (previous.key !== location.key && !fromOwnReviewReplace)) {
+            clearLocalTranscriptReview();
+        } else if (fromOwnReviewReplace) {
+            ownReviewReplace.current = null;
+            setLocalTranscriptReview(review => review?.locationKey === previous.key
+                ? { ...review, locationKey: location.key } : null);
+        }
+    }, [authUserId, signedOutByUser, location.key, fromOwnReviewReplace, clearLocalTranscriptReview]);
+    React.useLayoutEffect(() => () => { localReviewGeneration.current += 1; }, []);
+    useEffect(() => {
+        // A document can leave without React unmounting (the browser Back/Forward cache).
+        const restoredFromCache = (event: PageTransitionEvent) => {
+            if (event.persisted) clearLocalTranscriptReview();
+        };
+        window.addEventListener('pagehide', clearLocalTranscriptReview);
+        window.addEventListener('pageshow', restoredFromCache);
+        return () => {
+            window.removeEventListener('pagehide', clearLocalTranscriptReview);
+            window.removeEventListener('pageshow', restoredFromCache);
+        };
+    }, [clearLocalTranscriptReview]);
+    const beginLocalTranscriptReview = React.useCallback(() => {
+        if (!authUserId || signedOutByUser) return undefined;
+        const generation = localReviewGeneration.current;
+        const startUrl = typeof window !== 'undefined' ? window.location.href : null;
+        return (review: LocalTranscriptReview) => {
+            if (review.ownerId !== authUserId || !review.recordingId
+                || localReviewGeneration.current !== generation
+                || (startUrl !== null && startUrl !== window.location.href)) return;
+            setLocalTranscriptReview({ ...review, locationKey: location.key });
+        };
+    }, [authUserId, signedOutByUser, location.key]);
     // #1258 RWT round 2 C — the recovered take's review licence (see useSessionLifecycle / SessionOverhaulView).
     const recoveredSaveSessionId = useSessionStore(state => state.recoveredSaveSessionId);
     // #1306 Option A: the terminal review's word count + filler breakdown come from the FINAL snapshot (captured
@@ -206,7 +271,11 @@ export const SessionPage: React.FC = () => {
         interimTranscript,
         canUsePrivateStt,
         isButtonDisabled,
-    } = useSessionLifecycle();
+        usageLimit,
+    } = useSessionLifecycle({ beginLocalTranscriptReview, clearLocalTranscriptReview });
+    useEffect(() => {
+        if (isListening) clearLocalTranscriptReview();
+    }, [isListening, clearLocalTranscriptReview]);
 
     // #1033 Part-2b (A5/A6): all owner-scoped recovery orchestration lives in this hook —
     // owner-scoped read, fail-closed on unresolved auth, same-user rehydrate-once, account-change
@@ -267,6 +336,13 @@ export const SessionPage: React.FC = () => {
     // it" — two readings of `unavailable` that need different sentences and that a saved-row resolver
     // cannot tell apart, because finalization is a client lifecycle.
     const reviewTranscript = resolveTranscriptView(savedSession ?? null);
+    // This is a display-only exception for the live page, not a saved transcript or a coaching input.
+    const localReviewText = showAnalyticsPrompt && !isListening && !signedOutByUser
+        && localTranscriptReview?.ownerId === authUserId
+        && localTranscriptReview.sessionId === completedSessionId && localTranscriptReview.sessionId === reviewSessionId
+        && (localTranscriptReview.locationKey === location.key || fromOwnReviewReplace)
+        && (reviewTranscript.kind === 'not_captured' || reviewTranscript.kind === 'unavailable')
+        ? localTranscriptReview.text : null;
 
     /**
      * #1422 — A STALLED READ MUST SETTLE, NOT SPIN FOREVER — AND MUST BE ABANDONED, NOT JUST IGNORED.
@@ -438,26 +514,43 @@ export const SessionPage: React.FC = () => {
     const idleState = !isListening && !showAnalyticsPrompt && !isTranscriptFinalizing;
     const [searchParams, setSearchParams] = useSearchParams();
     const reviewParam = searchParams.get('review');
-    const setReviewParam = React.useCallback((id: string | null) => {
+    const setReviewParam = React.useCallback((id: string | null, state = locationState) => {
         setSearchParams((prev) => {
             const next = new URLSearchParams(prev);
             if (id) next.set('review', id); else next.delete('review');
             return next;
-        }, { replace: true }); // the save must not add a history entry (§4.1)
-    }, [setSearchParams]);
+        }, { replace: true, state }); // the save must not add a history entry (§4.1)
+    }, [setSearchParams, locationState]);
     // §4.1: the confirmed save puts the saved session's id in the URL.
     useEffect(() => {
-        if (showAnalyticsPrompt && completedSessionId && reviewParam !== completedSessionId) setReviewParam(completedSessionId);
-    }, [showAnalyticsPrompt, completedSessionId, reviewParam, setReviewParam]);
+        if (showAnalyticsPrompt && completedSessionId && reviewParam !== completedSessionId) {
+            if (localTranscriptReview?.sessionId === completedSessionId && localTranscriptReview.locationKey === location.key) {
+                if (ownReviewReplace.current?.fromKey === location.key) return;
+                // Do not reshape non-record state. No secure marker or mergeable state means no handoff.
+                const marker = (locationState == null || navigationState) ? globalThis.crypto?.randomUUID?.() : undefined;
+                if (marker) {
+                    const next = new URLSearchParams(location.search);
+                    next.set('review', completedSessionId);
+                    ownReviewReplace.current = { marker, fromKey: location.key, pathname: location.pathname, search: `?${next}` };
+                    setReviewParam(completedSessionId, { ...navigationState, practiceLocalReviewReplace: marker });
+                    return;
+                }
+            }
+            setReviewParam(completedSessionId);
+        }
+    }, [showAnalyticsPrompt, completedSessionId, reviewParam, setReviewParam, localTranscriptReview, location, locationState, navigationState]);
     // The in-memory after state wins: only a page that never showed it (Back, reload) restores from the URL. Leaving the
     // live after state in place ("Practice again?", a new set) is a fresh take, so it drops the parameter.
     const sawAfterStateRef = useRef(false);
     const wasAfterStateRef = useRef(false);
     if (showAnalyticsPrompt) sawAfterStateRef.current = true;
     useEffect(() => {
-        if (wasAfterStateRef.current && !showAnalyticsPrompt && reviewParam !== null) setReviewParam(null);
+        if (wasAfterStateRef.current && !showAnalyticsPrompt) {
+            clearLocalTranscriptReview();
+            if (reviewParam !== null) setReviewParam(null);
+        }
         wasAfterStateRef.current = showAnalyticsPrompt;
-    }, [showAnalyticsPrompt, reviewParam, setReviewParam]);
+    }, [showAnalyticsPrompt, reviewParam, setReviewParam, clearLocalTranscriptReview]);
     // A new take clears the parameter before it records (§4.2).
     useEffect(() => {
         if (isListening && reviewParam !== null) setReviewParam(null);
@@ -570,6 +663,12 @@ export const SessionPage: React.FC = () => {
     // (idle: not recording, not finalizing, no post-save prompt). During/after it recedes so the live
     // workflow owns the frame — matching the PO's G1 mockup.
     const beforeState = !isListening && !showAnalyticsPrompt && !isTranscriptFinalizing;
+    // Trial time and the trial-ended screen come ONLY from the server's check_usage_limit answer (the same one
+    // the start gate reads), never from the browser clock. The ended screen replaces the recorder only in the
+    // at-rest before state: a take that is starting, recording, finalizing or showing its review keeps its
+    // surface even if the trial runs out underneath it, and a restored saved session is always readable.
+    const trialTime = trialCountdown(usageLimit);
+    const trialEnded = isTrialExpiredRefusal(usageLimit) && beforeState && !startupWaiting && !restoreId;
     // Dynamic subtitle from REAL history. practiceHistory is newest-first, so the oldest (baseline) is last.
     const completedSessions = practiceHistory?.length ?? 0;
     // #1046 Focus Points: the subtitle names the SET, not the session history — "baseline" is an Open-Floor
@@ -695,6 +794,7 @@ export const SessionPage: React.FC = () => {
                         <div>
                             <h1 className="mb-1 text-3xl font-extrabold tracking-tight text-foreground">Practice Session</h1>
                             <p className="text-sm text-muted-foreground" data-testid="session-subtitle">{sessionSubtitle}</p>
+                            {trialTime && <TrialCountdownChip countdown={trialTime} className="mt-2" />}
                         </div>
                         <FreeformHelpOverlay available={helpOverlayAvailable} className="shrink-0" variant={isObjectiveSession ? 'objective' : 'freeform'} />
                     </div>
@@ -835,7 +935,9 @@ export const SessionPage: React.FC = () => {
                 {/* #1222: the session page is the fixed 4-slot overhaul shell driven by the live runtime
                     (before/during/after). The surrounding chrome — header, status bar, recovery banner,
                     access modals, mobile action bar — wraps it. This is the only session page. */}
-                {restoreId ? (
+                {trialEnded ? (
+                    <TrialEndedPanel paymentsEnabled={arePaymentsEnabled()} />
+                ) : restoreId ? (
                     restoredSession
                         ? <SavedSessionReturn session={restoredSession} onSeeAllSessions={() => navigate('/progress')} ownerId={authUserId} />
                         : <div className="h-40 animate-pulse rounded-2xl bg-muted/60" aria-hidden="true" data-testid="saved-session-return-loading" />
@@ -914,6 +1016,7 @@ export const SessionPage: React.FC = () => {
                     )}
                     aiSuggestions={undefined} /* #1306: coaching prose retired; next action replaces it */
                     reviewTranscript={reviewTranscript}
+                    localReviewText={localReviewText}
                     reviewStillSettling={reviewStillSettling}
                     /**
                      * RESET, then re-read.
@@ -1016,7 +1119,7 @@ export const SessionPage: React.FC = () => {
             </div>
 
             {/* Mobile Sticky Action Bar — not on the restored read-only session (#1258 PR 4): it has no Start. */}
-            {!restoreId && <MobileActionBar
+            {!restoreId && !trialEnded && <MobileActionBar
                 isListening={isListening}
                 starting={startupWaiting}
                 isButtonDisabled={isButtonDisabled}

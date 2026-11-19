@@ -21,6 +21,15 @@ const RETIREMENT_WITHHELD_BILLING = Object.freeze({
     mustRemainPending: true,
 });
 
+// Reviewed absence prerequisite for the #1831 start-abandonment target, NOT an apply target: the #1829 refund
+// follow-up ships separately (PO hold), so exact abandonment application must leave it pending.
+const ABANDONMENT_WITHHELD_REFUND = Object.freeze({
+    version: '20261112130000',
+    file: '20261112130000_stripe_refund_followups.sql',
+    sha256: '47fce28446a1e8f56c27dd10a6bb92e803a5907db0fd9d7fa67cbf11f9701fe8',
+    mustRemainPending: true,
+});
+
 export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
     Object.freeze({
         version: '20260811143000',
@@ -274,6 +283,40 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
         classification: 'staged',
     }),
     Object.freeze({
+        // #1831: settle a Start that never recorded. Must follow the local retirement; the completion-billing
+        // successor and the #1829 refund follow-up stay pending. Exact apply and catalog proof remain mandatory.
+        version: '20261112133000',
+        file: '20261112133000_recording_start_abandonment_1643.sql',
+        sha256: '37bbfd561ef825cae92fa6787adc87f786a97a6c219fc1941572a6dd714e158e',
+        classification: 'staged',
+    }),
+    Object.freeze({
+        // #1811: the AHT-02/07/08 transactional feedback fence on user_issue_reports. Must follow the start abandonment;
+        // the completion-billing successor and the #1829 refund follow-up stay pending. Exact apply and catalog proof
+        // remain mandatory. No application caller: only the service role reaches its RPCs.
+        version: '20261114100000',
+        file: '20261114100000_rwt_feedback_fence_1811.sql',
+        sha256: '9aa48a5642765beb1c36f305ed62482bca67928d97bd5c1efeb1296e0c79176c',
+        classification: 'staged',
+    }),
+    Object.freeze({
+        // #1863: the unpaid-expiry payment wall (product access on reads and product RPCs). Release order v2 (Sam, 18 Nov): after the
+        // new Edge, before #1835. The completion-billing successor and the #1829 refund follow-up stay pending. Exact apply and catalog
+        // proof remain mandatory.
+        version: '20261114170000',
+        file: '20261114170000_payment_wall_product_access_1863.sql',
+        sha256: '407a49072c928ed52015d5d696791e4506a25468f9a71098db418b1f18cf3f59',
+        classification: 'staged',
+    }),
+    Object.freeze({
+        // #1835: practice privacy choices (transcript save and AI coaching opt-in) and the consent-bound coaching persist. Must follow
+        // the payment wall; the same two holds stay pending. Exact apply and catalog proof remain mandatory.
+        version: '20261117105700',
+        file: '20261117105700_practice_privacy_choices_1835.sql',
+        sha256: '8e21fe2237c70c75fcaeee8cb74e17b679ab187f6936b9ccd5c311c51dedf9b7',
+        classification: 'staged',
+    }),
+    Object.freeze({
         version: '20260812042000',
         file: '20260812042000_trial_activation_stamp_1282.sql',
         sha256: '41f10614d396769f49236cb355205e80122a969d1784f803d5b127ab8e5cb181',
@@ -349,6 +392,7 @@ export function resolveExactMigrationConfig(env = process.env) {
                 ...EXACT_MIGRATION_ALLOWLIST.slice(targetIndex + 1)
                     .map(({ version, file }) => ({ version, file })),
                 ...(target.version === '20261110173548' ? [RETIREMENT_WITHHELD_BILLING] : []),
+                ...(['20261112133000', '20261114100000', '20261114170000', '20261117105700'].includes(target.version) ? [RETIREMENT_WITHHELD_BILLING, ABANDONMENT_WITHHELD_REFUND] : []),
             ],
             allowlisted: true,
         };
@@ -725,6 +769,12 @@ export const TARGET_POSTFLIGHT_GATES = Object.freeze([
     Object.freeze({ id: 'postflight_20261024083000', targetFile: '20261024083000_account_coaching_unknown_fence_1643' }),
     Object.freeze({ id: 'postflight_20261025021046', targetFile: '20261025021046_content_free_retention_evidence' }),
     Object.freeze({ id: 'postflight_20261110173548', targetFile: '20261110173548_account_coaching_local_retirement' }),
+    Object.freeze({ id: 'postflight_20261112133000', targetFile: '20261112133000_recording_start_abandonment_1643' }),
+    Object.freeze({ id: 'postflight_20261114100000', targetFile: '20261114100000_rwt_feedback_fence_1811' }),
+    // #1863 payment wall: the whole touched catalog equals the reviewed, source-derived expectation (read-only).
+    Object.freeze({ id: 'postflight_20261114170000', targetFile: '20261114170000_payment_wall_product_access_1863' }),
+    // #1835 practice privacy: choice table, grants, policies, consent functions and triggers, exact (read-only).
+    Object.freeze({ id: 'postflight_20261117105700', targetFile: '20261117105700_practice_privacy_choices_1835' }),
 ]);
 
 /**

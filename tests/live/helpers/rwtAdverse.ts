@@ -96,6 +96,70 @@ export function readModelStatusLog(): { token: string | null; statuses: string[]
     return { token: log.token, statuses: log.statuses.slice() };
 }
 
+/**
+ * Sam, 2026-11-15 (#1868 HOLD on f62e94c3) — THE RUNTIME STATE MACHINE, COMPLETELY: the same complete, token-bound log as the
+ * model status above, of `data-runtime-state` (the exact TranscriptionService state). The model status cannot tell RECORDING
+ * from READY, or a recording's save failure from a setup failure (both publish `error`); this log can, for one attempt, from
+ * the index read at its press. Self-contained page functions (`page.evaluate`).
+ */
+export function armRuntimeStateLog(token: string): boolean {
+    const w = window as unknown as Record<string, unknown>;
+    const root = document.documentElement;
+    const states: string[] = [root.getAttribute('data-runtime-state') ?? 'absent'];
+    const record = (records: MutationRecord[]): void => {
+        records.forEach((_r, i) => {
+            const after = i + 1 < records.length ? records[i + 1].oldValue : root.getAttribute('data-runtime-state');
+            states.push(after ?? 'absent');
+        });
+    };
+    const observer = new MutationObserver(record);
+    observer.observe(root, { attributes: true, attributeFilter: ['data-runtime-state'], attributeOldValue: true });
+    w.__rwtRuntimeStateLog__ = { token, states, observer, record };
+    return true;
+}
+
+export function readRuntimeStateLog(): { token: string | null; states: string[] } {
+    const w = window as unknown as Record<string, unknown>;
+    const log = w.__rwtRuntimeStateLog__ as { token: string; states: string[]; observer: MutationObserver; record: (r: MutationRecord[]) => void } | undefined;
+    if (!log) return { token: null, states: [] };
+    log.record(log.observer.takeRecords());
+    return { token: log.token, states: log.states.slice() };
+}
+
+/**
+ * Sam, 2026-11-15 (#1868 on 887a76f6): THE TRANSFER ITSELF, from the network. The product's byte percent cannot prove bytes are
+ * moving: its aggregator holds 100 % while a later model file is still downloading, and a retained 1–99 % does not prove the
+ * transfer is still running. This tracker sees this attempt's model-asset requests through the context's own network events
+ * (the same events AttemptFaultCounter counts; AHT-13 run 43739078107 observed the worker's model requests failing through
+ * them): a request whose response has STARTED and has neither finished nor failed is a body in flight. A failure while the fault
+ * is armed is the fault reaching the transfer. If these events were ever not delivered, `openInBody` stays 0 and the gate never
+ * injects: the unobservable case is no injection, never a stranded save.
+ */
+export class ModelTransferTracker<R = unknown> {
+    private attemptOpen = false;
+    private faultArmed = false;
+    private readonly requested = new Set<R>();
+    private readonly inBody = new Set<R>();
+    private failedUnderFault = 0;
+    /** The person's download press: the requests it starts from now on are this attempt's. */
+    startAttempt(): void { this.attemptOpen = true; }
+    /** Immediately BEFORE the fault is induced. */
+    armFault(): void { this.faultArmed = true; }
+    /** The cause is removed: later requests and failures are not this attempt's fault window. */
+    disarm(): void { this.faultArmed = false; this.attemptOpen = false; }
+    onRequest(request: R, url: string): void { if (this.attemptOpen && MODEL_ASSET.test(url)) this.requested.add(request); }
+    onResponse(request: R): void { if (this.requested.has(request)) this.inBody.add(request); }
+    onFinished(request: R): void { this.inBody.delete(request); this.requested.delete(request); }
+    onFailed(request: R): void {
+        if (!this.requested.has(request)) return;
+        this.inBody.delete(request); this.requested.delete(request);
+        if (this.faultArmed) this.failedUnderFault += 1;
+    }
+    snapshot(): { openInBody: number; failedUnderFault: number } {
+        return { openInBody: this.inBody.size, failedUnderFault: this.failedUnderFault };
+    }
+}
+
 /** A model asset request (weights, config or tokenizer): the download's own traffic. */
 export const MODEL_ASSET = /\/models\//;
 

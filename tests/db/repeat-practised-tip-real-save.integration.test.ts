@@ -17,7 +17,7 @@ import { resolve } from 'node:path';
 
 const DIR = resolve(process.cwd(), 'backend', 'supabase', 'migrations');
 const SHIPPED = readdirSync(DIR).filter((f) => /^\d{8,14}_.+\.sql$/.test(f)).sort();
-const D2 = '20261112010000_repeat_practised_tip.sql';
+const D2 = '20261119120000_repeat_practised_tip.sql';
 
 /** Only what Supabase provides outside the migrations (verbatim from the trial current-chain suite). */
 const SUPABASE_BOOTSTRAP = `

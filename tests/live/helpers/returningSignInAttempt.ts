@@ -269,12 +269,19 @@ export interface DeepLinkReturnPorts {
     micAcquisitions(): Promise<MicRead | null>;
     signOut(): Promise<'direct' | 'menu'>;
     awaitSessionCleared(): Promise<boolean>;
-    /** Reads back the session count and writes the `deep-link return writes nothing` row; rejects when it cannot. */
+    /** Reads back the session rows and writes the `deep-link return writes nothing` row; rejects when it cannot. */
     recordWrites(): Promise<void>;
+    /**
+     * AHT-15 (optional): judges the rendered detail of the deep-link destination, given the routing row's verdict and pathname
+     * match (null when the return was never attempted to the end). Called in the deep-link document, before the microphone read
+     * and the sign-out; its result is written as the `signed-in deep-link rendered own detail` row, and a rejection is that row's HOLD.
+     */
+    renderedDetail?(routing: { verdict: RowVerdict; pathnameMatches: boolean } | null): Promise<{ verdict: RowVerdict; detail: string; evidence?: Record<string, string | number | boolean | null> }>;
     row(name: string, verdict: RowVerdict, detail: string, evidence?: Record<string, string | number | boolean | null>): void;
 }
 
 const DEEP_LINK_ROW = 'signed-in deep-link return';
+const RENDERED_DETAIL_ROW = 'signed-in deep-link rendered own detail';
 type SessionState = 'absent' | 'present' | 'unobservable';
 
 /** Only a closed error-class name leaves an error: a Playwright message or call log can carry the deep link's id. */
@@ -304,6 +311,8 @@ function micAcquisitionsSinceBaseline(
  *
  * - The second attempt is armed only after a fresh read shows no session (preexisting or unobservable is HOLD).
  * - A page that closes after the token settled leaves the routing unproven (context_closed), whatever the URL read before.
+ * - AHT-15 (optional `renderedDetail` port): the destination's rendered detail is judged in the deep-link document, before
+ *   the microphone read and the sign-out, as its own row; the routing row stays routing only.
  * - No microphone from the journey's judged baseline through the deep-link document (`micAcquisitionsSinceBaseline`).
  * - Finalization stages (microphone, session cleanup, write readback) are isolated: each failure is that stage's HOLD,
  *   and the later stages still run.
@@ -312,7 +321,7 @@ function micAcquisitionsSinceBaseline(
  */
 export async function runDeepLinkReturn(ports: DeepLinkReturnPorts): Promise<void> {
     const { target } = ports;
-    const run: { failure: string | null; navigated: boolean; deepLinkDocument: MicRead | null } = { failure: null, navigated: false, deepLinkDocument: null };
+    const run: { failure: string | null; navigated: boolean; deepLinkDocument: MicRead | null; routing: { verdict: RowVerdict; pathnameMatches: boolean } | null } = { failure: null, navigated: false, deepLinkDocument: null, routing: null };
     /** Records the first sanitized failure; returns the closed error class for the row. */
     const note = (phase: string, error: unknown): string => {
         const name = errorClass(error);
@@ -346,6 +355,7 @@ export async function runDeepLinkReturn(ports: DeepLinkReturnPorts): Promise<voi
             const outcome = inconclusive(null, reason);
             const verdict = deepLinkReturnVerdict({ outcome, verifiedUserId: ports.verifiedUserId, sessionUserMatches: false, landing: { pathnameMatches: false, searchMatches: false, hashMatches: false } });
             ports.row(DEEP_LINK_ROW, verdict.verdict, verdict.detail, { outcome: outcome.kind, reason });
+            run.routing = { verdict: verdict.verdict, pathnameMatches: false };
             return;
         }
         let sessionUserMatches = false;
@@ -374,6 +384,7 @@ export async function runDeepLinkReturn(ports: DeepLinkReturnPorts): Promise<voi
             const verdict = deepLinkReturnVerdict({ outcome, verifiedUserId: ports.verifiedUserId, sessionUserMatches, landing });
             ports.row(DEEP_LINK_ROW, verdict.verdict, verdict.detail,
                 { outcome: outcome.kind, reason: outcome.kind === 'inconclusive' ? outcome.reason : null, ...landing });
+            run.routing = { verdict: verdict.verdict, pathnameMatches: landing.pathnameMatches };
         } finally {
             observer.dispose();
         }
@@ -383,10 +394,20 @@ export async function runDeepLinkReturn(ports: DeepLinkReturnPorts): Promise<voi
     } catch (error) {
         halt('deep-link return', error);
     } finally {
-        const { navigated, deepLinkDocument } = run;
+        const { navigated, deepLinkDocument, routing } = run;
         const MIC_ROW = 'no mic on the deep-link return';
         const CLEANUP_ROW = 'signed out after the deep-link return';
         const WRITES_ROW = 'deep-link return writes nothing';
+
+        // AHT-15 rendered detail (optional port): in the deep-link document, before the microphone read and the sign-out.
+        if (ports.renderedDetail) {
+            try {
+                const rendered = await ports.renderedDetail(routing);
+                ports.row(RENDERED_DETAIL_ROW, rendered.verdict, rendered.detail, rendered.evidence);
+            } catch (error) {
+                ports.row(RENDERED_DETAIL_ROW, 'HOLD', `the rendered detail check failed (${note('rendered detail check', error)})`);
+            }
+        }
 
         // Microphone: read in the deep-link document before the sign-out can leave it.
         try {

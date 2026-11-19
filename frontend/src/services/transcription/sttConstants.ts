@@ -64,6 +64,18 @@ export const PRIV_STT = {
   // live/provisional decodes use a recent window. Stop/final save still uses
   // the full utterance buffer.
   LIVE_DECODE_WINDOW_SECONDS: 3.0,
+  // Cold start (Focus Point 1, 2026-11-16): when the mic opens before the model is ready, the speech
+  // spoken while it loaded reaches the live path as one backlog (the mic replays up to 15 s, #960). For a
+  // take that starts with such a backlog, until its first transcript is committed or
+  // COLD_START_MAX_DECODES live decodes have run, a live decode keeps the backlog from its start (the
+  // oldest COLD_START_DECODE_MAX_SECONDS, Whisper's own input window), so the opening is transcribed live
+  // and the first-transcript rounds compare the same opening words. A decode budget, not a time budget,
+  // so a slow device still gets its rounds. Warm takes, and decodes after the first commit, keep the
+  // normal LIVE_DECODE_WINDOW_SECONDS window.
+  COLD_START_DECODE_MAX_SECONDS: 30,
+  // A first transcript needs FIRST_TRANSCRIPT_LOCAL_AGREEMENT_ROUNDS (2) agreeing decodes; this allows
+  // two more held rounds before the cold-start window ends.
+  COLD_START_MAX_DECODES: 4,
   UTTERANCE_SILENCE_TAIL_SECONDS: 1.0,
   // #891 capture-from-start: the final buffer accumulates from mic-start (not from speech-start
   // confirmation), so a hard cap bounds memory on a stuck/overlong recording. On overflow we keep
@@ -350,6 +362,10 @@ export const PRIV_STT_DERIVED = {
   ),
   LIVE_DECODE_WINDOW_SAMPLES: secondsToSamples(
     PRIV_STT.LIVE_DECODE_WINDOW_SECONDS,
+    PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ,
+  ),
+  COLD_START_DECODE_MAX_SAMPLES: secondsToSamples(
+    PRIV_STT.COLD_START_DECODE_MAX_SECONDS,
     PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ,
   ),
   UTTERANCE_SILENCE_TAIL_SAMPLES: secondsToSamples(

@@ -61,6 +61,8 @@ describe('fatalSignalOf — an unexpected failure, refusal or forbidden recordin
         expect(fatalSignalOf(ev('session_start_latency_measured', { outcome: 'failed' }), NONE)).toBe('start_failed');
         expect(fatalSignalOf(ev('recording_start_failed', { runtime_state: 'INITIATING' }), NONE)).toBe('start_failed');
         expect(fatalSignalOf(ev('private_model_acquisition_failure'), NONE)).toBe('model_failed');
+        // AHT-01/04: a cancelled acquisition (the user left mid-load) is a lifecycle outcome, never a model failure.
+        expect(fatalSignalOf(ev('private_model_acquisition_cancelled'), NONE)).toBeNull();
         expect(fatalSignalOf(ev('private_model_acquisition_failure'), { allowModelFailure: true })).toBeNull();
     });
 
@@ -97,7 +99,7 @@ describe('fatalSignalOf — an unexpected failure, refusal or forbidden recordin
 
     it('every watched field is a governed closed enum, never content or an id', () => {
         const keys = Object.values(WATCHED_FIELDS).flat();
-        expect(keys.every((k) => /^(from_state|to_state|failure_code|intent_kind|intent_outcome|runtime_state_at_intent|outcome|runtime_state|phase|reason)$/.test(k))).toBe(true);
+        expect(keys.every((k) => /^(from_state|to_state|failure_code|intent_kind|intent_outcome|runtime_state_at_intent|outcome|runtime_state|phase|reason|error_code)$/.test(k))).toBe(true);
     });
 });
 
@@ -211,9 +213,11 @@ describe('every RWT journey is armed, and every run-owned cleanup survives a tim
         'feedback-association-boundaries-no-session', 'abandon-and-two-tabs-navigate-away', 'abandon-and-two-tabs-close-tab',
         'abandon-and-two-tabs-take-over', 'adverse-mic-model-mic-denied', 'adverse-mic-model-download-fails',
         'adverse-mic-model-offline-mid-download', 'returning-user-navigation',
+        // J8 (#1870): the nine-journey same-account feedback adapter (J8.a / J8.b / J8.c on one account).
+        'feedback-association-boundaries-j8',
     ];
 
-    it('each of the 15 campaign suites has a declared profile, and nothing else does', async () => {
+    it('each of the 15 campaign suites and the J8 adapter has a declared profile, and nothing else does', async () => {
         const { WATCH_PROFILES } = await import('../live/helpers/rwtWatchdog');
         expect(Object.keys(WATCH_PROFILES).sort()).toEqual([...SUITES].sort());
     });
@@ -271,7 +275,8 @@ describe('every RWT journey is armed, and every run-owned cleanup survives a tim
             const src = read(f);
             // Every finalization closure: from its registration to its report (or the shared helper that reports).
             const closures = src.split('finalizer.once(').slice(1).map((c) => {
-                const ends = ['steps.report(receipt);', 'await finishReceipt(', 'await finishJourney('].map((m) => c.indexOf(m)).filter((i) => i > -1);
+                // J8 (nine-journey adapter) ends its finalizer in finishJ8Receipt, which reports before writing like finishReceipt.
+                const ends = ['steps.report(receipt);', 'await finishReceipt(', 'await finishJourney(', 'await finishJ8Receipt('].map((m) => c.indexOf(m)).filter((i) => i > -1);
                 return c.slice(0, ends.length > 0 ? Math.min(...ends) : undefined);
             });
             expect((src.match(/steps\.step\('watchdog', \(\) => watch\.record\(receipt\)\)/g) ?? []).length, `${f}: the watchdog row is a bounded step`)
@@ -680,11 +685,15 @@ describe('#1662 Codex on f527a033 — each fault phase brackets exactly its inje
 
     it('P1: the model-fault phase opens BEFORE the fault is injected (route abort, going offline)', () => {
         const src = read('tests/live/helpers/rwtAdverseJourney.ts');
-        for (const inject of ["await context.route(MODEL_ASSETS, (route) => route.abort('failed'))", 'await context.setOffline(true)']) {
-            const at = src.indexOf(inject);
-            expect(at).toBeGreaterThan(0);
-            expect(src.lastIndexOf('watch.setFaultPhase(true);', at), `${inject} — opened before`).toBeGreaterThan(src.lastIndexOf('watch.setFaultPhase(false);', at));
-        }
+        const route = "await context.route(MODEL_ASSETS, (route) => route.abort('failed'))";
+        const at = src.indexOf(route);
+        expect(at).toBeGreaterThan(0);
+        expect(src.lastIndexOf('watch.setFaultPhase(true);', at), `${route} — opened before`).toBeGreaterThan(src.lastIndexOf('watch.setFaultPhase(false);', at));
+        // Sam, 2026-11-15 (#1868): going offline runs inside `runOfflineFault`, which calls `armFault` (opening the phase) before
+        // `setOffline(true)` and `disarmFault` (closing it) on every restore; rwtAdverseRecovery.test.ts proves that order.
+        expect(src).not.toContain('context.setOffline(true)');
+        expect(src).toContain('armFault: () => { watch.setFaultPhase(true); fault.armFault(); transfer.armFault(); },');
+        expect(src).toContain('disarmFault: () => { transfer.disarm(); fault.disarm(); watch.setFaultPhase(false); },');
     });
 
     it('P2: the save-fault phase closes BEFORE Retry Save is pressed', () => {
@@ -1447,7 +1456,8 @@ describe('Codex P2 on 06fe109b — telemetry settles before the watchdog verdict
                 expect({ file: f, previous: steps[steps.length - 1] }).toEqual({ file: f, previous: 'telemetry settle' });
             }
         }
-        expect(records, 'every finalizer that records a watchdog verdict was checked').toBe(10);
+        // Ten campaign finalizers plus J8's (the nine-journey same-account feedback adapter, #1870).
+        expect(records, 'every finalizer that records a watchdog verdict was checked').toBe(11);
     });
 
     it('Sam 845401a5 #2 + Codex P2 r4316425029: EVERY finalizer settles every attached page, not the first flush', () => {

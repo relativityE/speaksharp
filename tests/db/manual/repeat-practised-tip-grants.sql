@@ -1,4 +1,4 @@
--- Outcome 4 D2: grant and security checks for 20261112010000_repeat_practised_tip.sql on the Supabase database image.
+-- Outcome 4 D2: grant and security checks for 20261119120000_repeat_practised_tip.sql on the Supabase database image.
 -- Run by tests/db/manual/repeat-practised-tip-supabase-replay.sh after the migration is applied. Read-only catalog
 -- queries. The script separately proves the migration only adds to the public schema (no grant, policy or object is
 -- changed or removed) and that no client-executable SECURITY DEFINER function appears.

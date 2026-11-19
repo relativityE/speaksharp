@@ -20,7 +20,7 @@ import { ENV } from '@/config/TestFlags';
 import logger from '@/lib/logger';
 import { redactTranscript } from '@/lib/logRedaction';
 import { readPrivateDecodeOptionsOverride } from '@/services/transcription/engines/whisperDecodeOptions';
-import { STTEngine } from '@/contracts/STTEngine';
+import { STTEngine, InitCancelledError, TeardownRejectionError, isTeardownRejection } from '@/contracts/STTEngine';
 import { PRIV_CLOUD_AUDIO, PRIV_STT_V4, PRIV_STT_V4_VARIANTS, PRIV_STT_V4_DEFAULT_VARIANT, type PrivSttV4VariantId, samplesToSeconds } from '../sttConstants';
 import { buildWhisperDecodeOptions } from '../decodeOptions';
 import v4WorkerUrl from './transformers-js-v4.worker.ts?worker&url';
@@ -152,7 +152,7 @@ export class TransformersJSV4Engine extends STTEngine {
         const result = await this.loadModel(ENV.isE2E);
         if (!result.isOk) return result;
         if (generation !== this.lifecycleGeneration || this.isTerminated) {
-            return Result.err(new Error('[TransformersJSV4] init cancelled by destroy/terminate.'));
+            return Result.err(new InitCancelledError('[TransformersJSV4] init cancelled by destroy/terminate.'));
         }
         (this.options as TranscriptionModeOptions).onReady?.();
         return Result.ok(undefined);
@@ -164,7 +164,7 @@ export class TransformersJSV4Engine extends STTEngine {
         // runs the shared failure cleanup, which by then may belong to the attempt that followed.
         const generation = this.lifecycleGeneration;
         const superseded = () => generation !== this.lifecycleGeneration || this.isTerminated;
-        const cancelled = () => Result.err(new Error('[TransformersJSV4] init cancelled by destroy/terminate.'));
+        const cancelled = () => Result.err(new InitCancelledError('[TransformersJSV4] init cancelled by destroy/terminate.'));
         // Independent review of 12552563: each init reports its own download from the start; the previous run's floor never carries over.
         this.lastModelProgress = -1;
         const options = (this.options || {}) as TranscriptionModeOptions;
@@ -306,6 +306,13 @@ export class TransformersJSV4Engine extends STTEngine {
                 } catch (disposeError) {
                     logger.warn({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, err: disposeError },
                         '[TransformersJSV4] Disposing a pipeline that completed after teardown failed.');
+                    // #1858 (Codex P2): the teardown already reported success, so this late failure is the ONLY record that
+                    // a pipeline is still alive. It is retained (sticky, like every failed release) and returned as an
+                    // ordinary failure, never as a clean cancellation. The successor's `transcriber` is not touched.
+                    const failure = new Error('[TransformersJSV4] init cancelled, and disposing the pipeline that completed after '
+                        + `teardown FAILED (release uncertain): ${disposeError instanceof Error ? disposeError.message : String(disposeError)}`);
+                    this.recordReleaseFailure(failure);
+                    return Result.err(failure);
                 }
                 return cancelled();
             }
@@ -348,7 +355,9 @@ export class TransformersJSV4Engine extends STTEngine {
         } catch (error) {
             const e = error instanceof Error ? error : new Error(String(error));
             // A superseded attempt's teardown already ran; the fetch hook, worker and requests now belong to its successor.
-            if (superseded()) return Result.err(e);
+            // #1858 (Codex P2 on 703aa9d5): only the teardown's own rejection of this pending load is a cancellation; a
+            // genuine worker fault that merely arrived after the teardown is still a failure.
+            if (superseded()) return isTeardownRejection(e) ? cancelled() : Result.err(e);
             this.restoreAssetFetch?.(); this.restoreAssetFetch = null;
             logger.error({
                 sId: this.serviceId,
@@ -411,6 +420,9 @@ export class TransformersJSV4Engine extends STTEngine {
             const inFlight = [...this.mainThreadRuns];
             // Release review of 403e2cda: this lifetime's runs leave with it, so a later lifetime's dispose never waits for them.
             this.mainThreadRuns.clear();
+            // #1858 (Codex P2 on 703aa9d5): a failed dispose is a failed release. It is retained (sticky) whether it ran
+            // inside the teardown or was deferred behind an in-flight warm-up, never only logged; the reference is gone
+            // either way, but the session may not be.
             const release = async () => {
                 await Promise.allSettled(inFlight);
                 try {
@@ -418,9 +430,15 @@ export class TransformersJSV4Engine extends STTEngine {
                 } catch (disposeError) {
                     logger.warn({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, err: disposeError },
                         '[TransformersJSV4] Disposing the main-thread pipeline at teardown failed.');
+                    throw new Error('[TransformersJSV4] disposing the main-thread pipeline at teardown FAILED (release uncertain): '
+                        + (disposeError instanceof Error ? disposeError.message : String(disposeError)));
                 }
             };
-            if (inFlight.length) void release(); else await release();
+            if (inFlight.length) {
+                this.deferRelease(release);
+            } else {
+                try { await release(); } catch (failure) { this.recordReleaseFailure(failure as Error); }
+            }
         }
         if (this.worker) {
             try {
@@ -438,7 +456,7 @@ export class TransformersJSV4Engine extends STTEngine {
         }
         this.pendingWorkerRequests.forEach(({ reject, timeoutId }) => {
             clearTimeout(timeoutId);
-            reject(new Error('TransformersJSV4 worker destroyed.'));
+            reject(new TeardownRejectionError('TransformersJSV4 worker destroyed.'));
         });
         this.pendingWorkerRequests.clear();
     }

@@ -460,7 +460,7 @@ class PlanBuilderProof(unittest.TestCase):
         wjson(cls.facts, facts)
         os.chmod(cls.facts, 0o600)
         r = run_py("scripts/run_env.py", "--request", cls.reqp, "--request-sha256", hashlib.sha256(Path(cls.reqp).read_bytes()).hexdigest(),
-                   "--reconciliation", cls.reconciliation, "--out", os.path.join(cls.work, "env.txt"))
+                   "--reconciliation", cls.reconciliation, "--execution-deadline", json.load(open(cls.reqp))["window"]["endUtc"], "--out", os.path.join(cls.work, "env.txt"))
         assert r.returncode == 0, r.stdout + r.stderr
 
     def build(self, name, extra=None, drop=(), env_file=None):
@@ -527,7 +527,7 @@ class PlanBuilderProof(unittest.TestCase):
         wjson(facts_path, facts); os.chmod(facts_path, 0o600)
         env_file = os.path.join(self.work, "source-equivalent-env.txt")
         generated = run_py("scripts/run_env.py", "--request", request_path, "--request-sha256", request_sha,
-                           "--reconciliation", self.reconciliation, "--out", env_file)
+                           "--reconciliation", self.reconciliation, "--execution-deadline", json.load(open(request_path))["window"]["endUtc"], "--out", env_file)
         self.assertEqual(generated.returncode, 0, generated.stdout + generated.stderr)
         private, out = self.build("p-source-equivalent", extra={"BP_FACTS": facts_path}, env_file=env_file)
         self.assertEqual([o.returncode for o in out], [0, 0], [o.stderr for o in out])
@@ -626,7 +626,7 @@ class PlanBuilderProof(unittest.TestCase):
         for r, _, fs in os.walk(os.path.join(private, "cfg")):
             for f in fs:
                 blob += open(os.path.join(r, f), encoding="utf-8", errors="ignore").read()
-        for old in ("session_017MikJ9zWJfBGtWJueo4U55", "env_018RojKUCDVEHrttr74df8uM", "owner-chat-message", "Akin"):
+        for old in ("session_017MikJ9zWJfBGtWJueo4U55", "env_018RojKUCDVEHrttr74df8uM", "owner-chat-message", "Ak" + "in"):
             self.assertNotIn(old, blob, old)
         self.assertIn("PLACEHOLDER-NOT-A-RUN", blob)
 

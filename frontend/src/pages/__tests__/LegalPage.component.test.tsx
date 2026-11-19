@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '../../../tests/support/test-utils';
-import { TermsPage } from '../LegalPage';
+import { PrivacyPage, TermsPage } from '../LegalPage';
+import { legalSectionId } from '../legalSectionId';
+import { PROVIDER_DETAIL_HREF } from '@/components/session/reviewCopy';
 import { enablePaymentsForTest } from '../../../tests/support/payments';
 
 describe('TermsPage product-truth contract', () => {
@@ -19,5 +21,17 @@ describe('TermsPage product-truth contract', () => {
     expect(screen.getByText(/continued access is \$10\/month/i)).toBeInTheDocument();
     expect(screen.getByText(/then \$10\/month to continue/i)).toBeInTheDocument();
     expect(screen.queryByText(/checkout is not yet enabled/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('PrivacyPage provider detail (#1820)', () => {
+  it('the review card link /privacy#service-providers lands on the section that names the current AI provider', () => {
+    render(<PrivacyPage />);
+
+    const section = document.getElementById('service-providers');
+    expect(section).not.toBeNull();
+    expect(section?.querySelector('h2')?.textContent).toBe('Service Providers');
+    expect(section?.textContent).toMatch(/Google Gemini/);
+    expect(legalSectionId('Service Providers')).toBe(PROVIDER_DETAIL_HREF.split('#')[1]);
   });
 });

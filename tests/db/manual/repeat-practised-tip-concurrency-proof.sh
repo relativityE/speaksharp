@@ -19,7 +19,7 @@
 # Captured output from the author's run: tests/db/manual/repeat-practised-tip-concurrency-proof.output.txt
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
-MIGRATION="$ROOT/backend/supabase/migrations/20261112010000_repeat_practised_tip.sql"
+MIGRATION="$ROOT/backend/supabase/migrations/20261119120000_repeat_practised_tip.sql"
 SCENARIOS="$ROOT/tests/db/manual/repeat-practised-tip-concurrency.sh"
 
 if [[ -z "${PG_BIN:-}" ]]; then

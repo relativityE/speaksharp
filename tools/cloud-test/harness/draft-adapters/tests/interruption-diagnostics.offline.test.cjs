@@ -125,3 +125,22 @@ test('real recorder finishes an interrupted case without mutating the earlier PA
  assert.ok(result.evidenceDigests[interruptionRef]);
  assert.equal(JSON.parse(fs.readFileSync(path.join(dir,interruptionRef))).stage,'save-wait');
 });
+
+// an ordered, closed navigation/sign-in trail rides in the interruption evidence and survives the evidence
+// sanitizer intact; no URL, query, credential or message text; bounded; unknown events and routes never appear.
+test('the navigation trail is ordered, closed, bounded and survives the evidence sanitizer without any URL or token', async () => {
+ const {sanitizeEvidence}=require('../../bundle/harness/evidence-sanitizer.cjs');
+ const page={goto:async url=>{if(url.includes('/auth/signin'))throw new Error('page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://secret.example/auth/signin?token=abc');return {status:()=>302};}};
+ await ui.trackedGoto(page,'https://secret.example/practice','route-practice',{});
+ await assert.rejects(ui.trackedGoto(page,'https://secret.example/auth/signin','route-signin',{}));
+ await ui.trackedGoto(page,'https://secret.example/x','route-not-closed',{});
+ const t=ui.navigationTrail(page);
+ assert.deepEqual(t.map(e=>[e.event,e.route,e.statusClass,e.netError]),[['nav-start','route-practice',null,null],['nav-response','route-practice','status-3xx',null],
+  ['nav-start','route-signin',null,null],['nav-error','route-signin',null,'ERR_HTTP_RESPONSE_CODE_FAILURE'],['nav-start','route-other',null,null],['nav-response','route-other','status-3xx',null]]);
+ const cleaned=sanitizeEvidence({contentSafe:true,trail:t});
+ assert.deepEqual(cleaned.stats,{blockedStrings:0,droppedKeys:0,truncated:0});
+ assert.doesNotMatch(JSON.stringify(cleaned.value),/secret|token|https?:/);
+ for(let i=0;i<40;i++)await ui.trackedGoto(page,'https://secret.example/practice','route-practice',{});
+ assert.equal(ui.navigationTrail(page).length,24);
+ assert.deepEqual(ui.navigationTrail({}),[]);
+});

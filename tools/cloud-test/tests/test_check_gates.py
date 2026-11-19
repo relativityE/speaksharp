@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import unittest
+from unittest import mock
 
 from _fixtures import ROOT, approved as base_approved, fake_rv, receipt, reconciliation, sample
 from _gate_fixtures import GateInputs
@@ -153,7 +154,7 @@ class CheckGates(unittest.TestCase):
         self.assertEqual(self.status(self.ev(r, l, receipt(r)))["G5"], "NOT-READY")
 
     def test_g5_replaces_the_runs_own_counted_reservation_never_another(self):
-        # #1772 review 4446137335 / Jensen 1793644594.204599: at an exact fit ownerCounted already includes THIS request's open reservation.
+        # #1772 review 4446137335 / at an exact fit ownerCounted already includes THIS request's open reservation.
         r, l = approved(self.req, self.ledger)
         sha = "a" * 64
         planned = r["estimate"]["starts"]
@@ -202,28 +203,45 @@ class CheckGates(unittest.TestCase):
         # live ceiling. Both values must be exact; neither omission nor an oversized live allowance passes.
         smoke = copy.deepcopy(r)
         smoke["coverageMode"] = smoke["sampleMode"] = "smoke"
-        smoke["estimate"]["githubRunnerMinutesMax"] = 40
-        old_limit, old_errors = C.occurrence_window_limit(smoke, {"maxWindowMinutes": 40}, False, 80)
+        smoke["estimate"]["githubRunnerMinutesMax"] = 60
+        old_limit, old_errors = C.occurrence_window_limit(smoke, {"maxWindowMinutes": 60}, False, 100)
         self.assertEqual(old_errors, [])
-        self.assertGreater(80, old_limit, "without both declarations the old 40-minute occurrence ceiling still blocks")
-        smoke["window"].update({"endToEndMinutes": 80, "liveMinutes": 40})
-        self.assertTrue(C.occurrence_window_limit(smoke, {"maxWindowMinutes": 40}, False, 80)[1],
+        self.assertGreater(100, old_limit, "without both declarations the 60-minute live ceiling still blocks the occurrence")
+        smoke["window"].update({"endToEndMinutes": 100, "liveMinutes": 60})
+        self.assertTrue(C.occurrence_window_limit(smoke, {"maxWindowMinutes": 60}, False, 100)[1],
                         "an ordinary smoke request cannot self-authorize the R10 envelope")
         smoke.update({"runId": C.R10_SMOKE_RUN_ID, "priority": "journey-smoke", "createdUtc": smoke["window"]["startUtc"],
                       "selectionApprovalRef": smoke["window"]["approvalRef"]})
-        self.assertEqual(C.occurrence_window_limit(smoke, {"maxWindowMinutes": 40}, False, 80), (80, []))
-        for patch in ({"endToEndMinutes": 81}, {"endToEndMinutes": 10000}, {"liveMinutes": 1}, {"liveMinutes": 41},
+        self.assertEqual(C.occurrence_window_limit(smoke, {"maxWindowMinutes": 60}, False, 100), (100, []))
+        for patch in ({"endToEndMinutes": 101}, {"endToEndMinutes": 10000}, {"liveMinutes": 1}, {"liveMinutes": 61},
                       {"liveMinutes": None}, {"endToEndMinutes": None}):
             bad = copy.deepcopy(smoke)
             bad["window"].update(patch)
             if isinstance(patch.get("liveMinutes"), int):
                 bad["estimate"]["githubRunnerMinutesMax"] = patch["liveMinutes"]
-            self.assertTrue(C.occurrence_window_limit(bad, {"maxWindowMinutes": 40}, False, 80)[1], patch)
+            self.assertTrue(C.occurrence_window_limit(bad, {"maxWindowMinutes": 60}, False, 100)[1], patch)
 
     def test_expected_pass_unconfirmed_is_owner_input(self):
         r, l = approved(self.req, self.ledger)
         l["gaps"][2]["expectedPass"]["confirmedByOwner"] = False
         self.assertEqual(self.status(self.ev(r, l, receipt(r)))["G6"], "OWNER-INPUT-OPEN")
+
+    def test_g6_owner_confirmation_is_deferred_only_for_the_r10_smoke_occurrence(self):
+        """PO option B : deferred only when the sole need is owner confirmation and the request is the R10 smoke
+        occurrence (r10_smoke_g6_deferral, checked on the real occurrence in test_r10_post_admission_chain)."""
+        r, l = approved(self.req, self.ledger)
+        l["gaps"][2]["expectedPass"]["confirmedByOwner"] = False
+        with mock.patch.object(C, "r10_smoke_g6_deferral", lambda req: True):
+            out = self.ev(r, l, receipt(r))
+            g6 = next(g for g in out["gates"] if g["id"] == "G6")
+            self.assertEqual(g6["status"], "DEFERRED-TO-RUNNER")
+            self.assertIn("no gap closes", json.dumps(g6))
+            self.assertIn("not yet confirmed by the owner", json.dumps(g6))
+            self.assertNotIn("G6", out["blockingOpen"])
+            l2 = json.loads(json.dumps(l)); l2["gaps"][2]["expectedPass"].pop("criteria", None)
+            self.assertEqual(self.status(self.ev(r, l2, receipt(r)))["G6"], "NOT-READY")      # an incomplete definition still blocks
+        with mock.patch.object(C, "r10_smoke_g6_deferral", lambda req: False):
+            self.assertEqual(self.status(self.ev(r, l, receipt(r)))["G6"], "OWNER-INPUT-OPEN")
 
     def test_an_expected_pass_without_executable_requirements_blocks_g6(self):
         r, l = approved(self.req, self.ledger)
@@ -270,7 +288,7 @@ if __name__ == "__main__":
 
 
 class NightlyCarriedForwardG7(unittest.TestCase):
-    """G7 through its real consumers (Sam 1793575319.659179, RETURN 1793576198.013729): only QUALIFIED row evidence produced under the
+    """G7 through its real consumers (RETURN ): only QUALIFIED row evidence produced under the
     CURRENT identities clears G7; unqualified, row-empty or incomparable history falls back to the verified bootstrap receipts."""
     REQ = {"priority": "nightly-regression", "harness": {"codeManifestSha256": "3" * 64, "packetManifestSha256": "4" * 64},
            "release": {"backend": {"sha": "6" * 40}}}

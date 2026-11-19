@@ -1,9 +1,9 @@
--- Outcome 4 D2: rollback of 20261112010000_repeat_practised_tip.sql.
+-- Outcome 4 D2: rollback of 20261119120000_repeat_practised_tip.sql.
 -- Proved on a throwaway copy of the Supabase database image by tests/db/manual/repeat-practised-tip-supabase-replay.sh:
 -- after this runs, the public schema dumps byte-identical to the schema before the migration, and the app's fallback
 -- read (without `practised_tip`) works. It drops the copied tips with their columns.
 -- If the migration was applied through the Supabase CLI, its row in supabase_migrations.schema_migrations
--- (version 20261112010000) must also be removed, or the CLI will consider it applied.
+-- (version 20261119120000) must also be removed, or the CLI will consider it applied.
 -- Never run it anywhere without the same authorization that applying the migration needs.
 BEGIN;
 DROP TRIGGER IF EXISTS trg_prec_att_snapshot_tip ON public.progress_recommendation_attempts;

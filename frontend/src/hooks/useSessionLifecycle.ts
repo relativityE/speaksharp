@@ -11,6 +11,7 @@ import { toTelemetryMode, isShadowMetricsEngineEnabled } from '@/services/teleme
 import { useSpeechRecognition } from './useSpeechRecognition';
 import { pushE2EEvent } from '@/lib/e2eProbe';
 import { sanitizeStartError } from '@/lib/sanitizeStartError';
+import { MIC_ACCESS_MESSAGES, MIC_BLOCKED_MESSAGE, micAccessIssue } from '@/lib/micAccessErrors';
 import { useSessionMetrics } from './useSessionMetrics';
 import { useUsageLimit, type UsageLimitCheck } from './useUsageLimit';
 import { useStreak } from './useStreak';
@@ -19,12 +20,15 @@ import { getEffectiveSubscriptionStatus, isPro } from '@/constants/subscriptionT
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 import { speechRuntimeController,
     StartRefusedFinalizationError,
+    type StopRecordingOptions,
+    type StopTakeOutcome,
 } from '@/services/SpeechRuntimeController';
 import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
 import { PRIV_STT } from '@/services/transcription/sttConstants';
 import { buildPolicyForUser, type TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 import { isPrivateModelBlockingStart } from '@/services/transcription/privateModelStartBlock';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
+import type { SttStatus } from '@/types/transcription';
 import { ENV } from '@/config/TestFlags';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import {
@@ -57,17 +61,16 @@ import {
 const getStartFailureMessage = (error: unknown, mode: TranscriptionMode): string => {
     const err = error as { name?: string; message?: string; cause?: { name?: unknown } } | null;
     const rawMessage = typeof err?.message === 'string' ? err.message.trim() : '';
-    // The controller retains the sanitized engine error as the canonical wrapper's
-    // cause. Use only its closed type name; never render arbitrary cause prose.
-    const deniedName = (name: unknown) => name === 'NotAllowedError' || name === 'PermissionDeniedError';
-    const micPermissionError =
-        deniedName(err?.name)
-        || (rawMessage.startsWith('TRANSCRIPTION_START_DID_NOT_RECORD:') && deniedName(err?.cause?.name))
-        || ((!err?.name || err.name === 'Error')
-            && /^(?:mic_stream_unavailable|NotAllowedError(?::.*)?|PermissionDeniedError(?::.*)?)$/.test(rawMessage));
+    // A denied, missing or busy microphone gets its own actionable copy. The controller retains the
+    // sanitized engine error as the canonical wrapper's cause; only its closed name (and the closed
+    // getUserMedia marker) is read, never arbitrary cause prose.
+    const micIssue = micAccessIssue(error);
+    if (micIssue) return MIC_ACCESS_MESSAGES[micIssue];
+    const micPermissionError = (!err?.name || err.name === 'Error')
+        && /^(?:mic_stream_unavailable|NotAllowedError(?::.*)?|PermissionDeniedError(?::.*)?)$/.test(rawMessage);
 
     if (micPermissionError) {
-        return 'Microphone access is blocked. Allow microphone access and try again.';
+        return MIC_BLOCKED_MESSAGE;
     }
 
     if (mode === 'private') {
@@ -105,28 +108,55 @@ export const ENGINE_RETIRE_UNCONFIRMED_MESSAGE =
     'SpeakSharp could not confirm the last recording stopped, so this tab still holds your account\'s recording. Reload or close this tab to end it, or start on another device and take over.';
 
 /**
+ * #1643 Codex P2s on 3c9de91 / b9f36b4 — RECORDING HISTORY IS BOUND TO THE LEASE.
+ *
+ * A take can reach RECORDING and then fail before its placeholder row exists (the save rejects). The server cannot tell
+ * that from a Start that never recorded, so only the client can keep it from being abandoned. Every lease whose take was
+ * ever seen in RECORDING — or that a Start could not watch — is remembered here, and every settlement path (a failed or
+ * refused Start, a later proof, leaving the page) releases such a lease the ordinary way, keeping its save obligation.
+ */
+const leasesThatMayHaveRecorded = new Set<string>();
+function markLeaseMayHaveRecorded(lease: string | null): void {
+    if (lease !== null) leasesThatMayHaveRecorded.add(lease);
+}
+function mayAbandonLease(lease: string | null): lease is string {
+    return lease !== null && !leasesThatMayHaveRecorded.has(lease);
+}
+/** Test seam: lease ids repeat across isolated test cases, so the remembered history is cleared between them. */
+export function resetLeaseRecordingHistoryForTests(): void {
+    leasesThatMayHaveRecorded.clear();
+}
+
+/**
  * #1476 PM RETURN on 54576db9 and PM pre-push review — RELEASE ONLY WHEN THE ENGINE IS ACTUALLY TERMINAL. Unmounting the
  * session page retires the engine through the controller's bounded, explicit route (a Start still preparing never
  * becomes a recording; a live engine is stopped and saved, and if that fails, destroyed — the Retry Save is kept).
  * Only a confirmed `terminal` releases the account's lease. Otherwise the lease is KEPT (other devices stay blocked, and
  * may still take over explicitly) and the unresolved state is reported, never presented as cleaned up.
  */
-export async function releaseTakeLeaseOnUnmount(_wasListening: boolean): Promise<boolean> {
+export async function releaseTakeLeaseOnUnmount(wasListening: boolean): Promise<boolean> {
     // #1476 Codex P1 on 1414f0c89: bound to the retiring take's lease. A remounted page may acquire a new take's lease
     // while this retirement is still settling; that lease is never released (or reported as unresolved) from here.
     const leaseOfTake = currentTakeLeaseId();
+    // #1643 missing-Start: leaving while a Start is still preparing (nothing recording) settles that exact lease as an
+    // abandoned Start once the engine is proven off. The server refuses that, and the lease is released as before,
+    // whenever a take exists for it, so a stopped take that is still saving keeps its save. A lease whose take ever
+    // recorded is never abandoned here, even when nothing is listening now (Codex P2 on b9f36b4).
+    const release = () => (!wasListening && mayAbandonLease(leaseOfTake)
+        ? releaseTakeLease({ startFailed: leaseOfTake })
+        : releaseTakeLease());
     // #1593 case 4: a retirement that timed out and LATER proved the engine off releases this take's lease then — still
     // only while this take owns it — and withdraws its own "could not confirm" status, never a newer one.
     const onLateTerminal = () => {
         if (currentTakeLeaseId() !== leaseOfTake) return;
-        void releaseTakeLease();
+        void release();
         const store = useSessionStore.getState();
         if (store.sttStatus.message === ENGINE_RETIRE_UNCONFIRMED_MESSAGE) store.setSTTStatus({ type: 'idle', message: 'Ready to record' });
     };
     const outcome = await speechRuntimeController.retireEngineForUnmount(undefined, onLateTerminal);
     if (currentTakeLeaseId() !== leaseOfTake) return false; // a newer take owns the lease now
     if (outcome === 'terminal') {
-        await releaseTakeLease();
+        await release();
         return true;
     }
     logger.warn('[useSessionLifecycle] engine termination not confirmed on unmount; keeping the recording lease');
@@ -142,12 +172,18 @@ export async function releaseTakeLeaseOnUnmount(_wasListening: boolean): Promise
  * next Start refuses until it is proven) and say so. Bound to the lease held when called — a newer take's lease is never
  * released by an older take's proof.
  */
-export async function releaseTakeLeaseOnProof(): Promise<boolean> {
+export async function releaseTakeLeaseOnProof(opts: { startFailed?: boolean } = {}): Promise<boolean> {
     const leaseOfTake = currentTakeLeaseId();
-    if (speechRuntimeController.isEngineTerminal()) { await releaseTakeLease(); return true; }
+    // #1643 missing-Start: a Start that failed or was refused settles its exact lease as abandoned, once the engine is
+    // proven off. The server refuses that (and the lease is released as before) whenever a take exists for it. A lease
+    // whose take ever recorded is never abandoned, whichever path settles it.
+    const release = () => (opts.startFailed === true && mayAbandonLease(leaseOfTake)
+        ? releaseTakeLease({ startFailed: leaseOfTake })
+        : releaseTakeLease());
+    if (speechRuntimeController.isEngineTerminal()) { await release(); return true; }
     const outcome = await speechRuntimeController.confirmEngineShutdown(FAILED_TEARDOWN_CONFIRM_MS);
     if (currentTakeLeaseId() !== leaseOfTake) return false; // a newer take owns the lease now
-    if (outcome === 'terminal') { await releaseTakeLease(); return true; }
+    if (outcome === 'terminal') { await release(); return true; }
     logger.warn('[useSessionLifecycle] engine not confirmed off; keeping the recording lease');
     useSessionStore.getState().setSTTStatus({ type: 'error', message: ENGINE_RETIRE_UNCONFIRMED_MESSAGE });
     return false;
@@ -174,7 +210,15 @@ export function shouldReloadSttOnForegroundReturn(params: {
     return true;
 }
 
-export const useSessionLifecycle = () => {
+interface SessionLifecycleReview {
+    beginLocalTranscriptReview?: () => StopRecordingOptions['onLocalTranscriptReview'];
+    clearLocalTranscriptReview?: () => void;
+}
+
+export const useSessionLifecycle = ({
+    beginLocalTranscriptReview,
+    clearLocalTranscriptReview,
+}: SessionLifecycleReview = {}) => {
     const { session, user } = useAuthProvider();
     const { profile, isVerified } = useProfile();
     const queryClient = useQueryClient();
@@ -394,22 +438,61 @@ export const useSessionLifecycle = () => {
             const liveStart = useSessionStore.getState().startTime;
             const elapsedAtStop = liveStart ? Math.floor((Date.now() - liveStart) / 1000) : elapsedTime;
             if (elapsedAtStop < MIN_SESSION_DURATION_SECONDS && !options?.stopReason) {
+                let discardSettled = false;
+                // The take whose unsettled discard THIS stop armed, if any; the warning below is registered only for it.
+                let armedDiscardSessionId: string | null = null;
+                // G5 (#1880, queued Stop): what actually happened to this take, whichever accepted Stop resolved it.
+                let takeOutcome = 'unknown' as StopTakeOutcome; // written by the callback; `as` keeps it from narrowing
                 try {
-                    await speechRuntimeController.stopRecording();
-                    saveLatency.settle('discarded');
+                    // G5 (#1861): this take is reported as too short below, so the controller must discard it, not
+                    // complete it. An ordinary Stop here saved a completed session the user was told was not saved.
+                    await speechRuntimeController.stopRecording({
+                        belowMinimumDuration: true,
+                        onUnsettledDiscard: (id: string) => { armedDiscardSessionId = id; },
+                        onTakeOutcome: (outcome: StopTakeOutcome) => { takeOutcome = outcome; },
+                    });
+                    if (takeOutcome === 'completed') {
+                        // G5 (#1880): an earlier queued Stop (a lease revoke, a page leave) reached its save decision
+                        // before this one and completed the take. It was saved, so it must not be reported too short
+                        // or discarded; the review it produced is left as that stop published it.
+                        saveLatency.settle('saved');
+                        reviewLatency.settle('unavailable');
+                        reviewLatencyRef.current = null;
+                        isProcessingRef.current = false;
+                        return;
+                    }
+                    // G5 (Sam on 3a91a20): the discard counts only once its `failed` mark was confirmed. Otherwise the
+                    // controller keeps the take unresolved and the page offers Try again; it is not reported discarded.
+                    discardSettled = speechRuntimeController.hasUnsettledDiscard?.() !== true;
+                    saveLatency.settle(discardSettled ? 'discarded' : 'failed');
                     reviewLatency.settle('unavailable');
                     reviewLatencyRef.current = null;
                 } catch (error) {
                     saveLatency.settle('failed');
                     reviewLatency.settle('unavailable');
                     reviewLatencyRef.current = null;
+                    // A failed stop must not leave the control refusing every later press.
+                    isProcessingRef.current = false;
                     throw error;
                 }
                 setShowAnalyticsPrompt(false);
-                setSTTStatus({
+                const tooShortStatus: SttStatus = {
                     type: 'info',
                     message: `⚠️ Session too short (${elapsedAtStop}s). Minimum ${MIN_SESSION_DURATION_SECONDS}s required.`
-                });
+                };
+                if (discardSettled) {
+                    setSTTStatus(tooShortStatus);
+                } else {
+                    setSTTStatus({
+                        type: 'warning',
+                        message: `⚠️ Session too short (${elapsedAtStop}s). It wasn't saved, but we couldn't finish clearing it.`,
+                        detail: 'Use Try again to finish.',
+                    });
+                    // A confirmed Try again later replaces this warning with the too-short message (Codex P2 on a58a348).
+                    if (armedDiscardSessionId) {
+                        speechRuntimeController.noteUnsettledDiscardWarning?.(tooShortStatus, armedDiscardSessionId);
+                    }
+                }
                 isProcessingRef.current = false;
                 return;
             }
@@ -417,10 +500,14 @@ export const useSessionLifecycle = () => {
             try {
                 // SpeechRuntimeController.stopRecording() handles enriched finalization,
                 // metrics, streak updates, and optimistic usage sync atomically.
-                const stopResult = await speechRuntimeController.stopRecording();
+                const onLocalTranscriptReview = beginLocalTranscriptReview?.();
+                const stopResult = onLocalTranscriptReview
+                    ? await speechRuntimeController.stopRecording({ onLocalTranscriptReview })
+                    : await speechRuntimeController.stopRecording();
 
                 if (!stopResult) {
-                    saveLatency.settle('discarded');
+                    // G5: a no-speech discard whose `failed` mark was not confirmed is not a discard yet.
+                    saveLatency.settle(speechRuntimeController.hasUnsettledDiscard?.() === true ? 'failed' : 'discarded');
                     reviewLatency.settle('unavailable');
                     reviewLatencyRef.current = null;
                     setShowAnalyticsPrompt(false);
@@ -733,7 +820,11 @@ export const useSessionLifecycle = () => {
                 // page copy), so the bounded retry runs and the person returns to a truthful, recovering page.
                 let scannedOwner: string | null = null;
                 const abandonStart = () => {
-                    if (acquiredLeaseId !== null && currentTakeLeaseId() === acquiredLeaseId) void releaseTakeLease();
+                    // #1643 missing-Start: no engine of this Start ran, so no take exists for its lease. Settle exactly
+                    // that lease as abandoned (the server proves it and fences it), including when the unmount already
+                    // released it (a release never settles it). A newer take's lease is never touched.
+                    const heldNow = currentTakeLeaseId();
+                    if (acquiredLeaseId !== null && (heldNow === acquiredLeaseId || heldNow === null)) void releaseTakeLease({ startFailed: acquiredLeaseId });
                     if (scannedOwner !== null) {
                         const resolvedFor = useSessionStore.getState().progressGateResolvedFor;
                         if (resolvedFor === null || resolvedFor === scannedOwner) {
@@ -841,18 +932,23 @@ export const useSessionLifecycle = () => {
                 if (confirmation === 'revoked' || revokedBeforeEngine) {
                     // Another device took the account's one engine while this Start was still checking. Nothing was
                     // recorded here, so say the Start did not happen, and arm the explicit take-over the copy offers.
+                    // #1643 missing-Start: the displaced lease is no longer held here, but its identity is still open
+                    // save debt on the server. Settle exactly that identity as abandoned (never the other device's lease).
+                    if (acquiredLeaseId !== null && currentTakeLeaseId() === null) void releaseTakeLease({ startFailed: acquiredLeaseId });
                     takeoverArmedUntilRef.current = Date.now() + TAKEOVER_WINDOW_MS;
                     setSTTStatus({ type: 'error', message: LEASE_NOT_HELD_MESSAGE });
                     reportIntent('blocked_lock_held');
                     return;
                 }
                 if (confirmation !== 'held') {
-                    void releaseTakeLease();
+                    // #1643 missing-Start: no engine of this Start ran; settle its exact lease as abandoned.
+                    void releaseTakeLease(acquiredLeaseId !== null ? { startFailed: acquiredLeaseId } : {});
                     setSTTStatus({ type: 'error', message: LEASE_UNCONFIRMED_MESSAGE });
                     reportIntent('blocked_lock_held');
                     return;
                 }
                 engineStarting = true;
+                clearLocalTranscriptReview?.();
 
                 // SpeechRuntimeController.startRecording() handles FSM, Service Init, and DB Session
                 const requestedMode = useSessionStore.getState().sttMode ?? defaultMode;
@@ -912,22 +1008,49 @@ export const useSessionLifecycle = () => {
                     return typeof message === 'string' && message.startsWith('RECORDING_INTENT_RETIRED:')
                         && (isRetryCancelled(startAttempt.id) || startCancelled() || currentStartAttempt()?.id !== startAttempt.id);
                 };
+                /**
+                 * #1643 Codex P2 on 3c9de91 — ONLY A START THAT NEVER RECORDED IS ABANDONED.
+                 *
+                 * The controller publishes RECORDING before the placeholder save, so a Start can fail after it recorded
+                 * (the save rejects) with no session row and an unbound journal entry: the server cannot tell that from a
+                 * Start that never recorded. The runtime state is watched for the whole Start, synchronously, and any sight
+                 * of RECORDING keeps the ordinary release and its save obligation. Without a way to watch, the Start is
+                 * treated as possibly recorded, so uncertainty never abandons.
+                 */
+                const leaseOfStart = acquiredLeaseId ?? currentTakeLeaseId();
+                let startSawRecording = useSessionStore.getState().runtimeState === 'RECORDING';
+                const stopWatchingRecording = typeof useSessionStore.subscribe === 'function'
+                    ? useSessionStore.subscribe((state) => {
+                        if (state.runtimeState !== 'RECORDING') return;
+                        startSawRecording = true;
+                        markLeaseMayHaveRecorded(leaseOfStart);
+                    })
+                    : null;
+                if (startSawRecording || stopWatchingRecording === null) markLeaseMayHaveRecorded(leaseOfStart);
+                const settleStartLease = () => {
+                    stopWatchingRecording?.();
+                    const neverRecorded = stopWatchingRecording !== null && !startSawRecording;
+                    void releaseTakeLeaseOnProof(neverRecorded ? { startFailed: true } : {});
+                };
                 try {
                     await speechRuntimeController.startRecording(selectedPolicy, userFillerWords);
                     if (speechRuntimeController.getState() !== 'RECORDING') {
                         startLatency.settle('refused');
                         // #1476 Codex P1 on 56cc5ad3: engine work may have begun before the refusal — release on proof.
-                        void releaseTakeLeaseOnProof();
+                        // #1643: abandoned only if this Start never recorded; the server also refuses if a take exists.
+                        settleStartLease();
                         return;
                     }
+                    stopWatchingRecording?.();
                     startLatency.settle('recording_started');
                 } catch (error) {
                     // A cancellation settles no outcome and leaves the lease to the unmount/successor that owns it.
-                    if (cancelledRetirement(error)) throw error;
+                    if (cancelledRetirement(error)) { stopWatchingRecording?.(); throw error; }
                     startLatency.settle('failed');
                     // #1476 Codex P1 on 56cc5ad3: a Start can fail after the engine reached RECORDING (e.g. the placeholder
                     // save rejects), and the start_failed reset does not await its destroy — release only on proof.
-                    void releaseTakeLeaseOnProof();
+                    // #1643: abandoned only if this Start never recorded; the server also refuses if a take exists.
+                    settleStartLease();
                     throw error;
                 }
                 analyticsBuffer.push('session_started', {
@@ -1055,6 +1178,8 @@ export const useSessionLifecycle = () => {
         // history — reintroducing the cross-account bleed this scoping exists to prevent, by a closure
         // instead of a key.
         user?.id,
+        beginLocalTranscriptReview,
+        clearLocalTranscriptReview,
         isListening,
         elapsedTime,
         setCaptureLimitReached,
@@ -1325,7 +1450,11 @@ export const useSessionLifecycle = () => {
     // retirement or the next take's own acquire resolve it) and say so. Bound to the lease the take held.
     const leaseRuntimeState = useSessionStore((state) => state.runtimeState);
     useEffect(() => {
-        if (leaseRuntimeState === 'RECORDING') { takeReachedRecordingRef.current = true; return; }
+        if (leaseRuntimeState === 'RECORDING') {
+            takeReachedRecordingRef.current = true;
+            markLeaseMayHaveRecorded(currentTakeLeaseId());
+            return;
+        }
         if (!takeReachedRecordingRef.current || leaseRuntimeState === 'STOPPING') return;
         takeReachedRecordingRef.current = false;
         void releaseTakeLeaseOnProof();

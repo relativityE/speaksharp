@@ -4,7 +4,10 @@
  *  - download fails: the Private model's own-origin asset requests are refused on first acquisition. The page must state
  *    the failure with Retry, never claim ready, and stay Private with no Cloud request; once the fault is removed,
  *    Retry downloads the model and a take saves.
- *  - offline mid-download: the browser goes offline while the model is downloading, then back online; same assertions.
+ *  - offline mid-download: the browser goes offline once the page shows received model bytes mid-transfer (not when a request
+ *    is merely issued; no bytes seen → the failure row is HOLD), then back online; same assertions.
+ * Both recover through Retry: the journey waits for the model to reach ready after Retry, then presses Start once, and the
+ * saved take must reopen from Analytics with its saved transcript.
  * The journey itself is shared: helpers/rwtAdverseJourney.ts.
  * Live-only by necessity: the E2E build never loads the model. Receipts are content-free. Preparation only: execution
  * requires a fresh release-bound RWT authorization.

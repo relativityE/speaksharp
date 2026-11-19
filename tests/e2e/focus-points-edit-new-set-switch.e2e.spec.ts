@@ -35,7 +35,7 @@ async function recordAndSave(page: Parameters<typeof programmaticLoginWithRoutes
 
 test.describe('#1258 Focus Points controls and product-switch isolation', () => {
   test('Edit before the first take reopens the saved set and returns to the before state', async ({ page }) => {
-    await programmaticLoginWithRoutes(page, { userType: 'pro' });
+    await programmaticLoginWithRoutes(page, { userType: 'pro', practicePrivacy: { transcriptSave: true, aiCoaching: false } });
     await navigateToRoute(page, '/practice');
     await page.getByTestId('practice-card-objective').click();
     await saveFocusSet(page, OLD_TOPIC, OLD_POINTS);
@@ -72,7 +72,7 @@ test.describe('#1258 Focus Points controls and product-switch isolation', () => 
   });
 
   test('Start a new set opens blank after review, clears the prior take, and can record the new set', async ({ page }) => {
-    await programmaticLoginWithRoutes(page, { userType: 'pro' });
+    await programmaticLoginWithRoutes(page, { userType: 'pro', practicePrivacy: { transcriptSave: true, aiCoaching: false } });
     await navigateToRoute(page, '/practice');
     await page.getByTestId('practice-card-objective').click();
     await saveFocusSet(page, OLD_TOPIC, OLD_POINTS.slice(0, 1));
@@ -118,7 +118,7 @@ test.describe('#1258 Focus Points controls and product-switch isolation', () => 
   });
 
   test('Open Mic → Focus Points switch starts a fresh Focus take with its own transcript and points', async ({ page }) => {
-    await programmaticLoginWithRoutes(page, { userType: 'pro' });
+    await programmaticLoginWithRoutes(page, { userType: 'pro', practicePrivacy: { transcriptSave: true, aiCoaching: false } });
     await navigateToRoute(page, '/practice');
     await page.getByTestId('practice-card-freeform').click();
     await expect(page).toHaveURL(/\/session(?:\?|$)/);

@@ -12,6 +12,7 @@ import { clearPrivateRecordingIdentity, getLastPrivateIdentity, setPrivateTeleme
 import posthog from 'posthog-js';
 import { markCompletionStage, __resetCompletionStagesForTests } from '../telemetry/completionStages';
 import { beginJourney, beginRecordingAttempt, __resetJourneyIdentityForTests } from '../telemetry/journeyIdentity';
+import { MIC_BLOCKED_MESSAGE } from '@/lib/micAccessErrors';
 
 vi.mock('posthog-js', () => ({ default: { capture: vi.fn(), identify: vi.fn(), reset: vi.fn(), reloadFeatureFlags: vi.fn() } }));
 
@@ -233,14 +234,14 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         expect(controller.getState()).toBe('FAILED_VISIBLE');
         expect(useSessionStore.getState().sttStatus).toEqual(expect.objectContaining({
             type: 'error',
-            message: 'Microphone access is denied. Please grant permission in your browser settings.',
+            message: MIC_BLOCKED_MESSAGE,
         }));
 
         await vi.advanceTimersByTimeAsync(5000);
         expect(controller.getState()).toBe('TERMINATED');
         expect(useSessionStore.getState().sttStatus).toEqual(expect.objectContaining({
             type: 'error',
-            message: 'Microphone access is denied. Please grant permission in your browser settings.',
+            message: MIC_BLOCKED_MESSAGE,
         }));
     });
 

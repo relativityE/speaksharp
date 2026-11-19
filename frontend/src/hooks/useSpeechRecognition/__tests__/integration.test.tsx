@@ -16,6 +16,7 @@ import { useSessionStore } from '@/stores/useSessionStore';
 import { STTStrategyFactory as _STTStrategyFactory } from '@/services/transcription/STTStrategyFactory';
 import type { Session as _SupabaseSession } from '@supabase/supabase-js';
 import type { ITranscriptionEngine as _ITranscriptionEngine } from '@/services/transcription/modes/types';
+import { MIC_BLOCKED_MESSAGE } from '@/lib/micAccessErrors';
 
 // Witnesses moved to test block to satisfy linter usage check
 
@@ -239,7 +240,7 @@ describe('useSpeechRecognition Integration', () => {
 
         const status = result.current.sttStatus;
         expect(status.type).toBe('error');
-        expect(status.message).toBe('Microphone access is denied. Please grant permission in your browser settings.');
+        expect(status.message).toBe(MIC_BLOCKED_MESSAGE);
     });
 
     it('should capture an entitlement denial state mid-session', async () => {

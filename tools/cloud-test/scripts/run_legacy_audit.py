@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""HISTORICAL AUDIT of the retained Cloud Test campaigns. Not fresh execution, and never current-run credit (PO 2026-10-30, Sam 1793400946).
+"""HISTORICAL AUDIT of the retained Cloud Test campaigns. Not fresh execution, and never current-run credit (PO 2026-10-30).
 Verifies the retained evidence itself: the history index chain, the sealed receipt sets against their pinned hashes, the case costs against the
 sealed ledgers, the assertion catalog against the sealed rows of the compared runs, and the historical-audit test suite (tests/legacy_audit).
 It needs the retained private history under tools/cloud-test/config/history; when that is absent nothing is executed and the audit reports
 NOT EXECUTED (exit 3), never a pass. It runs where the owner keeps that history, never in the public workflow. The log carries names and
 statuses only; child output stays in the written report.
-Usage: run_legacy_audit.py --out legacy-audit.json   (run from the package root: tools/cloud-test)"""
+Usage: run_legacy_audit.py --out legacy-audit.json (run from the package root: tools/cloud-test)"""
 import argparse
 import os
 import subprocess
@@ -17,7 +17,7 @@ from _common import ROOT, dump, now_utc  # noqa: E402
 
 HISTORY = os.path.join(ROOT, "config", "history")
 # The historical-audit suite holds exactly this many test methods (moved unchanged from 96af08e7, one tamper copy made writable); a discovery
-# that runs fewer, skips any, or finds none is never a PASS (Sam 1793405092).
+# that runs fewer, skips any, or finds none is never a PASS .
 AUDIT_TESTS = 49
 AUDITS = ("history-index-verified", "sealed-receipts-verified", "case-costs-reconcile-to-sealed-ledgers", "assertion-catalog-matches-sealed-runs",
           "indexed-runs-name-a-catalog-snapshot", "legacy-audit-tests")

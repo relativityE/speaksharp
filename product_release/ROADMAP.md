@@ -1,7 +1,7 @@
 **Status:** Authoritative for the bounded current work routing below; wider canonical reconciliation remains open under #1318.
 **Owner:** Product Owner (relativityE)
 **Last Reviewed:** 2026-10-28 — bounded source/component currency correction; independent review and qualification remain required.
-**Last Verified:** 2026-11-05 — source reconciliation baseline `8f9f9451`; component observations, R10 outcome and operational HOLD are recorded only in `RELEASE_STATUS.md`.
+**Last Verified:** 2026-11-16 — source baseline `42b02f29` (through #1796); component observations, deployment identity and operational HOLDs are recorded only in `RELEASE_STATUS.md`.
 **Applies To:** RWT/Alpha, MVP/Beta sequencing and explicitly deferred SpeakSharp work.
 **Class:** Open gap / risk.
 **Authority:** The source for Now / Next / Later / Declined work and implementation order.
@@ -14,7 +14,7 @@
 ## Receiving and acceptance ownership
 
 The [5 November source reconciliation](./RELEASE_STATUS.md#5-november-2026-source-reconciliation-and-r10-hold)
-is the current source-currency receipt for baseline `8f9f9451`. It preserves the open
+is the dated source-currency receipt for the earlier baseline `8f9f9451` (current baseline `42b02f29`). It preserves the open
 acceptance obligations below. Historical queue assignments do not restart writers;
 current file handoffs remain in the owning issue/PR thread.
 
@@ -55,9 +55,9 @@ dated source/release receipt and does not independently verify GitHub or Product
 Routing here grants no deployment, activation or acceptance authority.
 
 <!-- CURRENCY-BLOCK
-baseline: 8f9f9451bb6bf37ba2bca524acd92d933e2b826c
-deployed-release: 4c85b006ac05e180521fd6e7d807f736987cafe8
-verified-on: 2026-10-28
+baseline: 42b02f293e5fb31e41e877b0f9603b0c059069fc
+deployed-release: 446e09fad7a664b0ff49805d6c13ee10e2e466f0
+verified-on: 2026-11-16
 release-blocker: production-journey-recovery
 retention-campaign: off-critical-path
 task-1304-1: merged
@@ -214,3 +214,155 @@ duplicate — for the parked enterprise/team and demand-validation workstreams, 
 
 The dated code/strategy audit found an implemented acceptance-to-next-session association and same-cohort movement calculation, not causal coaching efficacy. Preserve the distinction between browser-local STT and separately disclosed server-side text/coaching processing. Progress/source coverage, waitlist infrastructure, compliance tests and local-inference cost hypotheses do not establish demand, willingness to pay, lower churn or defensibility. Any derived longitudinal dataset must remain consented and privacy-preserving; technical availability does not grant reuse authority. Customer validation and independent qualification remain necessary, but strategic importance does not silently reorder the owner’s release sequence.
 <!-- /clause-closeout:2026-10-28 -->
+
+
+## Outside-review intake: privacy, configuration and bounded qualification
+
+This numbered register captures the 11 November 2026 outside-review intake.
+Sam owns triage and closure evidence; implementation owners must explicitly accept
+their bounded paths before edits. Existing billing, coaching and acceptance owners
+are not reassigned here. The owning PR carries dated verification and the execution
+checklist; production observations and release posture belong in
+`RELEASE_STATUS.md`. Capturing a gap is not implementing it, a new launch waiver,
+or authorization to mutate configuration, run a live test or spend money.
+
+### Deliverables and expected outcome
+
+Deliver a traceable disposition for every item below: evidence-backed verification
+or a separately reviewed implementation, acceptance controls, and canonical copy
+where appropriate. The expected outcome is explicit privacy choice, truthful
+retention and entitlement claims, bounded security hardening, and an evidence-led
+STT decision without duplicating the existing MVP qualification work.
+
+1. **F01 — Trial-trigger wiring and entitlement admission.** Verify the enabled
+   `auth.users` signup trigger, its function binding and applied migration state
+   through read-only production metadata. Retain sanitized evidence, not account
+   contents. If the chain is correctly wired, close the alleged missing-trigger
+   finding rather than create a redundant migration. Separate metadata proof from
+   end-to-end fresh-signup entitlement proof; reuse existing qualified evidence or
+   obtain exact authority before a new production account operation.
+2. **F02 — Retention activation, behavior and truthful copy.** Verify the
+   `transcript_retention_activation` state and reconcile the actual transcript,
+   coaching and derived-content expiry behavior with the newest-one promise.
+   Activation alone does not prove every purge path. Reuse the existing AHT-01
+   retention investigation; do not infer its failed row's cause from a migration
+   filename. Specify retention/deletion timing, remaining logs/backups and provider
+   handling before replacing unfinished privacy copy. Any discrepancy requires a
+   bounded correction, not a silent change of promise.
+3. **F03 — Privacy issue and proposed separate choices (design open).** Record
+   Akin's preference for two distinct choices: saving the transcript to Supabase
+   and sending it to an AI provider for coaching. His current first-version
+   proposal disables AI coaching unless saving is enabled. This is feedback intake,
+   not an approved implementation design or build specification. Decide the exact
+   controls, defaults, wording, persistence, consent/revocation behavior and
+   enforcement during a separately scoped design review. That review must distinguish
+   on-device audio from cloud transcript storage and provider processing, avoid
+   implying training consent, and address existing saved data and provider terms.
+   Identify and correct inaccurate transcript-local-only claims through the
+   appropriate reviewed change. Do not implement the proposal through this PR.
+4. **F04 — Effective application security headers.** Inspect deployed responses,
+   not just `vercel.json`, on app and protected routes. Establish appropriate CSP,
+   framing protection and referrer policy, retain effective HSTS where present, and
+   test normal recording/model workers, authentication, payments and error routes
+   against the proposed policy. Do not blindly add directives that break required
+   WebAssembly/worker or cross-origin behavior. Treat configuration changes and
+   deployment as separate reviewed actions.
+5. **F05 — Ops-status authentication hardening.** Review the password comparison
+   and fail-closed behavior; use a supported constant-time comparison and verify
+   explicit throttling at the effective boundary rather than assume upstream
+   protection exists. Cover missing/wrong credentials, comparison behavior,
+   rate-limit recovery and sensitive logging. Do not run production brute-force
+   tests or expose credentials.
+6. **F06 — Controlled v2 anti-repetition experiment.** Compare the current v2
+   baseline with `condition_on_previous_text: false` and
+   `no_repeat_ngram_size: 6`, individually and combined, in an isolated offline
+   experiment. First prove the deployed runtime accepts and applies those options.
+   Freeze the corpus/scorer/model and report WER, loops/hallucinations, legitimate
+   repeated-word/filler preservation, latency, memory and device coverage. Do not
+   hide loops by output deduplication. Tuning is not a zero-risk fix or promotion;
+   change production defaults only after review and Product Owner selection.
+7. **F07 — Complete test-mode checkout-to-product proof (existing billing lane).**
+   Route to #1795/#1813, not a new billing initiative. Existing Stripe lifecycle
+   evidence is not browser checkout, authentic webhook delivery and paid product
+   access together. Use the existing Stripe test account and disposable local
+   stack; preserve the protected environment/reviewer requirements. Do not add a
+   recurring hosted Supabase charge, enable live payments or charge a real card.
+8. **F08 — Real coaching usefulness evidence (existing evaluation lane).** Route
+   to #1816 and the current coaching qualification protocol. Preserve the
+   20-session sample, two independent reviewers, at least four consenting speakers,
+   fixed coaching version, diagnostic correlation and separately reported quality,
+   failure, reopen and timing criteria. Do not create a duplicate evaluation or
+   treat source checks as human usefulness.
+9. **F09 — Reconcile transcription, latency and download claims.** Use
+   representative speech and supported-device evidence with frozen scoring.
+   Distinguish a tiny app-path fixture from a larger corpus and compressed network
+   transfer from stored model size. Do not reuse a superseded headline error rate
+   or infer current production quality from either sample alone. Feed gaps into the
+   existing release-evidence checklist.
+10. **F10 — Explicitly deferred or rejected expansion.** Do not turn this intake
+    into a model replacement, giant-file refactor or workflow-consolidation project.
+    A missing source declaration is a verification gap, not proof a deployed
+    feature is absent. Historical PR ownership does not restart writers. Retain
+    these observations as background unless independently reproduced as a current
+    blocker. A suggested real-money checkout is outside this test-mode intake and is not a required proof.
+
+11. **F11 — Gemini tier and provider data-handling terms.** Verify the actual
+    production account/service tier and applicable provider retention, training-use
+    and regional-processing terms through authorized metadata and current official
+    documentation. Do not infer terms from the model name or use of a test key.
+    Reconcile those verified terms with F03's consent copy and F02's retention
+    promise before release; disclose relevant limits without exposing credentials.
+
+12. **F12 — Stop-to-final transcript latency.** Measure the user-visible interval
+    from Stop to the final usable transcript separately from model inference time,
+    using exact build/model/device identity and representative short and long takes.
+    Trace buffering, finalization, rendering and save boundaries without assuming
+    which dominates. Report distributions and failure cases in the existing STT
+    evidence lane; do not claim an optimization worked without a controlled rerun.
+13. **F13 — v2 application-path quality diagnosis.** Reproduce the corrected
+    small-fixture observation through the real application path, then compare it
+    with the representative corpus using identical audio preprocessing, chunking,
+    decoding and scoring. The reported 51.7% on an 87-word fixture is not a general
+    v2 accuracy estimate; the later 6.9% corpus result does not explain the app-path
+    discrepancy by itself. Identify the causal boundary before a product change,
+    preserve negative examples, and link any F06 experiment rather than open a
+    parallel model-selection effort.
+
+Completion of this documentation increment means all thirteen dispositions and their
+acceptance boundaries are recorded. It does not close the implementation,
+production-verification or release-acceptance obligations.
+
+### Reconciliation of Nat's 15–16 November findings
+
+Reconciled on 16 November 2026 against main `db7b231d` and refreshed on 17 November.
+Each unresolved finding is linked to its existing PR or issue, an owner, and the
+evidence that would close it. A link is not a fix, and no new PR is opened from this
+register without Product Owner approval. A finding closes only when its closing
+evidence lands, not when a linked PR merges. Owners are as assigned in Sam's 16 November
+priority tables; "Unassigned" means no owner has accepted the work.
+
+Some GitHub Actions run pages cited in the 14–15 November reports returned not found
+through the GitHub API on 16 November. Where that happened, the row names the evidence
+that can still be checked (the team-channel apply and verification reports, merged
+commits, and the code on main) instead of the run page. An incomplete diagnostic run
+is never counted as an acceptance result. Each finding's current state on main is recorded
+in `RELEASE_STATUS.md` ("Outside-review findings: state on main"); this register keeps
+only the routing, owners and closing evidence.
+
+| Finding | Linked to | Owner | Evidence that closes it |
+|---|---|---|---|
+| Harness preflight pins an old release | #1884 (draft, shared harness and exact-release proof) | Sam (sealed adapter); Elon (runner qualification) | #1884 merged, and one qualified live run that binds the adapter to a named served build |
+| Nine-journey gate has no qualifying run | #1796, #1875, #1883 (merged), #1884, `RELEASE_STATUS.md` | Sam (harness); Elon (runs) | A qualified J1–J9 run on one exact served release, recorded in `RELEASE_STATUS.md`. #1883's offline leg does not make J1.d runnable; J1.d and J8 need reviewed live adapters or a recorded decision that they cannot run |
+| Billing wall merged, paid loop never run | F07 billing lane; outcomes 4 and 8 in #1796 | Sam (protected environment); Elon (test-mode run); Product Owner (launch approval) | Test-mode Checkout, authentic webhook delivery and restored paid access in one run, recorded with its run link |
+| Privacy opt-in gate absent | #1835 (draft), F03 | Product Owner (policy); Jack (build, after #1880) | Product Owner's recorded policy, then server and UI enforcement with revocation tests merged and verified on a release |
+| Clarity and pauses not sent to coaching | #1836 (draft, parked) | Product Owner and Sam (parked) | Decided for MVP: do not merge; existing coaching inputs stay and #1816 measures usefulness. #1836 stays open until an approved replacement supersedes its design, and measured pauses return only with #1816 evidence |
+| No rate limit on ops-status | F05 | Sam (verification) | Verified exposed fields and effective upstream throttling, or a reviewed throttle change |
+| STT model decision unmade | #1789, #1790, #1793, #1794; F06, F09, F12, F13 | Product Owner (decision) | A recorded stay-on-v2 decision in #1790, or the frozen comparison run and the Product Owner's selection |
+| **Feedback fence "unapplied" (corrected)** | #1859, #1860; production receipt in `RELEASE_STATUS.md` ("Production migration receipt: feedback fence, 14 November 2026") | Sam (verified the apply) | Closed as applied: a documentation correction, not a migration task; do not reapply |
+| Smoke budgets for two retired R10 cases | No PR | Unassigned | Confirmation that the smoke section retired with R10, then a reviewed deletion or resize |
+| Test-selector under-selection holes | #1842 (draft, parked) | Parked (Product Owner and Sam) | A proven runtime-read index before any skip-based CI |
+| Take stopped under five seconds completes | #1880 | Jack (after #1882's controller edits) | #1880 merged with the 5 s boundary, duplicate-click and lease/navigation tests, then verified on the approved release (live leg J1.c). Merging alone does not close it |
+| #1837 retention numbers | `abb9bd3f` (#1837) | None | Closed: the 1-day figure was a stale PR description, not code |
+| Twelve framework items with no PR | Sam's M1–M20 table on #1817 (12 Nov) | Sam | Each item's own linked evidence, tracked in that table |
+| Review threads not blocking merges; stale PR bodies; closures without reasons | Merge runbook `.agent/workflows/pr-merge-workflow.md` | Product Owner and Sam | A recorded decision on whether unresolved threads block merges, reflected in the runbook |
+| Merge-process optimizations (Nat, 16 Nov) | No PR | Sam | Adopted now: refresh only the review receipt and merge at once through the guard, with PR authors owning their merges and Sam as fallback. Kept: the 30-minute receipt rule. Deferred: the shorter lane for unchanged patches, as a separate design that #1842's unproven selector does not decide |

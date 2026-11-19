@@ -49,7 +49,7 @@ const fakePage = (): Page => ({
     goto: async (url: string) => { script.calls.push(`goto:${url}`); },
     getByTestId: (id: string) => ({ __kind: id, click: async () => undefined }),
     waitForURL: async () => undefined,
-    waitForTimeout: async () => undefined,
+    waitForTimeout: async (ms: number) => { script.calls.push(`wait:${ms}`); },
     locator: () => ({ __kind: 'review' }),
     getByText: () => ({ count: async () => 0 }),
     evaluate: (fn: () => unknown) => {
@@ -96,6 +96,12 @@ describe('practiceAgainEvidence — the save take records the sub-step it stoppe
             expect(ev).toMatchObject({ reviewReached: false, saveTakeFailedStep: 'review' });
             expect(ev.saveTakeFailure?.readTimedOut).toBe(true);
         } finally { vi.useRealTimers(); }
+    });
+    it('the save take records for the requested duration; the default and an invalid value record 7 s (behavioural)', async () => {
+        await practiceAgainEvidence(fakePage(), 'pa', 'take-1', 'open_mic');
+        await practiceAgainEvidence(fakePage(), 'pa', 'take-1', 'open_mic', [], undefined, { saveTakeMs: 42_000 });
+        await practiceAgainEvidence(fakePage(), 'pa', 'take-1', 'open_mic', [], undefined, { saveTakeMs: 3_000 });
+        expect(script.calls.filter((c) => c.startsWith('wait:'))).toEqual(['wait:7000', 'wait:42000', 'wait:7000']);
     });
     it('positive path: every step completes → the review is reached and no failed step is recorded', async () => {
         const ev = await practiceAgainEvidence(fakePage(), 'pa', 'take-1', 'open_mic');

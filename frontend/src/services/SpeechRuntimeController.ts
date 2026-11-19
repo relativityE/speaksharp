@@ -22,11 +22,13 @@ import { emitFillerMeasurement } from '@/services/telemetry/fillerMeasurement';
 import { noteEngineReady, noteEngineTeardown } from '@/services/telemetry/reinitObservation';
 import { resetTranscriptStability } from '@/services/telemetry/transcriptStability';
 import { markCompletionStage, resetCompletionChain } from '@/services/telemetry/completionStages';
+import { emitFinalizeBreakdown, readFinalizeTakeSeq, readPrivateTimingSummary } from '@/services/telemetry/finalizeBreakdown';
 import { resolvedEngine } from '@/services/telemetry/runtimeAttribution';
 import { countWords } from '@/lib/contentDigest';
 import type { SessionPersistStatus } from '@/lib/forensicAnchors';
 import { safeLocalStorageGet, safeLocalStorageSet } from '@/lib/safeStorage';
 import { toSanitizedCause } from '@/lib/sanitizeStartError';
+import { MIC_ACCESS_MESSAGES, MIC_BLOCKED_MESSAGE, isMicAccessMessage, micAccessIssue } from '@/lib/micAccessErrors';
 import TranscriptionService, { getTranscriptionService, hasEngineNotConfirmedStopped } from '@/services/transcription/TranscriptionService';
 import type { TranscriptionPolicy } from '@/services/transcription/TranscriptionPolicy';
 import { resolvePrivateModel } from '@/services/transcription/utils/privateModelFlag';
@@ -55,6 +57,7 @@ import { useSessionStore } from '@/stores/useSessionStore';
 import { getSupabaseClient } from '../lib/supabaseClient';
 import type { UserProfile } from '@/types/user';
 import type { TranscriptUpdate, HistorySegment, SttStatus } from '@/types/transcription';
+import { clearUnsettledDiscardRecord, getUnsettledDiscardRecordForUser, saveUnsettledDiscardRecord } from './unsettledDiscardRecord';
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 import { isModeAllowed } from '@/services/transcription/TranscriptionPolicy';
 import { emitEngineRequestCollapsedToPrivate, isRetiredEngineRequest } from '@/services/transcription/sttExclusivityTelemetry';
@@ -391,6 +394,42 @@ export type RuntimeState =
     | 'FAILED'
     | 'FAILED_VISIBLE'
     | 'TERMINATED';
+
+/**
+ * G5 (#1861) — options for `stopRecording()`.
+ *
+ * `belowMinimumDuration`: the caller measured the take on the live clock the user sees, found it under the
+ * minimum and told the user it is too short. The controller then resolves the take by discard (its row,
+ * created at Start or late at Stop like any take, is marked failed, which also settles the lease's save
+ * obligation) instead of completing it. The page owns the user-facing message. Callers that stop for an
+ * external reason (tier limit, maximum length, inactivity, page leave) do not set it.
+ */
+export interface StopRecordingOptions {
+    belowMinimumDuration?: boolean;
+    /** A one-shot handoff to the mounted caller, never stored in the controller or session store. */
+    onLocalTranscriptReview?: (review: LocalTranscriptReview) => void;
+    /** G5: called with the session id when THIS stop arms Try again for its unsettled discard. */
+    onUnsettledDiscard?: (sessionId: string) => void;
+    /**
+     * G5 (#1880, queued Stop): called once this call's queued turn has run, with what happened to the take that was
+     * recording when the call was made, whichever accepted Stop resolved it. An earlier queued Stop (a lease revoke, a
+     * page leave) may have resolved it already; the page reports a discard only when the take was in fact discarded.
+     */
+    onTakeOutcome?: (outcome: StopTakeOutcome) => void;
+}
+
+export interface LocalTranscriptReview {
+    recordingId: string;
+    sessionId: string;
+    ownerId: string;
+    text: string;
+}
+
+/**
+ * G5 (#1880): how the accepted Stop resolved a take. `unknown` means no accepted Stop recorded an outcome for that take
+ * (nothing was recording, the stop was superseded, or it failed before deciding).
+ */
+export type StopTakeOutcome = 'discarded' | 'discard_unsettled' | 'completed' | 'unknown';
 
 export interface LifecycleToken {
     version: number;
@@ -733,6 +772,20 @@ export class SpeechRuntimeController {
      * and moved it to READY — the failure vanished from the page while the unsaved take still refused the next Start.
      */
     private stopAcceptedForRecordingId: string | null = null;
+    /**
+     * G5 (#1880, queued Stop) — the recording the user's own short Stop judged too short, registered SYNCHRONOUSLY when
+     * that Stop is called, before its queued turn. An earlier queued Stop for the same take (lease revoke, page leave)
+     * that has not yet reached its save decision honours it, so the take the page calls too short is discarded rather
+     * than completed. Recording ids are unique per take, so a stale id never matches a later take.
+     */
+    private shortStopVerdictRecordingId: string | null = null;
+    /** G5 (#1880): how the accepted Stop resolved the most recent take, reported to every Stop call made for it. */
+    private lastStopOutcome: {
+        recordingId: string;
+        outcome: Exclude<StopTakeOutcome, 'unknown'>;
+        /** The session whose unsettled discard this take armed for Try again, whichever accepted Stop armed it. */
+        armedDiscardSessionId?: string;
+    } | null = null;
     /** #1421 Option A: the attempt this take belongs to, snapshotted when the take enters RECORDING. */
     private currentRecordingSubject: RecordingSubject | null = null;
     /**
@@ -1248,13 +1301,42 @@ export class SpeechRuntimeController {
         /** #1033 (1): present when the placeholder row was never created. Retry must CREATE the row first,
          *  using this recording's idempotency identity so a retry can never produce a duplicate session. */
         initialSave?: { userId: string; recordingId: string; mode: string; engineVersion?: string; modelName?: string; deviceType?: string };
-        // #1306: transcript-free. A finalized retry replays the exact content-free metrics + one next action.
+        // A live retry replays the exact completion payload. A rehydrated retry has no transcript.
         completeArgs: CompleteSessionOptions & { status: 'completed' };
+        // The original Stop page's receiver, never a new page attached on Retry. It owns its own
+        // lifetime fence. No transcript copy is kept here, and durable recovery never gets a receiver.
+        localReview?: {
+            recordingId: string;
+            ownerId: string;
+            receive: NonNullable<StopRecordingOptions['onLocalTranscriptReview']>;
+        };
         attributionEvidence: RuntimeEvidence | null;
         progressContext: ProgressCompletionContext;
         progressMetrics: ProgressMetricsState;
         /** #1421 Option A: the take this verdict belongs to, never the attempt current when it settles. */
         subject?: RecordingSubject | null;
+    } | null = null;
+    /**
+     * G5 (#1861, Sam on 3a91a20) — A DISCARD THAT DID NOT SETTLE IS NOT A DISCARD.
+     *
+     * A discarded take (no meaningful speech, or stopped under the minimum duration) is closed by marking its row
+     * `failed`, which is also what settles the lease's save obligation. Storage reports `{ success: false }` on an RPC
+     * error or an invalid response; a throw is the same. In that case the take was not saved, but the row and its
+     * obligation are NOT confirmed settled (an unsettled obligation blocks account deletion, and lease release or
+     * expiry never settles it). The take stays unresolved and locked, and the page offers Try again, which re-runs the
+     * same `failed` mark for the same row. Never a duplicate row, never a completion.
+     */
+    private pendingDiscardSettlement: {
+        sessionId: string;
+        reason: string;
+        /** The take's owner, whose durable record (unsettledDiscardRecord) is cleared once the mark is confirmed. */
+        ownerId: string | null;
+        /**
+         * The warning this take left on screen (the exact stored status object) and the status a settled discard would
+         * have shown. When the `failed` mark is later confirmed, `shown` is replaced by `settled` — only while it is
+         * still the one on screen, so anything published since is left alone (Codex P2 on a58a348).
+         */
+        warning: { shown: SttStatus; settled: SttStatus } | null;
     } | null = null;
     /**
      * #1258 RWT round 2 C — the EXACT status object a failed Stop left on screen for the session whose full save
@@ -1367,7 +1449,30 @@ export class SpeechRuntimeController {
             || SpeechRuntimeController.RECORDING_LIFECYCLE_STATES.has(this.state)
             || this.pendingAttributionRetry !== null
             || this.pendingFullSaveRetry !== null
+            || this.pendingDiscardSettlement !== null
             || this.recordingStartedUnresolved;
+    }
+    /** G5 (#1861): true while a discarded take's `failed` mark is unconfirmed and awaits Try again — whatever else is pending. */
+    public hasUnsettledDiscard(): boolean {
+        return this.pendingDiscardSettlement !== null;
+    }
+    /**
+     * G5 (#1861): the page published its own "couldn't finish clearing it" warning for the unsettled discard. Record the
+     * status now on screen as that warning, with the status to show once the discard is settled, so a later confirmed
+     * settlement retires it. No-op when no discard is pending.
+     */
+    public noteUnsettledDiscardWarning(settled: SttStatus, sessionId?: string): void {
+        if (!this.pendingDiscardSettlement) return;
+        // The page names the take whose warning it showed, so it never attaches to another take's slot (review on b41b52b).
+        if (sessionId !== undefined && this.pendingDiscardSettlement.sessionId !== sessionId) return;
+        this.pendingDiscardSettlement.warning = { shown: useSessionStore.getState().sttStatus, settled };
+    }
+    /** Replaces a settled discard's own warning, and only that exact status object, with its settled status. */
+    private retireDiscardWarning(slot: NonNullable<SpeechRuntimeController['pendingDiscardSettlement']>): void {
+        const warning = slot.warning;
+        if (warning && useSessionStore.getState().sttStatus === warning.shown) {
+            useSessionStore.getState().setSTTStatus(warning.settled);
+        }
     }
     /** #1033: true while a completed recording's attribution write OR full save is awaiting Retry Save. */
     public hasPendingAttribution(): boolean {
@@ -1375,13 +1480,14 @@ export class SpeechRuntimeController {
     }
     /** #1033 (item 2): what the current Retry Save would re-attempt — the ACTUAL failed op, or none. A full
      *  save failure outranks an attribution failure (it is the more severe, less-persisted state). */
-    public pendingResolutionKind(): 'initial_save' | 'full_save' | 'attribution' | null {
+    public pendingResolutionKind(): 'initial_save' | 'full_save' | 'attribution' | 'discard' | null {
         if (this.pendingFullSaveRetry) {
             return this.pendingFullSaveRetry.initialSave && !this.pendingFullSaveRetry.sessionId
                 ? 'initial_save'
                 : 'full_save';
         }
         if (this.pendingAttributionRetry) return 'attribution';
+        if (this.pendingDiscardSettlement) return 'discard';
         return null;
     }
 
@@ -1484,6 +1590,27 @@ export class SpeechRuntimeController {
     }
 
     private async settleRecordingSave(): Promise<boolean> {
+        // G5: an unsettled discard retries exactly what failed — the `failed` mark on the same row — and nothing else.
+        const discard = this.pendingDiscardSettlement;
+        if (discard && !this.pendingFullSaveRetry && !this.pendingAttributionRetry) {
+            let settled = false;
+            try {
+                const res = await completeSession(discard.sessionId, { status: 'failed', reason: discard.reason });
+                settled = Boolean(res?.success);
+            } catch (e) {
+                logger.warn({ e, sessionId: discard.sessionId }, '[controller] discard settlement retry threw (G5)');
+            }
+            if (!settled) return false; // still unsettled; stays locked and retryable
+            clearUnsettledDiscardRecord(discard.ownerId, discard.sessionId); // the row is settled, whoever holds the slot now
+            if (this.pendingDiscardSettlement === discard) {
+                this.pendingDiscardSettlement = null;
+                // Retire this take's own warning before unlocking, so no successor's status can be on screen yet.
+                this.retireDiscardWarning(discard);
+                this.markRecordingResolved();
+            }
+            logger.info({ sessionId: discard.sessionId }, '[controller] discarded take settled on retry → unlocked (G5)');
+            return true;
+        }
         const fullSave = this.pendingFullSaveRetry;
         if (fullSave) {
             let targetSessionId = fullSave.sessionId;
@@ -1632,6 +1759,16 @@ export class SpeechRuntimeController {
                          */
                         // AHT-01 Option 1: the review card names the take that saved this session, not the ambient one.
                         noteSavedTake(targetSessionId, fullSave.subject);
+                        const review = fullSave.localReview;
+                        const text = fullSave.completeArgs.finalTranscript;
+                        if (review && targetSessionId && text?.trim() && completion.transcriptOutcome === 'not_provided'
+                            && this.currentRecordingId === review.recordingId && this.capturedUserId === review.ownerId) {
+                            try {
+                                review.receive({ recordingId: review.recordingId, ownerId: review.ownerId, sessionId: targetSessionId, text });
+                            } catch {
+                                // A page-only review must not change the outcome of a successful save.
+                            }
+                        }
                         useSessionStore.getState().setCompletedSessionId(targetSessionId);
                         /**
                          * #1258 RWT round 2 C — AND THE PAGE ENTERS THAT REVIEW. Only a successful Stop enters the
@@ -1741,6 +1878,8 @@ export class SpeechRuntimeController {
 
     private snapshotProgressModeAtRecordingBoundary(): RecordingProgressMode {
         const brief = useSessionStore.getState().activeObjectiveBrief;
+        // #1882 diagnostic: which product the take is recorded as, decided here at Start.
+        pushNativeRuntimeTrace('controller_progress_mode_snapshot', { mode: brief ? 'focus_points' : 'open_mic', pointCount: brief?.points?.length ?? 0 });
         if (!brief) return { mode: 'open_mic' };
         return {
             mode: 'focus_points',
@@ -1793,7 +1932,8 @@ export class SpeechRuntimeController {
 
     private ensurePostStartFailureIsActionable(): void {
         if (!this.recordingStartedUnresolved) return;
-        if (this.pendingFullSaveRetry || this.pendingAttributionRetry) return; // a specific retry already exists
+        // A specific retry already exists (G5: including an unsettled discard's Try again).
+        if (this.pendingFullSaveRetry || this.pendingAttributionRetry || this.pendingDiscardSettlement) return;
 
         // #1033 (2): resolve recovery ONLY by the CURRENT session id + the authenticated owner. Never read
         // the unscoped global draft — without both identities we could otherwise consume a stale draft that
@@ -1852,11 +1992,13 @@ export class SpeechRuntimeController {
      *    should surface the failure and offer retry.
      */
     public async discardUnresolvedRecording(): Promise<{ outcome: 'discarded' | 'retryable'; sessionId: string | null }> {
-        const sessionId = this.pendingFullSaveRetry?.sessionId ?? this.pendingAttributionRetry?.sessionId ?? this.sessionId ?? null;
+        const sessionId = this.pendingFullSaveRetry?.sessionId ?? this.pendingAttributionRetry?.sessionId
+            ?? this.pendingDiscardSettlement?.sessionId ?? this.sessionId ?? null;
         // #1433 RETURN `5636795476` item 1 — a confirmed discard is the terminal settlement of the take whose Focus
         // Points brief was kept through recovery. The context and authority are captured before the await and the
         // retirement is fenced after it, like every other shared write.
         const recoveryContext = this.pendingFullSaveRetry?.progressContext ?? this.pendingAttributionRetry?.progressContext ?? null;
+        const discardSlot = this.pendingDiscardSettlement;
         const discardAuthority = this.captureStopAuthority(this.lifecycleVersion, this.service, sessionId);
         const discardToken = { cancelled: false, version: discardAuthority.lifecycleVersion };
 
@@ -1886,6 +2028,9 @@ export class SpeechRuntimeController {
 
         this.pendingFullSaveRetry = null;
         this.pendingAttributionRetry = null;
+        if (discardSlot && sessionId === discardSlot.sessionId) clearUnsettledDiscardRecord(discardSlot.ownerId, discardSlot.sessionId);
+        if (discardSlot && this.pendingDiscardSettlement === discardSlot) this.retireDiscardWarning(discardSlot);
+        this.pendingDiscardSettlement = null;
         this.retireObjectiveBriefAfterSettlement(recoveryContext, () => this.stopStillOwnsSharedState(discardAuthority, discardToken));
         this.markRecordingResolved();
         logger.info({ sessionId, state: this.state }, '[controller] unresolved recording discarded → unlocked (#1033 B)');
@@ -1899,10 +2044,11 @@ export class SpeechRuntimeController {
      * Returns true when a draft for this user was rehydrated. No-op (returns false) when there is none for them.
      */
     public rehydrateUnresolvedRecording(userId: string | null | undefined): boolean {
+        this.releaseOtherOwnersDiscard(userId);
         const draft = getRecoverableDraftForUser(userId);
         // #1306: only a FINALIZED draft can be re-armed for completion. An active_interrupted draft has no final
         // metrics and must never rehydrate into a completable save.
-        if (!draft || draft.recoveryState !== 'finalized_pending_save') return false;
+        if (!draft || draft.recoveryState !== 'finalized_pending_save') return this.rehydrateUnsettledDiscard(userId);
         this.sessionId = draft.sessionId;
         this.recordingStartedUnresolved = true;
         this.pendingFullSaveRetry = {
@@ -1948,6 +2094,8 @@ export class SpeechRuntimeController {
     public retireRehydratedRecoveryFor(userId: string | null | undefined): void {
         if (!userId || this.rehydratedFor !== userId) return;
         if (SpeechRuntimeController.RECORDING_LIFECYCLE_STATES.has(this.state)) return;
+        // G5: the departing owner's unsettled discard too; its durable record stays for their return.
+        if (this.pendingDiscardSettlement?.ownerId === userId) this.pendingDiscardSettlement = null;
         this.rehydratedFor = null;
         this.rehydratedSelectorProduct = null;
         this.pendingFullSaveRetry = null;
@@ -1955,6 +2103,45 @@ export class SpeechRuntimeController {
         this.sessionId = null;
         this.publishLockState();
         logger.info('[controller] retired the previous owner\'s rehydrated recovery on account change (#1476)');
+    }
+
+    /**
+     * G5 (#1861, Sam on a58a348) — same-owner return for an unsettled discard. A reload, hard reset or sign-out dropped
+     * the in-memory slot while the row and its save obligation stayed unsettled; the owner's durable record re-arms the
+     * same slot, so the take is locked again and Try again re-runs the same `failed` mark on the same row. Never for
+     * another account, never over a recording, and never over a slot already held.
+     */
+    /**
+     * G5 (review on a95ca10, 07d3af5) — a live unsettled-discard slot left by ANOTHER account (a sign-out remounts the
+     * page without a reload, so nothing retired it) must not lock the account now signed in. It is released exactly as a
+     * reload would drop it: the departing owner's record is written first (best effort), so that owner gets Try again
+     * back on return where the record holds, and the take's unresolved lock goes with the slot, so the new account is
+     * neither locked nor left without a banner. Never while a take is recording, never for the same owner, and never
+     * for an ownerless slot.
+     */
+    private releaseOtherOwnersDiscard(userId: string | null | undefined): void {
+        const slot = this.pendingDiscardSettlement;
+        if (!userId || !slot?.ownerId || slot.ownerId === userId) return;
+        if (SpeechRuntimeController.RECORDING_LIFECYCLE_STATES.has(this.state)) return;
+        saveUnsettledDiscardRecord({ sessionId: slot.sessionId, userId: slot.ownerId, reason: slot.reason });
+        this.pendingDiscardSettlement = null;
+        if (this.rehydratedFor === slot.ownerId) this.rehydratedFor = null;
+        if (this.sessionId === slot.sessionId) this.sessionId = null;
+        logger.info('[controller] released another account\'s unsettled discard on sign-in; its record stays for that owner where it holds (G5)');
+        if (!this.pendingFullSaveRetry && !this.pendingAttributionRetry) this.markRecordingResolved();
+        else this.publishLockState();
+    }
+
+    private rehydrateUnsettledDiscard(userId: string | null | undefined): boolean {
+        const record = getUnsettledDiscardRecordForUser(userId);
+        if (!record || !userId) return false;
+        if (SpeechRuntimeController.RECORDING_LIFECYCLE_STATES.has(this.state)) return false;
+        if (this.pendingDiscardSettlement || this.pendingFullSaveRetry || this.pendingAttributionRetry) return false;
+        this.pendingDiscardSettlement = { sessionId: record.sessionId, reason: record.reason, ownerId: userId, warning: null };
+        this.rehydratedFor = userId;
+        this.publishLockState();
+        logger.info({ sessionId: record.sessionId }, '[controller] rehydrated an unsettled discard for its owner (G5)');
+        return true;
     }
 
     /** Closed allowlist of engine tokens eligible for a VERIFIED attribution. Anything else → unverified. */
@@ -3137,9 +3324,12 @@ export class SpeechRuntimeController {
             this.commandQueue = Promise.resolve();
             if (error) {
                 const rawMessage = error.message || '';
+                const micIssue = micAccessIssue(error);
                 const isMicPermissionError = /permission|not-allowed|service-not-allowed|microphone|mic/i.test(rawMessage);
-                const displayMessage = isMicPermissionError
-                    ? 'Microphone access is denied. Please grant permission in your browser settings.'
+                // Copy handleError already chose (a missing or busy mic mentions "microphone") is kept as it is.
+                const displayMessage = micIssue ? MIC_ACCESS_MESSAGES[micIssue]
+                    : isMicAccessMessage(rawMessage) ? rawMessage
+                    : isMicPermissionError ? MIC_BLOCKED_MESSAGE
                     : rawMessage;
                 store.setSTTStatus({ type: 'error', message: displayMessage });
             }
@@ -3316,8 +3506,9 @@ export class SpeechRuntimeController {
         const store = useSessionStore.getState();
         const rawMessage = error.message || '';
         const isMicPermissionError = /permission|not-allowed|service-not-allowed|microphone|mic/i.test(rawMessage);
-        const displayMessage = isMicPermissionError
-            ? 'Microphone access is denied. Please grant permission in your browser settings.'
+        const micIssue = micAccessIssue(error);
+        const displayMessage = micIssue ? MIC_ACCESS_MESSAGES[micIssue]
+            : isMicPermissionError ? MIC_BLOCKED_MESSAGE
             : rawMessage;
 
         if (store.sttStatus?.type === 'recording' && !isMicPermissionError) {
@@ -4276,8 +4467,8 @@ export class SpeechRuntimeController {
             refuseStart(startGateMessage(startGate) ?? 'Recording is unavailable right now.');
             return;
         }
-        if (this.pendingAttributionRetry || this.pendingFullSaveRetry || this.recordingStartedUnresolved) {
-            logger.warn({ pendingSession: (this.pendingFullSaveRetry ?? this.pendingAttributionRetry)?.sessionId ?? null, kind: this.pendingResolutionKind(), unresolved: this.recordingStartedUnresolved }, '[controller] startRecording blocked: prior recording unresolved (#1033)');
+        if (this.pendingAttributionRetry || this.pendingFullSaveRetry || this.pendingDiscardSettlement || this.recordingStartedUnresolved) {
+            logger.warn({ pendingSession: (this.pendingFullSaveRetry ?? this.pendingAttributionRetry ?? this.pendingDiscardSettlement)?.sessionId ?? null, kind: this.pendingResolutionKind(), unresolved: this.recordingStartedUnresolved }, '[controller] startRecording blocked: prior recording unresolved (#1033)');
             refuseStart('Finish saving your previous recording before starting a new one.');
             return;
         }
@@ -5101,8 +5292,11 @@ export class SpeechRuntimeController {
         this.markRecordingResolved();
         this.pendingAttributionRetry = null;
         this.pendingFullSaveRetry = null;
+        this.pendingDiscardSettlement = null;
         // #1258 R1: a hard reset drops queued commands and starts a new lifecycle; no earlier Stop carries over.
         this.stopAcceptedForRecordingId = null;
+        // G5 (#1880): a hard reset retires the take; its verdict does not carry over. A recorded outcome stays true.
+        this.shortStopVerdictRecordingId = null;
         this.recordingProgressMode = { mode: 'unknown' };
         this.recordingLogin = null;
 
@@ -5423,7 +5617,62 @@ export class SpeechRuntimeController {
         useReadinessStore.getState().resetRouterReady();
     }
 
-    public async stopRecording(): Promise<unknown> {
+    public async stopRecording(options?: StopRecordingOptions): Promise<unknown> {
+        // G5 (#1861): the caller already told the user this take is too short to save, so it must not be completed.
+        const belowMinimumDuration = options?.belowMinimumDuration === true;
+        // G5 (#1880): the take this call is about, fixed now, before any queued turn runs.
+        const callRecordingId = this.currentRecordingId;
+        if (belowMinimumDuration && callRecordingId !== null) {
+            this.shortStopVerdictRecordingId = callRecordingId;
+        }
+        // G5 (#1880, Codex P2 on 0610880d): whether THIS call was told which take it armed for Try again.
+        let toldArmedDiscard = false;
+        const callerOnUnsettledDiscard = options?.onUnsettledDiscard;
+        const runOptions: StopRecordingOptions | undefined = callerOnUnsettledDiscard
+            ? { ...options, onUnsettledDiscard: (sessionId: string) => { toldArmedDiscard = true; callerOnUnsettledDiscard(sessionId); } }
+            : options;
+        const result = await this.runStop(runOptions, belowMinimumDuration);
+        const takeResult = callRecordingId !== null && this.lastStopOutcome?.recordingId === callRecordingId
+            ? this.lastStopOutcome
+            : null;
+        // An earlier queued Stop for the same take may have armed the discard slot on this call's verdict; this call
+        // was then a no-op and never saw it. Tell the caller about that take's own slot, so its warning is registered
+        // and a confirmed Try again retires it. Only that take's session, and only while its slot is still armed.
+        if (callerOnUnsettledDiscard && !toldArmedDiscard && takeResult?.outcome === 'discard_unsettled'
+            && takeResult.armedDiscardSessionId !== undefined
+            && this.pendingDiscardSettlement?.sessionId === takeResult.armedDiscardSessionId) {
+            try {
+                callerOnUnsettledDiscard(takeResult.armedDiscardSessionId);
+            } catch {
+                /* the caller's note is best effort */
+            }
+        }
+        if (options?.onTakeOutcome) {
+            const outcome: StopTakeOutcome = takeResult ? takeResult.outcome : 'unknown';
+            try {
+                options.onTakeOutcome(outcome);
+            } catch {
+                /* the caller's note is best effort */
+            }
+        }
+        return result;
+    }
+
+    /** G5 (#1880): records how the accepted Stop resolved its take. */
+    private recordStopOutcome(
+        recordingId: string | null,
+        outcome: Exclude<StopTakeOutcome, 'unknown'>,
+        armedDiscardSessionId?: string,
+    ) {
+        if (recordingId === null) return;
+        this.lastStopOutcome = armedDiscardSessionId !== undefined
+            ? { recordingId, outcome, armedDiscardSessionId }
+            : { recordingId, outcome };
+        // The take is decided; its verdict has done its job and must not outlive it.
+        if (this.shortStopVerdictRecordingId === recordingId) this.shortStopVerdictRecordingId = null;
+    }
+
+    private async runStop(options: StopRecordingOptions | undefined, belowMinimumDuration: boolean): Promise<unknown> {
         // #891 Phase 5.7: the shadow engine is torn down AFTER finalize (see below), not here, so its
         // snapshot includes the committed final transcript before parity is measured. A leftover engine
         // is always disposed by the next startShadowMetricsEngine.
@@ -5449,6 +5698,9 @@ export class SpeechRuntimeController {
                 return null;
             }
             this.stopAcceptedForRecordingId = this.currentRecordingId;
+            // G5 (#1880): the take THIS accepted stop resolves; its outcome is recorded against it.
+            const stopRecordingId = this.currentRecordingId;
+            const stopOwnerId = this.capturedUserId;
             const stopSnapshotStore = useSessionStore.getState();
             const frozenAtStop = this.freezeTranscriptLifecycleAtStop();
             pushTranscriptLifecycleTrace('lifecycle:stop', {
@@ -5474,6 +5726,9 @@ export class SpeechRuntimeController {
              * "may this stop still publish?" answerable after each one, instead of a warn-and-continue.
              */
             const stopAuthority = this.captureStopAuthority(token.version, this.service, this.sessionId);
+            // G5 (review on a95ca10): the owner of THIS take, captured with its authority. A successor's Start rewrites
+            // `capturedUserId` during the awaits below, and an unsettled discard must never be recorded for that account.
+            const stopOwner = this.capturedUserId ?? null;
             /**
              * #1431 P1 — set ONLY when the rightful owner performs its own terminal lifecycle advance.
              *
@@ -5557,6 +5812,11 @@ export class SpeechRuntimeController {
                     // On expiry we throw into the EXISTING catch, which transitions to FAILED, clears the
                     // finalizing latch and surfaces the recovery draft the user already spoke.
                     let finalizeTimer: ReturnType<typeof setTimeout> | undefined;
+                    // #1848: which take this stop finalizes, read before stopTranscription() can move on.
+                    const finalizeStop = {
+                        entryPerfMs: typeof performance !== 'undefined' ? performance.now() : null,
+                        takeSeq: readFinalizeTakeSeq(service),
+                    };
                     try {
                         result = await Promise.race([
                             service.stopTranscription(),
@@ -5580,6 +5840,11 @@ export class SpeechRuntimeController {
                      * downstream can detect.
                      */
                     markCompletionStage('recording_terminated');
+                    // Only while this stop still owns the shared surfaces: a superseded stop must not put
+                    // its rows (or its successor's summary) into the successor's journey (#1431).
+                    if (this.stopStillOwnsSharedState(stopAuthority, token)) {
+                        emitFinalizeBreakdown(readPrivateTimingSummary(), finalizeStop, service.getMode?.() ?? stopEntryMode);
+                    }
                     logger.info({
                         mode: service.getMode?.() ?? stopEntryMode,
                         sessionId,
@@ -5631,6 +5896,8 @@ export class SpeechRuntimeController {
                         });
                     }
 
+                    // G5: a take below the minimum still gets its row here when it has none, so the lease's save
+                    // obligation is settled when the row is marked failed below (as for the no-speech discard).
                     if (result && !sessionId) {
                         const supabase = getSupabaseClient();
                         const { data: { session } } = await supabase.auth.getSession();
@@ -5861,25 +6128,74 @@ export class SpeechRuntimeController {
                             preview: finalTranscript.slice(0, 80),
                         });
 
-                        if (meaningfulWordCount === 0) {
+                        // G5 (#1880, queued Stop): read at the decision, not at stop entry. The user's short Stop may have
+                        // been pressed while this earlier queued Stop was finalizing; its verdict still decides this take.
+                        const takeBelowMinimum = belowMinimumDuration
+                            || (stopRecordingId !== null && this.shortStopVerdictRecordingId === stopRecordingId);
+                        if (meaningfulWordCount === 0 || takeBelowMinimum) {
                             logger.warn({
                                 sessionId,
                                 transcriptLength: finalTranscript.length,
                                 duration,
                                 mode: modeForFinalization,
                                 meaningfulWordCount,
-                            }, '[SESSION_SAVE_GUARD] Empty or non-speech session discarded');
+                                belowMinimumDuration: takeBelowMinimum,
+                            }, takeBelowMinimum
+                                ? '[SESSION_SAVE_GUARD] Session below the minimum duration discarded'
+                                : '[SESSION_SAVE_GUARD] Empty or non-speech session discarded');
 
                             logger.info({
                                 sessionId,
                                 finalTranscriptLength: finalTranscript.length,
                                 meaningfulWordCount,
                             }, '[DEBUG-STOP] completeSession failed-status starting');
-                            await completeSession(sessionId, {
-                                status: 'failed',
-                                reason: 'No meaningful speech detected; session was not saved to history.'
-                            });
-                            logger.info({ sessionId }, '[DEBUG-STOP] completeSession failed-status done');
+                            const discardReason = takeBelowMinimum
+                                ? 'Session was shorter than the minimum duration; session was not saved to history.'
+                                : 'No meaningful speech detected; session was not saved to history.';
+                            // G5 (Sam on 3a91a20): the discard is settled only when the `failed` mark is CONFIRMED.
+                            // `{ success: false }` (RPC error, invalid response) or a throw leaves the row and its
+                            // lease obligation unsettled: arm Try again and keep the take unresolved.
+                            let discardSettled = false;
+                            // The session this stop armed for Try again, if it did (#1880, Codex P2 on 0610880d).
+                            let armedDiscardSessionId: string | undefined;
+                            const discardOwner = stopOwner; // the take's owner from stop entry, never a successor's
+                            // Sam on a58a348: the slot is memory only, so the unsettled row is recorded for its owner.
+                            // A reload, hard reset or sign-out drops the slot; the same owner returning re-arms Try again
+                            // for this row (rehydrateUnresolvedRecording). Recorded even when the stop is superseded,
+                            // because the row stays unsettled either way and only its owner sees it.
+                            // Recovery successor to #1880 (page-leave): written BEFORE the mark is sent, because a page
+                            // closed or reloaded while the mark is in flight never runs the code after the await, and the
+                            // row would be left unsettled with no Try again. Cleared once the mark is confirmed. If the lost
+                            // mark did land, the replayed mark is an idempotent no-op on complete_session_v2.
+                            saveUnsettledDiscardRecord({ sessionId, userId: discardOwner, reason: discardReason });
+                            try {
+                                const discardMark = await completeSession(sessionId, { status: 'failed', reason: discardReason });
+                                discardSettled = Boolean(discardMark?.success);
+                            } catch (discardError) {
+                                logger.warn({ discardError, sessionId }, '[DEBUG-STOP] completeSession failed-status threw');
+                            }
+                            if (discardSettled) clearUnsettledDiscardRecord(discardOwner, sessionId);
+                            if (!discardSettled) {
+                                // Only the stop that still owns the runtime may arm Try again. A hard reset or account
+                                // switch during the awaited mark already retired this take; arming afterwards would lock
+                                // the next owner behind a row it cannot settle (reviewer on 523e682).
+                                if (!this.stopStillOwnsSharedState(stopAuthority, token)) {
+                                    logger.error({ sessionId }, '[SESSION_SAVE_GUARD] discard NOT settled and the stop was superseded — not arming Try again for the successor (G5)');
+                                } else if (!this.pendingDiscardSettlement || this.pendingDiscardSettlement.sessionId === sessionId) {
+                                    this.pendingDiscardSettlement = { sessionId, reason: discardReason, ownerId: discardOwner, warning: null };
+                                    armedDiscardSessionId = sessionId;
+                                    try {
+                                        options?.onUnsettledDiscard?.(sessionId);
+                                    } catch {
+                                        /* the caller's note is best effort; the slot is armed either way */
+                                    }
+                                } else {
+                                    logger.error({ existing: this.pendingDiscardSettlement.sessionId, sessionId }, '[controller] discard settlement slot held by another session — failing closed, not overwriting (G5)');
+                                }
+                                logger.error({ sessionId, belowMinimumDuration: takeBelowMinimum }, '[SESSION_SAVE_GUARD] discard NOT settled — row could not be marked failed; take stays unresolved for Try again (G5)');
+                            }
+                            logger.info({ sessionId, discardSettled }, '[DEBUG-STOP] completeSession failed-status done');
+                            this.recordStopOutcome(stopRecordingId, discardSettled ? 'discarded' : 'discard_unsettled', armedDiscardSessionId);
                             if (token.cancelled) {
                                 logger.warn({
                                     mode: service.getMode?.() ?? stopEntryMode,
@@ -5895,12 +6211,31 @@ export class SpeechRuntimeController {
                                 }, '[DEBUG-STOP] Lifecycle changed after failed-session completion; preserving user-facing warning');
                             }
 
-                            guardedStopStatus = {
-                                type: 'warning',
-                                message: "We didn't detect enough speech to save this session.",
-                                detail: 'Try recording again and speak for at least a few seconds.'
-                            };
-                            store.setSTTStatus(guardedStopStatus);
+                            // G5: a too-short take's message is the page's own (it measured the take and says so).
+                            if (!discardSettled && !takeBelowMinimum) {
+                                // Its message differs from the settled one on purpose: the store ignores a status that
+                                // changes only its detail, so Try again could not otherwise replace it.
+                                guardedStopStatus = {
+                                    type: 'warning',
+                                    message: "We didn't detect enough speech to save this session, and couldn't finish clearing it.",
+                                    detail: 'Use Try again to finish.',
+                                };
+                                store.setSTTStatus(guardedStopStatus);
+                                if (this.pendingDiscardSettlement?.sessionId === sessionId) {
+                                    this.noteUnsettledDiscardWarning({
+                                        type: 'warning',
+                                        message: "We didn't detect enough speech to save this session.",
+                                        detail: 'Try recording again and speak for at least a few seconds.',
+                                    });
+                                }
+                            } else if (!takeBelowMinimum) {
+                                guardedStopStatus = {
+                                    type: 'warning',
+                                    message: "We didn't detect enough speech to save this session.",
+                                    detail: 'Try recording again and speak for at least a few seconds.'
+                                };
+                                store.setSTTStatus(guardedStopStatus);
+                            }
                             this.publishIfStopOwner(stopAuthority, token, 'discard_markers', () => {
                                 this.updateSessionPersisted(false);
                                 store.setSessionSaved(false);
@@ -6088,13 +6423,16 @@ export class SpeechRuntimeController {
                                 // persisted (a strictly worse state than an attribution-only miss). Keep the
                                 // recording locked (recordingStartedUnresolved stays true from RECORDING) and
                                 // stash a FULL-SAVE retry so Retry Save re-runs the ACTUAL failed op
-                                // (completeSession + attribution), not just the attribution write. The transcript
-                                // is preserved in the recovery draft (saved just above). Session-safe: never
-                                // overwrite a different session's outstanding retry.
+                                // (completeSession + attribution), not just the attribution write. The recovery
+                                // draft remains content-free. Never overwrite a different session's retry.
                                 if (!this.pendingFullSaveRetry || this.pendingFullSaveRetry.sessionId === sessionId) {
                                     this.pendingFullSaveRetry = {
                                         sessionId,
                                         completeArgs,
+                                        localReview: options?.onLocalTranscriptReview && stopRecordingId && stopOwnerId
+                                            && userId === stopOwnerId
+                                            ? { recordingId: stopRecordingId, ownerId: stopOwnerId, receive: options.onLocalTranscriptReview }
+                                            : undefined,
                                         attributionEvidence: attestationEvidence,
                                         subject: takeSubject,
                                         progressContext,
@@ -6160,6 +6498,7 @@ export class SpeechRuntimeController {
                             }
                             logger.info({ sessionId }, '[DEBUG-STOP] completeSession completed-status done');
                             sessionCompleted = true;
+                            this.recordStopOutcome(stopRecordingId, 'completed');
                             persistedSessionMarker = sessionId
                                 ? { sessionId, mode: modeForFinalization ?? stopEntryMode }
                                 : null;
@@ -6172,6 +6511,17 @@ export class SpeechRuntimeController {
                                 // reconciliation failure meant no id, a disabled query, and a saved session stuck on "Loading…".
                                 // AHT-01 Option 1: the review card names the take that saved this session, not the ambient one.
                                 noteSavedTake(sessionId, takeSubject);
+                                if (options?.onLocalTranscriptReview && stopRecordingId && stopOwnerId
+                                    && userId === stopOwnerId && this.currentRecordingId === stopRecordingId
+                                    && completion.transcriptOutcome === 'not_provided' && finalTranscript.trim()) {
+                                    try {
+                                        options.onLocalTranscriptReview({
+                                            recordingId: stopRecordingId, sessionId, ownerId: stopOwnerId, text: finalTranscript,
+                                        });
+                                    } catch {
+                                        // A page-only review must not change the outcome of a successful save.
+                                    }
+                                }
                                 useSessionStore.getState().setCompletedSessionId(sessionId ?? null);
                             });
 
@@ -6504,7 +6854,7 @@ export class SpeechRuntimeController {
                 // resolved, so release the post-start engine-selection lock. Covers EVERY non-error stop terminal
                 // uniformly; the error path (catch below) transitions to FAILED and deliberately stays locked so
                 // the recovery draft can be saved. This is the single authoritative unlock for a completed stop.
-                if (!this.pendingFullSaveRetry && !this.pendingAttributionRetry) {
+                if (!this.pendingFullSaveRetry && !this.pendingAttributionRetry && !this.pendingDiscardSettlement) {
                     this.markRecordingResolved();
                 }
                 if (sessionCompleted) {
@@ -6704,12 +7054,15 @@ export class SpeechRuntimeController {
         //
         // Unknown/legacy retry context fails closed — it cannot prove evidence is terminal.
         if (context.mode === 'unknown') {
+            pushNativeRuntimeTrace('controller_progress_unresolved', { mode: context.mode, reason: 'unknown_mode' });
             const unresolved: ProgressEvaluationOutcome = { kind: 'unresolved', reason: 'metrics_not_persisted' };
             return publishIfCurrent(() => { this.applyProgressGate(sessionId, unresolved); }) ? unresolved : unresolved;
         }
         // Both practice modes require actual durable delivery metrics. This guard sits before Open Mic's
         // immediate path and Focus Points registration so neither can create an immutable partial evaluation.
         if (!metricsPersisted) {
+            // #1882 diagnostic: a Focus take that returns here never publishes its completed brief.
+            pushNativeRuntimeTrace('controller_progress_unresolved', { mode: context.mode, reason: 'metrics_not_persisted' });
             const unresolved: ProgressEvaluationOutcome = { kind: 'unresolved', reason: 'metrics_not_persisted' };
             return publishIfCurrent(() => { this.applyProgressGate(sessionId, unresolved); }) ? unresolved : unresolved;
         }
@@ -6767,7 +7120,9 @@ export class SpeechRuntimeController {
          * paths. It applies the same owner comparison, so nothing is lost by removing the inline copy —
          * only the timing changes, which is the whole point.
          */
-        publishIfCurrent(() => { store.setCompletedObjectiveBrief(context.brief); });
+        const completedBriefPublished = publishIfCurrent(() => { store.setCompletedObjectiveBrief(context.brief); });
+        // #1882 diagnostic: the after rail renders only from this brief once the active one retires.
+        pushNativeRuntimeTrace('controller_completed_brief', { published: completedBriefPublished });
         const objectiveOutcome = await this.finalizeObjectiveAndGateProgress(
             { projectId: context.brief.projectId, briefId: context.brief.briefId },
             sessionId,

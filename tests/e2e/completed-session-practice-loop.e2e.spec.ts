@@ -60,7 +60,7 @@ test.describe('#1422 P7 — a completed session offers coaching and a way to go 
     test(`${viewport.name}: the practice loop is reachable after save`, async ({ page }) => {
       test.setTimeout(90_000);
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
-      await programmaticLoginWithRoutes(page, { userType: 'pro' });
+      await programmaticLoginWithRoutes(page, { userType: 'pro', practicePrivacy: { transcriptSave: true, aiCoaching: true } });
       await navigateToRoute(page, '/session');
       await recordAndStop(page);
 
@@ -72,7 +72,7 @@ test.describe('#1422 P7 — a completed session offers coaching and a way to go 
       // attached to a button they never pressed.
       const disclosure = page.getByTestId('ai-suggestions-disclosure');
       await expect(disclosure).toBeVisible({ timeout: 15_000 });
-      await expect(disclosure).toHaveText("Sends this session's transcript and speaking measurements (filler counts and pace) to the AI service provider to create AI coaching. Audio is never sent.");
+      await expect(disclosure).toHaveText("Your transcript is sent to an AI service for coaching. Your filler counts and pace go with it; audio is never sent. Who provides it");
 
       // P1 — the desktop control that starts another take. This is the assertion that would have caught
       // the review evicting the verdict: at `md` and above the mobile action bar is hidden, so this is

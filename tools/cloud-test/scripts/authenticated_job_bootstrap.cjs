@@ -24,6 +24,8 @@ function assertDirectory(dir){
 }
 function validateBindings(scope,facts,env){
  jobIdentity(env);validateScope(scope,Date.now());
+ // Never compare against https://undefined (run 42142985744): the host must be the real project host the plan environment derived.
+ if(!/^[a-z0-9]{20}\.supabase\.co$/.test(env.BP_HOST_DB||''))throw Error('PROJECT_HOST_REQUIRED');
  if(scope.campaignId!==env.BP_CAMPAIGN||scope.sourceSha!==env.BP_SOURCE_SHA||scope.servedSha!==env.BP_SOURCE_SHA||scope.notBefore!==env.BP_T0||scope.deadlineAt!==env.BP_T1||!scope.ownerApprovalReference||scope.ownerApprovalReference!==facts.ownerApprovalReference||!scope.producerReviewReference||scope.producerReviewReference!==facts.producerReviewReference)throw Error('SELECTED_SCOPE_DIFFERS');
  const bindingBytes=fs.readFileSync(env.BP_ACCOUNT_BINDINGS_FILE),binding=privateJson(env.BP_ACCOUNT_BINDINGS_FILE,sha(bindingBytes));
  validateBindingDocument(binding,{campaignId:env.BP_CAMPAIGN,projectOrigin:`https://${env.BP_HOST_DB}`});
@@ -59,7 +61,14 @@ function main(argv){
   if(argv.length!==4||argv[0]!=='--authorization'||argv[2]!=='--authorization-sha256')throw Error('EXACT_ARGUMENTS_REQUIRED');
   const result=prepare({authorization:argv[1],authorizationSha256:argv[3]});
   console.log(JSON.stringify(result));return 0;
- }catch{console.error('NOT_RUN: AUTHENTICATED_JOB_PREPARATION_REFUSED');return 78;}
+ }catch(error){
+  // A bounded code only (token characters, no path, value or identifier), so a refusal is diagnosable from the log (run 42142985744).
+  // Known shapes: a bare code (resolver/bootstrap) or the producer's prefixed 'NOT_RUN: <CODE>' .
+  const message=typeof error?.message==='string'?error.message:'';
+  const prefixed=/^NOT_RUN: ([A-Za-z0-9_-]{1,64})$/.exec(message);
+  const code=prefixed?prefixed[1]:/^[A-Za-z0-9_-]{1,64}$/.test(message)?message:'UNCLASSIFIED';
+  console.error('NOT_RUN: AUTHENTICATED_JOB_PREPARATION_REFUSED '+code);return 78;
+ }
 }
 if(require.main===module)process.exitCode=main(process.argv.slice(2));
 module.exports={builderEnvironment,validateBindings,prepare,main};

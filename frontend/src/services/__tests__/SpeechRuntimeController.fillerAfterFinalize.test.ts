@@ -138,4 +138,83 @@ describe('#1258 — the saved filler count is finalized like the transcript', ()
         expect(saved().metrics?.fillerCounts?.um).toBe(3);
         expect(fillerMeasurements[0].reportedFillers).toBe(3);
     });
+
+    it.each([
+        ['not_provided', 'test-user', true],
+        ['retained', 'test-user', false],
+        ['not_captured', 'test-user', false],
+        ['not_provided', 'different-owner', false],
+    ] as const)('passes the completed text once to its page only (%s, %s)', async (transcriptOutcome, owner, expected) => {
+        const fixture = controller as unknown as { service: unknown; currentRecordingId: string; capturedUserId: string | null };
+        fixture.service = engine(DECODED_DURING_FINALIZING);
+        fixture.currentRecordingId = `review-take-${transcriptOutcome}-${owner}`;
+        fixture.capturedUserId = owner;
+        vi.mocked(completeSession).mockResolvedValueOnce({ success: true, transcriptOutcome });
+        const receive = vi.fn();
+        try {
+            await controller.stopRecording({ onLocalTranscriptReview: receive });
+            expect(saved().finalTranscript?.toLowerCase()).toContain(DECODED_DURING_FINALIZING);
+            expect(useSessionStore.getState().transcript.transcript).toBe('');
+            expect(receive.mock.calls).toEqual(expected ? [[{
+                recordingId: fixture.currentRecordingId,
+                sessionId: 'test-sess',
+                ownerId: owner,
+                text: saved().finalTranscript,
+            }]] : []);
+        } finally {
+            fixture.capturedUserId = null;
+        }
+    });
+    it.each([
+        ['not_provided', 'same-take', 'test-user', true],
+        ['retained', 'same-take', 'test-user', false],
+        ['expired', 'same-take', 'test-user', false],
+        ['retention_failed', 'same-take', 'test-user', false],
+        ['not_provided', 'new-take', 'test-user', false],
+        ['not_provided', 'same-take', 'new-owner', false],
+    ] as const)('only offers the original page its transcript after confirmed Retry Save (%s, %s, %s)', async (
+        transcriptOutcome, recording, owner, expected,
+    ) => {
+        const fixture = controller as unknown as { service: unknown; currentRecordingId: string; capturedUserId: string | null };
+        fixture.service = engine(DECODED_DURING_FINALIZING);
+        const recordingId = `failed-save-review-${transcriptOutcome}-${recording}-${owner}`;
+        fixture.currentRecordingId = recordingId;
+        fixture.capturedUserId = 'test-user';
+        const receive = vi.fn();
+        const attest = vi.spyOn(controller as unknown as {
+            attestSessionEngine: () => Promise<{ attributed: boolean } | null>;
+        }, 'attestSessionEngine').mockResolvedValue({ attributed: false });
+        try {
+            vi.mocked(completeSession).mockResolvedValueOnce({ success: false });
+            await expect(controller.stopRecording({ onLocalTranscriptReview: receive })).rejects.toThrow('SESSION_COMPLETION_FAILED');
+            const text = saved().finalTranscript;
+            expect(text?.toLowerCase()).toContain(DECODED_DURING_FINALIZING);
+            expect(useSessionStore.getState().transcript.transcript).toBe('');
+            expect(receive).not.toHaveBeenCalled();
+
+            vi.mocked(completeSession).mockResolvedValueOnce({ success: false });
+            await expect(controller.retryRecordingSave()).resolves.toBe(false);
+            expect(receive).not.toHaveBeenCalled();
+
+            // Even a confirmed completion is not a completed review while attribution is uncertain.
+            vi.mocked(completeSession).mockResolvedValueOnce({ success: true, transcriptOutcome: 'not_provided' });
+            attest.mockResolvedValueOnce(null);
+            await expect(controller.retryRecordingSave()).resolves.toBe(false);
+            expect(receive).not.toHaveBeenCalled();
+
+            fixture.currentRecordingId = recording === 'same-take' ? recordingId : 'different-take';
+            fixture.capturedUserId = owner;
+            vi.mocked(completeSession).mockResolvedValueOnce({ success: true, transcriptOutcome });
+            await expect(controller.retryRecordingSave()).resolves.toBe(true);
+            expect(useSessionStore.getState().recoveredSaveSessionId).toBe('test-sess');
+            expect(useSessionStore.getState().transcript.transcript).toBe('');
+            expect(receive.mock.calls).toEqual(expected ? [[{
+                recordingId, sessionId: 'test-sess', ownerId: 'test-user', text,
+            }]] : []);
+        } finally {
+            attest.mockRestore();
+            fixture.capturedUserId = null;
+        }
+    });
+
 });

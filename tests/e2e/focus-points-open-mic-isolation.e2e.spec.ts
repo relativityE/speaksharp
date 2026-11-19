@@ -177,7 +177,7 @@ test.describe('#1256 — Focus Points review state never leaks into the next Ope
   test('Retry these points restarts as Focus Points, not Open Mic', async ({ page }) => {
     test.setTimeout(120_000);
 
-    await programmaticLoginWithRoutes(page, { userType: 'pro' });
+    await programmaticLoginWithRoutes(page, { userType: 'pro', practicePrivacy: { transcriptSave: true, aiCoaching: false } });
     await navigateToRoute(page, '/practice');
 
     await page.getByTestId('practice-card-objective').click();

@@ -3,6 +3,10 @@
  * (`rwt-focus-points-session.live.spec.ts`) and the partial Dev fixture (`rwt-focus-points-partial.live.spec.ts`).
  * Each spec owns its browser (the fake microphone file is a launch option), account, receipt and cleanup.
  */
+import { readdirSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { resolve as resolvePath } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createClient } from '@supabase/supabase-js';
 import { test } from './rwtProductionTest';
 import { expect, type Page, type TestInfo } from '@playwright/test';
@@ -11,15 +15,21 @@ import {
     preparePrivateModelIfPrompted,
     waitForPrivateEngineReady,
     startBenchmarkRecording,
-    stopBenchmarkRecording,
+    confirmBenchmarkStopped,
     waitForBenchmarkSaveCandidate,
 } from './benchmark-utils';
 import { MODEL_COMPARISON_AUTH_KEY } from './practiceLoopJourney';
-import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches, newSetSourcePoints, newSetEditVerdicts, setupIsBlank, switchIsolationVerdict, labelHeardIn, focusBackReloadVerdict, focusIdentityObservation, firstTakeSavedExactlyOnceVerdict, type SwitchSourceSnapshot } from './rwtOracles';
+import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches, newSetSourcePoints, newSetEditVerdicts, setupIsBlank, switchIsolationVerdict, switchSaveOffVerdicts, switchSavedFocusProduct, completingPageMarkersInPage, SWITCH_METRICS_ONLY_ROW, SWITCH_CARRY_OVER_TESTED_ROW, switchSourceState, railShowsExactFourPoints, labelHeardIn, focusBackReloadVerdict, focusIdentityObservation, firstTakeSavedExactlyOnceVerdict, type SwitchSourceSnapshot } from './rwtOracles';
 import { cleanupRunOwnedAccount } from './runOwnedCleanup';
 import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, armWatchdog, watchProfileFor, type JourneyFinalizer } from './rwtWatchdog';
 import { savedFocusIdentityVerdict } from './rwtSavedFocusIdentity';
+import { railSettled, readRailRowCount } from './rwtLiveTimedTake';
+import { armTakeMonitor, awaitTakeOutcome, disposeTakeMonitor, holdMeasuredLiveTake, readTakeMonitor, stopMeasuredTake, stopMonitoredTake, takeEvidenceRows, type ArmedTakeMonitor, type TakeOutcome } from './rwtLiveTakeMonitor';
+import { consentModeFrom, consentReadbackVerdict, settlePracticeConsent, type ChoiceClient, type SavedSessionRead, type SettledConsent } from './rwtPracticeConsent';
+import { FOCUS_COACHING_OFF_ROW, FOCUS_OFF_NO_COACHING_ROW, FOCUS_OFF_REPEAT_ROW, offNoCoachingVerdict, offRepeatVerdict, analyticsOffThroughActions, coachingOffVerdict, offAnalyticsRows, offBackReloadVerdict, readCoachingOffAfterStop, readOffRestoredView, reviewModeOf } from './rwtCoachingOff';
 import { recordRunOwnedCleanup } from './rwtAcceptance';
+import { HarnessParityTap, numericComparisonRow, probeSaveIsolationRow, readRepeatEligibility, type NumericResult, type RepeatEligibility, type StartPressBudget } from './rwtHarnessParity';
+import { focusCapturedTakes, focusDesignedSaves } from './rwtFocusSaveIsolation';
 import { CoachingGenerationTap } from './coachingGenerationTap';
 import { feedbackDiagnosticChainRow } from './coachingFeedbackAdapter';
 import { coachingPromptBindingRow, coachingRequestBudgetRow, createCoachingTakeCapture, readSavedReviewPair } from './rwtCoachingCollector';
@@ -83,7 +93,21 @@ import {
     LIVE_MARKER_MAX_AFTER_SECONDS, armMarkerObserver, bindTakeAcquisition, classifyMarkerTiming, disposeMarkerObserver, freezeMarkerObserver,
     markerTimingStatus, type MarkerObserverSnapshot,
 } from './rwtMarkerObserver';
+import { ABSENT_ROW, MarkerTimeline, nextPointMarkedVerdict, sampleFocusRail } from './rwtFocusNextMarker';
+import { JourneyFeedbackFence } from './feedbackFence';
+import { currentRunBinding } from './runBinding';
+import { FOCUS_TAKES_DIFFER_ROW, focusTakesDifferRow } from './rwtFocusTakesDiffer';
+import { FOCUS_EDIT_CANCEL_ROW, editCancelVerdict, type BriefSnapshot, type EditCancelObservation } from './rwtFocusEditCancel';
+import { OPEN_MIC_ISOLATION_ROW, openMicIsolationVerdict, type FocusEvidenceSnapshot } from './rwtFocusOpenMicIsolation';
+import { FOCUS_PRESENTATION_ROW, FOCUS_SIGN_IN_ROW, focusPresentationRow, focusSignInRow } from './rwtFocusPresentation';
+import { FOCUS_SAME_TARGET_ROW, focusSameTargetVerdict, readTargetInPage, type FocusSet, type SessionRow, type TargetRead } from './rwtFocusSameTarget';
+import {
+    LEGACY_PHRASE, PROGRESS_FORMULA, REPEAT_METRIC_ROW, pressLinkage, repeatMetricPrerequisites, repeatMetricWordingVerdict,
+    type PanelObservation, type ServerEvidence,
+} from './repeatMetricWording';
 
+/** #1811: each fence step is two or three service-role RPCs; bounded tightly so the declared finalizer worst case stays in budget. */
+const FEEDBACK_FENCE_STEP_MS = 10_000;
 const JOURNEY = 'focus_points';
 export const WEBGPU = process.env.RWT_WEBGPU === '1';
 /** The pace guide the script sets (1:00 per point). The measured average must NOT simply echo it. */
@@ -116,6 +140,18 @@ const readRail = async (page: Page, count: number): Promise<{ statuses: (RailSta
     return { statuses, next };
 };
 
+/**
+ * #1882 diagnostic readout: how many Focus point rows are on screen, and whether they are exactly this set's four points in
+ * order (`railShowsExactFourPoints`). It returns a count and a boolean only, never the labels (the receipt forbids them).
+ */
+const readRailRows = async (page: Page, points: readonly string[]): Promise<{ rows: number; exactFourPoints: boolean }> => {
+    const labels = await page.locator('[data-testid^="focus-point-"]').evaluateAll((els) => els
+        .filter((el) => /^focus-point-\d+$/.test(el.getAttribute('data-testid') ?? ''))
+        .map((el) => el.querySelector('p')?.textContent?.trim() ?? null)).catch(() => null);
+    if (labels === null) return { rows: -1, exactFourPoints: false };
+    return { rows: labels.length, exactFourPoints: railShowsExactFourPoints(labels, points) };
+};
+
 const parseClock = (text: string): number | null => {
     const match = /(\d+):(\d{2})/.exec(text);
     return match ? Number(match[1]) * 60 + Number(match[2]) : null;
@@ -127,6 +163,29 @@ const SETUP_FIELD_READ_FAILED = '(setup field read failed)';
 const meetsExpectation = (expected: string, got: RailStatus | null): boolean => focusPointMeetsExpectation(expected, got);
 
 /**
+ * Harness parity (PO route 2026-11-10), from the journey's DESIGN (not a run's count). Each take is one Start press; the
+ * first take presses `mic-download` on a cold first use (the one activation also starts the take), otherwise `mic-start`.
+ * AHT-03 (partial fixture) — 4 presses:
+ *   1. first take — row 10's preparePrivateModelIfPrompted call cold (`mic-download`, benchmark-utils.ts:609) or its
+ *      startBenchmarkRecording call with `suite` warm (`mic-start`);
+ *   2. Practice again's save take from Analytics — rwtJourney.ts:1657 (`mic-start`);
+ *   3. the completed review's Retry this set — rwtJourney.ts:1719 (`focus-points-retry`);
+ *   4. next Start without a hold — rwtJourney.ts:1390 (`mic-start`).
+ * AHT-02 (PO corpus) — those 4 plus the full journey's three `mic-start` takes:
+ *   5. the Open Mic take before the product switch — the startBenchmarkRecording call with `${suite}-switch-openmic`;
+ *   6. the Focus take right after the switch — the startBenchmarkRecording call with `${suite}-switch-focus`;
+ *   7. the take on the edited set — the startBenchmarkRecording call with `${suite}-edited`.
+ * This file's presses are cited by call, not by line, so checks added around them cannot stale the citation; checks that only
+ * read the rail or the database, or open and dismiss the Edit dialog, press no Start (tests/unit/rwtFocusStartPressBudget.test.ts).
+ * The `mic-start` cap counts the warm first take too (one fewer when the first take downloads), `mic-download` at most 1,
+ * `focus-points-retry` exactly the one Retry; no `mic-retry` and no `verdict-practice-again` press is designed.
+ */
+const AHT02_START_PRESS_BUDGET: StartPressBudget = { total: 7, perControl: { 'mic-start': 6, 'mic-download': 1, 'focus-points-retry': 1 } };
+const AHT03_START_PRESS_BUDGET: StartPressBudget = { total: 4, perControl: { 'mic-start': 3, 'mic-download': 1, 'focus-points-retry': 1 } };
+/** The page-close step's own bound: each page close is itself bounded at 15 s inside it. */
+const PARITY_CLOSE_STEP_MS = 60_000;
+
+/**
  * @param coachingMaximum #1593 (Sam 1792317800 §6): the selected whole-scenario browser coaching-request maximum for THIS
  *   suite — 7 for the full PO-corpus journey, 4 for the partial fixture. It bounds the `coaching request budget` row.
  */
@@ -135,6 +194,14 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     if (preconditions.length > 0) throw new Error(`HOLD preconditions: ${preconditions.join('; ')}`);
     const run: RunTarget = await resolveRunTarget(JOURNEY);
     const fixture = loadRwtFixture(fixtureKey);
+    // Comparable repeat candidate, not eligibility proof: full fixture 129 words/61.21 s loop;
+    // partial fixture only 60 words/37.01 s loop, so it needs a second loop (42 s is insufficient).
+    // Adds 35/53 s within unchanged 2100/1500 s case budgets; live completion/cleanup reserve remains unproven.
+    // Stored eligibility and the numeric adapter still decide PASS/FAIL/HOLD, never the timer.
+    const saveTakeMs = fixtureKey === 'focus_points_partial_tts' ? 60_000 : 42_000;
+    // The numeric adapter requires BOTH source and repeat eligible. Keep the marker window unchanged,
+    // then extend only the partial source, without resampling, to the same candidate eligibility floor.
+    const sourceTakeMs = fixtureKey === 'focus_points_partial_tts' ? 60_000 : Math.round((fixture.entry.speechSeconds + 4) * 1000);
     const topic = fixture.entry.topic ?? '';
     const points = fixture.entry.points ?? [];
     const expectedFinal = fixture.entry.expectedFinal ?? [];
@@ -142,6 +209,9 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     const receipt = new RwtReceipt(suite);
     receipt.forbid(SERVICE_ROLE, topic, ...points);
     let feedbackReportId: string | null = null;
+    // #1811 (Sam, #1859 review): the full Focus journey's (AHT-02) feedback fence — confirmed open before its one feedback write,
+    // closed at the final boundary, cleaned (fence-recorded reports only) after the account deletion and retention proof.
+    let feedbackFence: JourneyFeedbackFence | null = null;
     receipt.meta.fixture = fixture.key;
     receipt.meta.fixtureKind = fixture.entry.kind;
     receipt.meta.fixtureSha256 = fixture.entry.sha256;
@@ -160,6 +230,11 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     const generations = new CoachingGenerationTap();
     generations.attach(page);
     await installMicAcquisitionCounter(page);
+    // Harness parity (PO route 2026-11-10): Cloud STT requests and Start presses on every page of this journey's one context
+    // (the main page and the review tabs it opens), attached before the first navigation.
+    const parity = new HarnessParityTap();
+    await parity.attach(page.context());
+    const startPressBudget = fixtureKey === 'focus_points_tts' ? AHT02_START_PRESS_BUDGET : AHT03_START_PRESS_BUDGET;
     await armCandidateSwitch(page, run, MODEL_COMPARISON_AUTH_KEY);
     await suppressPageSnapshot(testInfo);
     // #1258: the coaching request as sent (its product marker only) and every coaching request of the journey —
@@ -202,11 +277,58 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     let repeatWindow: [number, number] | null = null;
     // The Practice-again pass's saved take: the coaching evidence's repeat take.
     let repeatSessionId: string | null = null;
+    // AHT-02 probe-save-isolation (Sam, #1811 RETURN on d1487bdb): the full journey's later saved takes, captured where each
+    // take saved, so the isolation row can join every saved take to its own recording (rwtFocusSaveIsolation.ts).
+    let switchOpenMicId: string | null = null;
+    let switchFocusTakeId: string | null = null;
+    let editedTakeId: string | null = null;
+    // same-target-numeric: the /progress panel the repeat-metric step opened (read, then closed, by the numeric step) and the
+    // one attempt that step bound to this repeat.
+    let progressPanelTab: Page | null = null;
+    let boundAttemptId: string | null = null;
     let coachingCapture: ReturnType<typeof createCoachingTakeCapture> | null = null;
+    // AHT-02/03 same-target-repeat: owner-scoped, never-thrown reads (a failed read is 'error' and holds the row).
+    const readFocusSource = async (id: string): Promise<SessionRow | null | 'error'> => {
+        if (!admin) return 'error';
+        const { data, error } = await admin.from('sessions').select('id,user_id,product,ai_suggestions,status,transcript_state')
+            .eq('id', id).eq('user_id', owner.uid).maybeSingle().then((r) => r, () => ({ data: null, error: { code: 'threw' } }));
+        return error ? 'error' : (data as SessionRow | null) ?? null;
+    };
+    // The product's own Focus set for a saved take (savedFocusPointsCoverage.ts): newest objective session, its brief and points.
+    const readFocusSet = async (id: string): Promise<FocusSet | null | 'error'> => {
+        if (!admin) return 'error';
+        try {
+            const { data: os, error: osErr } = await admin.from('objective_session').select('brief_id').eq('source_session_id', id).eq('user_id', owner.uid)
+                .order('created_at', { ascending: false }).limit(1).maybeSingle();
+            if (osErr) return 'error';
+            if (!os) return null;
+            const briefId = os.brief_id as string;
+            const [{ data: brief, error: bErr }, { data: pts, error: pErr }] = await Promise.all([
+                admin.from('objective_brief').select('project_id,event_goal').eq('id', briefId).eq('user_id', owner.uid).maybeSingle(),
+                admin.from('objective_brief_point').select('label,sort_order').eq('brief_id', briefId).eq('user_id', owner.uid).order('sort_order', { ascending: true }),
+            ]);
+            if (bErr || pErr || !brief || typeof brief.project_id !== 'string' || typeof brief.event_goal !== 'string') return 'error';
+            return { briefId, projectId: brief.project_id, topic: brief.event_goal, labels: (pts ?? []).map((p) => p.label as string) };
+        } catch { return 'error'; }
+    };
     let claimed = false;
     // Codex r4199883470: step markers the finally-block "sent" rows read — a blind beacon sent before a step cannot carry
     // that step's events. Declared here because the rows run in `finally`, outside the steps' scope.
     let rowsStoppedAt = 0;
+    // #1882 live timing (Sam, Nov 18 reset row 3): every Focus take is measured live on the page, bound to its own Stop and
+    // saved row, and read back against this run's consent (settled on the first Practice visit, before any take).
+    let consent: SettledConsent = { build: 'unknown', choice: null, mode: consentModeFrom(process.env.RWT_PRACTICE_CONSENT) };
+    const readSavedForConsent = async (id: string): Promise<SavedSessionRead | null> => {
+        const { data, error } = await admin!.from('sessions').select('id,user_id,status,duration,transcript,transcript_state').eq('id', id).eq('user_id', owner.uid).maybeSingle();
+        return error ? null : (data as SavedSessionRead | null);
+    };
+    const measuredTakeRows = async (name: string, monitor: ArmedTakeMonitor, liveSeconds: number, pressedAt: number | null, savedId: string | null) => {
+        const snap = await readTakeMonitor(page, monitor.token);
+        await disposeTakeMonitor(page, monitor.token);
+        return takeEvidenceRows({ sink: receipt, name, snap, liveSeconds, pressedAt, savedId, readRow: readSavedForConsent,
+            readback: (row, sessionId, liveSecondsAtStop) => consentReadbackVerdict({ build: consent.build, choice: consent.choice, row, ownerId: owner.uid,
+                sessionId, minDurationSeconds: liveSecondsAtStop }) });
+    };
     let focusInventoryFrom = 0;
     let rowsGenerationsAt = 0;
     // #1593 case 3: the take-bound marker observer, disposed (bounded, idempotent) by the one finalization.
@@ -289,11 +411,30 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             // v12 preflight: first-use model download vs engine setup, from the app's own acquisition receipt.
             acquisitionTimingRow(receipt, tap, tap.journeyIds());
         });
+        // Harness parity rows (catalog AHT-02 / AHT-03: no-cloud-stt, start-press-budget, owned-pages-closed), before the account is
+        // deleted. Bounded steps, rows only while each step is alive, and the page close in its own step so a slow row never skips it.
+        await steps.step('harness parity counts', (alive) => {
+            parity.noCloudSttRow(aliveReceipt(receipt, alive));
+            parity.startPressRow(aliveReceipt(receipt, alive), startPressBudget);
+        });
+        // probe-save-isolation (catalog AHT-02 / AHT-03), against #1812's helper with Focus's OWN design: two no-save probes, so
+        // the helper's all-saved default is never used, and the captured ids are the saved takes in press order.
+        await steps.step('probe saves isolated', async (alive) => {
+            const designed = focusDesignedSaves(fixtureKey);
+            const captured = focusCapturedTakes(fixtureKey, { first: persistedId, repeat: repeatSessionId, switchOpenMic: switchOpenMicId, switchFocus: switchFocusTakeId, edited: editedTakeId });
+            if (admin && owner.uid) await probeSaveIsolationRow(aliveReceipt(receipt, alive), admin as never, owner.uid, captured, parity.takeBindings(), parity.leaseIds, designed.length, designed);
+            else aliveReceipt(receipt, alive).row('probe saves isolated', 'HOLD', 'no server read is available in this run');
+        });
+        await steps.step('owned pages closed', (alive) => parity.ownedPagesClosedRow(aliveReceipt(receipt, alive)), PARITY_CLOSE_STEP_MS);
+        // #1811: every owned page is closed, so no feedback write can still come from a page: close the fence (acknowledged).
+        const fence = feedbackFence;
+        if (fence) await steps.step('feedback fence close', async (alive) => { await fence.close(aliveReceipt(receipt, alive)); }, FEEDBACK_FENCE_STEP_MS);
         // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion. The full run's retention proof and the partial run's own
         // cleanup verdict (#1532 Codex P1 r4126745141) both delete through it; the deletion's own settlement then decides —
         // a stalled readback never deletes again, and a body that ended early still has its account deleted, here only.
         if (owner.uid || owner.email) {
-            const cleanup = new OwnedCleanup(() => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
+            const cleanup = new OwnedCleanup(() => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX,
+                stoppedTakes: { writersClosedAt: () => parity.ownedPagesClosedAt, unsettledSaves: () => parity.unsettledSaves } }));
             const report = feedbackReportId;
             const proof = fixtureKey === 'focus_points_tts' && report
                 ? (alive: () => boolean) => feedbackRetentionAfterDeletionRow(aliveReceipt(receipt, alive), admin as never, report, () => cleanup.run())
@@ -302,6 +443,8 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     : undefined;
             if (await finalizeOwnedCleanup(steps, receipt, cleanup, proof) === 'deleted') { owner.uid = ''; owner.email = ''; }
         }
+        // #1811: AFTER the retention proof, delete exactly the fence-recorded reports and verify zero independently.
+        if (fence) await steps.step('feedback fence cleanup', async (alive) => { await fence.cleanRow(aliveReceipt(receipt, alive)); }, FEEDBACK_FENCE_STEP_MS);
         // Last, so it covers every row above, including cleanup.
         await steps.step('receipt content check', () => {
             // Point text and topic are the person's content: they must never reach the receipt.
@@ -341,14 +484,24 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             if (identity.length > 0) throw new Error(`FAIL first-visit identity: ${identity.join('; ')}`);
             claimed = await markRunOwnedAccountCanary(admin as never, owner.uid, owner.email);
             receipt.meta.canaryClaim = claimed;
-            await account.signOutAndSignIn();
+            const { signinMs } = await account.signOutAndSignIn();
             await canaryClaimRow(page, receipt, claimed);
+            // AHT-02/03 owner-bound (review fix 9): signOutAndSignIn polls until the real form signs back in as THIS uid, so a
+            // return here is a signed-in run-owned session; the row records it as AHT-01 does.
+            const signIn = focusSignInRow({ signedIn: true, sameUid: true, signinMs });
+            receipt.row(FOCUS_SIGN_IN_ROW, signIn.verdict, signIn.detail, signIn.evidence);
         });
 
         // ── Row 8 — Products → Focus Points ─────────────────────────────────────────────────────────────
         await test.step('row 8 — Products → Focus Points opens the setup', async () => {
             await page.goto('/practice');
             await expect(page.getByTestId('practice-root')).toBeVisible({ timeout: 60_000 });
+            // #1835: a fresh owner is asked on this first Practice visit. Settled before any take; an unknown build stops here.
+            const migrationFiles = (() => { try { return readdirSync(resolvePath(process.cwd(), 'backend/supabase/migrations')); } catch { return null; } })();
+            consent = await settlePracticeConsent({ page, client: admin as unknown as ChoiceClient, ownerId: owner.uid, migrationFiles, mode: consent.mode });
+            receipt.row('practice privacy choice', 'PASS', consent.choice ? 'this run\'s owner recorded its choice through the Practice prompt, read back from the server'
+                : 'verified pre-#1835 build: no choice to make', { build: consent.build, mode: consent.mode ?? 'none',
+                transcriptSave: consent.choice?.transcriptSave ?? null, aiCoaching: consent.choice?.aiCoaching ?? null });
             const switched = await performCandidateSwitch(page, run, JOURNEY);
             receipt.meta.switchOutcome = switched;
             if (run.mode === 'switch' && switched !== 'ok') throw new Error(`HOLD candidate switch: ${switched}`);
@@ -401,8 +554,12 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         // ── Row 10 — live markers ───────────────────────────────────────────────────────────────────────
         let startedAt = 0;
         let stoppedAt = 0;
+        let firstTakeMonitor: ArmedTakeMonitor | null = null;
+        /** Node time just before the journey's own Start press; null when the model setup started the take itself. */
+        let firstPressedAt: number | null = null;
         const firstChange: Array<{ status: RailStatus; atSec: number; atMs: number } | null> = points.map(() => null);
-        const nextSequence: number[] = [];
+        // AHT-02/03 `next point marked` (owner decision, Akin 2026-11-11): the live window as [ms, marked point, statuses] samples.
+        const markerWindow = new MarkerTimeline();
         firstTakeFrom = tap.events.length;
         await test.step('row 10 — markers change while each point is spoken', async () => {
             await expect(page.getByTestId('focus-points-rail')).toBeVisible({ timeout: 45_000 });
@@ -416,10 +573,13 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             markerToken = armed.token;
 
             const acquisitionStarted = Date.now();
+            // #1882: armed before anything that may press Start (preparePrivateModelIfPrompted can start the take itself).
+            firstTakeMonitor = await armTakeMonitor(page, suite);
             await selectBenchmarkMode(page, 'private');
             const setup = await preparePrivateModelIfPrompted(page, 900_000);
             if (!setup.recordingAlreadyStarted) {
                 await waitForPrivateEngineReady(page, 600_000);
+                firstPressedAt = Date.now();
                 await startBenchmarkRecording(page, suite);
             }
             startedAt = Date.now();
@@ -427,13 +587,19 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
 
             const until = startedAt + Math.round((fixture.entry.speechSeconds + 4) * 1000);
             while (Date.now() < until) {
-                const now = await readRail(page, points.length);
-                now.statuses.forEach((status, i) => {
-                    if (!firstChange[i] && status && status !== 'pending') firstChange[i] = { status, atSec: Math.round((Date.now() - startedAt) / 1000), atMs: Date.now() };
+                // One atomic read per sample: the statuses and the "Still to cover" marker come from the same evaluation.
+                const now = await sampleFocusRail(page, points.length);
+                const atMs = Date.now();
+                markerWindow.record(atMs - startedAt, now);
+                (now?.statuses ?? []).forEach((status, i) => {
+                    if (!firstChange[i] && status !== 'pending' && status !== 'none' && status !== ABSENT_ROW) {
+                        firstChange[i] = { status: status as RailStatus, atSec: Math.round((atMs - startedAt) / 1000), atMs };
+                    }
                 });
-                if (now.next !== null && nextSequence[nextSequence.length - 1] !== now.next) nextSequence.push(now.next);
                 await page.waitForTimeout(500);
             }
+            // Closed before any verdict or Stop: the marker row judges only what the rail showed while the fixture was speaking.
+            const nextMarker = nextPointMarkedVerdict(markerWindow.freeze());
             // #1593 case 3: drain and freeze the live window before any verdict or Stop; later callbacks cannot change it.
             const sealed: MarkerObserverSnapshot | null = armed.ok ? await freezeMarkerObserver(page, armed.token) : null;
             // #1532 r4127572206: every point expected covered OR partial must change live (per point, not by count).
@@ -444,9 +610,10 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             receipt.row('live marker changes', notLive.length === 0 && ordered ? 'PASS' : 'FAIL',
                 notLive.length === 0 ? 'every spoken point expected to be detected changed during speech, in speaking order' : 'a point expected to be detected did not change during speech (Stop-time-only detection fails this row)',
                 { changedDuringSpeech: liveChanged, expected: expectedLive, notLive: notLive.map((i) => i + 1).join(','), firstChangeSec: firstChange.map((c) => (c ? `${c.status}@${c.atSec}` : 'none')).join(',') });
-            receipt.row('next point marked', nextSequence.length > 1 ? 'PASS' : 'FAIL',
-                nextSequence.length > 1 ? 'the "Still to cover" marker advanced as points were detected' : 'the next point was not visibly advanced',
-                { nextSequence: nextSequence.join('>') });
+            // Owner decision (Akin, 2026-11-11): the marker must always be on the FIRST pending point; it is NOT required to move
+            // (movement is judged by `live marker changes` and `marker timing vs audio`). Mirrors the harness `markerVerdict`
+            // (tools/cloud-test/harness/draft-adapters/focus-oracle.cjs); a window with no usable sample is HOLD, never PASS.
+            receipt.row('next point marked', nextMarker.verdict, nextMarker.detail, nextMarker.evidence);
             // Time-anchored oracle (#1593 case 3): each point's first non-pending PAGE-SIDE OBSERVATION from the take-bound
             // observer, measured from the take's one fresh granted getUserMedia INVOCATION. Nothing is backdated; any binding
             // gap is a HOLD, never a PASS. The polled first-seen times are kept beside it to separate observer from product.
@@ -486,17 +653,35 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
 
         // ── Row 11 — Stop: verdicts, n/4, average ───────────────────────────────────────────────────────
         await test.step('row 11 — Stop: verdicts, count and average', async () => {
+            // Marker evidence was already sealed in row 10; extra fixture speech cannot rewrite it.
+            await page.waitForTimeout(Math.max(0, startedAt + sourceTakeMs - Date.now()));
             stoppedAt = Date.now();
             rowsStoppedAt = stoppedAt;
-            await stopBenchmarkRecording(page, suite, 180_000);
-            await waitForBenchmarkSaveCandidate(page, suite, 180_000);
-            await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 120_000 });
-            persistedId = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
+            // #1897 (Sam, f2bb1ae HOLD): the final take check and the Stop click run together in one page task, bound to the
+            // take this monitor saw go live; a dropped, replaced or never-live take gets no click, and the journey stops here.
+            const firstMonitor = firstTakeMonitor;
+            const firstStop = firstMonitor
+                ? await stopMonitoredTake(page, firstMonitor, () => confirmBenchmarkStopped(page, suite, 180_000))
+                : { pressed: false, reason: 'monitor_unreadable' as const };
+            if (!firstStop.pressed) {
+                if (firstMonitor) await measuredTakeRows('Focus first take', firstMonitor, fixture.entry.speechSeconds, firstPressedAt, null);
+                throw new Error(`FOCUS_JOURNEY:first_take_not_stopped_${firstStop.reason}`);
+            }
+            // #1882: a discarded take is named at once instead of waiting out the save-candidate bound.
+            const firstOutcome = firstMonitor ? await awaitTakeOutcome(page, firstMonitor.token, 180_000) : null;
+            if (firstOutcome?.kind !== 'too_short') {
+                await waitForBenchmarkSaveCandidate(page, suite, 180_000);
+                await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 120_000 });
+                persistedId = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
+            }
             receipt.row('session saved', persistedId ? 'PASS' : 'FAIL', persistedId ? 'the take saved' : 'no persisted session id');
+            // The first take must be live for the whole spoken fixture, measured from capture live (it is held past that).
+            if (firstTakeMonitor) await measuredTakeRows('Focus first take', firstTakeMonitor, fixture.entry.speechSeconds, firstPressedAt, persistedId);
 
-            // The rail's after-state settles once coverage is no longer pending.
-            await expect.poll(async () => (await readRail(page, points.length)).statuses.every((s) => s !== 'pending'), { timeout: 60_000 })
-                .toBe(true).catch(() => undefined);
+            // The rail's after-state settles only with all four actual rows on screen, none pending (#1882: an empty rail reads
+            // null statuses, and null is not 'pending', so "nothing pending" settled at once and graded four nulls).
+            await expect.poll(async () => railSettled(await readRailRowCount(page), (await readRail(page, points.length)).statuses, points.length),
+                { timeout: 60_000 }).toBe(true).catch(() => undefined);
             const final = (await readRail(page, points.length)).statuses;
             firstTakeRail = final;
             const perPoint = final.map((s, i) => meetsExpectation(expectedFinal[i] ?? '', s));
@@ -554,7 +739,28 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         });
 
         // ── Row 11 (continued) — the Focus Points coaching pair after Stop ─────────────────────────────────
+        // AHT-02/03 focus-presentation-contract (review fix 9): the harness group() over its ten FOCUS_ROWS, applied to this journey's
+        // own ten rows by name. Every one of them is written by row 9 to row 11 above; a missing or repeated row holds the group.
+        await test.step('Focus presentation contract', async () => {
+            const group = focusPresentationRow(receipt.rows);
+            receipt.row(FOCUS_PRESENTATION_ROW, group.verdict, group.detail, group.evidence);
+        });
+
         await test.step('row 11 — Focus Points coaching after Stop', async () => {
+            // #1897 review 4 (Sam): with coaching off (or saving off) on a #1835 build, the evidence is that NO review was
+            // requested, shown or saved, with the band for this choice; the coaching-on rows below could only hold or fail.
+            const offMode = reviewModeOf(consent);
+            if (offMode === 'coaching_off_saved' || offMode === 'saving_off') {
+                if (!persistedId) { receipt.row(FOCUS_COACHING_OFF_ROW, 'HOLD', 'no saved session'); return; }
+                const shown = await readCoachingOffAfterStop(page);
+                const { data: savedRow, error: savedErr } = await admin!.from('sessions').select('ai_suggestions').eq('id', persistedId).eq('user_id', owner.uid).maybeSingle();
+                const savedSuggestions = savedErr || !savedRow ? 'read_failed' as const
+                    : (savedRow as { ai_suggestions?: unknown }).ai_suggestions === null || (savedRow as { ai_suggestions?: unknown }).ai_suggestions === undefined ? 'none' as const : 'present' as const;
+                const off = coachingOffVerdict(offMode, { ...shown, coachingRequests: coaching.requests, savedSuggestions });
+                receipt.row(FOCUS_COACHING_OFF_ROW, off.verdict, off.detail, { reason: off.reason, reviewMode: offMode, bandMode: shown.bandMode,
+                    reviewState: shown.reviewState, reviewPhrasesShown: shown.reviewPhrasesShown, coachingRequests: coaching.requests, savedSuggestions });
+                return;
+            }
             if (!persistedId) { receipt.row('Focus coaching rendered', 'HOLD', 'no saved session'); return; }
             // focusCoachingRows settles the reason after its own terminal wait (Codex r4189408865).
             // #1258 R4: the rail's final statuses, so the advice can be checked against a point that is still open.
@@ -589,6 +795,33 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             };
             const before = await savedIdentity();
             const requestsBefore = coaching.requests;
+            // #1897 review 4 (Sam): coaching off or saving off restores to that mode's band, transcript and saved results.
+            const offMode = reviewModeOf(consent);
+            if (offMode === 'coaching_off_saved' || offMode === 'saving_off') {
+                const back = await backFromProgressRestoresSession(page, persistedId);
+                const afterBack = back.restored ? await readOffRestoredView(page, before.digest) : null;
+                const reload = back.restored ? await reloadRestoredSession(page, persistedId, before.digest)
+                    : { restored: false, sameSession: false, idleShown: back.idleShown, liveTracks: null, transcriptMatches: false, review: 'missing' as const };
+                const afterReload = reload.sameSession ? await readOffRestoredView(page, before.digest) : null;
+                const after = await savedIdentity();
+                const result = offBackReloadVerdict(offMode, {
+                    leftForProgress: back.left, restoredAfterBack: back.restored, liveMicTracksAfterBack: back.liveTracks,
+                    restoredAfterReload: reload.restored, sameSessionAfterReload: reload.sameSession,
+                    idleRecorderShown: back.idleShown || reload.idleShown, liveMicTracks: reload.liveTracks, afterBack, afterReload,
+                    firstTakeRail, verdictsBefore: before.verdicts, verdictsAfter: after.verdicts,
+                    coachingRequestsBefore: requestsBefore, coachingRequestsAfter: coaching.requests,
+                });
+                receipt.row('Focus Back from Progress and reload keep the saved session', result.verdict, result.detail, {
+                    reason: result.reason, reviewMode: offMode, left: back.left, restoredAfterBack: back.restored, liveTracksAfterBack: back.liveTracks,
+                    restoredAfterReload: reload.restored, sameSession: reload.sameSession, idleShown: back.idleShown || reload.idleShown, liveTracks: reload.liveTracks,
+                    reviewAfterBack: afterBack?.review ?? null, reviewAfterReload: afterReload?.review ?? null,
+                    transcriptAfterBack: afterBack?.transcript ?? null, transcriptAfterReload: afterReload?.transcript ?? null,
+                    focusAfterBack: afterBack?.focus?.join(',') ?? null, focusAfterReload: afterReload?.focus?.join(',') ?? null,
+                    verdictsUnchanged: before.verdicts.length > 0 && before.verdicts.join(',') === after.verdicts.join(','),
+                    coachingRequestsBefore: requestsBefore, coachingRequestsAfter: coaching.requests,
+                });
+                return;
+            }
             const back = await backFromProgressRestoresSession(page, persistedId, savedCoaching ?? undefined);
             const reload = back.restored ? await reloadRestoredSession(page, persistedId, before.digest, savedCoaching ?? undefined)
                 : { restored: false, sameSession: false, idleShown: back.idleShown, liveTracks: null, transcriptMatches: false, review: 'missing' as const };
@@ -616,6 +849,16 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             const digest = sha256Hex(row?.transcript);
             // Through the on-screen Analytics action the person clicks after Stop, then the session's own control.
             const requestsBefore = coaching.requests;
+            // #1897 review 4 (Sam): coaching off or saving off: the transcript per mode, no AI suggestions, the saved results.
+            const offMode = reviewModeOf(consent);
+            if (offMode === 'coaching_off_saved' || offMode === 'saving_off') {
+                const seen = await analyticsOffThroughActions(page, persistedId, digest);
+                for (const r of offAnalyticsRows(offMode, seen, firstTakeRail)) receipt.row(r.step, r.verdict, r.detail, { ...r.evidence, reviewMode: offMode });
+                receipt.row('Analytics generates no coaching', coaching.requests === requestsBefore ? 'PASS' : 'FAIL',
+                    coaching.requests === requestsBefore ? 'opening and reloading Analytics requested no new review' : 'Analytics requested coaching while coaching is off',
+                    { coachingRequestsBefore: requestsBefore, coachingRequestsAfter: coaching.requests });
+                return;
+            }
             // #1258 (PM 6175763509 §2): under a proved EXTERNAL outage `analyticsRows` writes every coaching-dependent row as
             // not exercised; otherwise a missing saved pair is the existing HOLD.
             const focusExternalCoaching = receipt.rows.some((r) => r.step === 'Focus coaching rendered' && r.verdict === 'EXTERNAL');
@@ -663,6 +906,14 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         // and qualified there for its own stages (share_feedback), never claimed for the recording journey.
         if (fixtureKey === 'focus_points_tts') {
             await test.step('share feedback', async () => {
+                // #1811: no feedback write without a confirmed-open fence for this run-owned account.
+                feedbackFence = new JourneyFeedbackFence(admin as never, 'AHT-02', 1);
+                if (admin) await feedbackFence.open(owner.uid, currentRunBinding());
+                feedbackFence.openRow(receipt);
+                if (!feedbackFence.writable) {
+                    receipt.row('feedback', 'HOLD', 'no confirmed feedback fence for this run, so no feedback was written');
+                    return;
+                }
                 feedbackReportId = await shareFeedbackRows(page, receipt, admin as never, owner.uid, tap);
             });
             await test.step('feedback diagnostic chain', async () => {
@@ -696,8 +947,13 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             if (!persistedId) {
                 practiceAgainRows(receipt, 'focus_points', { analyticsActionOpened: null, sameSetPending: null, reviewReached: null, afterActionEnabledMs: null, holdSeen: false, afterStartMs: null, stopped: false, liveTracksAfterStop: null, reason: 'no saved session', savedSessionId: null, actionBefore: null, actionAfter: null, saveTakePersisted: null, saveTakeNewSession: null, startFailure: null, saveTakeFailedStep: null, saveTakeStartPressed: false, saveTakeStopPressed: false, saveTakeFailure: null, enabledWhileHolding: null, stopToSaveMs: null, saveToGateClearMs: null, pressToWarmupDoneMs: null, pressToRecordingMs: null });
                 await productMarkerRows(receipt, admin as never, owner.uid, 'focus_points', []);
+                receipt.row(FOCUS_SAME_TARGET_ROW, 'HOLD', 'no saved first take, so there is no saved target to practise', { reason: 'no-source' });
                 return;
             }
+            // AHT-02/03 same-target-repeat (review fix 4), harness phase `begin`: the first take's saved target and Focus set,
+            // read before the Practice-again take can change or expire them. Never thrown: a failed read is 'error' and holds.
+            const sameTargetSource = await readFocusSource(persistedId);
+            const sameTargetSet = await readFocusSet(persistedId);
             const repeatFrom = tap.events.length;
             let saveTakeEnd = -1;
             coachingCapture = createCoachingTakeCapture({
@@ -713,13 +969,50 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             } finally { await reviewTab.close(); }
             // Passive B observation never delays the completed review's rapid Retry press or next Start.
             coachingCapture.start();
-            const again = await practiceAgainEvidence(page, `${suite}-again`, persistedId, 'focus_points', points, () => { saveTakeEnd = tap.events.length; });
+            // Harness phase `recording`: passive page reads while the Practice-again SAVE take records, stopped at its Stop. The
+            // reads never press, wait on or delay anything in practiceAgainEvidence (shared helper, unchanged).
+            const targetReads: TargetRead[] = [];
+            let targetWatch = true;
+            const targetWatcher = (async () => {
+                const started = Date.now();
+                while (targetWatch && Date.now() - started < 180_000 && !page.isClosed()) {
+                    const read = await page.evaluate(readTargetInPage).catch(() => null);
+                    if (read && targetReads.length < 400) targetReads.push(read);
+                    await new Promise((resolve) => setTimeout(resolve, 250));
+                }
+            })();
+            let again: Awaited<ReturnType<typeof practiceAgainEvidence>>;
+            try {
+                again = await practiceAgainEvidence(page, `${suite}-again`, persistedId, 'focus_points', points, () => { saveTakeEnd = tap.events.length; targetWatch = false; }, { saveTakeMs });
+            } finally {
+                targetWatch = false;
+                await targetWatcher;
+            }
             // The window closes at the SAVE take's Stop, so the review's repeat Start can never stand in for it.
             repeatWindow = [repeatFrom, saveTakeEnd >= 0 ? saveTakeEnd : tap.events.length];
             practiceAgainRows(receipt, 'focus_points', again);
             repeatSessionId = again.savedSessionId;
             // #1258 / #1537: every session this journey saved (its take + the Practice-again take) is marked Focus Points.
             await productMarkerRows(receipt, admin as never, owner.uid, 'focus_points', [persistedId, again.savedSessionId]);
+            // Judge: the shown target, its retention after the repeat (harness boundary) and the repeat's Focus set.
+            // #1897 Codex P2 (ccca307): with coaching off or saving off there is no saved coaching target to practise, so the
+            // repeat must show none and still save under the first take's Focus set.
+            const repeatMode = reviewModeOf(consent);
+            if (repeatMode === 'coaching_off_saved' || repeatMode === 'saving_off') {
+                const repeatFocus = repeatSessionId ? await readFocusSet(repeatSessionId).then((f) => f === 'error' || f === null ? f : { briefId: f.briefId, labels: f.labels }) : null;
+                const offRepeat = offRepeatVerdict({ sourceId: persistedId, repeatSessionId, reads: targetReads,
+                    sourceFocus: sameTargetSet === 'error' || sameTargetSet === null ? sameTargetSet : { briefId: sameTargetSet.briefId, labels: sameTargetSet.labels }, repeatFocus });
+                receipt.row(FOCUS_OFF_REPEAT_ROW, offRepeat.verdict, offRepeat.detail, { reason: offRepeat.reason, reviewMode: repeatMode, reads: targetReads.length });
+                return;
+            }
+            const firstWitness = coachingCapture.get(persistedId);
+            const sameTarget = focusSameTargetVerdict({
+                ownerId: owner.uid, source: sameTargetSource, sourceFocus: sameTargetSet, reads: targetReads,
+                sourceAfter: await readFocusSource(persistedId), repeatSessionId,
+                authority: 'take' in firstWitness ? firstWitness.take.authorityReceipt as never : null,
+                repeatFocus: repeatSessionId ? await readFocusSet(repeatSessionId).then((f) => f === 'error' || f === null ? f : { briefId: f.briefId, labels: f.labels }) : null,
+            });
+            receipt.row(FOCUS_SAME_TARGET_ROW, sameTarget.verdict, sameTarget.detail, sameTarget.evidence);
         });
 
         await test.step('next Start without a hold', async () => {
@@ -731,6 +1024,22 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         await test.step('coaching prompt binding — restricted synthetic artifact', async () => {
             await generations.settle();
             await coachingCapture?.stop();
+            // #1897 Codex P2 (ccca307): with coaching off or saving off neither take has coaching to bind or compare, so the
+            // evidence is that neither take requested or saved any.
+            const bindingMode = reviewModeOf(consent);
+            if (bindingMode === 'coaching_off_saved' || bindingMode === 'saving_off') {
+                const saved = async (id: string | null): Promise<'none' | 'present' | 'read_failed'> => {
+                    if (!id) return 'read_failed';
+                    const row = await readFocusSource(id);
+                    if (row === 'error' || row === null) return 'read_failed';
+                    return row.ai_suggestions === null || row.ai_suggestions === undefined ? 'none' : 'present';
+                };
+                const distinctRepeat = repeatSessionId && repeatSessionId !== persistedId ? repeatSessionId : null;
+                const off = offNoCoachingVerdict({ coachingRequests: coaching.requests, firstSaved: await saved(persistedId),
+                    repeatSaved: distinctRepeat ? await saved(distinctRepeat) : 'no_repeat' });
+                receipt.row(FOCUS_OFF_NO_COACHING_ROW, off.verdict, off.detail, { reason: off.reason, reviewMode: bindingMode, coachingRequests: coaching.requests });
+                return;
+            }
             if (repeatSessionId) await coachingCapture?.sample(repeatSessionId);
             await coachingPromptBindingRow({
                 receipt, page, admin: admin as never, exchanges: generations.exchanges,
@@ -739,6 +1048,138 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 firstRendered: null, releaseSha: expectedReleaseSha(), outputDirs: [testInfo.outputDir, testInfo.project.outputDir],
                 captured: coachingCapture ?? undefined,
             });
+            // AHT-02/03 grounded-coaching (review fix 5): the first take and the Practice-again take, whose saved evidence differs,
+            // must not get the identical coaching pair — the shared `capturedTakesDifferVerdict` over the same witnesses.
+            const differ = focusTakesDifferRow({ rows: receipt.rows, firstSessionId: persistedId, repeatSessionId,
+                captured: coachingCapture, releaseSha: expectedReleaseSha() });
+            receipt.row(FOCUS_TAKES_DIFFER_ROW, differ.verdict, differ.detail, differ.evidence);
+        });
+
+        // ── AHT-02/03 same-target-repeat, its Progress part (G03 #1548 A2, as AHT-01): the repeat result names the measured metric.
+        // Shared pure parts (repeatMetricWording.ts), unchanged. The panel is read in its OWN tab of this context, so the main
+        // page stays where the Focus-only steps below expect it; the tab is closed before the step ends.
+        await test.step('the repeat result names the measured metric', async () => {
+            let progressTab: Page | null = null;
+            try {
+                const linkage = pressLinkage(repeatWindow ? tap.events.slice(repeatWindow[0], repeatWindow[1]) : []);
+                let server: ServerEvidence = { kind: 'read_failed' };
+                if (persistedId && repeatSessionId && owner.uid && admin) {
+                    const { data: rec, error: recErr } = await admin.from('progress_recommendations')
+                        .select('id,target_metric,target_direction,target_value,target_units')
+                        .eq('source_session_id', persistedId).eq('formula_version', PROGRESS_FORMULA).eq('user_id', owner.uid).maybeSingle();
+                    const { data: bound, error: boundErr } = rec && !recErr
+                        ? await admin.from('progress_recommendation_attempts').select('id')
+                            .eq('recommendation_id', rec.id).eq('user_id', owner.uid).eq('practice_session_id', repeatSessionId).limit(2)
+                        : { data: [], error: null };
+                    const { data: newest, error: newestErr } = rec && !recErr
+                        ? await admin.from('progress_recommendation_attempts').select('id,lifecycle,outcome,accepted_at,practice_session_id')
+                            .eq('recommendation_id', rec.id).eq('user_id', owner.uid).order('accepted_at', { ascending: false }).limit(2)
+                        : { data: [], error: null };
+                    if (!recErr && !boundErr && !newestErr) {
+                        server = {
+                            kind: 'read',
+                            recommendation: rec ? { targetMetric: rec.target_metric, targetDirection: rec.target_direction, targetValue: rec.target_value, targetUnits: rec.target_units } : null,
+                            newest: (newest ?? []).map((a) => ({
+                                id: a.id, lifecycle: a.lifecycle, outcome: a.outcome, acceptedAt: a.accepted_at, isThisRepeat: a.practice_session_id === repeatSessionId,
+                            })),
+                            boundCount: (bound ?? []).length,
+                            boundId: bound?.length === 1 ? bound[0].id : null,
+                        };
+                        boundAttemptId = bound?.length === 1 ? bound[0].id as string : null;
+                    }
+                }
+                const prerequisite = repeatMetricPrerequisites(server, linkage);
+                if (!prerequisite.observe) {
+                    receipt.row(REPEAT_METRIC_ROW, 'HOLD', prerequisite.detail, { reason: prerequisite.reason, linkage: linkage.kind });
+                    return;
+                }
+                const tab = await page.context().newPage();
+                progressTab = tab;
+                progressPanelTab = tab;
+                const route = `/progress/${persistedId}`;
+                await tab.goto(route);
+                const panel = tab.getByTestId('progress-panel');
+                const terminal = {
+                    eligible: panel.getByTestId('progress-direction'),
+                    error: panel.getByRole('alert'),
+                    insufficient: panel.getByText('More evidence is needed before a reliable comparison is available.'),
+                    ineligible: panel.getByText('Comparison is unavailable for this session.'),
+                } as const;
+                const reached = await terminal.eligible.or(terminal.error).or(terminal.insufficient).or(terminal.ineligible).first()
+                    .waitFor({ state: 'visible', timeout: 45_000 }).then(() => true, () => false);
+                let settled: PanelObservation['state'] = 'not_settled';
+                if (reached) {
+                    for (const state of ['eligible', 'error', 'insufficient', 'ineligible'] as const) {
+                        if (await terminal[state].first().isVisible().catch(() => false)) { settled = state; break; }
+                    }
+                }
+                let readFailed = false;
+                const line = async (id: string): Promise<string | null> => {
+                    const el = panel.getByTestId(id);
+                    const present = await el.count().then((n) => n > 0, () => { readFailed = true; return false; });
+                    if (!present) return null;
+                    return el.first().innerText({ timeout: 5_000 }).then((t) => t, () => { readFailed = true; return null; });
+                };
+                const stillEligible = async () => !tab.isClosed() && new URL(tab.url()).pathname === route
+                    && await terminal.eligible.first().isVisible().catch(() => false)
+                    && await panel.getByTestId('progress-loading').count().then((n) => n === 0, () => false);
+                const onRoute = !tab.isClosed() && new URL(tab.url()).pathname === route;
+                const state: PanelObservation['state'] = tab.isClosed() ? 'closed' : !onRoute ? 'wrong_route'
+                    : settled === 'eligible' && !await stillEligible() ? 'not_settled' : settled;
+                const target = state === 'eligible' ? await line('progress-attempt-target') : null;
+                const outcome = state === 'eligible' ? await line('progress-attempt-outcome') : null;
+                const scope = state === 'eligible' ? await line('progress-attempt-scope') : null;
+                const panelText = state === 'eligible' ? await panel.innerText({ timeout: 5_000 }).then((t) => t, () => { readFailed = true; return ''; }) : '';
+                const readsStable = state === 'eligible' && !readFailed && await stillEligible();
+                const observation: PanelObservation = { state, target, outcome, scope, legacyPhrase: panelText.includes(LEGACY_PHRASE), readsStable };
+                const verdict = repeatMetricWordingVerdict(prerequisite.expected, observation);
+                receipt.row(REPEAT_METRIC_ROW, verdict.verdict, verdict.detail, { ...verdict.evidence, linkage: linkage.kind });
+            } catch (error) {
+                // A Playwright message can carry the route's session id: only the error class is recorded.
+                const name = error instanceof Error && /^[A-Za-z]{1,40}Error$/.test(error.name) ? error.name : 'Error';
+                receipt.row(REPEAT_METRIC_ROW, 'HOLD', `the repeat-metric observation failed (${name})`);
+            } finally {
+                // A tab that left the panel's route is closed here; one still on it is read, then closed, by the numeric step.
+                if (progressTab && (progressTab.isClosed() || new URL(progressTab.url()).pathname !== `/progress/${persistedId}`)) {
+                    progressPanelTab = null;
+                    await progressTab.close().catch(() => undefined);
+                }
+            }
+        });
+
+        // ── same-target-numeric (catalog AHT-02 / AHT-03): the harness's own numeric check on this journey's two saved takes ──
+        // Reuses tools/cloud-test/harness/draft-adapters/progress-numeric.cjs (no copy), as #1812's AHT-01 does. It reads the
+        // persisted recommendation, the attempt bound to THIS repeat (the id the step above captured) and both evaluations, then the
+        // panel the step above opened. It never navigates; with no panel open it reads the session page and returns NOT RUN (HOLD).
+        // Pinned to the served release it was revalidated against: any other release is NOT RUN (HOLD), never a pass.
+        await test.step('saved and displayed comparison numbers match', async () => {
+            let result: NumericResult | null = null;
+            let repeatEligibility: RepeatEligibility = { state: 'unread' };
+            try {
+                if (persistedId && repeatSessionId && persistedId !== repeatSessionId && owner.uid && admin) {
+                    const load = createRequire(import.meta.url);
+                    const pure = load(fileURLToPath(new URL('../../../tools/cloud-test/harness/draft-adapters/oracles/pure/progressNumericSelected.cjs', import.meta.url))) as {
+                        PROGRESS_FORMULA_VERSION: string;
+                    };
+                    repeatEligibility = await readRepeatEligibility(admin as never, { sessionId: repeatSessionId, userId: owner.uid, formulaVersion: pure.PROGRESS_FORMULA_VERSION });
+                    const numeric = load(fileURLToPath(new URL('../../../tools/cloud-test/harness/draft-adapters/progress-numeric.cjs', import.meta.url))) as {
+                        observe: (a: Record<string, unknown>) => Promise<NumericResult>;
+                    };
+                    const panelPage = progressPanelTab ?? page;
+                    const served = await panelPage.evaluate(() => (window as unknown as { __APP_RELEASE__?: string }).__APP_RELEASE__ ?? null).catch(() => null);
+                    result = await numeric.observe({
+                        page: panelPage, db: admin, sourceSessionId: persistedId, repeatSessionId,
+                        ...(boundAttemptId ? { expectedAttemptId: boundAttemptId } : {}),
+                        caseConfig: { sourceSha: expectedReleaseSha(), servedSha: served, account: { id: owner.uid } },
+                    });
+                }
+            } catch (e) {
+                result = (e as { code?: string })?.code === 'NOT_RUN' ? { result: 'NOT RUN', facts: { reason: 'numeric-source-not-run' } } : null;
+            } finally {
+                await progressPanelTab?.close().catch(() => undefined);
+                progressPanelTab = null;
+            }
+            numericComparisonRow(receipt, result, repeatEligibility, saveTakeMs);
         });
 
         // ── #1258 Focus-only: the product-switch take, then New Set / Edit from that take's completed review ──
@@ -752,28 +1193,70 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 // The transcript stays in Node (marker support only); the receipt gets the product, a digest and booleans.
                 const unavailable = (state: 'missing' | 'query_error'): SwitchSourceSnapshot & { transcript: string } => ({ product: null, digest: null, transcript: '', state });
                 const sessionRow = async (id: string): Promise<SwitchSourceSnapshot & { transcript: string }> => {
-                    const { data, error } = await admin!.from('sessions').select('id,user_id,product,transcript,transcript_state').eq('id', id).eq('user_id', owner.uid).maybeSingle();
+                    const { data, error } = await admin!.from('sessions').select('id,user_id,product,status,duration,transcript,transcript_state').eq('id', id).eq('user_id', owner.uid).maybeSingle();
                     if (error) return unavailable('query_error'); // fail closed: an unreadable row is never expiry.
                     if (!data) return unavailable('missing');
-                    const available = data.transcript_state === 'available' && typeof data.transcript === 'string' && data.transcript.trim() !== '';
-                    const state = available ? 'available' : data.transcript_state === 'expired' && data.transcript === null ? 'expired' : 'malformed';
+                    // #1882 / #1835: a saving-off row is metrics_only (completed, positive duration, no transcript), never 'malformed'.
+                    const state = switchSourceState(data);
+                    const available = state === 'available';
                     return { product: (data.product as string | null) ?? null, digest: available ? sha256Hex(data.transcript) : null,
                         transcript: available ? data.transcript as string : '', state, sessionId: data.id as string, userId: data.user_id as string };
                 };
                 const lastSaved = () => page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
                 const openProduct = (item: 'open-mic' | 'focus-points') => openProductsItem(page, item);
+                // AHT-02 open-mic-isolation (review fix 7; harness focus-controls.cjs `extendedFocus`): the Open Mic take gets no
+                // objective_session, and the FIRST Focus take's saved evidence is unchanged across it. Read in Node, never thrown:
+                // a failed read is 'error' / null and holds the row.
+                const objectiveRowsFor = async (id: string): Promise<number | null> => {
+                    const { data, error } = await admin!.from('objective_session').select('id').eq('source_session_id', id).eq('user_id', owner.uid);
+                    return error ? null : (data ?? []).length; // fail closed: an unreadable count holds the row, never 0.
+                };
+                const firstFocusEvidence = async (): Promise<FocusEvidenceSnapshot> => {
+                    if (!persistedId) return null;
+                    const { data: os, error: osErr } = await admin!.from('objective_session').select('id,brief_id').eq('source_session_id', persistedId).eq('user_id', owner.uid).maybeSingle();
+                    if (osErr) return 'error'; // fail closed: holds the row.
+                    if (!os) return null;
+                    const { data: ev, error: evErr } = await admin!.from('objective_evidence').select('brief_point_id,verdict').eq('session_id', os.id).eq('user_id', owner.uid);
+                    if (evErr) return 'error'; // fail closed: holds the row.
+                    const { data: bp, error: bpErr } = await admin!.from('objective_brief_point').select('id,label,sort_order').eq('brief_id', os.brief_id).eq('user_id', owner.uid);
+                    if (bpErr) return 'error'; // fail closed: holds the row.
+                    const verdictOf = new Map((ev ?? []).map((r) => [r.brief_point_id as string, r.verdict as string]));
+                    return {
+                        brief: os.brief_id as string,
+                        verdicts: (ev ?? []).map((r) => `${r.brief_point_id}:${r.verdict}`).sort(),
+                        ordered: [...(bp ?? [])].sort((a, b) => (a.sort_order as number) - (b.sort_order as number))
+                            .map((p) => `${p.sort_order}:${p.label}:${verdictOf.get(p.id as string) ?? 'missing'}`),
+                    };
+                };
+                const firstFocusBefore = await firstFocusEvidence();
                 // 1. A full Open Mic take: the replayed Focus fixture speaks all four points into it.
                 const before = await lastSaved();
                 await openProduct('open-mic');
                 await page.waitForURL(/\/session/, { timeout: 45_000 });
+                // #1897 (Sam, f2bb1ae HOLD): armed before the press so its Stop is the same atomic check-and-click, bound to
+                // this Open Mic take; a dropped, replaced or never-live take gets no click and the switch step stops here.
+                const openMicMonitor = await armTakeMonitor(page, `${suite}-switch-openmic`);
                 await startBenchmarkRecording(page, `${suite}-switch-openmic`);
                 await page.waitForTimeout(Math.round((fixture.entry.speechSeconds + 4) * 1000));
-                await stopBenchmarkRecording(page, `${suite}-switch-openmic`, 180_000);
+                const openMicStop = await stopMonitoredTake(page, openMicMonitor,
+                    () => confirmBenchmarkStopped(page, `${suite}-switch-openmic`, 180_000));
+                await disposeTakeMonitor(page, openMicMonitor.token);
+                if (!openMicStop.pressed) throw new Error(`FOCUS_JOURNEY:open_mic_take_not_stopped_${openMicStop.reason}`);
                 await waitForBenchmarkSaveCandidate(page, `${suite}-switch-openmic`, 180_000);
                 const openMicId = await waitForNewPersistedSession(page, before);
                 const openMicBefore = openMicId && openMicId !== before ? await sessionRow(openMicId) : unavailable('missing');
+                const savedOpenMicId = openMicId && openMicId !== before ? openMicId : null;
+                switchOpenMicId = savedOpenMicId;
+                const openMicObjectiveRowReads: Array<number | null> = savedOpenMicId ? [await objectiveRowsFor(savedOpenMicId)] : [];
+                const firstFocusAfter = await firstFocusEvidence();
                 // A point is a carry-over marker only if the Open Mic take actually recognised it (6090552875).
-                const markerSupport = points.slice(1).map((label) => labelHeardIn(label, openMicBefore.transcript));
+                // #1897 review 5 (Sam): with saving off there is no saved transcript, so the three markers are read as
+                // content-free booleans from the Open Mic take's own bound completing page (the transcript never leaves the
+                // page, and nothing is saved or logged). No reading leaves them empty, and isolation HOLDs.
+                const switchSavingOff = Boolean(consent.choice && !consent.choice.transcriptSave);
+                const pageMarkers = switchSavingOff && savedOpenMicId
+                    ? await page.evaluate(completingPageMarkersInPage, { sessionId: savedOpenMicId, labels: points.slice(1) }).catch(() => null) : null;
+                const markerSupport = switchSavingOff ? (pageMarkers ?? []) : points.slice(1).map((label) => labelHeardIn(label, openMicBefore.transcript));
 
                 // 2. Products → Focus Points, the fixture's four points, then a short take that hears only point 1.
                 await openProduct('focus-points');
@@ -793,29 +1276,88 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 const windows = fixture.entry.pointAudioWindows ?? [];
                 // Past point 1's window, short of point 2's start (focus_points_tts: [2.91,6.21] then [11.98,…]).
                 const shortTakeSeconds = windows[1] ? Math.max(8, Math.min(9, windows[1][0] - 2)) : 9;
+                // #1882 diagnostic: was the rail on screen before Start, and what did the controller decide for this take?
+                const railBeforeStart = await readRailRows(page, points);
+                const switchTraceFrom = await page.evaluate(() => {
+                    const w = window as unknown as { __NATIVE_BROWSER_TRACE__?: unknown[] };
+                    w.__NATIVE_BROWSER_TRACE__ = w.__NATIVE_BROWSER_TRACE__ ?? [];
+                    return performance.now();
+                }).catch(() => null);
+                // #1882: the page measures this take on its LIVE clock (re-based when capture goes live), so hold it for
+                // shortTakeSeconds from the live moment, not from the Start click; a slow capture start otherwise leaves under five
+                // live seconds and the take goes down the "too short" branch with no rail rows and no Start a new set.
+                // #1882 (Sam, Nov 18): MEASURED, not claimed. The monitor is armed before the press and records every live edge,
+                // the take's identity and the actual Stop press; the hold ends early if capture drops or the take changes.
+                const switchMonitor = await armTakeMonitor(page, `${suite}-switch-focus`);
+                const switchPressedAt = Date.now();
                 await startBenchmarkRecording(page, `${suite}-switch-focus`);
-                await page.waitForTimeout(shortTakeSeconds * 1000);
-                await stopBenchmarkRecording(page, `${suite}-switch-focus`, 180_000);
-                await waitForBenchmarkSaveCandidate(page, `${suite}-switch-focus`, 180_000);
-                const focusId = await waitForNewPersistedSession(page, openMicId);
+                const switchHold = await holdMeasuredLiveTake(page, switchMonitor, shortTakeSeconds, { nodePressedAt: switchPressedAt });
+                // #1897 review 2 (Sam): a hold that reports a drop or a replacement never presses Stop. Otherwise the final take
+                // check and the click run together in one page task (f2bb1ae HOLD), so a replacement can never receive it.
+                // Nothing is saved or read for a take that got no click; its rows record the break.
+                const switchStop = await stopMeasuredTake(page, switchMonitor, switchHold,
+                    () => confirmBenchmarkStopped(page, `${suite}-switch-focus`, 180_000));
+                const switchOutcome: TakeOutcome = switchStop.pressed ? await awaitTakeOutcome(page, switchMonitor.token, 180_000) : { kind: 'unsettled' };
+                if (switchStop.pressed && switchOutcome.kind !== 'too_short') await waitForBenchmarkSaveCandidate(page, `${suite}-switch-focus`, 180_000);
+                const focusId = !switchStop.pressed || switchOutcome.kind === 'too_short' ? null : await waitForNewPersistedSession(page, openMicId);
+                const switchTake = await measuredTakeRows('Focus switch take', switchMonitor, shortTakeSeconds, switchPressedAt,
+                    focusId && focusId !== openMicId ? focusId : null);
                 switchFocusId = focusId && focusId !== openMicId ? focusId : null;
-                await expect.poll(async () => (await readRail(page, points.length)).statuses.every((s) => s !== 'pending'), { timeout: 60_000 })
-                    .toBe(true).catch(() => undefined);
+                switchFocusTakeId = switchFocusId;
+                // #1882: settled only with exactly four actual rail rows, none pending. An empty rail is never settled.
+                await expect.poll(async () => railSettled(await readRailRowCount(page), (await readRail(page, points.length)).statuses, points.length),
+                    { timeout: 60_000 }).toBe(true).catch(() => undefined);
+                const railRowCount = await readRailRowCount(page);
                 const finalStatuses = (await readRail(page, points.length)).statuses;
+                const switchTrace = switchTraceFrom === null ? null : await page.evaluate((from) => {
+                    const keep = new Set(['controller_progress_mode_snapshot', 'controller_progress_unresolved', 'controller_completed_brief',
+                        'controller_progress_publication_refused', 'controller_brief_retirement_refused']);
+                    const trace = (window as unknown as { __NATIVE_BROWSER_TRACE__?: Array<Record<string, unknown>> }).__NATIVE_BROWSER_TRACE__ ?? [];
+                    return trace.filter((e) => typeof e.t === 'number' && e.t >= from && keep.has(String(e.event)))
+                        .map((e) => [e.event, e.mode, e.pointCount, e.reason, e.published].filter((v) => v !== undefined && v !== null).join(':')).join('|');
+                }, switchTraceFrom).catch(() => 'trace-read-failed');
+                const railAfter = await readRailRows(page, points);
+                const newSetVisibleAfterSwitch = await page.getByTestId('focus-points-new-set').isVisible().catch(() => false);
                 const savedFocus = focusId && focusId !== openMicId ? await sessionRow(focusId) : unavailable('missing');
-                const savedProduct = savedFocus.state === 'available' && savedFocus.sessionId === focusId && savedFocus.userId === owner.uid ? savedFocus.product : null;
+                // #1897 Codex P2 (eeab028): a saving-off Focus take is a metrics-only row; accept it only when saving is off, for
+                // this exact take and owner. Saving on still needs a saved transcript.
+                const savedProduct = switchSavedFocusProduct({ saved: savedFocus, focusId: focusId && focusId !== openMicId ? focusId : null,
+                    ownerId: owner.uid, transcriptSaving: switchSavingOff ? 'off' : 'on' });
                 const openMicAfter = openMicId && openMicId !== before ? await sessionRow(openMicId) : unavailable('missing');
                 const iso = switchIsolationVerdict({
                     railPendingBefore, openMicId: openMicId !== before ? openMicId : null, focusId: focusId !== openMicId ? focusId : null,
-                    savedProduct, finalStatuses, staleCoachingBeforeStart, markerSupport,
+                    savedProduct, finalStatuses, railRowCount, staleCoachingBeforeStart, markerSupport,
                     openMicBefore, openMicAfter, ownerId: owner.uid,
+                    // #1835: saving off replaces the transcript assertions with metrics-only checks; a pre-#1835 build always saved.
+                    transcriptSaving: consent.choice && !consent.choice.transcriptSave ? 'off' : 'on',
                 });
+                // #1897 review 5 (Sam): saving off keeps "stayed metrics-only" and "carry-over tested" as separate verdicts.
+                if (switchSavingOff) {
+                    const parts = switchSaveOffVerdicts({ openMicBefore, openMicAfter, markerSupport });
+                    receipt.row(SWITCH_METRICS_ONLY_ROW, parts.metricsOnly.verdict, parts.metricsOnly.detail,
+                        { openMicStateBefore: openMicBefore.state ?? 'unknown', openMicStateAfter: openMicAfter.state ?? 'unknown' });
+                    receipt.row(SWITCH_CARRY_OVER_TESTED_ROW, parts.carryOverTested.verdict, parts.carryOverTested.detail,
+                        { markerSource: 'completing_page', markersRead: pageMarkers !== null, markerSupport: markerSupport.join(',') });
+                }
                 receipt.row('take after switching products is clean', iso.verdict, iso.detail, {
-                    railPendingBefore, shortTakeSeconds, final: finalStatuses.join(','), staleCoachingBeforeStart, markerSupport: markerSupport.join(','),
+                    railPendingBefore, shortTakeSeconds, pressToLiveMs: switchTake.timing.pressToLiveMs, liveSecondsAtStop: switchTake.timing.liveSecondsAtStop,
+                    liveTiming: switchTake.timing.reason, holdEnded: switchHold.ended, stopPressed: switchStop.pressed, switchOutcome: switchOutcome.kind,
+                    railRowCount, final: finalStatuses.join(','), staleCoachingBeforeStart, markerSupport: markerSupport.join(','),
+                    markerSource: switchSavingOff ? 'completing_page' : 'saved_transcript',
+                    transcriptSaving: consent.choice && !consent.choice.transcriptSave ? 'off' : 'on', openMicState: openMicBefore.state ?? 'unknown',
                     openMicSaved: Boolean(openMicId && openMicId !== before), openMicUnchanged: openMicBefore.digest !== null && openMicBefore.digest === openMicAfter.digest,
                     openMicRetentionState: openMicAfter.state ?? 'unknown',
                     openMicExpiredAfterWitness: iso.verdict === 'PASS' && openMicAfter.state === 'expired',
+                    railRowsBeforeStart: railBeforeStart.rows, railExactFourPointsBeforeStart: railBeforeStart.exactFourPoints,
+                    afterRailRows: railAfter.rows, railExactFourPointsAfter: railAfter.exactFourPoints, newSetVisibleAfterSwitch, switchTrace: switchTrace ?? 'not-armed',
                 });
+                // Read again at the end of the step, so an objective row written late for the Open Mic take is still seen.
+                if (savedOpenMicId) openMicObjectiveRowReads.push(await objectiveRowsFor(savedOpenMicId));
+                const kept = openMicIsolationVerdict({
+                    openMicId: savedOpenMicId, openMicProduct: openMicBefore.product, objectiveRowReads: openMicObjectiveRowReads,
+                    firstBefore: firstFocusBefore, firstAfter: firstFocusAfter,
+                });
+                receipt.row(OPEN_MIC_ISOLATION_ROW, kept.verdict, kept.detail, kept.evidence);
             });
 
             // ── #1258 (Browser PM 6087216991, option B) — Start a new set, Edit it, and the next take is scored on the edit ──
@@ -826,6 +1368,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                         : 'no saved Focus take after the product switch, so no completed review offers Start a new set';
                     receipt.row('Focus New Set', 'HOLD', why);
                     receipt.row('Focus Edit', 'HOLD', why);
+                    receipt.row(FOCUS_EDIT_CANCEL_ROW, 'HOLD', why);
                     return;
                 }
                 // Browser PM 6089313104: an infrastructure read failure is never turned into a product verdict.
@@ -880,7 +1423,21 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 let editSeeded = false;
                 let railLabelsMatchEdit = false;
                 let takeBId: string | null = null;
+                let editedStopPressed: boolean | null = null;
                 let railOrdered: Array<{ label: string; status: RailStatus | null }> = [];
+                // AHT-02 focus-edit-cancel-save (review fix 6): the cancel half of Edit. Nothing here presses Start or requests coaching.
+                const cancel: EditCancelObservation = { editOpened: false, editSeeded: false, changeTyped: false, focusedInDialog: false,
+                    closed: false, railKept: null, reopened: false, preserved: false, briefBefore: null, briefAfter: null };
+                // The newest saved brief and its point labels, compared in Node only; a failed read is 'error', never a verdict.
+                const newestBrief = async (): Promise<BriefSnapshot> => {
+                    const { data: b, error: bErr } = await admin!.from('objective_brief').select('id').eq('user_id', owner.uid)
+                        .order('created_at', { ascending: false }).limit(1).maybeSingle();
+                    if (bErr) return 'error';
+                    if (!b) return null;
+                    const { data: bp, error: bpErr } = await admin!.from('objective_brief_point').select('label,sort_order').eq('brief_id', b.id).eq('user_id', owner.uid);
+                    if (bpErr) return 'error';
+                    return { id: b.id as string, labels: [...(bp ?? [])].sort((x, y) => (x.sort_order as number) - (y.sort_order as number)).map((p) => p.label as string) };
+                };
                 if (newSetBlank) {
                     await page.getByTestId('objective-goal-select').selectOption('other');
                     await page.getByTestId('objective-goal-input').fill(topic);
@@ -893,33 +1450,75 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
 
                     // Edit before the take opens the setup seeded with the new set; replace the unspoken point.
                     const edit = page.getByTestId('focus-points-edit');
+                    const dialog = page.getByTestId('objective-setup-dialog');
+                    const label2 = page.getByTestId('objective-point-label-2');
                     if (await edit.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false)) {
                         await edit.click();
-                        await page.getByTestId('objective-setup-dialog').waitFor({ state: 'visible', timeout: 30_000 }).catch(() => undefined);
-                        editSeeded = (await page.getByTestId('objective-point-label-2').inputValue().catch(() => '')) === unspoken;
-                        await page.getByTestId('objective-point-label-2').fill(edited[2]);
-                        await page.getByTestId('objective-setup-submit').click();
-                        await page.getByTestId('objective-setup-dialog').waitFor({ state: 'hidden', timeout: 30_000 }).catch(() => undefined);
-                        const labels = await Promise.all(edited.map((_, i) => page.getByTestId(`focus-point-${i}`).innerText().catch(() => '')));
-                        railLabelsMatchEdit = labels.every((text, i) => text.includes(edited[i])) && !(await page.getByTestId('focus-points-rail').innerText()).includes(unspoken);
+                        cancel.editOpened = await dialog.waitFor({ state: 'visible', timeout: 30_000 }).then(() => true).catch(() => false);
+                        editSeeded = (await label2.inputValue().catch(() => '')) === unspoken;
+                        cancel.editSeeded = editSeeded;
+                        // Cancel probe (harness focus-controls.cjs `cancelPreserved`): type the change, Escape, reopen Edit.
+                        if (cancel.editOpened && editSeeded) {
+                            cancel.briefBefore = await newestBrief();
+                            await label2.fill(edited[2]).catch(() => undefined);
+                            cancel.changeTyped = (await label2.inputValue().catch(() => '')) === edited[2];
+                            // Same delivery as the harness closeFocus: Escape only once focus is inside the dialog.
+                            cancel.focusedInDialog = await page.waitForFunction(
+                                () => document.querySelector('[data-testid="objective-setup-dialog"]')?.contains(document.activeElement) ?? false,
+                                undefined, { timeout: 15_000 }).then(() => true).catch(() => false);
+                            if (cancel.changeTyped && cancel.focusedInDialog) {
+                                await page.keyboard.press('Escape');
+                                cancel.closed = await dialog.waitFor({ state: 'hidden', timeout: 10_000 }).then(() => true).catch(() => false);
+                            }
+                            if (cancel.closed) {
+                                const railPoint = await page.getByTestId('focus-point-2').innerText().catch(() => null);
+                                cancel.railKept = railPoint === null ? null : railPoint.includes(unspoken) && !railPoint.includes(edited[2]);
+                                cancel.briefAfter = await newestBrief();
+                                if (await edit.waitFor({ state: 'visible', timeout: 15_000 }).then(() => true).catch(() => false)) {
+                                    await edit.click();
+                                    cancel.reopened = await dialog.waitFor({ state: 'visible', timeout: 30_000 }).then(() => true).catch(() => false);
+                                    cancel.preserved = cancel.reopened && (await label2.inputValue().catch(() => '')) === unspoken;
+                                }
+                            }
+                        }
+                        // The Save half, unchanged: only from an open Edit dialog (an unopened one leaves railLabelsMatchEdit false).
+                        if (await dialog.isVisible().catch(() => false)) {
+                            await label2.fill(edited[2]);
+                            await page.getByTestId('objective-setup-submit').click();
+                            await dialog.waitFor({ state: 'hidden', timeout: 30_000 }).catch(() => undefined);
+                            const labels = await Promise.all(edited.map((_, i) => page.getByTestId(`focus-point-${i}`).innerText().catch(() => '')));
+                            railLabelsMatchEdit = labels.every((text, i) => text.includes(edited[i])) && !(await page.getByTestId('focus-points-rail').innerText()).includes(unspoken);
+                        }
                     }
 
                     // The next take, on the deployed engine with the same spoken fixture, is scored on the EDITED set.
                     if (railLabelsMatchEdit) {
+                        // #1882: held from capture live (measured), not from the click; bound to its own Stop and saved row.
+                        const editedMonitor = await armTakeMonitor(page, `${suite}-edited`);
+                        const editedPressedAt = Date.now();
                         await startBenchmarkRecording(page, `${suite}-edited`);
-                        await page.waitForTimeout(Math.round((fixture.entry.speechSeconds + 10) * 1000));
-                        await stopBenchmarkRecording(page, `${suite}-edited`, 180_000);
-                        await waitForBenchmarkSaveCandidate(page, `${suite}-edited`, 180_000);
+                        const editedHold = await holdMeasuredLiveTake(page, editedMonitor, fixture.entry.speechSeconds + 10, { nodePressedAt: editedPressedAt });
+                        // #1897 review 2 (Sam): no Stop after a hold that reports a drop or a replacement; otherwise one atomic
+                        // check-and-click in the page, bound to this take (f2bb1ae HOLD).
+                        const editedStop = await stopMeasuredTake(page, editedMonitor, editedHold,
+                            () => confirmBenchmarkStopped(page, `${suite}-edited`, 180_000));
+                        editedStopPressed = editedStop.pressed;
+                        const editedOutcome: TakeOutcome = editedStop.pressed ? await awaitTakeOutcome(page, editedMonitor.token, 180_000) : { kind: 'unsettled' };
+                        if (editedStop.pressed && editedOutcome.kind !== 'too_short') await waitForBenchmarkSaveCandidate(page, `${suite}-edited`, 180_000);
                         // Bound to its IMMEDIATE predecessor, the switch take whose review offered New Set.
-                        takeBId = await waitForNewPersistedSession(page, predecessor);
-                        await expect.poll(async () => (await readRail(page, edited.length)).statuses.every((s) => s !== 'pending'), { timeout: 60_000 })
-                            .toBe(true).catch(() => undefined);
+                        takeBId = !editedStop.pressed || editedOutcome.kind === 'too_short' ? null : await waitForNewPersistedSession(page, predecessor);
+                        await measuredTakeRows('Focus edited take', editedMonitor, fixture.entry.speechSeconds + 10, editedPressedAt,
+                            takeBId && takeBId !== predecessor ? takeBId : null);
+                        // #1882: settled only with the edited set's actual rows on screen, none pending; an empty rail is never settled.
+                        await expect.poll(async () => railSettled(await readRailRowCount(page), (await readRail(page, edited.length)).statuses, edited.length),
+                            { timeout: 60_000 }).toBe(true).catch(() => undefined);
                         const statuses = (await readRail(page, edited.length)).statuses;
                         railOrdered = await Promise.all(statuses.map(async (status, i) => ({
                             label: await page.getByTestId(`focus-point-${i}`).innerText().catch(() => ''), status,
                         })));
                     }
                 }
+                editedTakeId = takeBId && takeBId !== predecessor && takeBId !== persistedId ? takeBId : null;
                 const takeB = takeBId && takeBId !== predecessor && takeBId !== persistedId ? await savedFocus(takeBId) : { verdicts: [], brief: null, ordered: [] };
                 const takeAAfter = await savedFocus(persistedId);
                 const v = newSetEditVerdicts({
@@ -927,9 +1526,11 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     takeAVerdictsBefore: takeA.verdicts, takeAVerdictsAfter: takeAAfter.verdicts,
                     editedLabels: edited, railOrdered, takeBSavedOrdered: takeB.ordered,
                 });
-                const evidence = { onPredecessorReview, offered, newSetBlank, editSeeded, railLabelsMatchEdit, takeBSaved: takeBId !== null && takeBId !== predecessor && takeBId !== persistedId, final: railOrdered.map((r) => r.status).join(','), savedVerdicts: takeB.ordered.map((r) => r.verdict).join(',') };
+                const evidence = { onPredecessorReview, offered, newSetBlank, editSeeded, railLabelsMatchEdit, editedStopPressed, takeBSaved: takeBId !== null && takeBId !== predecessor && takeBId !== persistedId, final: railOrdered.map((r) => r.status).join(','), savedVerdicts: takeB.ordered.map((r) => r.verdict).join(',') };
                 receipt.row('Focus New Set', v.newSet.verdict, v.newSet.detail, evidence);
                 receipt.row('Focus Edit', v.edit.verdict, v.edit.detail, evidence);
+                const cancelRow = editCancelVerdict(cancel);
+                receipt.row(FOCUS_EDIT_CANCEL_ROW, cancelRow.verdict, cancelRow.detail, cancelRow.evidence);
             });
         }
     } finally {

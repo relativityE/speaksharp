@@ -103,7 +103,8 @@ case $STAGE in
             # Local/debug runs keep their existing reporter and earn no CI receipt.
             REPORTERS=blob
             if [ "${GITHUB_ACTIONS:-}" = true ] && [ "${GITHUB_JOB:-}" = e2e ]; then
-                REPORTERS=blob,./scripts/efficacy-playwright-reporter.mjs
+                # Keep named progress/failures in the job log even if the guarded blob is rejected.
+                REPORTERS=blob,./scripts/efficacy-playwright-reporter.mjs,line
             fi
             pnpm exec playwright test --project=full-suite --no-deps --shard="${SHARD}/4" --reporter="$REPORTERS" --output=test-results/playwright
         else

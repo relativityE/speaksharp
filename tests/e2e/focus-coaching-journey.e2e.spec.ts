@@ -54,7 +54,7 @@ async function recordAndSave(page: Page, transcript: string) {
 test.describe('RWT item 4 — Focus-aware coaching through the rendered review', () => {
   test('Focus Points: coaching waits for saved point results without an error, then the pair renders; the request is focus_points', async ({ page }) => {
     test.setTimeout(120_000);
-    await programmaticLoginWithRoutes(page, { userType: 'pro' });
+    await programmaticLoginWithRoutes(page, { userType: 'pro', practicePrivacy: { transcriptSave: true, aiCoaching: true } });
     await navigateToRoute(page, '/practice');
     await page.getByTestId('practice-card-objective').click();
     await expect(page.getByTestId('objective-setup-dialog')).toBeVisible();
@@ -78,7 +78,7 @@ test.describe('RWT item 4 — Focus-aware coaching through the rendered review',
 
     // PO6175213749: disclose the authoritative saved Focus inputs and relevant measurements.
     await expect(page.getByTestId('ai-suggestions-disclosure')).toHaveText(
-      "Sends this session's transcript, saved Focus Points topic, points and results, and relevant speaking measurements to the AI service provider to create AI coaching. Audio is never sent.",
+      "Your transcript is sent to an AI service for coaching. Your Focus Points topic, points and results and relevant speaking measurements go with it; audio is never sent. Who provides it",
     );
 
     // REQUEST: two refusals + one answer, each for this saved session, each Focus Points.
@@ -99,7 +99,7 @@ test.describe('RWT item 4 — Focus-aware coaching through the rendered review',
 
   test('Open Mic control: the same card asks as open_mic and renders the pair on the first answer', async ({ page }) => {
     test.setTimeout(120_000);
-    await programmaticLoginWithRoutes(page, { userType: 'pro' });
+    await programmaticLoginWithRoutes(page, { userType: 'pro', practicePrivacy: { transcriptSave: true, aiCoaching: true } });
     await navigateToRoute(page, '/session');
     await enableCoaching(page, 0, 'gemini_coaching_v1');
     await recordAndSave(page, 'Today I will explain the plan in three clear steps for the team.');
@@ -110,7 +110,21 @@ test.describe('RWT item 4 — Focus-aware coaching through the rendered review',
     expect(sent[0].body?.accepted_coaching_versions).toEqual(['gemini_coaching_v1', 'gemini_coaching_focus_v1']);
     // Open Mic also sends finalized filler counts and pace; audio is not sent.
     await expect(page.getByTestId('ai-suggestions-disclosure')).toHaveText(
-      "Sends this session's transcript and speaking measurements (filler counts and pace) to the AI service provider to create AI coaching. Audio is never sent.",
+      "Your transcript is sent to an AI service for coaching. Your filler counts and pace go with it; audio is never sent. Who provides it",
     );
+  });
+
+  test('Open Mic without a recorded privacy choice saves the take but requests no coaching', async ({ page }) => {
+    test.setTimeout(120_000);
+    await programmaticLoginWithRoutes(page, { userType: 'pro' });
+    await navigateToRoute(page, '/practice');
+    await expect(page.getByTestId('practice-privacy-prompt')).toBeVisible();
+    await navigateToRoute(page, '/session');
+    // Keep the provider available and observable; a client that ignores consent would contact it.
+    await enableCoaching(page, 0, 'gemini_coaching_v1');
+    await recordAndSave(page, 'Today I will explain the plan in three clear steps for the team.');
+    await expect(page.getByTestId('ai-suggestions-coaching-off')).toHaveAttribute('data-coaching-off', 'save_off');
+    await expect(page.getByTestId('ai-suggestions-pair')).toHaveCount(0);
+    expect(await requests(page)).toEqual([]);
   });
 });

@@ -61,7 +61,8 @@ const acknowledged = (page: Page) => page.locator('li[data-sonner-toast]').filte
 test.describe('#1258 MOCKED — coaching failure → Share Feedback journey', () => {
     test.beforeEach(async ({ page }) => {
         await installFeedbackDiagnosticsBoundary(page);
-        await programmaticLoginWithRoutes(page, { userType: 'pro' });
+        // Every scenario in this suite scripts a coaching response for the take; enable both choices for this owner.
+        await programmaticLoginWithRoutes(page, { userType: 'pro', practicePrivacy: { transcriptSave: true, aiCoaching: true } });
         await navigateToRoute(page, '/session');
     });
 

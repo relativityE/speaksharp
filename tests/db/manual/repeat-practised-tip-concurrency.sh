@@ -16,7 +16,7 @@ B=aaaaaaaa-0000-4000-8000-00000000000b
 C=aaaaaaaa-0000-4000-8000-00000000000c
 TIP='Pause before you name the price.'
 REVIEW="{\"version\":\"gemini_coaching_v1\",\"what_worked\":\"The opening was concrete.\",\"what_to_try_next\":\"$TIP\"}"
-MIGRATION="${MIGRATION:-$M/20261112010000_repeat_practised_tip.sql}"
+MIGRATION="${MIGRATION:-$M/20261119120000_repeat_practised_tip.sql}"
 fail=0
 
 q() { PGOPTIONS="-c client_min_messages=warning" psql -X -q -v ON_ERROR_STOP=1 -d "$DB" "$@"; }

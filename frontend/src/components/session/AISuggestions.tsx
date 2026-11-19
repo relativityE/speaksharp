@@ -15,7 +15,8 @@ import {
 import { PracticeLoopReviewPair } from '@/components/review/PracticeLoopReviewPair';
 import { loadSavedSessionReview } from '@/services/review/savedSessionReview';
 import { deriveReviewState } from './reviewState';
-import { COACHING_ERROR_SESSION_ASSURANCE, FOCUS_POINTS_DISCLOSURE, OPEN_MIC_DISCLOSURE, UNAVAILABLE_MESSAGE } from './reviewCopy';
+import { COACHING_ERROR_SESSION_ASSURANCE, UNAVAILABLE_MESSAGE } from './reviewCopy';
+import { CoachingDisclosure } from './CoachingDisclosure';
 import { createCoachingDiagnosticId, rememberCoachingDiagnostic } from '@/services/coachingDiagnosticLink';
 import { savedTakeAttempt } from '@/services/telemetry/savedTakeTarget';
 import {
@@ -23,6 +24,10 @@ import {
   type AiCoachingDiagnosticTelemetry, type CoachingLifecycleEndReason, type CoachingLifecycleOrigin, type CoachingLifecycleStage,
 } from '@/services/practiceLoopTelemetry';
 import { coachingErrorMessage, providerCodeFields } from '@/services/telemetry/providerCodes';
+import {
+  captureCoachingConsent, coachingAllowed, coachingConsentStillHolds, loadPracticePrivacy, transcriptSaveAllowed,
+  usePracticePrivacyStore,
+} from '@/services/practicePrivacy';
 
 /**
  * #1538 (Codex P1 r4117321439): exactly two accepted versions — `gemini_coaching_focus_v1` marks a pair generated from
@@ -201,6 +206,23 @@ const diagnosticEvent = (
  */
 /** #1473 — the ONLY closed code the edge function may send, and the only one this client acts on. */
 const SERVICE_CONFIGURATION_CODE = 'service_configuration';
+/**
+ * #1835 — the coaching function's consent refusals: `consent_required` (403) when the owner's own choice does not allow
+ * a new review, `consent_unavailable` (503) when the choice could not be read. Both are sent before any provider call.
+ */
+const CONSENT_REQUIRED_CODE = 'consent_required';
+const CONSENT_UNAVAILABLE_CODE = 'consent_unavailable';
+type ClosedFailureCode = typeof SERVICE_CONFIGURATION_CODE | typeof CONSENT_REQUIRED_CODE | typeof CONSENT_UNAVAILABLE_CODE;
+const CLOSED_FAILURE_CODES: ReadonlySet<string> = new Set<ClosedFailureCode>([
+  SERVICE_CONFIGURATION_CODE, CONSENT_REQUIRED_CODE, CONSENT_UNAVAILABLE_CODE,
+]);
+
+/** #1835 — the S4/S5 band copy, and the band shown when a review is dropped because coaching was turned off. */
+export const COACHING_OFF_SAVE_OFF = 'AI coaching is off because transcripts aren\u2019t being saved.';
+export const COACHING_OFF_SAVE_ON = 'AI coaching is off. Your session and transcript are saved.';
+export const COACHING_STOPPED = 'Coaching stopped. This review isn\u2019t shown because AI coaching was turned off.';
+export const CONSENT_REQUIRED_MESSAGE = 'AI coaching is off, so no review was requested. Your session is saved.';
+export const CONSENT_UNAVAILABLE_MESSAGE = 'Your privacy choices couldn\u2019t be checked, so no review was requested. Your session is saved.';
 
 /**
  * Read the allowlisted closed code and validated catalog verdict from one defensive body clone.
@@ -210,7 +232,7 @@ const SERVICE_CONFIGURATION_CODE = 'service_configuration';
  * The provider body/error prose is never returned, and catalog display adds no extra body read.
  */
 const readClosedFailure = async (err: unknown): Promise<{
-  code: typeof SERVICE_CONFIGURATION_CODE | null; coachingMessage: string | null;
+  code: ClosedFailureCode | null; coachingMessage: string | null;
 }> => {
   const empty = { code: null, coachingMessage: null };
   const ctx = (err as { context?: unknown } | null)?.context as { clone?: unknown } | undefined;
@@ -221,7 +243,7 @@ const readClosedFailure = async (err: unknown): Promise<{
     const payload = body as Record<string, unknown>;
     const diagnostic = payload.diagnostics;
     return {
-      code: payload.code === SERVICE_CONFIGURATION_CODE ? SERVICE_CONFIGURATION_CODE : null,
+      code: typeof payload.code === 'string' && CLOSED_FAILURE_CODES.has(payload.code) ? payload.code as ClosedFailureCode : null,
       coachingMessage: diagnostic && typeof diagnostic === 'object' && !Array.isArray(diagnostic)
         ? coachingErrorMessage(diagnostic as Record<string, unknown>, payload.code, errorStatus(err)) : null,
     };
@@ -277,7 +299,7 @@ export const AI_REVIEW_AUTO_RETRY_BACKOFF_MS = 2500;
 
 const getSafeAiSuggestionError = (
   err: unknown,
-  closedCode: typeof SERVICE_CONFIGURATION_CODE | null = null,
+  closedCode: ClosedFailureCode | null = null,
   coachingMessage: string | null = null,
 ): SafeSuggestionError => {
   if (isTransportFailure(err) && errorStatus(err) === null) {
@@ -290,6 +312,15 @@ const getSafeAiSuggestionError = (
       reason: 'service_configuration',
       message: "Review isn't available for this session. Your session is saved.",
     };
+  }
+
+  // #1835 — consent refusals, each honoured only on the status the edge function sends it with. `consent_required` is
+  // terminal (a press cannot change the owner's choice); `consent_unavailable` keeps the manual Try again.
+  if (closedCode === CONSENT_REQUIRED_CODE && errorStatus(err) === 403) {
+    return { reason: 'access_denied', message: CONSENT_REQUIRED_MESSAGE };
+  }
+  if (closedCode === CONSENT_UNAVAILABLE_CODE && errorStatus(err) === 503) {
+    return { reason: 'unavailable', message: CONSENT_UNAVAILABLE_MESSAGE };
   }
 
   switch (errorStatus(err)) {
@@ -396,6 +427,16 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
   const visibleReviewRef = useRef({ sessionId, suggestions });
   visibleReviewRef.current = { sessionId, suggestions };
   const reviewReady = Boolean(sessionId && (canReview ?? Boolean(transcript.trim())));
+  // #1835 — the owner's own practice privacy choice. Until it is read nothing is requested (the band stays "on its way");
+  // once read, a choice that does not allow coaching shows the S4/S5 band and never requests. A review already saved for
+  // this session (`initialSuggestions`) is still shown: turning coaching off stops future use, it does not hide the past.
+  const privacy = usePracticePrivacyStore();
+  const privacySettled = privacy.status !== 'loading';
+  const coachingOn = coachingAllowed(privacy);
+  const coachingOff = privacySettled && !coachingOn;
+  const saveOn = transcriptSaveAllowed(privacy);
+  // A request this component made whose answer arrived after coaching was turned off (or the choice changed): not shown.
+  const [revokedFor, setRevokedFor] = useState<string | null>(null);
   const reviewCardRef = useRef<HTMLDivElement>(null);
   const renderedReceiptRef = useRef<string | null>(null);
   /** #1593 — the request lifecycle in flight, and the one whose review is the one on screen (for ready/rendered). */
@@ -636,14 +677,20 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
 
   const fetchSuggestions = useCallback(async () => {
     if (!reviewReady || !sessionId) return;
+    // #1835 — no fresh request unless THIS owner's recorded choice allows coaching now. The token is checked again before
+    // every attempt and before a result is shown, so a turn-off while the request runs drops its answer.
+    const consent = captureCoachingConsent();
+    if (!consent) return;
     const requestSessionId = sessionId;
+    setRevokedFor(null);
     const requestGeneration = requestGenerationRef.current + 1;
     requestGenerationRef.current = requestGeneration;
     if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
     const isCurrentRequest = () =>
       mountedRef.current
       && activeSessionRef.current === requestSessionId
-      && requestGenerationRef.current === requestGeneration;
+      && requestGenerationRef.current === requestGeneration
+      && usePracticePrivacyStore.getState().ownerId === consent.ownerId;
 
     const diagnosticRequestId = createCoachingDiagnosticId();
     if (diagnosticRequestId) rememberCoachingDiagnostic(requestSessionId, diagnosticRequestId);
@@ -686,6 +733,15 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
       lifecycle.waitingRetry = false;
       // A route exit before this attempt starts sends nothing new.
       if (!mountedRef.current) { endLifecycle(lifecycle, lifecycle.retiredAs ?? 'unmounted'); return; }
+      // #1835 — a turn-off (or another owner) before this attempt starts sends nothing new.
+      if (!coachingConsentStillHolds(consent)) {
+        endLifecycle(lifecycle, 'superseded_request');
+        if (isCurrentRequest()) {
+          setView({ sessionId: requestSessionId, suggestions: null, isLoading: false, error: null, retrying: false });
+          setRevokedFor(requestSessionId);
+        }
+        return;
+      }
       lifecycle.abort = typeof AbortController === 'undefined' ? null : new AbortController();
       lifecycleStage(lifecycle, 'requested');
       // Not an abort: if the invoke has not settled within the client allowance the lifecycle ends `timeout`, and a late
@@ -737,6 +793,19 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
 
         const persistedSuggestions = parseAISuggestions(data?.suggestions, product);
         lifecycleStage(lifecycle, 'response_parsed', { parseValid: Boolean(persistedSuggestions) });
+        // #1835 — a late answer after a turn-off (or a re-recorded choice, or another owner) is dropped, not shown.
+        if (persistedSuggestions && !coachingConsentStillHolds(consent)) {
+          trackAiCoachingDiagnostic(diagnosticEvent(serverDiagnostic, {
+            requestId: diagnosticRequestId, attemptId: diagnosticAttemptId, clientAttempt: attempt,
+            outcome: 'superseded', reason: 'unavailable', totalMs: performance.now() - attemptStartedAt, product,
+          }));
+          endLifecycle(lifecycle, isCurrentRequest() ? 'superseded_request' : notCurrentReason());
+          if (isCurrentRequest()) {
+            setView({ sessionId: requestSessionId, suggestions: null, isLoading: false, error: null, retrying: false });
+            setRevokedFor(requestSessionId);
+          }
+          return;
+        }
         if (persistedSuggestions) {
           trackAiCoachingDiagnostic(diagnosticEvent(serverDiagnostic, {
             requestId: diagnosticRequestId, attemptId: diagnosticAttemptId, clientAttempt: attempt,
@@ -786,6 +855,12 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
         logger.error({ err }, "Error fetching AI suggestions:");
         const closedFailure = await readClosedFailure(err);
         failure = getSafeAiSuggestionError(err, closedFailure.code, closedFailure.coachingMessage);
+        // Decoding can outlive this request or account. Only the current request's still-current
+        // consent may trigger a refresh; loadPracticePrivacy also switches owners for AuthProvider.
+        if (closedFailure.code === CONSENT_REQUIRED_CODE && errorStatus(err) === 403
+          && isCurrentRequest() && coachingConsentStillHolds(consent)) {
+          void loadPracticePrivacy(consent.ownerId);
+        }
       }
 
       if (!isCurrentRequest()) {
@@ -831,9 +906,13 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
     // A session that already carries a stored review needs no request at all.
     if (suggestions) { autoRequestedRef.current = sessionId; return; }
     if (isLoading || error) return;
+    // #1835 — automatic coaching waits for this owner's choice to be read, and is paused when it does not allow coaching.
+    // A take reviewed with coaching off is not requested later on its own if coaching is turned on afterwards.
+    if (!privacySettled) return;
     autoRequestedRef.current = sessionId;
+    if (!coachingOn) return;
     void fetchSuggestions();
-  }, [reviewReady, sessionId, suggestions, isLoading, error, fetchSuggestions]);
+  }, [reviewReady, sessionId, suggestions, isLoading, error, fetchSuggestions, privacySettled, coachingOn]);
 
   /**
    * #1422 — ONE SETTLED/UNSETTLED SIGNAL, published where the journey can read it.
@@ -888,11 +967,16 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
    * what actually happened, in product language — the raw provider prose never reaches the user — and a
    * manual Try again is offered only where a press could change the answer (NO_MANUAL_RETRY_REASONS).
    */
-  const inFlight = isLoading || retrying;
+  // #1835 — a turn-off makes this the coaching-off band at once, even mid-request; the request's answer is dropped.
+  const revoked = revokedFor === sessionId || (coachingOff && (isLoading || retrying));
+  const inFlight = (isLoading || retrying) && !revoked;
   const terminal = Boolean(error) && !retrying && !isLoading;
   const stillComing = inFlight || terminal;
   const failureReason = failureReasonFor && failureReasonFor.sessionId === sessionId ? failureReasonFor.reason : null;
-  const manualRetryOffered = terminal && reviewReady && failureReason !== null && !NO_MANUAL_RETRY_REASONS.has(failureReason);
+  const manualRetryOffered = terminal && reviewReady && coachingOn && failureReason !== null
+    && !NO_MANUAL_RETRY_REASONS.has(failureReason);
+  // #1835 — the S4/S5 band replaces the "on its way" and not-ready lines when the owner's choice does not allow coaching.
+  const offBand = !suggestions && (revoked || (coachingOff && !terminal));
 
   return (
     <div
@@ -941,7 +1025,24 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
       {/* #1258 punch list D3 (PM disposition 6045315752): the in-flight band uses existing approved copy and no counts
           panel — the THIS RUN card already shows them. "Session saved." is stated only once the saved session is
           reviewable; nothing here promises that a result will necessarily arrive. */}
-      {stillComing && inFlight && (
+      {offBand && (
+        <div data-testid="ai-suggestions-coaching-off" data-coaching-off={revoked ? 'stopped' : saveOn ? 'ai_off' : 'save_off'}>
+          <p className="max-w-[560px] text-[17px] font-bold leading-snug text-ink-text" data-testid="ai-suggestions-headline">
+            {revoked ? COACHING_STOPPED : saveOn ? COACHING_OFF_SAVE_ON : COACHING_OFF_SAVE_OFF}
+          </p>
+          {!revoked && (
+            <a
+              href="/account#privacy-data"
+              className="mt-3.5 inline-flex min-h-[44px] items-center rounded-lg border border-ink-hairline px-4 text-[14px] font-extrabold text-ink-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signature focus-visible:ring-offset-2 focus-visible:ring-offset-ink"
+              data-testid="ai-suggestions-privacy-link"
+            >
+              {saveOn ? 'Turn on AI coaching' : 'Change in Privacy & data'}
+            </a>
+          )}
+        </div>
+      )}
+
+      {!offBand && stillComing && inFlight && (
         <div data-testid="ai-suggestions-still-coming">
           <p className="max-w-[560px] text-[17px] font-bold leading-snug text-ink-text" data-testid="ai-suggestions-headline">
             Your review is on its way.
@@ -966,7 +1067,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
 
       {/* #1258 punch list D3 (Rev 2 §2.2): one message, a real Try again, the disclosure directly under it, and no
           counts panel (the THIS RUN card already shows them). A terminal reason gets the message alone. */}
-      {stillComing && !inFlight && (
+      {!offBand && stillComing && !inFlight && (
         <div data-testid="ai-suggestions-still-coming">
           <p className="max-w-[560px] text-[17px] font-bold leading-snug text-ink-text" data-testid="ai-suggestions-headline">
             {error}
@@ -983,7 +1084,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
             </button>
           )}
           <p className="mt-2 text-[12px] font-semibold text-ink-muted" data-testid="ai-suggestions-disclosure">
-            {product === 'focus_points' ? FOCUS_POINTS_DISCLOSURE : OPEN_MIC_DISCLOSURE}
+            <CoachingDisclosure product={product} />
           </p>
         </div>
       )}
@@ -998,7 +1099,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
         />
       )}
 
-      {!stillComing && !suggestions && !reviewReady && (
+      {!offBand && !stillComing && !suggestions && !reviewReady && (
         <p className="text-[15px] font-semibold text-ink-muted" data-testid={blockedReason ? 'practice-loop-review-blocked' : 'practice-loop-review-not-ready'}>
           {blockedReason ? blockedReason : sessionId
             ? 'A review needs a completed session with a saved transcript.'
@@ -1006,7 +1107,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
         </p>
       )}
 
-      {!stillComing && !suggestions && reviewReady && (
+      {!offBand && !stillComing && !suggestions && reviewReady && (
         <p className="text-[15px] font-semibold text-ink-muted" data-testid="ai-suggestions-idle">
           Your review is on its way.
         </p>
@@ -1017,12 +1118,13 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
         are prefilled), so the user can see which saved session inputs go to the provider.
 
         #1416 P2-4 — THIS MATTERS MORE NOW THAT THE SEND IS AUTOMATIC. A user must not learn their
-        session inputs went to the AI service provider from text attached to a button they never touched, so it sits in the card
+        session inputs went to the AI service from text attached to a button they never touched, so it sits in the card
         body, in the same region as the review and its progress state. It is a statement, not a gate.
       */}
-      {!(stillComing && !inFlight) && (
+      {/* #1835 — the disclosure says the transcript IS sent, so it never renders while coaching is off. */}
+      {!offBand && !(stillComing && !inFlight) && (coachingOn || Boolean(suggestions)) && (
         <p className="mt-4 text-[12px] font-medium text-ink-muted" data-testid="ai-suggestions-disclosure">
-          {product === 'focus_points' ? FOCUS_POINTS_DISCLOSURE : OPEN_MIC_DISCLOSURE}
+          <CoachingDisclosure product={product} />
         </p>
       )}
     </div>

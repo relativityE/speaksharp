@@ -15,7 +15,7 @@ const MIGRATIONS = [
     'backend/supabase/migrations/20260731120000_session_progress_evaluations.sql',
     'backend/supabase/migrations/20260731130000_progress_recommendations.sql',
     'backend/supabase/migrations/20260810120000_retention_purge_ai_suggestions.sql',
-    'backend/supabase/migrations/20261112010000_repeat_practised_tip.sql',
+    'backend/supabase/migrations/20261119120000_repeat_practised_tip.sql',
 ].map(read);
 
 const USER = '11111111-1111-4111-8111-111111111111';

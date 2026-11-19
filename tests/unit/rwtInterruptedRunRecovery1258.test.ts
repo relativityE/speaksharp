@@ -8,12 +8,13 @@
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
     MIN_AGE_MS, PROTECTED_DEFAULT_BRANCH, RECOVERY_DELETE_ACK_PREFIX, RWT_JOURNEY_LABELS, deletionDomain, listAuthUsersBounded, ownedPrefixOf, recoverInterruptedRuns,
     recoveryAuthority, recoveryDeleteAck, recoveryReportLine, runOwnedDomain, selectInterruptedRunAccounts,
     type AdminLike, type AuthUserLike,
 } from '../live/helpers/rwtInterruptedRunRecovery';
+import { runAttemptsTerminal } from '../live/helpers/runOwnedCleanup';
 
 const NOW = Date.parse('2026-10-10T13:00:00Z');
 const old = new Date(NOW - MIN_AGE_MS - 60_000).toISOString();
@@ -233,8 +234,8 @@ describe('selection', () => {
         // Control: the same old account beside an unrelated row stays eligible.
         expect(selectInterruptedRunAccounts([oldA, user(9, journey(9), fresh)], NOW, D).eligible.map((c) => c.id)).toEqual([uuid(1)]);
     });
-    it('the age floor is the gate-3 timeout plus a safety margin (75 min)', () => {
-        expect(MIN_AGE_MS).toBe(75 * 60_000);
+    it('the age floor is the gate-3 job timeout plus a safety margin (105 + 30 = 135 min; coupled to rc-gates.yml)', () => {
+        expect(MIN_AGE_MS).toBe(135 * 60_000);
         const justYoung = new Date(NOW - MIN_AGE_MS + 1_000).toISOString();
         expect(selectInterruptedRunAccounts([user(1, journey(1), justYoung)], NOW, D).counts.fresh).toBe(1);
     });
@@ -322,5 +323,155 @@ describe('recovery', () => {
     it('the recovery spec is not an rwt-* journey spec (no RWT fixture, identity or per-journey telemetry readback)', () => {
         expect(existsSync(resolve(__dirname, '../live/rwt-interrupted-run-recovery.live.spec.ts'))).toBe(false);
         expect(existsSync(resolve(__dirname, '../live/interrupted-run-recovery.live.spec.ts'))).toBe(true);
+    });
+});
+
+
+afterEach(() => vi.unstubAllEnvs());
+describe('#1811 feedback fences: found by the database, cleaned only after the run attempt is verified terminal', () => {
+    const repository = 'relativityE/speaksharp';
+    const workflow = `${repository}/.github/workflows/rc-gates.yml@refs/heads/main`;
+    const binding = { repository, workflow, runId: '38000000001', runAttempt: '1', role: 'rwt-journey' as const };
+    const stubRun = () => {
+        for (const [k, v] of Object.entries({ GITHUB_ACTIONS: 'true', GITHUB_REPOSITORY: repository,
+            GITHUB_WORKFLOW_REF: workflow, GITHUB_RUN_ID: '39000000001', GITHUB_RUN_ATTEMPT: '1' })) vi.stubEnv(k, v);
+    };
+    type Listed = { run_key: string; state: string; binding: unknown };
+    /** A listed fence per entry; clean returns `outcome`; verify mirrors it. Records every RPC in order. */
+    const withFences = (f: ReturnType<typeof fakeAdmin>, listed: Listed[], outcome = { deleted: 1, residue: 0, foreign: 0 }, listError: { code: string } | null = null) => {
+        const calls: string[] = [];
+        const rpc = vi.fn(async (fn: string, args: Record<string, unknown>) => {
+            calls.push(`${fn}:${String(args.p_run_key ?? args.p_min_age_seconds)}`);
+            if (fn === 'list_unresolved_rwt_feedback_fences_v1') return listError ? { data: null, error: listError } : { data: listed, error: null };
+            const state = outcome.residue || outcome.foreign ? 'closed' : 'cleaned';
+            if (fn === 'close_rwt_feedback_fence_v1') return { data: { state: 'closed', reports: outcome.deleted + outcome.residue, keys: 1 }, error: null };
+            if (fn === 'clean_rwt_feedback_fence_v1') return { data: { ...outcome, state }, error: null };
+            return { data: { exists: true, state, owner: uuid(1), case: 'AHT-08', recorded: 1, keys: 1, remaining: outcome.residue, foreign: outcome.foreign }, error: null };
+        });
+        Object.assign(f.admin as object, { rpc });
+        return { rpc, calls };
+    };
+    const fence = (over: Partial<Listed> = {}): Listed => ({ run_key: '38000000001-1-AHT-08', state: 'closed', binding, ...over });
+    const terminal = vi.fn(async () => 'terminal' as const);
+
+    it('the post-deletion window: a fence whose account is GONE is still found by listing, verified terminal, closed, cleaned and read back to zero', async () => {
+        stubRun();
+        const f = fakeAdmin([]); // no run-owned account left to list
+        const fences = withFences(f, [fence()]);
+        const r = await recover({ ...f, runState: terminal });
+        expect(r).toMatchObject({ status: 'RECOVERED', eligible: 0, feedback: { listed: 1, fences: 1, deleted: 1, residue: 0, foreign: 0, held: 0, unproven: 0 } });
+        expect(terminal).toHaveBeenCalledWith(binding);
+        expect(fences.calls.map((c) => c.split(':')[0])).toEqual(['list_unresolved_rwt_feedback_fences_v1', 'close_rwt_feedback_fence_v1',
+            'clean_rwt_feedback_fence_v1', 'verify_rwt_feedback_fence_v1']);
+        expect(recoveryReportLine(r)).toContain('feedback_listed=1 feedback_fences=1 feedback_deleted=1 feedback_residue=0 feedback_foreign=0 feedback_held=0 feedback_unproven=0');
+    });
+    it.each(['active', 'unverifiable'] as const)('a %s run attempt: nothing is closed or cleaned, its account is kept, and the result is HOLD_ACTIVE_RUN', async (state) => {
+        stubRun();
+        const f = fakeAdmin([{ ...user(1, journey(1), old), app_metadata: { ct_run: binding } }]);
+        const fences = withFences(f, [fence({ state: 'open' })]);
+        const r = await recover({ ...f, runState: vi.fn(async () => state) });
+        expect(r).toMatchObject({ status: 'HOLD_ACTIVE_RUN', deleted: 0, feedback: { listed: 1, fences: 0, held: 1 } });
+        expect(fences.calls.map((c) => c.split(':')[0])).toEqual(['list_unresolved_rwt_feedback_fences_v1']);
+        expect(f.cleanup).not.toHaveBeenCalled();
+    });
+    it('a fence that cannot read back to zero, records another account\'s report, or errors stops recovery before any account delete', async () => {
+        stubRun();
+        for (const outcome of [{ deleted: 0, residue: 1, foreign: 0 }, { deleted: 0, residue: 0, foreign: 1 }]) {
+            const f = fakeAdmin([{ ...user(1, journey(1), old), app_metadata: { ct_run: binding } }]);
+            withFences(f, [fence()], outcome);
+            expect(await recover({ ...f, runState: terminal })).toMatchObject({ status: 'FAILED', deleted: 0 });
+            expect(f.cleanup).not.toHaveBeenCalled();
+        }
+        const listFails = fakeAdmin([]);
+        withFences(listFails, [], undefined, { code: '42501' });
+        expect(await recover({ ...listFails, runState: terminal })).toMatchObject({ status: 'FAILED' });
+    });
+    it('a fence of another repository, another workflow, the CURRENT run, or a key not derived from its binding is never touched', async () => {
+        stubRun();
+        const f = fakeAdmin([]);
+        const fences = withFences(f, [
+            fence({ binding: { ...binding, repository: 'someone/else' } }),
+            fence({ binding: { ...binding, workflow: `${repository}/.github/workflows/other.yml@refs/heads/main` } }),
+            fence({ run_key: '39000000001-1-AHT-08', binding: { ...binding, runId: '39000000001' } }),
+            fence({ run_key: '38000000001-1-AHT-03' }),
+        ]);
+        const r = await recover({ ...f, runState: terminal });
+        expect(r.feedback).toMatchObject({ listed: 4, fences: 0, unproven: 4 });
+        expect(terminal).not.toHaveBeenCalled();
+        expect(fences.calls.map((c) => c.split(':')[0])).toEqual(['list_unresolved_rwt_feedback_fences_v1']);
+    });
+    it('no delete acknowledgement: fences are listed and reported, nothing is touched', async () => {
+        stubRun();
+        const f = fakeAdmin([]);
+        const fences = withFences(f, [fence()]);
+        expect(await recover({ ...f, ack: '', runState: terminal })).toMatchObject({ status: 'HOLD_NO_ACK', feedback: { listed: 1, fences: 0 } });
+        expect(fences.calls.map((c) => c.split(':')[0])).toEqual(['list_unresolved_rwt_feedback_fences_v1']);
+    });
+    it('a deployment without the fence migration (function absent) recovers accounts exactly as before', async () => {
+        stubRun();
+        const f = fakeAdmin([{ ...user(1, journey(1), old), app_metadata: { ct_run: binding } }]);
+        withFences(f, [], undefined, { code: 'PGRST202' });
+        expect(await recover({ ...f, runState: terminal })).toMatchObject({ status: 'RECOVERED', deleted: 1, feedback: { listed: 0, fences: 0 } });
+    });
+});
+
+describe('#1811 runAttemptsTerminal (shared with the account deletion): both the owning and the latest attempt are the same completed run', () => {
+    const binding = { repository: 'relativityE/speaksharp', workflow: 'relativityE/speaksharp/.github/workflows/rc-gates.yml@refs/heads/main',
+        runId: '38000000001', runAttempt: '2', role: 'rwt-journey' as const };
+    const record = { id: 38000000001, run_attempt: 2, repository: { full_name: 'relativityE/speaksharp' }, path: '.github/workflows/rc-gates.yml',
+        status: 'completed', conclusion: 'failure' };
+    /** First answer: the exact attempt; second: the run's latest attempt. */
+    const answers = (attempt: unknown, latest: unknown = attempt, ok = true) => {
+        const bodies = [attempt, latest];
+        return vi.fn(async () => ({ ok, json: async () => bodies.shift() }) as unknown as Response);
+    };
+    it('both reads completed and identical → terminal; reads exactly the owning attempt, then the latest', async () => {
+        const fetchImpl = answers(record);
+        expect(await runAttemptsTerminal(binding, fetchImpl as never)).toBe(true);
+        expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
+            'https://api.github.com/repos/relativityE/speaksharp/actions/runs/38000000001/attempts/2',
+            'https://api.github.com/repos/relativityE/speaksharp/actions/runs/38000000001']);
+    });
+    it('an active owning or latest attempt, a NEWER rerun attempt, a missing conclusion, a foreign repository or workflow, or no answer → not terminal', async () => {
+        for (const fetchImpl of [
+            answers({ ...record, status: 'in_progress' }),
+            answers(record, { ...record, status: 'queued' }),
+            answers(record, { ...record, run_attempt: 3 }),           // a rerun started after the owning attempt
+            answers({ ...record, conclusion: null }),
+            answers({ ...record, repository: { full_name: 'someone/else' } }),
+            answers({ ...record, path: '.github/workflows/other.yml' }),
+            answers(record, record, false),
+            vi.fn(async () => { throw new Error('net'); }),
+        ]) expect(await runAttemptsTerminal(binding, fetchImpl as never)).toBe(false);
+    });
+});
+
+describe('bound interrupted account recovery', () => {
+    it('carries the validated original binding to cleanup, refusing malformed/foreign/current-run identities', async () => {
+        const repository = 'relativityE/speaksharp';
+        const workflow = `${repository}/.github/workflows/rc-gates.yml@refs/heads/main`;
+        for (const [k, v] of Object.entries({ GITHUB_ACTIONS: 'true', GITHUB_REPOSITORY: repository,
+            GITHUB_WORKFLOW_REF: workflow, GITHUB_RUN_ID: '39000000001', GITHUB_RUN_ATTEMPT: '1' })) vi.stubEnv(k, v);
+        const binding = { repository, workflow, runId: '38000000001', runAttempt: '1', role: 'rwt-journey' as const };
+        const account = { ...user(1, journey(1), old), app_metadata: { ct_run: binding } };
+        const f = fakeAdmin([account]);
+        expect((await recover(f)).status).toBe('RECOVERED');
+        expect(f.cleanup).toHaveBeenCalledWith(expect.objectContaining({ recovery: {
+            originalBinding: binding, dispatchSha: SHA, deleteAck: ACK, minAgeMs: MIN_AGE_MS,
+        } }));
+        const held = fakeAdmin([account]);
+        held.cleanup.mockRejectedValueOnce(new Error('cleanup_recovery_eligibility_unproven (HOLD)'));
+        expect(await recover(held)).toMatchObject({ status: 'HOLD_RECOVERY_ELIGIBILITY', deleted: 0 });
+        for (const ct_run of [null, {}, { ...binding, extra: 1 }, { ...binding, repository: 'foreign/repo' },
+            { ...binding, workflow: workflow.replace('rc-gates', 'unrelated') }, { ...binding, runId: '38000000002' },
+            { ...binding, runAttempt: '0' }, { ...binding, role: 'other' }, { ...binding, runId: '39000000001' }]) {
+            const bad = fakeAdmin([{ ...account, app_metadata: { ct_run } }]);
+            const result = await recover(bad);
+            expect(result.ownershipUnproven).toBe(1);
+            expect(bad.cleanup).not.toHaveBeenCalled();
+        }
+        const noAck = fakeAdmin([account]);
+        expect((await recover({ ...noAck, ack: '' })).status).toBe('HOLD_NO_ACK');
+        expect(noAck.cleanup).not.toHaveBeenCalled();
     });
 });

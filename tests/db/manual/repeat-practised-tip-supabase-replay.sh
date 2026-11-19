@@ -27,7 +27,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 MIGRATIONS="$ROOT/backend/supabase/migrations"
 HERE="$ROOT/tests/db/manual"
-D2=20261112010000_repeat_practised_tip.sql
+D2=20261119120000_repeat_practised_tip.sql
 IMAGE_TAG=17.6.1.155
 IMAGE_DIGEST=sha256:3866d94d8426927e8db3f1c5d790752292bfbe27b5f1f46e199ae1b7d3c1710b   # = imagePins in account-closure-full-chain-diagnostics.mjs
 

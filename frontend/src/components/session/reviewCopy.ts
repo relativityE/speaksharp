@@ -5,13 +5,20 @@
 /**
  * PO-approved correction (6175213749): disclose the authoritative saved inputs that
  * `get-ai-suggestions` sends. Open Mic includes filler counts and pace; Focus Points
- * includes its saved topic, points/results and relevant speaking measurements.
- * Provider-specific Privacy/Legal details remain separate. Audio is not sent.
- * Exact PO wording: do not edit without PO approval.
+ * includes its saved topic, points/results and relevant speaking measurements. Audio is not sent.
+ *
+ * PO 2026-11-11 (#1820): the card says "an AI service" so the wording survives a provider change, and links to
+ * the Privacy Policy's Service Providers section, the one maintained place that names the current provider.
+ * Do not hard-code the provider here. Exact PO wording: do not edit without PO approval.
  */
-export const OPEN_MIC_DISCLOSURE = "Sends this session's transcript and speaking measurements (filler counts and pace) to the AI service provider to create AI coaching. Audio is never sent.";
+export const OPEN_MIC_DISCLOSURE =
+  'Your transcript is sent to an AI service for coaching. Your filler counts and pace go with it; audio is never sent.';
 export const FOCUS_POINTS_DISCLOSURE =
-  "Sends this session's transcript, saved Focus Points topic, points and results, and relevant speaking measurements to the AI service provider to create AI coaching. Audio is never sent.";
+  'Your transcript is sent to an AI service for coaching. Your Focus Points topic, points and results and relevant speaking measurements go with it; audio is never sent.';
+
+/** The maintained privacy detail that names the current AI provider. */
+export const PROVIDER_DETAIL_HREF = '/privacy#service-providers';
+export const PROVIDER_DETAIL_LABEL = 'Who provides it';
 
 // #1258 punch list D3 (Rev 2 §2.1).
 export const UNAVAILABLE_MESSAGE = "The review didn't load. Your session is saved.";

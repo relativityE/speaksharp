@@ -1,6 +1,6 @@
-"""Inputs and qualification of the GitHub live caller (Sam 1793538100.358869, 1793538322.008999). Offline; never prints a value or identifier.
+"""Inputs and qualification of the GitHub live caller . Offline; never prints a value or identifier.
 
-prepare   selects a COMMITTED, reviewed run request by repository path (never generated, never a test fixture or template, byte-identical to the
+prepare selects a COMMITTED, reviewed run request by repository path (never generated, never a test fixture or template, byte-identical to the
           tested commit), refuses a synthetic or Claude-runtime request, binds its tested release to this source by request-only lineage
           (or an explicit approved older-release diagnostic), its approval and window, checks per-run request, identity, paid and TIME
           ceilings (sum of the selected cases' caseMaxMs plus admission, inter-case, cleanup, setup and collect reserves, inside the job
@@ -8,14 +8,14 @@ prepare   selects a COMMITTED, reviewed run request by repository path (never ge
           the bounded facts input into the builder's real facts schema, and only then checks the CUMULATIVE request and identity caps against
           the verified continuity checkpoint's prior usage and reservations. It writes CT_* bindings for
           execute_run.sh; it computes nothing that the stage runner or gates own.
-qualify   after collect: freezes EVERY verifier input into a new private snapshot, runs the REAL verify_run_binding on the snapshot only
+qualify after collect: freezes EVERY verifier input into a new private snapshot, runs the REAL verify_run_binding on the snapshot only
           (exit 0, fresh output, zero failures), and then, separately and from the same frozen bytes, the builder's 15-row denominator with
           every selected case dispatched and every required assertion PASS exactly once. Its result is bound to the campaign, release and
           plan/results digests. Verifier success alone is never PASS.
-project   run-record.json -> the closed latest record the publisher accepts; statuses and counts only. `passed` also needs the qualify
+project run-record.json -> the closed latest record the publisher accepts; statuses and counts only. `passed` also needs the qualify
           output for exactly the recorded cases (passed as --qualification); without it the record is `failed` with code not-qualified.
 
-Continuity (Sam 1793538322.008999; Increment I, Sam 1793566031.065709): the cumulative checkpoint is the ACCEPTED ROLLUP
+Continuity (Increment I): the cumulative checkpoint is the ACCEPTED ROLLUP
 (accounting_rollup.receive) of the committed, content-free accepted bootstrap and approved period scope (each pinned by digest) over the
 state-ref journal verified from its reviewed root, bound to the admitted request's approval reference and every applicable cumulative
 ceiling. prepare writes its canonical bytes privately (reconciliation.json) and publishes their digest as a step output; those bytes are
@@ -40,51 +40,202 @@ import accounting_rollup  # noqa: E402
 import manual_reservation  # noqa: E402
 import publish_latest_record as LR  # noqa: E402
 import state_ref_writer  # noqa: E402
+import reservation_binding as RB  # noqa: E402  (the one schema; consumers verify with RB.verify)
 
 RUNTIME = "GitHub Actions SpeakSharp"
 PRODUCER_CASES = {"AHT-01", "AHT-02", "AHT-03", "AHT-07", "AHT-08"}
-SMOKE_OCCURRENCE_WINDOW_MINUTES = 80
-ONE_OFF_GRANT_PATH = "tools/cloud-test/config/runs/R10-3b040043-one-off-grant.json"
-ONE_OFF_GRANT_SHA256 = "1f703a78d6a79466d7c22583892996c8f93e1985b01b38690ec87c038bc6b842"   # PO attempt approval slack:1793903873.185479 (2026-11-05; period extended to 2026-11-06T02:00Z)
-ONE_OFF_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
+SMOKE_OCCURRENCE_WINDOW_MINUTES = 100
+# The single active one-off grant : ONE attempt of the R10 smoke campaign over an
+# explicitly selected case subset. The all-15 grant (R10-3b040043-one-off-grant.json, e501e203) was consumed by run 42483030590 and stays
+# in the tree as history only. The grant names `selectedCases`; the request (the reviewer-owned bytes) must be the SEMANTIC subset of the committed
+# all-15 template for exactly those cases with the caps re-derived here (subset_estimate) -- never defaulted to fifteen. Until the reviewed
+# grant bytes are pinned, every one-off admission refuses `one-off-grant-not-the-reviewed-bytes`.
+ONE_OFF_GRANT_PATH = "tools/cloud-test/config/runs/R10-3b040043-aht01-grant.json"
+# No active one-off grant: the AHT-01 grant expired 2026-11-12T00:00Z and was removed when #1788 was reconciled with main. Every one-off
+# admission refuses (`one-off-grant-unreadable`) until a reviewed change commits a new owner-approved grant and pins its bytes here.
+ONE_OFF_GRANT_SHA256 = None
+ONE_OFF_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-aht01.json"
+ONE_OFF_BASE_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
+ONE_OFF_BASE_TEMPLATE_SHA256 = "ccaccffeeccc49c15da7304a07d67f11ac031c595bd057575325279b6277767a"
+R10_ONE_OFF_RUN_ID = "R10-3b040043-smoke15"
+ONE_OFF_GRANT_STATUSES = {"APPROVED", "AWAITING_OWNER_DECISION"}
 ONE_OFF_GRANT_KEYS = {"schema", "status", "approvalRef", "scopeApprovalRef", "approvedBy", "runId", "attempt", "requestTemplateSha256",
                       "testedSha", "backendSha", "periodScopeSha256", "preReserveStateHead", "notBeforeUtc", "expiresUtc",
-                      "limits", "olderReleaseDiagnostic"}
-ONE_OFF_LIMITS = {"endToEndMinutes": 80, "liveMinutes": 40, "requestsIncludingIdentity": 2032,
-                  "identityReads": 32, "starts": 16, "takes": 16, "coachingCalls": 20, "retries": 0}
+                      "limits", "olderReleaseDiagnostic", "selectedCases"}
+# , PO go-ahead 2026-11-08: two exact closed shapes. A window extended past the originally approved expiry must
+# name the actual source of the new timing as `windowSourceRef` (provenance only, no timezone asserted; it is never read as the approval,
+# which stays `approvalRef`). The original window carries none.
+ONE_OFF_APPROVED_EXPIRES_UTC = "2026-11-09T00:00:00Z"
+ONE_OFF_WINDOW_SOURCE_KEY = "windowSourceRef"
+# Public-repository rule: nothing a dispatch publishes to GitHub (the committed grant/request, the materialized request, the dispatch
+# facts input) may identify a person or a chat message. Approvals are carried as opaque codes (`approval-<32 hex>`, the code -> source
+# record map is held privately) and the approver as a role token; the approval check itself is unchanged: a valid reference is still
+# required and must equal the request's own. A chat-message reference, a chat user id or a personal name anywhere in those documents
+# refuses with a closed code.
+APPROVER_ROLE = "product-owner"
+REVIEWER_ROLES = frozenset({"release-reviewer"})
+APPROVAL_CODE = re.compile(r"approval-[0-9a-f]{32}")
+NOT_PUBLISHABLE = re.compile(
+    r"(?i)(?:^|[^a-z0-9])(?:slack|chatgpt)(?:[:_./\\-]|$)"         # slack:/slack-/slack_/slack./slack/ references (pooledSlack stays fine)
+    r"|slack\.com|chat\.openai\.com|chatgpt\.com"                 # any chat host, e.g. a permalink https://x.slack.com/archives/...
+    r"|/archives/[a-z0-9]{6,}(?:/|$)"                               # a chat permalink path
+    r"|(?<![0-9])p[0-9]{16}(?![0-9])"                               # a permalink message id (p + seconds and microseconds)
+    r"|(?<![0-9.])1[0-9]{9}[.][0-9]{6}(?![0-9])"                    # a chat message timestamp (epoch seconds . microseconds)
+    r"|(?<![A-Za-z0-9])[UW]0[A-Z0-9]{8,}(?![A-Za-z0-9])"            # a chat user id
+    r"|(?<![A-Za-z0-9])(?-i:[CDG]0[A-Z0-9]{8,})(?![A-Za-z0-9])"     # a chat channel id; case-sensitive so a hex digest like c0de... passes
+    r"|[a-z0-9._%+-]+@[a-z0-9-]+(?:[.][a-z0-9-]+)*[.][a-z]{2,}(?![a-z0-9])"   # an email address (needs a dotted domain)
+    r"|(?<![a-z])(?:akin|sam|sam-i-am|elon|jensen|bezos)(?![a-z])")
+
+
+def publishable(doc, depth=0):
+    """True when no string (key or value) anywhere in doc names a person, a chat message or a chat user."""
+    if depth > 32:
+        return False
+    if isinstance(doc, str):
+        return NOT_PUBLISHABLE.search(doc) is None
+    if isinstance(doc, dict):
+        return all(publishable(k, depth + 1) and publishable(v, depth + 1) for k, v in doc.items())
+    if isinstance(doc, list):
+        return all(publishable(v, depth + 1) for v in doc)
+    return True
+# The time envelope is NOT resized from estimates : the reviewed 100-minute occurrence and 60-minute live ceiling stay.
+ONE_OFF_WINDOW = {"endToEndMinutes": 100, "liveMinutes": 60}
 CALLER_AUTHORITY_FIELDS = {"occurrenceApproval", "actionApproval", "olderReleaseDiagnostic"}
 
 
-def one_off_grant(repo, template=None, initiation=None, reconciliation_bytes=None, chain=None):
-    """The reviewed, content-addressed PO grant for exactly one R10 attempt.
+def _regular_file(path):
+    """A regular, non-symlink file (the one seam the one-off grant reads use, so its tests can serve reviewed-shape bytes)."""
+    return os.path.isfile(path) and not os.path.islink(path)
+
+
+def _canonical_cases(cases):
+    """A non-empty, duplicate-free list of case ids in catalog order, or a refusal. Never defaulted."""
+    order = ["AHT-%02d" % n for n in range(1, 16)]
+    _need(isinstance(cases, list) and cases and all(isinstance(c, str) and c in order for c in cases) and len(set(cases)) == len(cases)
+          and cases == [c for c in order if c in cases], "one-off-selected-cases")
+    return list(cases)
+
+
+def subset_estimate(base, selected, budget_model, smoke_catalog):
+    """The selected subset's caps, re-derived from the committed all-15 template's own per-case rows and the reviewed budget model
+    (full_coverage_budget.compute): per-case ceiling = harness_ceiling(plannedRequests, allowancePct); cleanup = cleanupReservePerCase per
+    selected case; run cap = ceilings + cleanup; identity reads = 2 per case + 2; Starts = takes = the selected startPressCaps; coaching cap =
+    ceil(takes x (100 + coachingRetryAllowancePct)%); runner minutes kept from the template (never resized from estimates). Takes are the
+    smoke catalog's per-case minimumTakes, never assumed equal to Starts (AHT-11 is 3 Starts / 1 take)."""
+    rows = {r.get("case"): r for r in base.get("selection") or [] if isinstance(r, dict)}
+    _need(all(c in rows for c in selected), "one-off-subset-case")
+    planned = [rows[c]["plannedRequests"] for c in selected]
+    _need(all(type(v) is int and v > 0 for v in planned), "one-off-subset-case")
+    pct, per_case, retry = budget_model["allowancePct"], budget_model["cleanupReservePerCase"], budget_model["coachingRetryAllowancePct"]
+    ceilings = sum(((v * pct + 99) // 100 + 9) // 10 * 10 for v in planned)
+    cleanup = per_case * len(selected)
+    run_cap = ceilings + cleanup
+    starts = sum(rows[c]["startPressCap"] for c in selected)
+    catalog_cases = smoke_catalog.get("cases") if isinstance(smoke_catalog, dict) else None
+    _need(isinstance(catalog_cases, dict) and all(isinstance(catalog_cases.get(c), dict) and type(catalog_cases[c].get("minimumTakes")) is int
+                                                  and catalog_cases[c]["minimumTakes"] >= 0 for c in selected), "one-off-subset-takes")
+    takes = sum(catalog_cases[c]["minimumTakes"] for c in selected)
+    return {"requests": {"planned": sum(planned), "cleanupReserve": cleanup, "pooledSlack": run_cap - sum(planned) - cleanup, "runCap": run_cap},
+            "identityReads": 2 * len(selected) + 2, "starts": starts, "takes": takes,
+            "coachingCap": -(-takes * (100 + retry) // 100), "githubRunnerMinutesMax": base["estimate"]["githubRunnerMinutesMax"]}
+
+
+def one_off_limits(derived):
+    return {"endToEndMinutes": ONE_OFF_WINDOW["endToEndMinutes"], "liveMinutes": ONE_OFF_WINDOW["liveMinutes"],
+            "requestsIncludingIdentity": derived["requests"]["runCap"] + derived["identityReads"], "identityReads": derived["identityReads"],
+            "starts": derived["starts"], "takes": derived["takes"], "coachingCalls": derived["coachingCap"], "retries": 0}
+
+
+# Fields of the selected request that must be the committed all-15 template's own (free text, approval references and the window may differ).
+SUBSET_SAME_KEYS = ("schema", "runId", "coverageMode", "sampleMode", "priority", "executionRuntime", "workflowVersion", "configVersion",
+                    "release", "synthetic", "proposal", "evidenceScope", "approvedOmissions", "deviations", "cleanupConditions")
+
+
+def check_subset_template(base, template, selected, derived, scope_ceilings):
+    """The selected request is the SEMANTIC subset of the all-15 template: the same campaign, release, harness pin and modes; exactly the
+    selected rows in catalog order, each the template's own row (only `reason` may differ, `order` renumbered 1..n); the estimate, run cap,
+    Start caps and coaching cap exactly the re-derived values; the cumulative limits exactly the accepted period ceilings. Anything else --
+    another selection, order, estimate, cap or release -- refuses."""
+    _need(isinstance(base, dict) and isinstance(template, dict), "one-off-subset-shape")
+    _need(all(template.get(k) == base.get(k) for k in SUBSET_SAME_KEYS), "one-off-subset-not-the-template")
+    bh, th = dict(base.get("harness") or {}), dict(template.get("harness") or {})
+    bh.pop("ownerApprovalRef", None), th.pop("ownerApprovalRef", None)
+    _need(bh == th, "one-off-subset-harness")
+    rows = {r.get("case"): r for r in base.get("selection") or [] if isinstance(r, dict)}
+    sel = template.get("selection")
+    _need(isinstance(sel, list) and [r.get("case") if isinstance(r, dict) else None for r in sel] == selected, "one-off-subset-selection")
+    strip = lambda r: {k: v for k, v in r.items() if k not in ("reason", "order")}  # noqa: E731
+    _need(all(r.get("order") == i + 1 and isinstance(r.get("reason"), str) and strip(r) == strip(rows[r["case"]]) for i, r in enumerate(sel)),
+          "one-off-subset-selection")
+    est, best = template.get("estimate"), base.get("estimate") or {}
+    _need(isinstance(est, dict) and set(est) == set(best) and est.get("requests") == derived["requests"]
+          and est.get("identityReads") == derived["identityReads"] and est.get("starts") == derived["starts"]
+          and est.get("takes") == derived["takes"] and est.get("paidActionsAuthorizedUsd") == 0
+          and est.get("githubRunnerMinutesMax") == derived["githubRunnerMinutesMax"]
+          and isinstance(est.get("providerBillableRequests"), dict)
+          and set(est["providerBillableRequests"]) == set(best.get("providerBillableRequests") or {})
+          and est["providerBillableRequests"].get("coachingCap") == derived["coachingCap"], "one-off-subset-estimate")
+    caps = {c: rows[c]["startPressCap"] for c in selected}
+    lim, blim = template.get("approvedLimits"), base.get("approvedLimits") or {}
+    _need(isinstance(lim, dict) and set(lim) == set(blim) and lim.get("runCapRequests") == derived["requests"]["runCap"]
+          and lim.get("startPressCaps") == caps and lim.get("cumulativeCeilingRequests") == scope_ceilings["requests"]
+          and lim.get("identityCap") == scope_ceilings["identityReads"] and lim.get("startsCap") == scope_ceilings["starts"]
+          and lim.get("takesCap") == scope_ceilings["takes"], "one-off-subset-approved-limits")
+    prop = template.get("proposedLimits")
+    _need(isinstance(prop, dict) and prop.get("runCapRequests") == derived["requests"]["runCap"] and prop.get("startPressCaps") == caps
+          and (prop.get("guardCaps") or {}).get("coaching", derived["coachingCap"]) == derived["coachingCap"], "one-off-subset-proposed-limits")
+    return True
+
+
+def one_off_grant(repo, template=None, initiation=None, reconciliation_bytes=None, chain=None, selection=None):
+    """The reviewed, content-addressed PO grant for exactly one R10 attempt over its explicit `selectedCases`.
 
     Dispatch facts are evidence references, never authority.  The grant binds the committed template, deployed release, accepted accounting
     scope, pre-reserve journal head and every one-run cap.  The only value supplied at execution is GitHub's authenticated run start.
     """
     path = os.path.join(repo, ONE_OFF_GRANT_PATH)
-    _need(os.path.isfile(path) and not os.path.islink(path), "one-off-grant-unreadable")
+    _need(_regular_file(path), "one-off-grant-unreadable")
     raw = _read(path)
     _need(hashlib.sha256(raw).hexdigest() == ONE_OFF_GRANT_SHA256, "one-off-grant-not-the-reviewed-bytes")
     try:
         grant = json.loads(raw)
     except ValueError:
         raise Refused("one-off-grant-unreadable")
-    _need(isinstance(grant, dict) and set(grant) == ONE_OFF_GRANT_KEYS
-          and grant.get("schema") == "speaksharp.cloud-test.one-off-grant.v1" and grant.get("status") == "APPROVED",
+    _need(isinstance(grant, dict) and set(grant) - {ONE_OFF_WINDOW_SOURCE_KEY} == ONE_OFF_GRANT_KEYS
+          and grant.get("schema") == "speaksharp.cloud-test.one-off-grant.v1" and grant.get("status") in ONE_OFF_GRANT_STATUSES,
           "one-off-grant-shape")
-    _need(_ref(grant.get("approvalRef")) and grant.get("approvedBy") == "Akin"
-          and grant.get("runId") == "R10-3b040043-smoke15" and grant.get("attempt") == 1,
+    extended = grant.get("expiresUtc") != ONE_OFF_APPROVED_EXPIRES_UTC
+    _need(_ref(grant.get(ONE_OFF_WINDOW_SOURCE_KEY)) if extended else ONE_OFF_WINDOW_SOURCE_KEY not in grant, "one-off-grant-window-source")
+    # a grant whose proposed scope grew past its recorded owner decision is committed AWAITING_OWNER_DECISION and cannot
+    # admit a dispatch; only a reviewed change pinning the owner's new decision sets APPROVED (and re-pins ONE_OFF_GRANT_SHA256).
+    _need(grant.get("status") == "APPROVED", "one-off-grant-not-approved")
+    _need(publishable(grant), "one-off-grant-not-publishable")
+    _need(APPROVAL_CODE.fullmatch(str(grant.get("approvalRef"))) is not None and APPROVAL_CODE.fullmatch(str(grant.get("scopeApprovalRef"))) is not None
+          and grant.get("approvedBy") == APPROVER_ROLE
+          and grant.get("runId") == R10_ONE_OFF_RUN_ID and grant.get("attempt") == 1,
           "one-off-grant-reference")
+    selected = _canonical_cases(grant.get("selectedCases"))
+    if selection is not None:
+        _need(list(selection) == selected, "one-off-grant-selection-differs")
     template_path = os.path.join(repo, ONE_OFF_TEMPLATE_PATH)
-    _need(os.path.isfile(template_path) and not os.path.islink(template_path)
+    _need(_regular_file(template_path)
           and hashlib.sha256(_read(template_path)).hexdigest() == grant.get("requestTemplateSha256"),
           "one-off-grant-not-the-request")
+    committed = json.loads(_read(template_path))
+    base_path = os.path.join(repo, ONE_OFF_BASE_TEMPLATE_PATH)
+    _need(_regular_file(base_path), "one-off-grant-base-template")
+    base_raw = _read(base_path)
+    _need(hashlib.sha256(base_raw).hexdigest() == ONE_OFF_BASE_TEMPLATE_SHA256, "one-off-grant-base-template")
+    base = json.loads(base_raw)
+    cfg = json.loads(_read(os.path.join(repo, "tools/cloud-test/config/test-config.v1.json")))
+    smoke_catalog = json.loads(_read(os.path.join(repo, "tools/cloud-test/config/smoke-assertion-catalog.json")))
+    derived = subset_estimate(base, selected, cfg["modes"]["full"]["budgetModel"], smoke_catalog)
     if template is not None:
         _need(template.get("runId") == grant["runId"]
               and (template.get("release") or {}).get("testedSha") == grant.get("testedSha")
               and ((template.get("release") or {}).get("backend") or {}).get("sha") == grant.get("backendSha"),
               "one-off-grant-release")
-    _need(grant.get("limits") == ONE_OFF_LIMITS and grant.get("olderReleaseDiagnostic") is True,
+    _need(grant.get("limits") == one_off_limits(derived) and grant.get("olderReleaseDiagnostic") is True,
           "one-off-grant-limits")
     scope_path = os.path.join(repo, CONTINUITY_DIR, CONTINUITY_SCOPE)
     _need(os.path.isfile(scope_path) and not os.path.islink(scope_path), "one-off-grant-accounting")
@@ -92,6 +243,7 @@ def one_off_grant(repo, template=None, initiation=None, reconciliation_bytes=Non
         accepted_scope = manual_reservation.accepted_scope(_read(scope_path), manual_reservation.ACCEPTED_SCOPE_SHA256)
     except manual_reservation.Refused:
         raise Refused("one-off-grant-accounting")
+    check_subset_template(base, committed, selected, derived, accepted_scope["ceilings"])
     _need(grant.get("periodScopeSha256") == manual_reservation.ACCEPTED_SCOPE_SHA256
           and grant.get("scopeApprovalRef") == accepted_scope.get("approvalRef")
           and isinstance(grant.get("preReserveStateHead"), str) and LR.SHA40.match(grant["preReserveStateHead"]),
@@ -107,14 +259,15 @@ def one_off_grant(repo, template=None, initiation=None, reconciliation_bytes=Non
         except (TypeError, ValueError):
             raise Refused("one-off-grant-checkpoint")
         _need(isinstance(checkpoint, dict) and checkpoint.get("scopeApprovalRef") == grant.get("scopeApprovalRef")
-              and (checkpoint.get("headSha") == grant.get("preReserveStateHead") or _setup_failures_only(checkpoint, grant, chain)),
+              and (checkpoint.get("headSha") == grant.get("preReserveStateHead") or _setup_failures_only(checkpoint, grant, chain)
+                   or _setup_failures_since_pin(checkpoint, grant, chain, repo, accepted_scope)),
               "one-off-grant-checkpoint")
     return grant
 
 
 # The grant's single attempt must reach the cases. An attempt that stopped in setup before any product request (R10 runs 41933223835 and
 # 41960376782) is reserved and then settled from evidence with zero product usage, which moves the journal head without consuming the grant.
-# Past the pinned head, a checkpoint is admitted only when (Sam 1793874766.615719) the verified chain the checkpoint was computed on adds,
+# Past the pinned head, a checkpoint is admitted only when the verified chain the checkpoint was computed on adds,
 # after that pinned head, nothing but complete reserve -> settle pairs of one attempt each whose settle carries zero on all five product
 # counters (runner minutes stay counted), and the accepted rollup agrees: rooted at that head, no open reservation, no product or unknown
 # usage in the period. A release, an executed attempt, an open reservation or any doubt refuses, so the grant still authorizes exactly one
@@ -161,25 +314,66 @@ def _setup_failures_only(checkpoint, grant, chain):
             and isinstance(unknown, dict) and unknown and not any(unknown.values()))
 
 
+def _setup_failures_since_pin(checkpoint, grant, chain, repo, accepted_scope):
+    """R10 run 42406851270 (PO: a run rejected before it ran anything must never block the next one). The same rule as _setup_failures_only,
+    for a grant pinned at a LATER journal head (one already carrying earlier runs' usage): after that pinned head the verified chain adds
+    nothing but complete reserve -> settle pairs whose settles carry zero identity reads, Starts, takes and coaching calls and at most the
+    preflight's bounded requests, and the checkpoint is exactly the accepted rollup recomputed at the pinned head plus those settles. No
+    reservation may be open at either point; any release, executed attempt, open reservation or doubt refuses. So the grant still authorizes
+    exactly one attempt that runs."""
+    anchor = grant.get("preReserveStateHead")
+    if anchor == accounting_rollup.ACCEPTED_ROOT or not isinstance(chain, list) or len(chain) < 2:
+        return False
+    at = [i for i, node in enumerate(chain) if isinstance(node, (list, tuple)) and node and node[0] == anchor]
+    if len(at) != 1 or at[0] == len(chain) - 1:
+        return False
+    base, tail = chain[at[0]][1], chain[-1][1]
+    if not (isinstance(base, list) and isinstance(tail, list) and len(tail) > len(base) and tail[:len(base)] == base):
+        return False
+    added = tail[len(base):]
+    if not _setup_failure_pairs([(anchor, []), (chain[-1][0], added)], anchor, checkpoint.get("headSha")):
+        return False
+    try:
+        bootstrap = _read(os.path.join(repo, CONTINUITY_DIR, CONTINUITY_BOOTSTRAP))
+        before = json.loads(accounting_rollup.checkpoint_bytes(accounting_rollup.receive(bootstrap, accepted_scope, chain[:at[0] + 1])))
+    except (accounting_rollup.Refused, OSError, ValueError, TypeError, KeyError):
+        return False
+    period, prior = checkpoint.get("period"), before.get("period")
+    if not (isinstance(period, dict) and isinstance(prior, dict) and set(period) == set(prior)
+            and all(type(v) is int for v in list(period.values()) + list(prior.values()))):
+        return False
+    settles = [e for e in added if e.get("type") == "settle"]
+    expected = {k: prior[k] + sum(int((e.get("allocation") or {}).get(k, 0)) for e in settles) for k in prior}
+    unknown = checkpoint.get("unknown")
+    return (period == expected
+            and before.get("outstandingReservations") == 0 and before.get("openReservationsByRequest") == {}
+            and checkpoint.get("source") == "accepted-rollup" and checkpoint.get("root") == accounting_rollup.ACCEPTED_ROOT
+            and checkpoint.get("headSha") == chain[-1][0]
+            and type(checkpoint.get("outstandingReservations")) is int and checkpoint["outstandingReservations"] == 0
+            and checkpoint.get("openReservationsByRequest") == {}
+            and isinstance(unknown, dict) and unknown and not any(unknown.values()))
+
+
 def materialize_authoritative_smoke_occurrence(repo, template, initiation):
-    approval = one_off_grant(repo, template, initiation)
+    approval = one_off_grant(repo, template, initiation,
+                             selection=[s.get("case") for s in (template or {}).get("selection") or [] if isinstance(s, dict)])
     return materialize_smoke_occurrence(template, initiation, approval["approvalRef"], approval["scopeApprovalRef"], approval["approvedBy"],
-                                        approval["testedSha"], approval["backendSha"])
+                                        approval["testedSha"], approval["backendSha"], approval["selectedCases"])
 
 
-def materialize_smoke_occurrence(template, initiation, approval_ref, scope_approval_ref, approved_by, tested_sha, backend_sha):
+def materialize_smoke_occurrence(template, initiation, approval_ref, scope_approval_ref, approved_by, tested_sha, backend_sha, selected_cases):
     """Create the exact one-run bytes for an owner-selected R10 initiation.
 
-    The 80-minute occurrence is the bounded end-to-end workflow envelope:
-    5 minutes to record, 3 to reserve, the existing 65-minute live-job bound
-    (15 setup + 40 live + 10 collect), and 5 for the parallel settle/record
-    completion jobs, with two minutes of structural slack.  It is not a
-    measured runtime and it does not raise the 40-minute live ceiling.  The
+    The 100-minute occurrence is the bounded end-to-end workflow envelope:
+    5 minutes to record, 3 to reserve, the 85-minute live-job bound
+    (15 setup + 60 live + 10 collect; PO 60-minute signal run), and 5 for the parallel settle/record completion jobs,
+    with two minutes of structural slack. It is not a measured runtime. The
     caller must subsequently authorize these exact occurrence/release bytes
     and bind the ordinary action-approval envelope.
     """
     _need(template.get("coverageMode") == template.get("sampleMode") == "smoke", "smoke-occurrence-mode")
-    _need(template.get("runId") == "R10-3b040043-smoke15" and len(template.get("selection") or []) == 15,
+    _need(template.get("runId") == R10_ONE_OFF_RUN_ID and isinstance(template.get("selection"), list)
+          and [s.get("case") if isinstance(s, dict) else None for s in template["selection"]] == _canonical_cases(selected_cases),
           "smoke-occurrence-selection")
     _need(isinstance(initiation, str) and LR.UTC.match(initiation), "smoke-occurrence-initiation")
     _need(_ref(approval_ref) and _ref(scope_approval_ref) and isinstance(approved_by, str) and approved_by.strip(), "smoke-occurrence-approval")
@@ -191,10 +385,10 @@ def materialize_smoke_occurrence(template, initiation, approval_ref, scope_appro
     out["createdUtc"] = initiation
     out["window"] = {"startUtc": initiation,
                      "endUtc": (start + timedelta(minutes=SMOKE_OCCURRENCE_WINDOW_MINUTES)).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                     "endToEndMinutes": ONE_OFF_LIMITS["endToEndMinutes"],
-                     "liveMinutes": ONE_OFF_LIMITS["liveMinutes"],
+                     "endToEndMinutes": ONE_OFF_WINDOW["endToEndMinutes"],
+                     "liveMinutes": ONE_OFF_WINDOW["liveMinutes"],
                      "approvalRef": approval_ref,
-                     "basis": "actual initiation + 5m record + 3m reserve + 65m live-job ceiling + 5m parallel settlement/record completion + 2m structural slack; live ceiling remains 40m; not measured runtime"}
+                     "basis": "actual initiation + 5m record + 3m reserve + 85m live-job ceiling (15 setup + 60 live + 10 collect) + 5m parallel settlement/record completion + 2m structural slack; live ceiling 60m; not measured runtime"}
     out["selectionApprovalRef"] = approval_ref
     # The one-off grant selects this occurrence. The accepted period scope,
     # independently, owns cumulative accounting.
@@ -228,11 +422,11 @@ def select_manual_occurrence(repo, template_rel, occurrence_file, occurrence_sha
     expected = materialize_authoritative_smoke_occurrence(repo, template, workflow_start_utc)
     _need(occurrence == expected, "manual-occurrence-not-the-template-materialization")
     return occurrence_file, hashlib.sha1(b"blob %d\0" % len(raw) + raw).hexdigest(), raw, template_blob
-# NIGHTLY facts (Elon 1793560137.871769, pending Sam's content/pin decision): a scheduled run has no operator facts input, so its facts are
+# NIGHTLY facts (pending the reviewer's content/pin decision): a scheduled run has no operator facts input, so its facts are
 # the committed file below, admitted only when its bytes hash to the reviewed pin. None today: every nightly prepare refuses.
 NIGHTLY_FACTS_PATH = "tools/cloud-test/config/nightly/facts.json"
 NIGHTLY_FACTS_SHA256 = None
-# Option A (Sam 1793568947.054419, design only): the owner's recurring approval may carry an explicit per-occurrence Start/take grant, from
+# Option A (design only): the owner's recurring approval may carry an explicit per-occurrence Start/take grant, from
 # which a nightly occurrence's action envelope is DERIVED. Its bytes are admitted only when they hash to this reviewed pin. None today: every
 # derivation refuses, so the mechanics stay inactive until an actual owner grant and accepted inputs exist.
 RECURRING_APPROVAL_PATH = "tools/cloud-test/config/recurring-approval.json"
@@ -245,14 +439,14 @@ ALL_CASES = ["AHT-%02d" % n for n in range(1, 16)]
 ROLE = {**{c: "existing-disposable" for c in ALL_CASES[:14]}, "AHT-15": "maintained-read-only"}
 ROLE_CREDENTIALS = {"existing-disposable": {"email": "THROWAWAY_TEST_EMAIL", "password": "THROWAWAY_TEST_PASSWORD"},
                     "maintained-read-only": {"email": "FREE_TEST_EMAIL", "password": "FREE_TEST_PASSWORD"}}
-# The private CLOUD_TEST_LIVE_ACCOUNTS bundle (Sam 1793544453.003099): configuration only (emails and account ids, never a password or
+# The private CLOUD_TEST_LIVE_ACCOUNTS bundle : configuration only (emails and account ids, never a password or
 # token), validated exactly as scripts/verify-test-users.mjs does, in the same order and with the same codes (shared vectors).
 BUNDLE_ROLES = ("existing-disposable", "maintained-read-only")
 BUNDLE_LIMIT = 4096
 CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 UUID_V4 = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 PROJECT_REF = re.compile(r"^[a-z0-9]{20}$")
-# One explicit shared email contract (Sam 1793545693.919369): printable ASCII without space or "@" on both sides of exactly one "@", at
+# One explicit shared email contract : printable ASCII without space or "@" on both sides of exactly one "@", at
 # most 254 characters; CONTROL stays for the environment-file writer.
 EMAIL_ASCII = re.compile(r"^[\x21-\x3f\x41-\x7e]+@[\x21-\x3f\x41-\x7e]+$")
 ENV_NAME = re.compile(r"^[A-Z_][A-Z0-9_]*$")
@@ -269,7 +463,7 @@ FACT_OPTIONAL = {"producerReviewReference", "providerEvidenceReferences", "backe
 # occurrence digest.
 ACTION_APPROVAL_SCHEMA = "speaksharp.case-start-approval.v1"
 ACTION_APPROVAL_KEYS = {"schema", "requestSha256", "reconciliationSha256", "approvalRef", "approvedBy", "selectionApprovalRef"}
-# The ONE reviewed location for live run requests (Sam RETURN 3e0279d6 finding 1); nothing else counts as request-only lineage.
+# The ONE reviewed location for live run requests (the reviewer RETURN 3e0279d6 finding 1); nothing else counts as request-only lineage.
 REQUEST_DIR = "tools/cloud-test/config/runs/"
 TEMPLATE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "templates", "run-request.template.json")
 # Beyond the template: the live/synthetic marker, the runtime, the producer scope limits, and full mode's owner-approved omissions
@@ -282,6 +476,11 @@ SCOPE_MAX_WINDOW_SECONDS = 21600
 SETUP_RESERVE_MINUTES = 15
 COLLECT_RESERVE_MINUTES = 10
 HOSTED_JOB_CAP_MINUTES = 360
+# (design a): ONE execution deadline, computed once at init and bound unchanged as the plan's deadlineAt (BP_T1),
+# the guard policy's deadline, admission's approvedDeadlineAt and the producer scope's deadlineAt. The workflow kills the run step at
+# step start + live minutes; init runs before that step starts, so init time + live minutes is never later than the kill. The stage's own
+# post-campaign exit (ownership return) keeps this reserve; the campaign's cleanup reserve is subtracted once, by campaign-core, not here.
+RUN_STAGE_EXIT_RESERVE_SECONDS = 60
 
 
 class Refused(ValueError):
@@ -339,7 +538,7 @@ def select_request(repo, rel, source_sha):
 
 
 def nightly_request(path, gate_sha256, run_id, source_sha):
-    """NIGHTLY mode (Sam 1793557964.186059): the request is exactly the bytes the credential-free nightly gate derived and admitted, delivered
+    """NIGHTLY mode : the request is exactly the bytes the credential-free nightly gate derived and admitted, delivered
     as its step outputs (request_b64 beside request_sha256), never a committed file. Read ONCE from a regular private file; their digest must
     be the gate's; they must be a nightly-regression request for THIS run (attempt 1) testing exactly this source. Returns (path, blob, raw)."""
     _need(isinstance(gate_sha256, str) and SHA64.match(gate_sha256) is not None, "nightly-gate-digest")
@@ -393,11 +592,18 @@ def check_request(req, now, template_keys, nightly=False):
     _need(isinstance((req.get("release") or {}).get("testedSha"), str) and LR.SHA40.match(req["release"]["testedSha"]), "request-release-sha")
     cases = [s.get("case") for s in req.get("selection") or [] if isinstance(s, dict)]
     _need(cases and len(cases) == len(req["selection"]) == len(set(cases)) and all(c in ROLE for c in cases), "case-selection")
+    # the run-request contract's notTargeted: a list of {gap, why}, refused BEFORE reservation (run 42494152179 crashed its report on bare ids)
+    nt = req.get("notTargeted", [])
+    _need(isinstance(nt, list) and all(isinstance(n, dict) and set(n) == {"gap", "why"} and isinstance(n["gap"], str)
+                                       and re.fullmatch(r"GAP-\d\d", n["gap"]) is not None
+                                       and isinstance(n["why"], str) and len(n["why"].strip()) >= 10 for n in nt), "request-not-targeted")
     _need(req.get("coverageMode") in ("partial", "smoke", "full"), "coverage-mode")
     if req["coverageMode"] == "full":
         _need(sorted(cases) == ALL_CASES, "full-mode-needs-all-fifteen")
     if req["coverageMode"] == "smoke":
-        _need(sorted(cases) == ALL_CASES, "smoke-mode-needs-all-fifteen")
+        # A smoke SUBSET only for the R10 one-off campaign, whose admission binds the pinned grant's exact selectedCases (one_off_grant).
+        _need(sorted(cases) == ALL_CASES or (req.get("runId") == R10_ONE_OFF_RUN_ID and cases == [c for c in ALL_CASES if c in cases]),
+              "smoke-mode-needs-all-fifteen")
         _need(req.get("sampleMode") == "smoke", "smoke-mode-needs-smoke-sampling")
     else:
         _need(req.get("sampleMode") == "full", "partial-selection-needs-selected-full-sampling")
@@ -436,6 +642,14 @@ def check_ceilings(cfg, req, cases, job_timeout_minutes):
     return live
 
 
+def check_job_bound(req, job_timeout_minutes):
+    """#1788 review: a manual dispatch's job timeout IS its occurrence's reserved runner minutes (the workflow derives it from the
+    occurrence), so the live job can never outlast what the journal reserves for it. A different bound refuses before any write."""
+    reserved = (req.get("estimate") or {}).get("githubRunnerMinutesMax")
+    _need(_int(reserved) and 0 < reserved <= HOSTED_JOB_CAP_MINUTES and job_timeout_minutes == reserved,
+          "job-timeout-not-the-reserved-runner-minutes")
+
+
 def check_window_fit(req, now, live_minutes):
     """The whole job (setup + live + collect) must finish before the approved window closes, not merely start inside it."""
     end = _utc(req["window"]["endUtc"])
@@ -450,8 +664,32 @@ def check_window_remaining(req, now, live_minutes):
     _need((end - now).total_seconds() >= 60 * (live_minutes + COLLECT_RESERVE_MINUTES), "approved-window-too-short-at-admission")
 
 
+def execution_deadline(req, now, live_minutes):
+    """The one runtime safety bound for this run: min(occurrence end, init time + live minutes - the stage exit reserve), whole seconds.
+    Never later than the occurrence end and never later than the run step's kill; it is not a calendar window and never extends one."""
+    w = req["window"]
+    start, end = _utc(w["startUtc"]), _utc(w["endUtc"])
+    _need(_int(live_minutes) and live_minutes > 0, "live-minutes")
+    step_bound = now.replace(microsecond=0) + timedelta(minutes=live_minutes) - timedelta(seconds=RUN_STAGE_EXIT_RESERVE_SECONDS)
+    deadline = min(end, step_bound)
+    _need(start <= now < deadline, "execution-deadline-not-open")
+    return deadline.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def check_execution_deadline(req, now, live_minutes, deadline):
+    """Immediately before the run step: the init-bound deadline is well formed, inside the occurrence, still open, and not later than this
+    step's kill less the exit reserve (the step starts no earlier than now, so its kill is no earlier than now + live minutes)."""
+    _need(isinstance(deadline, str) and LR.UTC.match(deadline) is not None, "execution-deadline-missing")
+    _need(_int(live_minutes) and live_minutes > 0, "live-minutes")
+    w = req["window"]
+    d = _utc(deadline)
+    _need(_utc(w["startUtc"]) < d <= _utc(w["endUtc"]), "execution-deadline-outside-occurrence")
+    _need(now < d, "execution-deadline-passed")
+    _need(d <= now + timedelta(minutes=live_minutes) - timedelta(seconds=RUN_STAGE_EXIT_RESERVE_SECONDS), "execution-deadline-after-step-kill")
+
+
 def completion_within_occurrence(raw, now):
-    """Return whether R10 completed inside its reviewed 80-minute envelope.
+    """Return whether R10 completed inside its reviewed 100-minute envelope.
 
     Accounting may settle later inside the approved period so held usage is
     reconciled safely, but a late workflow is incomplete rather than an
@@ -533,7 +771,7 @@ def parse_live_accounts_bundle(raw):
 
 
 def canonical_bundle_bytes(bundle):
-    """The VALIDATED minimum binding document as the exact file bytes both runtimes agree on (Jensen 1793552377.273939): UTF-8 JSON with
+    """The VALIDATED minimum binding document as the exact file bytes both runtimes agree on : UTF-8 JSON with
     keys sorted at every level, "," and ":" separators, no whitespace, then exactly one LF. Every value is ASCII by validation, so Python
     and a sorted-key JS stringify match. live_accounts_sha256 is the lowercase SHA-256 of exactly these bytes."""
     doc = {"version": 1, "projectRef": bundle["projectRef"], "accounts": bundle["accounts"]}
@@ -567,7 +805,7 @@ def mask_commands(values):
 def is_project_origin(url, project_ref):
     """The approved Supabase project origin, exactly: https://<projectRef>.supabase.co (a trailing "/" and the default port are the same
     origin; scheme and host compare case-insensitively, as URL origins do). One full-string match bound to THIS project's reference, with
-    literal dots and no URL parser (Sam 1793564538.998609): HTTP, any userinfo or "@", another port, another or suffixed domain, any path,
+    literal dots and no URL parser : HTTP, any userinfo or "@", another port, another or suffixed domain, any path,
     query or fragment, trailing junk, and anything else refuse."""
     # fullmatch, not match: `$` alone admits a final newline. ASCII case-folding only: Unicode folding would accept "\u017fupabase.co".
     if not isinstance(url, str) or not isinstance(project_ref, str) or not PROJECT_REF.fullmatch(project_ref):
@@ -593,7 +831,7 @@ def write_env_file(path, mapping):
 
 
 def account_bindings(cfg, cases, facts_accounts, bundle, first_observation_run=None):
-    """Every role the selection needs (Jensen's I1'/I2' contract: AHT-01..14 existing-disposable, AHT-15 maintained-read-only, so an all-15 run
+    """Every role the selection needs (the CLI developer's I1'/I2' contract: AHT-01..14 existing-disposable, AHT-15 maintained-read-only, so an all-15 run
     is 14+1), each bound to its own credential NAMES, its account ID from the private bundle (checked by digest against the approved binding)
     and its history reference. A role's names must be ones the run stage actually receives (config credentials.runEnvironment.stages.run);
     values are never renamed into another role's names. Returns one binding per role, sorted by role."""
@@ -629,6 +867,9 @@ def account_bindings(cfg, cases, facts_accounts, bundle, first_observation_run=N
 def translate_facts(facts, req, route):
     """The bounded facts input -> exactly the builder's facts schema (build_plan.py 51-60, 143, 242, 374). References only."""
     _need(isinstance(facts, dict) and FACT_REQUIRED <= set(facts) <= FACT_REQUIRED | FACT_OPTIONAL, "facts-shape")
+    # Run 42226498611: the plan builder requires the backend identity (build_plan.py `obj(FACTS.get('backend'), 'facts-backend')`), so facts
+    # without it must refuse here, in prepare, with a named code, never later inside the stage runner after the reserve and preflight.
+    _need("backend" in facts, "facts-backend-missing")
     for k in ("ownerApprovalReference", "approvedBy", "reviewer"):
         _need(_ref(facts[k]), "facts-reference:" + k)
     _need(facts["ownerApprovalReference"] == req["harness"]["ownerApprovalRef"], "facts-approval-not-the-request-approval")
@@ -645,7 +886,7 @@ def translate_facts(facts, req, route):
     return {k: v for k, v in facts.items() if k not in ("accounts", "olderReleaseDiagnostic")}
 
 
-def compose_scope(req, facts, account_id, cases, route):
+def compose_scope(req, facts, account_id, cases, route, deadline):
     """The producer route's private evidence scope, composed from the COMMITTED request (campaign, release, window, case selection and the
     reviewed evidenceScope limits) plus the facts' approval/review references and the bound account. It holds the raw account ID, so it is
     written privately in the job and never committed; authenticated_job_bootstrap.cjs validates it (validateBindings) against the builder
@@ -658,8 +899,11 @@ def compose_scope(req, facts, account_id, cases, route):
           "evidence-scope-limits")
     w = req["window"]
     _need((_utc(w["endUtc"]) - _utc(w["startUtc"])).total_seconds() <= SCOPE_MAX_WINDOW_SECONDS, "producer-scope-window-over-six-hours")
+    # The run's one execution deadline (execution_deadline), never the occurrence end: the plan's deadlineAt is the same value (bootstrap).
+    _need(isinstance(deadline, str) and LR.UTC.match(deadline) is not None and _utc(w["startUtc"]) < _utc(deadline) <= _utc(w["endUtc"]),
+          "execution-deadline-missing")
     tested = req["release"]["testedSha"]
-    return {"campaignId": req["runId"], "sourceSha": tested, "servedSha": tested, "notBefore": w["startUtc"], "deadlineAt": w["endUtc"],
+    return {"campaignId": req["runId"], "sourceSha": tested, "servedSha": tested, "notBefore": w["startUtc"], "deadlineAt": deadline,
             "caseIds": sorted(set(cases) & PRODUCER_CASES), "ownerAccountId": account_id, "ownerApprovalReference": facts["ownerApprovalReference"],
             "producerReviewReference": facts["producerReviewReference"], **{k: lim[k] for k in SCOPE_LIMITS}}
 
@@ -687,10 +931,10 @@ def state_chain(root):
 
 
 def check_case10_bound(req, facts, cases, entries, request_sha256=None, run_id=None, now=None, observation=None):
-    """Sam 1793567664.474339 item 2: the Case 10 request-bound projection the builder consumes is admitted only when the builder's own
+    """item 2: the Case 10 request-bound projection the builder consumes is admitted only when the builder's own
     validator (case_start_caps.case10_execution_bound: shape, schema, run/source/account binding, evidence reference, the request row's
     requestBoundSha256 over the exact record bytes, and the unchanged 240 allowance) accepts it for the admitted request and the Case 10
-    role's account. A row pinning an observationContract (design A, Sam 1793570217.800529) takes only the fresh `observation` record,
+    role's account. A row pinning an observationContract (design A) takes only the fresh `observation` record,
     admitted for this request digest, run and time. A record supplied when Case 10 needs none refuses. Returns the bound report, or None."""
     import case_start_caps as CS
     account = entries[ROLE["AHT-10"]]["accountId"] if "AHT-10" in cases else ""
@@ -718,7 +962,7 @@ def read_case10_observation(path):
 
 
 def check_action_approval(approval, request_sha256, reconciliation_bytes, req):
-    """RETURN 1793567352.685309 #1: the builder's Start/take action approval, as SUPPLIED in the facts by its approver, admitted only when it
+    """RETURN #1: the builder's Start/take action approval, as SUPPLIED in the facts by its approver, admitted only when it
     names exactly the admitted request bytes, exactly the continuity checkpoint bytes, and the request's own approval and selection
     references. The real consumer (case_start_caps.bind_inputs) checks the same envelope again against the bytes it reads."""
     _need(isinstance(approval, dict) and set(approval) == ACTION_APPROVAL_KEYS and approval["schema"] == ACTION_APPROVAL_SCHEMA,
@@ -733,8 +977,8 @@ def check_action_approval(approval, request_sha256, reconciliation_bytes, req):
 
 
 def reserved_occurrences(chain, own=None):
-    """Campaign ids already reserved on the verified state-ref chain (the same journal the continuity checkpoint received). Sam RETURN
-    1793624502.797169 #2: `own` = (campaignId, runId, attempt, requestSha256) of THIS execution. journal-reserve appends its reserve before the
+    """Campaign ids already reserved on the verified state-ref chain (the same journal the continuity checkpoint received). the reviewer RETURN
+     #2: `own` = (campaignId, runId, attempt, requestSha256) of THIS execution. journal-reserve appends its reserve before the
     live job prepares, so that one verified, still-open reserve (exact campaign, run, attempt and request digest) is not a replay. Any other
     reserve of the occurrence (another run, another attempt, another request, or this reserve once settled) still makes it replayed."""
     events = chain[-1][1]
@@ -750,7 +994,7 @@ def _is_own_open(e, events, own):
 
 
 def _own_open(events, own):
-    """This execution's own open reserves; more than one is ambiguous and refuses (Jensen's review of 7ab42417) rather than falling back."""
+    """This execution's own open reserves; more than one is ambiguous and refuses (the CLI developer's review of 7ab42417) rather than falling back."""
     found = [e for e in events if _is_own_open(e, events, own)]
     _need(len(found) <= 1, "action-approval-own-reserve-ambiguous")
     return found
@@ -768,8 +1012,33 @@ def manual_approval_chain(chain, own):
     return chain[:-1]
 
 
+
+
+def reservation_binding_doc(chain, own, reconciliation_bytes, harness_source_sha, tested_sha):
+    """the authoritative reservation a manual run executes under, derived from the SAME validated state-ref chain
+    prepare read (reviewed root -> head) and the EXACT manual own tuple (campaign, run, attempt, admitted request digest) manual_approval_chain
+    admitted: the head must add exactly this run's one open own reserve to its parent, and that parent must be the reconciliation checkpoint's
+    head (an independently produced, byte-checked artifact). Three distinct heads are recorded: the harness/workflow source, the tested served
+    release and the journal. Nothing in it refers to the plan, so binding it into the plan is not self-referential."""
+    manual_approval_chain(chain, own)                      # own reserve exactly at head, unique, open; anything else refuses
+    event = chain[-1][1][-1]
+    _need(_is_own_open(event, chain[-1][1], own), "reservation-binding-not-own-open")
+    alloc = event.get("allocation")
+    _need(isinstance(alloc, dict) and type(alloc.get("identityReads")) is int and alloc["identityReads"] >= 0, "reservation-binding-allocation")
+    try:
+        checkpoint = json.loads(reconciliation_bytes)
+    except (TypeError, ValueError):
+        raise Refused("reservation-binding-reconciliation")
+    _need(isinstance(checkpoint, dict) and checkpoint.get("headSha") == chain[-2][0], "reservation-binding-reconciliation-head")
+    canon = lambda o: json.dumps(o, sort_keys=True, separators=(",", ":")).encode()
+    return {"schema": RB.SCHEMA, "campaignId": own[0], "runId": own[1], "attempt": own[2], "requestSha256": own[3],
+            "journalRootSha": chain[0][0], "reconciliationHeadSha": chain[-2][0], "journalHeadSha": chain[-1][0],
+            "reserveEventSha256": hashlib.sha256(canon(event)).hexdigest(), "allocationSha256": hashlib.sha256(canon(alloc)).hexdigest(),
+            "identityReads": alloc["identityReads"], "harnessSourceSha": harness_source_sha, "testedSha": tested_sha}
+
+
 def own_held_allocation(chain, own):
-    """Sam RETURN 1793625480.539669: the allocation THIS execution's verified, still-open reserve holds (None when there is none). The rollup
+    """the reviewer RETURN : the allocation THIS execution's verified, still-open reserve holds (None when there is none). The rollup
     already charges an open reserve against period headroom, so an admitted run is checked against what it holds, never charged twice."""
     held = _own_open(chain[-1][1], own)
     return dict(held[0]["allocation"]) if held else None
@@ -798,7 +1067,7 @@ def standing_grant_in_force(repo, pin=None):
 
 
 def standing_envelope(repo, req, request_sha256, reconciliation_bytes, scope, cases, cfg, now, attempt, prior, pin=None, held=None):
-    """Option A (Sam 1793568947.054419): a nightly occurrence's action envelope, DERIVED only under the owner's explicit standing grant in the
+    """Option A : a nightly occurrence's action envelope, DERIVED only under the owner's explicit standing grant in the
     pinned recurring approval, never from data equality alone. The approval, attempt, occurrence (and its replay), cases, window, per-run
     and period limits and references are all checked BEFORE the envelope exists; the unchanged check_action_approval then admits it, and
     case_start_caps.bind_inputs re-checks it against the bytes it reads. `pin` is TEST-ONLY."""
@@ -841,7 +1110,7 @@ def standing_envelope(repo, req, request_sha256, reconciliation_bytes, scope, ca
           and _int(est.get("identityReads")) and est["identityReads"] <= caps["identityReads"]
           and _int(est.get("starts")) and est["starts"] <= caps["starts"] and _int(est.get("takes")) and est["takes"] <= caps["takes"],
           "action-approval-standing-per-run")
-    # RETURN 1793570165.380389: the verified checkpoint's accounting period and every period ceiling are the standing approval's own, and
+    # RETURN : the verified checkpoint's accounting period and every period ceiling are the standing approval's own, and
     # the remaining headroom in each dimension still holds this run, so a different accounting scope can never extend the standing grant.
     rc = json.loads(reconciliation_bytes)
     _need(lim.get("cumulativeCeilingRequests") == period["requests"] and isinstance(scope, dict)
@@ -867,7 +1136,7 @@ def occurrence_action_approval(facts, request_sha256, reconciliation_bytes, req,
     """Return the exact builder envelope for this occurrence.
 
     Manual dispatches retain the approver-supplied, byte-bound envelope. Scheduled executions must not carry a reusable envelope in their
-    pinned facts. D1(a) (Sam 1793622282.584849): a nightly envelope is derived ONLY through `standing` (standing_envelope), which checks the
+    pinned facts. D1(a) : a nightly envelope is derived ONLY through `standing` (standing_envelope), which checks the
     pinned standing grant, attempt, occurrence and replay, cases, window, per-run limits, period headroom and references BEFORE the envelope
     exists; the derived envelope is the request/reconciliation-bound one, and the ordinary checker validates it for both routes.
     """
@@ -884,7 +1153,8 @@ def occurrence_action_approval(facts, request_sha256, reconciliation_bytes, req,
     if req.get("runId") == "R10-3b040043-smoke15":
         _need(not (set(facts) & CALLER_AUTHORITY_FIELDS), "one-off-caller-authority-refused")
         _need(isinstance(repo, str), "one-off-grant-unreadable")
-        approval = one_off_grant(repo, None, req.get("createdUtc"), reconciliation_bytes, chain)
+        approval = one_off_grant(repo, None, req.get("createdUtc"), reconciliation_bytes, chain,
+                                 selection=[s.get("case") for s in req.get("selection") or [] if isinstance(s, dict)])
         window = req.get("window") or {}
         _need(req.get("createdUtc") == window.get("startUtc")
               and (_utc(window.get("endUtc")) - _utc(window.get("startUtc"))).total_seconds()
@@ -905,7 +1175,7 @@ def occurrence_action_approval(facts, request_sha256, reconciliation_bytes, req,
 def checkpoint_and_scope(repo, req, pins=None, chain_reader=None, own=None):
     """The continuity checkpoint: the canonical bytes of the accepted rollup, bound to this request, with the accepted period scope they were
     received under (the standing derivation binds its period), or a continuity-* refusal. `pins` and
-    `chain_reader` are TEST-ONLY overrides; production uses continuity_pins() (all None today) and the real state-ref journal."""
+    `chain_reader` are TEST-ONLY overrides; production uses continuity_pins (all None today) and the real state-ref journal."""
     pins = continuity_pins() if pins is None else pins
     _need(pins.get("accepted_sha256") is not None and pins.get("accepted_root") is not None, "continuity-rollup-not-accepted")
     _need(pins.get("reviewed_root") is not None and pins["reviewed_root"] == pins["accepted_root"], "continuity-state-root-not-pinned")
@@ -924,7 +1194,7 @@ def checkpoint_and_scope(repo, req, pins=None, chain_reader=None, own=None):
         raise Refused("continuity-" + str(e))
     lim = req.get("approvedLimits") or {}
     _need(isinstance(lim.get("approvalRef"), str) and scope["approvalRef"] == lim["approvalRef"], "continuity-approval-not-the-request")
-    # Sam RETURN 1793567352.685309 #2: the whole execution window lies inside the accepted period (no future or expired period admits it).
+    # the reviewer RETURN #2: the whole execution window lies inside the accepted period (no future or expired period admits it).
     window = req.get("window") or {}
     _need(_utc(scope["periodStartUtc"]) <= _utc(window.get("startUtc")) and _utc(window.get("endUtc")) <= _utc(scope["periodEndUtc"]),
           "continuity-window-outside-period")
@@ -980,15 +1250,25 @@ def prepare(x, now):
     req, cfg, template_keys = json.loads(req_raw), _load(os.path.join(repo, x.config)), _request_keys()
     cases = check_request(req, now, template_keys, nightly)
     route = "github-producer" if set(cases) & PRODUCER_CASES else "github-direct"
+    if manual_occurrence:
+        check_job_bound(req, x.job_timeout_minutes)
     live_minutes = check_ceilings(cfg, req, cases, x.job_timeout_minutes)
     check_window_fit(req, now, live_minutes)
+    deadline = execution_deadline(req, now, live_minutes)
     _need(not (nightly and x.facts), "nightly-facts-input-refused")
     facts = nightly_facts(repo) if nightly else (manual_facts if manual_occurrence else json.loads(x.facts or "null"))
     _need(isinstance(facts, dict), "facts-shape")
+    if not nightly:     # a dispatch's facts input and its request are published in the public repository's run
+        _need(publishable(facts), "facts-not-publishable")
+        _need(isinstance(facts.get("ownerApprovalReference"), str) and APPROVAL_CODE.fullmatch(facts["ownerApprovalReference"]) is not None,
+              "facts-approval-not-opaque")
+        _need(facts.get("approvedBy") == APPROVER_ROLE and facts.get("reviewer") in REVIEWER_ROLES, "facts-approver-not-a-role")
+        _need(publishable(req), "request-not-publishable")
     grant = None
     if req.get("runId") == "R10-3b040043-smoke15":
         _need(not (set(facts) & CALLER_AUTHORITY_FIELDS), "one-off-caller-authority-refused")
-        grant = one_off_grant(repo, None, req.get("createdUtc"))
+        grant = one_off_grant(repo, None, req.get("createdUtc"),
+                              selection=[s.get("case") for s in req.get("selection") or [] if isinstance(s, dict)])
     lineage = check_release_lineage(repo, req, x.request, x.source_sha, req_blob, cases, facts.get("olderReleaseDiagnostic"), template_keys, grant)
     bundle = parse_live_accounts_bundle(os.environ.get("CLOUD_TEST_LIVE_ACCOUNTS"))
     accounts = account_bindings(cfg, cases, facts.get("accounts"), bundle,
@@ -1020,15 +1300,22 @@ def prepare(x, now):
     builder_facts = translate_facts(facts, req, route)
     if observation is not None:
         builder_facts = dict(builder_facts, case10Observation=observation)  # the builder re-admits it (case10_execution_bound)
-    scope = compose_scope(req, builder_facts, entries["existing-disposable"]["accountId"] if route == "github-producer" else account_id, cases, route)
+    scope = compose_scope(req, builder_facts, entries["existing-disposable"]["accountId"] if route == "github-producer" else account_id, cases, route,
+                          deadline)
+    # a MANUAL run's binding comes from its exact verified own reserve (never own=None); a nightly run binds none (unshared).
+    reservation_binding = None
+    if manual_occurrence:
+        _need(bool(chains), "reservation-binding-chain-unread")
+        reservation_binding = reservation_binding_doc(chains[-1], (req["runId"], x.run_id, x.attempt, request_sha256), reconciliation,
+                                                      x.source_sha, req["release"]["testedSha"])
     # Cumulative request/identity/Starts/takes caps are G5's (check_gates.py 131-170, run by execute_run gate-and-validate with --enforce-go
     # before reserve or run); the caller supplies G5's verified inputs and never re-derives its formula.
     return {"request": req_path, "requestBlob": req_blob, "requestRaw": req_raw, "bundleBytes": canonical_bundle_bytes(bundle),
             "reconciliationBytes": reconciliation, "requestSha256": hashlib.sha256(req_raw).hexdigest(),
             "testedSha": req["release"]["testedSha"], "lineage": lineage, "cases": cases,
             "accountId": account_id, "emails": {b["credentials"]["email"]: entries[b["role"]]["email"] for b in accounts},
-            "coverageMode": req["coverageMode"], "route": route, "liveMinutes": live_minutes,
-            "accounts": accounts, "facts": builder_facts, "scope": scope}
+            "coverageMode": req["coverageMode"], "route": route, "liveMinutes": live_minutes, "executionDeadline": deadline,
+            "accounts": accounts, "facts": builder_facts, "scope": scope, "reservationBinding": reservation_binding}
 
 
 def _run_verifier(plan, case_results, approval, code_manifest, packet_root, cases_dir, out):
@@ -1102,12 +1389,26 @@ def identities(request_path, config_path, admitted_sha256):
             "catalog": {cid: list(c["requiredAssertions"]) for cid, c in cases.items()}}
 
 
+def projection_catalog(request_raw, request_sha256, config_path, qualification=None):
+    """The assertion catalog the projection builds row verdicts from: the PINNED catalog of the admitted request's depth (smoke ->
+    smoke-assertion-catalog, otherwise the full catalog), digest-checked exactly as identities does for qualification (the CLI hardcoded the full catalog, so a smoke run's 15-row AHT-01 verdict was built against 20 full rows and the
+    publisher refused row-verdicts). The request must be the admitted bytes; a qualification, when present, must name the same catalog."""
+    _need(isinstance(request_raw, bytes) and hashlib.sha256(request_raw).hexdigest() == request_sha256, "request-not-the-admitted-bytes")
+    mode = json.loads(request_raw).get("coverageMode")
+    pin = _load(config_path)["modes"]["smoke" if mode == "smoke" else "full"]["assertionCatalog"]
+    raw = _read(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(config_path))), pin["file"]))
+    _need(hashlib.sha256(raw).hexdigest() == pin["sha256"], "assertion-catalog-not-pinned")
+    if isinstance(qualification, dict) and qualification.get("qualified") and qualification.get("catalogSha256") is not None:
+        _need(qualification["catalogSha256"] == pin["sha256"], "projection-catalog-not-the-qualified-catalog")
+    return json.loads(raw)
+
+
 def qualify(plan_path, case_results_path, cases_dir, selected, approval, code_manifest, snapshot_dir, coverage_mode, ids,
             run_verifier=_run_verifier):
     """Freeze every verifier input, run the REAL verifier on the frozen snapshot only (fresh --out, exit 0, zero failures for exactly the
     frozen plan and results), then decide from the same frozen bytes: the builder's 15-row denominator with the dispatch subset in
     plan.selection, every selected case dispatched with a case result consistent with its rows, every required assertion present exactly
-    once, and every evidence digest and summary matching the frozen bytes. EXECUTION and OUTCOME are separate (Sam 1793547120.015339):
+    once, and every evidence digest and summary matching the frozen bytes. EXECUTION and OUTCOME are separate :
     coverage is full/batch only when every selected required row was executed (PASS or FAIL), otherwise incomplete; the outcome is passed
     only when every one is PASS. A FAIL never weakens a binding check. The result binds the campaign, releases, plan/results digests,
     request, assertion catalog and harness CODE manifest."""
@@ -1130,7 +1431,7 @@ def qualify(plan_path, case_results_path, cases_dir, selected, approval, code_ma
     checks = verification.get("checks")
     _need(isinstance(checks, list) and checks and verification.get("failed") == 0 and all(c.get("result") == "PASS" for c in checks), "binding-verification-failed")
     plan, results = json.loads(original_plan), json.loads(frozen["case-results.json"])
-    # The committed request is THIS campaign's: its runId, selection, tested release, mode and harness CODE pin are what ran (Sam RETURN
+    # The committed request is THIS campaign's: its runId, selection, tested release, mode and harness CODE pin are what ran (the reviewer RETURN
     # 546429c4 #2). A substituted request refuses before any row is read.
     req = ids["request"]
     _need(req.get("runId") == plan.get("campaignId"), "request-campaign-mismatch")
@@ -1154,7 +1455,8 @@ def qualify(plan_path, case_results_path, cases_dir, selected, approval, code_ma
     if coverage_mode == "full":
         _need(selected == ALL_CASES and "coverageMode" not in plan and "assertionDepth" not in plan, "plan-not-a-full-coverage-plan")
     elif coverage_mode == "smoke":
-        _need(selected == ALL_CASES and plan.get("coverageMode") == "smoke" and plan.get("assertionDepth") == "smoke", "plan-not-an-all-fifteen-smoke-plan")
+        _need((selected == ALL_CASES or req.get("runId") == R10_ONE_OFF_RUN_ID) and plan.get("coverageMode") == "smoke"
+              and plan.get("assertionDepth") == "smoke", "plan-not-an-all-fifteen-smoke-plan")
     else:
         _need(plan.get("coverageMode") == "partial" and plan.get("assertionDepth") == "full", "plan-not-a-selected-full-plan")
     counts = {"PASS": 0, "FAIL": 0, "NOT RUN": 0}
@@ -1207,7 +1509,7 @@ def qualify(plan_path, case_results_path, cases_dir, selected, approval, code_ma
             "notRunRows": counts["NOT RUN"]}
 
 
-# I4' receiving contract, bound to Jensen's producers at 75b47b2c (Sam 1793550229.086469 / 1793554840.089039). Every request reader records
+# I4' receiving contract, bound to the CLI developer's producers at 75b47b2c . Every request reader records
 # the digest of the ONE buffer it hashed, parsed and compared with the admitted digest before any effect:
 #   build-plan     plan/cfg/build-plan-consumption.json: {consumer, campaignId, runId, attempt, requestSha256, planSha256, sourceSha, ...}
 #   reservation    the reserve ledger event's requestConsumption (nightly-regression requests only; reservations.py refuses others)
@@ -1221,7 +1523,7 @@ EXECUTION_KEYS = {"campaignId", "runId", "attempt", "caseId", "requestSha256", "
 
 def required_readers(priority):
     """Nightly runs reserve before any spend, so their reservation record is required. A manual run has no reservation record until the
-    manual/accepted-rollup reservation design lands (Sam 1793554840.089039); then it becomes required here too."""
+    manual/accepted-rollup reservation design lands ; then it becomes required here too."""
     return ("reservation", "build-plan", "collector") if priority == "nightly-regression" else ("build-plan", "collector")
 
 
@@ -1370,8 +1672,43 @@ def _unique(items, key, code):
     return out
 
 
+CASE_CODE = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
+MAX_CASE_CODES = 8
+
+
+def diagnostic_codes(diag):
+    """Closed per-case codes for the published record from one closed case diagnostic (published-report propagation):
+    a non-normal guard stop, the driver stage at interruption, a guard-refused navigation (guard-refused-<deny>|cap-<cap>|other),
+    the exact net error, each guard upstream reason, and an absent egress proxy under env-proxy. Built only from the closed vocabularies above; at most MAX_CASE_CODES."""
+    if not isinstance(diag, dict):
+        return []
+    out = []
+    stop = diag.get("stopCode")
+    if isinstance(stop, str) and stop not in ("completed", "unknown") and stop in CASE_STOP_CODES:
+        out.append("stop-" + stop)
+    di = diag.get("driverInterruption") if isinstance(diag.get("driverInterruption"), dict) else {}
+    if isinstance(di.get("stage"), str) and di["stage"] in DRIVER_STAGES:
+        out.append("stage-" + di["stage"])
+    if isinstance(di.get("stopReason"), str) and di["stopReason"] in GUARD_STOP_REASONS:
+        out.append("guard-refused-" + di["stopReason"][len(GUARD_STOP_PREFIX):].replace(":", "-"))
+    err = di.get("error") if isinstance(di.get("error"), dict) else {}
+    if isinstance(err.get("netError"), str) and err["netError"] in DRIVER_NET_ERRORS:
+        out.append("net-" + err["netError"].lower().replace("_", "-"))
+    guard = diag.get("guard") if isinstance(diag.get("guard"), dict) else {}
+    for reason in sorted(guard.get("upstreamReasons") or {}):
+        if reason in GUARD_UPSTREAM_REASONS:
+            out.append("upstream-" + reason)
+    if guard.get("upstreamMode") == "env-proxy" and guard.get("proxyConfigured") is False:
+        out.append("egress-proxy-absent")
+    seen = []
+    for code in out:
+        if CASE_CODE.fullmatch(code) and code not in seen:
+            seen.append(code)
+    return seen[:MAX_CASE_CODES]
+
+
 def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=None, request_sha256=None, provenance=None, case_results_raw=None,
-            catalog=None, request_raw=None, media_manifest_raw=None):
+            catalog=None, request_raw=None, media_manifest_raw=None, case_codes=None):
     """run-record.json (the real collector keeps all 15 rows) -> the closed latest record. Qualification counts only when it is bound to THIS
     record and THIS admission: the same case-results digest, tested release, observed served release and admitted request digest. Then the selected rows keep their results, the others
     are NOT SELECTED, and coverage says batch or full truthfully. `passed` needs that binding and every selected row PASS; anything else is
@@ -1380,6 +1717,8 @@ def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=N
     rel = run_record.get("release") or {}
     _need(isinstance(tested_sha, str) and LR.SHA40.match(tested_sha) and rel.get("testedSha") == tested_sha, "run-record-for-another-release")
     q = qualification if isinstance(qualification, dict) else {}
+    if run_record.get("result") == "INCOMPLETE":
+        q = {}                                   # the reviewer N1: an incomplete record can never be qualified, whatever is supplied
     campaign = run_record.get("runId")
     qualified = (q.get("qualified") is True and isinstance(campaign, str) and campaign.strip() and q.get("campaignId") == campaign and
                  q.get("caseResultsSha256") == (run_record.get("artifactDigests") or {}).get("case-results.json") and
@@ -1407,9 +1746,14 @@ def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=N
     for c in run_record.get("cases") or []:
         a = c.get("assertions") or {}
         unselected = qualified and c.get("case") not in q["cases"]
+        codes = [c["outcomeClass"]] if not unselected and isinstance(c.get("outcomeClass"), str) and LR.CODE.match(c["outcomeClass"]) else []
+        if not unselected and isinstance(case_codes, dict):
+            for code in case_codes.get(c.get("case")) or []:
+                if isinstance(code, str) and CASE_CODE.fullmatch(code) and code not in codes:
+                    codes.append(code)
         cases.append({"caseId": c.get("case"), "result": "NOT SELECTED" if unselected else c.get("result"),
                       "rows": {"pass": 0, "fail": 0, "notRun": 0} if unselected else {"pass": a.get("PASS"), "fail": a.get("FAIL"), "notRun": a.get("NOT RUN")},
-                      "codes": [c["outcomeClass"]] if not unselected and isinstance(c.get("outcomeClass"), str) and LR.CODE.match(c["outcomeClass"]) else []})
+                      "codes": codes[:MAX_CASE_CODES]})
     selected = [c for c in cases if c["result"] != "NOT SELECTED"]
     row_verdicts = None
     if qualified and case_results_raw is not None and catalog is not None:
@@ -1426,7 +1770,7 @@ def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=N
            "startedUtc": run_record.get("startedUtc"), "endedUtc": run_record.get("endedUtc"),
            "requestSha256": q.get("requestSha256") if qualified else None, "catalogSha256": q.get("catalogSha256") if qualified else None,
            "outcome": "passed" if qualified and q["outcome"] == "passed" and selected and all(c["result"] == "PASS" for c in selected) else "failed",
-           "cases": cases, "codes": [] if qualified else ["not-qualified"]}
+           "cases": cases, "codes": ([] if qualified else ["not-qualified"]) + (["incomplete-run"] if run_record.get("result") == "INCOMPLETE" else [])}
     if qualified:
         rec.update(coverageMode=q["coverageMode"], assertionDepth=q["assertionDepth"])
     if row_verdicts:
@@ -1474,9 +1818,16 @@ def first_observation_export(cases_dir, selected):
     The case directory itself is ephemeral. This closed projection is safe to retain and can become the next run's history reference; a
     present-but-unlinked or substituted observation refuses rather than silently disappearing when the runner is destroyed.
     """
-    _need(isinstance(cases_dir, str) and os.path.isdir(cases_dir) and not os.path.islink(cases_dir), "first-observation-cases-dir")
+    # Consultant P2-2 (runs 42423408284, 42494152179, 42615792133): a run that stopped before any case never creates the cases directory.
+    # That is a closed, retained "no case reached" record, not a refusal (and a refused export then also failed the upload step). Anything
+    # present at that path must still be a real directory.
+    _need(isinstance(cases_dir, str) and (not os.path.lexists(cases_dir) or (os.path.isdir(cases_dir) and not os.path.islink(cases_dir))),
+          "first-observation-cases-dir")
     _need(isinstance(selected, list) and selected and len(selected) == len(set(selected))
           and all(re.fullmatch(r"AHT-(?:0[1-9]|1[0-5])", x or "") for x in selected), "first-observation-selection")
+    if not os.path.lexists(cases_dir):
+        return {"schema": "speaksharp-first-observations-v1", "contentSafe": True, "selectedCases": selected, "observations": [],
+                "notObserved": [{"caseId": c, "status": "NOT OBSERVED", "reason": "CASE NOT REACHED"} for c in ("AHT-01", "AHT-15") if c in selected]}
     expected = {"AHT-01": ("aht-01-first-observation.json", "existing-disposable"),
                 "AHT-15": ("aht-15-first-observation.json", "maintained-read-only")}
     observations, not_observed = [], []
@@ -1583,15 +1934,462 @@ def case_timing_export(cases_dir, case_results_file, selected):
     return {"schema": "speaksharp-case-timings-v1", "contentSafe": True, "selectedCases": selected, "cases": out}
 
 
+STAGE_NAMES = ("install-tools", "build-plan", "stimulus-preflight", "build-plan-with-receipt", "gate-and-validate", "reserve",
+               "manual-reserve", "run", "collect", "settle", "manual-settle")
+
+
+def stage_trace_rows(trace_file):
+    """The content-free stage trace execute_run.sh's run_stage appends (stage, start, end, exit code), validated row by row; [] when absent."""
+    if not (isinstance(trace_file, str) and os.path.lexists(trace_file)):
+        return []
+    _need(os.path.isfile(trace_file) and not os.path.islink(trace_file), "stage-trace")
+    rows = []
+    for line in _read(trace_file).decode("utf-8").splitlines():
+        parts = line.split("\t")
+        _need(len(parts) == 4 and parts[0] in STAGE_NAMES and re.fullmatch(r"\d{1,3}", parts[3])
+              and all(re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", v) for v in parts[1:3]), "stage-trace")
+        start, end = _utc(parts[1]), _utc(parts[2])
+        _need(end >= start, "stage-trace")
+        rows.append({"stage": parts[0], "startedAtUtc": parts[1], "endedAtUtc": parts[2],
+                     "durationMs": int((end - start).total_seconds() * 1000), "exitCode": int(parts[3])})
+    _need(len(rows) <= 64, "stage-trace")
+    return rows
+
+
+ALL_AHT = tuple("AHT-%02d" % n for n in range(1, 16))
+TRACE_SCOPE = ("stage-trace rows cover each run_stage WRAPPED command (start, end, exit code); a refusal raised before the command "
+               "(stage-environment checks, BLOCKED_SETUP) has no row, and steps outside execute_run.sh are not traced")
+
+
+def selection_from_request(request_file):
+    """The selected cases from the committed or admitted request itself (used when init never ran, so its `cases` output is absent)."""
+    doc = _load(request_file)
+    sel = doc.get("selection") if isinstance(doc, dict) else None
+    _need(isinstance(sel, list) and sel and all(isinstance(r, dict) and isinstance(r.get("case"), str) for r in sel), "case-timing-request")
+    return [r["case"] for r in sel]
+
+
+def _unknown_row(case_id, reason):
+    return {"caseId": case_id, "result": "UNKNOWN", "evidence": reason, "timingStatus": "NOT OBSERVED",
+            "startedAtUtc": None, "endedAtUtc": None, "durationMs": None}
+
+
+TS = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3})?Z")
+
+
+# Run 42483030590 : every case FAILED in ~1.1 s and the public timing table could not say why. Each bound row now carries a
+# CLOSED, content-free diagnostic: the guard's stop code (from the digest-verified summary, mapped into this enumeration), its exit code,
+# and the first non-passing assertion id when that id is a reviewed catalog id. A guard that exited before writing a summary (usage exit 2,
+# setup refusal 78 before stop, a crash) is classified from the receipt's exit code; anything else is "unknown". No raw stderr,
+# free-text reason, path or credential is ever projected.
+STOP_CODES = {"completed", "deadline", "allowance-exhausted", "parent-lost", "sandbox-check-failed", "step-error", "guard-fatal"}
+STOP_PREFIXED = {"fatal:uncaughtException": "fatal-uncaught-exception", "fatal:unhandledRejection": "fatal-unhandled-rejection",
+                 "signal:SIGTERM": "signal-sigterm", "signal:SIGINT": "signal-sigint", "signal:SIGHUP": "signal-sighup"}
+HARNESS_ROW_IDS = {"owned-pages-closed", "start-press-budget", "no-cloud-stt"}
+ASSERTION_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
+
+
+def _catalog_assertion_ids():
+    ids = set(HARNESS_ROW_IDS)
+    for name in ("smoke-assertion-catalog.json", "assertion-catalog.json"):
+        try:
+            doc = json.loads(_read(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", name)))
+        except (OSError, ValueError, Refused):
+            continue
+        cases = doc.get("cases") if isinstance(doc, dict) else None
+        for case in (cases.values() if isinstance(cases, dict) else []):
+            for key in ("requiredAssertions", "assertions"):
+                for item in (case.get(key) or []) if isinstance(case, dict) else []:
+                    aid = item.get("id") if isinstance(item, dict) else item
+                    if isinstance(aid, str) and ASSERTION_ID.fullmatch(aid):
+                        ids.add(aid)
+    return ids
+
+
+# Closed vocabularies only : a value outside these exact reviewed sets is `other` or dropped, never echoed. A format regex
+# is not a vocabulary: `password-huntertwo` and `secret.token` are format-valid. DRIVER_STAGES is the driver's own STAGES set
+# (harness/draft-adapters/browser-actions.cjs); DRIVER_TEST_IDS the exact data-testid values the reviewed adapters address;
+# DRIVER_APIS the Playwright calls they make. tests/test_init_run_inputs.py pins all three to those sources.
+DRIVER_STAGES = frozenset({
+    "idle", "signin-navigate", "start-select", "start-press", "start-pressed", "retry-setup-wait", "start-recording-wait", "products-trigger-wait",
+    "products-menu-wait", "products-trigger-click", "products-open-wait", "products-item-click", "stop-press", "stop-clicked",
+    "stop-release-wait", "save-wait", "save-readback", "save-complete", "focus-dialog-wait", "focus-dialog-focus-wait", "focus-dialog-close",
+    "focus-dialog-hidden-wait", "focus-intent-clear-wait"})
+DRIVER_TEST_IDS = frozenset({
+    "ai-suggestions-card", "ai-suggestions-pair", "email-input", "feedback-session-select", "feedback-type-broke", "focus-points-edit",
+    "focus-points-legend", "focus-points-new-set", "focus-points-rail", "focus-points-rail-list", "issue-report-description",
+    "issue-report-dialog", "issue-report-submit", "live-transcript", "mic-card", "mic-download", "mic-retry", "mic-start", "mic-status",
+    "nav-account-avatar", "nav-analytics-link", "nav-mobile-products-button", "nav-products-button", "nav-report-issue-button",
+    "nav-sign-out-button", "objective-add-point", "objective-goal-input", "objective-goal-select", "objective-pace-value",
+    "objective-point-label-2", "objective-setup-dialog", "objective-setup-submit", "password-input", "practice-root",
+    "progress-attempt-values", "progress-direction", "progress-loading", "progress-panel", "recorder-bar", "recorder-stop",
+    "repeat-practice-target", "restored-review-retry", "review-evidence", "review-transcript", "review-try-next", "review-what-went-well",
+    "saved-review", "saved-review-practice", "saved-session-return", "session-recovery-actions", "session-recovery-dismiss",
+    "session-recovery-message", "session-retry-save", "session-unresolved-message", "session-unresolved-recovery", "sign-in-submit",
+    "sign-out-button", "stt-mode-private", "stt-mode-select", "transcript-container"})
+DRIVER_APIS = frozenset({
+    "page.goto", "page.goBack", "page.reload", "page.evaluate", "page.waitForFunction", "page.waitForTimeout", "page.waitForURL",
+    "page.addInitScript", "page.close", "locator.click", "locator.fill", "locator.press", "locator.check", "locator.selectOption",
+    "locator.waitFor", "locator.textContent", "locator.innerText", "locator.getAttribute", "locator.inputValue", "locator.isVisible",
+    "locator.isEnabled", "locator.evaluate", "locator.focus", "locator.hover", "locator.scrollIntoViewIfNeeded", "locator.count",
+    "locator.boundingBox", "locator.dispatchEvent", "locator.pressSequentially"})
+# The exact Chromium net error (browser-actions.cjs NET_ERRORS) and the guard's closed upstream reasons (guard-proxy.cjs UPSTREAM_REASONS),
+# run 42496837188's page.goto network-error and the guard's upstream-error carried neither. Pinned to those sources by test.
+DRIVER_NET_ERRORS = frozenset({
+    "ERR_HTTP_RESPONSE_CODE_FAILURE", "ERR_CONNECTION_REFUSED", "ERR_CONNECTION_RESET", "ERR_CONNECTION_CLOSED", "ERR_CONNECTION_TIMED_OUT",
+    "ERR_TIMED_OUT", "ERR_NAME_NOT_RESOLVED", "ERR_INTERNET_DISCONNECTED", "ERR_ADDRESS_UNREACHABLE", "ERR_PROXY_CONNECTION_FAILED",
+    "ERR_TUNNEL_CONNECTION_FAILED", "ERR_CERT_AUTHORITY_INVALID", "ERR_CERT_COMMON_NAME_INVALID", "ERR_CERT_DATE_INVALID",
+    "ERR_SSL_PROTOCOL_ERROR", "ERR_ABORTED", "ERR_FAILED", "ERR_EMPTY_RESPONSE", "ERR_BLOCKED_BY_CLIENT", "ERR_TOO_MANY_REDIRECTS",
+    "ERR_NETWORK_CHANGED", "other"})
+GUARD_UPSTREAM_REASONS = frozenset({"proxy-not-configured", "proxy-invalid", "proxy-connect-status", "test-only-trust", "no-test-override",
+                                    "aborted", "dns", "connect-refused", "timeout", "reset", "tls", "other"})
+GUARD_UPSTREAM_MODES = frozenset({"env-proxy", "direct", "override"})
+# A navigation refused by the egress guard: the driver's code-owned closed stopReason
+# (browser-actions.cjs GUARD_DENY_WORDS / GUARD_CAPS / guardDenyCode), pinned to that source by test. Only an exact member is carried.
+GUARD_DENY_WORDS = frozenset({"policy", "host", "unknown-host", "upstream-error", "deadline", "deadline-passed", "closing", "concurrency-wait",
+                              "websocket", "plain-http", "malformed", "host-mismatch"})
+GUARD_CAPS = frozenset({"total", "navigations", "case-allowance", "case-takes", "account-closure", "auth", "coaching", "model", "preflight",
+                        "public", "signed-in", "telemetry"})
+GUARD_STOP_PREFIX = "guard-refused-navigation:"
+GUARD_STOP_REASONS = frozenset({GUARD_STOP_PREFIX + w for w in GUARD_DENY_WORDS} | {GUARD_STOP_PREFIX + "cap:" + c for c in GUARD_CAPS}
+                               | {GUARD_STOP_PREFIX + "other"})
+# The driver's ordered navigation/sign-in trail (browser-actions.cjs TRAIL_EVENTS / TRAIL_ROUTES), closed and bounded; pinned by test.
+TRAIL_EVENTS = frozenset({"nav-start", "nav-response", "nav-error", "auth-form-visible", "sign-in-submit", "sign-in-done", "sign-in-error"})
+TRAIL_ROUTES = frozenset({"route-signin", "route-practice", "route-analytics", "route-session", "route-other"})
+TRAIL_STATUS = frozenset({"status-1xx", "status-2xx", "status-3xx", "status-4xx", "status-5xx"})
+TRAIL_MAX = 24
+
+
+def _trail(raw):
+    """The driver trail in order, each entry closed or dropped whole; never more than TRAIL_MAX."""
+    out = []
+    for e in raw[-TRAIL_MAX:] if isinstance(raw, list) else []:
+        if not (isinstance(e, dict) and isinstance(e.get("event"), str) and e["event"] in TRAIL_EVENTS):
+            continue
+        ms = e.get("ms")
+        out.append({"event": e["event"], "route": _closed(e.get("route"), TRAIL_ROUTES, "route-other"),
+                    "statusClass": _closed(e.get("statusClass"), TRAIL_STATUS, None), "netError": _closed(e.get("netError"), DRIVER_NET_ERRORS, None),
+                    "ms": ms if type(ms) is int and 0 <= ms <= 3600000 else None})
+    return out
+ERROR_NAMES = frozenset({"TimeoutError", "Error", "TypeError"})
+ERROR_CODES = frozenset({"NOT_RUN", "AUTH_REJECTED", "START_PRESS_CAP", "START_CONTROL_NOT_READY", "PRODUCT_FAIL", "EVIDENCE_READER_UNAVAILABLE"})
+ERROR_KINDS = frozenset({"timeout", "target-closed", "control-not-ready", "strict-mode", "network-error", "other"})
+INTERRUPTION_MAX_BYTES = 65536
+INTERRUPTION_REF = re.compile(r"aht-(0[1-9]|1[0-5])-interruption\.json")
+_UNREAD = {"stage": "unknown", "step": None, "error": None, "trail": []}
+
+
+def _closed(value, vocabulary, default):
+    return value if isinstance(value, str) and value in vocabulary else default
+
+
+def _bound_file(case_dir, name):
+    """The bytes of `name` directly inside `case_dir`, or None. The ORIGINAL path is checked for a symlink before anything is resolved, and
+    the resolved file must sit directly in the resolved directory (no escape, no nested path)."""
+    if not (isinstance(case_dir, str) and isinstance(name, str)) or os.sep in name or name in (".", ".."):
+        return None
+    path = os.path.join(case_dir, name)
+    if os.path.islink(case_dir) or os.path.islink(path) or not os.path.isfile(path):
+        return None
+    if os.path.dirname(os.path.realpath(path)) != os.path.realpath(case_dir) or os.path.getsize(path) > INTERRUPTION_MAX_BYTES * 16:
+        return None
+    try:
+        return _read(path)
+    except (OSError, Refused):
+        return None
+
+
+def driver_interruption(case_dir, case_id, row, receipt, allowed_ids):
+    """the driver catches early page/observer/navigation/login errors, records an owner-bound FAIL and returns
+    normally, so the guard's stop code can be `completed`. Its content-safe interruption evidence (source-adapters retainInterruptionEvidence)
+    is projected only when BOUND to this case and its retained receipt: the row names exactly one interruption ref, `<case>-interruption.json`
+    for this case; the case's `case-result.json` hashes to the receipt's caseResultSha256 and lists that ref in evidenceDigests with the file's
+    exact sha256; the document's own caseId is this case. Every field then passes through the reviewed vocabularies above; anything else is
+    `other` or dropped. None when the row names no interruption; `unknown` when one is named but cannot be bound."""
+    refs = set()
+    for a in row.get("assertions") if isinstance(row.get("assertions"), list) else []:
+        for r in (a.get("evidenceRefs") if isinstance(a, dict) and isinstance(a.get("evidenceRefs"), list) else []):
+            if isinstance(r, str) and "interruption" in r:
+                refs.add(r)
+    if not refs:
+        return None
+    name = case_id.lower() + "-interruption.json"
+    if refs != {name} or not INTERRUPTION_REF.fullmatch(name) or not isinstance(receipt, dict):
+        return dict(_UNREAD)
+    result_raw, raw = _bound_file(case_dir, "case-result.json"), _bound_file(case_dir, name)
+    want = receipt.get("caseResultSha256")
+    if result_raw is None or raw is None or len(raw) > INTERRUPTION_MAX_BYTES or not isinstance(want, str) \
+            or hashlib.sha256(result_raw).hexdigest() != want:
+        return dict(_UNREAD)
+    try:
+        result, doc = json.loads(result_raw), json.loads(raw)
+    except (ValueError, UnicodeDecodeError, RecursionError):
+        return dict(_UNREAD)
+    digests = result.get("evidenceDigests") if isinstance(result, dict) else None
+    if not (isinstance(digests, dict) and digests.get(name) == hashlib.sha256(raw).hexdigest()):
+        return dict(_UNREAD)
+    if not (isinstance(doc, dict) and doc.get("kind") == "interruption-diagnostic" and doc.get("caseId") == case_id):
+        return dict(_UNREAD)
+    step, err = doc.get("step"), doc.get("error")
+    out = {"stage": _closed(doc.get("stage"), DRIVER_STAGES, "other"),
+           "step": (step if step in allowed_ids else "unlisted") if isinstance(step, str) else None, "error": None,
+           "trail": _trail(doc.get("trail"))}
+    if isinstance(doc.get("stopReason"), str) and doc["stopReason"] in GUARD_STOP_REASONS:
+        out["stopReason"] = doc["stopReason"]           # exact reviewed member only; anything else is dropped, never echoed
+    if isinstance(err, dict):
+        t, ids = err.get("timeoutMs"), err.get("testIds")
+        out["error"] = {"name": _closed(err.get("name"), ERROR_NAMES, "Error"), "code": _closed(err.get("code"), ERROR_CODES, None),
+                        "kind": _closed(err.get("kind"), ERROR_KINDS, "other"), "api": _closed(err.get("api"), DRIVER_APIS, None),
+                        "timeoutMs": t if type(t) is int and 0 <= t <= 3600000 else None,
+                        "testIds": sorted({x for x in ids if isinstance(x, str) and x in DRIVER_TEST_IDS})[:5] if isinstance(ids, list) else [],
+                        "netError": _closed(err.get("netError"), DRIVER_NET_ERRORS, None)}
+    return out
+
+
+UNKNOWN_DIAGNOSTIC = {"stopCode": "unknown", "exitCode": None, "firstNonPassingAssertion": None, "driverInterruption": None, "guard": None}
+
+
+def guard_upstream(summary_doc):
+    """The guard's egress configuration and upstream-failure reasons from the DIGEST-VERIFIED case summary, closed: the upstream mode, the
+    proxy presence/validity/NO_PROXY booleans (never values) and the count per closed upstream reason. None when the summary has no guard."""
+    guard = summary_doc.get("guard") if isinstance(summary_doc, dict) else None
+    if not isinstance(guard, dict):
+        return None
+    cfg = guard.get("upstreamConfig") if isinstance(guard.get("upstreamConfig"), dict) else {}
+    counters = guard.get("counters") if isinstance(guard.get("counters"), dict) else {}
+    reasons = counters.get("upstreamReasons") if isinstance(counters.get("upstreamReasons"), dict) else {}
+    flag = lambda v: v if type(v) is bool else None  # noqa: E731
+    return {"upstreamMode": _closed(cfg.get("mode"), GUARD_UPSTREAM_MODES, None),
+            "proxyConfigured": flag(cfg.get("proxyConfigured")), "proxyValid": flag(cfg.get("proxyValid")),
+            "noProxyMatched": flag(cfg.get("noProxyMatched")),
+            "upstreamReasons": {r: n for r, n in sorted(reasons.items())
+                                if isinstance(r, str) and r in GUARD_UPSTREAM_REASONS and type(n) is int and 0 <= n <= 100000}}
+
+
+def case_diagnostic(case_id, row, receipt, summary_doc, allowed_ids, case_dir=None):
+    """{stopCode, exitCode, firstNonPassingAssertion, driverInterruption} from closed sources only. Never raises: a malformed input yields
+    UNKNOWN for THIS row's diagnostic only, never the loss of the whole artifact ."""
+    try:
+        return _case_diagnostic(case_id, row, receipt, summary_doc, allowed_ids, case_dir)
+    except Exception:  # noqa: BLE001  (display-only projection; any malformed shape is UNKNOWN, never a crash)
+        return dict(UNKNOWN_DIAGNOSTIC)
+
+
+def _case_diagnostic(case_id, row, receipt, summary_doc, allowed_ids, case_dir):
+    if not (isinstance(row, dict) and isinstance(case_id, str) and case_id in ALL_AHT):
+        return dict(UNKNOWN_DIAGNOSTIC)
+    code = receipt.get("exitCode") if isinstance(receipt, dict) else None
+    exit_code = code if type(code) is int and 0 <= code <= 255 else None
+    if isinstance(summary_doc, dict):
+        reason = summary_doc.get("reason")
+        if reason is None:
+            stop = "unknown"
+        elif isinstance(reason, str):
+            stop = reason if reason in STOP_CODES else STOP_PREFIXED.get(reason, "other")
+        else:
+            stop = "other"
+    elif exit_code == 2:
+        stop = "guard-usage-refused"
+    elif exit_code == 78:
+        stop = "guard-refused-before-start"
+    elif exit_code is not None:
+        stop = "guard-exited-without-summary"
+    else:
+        stop = "unknown"
+    first = None
+    for a in row.get("assertions") if isinstance(row.get("assertions"), list) else []:
+        if isinstance(a, dict) and isinstance(a.get("result"), str) and a["result"] in ("FAIL", "NOT RUN"):
+            aid = a.get("id")
+            first = {"id": aid if isinstance(aid, str) and aid in allowed_ids else "unlisted", "result": a["result"]}
+            break
+    return {"stopCode": stop, "exitCode": exit_code, "firstNonPassingAssertion": first,
+            "driverInterruption": driver_interruption(case_dir, case_id, row, receipt, allowed_ids), "guard": guard_upstream(summary_doc)}
+
+
+def isolated_case_rows(cases_dir, case_results_file, selected, run_id):
+    """Per-case isolated display rows (the reviewer B3-B9). Never raises on input:
+    corrupt or ambiguous TOP-LEVEL results make every selected row UNKNOWN (nothing credited); a malformed, unbound or unverifiable CASE makes
+    only that row UNKNOWN with null measurements and a closed reason, keeping valid peers. A verdict survives only when its row is
+    well-formed and its receipt is bound to this run and case; a timing only when its summary digest, times and duration all verify.
+    Display only: qualification and accounting never read this."""
+    try:
+        doc = json.loads(_read(case_results_file))
+    except (OSError, ValueError, UnicodeDecodeError, Refused):
+        return {c: _unknown_row(c, "case-results-unreadable") for c in selected}, "results-invalid"
+    rows = doc.get("cases") if isinstance(doc, dict) else None
+    if not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows):
+        return {c: _unknown_row(c, "case-results-shape") for c in selected}, "results-invalid"
+    by, ambiguous = {}, set()
+    for r in rows:
+        cid = r.get("caseId")
+        if not (isinstance(cid, str) and cid in ALL_AHT):
+            return {c: _unknown_row(c, "case-results-shape") for c in selected}, "results-invalid"
+        if cid in by:
+            ambiguous.add(cid)
+        by[cid] = r
+    out = {}
+    allowed_ids = _catalog_assertion_ids()
+    for c in selected:
+        r = by.get(c)
+        if c in ambiguous:
+            out[c] = _unknown_row(c, "duplicate-case"); continue
+        if r is None:
+            out[c] = _unknown_row(c, "case-row-missing"); continue
+        result, receipt = r.get("result"), r.get("executionReceipt")
+        if result not in ("PASS", "FAIL", "NOT RUN"):
+            out[c] = _unknown_row(c, "case-result-invalid"); continue
+        if receipt is None:
+            out[c] = (dict(_unknown_row(c, "harness-not-run"), result="NOT RUN") if result == "NOT RUN"
+                      else _unknown_row(c, "missing-receipt"))
+            continue
+        if not (isinstance(receipt, dict) and receipt.get("caseId") == c and str(receipt.get("runId")) == str(run_id)
+                and "summarySha256" in receipt):
+            out[c] = _unknown_row(c, "receipt-not-bound"); continue
+        digest = receipt.get("summarySha256")
+        base = {"caseId": c, "result": result, "evidence": "bound-case-receipt"}
+        if digest is None:                      # the guard exited before a summary: the verdict stands, the timing was not observed
+            out[c] = dict(base, timingStatus="NOT OBSERVED", startedAtUtc=None, endedAtUtc=None, durationMs=None,
+                          diagnostic=case_diagnostic(c, r, receipt, None, allowed_ids,
+                                                     os.path.join(cases_dir, c) if isinstance(cases_dir, str) else None)); continue
+        summary = os.path.join(os.path.realpath(cases_dir), c, "summary.json") if isinstance(cases_dir, str) else ""
+        try:
+            raw = _read(summary) if os.path.isfile(summary) and not os.path.islink(summary) else None
+        except OSError:
+            raw = None
+        if raw is None or not isinstance(digest, str) or hashlib.sha256(raw).hexdigest() != digest:
+            out[c] = _unknown_row(c, "summary-digest"); continue
+        try:
+            sd = json.loads(raw)
+            stamps = (sd.get("startedAt"), sd.get("endedAt")) if isinstance(sd, dict) else (None, None)
+            ok = all(isinstance(v, str) and TS.fullmatch(v) for v in stamps)
+            started, ended = (datetime.fromisoformat(v.replace("Z", "+00:00")) for v in stamps) if ok else (None, None)
+        except (ValueError, TypeError):
+            ok = False
+        if not ok:
+            out[c] = _unknown_row(c, "case-timing-invalid"); continue
+        duration = round((ended - started).total_seconds() * 1000)
+        if not 0 <= duration <= 40 * 60 * 1000:
+            out[c] = _unknown_row(c, "case-timing-invalid"); continue
+        out[c] = dict(base, timingStatus="OBSERVED", startedAtUtc=stamps[0], endedAtUtc=stamps[1], durationMs=duration,
+                      diagnostic=case_diagnostic(c, r, receipt, sd, allowed_ids, os.path.join(cases_dir, c)))
+    return out, "results"
+
+
+def run_timing_export(cases_dir, case_results_file, selected, started_file, trace_file, binding):
+    """The one-page table's data, ALWAYS (the reviewer concept).
+    Every one of the fifteen cases has a row bound to this run, attempt and head:
+      NOT SELECTED - not in this run's selection;
+      NOT RUN - selected, with AFFIRMATIVE evidence it never ran: no started.txt, which the run stage writes before admission and
+                       before any case;
+      UNKNOWN - selected, the run stage started, but no case results exist: a case may have run, so nothing is claimed;
+      PASS/FAIL/... - from the digest-bound case results, exactly as case_timing_export projects them.
+    Plus the measured stages (content-free trace), the stage where setup stopped, and the workflow-start and run-start times, so queue,
+    setup and run time are preserved. Content-free throughout."""
+    _need(isinstance(binding, dict) and re.fullmatch(r"[1-9][0-9]{0,19}", str(binding.get("runId") or "")) is not None
+          and re.fullmatch(r"[1-9][0-9]{0,3}", str(binding.get("runAttempt") or "")) is not None
+          and LR.SHA40.match(str(binding.get("headSha") or "")) is not None
+          and (binding.get("workflowStartUtc") in (None, "") or re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", binding["workflowStartUtc"])),
+          "case-timing-binding")
+    _need(isinstance(selected, list) and selected and len(selected) == len(set(selected)) and all(x in ALL_AHT for x in selected),
+          "case-timing-selection")
+    started_at = None
+    if isinstance(started_file, str) and os.path.lexists(started_file):
+        _need(os.path.isfile(started_file) and not os.path.islink(started_file), "case-timing-started")
+        started_at = _read(started_file).decode("ascii", "replace").strip()
+        _need(re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", started_at) is not None, "case-timing-started")
+    has_results = isinstance(case_results_file, str) and os.path.lexists(case_results_file)
+    if started_at is None:
+        _need(not has_results, "case-timing-results-without-run")
+        outcome, rows = "not-started", {c: {"caseId": c, "result": "NOT RUN", "evidence": "run-stage-never-started"} for c in selected}
+    elif not has_results:
+        outcome, rows = "started-without-results", {c: {"caseId": c, "result": "UNKNOWN", "evidence": "started-without-case-results"} for c in selected}
+    else:
+        rows, outcome = isolated_case_rows(cases_dir, case_results_file, selected, binding["runId"])
+    cases = []
+    for c in ALL_AHT:
+        if c not in selected:
+            cases.append({"caseId": c, "result": "NOT SELECTED", "evidence": "not-in-selection", "timingStatus": "NOT APPLICABLE",
+                          "startedAtUtc": None, "endedAtUtc": None, "durationMs": None})
+            continue
+        row = rows[c]
+        cases.append({"caseId": c, "result": row["result"], "evidence": row["evidence"],
+                      "timingStatus": row.get("timingStatus", "NOT OBSERVED"), "startedAtUtc": row.get("startedAtUtc"),
+                      "endedAtUtc": row.get("endedAtUtc"), "durationMs": row.get("durationMs"),
+                      **({"diagnostic": row["diagnostic"]} if "diagnostic" in row else {})})
+    stages = stage_trace_rows(trace_file)
+    wstart = binding.get("workflowStartUtc") or None
+    # Out-of-order times are refused, never reported as a negative or misleading duration : the run stage cannot
+    # start before the workflow, no traced stage can start before the workflow, and traced stages are appended in time order.
+    if wstart:
+        _need(started_at is None or _utc(started_at) >= _utc(wstart), "case-timing-out-of-order")
+        _need(all(_utc(r["startedAtUtc"]) >= _utc(wstart) for r in stages), "case-timing-out-of-order")
+    _need(all(_utc(a["startedAtUtc"]) <= _utc(b["startedAtUtc"]) for a, b in zip(stages, stages[1:])), "case-timing-out-of-order")
+    setup_ms = int((_utc(started_at) - _utc(wstart)).total_seconds() * 1000) if (started_at and wstart) else None
+    return {"schema": "speaksharp-case-timings-v2", "contentSafe": True,
+            "binding": {"runId": str(binding["runId"]), "runAttempt": int(binding["runAttempt"]), "headSha": binding["headSha"]},
+            "outcome": outcome, "runStarted": started_at is not None, "selectedCases": selected, "cases": cases,
+            "timings": {"workflowStartUtc": wstart, "runStageStartedAtUtc": started_at, "workflowStartToRunStageMs": setup_ms},
+            "stages": stages, "stoppedAtStage": next((r["stage"] for r in stages if r["exitCode"] != 0), None), "traceScope": TRACE_SCOPE}
+
+
+
+# The case diagnostic's closed stop codes (case_diagnostic: the summary's reason, its prefixed forms, or the exit-code classes).
+CASE_STOP_CODES = frozenset(STOP_CODES) | frozenset(STOP_PREFIXED.values()) | {"other", "guard-usage-refused", "guard-refused-before-start",
+                                                                               "guard-exited-without-summary"}
+# Review of 7e07474b (public sink revalidation): every code the case-log may print, derived from the closed vocabularies themselves.
+CASE_LOG_CODES = frozenset(
+    {"stop-" + c for c in CASE_STOP_CODES if c not in ("completed", "unknown")} | {"stage-" + s for s in DRIVER_STAGES}
+    | {"guard-refused-" + r[len(GUARD_STOP_PREFIX):].replace(":", "-") for r in GUARD_STOP_REASONS}
+    | {"net-" + e.lower().replace("_", "-") for e in DRIVER_NET_ERRORS} | {"upstream-" + r for r in GUARD_UPSTREAM_REASONS}
+    | {"egress-proxy-absent"})
+# The only evidence classes the timing projection writes (run_timing_export / isolated_case_rows / _unknown_row literals).
+CASE_LOG_EVIDENCE = frozenset({"bound-case-receipt", "not-in-selection", "run-stage-never-started", "started-without-case-results",
+                               "case-results-unreadable", "case-results-shape", "duplicate-case", "case-row-missing", "case-result-invalid",
+                               "harness-not-run", "missing-receipt", "receipt-not-bound", "summary-digest", "case-timing-invalid"})
+CASE_LOG_RESULTS = ("PASS", "FAIL", "NOT RUN", "UNKNOWN", "NOT SELECTED", "BLOCKED", "BLOCKED_SETUP", "INCOMPLETE", "HARNESS_LIMITED")
+CASE_LOG_ASSERTION = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,79}")
+
+
+def case_log_lines(timings):
+    """Consultant P1-2: the run log names why each selected case ended, one line per case, from the case-timings projection's closed values
+    only (result, the closed diagnostic codes, the first non-passing assertion id from the reviewed catalog, the stage where setup stopped).
+    Free text, paths, messages and identifiers never reach the log: anything outside a closed vocabulary prints as `other`."""
+    _need(isinstance(timings, dict) and timings.get("schema") == "speaksharp-case-timings-v2" and timings.get("contentSafe") is True,
+          "case-log-input")
+    stopped = timings.get("stoppedAtStage")
+    stopped = stopped if stopped is None or stopped in STAGE_NAMES else "other"
+    allowed = _catalog_assertion_ids()
+    lines = ["RUN outcome=%s stoppedAtStage=%s" % (_closed(timings.get("outcome"), ("not-started", "started-without-results", "results", "results-invalid"), "other"),
+                                                   stopped or "none")]
+    for row in timings.get("cases") or []:
+        if not isinstance(row, dict) or row.get("caseId") not in ALL_AHT or row.get("result") == "NOT SELECTED":
+            continue
+        diag = row.get("diagnostic") if isinstance(row.get("diagnostic"), dict) else None
+        # Revalidated HERE, at the public sink, against the closed catalogs (never only the producer's word): a code outside CASE_LOG_CODES,
+        # an assertion id outside the reviewed catalogs or an evidence class outside CASE_LOG_EVIDENCE prints as other/none.
+        codes = [c if c in CASE_LOG_CODES else "other" for c in (diagnostic_codes(diag) if diag else [])]
+        codes = list(dict.fromkeys(codes))
+        first = (diag or {}).get("firstNonPassingAssertion") if diag else None
+        first_id = first.get("id") if isinstance(first, dict) and isinstance(first.get("id"), str) else None
+        evidence = row.get("evidence")
+        parts = ["CASE", row["caseId"], _closed(row.get("result"), CASE_LOG_RESULTS, "other"),
+                 "codes=" + (",".join(codes) if codes else "none"),
+                 "first=" + (first_id if first_id and first_id in allowed and CASE_LOG_ASSERTION.fullmatch(first_id) else
+                             ("other" if first_id else "none")),
+                 "evidence=" + (evidence if evidence in CASE_LOG_EVIDENCE else ("other" if evidence else "none"))]
+        lines.append(" ".join(parts))
+    return lines
+
 def main(argv):
     a = argparse.ArgumentParser()
     a.add_argument("command", choices=("prepare", "qualify", "provenance", "project", "first-observations", "case-timings", "window-check", "occurrence-check",
-                                       "occurrence-materialize", "completion-deadline"))
-    for flag in ("--repo", "--config", "--request", "--facts", "--checkpoint", "--run-id", "--source-sha", "--out",
+                                       "occurrence-materialize", "completion-deadline", "case-log"))
+    for flag in ("--repo", "--config", "--request", "--facts", "--checkpoint", "--run-id", "--source-sha", "--out", "--execution-deadline",
                  "--env-file", "--outputs", "--plan", "--case-results", "--cases-dir", "--cases", "--run-record", "--tested-sha", "--approval", "--qualification",
                  "--code-manifest", "--snapshot-dir", "--coverage-mode", "--live-minutes", "--request-sha256", "--build-receipt",
                  "--reservations", "--provenance", "--nightly-request-file", "--nightly-request-sha256", "--case10-observation",
-                 "--manual-occurrence-file", "--manual-occurrence-sha256", "--workflow-start-utc", "--now"):
+                 "--manual-occurrence-file", "--manual-occurrence-sha256", "--workflow-start-utc", "--now", "--started-file", "--stage-trace", "--run-attempt",
+                 "--case-timings"):
         a.add_argument(flag)
     a.add_argument("--attempt", type=int)
     a.add_argument("--job-timeout-minutes", type=int)
@@ -1600,8 +2398,14 @@ def main(argv):
         if x.command == "first-observations":
             _write_private(x.out, first_observation_export(x.cases_dir, (x.cases or "").split(",")))
             return 0
+        if x.command == "case-log":
+            for line in case_log_lines(_load(x.case_timings)):
+                print(line)
+            return 0
         if x.command == "case-timings":
-            _write_private(x.out, case_timing_export(x.cases_dir, x.case_results, (x.cases or "").split(",")))
+            selected = [c for c in (x.cases or "").split(",") if c] or selection_from_request(x.request)
+            binding = {"runId": x.run_id, "runAttempt": x.run_attempt, "headSha": x.source_sha, "workflowStartUtc": x.workflow_start_utc}
+            _write_private(x.out, run_timing_export(x.cases_dir, x.case_results, selected, x.started_file, x.stage_trace, binding))
             return 0
         if x.command == "completion-deadline":
             now = _utc(x.now) if x.now else datetime.now(timezone.utc)
@@ -1610,10 +2414,20 @@ def main(argv):
             q = _load(x.qualification) if x.qualification and os.path.exists(x.qualification) else None
             prov = _load(x.provenance) if x.provenance and os.path.exists(x.provenance) else None
             cr = _read(x.case_results) if x.case_results and os.path.exists(x.case_results) else None
-            catalog = _load(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "assertion-catalog.json"))
+            here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            if x.request:
+                catalog = projection_catalog(_read(x.request), x.request_sha256, os.path.join(here, "config", "test-config.v1.json"), q)
+            else:
+                catalog = _load(os.path.join(here, "config", "assertion-catalog.json"))
             media = os.path.join(x.repo or ".", "tests", "fixtures", "rwt", "rwt-fixtures.manifest.json")
+            # Closed diagnostic codes per case from the digest-bound case directories (the same projection as the case-timings table).
+            case_codes = None
+            if x.cases_dir and x.case_results:
+                rows, _ = isolated_case_rows(x.cases_dir, x.case_results, list(ALL_CASES), x.run_id)
+                case_codes = {cid: diagnostic_codes(r.get("diagnostic")) for cid, r in rows.items()}
             _write_private(x.out, project(_load(x.run_record), x.run_id, x.attempt, x.source_sha, x.tested_sha, q, x.request_sha256, prov, cr, catalog,
-                                          _read(x.request) if x.request else None, _read(media) if x.request and os.path.isfile(media) else None))
+                                          _read(x.request) if x.request else None, _read(media) if x.request and os.path.isfile(media) else None,
+                                          case_codes))
             return 0
         if x.command == "provenance":
             _write_private(x.out, provenance_from_files(x.request, x.request_sha256, x.run_id, x.plan, x.build_receipt, x.reservations,
@@ -1624,7 +2438,9 @@ def main(argv):
                                           x.snapshot_dir, x.coverage_mode, identities(x.request, x.config, x.request_sha256)))
             return 0
         if x.command == "window-check":
-            check_window_remaining(admitted_request(x.request, x.request_sha256), datetime.now(timezone.utc), int(x.live_minutes or 0))
+            req, now = admitted_request(x.request, x.request_sha256), datetime.now(timezone.utc)
+            check_window_remaining(req, now, int(x.live_minutes or 0))
+            check_execution_deadline(req, now, int(x.live_minutes or 0), x.execution_deadline)
             return 0
         if x.command == "occurrence-check":
             repo = os.path.realpath(x.repo)
@@ -1634,6 +2450,7 @@ def main(argv):
             req = json.loads(raw)
             cases = check_request(req, datetime.now(timezone.utc), _request_keys())
             cfg = _load(os.path.join(repo, x.config))
+            check_job_bound(req, x.job_timeout_minutes)
             live = check_ceilings(cfg, req, cases, x.job_timeout_minutes)
             check_window_fit(req, datetime.now(timezone.utc), live)
             return 0
@@ -1682,8 +2499,14 @@ def main(argv):
             scope_file = os.path.join(x.out, "evidence-scope.json")
             _write_private(scope_file, p["scope"])
             env.update(CT_EVIDENCE_SCOPE_FILE=scope_file, CT_EVIDENCE_SCOPE_SHA256=_sha(scope_file))
+        if p["reservationBinding"]:
+            # private, immutable (O_EXCL) and digest-bound; consumers verify the digest AND its fields against independent inputs
+            binding_file = os.path.join(x.out, "reservation-binding.json")
+            _write_private(binding_file, p["reservationBinding"])
+            env.update(CT_RESERVATION_BINDING_FILE=binding_file, CT_RESERVATION_BINDING_SHA256=_sha(binding_file))
         write_env_file(x.env_file, env)
         with open(x.outputs, "a", encoding="utf-8") as f:
+            f.write("execution_deadline=%s\n" % p["executionDeadline"])
             f.write("route=%s\nroles=%s\nlive_minutes=%d\ncases=%s\ntested_sha=%s\nlineage=%s\ncoverage_mode=%s\nrequest_sha256=%s\nlive_accounts_sha256=%s\nreconciliation_sha256=%s\n" % (
                 p["route"], ",".join(b["role"] for b in p["accounts"]), p["liveMinutes"], ",".join(p["cases"]), p["testedSha"], p["lineage"], p["coverageMode"],
                 p["requestSha256"], hashlib.sha256(p["bundleBytes"]).hexdigest(), hashlib.sha256(p["reconciliationBytes"]).hexdigest()))

@@ -9,6 +9,8 @@
  *    must stop — a transient network failure is NOT that, and never interrupts a recording;
  *  - release on Stop. Releasing is what marks the take as ended normally, so its save (or Retry Save) is still
  *    accepted after another device starts;
+ *  - #1643: a Start that ended before it recorded anything settles its lease as ABANDONED instead (`startFailed`), so
+ *    the server's admitted save obligation for that lease does not stay open forever;
  *  - `currentTakeLeaseId()` is what session creation sends as `p_session_data.lease_id`.
  * A device never blocks itself: acquiring a new take first releases any lease this device still holds.
  */
@@ -139,9 +141,37 @@ export async function confirmTakeLease(opts: { rpc?: LeaseRpc } = {}): Promise<T
     return (data as { valid?: boolean } | null)?.valid === true ? 'held' : 'unconfirmed';
 }
 
-/** Release the held lease (Stop, a refused/failed Start, sign-out). Idempotent; never throws. */
-export async function releaseTakeLease(opts: { rpc?: LeaseRpc } = {}): Promise<void> {
+/**
+ * Release the held lease (Stop, a refused/failed Start, sign-out). Idempotent; never throws.
+ *
+ * #1643 missing-Start (Sam, 2026-11-12): acquiring a lease opens an admitted save obligation on the server, and a plain
+ * release never settles it. Pass `startFailed` with the exact lease a Start acquired when that Start failed or was
+ * cancelled without recording: the server then settles that identity as abandoned and not recorded, and fences it for
+ * good, but only after proving no take exists for it. A refusal (a take exists), an error, or a server without the
+ * function falls back to the ordinary release of that same lease, so this is never weaker than releasing. Only that
+ * lease is touched: a newer take's lease is never cleared here.
+ */
+export async function releaseTakeLease(opts: { rpc?: LeaseRpc; startFailed?: string } = {}): Promise<void> {
     const rpc = opts.rpc ?? defaultRpc;
+    if (opts.startFailed !== undefined) {
+        const leaseId = opts.startFailed;
+        if (heldLeaseId === leaseId) {
+            stopHeartbeat();
+            heldLeaseId = null;
+        }
+        try {
+            const { data, error } = await rpc('abandon_recording_start_v1', { p_lease_id: leaseId });
+            if (!error && (data as { abandoned?: unknown } | null)?.abandoned === true) return;
+        } catch {
+            // Fall through to the ordinary release.
+        }
+        try {
+            await rpc('release_recording_lease', { p_lease_id: leaseId });
+        } catch {
+            // The server expires an unreleased lease after 15 s without heartbeats.
+        }
+        return;
+    }
     stopHeartbeat();
     const leaseId = heldLeaseId;
     heldLeaseId = null;

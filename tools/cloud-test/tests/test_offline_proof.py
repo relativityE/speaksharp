@@ -1,4 +1,4 @@
-"""The offline-proof generator fails closed (Sam 1793378783, 1793379188): a PASS needs every input, every correction's executed
+"""The offline-proof generator fails closed : a PASS needs every input, every correction's executed
 tests and listed mutation controls, gating plan controls, clean TAP and the checkout's own verified harness manifest."""
 import copy
 import json
@@ -11,7 +11,7 @@ import unittest
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
-import offline_proof as P  # noqa: E402  (pure functions; the network guard loads only in main())
+import offline_proof as P  # noqa: E402 (pure functions; the network guard loads only in main)
 
 MANIFEST = json.loads((SCRIPTS.parent / "config" / "test-config.v1.json").read_text())["harness"]["expectedCodeManifestSha256"]
 

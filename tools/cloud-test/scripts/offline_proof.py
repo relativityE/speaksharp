@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Executed-offline-proof index. Maps each harness correction to the executed tests (from TAP files) and mutation controls that prove it.
-Fail-closed (Sam 1793378783/1793379188): every input is required; the manifest must be the checkout's own verified harness; every
+Fail-closed : every input is required; the manifest must be the checkout's own verified harness; every
 correction needs its executed tests and each of its listed mutation controls; plan controls gate; any failed, skipped, duplicate or
 conflicting TAP title fails the proof. A PASS is only ever the absence of every refusal below.
 Usage: offline_proof.py --tap FILE [--tap FILE ...] --mutations neg-controls.json --plan-controls plan-controls.json
@@ -19,7 +19,7 @@ CORR=[
  ('run-identity-binding','Run identity binding',[r'^I1 run identity',r'^I2 the report carries the run identity',r'^I3 the runner refuses a run whose loaded runner code differs'],['M09']),
  ('outcome-classes','Outcome classes and cleanup receipts',[r'^O1 outcome classes separate'],[]),
 ]
-# The reviewed plan-control inventory (Sam 1793384532): exactly these 3 positive and 11 negative checks, each with its intended outcome,
+# The reviewed plan-control inventory : exactly these 3 positive and 11 negative checks, each with its intended outcome,
 # as both reviewed harness versions produced it. A setup error, missing file or reworded refusal is never a passing negative.
 PLAN_CONTROLS={
     "positive: run identity": "ACCEPTED",
@@ -43,7 +43,7 @@ NOT_OK=re.compile(r'^\s*not ok\b')
 BAIL_OUT=re.compile(r'^\s*Bail out!')
 
 def stream_failures(files):
-    """Failures and bail-outs counted from the raw stream, independently of title extraction (Sam 1793380213): an untitled,
+    """Failures and bail-outs counted from the raw stream, independently of title extraction : an untitled,
     nested or otherwise unparsed 'not ok', and any 'Bail out!', fail the proof."""
     out={'notOk':0,'bailOuts':0}
     for f in files:
@@ -54,7 +54,7 @@ def stream_failures(files):
     return out
 
 def tap(files):
-    """Test identity is FILE + TITLE (Sam 1793390819): one TAP file per test file. A title repeated within one file is a duplicate (and a
+    """Test identity is FILE + TITLE : one TAP file per test file. A title repeated within one file is a duplicate (and a
     conflict when its statuses differ); the same title in two files is two tests, and it passes only if it passes in every file.
     Every occurrence is kept, so a later ok never overwrites an earlier not ok; SKIP/TODO is never a pass."""
     seen,within={},{}
@@ -78,7 +78,7 @@ def build(results,conflicting,duplicated,mut,pc,manifest,stream=None):
             hit=[(t,r) for t,r in results.items() if re.search(p,t)]
             if not hit: tests.append({'pattern':p,'title':None,'result':'MISSING'})
             for t,r in hit: tests.append({'title':t[:160],'result':r})
-        # type() is int, not isinstance(): JSON true/false are bools, never a count of failing tests.
+        # type is int, not isinstance: JSON true/false are bools, never a count of failing tests.
         muts=[{'control':k,'caught':isinstance(v,dict) and type(v.get('fail')) is int and v['fail']>0,'failingTests':v.get('fail') if isinstance(v,dict) else None}
               for k,v in mut.items() if any(k.startswith(m+'-') for m in ms)]
         missing=[m for m in ms if not any(x['control'].startswith(m+'-') for x in muts)]
@@ -87,7 +87,7 @@ def build(results,conflicting,duplicated,mut,pc,manifest,stream=None):
         rows.append({'id':cid,'correction':title,'tests':tests,'mutationControls':muts,'missingControls':missing,'result':'PASS' if good else 'FAIL'})
     pc=pc if isinstance(pc,dict) else {}
     pos=[k for k in pc if k.startswith('positive')];neg=[k for k in pc if k.startswith('negative')]
-    # Exact key-set equality first (Sam 1793385225): an extra label whose value is null must not compare equal to an absent one.
+    # Exact key-set equality first : an extra label whose value is null must not compare equal to an absent one.
     mismatched=sorted((set(pc)^set(PLAN_CONTROLS))|{k for k in set(pc)&set(PLAN_CONTROLS) if pc[k]!=PLAN_CONTROLS[k]})
     plan={'positiveAccepted':sum(1 for k in pos if pc[k]=='ACCEPTED'),'positive':len(pos),'negativeRefused':sum(1 for k in neg if str(pc[k]).startswith('REFUSED')),'negative':len(neg),
           'mismatched':mismatched}
@@ -119,7 +119,7 @@ def harness_provenance(manifest,config):
 
 def main():
     _s.path.insert(0,HERE)
-    import _netguard  # noqa: F401  (offline control plane; executable path only, so importing build() stays pure)
+    import _netguard  # noqa: F401 (offline control plane; executable path only, so importing build stays pure)
     a=argparse.ArgumentParser();a.add_argument('--tap',action='append',required=True);a.add_argument('--mutations',required=True);a.add_argument('--plan-controls',required=True)
     a.add_argument('--code-manifest-sha256',required=True);a.add_argument('--config',default=_o.path.join(HERE,'..','config','test-config.v1.json'));a.add_argument('--out',required=True);x=a.parse_args()
     results,conflicting,duplicated=tap(x.tap)

@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Accepted-rollup receiving mode (Sam 1793553421.029269, correction 1793555433.084449): cumulative usage for G5 from ONE independently
+"""Accepted-rollup receiving mode (correction ): cumulative usage for G5 from ONE independently
 accepted, content-free accounting bootstrap, an explicitly APPROVED period scope, and the verified state-ref journal. Separate from, and
 leaving unchanged, the legacy receipt validation (verify_receipts.py / reconcile_cumulative.py). The independently reviewed R10 bootstrap,
 fresh-period scope and state-ref root are pinned below; every substituted byte or root still refuses.
 
-  bootstrap   HISTORICAL usage only, content-free: the last defensible cumulative record's usage (coaching/runner dimensions stay null when
+  bootstrap HISTORICAL usage only, content-free: the last defensible cumulative record's usage (coaching/runner dimensions stay null when
               unknown, never 0), the authority it was counted under (an expired one-run approval is marked expired and is never a ceiling
               for new work), and every UNRESOLVED usage item kept distinct. It defines no period and no ceiling: acceptance never invents a
               budget period.
-  scope       the explicitly approved period scope for new work: its start and end, its ceilings, and its carryover rule. "none" keeps the
+  scope the explicitly approved period scope for new work: its start and end, its ceilings, and its carryover rule. "none" keeps the
               historical usage out of the period's ceilings; "historical" counts it in. There is no default rule.
-  receive     period usage = every settle plus every OUTSTANDING reservation (reserved, not yet settled or released) on the verified chain,
+  receive period usage = every settle plus every OUTSTANDING reservation (reserved, not yet settled or released) on the verified chain,
               inside the approved period. With carryover "historical", the bootstrap usage is added and every historical item must be resolved.
               With explicitly approved carryover "none", unresolved historical items remain visible as unresolved but cannot block or be charged
               into the fresh period: they are never converted to zero and the output labels the historical total incomplete. Refuses an unaccepted
@@ -49,7 +49,7 @@ UNRESOLVED_KINDS = ("diagnostic", "evaluator-start", "reservation")
 DIGEST_REF = re.compile(r"(sha256|git):[0-9a-f]{40,64}")
 BOUND_SCHEMA = "speaksharp.cloud-test.accounting-upper-bound.v1"
 BOUND_METHODS = ("enforced-maximum", "exhaustive-accounting")
-# Sam 1793556731.837039: a GitHub run id is an UNRESOLVED item's LOCATOR only (which run to resolve), never digest evidence or acceptance;
+# a GitHub run id is an UNRESOLVED item's LOCATOR only (which run to resolve), never digest evidence or acceptance;
 # it is admitted only on an UNRESOLVED item, whose usage stays null. A MEASURED item still needs a digest ref.
 RUN_LOCATOR = re.compile(r"gha-run:[1-9][0-9]{0,19}")
 

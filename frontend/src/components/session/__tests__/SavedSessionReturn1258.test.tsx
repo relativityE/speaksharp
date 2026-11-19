@@ -2,9 +2,13 @@
  * #1258 PR 4 (Rev 2 §4.2) — the completed session restored read-only from its saved row.
  */
 import React from 'react';
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import type { PracticeSession } from '@/types/session';
+import { grantPracticePrivacy } from '../../../../tests/test-utils/practicePrivacy';
+
+// #1835: these suites cover the coaching / transcript path as it runs once the owner has opted in.
+beforeEach(() => { grantPracticePrivacy(); });
 
 // The stub stands for a session with NO saved coaching whose review resolved the product to `resolvedProduct`.
 let resolvedProduct: 'open_mic' | 'focus_points' | null = 'open_mic';
@@ -83,7 +87,7 @@ describe('SavedSessionReturn', () => {
     it('CASUALTY (Codex 4235188543): a legacy row with no product marker but resolved Focus Points gets the Focus disclosure', () => {
         resolvedProduct = 'focus_points';
         render(<SavedSessionReturn session={row({ product: null as unknown as PracticeSession['product'] })} onSeeAllSessions={() => {}} />);
-        expect(screen.getByTestId('restored-review-retry')).toHaveTextContent("Sends this session's transcript, saved Focus Points topic, points and results, and relevant speaking measurements to the AI service provider to create AI coaching. Audio is never sent.");
+        expect(screen.getByTestId('restored-review-retry')).toHaveTextContent("Your transcript is sent to an AI service for coaching. Your Focus Points topic, points and results and relevant speaking measurements go with it; audio is never sent.");
         expect(screen.getByTestId('saved-review-practice')).toBeInTheDocument();
         resolvedProduct = 'open_mic';
     });

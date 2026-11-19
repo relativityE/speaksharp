@@ -1,6 +1,7 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { corsGuard, corsHeaders as buildCorsHeaders } from '../_shared/cors.ts';
+import { readCoachingConsent, type CoachingConsent } from './practicePrivacy.ts';
 import coachingContract from './contract.json' with { type: 'json' };
 import {
   coachingErrorDescriptor, get_error_string, type ProviderAnswerCodes, type ProviderErrorCodes,
@@ -711,6 +712,17 @@ export async function handler(
       if (focusContext.kind === 'focus') cachedSuggestions = null;
     }
     if (cachedSuggestions) {
+      // PO 2026-11-14 payment wall: an expired, unpaid account has no access to saved work, so a saved coaching pair
+      // is replayed only through the same server entitlement seam as new analysis. Refused before any cache receipt.
+      diagnosticPhase = 'entitlement';
+      const { data: replayEntitlement, error: replayEntitlementError } = await supabaseClient.rpc('check_usage_limit');
+      if (replayEntitlementError) {
+        console.error('Entitlement check failed:', replayEntitlementError);
+        return finish({ error: 'Unable to verify analysis access' }, 503);
+      }
+      if (replayEntitlement?.can_start !== true || replayEntitlement?.is_pro !== true) {
+        return finish({ error: 'Trial has ended', code: 'payment_required' }, 403);
+      }
       diagnosticPhase = 'cache';
       diagnosticSource = 'cache';
       // A cache replay is evidence only when the server-owned receipt records that the request really
@@ -769,10 +781,22 @@ export async function handler(
       return finish({ error: 'Coaching isn’t available for this older session.', code: 'product_unknown' }, 422);
     }
 
+    const privacyRefusal = (state: CoachingConsent, revision?: number): Response | null => {
+      if (state.kind === 'unavailable') {
+        return finish({ error: 'Unable to verify your practice privacy choices.', code: 'consent_unavailable' }, 503);
+      }
+      if (state.kind !== 'granted' || (revision !== undefined && state.revision !== revision)) {
+        return finish({ error: 'Turn on transcript saving and AI coaching to request a new review.', code: 'consent_required' }, 403);
+      }
+      return null;
+    };
+    const consent = await readCoachingConsent(supabaseClient, userId);
+    if (consent.kind !== 'granted') return privacyRefusal(consent)!;
+
     diagnosticPhase = 'entitlement';
     // Generating new coaching is an analysis operation, so it uses the same server-authoritative
     // commercial entitlement seam as recording. A marked active trial and a paid subscription both
-    // pass; an expired/unpaid account fails closed. Cached coaching above remains readable after expiry.
+    // pass; an expired/unpaid account fails closed, as it does for the cached replay above.
     const { data: entitlement, error: entitlementError } = await supabaseClient.rpc('check_usage_limit');
     if (entitlementError) {
       console.error('Entitlement check failed:', entitlementError);
@@ -846,6 +870,17 @@ export async function handler(
     let callerAborted = false;
 
     for (let providerAttempt = 1; providerAttempt <= AI_PROVIDER_ATTEMPTS; providerAttempt += 1) {
+      const refusal = privacyRefusal(await readCoachingConsent(supabaseClient, userId), consent.revision);
+      if (refusal) return refusal;
+      if (callerSignal.aborted) {
+        callerAborted = true;
+        failureReason = 'request_cancelled';
+        break;
+      }
+      if (!canAdmitAttempt(retryRuntime.now() - budgetStartedAt)) {
+        stoppedOverBudget = true;
+        break;
+      }
       providerAttempts = providerAttempt;
       // Only a failure in the retry set earns another attempt (`providerRetry.ts`). Set where the failure is known.
       let providerFailureIsRetryable = false;
@@ -1018,16 +1053,31 @@ export async function handler(
     }
 
     diagnosticPhase = 'persist';
+    const changedConsent = privacyRefusal(await readCoachingConsent(supabaseClient, userId), consent.revision);
+    if (changedConsent) return changedConsent;
+    // #1899 (Codex Security P3 r4622877344): the provider loop can outlast a trial. Recheck product access immediately
+    // before persistence with the same server-authoritative seam as admission, so an answer that finishes after the account
+    // lost access is neither stored nor returned. This narrows the window to the recheck-to-commit interval; the
+    // in-transaction check that closes it is #1900.
+    const { data: persistEntitlement, error: persistEntitlementError } = await supabaseClient.rpc('check_usage_limit');
+    if (persistEntitlementError) {
+      console.error('Entitlement recheck before save failed:', persistEntitlementError);
+      return finish({ error: 'Unable to verify analysis access' }, 503);
+    }
+    if (persistEntitlement?.can_start !== true || persistEntitlement?.is_pro !== true) {
+      return finish({ error: 'Trial has ended' }, 403);
+    }
     // Persist the coaching value and its provider/quota authority in one service-role transaction.
     // The browser's authenticated client cannot execute this RPC or write the receipt table.
     // A lost commit reply is unknown until the atomic database operation can be reconciled.
     const providerSettled = !coachingOutcomeUnknown;
     coachingOutcomeUnknown = true;
     const { data: savedValue, error: updateError } = await createServiceRoleSupabase().rpc(
-      'persist_account_coaching_v1',
+      'persist_account_coaching_with_consent_v1',
       {
         p_operation_id: coachingAdmission.p_operation_id,
         p_provider_settled: providerSettled,
+        p_choice_revision: consent.revision,
         p_session_id: sessionId,
         p_user_id: userId,
         p_suggestions: suggestions,
@@ -1045,6 +1095,10 @@ export async function handler(
     // provider's: a certain provider attempt settles `refused`. Any other code, a thrown error or returned data stays
     // unknown, because an `unknown` admission can never settle again.
     if (updateError?.code === '23514' && savedValue === null) coachingOutcomeUnknown = !providerSettled;
+    if (updateError?.code === '42501' && updateError.message === 'coaching_consent_required' && savedValue === null) {
+      coachingOutcomeUnknown = !providerSettled;
+      return privacyRefusal({ kind: 'denied' })!;
+    }
     const savedSuggestions = !updateError && savedValue
       ? parseSuggestions(JSON.stringify(savedValue))
       : null;

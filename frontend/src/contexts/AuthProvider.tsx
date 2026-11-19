@@ -10,6 +10,7 @@ import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import { markIdentitySettled, resetIdentitySettlement } from '@/services/transcription/modelAcquisitionTelemetry';
 import { clearFeedbackDraft } from '@/services/feedbackDraft';
 import { clearLoginSessions, loginStartedAtOf, setCurrentLogin } from '@/services/loginSessionLog';
+import { loadPracticePrivacy } from '@/services/practicePrivacy';
 
 /**
  * AUTHENTICATION PROVIDER
@@ -406,6 +407,14 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
   useEffect(() => {
     if (sessionState?.user) setSignedOutByUser(false);
   }, [sessionState]);
+
+  // #1835: the practice privacy choices always follow the signed-in owner. A different owner (or sign-out) drops them
+  // to off at once, before that owner's own row is read, so no transcript text or coaching request rides on another
+  // account's choice.
+  const privacyOwnerId = sessionState?.user?.id ?? null;
+  useEffect(() => {
+    void loadPracticePrivacy(privacyOwnerId);
+  }, [privacyOwnerId]);
 
   const value = useMemo((): AuthContextType => ({
     session: sessionState ?? null,

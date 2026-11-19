@@ -6,7 +6,7 @@ only; writes a NEW directory. Every table value is DERIVED from sealed receipts,
 Usage: workflow_report.py --request R.json --ledger-derived LD.json --release-verification RV.json --reconciliation RC.json --gates G.json --spend S.json
           --offline-proof P.json --workflow W.json --comparison C_prior.json [--latest-comparison C_latest.json] --summary SUMMARY.json [--run-record RR.json]
           [--bindings B1.json B2.json] --labels R4C R5 --out NEW_DIR [--generated-at ISO]
-Outputs: REPORT.html, report.json, validation.json, MANIFEST.json (sha256 of every output and of the input copies under inputs/).
+Outputs: REPORT.html, report.json, validation.json, MANIFEST.json (sha256 of every output and of the input copies under inputs).
 Exit 1 when the report fails validation (word limit, order, vocabulary, a gap CLOSED without proof, a dollar figure without a source, secrets pattern)."""
 import argparse
 import hashlib
@@ -430,16 +430,31 @@ def render(rep, wf):
         A(" <b>After the run:</b> %s requests above the reserve; identity reads %s; Starts %s; takes %s." % (ra["requests"], ra["identityReads"], ra["starts"] if ra["starts"] is not None else "not recorded", ra["takes"] if ra["takes"] is not None else "not recorded"))
     A("</p>")
     A("<h3>Cumulative usage reconciled before any ceiling is approved</h3>")
-    rows = [[esc(r["label"]), str(r["requests"]), str(r["identityReads"]), "<span class='small'>%s</span>" % esc(r["ledger"])] for r in rc["runs"]]
-    rr_ = rc["requests"]
-    rows.append(["<b>Measured total (sealed ledgers)</b>", "<b>%s</b>" % rr_["measuredFromSealedLedgers"], "<b>%s</b>" % rc["identityReads"]["measuredFromSealedLedgers"], ""])
-    rows.append(["<b>Owner-counted</b>", "%s" % rr_["ownerCounted"], "%s" % rc["identityReads"]["ownerCounted"], "<span class='small'>%s</span>" % esc(rr_["ownerCountedBasis"])])
-    rows.append(["<b>Unreconciled</b>", "<b>%s</b>" % rr_["unreconciled"], "%s" % rc["identityReads"]["unreconciled"], "<span class='small'>%s above the sealed ledgers in the owner baseline plus %s estimated outside-run</span>" % (rr_["unreconciledParts"]["baselineAboveSealedLedgers"], rr_["unreconciledParts"]["outsideRunEstimate"])])
-    rows.append(["<b>Used for limits (conservative)</b>", "<b>%s</b>" % rr_["conservativeUsed"], "%s" % rc["identityReads"]["conservativeUsed"], "<span class='small'>%s</span>" % esc(rr_["conservativeBasis"])])
-    A(table(["Run (frozen before the run)", "Requests", "Identity reads", "Source"], rows, "plain"))
-    A("<p class='small'><b>Counters are frozen through %s</b> (as of %s); a later run's actual usage is added once, never counted inside the frozen figure.%s</p>" % (esc(rc["freeze"]["throughRun"]), esc(rc["freeze"]["asOfUtc"]),
-      (" <b>This run, added once:</b> %s requests and %s identity reads on top of %s and %s, giving %s and %s after the run." % (sp["countedOnce"]["thisRunActual"]["requests"], sp["countedOnce"]["thisRunActual"]["identityReads"], sp["countedOnce"]["frozenBefore"]["requests"], sp["countedOnce"]["frozenBefore"]["identityReads"], sp["countedOnce"]["afterRun"]["requests"], sp["countedOnce"]["afterRun"]["identityReads"])) if sp.get("countedOnce") else ""))
-    A("<p class='small'>Ceilings now: %s requests with a %s protected reserve, %s identity reads, %s Starts, %s takes. Headroom now: %s requests, %s identity reads. Starts and takes are owner-stated; the sealed ledgers do not carry them.</p></section>" % (rc["ceilings"]["requests"], rc["ceilings"]["protectedReserveRequests"], rc["ceilings"]["identityReads"], rc["ceilings"]["starts"], rc["ceilings"]["takes"], rc["currentHeadroom"]["requests"], rc["currentHeadroom"]["identityReads"]))
+    if "runs" not in rc and isinstance(rc.get("period"), dict):     # the accepted-rollup checkpoint's shape; a legacy table keeps its section
+        # The occurrence route's checkpoint (accounting_rollup): the verified journal's period totals, never the legacy sealed-ledger table
+        # (R10 post-A7 rehearsal: KeyError 'runs' on this route). The same five counters, the journal identity and the open reservations.
+        pe = rc["period"]
+        rows = [["<b>Period usage, verified journal</b>", "<b>%s</b>" % pe["requests"], "<b>%s</b>" % pe["identityReads"],
+                 "<span class='small'>Starts %s, takes %s, coaching %s, runner minutes %s</span>" % (pe["starts"], pe["takes"], pe["coachingRequests"], pe["runnerMinutes"])],
+                ["<b>Used for limits (conservative)</b>", "<b>%s</b>" % rc["requests"]["conservativeUsed"], "%s" % rc["identityReads"]["conservativeUsed"],
+                 "<span class='small'>accepted rollup at journal %s from root %s; open reservations %s</span>" % (esc(str(rc["headSha"])[:12]), esc(str(rc["root"])[:12]), rc["outstandingReservations"])]]
+        A(table(["Source", "Requests", "Identity reads", "Detail"], rows, "plain"))
+        unknown = sorted(k for k, v in (rc.get("unknown") or {}).items() if v)
+        A("<p class='small'><b>Unknown counters:</b> %s.</p>" % (esc(", ".join(unknown)) if unknown else "none"))
+    else:
+        rows = [[esc(r["label"]), str(r["requests"]), str(r["identityReads"]), "<span class='small'>%s</span>" % esc(r["ledger"])] for r in rc["runs"]]
+        rr_ = rc["requests"]
+        rows.append(["<b>Measured total (sealed ledgers)</b>", "<b>%s</b>" % rr_["measuredFromSealedLedgers"], "<b>%s</b>" % rc["identityReads"]["measuredFromSealedLedgers"], ""])
+        rows.append(["<b>Owner-counted</b>", "%s" % rr_["ownerCounted"], "%s" % rc["identityReads"]["ownerCounted"], "<span class='small'>%s</span>" % esc(rr_["ownerCountedBasis"])])
+        rows.append(["<b>Unreconciled</b>", "<b>%s</b>" % rr_["unreconciled"], "%s" % rc["identityReads"]["unreconciled"], "<span class='small'>%s above the sealed ledgers in the owner baseline plus %s estimated outside-run</span>" % (rr_["unreconciledParts"]["baselineAboveSealedLedgers"], rr_["unreconciledParts"]["outsideRunEstimate"])])
+        rows.append(["<b>Used for limits (conservative)</b>", "<b>%s</b>" % rr_["conservativeUsed"], "%s" % rc["identityReads"]["conservativeUsed"], "<span class='small'>%s</span>" % esc(rr_["conservativeBasis"])])
+        A(table(["Run (frozen before the run)", "Requests", "Identity reads", "Source"], rows, "plain"))
+        A("<p class='small'><b>Counters are frozen through %s</b> (as of %s); a later run's actual usage is added once, never counted inside the frozen figure.%s</p>" % (esc(rc["freeze"]["throughRun"]), esc(rc["freeze"]["asOfUtc"]),
+          (" <b>This run, added once:</b> %s requests and %s identity reads on top of %s and %s, giving %s and %s after the run." % (sp["countedOnce"]["thisRunActual"]["requests"], sp["countedOnce"]["thisRunActual"]["identityReads"], sp["countedOnce"]["frozenBefore"]["requests"], sp["countedOnce"]["frozenBefore"]["identityReads"], sp["countedOnce"]["afterRun"]["requests"], sp["countedOnce"]["afterRun"]["identityReads"])) if sp.get("countedOnce") else ""))
+    A("<p class='small'>Ceilings now: %s requests with a %s protected reserve, %s identity reads, %s Starts, %s takes. Headroom now: %s requests, %s identity reads. %s</p></section>" % (rc["ceilings"]["requests"], rc["ceilings"]["protectedReserveRequests"], rc["ceilings"]["identityReads"], rc["ceilings"]["starts"], rc["ceilings"]["takes"], rc["currentHeadroom"]["requests"], rc["currentHeadroom"]["identityReads"],
+       # on the accepted-rollup path every counter comes from the verified journal, not owner statements or sealed ledgers
+       "All five counters come from the verified state-ref journal." if "runs" not in rc and isinstance(rc.get("period"), dict)
+       else "Starts and takes are owner-stated; the sealed ledgers do not carry them."))
     # areas
     A("<section id='areas'><h2>Seven product areas: %s | %s | Latest</h2><p class='small muted'>Cells count the area's primary journeys by verdict. Classes follow the comparability rules; a changed observer or lost coverage is never an improvement.</p>" % (esc(L2), esc(L1)))
     rows = []

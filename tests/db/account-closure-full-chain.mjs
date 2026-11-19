@@ -59,6 +59,152 @@ export function observeRetirementReleaseCatalog({ sql, root, apply, retain }) {
   }
 }
 
+// Ledger-10 successor: the SAME release contract/query/validator the operational `verify release|edge-release`
+// executable uses, read before (ledger 9, retirement) and after applying 20261112133000 on the disposable stack.
+// Ledger-11 successor: the SAME release contract/query/validator as `verify release|edge-release`, read before (ledger 10,
+// abandonment) and after applying 20261114100000 on the disposable stack, over the real user_issue_reports chain.
+export function observeFeedbackFenceReleaseCatalog({ sql, root, apply, retain }) {
+  const receipt = { status: 'INCOMPLETE', profile: 'post-1811-feedback-fence', negatives: [] };
+  const save = () => retain(globalThis.structuredClone(receipt));
+  const ledger = () => sql(`BEGIN READ ONLY; ${t2ReleaseLedgerQuery()} COMMIT;`);
+  try {
+    const abandoned = t2ReleaseContract(root, ledger(), { catalogContext: 'native-replay' });
+    assert.equal(abandoned.profile, 'post-1643-abandonment', 'the feedback fence must follow the installed abandonment ledger');
+    receipt.before = sql(t2ReleaseSnapshotQuery(abandoned)).trim().split('\n');
+    assertT2ReleaseSnapshot(abandoned, receipt.before);
+    save();
+    apply();
+    const contract = t2ReleaseContract(root, ledger(), { catalogContext: 'native-replay' });
+    assert.equal(contract.profile, 'post-1811-feedback-fence', 'native release stage/ledger differs');
+    receipt.sourcePins = contract.pins;
+    receipt.after = sql(t2ReleaseSnapshotQuery(contract)).trim().split('\n');
+    save();
+    receipt.result = assertT2ReleaseSnapshot(contract, receipt.after);
+    assert.throws(() => assertT2ReleaseSnapshot(abandoned, receipt.after), /ledger changed|known129|catalog mismatch/);
+    const snapshot = t2ReleaseSnapshotQuery(contract).replace(/^BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;/, '').replace(/COMMIT;\s*$/, '');
+    for (const [name, mutation] of [
+      ['rpc-authenticated-execute', 'GRANT EXECUTE ON FUNCTION public.open_rwt_feedback_fence_v1(uuid,jsonb,text,integer) TO authenticated;'],
+      ['trigger-function-anon-execute', 'GRANT EXECUTE ON FUNCTION public._rwt_feedback_fence_v1() TO anon;'],
+      ['table-readable', 'GRANT SELECT ON public.rwt_feedback_fences TO authenticated;'],
+      ['table-rls-disabled', 'ALTER TABLE public.rwt_feedback_fences DISABLE ROW LEVEL SECURITY;'],
+      ['security-invoker', 'ALTER FUNCTION public.close_rwt_feedback_fence_v1(text) SECURITY INVOKER;'],
+      ['write-trigger-disabled', 'ALTER TABLE public.user_issue_reports DISABLE TRIGGER zz_rwt_feedback_fence;'],
+    ]) {
+      const changed = sql(`BEGIN; ${mutation}\n${snapshot}\nROLLBACK;`).trim().split('\n');
+      assert.throws(() => assertT2ReleaseSnapshot(contract, changed), /catalog mismatch|known129/);
+      receipt.negatives.push({ name, refused: true, rollback: true, rows: changed }); save();
+    }
+    const restored = sql(t2ReleaseSnapshotQuery(contract)).trim().split('\n');
+    assertT2ReleaseSnapshot(contract, restored);
+    assert.deepEqual(restored, receipt.after, 'feedback-fence catalog negative controls did not restore');
+    receipt.status = 'PASS'; receipt.restored = true; save(); return receipt;
+  } catch (error) {
+    receipt.status = 'FAIL'; receipt.reason = error.message; save(); throw error;
+  }
+}
+
+// Ledger-12/13 successors: the SAME release contract/query/validator as `verify release|edge-release`, read before (the
+// installed predecessor stage, asserted against its current native pins) and after applying the exact migration. The
+// `after` rows are retained BEFORE they are validated, so a pending pin yields its native observation and still fails.
+function observeSuccessorReleaseCatalog({ sql, root, apply, retain, from, to, mutations }) {
+  const receipt = { status: 'INCOMPLETE', profile: to, negatives: [] };
+  const save = () => retain(globalThis.structuredClone(receipt));
+  const ledger = () => sql(`BEGIN READ ONLY; ${t2ReleaseLedgerQuery()} COMMIT;`);
+  try {
+    const previous = t2ReleaseContract(root, ledger(), { catalogContext: 'native-replay' });
+    assert.equal(previous.profile, from, `${to} must follow the installed ${from} ledger`);
+    receipt.before = sql(t2ReleaseSnapshotQuery(previous)).trim().split('\n');
+    // Only an observation whose predecessor reference matches the current native pins is usable.
+    assertT2ReleaseSnapshot(previous, receipt.before);
+    receipt.referenceVerified = true;
+    save();
+    apply();
+    const contract = t2ReleaseContract(root, ledger(), { catalogContext: 'native-replay' });
+    assert.equal(contract.profile, to, 'native release stage/ledger differs');
+    receipt.sourcePins = contract.pins;
+    receipt.after = sql(t2ReleaseSnapshotQuery(contract)).trim().split('\n');
+    const observed = JSON.parse(receipt.after[1]);
+    receipt.changedFromPredecessor = Object.fromEntries(Object.keys({ ...previous.expected, ...observed })
+      .filter(key => observed[key] !== previous.expected[key]).sort().map(key => [key, observed[key] ?? null]));
+    save();
+    receipt.result = assertT2ReleaseSnapshot(contract, receipt.after);
+    assert.throws(() => assertT2ReleaseSnapshot(previous, receipt.after), /ledger changed|known129|catalog mismatch/);
+    const snapshot = t2ReleaseSnapshotQuery(contract).replace(/^BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;/, '').replace(/COMMIT;\s*$/, '');
+    for (const [name, mutation] of mutations) {
+      const changed = sql(`BEGIN; ${mutation}\n${snapshot}\nROLLBACK;`).trim().split('\n');
+      assert.throws(() => assertT2ReleaseSnapshot(contract, changed), /catalog mismatch|known129/);
+      receipt.negatives.push({ name, refused: true, rollback: true, rows: changed }); save();
+    }
+    const restored = sql(t2ReleaseSnapshotQuery(contract)).trim().split('\n');
+    assertT2ReleaseSnapshot(contract, restored);
+    assert.deepEqual(restored, receipt.after, `${to} catalog negative controls did not restore`);
+    receipt.status = 'PASS'; receipt.restored = true; save(); return receipt;
+  } catch (error) {
+    receipt.status = 'FAIL'; receipt.reason = error.message; save(); throw error;
+  }
+}
+
+export function observePaymentWallReleaseCatalog({ sql, root, apply, retain }) {
+  return observeSuccessorReleaseCatalog({ sql, root, apply, retain, from: 'post-1811-feedback-fence', to: 'post-1863-payment-wall',
+    mutations: [
+      ['analytics-wrapper-search-path', 'ALTER FUNCTION public.get_analytics_summary(uuid) SET search_path TO pg_catalog;'],
+      ['analytics-wrapper-anon-execute', 'GRANT EXECUTE ON FUNCTION public.get_analytics_summary(uuid) TO anon;'],
+      ['abandonment-outcome-check-dropped', 'ALTER TABLE public.recording_start_abandonments DROP CONSTRAINT recording_start_abandonments_outcome_check;'],
+    ] });
+}
+
+export function observePracticePrivacyReleaseCatalog({ sql, root, apply, retain }) {
+  return observeSuccessorReleaseCatalog({ sql, root, apply, retain, from: 'post-1863-payment-wall', to: 'post-1835-practice-privacy',
+    mutations: [
+      // #1835 revokes the legacy writer from service_role too: restoring that exact grant must be refused.
+      ['coaching-persist-service-role-execute-restored',
+        'GRANT EXECUTE ON FUNCTION public.persist_account_coaching_v1(uuid,boolean,uuid,uuid,jsonb,text,text,text,date,integer,integer) TO service_role;'],
+      ['coaching-persist-authenticated-execute',
+        'GRANT EXECUTE ON FUNCTION public.persist_account_coaching_v1(uuid,boolean,uuid,uuid,jsonb,text,text,text,date,integer,integer) TO authenticated;'],
+      ['analytics-wrapper-search-path', 'ALTER FUNCTION public.get_analytics_summary(uuid) SET search_path TO pg_catalog;'],
+    ] });
+}
+
+export function observeAbandonmentReleaseCatalog({ sql, root, apply, retain }) {
+  const receipt = { status: 'INCOMPLETE', profile: 'post-1643-abandonment', negatives: [] };
+  const save = () => retain(globalThis.structuredClone(receipt));
+  const ledger = () => sql(`BEGIN READ ONLY; ${t2ReleaseLedgerQuery()} COMMIT;`);
+  try {
+    const retired = t2ReleaseContract(root, ledger(), { catalogContext: 'native-replay' });
+    assert.equal(retired.profile, 'post-128-retirement', 'abandonment must follow the installed retirement ledger');
+    receipt.before = sql(t2ReleaseSnapshotQuery(retired)).trim().split('\n');
+    assertT2ReleaseSnapshot(retired, receipt.before);
+    save();
+    apply();
+    const contract = t2ReleaseContract(root, ledger(), { catalogContext: 'native-replay' });
+    assert.equal(contract.profile, 'post-1643-abandonment', 'native release stage/ledger differs');
+    receipt.sourcePins = contract.pins;
+    receipt.after = sql(t2ReleaseSnapshotQuery(contract)).trim().split('\n');
+    save();
+    receipt.result = assertT2ReleaseSnapshot(contract, receipt.after);
+    assert.throws(() => assertT2ReleaseSnapshot(retired, receipt.after), /ledger changed|known129|catalog mismatch/);
+    const snapshot = t2ReleaseSnapshotQuery(contract).replace(/^BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;/, '').replace(/COMMIT;\s*$/, '');
+    for (const [name, mutation] of [
+      ['anon-execute', 'GRANT EXECUTE ON FUNCTION public.abandon_recording_start_v1(uuid) TO anon;'],
+      ['service-role-execute', 'GRANT EXECUTE ON FUNCTION public.abandon_recording_start_v1(uuid) TO service_role;'],
+      ['table-readable', 'GRANT SELECT ON public.recording_start_abandonments TO authenticated;'],
+      ['table-rls-disabled', 'ALTER TABLE public.recording_start_abandonments DISABLE ROW LEVEL SECURITY;'],
+      ['security-invoker', 'ALTER FUNCTION public.abandon_recording_start_v1(uuid) SECURITY INVOKER;'],
+      ['known-billing-family', 'CREATE FUNCTION public.settle_account_completion_billing_v1(text) RETURNS boolean LANGUAGE sql AS $$ SELECT true $$;'],
+    ]) {
+      const changed = sql(`BEGIN; ${mutation}\n${snapshot}\nROLLBACK;`).trim().split('\n');
+      assert.throws(() => assertT2ReleaseSnapshot(contract, changed), /catalog mismatch|known129/);
+      receipt.negatives.push({ name, refused: true, rollback: true, rows: changed }); save();
+    }
+    const restored = sql(t2ReleaseSnapshotQuery(contract)).trim().split('\n');
+    assertT2ReleaseSnapshot(contract, restored);
+    assert.deepEqual(restored, receipt.after, 'abandonment catalog negative controls did not restore');
+    receipt.status = 'PASS'; receipt.restored = true; save(); return receipt;
+  } catch (error) {
+    receipt.status = 'FAIL'; receipt.reason = error.message; save(); throw error;
+  }
+}
+
 // Separate post-C1 observations. The historical stage0..6 observer is unchanged.
 // This uses the SAME contract/query/validator as the operational executable.
 export function observeC1ReleaseCatalog({ sql, root, stage, retain }) {
@@ -842,27 +988,68 @@ const BILLING_PROFILE='main-completion-billing-129';
 const RETIREMENT_PROFILE='main-coaching-retirement-129';
 const RETIREMENT_MIGRATION=Object.freeze({name:'20261110173548_account_coaching_local_retirement.sql',version:'20261110173548',
   sha256:'cc3ee4369dec74d2926557128a06265fb3019077b018cdc5dc848f055a6f8e04',stage:'coaching-local-retirement'});
-const MAIN_PROFILES=['main-120','main-u1-121','main-analytics-u1-122','main-t2-account-126','main-t2-fence-127','main-t2-retention-128',BILLING_PROFILE,RETIREMENT_PROFILE];
-const T2_PROFILES=['main-t2-account-126','main-t2-fence-127','main-t2-retention-128',BILLING_PROFILE,RETIREMENT_PROFILE];
+// #1643 start abandonment (ledger 10): the installed retirement profile plus 20261112133000, staged after it.
+const ABANDONMENT_PROFILE='main-start-abandonment-130';
+// #1811 AHT-02/07/08 feedback fence (ledger 11): the installed abandonment profile plus 20261114100000, staged after it.
+const FEEDBACK_FENCE_PROFILE='main-feedback-fence-131';
+// #1863 payment wall (ledger 12): the installed feedback-fence profile plus 20261114170000, staged after it.
+const PAYMENT_WALL_PROFILE='main-payment-wall-132';
+// #1835 practice privacy (ledger 13): the installed payment-wall profile plus 20261117105700, staged after it.
+const PRACTICE_PRIVACY_PROFILE='main-practice-privacy-133';
+const FROM_PAYMENT_WALL=[PAYMENT_WALL_PROFILE,PRACTICE_PRIVACY_PROFILE];
+const FROM_FEEDBACK_FENCE=[FEEDBACK_FENCE_PROFILE,...FROM_PAYMENT_WALL];
+const FROM_ABANDONMENT=[ABANDONMENT_PROFILE,...FROM_FEEDBACK_FENCE];
+const FROM_RETIREMENT=[RETIREMENT_PROFILE,...FROM_ABANDONMENT];
+const MAIN_PROFILES=['main-120','main-u1-121','main-analytics-u1-122','main-t2-account-126','main-t2-fence-127','main-t2-retention-128',BILLING_PROFILE,...FROM_RETIREMENT];
+const T2_PROFILES=['main-t2-account-126','main-t2-fence-127','main-t2-retention-128',BILLING_PROFILE,...FROM_RETIREMENT];
 function selectedAdditions(profile) {
   const rows=[...(profile!=='main-120'?[{...MAIN_U1_MIGRATION,stage:'heartbeat-u1'}]:[]),
     ...(['main-analytics-u1-122',...T2_PROFILES].includes(profile)?[{...MAIN_ANALYTICS_MIGRATION,stage:'analytics-observed-rate'}]:[]),
     ...(T2_PROFILES.includes(profile)?MAIN_T2_ACCOUNT_MIGRATIONS:[]),
-    ...(['main-t2-fence-127','main-t2-retention-128',BILLING_PROFILE,RETIREMENT_PROFILE].includes(profile)?[MAIN_T2_FENCE_MIGRATION]:[]),
-    ...(['main-t2-retention-128',BILLING_PROFILE,RETIREMENT_PROFILE].includes(profile)?[MAIN_T2_RETENTION_MIGRATION]:[]),
+    ...(['main-t2-fence-127','main-t2-retention-128',BILLING_PROFILE,...FROM_RETIREMENT].includes(profile)?[MAIN_T2_FENCE_MIGRATION]:[]),
+    ...(['main-t2-retention-128',BILLING_PROFILE,...FROM_RETIREMENT].includes(profile)?[MAIN_T2_RETENTION_MIGRATION]:[]),
     ...(profile===BILLING_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION]:[]),
-    ...(profile===RETIREMENT_PROFILE?[RETIREMENT_MIGRATION]:[])];
+    ...(FROM_RETIREMENT.includes(profile)?[RETIREMENT_MIGRATION]:[]),
+    ...(FROM_ABANDONMENT.includes(profile)?[{...START_ABANDONMENT_MIGRATION,stage:'start-abandonment'}]:[]),
+    ...(FROM_FEEDBACK_FENCE.includes(profile)?[{...FEEDBACK_FENCE_MIGRATION,stage:'feedback-fence'}]:[]),
+    ...(FROM_PAYMENT_WALL.includes(profile)?[{...PAYMENT_WALL_MIGRATION,stage:'payment-wall'}]:[]),
+    ...(profile===PRACTICE_PRIVACY_PROFILE?[{...PRACTICE_PRIVACY_MIGRATION,stage:'practice-privacy'}]:[])];
   return rows.sort((a,b)=>a.name.localeCompare(b.name,'en'));
 }
 const MAIN_DRAIN = '20261016180000_account_closure_drain_enforcement.sql';
 const MAIN_RECOVERY = '20261017200000_checkout_rejection_recovery.sql';
 // Reviewed repository presence only. These bytes are NOT part of any historical
 // replay/catalog profile and must never enter its staged directory or ledger.
+const START_ABANDONMENT_MIGRATION=Object.freeze({name:'20261112133000_recording_start_abandonment_1643.sql',
+  version:'20261112133000',sha256:'37bbfd561ef825cae92fa6787adc87f786a97a6c219fc1941572a6dd714e158e'});
+const FEEDBACK_FENCE_MIGRATION=Object.freeze({name:'20261114100000_rwt_feedback_fence_1811.sql',
+  version:'20261114100000',sha256:'9aa48a5642765beb1c36f305ed62482bca67928d97bd5c1efeb1296e0c79176c'});
+// #1863 payment wall (product access guard): reviewed and pinned; withheld from every profile before main-payment-wall-132,
+// which stages it after the feedback fence. A byte change must update this pin.
+const PAYMENT_WALL_MIGRATION=Object.freeze({name:'20261114170000_payment_wall_product_access_1863.sql',
+  version:'20261114170000',sha256:'407a49072c928ed52015d5d696791e4506a25468f9a71098db418b1f18cf3f59'});
+// Reviewed migrations outside the account-closure chain, newer than every profile here: pinned repository
+// inventory that no profile replays, stages or records, the installed retirement profile included.
+export const REVIEWED_UNRELATED_MIGRATIONS=Object.freeze([
+  // #1829 refund follow-up signal (restricted operational table and its writer; Sam's 2026-11-12 decision).
+  Object.freeze({name:'20261112130000_stripe_refund_followups.sql',version:'20261112130000',
+    sha256:'47fce28446a1e8f56c27dd10a6bb92e803a5907db0fd9d7fa67cbf11f9701fe8'}),
+]);
+// #1835 changes session/coaching behavior; withheld from every profile before main-practice-privacy-133, which stages it
+// after the payment wall. Elsewhere this pin recognizes repository presence, not installed privacy behavior.
+const PRACTICE_PRIVACY_MIGRATION=Object.freeze({name:'20261117105700_practice_privacy_choices_1835.sql',
+  version:'20261117105700',sha256:'8e21fe2237c70c75fcaeee8cb74e17b679ab187f6936b9ccd5c311c51dedf9b7'});
+const COMMON_WITHHELD_MIGRATIONS=Object.freeze([
+  PAYMENT_WALL_MIGRATION,
+  ...REVIEWED_UNRELATED_MIGRATIONS,
+  PRACTICE_PRIVACY_MIGRATION,
+]);
 export const REVIEWED_WITHHELD_MIGRATIONS=Object.freeze([
+  START_ABANDONMENT_MIGRATION,
+  FEEDBACK_FENCE_MIGRATION,
   Object.freeze({name:'20261110173548_account_coaching_local_retirement.sql',version:'20261110173548',
     sha256:'cc3ee4369dec74d2926557128a06265fb3019077b018cdc5dc848f055a6f8e04'}),
-  Object.freeze({name:'20261112010000_repeat_practised_tip.sql',version:'20261112010000',
-    sha256:'6bdf06c1556a753f0919dc4a3c3605bec0df3a3a0959fa71ece54b0feb086f8c'}),
+  ...COMMON_WITHHELD_MIGRATIONS,
 ]);
 
 export function parseMainProofArguments(args) {
@@ -891,8 +1078,12 @@ export function buildMainU1ReplayPlan(rows, profile = 'main-120') {
   const repositoryVersioned = actual.filter(row => row.version !== null);
   assert.equal(new Set(repositoryVersioned.map(row => row.version)).size, repositoryVersioned.length, 'duplicate migration version');
   const withheldPins=profile===RETIREMENT_PROFILE
-    ? [MAIN_COMPLETION_BILLING_MIGRATION,...REVIEWED_WITHHELD_MIGRATIONS.filter(row=>row.name!==RETIREMENT_MIGRATION.name)]
-    : REVIEWED_WITHHELD_MIGRATIONS;
+    ?[MAIN_COMPLETION_BILLING_MIGRATION,START_ABANDONMENT_MIGRATION,FEEDBACK_FENCE_MIGRATION,...COMMON_WITHHELD_MIGRATIONS]
+    :profile===ABANDONMENT_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION,FEEDBACK_FENCE_MIGRATION,...COMMON_WITHHELD_MIGRATIONS]
+    :profile===FEEDBACK_FENCE_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION,...COMMON_WITHHELD_MIGRATIONS]
+    :profile===PAYMENT_WALL_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION,...REVIEWED_UNRELATED_MIGRATIONS,PRACTICE_PRIVACY_MIGRATION]
+    :profile===PRACTICE_PRIVACY_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION,...REVIEWED_UNRELATED_MIGRATIONS]
+    :REVIEWED_WITHHELD_MIGRATIONS;
   const withheld=actual.filter(row=>withheldPins.some(pin=>pin.name===row.name));
   for(const row of withheld) assert.equal(row.sha256,withheldPins.find(pin=>pin.name===row.name).sha256,
     'reviewed withheld migration digest changed: '+row.name);
@@ -907,7 +1098,7 @@ export function buildMainU1ReplayPlan(rows, profile = 'main-120') {
   }
   for (const row of expected) assert.ok(replay.some(value => value.name === row.name), 'reviewed migration missing: ' + row.name);
   const history = excluded => versioned.filter(row => !excluded.includes(row.name)).map(row => row.version);
-  const late=[MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name,RETIREMENT_MIGRATION.name];
+  const late=[MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name,RETIREMENT_MIGRATION.name,START_ABANDONMENT_MIGRATION.name,FEEDBACK_FENCE_MIGRATION.name,PAYMENT_WALL_MIGRATION.name,PRACTICE_PRIVACY_MIGRATION.name];
   const stages = [
     { name: 'baseline-before-drain', versions: history([MAIN_DRAIN, MAIN_RECOVERY, ...late]) },
     { name: 'drain-enforcement', versions: history([MAIN_RECOVERY, ...late]) },
@@ -939,7 +1130,11 @@ export function runMainClosureProof() {
   const migrations = manifest.filter(row=>row.version!==null&&plan.replayFiles.includes(row.name));
   const completeT2=T2_PROFILES.includes(args.profile);
   const billingT2=args.profile===BILLING_PROFILE;
-  const retirementT2=args.profile===RETIREMENT_PROFILE;
+  const practicePrivacyT2=args.profile===PRACTICE_PRIVACY_PROFILE;
+  const paymentWallT2=args.profile===PAYMENT_WALL_PROFILE||practicePrivacyT2;
+  const feedbackFenceT2=args.profile===FEEDBACK_FENCE_PROFILE||paymentWallT2;
+  const abandonmentT2=args.profile===ABANDONMENT_PROFILE||feedbackFenceT2;
+  const retirementT2=args.profile===RETIREMENT_PROFILE||abandonmentT2;
   const retentionT2=args.profile==='main-t2-retention-128'||billingT2||retirementT2;
   const fenceT2=args.profile==='main-t2-fence-127'||retentionT2;
   const hasAnalytics=['main-analytics-u1-122',...T2_PROFILES].includes(args.profile);
@@ -1035,7 +1230,7 @@ export function runMainClosureProof() {
     // Supported CLI selector; fresh staging only, never an installed/project DB.
     mkdirSync(join(directory, '.temp'), { recursive: true });
     writeFileSync(join(directory, '.temp', 'postgres-version'), postgresVersion);
-    for (const file of plan.replayFiles.filter((name) => ![candidate,recovery,MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name,RETIREMENT_MIGRATION.name].includes(name))) cpSync(join(root, file), join(directory, 'migrations', file));
+    for (const file of plan.replayFiles.filter((name) => ![candidate,recovery,MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name,RETIREMENT_MIGRATION.name,START_ABANDONMENT_MIGRATION.name,FEEDBACK_FENCE_MIGRATION.name,PAYMENT_WALL_MIGRATION.name,PRACTICE_PRIVACY_MIGRATION.name].includes(name))) cpSync(join(root, file), join(directory, 'migrations', file));
     // Internal-only bridges do not publish the localhost DB port used by the
     // pinned CLI. Use a loopback-published bridge with an owned egress DROP rule
     // established before starting any database/service container instead.
@@ -1328,9 +1523,45 @@ export function runMainClosureProof() {
         apply: () => {
           cpSync(join(root,RETIREMENT_MIGRATION.name),join(directory,'migrations',RETIREMENT_MIGRATION.name));
           cli(['migration','up','--local']);
-          assert.deepEqual(history(),plan.stages.at(-1).versions,'retirement installed ledger differs');
+          assert.deepEqual(history(),plan.stages.find(row=>row.name===RETIREMENT_MIGRATION.stage).versions,'retirement installed ledger differs');
         },
         retain: receipt => writeFileSync(join(evidence,'retirement-installed-catalog.json'),JSON.stringify(receipt,null,2)) });
+    }
+    if(abandonmentT2) {
+      observeAbandonmentReleaseCatalog({ sql, root: process.cwd(),
+        apply: () => {
+          cpSync(join(root,START_ABANDONMENT_MIGRATION.name),join(directory,'migrations',START_ABANDONMENT_MIGRATION.name));
+          cli(['migration','up','--local']);
+          assert.deepEqual(history(),plan.stages.find(row=>row.name==='start-abandonment').versions,'start-abandonment installed ledger differs');
+        },
+        retain: receipt => writeFileSync(join(evidence,'abandonment-installed-catalog.json'),JSON.stringify(receipt,null,2)) });
+    }
+    if(feedbackFenceT2) {
+      observeFeedbackFenceReleaseCatalog({ sql, root: process.cwd(),
+        apply: () => {
+          cpSync(join(root,FEEDBACK_FENCE_MIGRATION.name),join(directory,'migrations',FEEDBACK_FENCE_MIGRATION.name));
+          cli(['migration','up','--local']);
+          assert.deepEqual(history(),plan.stages.find(row=>row.name==='feedback-fence').versions,'feedback-fence installed ledger differs');
+        },
+        retain: receipt => writeFileSync(join(evidence,'feedback-fence-installed-catalog.json'),JSON.stringify(receipt,null,2)) });
+    }
+    if(paymentWallT2) {
+      observePaymentWallReleaseCatalog({ sql, root: process.cwd(),
+        apply: () => {
+          cpSync(join(root,PAYMENT_WALL_MIGRATION.name),join(directory,'migrations',PAYMENT_WALL_MIGRATION.name));
+          cli(['migration','up','--local']);
+          assert.deepEqual(history(),plan.stages.find(row=>row.name==='payment-wall').versions,'payment-wall installed ledger differs');
+        },
+        retain: receipt => writeFileSync(join(evidence,'payment-wall-installed-catalog.json'),JSON.stringify(receipt,null,2)) });
+    }
+    if(practicePrivacyT2) {
+      observePracticePrivacyReleaseCatalog({ sql, root: process.cwd(),
+        apply: () => {
+          cpSync(join(root,PRACTICE_PRIVACY_MIGRATION.name),join(directory,'migrations',PRACTICE_PRIVACY_MIGRATION.name));
+          cli(['migration','up','--local']);
+          assert.deepEqual(history(),plan.stages.find(row=>row.name==='practice-privacy').versions,'practice-privacy installed ledger differs');
+        },
+        retain: receipt => writeFileSync(join(evidence,'practice-privacy-installed-catalog.json'),JSON.stringify(receipt,null,2)) });
     }
     assert.deepEqual(history(),plan.stages.at(-1).versions,'historical final ledger differs from replay profile');
     for(const row of plan.withheld) assert.equal(existsSync(join(directory,'migrations',row.name)),false,'withheld migration was staged');
@@ -1338,6 +1569,17 @@ export function runMainClosureProof() {
       WHERE n.nspname='public' AND p.proname IN ('finish_account_coaching_local_v1','fence_account_coaching_expired_v1'))
       AND to_regclass('public.account_coaching_local_fences') IS NULL
       AND to_regclass('public.account_coaching_expiry_fences') IS NULL;`),'t','withheld retirement catalog must remain absent');
+    if(!abandonmentT2) assert.equal(sql(`SELECT NOT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+      WHERE n.nspname='public' AND p.proname='abandon_recording_start_v1')
+      AND to_regclass('public.recording_start_abandonments') IS NULL;`),'t','withheld start-abandonment catalog must remain absent');
+    if(!feedbackFenceT2) assert.equal(sql(`SELECT NOT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+      WHERE n.nspname='public' AND p.proname LIKE '%rwt_feedback_fence%')
+      AND to_regclass('public.rwt_feedback_fences') IS NULL;`),'t','withheld feedback-fence catalog must remain absent');
+    if(!paymentWallT2) assert.equal(sql(`SELECT NOT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+      WHERE n.nspname='public' AND (p.proname LIKE '%\\_\\_unguarded' OR p.proname IN ('require_product_access','account_has_product_access')));`),
+      't','withheld payment-wall catalog must remain absent');
+    if(!practicePrivacyT2) assert.equal(sql(`SELECT to_regclass('public.practice_privacy_choices') IS NULL;`),
+      't','withheld practice-privacy catalog must remain absent');
   } catch (error) {
     primaryError = error;
   } finally {
