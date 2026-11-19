@@ -1567,7 +1567,7 @@ describe('#1593 cases 9–11 — every RWT live spec is collectable', () => {
         expect(model).toContain("test('model download fails: Retry, never ready, stays Private, no Cloud; fixed → Retry saves a take'");
         expect(model).toContain("test('offline mid-download: Retry, never ready, stays Private, no Cloud; back online → Retry saves a take'");
         expect(model).not.toContain("'mic-denied'");
-        expect(denied).toContain("test('mic denied: stated truthfully, nothing records, no Cloud; allowed → a take saves'");
+        expect(denied).toContain("test('mic denied: stated truthfully, capture never starts, no take saved, no Cloud; same-page recovery untested'");
         expect(denied).toMatch(/^test\.use\(\{\n {4}permissions: \[\], /m);
         expect(denied).toContain("'--use-fake-ui-for-media-stream=deny'");
         for (const spec of [model, denied]) {

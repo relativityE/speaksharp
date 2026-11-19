@@ -8,7 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
-    ADVERSE_SUITE, MIC_BLOCKED_COPY, MODEL_FAILED_STATES, downloadFailureVerdict, micDeniedVerdict, recoveredTakeVerdict,
+    ADVERSE_SUITE, MIC_BLOCKED_COPY, MODEL_FAILED_STATES, NO_TAKE_SAVED_ROW, downloadFailureVerdict, micDeniedVerdict, recoveredTakeVerdict,
 } from '../live/helpers/rwtAdverse';
 import type { TabState } from '../live/helpers/rwtAbandonTakeover';
 import {
@@ -84,7 +84,9 @@ describe('guards — the spec, the acceptance map and the product stay in step',
             const inv = requiredAutomatedRows(suite)!;
             expect(inv.required).toContain('run-owned cleanup');
             for (const step of inv.product) {
-                expect({ suite, step, written: written.includes(`'${step}'`) || step === 'coaching request budget' }).toEqual({ suite, step, written: true });
+                // J7.a: the no-take row is written through its shared constant (rwtAdverse.ts), so the acceptance and the journey share one name.
+                const viaConstant = step === NO_TAKE_SAVED_ROW && spec.includes('receipt.row(NO_TAKE_SAVED_ROW,');
+                expect({ suite, step, written: written.includes(`'${step}'`) || viaConstant || step === 'coaching request budget' }).toEqual({ suite, step, written: true });
             }
         }
         expect(spec).toContain('new RwtReceipt(`${ADVERSE_SUITE}-${variant}`)');
@@ -97,11 +99,19 @@ describe('guards — the spec, the acceptance map and the product stay in step',
         expect(spec).toContain('setOffline: (offline) => context.setOffline(offline).then(() => true, () => false),');
         expect(spec).toContain("if (variant === 'download-fails') await context.unroute(MODEL_ASSETS);");
         expect(spec).toContain('else await context.setOffline(false);');
-        // #1593 (live case 12 + local probe): the denial is a real NotAllowedError (`=deny`), and allowing the microphone
-        // happens where a person would do it — the same account, in an ordinarily launched browser.
+        // #1593 (live case 12 + local probe): the denial is a real NotAllowedError (`=deny`). J7.a (PO and Sam, 2026-11-19):
+        // nothing ever allows the microphone, in this browser or another one.
         expect(spec).toContain("a === '--use-fake-ui-for-media-stream' ? '--use-fake-ui-for-media-stream=deny' : a");
-        expect(spec).toContain('recoveryBrowser = await chromium.launch({ args: rwtLaunchArgs(fixture, { webgpu: false }) });');
-        expect(spec).toContain('await owner.signInOn(allowedPage);');
+        const journey = src('tests/live/helpers/rwtAdverseJourney.ts');
+        const deniedFrom = journey.indexOf("if (variant === 'mic-denied') {");
+        const deniedBranch = journey.slice(deniedFrom, journey.indexOf('receipt.meta.samePageRecoveryReason', deniedFrom));
+        expect(deniedFrom).toBeGreaterThan(0);
+        for (const text of [src('tests/live/rwt-adverse-mic-denied.live.spec.ts'), deniedBranch]) {
+            expect(text).not.toMatch(/chromium\.launch|grantPermissions\(|permissions: \['microphone'\]|signInOn\(|allowedPage/);
+        }
+        // The only site-permission call blocks the microphone, and nothing in the journey can set it to allowed.
+        expect(journey).toContain("permission: { name: 'microphone' }, setting: 'denied',");
+        expect(journey).not.toMatch(/setting: 'granted'|'granted' \| 'denied'|'denied' \| 'granted'/);
         expect(spec).not.toMatch(/route\.fulfill|addInitScript/);
     });
 });
