@@ -27,6 +27,7 @@ const OTHER = '22222222-2222-4222-8222-222222222222';
 const A = 'aaaaaaaa-0000-4000-8000-00000000000a';
 const B = 'aaaaaaaa-0000-4000-8000-00000000000b';
 const C = 'aaaaaaaa-0000-4000-8000-00000000000c';
+const D = 'aaaaaaaa-0000-4000-8000-00000000000d';
 const TIP = 'Pause before you name the price.';
 const review = (over: Record<string, unknown> = {}) => ({
     version: 'gemini_coaching_v1', what_worked: 'The opening was concrete.', what_to_try_next: `  ${TIP}  `, ...over,
@@ -432,12 +433,63 @@ describe('outcome 4 D2 rev 3: the tip chosen for a repeat is bound to it by the 
         expect(await state(attempt)).toMatchObject({ practised_tip: null });
     });
 
-    it('a registered copy goes with its own take: deleting it clears the tip', async () => {
+    it('deleting the registered take releases its registration; the copy stays with its original', async () => {
         await seed(A, 60, 6);
         const attempt = await accept(await recommendOnA());
         await start(B);
         await db.query('DELETE FROM public.sessions WHERE id = $1', [B]);
+        expect(await state(attempt)).toMatchObject({ practised_tip: TIP, tip_session_id: null });
+        expect((await db.query<{ r: string | null }>('SELECT registered_session_id AS r FROM public.progress_recommendation_attempts WHERE id = $1', [attempt])).rows[0].r).toBeNull();
+    });
+
+    it('Codex P2: a discarded registered take (failed) releases its registration; the next take from that tab is the repeat', async () => {
+        await seed(A, 60, 6);
+        const attempt = await accept(await recommendOnA());
+        const registeringIntent = intent;
+        await start(B);
+        await db.query(`UPDATE public.sessions SET status = 'failed' WHERE id = $1`, [B]);   // too short / no speech
+        expect((await db.query<{ r: string | null }>('SELECT registered_session_id AS r FROM public.progress_recommendation_attempts WHERE id = $1', [attempt])).rows[0].r).toBeNull();
+        expect(await state(attempt)).toMatchObject({ practised_tip: TIP, tip_session_id: null, lifecycle: 'pending' });
+        intent = registeringIntent;                     // the tab keeps its intent while the attempt is open
+        await start(D);
+        await save(D);
+        expect(await state(attempt)).toMatchObject({ practised_tip: TIP, tip_session_id: D });
+    });
+
+    it('NEGATIVE CONTROL: without the release on discard, the next take cannot register and the attempt is stuck', async () => {
+        await mutate('public._prec_att_on_session_completed()', `    IF NEW.status = 'failed' THEN`, `    IF false THEN`);
+        await seed(A, 60, 6);
+        const attempt = await accept(await recommendOnA());
+        const registeringIntent = intent;
+        await start(B);
+        await db.query(`UPDATE public.sessions SET status = 'failed' WHERE id = $1`, [B]);
+        intent = registeringIntent;
+        await start(D, { registers: false });
+        await save(D);
+        expect(await state(attempt)).toMatchObject({ tip_session_id: null });
+    });
+
+    it('Codex P2: the registered take saving after a newer save already completed retires the copy instead of binding it', async () => {
+        await seed(A, 60, 6);
+        const attempt = await accept(await recommendOnA());
+        await start(B);                                  // registered
+        await start(C, { tab: 'other' });               // newer, another tab
+        await save(C);
+        expect(await state(attempt)).toMatchObject({ practised_tip: TIP, tip_session_id: null });
+        await save(B);                                   // delayed save of the older registered take
         expect(await state(attempt)).toMatchObject({ practised_tip: null, tip_session_id: null });
+    });
+
+    it('NEGATIVE CONTROL: without the newer-save check, the copy binds to the older registered take', async () => {
+        await mutate('public._prec_att_on_session_completed()',
+            `OR (a.tip_session_id IS NULL AND a.registered_session_id = NEW.id AND EXISTS (`, `OR (false AND EXISTS (`);
+        await seed(A, 60, 6);
+        const attempt = await accept(await recommendOnA());
+        await start(B);
+        await start(C, { tab: 'other' });
+        await save(C);
+        await save(B);
+        expect(await state(attempt)).toMatchObject({ practised_tip: TIP, tip_session_id: B });
     });
 
     it('an unbound copy goes when its original expires; a copy already bound to the repeat stays', async () => {

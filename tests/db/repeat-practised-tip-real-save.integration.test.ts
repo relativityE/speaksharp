@@ -293,6 +293,27 @@ describe('outcome 4 D2 on the shipped save path (every shipped migration, real c
         }, 180_000);
     }
 
+    it('Codex P2 (real path): a registered take discarded as failed releases its registration; the next take from that tab gets link and tip', async () => {
+        db = await shippedChain();
+        const uid = await signup();
+        const a = await startTake(uid, { product: 'open_mic' });
+        await saveTake(uid, a, 'synthetic words for this take');
+        await coach(a);
+        const attempt = await pressPracticeAgain(uid, a);
+        const b = await startTake(uid, { product: 'open_mic' });                       // registered
+        const failed = await asUser(uid, () => one<Record<string, unknown>>(
+            `SELECT public.complete_session_v2(p_session_id => $1::uuid, p_status => 'failed', p_final_duration => 1) AS r`, [b]));
+        expect(failed).toMatchObject({ success: true });
+        await asUser(uid, () => one(`SELECT public.release_recording_lease($1::uuid) AS r`, [leases.get(b)]));   // as the client does
+        expect((await db!.query<{ r: string | null }>('SELECT registered_session_id AS r FROM public.progress_recommendation_attempts WHERE id = $1', [attempt])).rows[0].r).toBeNull();
+        intents.set(uid, attempt);                                                       // the tab keeps its intent
+        const d = await startTake(uid, { product: 'open_mic' });
+        await saveTake(uid, d, 'synthetic words for this take');
+        expect(await attemptState(attempt)).toMatchObject({ practised_tip: TIP, tip_session_id: d });
+        await advance(uid, attempt, 'not_comparable', d);
+        expect(await attemptState(attempt)).toMatchObject({ practice_session_id: d, practised_tip: TIP });
+    }, 180_000);
+
     it('wrong take: an unrelated take already recording when Practice again is pressed, saved first, cannot claim the tip', async () => {
         db = await shippedChain();
         const uid = await signup();

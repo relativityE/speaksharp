@@ -15,7 +15,7 @@ import { getSupabaseClient } from './supabaseClient';
 import { currentTakeLeaseId } from '@/services/recordingLease';
 import logger from './logger';
 import { transcriptSaveAllowed } from '@/services/practicePrivacy';
-import { clearPracticeAgainIntent, getPracticeAgainIntent } from '@/services/progress/practiceAgainIntent';
+import { getPracticeAgainIntent } from '@/services/progress/practiceAgainIntent';
 import { getOpenAttemptForUser, setOpenAttempt } from '@/services/progress/openAttempt';
 import type { PracticeSession } from '../types/session';
 import type { UserProfile } from '../types/user';
@@ -257,8 +257,9 @@ export const saveSession = async (
 
 /**
  * #1827 D2 rev 4: register the take this tab just created with this tab's Practice-again attempt. Non-blocking: a
- * failure never fails the save; the take is then simply not the repeat (no link, no tip). A refusal (another product, a
- * resolved attempt) keeps the intent for this tab's next Start while that attempt is still open; success clears it.
+ * failure never fails the save; the take is then simply not the repeat (no link, no tip). The intent stays for this
+ * tab while the attempt is open (it is dropped once the attempt resolves): the server refuses a second take while one
+ * is registered, and a take discarded without completing releases its registration, so the next take re-registers.
  */
 async function registerPracticeAgainTake(userId: string | undefined, sessionId: string | undefined): Promise<void> {
   if (!userId || !sessionId) return;
@@ -270,7 +271,6 @@ async function registerPracticeAgainTake(userId: string | undefined, sessionId: 
       // The owner-wide handoff learns which take is the repeat, so every tab binds and resolves only that take.
       const open = getOpenAttemptForUser(userId);
       if (open?.attemptId === intent.attemptId) setOpenAttempt({ ...open, registeredSessionId: sessionId });
-      clearPracticeAgainIntent();
     }
     else if (error) logger.warn({ code: error.code }, '[Supabase DB] Practice again take not registered');
   } catch {

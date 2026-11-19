@@ -31,9 +31,18 @@ vi.mock('@/services/reviewSurfaceTelemetry', () => ({ trackSavedReviewLinkedAtte
 const created = (id: string) => ({ data: { new_session: { id } }, error: null });
 const registrations = () => rpc.mock.calls.filter((c) => c[0] === 'register_practice_again_take_v1').map((c) => c[1]);
 
+/** The server's registration: the first take registers; while one is registered, any other take is refused. */
+let registered: string | null = null;
+let nextTake = 'take-b';
 beforeEach(() => {
     rpc.mockReset();
-    rpc.mockImplementation(async (name: string) => (name === 'register_practice_again_take_v1' ? { data: true, error: null } : created('take-b')));
+    registered = null;
+    nextTake = 'take-b';
+    rpc.mockImplementation(async (name: string, args: Record<string, string>) => {
+        if (name !== 'register_practice_again_take_v1') return created(nextTake);
+        if (registered === null) registered = args.p_session;
+        return { data: registered === args.p_session, error: null };
+    });
 });
 afterEach(() => { clearPracticeAgainIntent(); clearOpenAttempt(); });
 
@@ -53,9 +62,20 @@ describe('#1827 Practice again → Start registers only this tab\'s take', () =>
         await pressPracticeAgain();
         expect((await saveSession({ user_id: USER, duration: 0 } as never, 'private' as never)).status).toBe('saved');
         expect(registrations()).toEqual([{ p_attempt: 'attempt-1', p_session: 'take-b' }]);
-        // The intent is spent: a later take in this tab is not registered again.
+        // A later take in this tab asks again and is refused: the registered repeat stays take-b.
+        nextTake = 'take-d';
         await saveSession({ user_id: USER, duration: 0 } as never, 'private' as never);
-        expect(registrations()).toHaveLength(1);
+        expect(registrations()).toEqual([{ p_attempt: 'attempt-1', p_session: 'take-b' }, { p_attempt: 'attempt-1', p_session: 'take-d' }]);
+        expect(getOpenAttemptForUser(USER)?.registeredSessionId).toBe('take-b');
+    });
+
+    it('a discarded registered take (released by the server) is replaced by the next take from this tab', async () => {
+        await pressPracticeAgain();
+        await saveSession({ user_id: USER, duration: 0 } as never, 'private' as never);
+        registered = null;                            // take-b ended 'failed': the server released its registration
+        nextTake = 'take-e';
+        await saveSession({ user_id: USER, duration: 0 } as never, 'private' as never);
+        expect(getOpenAttemptForUser(USER)?.registeredSessionId).toBe('take-e');
     });
 
     it('another tab: the same owner-wide handoff, but no intent in that tab, so its take is never registered', async () => {

@@ -34,8 +34,13 @@
 --   The copy exists only while it is attached to the newest saved session that can still be its repeat:
 --     * It is taken only when Practice again is pressed on the owner's newest saved session, while that session is
 --       unexpired. Before any repeat is saved, it lives with that original and goes if the original expires.
---     * The first session completed after Practice again was pressed (newer than the original) is bound as its
---       repeat, once, by the server. The copy then lives with that repeat.
+--     * Revision 4: the take started in the tab where Practice again was pressed is registered with the attempt
+--       (`register_practice_again_take_v1`). Only that registered take, completed after the press and newer than the
+--       original, is bound as the repeat, once, by the server. The copy then lives with that repeat. A registered take
+--       that ends without completing ('failed': too short, no speech) or is deleted releases its registration, so the
+--       next take started from that tab can register; the copy stays with its original meanwhile.
+--     * If a newer session has already completed when the registered take saves, the copy is retired, not bound to
+--       the older take (newest-one rule).
 --     * It is deleted when ANY newer session is saved, when the repeat expires, when the repeat is deleted, when
 --       the attempt is abandoned, when the attempt is resolved to a session other than the bound repeat, and when
 --       the account is deleted (user_id cascade). Deleting the original deletes its recommendation and attempt.
@@ -47,7 +52,9 @@
 --   * `practised_tip` is filled only by the BEFORE INSERT trigger from the source session's contract-valid review
 --     (the client's `readSavedReview` rule). A supplied value is discarded. Afterwards it can only be cleared.
 --   * `tip_session_id` is set once, only by the completion trigger, only to a validated session, and never moved.
---   * Clients keep SELECT only on this table (existing RLS: own rows). No client-callable function is added.
+--   * Clients keep SELECT only on this table (existing RLS: own rows). One client-callable function is added:
+--     `register_practice_again_take_v1` (authenticated only, behind the #1863 payment wall), which only records
+--     which of the caller's own takes is the repeat; it never writes or returns tip text.
 --   * Concurrency: acceptance, completion and expiry each take the owner's advisory lock first, and the completion
 --     trigger then locks the owner's tip-bearing attempts, so a concurrent accept, save, expiry, advance or retry is
 --     decided on the latest committed rows, never on a stale snapshot.
@@ -220,7 +227,6 @@ BEGIN
         RAISE EXCEPTION 'this session is not the take registered for this Practice again' USING ERRCODE = '42501';
     END IF;
     IF NEW.lifecycle = 'abandoned'
-       OR (OLD.registered_session_id IS NOT NULL AND NEW.registered_session_id IS NULL)
        OR (NEW.lifecycle IN ('completed', 'not_comparable')
            AND (NEW.practice_session_id IS NULL OR NEW.practice_session_id IS DISTINCT FROM NEW.tip_session_id))
        OR (OLD.practice_session_id IS NOT NULL AND NEW.practice_session_id IS NULL)
@@ -243,7 +249,18 @@ RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
 BEGIN
-    IF TG_OP = 'UPDATE' AND OLD.status = 'completed' THEN RETURN NULL; END IF;
+    IF TG_OP = 'UPDATE' AND OLD.status IN ('completed', 'failed') THEN RETURN NULL; END IF;
+
+    -- A registered take that ends without completing (discarded: too short, no speech) releases its registration, so
+    -- the next take started from the Practice-again tab can register. The copy stays with its original meanwhile.
+    IF NEW.status = 'failed' THEN
+        PERFORM public._prec_att_lock_owner(NEW.user_id);
+        UPDATE public.progress_recommendation_attempts a
+           SET registered_session_id = NULL
+         WHERE a.user_id = NEW.user_id AND a.registered_session_id = NEW.id
+           AND a.tip_session_id IS NULL AND a.lifecycle = 'pending';
+        RETURN NULL;
+    END IF;
 
     -- Wait for any concurrent acceptance, save or expiry for this owner, then decide on the latest committed rows:
     -- including an attempt inserted by a concurrent Practice again, which no row lock could have covered.
@@ -270,6 +287,12 @@ BEGIN
                       JOIN public.sessions src ON src.id = r.source_session_id
                      WHERE r.id = a.recommendation_id AND src.id <> NEW.id
                        AND (src.created_at, src.id) < (NEW.created_at, NEW.id)))
+            -- the registered take saves after a newer session already completed: binding would attach the copy to an
+            -- older session than the newest save (newest-one rule), so it is retired instead
+            OR (a.tip_session_id IS NULL AND a.registered_session_id = NEW.id AND EXISTS (
+                    SELECT 1 FROM public.sessions n
+                     WHERE n.user_id = NEW.user_id AND n.status = 'completed' AND n.id <> NEW.id
+                       AND (n.created_at, n.id) > (NEW.created_at, NEW.id)))
             -- #1835: not yet bound, and the owner turned AI coaching off after Practice again was pressed. The copy is
             -- retired before it can be carried into the repeat; the original's own saved review is untouched.
             OR (a.tip_session_id IS NULL
@@ -293,7 +316,7 @@ DROP TRIGGER IF EXISTS trg_sessions_prec_tip_on_completed ON public.sessions;
 CREATE TRIGGER trg_sessions_prec_tip_on_completed
     AFTER INSERT OR UPDATE OF status ON public.sessions
     FOR EACH ROW
-    WHEN (NEW.status = 'completed')
+    WHEN (NEW.status IN ('completed', 'failed'))
     EXECUTE FUNCTION public._prec_att_on_session_completed();
 
 -- AFTER a session's transcript expires, with no condition on ai_suggestions:

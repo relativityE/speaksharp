@@ -29,14 +29,15 @@ beforeEach(() => {
 afterEach(() => { clearPracticeAgainIntent(); clearOpenAttempt(); vi.restoreAllMocks(); });
 
 describe('#1827 Practice again registers only this tab\'s next take', () => {
-    it('with this tab\'s intent, the created take is registered and the intent is cleared', async () => {
+    it('with this tab\'s intent, the created take is registered; the intent stays while the attempt is open', async () => {
         openAttempt();
         setPracticeAgainIntent({ attemptId: ATTEMPT, userId: USER });
         supabase.rpc.mockImplementation(async (name: string) => name === 'register_practice_again_take_v1' ? { data: true, error: null } : created('s-b'));
         const result = await saveSession({ user_id: USER, duration: 0 } as never, 'private' as never);
         expect(result.status).toBe('saved');
         expect(registerCalls()).toEqual([['register_practice_again_take_v1', { p_attempt: ATTEMPT, p_session: 's-b' }]]);
-        expect(getPracticeAgainIntent(USER)).toBeNull();
+        // Kept so a take that replaces a discarded registered take can re-register (the server refuses a second one).
+        expect(getPracticeAgainIntent(USER)).toEqual({ attemptId: ATTEMPT, userId: USER });
         // Every tab's resolution now binds only this take (Codex P2 on 1025cac7).
         expect(getOpenAttemptForUser(USER)?.registeredSessionId).toBe('s-b');
     });

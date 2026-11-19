@@ -1,6 +1,6 @@
 {
  "version": "20261119120000",
- "targetSha256": "e0cd6a39e602b85b02eb51bb47cd1eeb9a2b02088142fa1762682d507a1846b2",
+ "targetSha256": "dfb12cd3ed713498db44b61c0bdbc37efab2a1298a3ae3eae520a5afd14318bf",
  "derivation": "Offline PGlite replay of the shipped chain (billing settlement and the refund follow-up withheld), then the exact migration; re-derived by tests/db/repeatTipPostflight.integration.test.ts.",
  "functions": [
   {
@@ -17,7 +17,7 @@
   },
   {
    "signature": "public._prec_att_guard_tip()",
-   "md5": "74c56fbadca619a758a993115a047d34",
+   "md5": "f3e1a033299583770398c9ce464468d4",
    "definer": true,
    "config": [
     "search_path=public, pg_temp"
@@ -41,7 +41,7 @@
   },
   {
    "signature": "public._prec_att_on_session_completed()",
-   "md5": "edd676d17ae04b9f4a5af170eedc3628",
+   "md5": "199618e8ee52dc87e866e3c3a7650d17",
    "definer": true,
    "config": [
     "search_path=public, pg_temp"
@@ -131,7 +131,7 @@
    "enabled": "O",
    "conditional": true,
    "columns": 1,
-   "definition": "CREATE TRIGGER trg_sessions_prec_tip_on_completed AFTER INSERT OR UPDATE OF status ON public.sessions FOR EACH ROW WHEN ((new.status = 'completed'::text)) EXECUTE FUNCTION _prec_att_on_session_completed()"
+   "definition": "CREATE TRIGGER trg_sessions_prec_tip_on_completed AFTER INSERT OR UPDATE OF status ON public.sessions FOR EACH ROW WHEN ((new.status = ANY (ARRAY['completed'::text, 'failed'::text]))) EXECUTE FUNCTION _prec_att_on_session_completed()"
   },
   {
    "table": "public.sessions",
