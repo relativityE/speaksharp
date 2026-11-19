@@ -136,4 +136,15 @@ async function sandboxReport(context) {
   } finally { await p.close(); }
 }
 
-module.exports = { launchGuarded, browserFlags, inspectDescendants, checkSandboxedProcesses, sandboxReport, FORBIDDEN_FLAGS };
+// Observe the browser close promise, not just the end of a bounded wait. A late
+// success (or rejection) cannot change a timed-out observation into a clean one.
+async function observeBrowserClose(browser, timeoutMs = 10000) {
+  let timer;
+  const completion = Promise.resolve().then(() => browser.close()).then(
+    () => 'CLOSED', () => 'BROWSER_CLOSE_FAILED');
+  const deadline = new Promise(resolve => { timer = setTimeout(() => resolve('BROWSER_CLOSE_TIMEOUT'), timeoutMs); });
+  try { return await Promise.race([completion, deadline]); }
+  finally { clearTimeout(timer); }
+}
+
+module.exports = { observeBrowserClose, launchGuarded, browserFlags, inspectDescendants, checkSandboxedProcesses, sandboxReport, FORBIDDEN_FLAGS };

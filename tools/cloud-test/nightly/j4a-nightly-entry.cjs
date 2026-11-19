@@ -91,6 +91,17 @@ function approvedAdminOrigin(supabaseUrl, approvedHost = require(path.join(__dir
     return u.origin;
 }
 
+// Discovery chooses the currently served release. The immutable plan remains an
+// assertion for this attempt, never a fallback for an unavailable live marker.
+async function j4aProductionBinding(plan, deps = {}) {
+    const { discoverServedRelease } = await import('../../../scripts/production-release-policy.mjs');
+    const observed = await discoverServedRelease(deps.releaseFetch, deps.readReleaseGitHub).catch(() => null);
+    if (!observed?.allowed) return 'BLOCKED_SETUP: live production release could not be verified';
+    if (observed.releaseSha !== plan.servedSha || observed.releaseSha !== plan.sourceSha)
+        return 'BLOCKED_SETUP: approved J4.a plan does not match the live production release';
+    return null;
+}
+
 /**
  * CLI (Sam, seal review of dc7a5ccb): the campaign runner's OWN admission path (loadPinnedCampaign: sha-pinned plan bytes, the fixed
  * bundle, validated paths, no replay, exclusive lock), a plan that selects exactly the J4.a case, then the approved admin target, all
@@ -123,6 +134,8 @@ async function main(argv, env = process.env, deps = {}) {
         if (selected.length !== 1 || selected[0] !== 'AHT-05') return { exitCode: 78, reason: 'BLOCKED_SETUP: the J4.a entry runs exactly the AHT-05 case' };
         let origin;
         try { origin = approvedAdminOrigin(env.SUPABASE_URL, deps.approvedHost); } catch (e) { return { exitCode: 78, reason: e.message }; }
+        const releaseFault = await j4aProductionBinding(plan, deps);
+        if (releaseFault) return { exitCode: 78, reason: releaseFault };
         const createClient = deps.createClient ?? require('@supabase/supabase-js').createClient;
         const transport = j4aAdminTransport(deps.fetchImpl);
         const admin = createClient(origin, env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false, autoRefreshToken: false }, global: { fetch: transport.fetch } });

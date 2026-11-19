@@ -406,6 +406,8 @@ export type RuntimeState =
  */
 export interface StopRecordingOptions {
     belowMinimumDuration?: boolean;
+    /** A one-shot handoff to the mounted caller, never stored in the controller or session store. */
+    onLocalTranscriptReview?: (review: LocalTranscriptReview) => void;
     /** G5: called with the session id when THIS stop arms Try again for its unsettled discard. */
     onUnsettledDiscard?: (sessionId: string) => void;
     /**
@@ -414,6 +416,13 @@ export interface StopRecordingOptions {
      * page leave) may have resolved it already; the page reports a discard only when the take was in fact discarded.
      */
     onTakeOutcome?: (outcome: StopTakeOutcome) => void;
+}
+
+export interface LocalTranscriptReview {
+    recordingId: string;
+    sessionId: string;
+    ownerId: string;
+    text: string;
 }
 
 /**
@@ -1292,8 +1301,15 @@ export class SpeechRuntimeController {
         /** #1033 (1): present when the placeholder row was never created. Retry must CREATE the row first,
          *  using this recording's idempotency identity so a retry can never produce a duplicate session. */
         initialSave?: { userId: string; recordingId: string; mode: string; engineVersion?: string; modelName?: string; deviceType?: string };
-        // #1306: transcript-free. A finalized retry replays the exact content-free metrics + one next action.
+        // A live retry replays the exact completion payload. A rehydrated retry has no transcript.
         completeArgs: CompleteSessionOptions & { status: 'completed' };
+        // The original Stop page's receiver, never a new page attached on Retry. It owns its own
+        // lifetime fence. No transcript copy is kept here, and durable recovery never gets a receiver.
+        localReview?: {
+            recordingId: string;
+            ownerId: string;
+            receive: NonNullable<StopRecordingOptions['onLocalTranscriptReview']>;
+        };
         attributionEvidence: RuntimeEvidence | null;
         progressContext: ProgressCompletionContext;
         progressMetrics: ProgressMetricsState;
@@ -1743,6 +1759,16 @@ export class SpeechRuntimeController {
                          */
                         // AHT-01 Option 1: the review card names the take that saved this session, not the ambient one.
                         noteSavedTake(targetSessionId, fullSave.subject);
+                        const review = fullSave.localReview;
+                        const text = fullSave.completeArgs.finalTranscript;
+                        if (review && targetSessionId && text?.trim() && completion.transcriptOutcome === 'not_provided'
+                            && this.currentRecordingId === review.recordingId && this.capturedUserId === review.ownerId) {
+                            try {
+                                review.receive({ recordingId: review.recordingId, ownerId: review.ownerId, sessionId: targetSessionId, text });
+                            } catch {
+                                // A page-only review must not change the outcome of a successful save.
+                            }
+                        }
                         useSessionStore.getState().setCompletedSessionId(targetSessionId);
                         /**
                          * #1258 RWT round 2 C — AND THE PAGE ENTERS THAT REVIEW. Only a successful Stop enters the
@@ -1852,6 +1878,8 @@ export class SpeechRuntimeController {
 
     private snapshotProgressModeAtRecordingBoundary(): RecordingProgressMode {
         const brief = useSessionStore.getState().activeObjectiveBrief;
+        // #1882 diagnostic: which product the take is recorded as, decided here at Start.
+        pushNativeRuntimeTrace('controller_progress_mode_snapshot', { mode: brief ? 'focus_points' : 'open_mic', pointCount: brief?.points?.length ?? 0 });
         if (!brief) return { mode: 'open_mic' };
         return {
             mode: 'focus_points',
@@ -5672,6 +5700,7 @@ export class SpeechRuntimeController {
             this.stopAcceptedForRecordingId = this.currentRecordingId;
             // G5 (#1880): the take THIS accepted stop resolves; its outcome is recorded against it.
             const stopRecordingId = this.currentRecordingId;
+            const stopOwnerId = this.capturedUserId;
             const stopSnapshotStore = useSessionStore.getState();
             const frozenAtStop = this.freezeTranscriptLifecycleAtStop();
             pushTranscriptLifecycleTrace('lifecycle:stop', {
@@ -6130,18 +6159,23 @@ export class SpeechRuntimeController {
                             // The session this stop armed for Try again, if it did (#1880, Codex P2 on 0610880d).
                             let armedDiscardSessionId: string | undefined;
                             const discardOwner = stopOwner; // the take's owner from stop entry, never a successor's
+                            // Sam on a58a348: the slot is memory only, so the unsettled row is recorded for its owner.
+                            // A reload, hard reset or sign-out drops the slot; the same owner returning re-arms Try again
+                            // for this row (rehydrateUnresolvedRecording). Recorded even when the stop is superseded,
+                            // because the row stays unsettled either way and only its owner sees it.
+                            // Recovery successor to #1880 (page-leave): written BEFORE the mark is sent, because a page
+                            // closed or reloaded while the mark is in flight never runs the code after the await, and the
+                            // row would be left unsettled with no Try again. Cleared once the mark is confirmed. If the lost
+                            // mark did land, the replayed mark is an idempotent no-op on complete_session_v2.
+                            saveUnsettledDiscardRecord({ sessionId, userId: discardOwner, reason: discardReason });
                             try {
                                 const discardMark = await completeSession(sessionId, { status: 'failed', reason: discardReason });
                                 discardSettled = Boolean(discardMark?.success);
                             } catch (discardError) {
                                 logger.warn({ discardError, sessionId }, '[DEBUG-STOP] completeSession failed-status threw');
                             }
+                            if (discardSettled) clearUnsettledDiscardRecord(discardOwner, sessionId);
                             if (!discardSettled) {
-                                // Sam on a58a348: the slot is memory only, so first record the unsettled row for its owner.
-                                // A reload, hard reset or sign-out drops the slot; the same owner returning re-arms Try
-                                // again for this row (rehydrateUnresolvedRecording). Recorded even when the stop was
-                                // superseded, because the row stays unsettled either way and only its owner sees it.
-                                saveUnsettledDiscardRecord({ sessionId, userId: discardOwner, reason: discardReason });
                                 // Only the stop that still owns the runtime may arm Try again. A hard reset or account
                                 // switch during the awaited mark already retired this take; arming afterwards would lock
                                 // the next owner behind a row it cannot settle (reviewer on 523e682).
@@ -6389,13 +6423,16 @@ export class SpeechRuntimeController {
                                 // persisted (a strictly worse state than an attribution-only miss). Keep the
                                 // recording locked (recordingStartedUnresolved stays true from RECORDING) and
                                 // stash a FULL-SAVE retry so Retry Save re-runs the ACTUAL failed op
-                                // (completeSession + attribution), not just the attribution write. The transcript
-                                // is preserved in the recovery draft (saved just above). Session-safe: never
-                                // overwrite a different session's outstanding retry.
+                                // (completeSession + attribution), not just the attribution write. The recovery
+                                // draft remains content-free. Never overwrite a different session's retry.
                                 if (!this.pendingFullSaveRetry || this.pendingFullSaveRetry.sessionId === sessionId) {
                                     this.pendingFullSaveRetry = {
                                         sessionId,
                                         completeArgs,
+                                        localReview: options?.onLocalTranscriptReview && stopRecordingId && stopOwnerId
+                                            && userId === stopOwnerId
+                                            ? { recordingId: stopRecordingId, ownerId: stopOwnerId, receive: options.onLocalTranscriptReview }
+                                            : undefined,
                                         attributionEvidence: attestationEvidence,
                                         subject: takeSubject,
                                         progressContext,
@@ -6474,6 +6511,17 @@ export class SpeechRuntimeController {
                                 // reconciliation failure meant no id, a disabled query, and a saved session stuck on "Loading…".
                                 // AHT-01 Option 1: the review card names the take that saved this session, not the ambient one.
                                 noteSavedTake(sessionId, takeSubject);
+                                if (options?.onLocalTranscriptReview && stopRecordingId && stopOwnerId
+                                    && userId === stopOwnerId && this.currentRecordingId === stopRecordingId
+                                    && completion.transcriptOutcome === 'not_provided' && finalTranscript.trim()) {
+                                    try {
+                                        options.onLocalTranscriptReview({
+                                            recordingId: stopRecordingId, sessionId, ownerId: stopOwnerId, text: finalTranscript,
+                                        });
+                                    } catch {
+                                        // A page-only review must not change the outcome of a successful save.
+                                    }
+                                }
                                 useSessionStore.getState().setCompletedSessionId(sessionId ?? null);
                             });
 
@@ -7006,12 +7054,15 @@ export class SpeechRuntimeController {
         //
         // Unknown/legacy retry context fails closed — it cannot prove evidence is terminal.
         if (context.mode === 'unknown') {
+            pushNativeRuntimeTrace('controller_progress_unresolved', { mode: context.mode, reason: 'unknown_mode' });
             const unresolved: ProgressEvaluationOutcome = { kind: 'unresolved', reason: 'metrics_not_persisted' };
             return publishIfCurrent(() => { this.applyProgressGate(sessionId, unresolved); }) ? unresolved : unresolved;
         }
         // Both practice modes require actual durable delivery metrics. This guard sits before Open Mic's
         // immediate path and Focus Points registration so neither can create an immutable partial evaluation.
         if (!metricsPersisted) {
+            // #1882 diagnostic: a Focus take that returns here never publishes its completed brief.
+            pushNativeRuntimeTrace('controller_progress_unresolved', { mode: context.mode, reason: 'metrics_not_persisted' });
             const unresolved: ProgressEvaluationOutcome = { kind: 'unresolved', reason: 'metrics_not_persisted' };
             return publishIfCurrent(() => { this.applyProgressGate(sessionId, unresolved); }) ? unresolved : unresolved;
         }
@@ -7069,7 +7120,9 @@ export class SpeechRuntimeController {
          * paths. It applies the same owner comparison, so nothing is lost by removing the inline copy —
          * only the timing changes, which is the whole point.
          */
-        publishIfCurrent(() => { store.setCompletedObjectiveBrief(context.brief); });
+        const completedBriefPublished = publishIfCurrent(() => { store.setCompletedObjectiveBrief(context.brief); });
+        // #1882 diagnostic: the after rail renders only from this brief once the active one retires.
+        pushNativeRuntimeTrace('controller_completed_brief', { published: completedBriefPublished });
         const objectiveOutcome = await this.finalizeObjectiveAndGateProgress(
             { projectId: context.brief.projectId, briefId: context.brief.briefId },
             sessionId,

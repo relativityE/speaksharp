@@ -1,6 +1,8 @@
 import { test, expect, type Page } from '@playwright/test';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
+import { readdirSync } from 'node:fs';
+import { resolve } from 'node:path';
 import sandboxTarget from './sandbox-target.json' with { type: 'json' };
 import localStackTarget from './sandbox-target.local.json' with { type: 'json' };
 import { runnerPreflight } from './runnerPreflight.mjs';
@@ -9,11 +11,13 @@ import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, re
   assertFullRefund, isRefundCancellation, assertCheckoutGrantedNothing,
   checkoutSessionFromUrl, assertCheckoutIdentity, newlyAddedCard, assertNoSecondCharge,
   type RunnerJourney, type BillingEvent, hostedFieldUnavailable, hostedEmailDecision, type HostedField,
-  HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken } from './contract';
+  HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl, cleanupFailureCode, proveStripeFixtureDeleted,
+  observeCaptureLive, holdThenStop, APP_TOO_SHORT_STATUS, WATCH_INSTALL_SCRIPT, takeStatusScript, stopGateScript, pageScript, takeOutcome,
+  type StopGateResult, privacyBuildState, PRIVACY_PROMPT, optInThroughPrompt, type PrivacyTableRead } from './contract';
+import { fillHostedEmail } from './hostedEmail';
 import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { selectBenchmarkMode, preparePrivateModelIfPrompted, startBenchmarkRecording,
-  expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput, stopBenchmarkRecording,
-  waitForBenchmarkSaveCandidate } from '../../live/helpers/benchmark-utils';
+  expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput } from '../../live/helpers/benchmark-utils';
 
 // Untrusted provider fields are checked at their assertion boundary before being counted as evidence.
 type Obj = {
@@ -58,6 +62,8 @@ class SandboxJourney {
   uid = ''; customer = ''; subscription = ''; clock = ''; session = ''; savedSession = '';
   /** The Checkout session openCheckout positively bound to this run (assertCheckoutIdentity); null until then. */
   boundCheckout: string | null = null;
+  /** Whether the bound Customer's email IS this run's fixture email: compared only, never kept or reported; null when unread. */
+  boundCustomerEmailIsFixture: boolean | null = null;
   signupAttempted = false;
   uncertainStripeCreate = false;
   private currentStage = 'preflight';
@@ -192,11 +198,15 @@ class SandboxJourney {
     this.clock = clock.id;
     this.uncertainStripeCreate = false;
     this.uncertainStripeCreate = true;
-    const customer = await this.stripe('customers', 'POST', { test_clock: this.clock,
-      'metadata[speaksharp_test]': this.marker });
+    // EXISTING-CUSTOMER sandbox conversion (Sam on run 44157731067): the journey preassigns a clock-backed Customer, so Checkout gets
+    // `customer`, never `customer_email` as an ordinary first conversion does. For CONVERSION only, that Customer carries the fixture's
+    // own email, as an existing customer would, so Checkout has an email without asking; every other journey's request is unchanged. This is NOT the no-email hosted path (still a regression case in
+    // hostedEmailDecision) and NOT true first conversion, which needs its own proof of initial webhook binding, dedup and cleanup.
+    const customer = await this.stripe('customers', 'POST', fixtureCustomerFields(this.journey, { clock: this.clock, email: this.email, marker: this.marker }));
     requireFact(customer.livemode === false && typeof customer.id === 'string', 'customer_identity_missing');
     this.customer = customer.id;
     this.uncertainStripeCreate = false;
+    if (this.journey === 'conversion') this.checkpoint('existing_customer_fixture');
     const seeded = await this.admin.from('user_profiles').update({ stripe_customer_id: this.customer }).eq('id', this.uid);
     requireFact(!seeded.error, 'fixture_customer_binding_failed');
     await this.login();
@@ -204,20 +214,39 @@ class SandboxJourney {
 
   /** Fills Stripe's hosted card form (Checkout or the portal) and submits. Never reads or reports its content. */
   async fillCard(card: string, email: 'required' | 'after-binding' | 'none'): Promise<void> {
-    const fill = async (selector: string, value: string, field: HostedField, absentAllowed = false, kind: 'input' | 'select' = 'input') => {
+    // `selector`: one selector, or several in PRIORITY order (the observed control first). Every match of every selector is checked,
+    // so a hidden match before a visible one never hides it (firstVisibleControl).
+    const fill = async (selector: string | readonly string[], value: string, field: HostedField, absentAllowed = false, kind: 'input' | 'select' = 'input') => {
+      const selectors = typeof selector === 'string' ? [selector] : selector;
       for (let attempt = 0; attempt < 40; attempt++) {
-        for (const frame of this.page.frames()) {
-          const input = frame.locator(selector).first();
-          if (await input.isVisible()) {
-            if (kind === 'select') {
-              await input.selectOption(value, { timeout: HOSTED_ACTION_MS }).catch(() => { throw new Error(`BILLING_JOURNEY:${hostedFieldNotEditable(field)}`); });
-              // Proven chosen: the select's own value, never assumed from the call.
-              requireFact(await input.inputValue({ timeout: HOSTED_READ_MS }).catch(() => null) === value, hostedFieldNotEditable(field));
-            } else {
-              await input.fill(value, { timeout: HOSTED_ACTION_MS }).catch(() => { throw new Error(`BILLING_JOURNEY:${hostedFieldNotEditable(field)}`); });
-            }
-            return;
+        const matches: import('@playwright/test').Locator[][] = [];
+        const visible: boolean[][] = [];
+        for (const sel of selectors) {
+          const found: import('@playwright/test').Locator[] = []; const shown: boolean[] = [];
+          for (const frame of this.page.frames()) {
+            const all = frame.locator(sel);
+            const n = Math.min(await all.count().catch(() => 0), 10);
+            for (let i = 0; i < n; i++) { found.push(all.nth(i)); shown.push(await all.nth(i).isVisible().catch(() => false)); }
           }
+          matches.push(found); visible.push(shown);
+        }
+        const pick = firstVisibleControl(visible);
+        if (pick) {
+          const input = matches[pick.selector][pick.match];
+          if (kind === 'select') {
+            await input.selectOption(value, { timeout: HOSTED_ACTION_MS }).catch(() => { throw new Error(`BILLING_JOURNEY:${hostedFieldNotEditable(field)}`); });
+            // Proven chosen: the select's own value, never assumed from the call.
+            requireFact(await input.inputValue({ timeout: HOSTED_READ_MS }).catch(() => null) === value, hostedFieldNotEditable(field));
+          } else {
+            // Run 44203911253: the email step is the shared helper the browser fixture exercises (hostedEmail.ts): an editable control is
+            // filled and read back; a prefilled, non-editable one is accepted only as exactly the owner-bound fixture email.
+            if (field === 'email') {
+              await fillHostedEmail(input, { value, ownerBound: this.boundCustomerEmailIsFixture === true, checkpoint: (name) => this.checkpoint(name) });
+              return;
+            }
+            await input.fill(value, { timeout: HOSTED_ACTION_MS }).catch(() => { throw new Error(`BILLING_JOURNEY:${hostedFieldNotEditable(field)}`); });
+          }
+          return;
         }
         await sleep(500);
       }
@@ -237,8 +266,10 @@ class SandboxJourney {
     if (email !== 'none') {
       const decision = hostedEmailDecision({ emailFieldVisible: false,
         shownSession: email === 'after-binding' ? (() => { try { return checkoutSessionFromUrl(this.page.url()); } catch { return null; } })() : null,
-        boundSession: email === 'after-binding' ? this.boundCheckout : null });
-      await fill('input[type="email"]', this.email, 'email', decision === 'absent_after_binding');
+        boundSession: email === 'after-binding' ? this.boundCheckout : null,
+        boundCustomerEmailIsFixture: email === 'after-binding' ? this.boundCustomerEmailIsFixture : null });
+      // The observed control first (run 44157731067), then the generic email input.
+      await fill([HOSTED_SELECTORS.email, 'input[type="email"]'], this.email, 'email', decision === 'absent_after_binding');
     }
     await fill('input[autocomplete="cc-number"],input[name="cardNumber"]', card, 'card_number');
     await fill('input[autocomplete="cc-exp"],input[name="cardExpiry"]', '1234', 'card_expiry');
@@ -363,9 +394,11 @@ class SandboxJourney {
     // never returned; a person who unticked it completed the same checkout. The real input sits under a styled wrapper, so it is read by
     // its exact id and toggled through its label, then proven clear. The journey never creates a Link account or enters a phone number.
     await this.clearLinkOptIn();
-    // A checkpoint, not a gate: the click below still happens, and a refusal is then named field by field from the page.
+    // Sam on run 44157731067: a form that never reports it can confirm is NOT submitted; the stop names the invalid controls. An unread
+    // state (no data-can-confirm on the page) still proceeds, so a page change cannot block a payable form.
     const confirmable = await this.formConfirmable();
     this.checkpoint(confirmable === true ? 'hosted_form_confirmable' : confirmable === false ? 'hosted_form_not_confirmable' : 'hosted_form_confirm_unread');
+    if (confirmable === false) throw new Error(`BILLING_JOURNEY:${hostedFormNotConfirmable((await this.afterSubmitFacts()).invalidFields)}`);
     // Exactly the Subscribe button (data-testid observed on the hosted page), never "the first submit button".
     this.checkpoint('hosted_submit_search');
     const submit = await this.visibleInFrames(HOSTED_SELECTORS.submit);
@@ -401,8 +434,13 @@ class SandboxJourney {
   async openCheckout(raw: string | null): Promise<string> {
     const session = checkoutSessionFromUrl(raw);
     this.boundCheckout = null;
+    this.boundCustomerEmailIsFixture = null;
     assertCheckoutIdentity(await this.stripe(`checkout/sessions/${session}`),
       { session, customer: this.customer, uid: this.uid, app: this.targets.app });
+    // Compared only (the value is never kept or reported): whether the bound Customer's email IS this run's fixture email (Sam's hold
+    // on #1895: a non-empty email alone could be another address). It gates both the absent-field path and the locked-field path.
+    const bound = await this.stripe(`customers/${this.customer}`);
+    this.boundCustomerEmailIsFixture = typeof bound.email === 'string' ? bound.email === this.email : bound.email === null ? false : null;
     // Set only after the positive binding above: the one session hostedEmailDecision may accept without an email field.
     this.boundCheckout = session;
     await this.page.goto(raw as string);
@@ -509,19 +547,68 @@ class SandboxJourney {
     this.steps.add('paid_entitlement');
   }
 
+  /**
+   * #1835: opt THIS run's account in to transcript saving through the actual Practice prompt, as a user would ("Save transcripts",
+   * "No coaching": the recording step never needed coaching), then prove it from the owner's own server row. A build without
+   * #1835 has no table and no prompt: nothing to do. No choice, a declined or foreign row, or an unreadable read stops here.
+   */
+  async ensureTranscriptSaving(): Promise<void> {
+    // Independent schema identity: the tested commit's own migrations (the local stack applied exactly these).
+    const build = privacyBuildState((() => { try { return readdirSync(resolve(process.cwd(), 'backend/supabase/migrations')); } catch { return null; } })());
+    const prompt = this.page.getByTestId(PRIVACY_PROMPT.prompt);
+    await optInThroughPrompt({
+      build, ownerId: this.uid,
+      readChoice: async (): Promise<PrivacyTableRead> => {
+        const r = await this.admin.from('practice_privacy_choices').select('user_id,transcript_save,ai_coaching,consent_version').eq('user_id', this.uid).maybeSingle();
+        if (r.error) return r.error.code === '42P01' || r.error.code === 'PGRST205' ? { state: 'absent' } : { state: 'unreadable' };
+        return { state: 'read', row: r.data };
+      },
+      prompt: {
+        // A real bounded wait, not a one-shot visibility snapshot (which would stop on a prompt still hydrating).
+        waitVisible: () => prompt.waitFor({ state: 'visible', timeout: HOSTED_ACTION_MS }).then(() => true, () => false),
+        click: (control) => prompt.getByTestId(PRIVACY_PROMPT[control]).click({ timeout: HOSTED_ACTION_MS }),
+        waitHidden: () => prompt.waitFor({ state: 'hidden', timeout: HOSTED_ACTION_MS }).catch(() => undefined),
+      },
+      checkpoint: (name) => this.checkpoint(name),
+    });
+  }
+
   async record(): Promise<void> {
     await this.page.goto(`${this.targets.app}/practice`);
+    await this.ensureTranscriptSaving();
     await this.page.getByTestId('practice-card-freeform').click();
     await selectBenchmarkMode(this.page, 'private');
     const setup = await preparePrivateModelIfPrompted(this.page, 180_000);
     if (!setup.recordingAlreadyStarted) await startBenchmarkRecording(this.page, 'billing-journey');
     await expectBenchmarkRecordingStarted(this.page, 'billing-journey');
+    // The hold counts from OBSERVED capture live (not the Start click or the first words); an in-page watch keeps the take bound
+    // to this document and session, and the page clicks Stop in the same task as its final check (contract.ts). Run 44284831241:
+    // a take under the app's minimum is discarded as too short.
+    // Monotonic elapsed clock (a wall-clock step can never shorten or lengthen the hold).
+    const clock = { now: () => performance.now(), sleep: (ms: number) => this.page.waitForTimeout(ms) };
+    const live = await observeCaptureLive({ clock, timeoutMs: 60_000,
+      probe: () => this.page.evaluate<string | null>(pageScript(WATCH_INSTALL_SCRIPT)).catch(() => null) });
     await expectBenchmarkTranscriptOutput(this.page, 'billing-journey', 60_000, 3);
-    await stopBenchmarkRecording(this.page, 'billing-journey');
-    await waitForBenchmarkSaveCandidate(this.page, 'billing-journey', 120_000);
-    this.savedSession = await this.poll(() => this.page.evaluate(() =>
-      document.documentElement.getAttribute('data-session-persisted') === 'true'
-        ? document.documentElement.getAttribute('data-session-persisted-id') ?? '' : ''), Boolean, 'recording_not_persisted');
+    const held = await holdThenStop({ startedObservedAt: live.observedAt, takeKey: live.takeKey, clock,
+      probe: () => this.page.evaluate<string | null>(pageScript(takeStatusScript(live.takeKey))).catch(() => null),
+      stop: async () => {
+        this.checkpoint('recording_hold_met');
+        return this.page.evaluate<StopGateResult>(pageScript(stopGateScript(live.takeKey)))
+          .catch(() => ({ clicked: false, reason: 'unread', session: null }));
+      } });
+    await expect(this.page.getByTestId('recorder-bar')).toHaveCount(0, { timeout: 120_000 })
+      .catch(() => { throw new Error('BILLING_JOURNEY:recording_not_stopped'); });
+    // One read of every way the take can end: too short ends it at once even with no candidate; another session is the wrong take.
+    const outcome = await this.poll(async () => takeOutcome(await this.page.evaluate((tooShort) => {
+      const debug = (window as unknown as { __SPEECH_RUNTIME_DEBUG__?: () => { saveCandidate?: { sessionId?: unknown } | null } }).__SPEECH_RUNTIME_DEBUG__?.();
+      const candidateSession = typeof debug?.saveCandidate?.sessionId === 'string' ? debug.saveCandidate.sessionId : null;
+      const persisted = document.documentElement.getAttribute('data-session-persisted') === 'true'
+        ? document.documentElement.getAttribute('data-session-persisted-id') : null;
+      return { tooShort: document.body.innerText.includes(tooShort), candidateSession, persistedId: persisted || null };
+    }, APP_TOO_SHORT_STATUS), held.session), (o) => o !== 'pending', 'recording_not_persisted');
+    requireFact(outcome === 'saved', outcome);
+    requireFact(typeof held.session === 'string', 'take_session_unknown');
+    this.savedSession = held.session as string;
     const row = await this.admin.from('sessions').select('id,user_id,status,transcript,engine')
       .eq('id', this.savedSession).eq('user_id', this.uid).single();
     requireFact(!row.error && row.data?.status === 'completed' && row.data.engine === 'private'
@@ -735,22 +822,22 @@ class SandboxJourney {
     let stripeClean = !this.clock && !this.customer;
     let stripeFailed = false;
     let accountFailed = false;
+    // Run 44302168905: the first failure is named by a fixed code (cleanupFailureCode), never its message.
+    let failure: string | null = null;
+    const note = (code: string) => { failure ??= code; this.checkpoint(`cleanup_failed_${code}`.slice(0, 64)); };
     try {
-      if (this.clock) {
-        const deleted = await this.stripe(`test_helpers/test_clocks/${this.clock}`, 'DELETE');
-        requireFact(deleted.deleted === true && deleted.id === this.clock, 'clock_cleanup_not_proven');
-        stripeClean = true;
-        if (this.customer) {
-          const customer = await this.stripe(`customers/${this.customer}`);
-          requireFact(customer.deleted === true, 'customer_cleanup_not_proven');
-        }
-      }
-    } catch { stripeFailed = true; }
+      stripeClean = await proveStripeFixtureDeleted((path, method) => this.stripe(path, method), { clock: this.clock || null, customer: this.customer || null });
+    } catch (error) { stripeFailed = true; note(cleanupFailureCode('stripe', error)); }
+    // PO + Sam, 18 Nov (runs 44316016932, 44358400794): on the disposable local stack the run's account exists only in that
+    // run's database, which the workflow destroys and proves destroyed (the same proof that covers the billing rows). The Stripe
+    // listener can forward writes into the account during cleanup that the test can neither stop nor observe, so no Auth delete
+    // runs here. The receipt says so (accountRemoval) and the finalizer requires the destruction proof for this exact run.
+    // Any non-local target keeps the in-test delete unchanged. This proves no test-account residue, not customer deletion.
     // Shared cleanup checks auth/profile/session residue and exact fixture ownership.
     try {
-      if (this.signupAttempted) await cleanupRunOwnedAccount({ admin: this.admin as never,
+      if (this.signupAttempted && !useLocalStack) await cleanupRunOwnedAccount({ admin: this.admin as never,
         capturedUid: this.uid, createdEmail: this.email, runOwnedPrefix: 'rwt-journey-billing-' });
-    } catch { accountFailed = true; }
+    } catch (error) { accountFailed = true; note(cleanupFailureCode('account', error)); }
     // Billing lifecycle records do not cascade with auth deletion. Missing permissions/counts are
     // NOT zero. A reviewed sandbox cleanup path must settle and remove these fixtures without
     // bypassing the account-deletion/save-obligation guards before cleanup can ever be qualified.
@@ -764,7 +851,10 @@ class SandboxJourney {
         if (readback.error || readback.count !== 0) accountFailed = true;
       }
     }
-    requireFact(!stripeFailed && !accountFailed && stripeClean && !this.uncertainStripeCreate, 'cleanup_unproven');
+    if (!failure && !stripeClean) note('stripe_cleanup_not_attempted');
+    if (!failure && this.uncertainStripeCreate) note('stripe_cleanup_uncertain_create');
+    if (!failure && (stripeFailed || accountFailed)) note('cleanup_unproven');
+    requireFact(!stripeFailed && !accountFailed && stripeClean && !this.uncertainStripeCreate, failure ?? 'cleanup_unproven');
     this.steps.add('cleanup');
   }
 }
@@ -781,7 +871,7 @@ function journeyTest(journey: RunnerJourney): void {
     try { run = new SandboxJourney(journey, page); await run.run(); }
     catch (error) { failed = true; reason = safeFailureReason(error); }
     finally {
-      if (run) { try { await run.cleanup(); } catch { cleanupFailed = true; } }
+      if (run) { try { await run.cleanup(); } catch (error) { cleanupFailed = true; reason ??= safeFailureReason(error); } }
       const result = receipt(journey, run?.steps ?? new Set());
       // On the local stack the receipt never says PASSED/VERIFIED by itself; the workflow finalises it only
       // after the checked teardown and destruction proof (localStackReceipt.mjs).
@@ -794,6 +884,9 @@ function journeyTest(journey: RunnerJourney): void {
         cleanup: status.cleanup,
         // Never reported as checked on the local stack; only the workflow's destruction proof covers them.
         billingRowResidue: useLocalStack ? 'NOT_READ_REQUIRES_STACK_DESTRUCTION_PROOF' : 'COUNTED_ZERO_OR_FAILED',
+        // The run's account: removed by the verified stack destruction on the local stack (no Auth delete), else by the in-test delete.
+        // Local stack only, so the hosted/shared raw receipt (billing-user-journey/v1) keeps its exact shape.
+        ...(useLocalStack ? { accountRemoval: 'AUTH_DELETE_NOT_RUN_REQUIRES_STACK_DESTRUCTION' } : {}),
         testedRelease: env.BILLING_SANDBOX_RELEASE_SHA?.match(/^[a-f0-9]{40}$/)?.[0] ?? null,
         // Binds this receipt to this run's disposable stack; the finalizer refuses any other run's receipt.
         stackRun: useLocalStack ? env.LOCAL_STACK_PROJECT?.match(/^billing-local-stack-[0-9]{1,20}-[0-9]{1,6}$/)?.[0] ?? null : null,

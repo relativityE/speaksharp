@@ -50,6 +50,7 @@ describe('current-chain save replay integrity and causal controls', () => {
         await db.query('INSERT INTO auth.users (id,email) VALUES ($1,$2)', [uid, `save-${uid}@example.test`]);
         await db.query("SELECT set_config('request.jwt.claim.sub', $1, false)", [uid]);
         return authenticated(async () => {
+            await db.query('SELECT public.set_practice_privacy_choices_v1(true, false, NULL)');
             const lease = randomUUID();
             const acquired = (await db.query<{ r: { acquired: boolean } }>(
                 "SELECT public.acquire_recording_lease($1::uuid, 'save-efficacy', false) AS r", [lease])).rows[0].r;

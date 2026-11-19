@@ -20,6 +20,7 @@ import { getEffectiveSubscriptionStatus, isPro } from '@/constants/subscriptionT
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 import { speechRuntimeController,
     StartRefusedFinalizationError,
+    type StopRecordingOptions,
     type StopTakeOutcome,
 } from '@/services/SpeechRuntimeController';
 import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
@@ -209,7 +210,15 @@ export function shouldReloadSttOnForegroundReturn(params: {
     return true;
 }
 
-export const useSessionLifecycle = () => {
+interface SessionLifecycleReview {
+    beginLocalTranscriptReview?: () => StopRecordingOptions['onLocalTranscriptReview'];
+    clearLocalTranscriptReview?: () => void;
+}
+
+export const useSessionLifecycle = ({
+    beginLocalTranscriptReview,
+    clearLocalTranscriptReview,
+}: SessionLifecycleReview = {}) => {
     const { session, user } = useAuthProvider();
     const { profile, isVerified } = useProfile();
     const queryClient = useQueryClient();
@@ -491,7 +500,10 @@ export const useSessionLifecycle = () => {
             try {
                 // SpeechRuntimeController.stopRecording() handles enriched finalization,
                 // metrics, streak updates, and optimistic usage sync atomically.
-                const stopResult = await speechRuntimeController.stopRecording();
+                const onLocalTranscriptReview = beginLocalTranscriptReview?.();
+                const stopResult = onLocalTranscriptReview
+                    ? await speechRuntimeController.stopRecording({ onLocalTranscriptReview })
+                    : await speechRuntimeController.stopRecording();
 
                 if (!stopResult) {
                     // G5: a no-speech discard whose `failed` mark was not confirmed is not a discard yet.
@@ -936,6 +948,7 @@ export const useSessionLifecycle = () => {
                     return;
                 }
                 engineStarting = true;
+                clearLocalTranscriptReview?.();
 
                 // SpeechRuntimeController.startRecording() handles FSM, Service Init, and DB Session
                 const requestedMode = useSessionStore.getState().sttMode ?? defaultMode;
@@ -1165,6 +1178,8 @@ export const useSessionLifecycle = () => {
         // history — reintroducing the cross-account bleed this scoping exists to prevent, by a closure
         // instead of a key.
         user?.id,
+        beginLocalTranscriptReview,
+        clearLocalTranscriptReview,
         isListening,
         elapsedTime,
         setCaptureLimitReached,

@@ -17,11 +17,26 @@ function supervisedCommand(cmd,argv,options,deps={}){
   const kill=deps.killGroup||((pid,sig)=>process.kill(-pid,sig));
   const env=deps.env||safeEnv();const grace=Math.max(1,Math.min(5000,(options.cleanupReserveMs||10000)/2));
   return new Promise(resolve=>{
-    let child,closed=false,settled=false,forced=null,stdout='',stderr='',killTimer,finalTimer,poll;
+    let child,close=null,settled=false,forced=null,stdout='',stderr='',killTimer,finalTimer,poll;
     const parent=owner.ppid;
     const alive=()=>{if(!child?.pid)return false;try{kill(child.pid,0);return true;}catch{return false;}};
     const cleanup=()=>{clearTimeout(deadline);clearTimeout(killTimer);clearTimeout(finalTimer);clearInterval(poll);for(const[s,fn]of signals)owner.removeListener(s,fn);};
-    const finish=(status,extra={})=>{if(settled)return;settled=true;cleanup();resolve({status:forced?.code??status,stdout,stderr,reason:forced?.reason||null,...extra});};
+    const finish=(status,extra={})=>{
+      if(settled)return;settled=true;cleanup();
+      const result={status:forced?.code??status,stdout,stderr,reason:forced?.reason||null,...extra};
+      if(options.observeTermination===true){
+        // ChildProcess close includes stdio closure, not an authoritative descendant census or writer drain.
+        // This observation never confers cleanup/teardown authority, even on a natural zero exit.
+        const nativeObservation=!deps.spawn&&!deps.owner&&!deps.killGroup;
+        const leader=!nativeObservation||!close?'UNPROVEN':forced?'FORCED':close.signal?'SIGNALLED':close.code===0?'EXITED_ZERO':Number.isInteger(close.code)?'EXITED_NONZERO':'UNPROVEN';
+        result.terminationObservation=Object.freeze({
+          leader,closeObserved:nativeObservation&&close!==null,exitCode:nativeObservation?close?.code??null:null,
+          signal:nativeObservation?close?.signal??null:null,supervisorReason:forced?.reason??null,
+          ownedDescendants:'NOT_RUN',browserShutdown:'NOT_RUN',transportDrain:'NOT_RUN',
+        });
+      }
+      resolve(result);
+    };
     const stop=(reason,code)=>{
       if(forced||settled)return;forced={reason,code};
       try{if(child?.pid)kill(child.pid,'SIGTERM');}catch{}
@@ -31,7 +46,7 @@ function supervisedCommand(cmd,argv,options,deps={}){
     const signals=[['SIGTERM',15],['SIGINT',2],['SIGHUP',1]].map(([s,n])=>[s,()=>stop('signal:'+s,128+n)]);
     for(const[s,fn]of signals)owner.on(s,fn);
     const deadline=setTimeout(()=>stop('command-deadline',124),options.timeout);
-    poll=setInterval(()=>{if(owner.ppid!==parent)stop('parent-lost',5);if(closed&&forced&&!alive())finish(forced.code,{cleanupIncomplete:false});},Math.min(100,grace));
+    poll=setInterval(()=>{if(owner.ppid!==parent)stop('parent-lost',5);if(close&&forced&&!alive())finish(forced.code,{cleanupIncomplete:false});},Math.min(100,grace));
     // #1884 J4.a: an optional IPC channel to the supervised child, handed to options.ipc(child) right after spawn (nothing else).
     try{child=spawn(cmd,argv,{cwd:options.cwd,env,detached:true,stdio:['ignore','pipe','pipe',...(typeof options.ipc==='function'?['ipc']:[])]});}
     catch{finish(127,{spawnError:true});return;}
@@ -39,7 +54,7 @@ function supervisedCommand(cmd,argv,options,deps={}){
     const capture=(kind,bytes)=>{const value=String(bytes);if(kind==='stdout')stdout+=value;else stderr+=value;if(stdout.length+stderr.length>16*1024*1024){stdout=stdout.slice(0,1024);stderr='';stop('command-output-limit',78);}};
     child.stdout?.on('data',b=>capture('stdout',b));child.stderr?.on('data',b=>capture('stderr',b));
     child.once('error',()=>{if(!forced)forced={reason:'spawn-error',code:127};});
-    child.once('close',(code,signal)=>{closed=true;if(alive()){stop('owned-descendants-remain',78);}else finish(code,{signal:signal||null,cleanupIncomplete:false});});
+    child.once('close',(code,signal)=>{close={code,signal:signal||null};if(alive()){stop('owned-descendants-remain',78);}else finish(code,{signal:signal||null,cleanupIncomplete:false});});
   });
 }
 function adapter(out){

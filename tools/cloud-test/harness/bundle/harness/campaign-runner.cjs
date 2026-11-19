@@ -110,6 +110,7 @@ function createAdapter(plan,bundle,{executeR0=false,commandRunner=supervisedComm
      const ce=summary?.cleanupEvidence;
      const pagesClosed=result.assertions?.some(x=>x.id==='owned-pages-closed'&&x.result==='PASS')===true;
      const cleanClose=r.status===0&&r.reason===null&&r.signal===null&&r.cleanupIncomplete===false
+        &&summary?.killedLeftovers===undefined
         &&summary?.reason==='completed'&&summary.exitCode===0&&Array.isArray(summary.ownedProcessesRemaining)&&summary.ownedProcessesRemaining.length===0
         &&ce?.schema==='speaksharp.cloud-test.case-cleanup-evidence.v1'&&ce.ownedProcessesRemaining===0&&ce.guardClosed===true
         &&['launchCleanupFailure','mediaCleanupFailure','stopError','browserCloseError'].every(k=>ce[k]===false);

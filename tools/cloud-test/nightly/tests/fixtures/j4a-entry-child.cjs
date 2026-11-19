@@ -19,7 +19,7 @@ const db = (fn) => { const d = JSON.parse(fs.readFileSync(process.env.J4A_DB, 'u
 const runDir = a['run-dir'];
 const finishCase = (rows, reason, code) => {
     fs.writeFileSync(path.join(runDir, 'case-result.json'), JSON.stringify({ assertions: rows }), { mode: 0o600 });
-    fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify({ reason, exitCode: code, ownedProcessesRemaining: [], endedAt: new Date().toISOString(),
+    fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify({ reason, exitCode: code, ownedProcessesRemaining: [], ...(process.env.J4A_FAKE_KILLED === '1' ? { killedLeftovers: [{ pid: 1, name: 'fixture' }] } : {}), endedAt: new Date().toISOString(),
         cleanupEvidence: { schema: 'speaksharp.cloud-test.case-cleanup-evidence.v1', ownedProcessesRemaining: 0, launchCleanupFailure: false,
             mediaCleanupFailure: false, stopError: false, browserCloseError: false, guardClosed: true } }), { mode: 0o600 });
     try { process.disconnect(); } catch { /* closed */ }

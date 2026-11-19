@@ -22,7 +22,7 @@ const STORES = j4aRequiredStores();
 const OWNER_TABLES = STORES.filter((s) => s.key === 'owner' && s.table).map((s) => s.table);
 
 /** An in-memory admin client; every call is counted, and (when given a transport) every call is one send through it. */
-function fakeAdmin({ users, rows = {}, transport = null, obligationsOpen = false } = {}) {
+function fakeAdmin({ users, rows = {}, transport = null, obligationsOpen = false, casReply = null } = {}) {
     const st = { users: users ?? [{ id: OWNER, email: EMAIL }, { id: 'other-uid', email: 'someone@example.com' }], tables: {}, calls: [] };
     for (const t of [...OWNER_TABLES, 'trial_entitlements', 'account_save_obligations']) st.tables[t] = [];
     st.tables.trial_entitlements.push({ user_id: OWNER, email: EMAIL });
@@ -51,7 +51,7 @@ function fakeAdmin({ users, rows = {}, transport = null, obligationsOpen = false
                 if (table === 'account_save_obligations') return { data: null, count: null, error: { code: '42501', message: 'permission denied for table account_save_obligations' } };
                 const r = filtered(table, col, v); return opts?.head ? { count: r.length, error: null } : { data: r.map((x) => ({ ...x })), error: null }; } }),
             delete: () => ({ eq: async (col, v) => { await send(`delete:${table}`); st.tables[table] = st.tables[table].filter((r) => r[col] !== v); return { error: null }; } }),
-            update: (patch) => { const eqs = []; const chain = { eq: (c, v) => { eqs.push([c, v]); return chain; }, select: async () => { await send(`update:${table}`); const hit = st.tables[table].filter((r) => eqs.every(([c, v]) => r[c] === v)); for (const r of hit) Object.assign(r, patch); return { data: hit.map((r) => ({ id: r.id })), error: null }; } }; return chain; },
+            update: (patch) => { const eqs = []; const chain = { eq: (c, v) => { eqs.push([c, v]); return chain; }, select: async () => { await send(`update:${table}`); if (casReply) return casReply(); const hit = st.tables[table].filter((r) => eqs.every(([c, v]) => r[c] === v)); for (const r of hit) Object.assign(r, patch); return { data: hit.map((r) => ({ id: r.id })), error: null }; } }; return chain; },
         }),
     };
     /**
@@ -218,6 +218,18 @@ test('settlement: an open take with no stopped-writer proof stops BEFORE any del
     const inflight = await j4aParentTeardown(teardownArgs(c, { stopped: { writersClosedAt: 1, unsettledSaveIds: ['TAKE-1'] } }));
     assert.match(inflight.hold, /no verified stopped-writer evidence/);
     assert.deepEqual(c.st.calls, []);
+});
+
+test('settlement CAS requires one exact returned id before journal or delete calls', async () => {
+    const take = { id: 'take-1', user_id: OWNER, status: 'active', lease_id: 'lease-1', recording_fenced_at: null };
+    for (const data of [[], [{ id: 'take-x' }], [{ id: 'take-1' }, { id: 'take-1' }], null, [{}]]) {
+        const a = fakeAdmin({ rows: { sessions: [take] }, casReply: () => ({ data, error: null }) });
+        const r = await j4aParentTeardown(teardownArgs(a));
+        assert.match(r.hold, /open take could not be settled/);
+        assert.equal(a.st.calls.at(-1), 'update:sessions');
+        assert.equal(r.nightlyCleanup.steps.at(-1).outcome, 'failed');
+        assert.equal(a.st.users.find(x => x.id === OWNER)?.email, EMAIL);
+    }
 });
 
 test('settlement: an unsettleable take or a lease with no take stops before any delete', async () => {

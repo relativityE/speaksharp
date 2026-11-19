@@ -154,17 +154,19 @@ async function j4aParentTeardown({ nightly, admin, transport, createRecord, runI
     if (!Number.isFinite(time) || !Number.isSafeInteger(deadlineMs) || deadlineMs <= 0 || time < needed * deadlineMs)
         return hold('the time left cannot cover every remaining request at its deadline, so nothing is deleted');
 
-    const step = async (action, fn, onError) => {
+    const step = async (action, fn, onError, verifies = null) => {
         try {
             const r = await call(fn);
             if (r?.error) { steps.push({ kind: 'account', ref, action, outcome: 'failed' }); return onError?.(r.error) ?? 'failed'; }
+            if (verifies && !verifies(r)) { steps.push({ kind: 'account', ref, action, outcome: 'failed' }); return 'failed'; }
             steps.push({ kind: 'account', ref, action, outcome: 'done' });
             return 'done';
         } catch { steps.push({ kind: 'account', ref, action, outcome: 'failed' }); return 'failed'; }
     };
     for (const row of toClose) {
         // Exactly this row of this account, only while still the `active` take that was read; only rows the database changed count.
-        const r = await step('settle-close-take', () => admin.from('sessions').update({ status: 'failed' }).eq('id', row.id).eq('user_id', owner).eq('status', 'active').select('id'));
+        const r = await step('settle-close-take', () => admin.from('sessions').update({ status: 'failed' }).eq('id', row.id).eq('user_id', owner).eq('status', 'active').select('id'), null,
+            (reply) => Array.isArray(reply?.data) && reply.data.length === 1 && reply.data[0]?.id === row.id);
         if (r !== 'done') return hold('partial cleanup: an open take could not be settled');
     }
     if (await step('settle-save-journal', () => journal.settle(owner)) !== 'done') return hold('partial cleanup: the save journal could not be settled, so nothing is deleted');

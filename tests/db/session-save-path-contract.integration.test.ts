@@ -37,6 +37,7 @@ vi.mock('@/lib/supabaseClient', () => ({
 import { completeSession, getSessionById, saveSession, updateSession, type CompleteSessionOptions } from '@/lib/storage';
 import { __resetTakeLeaseForTests, acquireTakeLease, currentTakeLeaseId, releaseTakeLease } from '@/services/recordingLease';
 import logger from '@/lib/logger';
+import { grantPracticePrivacy, resetPracticePrivacyForTests } from '../../frontend/tests/test-utils/practicePrivacy';
 import type { UserProfile } from '@/types/user';
 
 // Keep the single-consumer fixture in the test that exercises it.
@@ -418,9 +419,11 @@ async function installV2Mutant(db: PGlite, original: string, from: string | null
 
 // ── Synthetic users and clients ─────────────────────────────────────────────────────────────────────────────────
 /** A new account through the shipped signup trigger: a live 30-day trial, the same tier a new customer has. */
-async function newUser(db: PGlite): Promise<string> {
+async function newUser(db: PGlite, optIn = true): Promise<string> {
   const id = randomUUID();
   await db.query('INSERT INTO auth.users (id, email) VALUES ($1, $2)', [id, `save-path-${id}@example.test`]);
+  if (optIn) await asRequestRole(db, { sub: id, role: 'authenticated' }, tx =>
+    tx.query('SELECT public.set_practice_privacy_choices_v1(true, false, NULL)'));
   return id;
 }
 
@@ -539,6 +542,9 @@ const transportFor = (database: PGlite, intercept?: Parameters<typeof postgrestP
 beforeAll(async () => {
   db = await shippedChain();
   transport = transportFor(db);
+  // #1835: these cases are about saving a take whose owner has opted in to saving, so they record that yes. The
+  // metrics-only case below takes it away.
+  grantPracticePrivacy();
 }, 180_000);
 afterEach(async () => {
   await releaseTakeLease();
@@ -633,6 +639,24 @@ describe('ordinary successful save', () => {
     expect((await completeSession(id, asked)).success).toBe(true);
     expect((await rowOf(db, id))?.filler_counts).toEqual({});
     expect(persistedMismatches(await rowOf(db, id), asked)).toEqual([]);
+  });
+});
+
+describe('#1835: no recorded yes to saving', () => {
+  it('the take completes metrics-only: every metric is kept and no transcript text is written', async () => {
+    resetPracticePrivacyForTests();
+    try {
+      bindClient(transport, await newUser(db, false));
+      const id = await startTake();
+      const asked = completion();
+      expect((await completeSession(id, asked)).success).toBe(true);
+      const row = await rowOf(db, id);
+      expect(row?.status).toBe('completed');
+      expect(persistedMismatches(row, asked)).toEqual(['transcript', 'transcript_state']);
+      expect(row?.transcript ?? null).toBeNull();
+    } finally {
+      grantPracticePrivacy();
+    }
   });
 });
 
@@ -739,6 +763,47 @@ describe('failures reach the caller and leave no partial completion', () => {
     expect(persistedMismatches(await rowOf(db, id), asked)).toEqual([]); // it DID land
     expect(await completeSession(id, asked)).toMatchObject({ success: true, idempotent: true, transcriptOutcome: 'retained' });
     expect(persistedMismatches(await rowOf(db, id), asked)).toEqual([]);
+  });
+
+  it('#1835: a committed save with a lost reply is reconciled after consent is revoked, without sending text again', async () => {
+    const user = await newUser(db);
+    let lost = false;
+    const rpcBodies: string[] = [];
+    const lossy: PostgrestPglite = {
+      ...transport,
+      fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = new Request(input, init);
+        const completionRpc = request.url.endsWith('/rpc/complete_session_v2');
+        if (completionRpc) rpcBodies.push(await request.clone().text());
+        const response = await transport.fetch(input, init);
+        if (completionRpc && !lost) {
+          lost = true;
+          throw new TypeError('fetch failed');
+        }
+        return response;
+      }) as typeof fetch,
+    };
+    bindClient(lossy, user);
+    const id = await startTake();
+    const asked = completion();
+    expect(await completeSession(id, asked)).toEqual({ success: false });
+    const committed = await rowOf(db, id);
+    expect(persistedMismatches(committed, asked)).toEqual([]);
+    await asRequestRole(db, { sub: user, role: 'authenticated' }, tx =>
+      tx.query('SELECT public.set_practice_privacy_choices_v1(false, false, 1)'));
+    resetPracticePrivacyForTests();
+    const start = rpcBodies.length;
+    try {
+      const retried = await completeSession(id, asked);
+      expect(await rowOf(db, id)).toEqual(committed);
+      const replay = rpcBodies.slice(start);
+      expect(replay).toHaveLength(1);
+      expect(JSON.parse(replay[0])).toMatchObject({ p_session_id: id, p_final_transcript: null });
+      expect(replay[0]).not.toContain(TRANSCRIPT);
+      expect(retried).toMatchObject({ success: true, idempotent: true });
+    } finally {
+      grantPracticePrivacy();
+    }
   });
 
   it('saveSession (leased take): a database error is rpc_error and creates no row', async () => {

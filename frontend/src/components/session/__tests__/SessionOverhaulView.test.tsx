@@ -497,6 +497,49 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
         },
     );
 
+    it.each(['not_captured', 'unavailable'] as const)(
+        'shows the completed page its finalized Focus verdicts without a saved transcript (%s)',
+        (kind) => {
+            render(
+                <SessionOverhaulView
+                    {...base} objectivePoints={POINTS} showAnalyticsPrompt transcriptContent=""
+                    reviewTranscript={{ kind }}
+                    localReviewText="I will state the guarantee. This is only local."
+                    objectiveCoverage={[
+                        { id: 'point-1', label: POINTS[0], status: 'covered' },
+                        { id: 'point-2', label: POINTS[1], status: 'missing' },
+                    ]}
+                />,
+            );
+            expect(screen.getByTestId('coverage-pace-count')).toHaveTextContent('1/2');
+            expect(screen.getByTestId('focus-point-0')).toHaveAttribute('data-status', 'covered');
+            expect(screen.getByTestId('focus-point-1')).toHaveAttribute('data-status', 'missing');
+            expect(screen.getByTestId('local-review-transcript')).toHaveTextContent(/isn’t saved/);
+            expect(screen.queryByTestId('coverage-footer')).not.toBeInTheDocument();
+        },
+    );
+
+    it.each(['unsettled', 'failed', 'misaligned', 'expired'] as const)(
+        'withholds the local Focus verdict when the authority is %s',
+        (state) => {
+            render(
+                <SessionOverhaulView
+                    {...base} objectivePoints={POINTS} showAnalyticsPrompt transcriptContent=""
+                    reviewTranscript={{ kind: state === 'expired' ? 'expired' : 'not_captured' }}
+                    localReviewText="I will name the price. This is only local."
+                    objectiveCoverageFailed={state === 'failed'}
+                    objectiveCoverage={state === 'unsettled' || state === 'failed' ? null : [
+                        { id: 'point-1', label: state === 'misaligned' ? 'Another brief' : POINTS[0], status: 'covered' },
+                        { id: 'point-2', label: POINTS[1], status: 'missing' },
+                    ]}
+                />,
+            );
+            expect(screen.queryByTestId('coverage-pace-count')).not.toBeInTheDocument();
+            expect(screen.getByTestId('focus-point-0')).toHaveAttribute('data-status', 'pending');
+            expect(screen.queryByText(/not detected/i)).not.toBeInTheDocument();
+        },
+    );
+
     it('keeps partial stop-seam evidence distinct from a full detection in the terminal rail', () => {
         render(
             <SessionOverhaulView

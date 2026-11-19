@@ -6,6 +6,18 @@ import {fileURLToPath} from 'node:url';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 export const HELPER_CONTRACTS = Object.freeze([{
+  helperFile: 'frontend/tests/test-utils/practicePrivacy.ts',
+  testFile: 'tests/unit/practicePrivacyFixture1835.test.ts',
+  callables: ['grantPracticePrivacy'],
+}, {
+  helperFile: 'tests/e2e/helpers.ts',
+  testFile: 'tests/unit/practicePrivacyE2EFixtures1835.test.ts',
+  callables: ['programmaticLoginWithRoutes'],
+}, {
+  helperFile: 'tests/e2e/helpers/setupE2EManifest.ts',
+  testFile: 'tests/unit/practicePrivacyE2EFixtures1835.test.ts',
+  callables: ['setupE2EManifest'],
+}, {
   helperFile: 'tests/live/helpers/rwtMarkerObserver.ts',
   testFile: 'tests/unit/rwtMarkerObserver1593.test.ts',
   callables: ['armMarkerObserverInPage', 'freezeMarkerObserverInPage', 'classifyMarkerTiming'],
@@ -54,6 +66,10 @@ export const HELPER_CONTRACTS = Object.freeze([{
   helperFile:'tests/billing/user-journey/contract.ts',testFile:'tests/billing/user-journey/contract.test.ts',
   callables:['requireFact','safeFailureReason','receipt','assertTestPrice','assertInvoice',
     'isCorrelatedDelivery','assertSandboxConfiguration'],
+}, {
+  // Run 44203911253: the hosted-Checkout email step the conversion journey calls (browser counterpart: tests/e2e spec).
+  helperFile:'tests/billing/user-journey/hostedEmail.ts',testFile:'tests/billing/user-journey/hostedEmail.test.ts',
+  callables:['fillHostedEmail'],
 }, {helperFile:"tests/billing/user-journey/paidValueLoop.ts",testFile:"tests/billing/user-journey/paidValueLoop.test.ts",callables:["paidValueLoopReceipt", "assertSavedTake", "assertEligibleEvaluation", "savedCoaching", "coachingShownAsSaved", "assertRecommendation", "comparisonExpectation", "assertComparisonShown"]}, {helperFile:"tests/billing/user-journey/localStackResources.mjs",testFile:"tests/billing/user-journey/localStackResources.test.ts",callables:["captureStackIdentity", "assertIdentityShape", "stackIdentitySha256", "verifyStackDestroyed"]}, {helperFile:"tests/billing/user-journey/localStackReceipt.mjs",testFile:"tests/billing/user-journey/contract.test.ts",callables:["journeyReceiptDefects", "destructionDefects", "finaliseLocalStackReceipt"]}, {helperFile:"tests/billing/user-journey/runnerPlan.mjs",testFile:"tests/billing/user-journey/fullMode.test.ts",callables:["workflowDispatch", "planRun", "finaliseModeReceipt"]}, {helperFile:"tests/billing/user-journey/runnerPreflight.mjs",testFile:"tests/billing/user-journey/runnerPreflight.test.ts",callables:["fingerprint", "assertTestKeys", "assertKeysMatchStack", "assertLocalSupabaseKeys", "probeLocalBackend", "runnerPreflight"]}, {
   // #1760 model comparison harness and evaluator helpers, each through its own unit consumer.
   helperFile:'tests/model-dropin/comparisonBounds.ts',testFile:'tests/model-dropin/comparisonBounds.test.ts',
@@ -162,6 +178,26 @@ export const HELPER_CONTRACTS = Object.freeze([{
 }, {
   helperFile:'tests/live/helpers/rwtFocusEditCancel.ts',testFile:'tests/unit/rwtFocusEditCancel.test.ts',
   callables:["editCancelVerdict"],
+}, {
+  // #1882: the Focus switch take held on the page's live clock, and the rail settled on actual rows.
+  helperFile:'tests/live/helpers/rwtLiveTimedTake.ts',testFile:'tests/unit/rwtFocusSwitchLiveClock1882.test.ts',
+  callables:["readRailRowCount","railSettled"],
+}, {
+  // #1882 live timing (Nov 18): the take measured live on the page through the actual Stop, bound to its saved row.
+  helperFile:'tests/live/helpers/rwtLiveTakeMonitor.ts',testFile:'tests/unit/rwtLiveTakeMonitor1882.test.ts',
+  callables:["installTakeMonitor","readTakeMonitorInPage","disposeTakeMonitorInPage","armTakeMonitor","readTakeMonitor","disposeTakeMonitor","firstLiveEdge","firstBreakAfter","holdMeasuredLiveTake","stopGuardVerdict","guardedStopInPage","guardedStopClick","stopMeasuredTake","stopMonitoredTake","awaitTakeOutcome","takeOutcomeOf","liveTakeVerdict","savedTakeBinding","takeEvidenceRows"],
+}, {
+  // #1897 (Sam, f2bb1ae HOLD): the post-click half of Stop, after the take monitor's own atomic check-and-click.
+  helperFile:'tests/live/helpers/benchmark-utils.ts',testFile:'tests/unit/rwtStopClickCallback1258.test.ts',
+  callables:["confirmBenchmarkStopped"],
+}, {
+  // #1882 on the post-#1835 build: the run's consent settled before any take, and each saved take read back against it.
+  helperFile:'tests/live/helpers/rwtPracticeConsent.ts',testFile:'tests/unit/rwtPracticeConsent1882.test.ts',
+  callables:["consentModeFrom","privacyBuildOf","privacyChoiceVerdict","aiControlsVerdict","answerPracticePrivacyPrompt","consentReadbackVerdict","readPracticeChoice","probePrivacyTable","settlePracticeConsent"],
+}, {
+  // #1897 review 4: with coaching off or saving off on a #1835 build, the Focus review checks use affirmative evidence.
+  helperFile:'tests/live/helpers/rwtCoachingOff.ts',testFile:'tests/unit/rwtCoachingOff1897.test.ts',
+  callables:["reviewModeOf","expectedSavedFocus","savedFocusMatches","coachingOffVerdict","offBackReloadVerdict","offAnalyticsRows","readSavedFocusStatuses","readCoachingOffAfterStop","readOffRestoredView","analyticsOffThroughActions","offNoCoachingVerdict","offRepeatVerdict"],
 }, {
   helperFile:'tests/live/helpers/rwtFocusNextMarker.ts',testFile:'tests/unit/rwtFocusNextMarker.test.ts',
   callables:["expectedNextMarker","nextPointMarkedVerdict","sampleFocusRail"],

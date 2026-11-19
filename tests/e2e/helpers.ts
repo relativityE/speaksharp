@@ -412,6 +412,7 @@ export async function programmaticLoginWithRoutes(
     sessions?: Partial<import('../support/factories/session.factory').MockSession>[];
     /** #1047 U3: seed Progress rows into the authoritative in-browser Supabase test client. */
     progressFixtures?: import('./helpers/setupE2EManifest').ProgressFixtures;
+    practicePrivacy?: import('./helpers/setupE2EManifest').PracticePrivacyFixture;
     /**
      * CO016: make the injected client's `user_profiles` read fail from the very first query, BEFORE login reaches
      * profile readiness. The profile never becomes ready, so the readiness wait is skipped. The fault survives
@@ -431,6 +432,7 @@ export async function programmaticLoginWithRoutes(
     mockProfile,
     sessions,
     progressFixtures,
+    practicePrivacy,
     profileFault,
     preserveRecoveryDraftAcrossLoads,
   } = options;
@@ -476,6 +478,7 @@ export async function programmaticLoginWithRoutes(
     // HERE — not only the page.route layer — to appear in getSessionHistory / the /analytics/:id detail.
     sessions,
     progressFixtures,
+    practicePrivacy,
     preserveRecoveryDraftAcrossLoads,
     storage: authStorage
   });

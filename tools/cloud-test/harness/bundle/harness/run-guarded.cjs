@@ -21,7 +21,7 @@ const { requireRuntimeQualification } = require('./runtime-admission.cjs');
 const { loadReviewedOracle } = require('./reviewed-oracle-loader.cjs');
 const { verifyReviewedStep } = require('./reviewed-step.cjs');
 const path = require('path');
-const { launchGuarded, inspectDescendants, checkSandboxedProcesses, sandboxReport } = require('./launch.cjs');
+const { observeBrowserClose, launchGuarded, inspectDescendants, checkSandboxedProcesses, sandboxReport } = require('./launch.cjs');
 
 const a = {}; const argv = process.argv.slice(2);
 for (let i = 0; i < argv.length; i += 2) a[argv[i].replace(/^--/, '')] = argv[i + 1];
@@ -58,8 +58,8 @@ async function stop(reason, code) {
       if(pendingLaunch){try{h=await pendingLaunch;}catch(e){if(e?.cleanupErrors?.length){res.launchCleanupFailure=true;res.exitCode=3;}}}
       if (h) {
         h.guard.cancelAll(reason); // cancel at the boundary first, so in-flight work is recorded as cancelled
-        const cl = h.browser.close().catch((e) => { res.browserCloseError = 'BROWSER_CLOSE_FAILED'; });
-        await Promise.race([cl, new Promise((r) => setTimeout(r, 10000))]);
+        const browserClose = await observeBrowserClose(h.browser);
+        if (browserClose !== 'CLOSED') { res.browserCloseError = browserClose; res.exitCode = 3; }
         try { res.guard = await h.guard.close(reason); } finally { h.cleanupMedia(); }
       }
     } catch (e) { res.stopError = 'OWNED_CLEANUP_FAILED';res.exitCode=3; }

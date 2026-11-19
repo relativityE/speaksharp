@@ -59,7 +59,7 @@ function fakeAdmin(dbFile, transport) {
     } };
 }
 
-function setup(t, { preUsers = [], caseExtra = {}, journal = true, writerProof = true, forcedClose = false, protocolViolation = false } = {}) {
+function setup(t, { preUsers = [], caseExtra = {}, journal = true, writerProof = true, forcedClose = false, forcedDescendants = false, protocolViolation = false } = {}) {
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'j4a-entry-')));
     const checkout = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'j4a-entry-checkout-')));
     fs.chmodSync(root, 0o700);
@@ -104,7 +104,7 @@ function setup(t, { preUsers = [], caseExtra = {}, journal = true, writerProof =
         }
         assert.ok(args[0].endsWith(path.join('harness', 'run-guarded.cjs')));
         envs.push({ kind: 'case', env: { ...(deps?.env ?? {}) } });
-        const r = await supervisedCommand(node, [CHILD, ...args.slice(1)], options, { env: { ...deps.env, PATH: process.env.PATH, J4A_WIRE: wireFile, J4A_DB: dbFile, J4A_UID: UID, J4A_FAKE_VIOLATION: protocolViolation ? '1' : '0' } });
+        const r = await supervisedCommand(node, [CHILD, ...args.slice(1)], options, { env: { ...deps.env, PATH: process.env.PATH, J4A_WIRE: wireFile, J4A_DB: dbFile, J4A_UID: UID, J4A_FAKE_VIOLATION: protocolViolation ? '1' : '0', J4A_FAKE_KILLED: forcedDescendants ? '1' : '0' } });
         return forcedClose ? { ...r, reason: 'command-deadline' } : r;
     };
     const evidenceDir = path.join(root, 'evidence'); fs.mkdirSync(evidenceDir);
@@ -177,6 +177,7 @@ test('entry point refuses absent stopped evidence, a forced close or an IPC viol
     for (const [setupOpts, why] of [
         [{ writerProof: false }, /no verified stopped-writer evidence/],
         [{ forcedClose: true }, /did not complete a clean supervised close/],
+        [{ forcedDescendants: true }, /did not complete a clean supervised close/],
         [{ protocolViolation: true }, /binding is absent, refused or violated/],
     ]) {
         const s = setup(t, setupOpts);
@@ -207,6 +208,26 @@ const cliArgs = (file, digest, extra = []) => ['--plan', file, '--plan-sha256', 
 const parentEnv = (url) => ({ SUPABASE_URL: url, SUPABASE_SERVICE_ROLE_KEY: 'unit-not-a-key', LIVE_TEST_EMAIL_DOMAIN: 'example.com' });
 const APPROVED = require('../../harness/draft-adapters/durable-save-oracle.cjs').readbackContract.host;
 
+const servedRelease = (sha) => ({
+    releaseFetch: async () => new Response('<script>window.__APP_RELEASE__="' + sha + '";</script>'),
+    readReleaseGitHub: async () => ({ status: 'ahead', behind_by: 0, base_commit: { sha } }),
+});
+
+test('CLI: a different or unreadable production marker refuses before building an admin client', async (t) => {
+    for (const marker of ['f'.repeat(40), 'not-a-release']) {
+        const p = pinnedPlan(t);
+        let built = 0;
+        const r = await main(cliArgs(p.file, p.digest), parentEnv(`https://${APPROVED}`), {
+            ...servedRelease(marker), saveJournal: journalCapability('/nonexistent', null),
+            createClient: () => { built += 1; throw new Error('must not build'); },
+        });
+        assert.equal(r.exitCode, 78);
+        assert.match(r.reason, /live production release/);
+        assert.equal(built, 0);
+        assert.equal(fs.existsSync(path.join(p.s.root, '.campaign.lock')), false);
+    }
+});
+
 test('CLI: altered plan bytes, another case, an alternate bundle, missing inputs or a wrong project build no admin client', { timeout: 30_000 }, async (t) => {
     const cases = [];
     { const p = pinnedPlan(t); cases.push(['altered plan bytes', cliArgs(p.file, 'f'.repeat(64)), APPROVED]); }
@@ -232,7 +253,7 @@ test('CLI: the pinned J4.a-only plan and the approved project reach the admin cl
     const p = pinnedPlan(t);
     let target = null;
     await assert.rejects(main(cliArgs(p.file, p.digest), parentEnv(`https://${APPROVED}/`),
-        { saveJournal: journalCapability('/nonexistent', null), createClient: (origin) => { target = origin; throw new Error('STOP_AFTER_BINDING'); } }), /STOP_AFTER_BINDING/);
+        { ...servedRelease(p.s.plan.servedSha), saveJournal: journalCapability('/nonexistent', null), createClient: (origin) => { target = origin; throw new Error('STOP_AFTER_BINDING'); } }), /STOP_AFTER_BINDING/);
     assert.equal(target, `https://${APPROVED}`);
     assert.equal(fs.existsSync(path.join(p.s.root, '.campaign.lock')), false, 'lock released after the stop');
     assert.throws(() => approvedAdminOrigin(`https://${APPROVED}`, 'not-a-project-host'), /not the approved project/);
@@ -271,7 +292,7 @@ test('ADMISSION CONTROL (Sam, 17 Nov): with no save-journal cleanup capability t
     assert.ok(!fs.readFileSync(path.join(__dirname, '..', 'j4a-nightly-entry.cjs'), 'utf8').includes('saveJournal: journalCapability'), 'the production entry supplies no capability');
     // CONTRAST: the same inputs WITH a capability get past admission to the admin-client binding, so the capability is what stopped it.
     const p = pinnedPlan(t);
-    await assert.rejects(main(cliArgs(p.file, p.digest), parentEnv(`https://${APPROVED}`), deps(journalCapability('/nonexistent', null))), /STOP_AFTER_BINDING/);
+    await assert.rejects(main(cliArgs(p.file, p.digest), parentEnv(`https://${APPROVED}`), { ...deps(journalCapability('/nonexistent', null)), ...servedRelease(p.s.plan.servedSha) }), /STOP_AFTER_BINDING/);
     assert.equal(counts.clientBuilt, 1);
 });
 

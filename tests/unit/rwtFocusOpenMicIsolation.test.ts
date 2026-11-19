@@ -62,7 +62,8 @@ describe('wiring in rwtFocusPointsJourney.ts', () => {
             'const openMicObjectiveRowReads: Array<number | null> = savedOpenMicId ? [await objectiveRowsFor(savedOpenMicId)] : [];',
             'const firstFocusAfter = await firstFocusEvidence();',
             "await openProduct('focus-points');",
-            'const focusId = await waitForNewPersistedSession(page, openMicId);',
+            // #1897 review 2: no Stop (so no save wait) after a failed hold.
+            'const focusId = !switchStop.pressed || switchOutcome.kind === \'too_short\' ? null : await waitForNewPersistedSession(page, openMicId);',
             "receipt.row('take after switching products is clean'",
             'if (savedOpenMicId) openMicObjectiveRowReads.push(await objectiveRowsFor(savedOpenMicId));',
             'const kept = openMicIsolationVerdict({',

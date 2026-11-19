@@ -480,7 +480,7 @@ class PaidValueLoop {
       }
     } catch { stripeFailed = true; }
     try {
-      if (this.signupAttempted) await cleanupRunOwnedAccount({ admin: this.admin as never,
+      if (this.signupAttempted && !useLocalStack) await cleanupRunOwnedAccount({ admin: this.admin as never,
         capturedUid: this.uid, createdEmail: this.email, runOwnedPrefix: 'rwt-journey-billing-' });
     } catch { accountFailed = true; }
     // As in journey.billing.spec.ts: on the disposable local stack these three tables are not readable by
@@ -519,6 +519,9 @@ test('billing paid_value_loop: one paid test-mode account through coaching, link
         reason,
         cleanup: status.cleanup,
         billingRowResidue: useLocalStack ? 'NOT_READ_REQUIRES_STACK_DESTRUCTION_PROOF' : 'COUNTED_ZERO_OR_FAILED',
+        // As in journey.billing.spec.ts: on the local stack the account is removed by the verified stack destruction, never an Auth delete.
+        // Local stack only, so the hosted/shared raw receipt (billing-user-journey/v1) keeps its exact shape.
+        ...(useLocalStack ? { accountRemoval: 'AUTH_DELETE_NOT_RUN_REQUIRES_STACK_DESTRUCTION' } : {}),
         testedRelease: env.BILLING_SANDBOX_RELEASE_SHA?.match(/^[a-f0-9]{40}$/)?.[0] ?? null,
         stackRun: useLocalStack ? env.LOCAL_STACK_PROJECT?.match(/^billing-local-stack-[0-9]{1,20}-[0-9]{1,6}$/)?.[0] ?? null : null,
       }), contentType: 'application/json' });

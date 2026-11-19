@@ -88,6 +88,8 @@ export interface SessionOverhaulViewProps {
      * raw text "never affects the save, a Retry Save, or the review reader" — this is that reader.
      */
     reviewTranscript?: TranscriptView;
+    /** Consent-off text stays in this page's transcript panel, off the saved review and telemetry paths. */
+    localReviewText?: string | null;
     /**
      * True while the retained read has not settled — finalization still running, or the fetch in
      * flight. Distinct from `isFinalizing`, which describes the TRANSCRIPT lifecycle: a settled
@@ -194,6 +196,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     micLevel,
     transcriptContent,
     reviewTranscript,
+    localReviewText,
     reviewStillSettling = false,
     onRetryReviewTranscript = null,
     finalizedWordCount,
@@ -333,9 +336,10 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
      *
      * #1258 RWT (PM: VALID P2) — MOMENTUM. On a phone, Stop tapped during a fling leaves the momentum scroll running,
      * and it carried the page past this reveal to the bottom (the saved confirmation ~757 px off screen). So when the
-     * reveal moves the page, it arms a bounded re-check: each time scrolling comes to rest (150 ms idle) away from the
-     * top, the page is returned there — at most 3 times, because a fling can pause and then resume after a correction
-     * (traced). Resting AT the top does not end it (Codex P2 r4112253576): the correction's own scrollTo(0) emits a
+     * reveal moves the page, it arms a bounded re-check: when scrolling comes to rest (150 ms idle), reveal the
+     * confirmation if it is obscured, at most 3 times. A clamped or paused fling may resume, so a small shift that
+     * leaves the confirmation fully visible must not spend a correction. Resting AT the top does not end the check
+     * (Codex P2 r4112253576): the correction's own scrollTo(0) emits a
      * scroll event, and a fling that pauses >150 ms and then resumes must still be caught. It ends only at the first
      * touch, wheel, key or pointer input from the person (their own scrolling is never fought), after 3 corrections,
      * after 3 s, or when the view leaves `after`/unmounts. A finger that went down BEFORE the guard armed only sends
@@ -370,7 +374,11 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         const onScroll = () => {
             clearTimeout(idleTimer);
             idleTimer = setTimeout(() => {
-                if (window.scrollY <= 0) return; // at rest at the top: nothing to do, stay armed for a resumed fling
+                if (window.scrollY <= 0) return; // stay armed for a resumed fling
+                const confirmation = document.querySelector('[data-post-save-confirmation="true"]')
+                    ?.getBoundingClientRect();
+                if (confirmation && confirmation.height > 0 && confirmation.top >= 0
+                    && confirmation.bottom <= window.innerHeight) return;
                 if (corrections >= MAX_CORRECTIONS) {
                     endMomentumGuard();
                     return;
@@ -684,7 +692,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         coveredLatch.current = new Map();
     }
     previousCoverageState.current = sessionState;
-    // The terminal result exists only when the retained transcript exists. Treating a pending/failed read
+    // Ordinarily a terminal result accompanies a retained transcript. Treating a pending/failed read
     // as an empty transcript turns "we cannot read it" into the confident false result 0/N + every point
     // "Not detected". Before/during still derive from working memory; after derives only from the retained
     // authority and withholds the entire transcript-derived result until that authority is available.
@@ -697,7 +705,15 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         && (!inAfter || effectiveReview.kind === 'available')
         && (!terminalAuthorityExpected || objectiveCoverage !== null);
     let coverage: FocusCoverage | null = null;
-    if (canDeriveCoverage) {
+    // SessionPage only supplies this handoff for the owning take after confirmed metrics-only
+    // completion (never for a reopened/expired take). Use its existence to display the separate
+    // finalized Focus verdicts, not its text to score, quote, highlight, or report a saved transcript.
+    if (isObjective && reviewSettled && localReviewText
+        && (effectiveReview.kind === 'not_captured' || effectiveReview.kind === 'unavailable')) {
+        if (!objectiveCoverageFailed) {
+            coverage = applyFinalizedCoverageAuthority(null, effObjectivePoints ?? [], objectiveCoverage ?? null);
+        }
+    } else if (canDeriveCoverage) {
         /**
          * MERGE (#1421 x #1427/#1423): BOTH the settled-emission gate and the finalized authority.
          *
@@ -1099,7 +1115,12 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                 // #1046 Focus Points: highlights mean coverage here, not fillers — the footer says so, and
                 // the filler breakdown is deferred to the delivery strip below (spec §4/§5).
                 slotBNotice={inAfter && effectiveReview.kind !== 'available'
-                    ? <ReviewTranscriptNotice view={effectiveReview} isFinalizing={reviewStillSettling} onRetry={onRetryReviewTranscript} />
+                    ? localReviewText
+                        ? <div data-testid="local-review-transcript" data-sentry-block className="space-y-2">
+                            <p className="text-sm text-neutral-secondary">This transcript isn’t saved. You can read it until you leave.</p>
+                            <p className="whitespace-pre-wrap break-words">{localReviewText}</p>
+                        </div>
+                        : <ReviewTranscriptNotice view={effectiveReview} isFinalizing={reviewStillSettling} onRetry={onRetryReviewTranscript} />
                     : undefined}
                 fillerFooter={isObjective
                     ? (coverage && coverage.coveredQuotes.length > 0

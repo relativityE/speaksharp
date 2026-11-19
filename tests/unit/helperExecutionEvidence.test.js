@@ -6,13 +6,15 @@ import {fileURLToPath, pathToFileURL} from 'node:url';
 import {execFileSync} from 'node:child_process';
 import {createHash, randomUUID} from 'node:crypto';
 import {createRequire} from 'node:module';
-import {HELPER_CONTRACTS, helperRuntimeIdentity, helperSourceBinding, helperCoverageOptions, validateHelperCoverage,normalizedHelperWorkerFunctions,validateRawHelperFunctions} from '../../scripts/lib/helperExecutionEvidence.mjs';
+import {HELPER_CONTRACTS, registeredHelper, helperRuntimeIdentity, helperSourceBinding, helperCoverageOptions, validateHelperCoverage,normalizedHelperWorkerFunctions,validateRawHelperFunctions} from '../../scripts/lib/helperExecutionEvidence.mjs';
 import {runVitestHelperExecution,runVitestExecution,dependencyPaths} from '../../scripts/run-test-efficacy.mjs';
 import {executionContext, validateVitestExecution,executionRoute,executionCoverage,changedEvidencePaths,readCurrentQuality,selectExecutionContracts} from '../../scripts/lib/testExecutionEvidence.mjs';
 import {TEST_EFFICACY_CONTRACTS,MEANINGFUL_COVERAGE_MANIFEST} from '../../scripts/lib/softwareQualityEvidenceQualification.mjs';
 const {test} = process.env.NODE_TEST_CONTEXT ? await import('node:test') : await import('vitest');
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const contract = HELPER_CONTRACTS[0];
+// This synthetic consumer imports rwtMarkerObserver; unrelated registry entries may move.
+const contract = registeredHelper('tests/live/helpers/rwtMarkerObserver.ts');
+assert.ok(contract, 'Synthetic fixture requires the registered rwtMarkerObserver helper');
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 
 const AHT1811_HELPERS=[
@@ -29,6 +31,12 @@ const AHT1811_HELPERS=[
     "ModelTransferTracker#onRequest","ModelTransferTracker#onResponse","ModelTransferTracker#onFinished","ModelTransferTracker#onFailed",
     "ModelTransferTracker#snapshot"]],
   ['tests/live/helpers/rwtFocusEditCancel.ts','tests/unit/rwtFocusEditCancel.test.ts',["editCancelVerdict"]],
+  // #1882: the Focus switch take on the live clock and the rail settled on actual rows.
+  ['tests/live/helpers/rwtLiveTimedTake.ts','tests/unit/rwtFocusSwitchLiveClock1882.test.ts',["readRailRowCount","railSettled"]],
+  ['tests/live/helpers/rwtLiveTakeMonitor.ts','tests/unit/rwtLiveTakeMonitor1882.test.ts',["installTakeMonitor","readTakeMonitorInPage","disposeTakeMonitorInPage","armTakeMonitor","readTakeMonitor","disposeTakeMonitor","firstLiveEdge","firstBreakAfter","holdMeasuredLiveTake","stopGuardVerdict","guardedStopInPage","guardedStopClick","stopMeasuredTake","stopMonitoredTake","awaitTakeOutcome","takeOutcomeOf","liveTakeVerdict","savedTakeBinding","takeEvidenceRows"]],
+  ['tests/live/helpers/benchmark-utils.ts','tests/unit/rwtStopClickCallback1258.test.ts',["confirmBenchmarkStopped"]],
+  ['tests/live/helpers/rwtPracticeConsent.ts','tests/unit/rwtPracticeConsent1882.test.ts',["consentModeFrom","privacyBuildOf","privacyChoiceVerdict","aiControlsVerdict","answerPracticePrivacyPrompt","consentReadbackVerdict","readPracticeChoice","probePrivacyTable","settlePracticeConsent"]],
+  ['tests/live/helpers/rwtCoachingOff.ts','tests/unit/rwtCoachingOff1897.test.ts',["reviewModeOf","expectedSavedFocus","savedFocusMatches","coachingOffVerdict","offBackReloadVerdict","offAnalyticsRows","readSavedFocusStatuses","readCoachingOffAfterStop","readOffRestoredView","analyticsOffThroughActions","offNoCoachingVerdict","offRepeatVerdict"]],
   ['tests/live/helpers/rwtFocusNextMarker.ts','tests/unit/rwtFocusNextMarker.test.ts',["expectedNextMarker","nextPointMarkedVerdict","sampleFocusRail"]],
   ['tests/live/helpers/rwtFocusOpenMicIsolation.ts','tests/unit/rwtFocusOpenMicIsolation.test.ts',["openMicIsolationVerdict"]],
   ['tests/live/helpers/rwtFocusPresentation.ts','tests/unit/rwtFocusPresentation.test.ts',["focusPresentationRow","focusSignInRow"]],

@@ -16,7 +16,11 @@ REQUIRED = frozenset(NIGHTLY_ROOT + name + ".cjs" for name in (
     "j4a-nightly-entry", "j4a-parent-teardown", "j4a-supervised-binding",
     "j4a-supervised-channel", "j4a-writer-evidence", "journey-plan", "leg-verdicts", "limits",
     "residue-inventory", "run-budget", "runner-bridge",
-)) | {RESIDUE_HELPER}
+)) | {
+    RESIDUE_HELPER,
+    "scripts/production-release-policy.mjs",
+    "scripts/lib/releaseEvidenceEligibility.mjs",
+}
 
 
 def _no_duplicates(pairs):
