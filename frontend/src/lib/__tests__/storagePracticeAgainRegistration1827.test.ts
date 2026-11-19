@@ -8,7 +8,7 @@ import { saveSession } from '../storage';
 import { getSupabaseClient } from '../supabaseClient';
 import logger from '../logger';
 import { clearOpenAttempt, getOpenAttemptForUser, setOpenAttempt } from '@/services/progress/openAttempt';
-import { clearPracticeAgainIntent, getPracticeAgainIntent, registeredTakeFor, releaseDiscardedTake, setPracticeAgainIntent } from '@/services/progress/practiceAgainIntent';
+import { clearPracticeAgainIntent, confirmCandidateRegistration, getPracticeAgainIntent, registeredTakeFor, releaseDiscardedTake, setPracticeAgainIntent } from '@/services/progress/practiceAgainIntent';
 
 vi.mock('../supabaseClient');
 
@@ -129,6 +129,38 @@ describe('#1827 Practice again registers only this tab\'s next take', () => {
         next = 's-d';
         await saveSession({ user_id: USER, duration: 0 } as never, 'private' as never);
         expect(getOpenAttemptForUser(USER)?.registeredSessionId).toBe('s-d');
+    });
+
+    it('Sam: B commits, its response AND the first confirmation fail; C starts unregistered; a later confirmation still targets B', async () => {
+        openAttempt();
+        setPracticeAgainIntent({ attemptId: ATTEMPT, userId: USER });
+        let next = 's-b';
+        let failures = 2;                                                 // B's own response, then the first confirmation
+        supabase.rpc.mockImplementation(async (name: string, args: Record<string, string>) => {
+            if (name !== 'register_practice_again_take_v1') return created(next);
+            if (failures > 0) { failures -= 1; throw new Error('network: response lost'); }
+            return { data: args.p_session === 's-b', error: null };     // B committed; only B is registered
+        });
+        await saveSession({ user_id: USER, duration: 0 } as never, 'private' as never);   // B: registration sent, reply lost
+        next = 's-c';
+        expect((await saveSession({ user_id: USER, duration: 0 } as never, 'private' as never)).status).toBe('saved'); // C starts
+        const registrationsSent = () => supabase.rpc.mock.calls.filter((c) => c[0] === 'register_practice_again_take_v1')
+            .map((c) => (c[1] as Record<string, string>).p_session);
+        expect(registrationsSent()).toEqual(['s-b', 's-b']);             // B's request, then its confirmation; C not registered
+        expect(getPracticeAgainIntent(USER)?.candidateSessionId).toBe('s-b');            // B is still the candidate
+        expect(getOpenAttemptForUser(USER)?.registeredSessionId).toBeUndefined();
+        expect(await confirmCandidateRegistration(USER)).toBe('confirmed');               // the later confirmation: B
+        expect(getOpenAttemptForUser(USER)?.registeredSessionId).toBe('s-b');
+        expect(registrationsSent()).toEqual(['s-b', 's-b', 's-b']);      // C was never registered
+    });
+
+    it('a definitive refusal of the candidate frees the next take to register', async () => {
+        openAttempt();
+        setPracticeAgainIntent({ attemptId: ATTEMPT, userId: USER, candidateSessionId: 's-b' });
+        supabase.rpc.mockImplementation(async (name: string, args: Record<string, string>) => name === 'register_practice_again_take_v1'
+            ? { data: args.p_session === 's-c', error: null } : created('s-c'));
+        await saveSession({ user_id: USER, duration: 0 } as never, 'private' as never);
+        expect(getOpenAttemptForUser(USER)?.registeredSessionId).toBe('s-c');
     });
 });
 

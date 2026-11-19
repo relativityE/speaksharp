@@ -87,23 +87,24 @@ export function recordRegisteredTake(userId: string, intent: PracticeAgainIntent
 /**
  * A registration that was sent but never answered (Codex P2): ask again for the SAME take. The registration RPC is
  * idempotent for the take already registered, so a commit whose response was lost is confirmed here; a take the server
- * never registered is refused, and the candidate is dropped. Returns whether a registration is now known.
+ * never registered is refused, and only then is the candidate dropped. `unknown` (another error) keeps it for the next try.
  */
-export async function confirmCandidateRegistration(userId: string): Promise<boolean> {
+export type CandidateConfirmation = 'none' | 'confirmed' | 'refused' | 'unknown';
+export async function confirmCandidateRegistration(userId: string): Promise<CandidateConfirmation> {
     const intent = getPracticeAgainIntent(userId);
-    if (!intent?.candidateSessionId) return false;
-    if (registeredTakeFor(userId)) return true;
+    if (!intent?.candidateSessionId) return 'none';
+    if (registeredTakeFor(userId)) return 'confirmed';
     try {
         const { data, error } = await getSupabaseClient().rpc('register_practice_again_take_v1',
             { p_attempt: intent.attemptId, p_session: intent.candidateSessionId });
-        if (error) return false;                                       // still unknown: keep the candidate for the next try
-        if (data === true) { recordRegisteredTake(userId, intent, intent.candidateSessionId); return true; }
+        if (error) return 'unknown';                                   // still unknown: keep the candidate for the next try
+        if (data === true) { recordRegisteredTake(userId, intent, intent.candidateSessionId); return 'confirmed'; }
         const rest: PracticeAgainIntent = { ...intent };
         delete rest.candidateSessionId;
         setPracticeAgainIntent(rest);
-        return false;
+        return 'refused';
     } catch {
-        return false;
+        return 'unknown';
     }
 }
 

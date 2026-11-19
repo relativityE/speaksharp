@@ -262,8 +262,9 @@ export const saveSession = async (
  */
 async function registerPracticeAgainTake(userId: string | undefined, sessionId: string | undefined): Promise<void> {
   if (!userId || !sessionId) return;
-  // A registration sent earlier and never answered is confirmed first: if it committed, this new take is not the repeat.
-  if (hasRegistrationCandidate(userId) && await confirmCandidateRegistration(userId)) return;
+  // A registration sent earlier and never answered is confirmed first. Only a definitive refusal frees this new take to be
+  // registered; while the earlier take is confirmed or still unknown, this take starts normally but is not registered (Sam).
+  if (hasRegistrationCandidate(userId) && await confirmCandidateRegistration(userId) !== 'refused') return;
   const intent = getPracticeAgainIntent(userId);
   if (!intent) return;
   // The repeat is already registered (or, before the migration, recorded locally): a later take never replaces it (Codex P2).
