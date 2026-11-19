@@ -9,12 +9,12 @@ const TEST_PINS=Object.freeze({
  'tests/unit/rwtPartialFixtureMatcher.test.ts':'9a6b7f29a5c3cccf7560b2ce0a93cd13b24ef8d2cf105d320cbb2cf04ba87848',
  'tests/unit/rwtComparableSaveTake.test.ts':'c93b6f4507b63d0f3b68e75abdea028edb5835cb557cfdfbea5e7574b87cdfa5',
  // Reviewed #1811 v3 cleanup/watchdog and evidence-registry postimages.
- 'scripts/lib/helperExecutionEvidence.mjs':'ec8347593f623af41cd1168ae8fcba39c082486b336856d7168485af28a69be8',
+ 'scripts/lib/helperExecutionEvidence.mjs':'5524f2dcb5b00fcc5442f0babf3ecf8b3559ee6d771767dd4bd9f786808bd52d',
  'scripts/lib/sourceContractEvidence.mjs':'523d7b10fcecc10b20c601a8a9e49761f181e5eaf1e39868d01240a1b9d9a948',
  'tests/live/helpers/runOwnedCleanup.ts':'f52a848832000addbe93a164f57bccbfd0fbbf4185b9943bc4cf8c3e89f36211',
  'tests/live/helpers/rwtHarnessParity.ts':'c3715f6327955dd077596156e340072be554c7d160858a0a6bf321b0c8fdbd25',
  'tests/live/helpers/rwtWatchdog.ts':'fd360afaa23d2bf396765eb6622dbcefaffb38dacd289219ffad4f68d7a1f102',
- 'tests/unit/helperExecutionEvidence.test.js':'a1ab659e66070686f378d5961e9d2ea8ad1fbd07361e5f92ff20c7748b39923a',
+ 'tests/unit/helperExecutionEvidence.test.js':'6fa47727723097b643cad3b9fead3441bb719602c8321988b01359802a2d2b2c',
  'tests/unit/runOwnedCleanupNullCount1593.test.ts':'a30489f6a20893a3995b4c4ce44ede89aaf243378ea471906d90effa99a185e9',
  'tests/unit/runOwnedCleanupSaveObligations1643.test.ts':'515aad81c1f7905ba30fcbcfb034112638f06e8324063203c102482f28093100',
  'tests/unit/rwtHarnessParity.test.ts':'602cd32f1ae367250fae5ceac1663013cb3cb01cb160be356041f3088c042c45',
@@ -33,9 +33,9 @@ const TEST_PINS=Object.freeze({
  'tests/unit/rwtDocumentBinaryTransport.test.js':'e4722993a0e008cf6ead7fe1e092cdc50f3d8b75df0ff29066f35dd95d2bda80',
  // AHT-02..15 prep (parity rows, AHT-07 key-bound fail-closed stored-once, AHT-09 navigation-bound ready wait, AHT-04 recovery take, AHT-05/06 attempts/exact save/reopen, AHT-02/03 Focus marker and rows, AHT-08/11/12-15 checks): exact reviewed postimages.
  'tests/live/helpers/feedbackDiagnosticRef.ts':'aeccd8dbd54dd5172da83f08b87d948f1d32028090e846c50f2e5eaf55be27fe',
- 'tests/live/helpers/rwtAcceptance.ts':'424a180c786889f8494097fbc4517bf1ccaf1dc49cc51e1a2cfa2c9f3a89c1d2',
+ 'tests/live/helpers/rwtAcceptance.ts':'a611218ec508e76bd1dc838bec06e726b6acb6fe7514335b6fb6461875ca760a',
  'tests/live/helpers/rwtAdverseJourney.ts':'4cc05a65858a569c3b484c378d7f001cd52a2d1d082328c4a284f1c64299887a',
- 'tests/live/helpers/rwtFocusPointsJourney.ts':'7bd806a84f6bce20874c2f924a2090f4e8f197f31d7720cf17278c28ca7b8ce1',
+ 'tests/live/helpers/rwtFocusPointsJourney.ts':'f713d0d522c2a24bcba964397fe5bbb888225dde6bbffce7080e30bb69610d3b',
  'tests/live/helpers/rwtPendingStartRecovery.ts':'41ad72641a30753e8a173ff79390b33305d25d8c7b1eafed7a57bd2d010118c5',
  'tests/live/helpers/rwtSaveRetryAttempts.ts':'cfa37a628a18e1c4347bb40eed73b33b303245a6930efaca0aeb24ee39ec0be2',
  'tests/live/helpers/rwtLeaveDestinationReady.ts':'5df6c2b0533098c9a9c019b2d491783b060be2cc6d5f52614d4a8053092542db',
@@ -60,7 +60,7 @@ const TEST_PINS=Object.freeze({
  'tests/live/rwt-adverse-mic-model.live.spec.ts':'6d61b609d70264a579436af1a2480178fe44bb08741d9b343c1930c847f542ca',
  'tests/unit/feedbackAckReceivedAht08.test.ts':'a645fff8f8de3d0a5d1bab51be845484481b2779d055513eaa5ee51c05aad91f',
  'tests/unit/rwtAdverseRecovery.test.ts':'f86b4e58038184e99435e3ecd6ce47d3d383ca160b3e9bec79c0c4a7ad999250',
- 'tests/unit/rwtFinalization1532.test.ts':'59fb6409ada5b3dca9cffde96899a3c463df2a4d99dc43a1aaccd594d119633b',
+ 'tests/unit/rwtFinalization1532.test.ts':'087feccb2fdf05476c3b2126084590e11d0e19d30a4ace7d8ee0adf8a9da1bbc',
  'tests/unit/rwtFocusEditCancel.test.ts':'5bc38f81042b773f1d7fd7254677a4d812f0e206d2095e8b7c5b0abe6f61914f',
  'tests/unit/rwtFocusNextMarker.test.ts':'84a78df21e117a0565c26bf847ab7da5b486660e02c7b96f11cda2c9072b2310',
  'tests/unit/rwtFocusOpenMicIsolation.test.ts':'96e07c9481583085704084d28ff062adad89f9f4850dcad2a71c4c36b0d2a489',
@@ -85,6 +85,12 @@ const TEST_PINS=Object.freeze({
  'tests/unit/rwtAdverse1258.test.ts':'5d08a56a3b7b17268efe235e7c6f2d2ba82123e06f413aa46d0bafb2e9d56875',
  'tests/unit/rwtJ4aEvidence.test.ts':'5edbee07d436a8ad276052ee03f228fd6d07b9c947bd3a9b487465d97cb4dd6a',
  'tests/unit/rwtMicDeniedJ7a.test.ts':'429244150f7f0ad5e53e5dded77ace50cde857276b2344323d3d642dd05463c0',
+ // Reviewed #1904 and #1884 test/evidence postimages; no product or workflow files were admitted.
+ 'scripts/lib/pythonTestExecutionEvidence.mjs':'26107e3dc05ff46bc7d72f7e3f809a6ea2ca510043aa0a72e36ea89fcd282c5a',
+ 'tests/config/mvpAcceptanceMap.test.ts':'8ab9c5b5cf45fa15afe31d4769971fb68d9c4414fed182a56a92d9166e7644fb',
+ 'tests/db/j4a-save-journal-cleanup-1884.integration.test.ts':'05c688df6ee456cb8ed8131f2bcbde131271126c15dbfd9de5fe6c483e0747d7',
+ 'tests/live/helpers/rwtJ3Evidence.ts':'18e2791f53c518107784413fc34c708f5de4cb2604ef09a9c7fdeec8c811844c',
+ 'tests/unit/rwtJ3Evidence.test.ts':'406f3db7666c36e05d2e7f32989f3f2bee61de5fc50a58c12836629deb29d536',
 });
 // These two non-product inputs are part of this diagnostic integration itself.
 // Pin their exact reviewed postimages rather than treating every workflow or
@@ -93,8 +99,8 @@ const INTEGRATION_PINS=Object.freeze({
  // Exact #1834 execution-evidence registration; siblings and changed bytes remain denied.
  'scripts/lib/nativeTestExecutionEvidence.mjs':'2d16b86019cda7c637f8cfa07461285b5b8d38e4e3c197762b1c7de5766704eb',
  // Inherited reviewed main: #1833 R5 provenance correction, #1832 currency docs, #1830 AHT-01 save expectations.
- 'product_release/RELEASE_STATUS.md':'2e53046bfc9fce44a81351dcf7dddd302224cb3a2a341cc1a1e1bf5001d32aae',
- 'product_release/ROADMAP.md':'ac4e34c689c8575883a33f9cdd15d95267c3bae42f82a9daa65f85e32b5e8fb7',
+ 'product_release/RELEASE_STATUS.md':'6b766984b6d2784b699f393c6d56dc6fcd24e258a9ad0ea4a7b58b1e6d5823dc',
+ 'product_release/ROADMAP.md':'4d6a6c8b7a500cfd9920fa0549684516e171cb32ed0462bf83d4739038fc530f',
  'tests/live/rwt-open-mic-first-session.live.spec.ts':'955bef27970a423a0586f069c5ebbeb8eaf1e02ee63d9079695af8ae71ef2de6',
  '.github/workflows/cloud-test.yml':'33a0d4ee002f59946ee3e09c1b3cad9c30e26741ae3ea5a841c7f55a97c5c285',
  'tests/unit/modelComparisonRunAuthority.test.js':'035a381a5764bfb3f831ab97b0c89d6722d6fe171f5331ad266e322fabc23e56',
