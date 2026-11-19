@@ -15,6 +15,7 @@ import { getSupabaseClient } from './supabaseClient';
 import { currentTakeLeaseId } from '@/services/recordingLease';
 import logger from './logger';
 import { transcriptSaveAllowed } from '@/services/practicePrivacy';
+import { clearPracticeAgainIntent, getPracticeAgainIntent } from '@/services/progress/practiceAgainIntent';
 import type { PracticeSession } from '../types/session';
 import type { UserProfile } from '../types/user';
 import type { AnalyticsSummary } from '../types/analytics';
@@ -246,9 +247,30 @@ export const saveSession = async (
 
   if (data?.error === 'lease_not_held') return { status: 'failed', reason: 'lease_not_held' };
   if (data?.usage_exceeded === true) return { status: 'usage_exceeded', error: data?.error };
-  if (data?.new_session) return { status: 'saved', session: data.new_session as PracticeSession };
+  if (data?.new_session) {
+    await registerPracticeAgainTake(sessionData.user_id, (data.new_session as PracticeSession).id);
+    return { status: 'saved', session: data.new_session as PracticeSession };
+  }
   return { status: 'failed', reason: 'server_rejected' };
 };
+
+/**
+ * #1827 D2 rev 4: register the take this tab just created with this tab's Practice-again attempt. Non-blocking: a
+ * failure never fails the save; the take is then simply not the repeat (no link, no tip). A refusal (another product, a
+ * resolved attempt) keeps the intent for this tab's next Start while that attempt is still open; success clears it.
+ */
+async function registerPracticeAgainTake(userId: string | undefined, sessionId: string | undefined): Promise<void> {
+  if (!userId || !sessionId) return;
+  const intent = getPracticeAgainIntent(userId);
+  if (!intent) return;
+  try {
+    const { data, error } = await getSupabaseClient().rpc('register_practice_again_take_v1', { p_attempt: intent.attemptId, p_session: sessionId });
+    if (!error && data === true) clearPracticeAgainIntent();
+    else if (error) logger.warn({ code: error.code }, '[Supabase DB] Practice again take not registered');
+  } catch {
+    logger.warn('[Supabase DB] Practice again take not registered');
+  }
+}
 
 /**
  * Sends a heartbeat to update session usage incrementally and extend expiry.

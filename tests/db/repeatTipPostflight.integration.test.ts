@@ -56,9 +56,13 @@ describe('#1827 D2 repeat-tip exact-apply catalog gate', () => {
       { functions: committed.functions, triggers: committed.triggers, columns: committed.columns,
         constraints: committed.constraints, indexes: committed.indexes });
     assert.equal(committed.targetSha256, createHash('sha256').update(readFileSync(`${DIR}/${file(REPEAT_TIP_VERSION)}`)).digest('hex'));
-    assert.equal(committed.functions.length, 7);
+    assert.equal(committed.functions.length, 8);
     assert.equal(committed.triggers.length, 4);
-    assert.ok(committed.functions.every((fn: { acl: string[] }) => fn.acl.length === 0), 'no API role may execute a helper');
+    assert.equal(committed.columns.length, 3);
+    for (const fn of committed.functions as Array<{ signature: string; acl: string[] }>) {
+      assert.deepEqual(fn.acl, fn.signature.startsWith('public.register_practice_again_take_v1(') ? ['authenticated'] : [],
+        `${fn.signature}: only the client RPC is executable, and only by authenticated`);
+    }
   });
 
   it('NEGATIVE: a tampered catalog or ledger is refused', async () => {
@@ -67,6 +71,9 @@ describe('#1827 D2 repeat-tip exact-apply catalog gate', () => {
     assert.throws(() => assertRepeatTipSnapshot(contract, null as unknown as string[]), /incomplete/, 'missing snapshot');
     const cases: Array<[string, string, RegExp]> = [
       ['helper granted to authenticated', 'GRANT EXECUTE ON FUNCTION public._prec_att_snapshot_tip() TO authenticated;', /executable by an API role/],
+      ['client RPC granted to anon', 'GRANT EXECUTE ON FUNCTION public.register_practice_again_take_v1(uuid, uuid) TO anon;', /executable by an API role/],
+      ['client RPC revoked from authenticated', 'REVOKE EXECUTE ON FUNCTION public.register_practice_again_take_v1(uuid, uuid) FROM authenticated;', /executable by an API role/],
+      ['registration column dropped', 'ALTER TABLE public.progress_recommendation_attempts DROP COLUMN registered_session_id;', /catalog differs/],
       ['helper body changed', "CREATE OR REPLACE FUNCTION public._prec_att_lock_owner(p_user uuid) RETURNS void LANGUAGE sql AS 'SELECT 1';", /catalog differs/],
       ['session trigger dropped', 'DROP TRIGGER trg_sessions_prec_tip_on_completed ON public.sessions;', /catalog differs/],
       ['attempt trigger disabled', 'ALTER TABLE public.progress_recommendation_attempts DISABLE TRIGGER trg_prec_att_guard_tip;', /catalog differs/],

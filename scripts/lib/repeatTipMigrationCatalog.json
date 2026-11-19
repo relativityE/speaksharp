@@ -1,11 +1,11 @@
 {
  "version": "20261119120000",
- "targetSha256": "44c31f02daa51827b10fa1c59315363f0866e687972faee6535752ff8f5cd3f4",
+ "targetSha256": "e0cd6a39e602b85b02eb51bb47cd1eeb9a2b02088142fa1762682d507a1846b2",
  "derivation": "Offline PGlite replay of the shipped chain (billing settlement and the refund follow-up withheld), then the exact migration; re-derived by tests/db/repeatTipPostflight.integration.test.ts.",
  "functions": [
   {
    "signature": "public._prec_att_can_hold_tip(p_attempt progress_recommendation_attempts, p_session uuid)",
-   "md5": "e6b4713cddf4d753b00bd82eea12988d",
+   "md5": "49e4b49d203a1eaee90cbb5349c90356",
    "definer": true,
    "config": [
     "search_path=public, pg_temp"
@@ -17,7 +17,7 @@
   },
   {
    "signature": "public._prec_att_guard_tip()",
-   "md5": "8a08dae9f77a2e6d2cbc3498f23e6cac",
+   "md5": "74c56fbadca619a758a993115a047d34",
    "definer": true,
    "config": [
     "search_path=public, pg_temp"
@@ -41,7 +41,7 @@
   },
   {
    "signature": "public._prec_att_on_session_completed()",
-   "md5": "3243601ccdb67774648b0c42c96482f8",
+   "md5": "edd676d17ae04b9f4a5af170eedc3628",
    "definer": true,
    "config": [
     "search_path=public, pg_temp"
@@ -53,7 +53,7 @@
   },
   {
    "signature": "public._prec_att_purge_tip_on_expire()",
-   "md5": "814fa288c417157083823cfb99bd4126",
+   "md5": "a8ad1efbe3b57fad10cbb779ddbcf660",
    "definer": true,
    "config": [
     "search_path=public, pg_temp"
@@ -86,6 +86,20 @@
    "volatility": "v",
    "returns": "trigger",
    "acl": []
+  },
+  {
+   "signature": "public.register_practice_again_take_v1(p_attempt uuid, p_session uuid)",
+   "md5": "bf6ec0b1b249e4017617e7613f6e44ad",
+   "definer": true,
+   "config": [
+    "search_path=public, pg_temp"
+   ],
+   "language": "plpgsql",
+   "volatility": "v",
+   "returns": "boolean",
+   "acl": [
+    "authenticated"
+   ]
   }
  ],
  "triggers": [
@@ -139,6 +153,13 @@
    "privileges": []
   },
   {
+   "name": "registered_session_id",
+   "type": "uuid",
+   "notNull": false,
+   "default": null,
+   "privileges": []
+  },
+  {
    "name": "tip_session_id",
    "type": "uuid",
    "notNull": false,
@@ -148,6 +169,7 @@
  ],
  "constraints": [
   "prec_att_practised_tip_shape c CHECK (((practised_tip IS NULL) OR (((char_length(practised_tip) >= 1) AND (char_length(practised_tip) <= 4000)) AND (btrim(practised_tip) = practised_tip))))",
+  "progress_recommendation_attempts_registered_session_id_fkey f FOREIGN KEY (registered_session_id) REFERENCES sessions(id) ON DELETE SET NULL",
   "progress_recommendation_attempts_tip_session_id_fkey f FOREIGN KEY (tip_session_id) REFERENCES sessions(id) ON DELETE SET NULL"
  ],
  "indexes": [

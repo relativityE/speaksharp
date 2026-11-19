@@ -62,7 +62,10 @@
 
 ALTER TABLE public.progress_recommendation_attempts
     ADD COLUMN IF NOT EXISTS practised_tip text,
-    ADD COLUMN IF NOT EXISTS tip_session_id uuid REFERENCES public.sessions(id) ON DELETE SET NULL;
+    ADD COLUMN IF NOT EXISTS tip_session_id uuid REFERENCES public.sessions(id) ON DELETE SET NULL,
+    -- Revision 4 (#1827 step 3): the exact take the owner started from this attempt's Practice again, registered at Start by
+    -- register_practice_again_take_v1. Only this take can become the repeat (link and tip); it is set once, never replaced.
+    ADD COLUMN IF NOT EXISTS registered_session_id uuid REFERENCES public.sessions(id) ON DELETE SET NULL;
 
 DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'prec_att_practised_tip_shape') THEN
@@ -179,9 +182,11 @@ AS $$
           JOIN public.progress_recommendations r ON r.id = p_attempt.recommendation_id AND r.user_id = p_attempt.user_id
           JOIN public.sessions src ON src.id = r.source_session_id
          WHERE s.id = p_session
+           AND s.id = p_attempt.registered_session_id
            AND s.user_id = p_attempt.user_id
            AND s.status = 'completed'
            AND s.id <> src.id
+           AND s.product IS NOT DISTINCT FROM src.product
            AND (src.created_at, src.id) < (s.created_at, s.id)
            AND s.created_at >= p_attempt.accepted_at);
 $$;
@@ -205,7 +210,17 @@ BEGIN
             RAISE EXCEPTION 'this session cannot hold the tip for this attempt' USING ERRCODE = '42501';
         END IF;
     END IF;
+    IF NEW.registered_session_id IS DISTINCT FROM OLD.registered_session_id AND NEW.registered_session_id IS NOT NULL
+       AND OLD.registered_session_id IS NOT NULL THEN
+        RAISE EXCEPTION 'the take registered for this Practice again cannot change' USING ERRCODE = '42501';
+    END IF;
+    -- The repeat link is the registered take only: a take without that explicit link gets neither the link nor the tip.
+    IF NEW.practice_session_id IS DISTINCT FROM OLD.practice_session_id AND NEW.practice_session_id IS NOT NULL
+       AND NEW.practice_session_id IS DISTINCT FROM NEW.registered_session_id THEN
+        RAISE EXCEPTION 'this session is not the take registered for this Practice again' USING ERRCODE = '42501';
+    END IF;
     IF NEW.lifecycle = 'abandoned'
+       OR (OLD.registered_session_id IS NOT NULL AND NEW.registered_session_id IS NULL)
        OR (NEW.lifecycle IN ('completed', 'not_comparable')
            AND (NEW.practice_session_id IS NULL OR NEW.practice_session_id IS DISTINCT FROM NEW.tip_session_id))
        OR (OLD.practice_session_id IS NOT NULL AND NEW.practice_session_id IS NULL)
@@ -246,8 +261,9 @@ BEGIN
             (a.tip_session_id IS NOT NULL AND a.tip_session_id <> NEW.id AND EXISTS (
                 SELECT 1 FROM public.sessions h
                  WHERE h.id = a.tip_session_id AND (h.created_at, h.id) < (NEW.created_at, NEW.id)))
-            -- not yet bound, this save supersedes the original, and this session cannot be its repeat
-            OR (a.tip_session_id IS NULL
+            -- not yet bound or registered, this save supersedes the original, and this session cannot be its repeat. A
+            -- registered take keeps its copy while another take (another tab, another product) saves first.
+            OR (a.tip_session_id IS NULL AND a.registered_session_id IS NULL
                 AND NOT public._prec_att_can_hold_tip(a, NEW.id)
                 AND EXISTS (
                     SELECT 1 FROM public.progress_recommendations r
@@ -282,8 +298,10 @@ CREATE TRIGGER trg_sessions_prec_tip_on_completed
 
 -- AFTER a session's transcript expires, with no condition on ai_suggestions:
 --   * a copy bound to it, or resolved to it, goes (a newer completed save has normally cleared it already);
---   * a copy NOT YET BOUND whose original is this session goes. A copy already bound to a repeat stays: the repeat's
---     own save binds it before that save expires the original.
+--   * a copy NOT YET BOUND OR REGISTERED whose original is this session goes. A copy already bound to a repeat stays: the
+--     repeat's own save binds it before that save expires the original. A copy registered to the take started from Practice
+--     again also stays when another take (another tab or product) saves first and expires the original; it goes with that
+--     registered take's own expiry, deletion or abandonment.
 CREATE OR REPLACE FUNCTION public._prec_att_purge_tip_on_expire()
 RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
@@ -296,7 +314,8 @@ BEGIN
        AND a.practised_tip IS NOT NULL
        AND (a.tip_session_id = NEW.id
             OR a.practice_session_id = NEW.id
-            OR (a.tip_session_id IS NULL AND EXISTS (
+            OR a.registered_session_id = NEW.id
+            OR (a.tip_session_id IS NULL AND a.registered_session_id IS NULL AND EXISTS (
                     SELECT 1 FROM public.progress_recommendations r
                      WHERE r.id = a.recommendation_id AND r.source_session_id = NEW.id)));
     RETURN NULL;
@@ -309,6 +328,44 @@ CREATE TRIGGER trg_sessions_purge_practised_tip_on_expire
     FOR EACH ROW
     WHEN (NEW.transcript_state = 'expired' AND OLD.transcript_state IS DISTINCT FROM 'expired')
     EXECUTE FUNCTION public._prec_att_purge_tip_on_expire();
+
+-- Revision 4 (#1827 step 3): register the exact take started from Practice again. Called by the owner's tab right after it
+-- creates that take, with the attempt id carried from the click. Refuses (false) unless: the caller owns the attempt and the
+-- take, the attempt is pending and has no registered take yet, the take is still recording, is the same product as the
+-- original, newer than it and started no earlier than acceptance. Behind the #1863 payment wall.
+CREATE OR REPLACE FUNCTION public.register_practice_again_take_v1(p_attempt uuid, p_session uuid)
+RETURNS boolean
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_uid uuid := auth.uid();
+    v_attempt public.progress_recommendation_attempts;
+BEGIN
+    IF v_uid IS NULL THEN RAISE EXCEPTION 'authentication required' USING ERRCODE = '42501'; END IF;
+    PERFORM public.require_product_access(v_uid);
+    PERFORM public._prec_att_lock_owner(v_uid);
+    SELECT * INTO v_attempt FROM public.progress_recommendation_attempts
+     WHERE id = p_attempt AND user_id = v_uid FOR UPDATE;
+    IF NOT FOUND OR v_attempt.lifecycle <> 'pending' THEN RETURN false; END IF;
+    IF v_attempt.registered_session_id IS NOT NULL THEN RETURN v_attempt.registered_session_id = p_session; END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM public.sessions s
+          JOIN public.progress_recommendations r ON r.id = v_attempt.recommendation_id AND r.user_id = v_uid
+          JOIN public.sessions src ON src.id = r.source_session_id
+         WHERE s.id = p_session AND s.user_id = v_uid
+           AND s.status IS DISTINCT FROM 'completed'
+           AND s.id <> src.id
+           AND s.product IS NOT DISTINCT FROM src.product
+           AND (src.created_at, src.id) < (s.created_at, s.id)
+           AND s.created_at >= v_attempt.accepted_at) THEN
+        RETURN false;
+    END IF;
+    UPDATE public.progress_recommendation_attempts SET registered_session_id = p_session WHERE id = p_attempt;
+    RETURN true;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.register_practice_again_take_v1(uuid, uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.register_practice_again_take_v1(uuid, uuid) TO authenticated;
 
 REVOKE ALL ON FUNCTION public._prec_att_review_tip(jsonb) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public._prec_att_lock_owner(uuid) FROM PUBLIC, anon, authenticated, service_role;

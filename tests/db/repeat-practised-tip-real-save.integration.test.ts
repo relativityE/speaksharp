@@ -79,18 +79,30 @@ async function signup(opts: { consent?: boolean } = {}): Promise<string> {
 }
 
 const leases = new Map<string, string>();
+/** Revision 4: the attempt carried from this tab's Practice again click to its next Start (cleared once used). */
+const intents = new Map<string, string>();
 
-/** Start a take the way the app does: a recording lease, then the shipped create. */
-async function startTake(uid: string): Promise<string> {
+/**
+ * Start a take the way the app does: a recording lease, then the shipped create, then (only in the tab where Practice
+ * again was pressed) registration of that take with the attempt. `tab: 'other'` is another tab with no intent.
+ */
+async function startTake(uid: string, opts: { tab?: 'this' | 'other'; product?: string; registers?: boolean } = {}): Promise<string> {
     return asUser(uid, async () => {
         const lease = randomUUID();
         const acquired = await one<{ acquired: boolean }>(`SELECT public.acquire_recording_lease($1::uuid, 'd2', false) AS r`, [lease]);
         expect(acquired.acquired).toBe(true);
         const created = await one<{ new_session: { id: string } | null; error?: string }>(
             `SELECT public.create_session_and_update_usage($1::jsonb, 'private') AS r`,
-            [JSON.stringify({ title: 'd2', duration: 0, total_words: 0, lease_id: lease })]);
+            [JSON.stringify({ title: 'd2', duration: 0, total_words: 0, lease_id: lease, ...(opts.product ? { product: opts.product } : {}) })]);
         expect(created.error ?? null).toBeNull();
         leases.set(created.new_session!.id, lease);
+        const attempt = intents.get(uid);
+        if (attempt && opts.tab !== 'other') {
+            const registered = await one<boolean>(`SELECT public.register_practice_again_take_v1($1, $2) AS r`, [attempt, created.new_session!.id]);
+            // A refused registration (another product) leaves the intent for this tab's next Start, as the app does.
+            if (registered) intents.delete(uid);
+            expect(registered).toBe(opts.registers ?? true);
+        }
         return created.new_session!.id;
     });
 }
@@ -138,7 +150,9 @@ async function pressPracticeAgain(uid: string, original: string): Promise<string
     return asUser(uid, async () => {
         const rec = await one<string>(
             `SELECT public.record_progress_recommendation($1, 'filler_rate', 'decrease', 3, 'percent of words', 'Cut fillers') AS r`, [original]);
-        return one<string>(`SELECT public.record_recommendation_attempt($1) AS r`, [rec]);
+        const attempt = await one<string>(`SELECT public.record_recommendation_attempt($1) AS r`, [rec]);
+        intents.set(uid, attempt);
+        return attempt;
     });
 }
 
@@ -215,7 +229,7 @@ async function removeSupersedeOnSave() {
     await mutateFn('public._prec_att_on_session_completed()',
         '(a.tip_session_id IS NOT NULL AND a.tip_session_id <> NEW.id AND EXISTS (', '(false AND EXISTS (');
     await mutateFn('public._prec_att_on_session_completed()',
-        'OR (a.tip_session_id IS NULL\n                AND NOT public._prec_att_can_hold_tip(a, NEW.id)', 'OR (false\n                AND NOT public._prec_att_can_hold_tip(a, NEW.id)');
+        'OR (a.tip_session_id IS NULL AND a.registered_session_id IS NULL\n                AND NOT public._prec_att_can_hold_tip(a, NEW.id)', 'OR (false\n                AND NOT public._prec_att_can_hold_tip(a, NEW.id)');
 }
 
 describe('outcome 4 D2 on the shipped save path (every shipped migration, real complete_session_v2 and retention)', () => {
@@ -252,6 +266,32 @@ describe('outcome 4 D2 on the shipped save path (every shipped migration, real c
         expect(await attemptState(attempt)).toMatchObject({ practised_tip: null, tip_session_id: null, lifecycle: 'pending' });
         expect(await sessionState(a)).toMatchObject({ has_review: true });
     }, 180_000);
+
+    // One recording per account at a time (#1476 lease), so on the real path "C saves before B" is sequential: C records
+    // and saves after the click, then B starts in the Practice-again tab. C's save expires the original (newest-one
+    // retention), and the copy goes with it under the retention rule; C can never take the link or the tip, and B is still
+    // the registered repeat. (The concurrent order, B registered before C saves, is covered in the bounded suite.)
+    for (const [label, other] of [['the same product in another tab', { product: 'open_mic', tab: 'other' as const }],
+                                  ['another product (Focus Points)', { product: 'focus_points', registers: false }]] as const) {
+        it(`DECISIVE: a take from ${label}, started after the click and saved before B, gets neither link nor tip; B is the registered repeat`, async () => {
+            db = await shippedChain();
+            const uid = await signup();
+            const a = await startTake(uid, { product: 'open_mic' });
+            await saveTake(uid, a, 'synthetic words for this take');
+            await coach(a);
+            const attempt = await pressPracticeAgain(uid, a);
+            const c = await startTake(uid, other);
+            await saveTake(uid, c, 'other take words');
+            expect(await sessionState(a)).toMatchObject({ transcript_state: 'expired' });
+            expect(await attemptState(attempt)).toMatchObject({ tip_session_id: null, practice_session_id: null, lifecycle: 'pending' });
+            await expect(advance(uid, attempt, 'not_comparable', c)).rejects.toThrow(/not the take registered|not an eligible/);
+            const b = await startTake(uid, { product: 'open_mic' });                       // registered from the click
+            await saveTake(uid, b, 'synthetic words for this take');
+            expect((await db!.query<{ r: string }>('SELECT registered_session_id AS r FROM public.progress_recommendation_attempts WHERE id = $1', [attempt])).rows[0].r).toBe(b);
+            await advance(uid, attempt, 'not_comparable', b);
+            expect(await attemptState(attempt)).toMatchObject({ practice_session_id: b, practised_tip: null });
+        }, 180_000);
+    }
 
     it('wrong take: an unrelated take already recording when Practice again is pressed, saved first, cannot claim the tip', async () => {
         db = await shippedChain();
@@ -350,13 +390,15 @@ describe('outcome 4 D2 on the shipped save path (every shipped migration, real c
         expect(await attemptState(attempt)).toMatchObject({ practised_tip: null, practice_session_id: b });
     }, 180_000);
 
-    it('NEGATIVE CONTROL: binding moved after the original expires breaks the ordering and loses the tip', async () => {
+    it('NEGATIVE CONTROL: binding moved after the original expires, without the registered-take protection, loses the tip', async () => {
         db = await shippedChain();
         const uid = await signup();
         const a = await take(uid);
         await coach(a);
         const attempt = await pressPracticeAgain(uid, a);
         await mutantBindAfterExpiry();
+        // Revision 4: the registration also protects the copy from this ordering; remove it to isolate the ordering control.
+        await mutateFn('public._prec_att_purge_tip_on_expire()', `a.tip_session_id IS NULL AND a.registered_session_id IS NULL AND EXISTS`, `a.tip_session_id IS NULL AND EXISTS`);
         const order = await recordEventOrder();
         const b = await take(uid);
         expect(await sessionState(a)).toMatchObject({ transcript_state: 'expired', has_review: false });
@@ -482,7 +524,7 @@ describe('outcome 4 D2 on the shipped save path (every shipped migration, real c
         const b = await startTake(uid);
         const attempt = await pressPracticeAgain(uid, a);
         await removeSupersedeOnSave();
-        await mutateFn('public._prec_att_purge_tip_on_expire()', `OR (a.tip_session_id IS NULL AND EXISTS (`, `OR (false AND EXISTS (`);
+        await mutateFn('public._prec_att_purge_tip_on_expire()', `OR (a.tip_session_id IS NULL AND a.registered_session_id IS NULL AND EXISTS (`, `OR (false AND EXISTS (`);
         await saveTake(uid, b, 'synthetic words for this take');
         expect(await sessionState(a)).toMatchObject({ transcript_state: 'expired' });
         expect(await attemptState(attempt)).toMatchObject({ practised_tip: TIP, tip_session_id: null });

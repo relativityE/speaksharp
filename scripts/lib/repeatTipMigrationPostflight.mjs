@@ -1,7 +1,8 @@
 // Exact catalog-only gate for the #1827 outcome 4 D2 migration (20261119120000). SELECT-only: it never invokes an RPC, reads an
-// account, session, attempt or tip row, or writes. The migration adds two attempt columns (practised_tip, tip_session_id), one
-// check constraint, one partial index, seven private `_prec_att_*` helpers (no API role may execute any of them), two attempt
-// triggers and two session triggers. "before" proves the predecessor ledger and that no target object exists; "after" proves the
+// account, session, attempt or tip row, or writes. The migration adds three attempt columns (practised_tip, tip_session_id,
+// registered_session_id), one check constraint, one partial index, seven private `_prec_att_*` helpers (no API role may
+// execute any of them), one owner RPC `register_practice_again_take_v1` (authenticated only), two attempt triggers and two
+// session triggers. "before" proves the predecessor ledger and that no target object exists; "after" proves the
 // whole touched catalog equals the reviewed expectation (repeatTipMigrationCatalog.json), which the offline test re-derives from
 // the exact migration bytes on the shipped chain, so it cannot drift from the source.
 import { createHash } from 'node:crypto';
@@ -13,10 +14,13 @@ export const REPEAT_TIP_VERSION = '20261119120000';
 const REQUIRED_APPLIED = Object.freeze(['20261114170000', '20261117105700']);
 const MUST_REMAIN_PENDING = Object.freeze(['20261027192550', '20261112130000']);
 export const REPEAT_TIP_FUNCTIONS = Object.freeze(['_prec_att_can_hold_tip', '_prec_att_guard_tip', '_prec_att_lock_owner',
-  '_prec_att_on_session_completed', '_prec_att_purge_tip_on_expire', '_prec_att_review_tip', '_prec_att_snapshot_tip']);
+  '_prec_att_on_session_completed', '_prec_att_purge_tip_on_expire', '_prec_att_review_tip', '_prec_att_snapshot_tip',
+  'register_practice_again_take_v1']);
+/** The one client RPC: executable by `authenticated` and no other API role. */
+export const REPEAT_TIP_CLIENT_RPC = 'register_practice_again_take_v1';
 export const REPEAT_TIP_TRIGGERS = Object.freeze(['trg_prec_att_guard_tip', 'trg_prec_att_snapshot_tip',
   'trg_sessions_prec_tip_on_completed', 'trg_sessions_purge_practised_tip_on_expire']);
-const COLUMNS = Object.freeze(['practised_tip', 'tip_session_id']);
+const COLUMNS = Object.freeze(['practised_tip', 'registered_session_id', 'tip_session_id']);
 const CONSTRAINT = 'prec_att_practised_tip_shape';
 const INDEX = 'idx_prec_att_tip_session';
 const API_ROLES = Object.freeze(['anon', 'authenticated', 'service_role']);
@@ -37,7 +41,7 @@ export function repeatTipContract(root, mode, version) {
   return { mode, version, targetSha256: pin.sha256, expected };
 }
 
-/** Five rows, each one JSON value: ledger, the seven helpers, the four triggers, the two columns, the constraint and index. */
+/** Five rows, each one JSON value: ledger, the eight functions, the four triggers, the three columns, the constraint and index. */
 export function repeatTipSnapshotQuery() {
   const versions = list([...REQUIRED_APPLIED, ...MUST_REMAIN_PENDING, REPEAT_TIP_VERSION]);
   return [
@@ -97,8 +101,9 @@ export function assertRepeatTipSnapshot(contract, rows) {
     if (present.length) throw new Error(`repeat tip target objects already present: ${present.slice(0, 5).join(',')}`);
     return { mode: 'before', version: contract.version, target: 'absent' };
   }
-  // No API role may execute a private helper, whatever the expectation says.
-  const exposed = functions.filter(fn => Array.isArray(fn.acl) && fn.acl.length > 0).map(fn => fn.signature);
+  // No API role may execute a private helper, and only `authenticated` the client RPC, whatever the expectation says.
+  const exposed = functions.filter(fn => !Array.isArray(fn.acl) || (fn.signature.startsWith(`public.${REPEAT_TIP_CLIENT_RPC}(`)
+    ? JSON.stringify(fn.acl) !== JSON.stringify(['authenticated']) : fn.acl.length > 0)).map(fn => fn.signature);
   if (exposed.length) throw new Error(`repeat tip helper executable by an API role: ${exposed.join(',')}`);
   const problems = [diffLists('functions', functions, contract.expected.functions), diffLists('triggers', triggers, contract.expected.triggers),
     diffLists('columns', columns, contract.expected.columns), diffLists('constraints', relation.constraints, contract.expected.constraints),

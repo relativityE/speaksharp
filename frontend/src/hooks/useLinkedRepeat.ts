@@ -5,6 +5,7 @@ import { useAuthProvider } from '@/contexts/AuthProvider';
 import { loadSessionProgress } from '@/services/progress/loadSessionProgress';
 import { abandonRecommendationAttempt, readPendingRecommendationAttempt, recordRecommendationAttempt } from '@/services/progress/recordProgress';
 import { getOpenAttemptForUser, openAttemptSnapshot, setOpenAttempt } from '@/services/progress/openAttempt';
+import { setPracticeAgainIntent } from '@/services/progress/practiceAgainIntent';
 import { isCurrentTargetOwner, resolveRepeatTarget, validateDisplayedTarget, type DisplayedRepeatTarget } from '@/services/progress/repeatPracticeTarget';
 import { authEpoch } from '@/services/loginSessionLog';
 import logger from '@/lib/logger';
@@ -123,6 +124,8 @@ export function useLinkedRepeat(sessionId: string) {
                 outcome = abandoned ? 'handoff_failed_abandoned' : 'handoff_failed_unclosed';
                 return;
             }
+            // #1827 D2 rev 4: this tab's next Start is the repeat; only it is registered with the attempt.
+            setPracticeAgainIntent({ attemptId, userId });
             if (authEpoch() !== startedEpoch || generation.current !== startedGeneration) return;
             if (target) {
                 const stored = getOpenAttemptForUser(userId);
