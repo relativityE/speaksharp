@@ -59,6 +59,7 @@ const { wireProgressEvaluationOnSave, reconcileProgressEvaluations, attemptProgr
 const { evaluateDurableStartGate } = await import('../progressStartGate');
 const { getQueuedSessionIdsForUser, enqueueProgressReconcile, PROGRESS_QUEUE_V2_PREFIX, PROGRESS_QUEUE_STORAGE_KEY } = await import('../progressReconcileQueue');
 const { setOpenAttempt, getOpenAttemptForUser } = await import('../openAttempt');
+const { setPracticeAgainIntent } = await import('../practiceAgainIntent');
 const { recordRecommendationObligation } = await import('../progressRecommendationObligation');
 
 const USER = 'user-1';
@@ -565,7 +566,8 @@ describe('Codex P2 r4276808814 — a load round evaluates every blocking entry b
 
 describe('#1827 D2 rev 4 (Codex P2) — only the registered take binds and resolves the shared handoff', () => {
     it('a take from another tab or product, saved first, is never bound or advanced; the registered take then is', async () => {
-        acceptAttempt('att-registered', 'sess-source', USER, '2026-10-13T10:00:00.000Z');
+        expect(setOpenAttempt({ attemptId: 'att-registered', userId: USER, sourceSessionId: 'sess-source',
+            acceptedAtIso: '2026-10-13T10:00:00.000Z', registrationRequired: true })).toBe(true);
         // C started after the click in another tab: no registration, so the handoff stays open for the repeat.
         expect(await within(wireProgressEvaluationOnSave(SAVE(N)))).toEqual({ kind: 'recorded' });
         await settle();
@@ -586,7 +588,7 @@ describe('#1827 D2 rev 4 (Codex P2) — only the registered take binds and resol
             : { data: null, error: { code: '42501', message: 'this session is not the take registered for this Practice again' } }));
         // An older tab already bound the shared handoff to C (N) before B registered.
         expect(setOpenAttempt({ attemptId: 'att-stale', userId: USER, sourceSessionId: 'sess-source', acceptedAtIso: '2026-10-13T10:00:00.000Z',
-            resolutionSessionId: N })).toBe(true);
+            resolutionSessionId: N, registrationRequired: true })).toBe(true);
         await reconcileProgressEvaluations(USER, []);          // no registration yet: C is not retried
         await settle();
         expect(callsTo('advance_recommendation_attempt')).toHaveLength(0);
@@ -600,5 +602,37 @@ describe('#1827 D2 rev 4 (Codex P2) — only the registered take binds and resol
         expect(callsTo('advance_recommendation_attempt').map((c) => c[1].p_practice_session_id)).toEqual([N1]);
         // Progress resolved B's comparison: the attempt is closed, not left pending.
         expect(getOpenAttemptForUser(USER)).toBeNull();
+    });
+});
+
+describe('#1827 D2 rev 4 (Codex P1/P2 on 4cf129fd) — legacy attempts, a failed handoff write, unrelated queued debt', () => {
+    it('P1: an attempt accepted by an older client (no registration) keeps the earlier first-take binding', async () => {
+        acceptAttempt('att-legacy', 'sess-source');                     // no registrationRequired, no registered take
+        expect(await within(wireProgressEvaluationOnSave(SAVE(N)))).toEqual({ kind: 'recorded' });
+        await settle();
+        expect(callsTo('advance_recommendation_attempt').map((c) => c[1].p_practice_session_id)).toEqual([N]);
+    });
+
+    it('P2: a registration held by this tab after a failed handoff write is restored and binds the registered take', async () => {
+        expect(setOpenAttempt({ attemptId: 'att-held', userId: USER, sourceSessionId: 'sess-source',
+            acceptedAtIso: '2026-10-13T10:00:00.000Z', registrationRequired: true })).toBe(true);
+        setPracticeAgainIntent({ attemptId: 'att-held', userId: USER, registeredSessionId: N1 });   // handoff write had failed
+        expect(await within(wireProgressEvaluationOnSave(SAVE(N1, USER, '2026-10-13T11:05:00.000Z')))).toEqual({ kind: 'recorded' });
+        await settle();
+        expect(callsTo('advance_recommendation_attempt').map((c) => c[1].p_practice_session_id)).toEqual([N1]);
+    });
+
+    it('P2: an unrelated older queued debt does not hold back the registered repeat on a recovery round', async () => {
+        expect(setOpenAttempt({ attemptId: 'att-queue', userId: USER, sourceSessionId: 'sess-source',
+            acceptedAtIso: '2026-10-13T10:00:00.000Z', registrationRequired: true, registeredSessionId: N1 })).toBe(true);
+        // An unrelated take N, queued after acceptance and started before N1, still owes evaluation (its evaluation keeps
+        // failing, so its debt stays queued while the registered repeat N1 is recovered).
+        rpcImpl.set('record_progress_evaluation', async (args) => (args.p_session_id === N
+            ? { data: null, error: { code: '08006', message: 'connection failure' } } : { data: 'eval-1', error: null }));
+        expect(enqueueProgressReconcile(N, USER, '2026-10-13T10:40:00.000Z', '2026-10-13T10:30:00.000Z').ok).toBe(true);
+        expect(enqueueProgressReconcile(N1, USER, '2026-10-13T11:10:00.000Z', '2026-10-13T11:00:00.000Z').ok).toBe(true);
+        await reconcileProgressEvaluations(USER, []);
+        await settle();
+        expect(callsTo('advance_recommendation_attempt').map((c) => c[1].p_practice_session_id)).toEqual([N1]);
     });
 });

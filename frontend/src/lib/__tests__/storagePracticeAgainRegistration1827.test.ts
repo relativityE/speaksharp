@@ -8,7 +8,7 @@ import { saveSession } from '../storage';
 import { getSupabaseClient } from '../supabaseClient';
 import logger from '../logger';
 import { clearOpenAttempt, getOpenAttemptForUser, setOpenAttempt } from '@/services/progress/openAttempt';
-import { clearPracticeAgainIntent, getPracticeAgainIntent, setPracticeAgainIntent } from '@/services/progress/practiceAgainIntent';
+import { clearPracticeAgainIntent, getPracticeAgainIntent, registeredTakeFor, setPracticeAgainIntent } from '@/services/progress/practiceAgainIntent';
 
 vi.mock('../supabaseClient');
 
@@ -69,4 +69,31 @@ describe('#1827 Practice again registers only this tab\'s next take', () => {
         await saveSession({ user_id: USER, duration: 0 } as never, 'private' as never);
         expect(registerCalls()).toHaveLength(0);
     });
+
+    it('Codex P1: before the migration (no registration function), this tab\'s take is still recorded as the repeat', async () => {
+        openAttempt();
+        setPracticeAgainIntent({ attemptId: ATTEMPT, userId: USER });
+        supabase.rpc.mockImplementation(async (name: string) => name === 'register_practice_again_take_v1'
+            ? { data: null, error: { code: 'PGRST202', message: 'Could not find the function' } } : created('s-legacy'));
+        expect((await saveSession({ user_id: USER, duration: 0 } as never, 'private' as never)).status).toBe('saved');
+        expect(getOpenAttemptForUser(USER)?.registeredSessionId).toBe('s-legacy');
+    });
+
+    it('Codex P2: a failed handoff write keeps the server registration in this tab, and it is written back later', async () => {
+        openAttempt();
+        setPracticeAgainIntent({ attemptId: ATTEMPT, userId: USER });
+        supabase.rpc.mockImplementation(async (name: string) => name === 'register_practice_again_take_v1' ? { data: true, error: null } : created('s-held'));
+        const realSet = Storage.prototype.setItem;
+        const failOnce = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+            if (this === localStorage && key === 'ss_progress_open_attempt_v1') throw new Error('QuotaExceededError');
+            return realSet.call(this, key, value);
+        });
+        expect((await saveSession({ user_id: USER, duration: 0 } as never, 'private' as never)).status).toBe('saved');
+        failOnce.mockRestore();
+        expect(getOpenAttemptForUser(USER)?.registeredSessionId).toBeUndefined();
+        expect(getPracticeAgainIntent(USER)?.registeredSessionId).toBe('s-held');
+        expect(registeredTakeFor(USER)).toBe('s-held');                 // restored once storage accepts it
+        expect(getOpenAttemptForUser(USER)?.registeredSessionId).toBe('s-held');
+    });
 });
+

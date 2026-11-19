@@ -254,7 +254,7 @@ describe('#1548 — the saved review names the target actually measured by its l
         fireEvent.click(await screen.findByTestId('progress-accept'));
         await waitFor(() => expect(navigate).toHaveBeenCalledWith('/session'));
         expect(sourceRead).not.toHaveBeenCalled();
-        expect(setOpenAttempt).toHaveBeenCalledWith({ attemptId: 'attempt-1', userId: 'user-1', sourceSessionId: 's1', acceptedAtIso: expect.any(String) });
+        expect(setOpenAttempt).toHaveBeenCalledWith({ attemptId: 'attempt-1', userId: 'user-1', sourceSessionId: 's1', acceptedAtIso: expect.any(String), registrationRequired: true });
     });
 
     it.each([

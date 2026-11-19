@@ -104,7 +104,7 @@ export function useLinkedRepeat(sessionId: string) {
             // proves which earlier press — on this device or another — created it, and the server's clock is never mixed
             // into client ordering. Known limitation: a take recorded between the lost create and this press stays
             // unlinked; it is never bound to a take that may predate the attempt.
-            const handoffStored = setOpenAttempt({ attemptId, userId, sourceSessionId: sessionId, acceptedAtIso,
+            const handoffStored = setOpenAttempt({ attemptId, userId, sourceSessionId: sessionId, acceptedAtIso, registrationRequired: true,
                 ...(reference ? { repeatTarget: reference } : {}) });
             if (!handoffStored) {
                 // A replacement account must never issue this original owner's cleanup request.

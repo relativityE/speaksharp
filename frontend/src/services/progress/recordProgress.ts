@@ -26,6 +26,7 @@ import {
 import type { ProgressDebtReason } from './progressDebtVocabulary';
 import { emitProgressDebt, progressDebtAgeMs } from '@/services/telemetry/progressDebtTelemetry';
 import { getOpenAttemptForUser, clearOpenAttemptIfMatches, setOpenAttempt } from './openAttempt';
+import { registeredTakeFor } from './practiceAgainIntent';
 import {
     clearRecommendationObligationIfMatches,
     listRecommendationObligations,
@@ -594,11 +595,19 @@ function bindOpenAttemptForTake(
 ): 'not_due' | 'bound' | 'failed' {
     const open = getOpenAttemptForUser(userId);
     if (!open || open.sourceSessionId === sessionId) return 'not_due'; // never resolve a recommendation against itself
-    // #1827 D2 rev 4 (Codex P2): only the take registered from the Practice-again tab resolves the attempt; the server
-    // refuses any other. A take from another tab or product, saved first, leaves the handoff for the registered take.
-    if (open.registeredSessionId !== sessionId) return 'not_due';
-    if (open.resolutionSessionId === sessionId) return 'bound';
-    // A resolution bound to another take (before registration existed) is replaced by the registered take below.
+    // #1827 D2 rev 4 (Codex P2 x2): an attempt from a registering client binds only its registered take; the server refuses
+    // any other. A take from another tab or product, saved first, leaves the handoff for the registered take. Registration
+    // names the exact take (server-checked: owner, product, started after the press), so no queue ordering or start
+    // boundary decides it, and an unrelated older debt cannot hold it back. A resolution left on another take is replaced.
+    const registered = registeredTakeFor(userId);
+    if (open.registrationRequired || registered) {
+        if (registered !== sessionId) return 'not_due';
+        if (open.resolutionSessionId === sessionId) return 'bound';
+        const current = getOpenAttemptForUser(userId) ?? open;
+        return setOpenAttempt({ ...current, registeredSessionId: sessionId, resolutionSessionId: sessionId }) ? 'bound' : 'failed';
+    }
+    // An attempt accepted by an older client (no registration): the earlier first-take rules, unchanged.
+    if (open.resolutionSessionId) return open.resolutionSessionId === sessionId ? 'bound' : 'not_due';
     // Fail closed on an UNKNOWN boundary: never bind on a guess (PM 6174115505).
     if (boundaryIso === null) return 'not_due';
     const accepted = open.acceptedAtIso;
@@ -652,7 +661,8 @@ async function resolveOpenAttemptWith(userId: string, newSessionId: string): Pro
     // take, and left the take the user actually practised unlinked. An unbound attempt waits for the take it belongs to.
     if (!open.resolutionSessionId) return;
     // #1827 D2 rev 4: never retry a resolution the server refuses (not the registered take); wait for the registered one.
-    if (open.registeredSessionId !== open.resolutionSessionId) return;
+    // An attempt from an older client (no registration) keeps settling as before.
+    if ((open.registrationRequired || registeredTakeFor(userId)) && registeredTakeFor(userId) !== open.resolutionSessionId) return;
     const resolutionSessionId = open.resolutionSessionId;
     const key = `${userId}\u0000${open.attemptId}`;
     const existing = advancesInFlight.get(key);

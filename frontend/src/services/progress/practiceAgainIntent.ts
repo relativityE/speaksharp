@@ -4,10 +4,15 @@
  * that attempt by `register_practice_again_take_v1`. A take started in another tab carries no intent, so it is never
  * registered and the server gives it neither the repeat link nor the tip. Content-free: ids only.
  */
-import { getOpenAttemptForUser } from './openAttempt';
+import { getOpenAttemptForUser, setOpenAttempt } from './openAttempt';
 
 const KEY = 'speaksharp_practice_again_intent_v1';
-export interface PracticeAgainIntent { attemptId: string; userId: string }
+export interface PracticeAgainIntent {
+    attemptId: string;
+    userId: string;
+    /** The take the server registered, kept here when the owner-wide handoff write failed (Codex P2), so it is not lost. */
+    registeredSessionId?: string;
+}
 
 export function setPracticeAgainIntent(intent: PracticeAgainIntent): void {
     try { if (typeof sessionStorage !== 'undefined') sessionStorage.setItem(KEY, JSON.stringify(intent)); } catch { /* best effort */ }
@@ -26,11 +31,25 @@ export function getPracticeAgainIntent(userId: string): PracticeAgainIntent | nu
         const parsed = JSON.parse(raw) as Partial<PracticeAgainIntent>;
         const open = getOpenAttemptForUser(userId);
         if (typeof parsed?.attemptId === 'string' && parsed.userId === userId && open?.attemptId === parsed.attemptId) {
-            return { attemptId: parsed.attemptId, userId };
+            return { attemptId: parsed.attemptId, userId,
+                ...(typeof parsed.registeredSessionId === 'string' ? { registeredSessionId: parsed.registeredSessionId } : {}) };
         }
         sessionStorage.removeItem(KEY);
         return null;
     } catch {
         return null;
     }
+}
+
+/**
+ * The take registered for the owner's open attempt: the handoff's own record, or this tab's held registration when the
+ * handoff write failed. A held registration is written back to the handoff as soon as storage accepts it.
+ */
+export function registeredTakeFor(userId: string): string | undefined {
+    const open = getOpenAttemptForUser(userId);
+    if (!open) return undefined;
+    if (open.registeredSessionId) return open.registeredSessionId;
+    const held = getPracticeAgainIntent(userId)?.registeredSessionId;
+    if (held) setOpenAttempt({ ...open, registeredSessionId: held });
+    return held;
 }
