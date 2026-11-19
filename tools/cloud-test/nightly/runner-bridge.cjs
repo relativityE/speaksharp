@@ -22,8 +22,10 @@
 // handoff (§3). Until then this bridge is proven offline only and must not be given a live run.
 const fs = require('node:fs');
 const { CLEANUP, RunRefused, openSharedRunBudget, planRunBudget, writeSharedPlan } = require('./run-budget.cjs');
-const { CleanupUndefined, cleanupReserve } = require('./cleanup-plan.cjs');
+const { CleanupUndefined, REQUIRED_CASE_RESIDUE_KINDS, cleanupReserve } = require('./cleanup-plan.cjs');
 const { caseWorstCaseMs, safeReason } = require('../harness/bundle/harness/campaign-core.cjs');
+// #1884 (Sam): J4.a's residue proof needs one scoped zero per named store of the shared cleanup inventory (residue-inventory.cjs).
+const J4A_REQUIRED_STORES = Object.freeze(require('./residue-inventory.cjs').j4aRequiredStores().map((s) => s.id));
 const { answerCreateAttempt, beginRun, recordCreateAttempt, unprovenCleanup, writeCleanupEvidence } = require('./cleanup-evidence.cjs');
 /** The default deadline an account-create transport is held to (it must fit inside LATE_COMPLETION_BOUND_MS). */
 const CREATE_DEADLINE_MS = 60_000;
@@ -51,7 +53,7 @@ function combineCleanup(parts) {
         const who = p.caseId ?? `case ${i + 1}`;
         if (!VERIFICATION_SHAPE(p.verification))
             return [`${who}: its residue verification is malformed`];
-        return unprovenCleanup({ reserveExhausted: false, steps: p.steps ?? [], left: p.left ?? [], created: p.created ?? [], verification: p.verification })
+        return unprovenCleanup({ reserveExhausted: false, steps: p.steps ?? [], left: p.left ?? [], created: p.created ?? [], verification: p.verification }, p.residueRule)
             .map((r) => `${who}: ${r}`);
     });
     const withUnproven = (o) => (unproven.length > 0 ? { ...o, unproven } : o);
@@ -129,6 +131,7 @@ function nightlyAdapter(io, opts) {
                     throw new Error(`nightly: ${c.id} cannot send for ${leg}`);
             };
             const createdHere = [];
+            const confirmedCreateScopes = new Map();
             const record = (leg, resource) => {
                 own(leg);
                 const journey = legById(leg).journey;
@@ -140,6 +143,8 @@ function nightlyAdapter(io, opts) {
                 legs: [...legs],
                 send: async (leg, kind, action) => { own(leg); return budget.send(leg, kind, action); },
                 cleanup: async (leg, action) => { own(leg); return budget.send(leg, CLEANUP, action); },
+                /** #1884: this journey's cleanup requests still grantable, or null when the budget can't be read. */
+                cleanupRemaining: (leg) => { own(leg); return budget.cleanupRemaining(legById(leg).journey); },
                 // Called BEFORE the send that creates (or may create) a resource, so an attempt whose answer is lost is
                 // still owed cleanup. The runner's record, not the teardown's report, decides what must be cleaned.
                 created: (leg, resource) => record(leg, resource),
@@ -183,6 +188,8 @@ function nightlyAdapter(io, opts) {
                     catch (e) {
                         return { sent: true, answered: false, reason: e.message, value };
                     }
+                    if (result.outcome === 'created')
+                        confirmedCreateScopes.set(leg, lookupRef);
                     return { sent: true, answered: true, value };
                 },
             });
@@ -205,7 +212,11 @@ function nightlyAdapter(io, opts) {
             finally {
                 // Each journey's cleanup is accounted from what the case reported; a case that threw reported nothing.
                 const journey = legById(legs[0]).journey;
-                const part = { ...(ran?.nightlyCleanup ?? { steps: [], left: [] }), caseId: c.id, created: [...createdHere] };
+                // Caller cleanup data cannot choose the audit scope or remove the pilot's required queries.
+                const residueRule = legs.includes('J4.a')
+                    ? { requiredKinds: REQUIRED_CASE_RESIDUE_KINDS['J4.a'], requiredStores: J4A_REQUIRED_STORES, confirmedScope: confirmedCreateScopes.get('J4.a') }
+                    : undefined;
+                const part = { ...(ran?.nightlyCleanup ?? { steps: [], left: [] }), caseId: c.id, created: [...createdHere], residueRule };
                 cleanupParts.set(journey, [...(cleanupParts.get(journey) ?? []), part]);
             }
             let split = null;
@@ -307,12 +318,17 @@ function nightlyAdapter(io, opts) {
     }
     function outcome() {
         const verdicts = ledger.verdicts();
+        // Until final evidence exists, even a passing leg is only an observation.
+        const affected = evidence?.incompleteJourneys ?? [];
+        const cleanupBlocker = budget && evidence?.cleanup !== 'complete'
+            ? (evidence ? `cleanup incomplete${affected.length ? ` (${affected.join(', ')})` : ''}` : 'cleanup not yet verified')
+            : null;
         return {
             admitted: budget !== null,
             cleanup: evidence ? { result: evidence.cleanup, incompleteJourneys: evidence.incompleteJourneys, reasons: evidence.incompleteReasons } : null,
             journalTorn: budget ? budget.journalTorn() : null,
             legs: Object.fromEntries([...verdicts].map(([leg, v]) => [leg, { outcome: v.outcome, reason: v.reason }])),
-            run: runVerdict(verdicts, budget ? budget.allocatedLegs() : []),
+            run: runVerdict(verdicts, budget ? budget.allocatedLegs() : [], cleanupBlocker),
         };
     }
     return { io: wrapped, outcome, finish };
