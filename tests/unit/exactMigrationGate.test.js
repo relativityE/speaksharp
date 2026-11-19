@@ -113,6 +113,30 @@ describe('C1 ordered exact-operation enforcement', () => {
         }
     });
 });
+describe('pre-apply connectivity covers every target whose checks read the verified pooler', () => {
+    // Codex P1 on #1899: connectivity_preflight is the only producer of $RUNNER_TEMP/pooler.env. A target named by any
+    // pre-apply step that reads it, but absent from the connectivity condition, can never reach apply.
+    it('names every such target (by version or file) in the connectivity_preflight condition', () => {
+        const workflow = yaml.load(readFileSync('.github/workflows/apply-exact-allowlisted-migration.yml', 'utf8'));
+        const steps = Object.values(workflow.jobs).find(job => job.steps?.some(step => step.id === 'apply')).steps;
+        const apply = steps.findIndex(step => step.id === 'apply');
+        const connectivityIndex = steps.findIndex(step => step.id === 'connectivity_preflight');
+        const connectivity = steps[connectivityIndex];
+        expect(connectivity.run).toContain('"$RUNNER_TEMP/pooler.env"');
+        const readers = steps.slice(connectivityIndex + 1, apply).filter(step => step.run?.includes('$RUNNER_TEMP/pooler.env'));
+        const targets = [...new Set(readers.flatMap(step => [...String(step.if ?? '').matchAll(/'(20\d{12})'/g)].map(m => m[1])))];
+        expect(targets).toEqual(expect.arrayContaining(['20261114100000', '20261114170000', '20261117105700']));
+        const missing = targets.filter(version => {
+            const file = EXACT_MIGRATION_ALLOWLIST.find(row => row.version === version)?.file ?? version;
+            return !connectivity.if.includes(`'${version}'`) && !connectivity.if.includes(file.replace(/\.sql$/, ''));
+        });
+        expect(missing).toEqual([]);
+        // The two release targets are named explicitly, not by a substring of another target.
+        for (const version of ['20261114170000', '20261117105700']) {
+            expect(connectivity.if).toContain(`steps.contract.outputs.target_version == '${version}'`);
+        }
+    });
+});
 describe('six-target T2 exact-operation enforcement', () => {
     it.each(t2Versions)('requires the named %s postflight and refuses missing/skipped/wrong evidence', version => {
         const targetFile = EXACT_MIGRATION_ALLOWLIST.find(row => row.version === version).file;
