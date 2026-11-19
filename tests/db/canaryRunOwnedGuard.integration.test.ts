@@ -11,6 +11,7 @@
  *  - Auth admin port: identity and `app_metadata` come from this test (Supabase Auth is not in SQL); `deleteUser` is a real
  *    `DELETE FROM auth.users`, so the guard trigger, not this file, decides success. It runs as the fixture's table owner.
  *  - PostgREST port: `from().select().eq()` / `from().delete().eq()` are real SQL over the migrated tables, as the fixture owner.
+ *  - RPC port: `rpc()` calls the REAL save-journal cleanup functions as `service_role`, the only role granted EXECUTE.
  *  - Residue tables outside the save/delete path that the fixture chain does not create are created EMPTY with the production
  *    `ON DELETE CASCADE` to auth.users, so every residue read is a real query.
  */
@@ -23,6 +24,9 @@ import { BINDING_KEY } from '../../scripts/lib/canaryRunOwnedSweep.mjs';
 import { cleanupLane, sweepLane } from '../../scripts/lib/canaryRunOwnedLane.mjs';
 
 const GUARD_MIGRATION = 'backend/supabase/migrations/20261020230653_account_pending_completion_journal_1643.sql';
+// #1643 follow-up: the service_role-only save-journal cleanup the shared helper now calls after deletion.
+const SAVE_JOURNAL_CLEANUP_MIGRATION = 'backend/supabase/migrations/20261119200000_deleted_account_save_journal_cleanup_1643.sql';
+const SAVE_JOURNAL_FNS = ['delete_deleted_account_save_journal_v1', 'count_account_save_journal_v1'];
 const FIXTURE_ONLY_RESIDUE_TABLES = ['user_goals', 'user_filler_words', 'session_attribution_authority', 'session_attribution_challenge',
     'session_attribution_unattributed', 'progress_recommendations', 'progress_recommendation_attempts', 'objective_project',
     'objective_brief', 'objective_brief_point', 'objective_session', 'objective_source_recording', 'objective_evidence', 'objective_action'];
@@ -42,6 +46,7 @@ const owner = async <T>(fn: () => Promise<T>) => { await db.exec('RESET ROLE; SE
 const text = (v: unknown) => (v instanceof Date ? v.toISOString() : v);
 const row = (r: Record<string, unknown>) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, text(v)]));
 const one = async <T = unknown>(sql: string, args: unknown[] = []) => owner(async () => (await db.query<Record<string, T>>(sql, args)).rows);
+const service = async <T>(fn: () => Promise<T>) => { await db.exec('RESET ROLE; SET ROLE service_role'); try { return await fn(); } finally { await db.exec('RESET ROLE'); } };
 
 /** The two ports over the real migrated database (see the boundaries above). */
 function sqlAdmin() {
@@ -63,6 +68,13 @@ function sqlAdmin() {
             }),
             deleteUser,
         } },
+        rpc: vi.fn(async (fn: string, args: { p_user_id: string }) => {
+            if (!SAVE_JOURNAL_FNS.includes(fn)) throw new Error('bad function');
+            try {
+                const { rows } = await service(() => db.query<{ n: number }>(`SELECT public.${fn}($1::uuid) AS n`, [args.p_user_id]));
+                return { data: Number(rows[0].n), error: null };
+            } catch (e) { return { data: null, error: { code: (e as { code?: string }).code, message: (e as Error).message } }; }
+        }),
         from: (table: string) => {
             if (!NAME.test(table)) throw new Error('bad table');
             return {
@@ -120,6 +132,7 @@ describe('#1826 canary cleanup against the ACTUAL #1643 deletion guard (PGlite, 
         db = new PGlite();
         await db.exec(completionBootstrap());
         await db.exec(`SET ROLE closure_owner; ${readFileSync(GUARD_MIGRATION, 'utf8')} RESET ROLE;`);
+        await db.exec(`SET ROLE closure_owner; ${readFileSync(SAVE_JOURNAL_CLEANUP_MIGRATION, 'utf8')} RESET ROLE;`);
         await db.exec(`SET ROLE closure_owner; ${FIXTURE_ONLY_RESIDUE_TABLES.map((t) => `CREATE TABLE public.${t}(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE);`).join(' ')} RESET ROLE;`);
     }, 120_000);
     afterAll(async () => { await db?.close(); });
@@ -172,7 +185,7 @@ describe('#1826 canary cleanup against the ACTUAL #1643 deletion guard (PGlite, 
         await a.landSave();
         expect(await a.obligations()).toEqual(['completed']);
         expect(await cleanupLane({ admin: sqlAdmin(), env: process.env, cleanup: canaryCleanup })).toEqual({ ok: true, code: 'cleanup-verified', deleted: 1 });
-        expect({ exists: await a.exists(), trial: await a.trialRows() }).toEqual({ exists: false, trial: 0 });
+        expect({ exists: await a.exists(), trial: await a.trialRows(), obligations: await a.obligations() }).toEqual({ exists: false, trial: 0, obligations: [] });
     });
 
     it('normal completed take: the shared cleanup deletes through the REAL guard (pre-delete, deletion, zero residue)', async () => {
@@ -182,7 +195,7 @@ describe('#1826 canary cleanup against the ACTUAL #1643 deletion guard (PGlite, 
         const admin = sqlAdmin();
         expect(await cleanupLane({ admin, env: process.env, cleanup: canaryCleanup })).toEqual({ ok: true, code: 'cleanup-verified', deleted: 1 });
         expect(admin.deleteUser).toHaveBeenCalledTimes(1);
-        expect({ exists: await a.exists(), trial: await a.trialRows() }).toEqual({ exists: false, trial: 0 });
+        expect({ exists: await a.exists(), trial: await a.trialRows(), obligations: await a.obligations() }).toEqual({ exists: false, trial: 0, obligations: [] });
     });
 
     it('released lease with no take (debt the read cannot see): the REAL guard refuses → delete_refused; Auth and debt preserved, but the trial-entitlement row WAS pre-deleted (not "nothing written")', async () => {
