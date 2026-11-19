@@ -6,10 +6,11 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
     J3B_REPEAT_ROW, J3_ACCEPTANCE_CONSENT_MODE, J3_PRIVACY_ROW, J3_SAVED_TIMING_ROW, focusAcceptancePrivacyVerdict,
-    focusSavedTimingVerdict, j3bRepeatReopenVerdict, type RepeatReopenObservation, type SavedTimingObservation,
+    focusSavedTimingVerdict, j3bRepeatReopenVerdict, repeatReviewCard, type RepeatReopenObservation, type SavedTimingObservation,
 } from '../live/helpers/rwtJ3Evidence';
 import { savedFocusIdentityVerdict, type SavedFocusIdentityObservation } from '../live/helpers/rwtSavedFocusIdentity';
 import { persistedVerdictMismatches } from '../live/helpers/rwtOracles';
+import { loadedReviewSessionId } from '../live/helpers/rwtJ1dJourney';
 import { requiredAutomatedRows } from '../live/helpers/rwtAcceptance';
 
 describe('focusAcceptancePrivacyVerdict — bound before Start', () => {
@@ -78,7 +79,7 @@ const identity = (over: Partial<SavedFocusIdentityObservation> = {}) => savedFoc
 const repeat = (over: Partial<RepeatReopenObservation> = {}): RepeatReopenObservation => ({
     reviewMode: 'coaching_on', firstSessionId: 's1', repeatSessionId: 's2', firstObjectiveId: 'o1',
     repeatObjective: { id: 'o2', source_session_id: 's2', brief_id: 'b1' }, repeatCoachingSaved: true, firstBriefId: 'b1',
-    repeatIdentity: identity(), firstMismatchesAfter: [], ...over,
+    repeatIdentity: identity(), firstMismatchesAfter: [], repeatCardId: 's2', ...over,
 });
 
 describe('j3bRepeatReopenVerdict — one repeat on the same set, its own save, reopened', () => {
@@ -99,6 +100,10 @@ describe('j3bRepeatReopenVerdict — one repeat on the same set, its own save, r
         ['repeat changed the first take', { firstMismatchesAfter: [2] }, 'FAIL', 'first_take_changed'],
         ['repeat coaching not saved', { repeatCoachingSaved: false }, 'HOLD', 'no_saved_review'],
         ['repeat identity unread', { repeatIdentity: null }, 'HOLD', 'saved_unread'],
+        // Sam, Nov 19 on 947d357: the reopened card must be the repeat's own, by its loaded id.
+        ['no card id loaded', { repeatCardId: null }, 'HOLD', 'repeat_card_not_loaded'],
+        ['the first take\'s card, identical statuses, wrong id', { repeatCardId: 's1' }, 'FAIL', 'repeat_card_wrong_id'],
+        ['another session\'s card', { repeatCardId: 's9' }, 'FAIL', 'repeat_card_wrong_id'],
     ] as const)('%s', (_name, over, status, reason) => {
         expect(j3bRepeatReopenVerdict(repeat(over as Partial<RepeatReopenObservation>))).toEqual({ status, reason });
     });
@@ -148,5 +153,53 @@ describe('J3 rows are required and written by the journey', () => {
     it('saved timing reads this take\'s own objective session and its detection times', () => {
         expect(journey).toMatch(/select\('brief_point_id,verdict,detected_at_seconds'\)\s*\n\s*\.eq\('session_id', session\.id\)/);
         expect(journey).toMatch(/focusSavedTimingVerdict\(\{ elapsedSec, savedDurationSec: savedDuration, shownAverageSec: average/);
+    });
+});
+
+describe('J3.b reads only the repeat\'s own review card (Sam, Nov 19 on 947d357)', () => {
+    const journey = readFileSync('tests/live/helpers/rwtFocusPointsJourney.ts', 'utf8');
+    const step = journey.slice(journey.indexOf("'J3.b — the repeat take saved and reopened against the fixture'"),
+        journey.indexOf("'the repeat result names the measured metric'"));
+    const S1 = '11111111-1111-4111-8111-111111111111';
+    const S2 = '22222222-2222-4222-8222-222222222222';
+    /** A reopened Analytics page whose first card is still the first take's, with the same visible statuses. */
+    const staleFirstCardPage = () => {
+        const selectors: string[] = [];
+        return { selectors, page: {
+            getByTestId: (id: string) => ({ first: () => ({ getAttribute: async (name: string) => (id === 'saved-review' && name === 'data-session-id' ? S1 : null) }) }),
+            waitForTimeout: async () => undefined,
+            locator: (sel: string) => { selectors.push(sel); return sel; },
+        } };
+    };
+    it('control: the first take\'s card with identical statuses but the wrong id never passes as the repeat', async () => {
+        const { page } = staleFirstCardPage();
+        const loaded = await loadedReviewSessionId(page, 1_000);
+        expect(loaded).toBe(S1);
+        // The statuses on that card match the fixture exactly (the old read would have taken them as the repeat's).
+        const sameStatuses = identity();
+        expect(sameStatuses.verdict).toBe('PASS');
+        expect(j3bRepeatReopenVerdict(repeat({ firstSessionId: S1, repeatSessionId: S2, repeatObjective: { id: 'o2', source_session_id: S2, brief_id: 'b1' },
+            repeatIdentity: sameStatuses, repeatCardId: loaded }))).toEqual({ status: 'FAIL', reason: 'repeat_card_wrong_id' });
+    });
+    it('HOLD when no card id loads in time', async () => {
+        let t = 0;
+        const page = { getByTestId: () => ({ first: () => ({ getAttribute: async () => null }) }), waitForTimeout: async (ms: number) => { t += ms; } };
+        const loaded = await loadedReviewSessionId(page, 1_000, () => t);
+        expect(loaded).toBeNull();
+        expect(j3bRepeatReopenVerdict(repeat({ repeatCardId: loaded }))).toEqual({ status: 'HOLD', reason: 'repeat_card_not_loaded' });
+    });
+    it('the card scope is the saved-review card carrying exactly the repeat id, and refuses a non-UUID', () => {
+        const { page, selectors } = staleFirstCardPage();
+        expect(repeatReviewCard(page, S2)).toBe(`[data-testid="saved-review"][data-session-id="${S2}"]`);
+        expect(selectors).toEqual([`[data-testid="saved-review"][data-session-id="${S2}"]`]);
+        expect(() => repeatReviewCard(page, '"] , *')).toThrow(/fail closed/);
+    });
+    it('the journey waits for the loaded id, reads evidence only inside the repeat\'s card, and judges the loaded id', () => {
+        const load = step.indexOf('repeatCardId = await loadedReviewSessionId(tab);');
+        expect(load).toBeGreaterThan(step.indexOf('await tab.goto(`/analytics/${repeatSessionId}`);'));
+        expect(step.indexOf('if (repeatCardId === repeatSessionId) {')).toBeGreaterThan(load);
+        expect(step.indexOf("repeatReviewCard(tab, repeatSessionId).getByTestId('review-evidence').first()")).toBeGreaterThan(load);
+        expect(step).not.toMatch(/tab\.getByTestId\('review-evidence'\)/);
+        expect(step).toMatch(/firstMismatchesAfter, repeatCardId \}\);/);
     });
 });

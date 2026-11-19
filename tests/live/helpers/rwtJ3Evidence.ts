@@ -90,6 +90,12 @@ export interface RepeatReopenObservation {
     repeatIdentity: SavedFocusIdentityResult | null;
     /** `persistedVerdictMismatches` of the first take's evidence re-read after the repeat; null when unread. */
     firstMismatchesAfter: readonly number[] | null;
+    /**
+     * The session the reopened review card was actually read from (`loadedReviewSessionId`, the J1.d pattern: the card's
+     * `data-session-id`). null: no id loaded in time. Evidence is read only from the card carrying the repeat's own id (Sam,
+     * Nov 19 on 947d357), so a still-displayed first-take card with identical statuses can never stand in for the repeat.
+     */
+    repeatCardId: string | null;
 }
 
 export function j3bRepeatReopenVerdict(o: RepeatReopenObservation): J3Verdict {
@@ -105,7 +111,18 @@ export function j3bRepeatReopenVerdict(o: RepeatReopenObservation): J3Verdict {
     if (o.firstMismatchesAfter === null || o.repeatCoachingSaved === null) return { status: 'HOLD', reason: 'saved_unread' };
     if (o.firstMismatchesAfter.length > 0) return { status: 'FAIL', reason: 'first_take_changed' };
     if (!o.repeatCoachingSaved) return { status: 'HOLD', reason: 'no_saved_review' };
+    if (o.repeatCardId === null) return { status: 'HOLD', reason: 'repeat_card_not_loaded' };
+    if (o.repeatCardId !== o.repeatSessionId) return { status: 'FAIL', reason: 'repeat_card_wrong_id' };
     if (o.repeatIdentity === null) return { status: 'HOLD', reason: 'saved_unread' };
     if (o.repeatIdentity.verdict !== 'PASS') return { status: 'FAIL', reason: 'repeat_differs_from_fixture' };
     return { status: 'PASS', reason: 'repeat_saved_and_reopened' };
+}
+
+/** The smallest part of a Playwright page the card scope needs. */
+export interface CardScopePage<L> { locator(selector: string): L }
+
+/** The saved-review card carrying exactly this session id (`data-session-id`); ids are UUIDs, so the selector is exact. */
+export function repeatReviewCard<L>(page: CardScopePage<L>, sessionId: string): L {
+    if (!/^[0-9a-f-]{36}$/i.test(sessionId)) throw new Error('repeat card scope needs a session UUID (fail closed)');
+    return page.locator(`[data-testid="saved-review"][data-session-id="${sessionId}"]`);
 }

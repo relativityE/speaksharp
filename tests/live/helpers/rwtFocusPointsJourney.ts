@@ -23,7 +23,8 @@ import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbac
 import { cleanupRunOwnedAccount } from './runOwnedCleanup';
 import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, armWatchdog, watchProfileFor, type JourneyFinalizer } from './rwtWatchdog';
 import { savedFocusIdentityVerdict } from './rwtSavedFocusIdentity';
-import { J3B_REPEAT_ROW, J3_PRIVACY_ROW, J3_SAVED_TIMING_ROW, focusAcceptancePrivacyVerdict, focusSavedTimingVerdict, j3bRepeatReopenVerdict } from './rwtJ3Evidence';
+import { J3B_REPEAT_ROW, J3_PRIVACY_ROW, J3_SAVED_TIMING_ROW, focusAcceptancePrivacyVerdict, focusSavedTimingVerdict, j3bRepeatReopenVerdict, repeatReviewCard } from './rwtJ3Evidence';
+import { loadedReviewSessionId } from './rwtJ1dJourney';
 import { railSettled, readRailRowCount } from './rwtLiveTimedTake';
 import { armTakeMonitor, awaitTakeOutcome, disposeTakeMonitor, holdMeasuredLiveTake, readTakeMonitor, stopMeasuredTake, stopMonitoredTake, takeEvidenceRows, type ArmedTakeMonitor, type TakeOutcome } from './rwtLiveTakeMonitor';
 import { consentModeFrom, consentReadbackVerdict, settlePracticeConsent, type ChoiceClient, type SavedSessionRead, type SettledConsent } from './rwtPracticeConsent';
@@ -1089,6 +1090,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 let firstMismatchesAfter: number[] | null = null;
                 let repeatCoachingSaved: boolean | null = null;
                 let repeatIdentity: ReturnType<typeof savedFocusIdentityVerdict> | null = null;
+                let repeatCardId: string | null = null;
                 try {
                     if (persistedId && firstObjectiveId) {
                         const { data: firstOs, error: e1 } = await admin!.from('objective_session').select('brief_id').eq('id', firstObjectiveId).eq('user_id', owner.uid).maybeSingle();
@@ -1122,9 +1124,14 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                             let visible: string[] = [];
                             try {
                                 await tab.goto(`/analytics/${repeatSessionId}`);
-                                const block = tab.getByTestId('review-evidence').first();
-                                if (await block.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false)) {
-                                    visible = (await block.innerText({ timeout: 10_000 }).catch(() => '')).split('\n');
+                                // J1.d pattern (Sam, Nov 19 on 947d357): wait for the card's own loaded id, and read evidence only
+                                // from the card that carries the repeat's id; any other card (the first take's) is never read.
+                                repeatCardId = await loadedReviewSessionId(tab);
+                                if (repeatCardId === repeatSessionId) {
+                                    const block = repeatReviewCard(tab, repeatSessionId).getByTestId('review-evidence').first();
+                                    if (await block.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false)) {
+                                        visible = (await block.innerText({ timeout: 10_000 }).catch(() => '')).split('\n');
+                                    }
                                 }
                             } finally { await tab.close(); }
                             // The fixture's own statuses, never the repeat's rail or its saved result under test.
@@ -1139,7 +1146,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     } else repeatObjective = null;
                 } catch { /* every unread part stays null / 'error' and holds */ }
                 const v = j3bRepeatReopenVerdict({ reviewMode: reviewModeOf(consent), firstSessionId: persistedId, repeatSessionId, firstObjectiveId,
-                    repeatObjective, repeatCoachingSaved, firstBriefId, repeatIdentity, firstMismatchesAfter });
+                    repeatObjective, repeatCoachingSaved, firstBriefId, repeatIdentity, firstMismatchesAfter, repeatCardId });
                 receipt.row(J3B_REPEAT_ROW, v.status, v.status === 'PASS'
                     ? 'the repeat on the same set saved on its own, its saved and reopened point results match the fixture (partial counts as detected), and the first take is unchanged'
                     : 'the repeat take is not proved to be its own save matching the fixture, or it changed the first take',

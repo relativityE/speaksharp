@@ -230,7 +230,7 @@ export const HELPER_CONTRACTS = Object.freeze([{
   callables:["parseCompletionAttempt","attemptEvidence","completionAttemptsVerdict","exactRetrySaveVerdict","reviewReopenVerdict","transcriptDigest"],
 }, {
   helperFile:'tests/live/helpers/rwtJ3Evidence.ts',testFile:'tests/unit/rwtJ3Evidence.test.ts',
-  callables:["focusAcceptancePrivacyVerdict","focusSavedTimingVerdict","j3bRepeatReopenVerdict"],
+  callables:["focusAcceptancePrivacyVerdict","focusSavedTimingVerdict","j3bRepeatReopenVerdict","repeatReviewCard"],
 }, {
   helperFile:'tests/live/helpers/rwtTwoPlaces.ts',testFile:'tests/unit/rwtTwoPlaces.test.ts',
   callables:["sameBrowserRefusedVerdict","displacedFenceVerdict"],

@@ -47,7 +47,7 @@ const AHT1811_HELPERS=[
   ['tests/live/helpers/rwtNavigationRows.ts','tests/unit/rwtNavigationRows.test.ts',["sessionFactsFromRows","sessionWritesVerdict","historyPreservedVerdict","deepLinkTarget","listedOwnTarget","returnEntryMicVerdict","renderedOwnDetailVerdict","renderedOwnDetailRow"]],
   ['tests/live/helpers/rwtPendingStartRecovery.ts','tests/unit/rwtPendingStartRecovery.test.ts',["recoveryTakePlan","recoveryTakeVerdict"]],
   ['tests/live/helpers/rwtSaveRetryAttempts.ts','tests/unit/rwtSaveRetryAttempts.test.ts',["parseCompletionAttempt","attemptEvidence","completionAttemptsVerdict","exactRetrySaveVerdict","reviewReopenVerdict","transcriptDigest"]],
-  ['tests/live/helpers/rwtJ3Evidence.ts','tests/unit/rwtJ3Evidence.test.ts',["focusAcceptancePrivacyVerdict","focusSavedTimingVerdict","j3bRepeatReopenVerdict"]],
+  ['tests/live/helpers/rwtJ3Evidence.ts','tests/unit/rwtJ3Evidence.test.ts',["focusAcceptancePrivacyVerdict","focusSavedTimingVerdict","j3bRepeatReopenVerdict","repeatReviewCard"]],
   ['tests/live/helpers/rwtTwoPlaces.ts','tests/unit/rwtTwoPlaces.test.ts',["sameBrowserRefusedVerdict","displacedFenceVerdict"]],
 ];
 test('AHT-02 through AHT-15 helpers select exact offline callable consumers on helper-only changes',()=>{
