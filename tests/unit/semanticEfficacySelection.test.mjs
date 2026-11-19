@@ -25,7 +25,7 @@ for(const input of inputs) test(`source-only ${input} requires the unchanged sav
     const base=run(root,['rev-parse','HEAD']);
     fs.appendFileSync(target,'source-only change\n');
     assert.deepEqual(selectContracts(root,[input]).map(contract=>contract.id),
-      input.endsWith('.sql')?['save-consent-boundary','coaching-consent-boundary']:['save-consent-boundary']);
+      input.endsWith('.sql')?['save-consent-boundary','coaching-consent-boundary']:['save-consent-boundary','retry-save-single-owned-take','retry-save-cleanup-finalization']);
     const expected=executionContext(root,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
     assert.equal(executionCoverage([],{root,expected,base}).pilot.status,'NOT RUN');
     const receipt={...expected,provenance:expected,base,status:'executed',contracts:[{id:'analytics-truth'}]};
@@ -39,5 +39,55 @@ test('scope selection still covers analytics, and empty no-base never narrows th
   assert.deepEqual(requiredSemanticContracts(['README.md']),[]);
   assert.deepEqual(requiredSemanticContracts(['frontend/src/utils/metricValidity.ts']).map(c=>c.id),['analytics-truth']);
   assert.deepEqual(requiredSemanticContracts(['frontend/src/lib/storage.ts']).map(c=>c.id),['analytics-truth','save-consent-boundary']);
-  assert.deepEqual(requiredSemanticContracts(null).map(c=>c.id),['analytics-truth','save-consent-boundary','coaching-consent-boundary']);
+  assert.deepEqual(requiredSemanticContracts(null).map(c=>c.id),['analytics-truth','save-consent-boundary','coaching-consent-boundary','retry-save-single-owned-take','retry-save-cleanup-finalization']);
+});
+
+test('an Edge consent reader change requires the unchanged native Deno consumer',async()=>{
+  const {changedEvidencePaths}=await import('../../scripts/lib/testExecutionEvidence.mjs');
+  const {COACHING_EDGE_TEST,selectNativeContracts}=await import('../../scripts/lib/nativeTestExecutionEvidence.mjs');
+  const root=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'efficacy-edge-source-')));
+  try {
+    const reader='backend/supabase/functions/get-ai-suggestions/practicePrivacy.ts';
+    for(const file of [reader,COACHING_EDGE_TEST]) {
+      const target=path.join(root,file);
+      fs.mkdirSync(path.dirname(target),{recursive:true});
+      fs.writeFileSync(target,'synthetic fixture only\n');
+    }
+    run(root,['init']); run(root,['add','.']);
+    run(root,['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-m','baseline']);
+    const base=run(root,['rev-parse','HEAD']);
+    assert.deepEqual(changedEvidencePaths(root,base),[]);
+    fs.appendFileSync(path.join(root,reader),'changed Edge authority\n');
+    assert.deepEqual(changedEvidencePaths(root,base),[COACHING_EDGE_TEST]);
+    assert.deepEqual(selectNativeContracts(root,changedEvidencePaths(root,base)),
+      [{testFile:COACHING_EDGE_TEST,runner:'deno',helpers:[],batch:0}]);
+    const expected=executionContext(root,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
+    const coverage=executionCoverage([COACHING_EDGE_TEST],{root,expected,base});
+    assert.equal(coverage.status,'INCOMPLETE');
+    assert.equal(coverage.rows[0].status,'NOT RUN');
+  } finally {fs.rmSync(root,{recursive:true,force:true});}
+});
+
+test('a source-only Retry Save change requires the unchanged browser control',async()=>{
+  const {changedEvidencePaths,executionRoute}=await import('../../scripts/lib/testExecutionEvidence.mjs');
+  const root=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'efficacy-retry-browser-')));
+  try {
+    const source='tests/live/rwt-save-retry-recovery.live.spec.ts';
+    const browser='tests/e2e/rwt-j4a-save-no-forward.e2e.spec.ts';
+    for(const file of [source,browser]) {
+      const target=path.join(root,file);
+      fs.mkdirSync(path.dirname(target),{recursive:true});
+      fs.writeFileSync(target,'synthetic fixture only\n');
+    }
+    run(root,['init']); run(root,['add','.']);
+    run(root,['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-m','baseline']);
+    const base=run(root,['rev-parse','HEAD']);
+    assert.deepEqual(changedEvidencePaths(root,base),[]);
+    fs.appendFileSync(path.join(root,source),'change the route only\n');
+    const files=changedEvidencePaths(root,base);
+    assert.deepEqual(files,[browser,source]);
+    assert.equal(executionRoute(browser,root).runner,'playwright');
+    const expected=executionContext(root,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
+    assert.equal(executionCoverage(files,{root,expected,base}).rows.find(row=>row.file===browser).status,'NOT RUN');
+  } finally {fs.rmSync(root,{recursive:true,force:true});}
 });

@@ -30,6 +30,10 @@ const attempt = (ordinal: number, raw: string, afterRetry: boolean, dropped: boo
     ({ ...parseCompletionAttempt(ordinal, raw, afterRetry, dropped), httpStatus });
 
 describe('completionAttemptsVerdict', () => {
+    it('refuses a third request for the same take after an answered Retry Save', () => {
+        const duplicate = [attempt(1, body(), false, true, null), attempt(2, body(), true, false, 200), attempt(3, body(), true, false, 200)];
+        expect(completionAttemptsVerdict(duplicate).status).toBe('FAIL');
+    });
     it('the fault, then one Retry with the same body answered 2xx → PASS; the next take is out of scope', () => {
         const a = [attempt(1, body(), false, true, null), attempt(2, body(), true, false, 200), attempt(3, body({ p_session_id: NEXT }), true, false, 200)];
         expect(completionAttemptsVerdict(a).status).toBe('PASS');
@@ -75,6 +79,11 @@ const harnessSaved = (b: Record<string, unknown>, bef: SavedRow, rows: SavedRow[
 }).durableSaved;
 
 describe('exactRetrySaveVerdict (agrees with durable-save-oracle compareSavedRows)', () => {
+    it('refuses a completed row from a different owner even for the exact take', () => {
+        const foreign = saved({ user_id: NEXT });
+        expect(harnessSaved(payload(), before(), [foreign])).toBe(false);
+        expect(exactRetrySaveVerdict(payload(), before(), [foreign], TAKE).status).toBe('FAIL');
+    });
     const cases: [string, Record<string, unknown>, SavedRow, SavedRow[], 'PASS' | 'FAIL'][] = [
         ['exact save', payload(), before(), [saved()], 'PASS'],
         ['duration clamped to 600', payload({ p_final_duration: 900 }), before(), [saved({ duration: 600 })], 'PASS'],

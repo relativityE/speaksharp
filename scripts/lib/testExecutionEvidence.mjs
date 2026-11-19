@@ -8,7 +8,7 @@ import { canonicalPath, runtimeIdentity } from '../efficacy-reporter.mjs';
 import {HELPER_CONTRACTS,registeredHelper,helperApplicability, HELPER_CONFIG, validateHelperCoverage} from './helperExecutionEvidence.mjs';
 import {registeredSourceContract,sourceContractApplicability,SOURCE_CONSUMER,validateSourceContractWitness} from './sourceContractEvidence.mjs';
 import {validatePlaywrightExecution} from './playwrightExecutionEvidence.mjs';
-import {nativeTestRoute,nativeHelper,validateNativeReceipt,SQL_CONTRACTS,sqlContract,sqlSourceBinding,validateSqlWitness,
+import {COACHING_EDGE_TEST,nativeTestRoute,nativeHelper,validateNativeReceipt,SQL_CONTRACTS,sqlContract,sqlSourceBinding,validateSqlWitness,
   NATIVE_BATCH_SIZE,NATIVE_MAX_BATCHES,reconcileExecutionBatches} from './nativeTestExecutionEvidence.mjs';
 import {pythonTestRoute,validatePythonReceipt} from './pythonTestExecutionEvidence.mjs';
 
@@ -287,14 +287,29 @@ function changedPaths(root, base) {
   ] : all;
   return [...new Set(files.filter(Boolean))].sort();
 }
+const J4A_SAVE_ROUTE_BROWSER_TEST='tests/e2e/rwt-j4a-save-no-forward.e2e.spec.ts';
+const J4A_SAVE_ROUTE_INPUTS=new Set([
+  'tests/live/rwt-save-retry-recovery.live.spec.ts',
+  'tests/live/helpers/rwtSaveRetryAttempts.ts',
+]);
+const COACHING_EDGE_SOURCE_INPUTS=new Set([
+  'backend/supabase/functions/get-ai-suggestions/index.ts',
+  'backend/supabase/functions/get-ai-suggestions/practicePrivacy.ts',
+]);
 export function changedEvidencePaths(root, base) {
   // Deletions still affect raw change/pilot applicability, but cannot be executed.
   // lstat retains malformed existing entries (including dangling links) for refusal.
   // Python unittest modules are named test_*.py; outside tests/ they were silently omitted, not reported UNCOVERED.
   // A registered native helper is evidence input by registration, wherever it lives: without this a change to
   // tools/cloud-test/scripts/prerequisite_preflight.cjs alone never reached its node:test consumer (#1787).
-  return changedPaths(root,base).filter(file=>(/^(tests\/|frontend\/tests\/|backend\/supabase\/functions\/.*(?:test|fixture))|\/(?:__tests__|__mocks__|fixtures|mocks)\/|\.(?:test|spec)\.|\.sql$|(?:^|\/)test_[^/]+\.py$/.test(file)
+  const changed=changedPaths(root,base);
+  const evidence=changed.filter(file=>(/^(tests\/|frontend\/tests\/|backend\/supabase\/functions\/.*(?:test|fixture))|\/(?:__tests__|__mocks__|fixtures|mocks)\/|\.(?:test|spec)\.|\.sql$|(?:^|\/)test_[^/]+\.py$/.test(file)
     || nativeHelper(file)!==undefined || pythonTestRoute(file)?.runner==='python-unittest-input') && fs.lstatSync(path.join(root,file),{throwIfNoEntry:false})!==undefined);
+  // The actual producer and qualifier both derive this from the Git delta;
+  // frontend-only receipts cannot satisfy a change to the Edge authority.
+  if(changed.some(file=>COACHING_EDGE_SOURCE_INPUTS.has(file)))evidence.push(COACHING_EDGE_TEST);
+  if(changed.some(file=>J4A_SAVE_ROUTE_INPUTS.has(file)))evidence.push(J4A_SAVE_ROUTE_BROWSER_TEST);
+  return [...new Set(evidence)].sort();
 }
 
 export function executionRequiredFiles(root,base,kind='changed-evidence') {
@@ -367,14 +382,27 @@ const COACHING_CONSENT_INPUTS=new Set([
   'frontend/src/components/session/AISuggestions.tsx',
   'frontend/src/components/session/__tests__/coachingConsent1835.test.tsx',
   'backend/supabase/migrations/20261117105700_practice_privacy_choices_1835.sql',
-  'backend/supabase/functions/get-ai-suggestions/index.ts',
+  ...COACHING_EDGE_SOURCE_INPUTS,
+]);
+const RETRY_SAVE_INPUTS=new Set([
+  'tests/live/rwt-save-retry-recovery.live.spec.ts',
+  'tests/live/helpers/rwtSaveRetryAttempts.ts',
+  'tests/unit/rwtSaveRetryAttempts.test.ts',
+]);
+const RETRY_CLEANUP_INPUTS=new Set([
+  'tests/live/rwt-save-retry-recovery.live.spec.ts',
+  'tests/live/helpers/rwtWatchdog.ts',
+  'tests/live/helpers/runOwnedCleanup.ts',
+  'tests/unit/rwtCleanupFinalizationEfficacy.test.ts',
 ]);
 export function requiredSemanticContracts(files) {
   if(files===null)return TEST_EFFICACY_CONTRACTS;
   return TEST_EFFICACY_CONTRACTS.filter(contract=>contract.id==='analytics-truth'
     ?pilotAffectedByPaths(files)
     :contract.id==='save-consent-boundary'?files.some(file=>SAVE_CONSENT_INPUTS.has(file))
-      :contract.id==='coaching-consent-boundary' && files.some(file=>COACHING_CONSENT_INPUTS.has(file)));
+      :contract.id==='coaching-consent-boundary'?files.some(file=>COACHING_CONSENT_INPUTS.has(file))
+        :contract.id==='retry-save-single-owned-take'?files.some(file=>RETRY_SAVE_INPUTS.has(file))
+          :contract.id==='retry-save-cleanup-finalization' && files.some(file=>RETRY_CLEANUP_INPUTS.has(file)));
 }
 
 function expectedPhaseInputs(root, expected, contract) {

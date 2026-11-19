@@ -73,6 +73,8 @@ function signedUpAccounts(legs) {
     return cases.size + caseless.size;
 }
 
+// Only the J4.a pilot is being qualified in #1884. A missing resource record must not narrow its cleanup scope.
+const REQUIRED_CASE_RESIDUE_KINDS = Object.freeze({ 'J4.a': Object.freeze(['account', 'session', 'lease']) });
 const CLEANUP_REQUEST_DEADLINE_S = 10;
 /** Cases whose run writes feedback behind a fence (#1859, #1860): each needs its fence closed, cleaned and verified. */
 // J8 is one invocation with ONE AHT-07+AHT-08 fence (#1870), so it closes, cleans and verifies one fence, not two.
@@ -135,6 +137,6 @@ function cleanupReserve(journeyId) {
 const reserveMinutes = (r) => Math.ceil(r.seconds / 60);
 
 module.exports = {
-    ACCOUNT_DELETION, CLEANUP_REQUEST_DEADLINE_S, CleanupUndefined, FENCED_CASES, SOURCE_COUNTS, UNDEFINED_CLEANUP,
+    ACCOUNT_DELETION, CLEANUP_REQUEST_DEADLINE_S, REQUIRED_CASE_RESIDUE_KINDS, CleanupUndefined, FENCED_CASES, SOURCE_COUNTS, UNDEFINED_CLEANUP,
     MAINTAINED_CASES, cleanupReserve, reserveMinutes, runOwnedAccounts, signedUpAccounts, signupOwnerLegs,
 };

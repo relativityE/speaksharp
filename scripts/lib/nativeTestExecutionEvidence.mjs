@@ -177,7 +177,10 @@ export function nativeWarmupCommand(binding) {
 // supplies its value; permission only lets the module observe absence. Network,
 // files, child processes and all other environment names remain denied.
 const checkoutTest='backend/supabase/functions/stripe-checkout/index.test.ts';
-const coachingTest='backend/supabase/functions/get-ai-suggestions/index.test.ts';
+export const COACHING_EDGE_TEST='backend/supabase/functions/get-ai-suggestions/index.test.ts';
+export const COACHING_EDGE_CONSENT_CASE='#1905 saved Open Mic and Focus coaching honor owner consent at send and persist';
+const COACHING_EFFICACY_PROFILE='coaching-consent-efficacy-1905';
+const coachingTest=COACHING_EDGE_TEST;
 const coachingClosure=Object.freeze({
   'backend/supabase/functions/_shared/cors.ts':'74ab664c710d733534d8e0af433b0c4c48110a2dec1d5436f04f55147225e608',
   'backend/supabase/functions/deno.json':'6e88bc8b0df10b78fb39e1c26492164a351f350d6d4046eca09df4ebebd681a0',
@@ -360,6 +363,12 @@ const coachingProfiles=Object.freeze([
     'backend/supabase/functions/get-ai-suggestions/evaluation/prompt.ts':'16d40c6b1500b535bf45e0d1d07699ab509f68879c39586cf8ebd4363c7f92ee',
     'backend/supabase/functions/get-ai-suggestions/evaluation/transcripts.json':'a4db4fdac8c4e2bd6c113d83c87ed458eac6197d99b1ccc747822bfad52b9a1a'}},
 ]);
+// #1905 adds assertions only. The authority, permission envelope and every import remain pinned.
+const coachingEfficacyProfiles=coachingProfiles.filter(item=>item.id==='coaching-persist-entitlement-1899').map(item=>({
+  id:COACHING_EFFICACY_PROFILE,files:{...item.files,
+    [coachingTest]:'765e7041f7abdbd80790f0ca34cf4f71d7ccffe078a62ae3befdc7c0e0a91449',
+  },
+}));
 export function nativeDenoPolicy(file) {
   return {schemaVersion:1,testFile:file,environment:{names:file===coachingTest?['GEMINI_API_KEY']:file===checkoutTest?['STRIPE_SECRET_KEY']:[],
     initial:'absent',inherit:false,syntheticValue:file===coachingTest?'test-key':null,reinject:false},
@@ -367,7 +376,7 @@ export function nativeDenoPolicy(file) {
 }
 export function validateSyntheticSource(root,file) {
   if(file!==coachingTest)return null;
-  const profile=coachingProfiles.find(candidate=>{
+  const profile=[...coachingProfiles,...coachingEfficacyProfiles].find(candidate=>{
     try{return Object.entries(candidate.files).every(([entry,digest])=>hash(fs.readFileSync(regular(root,entry)))===digest);}
     catch{return false;}
   });
@@ -555,7 +564,7 @@ export function parseNodeEvents(raw,binding) {
     ||counts?.tests!==assertions||counts?.passed!==assertions)fail('Native Node terminal summary absent, zero-test or unsuccessful');
   return {collected:collected.length,assertions};
 }
-export function parseDenoJunit(raw,binding,root) {
+export function parseDenoJunit(raw,binding,root,requiredCases=[]) {
   const require=createRequire(path.join(root,'node_modules/jsdom/package.json'));
   const {SaxesParser}=require('saxes');
   const parser=new SaxesParser({xmlns:false});let malformed=false,rootSeen=false;
@@ -582,6 +591,7 @@ export function parseDenoJunit(raw,binding,root) {
   if(malformed||!rootSeen||stack.length!==0||suites.length!==1||!matches(suites[0].name)||!cases.length
     ||Number(suites[0].tests)!==cases.length||Number(suites[0].failures)!==0||Number(suites[0].errors)!==0
     ||Number(suites[0].skipped??0)!==0||Number(suites[0].disabled??0)!==0||cases.some(item=>!item.name||!matches(item.classname)))fail('Deno JUnit collection absent, failed, skipped or wrong-file');
+  if(requiredCases.some(name=>cases.filter(item=>item.name===name).length!==1))fail('Deno JUnit required case missing or duplicated');
   return {collected:1,assertions:cases.length};
 }
 // One tracker spans warmup and test children. Every spawn invalidates drainage
@@ -737,7 +747,8 @@ export function validateNativePhase(phase,{root,provenance,inputSha256,runId,con
     validateWarmup(phase.warmup,b);
   }
   else if(phase.warmup||b.cacheDirectory)fail('Unexpected Node warmup/cache');
-  const counts=contract.runner==='deno'?parseDenoJunit(phase.stdout,b,root):parseNodeEvents(phase.stdout,b);
+  const requiredCases=b.syntheticSource?.id===COACHING_EFFICACY_PROFILE?[COACHING_EDGE_CONSENT_CASE]:[];
+  const counts=contract.runner==='deno'?parseDenoJunit(phase.stdout,b,root,requiredCases):parseNodeEvents(phase.stdout,b);
   if(!counts.assertions)fail('Native zero-test execution');
   return {counts,helpers:validateNativeCallables(phase.coverage,b,root,contract.helpers)};
 }

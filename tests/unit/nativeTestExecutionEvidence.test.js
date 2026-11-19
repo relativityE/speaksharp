@@ -178,6 +178,14 @@ test('Deno parses real-shaped JUnit with the actually installed jsdom-relative s
   assert.equal(JSON.parse(fs.readFileSync(require.resolve('saxes/package.json'))).version,'6.0.0');
   assert.deepEqual(parseDenoJunit(xml(),denoBinding,root),{collected:1,assertions:1});
 });
+test('Deno JUnit requires an exact named case, once, when the source contract requires it',()=>{
+  const spec='actual assertion';
+  assert.deepEqual(parseDenoJunit(xml(),denoBinding,root,[spec]),{collected:1,assertions:1});
+  assert.throws(()=>parseDenoJunit(xml().replace(spec,'some other success'),denoBinding,root,[spec]),/required case/);
+  const duplicate=xml('<testcase name="actual assertion" classname="./backend/supabase/functions/fixture.test.ts"/>'.repeat(2),
+    'tests="2" failures="0" errors="0"');
+  assert.throws(()=>parseDenoJunit(duplicate,denoBinding,root,[spec]),/required case/);
+});
 for(const [name,raw] of [
   ['absent',''],['truncated',xml().slice(0,-10)],['invalid entity',xml().replace('actual assertion','&missing;')],
   ['wrong file',xml().replaceAll('fixture.test.ts','other.test.ts')],['zero tests',xml('','tests="0" failures="0" errors="0"')],
@@ -366,7 +374,7 @@ test('reviewed coaching source admits exactly its pinned inputs (handler, provid
   try {
     const admitted=validateSyntheticSource(f.dir,entry);
 
-    assert.equal(admitted.id,'coaching-persist-entitlement-1899');
+    assert.equal(admitted.id,'coaching-consent-efficacy-1905');
     assert.equal(Object.keys(admitted.files).length,17);
     for(const added of ['evaluation/prompt.ts','evaluation/transcripts.json','practicePrivacy.ts'])
       assert.ok(files.includes(`backend/supabase/functions/get-ai-suggestions/${added}`),added);
@@ -379,7 +387,7 @@ test('reviewed coaching source admits exactly its pinned inputs (handler, provid
       f.write(file,original);
     }
 
-    assert.equal(validateSyntheticSource(f.dir,entry).id,'coaching-persist-entitlement-1899');
+    assert.equal(validateSyntheticSource(f.dir,entry).id,'coaching-consent-efficacy-1905');
   }finally{f.clean();}
 });
 test('owned frozen import warmup is separate and cannot disappear, fail, drift or grant test permissions',()=>{

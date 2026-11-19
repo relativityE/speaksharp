@@ -39,6 +39,7 @@ export const PYTHON_INPUT_CONTRACTS=Object.freeze([
   {inputFile:'tools/cloud-test/tests/fixtures/nightly-control-plane.yml.proposed',testFile:'tools/cloud-test/tests/test_nightly_regression.py'},
   {inputFile:'tools/cloud-test/tests/fixtures/nightly-request.json',testFile:'tools/cloud-test/tests/test_nightly_regression.py'},
   {inputFile:'tools/cloud-test/tests/fixtures/nightly-template.synthetic.json',testFile:'tools/cloud-test/tests/test_nightly_request.py'},
+  {inputFile:'tools/cloud-test/tests/fixtures/j4a-offline-packet.patch.fixture',testFile:'tools/cloud-test/tests/test_nightly_suite.py'},
   {inputFile:'tools/cloud-test/tests/fixtures/original-r15-pins.json',testFile:'tools/cloud-test/tests/test_runnable_package.py'},
   {inputFile:'tools/cloud-test/tests/fixtures/partial-request.json',testFile:'tools/cloud-test/tests/test_pipeline_and_report.py'},
   {inputFile:'tools/cloud-test/tests/fixtures/plan-facts.PLACEHOLDER.json',testFile:'tools/cloud-test/tests/test_selected_full_case_route.py'},
@@ -55,6 +56,16 @@ export const PYTHON_INPUT_CONTRACTS=Object.freeze([
   {inputFile:'tools/cloud-test/tests/fixtures/unexecuted/jobs-42406851270.json',testFile:'tools/cloud-test/tests/test_rejected_before_any_step.py'},
   {inputFile:'tools/cloud-test/tests/fixtures/unexecuted/run-41960376782.json',testFile:'tools/cloud-test/tests/test_unexecuted_attempt_evidence.py'},
   {inputFile:'tools/cloud-test/tests/fixtures/unexecuted/run-42406851270.json',testFile:'tools/cloud-test/tests/test_rejected_before_any_step.py'},
+  {inputFile:'tools/cloud-test/tests/fixtures/nightly/j4a-guarded-owner.test.cjs.fixture',testFile:'tools/cloud-test/tests/test_nightly_suite.py'},
+  {inputFile:'tools/cloud-test/tests/fixtures/nightly/j4a-nightly-entry.test.cjs.fixture',testFile:'tools/cloud-test/tests/test_nightly_suite.py'},
+  {inputFile:'tools/cloud-test/tests/fixtures/nightly/j4a-supervised-adapter.test.cjs.fixture',testFile:'tools/cloud-test/tests/test_nightly_suite.py'},
+  {inputFile:'tools/cloud-test/tests/fixtures/nightly/j4a-supervised-entrypoint.test.cjs.fixture',testFile:'tools/cloud-test/tests/test_nightly_suite.py'},
+  {inputFile:'tools/cloud-test/tests/fixtures/nightly/j4a-supervisor-termination.test.cjs.fixture',testFile:'tools/cloud-test/tests/test_nightly_suite.py'},
+  {inputFile:'tools/cloud-test/nightly/tests/fixtures/j4a-entry-child.cjs',testFile:'tools/cloud-test/tests/test_nightly_suite.py'},
+  {inputFile:'tools/cloud-test/nightly/tests/fixtures/j4a-guarded-child.cjs',testFile:'tools/cloud-test/tests/test_nightly_suite.py'},
+  {inputFile:'tools/cloud-test/nightly/tests/fixtures/j4a-supervised-child.cjs',testFile:'tools/cloud-test/tests/test_nightly_suite.py'},
+  {inputFile:'tools/cloud-test/nightly/tests/fixtures/j4a-writer-proof.cjs',testFile:'tools/cloud-test/tests/test_nightly_suite.py'},
+  {inputFile:'tools/cloud-test/nightly/tests/fixtures/no-proc-shim.cjs',testFile:'tools/cloud-test/tests/test_nightly_suite.py'},
 ]);
 
 function regular(root,file) {

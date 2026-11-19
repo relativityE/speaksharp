@@ -92,6 +92,56 @@ export const TEST_EFFICACY_CONTRACTS = Object.freeze([
       },
     ],
   },
+  {
+    id: 'retry-save-single-owned-take',
+    testFile: 'tests/unit/rwtSaveRetryAttempts.test.ts',
+    sourceFile: 'tests/live/helpers/rwtSaveRetryAttempts.ts',
+    control: [
+      { anchor: 'if (own.length > 2) return', replacement: 'if (2 < own.length) return' },
+      { anchor: 'row.user_id !== before.user_id', replacement: 'before.user_id !== row.user_id' },
+    ],
+    mutants: [
+      {
+        id: 'allow-extra-retry-attempt',
+        anchor: 'if (own.length > 2) return',
+        replacement: 'if (own.length > 3) return',
+        assertion: 'completionAttemptsVerdict refuses a third request for the same take after an answered Retry Save',
+        assertionAnchor: "expect(completionAttemptsVerdict(duplicate).status).toBe('FAIL');",
+      },
+      {
+        id: 'accept-wrong-owner-saved-take',
+        anchor: 'row.user_id !== before.user_id',
+        replacement: 'false',
+        assertion: 'exactRetrySaveVerdict (agrees with durable-save-oracle compareSavedRows) refuses a completed row from a different owner even for the exact take',
+        assertionAnchor: "expect(exactRetrySaveVerdict(payload(), before(), [foreign], TAKE).status).toBe('FAIL');",
+      },
+    ],
+  },
+  {
+    id: 'retry-save-cleanup-finalization',
+    testFile: 'tests/unit/rwtCleanupFinalizationEfficacy.test.ts',
+    sourceFile: 'tests/live/helpers/rwtWatchdog.ts',
+    control: [
+      { anchor: "if (settlement === 'deleted') receipt.row", replacement: "if ('deleted' === settlement) receipt.row" },
+      { anchor: "'timeout', { critical: true });", replacement: "'timeout', { critical: Boolean(true) });" },
+    ],
+    mutants: [
+      {
+        id: 'report-unverified-cleanup-pass',
+        anchor: "if (settlement === 'deleted') receipt.row",
+        replacement: "if (settlement === 'deleted' || settlement === 'pending') receipt.row",
+        assertion: 'Retry Save cleanup finalization does not report an unverified deletion as successful cleanup',
+        assertionAnchor: "expect(rows[0]?.verdict).toBe('FAIL');",
+      },
+      {
+        id: 'downgrade-failed-cleanup-finalization',
+        anchor: "'timeout', { critical: true });",
+        replacement: "'timeout', { critical: false });",
+        assertion: 'Retry Save cleanup finalization makes failed residue readback a failed journey finalization',
+        assertionAnchor: "expect(rows.at(-1)?.verdict).toBe('FAIL');",
+      },
+    ],
+  },
 ]);
 
 export function qualifyEfficacyPhase(report, execution, { assertion, baselineNames, envelope, binding, assertionLocation } = {}) {

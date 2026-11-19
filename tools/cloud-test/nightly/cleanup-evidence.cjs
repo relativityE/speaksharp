@@ -35,7 +35,7 @@ const VERIFICATION_KINDS = Object.freeze(['zero-residue', 'nothing-created']);
  * completed cleanup step for that exact resource, the residue verification must query every created kind, and
  * `nothing-created` is refused when anything was created.
  */
-function unprovenCleanup(j) {
+function unprovenCleanup(j, { requiredKinds = [], requiredStores = [], confirmedScope } = {}) {
     const reasons = [];
     if (j.reserveExhausted)
         reasons.push('cleanup reserve exhausted');
@@ -72,6 +72,22 @@ function unprovenCleanup(j) {
             if (!queried.has(kind))
                 reasons.push(`no residue query for ${kind}`);
         }
+    }
+    if (requiredKinds.length > 0) {
+        if (typeof confirmedScope !== 'string' || !REF.test(confirmedScope))
+            reasons.push('no confirmed guarded-create scope for required residue queries');
+        const queries = v?.kind === 'zero-residue' && Array.isArray(v.queries) ? v.queries : [];
+        for (const kind of requiredKinds) {
+            if (!queries.some((q) => q?.kind === kind && q.scope === confirmedScope && isCount(q.count) && q.count === 0))
+                reasons.push(`no residue query for ${kind} with observed zero on the confirmed account scope`);
+        }
+    }
+    // #1884 (Sam): every named store needs its OWN scoped zero (`store` identity bound to the confirmed scope). A zero for another store
+    // or a generic kind never stands in for one that was omitted, unread or unobserved.
+    for (const store of requiredStores) {
+        const queries = v?.kind === 'zero-residue' && Array.isArray(v.queries) ? v.queries : [];
+        if (!queries.some((q) => q?.store === store && q.scope === confirmedScope && isCount(q.count) && q.count === 0))
+            reasons.push(`no residue query for store ${store} with observed zero on the confirmed account scope`);
     }
     return reasons;
 }
@@ -318,6 +334,22 @@ function recordCreateAttempt(dir, runId, { attemptId, leg, lookupRef, transportD
     }
     durableWrite(attemptFile(dir, runId, attemptId, 'sent'), { runId, attemptId, leg, kind: 'account', lookupRef, ...(emailDomain === undefined ? {} : { emailDomain }), transportDeadlineMs, recordedAt: at });
 }
+/**
+ * #1884 parent-owned teardown: the journey's ONE durable create record in this run, `{ sent, answered }` (answered null when no
+ * validated terminal result was written), or null when there is none, more than one, or any record can't be read. Teardown
+ * establishes ownership from this record, never from the child.
+ */
+function journeyCreateRecord(dir, runId, journey) {
+    checkRunId(runId);
+    const docs = journeyAttempts(dir, runId, journey);
+    if (docs === null || docs.length !== 1) return null;
+    const sent = docs[0];
+    if (typeof sent?.attemptId !== 'string' || !ATTEMPT_ID.test(sent.attemptId)) return null;
+    const file = attemptFile(dir, runId, sent.attemptId, 'answered');
+    if (!fs.existsSync(file)) return { sent, answered: null };
+    const answered = readAttempt(file);
+    return answered === null ? null : { sent, answered };
+}
 /** The recorded (sent) account-create attempt, or null when it was never recorded or can't be read. */
 function readSentAttempt(dir, runId, attemptId) {
     checkRunId(runId);
@@ -561,5 +593,5 @@ function admitRun(dir, opts = {}) {
 
 module.exports = {
     ADMISSION_LOCK, AdmissionRefused, MAX_TRANSPORT_DEADLINE_MS, RESOURCE_KINDS, SERVER_CREATE_DEADLINE, VERIFICATION_KINDS, admitRun, answerCreateAttempt, beginRun,
-    readSentAttempt, recordAttemptLanded, recordAttemptRecovery, recordCreateAttempt, recordRecovery, unprovenCleanup, writeCleanupEvidence,
+    journeyCreateRecord, readSentAttempt, recordAttemptLanded, recordAttemptRecovery, recordCreateAttempt, recordRecovery, unprovenCleanup, writeCleanupEvidence,
 };
