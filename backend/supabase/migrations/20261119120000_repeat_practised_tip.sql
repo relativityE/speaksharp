@@ -254,6 +254,12 @@ BEGIN
                       JOIN public.sessions src ON src.id = r.source_session_id
                      WHERE r.id = a.recommendation_id AND src.id <> NEW.id
                        AND (src.created_at, src.id) < (NEW.created_at, NEW.id)))
+            -- #1835: not yet bound, and the owner turned AI coaching off after Practice again was pressed. The copy is
+            -- retired before it can be carried into the repeat; the original's own saved review is untouched.
+            OR (a.tip_session_id IS NULL
+                AND NOT EXISTS (
+                    SELECT 1 FROM public.practice_privacy_choices c
+                     WHERE c.user_id = NEW.user_id AND c.ai_coaching AND c.consent_version = 1))
        );
 
     UPDATE public.progress_recommendation_attempts a

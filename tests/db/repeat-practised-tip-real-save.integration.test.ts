@@ -253,6 +253,72 @@ describe('outcome 4 D2 on the shipped save path (every shipped migration, real c
         expect(await sessionState(a)).toMatchObject({ has_review: true });
     }, 180_000);
 
+    it('wrong take: an unrelated take already recording when Practice again is pressed, saved first, cannot claim the tip', async () => {
+        db = await shippedChain();
+        const uid = await signup();
+        const a = await take(uid);
+        await coach(a);
+        const unrelated = await startTake(uid);              // recording BEFORE Practice again was pressed
+        const attempt = await pressPracticeAgain(uid, a);
+        expect((await attemptState(attempt)).practised_tip).toBe(TIP);
+        await saveTake(uid, unrelated, 'unrelated words');   // saved first
+        // Not bound to the unrelated take; the copy is retired rather than left for a take it does not belong to.
+        expect(await attemptState(attempt)).toMatchObject({ practised_tip: null, tip_session_id: null });
+        const repeat = await take(uid);
+        expect(await attemptState(attempt)).toMatchObject({ practised_tip: null, tip_session_id: null });
+        await advance(uid, attempt, 'not_comparable', repeat);
+        expect((await attemptState(attempt)).practised_tip).toBeNull();
+    }, 180_000);
+
+    it('NEGATIVE CONTROL: without the "started after Practice again" rule, the unrelated take claims the tip', async () => {
+        db = await shippedChain();
+        await db.exec(`CREATE OR REPLACE FUNCTION public._prec_att_can_hold_tip(p_attempt public.progress_recommendation_attempts, p_session uuid)
+            RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
+            SELECT EXISTS (SELECT 1 FROM public.sessions s
+              JOIN public.progress_recommendations r ON r.id = p_attempt.recommendation_id AND r.user_id = p_attempt.user_id
+              JOIN public.sessions src ON src.id = r.source_session_id
+             WHERE s.id = p_session AND s.user_id = p_attempt.user_id AND s.status = 'completed' AND s.id <> src.id
+               AND (src.created_at, src.id) < (s.created_at, s.id)); $$;`);
+        const uid = await signup();
+        const a = await take(uid);
+        await coach(a);
+        const unrelated = await startTake(uid);
+        const attempt = await pressPracticeAgain(uid, a);
+        await saveTake(uid, unrelated, 'unrelated words');
+        expect(await attemptState(attempt)).toMatchObject({ practised_tip: TIP, tip_session_id: unrelated });
+    }, 180_000);
+
+    it('#1835 consent revoked after Practice again, before the repeat saves: the tip is not carried into the repeat', async () => {
+        db = await shippedChain();
+        const uid = await signup();
+        const a = await take(uid);
+        await coach(a);
+        const attempt = await pressPracticeAgain(uid, a);
+        expect((await attemptState(attempt)).practised_tip).toBe(TIP);
+        await asUser(uid, () => db!.query('SELECT * FROM public.set_practice_privacy_choices_v1(true, false, 1)'));
+        const repeat = await take(uid);
+        expect(await attemptState(attempt)).toMatchObject({ practised_tip: null, tip_session_id: null });
+        await advance(uid, attempt, 'not_comparable', repeat);
+        expect((await attemptState(attempt)).practised_tip).toBeNull();
+    }, 180_000);
+
+    it('NEGATIVE CONTROL: without the bind-time consent clause, a copy taken before revocation is carried into the repeat', async () => {
+        db = await shippedChain();
+        const migration = readFileSync(resolve(DIR, D2), 'utf8');
+        const fn = migration.slice(migration.indexOf('CREATE OR REPLACE FUNCTION public._prec_att_on_session_completed()'),
+            migration.indexOf('DROP TRIGGER IF EXISTS trg_sessions_prec_tip_on_completed'));
+        const bindConsent = /\n\s*-- #1835: not yet bound, and the owner turned AI coaching off[\s\S]*?c\.consent_version = 1\)\)/;
+        expect(fn).toMatch(bindConsent);
+        await db.exec(fn.replace(bindConsent, ''));
+        const uid = await signup();
+        const a = await take(uid);
+        await coach(a);
+        const attempt = await pressPracticeAgain(uid, a);
+        await asUser(uid, () => db!.query('SELECT * FROM public.set_practice_privacy_choices_v1(true, false, 1)'));
+        const repeat = await take(uid);
+        expect(await attemptState(attempt)).toMatchObject({ practised_tip: TIP, tip_session_id: repeat });
+    }, 180_000);
+
     it('NEGATIVE CONTROL: without the #1835 consent clause, Practice again copies the tip although coaching is off', async () => {
         db = await shippedChain();
         // The shipped snapshot function with only its consent clause removed (derived from the exact migration text).

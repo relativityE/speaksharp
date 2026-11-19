@@ -141,7 +141,7 @@ const PRACTICE_PRIVACY=Object.freeze({name:'20261117105700_practice_privacy_choi
   version:'20261117105700',sha256:'8e21fe2237c70c75fcaeee8cb74e17b679ab187f6936b9ccd5c311c51dedf9b7'});
 // #1827 D2 repeat tip: pinned repository inventory, withheld by every profile until its reviewed stage exists.
 const REPEAT_TIP=Object.freeze({name:'20261119120000_repeat_practised_tip.sql',
-  version:'20261119120000',sha256:'e69dd0bde64c1edd272f879dec5a6bc4d0bdc20d434cb8f0a081ded11d8b1ebe'});
+  version:'20261119120000',sha256:'44c31f02daa51827b10fa1c59315363f0866e687972faee6535752ff8f5cd3f4'});
 const physical=repositoryPhysical.filter(row=>![WITHHELD.name,START_ABANDONMENT.name,REFUND.name,FEEDBACK_FENCE.name,PAYMENT_WALL.name,PRACTICE_PRIVACY.name,REPEAT_TIP.name].includes(row.name));
 const main = physical.filter(row => ![U1.name, ANALYTICS.name, ...ACCOUNT.map(row=>row.name), FENCE.name, RETENTION.name, BILLING.name].includes(row.name));
 const receiving = [...main, U1].sort((a, b) => a.name.localeCompare(b.name, 'en'));

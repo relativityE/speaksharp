@@ -1,6 +1,6 @@
 {
  "version": "20261119120000",
- "targetSha256": "e69dd0bde64c1edd272f879dec5a6bc4d0bdc20d434cb8f0a081ded11d8b1ebe",
+ "targetSha256": "44c31f02daa51827b10fa1c59315363f0866e687972faee6535752ff8f5cd3f4",
  "derivation": "Offline PGlite replay of the shipped chain (billing settlement and the refund follow-up withheld), then the exact migration; re-derived by tests/db/repeatTipPostflight.integration.test.ts.",
  "functions": [
   {
@@ -41,7 +41,7 @@
   },
   {
    "signature": "public._prec_att_on_session_completed()",
-   "md5": "3a561aa9f6117f11cc5a9a2568cbb52b",
+   "md5": "3243601ccdb67774648b0c42c96482f8",
    "definer": true,
    "config": [
     "search_path=public, pg_temp"
