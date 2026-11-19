@@ -49,6 +49,11 @@ export const PYTHON_INPUT_CONTRACTS=Object.freeze([
   {inputFile:'tools/cloud-test/tests/fixtures/unexecuted/jobs-42406851270.json',testFile:'tools/cloud-test/tests/test_rejected_before_any_step.py'},
   {inputFile:'tools/cloud-test/tests/fixtures/unexecuted/run-41960376782.json',testFile:'tools/cloud-test/tests/test_unexecuted_attempt_evidence.py'},
   {inputFile:'tools/cloud-test/tests/fixtures/unexecuted/run-42406851270.json',testFile:'tools/cloud-test/tests/test_rejected_before_any_step.py'},
+  {inputFile:'tools/cloud-test/nightly/tests/fixtures/j4a-entry-child.cjs',testFile:'tools/cloud-test/tests/test_nightly_suite.py'},
+  {inputFile:'tools/cloud-test/nightly/tests/fixtures/j4a-guarded-child.cjs',testFile:'tools/cloud-test/tests/test_nightly_suite.py'},
+  {inputFile:'tools/cloud-test/nightly/tests/fixtures/j4a-supervised-child.cjs',testFile:'tools/cloud-test/tests/test_nightly_suite.py'},
+  {inputFile:'tools/cloud-test/nightly/tests/fixtures/j4a-writer-proof.cjs',testFile:'tools/cloud-test/tests/test_nightly_suite.py'},
+  {inputFile:'tools/cloud-test/nightly/tests/fixtures/no-proc-shim.cjs',testFile:'tools/cloud-test/tests/test_nightly_suite.py'},
 ]);
 
 function regular(root,file) {
