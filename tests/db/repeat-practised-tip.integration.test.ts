@@ -17,6 +17,10 @@ const MIGRATIONS = [
     'backend/supabase/migrations/20260810120000_retention_purge_ai_suggestions.sql',
     'backend/supabase/migrations/20261119120000_repeat_practised_tip.sql',
 ].map(read);
+// #1835's exact `practice_privacy_choices` table (its first statement, verbatim from the shipped migration). The rest of
+// #1835 targets objects this bounded schema does not carry; the full chain runs in the real-save suite.
+const PRIVACY_TABLE = read('backend/supabase/migrations/20261117105700_practice_privacy_choices_1835.sql')
+    .split(/^CREATE TABLE public\.practice_privacy_choices/m)[1].split(/\);\s*$/m)[0];
 
 const USER = '11111111-1111-4111-8111-111111111111';
 const OTHER = '22222222-2222-4222-8222-222222222222';
@@ -136,8 +140,12 @@ beforeEach(async () => {
     // Production `sessions` carries these (the bootstrap predates them).
     await db.exec(`ALTER TABLE public.sessions ADD COLUMN IF NOT EXISTS ai_suggestions jsonb,
                                               ADD COLUMN IF NOT EXISTS transcript_state text`);
+    await db.exec(`CREATE TABLE public.practice_privacy_choices${PRIVACY_TABLE});`);
     for (const sql of MIGRATIONS) await db.exec(sql);
     await db.exec(`INSERT INTO auth.users (id) VALUES ('${USER}'), ('${OTHER}')`);
+    // Both owners opted in to saving and coaching (#1835); the consent-off case is proved on the real save path.
+    await db.exec(`INSERT INTO public.practice_privacy_choices (user_id, transcript_save, ai_coaching)
+                   VALUES ('${USER}', true, true), ('${OTHER}', true, true)`);
     await db.exec('GRANT authenticated TO CURRENT_USER');
 });
 

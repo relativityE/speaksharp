@@ -66,9 +66,15 @@ async function asUser<T>(uid: string, run: () => Promise<T>): Promise<T> {
 }
 const one = async <T>(sql: string, params: unknown[] = []) => (await db!.query<{ r: T }>(sql, params)).rows[0].r;
 
-async function signup(): Promise<string> {
+/**
+ * #1835 (live opt-in contract): a transcript is saved only after the owner records Save Yes. By default each fixture
+ * owner opts in to saving and coaching, exactly as a consenting user does; `consent: false` leaves the choice
+ * unrecorded (the default for every account the migration did not backfill), so a transcript save is refused.
+ */
+async function signup(opts: { consent?: boolean } = {}): Promise<string> {
     const uid = randomUUID();
     await db!.query(`INSERT INTO auth.users (id, email) VALUES ($1, $2)`, [uid, `d2-${uid}@example.test`]);
+    if (opts.consent !== false) await asUser(uid, () => db!.query('SELECT * FROM public.set_practice_privacy_choices_v1(true, true, NULL)'));
     return uid;
 }
 
@@ -233,6 +239,35 @@ describe('outcome 4 D2 on the shipped save path (every shipped migration, real c
         // The client's non-blocking advance after the save confirms the binding and keeps the tip.
         expect(await advance(uid, attempt, 'not_comparable', b)).toBe('not_comparable');
         expect(await attemptState(attempt)).toEqual({ practised_tip: TIP, tip_session_id: b, practice_session_id: b, lifecycle: 'not_comparable' });
+    }, 180_000);
+
+    it('#1835 consent: with AI coaching turned off, Practice again copies no tip (the earlier review stays as saved)', async () => {
+        db = await shippedChain();
+        const uid = await signup();
+        const a = await take(uid);
+        await coach(a);
+        // The owner turns AI coaching off (Save stays Yes) after A was coached. #1835 never deletes saved work.
+        await asUser(uid, () => db!.query('SELECT * FROM public.set_practice_privacy_choices_v1(true, false, 1)'));
+        const attempt = await pressPracticeAgain(uid, a);
+        expect(await attemptState(attempt)).toMatchObject({ practised_tip: null, tip_session_id: null, lifecycle: 'pending' });
+        expect(await sessionState(a)).toMatchObject({ has_review: true });
+    }, 180_000);
+
+    it('NEGATIVE CONTROL: without the #1835 consent clause, Practice again copies the tip although coaching is off', async () => {
+        db = await shippedChain();
+        // The shipped snapshot function with only its consent clause removed (derived from the exact migration text).
+        const migration = readFileSync(resolve(DIR, D2), 'utf8');
+        const fn = migration.slice(migration.indexOf('CREATE OR REPLACE FUNCTION public._prec_att_snapshot_tip()'),
+            migration.indexOf('DROP TRIGGER IF EXISTS trg_prec_att_snapshot_tip'));
+        const consentClause = /\n\s*-- #1835: a coaching tip is carried only[\s\S]*?AND c\.consent_version = 1\)/;
+        expect(fn).toMatch(consentClause);
+        await db.exec(fn.replace(consentClause, ''));
+        const uid = await signup();
+        const a = await take(uid);
+        await coach(a);
+        await asUser(uid, () => db!.query('SELECT * FROM public.set_practice_privacy_choices_v1(true, false, 1)'));
+        const attempt = await pressPracticeAgain(uid, a);
+        expect((await attemptState(attempt)).practised_tip).toBe(TIP);
     }, 180_000);
 
     it('NEGATIVE CONTROL: the first design (purge a pending copy when its original expires) loses the tip in the real save', async () => {

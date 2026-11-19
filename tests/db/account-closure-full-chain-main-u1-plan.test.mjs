@@ -139,7 +139,10 @@ const PAYMENT_WALL=Object.freeze({name:'20261114170000_payment_wall_product_acce
 // Reviewed #1835 bytes are physical inventory, not part of any historical replay profile.
 const PRACTICE_PRIVACY=Object.freeze({name:'20261117105700_practice_privacy_choices_1835.sql',
   version:'20261117105700',sha256:'8e21fe2237c70c75fcaeee8cb74e17b679ab187f6936b9ccd5c311c51dedf9b7'});
-const physical=repositoryPhysical.filter(row=>![WITHHELD.name,START_ABANDONMENT.name,REFUND.name,FEEDBACK_FENCE.name,PAYMENT_WALL.name,PRACTICE_PRIVACY.name].includes(row.name));
+// #1827 D2 repeat tip: pinned repository inventory, withheld by every profile until its reviewed stage exists.
+const REPEAT_TIP=Object.freeze({name:'20261119120000_repeat_practised_tip.sql',
+  version:'20261119120000',sha256:'e69dd0bde64c1edd272f879dec5a6bc4d0bdc20d434cb8f0a081ded11d8b1ebe'});
+const physical=repositoryPhysical.filter(row=>![WITHHELD.name,START_ABANDONMENT.name,REFUND.name,FEEDBACK_FENCE.name,PAYMENT_WALL.name,PRACTICE_PRIVACY.name,REPEAT_TIP.name].includes(row.name));
 const main = physical.filter(row => ![U1.name, ANALYTICS.name, ...ACCOUNT.map(row=>row.name), FENCE.name, RETENTION.name, BILLING.name].includes(row.name));
 const receiving = [...main, U1].sort((a, b) => a.name.localeCompare(b.name, 'en'));
 const analyticsReceiving=[...receiving,ANALYTICS].sort((a,b)=>a.name.localeCompare(b.name,'en'));
@@ -168,8 +171,8 @@ test('reviewed withheld retirement is repository inventory, never historical rep
   // Adding the exact withheld pin does not let an old profile accept later applied members.
   assert.throws(()=>buildMainU1ReplayPlan(repositoryPhysical,'main-t2-retention-128'),/unreviewed migration/);
   const plan=buildMainU1ReplayPlan(repositoryPhysical,'main-completion-billing-129');
-  assert.equal(plan.migrations,129);assert.equal(plan.repositoryMigrations,135);
-  assert.deepEqual(plan.withheld.map(row=>row.name),[WITHHELD.name,REFUND.name,START_ABANDONMENT.name,FEEDBACK_FENCE.name,PAYMENT_WALL.name,PRACTICE_PRIVACY.name]);
+  assert.equal(plan.migrations,129);assert.equal(plan.repositoryMigrations,136);
+  assert.deepEqual(plan.withheld.map(row=>row.name),[WITHHELD.name,REFUND.name,START_ABANDONMENT.name,FEEDBACK_FENCE.name,PAYMENT_WALL.name,PRACTICE_PRIVACY.name,REPEAT_TIP.name]);
 });
 // Repository registration is NOT an installed-schema or release attestation.
 test('the feedback fence is pinned and excluded from every profile before main-feedback-fence-131',()=>{
@@ -256,8 +259,8 @@ test('the refund follow-up migration is pinned inventory that no profile replays
     assert.throws(()=>buildMainU1ReplayPlan([...rows,{...REFUND,sha256:'0'.repeat(64)}],profile),/withheld migration digest changed/);
   }
   const plan=buildMainU1ReplayPlan(repositoryPhysical,'main-coaching-retirement-129');
-  assert.equal(plan.migrations,129);assert.equal(plan.repositoryMigrations,135);
-  assert.deepEqual(plan.withheld.map(row=>row.name),[BILLING.name,REFUND.name,START_ABANDONMENT.name,FEEDBACK_FENCE.name,PAYMENT_WALL.name,PRACTICE_PRIVACY.name]);
+  assert.equal(plan.migrations,129);assert.equal(plan.repositoryMigrations,136);
+  assert.deepEqual(plan.withheld.map(row=>row.name),[BILLING.name,REFUND.name,START_ABANDONMENT.name,FEEDBACK_FENCE.name,PAYMENT_WALL.name,PRACTICE_PRIVACY.name,REPEAT_TIP.name]);
 });
 test('runtime stages only replay members and checks withheld ledger/catalog absence',()=>{
   const driver=read('tests/db/account-closure-full-chain.mjs');

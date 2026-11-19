@@ -1039,10 +1039,15 @@ export const REVIEWED_UNRELATED_MIGRATIONS=Object.freeze([
 // after the payment wall. Elsewhere this pin recognizes repository presence, not installed privacy behavior.
 const PRACTICE_PRIVACY_MIGRATION=Object.freeze({name:'20261117105700_practice_privacy_choices_1835.sql',
   version:'20261117105700',sha256:'8e21fe2237c70c75fcaeee8cb74e17b679ab187f6936b9ccd5c311c51dedf9b7'});
+// #1827 outcome 4 D2: the repeat's practised-tip copy (sessions triggers + attempt columns). Reviewed repository inventory,
+// withheld by every profile until its own reviewed stage exists; a byte change must update this pin.
+const REPEAT_TIP_MIGRATION=Object.freeze({name:'20261119120000_repeat_practised_tip.sql',
+  version:'20261119120000',sha256:'e69dd0bde64c1edd272f879dec5a6bc4d0bdc20d434cb8f0a081ded11d8b1ebe'});
 const COMMON_WITHHELD_MIGRATIONS=Object.freeze([
   PAYMENT_WALL_MIGRATION,
   ...REVIEWED_UNRELATED_MIGRATIONS,
   PRACTICE_PRIVACY_MIGRATION,
+  REPEAT_TIP_MIGRATION,
 ]);
 export const REVIEWED_WITHHELD_MIGRATIONS=Object.freeze([
   START_ABANDONMENT_MIGRATION,
@@ -1081,8 +1086,8 @@ export function buildMainU1ReplayPlan(rows, profile = 'main-120') {
     ?[MAIN_COMPLETION_BILLING_MIGRATION,START_ABANDONMENT_MIGRATION,FEEDBACK_FENCE_MIGRATION,...COMMON_WITHHELD_MIGRATIONS]
     :profile===ABANDONMENT_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION,FEEDBACK_FENCE_MIGRATION,...COMMON_WITHHELD_MIGRATIONS]
     :profile===FEEDBACK_FENCE_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION,...COMMON_WITHHELD_MIGRATIONS]
-    :profile===PAYMENT_WALL_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION,...REVIEWED_UNRELATED_MIGRATIONS,PRACTICE_PRIVACY_MIGRATION]
-    :profile===PRACTICE_PRIVACY_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION,...REVIEWED_UNRELATED_MIGRATIONS]
+    :profile===PAYMENT_WALL_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION,...REVIEWED_UNRELATED_MIGRATIONS,PRACTICE_PRIVACY_MIGRATION,REPEAT_TIP_MIGRATION]
+    :profile===PRACTICE_PRIVACY_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION,...REVIEWED_UNRELATED_MIGRATIONS,REPEAT_TIP_MIGRATION]
     :REVIEWED_WITHHELD_MIGRATIONS;
   const withheld=actual.filter(row=>withheldPins.some(pin=>pin.name===row.name));
   for(const row of withheld) assert.equal(row.sha256,withheldPins.find(pin=>pin.name===row.name).sha256,

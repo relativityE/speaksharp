@@ -151,7 +151,12 @@ BEGIN
        AND NOT EXISTS (
            SELECT 1 FROM public.sessions n
             WHERE n.user_id = NEW.user_id AND n.status = 'completed' AND n.id <> s.id
-              AND (n.created_at, n.id) > (s.created_at, s.id));
+              AND (n.created_at, n.id) > (s.created_at, s.id))
+       -- #1835: a coaching tip is carried only while the owner's recorded choice allows AI coaching. An owner who has
+       -- turned coaching off (or never recorded a choice) gets no new copy; their already-saved review is untouched.
+       AND EXISTS (
+           SELECT 1 FROM public.practice_privacy_choices c
+            WHERE c.user_id = NEW.user_id AND c.ai_coaching AND c.consent_version = 1);
     IF NOT FOUND THEN NEW.practised_tip := NULL; END IF;
     RETURN NEW;
 END;
