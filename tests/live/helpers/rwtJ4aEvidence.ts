@@ -237,7 +237,9 @@ export const J4A_COACHING_BLOCKED_ROW = 'J4.a: no coaching request left the brow
  * `pagesClosedAt` is `HarnessParityTap.ownedPagesClosedAt`, read at that moment. Shared with the real-browser control
  * (tests/e2e/rwt-j4a-coaching-close.e2e.spec.ts), so the control exercises exactly what the journey writes.
  */
-export function j4aCoachingBlockedRow(sink: J4aRowSink, guard: Pick<J4aCoachingGuard, 'armed' | 'blocked'>, pagesClosedAt: number | null): J4aVerdict {
+export function j4aCoachingBlockedRow(sink: J4aRowSink, step: typeof J4A_COACHING_BLOCKED_ROW, guard: Pick<J4aCoachingGuard, 'armed' | 'blocked'>, pagesClosedAt: number | null): J4aVerdict {
+    // The spec names the row literally so the save-retry row-coverage guard sees it written; any other name fails closed.
+    if (step !== J4A_COACHING_BLOCKED_ROW) throw new Error(`J4.a coaching row must be named '${J4A_COACHING_BLOCKED_ROW}' (fail closed)`);
     const v = j4aCoachingBlockedVerdict({ armed: guard.armed, blocked: guard.blocked, pagesClosedAt });
     sink.row(J4A_COACHING_BLOCKED_ROW, v.status, v.detail,
         { reason: v.reason, armed: guard.armed, blocked: guard.blocked, pagesClosedProved: pagesClosedAt !== null });

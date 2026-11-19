@@ -337,12 +337,14 @@ describe('J4.a coaching block (Sam, Nov 19 on c558f4c): an unexpected coaching c
     it('the row writer writes exactly the verdict, with the closure proof in its evidence', () => {
         const rows: Array<[string, string, Record<string, unknown> | undefined]> = [];
         const sink = { row: (step: string, verdict: string, _d: string, e?: Record<string, unknown>) => { rows.push([step, verdict, e]); } };
-        expect(j4aCoachingBlockedRow(sink, { armed: true, blocked: 0 }, null).status).toBe('HOLD');
-        expect(j4aCoachingBlockedRow(sink, { armed: true, blocked: 0 }, 5).status).toBe('PASS');
+        expect(j4aCoachingBlockedRow(sink, J4A_COACHING_BLOCKED_ROW, { armed: true, blocked: 0 }, null).status).toBe('HOLD');
+        expect(j4aCoachingBlockedRow(sink, J4A_COACHING_BLOCKED_ROW, { armed: true, blocked: 0 }, 5).status).toBe('PASS');
         expect(rows).toEqual([
             [J4A_COACHING_BLOCKED_ROW, 'HOLD', { reason: 'closure_unproved', armed: true, blocked: 0, pagesClosedProved: false }],
             [J4A_COACHING_BLOCKED_ROW, 'PASS', { reason: 'none_requested', armed: true, blocked: 0, pagesClosedProved: true }],
         ]);
+        expect(() => j4aCoachingBlockedRow(sink, 'J4.a: something else' as never, { armed: true, blocked: 0 }, 5)).toThrow(/fail closed/);
+        expect(rows).toHaveLength(2);
     });
     it('fails before (Sam, Nov 19 on 2b57bd47): a count read before the close misses an attempt made before the close', async () => {
         // The journey's order, simulated: the count is read, then the page asks for coaching, then the pages close.
@@ -358,9 +360,9 @@ describe('J4.a coaching block (Sam, Nov 19 on c558f4c): an unexpected coaching c
         const step = spec.indexOf("if (j4a) await steps.step('J4.a coaching blocked'");
         expect(step).toBeGreaterThan(spec.indexOf("await steps.step('owned pages closed'"));
         expect(step).toBeLessThan(spec.indexOf('accountDeleted = (await finalizeOwnedCleanup('));
-        expect(spec).toContain('j4aCoachingBlockedRow(aliveReceipt(receipt, alive), coachingGuard, parity.ownedPagesClosedAt);');
-        // One writer: the row is never written anywhere else in the spec.
-        expect(spec.split('J4.a: no coaching request left the browser').length).toBe(1);
+        expect(spec).toContain("j4aCoachingBlockedRow(aliveReceipt(receipt, alive), 'J4.a: no coaching request left the browser', coachingGuard, parity.ownedPagesClosedAt);");
+        // One writer: the row name appears only in that one call, and the helper is called only there.
+        expect(spec.split('J4.a: no coaching request left the browser').length).toBe(2);
         expect(spec.split('j4aCoachingBlockedRow(').length).toBe(2);
     });
     it('the block row is J4.a-only, required for request lost, and written at the final boundary', () => {

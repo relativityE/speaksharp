@@ -85,7 +85,7 @@ test.describe('J4.a: the coaching verdict is read only after every page is prove
         // The old read point (before the close): nothing counted yet, and the pages are not closed, so it HOLDs now.
         const early = sink();
         expect(guard.blocked).toBe(0);
-        expect(j4aCoachingBlockedRow(early.receipt, guard, parity.ownedPagesClosedAt).reason).toBe('closure_unproved');
+        expect(j4aCoachingBlockedRow(early.receipt, J4A_COACHING_BLOCKED_ROW, guard, parity.ownedPagesClosedAt).reason).toBe('closure_unproved');
         // The interval the old order missed: the page asks for coaching after that read and before the close.
         expect(await pageAsksForCoaching(page)).toBe('blocked');
         // The journey's close step, then its required row.
@@ -93,7 +93,7 @@ test.describe('J4.a: the coaching verdict is read only after every page is prove
         await parity.ownedPagesClosedRow(final.receipt);
         expect(final.rows[0]).toMatchObject({ step: 'owned pages closed', verdict: 'PASS' });
         expect(parity.ownedPagesClosedAt).not.toBeNull();
-        const v = j4aCoachingBlockedRow(final.receipt, guard, parity.ownedPagesClosedAt);
+        const v = j4aCoachingBlockedRow(final.receipt, J4A_COACHING_BLOCKED_ROW, guard, parity.ownedPagesClosedAt);
         expect(v).toMatchObject({ status: 'FAIL', reason: 'coaching_requested' });
         expect(final.rows[1]).toMatchObject({ step: J4A_COACHING_BLOCKED_ROW, verdict: 'FAIL', evidence: { blocked: 1, pagesClosedProved: true } });
         expect(upstreamCoaching).toBe(0);
@@ -105,7 +105,7 @@ test.describe('J4.a: the coaching verdict is read only after every page is prove
         // Closed outside the journey's close step: no close proof is recorded.
         await page.close();
         const { rows, receipt } = sink();
-        expect(j4aCoachingBlockedRow(receipt, guard, parity.ownedPagesClosedAt)).toMatchObject({ status: 'HOLD', reason: 'closure_unproved' });
+        expect(j4aCoachingBlockedRow(receipt, J4A_COACHING_BLOCKED_ROW, guard, parity.ownedPagesClosedAt)).toMatchObject({ status: 'HOLD', reason: 'closure_unproved' });
         expect(rows[0]).toMatchObject({ verdict: 'HOLD', evidence: { pagesClosedProved: false } });
         expect(upstreamCoaching).toBe(0);
     });
@@ -115,7 +115,7 @@ test.describe('J4.a: the coaching verdict is read only after every page is prove
         await goToApp(page, `${origin}/`);
         const { rows, receipt } = sink();
         await parity.ownedPagesClosedRow(receipt);
-        expect(j4aCoachingBlockedRow(receipt, guard, parity.ownedPagesClosedAt)).toMatchObject({ status: 'PASS', reason: 'none_requested' });
+        expect(j4aCoachingBlockedRow(receipt, J4A_COACHING_BLOCKED_ROW, guard, parity.ownedPagesClosedAt)).toMatchObject({ status: 'PASS', reason: 'none_requested' });
         expect(rows.map((r) => r.verdict)).toEqual(['PASS', 'PASS']);
         expect(upstreamCoaching).toBe(0);
     });

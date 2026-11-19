@@ -206,7 +206,7 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         // attempt made between the checks above and the close is counted. The route stays armed through the close; an unproven
         // closure HOLDs.
         if (j4a) await steps.step('J4.a coaching blocked', (alive) => {
-            j4aCoachingBlockedRow(aliveReceipt(receipt, alive), coachingGuard, parity.ownedPagesClosedAt);
+            j4aCoachingBlockedRow(aliveReceipt(receipt, alive), 'J4.a: no coaching request left the browser', coachingGuard, parity.ownedPagesClosedAt);
         });
         // Harness `completion-attempts` at the FINAL boundary (final-attempts.cjs): every owned page is closed, so no completion
         // request can still arrive; a late attempt after the in-journey checks is counted here, never missed.

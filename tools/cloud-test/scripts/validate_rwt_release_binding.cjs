@@ -43,7 +43,7 @@ const TEST_PINS=Object.freeze({
  'tests/live/rwt-feedback-association-boundaries.live.spec.ts':'0168beda80853c699690defec2c9f7d0882e7e173417a35a797e458d6cf8e9a3',
  'tests/live/rwt-pending-start-navigation.live.spec.ts':'2d6ab35237f77a5980878a5b5fd7ea106094e10a8e64f4fdbca2c9df0300bf51',
  'tests/live/rwt-products-navigation.live.spec.ts':'bedab954eb78a034395639a29bcf34ff97ed9c47897f3e10a66f668ce43e4343',
- 'tests/live/rwt-save-retry-recovery.live.spec.ts':'4c40d30f0961e66e7611646e7f92a388783939bc9e942b4c54aa23e26f428dc8',
+ 'tests/live/rwt-save-retry-recovery.live.spec.ts':'2f8992b6d02c860d828c5b88966c4653b9fe7689cb6892c732e2e5d902cb69cf',
  'tests/unit/feedbackDiagnosticRef1539.test.ts':'efbf10346d95655897602852b5899f1eede8a12d1484eb99a18a8dc222bba125',
  'tests/unit/rwtSaveRetryAttempts.test.ts':'13908b304c5c9f38b0d5fcca560c8664dcd20cf5eee56d514af6327d030f9e89',
  'tests/unit/rwtLeaveDestinationReady.test.ts':'3cee03cdd4decd808797ecbee2a5d4173c911e28dc397abd06ae7e6036f95477',
@@ -78,12 +78,12 @@ const TEST_PINS=Object.freeze({
  'tests/live/helpers/rwtFocusSaveIsolation.ts':'08b562963051141d88bec185682bf89aaf8d829e65e124c1f089629dc1063dca',
  'tests/unit/rwtFocusSaveIsolation.test.ts':'60e59c932e09a8b61d5dca85e21c9f13eadeabab2012b21806da1368de2d6367',
  // #1901 exact reviewed J4.a and J7.a diagnostic test postimages.
- 'tests/e2e/rwt-j4a-coaching-close.e2e.spec.ts':'549a31cca7f6d4dc3d7aab387a766dd69541271e27160163a572ff1d0641f0bd',
+ 'tests/e2e/rwt-j4a-coaching-close.e2e.spec.ts':'6dc927186afcd77db4c039ae6b371e25fe30832912435a2e23f9e7a611943ce8',
  'tests/live/helpers/rwtAdverse.ts':'c2a97edba44d9877df929b2c0e895d476b5e7a3589d4e137118af604c3624259',
- 'tests/live/helpers/rwtJ4aEvidence.ts':'ad92b0d3b994a3b442b59ba77f6fd0fb9200e1211d0a095922bf9384c76aeeff',
+ 'tests/live/helpers/rwtJ4aEvidence.ts':'abfcd3e1a50aecec43b0a06c7beec29bdb2dc2fd1059e18742a516e9d71c8074',
  'tests/live/helpers/rwtPracticeConsent.ts':'ce9fee66ddfea8994e65511f3755e6a3ac5bb924382f09002bc99b6cb8773f25',
  'tests/unit/rwtAdverse1258.test.ts':'5d08a56a3b7b17268efe235e7c6f2d2ba82123e06f413aa46d0bafb2e9d56875',
- 'tests/unit/rwtJ4aEvidence.test.ts':'75f0edbdf58a880192a99b477d578d4f495878f57a1b8b863b55273e9e19ded1',
+ 'tests/unit/rwtJ4aEvidence.test.ts':'5edbee07d436a8ad276052ee03f228fd6d07b9c947bd3a9b487465d97cb4dd6a',
  'tests/unit/rwtMicDeniedJ7a.test.ts':'429244150f7f0ad5e53e5dded77ace50cde857276b2344323d3d642dd05463c0',
 });
 // These two non-product inputs are part of this diagnostic integration itself.
