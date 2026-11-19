@@ -39,6 +39,44 @@ export function micDeniedVerdict(o: { deniedAtAcquisition: boolean; blockedCopyS
 }
 
 /**
+ * J7.a (PO and Sam, 2026-11-19): the agreed scope is the denial alone. The browser blocks the microphone, the page says so,
+ * capture never starts, and no take is saved for the test account. The app never tries to unblock the microphone and the
+ * test never grants it, so recovery after allowing the microphone on the same page is not exercised. It is recorded as
+ * UNTESTED in the receipt's meta, never as a row and never as a pass.
+ */
+export const NO_TAKE_SAVED_ROW = 'no take is saved after the blocked Start';
+export const SAME_PAGE_RECOVERY = 'UNTESTED';
+export const SAME_PAGE_RECOVERY_REASON =
+    'not exercised: J7.a covers the blocked microphone only; the test never allows the microphone on the denied page';
+/** The rows the J7.a scope removed: a mic-denied receipt that carries either one is not this test's receipt. */
+export const MIC_DENIED_RECOVERY_ROWS = Object.freeze(['after allowing the microphone a take saves', 'the recovered take reopens from Analytics']);
+
+/** One read of the account's session ids, bound to the account it was read for. Null when the read failed. */
+export interface AccountSessionRead { uid: string; ids: readonly string[] }
+
+/**
+ * J7.a: nothing is saved for THIS account after the blocked Start. `baseline` is the account's session ids before the
+ * first press; `reads` are re-reads after the blocked copy, at least two, the last after a settle wait. PASS only when the
+ * denial was exercised and every read is of this exact account and shows no session id beyond the baseline. A row
+ * created and left active counts as a saved take: the product wrote one. An unreadable read or a read of another account
+ * proves nothing (HOLD).
+ */
+export function noTakeSavedAfterDenialVerdict(o: {
+    deniedAtAcquisition: boolean; uid: string; baseline: readonly string[] | null; reads: readonly (AccountSessionRead | null)[];
+}): Verdict {
+    if (!o.deniedAtAcquisition) return { status: 'HOLD', detail: 'the page\'s microphone acquisition was never refused with NotAllowedError, so the case was not exercised' };
+    if (!o.uid || o.baseline === null) return { status: 'HOLD', detail: 'the account\'s sessions before the press were not read, so "no take saved" is not claimed' };
+    if (o.reads.length < 2 || o.reads.some((r) => r === null)) {
+        return { status: 'HOLD', detail: 'the account\'s sessions were not read twice after the blocked Start, so "no take saved" is not claimed' };
+    }
+    const reads = o.reads as readonly AccountSessionRead[];
+    if (reads.some((r) => r.uid !== o.uid)) return { status: 'HOLD', detail: 'a session read was not of the test account, so it proves nothing about it' };
+    const fresh = new Set(reads.flatMap((r) => r.ids.filter((id) => !o.baseline!.includes(id))));
+    if (fresh.size > 0) return { status: 'FAIL', detail: `the blocked Start left ${fresh.size} new session row(s) on the test account` };
+    return { status: 'PASS', detail: `no session row was saved for the test account after the blocked Start (${reads.length} reads)` };
+}
+
+/**
  * A failing model download: the fault reached the download, the page never claimed `ready`, it ended in a failed state
  * with Retry, and the engine stayed Private. Sam's ACCEPT of PM 731eb5c0: `statuses` is the COMPLETE published history
  * (initial state and every transition, `readModelStatusLog`); an incomplete or empty history proves nothing — HOLD.
