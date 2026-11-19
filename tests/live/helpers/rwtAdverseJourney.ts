@@ -3,6 +3,8 @@
  * mid-download) and `rwt-adverse-mic-denied.live.spec.ts` (mic denied). Moved verbatim from the former single spec: the
  * mic-denied variant needs its own file-level `launchOptions` (`=deny`), which Playwright refuses inside a describe group.
  */
+import { readdirSync } from 'node:fs';
+import { resolve as resolvePath } from 'node:path';
 import { createClient } from '@supabase/supabase-js';
 import type { Browser, Page, TestInfo } from '@playwright/test';
 import { expect } from './rwtProductionTest';
@@ -12,6 +14,7 @@ import {
     suppressPageSnapshot, telemetryClassRows,
 } from './rwtJourney';
 import { type RunOwner, prepareRunOwnedAccount } from './rwtDisposableAccount';
+import { consentModeFrom, settlePracticeConsent, type ChoiceClient } from './rwtPracticeConsent';
 import { isRecording, observeCloudStt, persistedId, tabState } from './rwtPageState';
 import { bindReadbackJourneys } from './rwtOracles';
 import { CoachingGenerationTap } from './coachingGenerationTap';
@@ -318,16 +321,16 @@ async function reopenRow(receipt: RwtReceipt, page: Page, recovered: { savedId: 
  * the recovery (`pressRecovery`) then presses only its variant's designed control (`RECOVERY_CONTROLS`), never in a loop, and
  * presses nothing when the page offers anything else. Each press, by its line:
  *  AHT-12 mic denied (J7.a, PO and Sam 2026-11-19) — exactly 1:
- *   1. the denied press, `mic-download` or `mic-start` (whichever is offered): `await control.click()` (rwtAdverseJourney.ts:423).
+ *   1. the denied press, `mic-download` or `mic-start` (whichever is offered): `await control.click()` (rwtAdverseJourney.ts:436).
  *   No recovery press: J7.a covers the denial only, and the microphone is never allowed. So either control may take the one
  *   press; `mic-retry` none. The catalog's minimumStarts 3 assumes the harness's same-context Allow → Start route, which J7.a
  *   records as UNTESTED.
  *  AHT-13 download fails — exactly 3:
- *   1. `mic-download` with the model route aborted (rwtAdverseJourney.ts:472);
- *   2. `mic-retry` once the cause is removed (rwtAdverseJourney.ts:202);
- *   3. `mic-start` only after Retry's setup published `ready` (rwtAdverseJourney.ts:208).
- *  AHT-14 offline mid-download — exactly 3: `mic-download` (rwtAdverseJourney.ts:486), then the same `mic-retry` and
- *   `mic-start` as AHT-13 (rwtAdverseJourney.ts:202, :208).
+ *   1. `mic-download` with the model route aborted (rwtAdverseJourney.ts:485);
+ *   2. `mic-retry` once the cause is removed (rwtAdverseJourney.ts:205);
+ *   3. `mic-start` only after Retry's setup published `ready` (rwtAdverseJourney.ts:211).
+ *  AHT-14 offline mid-download — exactly 3: `mic-download` (rwtAdverseJourney.ts:499), then the same `mic-retry` and
+ *   `mic-start` as AHT-13 (rwtAdverseJourney.ts:205, :211).
  */
 const AHT12_START_PRESS_BUDGET: StartPressBudget = { total: 1, perControl: { 'mic-download': 1, 'mic-start': 1 } };
 const AHT13_START_PRESS_BUDGET: StartPressBudget = { total: 3, perControl: { 'mic-download': 1, 'mic-retry': 1, 'mic-start': 1 } };
@@ -401,6 +404,16 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
         // The acquisition boundary's own outcomes (grants and NotAllowedError) are observed from the first page load.
         await installMicAcquisitionCounter(page);
         await page.goto('/practice');
+        // #1835 (Sam, 2026-11-19): a fresh owner is asked its privacy choice on the first Practice visit. Only THIS run's
+        // disposable account answers it, with the dispatch's RWT_PRACTICE_CONSENT, before any press; the product default is
+        // untouched. A verified pre-#1835 build has nothing to answer; an unknown build or an unset mode stops here, before
+        // any take could exist.
+        const migrationFiles = (() => { try { return readdirSync(resolvePath(process.cwd(), 'backend/supabase/migrations')); } catch { return null; } })();
+        const consent = await settlePracticeConsent({ page, client: admin as unknown as ChoiceClient, ownerId: owner.uid, migrationFiles,
+            mode: consentModeFrom(process.env.RWT_PRACTICE_CONSENT) });
+        receipt.row('practice privacy choice', 'PASS', consent.choice ? 'this run\'s owner recorded its choice through the Practice prompt, read back from the server'
+            : 'verified pre-#1835 build: no choice to make', { build: consent.build, mode: consent.mode ?? 'none',
+            transcriptSave: consent.choice?.transcriptSave ?? null, aiCoaching: consent.choice?.aiCoaching ?? null });
         await openProductsItem(page, 'open-mic');
         await page.waitForURL(/\/session/, { timeout: 45_000 });
         await selectBenchmarkMode(page, 'private');

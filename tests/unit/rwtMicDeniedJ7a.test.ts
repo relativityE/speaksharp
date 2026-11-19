@@ -72,6 +72,18 @@ describe('J7.a: the journey checks exactly the agreed scope', () => {
         expect(SAME_PAGE_RECOVERY).toBe('UNTESTED');
         expect(SAME_PAGE_RECOVERY_REASON).toMatch(/not exercised/);
     });
+    it('answers the #1835 privacy question only for its own disposable account, before any press (Sam, 2026-11-19)', () => {
+        const practice = journey.indexOf("await page.goto('/practice');");
+        const settle = journey.indexOf('const consent = await settlePracticeConsent({ page, client: admin as unknown as ChoiceClient, ownerId: owner.uid, migrationFiles,');
+        const firstPress = journey.indexOf("await openProductsItem(page, 'open-mic');");
+        expect([practice, settle, firstPress].every((i) => i > 0)).toBe(true);
+        expect(practice < settle && settle < firstPress && settle < from).toBe(true);
+        expect(journey).toContain('mode: consentModeFrom(process.env.RWT_PRACTICE_CONSENT) });');
+        expect(journey).toContain("receipt.row('practice privacy choice', 'PASS',");
+        // The product default is never touched: the journey writes no privacy choice itself; only the prompt, answered on
+        // the page as a person would, records one for this account.
+        expect(journey).not.toMatch(/practice_privacy_choices'\)\.(insert|update|upsert|delete)/);
+    });
     it('budgets one Start press and no coaching request', () => {
         expect(journey).toContain("const AHT12_START_PRESS_BUDGET: StartPressBudget = { total: 1, perControl: { 'mic-download': 1, 'mic-start': 1 } };");
         expect(journey).toContain("maximum: variant === 'mic-denied' ? 0 : 1");
