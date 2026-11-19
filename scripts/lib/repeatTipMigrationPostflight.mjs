@@ -1,6 +1,6 @@
 // Exact catalog-only gate for the #1827 outcome 4 D2 migration (20261119120000). SELECT-only: it never invokes an RPC, reads an
-// account, session, attempt or tip row, or writes. The migration adds three attempt columns (practised_tip, tip_session_id,
-// registered_session_id), one check constraint, one partial index, seven private `_prec_att_*` helpers (no API role may
+// account, session, attempt or tip row, or writes. The migration adds four attempt columns (practised_tip, tip_session_id,
+// registered_session_id, registration_required), one check constraint, one partial index, seven private `_prec_att_*` helpers (no API role may
 // execute any of them), one owner RPC `register_practice_again_take_v1` (authenticated only), two attempt triggers and two
 // session triggers. "before" proves the predecessor ledger and that no target object exists; "after" proves the
 // whole touched catalog equals the reviewed expectation (repeatTipMigrationCatalog.json), which the offline test re-derives from
@@ -20,7 +20,7 @@ export const REPEAT_TIP_FUNCTIONS = Object.freeze(['_prec_att_can_hold_tip', '_p
 export const REPEAT_TIP_CLIENT_RPC = 'register_practice_again_take_v1';
 export const REPEAT_TIP_TRIGGERS = Object.freeze(['trg_prec_att_guard_tip', 'trg_prec_att_snapshot_tip',
   'trg_sessions_prec_tip_on_completed', 'trg_sessions_purge_practised_tip_on_expire']);
-const COLUMNS = Object.freeze(['practised_tip', 'registered_session_id', 'tip_session_id']);
+const COLUMNS = Object.freeze(['practised_tip', 'registered_session_id', 'registration_required', 'tip_session_id']);
 const CONSTRAINT = 'prec_att_practised_tip_shape';
 const INDEX = 'idx_prec_att_tip_session';
 const API_ROLES = Object.freeze(['anon', 'authenticated', 'service_role']);
@@ -41,7 +41,7 @@ export function repeatTipContract(root, mode, version) {
   return { mode, version, targetSha256: pin.sha256, expected };
 }
 
-/** Five rows, each one JSON value: ledger, the eight functions, the four triggers, the three columns, the constraint and index. */
+/** Five rows, each one JSON value: ledger, the eight functions, the four triggers, the four columns, the constraint and index. */
 export function repeatTipSnapshotQuery() {
   const versions = list([...REQUIRED_APPLIED, ...MUST_REMAIN_PENDING, REPEAT_TIP_VERSION]);
   return [

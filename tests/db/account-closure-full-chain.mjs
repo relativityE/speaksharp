@@ -1057,7 +1057,7 @@ const PRACTICE_PRIVACY_MIGRATION=Object.freeze({name:'20261117105700_practice_pr
 // #1827 outcome 4 D2: the repeat's practised-tip copy (sessions triggers + attempt columns). Reviewed repository inventory,
 // withheld by every profile until its own reviewed stage exists; a byte change must update this pin.
 const REPEAT_TIP_MIGRATION=Object.freeze({name:'20261119120000_repeat_practised_tip.sql',
-  version:'20261119120000',sha256:'68f8bbf589fe46d07158a6ea8a549d8e136248f693c23489630af5cb640c3dbd'});
+  version:'20261119120000',sha256:'44c3a2679b7a9841148ae7be47af50d2b52838e82e8ec8430d0cea629715f3d4'});
 const COMMON_WITHHELD_MIGRATIONS=Object.freeze([
   PAYMENT_WALL_MIGRATION,
   ...REVIEWED_UNRELATED_MIGRATIONS,

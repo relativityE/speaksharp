@@ -72,7 +72,11 @@ ALTER TABLE public.progress_recommendation_attempts
     ADD COLUMN IF NOT EXISTS tip_session_id uuid REFERENCES public.sessions(id) ON DELETE SET NULL,
     -- Revision 4 (#1827 step 3): the exact take the owner started from this attempt's Practice again, registered at Start by
     -- register_practice_again_take_v1. Only this take can become the repeat (link and tip); it is set once, never replaced.
-    ADD COLUMN IF NOT EXISTS registered_session_id uuid REFERENCES public.sessions(id) ON DELETE SET NULL;
+    ADD COLUMN IF NOT EXISTS registered_session_id uuid REFERENCES public.sessions(id) ON DELETE SET NULL,
+    -- Revision 4 compatibility: true for every attempt recorded from now on (set by the insert trigger, never changed);
+    -- attempts already pending when this migration applies keep false and resolve under the earlier rules (they carry no
+    -- tip, so nothing is carried), instead of being stranded by the registered-take check.
+    ADD COLUMN IF NOT EXISTS registration_required boolean NOT NULL DEFAULT false;
 
 DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'prec_att_practised_tip_shape') THEN
@@ -147,6 +151,8 @@ AS $$
 BEGIN
     NEW.tip_session_id := NULL;
     NEW.practised_tip := NULL;
+    NEW.registered_session_id := NULL;
+    NEW.registration_required := true;
     -- Wait for any concurrent save or expiry for this owner; the next statement then sees it committed.
     PERFORM public._prec_att_lock_owner(NEW.user_id);
     SELECT public._prec_att_review_tip(s.ai_suggestions)
@@ -221,8 +227,13 @@ BEGIN
        AND OLD.registered_session_id IS NOT NULL THEN
         RAISE EXCEPTION 'the take registered for this Practice again cannot change' USING ERRCODE = '42501';
     END IF;
+    IF NEW.registration_required IS DISTINCT FROM OLD.registration_required THEN
+        RAISE EXCEPTION 'registration_required is set only when the attempt is recorded' USING ERRCODE = '42501';
+    END IF;
     -- The repeat link is the registered take only: a take without that explicit link gets neither the link nor the tip.
-    IF NEW.practice_session_id IS DISTINCT FROM OLD.practice_session_id AND NEW.practice_session_id IS NOT NULL
+    -- An attempt already pending when this migration applied (registration_required false) keeps the earlier rules.
+    IF NEW.registration_required
+       AND NEW.practice_session_id IS DISTINCT FROM OLD.practice_session_id AND NEW.practice_session_id IS NOT NULL
        AND NEW.practice_session_id IS DISTINCT FROM NEW.registered_session_id THEN
         RAISE EXCEPTION 'this session is not the take registered for this Practice again' USING ERRCODE = '42501';
     END IF;

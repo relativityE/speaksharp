@@ -1,6 +1,6 @@
 {
  "version": "20261119120000",
- "targetSha256": "68f8bbf589fe46d07158a6ea8a549d8e136248f693c23489630af5cb640c3dbd",
+ "targetSha256": "44c3a2679b7a9841148ae7be47af50d2b52838e82e8ec8430d0cea629715f3d4",
  "derivation": "Offline PGlite replay of the shipped chain (billing settlement and the refund follow-up withheld), then the exact migration; re-derived by tests/db/repeatTipPostflight.integration.test.ts.",
  "functions": [
   {
@@ -17,7 +17,7 @@
   },
   {
    "signature": "public._prec_att_guard_tip()",
-   "md5": "71a5c45d5a7a15602aa8a3efb261ba0a",
+   "md5": "2a7c2701a5fb2fdd0197ff3524adeb4c",
    "definer": true,
    "config": [
     "search_path=public, pg_temp"
@@ -77,7 +77,7 @@
   },
   {
    "signature": "public._prec_att_snapshot_tip()",
-   "md5": "bacd43ef8c5b8f1801c6108d76c28194",
+   "md5": "d027142cc4c9c93b855e1a12fd98f1d0",
    "definer": true,
    "config": [
     "search_path=public, pg_temp"
@@ -160,6 +160,13 @@
    "privileges": []
   },
   {
+   "name": "registration_required",
+   "type": "boolean",
+   "notNull": true,
+   "default": "false",
+   "privileges": []
+  },
+  {
    "name": "tip_session_id",
    "type": "uuid",
    "notNull": false,
@@ -170,6 +177,7 @@
  "constraints": [
   "prec_att_practised_tip_shape c CHECK (((practised_tip IS NULL) OR (((char_length(practised_tip) >= 1) AND (char_length(practised_tip) <= 4000)) AND (btrim(practised_tip) = practised_tip))))",
   "progress_recommendation_attempts_registered_session_id_fkey f FOREIGN KEY (registered_session_id) REFERENCES sessions(id) ON DELETE SET NULL",
+  "progress_recommendation_attempts_registration_required_not_null n NOT NULL registration_required",
   "progress_recommendation_attempts_tip_session_id_fkey f FOREIGN KEY (tip_session_id) REFERENCES sessions(id) ON DELETE SET NULL"
  ],
  "indexes": [

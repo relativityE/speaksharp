@@ -50,11 +50,11 @@ const REVIEW = JSON.stringify({ version: 'gemini_coaching_v1', what_worked: 'The
 let db: PGlite | null = null;
 afterEach(async () => { await db?.close(); db = null; });
 
-async function shippedChain(opts: { activateRetention?: boolean } = {}): Promise<PGlite> {
+async function shippedChain(opts: { activateRetention?: boolean; withholdD2?: boolean } = {}): Promise<PGlite> {
     const pg = new PGlite();
     await pg.exec(SUPABASE_BOOTSTRAP);
     expect(SHIPPED.at(-1)).toBe(D2);
-    for (const f of SHIPPED) await pg.exec(readFileSync(resolve(DIR, f), 'utf8'));
+    for (const f of opts.withholdD2 ? SHIPPED.slice(0, -1) : SHIPPED) await pg.exec(readFileSync(resolve(DIR, f), 'utf8'));
     if (opts.activateRetention !== false) await pg.query('SELECT public.activate_transcript_retention_newest_one()');
     return pg;
 }
@@ -312,6 +312,39 @@ describe('outcome 4 D2 on the shipped save path (every shipped migration, real c
         expect(await attemptState(attempt)).toMatchObject({ practised_tip: TIP, tip_session_id: d });
         await advance(uid, attempt, 'not_comparable', d);
         expect(await attemptState(attempt)).toMatchObject({ practice_session_id: d, practised_tip: TIP });
+    }, 180_000);
+
+    for (const guarded of [true, false]) {
+        it(`Codex P2 ${guarded ? '' : 'NEGATIVE CONTROL '}(real path): a repeat pending before the migration applies still resolves under the earlier rules${guarded ? '' : ' — without the compatibility marker it is refused'}`, async () => {
+            db = await shippedChain({ withholdD2: true });           // Production before 20261119120000
+            const uid = await signup();
+            const a = await take(uid);
+            await coach(a);
+            const attempt = await pressPracticeAgain(uid, a);       // recorded by the pre-migration server
+            intents.delete(uid);                                     // an existing client: no registration
+            await db.exec(readFileSync(resolve(DIR, D2), 'utf8'));   // the migration applies while it is pending
+            if (!guarded) await db.exec((await db.query<{ d: string }>(
+                `SELECT pg_get_functiondef('public._prec_att_guard_tip()'::regprocedure) AS d`)).rows[0].d
+                .replace('    IF NEW.registration_required\n       AND NEW.practice_session_id', '    IF true\n       AND NEW.practice_session_id'));
+            expect((await db.query<{ r: boolean }>('SELECT registration_required AS r FROM public.progress_recommendation_attempts WHERE id = $1', [attempt])).rows[0].r).toBe(false);
+            const b = await take(uid);
+            const outcome = await advance(uid, attempt, 'not_comparable', b).then(() => 'resolved', (e: Error) => e.message);
+            expect(outcome).toMatch(guarded ? /^resolved$/ : /not the take registered/);
+            expect(await attemptState(attempt)).toMatchObject(guarded
+                ? { practice_session_id: b, practised_tip: null, lifecycle: 'not_comparable' }
+                : { practice_session_id: null, lifecycle: 'pending' });
+        }, 180_000);
+    }
+
+    it('an attempt recorded after the migration is registration-required, and the marker cannot be changed', async () => {
+        db = await shippedChain();
+        const uid = await signup();
+        const a = await take(uid);
+        await coach(a);
+        const attempt = await pressPracticeAgain(uid, a);
+        expect((await db!.query<{ r: boolean }>('SELECT registration_required AS r FROM public.progress_recommendation_attempts WHERE id = $1', [attempt])).rows[0].r).toBe(true);
+        await expect(db!.query('UPDATE public.progress_recommendation_attempts SET registration_required = false WHERE id = $1', [attempt]))
+            .rejects.toThrow(/set only when the attempt is recorded/);
     }, 180_000);
 
     it('wrong take: an unrelated take already recording when Practice again is pressed, saved first, cannot claim the tip', async () => {

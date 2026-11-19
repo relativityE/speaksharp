@@ -72,7 +72,7 @@ describe('#1827 D2 repeat-tip exact-apply catalog gate', () => {
     assert.equal(committed.targetSha256, createHash('sha256').update(readFileSync(`${DIR}/${file(REPEAT_TIP_VERSION)}`)).digest('hex'));
     assert.equal(committed.functions.length, 8);
     assert.equal(committed.triggers.length, 4);
-    assert.equal(committed.columns.length, 3);
+    assert.equal(committed.columns.length, 4);
     for (const fn of committed.functions as Array<{ signature: string; acl: string[] }>) {
       assert.deepEqual(fn.acl, fn.signature.startsWith('public.register_practice_again_take_v1(') ? ['authenticated'] : [],
         `${fn.signature}: only the client RPC is executable, and only by authenticated`);
