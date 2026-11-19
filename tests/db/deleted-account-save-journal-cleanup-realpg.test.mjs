@@ -4,7 +4,7 @@
 // journal migrations, then the candidate service_role-only cleanup functions, then the SHARED live cleanup step
 // (tests/live/helpers/runOwnedCleanup.ts clearDeletedAccountSaveJournal) driven against this database.
 //
-// Run: node --import tsx --test tests/db/deleted-account-save-journal-cleanup-realpg.test.mjs
+// Run: node --test tests/db/deleted-account-save-journal-cleanup-realpg.test.mjs (also works with --import tsx)
 // (tsx loads the TypeScript cleanup helper; the database part needs only an installed initdb/pg_ctl/psql.)
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os';
 import { delimiter, isAbsolute, join } from 'node:path';
 import process from 'node:process';
 import { setTimeout as delay } from 'node:timers/promises';
+import { tsImport } from 'tsx/esm/api';
 import { completionBootstrap, recordingChain } from './account-completion-fixture.mjs';
 
 const journal = 'backend/supabase/migrations/20261020230653_account_pending_completion_journal_1643.sql';
@@ -41,8 +42,9 @@ test('deleted-account save-journal cleanup: removes only a deleted account\'s fi
     } catch { /* Only a complete installed toolchain is eligible. */ }
   }
   assert.ok(bin, 'NOT RUN: installed local PostgreSQL initdb/pg_ctl/psql toolchain unavailable');
-  // The shared live cleanup step under test (TypeScript; needs the tsx loader).
-  const { clearDeletedAccountSaveJournal, cleanupFailureStep, SAVE_JOURNAL_DELETE_FN, SAVE_JOURNAL_COUNT_FN } = await import(`../../${helper}`);
+  // The shared live cleanup step under test (TypeScript). tsImport loads it through tsx whether or not the runner passed
+  // `--import tsx`: the evidence lane runs plain `node --test`, where its extensionless imports would not resolve.
+  const { clearDeletedAccountSaveJournal, cleanupFailureStep, SAVE_JOURNAL_DELETE_FN, SAVE_JOURNAL_COUNT_FN } = await tsImport(`../../${helper}`, import.meta.url);
   assert.equal(SAVE_JOURNAL_DELETE_FN, DELETE_FN); assert.equal(SAVE_JOURNAL_COUNT_FN, COUNT_FN);
 
   const root = mkdtempSync(join(tmpdir(), 'save-journal-cleanup-'));
