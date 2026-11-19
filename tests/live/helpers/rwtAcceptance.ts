@@ -511,7 +511,11 @@ const FOCUS_PRODUCT_ROWS = Object.freeze([
     'model download vs setup timing', 'Practice again press → arrival (sent)',
     // #1258 (PM 6114590729): real coaching provenance (prompt binding), full and partial alike.
     'coaching prompt binding',
+    // J3.a/b (#1904): the privacy choice bound before Start, and the measured timing of the exact saved take.
+    'practice privacy choice', 'saved timing matches the take',
 ]);
+/** J3.b (#1904) only: the one repeat take on the same set, saved on its own, against the fixture and reopened. */
+const FOCUS_PARTIAL_ONLY_PRODUCT_ROWS = Object.freeze(['J3.b: repeat take saved and reopened against the fixture']);
 const FOCUS_FULL_ONLY_PRODUCT_ROWS = Object.freeze(['feedback', 'feedback retention', 'feedback outcome (sent)', 'Focus New Set', 'Focus Edit', 'take after switching products is clean',
     'feedback diagnostic chain',
     // AHT-02 only (#1811): Escape keeps the set; the Open Mic take writes no Focus evidence.
@@ -651,7 +655,7 @@ export function requiredAutomatedRows(suite: string): { required: readonly strin
             return { required: [...ALWAYS_AUTOMATED_ROWS, ...JOURNEY_READBACK_ROWS], product: [...FOCUS_PRODUCT_ROWS, ...FOCUS_FULL_ONLY_PRODUCT_ROWS], absent: [] };
         case 'focus-points-partial':
             // #1532 Codex P1 r4126745141: the partial run deletes its account in-body, before write(), and records it.
-            return { required: [...ALWAYS_AUTOMATED_ROWS, ...JOURNEY_READBACK_ROWS, RUN_OWNED_CLEANUP_ROW], product: FOCUS_PRODUCT_ROWS, absent: [] };
+            return { required: [...ALWAYS_AUTOMATED_ROWS, ...JOURNEY_READBACK_ROWS, RUN_OWNED_CLEANUP_ROW], product: [...FOCUS_PRODUCT_ROWS, ...FOCUS_PARTIAL_ONLY_PRODUCT_ROWS], absent: [] };
         case 'returning-user-navigation':
             return { required: ALWAYS_AUTOMATED_ROWS, product: RETURNING_USER_PRODUCT_ROWS, absent: JOURNEY_READBACK_ROWS };
         case FEEDBACK_OLDER_TAKE_SUITE:
