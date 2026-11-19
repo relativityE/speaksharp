@@ -257,7 +257,7 @@ try {
   }
   if (evidence.overallStatus !== 'QUALIFIED') {
     const gaps=evidence.executionCoverage.rows.filter(row=>row.status!=='EXECUTED');
-    const pilotGap=evidence.executionCoverage.pilot.status==='NOT RUN'?'NOT RUN: applicable analytics pilot; ':'';
+    const pilotGap=evidence.executionCoverage.pilot.status==='NOT RUN'?'NOT RUN: applicable semantic controls; ':'';
     throw new Error(`Unqualified execution coverage: ${pilotGap}${gaps.map(row=>`${row.status}: ${row.file}`).join('; ')}`);
   }
   evidence.qualification = { status: 'valid', scope:'quality-metrics-only', ...qualification };

@@ -184,10 +184,13 @@ function withPilotFixture(check) {
       fs.writeFileSync(target,fs.readFileSync(path.join(root,file)));
     }
     const git=args=>execFileSync('git',args,{cwd:dir,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
-    git(['init']);git(['add','.']);
+    git(['init']);
+    git(['-c','user.name=Receipt fixture','-c','user.email=fixture@example.invalid','commit','--allow-empty','-m','comparison base']);
+    const base=git(['rev-parse','HEAD']);
+    git(['add','.']);
     git(['-c','user.name=Receipt fixture','-c','user.email=fixture@example.invalid','commit','-m','bounded maintained pilot bytes']);
     const expected=executionContext(dir,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
-    return check({root:dir,expected});
+    return check({root:dir,expected,base});
   } finally {fs.rmSync(dir,{recursive:true,force:true});}
 }
 
@@ -208,10 +211,10 @@ test('claimed filenames/run ID or neighboring suite cannot qualify SQL or Node t
   assert.equal(coverage.status,'INCOMPLETE');
 });
 
-test('replays all five raw phases for the narrow pilot and never credits neighboring SQL',()=>withPilotFixture(({root,expected})=>{
-  const receipt=pilot(expected,root);
+test('replays all five raw phases for the narrow pilot and never credits neighboring SQL',()=>withPilotFixture(({root,expected,base})=>{
+  const receipt={...pilot(expected,root),base};
   assert.equal(validatePilotExecution(receipt,expected,root),contract.testFile);
-  const coverage=executionCoverage([contract.testFile,'tests/db/focus-points-trial-capability-matrix.sql'],{root,expected,pilot:receipt});
+  const coverage=executionCoverage([contract.testFile,'tests/db/focus-points-trial-capability-matrix.sql'],{root,expected,base,pilot:receipt});
   assert.deepEqual(coverage.rows.map(row=>row.status),['EXECUTED','NOT RUN']);
 }));
 
@@ -274,9 +277,9 @@ test('source-only diff requires pilot even with empty changed-test rows; unrelat
   } finally {fs.rmSync(dir,{recursive:true,force:true});}
 });
 
-test('gate-owned Vitest suites remain NOT RUN without their own validated execution receipts',()=>withPilotFixture(({root,expected})=>{
+test('gate-owned Vitest suites remain NOT RUN without their own validated execution receipts',()=>withPilotFixture(({root,expected,base})=>{
   const files=['tests/unit/testEfficacy.test.js','tests/unit/testExecutionEvidence.test.js','tests/unit/releasePathSkipPropagation.test.js'];
-  const coverage=executionCoverage(files,{root,expected,pilot:pilot(expected,root)});
+  const coverage=executionCoverage(files,{root,expected,base,pilot:{...pilot(expected,root),base}});
   assert.equal(coverage.pilot.status,'EXECUTED'); // synthetic pilot evidence still cannot cover neighbors
   assert.equal(coverage.status,'INCOMPLETE');
   assert.deepEqual(coverage.rows.map(row=>[row.route.runner,row.status]),files.map(()=>['vitest','NOT RUN']));

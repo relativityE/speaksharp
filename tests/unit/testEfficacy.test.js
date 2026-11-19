@@ -264,19 +264,22 @@ function fixture() {
   `);
   const git = args => execFileSync('git', args, { cwd: directory, stdio: 'pipe' }).toString().trim();
   git(['init']);
+  git(['-c', 'user.name=Efficacy fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--allow-empty', '-m', 'fixture comparison base']);
   git(['add', '.']);
   git(['-c', 'user.name=Efficacy fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-m', 'fixture']);
   return { directory, write, git };
 }
 
+const fixtureBase=directory=>execFileSync('git',['rev-parse','HEAD^'],{cwd:directory,encoding:'utf8'}).trim();
+
 test('generated apt cache does not enter producer snapshots or phase inputs',()=>{
   const {directory,write}=fixture();
   try {
-    const before=runTestEfficacy({root:directory});
+    const before=runTestEfficacy({root:directory,base:fixtureBase(directory)});
     write('apt-bundle/debs/Packages','generated CI cache, not source');
     fs.mkdirSync(path.join(directory,'apt-bundle/apt-lists'),{recursive:true});
     fs.symlinkSync('../debs/Packages',path.join(directory,'apt-bundle/apt-lists/runner_Packages'));
-    const after=runTestEfficacy({root:directory});
+    const after=runTestEfficacy({root:directory,base:fixtureBase(directory)});
     assert.equal(after.snapshotSha256,before.snapshotSha256);
     assert.equal(after.contracts[0].restored.report.success,true);
     assert.equal(after.contracts[0].baseline.inputSha256,before.contracts[0].baseline.inputSha256);
@@ -456,7 +459,7 @@ test('executes synthetic fixture baseline, semantic control, two mutations and r
   const { directory } = fixture();
   try {
     const original = fs.readFileSync(path.join(directory, contract.sourceFile));
-    const receipt = runTestEfficacy({ root: directory, base: undefined });
+    const receipt = runTestEfficacy({ root: directory, base: fixtureBase(directory) });
     assert.equal(receipt.contracts.length, 1);
     assert.equal(receipt.contracts[0].mutants.length, 2);
     assert.equal(receipt.contracts[0].baseline.report.success, true);
@@ -474,7 +477,7 @@ test('refuses a supplied PASS file when dependencies are missing; clean base is 
   try {
     fs.rmSync(path.join(directory, 'node_modules'), { recursive: true });
     write('receipt.json', JSON.stringify({ status: 'PASS', commit: git(['rev-parse', 'HEAD']) }));
-    assert.throws(() => runTestEfficacy({ root: directory, base: undefined }), /NOT RUN/);
+    assert.throws(() => runTestEfficacy({ root: directory, base: fixtureBase(directory) }), /NOT RUN/);
     fs.rmSync(path.join(directory, 'receipt.json'));
     const receipt = runTestEfficacy({ root: directory, base: git(['rev-parse', 'HEAD']) });
     assert.equal(receipt.status, 'not-applicable');
@@ -514,7 +517,7 @@ test('runner rejects input mutation by tests and never changes original source',
     const original = fs.readFileSync(source);
     fs.appendFileSync(path.join(directory, 'node_modules/vitest/vitest.mjs'),
       `\nfs.appendFileSync(${JSON.stringify(contract.sourceFile)}, '\\n// changed by test');\n`);
-    assert.throws(() => runTestEfficacy({ root: directory, base: undefined }), /Input changed during test phase/);
+    assert.throws(() => runTestEfficacy({ root: directory, base: fixtureBase(directory) }), /Input changed during test phase/);
     assert.deepEqual(fs.readFileSync(source), original);
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
@@ -613,7 +616,7 @@ test('semantic control preserves metric behavior but rejects a source-text-coupl
       'const failed = results.filter',
       `if (!source.includes(${JSON.stringify(contract.control[0].anchor)})) { results[0].status='failed'; results[0].failureMessages=['AssertionError: text changed']; }\nconst failed = results.filter`,
     ));
-    assert.throws(() => runTestEfficacy({root:directory,base:null}), /process failed/);
+    assert.throws(() => runTestEfficacy({root:directory,base:fixtureBase(directory)}), /process failed/);
     assert.deepEqual(fs.readFileSync(path.join(directory,contract.sourceFile)),source);
   } finally {fs.rmSync(directory,{recursive:true,force:true});}
 });
@@ -635,8 +638,11 @@ test('all-zero base selects all registered contracts; realpath accepts symlinked
     fs.symlinkSync(directory,link,'dir');
     assert.notEqual(path.resolve(link),path.resolve(directory));
     assert.equal(canonicalPath(link),canonicalPath(directory));
-    const receipt=runTestEfficacy({root:link,base:'0'.repeat(40)});
-    assert.equal(receipt.selection,'all-registered-no-base');
+    assert.deepEqual(selectContracts(link,null).map(item=>item.id), ['analytics-truth','save-consent-boundary','coaching-consent-boundary']);
+    // This deliberately reduced fixture has no second contract. A fallback to all must not silently pass one.
+    assert.throws(()=>runTestEfficacy({root:link,base:'0'.repeat(40)}), /ENOENT.*storage\.ts/);
+    const receipt=runTestEfficacy({root:link,base:fixtureBase(directory)});
+    assert.equal(receipt.selection,'affected');
     assert.equal(receipt.contracts.length,1);
   } finally {fs.rmSync(link,{force:true});fs.rmSync(directory,{recursive:true,force:true});}
 });
@@ -664,7 +670,7 @@ if (process.env.GITHUB_ACTIONS === 'true' || process.env.TEST_EFFICACY_REAL_RUNT
         if (scenario==='interruption') setup+="import {writeSync} from 'node:fs';\nbeforeAll(()=>{if(isValidMetric('')) { writeSync(2,'EFFICACY_INJECTED_WORKER_SIGTERM\\n'); process.kill(process.pid,'SIGTERM'); }});";
         write('efficacy-setup.ts',setup);
         if (scenario==='ordinary') {
-          const result=runTestEfficacy({root:directory,base:null});
+          const result=runTestEfficacy({root:directory,base:fixtureBase(directory)});
           assert.equal(result.contracts[0].mutants.length,2);
           assert.equal(result.contracts[0].restored.report.success,true);
         } else {
@@ -679,7 +685,7 @@ if (process.env.GITHUB_ACTIONS === 'true' || process.env.TEST_EFFICACY_REAL_RUNT
             unhandled:/Efficacy unhandled runtime\/setup error|Missing, stale, interrupted or inconsistent raw phase evidence/,
             interruption:/Efficacy unhandled runtime\/setup error|Missing, stale, interrupted or inconsistent raw phase evidence/,
           };
-          assert.throws(()=>runTestEfficacy({root:directory,base:null}),error=>{
+          assert.throws(()=>runTestEfficacy({root:directory,base:fixtureBase(directory)}),error=>{
             assert.equal(error.phase,phase,scenario);
             assert.deepEqual(error.completedPhases,phase==='baseline'?[]:['baseline','semantic-control'],scenario);
             assert.match(error.cause.message,reasons[scenario],scenario);

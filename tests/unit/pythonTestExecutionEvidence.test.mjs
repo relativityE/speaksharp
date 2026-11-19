@@ -267,3 +267,63 @@ test('oversized Python receipt is refused before JSON processing with bounded co
     });
   } finally {process.env.PATH=f.oldPath;fs.rmSync(f.root,{recursive:true,force:true});}
 });
+
+test('source-only cloud request edits require their composed Python method', async()=>{
+  const {changedEvidencePaths}=await import('../../scripts/lib/testExecutionEvidence.mjs');
+  const f=fixture();
+  try {
+    const git=(...args)=>execFileSync('git',['-C',f.root,...args],{encoding:'utf8'}).trim();
+    git('init','-q');
+    git('config','user.email','fixture@example.test');
+    git('config','user.name','Fixture');
+    const sources=['aggregate_receiver','check_gates'].map(name=>`tools/cloud-test/scripts/${name}.py`);
+    const consumer='tools/cloud-test/tests/test_init_run_inputs.py';
+    for(const file of [...sources,consumer]) {
+      fs.mkdirSync(path.dirname(path.join(f.root,file)),{recursive:true});
+      fs.writeFileSync(path.join(f.root,file),'# baseline\n');
+    }
+    git('add','.');git('commit','-qm','baseline');
+    const base=git('rev-parse','HEAD');
+    for(const file of sources)fs.appendFileSync(path.join(f.root,file),'# source-only edit\n');
+    assert.deepEqual(changedEvidencePaths(f.root,base),sources);
+    assert.deepEqual(selectPythonContracts(sources),[{
+      testFile:consumer,sourceFiles:sources,
+      testMethod:'ContinuityCheckpoint.test_prepare_admits_only_the_supplied_envelope_and_the_real_builder_binding_accepts_the_placed_bytes',
+      batch:0,
+    }]);
+  } finally {fs.rmSync(f.root,{recursive:true,force:true});}
+});
+
+test('exact cloud request method must call the two bound sources, not just import or read them',()=>{
+  const f=fixture();
+  try {
+    const files=['aggregate_receiver','check_gates'].map(name=>`tools/cloud-test/scripts/${name}.py`);
+    const [{testFile,testMethod}]=selectPythonContracts(files);
+    const method=testMethod.split('.')[1];
+    const sources=[
+      'from check_gates import authenticated_chain\ndef receive_bundle(): return authenticated_chain()\n',
+      'def authenticated_chain(): return 5\n',
+    ];
+    const put=(file,bytes)=>{
+      fs.mkdirSync(path.dirname(path.join(f.root,file)),{recursive:true});
+      fs.writeFileSync(path.join(f.root,file),bytes);
+    };
+    files.forEach((file,index)=>put(file,sources[index]));
+    const prefix=`import sys, unittest\nfrom pathlib import Path\nsys.path.insert(0, str(Path(__file__).resolve().parents[1]/'scripts'))\nfrom aggregate_receiver import receive_bundle\nclass ContinuityCheckpoint(unittest.TestCase):\n def ${method}(self):\n`;
+    put(testFile,prefix+"  self.assertEqual(receive_bundle(),5)\n def test_unrelated(self): self.fail()\n");
+    const options={root:f.root,base:'d'.repeat(40),provenance:f.provenance,files,environment:f.environment,
+      drain:()=>({status:'drained'}),runtimeOptions:realRuntimeOptions(f)};
+    const receipt=producePythonReceipt(options);
+    assert.deepEqual([...validatePythonReceipt(receipt,options)],files);
+    const altered=structuredClone(receipt);
+    altered.tests[0].phase.report.collected[0]='neighbor.test_unrelated';
+    altered.tests[0].phase.report.outcomes[0].id='neighbor.test_unrelated';
+    assert.throws(()=>validatePythonReceipt(altered,options),/method missing or substituted/);
+    const stale=structuredClone(receipt);
+    stale.tests[0].phase.report.sourceCalls[0].sha256='0'.repeat(64);
+    assert.throws(()=>validatePythonReceipt(stale,options),/source call absent, substituted or stale/);
+    assert.throws(()=>producePythonReceipt({...options,files:[...files,testFile]}),/execution failed/);
+    put(testFile,prefix+`  Path(${JSON.stringify(path.join(f.root,files[0]))}).read_bytes()\n`);
+    assert.throws(()=>producePythonReceipt(options),/source call absent/);
+  } finally {fs.rmSync(f.root,{recursive:true,force:true});}
+});

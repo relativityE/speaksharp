@@ -7,7 +7,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { TEST_EFFICACY_CONTRACTS, qualifyEfficacyPhase } from './lib/softwareQualityEvidenceQualification.mjs';
 import { canonicalPath, runtimeIdentity } from './efficacy-reporter.mjs';
-import { executionContext, testEnvironment, pilotAffectedByPaths,
+import { executionContext, testEnvironment, requiredSemanticContracts,
   executionRequiredFiles,unavailableExecutionInputs,fixtureSourceBinding, validateFixtureWitness, selectExecutionContracts,
   vitestExecutionTimeoutMs } from './lib/testExecutionEvidence.mjs';
 import {HELPER_CONFIG, helperSourceBinding, validateHelperCoverage} from './lib/helperExecutionEvidence.mjs';
@@ -166,11 +166,9 @@ export function dependencyPaths(root, entry, seen = new Set()) {
   return seen;
 }
 
-export function selectContracts(root, changedPaths) {
-  return TEST_EFFICACY_CONTRACTS.filter(contract => {
-    const dependencies = dependencyPaths(root, contract.testFile);
-    return pilotAffectedByPaths(changedPaths) || changedPaths.some(file => dependencies.has(file));
-  });
+export function selectContracts(_root, changedPaths) {
+  // The consumer derives the same scope independently from the checkout.
+  return requiredSemanticContracts(changedPaths);
 }
 
 function snapshot(root) {
@@ -230,8 +228,8 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
   if (userHarmControls && (selected.length !== 3 || selected.some(contract => contract.mutants.length !== 1 || contract.control?.length !== 1))) {
     throw new Error('User-harm control budget: three named boundaries, one mutant and one semantic control each');
   }
-  if (!executionOnly && !userHarmControls && (selected.length > 1 || selected.some(contract => contract.mutants.length !== 2 || contract.control?.length !== 2))) {
-    throw new Error('Efficacy pilot budget: one contract, two mutants, one two-seam semantic control');
+  if (!executionOnly && !userHarmControls && (selected.length > TEST_EFFICACY_CONTRACTS.length || selected.some(contract => contract.mutants.length !== 2 || contract.control?.length !== 2))) {
+    throw new Error('Efficacy budget: two mutants and a two-seam harmless control per named contract');
   }
   // One invocation executes exactly one batch of at most eight contracts; the caller runs every batch.
   const batchCount=executionOnly?Math.ceil(selected.length/NATIVE_BATCH_SIZE):0;
@@ -246,7 +244,7 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
   if (provenance.commit!==commit || provenance.tree!==tree || provenance.snapshotSha256!==before.digest) {
     throw new Error('Producer context differs from tested source');
   }
-  const receipt = { schemaVersion: 2, runId: randomUUID(), scope: userHarmControls?'three named user-harming faults only; no journey-wide or mutation-percentage claim':nativeOnly?'changed Deno/Node execution; bounded planner/observer callable evidence only':executionOnly ? 'changed Vitest collection and execution only' : 'registered analytics-truth faults only',
+  const receipt = { schemaVersion: 2, runId: randomUUID(), scope: userHarmControls?'three named user-harming faults only; no journey-wide or mutation-percentage claim':nativeOnly?'changed Deno/Node execution; bounded planner/observer callable evidence only':executionOnly ? 'changed Vitest collection and execution only' : 'registered semantic faults only',
     provenance,commit, tree, snapshotSha256: before.digest, base: base || null,
     selection: userHarmControls ? 'all-three-named-user-harm-controls' : changed === null ? 'all-registered-no-base' : 'affected', changedPaths: changed,
     status: unavailable.length?'incomplete':running.length?'executed':'not-applicable', contracts: [], tests: [],
