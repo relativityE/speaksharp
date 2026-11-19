@@ -359,19 +359,19 @@ console.log(query.includes('objects AS')?rows.join('\\n'):rows[0]);});\n`);
     ]) expect(() => t2ReleaseContract(process.cwd(), bad)).toThrow('ledger');
   });
 
-  it('refuses a ledger-12/13 catalog while any delta digest is still a pending native observation', () => {
+  it('ledger-12/13 carry only native digests; a pending value or any changed delta object is refused', () => {
     const thirteen = [...T2_VERSIONS, ...c1Versions, '20261110173548', '20261112133000', '20261114100000', '20261114170000', '20261117105700'];
+    const deltaKeys = [...Object.keys(PAYMENT_WALL_T2_CATALOG_DELTA), ...Object.keys(PRACTICE_PRIVACY_T2_CATALOG_DELTA)];
     for (const contract of [t2ReleaseContract(process.cwd(), thirteen.slice(0, -1)), t2ReleaseContract(process.cwd(), thirteen)]) {
-      const pending = Object.entries(contract.expected).filter(([, digest]) => digest === PENDING_NATIVE_PIN).map(([key]) => key);
-      // Until pinned, even an actual catalog that reproduces the expectation verbatim cannot pass: a pending value is not a digest.
-      const verbatim = () => assertT2Catalog({ ...contract.expected }, contract.expected);
-      expect(pending.length === 0 ? verbatim().passed : (() => { try { verbatim(); return 'passed'; } catch (error) { return error.message; } })())
-        .toSatisfy(result => result === true || /^T2 catalog mismatch: /.test(result));
-      const malformed = Object.entries(contract.expected).filter(([, digest]) => digest !== PENDING_NATIVE_PIN && !/^[a-f0-9]{32}$/.test(digest));
-      expect(malformed).toEqual([]);
-      // A pinned stage still refuses one changed object.
-      const key = Object.keys(contract.expected).find(k => /^[a-f0-9]{32}$/.test(contract.expected[k]));
-      expect(() => assertT2Catalog({ ...contract.expected, [key]: '0'.repeat(32) }, contract.expected)).toThrow('T2 catalog mismatch');
+      // Every expected value is a real digest: nothing pending remains in a release stage.
+      expect(Object.entries(contract.expected).filter(([, digest]) => !/^[a-f0-9]{32}$/.test(digest))).toEqual([]);
+      expect(assertT2Catalog({ ...contract.expected }, contract.expected).passed).toBe(true);
+      for (const key of deltaKeys.filter(k => Object.hasOwn(contract.expected, k))) {
+        // A pending expectation is refused even when the actual catalog reproduces it verbatim: it is not a digest.
+        const pending = { ...contract.expected, [key]: PENDING_NATIVE_PIN };
+        expect(() => assertT2Catalog({ ...pending }, pending)).toThrow(`T2 catalog mismatch: ${key}`);
+        expect(() => assertT2Catalog({ ...contract.expected, [key]: '0'.repeat(32) }, contract.expected)).toThrow(`T2 catalog mismatch: ${key}`);
+      }
     }
   });
 

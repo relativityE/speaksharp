@@ -11,6 +11,8 @@ export const PAYMENT_WALL_T2_CATALOG_DELTA = Object.freeze({
   "function:public.get_analytics_summary(uuid)": "59a8264bf7c34d8117722d00b21f6506",
   "table:public.recording_start_abandonments": "a599a366c15a1026c4604f9b23291c19"
 });
+// Observed natively by full-chain run 44425976976 (head 94d2b1cb), profile 133, after the ledger-12 reference passed against
+// the pins above (referenceVerified: true; profile 132 PASS with its refusal controls in the same run).
 export const PRACTICE_PRIVACY_T2_CATALOG_DELTA = Object.freeze({
-  "function:public.persist_account_coaching_v1(uuid, boolean, uuid, uuid, jsonb, text, text, text, date, integer, integer)": PENDING_NATIVE_PIN
+  "function:public.persist_account_coaching_v1(uuid, boolean, uuid, uuid, jsonb, text, text, text, date, integer, integer)": "0e774e4694bf34831b94c857b6e0e6b7"
 });
