@@ -79,6 +79,16 @@ on:
         options:
           - '500'
           - '1000'
+      rwt_practice_consent:
+        description: "RWT ONLY — the Practice privacy choice the run's own disposable account makes on a #1835 build, before any take: save_on (save Yes, AI coaching No), save_on_coaching_on, or save_off. unset = the Focus journey HOLDs (mode_unset) before recording. Ignored on a pre-#1835 build, which shows no choice."
+        required: false
+        default: unset
+        type: choice
+        options:
+          - unset
+          - save_on
+          - save_on_coaching_on
+          - save_off
 
 permissions:
   contents: read
@@ -393,6 +403,8 @@ jobs:
           RWT_WRITES_ACK: ${{ github.event.inputs.rwt_writes_ack }}
           RWT_CANARY_CLAIM_ACK: ${{ github.event.inputs.rwt_canary_claim_ack }}
           RWT_HUMAN_REFLEX_MS: ${{ github.event.inputs.rwt_human_reflex_ms }}
+          # #1897 Codex P2: the run's Practice consent mode, read only through consentModeFrom (exact keys; anything else = unset).
+          RWT_PRACTICE_CONSENT: ${{ github.event.inputs.rwt_practice_consent }}
           LIVE_TEST_EMAIL_DOMAIN: ${{ vars.LIVE_TEST_EMAIL_DOMAIN }}
         run: |
           echo "DIAGNOSTIC_SINGLE_SPEC=true"

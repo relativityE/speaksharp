@@ -24,7 +24,7 @@ describe('Focus journey Start presses match the designed budget', () => {
         expect(count(/await startBenchmarkRecording\(page, `\$\{suite\}-edited`\);/g)).toBe(1);
         // The cold first take's one activation (mic-download) also starts it; it is the same press as the warm Start, never both.
         expect(count(/await preparePrivateModelIfPrompted\(page, 900_000\);/g)).toBe(1);
-        expect(src).toMatch(/if \(!setup\.recordingAlreadyStarted\) \{\s*await waitForPrivateEngineReady\(page, 600_000\);\s*await startBenchmarkRecording\(page, suite\);/);
+        expect(src).toMatch(/if \(!setup\.recordingAlreadyStarted\) \{\s*await waitForPrivateEngineReady\(page, 600_000\);\s*firstPressedAt = Date\.now\(\);\s*await startBenchmarkRecording\(page, suite\);/);
     });
     it('the three extra takes run only in the full (AHT-02) journey', () => {
         const fullOnly = src.indexOf("if (fixtureKey === 'focus_points_tts') {\n            // Both steps drive the current page");

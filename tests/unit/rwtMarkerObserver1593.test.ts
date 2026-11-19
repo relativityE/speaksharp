@@ -363,7 +363,7 @@ describe('bounded cleanup through the finalizer, and the journey wiring', () => 
         const frozenAt = src.indexOf('await freezeMarkerObserver(page, armed.token)');
         expect(frozenAt).toBeGreaterThan(armedAt);
         expect(frozenAt).toBeLessThan(src.indexOf("receipt.row('marker timing vs audio'"));
-        expect(frozenAt).toBeLessThan(src.indexOf('await stopBenchmarkRecording(page, suite, 180_000)'));
+        expect(frozenAt).toBeLessThan(src.indexOf('await stopMonitoredTake(page, firstMonitor, () => confirmBenchmarkStopped(page, suite, 180_000))')); // #1897: the first take's atomic Stop
         expect(src).toContain('bindTakeAcquisition(sealed.acquisitionLog, sealed.acquisitionMarks, sealed.acquisitionsAtArm)');
         expect(src).not.toMatch(/micAcquisitionLog\(page\)/);
         expect(src).toContain('const status = markerTimingStatus(verdicts);');
