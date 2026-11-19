@@ -210,3 +210,28 @@ test('payment-wall and practice-privacy profiles refuse changed installed or wit
     }], profile), /unreviewed migration/);
   }
 });
+
+// #1827 outcome 4 D2 (ledger 14): stages after practice privacy; its objects are outside the T2 inventory (empty delta).
+const repeatTipProfile = 'main-repeat-tip-134';
+
+test('installed repeat-tip profile replays practice privacy then 20261119120000, withholding billing129 and the refund', () => {
+  assert.equal(parseMainProofArguments([`--profile=${repeatTipProfile}`]).profile, repeatTipProfile);
+  const plan = buildMainU1ReplayPlan(rows, repeatTipProfile);
+  assert.equal(plan.migrations, 134);
+  assert.deepEqual(plan.withheld.map(row => [row.version, row.status]), [[billing, 'NOT REPLAYED'], [refund, 'NOT REPLAYED']]);
+  assert.deepEqual(plan.stages.slice(-3).map(stage => stage.name), ['payment-wall', 'practice-privacy', 'repeat-tip']);
+  assert.deepEqual(plan.stages.at(-1).versions, [...plan.stages.at(-2).versions, repeatTip]);
+  assert.deepEqual(plan.stages.at(-2).versions, buildMainU1ReplayPlan(rows, practicePrivacyProfile).stages.at(-1).versions);
+  assert.ok(plan.stages.slice(0, -1).every(stage => !stage.versions.includes(repeatTip)));
+  assert.equal(plan.executed, false);
+});
+
+test('repeat-tip profile refuses changed installed or withheld bytes and unknown successors', () => {
+  for (const version of [repeatTip, practicePrivacy, paymentWall, billing, refund]) {
+    assert.throws(() => buildMainU1ReplayPlan(rows.map(row => row.version === version
+      ? { ...row, sha256: '0'.repeat(64) } : row), repeatTipProfile), /digest changed/, version);
+  }
+  assert.throws(() => buildMainU1ReplayPlan([...rows, {
+    name: '20261120120000_unknown.sql', version: '20261120120000', sha256: '0'.repeat(64),
+  }], repeatTipProfile), /unreviewed migration/);
+});
