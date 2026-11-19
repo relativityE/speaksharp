@@ -165,7 +165,8 @@ describe('#1548 accepted instruction reaches the actual Session parent', () => {
         const reference = await validateDisplayedTarget({ ownerId: 'owner-1', epoch: authEpoch(), sessionId: 'source-A',
             product: 'open_mic', instruction: 'Name the price first.', focus: null, isCurrent: () => true });
         setOpenAttempt({ userId: 'owner-1', attemptId: 'repeat-B', sourceSessionId: 'source-A',
-            acceptedAtIso: '2026-10-19T10:00:00.000Z', repeatTarget: reference });
+            // #1827 rev 4: B is the take the Practice-again tab registered; only it resolves the attempt.
+            acceptedAtIso: '2026-10-19T10:00:00.000Z', repeatTarget: reference, registeredSessionId: 'saved-repeat-B' });
         const start = vi.fn();
         mockLifecycle.mockReturnValue({ ...lifecycle(), showAnalyticsPrompt: false, handleStartStop: start } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
         useSessionStore.setState({ progressGate: null, progressGateResolvedFor: 'owner-1' });

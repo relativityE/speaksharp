@@ -594,7 +594,11 @@ function bindOpenAttemptForTake(
 ): 'not_due' | 'bound' | 'failed' {
     const open = getOpenAttemptForUser(userId);
     if (!open || open.sourceSessionId === sessionId) return 'not_due'; // never resolve a recommendation against itself
-    if (open.resolutionSessionId) return open.resolutionSessionId === sessionId ? 'bound' : 'not_due';
+    // #1827 D2 rev 4 (Codex P2): only the take registered from the Practice-again tab resolves the attempt; the server
+    // refuses any other. A take from another tab or product, saved first, leaves the handoff for the registered take.
+    if (open.registeredSessionId !== sessionId) return 'not_due';
+    if (open.resolutionSessionId === sessionId) return 'bound';
+    // A resolution bound to another take (before registration existed) is replaced by the registered take below.
     // Fail closed on an UNKNOWN boundary: never bind on a guess (PM 6174115505).
     if (boundaryIso === null) return 'not_due';
     const accepted = open.acceptedAtIso;
@@ -647,6 +651,8 @@ async function resolveOpenAttemptWith(userId: string, newSessionId: string): Pro
     // decision had found NOT due (accepted after this save began, or a queued take that predates acceptance) to the wrong
     // take, and left the take the user actually practised unlinked. An unbound attempt waits for the take it belongs to.
     if (!open.resolutionSessionId) return;
+    // #1827 D2 rev 4: never retry a resolution the server refuses (not the registered take); wait for the registered one.
+    if (open.registeredSessionId !== open.resolutionSessionId) return;
     const resolutionSessionId = open.resolutionSessionId;
     const key = `${userId}\u0000${open.attemptId}`;
     const existing = advancesInFlight.get(key);

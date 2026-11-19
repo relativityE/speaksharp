@@ -7,7 +7,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { saveSession } from '../storage';
 import { getSupabaseClient } from '../supabaseClient';
 import logger from '../logger';
-import { clearOpenAttempt, setOpenAttempt } from '@/services/progress/openAttempt';
+import { clearOpenAttempt, getOpenAttemptForUser, setOpenAttempt } from '@/services/progress/openAttempt';
 import { clearPracticeAgainIntent, getPracticeAgainIntent, setPracticeAgainIntent } from '@/services/progress/practiceAgainIntent';
 
 vi.mock('../supabaseClient');
@@ -37,6 +37,8 @@ describe('#1827 Practice again registers only this tab\'s next take', () => {
         expect(result.status).toBe('saved');
         expect(registerCalls()).toEqual([['register_practice_again_take_v1', { p_attempt: ATTEMPT, p_session: 's-b' }]]);
         expect(getPracticeAgainIntent(USER)).toBeNull();
+        // Every tab's resolution now binds only this take (Codex P2 on 1025cac7).
+        expect(getOpenAttemptForUser(USER)?.registeredSessionId).toBe('s-b');
     });
 
     it('another tab (no intent) never registers its take', async () => {
@@ -52,6 +54,7 @@ describe('#1827 Practice again registers only this tab\'s next take', () => {
         supabase.rpc.mockImplementation(async (name: string) => name === 'register_practice_again_take_v1' ? { data: false, error: null } : created('s-c'));
         expect((await saveSession({ user_id: USER, duration: 0 } as never, 'private' as never)).status).toBe('saved');
         expect(getPracticeAgainIntent(USER)).toEqual({ attemptId: ATTEMPT, userId: USER });
+        expect(getOpenAttemptForUser(USER)?.registeredSessionId).toBeUndefined();
         supabase.rpc.mockImplementation(async (name: string) => name === 'register_practice_again_take_v1' ? { data: null, error: { code: '42501' } } : created('s-d'));
         expect((await saveSession({ user_id: USER, duration: 0 } as never, 'private' as never)).status).toBe('saved');
     });

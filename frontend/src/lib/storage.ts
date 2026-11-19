@@ -16,6 +16,7 @@ import { currentTakeLeaseId } from '@/services/recordingLease';
 import logger from './logger';
 import { transcriptSaveAllowed } from '@/services/practicePrivacy';
 import { clearPracticeAgainIntent, getPracticeAgainIntent } from '@/services/progress/practiceAgainIntent';
+import { getOpenAttemptForUser, setOpenAttempt } from '@/services/progress/openAttempt';
 import type { PracticeSession } from '../types/session';
 import type { UserProfile } from '../types/user';
 import type { AnalyticsSummary } from '../types/analytics';
@@ -265,7 +266,12 @@ async function registerPracticeAgainTake(userId: string | undefined, sessionId: 
   if (!intent) return;
   try {
     const { data, error } = await getSupabaseClient().rpc('register_practice_again_take_v1', { p_attempt: intent.attemptId, p_session: sessionId });
-    if (!error && data === true) clearPracticeAgainIntent();
+    if (!error && data === true) {
+      // The owner-wide handoff learns which take is the repeat, so every tab binds and resolves only that take.
+      const open = getOpenAttemptForUser(userId);
+      if (open?.attemptId === intent.attemptId) setOpenAttempt({ ...open, registeredSessionId: sessionId });
+      clearPracticeAgainIntent();
+    }
     else if (error) logger.warn({ code: error.code }, '[Supabase DB] Practice again take not registered');
   } catch {
     logger.warn('[Supabase DB] Practice again take not registered');
