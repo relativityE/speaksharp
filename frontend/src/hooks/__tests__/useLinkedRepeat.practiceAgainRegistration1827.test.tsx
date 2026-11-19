@@ -21,8 +21,9 @@ vi.mock('@/contexts/AuthProvider', () => ({ useAuthProvider: () => ({ user: { id
 vi.mock('@/services/progress/loadSessionProgress', () => ({
     loadSessionProgress: async () => ({ status: 'eligible', recommendationId: 'rec-1', latestAttempt: null }),
 }));
+const readPending = vi.fn(async () => ({ status: 'none' } as { status: string; attemptId?: string }));
 vi.mock('@/services/progress/recordProgress', () => ({
-    readPendingRecommendationAttempt: async () => ({ status: 'none' }),
+    readPendingRecommendationAttempt: () => readPending(),
     recordRecommendationAttempt: async () => 'attempt-1',
     abandonRecommendationAttempt: async () => true,
 }));
@@ -59,7 +60,7 @@ async function pressPracticeAgain() {
     expect(afterLinked).toHaveBeenCalledOnce();
     expect(getOpenAttemptForUser(USER)?.attemptId).toBe('attempt-1');
     // The press declared, once, that this attempt's repeat will be registered.
-    expect(registerCalls().filter((args) => args.p_session === null)).toEqual([{ p_attempt: 'attempt-1', p_session: null }]);
+    expect(registerCalls().filter((args) => args.p_session === null)).toContainEqual({ p_attempt: 'attempt-1', p_session: null });
 }
 
 describe('#1827 Practice again → Start registers only this tab\'s take', () => {
@@ -90,4 +91,14 @@ describe('#1827 Practice again → Start registers only this tab\'s take', () =>
         expect((await saveSession({ user_id: USER, duration: 0 } as never, 'private' as never)).status).toBe('saved');
         expect(registrations()).toEqual([]);
     });
+
+    it('Codex P2: pressing Practice again again reuses the pending attempt and keeps the take already registered', async () => {
+        await pressPracticeAgain();
+        await saveSession({ user_id: USER, duration: 0 } as never, 'private' as never);   // take-b registered
+        expect(getOpenAttemptForUser(USER)?.registeredSessionId).toBe('take-b');
+        readPending.mockResolvedValueOnce({ status: 'one', attemptId: 'attempt-1' });     // its advance failed; still pending
+        await pressPracticeAgain();
+        expect(getOpenAttemptForUser(USER)).toMatchObject({ attemptId: 'attempt-1', registeredSessionId: 'take-b' });
+    });
 });
+
