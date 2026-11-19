@@ -112,6 +112,14 @@ function account(o: { sessions?: Session[]; heldLeases?: Lease[]; releasedLeases
             },
             table,
         }),
+        // #1643 save journal: the migration's service_role-only functions (20261119200000), modelled exactly.
+        rpc: vi.fn(async (fn: string) => {
+            if (fn === 'count_account_save_journal_v1') return { data: obligations.size, error: null };
+            if (!deleted) return { data: null, error: { code: '55000', message: 'account still exists' } };
+            if ([...obligations.values()].some((p) => p !== 'completed')) return { data: null, error: { code: '55000', message: 'account admitted save unsettled' } };
+            for (const [k, p] of [...obligations]) if (p === 'completed') obligations.delete(k);
+            return { data: obligations.size, error: null };
+        }),
     };
     const proof = (closedAt: number | null = T0, unsettled: { sessionIds: string[]; unnamed: number } | null = { sessionIds: [...(o.delayedSaves ?? [])], unnamed: 0 }): StoppedTakeProof =>
         ({ writersClosedAt: () => closedAt, unsettledSaves: () => unsettled });
@@ -148,6 +156,38 @@ describe('run-owned cleanup closes only STOPPED takes of a run-bound synthetic j
         const a = account({ sessions: [take(S1, 'completed', L1), take(S2, 'completed', L2)] });
         await expect(run(a.admin, a.proof())).resolves.toBe(UID);
         expect(a.updates).toEqual([]);
+        // PO 2026-11-19 "make sure save records are deleted": the two finished journal rows (full take + repeat) are gone too.
+        expect(a.obligations.size).toBe(0);
+    });
+
+    it('save journal: deleted only AFTER the account is gone, then read back zero, before the verdict line', async () => {
+        const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+        const a = account({ sessions: [take(S1, 'completed', L1), take(S2, 'completed', L2)] });
+        const order: string[] = [];
+        const del = a.admin.auth.admin.deleteUser;
+        a.admin.auth.admin.deleteUser = vi.fn(async (...x: unknown[]) => { order.push('deleteUser'); return (del as (...y: unknown[]) => Promise<unknown>)(...x); }) as never;
+        const rpc = a.admin.rpc;
+        (a.admin as { rpc: unknown }).rpc = vi.fn(async (fn: string) => { order.push(fn); return rpc(fn); });
+        await expect(run(a.admin, a.proof())).resolves.toBe(UID);
+        expect(order).toEqual(['deleteUser', 'delete_deleted_account_save_journal_v1', 'count_account_save_journal_v1']);
+        expect(a.admin.rpc).toHaveBeenCalledWith('delete_deleted_account_save_journal_v1', { p_user_id: UID });
+        expect(log.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith('RUN_OWNED_CLEANUP'))).toHaveLength(1);
+    });
+
+    it('save journal step failing (no migration, refused, or rows left) means NO verdict line and a named step', async () => {
+        for (const [answer, step] of [
+            [{ data: null, error: { code: '42883', message: 'function does not exist' } }, 'save_journal_delete:account_save_obligations'],
+            [{ data: 1, error: null }, 'residue_found:account_save_obligations'],
+            [{ data: null, error: null }, 'residue_unproven:account_save_obligations'],
+        ] as const) {
+            const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+            const a = account({ sessions: [take(S1, 'completed', L1)] });
+            (a.admin as { rpc: unknown }).rpc = vi.fn(async () => answer);
+            const err = await run(a.admin, a.proof()).then(() => null, (e: unknown) => e);
+            expect(cleanupFailureStep(err)).toBe(step);
+            expect(log.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith('RUN_OWNED_CLEANUP'))).toEqual([]);
+            log.mockRestore();
+        }
     });
 
     it('CONTROL (Sam, v2 review): a save sent before the close and admitted LATE is never closed first, and it lands', async () => {

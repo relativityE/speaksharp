@@ -46,8 +46,8 @@ export function makeGetRun({ fetchImpl, token, repository, apiUrl = 'https://api
 /**
  * The admin client handed to the SHARED cleanup. The shared helper knows nothing of `canary_run`, so every DESTRUCTIVE call it
  * makes — the trial_entitlements pre-delete and deleteUser — first re-reads the account and requires the same email and the
- * exact expected canary binding (`expected` repo/workflow/role plus `runId`/`runAttempt`). Reads pass through unchanged; any
- * other mutation is refused. A changed, foreign or vanished binding at the mutation boundary throws: nothing is deleted.
+ * exact expected canary binding (`expected` repo/workflow/role plus `runId`/`runAttempt`). Reads pass through unchanged; the
+ * two #1643 save-journal functions pass only for this account; any other mutation is refused. A changed, foreign or vanished binding at the mutation boundary throws: nothing is deleted.
  */
 export function guardAdminForBinding(admin, { uid, email, expected, runId, runAttempt }) {
     const refuse = () => { throw new Error('canary_binding_changed_at_mutation (fail closed)'); };
@@ -75,6 +75,13 @@ export function guardAdminForBinding(admin, { uid, email, expected, runId, runAt
                 },
             }),
         }),
+        // #1643 save journal: only the two service_role-only functions, only for THIS account. There is no binding to revalidate
+        // here: the account is already deleted, and the delete function itself refuses while the account still exists.
+        rpc: (fn, args) => {
+            if (!['delete_deleted_account_save_journal_v1', 'count_account_save_journal_v1'].includes(fn)
+                || Object.keys(args ?? {}).join() !== 'p_user_id' || args.p_user_id !== uid) refuse();
+            return admin.rpc(fn, args);
+        },
     };
 }
 

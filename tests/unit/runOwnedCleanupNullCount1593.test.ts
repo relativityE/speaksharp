@@ -33,6 +33,8 @@ function adminReturning(count: number | null) {
                 reads.push(table); return { count, error: null };
             } }),
         }),
+        // #1643 save journal: delete (returns what remains) and the independent readback, both answering `count`.
+        rpc: async (fn: string) => { if (fn === 'count_account_save_journal_v1') reads.push('account_save_obligations'); return { data: count, error: null }; },
     };
     return { admin, reads };
 }
@@ -57,7 +59,8 @@ describe('run-owned cleanup residue counts are counted zeros, never unknowns (#1
         const { admin, reads } = adminReturning(0);
         await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: UID, createdEmail: EMAIL, runOwnedPrefix: 'rwt-journey-' });
         expect(reads.length).toBeGreaterThan(20);
-        expect(reads.at(-1)).toBe('trial_entitlements');
+        expect(reads.at(-2)).toBe('trial_entitlements');
+        expect(reads.at(-1)).toBe('account_save_obligations');
         expect(verdictLines(log)).toEqual([`RUN_OWNED_CLEANUP cleanup_verified residue=0 tables_verified=${reads.length}`]);
     });
 
