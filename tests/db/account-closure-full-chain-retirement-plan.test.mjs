@@ -29,6 +29,8 @@ const paymentWall = '20261114170000';
 const practicePrivacy = '20261117105700';
 // #1827 D2 repeat tip: withheld by every profile until its own reviewed stage exists.
 const repeatTip = '20261119120000';
+// #1643 follow-up deleted-account save-journal cleanup: repository inventory withheld by every profile.
+const saveJournalCleanup = '20261119200000';
 
 test('successor delta covers every source-defined function and changed table exactly', () => {
   const source = readFileSync(new URL('20261110173548_account_coaching_local_retirement.sql', directory), 'utf8');
@@ -43,11 +45,11 @@ test('successor delta covers every source-defined function and changed table exa
 test('installed retirement profile replays exact128 then retirement, withholding billing129', () => {
   assert.equal(parseMainProofArguments([`--profile=${profile}`]).profile, profile);
   const plan = buildMainU1ReplayPlan(rows, profile);
-  assert.equal(plan.repositoryMigrations, 136);
+  assert.equal(plan.repositoryMigrations, 137);
   assert.equal(plan.migrations, 129);
   assert.deepEqual(plan.withheld.map(row => [row.version, row.status]),
     [[billing, 'NOT REPLAYED'], [refund, 'NOT REPLAYED'], [abandonment, 'NOT REPLAYED'], [feedbackFence, 'NOT REPLAYED'],
-      [paymentWall, 'NOT REPLAYED'], [practicePrivacy, 'NOT REPLAYED'], [repeatTip, 'NOT REPLAYED']]);
+      [paymentWall, 'NOT REPLAYED'], [practicePrivacy, 'NOT REPLAYED'], [repeatTip, 'NOT REPLAYED'], [saveJournalCleanup, 'NOT REPLAYED']]);
   assert.equal(plan.stages.at(-1).name, 'coaching-local-retirement');
   assert.equal(plan.stages.at(-2).name, 'content-free-retention');
   assert.deepEqual(plan.stages.at(-1).versions, [...plan.stages.at(-2).versions, retirement]);
@@ -58,7 +60,7 @@ test('installed retirement profile replays exact128 then retirement, withholding
 
 test('historical billing129 stays unchanged and retirement bytes remain separately withheld', () => {
   const historical = buildMainU1ReplayPlan(rows, 'main-completion-billing-129');
-  assert.deepEqual(historical.withheld.map(row => row.version), [retirement, refund, abandonment, feedbackFence, paymentWall, practicePrivacy, repeatTip]);
+  assert.deepEqual(historical.withheld.map(row => row.version), [retirement, refund, abandonment, feedbackFence, paymentWall, practicePrivacy, repeatTip, saveJournalCleanup]);
   assert.equal(historical.stages.at(-1).name, 'completion-billing');
   assert.ok(historical.stages.every(stage => !stage.versions.includes(retirement)));
 });
@@ -89,7 +91,7 @@ test('installed abandonment profile replays retirement then 20261112133000, with
   assert.equal(plan.migrations, 130);
   assert.deepEqual(plan.withheld.map(row => [row.version, row.status]),
     [[billing, 'NOT REPLAYED'], [refund, 'NOT REPLAYED'], [feedbackFence, 'NOT REPLAYED'], [paymentWall, 'NOT REPLAYED'],
-      [practicePrivacy, 'NOT REPLAYED'], [repeatTip, 'NOT REPLAYED']]);
+      [practicePrivacy, 'NOT REPLAYED'], [repeatTip, 'NOT REPLAYED'], [saveJournalCleanup, 'NOT REPLAYED']]);
   assert.equal(plan.stages.at(-1).name, 'start-abandonment');
   assert.equal(plan.stages.at(-2).name, 'coaching-local-retirement');
   assert.deepEqual(plan.stages.at(-1).versions, [...plan.stages.at(-2).versions, abandonment]);
@@ -126,7 +128,7 @@ test('installed feedback-fence profile replays the abandonment then 202611141000
   const plan = buildMainU1ReplayPlan(rows, feedbackFenceProfile);
   assert.equal(plan.migrations, 131);
   assert.deepEqual(plan.withheld.map(row => [row.version, row.status]), [[billing, 'NOT REPLAYED'], [refund, 'NOT REPLAYED'],
-    [paymentWall, 'NOT REPLAYED'], [practicePrivacy, 'NOT REPLAYED'], [repeatTip, 'NOT REPLAYED']]);
+    [paymentWall, 'NOT REPLAYED'], [practicePrivacy, 'NOT REPLAYED'], [repeatTip, 'NOT REPLAYED'], [saveJournalCleanup, 'NOT REPLAYED']]);
   assert.equal(plan.stages.at(-1).name, 'feedback-fence');
   assert.equal(plan.stages.at(-2).name, 'start-abandonment');
   assert.deepEqual(plan.stages.at(-1).versions, [...plan.stages.at(-2).versions, feedbackFence]);
@@ -177,11 +179,11 @@ test('installed payment-wall profile replays the feedback fence then 20261114170
   const plan = buildMainU1ReplayPlan(rows, paymentWallProfile);
   assert.equal(plan.migrations, 132);
   assert.deepEqual(plan.withheld.map(row => [row.version, row.status]), [[billing, 'NOT REPLAYED'], [refund, 'NOT REPLAYED'],
-    [practicePrivacy, 'NOT REPLAYED'], [repeatTip, 'NOT REPLAYED']]);
+    [practicePrivacy, 'NOT REPLAYED'], [repeatTip, 'NOT REPLAYED'], [saveJournalCleanup, 'NOT REPLAYED']]);
   assert.deepEqual(plan.stages.slice(-3).map(stage => stage.name), ['start-abandonment', 'feedback-fence', 'payment-wall']);
   assert.deepEqual(plan.stages.at(-1).versions, [...plan.stages.at(-2).versions, paymentWall]);
   assert.deepEqual(plan.stages.at(-2).versions, buildMainU1ReplayPlan(rows, feedbackFenceProfile).stages.at(-1).versions);
-  assert.ok(plan.stages.every(stage => ![billing, refund, practicePrivacy].some(v => stage.versions.includes(v))));
+  assert.ok(plan.stages.every(stage => ![billing, refund, practicePrivacy, saveJournalCleanup].some(v => stage.versions.includes(v))));
   assert.ok(plan.stages.slice(0, -1).every(stage => !stage.versions.includes(paymentWall)));
   assert.equal(plan.executed, false);
 });
@@ -190,7 +192,9 @@ test('installed practice-privacy profile replays the payment wall then 202611171
   assert.equal(parseMainProofArguments([`--profile=${practicePrivacyProfile}`]).profile, practicePrivacyProfile);
   const plan = buildMainU1ReplayPlan(rows, practicePrivacyProfile);
   assert.equal(plan.migrations, 133);
-  assert.deepEqual(plan.withheld.map(row => [row.version, row.status]), [[billing, 'NOT REPLAYED'], [refund, 'NOT REPLAYED'], [repeatTip, 'NOT REPLAYED']]);
+  assert.deepEqual(plan.withheld.map(row => [row.version, row.status]), [[billing, 'NOT REPLAYED'], [refund, 'NOT REPLAYED'],
+    [repeatTip, 'NOT REPLAYED'], [saveJournalCleanup, 'NOT REPLAYED']]);
+  assert.ok(plan.stages.every(stage => ![repeatTip, saveJournalCleanup].some(v => stage.versions.includes(v))));
   assert.deepEqual(plan.stages.slice(-3).map(stage => stage.name), ['feedback-fence', 'payment-wall', 'practice-privacy']);
   assert.deepEqual(plan.stages.at(-1).versions, [...plan.stages.at(-2).versions, practicePrivacy]);
   assert.deepEqual(plan.stages.at(-2).versions, buildMainU1ReplayPlan(rows, paymentWallProfile).stages.at(-1).versions);
@@ -199,8 +203,8 @@ test('installed practice-privacy profile replays the payment wall then 202611171
 });
 
 test('payment-wall and practice-privacy profiles refuse changed installed or withheld bytes and unknown successors', () => {
-  for (const [profile, versions] of [[paymentWallProfile, [paymentWall, feedbackFence, billing, refund, practicePrivacy]],
-    [practicePrivacyProfile, [practicePrivacy, paymentWall, feedbackFence, billing, refund]]]) {
+  for (const [profile, versions] of [[paymentWallProfile, [paymentWall, feedbackFence, billing, refund, practicePrivacy, saveJournalCleanup]],
+    [practicePrivacyProfile, [practicePrivacy, paymentWall, feedbackFence, billing, refund, saveJournalCleanup]]]) {
     for (const version of versions) {
       assert.throws(() => buildMainU1ReplayPlan(rows.map(row => row.version === version
         ? { ...row, sha256: '0'.repeat(64) } : row), profile), /digest changed/, `${profile} ${version}`);
@@ -218,7 +222,9 @@ test('installed repeat-tip profile replays practice privacy then 20261119120000,
   assert.equal(parseMainProofArguments([`--profile=${repeatTipProfile}`]).profile, repeatTipProfile);
   const plan = buildMainU1ReplayPlan(rows, repeatTipProfile);
   assert.equal(plan.migrations, 134);
-  assert.deepEqual(plan.withheld.map(row => [row.version, row.status]), [[billing, 'NOT REPLAYED'], [refund, 'NOT REPLAYED']]);
+  assert.deepEqual(plan.withheld.map(row => [row.version, row.status]), [[billing, 'NOT REPLAYED'], [refund, 'NOT REPLAYED'],
+    [saveJournalCleanup, 'NOT REPLAYED']]);
+  assert.ok(plan.stages.every(stage => !stage.versions.includes(saveJournalCleanup)));
   assert.deepEqual(plan.stages.slice(-3).map(stage => stage.name), ['payment-wall', 'practice-privacy', 'repeat-tip']);
   assert.deepEqual(plan.stages.at(-1).versions, [...plan.stages.at(-2).versions, repeatTip]);
   assert.deepEqual(plan.stages.at(-2).versions, buildMainU1ReplayPlan(rows, practicePrivacyProfile).stages.at(-1).versions);
@@ -227,7 +233,7 @@ test('installed repeat-tip profile replays practice privacy then 20261119120000,
 });
 
 test('repeat-tip profile refuses changed installed or withheld bytes and unknown successors', () => {
-  for (const version of [repeatTip, practicePrivacy, paymentWall, billing, refund]) {
+  for (const version of [repeatTip, practicePrivacy, paymentWall, billing, refund, saveJournalCleanup]) {
     assert.throws(() => buildMainU1ReplayPlan(rows.map(row => row.version === version
       ? { ...row, sha256: '0'.repeat(64) } : row), repeatTipProfile), /digest changed/, version);
   }
