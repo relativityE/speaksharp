@@ -247,10 +247,42 @@ test('cutover B (browser/database only): an old tab\'s refused save after #1863 
 
     // 5. Deployment: the same origin now serves the new build; the tab reloads and presses Retry Save once.
     at('new_build_retry');
+    receipt.beforeReloadRoute = new URL(page.url()).pathname.replace(/[0-9a-f-]{36}/gi, ':id');
+    // Content-free rehydration signal: only whether the controller's fixed rehydration log line appeared.
+    let rehydrationLogged = false;
+    page.on('console', message => { if (message.text().includes('rehydrated FINALIZED unresolved recording')) rehydrationLogged = true; });
     served.root = NEW_DIST;
     await page.reload();
     expect(await release(page)).toBe(NEW_SHA);
     expect(await page.evaluate(() => window.crossOriginIsolated)).toBe(true);
+    // Diagnostics (review 05:07): separate routing/auth from product rehydration, as content-free facts, BEFORE the
+    // unchanged expectation below. Nothing here relaxes it.
+    await page.waitForTimeout(15_000);
+    const afterReloadDraft = await readDraft(page);
+    receipt.afterReload = await page.evaluate(({ uid }) => {
+      const tokenKey = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
+      let ownerResolved: boolean | 'no_token' = 'no_token';
+      try { if (tokenKey) ownerResolved = JSON.parse(localStorage.getItem(tokenKey) ?? 'null')?.user?.id === uid; } catch { ownerResolved = false; }
+      const banner = document.querySelector('[data-testid="session-unresolved-recovery"]');
+      const mic = document.querySelector('[data-testid="session-start-stop-button"], [data-testid="mic-start"]') as HTMLButtonElement | null;
+      return {
+        route: location.pathname.replace(/[0-9a-f-]{36}/gi, ':id'),
+        sessionPageMounted: Boolean(document.querySelector('[data-testid="session-page"]')),
+        avatarVisible: Boolean(document.querySelector('[data-testid="nav-account-avatar"]')),
+        ownerResolved,
+        bannerPresent: Boolean(banner), bannerResolution: banner?.getAttribute('data-resolution') ?? null,
+        recoveryActionsPresent: Boolean(document.querySelector('[data-testid="session-recovery-actions"]')),
+        recoveryActionsState: document.querySelector('[data-testid="session-recovery-actions"]')?.getAttribute('data-recovery-state') ?? null,
+        micFound: Boolean(mic), micDisabled: mic ? mic.disabled : null,
+      };
+    }, { uid });
+    (receipt.afterReload as Record<string, unknown>).draft = afterReloadDraft === null ? null : {
+      state: afterReloadDraft.recoveryState ?? null, sameSession: afterReloadDraft.sessionId === sessionId,
+      sameOwner: afterReloadDraft.userId == null ? 'absent' : afterReloadDraft.userId === uid,
+      nextActionValid: Boolean((afterReloadDraft as { nextActionSignal?: unknown }).nextActionSignal
+        && typeof (afterReloadDraft as { nextActionSignal?: unknown }).nextActionSignal === 'object') };
+    (receipt.afterReload as Record<string, unknown>).rehydrationLogged = rehydrationLogged;
+    save();
     await expect(page.getByTestId('session-unresolved-recovery')).toBeVisible({ timeout: 60_000 });
     const retry = page.getByTestId('session-retry-save');
     await expect(retry).toBeVisible();
