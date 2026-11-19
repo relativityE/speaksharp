@@ -636,3 +636,21 @@ describe('#1827 D2 rev 4 (Codex P1/P2 on 4cf129fd) — legacy attempts, a failed
         expect(callsTo('advance_recommendation_attempt').map((c) => c[1].p_practice_session_id)).toEqual([N1]);
     });
 });
+
+describe('#1827 D2 rev 4 (Codex P2 on ee98ead2) — a registration confirmed after its take already settled', () => {
+    it('B saves while its registration is unconfirmed; a later load confirms B, binds it and advances it', async () => {
+        expect(setOpenAttempt({ attemptId: 'att-late', userId: USER, sourceSessionId: 'sess-source',
+            acceptedAtIso: '2026-10-13T10:00:00.000Z', registrationRequired: true })).toBe(true);
+        setPracticeAgainIntent({ attemptId: 'att-late', userId: USER, candidateSessionId: N1 });   // B's reply was lost
+        rpcImpl.set('register_practice_again_take_v1', async () => ({ data: null, error: { code: '08006', message: 'connection failure' } }));
+        expect(await within(wireProgressEvaluationOnSave(SAVE(N1, USER, '2026-10-13T11:05:00.000Z')))).toEqual({ kind: 'recorded' });
+        await settle();
+        expect(callsTo('advance_recommendation_attempt')).toHaveLength(0);              // not bound: still unconfirmed
+        rpcImpl.set('register_practice_again_take_v1', async () => ({ data: true, error: null }));
+        await reconcileProgressEvaluations(USER, []);
+        await settle();
+        expect(callsTo('advance_recommendation_attempt').map((c) => c[1].p_practice_session_id)).toEqual([N1]);
+        expect(getOpenAttemptForUser(USER)).toBeNull();                                  // resolved
+    });
+});
+

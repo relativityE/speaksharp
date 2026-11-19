@@ -162,5 +162,12 @@ describe('#1827 Practice again registers only this tab\'s next take', () => {
         await saveSession({ user_id: USER, duration: 0 } as never, 'private' as never);
         expect(getOpenAttemptForUser(USER)?.registeredSessionId).toBe('s-c');
     });
+
+    it('Codex P2: discarding a take whose registration is still unconfirmed drops it as the candidate', () => {
+        openAttempt();
+        setPracticeAgainIntent({ attemptId: ATTEMPT, userId: USER, candidateSessionId: 's-b' });
+        releaseDiscardedTake('s-b');
+        expect(getPracticeAgainIntent(USER)?.candidateSessionId).toBeUndefined();
+    });
 });
 

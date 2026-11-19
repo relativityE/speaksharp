@@ -458,6 +458,19 @@ describe('outcome 4 D2 rev 3: the tip chosen for a repeat is bound to it by the 
         expect(await state(attempt)).toMatchObject({ practised_tip: TIP, tip_session_id: D });
     });
 
+    it('Codex P2: a take discarded as failed cannot be (re-)registered, so a lost-reply confirmation is refused', async () => {
+        await seed(A, 60, 6);
+        const attempt = await accept(await recommendOnA());
+        const registeringIntent = intent;
+        await start(B, { registers: true });
+        await db.query(`UPDATE public.sessions SET status = 'failed' WHERE id = $1`, [B]);   // released by the discard
+        expect(await rpc<boolean>(USER, 'SELECT public.register_practice_again_take_v1($1, $2) AS v', [attempt, B])).toBe(false);
+        intent = registeringIntent;
+        await start(D);                                                                       // the replacement registers
+        await save(D);
+        expect(await state(attempt)).toMatchObject({ tip_session_id: D });
+    });
+
     it('NEGATIVE CONTROL: without the release on discard, the next take cannot register and the attempt is stuck', async () => {
         await mutate('public._prec_att_on_session_completed()', `    IF NEW.status = 'failed' THEN`, `    IF false THEN`);
         await seed(A, 60, 6);

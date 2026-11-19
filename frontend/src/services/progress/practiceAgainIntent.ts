@@ -16,6 +16,12 @@ export interface PracticeAgainIntent {
     registeredSessionId?: string;
     /** A take whose registration was sent but not answered (Codex P2): retried with the same session until confirmed. */
     candidateSessionId?: string;
+    /**
+     * The candidate has already saved and its evaluation is durable, but it could not be bound while its registration was
+     * unconfirmed (Codex P2): once confirmed, it is bound as the resolution right away instead of waiting for a settlement
+     * that already happened.
+     */
+    candidateSaved?: boolean;
 }
 
 export function setPracticeAgainIntent(intent: PracticeAgainIntent): void {
@@ -37,7 +43,8 @@ export function getPracticeAgainIntent(userId: string): PracticeAgainIntent | nu
         if (typeof parsed?.attemptId === 'string' && parsed.userId === userId && open?.attemptId === parsed.attemptId) {
             return { attemptId: parsed.attemptId, userId,
                 ...(typeof parsed.registeredSessionId === 'string' ? { registeredSessionId: parsed.registeredSessionId } : {}),
-                ...(typeof parsed.candidateSessionId === 'string' ? { candidateSessionId: parsed.candidateSessionId } : {}) };
+                ...(typeof parsed.candidateSessionId === 'string' ? { candidateSessionId: parsed.candidateSessionId } : {}),
+                ...(parsed.candidateSaved === true ? { candidateSaved: true } : {}) };
         }
         sessionStorage.removeItem(KEY);
         return null;
@@ -81,6 +88,7 @@ export function recordRegisteredTake(userId: string, intent: PracticeAgainIntent
     const stored = open?.attemptId === intent.attemptId && setOpenAttempt({ ...open, registeredSessionId: sessionId });
     const rest: PracticeAgainIntent = { ...intent };
     delete rest.candidateSessionId;
+    delete rest.candidateSaved;
     setPracticeAgainIntent(stored ? rest : { ...rest, registeredSessionId: sessionId });
 }
 
@@ -98,9 +106,20 @@ export async function confirmCandidateRegistration(userId: string): Promise<Cand
         const { data, error } = await getSupabaseClient().rpc('register_practice_again_take_v1',
             { p_attempt: intent.attemptId, p_session: intent.candidateSessionId });
         if (error) return 'unknown';                                   // still unknown: keep the candidate for the next try
-        if (data === true) { recordRegisteredTake(userId, intent, intent.candidateSessionId); return 'confirmed'; }
+        if (data === true) {
+            recordRegisteredTake(userId, intent, intent.candidateSessionId);
+            // Already saved and evaluated while unconfirmed: bind it now, so the caller's resolution retry advances it.
+            if (intent.candidateSaved) {
+                const open = getOpenAttemptForUser(userId);
+                if (open?.attemptId === intent.attemptId && !open.resolutionSessionId) {
+                    setOpenAttempt({ ...open, registeredSessionId: intent.candidateSessionId, resolutionSessionId: intent.candidateSessionId });
+                }
+            }
+            return 'confirmed';
+        }
         const rest: PracticeAgainIntent = { ...intent };
         delete rest.candidateSessionId;
+        delete rest.candidateSaved;
         setPracticeAgainIntent(rest);
         return 'refused';
     } catch {
@@ -116,16 +135,19 @@ export function releaseDiscardedTake(sessionId: string): void {
     try {
         const raw = typeof localStorage === 'undefined' ? null : localStorage.getItem('ss_progress_open_attempt_v1');
         const open = raw ? JSON.parse(raw) as { userId?: string; registeredSessionId?: string; resolutionSessionId?: string } : null;
-        if (!open?.userId || open.registeredSessionId !== sessionId || open.resolutionSessionId === sessionId) return;
+        if (!open?.userId || open.resolutionSessionId === sessionId) return;
         const current = getOpenAttemptForUser(open.userId);
         if (!current) return;
-        const rest = { ...current };
-        delete rest.registeredSessionId;
-        setOpenAttempt(rest);
+        if (current.registeredSessionId === sessionId) {
+            const rest = { ...current };
+            delete rest.registeredSessionId;
+            setOpenAttempt(rest);
+        }
         const intent = getPracticeAgainIntent(open.userId);
-        if (intent?.registeredSessionId === sessionId) {
+        if (intent?.registeredSessionId === sessionId || intent?.candidateSessionId === sessionId) {
             const kept: PracticeAgainIntent = { ...intent };
-            delete kept.registeredSessionId;
+            if (kept.registeredSessionId === sessionId) delete kept.registeredSessionId;
+            if (kept.candidateSessionId === sessionId) { delete kept.candidateSessionId; delete kept.candidateSaved; }
             setPracticeAgainIntent(kept);
         }
     } catch { /* best effort: the server has already released it */ }
@@ -134,4 +156,10 @@ export function releaseDiscardedTake(sessionId: string): void {
 /** Synchronous: whether this tab holds a registration sent but never answered (so callers await only when there is one). */
 export function hasRegistrationCandidate(userId: string): boolean {
     return Boolean(getPracticeAgainIntent(userId)?.candidateSessionId);
+}
+
+/** The take whose registration is still unconfirmed has saved and been evaluated (called when binding had to wait). */
+export function markCandidateSaved(userId: string, sessionId: string): void {
+    const intent = getPracticeAgainIntent(userId);
+    if (intent?.candidateSessionId === sessionId && !intent.candidateSaved) setPracticeAgainIntent({ ...intent, candidateSaved: true });
 }

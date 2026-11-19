@@ -26,7 +26,7 @@ import {
 import type { ProgressDebtReason } from './progressDebtVocabulary';
 import { emitProgressDebt, progressDebtAgeMs } from '@/services/telemetry/progressDebtTelemetry';
 import { getOpenAttemptForUser, clearOpenAttemptIfMatches, setOpenAttempt } from './openAttempt';
-import { confirmCandidateRegistration, hasRegistrationCandidate, registeredTakeFor } from './practiceAgainIntent';
+import { confirmCandidateRegistration, hasRegistrationCandidate, markCandidateSaved, registeredTakeFor } from './practiceAgainIntent';
 import {
     clearRecommendationObligationIfMatches,
     listRecommendationObligations,
@@ -603,7 +603,11 @@ function bindOpenAttemptForTake(
     // boundary decides it, and an unrelated older debt cannot hold it back. A resolution left on another take is replaced.
     const registered = registeredTakeFor(userId);
     if (open.registrationRequired || registered) {
-        if (registered !== sessionId) return 'not_due';
+        if (registered !== sessionId) {
+            // Its registration is sent but unconfirmed: remember it saved, so a later confirmation binds it (Codex P2).
+            markCandidateSaved(userId, sessionId);
+            return 'not_due';
+        }
         if (open.resolutionSessionId === sessionId) return 'bound';
         const current = getOpenAttemptForUser(userId) ?? open;
         return setOpenAttempt({ ...current, registeredSessionId: sessionId, resolutionSessionId: sessionId }) ? 'bound' : 'failed';

@@ -407,7 +407,7 @@ BEGIN
           JOIN public.progress_recommendations r ON r.id = v_attempt.recommendation_id AND r.user_id = v_uid
           JOIN public.sessions src ON src.id = r.source_session_id
          WHERE s.id = p_session AND s.user_id = v_uid
-           AND s.status IS DISTINCT FROM 'completed'
+           AND COALESCE(s.status, '') NOT IN ('completed', 'failed')
            AND s.id <> src.id
            AND s.product IS NOT DISTINCT FROM src.product
            AND (src.created_at, src.id) < (s.created_at, s.id)
