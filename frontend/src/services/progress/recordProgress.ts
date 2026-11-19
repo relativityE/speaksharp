@@ -26,7 +26,7 @@ import {
 import type { ProgressDebtReason } from './progressDebtVocabulary';
 import { emitProgressDebt, progressDebtAgeMs } from '@/services/telemetry/progressDebtTelemetry';
 import { getOpenAttemptForUser, clearOpenAttemptIfMatches, setOpenAttempt } from './openAttempt';
-import { registeredTakeFor } from './practiceAgainIntent';
+import { confirmCandidateRegistration, hasRegistrationCandidate, registeredTakeFor } from './practiceAgainIntent';
 import {
     clearRecommendationObligationIfMatches,
     listRecommendationObligations,
@@ -463,6 +463,8 @@ export async function wireProgressEvaluationOnSave(ctx: {
     if (!isTerminalAttribution(ctx.attributionStatus)) {
         return { kind: 'unresolved', reason: 'attribution_not_terminal' };
     }
+    // #1827 D2 rev 4 (Codex P2): a registration whose response was lost is confirmed before this take is bound.
+    if (ctx.userId && hasRegistrationCandidate(ctx.userId)) await confirmCandidateRegistration(ctx.userId);
 
     // #1354 WRITE-AHEAD OBLIGATION. The debt is recorded BEFORE the attempt, not after it fails.
     //
@@ -912,6 +914,8 @@ export async function reconcileProgressEvaluations(
     sessions: ReconcilableSession[],
 ): Promise<{ queueDrained: number; swept: number }> {
     let queueDrained = 0;
+    // #1827 D2 rev 4 (Codex P2): confirm a registration whose response was lost before any binding decision.
+    if (hasRegistrationCandidate(userId)) await confirmCandidateRegistration(userId);
 
     // Reload reconciliation retries the exact durable attempt/repeat pair before considering later saves.
     const pendingResolution = getOpenAttemptForUser(userId)?.resolutionSessionId;

@@ -15,8 +15,7 @@ import { getSupabaseClient } from './supabaseClient';
 import { currentTakeLeaseId } from '@/services/recordingLease';
 import logger from './logger';
 import { transcriptSaveAllowed } from '@/services/practicePrivacy';
-import { getPracticeAgainIntent, setPracticeAgainIntent } from '@/services/progress/practiceAgainIntent';
-import { getOpenAttemptForUser, setOpenAttempt } from '@/services/progress/openAttempt';
+import { confirmCandidateRegistration, getPracticeAgainIntent, hasRegistrationCandidate, recordRegisteredTake, registeredTakeFor, setPracticeAgainIntent } from '@/services/progress/practiceAgainIntent';
 import type { PracticeSession } from '../types/session';
 import type { UserProfile } from '../types/user';
 import type { AnalyticsSummary } from '../types/analytics';
@@ -263,8 +262,14 @@ export const saveSession = async (
  */
 async function registerPracticeAgainTake(userId: string | undefined, sessionId: string | undefined): Promise<void> {
   if (!userId || !sessionId) return;
+  // A registration sent earlier and never answered is confirmed first: if it committed, this new take is not the repeat.
+  if (hasRegistrationCandidate(userId) && await confirmCandidateRegistration(userId)) return;
   const intent = getPracticeAgainIntent(userId);
   if (!intent) return;
+  // The repeat is already registered (or, before the migration, recorded locally): a later take never replaces it (Codex P2).
+  if (registeredTakeFor(userId)) return;
+  // Persist the candidate BEFORE the request, so a lost response can be confirmed for this same take (Codex P2).
+  setPracticeAgainIntent({ ...intent, candidateSessionId: sessionId });
   try {
     const { data, error } = await getSupabaseClient().rpc('register_practice_again_take_v1', { p_attempt: intent.attemptId, p_session: sessionId });
     // A database without the registration migration has no such function (the frontend ships first): this tab's take is
@@ -273,9 +278,9 @@ async function registerPracticeAgainTake(userId: string | undefined, sessionId: 
     if ((!error && data === true) || registrationUnavailable) {
       // The owner-wide handoff learns which take is the repeat, so every tab binds and resolves only that take. If that
       // write fails, this tab holds the registration and writes it back when storage accepts it (Codex P2).
-      const open = getOpenAttemptForUser(userId);
-      const stored = open?.attemptId === intent.attemptId && setOpenAttempt({ ...open, registeredSessionId: sessionId });
-      if (!stored) setPracticeAgainIntent({ ...intent, registeredSessionId: sessionId });
+      recordRegisteredTake(userId, intent, sessionId);
+    } else if (!error) {
+      setPracticeAgainIntent(intent);                                  // refused: not this take; no candidate to confirm
     }
     else if (error) logger.warn({ code: error.code }, '[Supabase DB] Practice again take not registered');
   } catch {

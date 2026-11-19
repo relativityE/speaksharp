@@ -12,7 +12,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useLinkedRepeat } from '../useLinkedRepeat';
 import { saveSession } from '@/lib/storage';
 import { clearOpenAttempt, getOpenAttemptForUser } from '@/services/progress/openAttempt';
-import { clearPracticeAgainIntent } from '@/services/progress/practiceAgainIntent';
+import { clearPracticeAgainIntent, releaseDiscardedTake } from '@/services/progress/practiceAgainIntent';
 
 const USER = 'user-1827';
 const rpc = vi.fn();
@@ -68,10 +68,10 @@ describe('#1827 Practice again → Start registers only this tab\'s take', () =>
         await pressPracticeAgain();
         expect((await saveSession({ user_id: USER, duration: 0 } as never, 'private' as never)).status).toBe('saved');
         expect(registrations()).toEqual([{ p_attempt: 'attempt-1', p_session: 'take-b' }]);
-        // A later take in this tab asks again and is refused: the registered repeat stays take-b.
+        // A later take in this tab never replaces the registered repeat: no second registration is sent.
         nextTake = 'take-d';
         await saveSession({ user_id: USER, duration: 0 } as never, 'private' as never);
-        expect(registrations()).toEqual([{ p_attempt: 'attempt-1', p_session: 'take-b' }, { p_attempt: 'attempt-1', p_session: 'take-d' }]);
+        expect(registrations()).toEqual([{ p_attempt: 'attempt-1', p_session: 'take-b' }]);
         expect(getOpenAttemptForUser(USER)?.registeredSessionId).toBe('take-b');
     });
 
@@ -79,6 +79,7 @@ describe('#1827 Practice again → Start registers only this tab\'s take', () =>
         await pressPracticeAgain();
         await saveSession({ user_id: USER, duration: 0 } as never, 'private' as never);
         registered = null;                            // take-b ended 'failed': the server released its registration
+        releaseDiscardedTake('take-b');               // …and so does the handoff, as the controller does on the discard
         nextTake = 'take-e';
         await saveSession({ user_id: USER, duration: 0 } as never, 'private' as never);
         expect(getOpenAttemptForUser(USER)?.registeredSessionId).toBe('take-e');

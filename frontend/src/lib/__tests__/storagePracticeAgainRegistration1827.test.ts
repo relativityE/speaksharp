@@ -8,7 +8,7 @@ import { saveSession } from '../storage';
 import { getSupabaseClient } from '../supabaseClient';
 import logger from '../logger';
 import { clearOpenAttempt, getOpenAttemptForUser, setOpenAttempt } from '@/services/progress/openAttempt';
-import { clearPracticeAgainIntent, getPracticeAgainIntent, registeredTakeFor, setPracticeAgainIntent } from '@/services/progress/practiceAgainIntent';
+import { clearPracticeAgainIntent, getPracticeAgainIntent, registeredTakeFor, releaseDiscardedTake, setPracticeAgainIntent } from '@/services/progress/practiceAgainIntent';
 
 vi.mock('../supabaseClient');
 
@@ -94,6 +94,41 @@ describe('#1827 Practice again registers only this tab\'s next take', () => {
         expect(getPracticeAgainIntent(USER)?.registeredSessionId).toBe('s-held');
         expect(registeredTakeFor(USER)).toBe('s-held');                 // restored once storage accepts it
         expect(getOpenAttemptForUser(USER)?.registeredSessionId).toBe('s-held');
+    });
+
+    it('Codex P2: a registration whose response was lost is confirmed for the SAME take, and a later take is not registered', async () => {
+        openAttempt();
+        setPracticeAgainIntent({ attemptId: ATTEMPT, userId: USER });
+        let committed = false;
+        supabase.rpc.mockImplementation(async (name: string, args: Record<string, string>) => {
+            if (name !== 'register_practice_again_take_v1') return created(args?.p_session ? 'never' : (committed ? 's-c' : 's-b'));
+            if (!committed) { committed = true; throw new Error('network: response lost'); }   // B committed server-side
+            return { data: args.p_session === 's-b', error: null };                               // idempotent for B only
+        });
+        expect((await saveSession({ user_id: USER, duration: 0 } as never, 'private' as never)).status).toBe('saved');
+        expect(getOpenAttemptForUser(USER)?.registeredSessionId).toBeUndefined();
+        expect(getPracticeAgainIntent(USER)?.candidateSessionId).toBe('s-b');
+        // The next take in this tab first confirms B (the same session), and is itself never registered.
+        expect((await saveSession({ user_id: USER, duration: 0 } as never, 'private' as never)).status).toBe('saved');
+        expect(getOpenAttemptForUser(USER)?.registeredSessionId).toBe('s-b');
+        expect(supabase.rpc.mock.calls.filter((c) => c[0] === 'register_practice_again_take_v1').map((c) => (c[1] as Record<string, string>).p_session))
+            .toEqual(['s-b', 's-b']);
+    });
+
+    it('Codex P2: before the migration, a later take never overwrites the recorded repeat; a discarded repeat releases it', async () => {
+        openAttempt();
+        setPracticeAgainIntent({ attemptId: ATTEMPT, userId: USER });
+        let next = 's-b';
+        supabase.rpc.mockImplementation(async (name: string) => name === 'register_practice_again_take_v1'
+            ? { data: null, error: { code: 'PGRST202', message: 'Could not find the function' } } : created(next));
+        await saveSession({ user_id: USER, duration: 0 } as never, 'private' as never);
+        next = 's-c';
+        await saveSession({ user_id: USER, duration: 0 } as never, 'private' as never);
+        expect(getOpenAttemptForUser(USER)?.registeredSessionId).toBe('s-b');
+        releaseDiscardedTake('s-b');                                      // B discarded (marked failed) by this client
+        next = 's-d';
+        await saveSession({ user_id: USER, duration: 0 } as never, 'private' as never);
+        expect(getOpenAttemptForUser(USER)?.registeredSessionId).toBe('s-d');
     });
 });
 

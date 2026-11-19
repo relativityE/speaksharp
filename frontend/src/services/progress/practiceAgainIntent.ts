@@ -14,6 +14,8 @@ export interface PracticeAgainIntent {
     userId: string;
     /** The take the server registered, kept here when the owner-wide handoff write failed (Codex P2), so it is not lost. */
     registeredSessionId?: string;
+    /** A take whose registration was sent but not answered (Codex P2): retried with the same session until confirmed. */
+    candidateSessionId?: string;
 }
 
 export function setPracticeAgainIntent(intent: PracticeAgainIntent): void {
@@ -34,7 +36,8 @@ export function getPracticeAgainIntent(userId: string): PracticeAgainIntent | nu
         const open = getOpenAttemptForUser(userId);
         if (typeof parsed?.attemptId === 'string' && parsed.userId === userId && open?.attemptId === parsed.attemptId) {
             return { attemptId: parsed.attemptId, userId,
-                ...(typeof parsed.registeredSessionId === 'string' ? { registeredSessionId: parsed.registeredSessionId } : {}) };
+                ...(typeof parsed.registeredSessionId === 'string' ? { registeredSessionId: parsed.registeredSessionId } : {}),
+                ...(typeof parsed.candidateSessionId === 'string' ? { candidateSessionId: parsed.candidateSessionId } : {}) };
         }
         sessionStorage.removeItem(KEY);
         return null;
@@ -70,4 +73,64 @@ export async function declarePracticeAgainRegistration(attemptId: string): Promi
         logger.warn('[progress] Practice again registration not declared');
         return false;
     }
+}
+
+/** Record `sessionId` as the registered take: in the owner-wide handoff, or held by this tab when that write fails. */
+export function recordRegisteredTake(userId: string, intent: PracticeAgainIntent, sessionId: string): void {
+    const open = getOpenAttemptForUser(userId);
+    const stored = open?.attemptId === intent.attemptId && setOpenAttempt({ ...open, registeredSessionId: sessionId });
+    const rest: PracticeAgainIntent = { ...intent };
+    delete rest.candidateSessionId;
+    setPracticeAgainIntent(stored ? rest : { ...rest, registeredSessionId: sessionId });
+}
+
+/**
+ * A registration that was sent but never answered (Codex P2): ask again for the SAME take. The registration RPC is
+ * idempotent for the take already registered, so a commit whose response was lost is confirmed here; a take the server
+ * never registered is refused, and the candidate is dropped. Returns whether a registration is now known.
+ */
+export async function confirmCandidateRegistration(userId: string): Promise<boolean> {
+    const intent = getPracticeAgainIntent(userId);
+    if (!intent?.candidateSessionId) return false;
+    if (registeredTakeFor(userId)) return true;
+    try {
+        const { data, error } = await getSupabaseClient().rpc('register_practice_again_take_v1',
+            { p_attempt: intent.attemptId, p_session: intent.candidateSessionId });
+        if (error) return false;                                       // still unknown: keep the candidate for the next try
+        if (data === true) { recordRegisteredTake(userId, intent, intent.candidateSessionId); return true; }
+        const rest: PracticeAgainIntent = { ...intent };
+        delete rest.candidateSessionId;
+        setPracticeAgainIntent(rest);
+        return false;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * The registered take was discarded by this client (marked failed): the server releases its registration, and so does the
+ * handoff, unless it is already the bound resolution. Keeps the pre-migration fallback from pinning a discarded take.
+ */
+export function releaseDiscardedTake(sessionId: string): void {
+    try {
+        const raw = typeof localStorage === 'undefined' ? null : localStorage.getItem('ss_progress_open_attempt_v1');
+        const open = raw ? JSON.parse(raw) as { userId?: string; registeredSessionId?: string; resolutionSessionId?: string } : null;
+        if (!open?.userId || open.registeredSessionId !== sessionId || open.resolutionSessionId === sessionId) return;
+        const current = getOpenAttemptForUser(open.userId);
+        if (!current) return;
+        const rest = { ...current };
+        delete rest.registeredSessionId;
+        setOpenAttempt(rest);
+        const intent = getPracticeAgainIntent(open.userId);
+        if (intent?.registeredSessionId === sessionId) {
+            const kept: PracticeAgainIntent = { ...intent };
+            delete kept.registeredSessionId;
+            setPracticeAgainIntent(kept);
+        }
+    } catch { /* best effort: the server has already released it */ }
+}
+
+/** Synchronous: whether this tab holds a registration sent but never answered (so callers await only when there is one). */
+export function hasRegistrationCandidate(userId: string): boolean {
+    return Boolean(getPracticeAgainIntent(userId)?.candidateSessionId);
 }
