@@ -367,6 +367,21 @@ describe('outcome 4 D2 on the shipped save path (every shipped migration, real c
         }, 180_000);
     }
 
+    it('Codex P2 (real path): a lost press declaration does not matter — registering the take switches enforcement on', async () => {
+        db = await shippedChain();
+        const uid = await signup();
+        const a = await startTake(uid, { product: 'open_mic' });
+        await saveTake(uid, a, 'synthetic words for this take');
+        await coach(a);
+        const attempt = await pressPracticeAgain(uid, a, { legacyClient: true });   // the declaration never reached the server
+        const b = await startTake(uid, { product: 'open_mic' });                    // registered from this tab
+        expect((await db!.query<{ r: boolean }>('SELECT registration_required AS r FROM public.progress_recommendation_attempts WHERE id = $1', [attempt])).rows[0].r).toBe(true);
+        await saveTake(uid, b, 'synthetic words for this take');
+        const c = await startTake(uid, { product: 'open_mic', tab: 'other' });
+        await saveTake(uid, c, 'other tab words');
+        await expect(advance(uid, attempt, 'not_comparable', c)).rejects.toThrow(/not the take registered/);
+    }, 180_000);
+
     it('Codex P2 (real path): an already-open older tab presses Practice again AFTER the migration; its repeat still resolves under the earlier rules', async () => {
         db = await shippedChain();
         const uid = await signup();

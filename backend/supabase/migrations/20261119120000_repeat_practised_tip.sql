@@ -414,7 +414,8 @@ BEGIN
            AND s.created_at >= v_attempt.accepted_at) THEN
         RETURN false;
     END IF;
-    UPDATE public.progress_recommendation_attempts SET registered_session_id = p_session WHERE id = p_attempt;
+    -- Enforcement switches on with the registration itself, so it never depends on the best-effort press declaration.
+    UPDATE public.progress_recommendation_attempts SET registered_session_id = p_session, registration_required = true WHERE id = p_attempt;
     RETURN true;
 END;
 $$;

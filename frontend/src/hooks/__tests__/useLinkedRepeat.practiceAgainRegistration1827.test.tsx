@@ -12,7 +12,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useLinkedRepeat } from '../useLinkedRepeat';
 import { saveSession } from '@/lib/storage';
 import { clearOpenAttempt, getOpenAttemptForUser } from '@/services/progress/openAttempt';
-import { clearPracticeAgainIntent, releaseDiscardedTake } from '@/services/progress/practiceAgainIntent';
+import { clearPracticeAgainIntent, getPracticeAgainIntent, releaseDiscardedTake, setPracticeAgainIntent } from '@/services/progress/practiceAgainIntent';
 
 const USER = 'user-1827';
 const rpc = vi.fn();
@@ -100,6 +100,14 @@ describe('#1827 Practice again → Start registers only this tab\'s take', () =>
         readPending.mockResolvedValueOnce({ status: 'one', attemptId: 'attempt-1' });     // its advance failed; still pending
         await pressPracticeAgain();
         expect(getOpenAttemptForUser(USER)).toMatchObject({ attemptId: 'attempt-1', registeredSessionId: 'take-b' });
+    });
+
+    it('Codex P2: reusing the pending attempt keeps an unconfirmed registration candidate', async () => {
+        await pressPracticeAgain();
+        setPracticeAgainIntent({ attemptId: 'attempt-1', userId: USER, candidateSessionId: 'take-b', candidateSaved: true });
+        readPending.mockResolvedValueOnce({ status: 'one', attemptId: 'attempt-1' });
+        await pressPracticeAgain();
+        expect(getPracticeAgainIntent(USER)).toMatchObject({ attemptId: 'attempt-1', candidateSessionId: 'take-b', candidateSaved: true });
     });
 });
 

@@ -5,7 +5,7 @@ import { useAuthProvider } from '@/contexts/AuthProvider';
 import { loadSessionProgress } from '@/services/progress/loadSessionProgress';
 import { abandonRecommendationAttempt, readPendingRecommendationAttempt, recordRecommendationAttempt } from '@/services/progress/recordProgress';
 import { getOpenAttemptForUser, openAttemptSnapshot, setOpenAttempt } from '@/services/progress/openAttempt';
-import { declarePracticeAgainRegistration, registeredTakeFor, setPracticeAgainIntent } from '@/services/progress/practiceAgainIntent';
+import { declarePracticeAgainRegistration, getPracticeAgainIntent, registeredTakeFor, setPracticeAgainIntent } from '@/services/progress/practiceAgainIntent';
 import { isCurrentTargetOwner, resolveRepeatTarget, validateDisplayedTarget, type DisplayedRepeatTarget } from '@/services/progress/repeatPracticeTarget';
 import { authEpoch } from '@/services/loginSessionLog';
 import logger from '@/lib/logger';
@@ -136,7 +136,11 @@ export function useLinkedRepeat(sessionId: string) {
                 return;
             }
             // #1827 D2 rev 4: this tab's next Start is the repeat; only it is registered with the attempt.
-            setPracticeAgainIntent({ attemptId, userId, ...('registeredSessionId' in carried ? { registeredSessionId: carried.registeredSessionId } : {}) });
+            // Reusing the same attempt keeps this tab's whole registration state, including an unconfirmed candidate (Codex P2).
+            const priorIntent = getPracticeAgainIntent(userId);
+            setPracticeAgainIntent(priorIntent?.attemptId === attemptId
+                ? { ...priorIntent, ...('registeredSessionId' in carried ? { registeredSessionId: carried.registeredSessionId } : {}) }
+                : { attemptId, userId, ...('registeredSessionId' in carried ? { registeredSessionId: carried.registeredSessionId } : {}) });
             if (authEpoch() !== startedEpoch || generation.current !== startedGeneration) return;
             if (target) {
                 const stored = getOpenAttemptForUser(userId);
