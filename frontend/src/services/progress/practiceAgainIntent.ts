@@ -5,6 +5,8 @@
  * registered and the server gives it neither the repeat link nor the tip. Content-free: ids only.
  */
 import { getOpenAttemptForUser, setOpenAttempt } from './openAttempt';
+import { getSupabaseClient } from '@/lib/supabaseClient';
+import logger from '@/lib/logger';
 
 const KEY = 'speaksharp_practice_again_intent_v1';
 export interface PracticeAgainIntent {
@@ -52,4 +54,20 @@ export function registeredTakeFor(userId: string): string | undefined {
     const held = getPracticeAgainIntent(userId)?.registeredSessionId;
     if (held) setOpenAttempt({ ...open, registeredSessionId: held });
     return held;
+}
+
+/**
+ * At the Practice again press: declare to the server that this attempt's repeat will be registered, so only the registered
+ * take can be linked. An attempt an older client records is never declared and keeps the earlier rules (Codex P2). A
+ * database without the registration migration has no such function; nothing to declare there. Never blocks the press.
+ */
+export async function declarePracticeAgainRegistration(attemptId: string): Promise<boolean> {
+    try {
+        const { data, error } = await getSupabaseClient().rpc('register_practice_again_take_v1', { p_attempt: attemptId, p_session: null });
+        if (error) logger.warn({ code: error.code }, '[progress] Practice again registration not declared');
+        return !error && data === true;
+    } catch {
+        logger.warn('[progress] Practice again registration not declared');
+        return false;
+    }
 }

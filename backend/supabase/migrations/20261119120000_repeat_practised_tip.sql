@@ -73,9 +73,10 @@ ALTER TABLE public.progress_recommendation_attempts
     -- Revision 4 (#1827 step 3): the exact take the owner started from this attempt's Practice again, registered at Start by
     -- register_practice_again_take_v1. Only this take can become the repeat (link and tip); it is set once, never replaced.
     ADD COLUMN IF NOT EXISTS registered_session_id uuid REFERENCES public.sessions(id) ON DELETE SET NULL,
-    -- Revision 4 compatibility: true for every attempt recorded from now on (set by the insert trigger, never changed);
-    -- attempts already pending when this migration applies keep false and resolve under the earlier rules (they carry no
-    -- tip, so nothing is carried), instead of being stranded by the registered-take check.
+    -- Revision 4 compatibility: declared by a registering client at its Practice again press
+    -- (`register_practice_again_take_v1(attempt, NULL)`), once, never cleared. An attempt from an older client (already
+    -- pending when this migration applies, or recorded afterwards by an already-open older tab) keeps false and resolves
+    -- under the earlier rules; it never carries the tip, so nothing is carried.
     ADD COLUMN IF NOT EXISTS registration_required boolean NOT NULL DEFAULT false;
 
 DO $$ BEGIN
@@ -152,7 +153,7 @@ BEGIN
     NEW.tip_session_id := NULL;
     NEW.practised_tip := NULL;
     NEW.registered_session_id := NULL;
-    NEW.registration_required := true;
+    NEW.registration_required := false;
     -- Wait for any concurrent save or expiry for this owner; the next statement then sees it committed.
     PERFORM public._prec_att_lock_owner(NEW.user_id);
     SELECT public._prec_att_review_tip(s.ai_suggestions)
@@ -227,11 +228,11 @@ BEGIN
        AND OLD.registered_session_id IS NOT NULL THEN
         RAISE EXCEPTION 'the take registered for this Practice again cannot change' USING ERRCODE = '42501';
     END IF;
-    IF NEW.registration_required IS DISTINCT FROM OLD.registration_required THEN
-        RAISE EXCEPTION 'registration_required is set only when the attempt is recorded' USING ERRCODE = '42501';
+    IF OLD.registration_required AND NOT NEW.registration_required THEN
+        RAISE EXCEPTION 'registration_required, once declared, cannot be cleared' USING ERRCODE = '42501';
     END IF;
     -- The repeat link is the registered take only: a take without that explicit link gets neither the link nor the tip.
-    -- An attempt already pending when this migration applied (registration_required false) keeps the earlier rules.
+    -- An attempt from an older client (registration_required false) keeps the earlier rules.
     IF NEW.registration_required
        AND NEW.practice_session_id IS DISTINCT FROM OLD.practice_session_id AND NEW.practice_session_id IS NOT NULL
        AND NEW.practice_session_id IS DISTINCT FROM NEW.registered_session_id THEN
@@ -379,7 +380,8 @@ CREATE TRIGGER trg_sessions_purge_practised_tip_on_expire
 -- Revision 4 (#1827 step 3): register the exact take started from Practice again. Called by the owner's tab right after it
 -- creates that take, with the attempt id carried from the click. Refuses (false) unless: the caller owns the attempt and the
 -- take, the attempt is pending and has no registered take yet, the take is still recording, is the same product as the
--- original, newer than it and started no earlier than acceptance. Behind the #1863 payment wall.
+-- original, newer than it and started no earlier than acceptance. Behind the #1863 payment wall. Called with a NULL session
+-- at the Practice again press, it only declares that the attempt will be registered (registration_required).
 CREATE OR REPLACE FUNCTION public.register_practice_again_take_v1(p_attempt uuid, p_session uuid)
 RETURNS boolean
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
@@ -394,6 +396,11 @@ BEGIN
     SELECT * INTO v_attempt FROM public.progress_recommendation_attempts
      WHERE id = p_attempt AND user_id = v_uid FOR UPDATE;
     IF NOT FOUND OR v_attempt.lifecycle <> 'pending' THEN RETURN false; END IF;
+    -- No session: the registering client declares, at its Practice again press, that this attempt will be registered.
+    IF p_session IS NULL THEN
+        UPDATE public.progress_recommendation_attempts SET registration_required = true WHERE id = p_attempt;
+        RETURN true;
+    END IF;
     IF v_attempt.registered_session_id IS NOT NULL THEN RETURN v_attempt.registered_session_id = p_session; END IF;
     IF NOT EXISTS (
         SELECT 1 FROM public.sessions s

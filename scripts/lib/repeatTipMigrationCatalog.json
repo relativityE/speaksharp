@@ -1,6 +1,6 @@
 {
  "version": "20261119120000",
- "targetSha256": "44c3a2679b7a9841148ae7be47af50d2b52838e82e8ec8430d0cea629715f3d4",
+ "targetSha256": "0756a2c1b786f2818c0745b68868fc95ddc1952f03425585c5c2fa3a666501d0",
  "derivation": "Offline PGlite replay of the shipped chain (billing settlement and the refund follow-up withheld), then the exact migration; re-derived by tests/db/repeatTipPostflight.integration.test.ts.",
  "functions": [
   {
@@ -17,7 +17,7 @@
   },
   {
    "signature": "public._prec_att_guard_tip()",
-   "md5": "2a7c2701a5fb2fdd0197ff3524adeb4c",
+   "md5": "fe7847664319d4e224e692d154cb8ef2",
    "definer": true,
    "config": [
     "search_path=public, pg_temp"
@@ -77,7 +77,7 @@
   },
   {
    "signature": "public._prec_att_snapshot_tip()",
-   "md5": "d027142cc4c9c93b855e1a12fd98f1d0",
+   "md5": "32e8b83a06c2b3d484600ac39a4d4184",
    "definer": true,
    "config": [
     "search_path=public, pg_temp"
@@ -89,7 +89,7 @@
   },
   {
    "signature": "public.register_practice_again_take_v1(p_attempt uuid, p_session uuid)",
-   "md5": "bf6ec0b1b249e4017617e7613f6e44ad",
+   "md5": "9921c11a34a0047cb20b5fae095eeb9b",
    "definer": true,
    "config": [
     "search_path=public, pg_temp"

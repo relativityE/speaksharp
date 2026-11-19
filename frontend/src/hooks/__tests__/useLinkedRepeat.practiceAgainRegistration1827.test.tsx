@@ -29,7 +29,9 @@ vi.mock('@/services/progress/recordProgress', () => ({
 vi.mock('@/services/reviewSurfaceTelemetry', () => ({ trackSavedReviewLinkedAttempt: vi.fn() }));
 
 const created = (id: string) => ({ data: { new_session: { id } }, error: null });
-const registrations = () => rpc.mock.calls.filter((c) => c[0] === 'register_practice_again_take_v1').map((c) => c[1]);
+const registerCalls = () => rpc.mock.calls.filter((c) => c[0] === 'register_practice_again_take_v1').map((c) => c[1]);
+/** Registrations of a take (the press's declaration carries no session). */
+const registrations = () => registerCalls().filter((args) => args.p_session !== null);
 
 /** The server's registration: the first take registers; while one is registered, any other take is refused. */
 let registered: string | null = null;
@@ -40,6 +42,7 @@ beforeEach(() => {
     nextTake = 'take-b';
     rpc.mockImplementation(async (name: string, args: Record<string, string>) => {
         if (name !== 'register_practice_again_take_v1') return created(nextTake);
+        if (args.p_session === null) return { data: true, error: null };   // the press's declaration
         if (registered === null) registered = args.p_session;
         return { data: registered === args.p_session, error: null };
     });
@@ -55,6 +58,8 @@ async function pressPracticeAgain() {
     await act(async () => { await result.current.accept(afterLinked); });
     expect(afterLinked).toHaveBeenCalledOnce();
     expect(getOpenAttemptForUser(USER)?.attemptId).toBe('attempt-1');
+    // The press declared, once, that this attempt's repeat will be registered.
+    expect(registerCalls().filter((args) => args.p_session === null)).toEqual([{ p_attempt: 'attempt-1', p_session: null }]);
 }
 
 describe('#1827 Practice again → Start registers only this tab\'s take', () => {

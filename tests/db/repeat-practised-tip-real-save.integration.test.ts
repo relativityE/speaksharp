@@ -141,7 +141,7 @@ async function attest(uid: string, id: string) {
 }
 
 /** A's Progress evaluation, its recommendation, and Practice again pressed — all through the shipped RPCs. */
-async function pressPracticeAgain(uid: string, original: string): Promise<string> {
+async function pressPracticeAgain(uid: string, original: string, opts: { legacyClient?: boolean } = {}): Promise<string> {
     await attest(uid, original);
     const evaluation = await asUser(uid, () => one<string | null>(`SELECT public.record_progress_evaluation($1) AS r`, [original]));
     const verdict = (await db!.query<{ eligible: boolean; exclusion_reasons: string[] }>(
@@ -151,6 +151,9 @@ async function pressPracticeAgain(uid: string, original: string): Promise<string
         const rec = await one<string>(
             `SELECT public.record_progress_recommendation($1, 'filler_rate', 'decrease', 3, 'percent of words', 'Cut fillers') AS r`, [original]);
         const attempt = await one<string>(`SELECT public.record_recommendation_attempt($1) AS r`, [rec]);
+        // The registering client declares at the press (the pre-migration chain has no such function: nothing to declare).
+        if (!opts.legacyClient && (await one<boolean>(`SELECT to_regprocedure('public.register_practice_again_take_v1(uuid,uuid)') IS NOT NULL AS r`)))
+            expect(await one<boolean>(`SELECT public.register_practice_again_take_v1($1, NULL) AS r`, [attempt])).toBe(true);
         intents.set(uid, attempt);
         return attempt;
     });
@@ -336,7 +339,7 @@ describe('outcome 4 D2 on the shipped save path (every shipped migration, real c
         }, 180_000);
     }
 
-    it('an attempt recorded after the migration is registration-required, and the marker cannot be changed', async () => {
+    it('a registering client declares at the press; the declaration cannot be cleared', async () => {
         db = await shippedChain();
         const uid = await signup();
         const a = await take(uid);
@@ -344,7 +347,37 @@ describe('outcome 4 D2 on the shipped save path (every shipped migration, real c
         const attempt = await pressPracticeAgain(uid, a);
         expect((await db!.query<{ r: boolean }>('SELECT registration_required AS r FROM public.progress_recommendation_attempts WHERE id = $1', [attempt])).rows[0].r).toBe(true);
         await expect(db!.query('UPDATE public.progress_recommendation_attempts SET registration_required = false WHERE id = $1', [attempt]))
-            .rejects.toThrow(/set only when the attempt is recorded/);
+            .rejects.toThrow(/cannot be cleared/);
+    }, 180_000);
+
+    for (const declared of [true, false]) {
+        it(`${declared ? '' : 'NEGATIVE CONTROL: '}a take from another tab cannot take the repeat link of a ${declared ? 'declared' : 'NOT declared'} attempt${declared ? '' : ' — without the declaration it can'}`, async () => {
+            db = await shippedChain();
+            if (!declared) await mutateFn('public.register_practice_again_take_v1(uuid,uuid)',
+                'SET registration_required = true WHERE id = p_attempt', 'SET registration_required = false WHERE id = p_attempt');
+            const uid = await signup();
+            const a = await startTake(uid, { product: 'open_mic' });
+            await saveTake(uid, a, 'synthetic words for this take');
+            await coach(a);
+            const attempt = await pressPracticeAgain(uid, a);
+            const c = await startTake(uid, { product: 'open_mic', tab: 'other' });
+            await saveTake(uid, c, 'other tab words');
+            const outcome = await advance(uid, attempt, 'not_comparable', c).then(() => 'linked', (e: Error) => e.message);
+            expect(outcome).toMatch(declared ? /not the take registered/ : /^linked$/);
+        }, 180_000);
+    }
+
+    it('Codex P2 (real path): an already-open older tab presses Practice again AFTER the migration; its repeat still resolves under the earlier rules', async () => {
+        db = await shippedChain();
+        const uid = await signup();
+        const a = await take(uid);
+        await coach(a);
+        const attempt = await pressPracticeAgain(uid, a, { legacyClient: true });   // no declaration, no registration
+        intents.delete(uid);
+        expect((await db!.query<{ r: boolean }>('SELECT registration_required AS r FROM public.progress_recommendation_attempts WHERE id = $1', [attempt])).rows[0].r).toBe(false);
+        const b = await take(uid);
+        await advance(uid, attempt, 'not_comparable', b);
+        expect(await attemptState(attempt)).toMatchObject({ practice_session_id: b, practised_tip: null, lifecycle: 'not_comparable' });
     }, 180_000);
 
     it('wrong take: an unrelated take already recording when Practice again is pressed, saved first, cannot claim the tip', async () => {

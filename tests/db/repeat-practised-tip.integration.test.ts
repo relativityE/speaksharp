@@ -136,6 +136,8 @@ async function recommendOnA(): Promise<string> {
 /** Practice again: records the attempt and carries its id into this tab's next Start, as the app does. */
 const accept = async (rec: string, user = USER) => {
     const attempt = await rpc<string>(user, 'SELECT public.record_recommendation_attempt($1) AS v', [rec]);
+    // The registering client declares at the press that this attempt's repeat will be registered.
+    expect(await rpc<boolean>(user, 'SELECT public.register_practice_again_take_v1($1, NULL) AS v', [attempt])).toBe(true);
     intent = { attempt, user };
     return attempt;
 };

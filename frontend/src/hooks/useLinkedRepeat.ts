@@ -5,7 +5,7 @@ import { useAuthProvider } from '@/contexts/AuthProvider';
 import { loadSessionProgress } from '@/services/progress/loadSessionProgress';
 import { abandonRecommendationAttempt, readPendingRecommendationAttempt, recordRecommendationAttempt } from '@/services/progress/recordProgress';
 import { getOpenAttemptForUser, openAttemptSnapshot, setOpenAttempt } from '@/services/progress/openAttempt';
-import { setPracticeAgainIntent } from '@/services/progress/practiceAgainIntent';
+import { declarePracticeAgainRegistration, setPracticeAgainIntent } from '@/services/progress/practiceAgainIntent';
 import { isCurrentTargetOwner, resolveRepeatTarget, validateDisplayedTarget, type DisplayedRepeatTarget } from '@/services/progress/repeatPracticeTarget';
 import { authEpoch } from '@/services/loginSessionLog';
 import logger from '@/lib/logger';
@@ -98,6 +98,9 @@ export function useLinkedRepeat(sessionId: string) {
             checkCurrent();
             if (!attemptId) { outcome = 'server_failed'; throw new Error('server-attempt-failed'); }
             if (target && reference) await resolveRepeatTarget(userId, sessionId, reference, current);
+            checkCurrent();
+            // #1827 D2 rev 4: this client registers its repeat, so it declares that now (never blocks the press).
+            await declarePracticeAgainRegistration(attemptId);
             checkCurrent();
             // A REUSED attempt (its create committed but the answer was lost) is accepted at THIS press (Codex P2 r4273828962,
             // r4275389955, r4275718056; PM 6178959404). No request names an attempt before the server answers, so nothing

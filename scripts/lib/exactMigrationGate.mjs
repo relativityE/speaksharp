@@ -322,7 +322,7 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
         // two holds stay pending. Exact apply and catalog proof remain mandatory.
         version: '20261119120000',
         file: '20261119120000_repeat_practised_tip.sql',
-        sha256: '44c3a2679b7a9841148ae7be47af50d2b52838e82e8ec8430d0cea629715f3d4',
+        sha256: '0756a2c1b786f2818c0745b68868fc95ddc1952f03425585c5c2fa3a666501d0',
         classification: 'staged',
     }),
     Object.freeze({
