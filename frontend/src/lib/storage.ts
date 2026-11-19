@@ -15,7 +15,7 @@ import { getSupabaseClient } from './supabaseClient';
 import { currentTakeLeaseId } from '@/services/recordingLease';
 import logger from './logger';
 import { transcriptSaveAllowed } from '@/services/practicePrivacy';
-import { getPracticeAgainIntent } from '@/services/progress/practiceAgainIntent';
+import { clearPendingRegistration, getPracticeAgainIntent, notePendingRegistration, retryPendingRegistration } from '@/services/progress/practiceAgainIntent';
 import type { PracticeSession } from '../types/session';
 import type { UserProfile } from '../types/user';
 import type { AnalyticsSummary } from '../types/analytics';
@@ -264,12 +264,17 @@ async function registerPracticeAgainTake(userId: string | undefined, sessionId: 
   if (!userId || !sessionId) return;
   const intent = getPracticeAgainIntent(userId);
   if (!intent) return;
+  // Codex P2: a request that fails before any definitive answer is retried once for this SAME take before it completes.
+  let definitive = false;
   try {
     const { error } = await getSupabaseClient().rpc('register_practice_again_take_v1', { p_attempt: intent.attemptId, p_session: sessionId });
     if (error) logger.warn({ code: error.code }, '[Supabase DB] Practice again take not registered');
+    // An answer (true or false), or a database without the function, is final; a transport error is not.
+    definitive = !error || error.code === 'PGRST202' || error.code === '42883' || error.code === '42501';
   } catch {
     logger.warn('[Supabase DB] Practice again take not registered');
   }
+  if (definitive) clearPendingRegistration(); else notePendingRegistration(intent.attemptId, sessionId);
 }
 
 /**
@@ -494,6 +499,9 @@ export const completeSession = async (
   // #1835: nor does a completion whose owner has not opted in to saving (unknown, declined, still loading or
   // unreadable all count as off). The session still completes metrics-only, so progress is kept. A session that was
   // once completed metrics-only stays metrics-only on a replay, so an identical replay stays identical.
+  // #1827 D2 rev 4 (Codex P2): a registration for this take that never got an answer is re-sent once, now, while the take
+  // is still open (the server refuses a completed or failed take). Never blocks or fails the completion.
+  if (status === 'completed') await retryPendingRegistration(sessionId);
   const transcriptArg = status === 'completed' && transcriptSaveAllowed() && !metricsOnlySessions.has(sessionId)
     ? (finalTranscript ?? null) : null;
   if (transcriptArg === null) metricsOnlySessions.add(sessionId);

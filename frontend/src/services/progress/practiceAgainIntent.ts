@@ -90,3 +90,33 @@ export async function readRepeatIdentity(attemptId: string): Promise<RepeatIdent
         return { kind: 'unknown' };
     }
 }
+
+/**
+ * A registration request for this tab's take that did not reach a definitive answer (it failed before committing, or its
+ * reply was lost). It is re-sent ONCE for the SAME take just before that take completes, while the server still accepts
+ * it (a completed or failed take is refused). Not a repeat identity: the server's answer is never stored, and if this
+ * retry also fails the take stays unregistered (never guessed). Tab-scoped (sessionStorage), ids only.
+ */
+const PENDING_KEY = 'speaksharp_practice_again_pending_registration_v1';
+export function notePendingRegistration(attemptId: string, sessionId: string): void {
+    try { if (typeof sessionStorage !== 'undefined') sessionStorage.setItem(PENDING_KEY, JSON.stringify({ attemptId, sessionId })); } catch { /* best effort */ }
+}
+export function clearPendingRegistration(): void {
+    try { if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(PENDING_KEY); } catch { /* ignore */ }
+}
+/** Re-send the pending registration for `sessionId`, once, before it completes. Never throws; never blocks the save. */
+export async function retryPendingRegistration(sessionId: string): Promise<void> {
+    let pending: { attemptId?: unknown; sessionId?: unknown } | null = null;
+    try {
+        const raw = typeof sessionStorage === 'undefined' ? null : sessionStorage.getItem(PENDING_KEY);
+        pending = raw ? JSON.parse(raw) : null;
+    } catch { pending = null; }
+    if (!pending || pending.sessionId !== sessionId || typeof pending.attemptId !== 'string') return;
+    clearPendingRegistration();                                         // once: no loop, no other take
+    try {
+        const { error } = await getSupabaseClient().rpc('register_practice_again_take_v1', { p_attempt: pending.attemptId, p_session: sessionId });
+        if (error) logger.warn({ code: error.code }, '[progress] Practice again registration retry failed');
+    } catch {
+        logger.warn('[progress] Practice again registration retry failed');
+    }
+}
