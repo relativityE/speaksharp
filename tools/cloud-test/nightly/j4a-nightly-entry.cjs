@@ -102,6 +102,19 @@ async function j4aProductionBinding(plan, deps = {}) {
     return null;
 }
 
+// The campaign's status is only provisional until the nightly bridge has
+// reconciled the selected leg and written its run-owned cleanup proof.
+async function finishJ4aNightly(campaign, { finish, outcome }) {
+    if (campaign.report) await finish(campaign.report);
+    const nightly = outcome();
+    const scope = nightly?.run?.scope;
+    let { exitCode } = campaign;
+    if (exitCode === 0 && scope?.outcome === 'FAIL') exitCode = 1;
+    if (exitCode === 0 && (!campaign.report || scope?.outcome !== 'PASS' || nightly?.cleanup?.result !== 'complete'))
+        exitCode = 78;
+    return { exitCode, nightly };
+}
+
 /**
  * CLI (Sam, seal review of dc7a5ccb): the campaign runner's OWN admission path (loadPinnedCampaign: sha-pinned plan bytes, the fixed
  * bundle, validated paths, no replay, exclusive lock), a plan that selects exactly the J4.a case, then the approved admin target, all
@@ -144,10 +157,9 @@ async function main(argv, env = process.env, deps = {}) {
             adapterOptions: deps.adapterOptions ?? {}, configuredDomain: env.LIVE_TEST_EMAIL_DOMAIN,
             nightly: { runDir: a['--run-dir'], evidenceDir: a['--evidence-dir'], runId: a['--run-id'], selected: ['J4.a'], satisfiedGates: [] } });
         const r = await runCampaign(plan, io, { executeR0: true });
-        if (r.report) await finish(r.report);
-        return { exitCode: r.exitCode, nightly: outcome() };
+        return await finishJ4aNightly(r, { finish, outcome });
     } finally { pinned?.release(); }
 }
 
 if (require.main === module) main(process.argv.slice(2)).then((r) => { if (r.reason) console.error(r.reason); process.exitCode = r.exitCode; });
-module.exports = { BIND_LOOKUP_PAGES, saveJournalCapabilityFault, teardownWindowMs, approvedAdminOrigin, composeJ4aNightly, j4aAdminTransport, j4aParentHooks, main };
+module.exports = { BIND_LOOKUP_PAGES, saveJournalCapabilityFault, teardownWindowMs, approvedAdminOrigin, composeJ4aNightly, finishJ4aNightly, j4aAdminTransport, j4aParentHooks, main };

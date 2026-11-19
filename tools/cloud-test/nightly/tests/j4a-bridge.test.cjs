@@ -14,6 +14,7 @@ const { IDS, runCampaign } = require('../../harness/bundle/harness/campaign-core
 const { admitRun } = require('../cleanup-evidence.cjs');
 const { legById, rowsForLeg } = require('../journey-plan.cjs');
 const { legsForCase } = require('../case-results.cjs');
+const { finishJ4aNightly } = require('../j4a-nightly-entry.cjs');
 const { casesForLegs, nightlyAdapter } = require('../runner-bridge.cjs');
 
 const hash = 'a'.repeat(64);
@@ -128,8 +129,9 @@ async function j4aRun(d, runId, scenario = {}) {
     const raw = stubIo(scenario, wire, d.evidenceDir);
     const { io, outcome, finish } = nightlyAdapter(raw, { runDir: d.runDir(runId), evidenceDir: d.evidenceDir, runId, selected: [LEG], satisfiedGates: [], coachingCeiling: scenario.coachingCeiling });
     const r = await runCampaign(campaignPlan([LEG]), io, { executeR0: true });
-    await finish(r.report);
-    return { r, wire, calls: raw.calls, transportCalls: raw.transportCalls, checkpoints: raw.checkpoints, outcome: outcome(), report: r.report };
+    const final = await finishJ4aNightly(r, { finish, outcome });
+    return { r, exitCode: final.exitCode, wire, calls: raw.calls, transportCalls: raw.transportCalls,
+        checkpoints: raw.checkpoints, outcome: final.nightly, report: r.report };
 }
 const journal = (d, runId) => fs.readFileSync(path.join(d.runDir(runId), 'budget-journal.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
 
@@ -142,7 +144,8 @@ describe('J4.a guarded route (#1884 step 6, stub): AHT-05 through the real harne
     });
     it('PASS path: one guarded create recorded before it is sent, never retried; every send reserved; cleanup verified', async () => {
         const d = dirs();
-        const { wire, calls, transportCalls, checkpoints, outcome, report } = await j4aRun(d, 'p1');
+        const { exitCode, wire, calls, transportCalls, checkpoints, outcome, report } = await j4aRun(d, 'p1');
+        assert.equal(exitCode, 0, 'success requires the finalized cleanup proof');
         assert.deepEqual(calls.filter((c) => c.startsWith('run:')), [`run:${CASE}`]);
         assert.deepEqual(wire, ['create:account', 'starts', 'starts', 'coaching', 'coaching', 'cleanup:delete-account', ...STORES.map((x) => `cleanup:residue-${x.id}`)]);
         assert.equal(transportCalls.length, 1);
@@ -193,7 +196,8 @@ describe('J4.a guarded route (#1884 step 6, stub): AHT-05 through the real harne
     });
     it('preserves scope and suite FAIL when cleanup is also incomplete', async () => {
         const d = dirs();
-        const { outcome, report } = await j4aRun(d, 'f1', { starts: 3, skipVerify: true });
+        const { exitCode, outcome, report } = await j4aRun(d, 'f1', { starts: 3, skipVerify: true });
+        assert.equal(exitCode, 1, 'a known failure is not downgraded to HOLD by cleanup');
         assert.equal(outcome.cleanup.result, 'incomplete');
         assert.equal(outcome.legs[LEG].outcome, 'FAIL');
         assert.equal(report.nightly.run.outcome, 'FAIL');
@@ -262,6 +266,8 @@ describe('J4.a guarded route (#1884 step 6, stub): AHT-05 through the real harne
         ]) {
             const d = dirs();
             const first = await j4aRun(d, 'k1', scenario);
+            assert.equal(first.r.exitCode, 0, `${label}: the raw campaign passes before final cleanup classification`);
+            assert.equal(first.exitCode, 78, `${label}: the finalized entry refuses success`);
             assert.equal(first.outcome.cleanup.result, 'incomplete', label);
             assert.equal(first.outcome.legs[LEG].outcome, 'PASS', `${label}: the leg observations remain intact`);
             assert.equal(first.report.nightly.run.scope.outcome, 'INCOMPLETE', label);
