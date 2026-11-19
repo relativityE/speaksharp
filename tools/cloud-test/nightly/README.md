@@ -51,7 +51,8 @@ file, in the harness handoff in the description of #1865, for the owners of thos
 ## Commands
 
 ```
-node --test tools/cloud-test/nightly/tests/*.test.cjs
 node tools/cloud-test/nightly/negative-controls/run.cjs --out /tmp/nightly-negative-controls.json
-python3 -m unittest tools/cloud-test/tests/test_nightly_suite.py
+python3 -m unittest discover -s tools/cloud-test/tests -p test_nightly_suite.py
 ```
+
+The Python wrapper applies the exact J4.a candidate patch only in a temporary copy, verifies the complete candidate packet, then runs the nightly tests there. The active request configuration and retained historical packet stay unchanged. This is offline test evidence, not live admission.

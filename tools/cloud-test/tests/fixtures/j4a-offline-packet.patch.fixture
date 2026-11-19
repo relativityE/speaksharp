@@ -1,0 +1,1199 @@
+diff --git a/tools/cloud-test/config/test-config.v1.json b/tools/cloud-test/config/test-config.v1.json
+index f2c6d4d99..a64fc90c5 100644
+--- a/tools/cloud-test/config/test-config.v1.json
++++ b/tools/cloud-test/config/test-config.v1.json
+@@ -6,7 +6,7 @@
+   "note": "Active fail-closed receiver for the reviewed retained four-file aggregate. Current request, served-release identity, journal head and reconciliation remain occurrence-bound runtime evidence and are never admitted from this retained bundle."
+  },
+   "schema": "speaksharp.cloud-test.config.v1",
+-  "configVersion": "1.4.0",
++  "configVersion": "1.4.1",
+   "workflowVersion": "1.5.0",
+   "target": {
+     "url": "https://speaksharp-public.vercel.app",
+@@ -32,10 +32,10 @@
+   ],
+   "harness": {
+     "packetDir": "tools/cloud-test/harness",
+-    "expectedCodeManifestSha256": "d2926261e3c6253168c694b306f4d0bbe8a7fc2ea2295a3c39a25f3635b3319c",
+-    "note": "r15 candidate hash, pending Product Owner approval. Vendor the packet (README section 3); the execute job recomputes CODE.sha256 and refuses to run on any difference. Changing this value is a versioned config change.",
++    "expectedCodeManifestSha256": "92b47ee01a6a35d40607fe1d73e997090921fb070030269eb5c15bdcea6bda64",
++    "note": "r15 J4.a candidate hashes for offline CI; no live execution, package approval, or compatibility grant follows. Vendor the packet (README section 3); the execute job recomputes CODE.sha256 and refuses to run on any difference. Changing this value is a versioned config change.",
+     "planBuilder": "tools/cloud-test/harness-adapter/build_plan.py",
+-    "expectedPacketManifestSha256": "09b602a3d94731ae9358aa4e58501dfe24326d99ba58b514a1ccf43bd6ee263f"
++    "expectedPacketManifestSha256": "b8eb197c551a0cf5e19fc08c255cda6b2f0733d0d732d4f4fef6a3d883386d52"
+   },
+   "credentials": {
+     "note": "Names only. The GitHub control plane (preflight and report) uses NO credentials and its workflow references none. The credentials below exist only in the run environment (the Claude task environment where the harness admission accepts the runtime attestation), and each stage receives only what it needs. Values are never written to this package.",
+diff --git a/tools/cloud-test/harness/PACKET-MANIFEST.sha256 b/tools/cloud-test/harness/PACKET-MANIFEST.sha256
+index 858891a00..4c51aab46 100644
+--- a/tools/cloud-test/harness/PACKET-MANIFEST.sha256
++++ b/tools/cloud-test/harness/PACKET-MANIFEST.sha256
+@@ -1,4 +1,4 @@
+-d2926261e3c6253168c694b306f4d0bbe8a7fc2ea2295a3c39a25f3635b3319c  bundle/CODE.sha256
++92b47ee01a6a35d40607fe1d73e997090921fb070030269eb5c15bdcea6bda64  bundle/CODE.sha256
+ 61e4f0d2868a2a7ee77cdaa4d13a4a27cb7e60cdf0fa0c23c25353e090b798ff  bundle/config/admission.TEMPLATE.json
+ 373a1d00e902f6224dec9f841448f58fe16fd8fc68de782c778c30d7a735351b  bundle/config/campaign-plan.TEMPLATE.json
+ 17d6a2b1220aa08ea86ede35a4198a4dbedd61f63926b9c738f7478bd61ee347  bundle/config/cases/AHT-01.TEMPLATE.json
+@@ -20,14 +20,14 @@ ce5873a401dcbde1c2c076379c9a75bef6ac74cd4d71b7963f7288b179fa9461  bundle/config/
+ f52a00ba546cd6e87afde55efce389e70633294824ab734f44acff77f02f5793  bundle/config/policy.production.TEMPLATE.json
+ 74bb80906973dee5933c3d47c73f658a591a9aeff1fc7ca280cac0f29072923e  bundle/config/producer-receiver.TEMPLATE.json
+ 8c48c59655a31a0fbc9c972f8b55091edb1757477422472b54b4317648f7e2cf  bundle/config/provider-contract-evidence.TEMPLATE.json
+-6bee085b54b56fb73744f9b6714b3e86397c69696cf52f543d70b8aa0aace6df  bundle/config/reviewed-steps.EXAMPLE.json
++4a419cea7de74b0ace6ac9a45a10e2311e85be8bfd43b2835349f8c30aa6cf9b  bundle/config/reviewed-steps.EXAMPLE.json
+ 68cbcbb474a0ce2307e2a00a209f5ac9429e9f947ab1bf0bca600a8da065debc  bundle/config/reviewed-steps.TEMPLATE.json
+ b96f5f984a5bc58834d39a30fdaea76609f4774b1cdd13cc3490697a3afdb511  bundle/config/runtime-attestation.TEMPLATE.json
+ cf12bb5d77aa43818cfecbf1076646b09dc1da06a8e7699e36afed7ab58dff84  bundle/config/save-oracle.TEMPLATE.json
+ 2040e454c2d1a8cf9f2bebb168dc86937012bba56c87f6988dd8a48a9e46931b  bundle/config/security-approval.TEMPLATE.json
+ 4432cb51023d1971f4995328f583df8f76421a4bcbf3930879d9844760d76c0e  bundle/harness/action-budget.cjs
+ 161a84952d835c20387a58cacba62ccd51b480fa0d2a4707bbcf40873d24f77b  bundle/harness/admission-core.cjs
+-519ad0f180983b366a7567b3993a910b4ba0120b4b9bb1c8414571d9837bec3c  bundle/harness/admission.cjs
++a45195658190bea7716dd2098f7a0af18094801028be495556fb90bccde865cf  bundle/harness/admission.cjs
+ 31f9f503f0e0400eb4c07d048b6542c5f945d163851f9882df6864302042b0d9  bundle/harness/approval-check.cjs
+ 1483ac46a58dacd438e2d0a7febc4c85fcbd529d2bf81660ee4388f7a71c89f2  bundle/harness/approval-gate.cjs
+ fe25f761b0ad43f03a55c63ed2634b570a368957a51fd148a6427e69894f898f  bundle/harness/authenticated-job-producer.cjs
+@@ -35,7 +35,7 @@ abd8e8fba5d96b1ec29ed56a913c919ce5a83df1992d1975b891daa7d39b4755  bundle/harness
+ 893e16dc7f7d6e2f1f623992c2473dd5f2b00c30c589d50b87f2611ab8c9ec09  bundle/harness/browser-setup.cjs
+ 7fbb630b3bbc8905e2ee446c9cd8e0f8efe8fcd98c188c264efdf8eb023e9d44  bundle/harness/campaign-core.cjs
+ aef3f26568ff59b0d3a0c91b2cace18a8d5cd454bec10a6fd3cc95f4cce83ed8  bundle/harness/campaign-ledger.cjs
+-a60d029535b8605b5b38f841c7febea55277f619d0daef00b14996174367eac5  bundle/harness/campaign-runner.cjs
++69945b437313d564bcee2caa2fdc8818f36954ab4c3560ee37d82840163f6240  bundle/harness/campaign-runner.cjs
+ d1ef56564b191c9f1379d5c196907de9e7c1b6cc2a735c415c3c99b901fb163c  bundle/harness/case-results.cjs
+ cf855623fdb1079c901d18949c3331c22ef7395f840a758b09b1e972d9baa791  bundle/harness/chrome-wrapper.sh
+ fd8869a0d0e39e12fcb66cca524bc3b93563946fa8bedbb006183a3da288d83f  bundle/harness/completion-attempts.cjs
+@@ -46,12 +46,12 @@ b30426f15542748cd3ccb18c835c0cc0769e976aab43928d99591ac522faef8c  bundle/harness
+ d1e829f91e262316c0201dd6eb10bd22c8540c7a4378604c2c3ad1fff45bfbbe  bundle/harness/fault-contract.cjs
+ f382d5716093e4a7d91ed9d6be1b9063912101b006a27f23f87d3e20c9168744  bundle/harness/feedback-fault.cjs
+ a4636a2728e37a15bb82fc7746e004ef7a4c5f887d05a8be6db42af22c89a21b  bundle/harness/final-attempts.cjs
+-3fffe7eda8f333047845040896c785a7adaed0bde6b798c9639cd66f1bb36a33  bundle/harness/guard-proxy.cjs
++8080fd37b5d935e143d40836f90e66686eccb12694eb3025501976ab7965d47b  bundle/harness/guard-proxy.cjs
+ 60c64406021a811576f6a89d02a1aa8abb6f645b699380c983d55cb7d2bc971b  bundle/harness/identity-check.cjs
+ 06c4f2a17595cea0a1356392d6adada9b06f830a3cf18ad042284cc5fd3dac49  bundle/harness/identity-core.cjs
+ 7ae0bcdec6c7c8e38cb5bb2c4eef61912e5ec742b909355938fc5e679bbcdb63  bundle/harness/launch-boundary.cjs
+ 8ae9f2c1a8e79dbc7f808dd0f3306ca6ea0bb9c00702a7948fa14bf9b5b26103  bundle/harness/launch-ownership.cjs
+-1f35a5ce0d5f624ee8abed790a6ff96ce1665efd05a129a454bf2e0f1f0b703a  bundle/harness/launch.cjs
++d11bc5e9b54862d422221678c9c2248a8d073606f35f00cf1fcf1a3547f55628  bundle/harness/launch.cjs
+ 0bab5fffe6323dadf4ec3b6fc520c1498c1a1bc3e85e66483036acea371f5c0a  bundle/harness/lighthouse-run.cjs
+ 95e1f1f166619db8685d77b16dc3f2c3b68565594eaadb0141876984802c52e8  bundle/harness/media-private.cjs
+ 255c928db92cbf98160fce574f0a93de16dab0b24ff183dea2895a4016235d0f  bundle/harness/operator-paths.cjs
+@@ -62,9 +62,9 @@ fd855833fa8644cc2538d3396ab0315a50f861e148ee917f3f5075f8f0337089  bundle/harness
+ d9f178921175fc02a618ecd1ddfa0a989feea4fe26d42d9bd126d26e3178aaf7  bundle/harness/qualification-capabilities.cjs
+ d0d4d292a16368973b94dc78df01e1217714bc0e47fb32117eaf40a4780d99a5  bundle/harness/qualification-diagnostic.cjs
+ f432e8d66566e5e5babab20efb8c69a8d2308fe192c4b1282102bc645148eabb  bundle/harness/qualification-gate.cjs
+-fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272  bundle/harness/reviewed-oracle-loader.cjs
++a701e50c9733631ada6efb11a43231758c8c3adbb33596821a646f824b5f57d4  bundle/harness/reviewed-oracle-loader.cjs
+ 1bb1898a1b27508e7f88d902aa4a06fcc9729406ff6f43bea644b1540cdd119e  bundle/harness/reviewed-step.cjs
+-c9291b751001b2cb3c466e2cbd023c22e91461769de3b52db1042c4da756a205  bundle/harness/run-guarded.cjs
++f9c2e27669a8a531a9db9eef463491804dd72f2fd5ea9340374367983f55b1a7  bundle/harness/run-guarded.cjs
+ ac4ba469a1de58a081ef3e482b667edbb2843e8e93369436f2f48a614955fa80  bundle/harness/runtime-admission.cjs
+ 15dde05bf0b5ecf2aa43599151f8a9a61ca43d0b41d3d6bcd42f5b99a7ecebce  bundle/harness/runtime-selection.cjs
+ 1b05b5822bb8a7c6454ff39da0b89491678cdc9e68b0252c1a673f8cec980b34  bundle/harness/stimulus-receipt.cjs
+@@ -131,7 +131,7 @@ b86f09e7bb6e607141495998497cd01ee8e4efbacfed61718fdf25fbe9e3459c  draft-adapters
+ 06ad70c6e465f63d9a0634b6abc4ad1d47020ee832ed9e4b935db918be6ae5c2  draft-adapters/SOURCE.sha256.json
+ 75c38e4483044aac94b84030b9a695c9a579741541139923311aadfb75c80130  draft-adapters/audio-timing.cjs
+ d683db10146c3539a1fb4c9d2489a694ff85b53ecc80686668fe090d4b595cc6  draft-adapters/auth-controls.cjs
+-d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676  draft-adapters/browser-actions.cjs
++72da66ddd6fae71cfa56d5a54ee865691cd4f3c3290f6396217037480e3d1961  draft-adapters/browser-actions.cjs
+ 878edc05f610c3eb46df39c682cb2da3d1a9c3427f08760c551855a37bd4eb6b  draft-adapters/browser-observers.cjs
+ 18730e6f6535f2905ebf213107fb0c9603cd82b6c6c450ff5dff60a41406e782  draft-adapters/browser-readback.cjs
+ fed1bfbdfbf1e65c9def7d9c282d17a9bb72e8cea3c6685cd0a61373524f6a0e  draft-adapters/coaching-failure-policy.cjs
+@@ -184,8 +184,8 @@ b5b998de4a339a822323b19887e07882039b133a4d9f4a01c1b45ccea28b0790  draft-adapters
+ 921fbef84724474320504fb35c2b89ffa7611e1f1311deedf1e7ba9acb981d9e  draft-adapters/receivers/github-job-evidence-reader.cjs
+ 0fca9f58dfde2b7d1ed4e12b6b3f28c5dee7d08ffedc63c5ce51ef112545ef9b  draft-adapters/receivers/unavailable-evidence-reader.cjs
+ b486fbc59dc2ff3b92fc9584d018f87435b91e568445954bc17897c5e76b684b  draft-adapters/repeat-probes.cjs
+-a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d  draft-adapters/save-fault-binding.cjs
+-549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c  draft-adapters/source-adapters.cjs
++8e344514b9dd3e73f2aabbdaf1a679389fc3627d48125ea722983fac4a778a78  draft-adapters/save-fault-binding.cjs
++8342923c4c01b9920784dec667417dbde592ba03976678ab7896d629ed8f976a  draft-adapters/source-adapters.cjs
+ e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a  draft-adapters/source-control-crosswalk.json
+ 6b011922e95eefd52316138362438b83c44dc03b30c779eb5dcf2a1ef03cbbdc  draft-adapters/source/AnalyticsDashboard.tsx
+ 869c21919bd18b804d45945589f69e6b9efcb275dab3b4db814ebb76c1e2f80d  draft-adapters/source/AnalyticsPage.tsx
+diff --git a/tools/cloud-test/harness/bundle/CODE.sha256 b/tools/cloud-test/harness/bundle/CODE.sha256
+index 1c23437ed..a1cf7f267 100644
+--- a/tools/cloud-test/harness/bundle/CODE.sha256
++++ b/tools/cloud-test/harness/bundle/CODE.sha256
+@@ -19,14 +19,14 @@ ce5873a401dcbde1c2c076379c9a75bef6ac74cd4d71b7963f7288b179fa9461  config/cases/A
+ f52a00ba546cd6e87afde55efce389e70633294824ab734f44acff77f02f5793  config/policy.production.TEMPLATE.json
+ 74bb80906973dee5933c3d47c73f658a591a9aeff1fc7ca280cac0f29072923e  config/producer-receiver.TEMPLATE.json
+ 8c48c59655a31a0fbc9c972f8b55091edb1757477422472b54b4317648f7e2cf  config/provider-contract-evidence.TEMPLATE.json
+-6bee085b54b56fb73744f9b6714b3e86397c69696cf52f543d70b8aa0aace6df  config/reviewed-steps.EXAMPLE.json
++4a419cea7de74b0ace6ac9a45a10e2311e85be8bfd43b2835349f8c30aa6cf9b  config/reviewed-steps.EXAMPLE.json
+ 68cbcbb474a0ce2307e2a00a209f5ac9429e9f947ab1bf0bca600a8da065debc  config/reviewed-steps.TEMPLATE.json
+ b96f5f984a5bc58834d39a30fdaea76609f4774b1cdd13cc3490697a3afdb511  config/runtime-attestation.TEMPLATE.json
+ cf12bb5d77aa43818cfecbf1076646b09dc1da06a8e7699e36afed7ab58dff84  config/save-oracle.TEMPLATE.json
+ 2040e454c2d1a8cf9f2bebb168dc86937012bba56c87f6988dd8a48a9e46931b  config/security-approval.TEMPLATE.json
+ 4432cb51023d1971f4995328f583df8f76421a4bcbf3930879d9844760d76c0e  harness/action-budget.cjs
+ 161a84952d835c20387a58cacba62ccd51b480fa0d2a4707bbcf40873d24f77b  harness/admission-core.cjs
+-519ad0f180983b366a7567b3993a910b4ba0120b4b9bb1c8414571d9837bec3c  harness/admission.cjs
++a45195658190bea7716dd2098f7a0af18094801028be495556fb90bccde865cf  harness/admission.cjs
+ 31f9f503f0e0400eb4c07d048b6542c5f945d163851f9882df6864302042b0d9  harness/approval-check.cjs
+ 1483ac46a58dacd438e2d0a7febc4c85fcbd529d2bf81660ee4388f7a71c89f2  harness/approval-gate.cjs
+ fe25f761b0ad43f03a55c63ed2634b570a368957a51fd148a6427e69894f898f  harness/authenticated-job-producer.cjs
+@@ -34,7 +34,7 @@ abd8e8fba5d96b1ec29ed56a913c919ce5a83df1992d1975b891daa7d39b4755  harness/browse
+ 893e16dc7f7d6e2f1f623992c2473dd5f2b00c30c589d50b87f2611ab8c9ec09  harness/browser-setup.cjs
+ 7fbb630b3bbc8905e2ee446c9cd8e0f8efe8fcd98c188c264efdf8eb023e9d44  harness/campaign-core.cjs
+ aef3f26568ff59b0d3a0c91b2cace18a8d5cd454bec10a6fd3cc95f4cce83ed8  harness/campaign-ledger.cjs
+-a60d029535b8605b5b38f841c7febea55277f619d0daef00b14996174367eac5  harness/campaign-runner.cjs
++69945b437313d564bcee2caa2fdc8818f36954ab4c3560ee37d82840163f6240  harness/campaign-runner.cjs
+ d1ef56564b191c9f1379d5c196907de9e7c1b6cc2a735c415c3c99b901fb163c  harness/case-results.cjs
+ cf855623fdb1079c901d18949c3331c22ef7395f840a758b09b1e972d9baa791  harness/chrome-wrapper.sh
+ fd8869a0d0e39e12fcb66cca524bc3b93563946fa8bedbb006183a3da288d83f  harness/completion-attempts.cjs
+@@ -45,12 +45,12 @@ b30426f15542748cd3ccb18c835c0cc0769e976aab43928d99591ac522faef8c  harness/existi
+ d1e829f91e262316c0201dd6eb10bd22c8540c7a4378604c2c3ad1fff45bfbbe  harness/fault-contract.cjs
+ f382d5716093e4a7d91ed9d6be1b9063912101b006a27f23f87d3e20c9168744  harness/feedback-fault.cjs
+ a4636a2728e37a15bb82fc7746e004ef7a4c5f887d05a8be6db42af22c89a21b  harness/final-attempts.cjs
+-3fffe7eda8f333047845040896c785a7adaed0bde6b798c9639cd66f1bb36a33  harness/guard-proxy.cjs
++8080fd37b5d935e143d40836f90e66686eccb12694eb3025501976ab7965d47b  harness/guard-proxy.cjs
+ 60c64406021a811576f6a89d02a1aa8abb6f645b699380c983d55cb7d2bc971b  harness/identity-check.cjs
+ 06c4f2a17595cea0a1356392d6adada9b06f830a3cf18ad042284cc5fd3dac49  harness/identity-core.cjs
+ 7ae0bcdec6c7c8e38cb5bb2c4eef61912e5ec742b909355938fc5e679bbcdb63  harness/launch-boundary.cjs
+ 8ae9f2c1a8e79dbc7f808dd0f3306ca6ea0bb9c00702a7948fa14bf9b5b26103  harness/launch-ownership.cjs
+-1f35a5ce0d5f624ee8abed790a6ff96ce1665efd05a129a454bf2e0f1f0b703a  harness/launch.cjs
++d11bc5e9b54862d422221678c9c2248a8d073606f35f00cf1fcf1a3547f55628  harness/launch.cjs
+ 0bab5fffe6323dadf4ec3b6fc520c1498c1a1bc3e85e66483036acea371f5c0a  harness/lighthouse-run.cjs
+ 95e1f1f166619db8685d77b16dc3f2c3b68565594eaadb0141876984802c52e8  harness/media-private.cjs
+ 255c928db92cbf98160fce574f0a93de16dab0b24ff183dea2895a4016235d0f  harness/operator-paths.cjs
+@@ -61,9 +61,9 @@ fd855833fa8644cc2538d3396ab0315a50f861e148ee917f3f5075f8f0337089  harness/privat
+ d9f178921175fc02a618ecd1ddfa0a989feea4fe26d42d9bd126d26e3178aaf7  harness/qualification-capabilities.cjs
+ d0d4d292a16368973b94dc78df01e1217714bc0e47fb32117eaf40a4780d99a5  harness/qualification-diagnostic.cjs
+ f432e8d66566e5e5babab20efb8c69a8d2308fe192c4b1282102bc645148eabb  harness/qualification-gate.cjs
+-fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272  harness/reviewed-oracle-loader.cjs
++a701e50c9733631ada6efb11a43231758c8c3adbb33596821a646f824b5f57d4  harness/reviewed-oracle-loader.cjs
+ 1bb1898a1b27508e7f88d902aa4a06fcc9729406ff6f43bea644b1540cdd119e  harness/reviewed-step.cjs
+-c9291b751001b2cb3c466e2cbd023c22e91461769de3b52db1042c4da756a205  harness/run-guarded.cjs
++f9c2e27669a8a531a9db9eef463491804dd72f2fd5ea9340374367983f55b1a7  harness/run-guarded.cjs
+ ac4ba469a1de58a081ef3e482b667edbb2843e8e93369436f2f48a614955fa80  harness/runtime-admission.cjs
+ 15dde05bf0b5ecf2aa43599151f8a9a61ca43d0b41d3d6bcd42f5b99a7ecebce  harness/runtime-selection.cjs
+ 1b05b5822bb8a7c6454ff39da0b89491678cdc9e68b0252c1a673f8cec980b34  harness/stimulus-receipt.cjs
+diff --git a/tools/cloud-test/harness/bundle/config/reviewed-steps.EXAMPLE.json b/tools/cloud-test/harness/bundle/config/reviewed-steps.EXAMPLE.json
+index 3e03bbd60..24dc2ee2e 100644
+--- a/tools/cloud-test/harness/bundle/config/reviewed-steps.EXAMPLE.json
++++ b/tools/cloud-test/harness/bundle/config/reviewed-steps.EXAMPLE.json
+@@ -20,7 +20,7 @@
+         },
+         {
+           "path": "bundle/harness/reviewed-oracle-loader.cjs",
+-          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
++          "sha256": "a701e50c9733631ada6efb11a43231758c8c3adbb33596821a646f824b5f57d4"
+         },
+         {
+           "path": "bundle/harness/reviewed-step.cjs",
+@@ -36,7 +36,7 @@
+         },
+         {
+           "path": "draft-adapters/browser-actions.cjs",
+-          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
++          "sha256": "72da66ddd6fae71cfa56d5a54ee865691cd4f3c3290f6396217037480e3d1961"
+         },
+         {
+           "path": "draft-adapters/browser-observers.cjs",
+@@ -196,11 +196,11 @@
+         },
+         {
+           "path": "draft-adapters/save-fault-binding.cjs",
+-          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
++          "sha256": "8e344514b9dd3e73f2aabbdaf1a679389fc3627d48125ea722983fac4a778a78"
+         },
+         {
+           "path": "draft-adapters/source-adapters.cjs",
+-          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
++          "sha256": "8342923c4c01b9920784dec667417dbde592ba03976678ab7896d629ed8f976a"
+         },
+         {
+           "path": "draft-adapters/source-control-crosswalk.json",
+@@ -226,7 +226,7 @@
+         },
+         {
+           "path": "bundle/harness/reviewed-oracle-loader.cjs",
+-          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
++          "sha256": "a701e50c9733631ada6efb11a43231758c8c3adbb33596821a646f824b5f57d4"
+         },
+         {
+           "path": "bundle/harness/reviewed-step.cjs",
+@@ -242,7 +242,7 @@
+         },
+         {
+           "path": "draft-adapters/browser-actions.cjs",
+-          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
++          "sha256": "72da66ddd6fae71cfa56d5a54ee865691cd4f3c3290f6396217037480e3d1961"
+         },
+         {
+           "path": "draft-adapters/browser-observers.cjs",
+@@ -402,11 +402,11 @@
+         },
+         {
+           "path": "draft-adapters/save-fault-binding.cjs",
+-          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
++          "sha256": "8e344514b9dd3e73f2aabbdaf1a679389fc3627d48125ea722983fac4a778a78"
+         },
+         {
+           "path": "draft-adapters/source-adapters.cjs",
+-          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
++          "sha256": "8342923c4c01b9920784dec667417dbde592ba03976678ab7896d629ed8f976a"
+         },
+         {
+           "path": "draft-adapters/source-control-crosswalk.json",
+@@ -432,7 +432,7 @@
+         },
+         {
+           "path": "bundle/harness/reviewed-oracle-loader.cjs",
+-          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
++          "sha256": "a701e50c9733631ada6efb11a43231758c8c3adbb33596821a646f824b5f57d4"
+         },
+         {
+           "path": "bundle/harness/reviewed-step.cjs",
+@@ -448,7 +448,7 @@
+         },
+         {
+           "path": "draft-adapters/browser-actions.cjs",
+-          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
++          "sha256": "72da66ddd6fae71cfa56d5a54ee865691cd4f3c3290f6396217037480e3d1961"
+         },
+         {
+           "path": "draft-adapters/browser-observers.cjs",
+@@ -608,11 +608,11 @@
+         },
+         {
+           "path": "draft-adapters/save-fault-binding.cjs",
+-          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
++          "sha256": "8e344514b9dd3e73f2aabbdaf1a679389fc3627d48125ea722983fac4a778a78"
+         },
+         {
+           "path": "draft-adapters/source-adapters.cjs",
+-          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
++          "sha256": "8342923c4c01b9920784dec667417dbde592ba03976678ab7896d629ed8f976a"
+         },
+         {
+           "path": "draft-adapters/source-control-crosswalk.json",
+@@ -638,7 +638,7 @@
+         },
+         {
+           "path": "bundle/harness/reviewed-oracle-loader.cjs",
+-          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
++          "sha256": "a701e50c9733631ada6efb11a43231758c8c3adbb33596821a646f824b5f57d4"
+         },
+         {
+           "path": "bundle/harness/reviewed-step.cjs",
+@@ -654,7 +654,7 @@
+         },
+         {
+           "path": "draft-adapters/browser-actions.cjs",
+-          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
++          "sha256": "72da66ddd6fae71cfa56d5a54ee865691cd4f3c3290f6396217037480e3d1961"
+         },
+         {
+           "path": "draft-adapters/browser-observers.cjs",
+@@ -814,11 +814,11 @@
+         },
+         {
+           "path": "draft-adapters/save-fault-binding.cjs",
+-          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
++          "sha256": "8e344514b9dd3e73f2aabbdaf1a679389fc3627d48125ea722983fac4a778a78"
+         },
+         {
+           "path": "draft-adapters/source-adapters.cjs",
+-          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
++          "sha256": "8342923c4c01b9920784dec667417dbde592ba03976678ab7896d629ed8f976a"
+         },
+         {
+           "path": "draft-adapters/source-control-crosswalk.json",
+@@ -844,7 +844,7 @@
+         },
+         {
+           "path": "bundle/harness/reviewed-oracle-loader.cjs",
+-          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
++          "sha256": "a701e50c9733631ada6efb11a43231758c8c3adbb33596821a646f824b5f57d4"
+         },
+         {
+           "path": "bundle/harness/reviewed-step.cjs",
+@@ -860,7 +860,7 @@
+         },
+         {
+           "path": "draft-adapters/browser-actions.cjs",
+-          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
++          "sha256": "72da66ddd6fae71cfa56d5a54ee865691cd4f3c3290f6396217037480e3d1961"
+         },
+         {
+           "path": "draft-adapters/browser-observers.cjs",
+@@ -1020,11 +1020,11 @@
+         },
+         {
+           "path": "draft-adapters/save-fault-binding.cjs",
+-          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
++          "sha256": "8e344514b9dd3e73f2aabbdaf1a679389fc3627d48125ea722983fac4a778a78"
+         },
+         {
+           "path": "draft-adapters/source-adapters.cjs",
+-          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
++          "sha256": "8342923c4c01b9920784dec667417dbde592ba03976678ab7896d629ed8f976a"
+         },
+         {
+           "path": "draft-adapters/source-control-crosswalk.json",
+@@ -1050,7 +1050,7 @@
+         },
+         {
+           "path": "bundle/harness/reviewed-oracle-loader.cjs",
+-          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
++          "sha256": "a701e50c9733631ada6efb11a43231758c8c3adbb33596821a646f824b5f57d4"
+         },
+         {
+           "path": "bundle/harness/reviewed-step.cjs",
+@@ -1066,7 +1066,7 @@
+         },
+         {
+           "path": "draft-adapters/browser-actions.cjs",
+-          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
++          "sha256": "72da66ddd6fae71cfa56d5a54ee865691cd4f3c3290f6396217037480e3d1961"
+         },
+         {
+           "path": "draft-adapters/browser-observers.cjs",
+@@ -1226,11 +1226,11 @@
+         },
+         {
+           "path": "draft-adapters/save-fault-binding.cjs",
+-          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
++          "sha256": "8e344514b9dd3e73f2aabbdaf1a679389fc3627d48125ea722983fac4a778a78"
+         },
+         {
+           "path": "draft-adapters/source-adapters.cjs",
+-          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
++          "sha256": "8342923c4c01b9920784dec667417dbde592ba03976678ab7896d629ed8f976a"
+         },
+         {
+           "path": "draft-adapters/source-control-crosswalk.json",
+@@ -1256,7 +1256,7 @@
+         },
+         {
+           "path": "bundle/harness/reviewed-oracle-loader.cjs",
+-          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
++          "sha256": "a701e50c9733631ada6efb11a43231758c8c3adbb33596821a646f824b5f57d4"
+         },
+         {
+           "path": "bundle/harness/reviewed-step.cjs",
+@@ -1272,7 +1272,7 @@
+         },
+         {
+           "path": "draft-adapters/browser-actions.cjs",
+-          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
++          "sha256": "72da66ddd6fae71cfa56d5a54ee865691cd4f3c3290f6396217037480e3d1961"
+         },
+         {
+           "path": "draft-adapters/browser-observers.cjs",
+@@ -1432,11 +1432,11 @@
+         },
+         {
+           "path": "draft-adapters/save-fault-binding.cjs",
+-          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
++          "sha256": "8e344514b9dd3e73f2aabbdaf1a679389fc3627d48125ea722983fac4a778a78"
+         },
+         {
+           "path": "draft-adapters/source-adapters.cjs",
+-          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
++          "sha256": "8342923c4c01b9920784dec667417dbde592ba03976678ab7896d629ed8f976a"
+         },
+         {
+           "path": "draft-adapters/source-control-crosswalk.json",
+@@ -1462,7 +1462,7 @@
+         },
+         {
+           "path": "bundle/harness/reviewed-oracle-loader.cjs",
+-          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
++          "sha256": "a701e50c9733631ada6efb11a43231758c8c3adbb33596821a646f824b5f57d4"
+         },
+         {
+           "path": "bundle/harness/reviewed-step.cjs",
+@@ -1478,7 +1478,7 @@
+         },
+         {
+           "path": "draft-adapters/browser-actions.cjs",
+-          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
++          "sha256": "72da66ddd6fae71cfa56d5a54ee865691cd4f3c3290f6396217037480e3d1961"
+         },
+         {
+           "path": "draft-adapters/browser-observers.cjs",
+@@ -1638,11 +1638,11 @@
+         },
+         {
+           "path": "draft-adapters/save-fault-binding.cjs",
+-          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
++          "sha256": "8e344514b9dd3e73f2aabbdaf1a679389fc3627d48125ea722983fac4a778a78"
+         },
+         {
+           "path": "draft-adapters/source-adapters.cjs",
+-          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
++          "sha256": "8342923c4c01b9920784dec667417dbde592ba03976678ab7896d629ed8f976a"
+         },
+         {
+           "path": "draft-adapters/source-control-crosswalk.json",
+@@ -1668,7 +1668,7 @@
+         },
+         {
+           "path": "bundle/harness/reviewed-oracle-loader.cjs",
+-          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
++          "sha256": "a701e50c9733631ada6efb11a43231758c8c3adbb33596821a646f824b5f57d4"
+         },
+         {
+           "path": "bundle/harness/reviewed-step.cjs",
+@@ -1684,7 +1684,7 @@
+         },
+         {
+           "path": "draft-adapters/browser-actions.cjs",
+-          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
++          "sha256": "72da66ddd6fae71cfa56d5a54ee865691cd4f3c3290f6396217037480e3d1961"
+         },
+         {
+           "path": "draft-adapters/browser-observers.cjs",
+@@ -1844,11 +1844,11 @@
+         },
+         {
+           "path": "draft-adapters/save-fault-binding.cjs",
+-          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
++          "sha256": "8e344514b9dd3e73f2aabbdaf1a679389fc3627d48125ea722983fac4a778a78"
+         },
+         {
+           "path": "draft-adapters/source-adapters.cjs",
+-          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
++          "sha256": "8342923c4c01b9920784dec667417dbde592ba03976678ab7896d629ed8f976a"
+         },
+         {
+           "path": "draft-adapters/source-control-crosswalk.json",
+@@ -1874,7 +1874,7 @@
+         },
+         {
+           "path": "bundle/harness/reviewed-oracle-loader.cjs",
+-          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
++          "sha256": "a701e50c9733631ada6efb11a43231758c8c3adbb33596821a646f824b5f57d4"
+         },
+         {
+           "path": "bundle/harness/reviewed-step.cjs",
+@@ -1890,7 +1890,7 @@
+         },
+         {
+           "path": "draft-adapters/browser-actions.cjs",
+-          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
++          "sha256": "72da66ddd6fae71cfa56d5a54ee865691cd4f3c3290f6396217037480e3d1961"
+         },
+         {
+           "path": "draft-adapters/browser-observers.cjs",
+@@ -2050,11 +2050,11 @@
+         },
+         {
+           "path": "draft-adapters/save-fault-binding.cjs",
+-          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
++          "sha256": "8e344514b9dd3e73f2aabbdaf1a679389fc3627d48125ea722983fac4a778a78"
+         },
+         {
+           "path": "draft-adapters/source-adapters.cjs",
+-          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
++          "sha256": "8342923c4c01b9920784dec667417dbde592ba03976678ab7896d629ed8f976a"
+         },
+         {
+           "path": "draft-adapters/source-control-crosswalk.json",
+@@ -2080,7 +2080,7 @@
+         },
+         {
+           "path": "bundle/harness/reviewed-oracle-loader.cjs",
+-          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
++          "sha256": "a701e50c9733631ada6efb11a43231758c8c3adbb33596821a646f824b5f57d4"
+         },
+         {
+           "path": "bundle/harness/reviewed-step.cjs",
+@@ -2096,7 +2096,7 @@
+         },
+         {
+           "path": "draft-adapters/browser-actions.cjs",
+-          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
++          "sha256": "72da66ddd6fae71cfa56d5a54ee865691cd4f3c3290f6396217037480e3d1961"
+         },
+         {
+           "path": "draft-adapters/browser-observers.cjs",
+@@ -2256,11 +2256,11 @@
+         },
+         {
+           "path": "draft-adapters/save-fault-binding.cjs",
+-          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
++          "sha256": "8e344514b9dd3e73f2aabbdaf1a679389fc3627d48125ea722983fac4a778a78"
+         },
+         {
+           "path": "draft-adapters/source-adapters.cjs",
+-          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
++          "sha256": "8342923c4c01b9920784dec667417dbde592ba03976678ab7896d629ed8f976a"
+         },
+         {
+           "path": "draft-adapters/source-control-crosswalk.json",
+@@ -2286,7 +2286,7 @@
+         },
+         {
+           "path": "bundle/harness/reviewed-oracle-loader.cjs",
+-          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
++          "sha256": "a701e50c9733631ada6efb11a43231758c8c3adbb33596821a646f824b5f57d4"
+         },
+         {
+           "path": "bundle/harness/reviewed-step.cjs",
+@@ -2302,7 +2302,7 @@
+         },
+         {
+           "path": "draft-adapters/browser-actions.cjs",
+-          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
++          "sha256": "72da66ddd6fae71cfa56d5a54ee865691cd4f3c3290f6396217037480e3d1961"
+         },
+         {
+           "path": "draft-adapters/browser-observers.cjs",
+@@ -2462,11 +2462,11 @@
+         },
+         {
+           "path": "draft-adapters/save-fault-binding.cjs",
+-          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
++          "sha256": "8e344514b9dd3e73f2aabbdaf1a679389fc3627d48125ea722983fac4a778a78"
+         },
+         {
+           "path": "draft-adapters/source-adapters.cjs",
+-          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
++          "sha256": "8342923c4c01b9920784dec667417dbde592ba03976678ab7896d629ed8f976a"
+         },
+         {
+           "path": "draft-adapters/source-control-crosswalk.json",
+@@ -2492,7 +2492,7 @@
+         },
+         {
+           "path": "bundle/harness/reviewed-oracle-loader.cjs",
+-          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
++          "sha256": "a701e50c9733631ada6efb11a43231758c8c3adbb33596821a646f824b5f57d4"
+         },
+         {
+           "path": "bundle/harness/reviewed-step.cjs",
+@@ -2508,7 +2508,7 @@
+         },
+         {
+           "path": "draft-adapters/browser-actions.cjs",
+-          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
++          "sha256": "72da66ddd6fae71cfa56d5a54ee865691cd4f3c3290f6396217037480e3d1961"
+         },
+         {
+           "path": "draft-adapters/browser-observers.cjs",
+@@ -2668,11 +2668,11 @@
+         },
+         {
+           "path": "draft-adapters/save-fault-binding.cjs",
+-          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
++          "sha256": "8e344514b9dd3e73f2aabbdaf1a679389fc3627d48125ea722983fac4a778a78"
+         },
+         {
+           "path": "draft-adapters/source-adapters.cjs",
+-          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
++          "sha256": "8342923c4c01b9920784dec667417dbde592ba03976678ab7896d629ed8f976a"
+         },
+         {
+           "path": "draft-adapters/source-control-crosswalk.json",
+@@ -2698,7 +2698,7 @@
+         },
+         {
+           "path": "bundle/harness/reviewed-oracle-loader.cjs",
+-          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
++          "sha256": "a701e50c9733631ada6efb11a43231758c8c3adbb33596821a646f824b5f57d4"
+         },
+         {
+           "path": "bundle/harness/reviewed-step.cjs",
+@@ -2714,7 +2714,7 @@
+         },
+         {
+           "path": "draft-adapters/browser-actions.cjs",
+-          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
++          "sha256": "72da66ddd6fae71cfa56d5a54ee865691cd4f3c3290f6396217037480e3d1961"
+         },
+         {
+           "path": "draft-adapters/browser-observers.cjs",
+@@ -2874,11 +2874,11 @@
+         },
+         {
+           "path": "draft-adapters/save-fault-binding.cjs",
+-          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
++          "sha256": "8e344514b9dd3e73f2aabbdaf1a679389fc3627d48125ea722983fac4a778a78"
+         },
+         {
+           "path": "draft-adapters/source-adapters.cjs",
+-          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
++          "sha256": "8342923c4c01b9920784dec667417dbde592ba03976678ab7896d629ed8f976a"
+         },
+         {
+           "path": "draft-adapters/source-control-crosswalk.json",
+@@ -2904,7 +2904,7 @@
+         },
+         {
+           "path": "bundle/harness/reviewed-oracle-loader.cjs",
+-          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
++          "sha256": "a701e50c9733631ada6efb11a43231758c8c3adbb33596821a646f824b5f57d4"
+         },
+         {
+           "path": "bundle/harness/reviewed-step.cjs",
+@@ -2920,7 +2920,7 @@
+         },
+         {
+           "path": "draft-adapters/browser-actions.cjs",
+-          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
++          "sha256": "72da66ddd6fae71cfa56d5a54ee865691cd4f3c3290f6396217037480e3d1961"
+         },
+         {
+           "path": "draft-adapters/browser-observers.cjs",
+@@ -3080,11 +3080,11 @@
+         },
+         {
+           "path": "draft-adapters/save-fault-binding.cjs",
+-          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
++          "sha256": "8e344514b9dd3e73f2aabbdaf1a679389fc3627d48125ea722983fac4a778a78"
+         },
+         {
+           "path": "draft-adapters/source-adapters.cjs",
+-          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
++          "sha256": "8342923c4c01b9920784dec667417dbde592ba03976678ab7896d629ed8f976a"
+         },
+         {
+           "path": "draft-adapters/source-control-crosswalk.json",
+diff --git a/tools/cloud-test/harness/bundle/harness/admission.cjs b/tools/cloud-test/harness/bundle/harness/admission.cjs
+index ac1346e36..620919db6 100644
+--- a/tools/cloud-test/harness/bundle/harness/admission.cjs
++++ b/tools/cloud-test/harness/bundle/harness/admission.cjs
+@@ -17,11 +17,26 @@ function supervisedCommand(cmd,argv,options,deps={}){
+   const kill=deps.killGroup||((pid,sig)=>process.kill(-pid,sig));
+   const env=deps.env||safeEnv();const grace=Math.max(1,Math.min(5000,(options.cleanupReserveMs||10000)/2));
+   return new Promise(resolve=>{
+-    let child,closed=false,settled=false,forced=null,stdout='',stderr='',killTimer,finalTimer,poll;
++    let child,close=null,settled=false,forced=null,stdout='',stderr='',killTimer,finalTimer,poll;
+     const parent=owner.ppid;
+     const alive=()=>{if(!child?.pid)return false;try{kill(child.pid,0);return true;}catch{return false;}};
+     const cleanup=()=>{clearTimeout(deadline);clearTimeout(killTimer);clearTimeout(finalTimer);clearInterval(poll);for(const[s,fn]of signals)owner.removeListener(s,fn);};
+-    const finish=(status,extra={})=>{if(settled)return;settled=true;cleanup();resolve({status:forced?.code??status,stdout,stderr,reason:forced?.reason||null,...extra});};
++    const finish=(status,extra={})=>{
++      if(settled)return;settled=true;cleanup();
++      const result={status:forced?.code??status,stdout,stderr,reason:forced?.reason||null,...extra};
++      if(options.observeTermination===true){
++        // ChildProcess close includes stdio closure, not an authoritative descendant census or writer drain.
++        // This observation never confers cleanup/teardown authority, even on a natural zero exit.
++        const nativeObservation=!deps.spawn&&!deps.owner&&!deps.killGroup;
++        const leader=!nativeObservation||!close?'UNPROVEN':forced?'FORCED':close.signal?'SIGNALLED':close.code===0?'EXITED_ZERO':Number.isInteger(close.code)?'EXITED_NONZERO':'UNPROVEN';
++        result.terminationObservation=Object.freeze({
++          leader,closeObserved:nativeObservation&&close!==null,exitCode:nativeObservation?close?.code??null:null,
++          signal:nativeObservation?close?.signal??null:null,supervisorReason:forced?.reason??null,
++          ownedDescendants:'NOT_RUN',browserShutdown:'NOT_RUN',transportDrain:'NOT_RUN',
++        });
++      }
++      resolve(result);
++    };
+     const stop=(reason,code)=>{
+       if(forced||settled)return;forced={reason,code};
+       try{if(child?.pid)kill(child.pid,'SIGTERM');}catch{}
+@@ -31,13 +46,15 @@ function supervisedCommand(cmd,argv,options,deps={}){
+     const signals=[['SIGTERM',15],['SIGINT',2],['SIGHUP',1]].map(([s,n])=>[s,()=>stop('signal:'+s,128+n)]);
+     for(const[s,fn]of signals)owner.on(s,fn);
+     const deadline=setTimeout(()=>stop('command-deadline',124),options.timeout);
+-    poll=setInterval(()=>{if(owner.ppid!==parent)stop('parent-lost',5);if(closed&&forced&&!alive())finish(forced.code,{cleanupIncomplete:false});},Math.min(100,grace));
+-    try{child=spawn(cmd,argv,{cwd:options.cwd,env,detached:true,stdio:['ignore','pipe','pipe']});}
++    poll=setInterval(()=>{if(owner.ppid!==parent)stop('parent-lost',5);if(close&&forced&&!alive())finish(forced.code,{cleanupIncomplete:false});},Math.min(100,grace));
++    // #1884 J4.a: an optional IPC channel to the supervised child, handed to options.ipc(child) right after spawn (nothing else).
++    try{child=spawn(cmd,argv,{cwd:options.cwd,env,detached:true,stdio:['ignore','pipe','pipe',...(typeof options.ipc==='function'?['ipc']:[])]});}
+     catch{finish(127,{spawnError:true});return;}
++    if(typeof options.ipc==='function'){try{options.ipc(child);}catch{stop('ipc-attach-failed',78);}}
+     const capture=(kind,bytes)=>{const value=String(bytes);if(kind==='stdout')stdout+=value;else stderr+=value;if(stdout.length+stderr.length>16*1024*1024){stdout=stdout.slice(0,1024);stderr='';stop('command-output-limit',78);}};
+     child.stdout?.on('data',b=>capture('stdout',b));child.stderr?.on('data',b=>capture('stderr',b));
+     child.once('error',()=>{if(!forced)forced={reason:'spawn-error',code:127};});
+-    child.once('close',(code,signal)=>{closed=true;if(alive()){stop('owned-descendants-remain',78);}else finish(code,{signal:signal||null,cleanupIncomplete:false});});
++    child.once('close',(code,signal)=>{close={code,signal:signal||null};if(alive()){stop('owned-descendants-remain',78);}else finish(code,{signal:signal||null,cleanupIncomplete:false});});
+   });
+ }
+ function adapter(out){
+diff --git a/tools/cloud-test/harness/bundle/harness/campaign-runner.cjs b/tools/cloud-test/harness/bundle/harness/campaign-runner.cjs
+index 9b591dbf5..51ef8dc93 100644
+--- a/tools/cloud-test/harness/bundle/harness/campaign-runner.cjs
++++ b/tools/cloud-test/harness/bundle/harness/campaign-runner.cjs
+@@ -13,7 +13,14 @@ function canonicalOutputAncestor(dir){let p=path.resolve(dir);while(!fs.existsSy
+ function privateDir(dir){canonicalOutputAncestor(dir);fs.mkdirSync(dir,{recursive:true,mode:0o700});const s=fs.lstatSync(dir);if(s.isSymbolicLink()||!s.isDirectory()||(s.mode&0o777)!==0o700||s.uid!==process.getuid()||fs.realpathSync(dir)!==dir)throw new Error('BLOCKED_SETUP: canonical current-owned private run directory required');}
+ function atomic(file,value){const tmp=file+'.tmp-'+crypto.randomBytes(8).toString('hex');const fd=fs.openSync(tmp,'wx',0o600);try{fs.writeFileSync(fd,value);fs.fsyncSync(fd);}finally{fs.closeSync(fd);}fs.renameSync(tmp,file);const d=fs.openSync(path.dirname(file),'r');try{fs.fsyncSync(d);}finally{fs.closeSync(d);}}
+ function transportEnvironment(){const env={};for(const k of ['PATH','HOME','TMPDIR','HTTPS_PROXY','https_proxy','HTTP_PROXY','http_proxy','ALL_PROXY','all_proxy','NO_PROXY','no_proxy','LANG','LC_ALL'])if(process.env[k]!==undefined)env[k]=process.env[k];return env;}
+-function caseEnvironment(c){const env=transportEnvironment();for(const k of ['VITE_SUPABASE_URL','VITE_SUPABASE_ANON_KEY','SPEAKSHARP_EVIDENCE_SOCKET',c.credentialVars.email,c.credentialVars.password])if(process.env[k]!==undefined)env[k]=process.env[k];return env;}
++// #1884 (Sam): parent-only secrets never reach any subprocess (admission, identity check or a case), whatever the parent environment holds.
++const PARENT_ONLY=/SERVICE_ROLE|SECRET_KEY|WEBHOOK_SECRET|DB_PASSWORD|ACCESS_TOKEN/i;
++function withoutParentSecrets(env){const out={};for(const [k,v]of Object.entries(env||{}))if(!PARENT_ONLY.test(k))out[k]=v;return out;}
++const GUARDED_DOMAIN=/^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/;
++function caseEnvironment(c){if(c?.account?.mode==='nightly-guarded-signup'){if(c.credentialVars!==undefined)throw new Error('BLOCKED_SETUP: a guarded-signup case must not name credential variables');if(!GUARDED_DOMAIN.test(c.account.emailDomain||''))throw new Error('BLOCKED_SETUP: guarded-signup test domain invalid');if(process.env.LIVE_TEST_EMAIL_DOMAIN!==undefined&&process.env.LIVE_TEST_EMAIL_DOMAIN.toLowerCase()!==c.account.emailDomain)throw new Error('BLOCKED_SETUP: guarded-signup test domain differs from the run\'s configured domain');
++  // The validated, non-secret domain only, explicitly; never a credential pair and never a parent secret.
++  const env=transportEnvironment();for(const k of ['VITE_SUPABASE_URL','VITE_SUPABASE_ANON_KEY','SPEAKSHARP_EVIDENCE_SOCKET'])if(process.env[k]!==undefined)env[k]=process.env[k];env.LIVE_TEST_EMAIL_DOMAIN=c.account.emailDomain;return withoutParentSecrets(env);}
++ const env=transportEnvironment();for(const k of ['VITE_SUPABASE_URL','VITE_SUPABASE_ANON_KEY','SPEAKSHARP_EVIDENCE_SOCKET',...(c.credentialVars?[c.credentialVars.email,c.credentialVars.password]:[])])if(process.env[k]!==undefined)env[k]=process.env[k];return env;}
+ function capDenialReasons(guard){const denied=guard?.counters?.denied;if(!denied||typeof denied!=='object'||Array.isArray(denied))return [];return Object.entries(denied).filter(([name,count])=>name.startsWith('cap:')&&typeof count==='number'&&count>0).map(([name])=>name).sort();}
+ function evaluateCaseBoundary(result,summary,commandResult){
+  const attempts=finalAttemptViolations(summary?.guard),caps=capDenialReasons(summary?.guard).filter(x=>x!=='cap:case-allowance'),allowanceExhausted=summary?.guard?.caseAllowance?.exhausted===true||(summary?.guard?.counters?.denied?.['cap:case-allowance']||0)>0;
+@@ -38,10 +45,15 @@ function validateReusedAdmission(receipt,plan){
+  if(!Number.isFinite(Date.parse(receipt.endedAt||''))||!Number.isFinite(Date.parse(id.endedAt||'')))throw new Error('BLOCKED_SETUP: reused admission completion time invalid');
+  return receipt;
+ }
+-function createAdapter(plan,bundle,{executeR0=false,commandRunner=supervisedCommand,reusedAdmissionFile=null,reusedAdmissionSha256=null}={}) {
++// #1884 J4.a (AHT-05) only, and only when the nightly runner passes its `nightly` routes: the supervised child binds the exact run
++// identity over IPC before any browser launch, every effect is reserved through `nightly` in this parent, and cleanup counts come
++// only from the trusted residue reader held here (`trustedResidue(kind, scope)`), scoped to the confirmed create. Without
++// `opts.nightly` the ordinary path below is unchanged.
++const J4A_CASE='AHT-05';
++function createAdapter(plan,bundle,{executeR0=false,commandRunner=supervisedCommand,reusedAdmissionFile=null,reusedAdmissionSha256=null,trustedResidue=null,j4aTeardown=null,j4aOwner=null,verifyJ4aStopped=null}={}) {
+  const root=path.resolve(plan.runRoot),admissionDir=path.join(root,'admission'),admissionFile=path.join(admissionDir,'admission-receipt.json');let cfg=null,admission=null,interrupted=false;const configs=new Map();
+  const timeout=max=>Math.max(1,Math.min(max,Date.parse(plan.deadlineAt)-Date.now()-plan.cleanupReserveMs));
+- const command=async(argv,maxMs,env)=>{if(interrupted)throw new Error('BLOCKED_SETUP: campaign cancelled');const r=await commandRunner(process.execPath,argv,{cwd:cfg?.checkoutDir||process.cwd(),timeout:timeout(maxMs),cleanupReserveMs:plan.cleanupReserveMs},{env});if(r.reason?.startsWith('signal:')||r.reason==='parent-lost'||r.cleanupIncomplete)interrupted=true;return r;};
++ const command=async(argv,maxMs,env,extra={})=>{if(interrupted)throw new Error('BLOCKED_SETUP: campaign cancelled');const r=await commandRunner(process.execPath,argv,{cwd:cfg?.checkoutDir||process.cwd(),timeout:timeout(maxMs),cleanupReserveMs:plan.cleanupReserveMs,...extra},{env});if(r.reason?.startsWith('signal:')||r.reason==='parent-lost'||r.cleanupIncomplete)interrupted=true;return r;};
+  const io={now:Date.now,
+   async verifyRunIdentity(p){const r=p.runIdentity,codeSha=sha(fs.readFileSync(path.join(bundle,'CODE.sha256')));if(!/^[a-f0-9]{64}$/.test(p.requestSha256||'')||!p.executionIdentity||typeof p.executionIdentity.runId!=='string'||!p.executionIdentity.runId||p.executionIdentity.attempt!==1||!/^[a-f0-9]{64}$/.test(p.consumedPlanSha256||''))throw new Error('BLOCKED_SETUP: admitted request/execution/plan identity missing');if(r.runner.codeManifestSha256!==codeSha)throw new Error('BLOCKED_SETUP: runIdentity.runner.codeManifestSha256 differs from the runner bundle CODE.sha256 actually loaded');if(r.frontend.sourceSha!==p.sourceSha)throw new Error('BLOCKED_SETUP: runIdentity.frontend differs from the plan source SHA');const media=Object.fromEntries(p.cases.map(c=>[c.id,c.mediaSha256||null]));for(const c of p.cases)if(r.cases&&r.cases[c.id]&&(r.cases[c.id].driverSha256!==c.driverSha256))throw new Error('BLOCKED_SETUP: runIdentity driver hash differs from the plan for '+c.id);void media;},
+   async verifyStimulusPreflight(p){const {verifyStimulusReceipt}=require('./stimulus-receipt.cjs');const f=readBound(p.stimulusPreflight.file,p.stimulusPreflight.sha256);const receipt=JSON.parse(f);const core=require('./campaign-core.cjs');const selected=core.selectedOrder(p),media=Object.fromEntries(p.cases.map(c=>[c.id,c.mediaSha256||null]));const admission=JSON.parse(readBound(p.admissionConfigFile,p.admissionConfigSha256));const browser=JSON.parse(readBound(admission.browserIdentityFile,admission.browserIdentitySha256));const driverOf=id=>require(path.resolve(p.cases.find(c=>c.id===id).driverFile));const errors=verifyStimulusReceipt(receipt,{selected,mediaShaByCase:media,needsDevice:id=>{const d=driverOf(id);const cfg=JSON.parse(readBound(p.cases.find(c=>c.id===id).configFile,p.cases.find(c=>c.id===id).configSha256));return typeof d.requiresCaptureDevice==='function'&&d.requiresCaptureDevice(cfg);},codeManifestSha256:sha(fs.readFileSync(path.join(bundle,'CODE.sha256'))),browserPath:browser.path,browserSha256:browser.observedBinarySha256,now:Date.now()});if(errors.length)throw new Error('BLOCKED_SETUP: stimulus preflight not proven: '+errors.join('; ').slice(0,200));},
+@@ -61,9 +73,12 @@ function createAdapter(plan,bundle,{executeR0=false,commandRunner=supervisedComm
+    if(typeof driver.requiresCaptureDevice==='function'&&driver.requiresCaptureDevice(cc)){if(!c.mediaFile||!/^[0-9a-f]{64}$/.test(c.mediaSha256||''))throw new Error('BLOCKED_SETUP: '+c.id+' presses Start and requires a bound capture device (plan mediaFile/mediaSha256); media-less launch refused');if(c.mediaSha256!==cc.fixture?.sha256||cc.fixture?.launchSha256!==cc.fixture?.sha256)throw new Error('BLOCKED_SETUP: '+c.id+' plan media differs from the case fixture binding');}
+    if((driver.contract?.requiredOracles||[]).length&&!c.caseOracleFile)throw new Error('BLOCKED_SETUP: required case oracle factory missing before admission');
+    if(cc.privateEvidenceProducers){if(!c.producerReceiverFile)throw new Error('BLOCKED_SETUP: existing producer receiving capability missing before admission');const receiver=verifyReviewedStep({manifestFile:plan.stepManifestFile,expectedManifestSha256:plan.stepManifestSha256,stepRoot:plan.stepRoot,stepFile:c.producerReceiverFile});for(const [name,binding]of Object.entries(cc.privateEvidenceProducers)){validateProducerBinding(name,binding);if(binding.receiverSourceSha256!==receiver.stepSha256)throw new Error('BLOCKED_SETUP: producer receiver bytes differ from frozen binding');}}
+-   if(executeR0)credentialBinding(cc);
++   // #1884: the explicit J4.a guarded-signup mode binds no credential pair (its account is created inside the guarded create; run-guarded
++   // still refuses that mode without a bound supervised channel). Every other mode is unchanged.
++   if(cc.account?.mode==='nightly-guarded-signup'){if(cc.credentialVars!==undefined)throw new Error('BLOCKED_SETUP: a guarded-signup case must not name credential variables');}
++   else if(executeR0)credentialBinding(cc);
+   },
+-  async admit(){if(reusedAdmissionFile){if(path.resolve(reusedAdmissionFile)!==admissionFile||!/^[a-f0-9]{64}$/.test(reusedAdmissionSha256||''))throw new Error('BLOCKED_SETUP: reused admission path/digest is not the campaign admission output');admission=validateReusedAdmission(JSON.parse(readBound(reusedAdmissionFile,reusedAdmissionSha256)),plan);return admission;}const r=await command([path.join(bundle,'harness/admission.cjs'),'--bundle',bundle,'--config',path.resolve(plan.admissionConfigFile),'--out',admissionDir,'--execute-r0','true'],timeout(86400000),{...process.env});if(fs.existsSync(admissionFile))admission=JSON.parse(fs.readFileSync(admissionFile,'utf8'));if(r.status!==0||admission?.result!=='ADMISSION PASS')return admission||{result:'BLOCKED_SETUP',reason:r.reason||'admission receipt unavailable'};return admission;},
++  async admit(){if(reusedAdmissionFile){if(path.resolve(reusedAdmissionFile)!==admissionFile||!/^[a-f0-9]{64}$/.test(reusedAdmissionSha256||''))throw new Error('BLOCKED_SETUP: reused admission path/digest is not the campaign admission output');admission=validateReusedAdmission(JSON.parse(readBound(reusedAdmissionFile,reusedAdmissionSha256)),plan);return admission;}const r=await command([path.join(bundle,'harness/admission.cjs'),'--bundle',bundle,'--config',path.resolve(plan.admissionConfigFile),'--out',admissionDir,'--execute-r0','true'],timeout(86400000),withoutParentSecrets(process.env));if(fs.existsSync(admissionFile))admission=JSON.parse(fs.readFileSync(admissionFile,'utf8'));if(r.status!==0||admission?.result!=='ADMISSION PASS')return admission||{result:'BLOCKED_SETUP',reason:r.reason||'admission receipt unavailable'};return admission;},
+   ledgerSnapshot(expected){return require('./campaign-ledger.cjs').Ledger.integritySnapshot(plan.campaignLedger,expected);},
+   monotonicMs(){return Number(process.hrtime.bigint()/1000000n);},
+   async identity(phase){const r=await command([path.join(bundle,'harness/identity-check.cjs'),'--authorize-identity-read','true','--url',plan.targetUrl,'--expect-sha',plan.servedSha,'--ledger',plan.identityLedger,'--cap',String(plan.identityCap),'--phase',phase],25000,transportEnvironment());let receipt;try{receipt=JSON.parse(r.stdout.trim().split('\n').pop());}catch{throw new Error('Identity outcome ambiguous; no retry');}if(r.status!==0)receipt.result='BLOCKED';return receipt;},
+@@ -74,24 +89,75 @@ function createAdapter(plan,bundle,{executeR0=false,commandRunner=supervisedComm
+    const args=[path.join(bundle,'harness/run-guarded.cjs'),'--browser',path.join(admissionDir,'browser.json'),'--policy',cfg.policyFile,'--runtime-qualification',admission.runtimeQualificationReceipt,'--admission-receipt',admissionFile,'--admission-receipt-sha256',sha(fs.readFileSync(admissionFile)),'--campaign-id',plan.campaignId,'--security-approval',cfg.securityApprovalFile,'--step-root',plan.stepRoot,'--step-manifest',plan.stepManifestFile,'--step-manifest-sha256',plan.stepManifestSha256,'--script',c.driverFile,'--case-config',c.configFile,'--case-config-sha256',c.configSha256,'--run-dir',dir,'--ledger',plan.campaignLedger,'--max-ms',String(c.maxMs)];if(Number.isSafeInteger(opts?.requestAllowance)&&opts.requestAllowance>0)args.push('--case-request-allowance',String(opts.requestAllowance));
+    if(c.mediaFile)args.push('--media-file',c.mediaFile,'--media-sha256',c.mediaSha256,'--private-media-parent',cfg.privateMediaParent);
+    if(c.oracleConfigFile)args.push('--oracle-config',c.oracleConfigFile);if(c.caseOracleFile)args.push('--case-oracles',c.caseOracleFile);if(c.producerReceiverFile)args.push('--producer-receiver',c.producerReceiverFile);
+-   const r=await command(args,c.maxMs+plan.cleanupReserveMs,caseEnvironment(configs.get(c.id)));const resultFile=path.join(dir,'case-result.json'),summaryFile=path.join(dir,'summary.json');const result=fs.existsSync(resultFile)?JSON.parse(fs.readFileSync(resultFile,'utf8')):{assertions:[]};const summary=fs.existsSync(summaryFile)?JSON.parse(fs.readFileSync(summaryFile,'utf8')):null;
++   const j4a=c.id===J4A_CASE&&opts?.nightly&&typeof opts.nightly.send==='function';let channel=null;
++   if(j4a)args.push('--j4a-binding','true','--runtime-start',runtimeStartFile,'--runtime-start-sha256',runtimeStartSha256);
++   const r=await command(args,c.maxMs+plan.cleanupReserveMs,caseEnvironment(configs.get(c.id)),j4a?{ipc:child=>{const {attachParentChannel}=require('../../../nightly/j4a-supervised-channel.cjs');channel=attachParentChannel({port:child,identity:{campaignId:runtimeStart.campaignId,runId:runtimeStart.runId,attempt:1,caseId:c.id,requestSha256:runtimeStart.requestSha256,planSha256:runtimeStart.planSha256,configSha256:runtimeStart.configSha256,sourceSha:runtimeStart.sourceSha,servedSha:runtimeStart.servedSha},nightly:opts.nightly,confirmOwner:typeof j4aOwner==='function'?(lookupRef)=>j4aOwner({nightly:opts.nightly,confirmedAccount:lookupRef}):undefined});}}:{});
++   const resultFile=path.join(dir,'case-result.json'),summaryFile=path.join(dir,'summary.json');
++   const result=fs.existsSync(resultFile)?JSON.parse(fs.readFileSync(resultFile,'utf8')):{assertions:[]};
++   const summary=fs.existsSync(summaryFile)?JSON.parse(fs.readFileSync(summaryFile,'utf8')):null;
+    for(const [ref,digest]of Object.entries(result.evidenceDigests||{})){const file=path.resolve(dir,ref);if(!file.startsWith(dir+path.sep)||sha(fs.readFileSync(file))!==digest)throw new Error('case evidence missing/tampered');}
+    const boundary=evaluateCaseBoundary(result,summary,r);
++   let nightlyCleanup=null,j4aBinding=null;
++   if(j4a){
++    const hasTeardown=typeof j4aTeardown==='function';
++    const readResidue=!hasTeardown&&typeof trustedResidue==='function'?async(kind,scope)=>{const x=await opts.nightly.cleanup('J4.a',()=>trustedResidue(kind,scope));return x.sent?x.value:null;}:undefined;
++    const out=channel?await channel.outcome({readResidue}):null;
++    nightlyCleanup=out?.nightlyCleanup??{steps:[],left:[]};
++    j4aBinding={bound:Boolean(out?.digest),refused:out?.refused??(out?null:'no supervised channel'),violations:out?.violations??[]};
++    if(hasTeardown){
++     // Child-reported cleanup is not parent evidence or teardown authority.
++     nightlyCleanup={steps:[],left:out?.confirmedAccount?[{kind:'account',ref:out.confirmedAccount}]:[]};
++     const ce=summary?.cleanupEvidence;
++     const pagesClosed=result.assertions?.some(x=>x.id==='owned-pages-closed'&&x.result==='PASS')===true;
++     const cleanClose=r.status===0&&r.reason===null&&r.signal===null&&r.cleanupIncomplete===false
++        &&summary?.killedLeftovers===undefined
++        &&summary?.reason==='completed'&&summary.exitCode===0&&Array.isArray(summary.ownedProcessesRemaining)&&summary.ownedProcessesRemaining.length===0
++        &&ce?.schema==='speaksharp.cloud-test.case-cleanup-evidence.v1'&&ce.ownedProcessesRemaining===0&&ce.guardClosed===true
++        &&['launchCleanupFailure','mediaCleanupFailure','stopError','browserCloseError'].every(k=>ce[k]===false);
++     const expected={binding:out?.digest,runId:runtimeStart.runId,owner:out?.confirmedOwner};
++     const {readJ4aStoppedWriters}=require('../../../nightly/j4a-writer-evidence.cjs');
++     let stopped=null;
++     if(!out?.digest||out.refused||j4aBinding.violations.length)j4aBinding.teardownHold='the supervised identity binding is absent, refused or violated';
++     else if(!out.confirmedOwner)j4aBinding.teardownHold='no owner was preserved at binding';
++     else if(!cleanClose||!pagesClosed||boundary.safetyStop)j4aBinding.teardownHold='the child did not complete a clean supervised close';
++     else {
++      // No production verifier is wired. The explicit module-level seam is exercised only by offline fixtures;
++      // neither CLI nor IPC may supply a verifier or brand evidence.
++      if(typeof verifyJ4aStopped==='function'){try{stopped=await verifyJ4aStopped(expected);}catch{/* no evidence */}}
++      if(!readJ4aStoppedWriters(stopped,expected))j4aBinding.teardownHold='no verified stopped-writer evidence for this run and owner';
++      else {
++       const td=await j4aTeardown({nightly:opts.nightly,confirmedAccount:out.confirmedAccount,preservedOwner:out.confirmedOwner,
++        childClosed:{exited:true,ownedPagesClosed:true},stopped,binding:expected.binding});
++       nightlyCleanup=td.nightlyCleanup;j4aBinding.teardownHold=td.hold;
++      }
++     }
++    }
++    if(j4aBinding.violations.length>0){if(nightlyCleanup?.verification){const {verification:_withheld,...rest}=nightlyCleanup;nightlyCleanup=rest;}j4aBinding.violationStop=true;}
++   }
+    // r15: outcome classes (what each result MEANS) and the case's cleanup receipt, both from the case's own sanitized files.
+    let outcomeClasses=null;try{const {classifyCase}=require('./outcome-class.cjs'),facts={};for(const a of result.assertions||[]){const ref=(a.evidenceRefs||[])[0];if(!ref)continue;try{const f=path.resolve(dir,ref);if(f.startsWith(dir+path.sep))facts[a.id]=JSON.parse(fs.readFileSync(f,'utf8')).facts;}catch{/* evidence unreadable */}}outcomeClasses=classifyCase(result.assertions||[],facts);}catch{outcomeClasses=null;}
+    const cleanup=summary?{ownedProcessesRemaining:Array.isArray(summary.ownedProcessesRemaining)?summary.ownedProcessesRemaining.length:null,exitCode:r.status,reason:typeof summary.reason==='string'&&/^[a-z-]{1,40}$/.test(summary.reason)?summary.reason:'other',endedAt:summary.endedAt||null}:null;
+    // the exact, always-present cleanup record run-guarded writes after cleanup; any other shape is no evidence (null).
+    const ce=summary&&summary.cleanupEvidence,CE_KEYS=['browserCloseError','guardClosed','launchCleanupFailure','mediaCleanupFailure','ownedProcessesRemaining','schema','stopError'];
+    const cleanupEvidence=ce&&typeof ce==='object'&&!Array.isArray(ce)&&JSON.stringify(Object.keys(ce).sort())===JSON.stringify(CE_KEYS)&&ce.schema==='speaksharp.cloud-test.case-cleanup-evidence.v1'&&Number.isSafeInteger(ce.ownedProcessesRemaining)&&ce.ownedProcessesRemaining>=0&&['launchCleanupFailure','mediaCleanupFailure','stopError','browserCloseError','guardClosed'].every(k=>typeof ce[k]==='boolean')?{...ce,cleanupIncomplete:r.cleanupIncomplete===true}:null;
+-   return{...boundary,...(outcomeClasses?{outcomeClasses}:{}),...(cleanup?{cleanup}:{}),cleanupEvidence,executionReceipt:{schema:'speaksharp.cloud-test.case-execution-receipt.v1',campaignId:plan.campaignId,runId:plan.executionIdentity.runId,attempt:1,caseId:c.id,requestSha256:plan.requestSha256,planSha256:plan.consumedPlanSha256,configSha256:c.configSha256,sourceSha:plan.sourceSha,servedSha:plan.servedSha,runtimeStartReceipt:runtimeStartFile,runtimeStartReceiptSha256:runtimeStartSha256,exitCode:r.status,summary:summaryFile,summarySha256:summary?sha(fs.readFileSync(summaryFile)):null,caseResult:resultFile,caseResultSha256:fs.existsSync(resultFile)?sha(fs.readFileSync(resultFile)):null}};
++   if(j4a&&j4aBinding.violationStop){boundary.safetyStop=true;boundary.reason='J4.a supervised protocol violation: '+String(j4aBinding.violations[0]).slice(0,80);}
++   if(j4a&&!j4aBinding.bound){boundary.safetyStop=true;boundary.assertions=[];boundary.reason='J4.a supervised binding refused: '+String(j4aBinding.refused).slice(0,80);}
++   return{...boundary,...(outcomeClasses?{outcomeClasses}:{}),...(cleanup?{cleanup}:{}),...(j4a?{nightlyCleanup,j4aBinding}:{}),cleanupEvidence,executionReceipt:{schema:'speaksharp.cloud-test.case-execution-receipt.v1',campaignId:plan.campaignId,runId:plan.executionIdentity.runId,attempt:1,caseId:c.id,requestSha256:plan.requestSha256,planSha256:plan.consumedPlanSha256,configSha256:c.configSha256,sourceSha:plan.sourceSha,servedSha:plan.servedSha,runtimeStartReceipt:runtimeStartFile,runtimeStartReceiptSha256:runtimeStartSha256,exitCode:r.status,summary:summaryFile,summarySha256:summary?sha(fs.readFileSync(summaryFile)):null,caseResult:resultFile,caseResultSha256:fs.existsSync(resultFile)?sha(fs.readFileSync(resultFile)):null}};
+   }
+  };return io;
+ }
+-async function main(argv){let lock=null;try{const a={};if(argv.length%2)throw new Error('explicit key/value arguments required');for(let i=0;i<argv.length;i+=2){const k=argv[i];if(!['--plan','--plan-sha256','--execute-r0','--admission-receipt','--admission-receipt-sha256'].includes(k)||k in a)throw new Error('unknown/repeated argument');a[k]=argv[i+1];}if(!a['--plan'])throw new Error('--plan required');const execute=a['--execute-r0']==='true';if(a['--execute-r0']&&!['true','false'].includes(a['--execute-r0']))throw new Error('execute-r0 true/false required');const hasReuse=Boolean(a['--admission-receipt']||a['--admission-receipt-sha256']);if(hasReuse&&(!execute||!a['--admission-receipt']||!a['--admission-receipt-sha256']))throw new Error('reused admission needs execute-r0 plus exact receipt and digest');const bytes=execute?readBound(a['--plan'],a['--plan-sha256']):fs.readFileSync(a['--plan']);const plan=JSON.parse(bytes),bundle=path.resolve(__dirname,'..');
++// #1884 (Sam): the ONE admission path for a campaign entry point: sha-pinned plan bytes, the fixed bundle (this file's own, never argv),
++// run identity, validated paths, no replay of an existing report, and the exclusive campaign lock. Used by main and by the J4.a entry.
++function loadPinnedCampaign({planFile,planSha256,execute}){
++ const bytes=execute?readBound(planFile,planSha256):fs.readFileSync(planFile);const plan=JSON.parse(bytes),bundle=path.resolve(__dirname,'..');
+  plan.consumedPlanSha256=sha(bytes);if(execute){const sel=require('./campaign-core.cjs').selectedOrder(plan);if(!plan.runIdentity)throw new Error('run identity binding (release, runner, media, backend) is required to execute');if(plan.cases.some(c=>sel.includes(c.id)&&c.mediaFile)&&!plan.stimulusPreflight)throw new Error('a stimulus preflight receipt is required to execute selected cases that use a capture device');}
+  validateCampaignPaths(plan,bundle);
+- const root=path.resolve(plan.runRoot);privateDir(root);if(execute){if(fs.existsSync(path.join(root,'case-results.json')))throw new Error('Existing campaign report; no implicit replay/resume');const candidateLock=path.join(root,'.campaign.lock');const fd=fs.openSync(candidateLock,'wx',0o600);lock=candidateLock;try{fs.writeFileSync(fd,String(process.pid));fs.fsyncSync(fd);}finally{fs.closeSync(fd);}}
++ const root=path.resolve(plan.runRoot);privateDir(root);let lock=null;if(execute){if(fs.existsSync(path.join(root,'case-results.json')))throw new Error('Existing campaign report; no implicit replay/resume');const candidateLock=path.join(root,'.campaign.lock');const fd=fs.openSync(candidateLock,'wx',0o600);lock=candidateLock;try{fs.writeFileSync(fd,String(process.pid));fs.fsyncSync(fd);}finally{fs.closeSync(fd);}}
++ return{plan,bundle,root,release(){if(lock)try{fs.unlinkSync(lock);}catch{}lock=null;}};
++}
++async function main(argv){let pinned=null;try{const a={};if(argv.length%2)throw new Error('explicit key/value arguments required');for(let i=0;i<argv.length;i+=2){const k=argv[i];if(!['--plan','--plan-sha256','--execute-r0','--admission-receipt','--admission-receipt-sha256'].includes(k)||k in a)throw new Error('unknown/repeated argument');a[k]=argv[i+1];}if(!a['--plan'])throw new Error('--plan required');const execute=a['--execute-r0']==='true';if(a['--execute-r0']&&!['true','false'].includes(a['--execute-r0']))throw new Error('execute-r0 true/false required');const hasReuse=Boolean(a['--admission-receipt']||a['--admission-receipt-sha256']);if(hasReuse&&(!execute||!a['--admission-receipt']||!a['--admission-receipt-sha256']))throw new Error('reused admission needs execute-r0 plus exact receipt and digest');
++ pinned=loadPinnedCampaign({planFile:a['--plan'],planSha256:a['--plan-sha256'],execute});const {plan,bundle,root}=pinned;
+  const result=await runCampaign(plan,createAdapter({...plan,runRoot:root},bundle,{executeR0:execute,reusedAdmissionFile:a['--admission-receipt']||null,reusedAdmissionSha256:a['--admission-receipt-sha256']||null}),{executeR0:execute});console.log(JSON.stringify({result:result.report.result,cases:result.report.cases.map(c=>({id:c.caseId,result:c.result})),report:path.join(root,execute?'case-results.json':'offline-case-plan.json')}));return result.exitCode;
+- }catch(e){console.error('BLOCKED_SETUP: '+e.message);return 78;}finally{if(lock)try{fs.unlinkSync(lock);}catch{}}}
++ }catch(e){console.error('BLOCKED_SETUP: '+e.message);return 78;}finally{pinned?.release();}}
+ if(require.main===module)main(process.argv.slice(2)).then(c=>process.exitCode=c);
+-module.exports={createAdapter,main,readBound,capDenialReasons,evaluateCaseBoundary,validateCampaignPaths,caseEnvironment,validateReusedAdmission};
++module.exports={createAdapter,main,loadPinnedCampaign,withoutParentSecrets,readBound,capDenialReasons,evaluateCaseBoundary,validateCampaignPaths,caseEnvironment,validateReusedAdmission};
+diff --git a/tools/cloud-test/harness/bundle/harness/guard-proxy.cjs b/tools/cloud-test/harness/bundle/harness/guard-proxy.cjs
+index 315932dc0..eddaee788 100644
+--- a/tools/cloud-test/harness/bundle/harness/guard-proxy.cjs
++++ b/tools/cloud-test/harness/bundle/harness/guard-proxy.cjs
+@@ -199,6 +199,13 @@ class Guard {
+     Promise.resolve().then(()=>this.close('harness-fatal')).catch(()=>{});
+     return this.fatalState;
+   }
++  // #1884 J4.a: under the bound nightly capability, each coaching request is forwarded only on its own `coaching` grant, and the grant
++  // settles ok only once the request was written upstream (ticket.sent); anything else settles it lost (ticket.failed). No hook: unchanged.
++  async reserveNightlyCoaching(host,method,pathname) {
++    if(typeof this.opts.reserveCoaching!=='function')return null;
++    if(host!==FEEDBACK_HOST||method!=='POST'||pathname!=='/functions/v1/get-ai-suggestions')return null;
++    return this.opts.reserveCoaching();
++  }
+   reserveTakeForRequest(host,method,pathname) {
+     if(host!==FEEDBACK_HOST||method!=='POST'||pathname!=='/rest/v1/rpc/create_session_and_update_usage')return false;
+     if(typeof this.opts.reserveTake!=='function'){if(this.policy.testOnly===true)return false;throw new Error('guard action budget unavailable');}
+@@ -257,6 +264,15 @@ class Guard {
+     if(!isReviewedSessionOracleFactory(oracle)||this.saveReadbackInstalled)throw new Error('HARNESS_LIMITED: reviewed dynamic save oracle not available before Start');
+     return Object.freeze({sourceSha:oracle.sourceSha,host:oracle.host,accountSubjectSha256:oracle.accountSubjectSha256});
+   }
++  // #1884 (Sam, option a): the guarded-signup owner, bound ONCE before any save readback. The adapter calls this only after the page's own
++  // session matched the owner the parent independently confirmed; no rebind, and never after the save readback is installed.
++  bindGuardedOwner(ownerId) {
++    const oracle=this.opts.readbackOracle;
++    if(!isReviewedSessionOracleFactory(oracle)||this.saveReadbackInstalled||this.faults.length||oracle.ownerBound!==false)throw new Error('HARNESS_LIMITED: guarded owner binding unavailable or already bound');
++    const accountSubjectSha256=oracle.bindOwner(ownerId);
++    this.durableLog({kind:'guarded-owner-bound',accountSubjectSha256});
++    return Object.freeze({accountSubjectSha256});
++  }
+   bindSaveReadback(input) {
+     const oracle=this.opts.readbackOracle;
+     if(!isReviewedSessionOracleFactory(oracle)||this.saveReadbackInstalled||this.faults.length)throw new Error('HARNESS_LIMITED: save readback must be installed once before arming');
+@@ -392,6 +408,7 @@ class Guard {
+     this.inFlight.set(key, rec);
+     this.c.inFlightMax = Math.max(this.c.inFlightMax, this.active);
+     const finish = (outcome, extra = {}) => {
++      try{rec.coachingTicket?.failed?.();}catch{/* settled */}
+       if (rec.outcome) return;
+       rec.outcome = outcome;
+       try{
+@@ -449,6 +466,8 @@ class Guard {
+       if(e?.code==='TAKE_CAP'){finish('case-take-cap');this.deny(res,'cap:case-takes',ev);return;}
+       this.fatal('guard-action-budget-integrity','take-reservation');res.destroy();return;
+     }
++    try{rec.coachingTicket=await this.reserveNightlyCoaching(host,req.method,u.pathname);}catch{rec.coachingTicket={granted:false};}
++    if(rec.coachingTicket&&rec.coachingTicket.granted!==true){rec.coachingTicket=null;finish('nightly-coaching-cap');this.deny(res,'cap:nightly-coaching',ev);return;}
+     if(this.closing||rec.outcome)return;
+     this.c.forwarded++; rec.forwarded = true;
+     let sock;
+@@ -471,6 +490,7 @@ class Guard {
+     // http.request over the already-established upstream TLS socket: no agent, no DNS, no second
+     // connection. (An agent would ignore createConnection and resolve the host directly.)
+     const up = http.request({ createConnection: () => sock, method: req.method, path: u.pathname + u.search, headers, signal: ac.signal });
++    if(rec.coachingTicket){const t=rec.coachingTicket;up.once('finish',()=>{try{t.sent();}catch{/* settled */}});}
+     this.watch(up,'response', (ur) => {
+       const status = ur.statusCode;
+       if (status >= 300 && status < 400) {
+diff --git a/tools/cloud-test/harness/bundle/harness/launch.cjs b/tools/cloud-test/harness/bundle/harness/launch.cjs
+index f90474dfb..aeb03ba6b 100644
+--- a/tools/cloud-test/harness/bundle/harness/launch.cjs
++++ b/tools/cloud-test/harness/bundle/harness/launch.cjs
+@@ -48,7 +48,7 @@ async function launchGuarded(opts) {
+   const b = readJson(opts.browserJson);
+   const owned=await ownedLaunch({signal:opts.signal,onPhase:opts.onPhase,
+     prepareMedia:()=>opts.media ? mediaFlags(opts.media,opts.runDir,b.runAsUid,opts.privateMediaParent):null,
+-    createGuard:()=>startGuard(opts.policy,{signal:opts.signal,runDir:opts.runDir,ledgerFile:opts.ledgerFile,logFile:opts.logFile,securityApprovalFile:opts.securityApprovalFile,readbackOracle:opts.readbackOracle,expectedLedgerIdentity:opts.expectedLedgerIdentity,reserveTake:opts.reserveTake,caseRequestAllowance:opts.caseRequestAllowance,onAllowanceExhausted:opts.onAllowanceExhausted,onFatal:opts.onFatal}),
++    createGuard:()=>startGuard(opts.policy,{signal:opts.signal,runDir:opts.runDir,ledgerFile:opts.ledgerFile,logFile:opts.logFile,securityApprovalFile:opts.securityApprovalFile,readbackOracle:opts.readbackOracle,expectedLedgerIdentity:opts.expectedLedgerIdentity,reserveTake:opts.reserveTake,reserveCoaching:opts.reserveCoaching,caseRequestAllowance:opts.caseRequestAllowance,onAllowanceExhausted:opts.onAllowanceExhausted,onFatal:opts.onFatal}),
+     createBrowser:async(guard,media)=>{
+       if(media)guard.log({kind:'media',sha256:media.sha256});
+       return chromium.launch({env:childEnvironment({node:process.execPath,bundleRoot:path.resolve(__dirname,'..'),approvalFile:path.resolve(opts.securityApprovalFile),port:guard.port,spki:guard.spki}),executablePath:b.wrapperPath,chromiumSandbox:true,
+@@ -136,4 +136,15 @@ async function sandboxReport(context) {
+   } finally { await p.close(); }
+ }
+
+-module.exports = { launchGuarded, browserFlags, inspectDescendants, checkSandboxedProcesses, sandboxReport, FORBIDDEN_FLAGS };
++// Observe the browser close promise, not just the end of a bounded wait. A late
++// success (or rejection) cannot change a timed-out observation into a clean one.
++async function observeBrowserClose(browser, timeoutMs = 10000) {
++  let timer;
++  const completion = Promise.resolve().then(() => browser.close()).then(
++    () => 'CLOSED', () => 'BROWSER_CLOSE_FAILED');
++  const deadline = new Promise(resolve => { timer = setTimeout(() => resolve('BROWSER_CLOSE_TIMEOUT'), timeoutMs); });
++  try { return await Promise.race([completion, deadline]); }
++  finally { clearTimeout(timer); }
++}
++
++module.exports = { observeBrowserClose, launchGuarded, browserFlags, inspectDescendants, checkSandboxedProcesses, sandboxReport, FORBIDDEN_FLAGS };
+diff --git a/tools/cloud-test/harness/bundle/harness/reviewed-oracle-loader.cjs b/tools/cloud-test/harness/bundle/harness/reviewed-oracle-loader.cjs
+index e25cff925..0d6054f9d 100644
+--- a/tools/cloud-test/harness/bundle/harness/reviewed-oracle-loader.cjs
++++ b/tools/cloud-test/harness/bundle/harness/reviewed-oracle-loader.cjs
+@@ -13,6 +13,7 @@ const nonempty = s => typeof s === 'string' && s.trim().length > 0 && s.length <
+ const loadedOracles = new WeakSet();
+ const sessionFactories = new WeakSet();
+ function isReviewedSessionOracleFactory(value) { return !!value && typeof value==='object' && sessionFactories.has(value); }
++const GUARDED_SIGNUP_OWNER='guarded-signup-unbound';
+ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+ function sessionReadbackBinding(contract,{host,ownerId,sessionId,sourceSha}) {
+   if(!contract||contract.version!==1||contract.kind!=='own-session-v1'||contract.pathname!=='/rest/v1/sessions'||contract.host!==host||contract.sourceSha!==sourceSha||!UUID.test(ownerId||'')||!isCanonicalSessionUuid(sessionId)||!Array.isArray(contract.columns)||!contract.columns.length||contract.columns.some(c=>!/^[_a-z]+$/.test(c))||new Set(contract.columns).size!==contract.columns.length) throw new Error('source-reviewed exact own-session contract required');
+@@ -128,19 +129,32 @@ function loadReviewedOracle(options) {
+   }
+   if(options.readbackBinding)return makeBound(normalizeReadbackBinding(options.readbackBinding));
+   const d=options.dynamicSessionBinding;
+-  if(!d||Object.keys(d).sort().join(',')!=='host,ownerId,sourceSha'||!UUID.test(d.ownerId||'')||!/^[0-9a-f]{40}$/.test(d.sourceSha||''))throw new Error('dynamic readback source/owner configuration invalid');
++  // #1884 (Sam, 17 Nov, option a): the explicit guarded-signup mode starts with NO owner. bindOwner binds it exactly once (the guard calls it
++  // only after the page session matched the owner the parent confirmed); until then bindSession refuses. Pre-provisioned runs are unchanged.
++  const guarded=d?.ownerId===GUARDED_SIGNUP_OWNER;
++  if(!d||Object.keys(d).sort().join(',')!=='host,ownerId,sourceSha'||(!guarded&&!UUID.test(d.ownerId||''))||!/^[0-9a-f]{40}$/.test(d.sourceSha||''))throw new Error('dynamic readback source/owner configuration invalid');
+   const contractDescriptor=Object.getOwnPropertyDescriptor(module,'readbackContract');
+   if(!contractDescriptor||!Object.hasOwn(contractDescriptor,'value'))throw new Error('reviewed oracle must export source-derived readbackContract');
+   const contract=immutableJsonCopy(contractDescriptor.value), configured=immutableJsonCopy(d);
+-  sessionReadbackBinding(contract,{...configured,sessionId:configured.ownerId});
++  let owner=guarded?null:configured.ownerId;const UNBOUND_PROBE='00000000-0000-4000-8000-000000000000';
++  sessionReadbackBinding(contract,{...configured,ownerId:owner??UNBOUND_PROBE,sessionId:owner??UNBOUND_PROBE});
+   const baselineValidator=Object.getOwnPropertyDescriptor(module,'validateBaseline');
+   if(!baselineValidator||typeof baselineValidator.value!=='function')throw new Error('reviewed oracle must validate the pre-Stop baseline');
+   let bound=false;
+-  const factory=Object.freeze({sha256:verified.stepSha256,sourceId,scope:'trusted-reviewed-node-not-sandbox',sourceSha:configured.sourceSha,host:configured.host,accountSubjectSha256:hash(configured.ownerId),
++  const factory=Object.freeze({sha256:verified.stepSha256,sourceId,scope:'trusted-reviewed-node-not-sandbox',sourceSha:configured.sourceSha,host:configured.host,
++    get accountSubjectSha256(){return owner===null?null:hash(owner);},
++    get ownerBound(){return owner!==null;},
++    bindOwner(ownerId) {
++      if(!guarded)throw new Error('the reviewed owner is fixed by configuration; no runtime owner binding');
++      if(owner!==null)throw new Error('the guarded-signup owner is already bound; no rebind');
++      if(typeof ownerId!=='string'||!UUID.test(ownerId))throw new Error('the guarded-signup owner must be an exact account UUID');
++      owner=ownerId;return hash(owner);
++    },
+     bindSession(input) {
++      if(owner===null)throw new Error('the guarded-signup owner is unbound; save readback refuses');
+       if(bound)throw new Error('reviewed session readback already bound; cannot retarget');
+-      if(!input||Object.keys(input).sort().join(',')!=='baselineRow,ownerId,sessionId,sourceSha'||input.ownerId!==configured.ownerId||input.sourceSha!==configured.sourceSha)throw new Error('dynamic readback owner/source mismatch or override');
+-      const requestBinding=sessionReadbackBinding(contract,{...configured,sessionId:input.sessionId});
++      if(!input||Object.keys(input).sort().join(',')!=='baselineRow,ownerId,sessionId,sourceSha'||input.ownerId!==owner||input.sourceSha!==configured.sourceSha)throw new Error('dynamic readback owner/source mismatch or override');
++      const requestBinding=sessionReadbackBinding(contract,{...configured,ownerId:owner,sessionId:input.sessionId});
+       const beforeRow=immutableJsonCopy(input.baselineRow);baselineValidator.value(beforeRow,input.ownerId,input.sessionId);
+       const loaded=makeBound(requestBinding,immutableJsonCopy({ownerId:input.ownerId,sessionId:input.sessionId,beforeRow}));
+       bound=true;return loaded;
+@@ -149,4 +163,4 @@ function loadReviewedOracle(options) {
+   sessionFactories.add(factory);return factory;
+ }
+
+-module.exports = { loadReviewedOracle, normalizeReadbackBinding, readbackRequestHash, isReviewedOracle, isReviewedSessionOracleFactory, sessionReadbackBinding };
++module.exports = { GUARDED_SIGNUP_OWNER, loadReviewedOracle, normalizeReadbackBinding, readbackRequestHash, isReviewedOracle, isReviewedSessionOracleFactory, sessionReadbackBinding };
+diff --git a/tools/cloud-test/harness/bundle/harness/run-guarded.cjs b/tools/cloud-test/harness/bundle/harness/run-guarded.cjs
+index 08b2e2e4e..ee52446b7 100644
+--- a/tools/cloud-test/harness/bundle/harness/run-guarded.cjs
++++ b/tools/cloud-test/harness/bundle/harness/run-guarded.cjs
+@@ -21,7 +21,7 @@ const { requireRuntimeQualification } = require('./runtime-admission.cjs');
+ const { loadReviewedOracle } = require('./reviewed-oracle-loader.cjs');
+ const { verifyReviewedStep } = require('./reviewed-step.cjs');
+ const path = require('path');
+-const { launchGuarded, inspectDescendants, checkSandboxedProcesses, sandboxReport } = require('./launch.cjs');
++const { observeBrowserClose, launchGuarded, inspectDescendants, checkSandboxedProcesses, sandboxReport } = require('./launch.cjs');
+
+ const a = {}; const argv = process.argv.slice(2);
+ for (let i = 0; i < argv.length; i += 2) a[argv[i].replace(/^--/, '')] = argv[i + 1];
+@@ -40,7 +40,7 @@ const producerAbort=new AbortController();
+ const launchAbort=new AbortController();
+ let pendingLaunch=null;
+ let authenticationRejected=false,actionBudget=null;
+-let h = null; let stopping = null; let caseRecorder=null; let caseConfig=null;
++let h = null; let stopping = null; let caseRecorder=null; let caseConfig=null; let j4aNightly=null;
+
+ function stepLog(msg) { fs.appendFileSync(path.join(runDir, 'step.log'), new Date().toISOString() + ' ' + msg + '\n'); }
+
+@@ -58,8 +58,8 @@ async function stop(reason, code) {
+       if(pendingLaunch){try{h=await pendingLaunch;}catch(e){if(e?.cleanupErrors?.length){res.launchCleanupFailure=true;res.exitCode=3;}}}
+       if (h) {
+         h.guard.cancelAll(reason); // cancel at the boundary first, so in-flight work is recorded as cancelled
+-        const cl = h.browser.close().catch((e) => { res.browserCloseError = 'BROWSER_CLOSE_FAILED'; });
+-        await Promise.race([cl, new Promise((r) => setTimeout(r, 10000))]);
++        const browserClose = await observeBrowserClose(h.browser);
++        if (browserClose !== 'CLOSED') { res.browserCloseError = browserClose; res.exitCode = 3; }
+         try { res.guard = await h.guard.close(reason); } finally { h.cleanupMedia(); }
+       }
+     } catch (e) { res.stopError = 'OWNED_CLEANUP_FAILED';res.exitCode=3; }
+@@ -97,16 +97,21 @@ setTimeout(() => stop('deadline', 4), hardMs).unref();
+ (async () => {
+   try {
+     if(a['case-config']) {const bytes=fs.readFileSync(a['case-config']);if(crypto.createHash('sha256').update(bytes).digest('hex')!==a['case-config-sha256'])throw new Error('NOT_RUN: case config hash unbound or changed');caseConfig=validateCaseConfig(JSON.parse(bytes));if(caseConfig.campaignId!==a['campaign-id'])throw new Error('NOT_RUN: case campaign identity differs from admitted campaign');caseRecorder=createCaseRecorder(caseConfig,runDir,{interrupted:()=>h?.guard?.ledger?.caseAllowanceState?.()?.exhausted===true});}
++    // #1884 J4.a: bind this child's own validated identity to the parent over IPC BEFORE any browser launch. Any refusal
++    // (no IPC, wrong case, changed/mismatched runtime-start receipt, rejected or replayed offer, disconnect) stops here with
++    // exit 78 and no launch; there is no unbound fall-through.
++    if(a['j4a-binding']!==undefined){try{const {bindSupervisedChild}=require('../../../nightly/j4a-supervised-channel.cjs');j4aNightly=await bindSupervisedChild(a,caseConfig,{port:process});stepLog('j4a binding accepted');}catch(e){stepLog('j4a binding refused: '+String(e?.code||e?.message||'unclassified').replace(/[^A-Za-z0-9_.:-]/g,'').slice(0,64));await stop('binding-refused',78);return;}}
+     verifyReviewedStep({manifestFile:a['step-manifest'],expectedManifestSha256:a['step-manifest-sha256'],stepRoot:a['step-root'],stepFile:a.script});
+     const readbackOracle = a['oracle-config'] ? loadReviewedOracle(JSON.parse(fs.readFileSync(a['oracle-config'],'utf8'))) : null;
+     const producerReceiver=a['producer-receiver']?loadReviewedProducerReceiver({manifestFile:a['step-manifest'],expectedManifestSha256:a['step-manifest-sha256'],stepRoot:a['step-root'],receiverFile:a['producer-receiver']}):null;
+     const step = require(path.resolve(a.script));
+     if(caseConfig){if(typeof step.preflight!=='function')throw new Error('NOT_RUN: driver pure preflight unavailable');await step.preflight(caseConfig);actionBudget=new ActionBudget({runDir,caseId:caseConfig.caseId,startPressCap:caseConfig.startPressCap,takeCap:caseConfig.takeCap});}
+-    const credentials=caseConfig?credentialBinding(caseConfig):null;
++    // #1884: the nightly-guarded J4.a account is signed up inside its guarded create and deleted by the parent; no credential pair is bound.
++    const credentials=caseConfig&&!(j4aNightly&&caseConfig.account?.mode==='nightly-guarded-signup')?credentialBinding(caseConfig):null;
+     if(caseConfig?.privateEvidenceProducers&&!producerReceiver)throw new Error('NOT_RUN: existing authenticated producer receiving capability unavailable before browser launch');
+     const readPrivateEvidence=producerReceiver?createProducerEvidenceReader({caseConfig,notBefore:new Date(startedAt).toISOString(),receiver:producerReceiver,writeEvidence:caseRecorder?.writeEvidence,privateEvidenceDir:path.join(runDir,'private-producer'),signal:producerAbort.signal}):createPrivateEvidenceReader({caseConfig,campaignId:a['campaign-id'],notBefore:new Date(startedAt).toISOString()});
+     if(stopping||launchAbort.signal.aborted)return;
+-    pendingLaunch = launchGuarded({signal:launchAbort.signal,downloadPrefixObservation:caseConfig?.caseId==='AHT-14',onFatal:()=>{void stop('guard-fatal',3);},onAllowanceExhausted:()=>{void stop('allowance-exhausted',6);},expectedLedgerIdentity:dispatchAdmission?.expectedLedgerIdentity,reserveTake:actionBudget?()=>actionBudget.reserveTake():null,readbackOracle, browserJson: a.browser, policy, runDir, ledgerFile: a.ledger, caseRequestAllowance: a['case-request-allowance']!==undefined?Number(a['case-request-allowance']):undefined, logFile: path.join(runDir, 'guard.jsonl'), securityApprovalFile: a['security-approval'], privateMediaParent: a['private-media-parent'], media: a['media-file'] ? { file: a['media-file'], sha256: a['media-sha256'] } : null });
++    pendingLaunch = launchGuarded({signal:launchAbort.signal,downloadPrefixObservation:caseConfig?.caseId==='AHT-14',onFatal:()=>{void stop('guard-fatal',3);},onAllowanceExhausted:()=>{void stop('allowance-exhausted',6);},expectedLedgerIdentity:dispatchAdmission?.expectedLedgerIdentity,reserveTake:actionBudget?()=>actionBudget.reserveTake():null,reserveCoaching:j4aNightly?()=>require('../../../nightly/j4a-guarded-step.cjs').reserveCoaching(j4aNightly):undefined,readbackOracle, browserJson: a.browser, policy, runDir, ledgerFile: a.ledger, caseRequestAllowance: a['case-request-allowance']!==undefined?Number(a['case-request-allowance']):undefined, logFile: path.join(runDir, 'guard.jsonl'), securityApprovalFile: a['security-approval'], privateMediaParent: a['private-media-parent'], media: a['media-file'] ? { file: a['media-file'], sha256: a['media-sha256'] } : null });
+     h=await pendingLaunch; if(stopping)return;
+     if (a.faults) for (const f of JSON.parse(fs.readFileSync(a.faults, 'utf8'))) h.guard.armFault(f);
+     const sb = await sandboxReport(h.context);
+@@ -117,7 +122,7 @@ setTimeout(() => stop('deadline', 4), hardMs).unref();
+     verifyReviewedStep({manifestFile:a['step-manifest'],expectedManifestSha256:a['step-manifest-sha256'],stepRoot:a['step-root'],stepFile:a.script});
+     let oracles=Object.freeze({});
+     if(a['case-oracles']) {verifyReviewedStep({manifestFile:a['step-manifest'],expectedManifestSha256:a['step-manifest-sha256'],stepRoot:a['step-root'],stepFile:a['case-oracles']}); const factory=require(path.resolve(a['case-oracles']));if(typeof factory.createOracles!=='function')throw new Error('NOT_RUN: oracle factory unavailable');oracles=await factory.createOracles({context:h.context,guard:h.guard,caseConfig,writeEvidence:caseRecorder?.writeEvidence,readPrivateEvidence,pdfTextExtractor:createPdfTextExtractor(runDir)});}
+-    const capabilities=Object.freeze({recordStartPress:actionBudget?input=>actionBudget.reserveStart(input):undefined,credentials,oracles,recordAssertion:caseRecorder?.recordAssertion,writeEvidence:caseRecorder?.writeEvidence});
++    const capabilities=Object.freeze({recordStartPress:actionBudget?input=>actionBudget.reserveStart(input):undefined,credentials,oracles,recordAssertion:caseRecorder?.recordAssertion,writeEvidence:caseRecorder?.writeEvidence,...(j4aNightly?{nightly:j4aNightly}:{})});
+     const returned=await step({ context: h.context, browser: h.browser, guard: h.guard, log: stepLog, runDir,caseConfig,capabilities });
+     authenticationRejected=returned?.executionSignals?.authenticationRejected===true;
+     if(caseRecorder) caseRecorder.finish(returned);
+diff --git a/tools/cloud-test/harness/draft-adapters/browser-actions.cjs b/tools/cloud-test/harness/draft-adapters/browser-actions.cjs
+index 36b9012f4..02fb19576 100644
+--- a/tools/cloud-test/harness/draft-adapters/browser-actions.cjs
++++ b/tools/cloud-test/harness/draft-adapters/browser-actions.cjs
+@@ -9,7 +9,9 @@ async function pressStart(page,control,options={timeout:15000}){if(!START_CONTRO
+   const loc=page.getByTestId(control),limit=Date.now()+(options.timeout||15000);let ready=typeof loc.first!=='function'||typeof page.waitForTimeout!=='function';
+   while(!ready&&Date.now()<limit){try{if(await loc.first().isVisible()&&await loc.first().isEnabled()){ready=true;break;}}catch{/* page transitioning */}await page.waitForTimeout(100).catch(()=>{});}
+   if(!ready)throw Object.assign(new Error('Start control '+control+' not visible and enabled before press'),{code:'START_CONTROL_NOT_READY'});
+-  await startRecorders.get(page)(control);await loc.click({timeout:5000});}
++  // #1884 J4.a: a recorder marked wrapsClick runs the click INSIDE its reservation (the click is the guarded send); otherwise unchanged.
++  const recorder=startRecorders.get(page);if(recorder.wrapsClick===true){await recorder(control,()=>loc.click({timeout:5000}));return;}
++  await recorder(control);await loc.click({timeout:5000});}
+ const pageStages=new WeakMap(),failedStages=new WeakMap(),pageTrails=new WeakMap();
+ // Ordered, closed navigation/sign-in breadcrumbs (Sam 1794154809 / 1794156291): event, route, response status class, allowlisted net error and
+ // ms since the page's first event. No URL, header, body, credential or free text. At most TRAIL_MAX entries per page (the newest are kept).
+@@ -221,4 +223,17 @@ function safeErrorSummary(error){try{const msg=String(error&&error.message||'');
+   const ids=[];for(const m of msg.matchAll(/getByTestId\('([a-z][a-z0-9-]{1,40})'\)/g)){const id=m[1];if(!/\d{6,}/.test(id)&&!ids.includes(id)&&ids.length<5)ids.push(id);}
+   const nm=/net::(ERR_[A-Z_]{1,48})/.exec(msg);const netError=nm?(NET_ERRORS.has(nm[1])?nm[1]:'other'):null;
+   return {name,code,api:api&&/^[A-Za-z]{2,24}\.[A-Za-z]{2,24}$/.test(api)?api:null,kind,timeoutMs:t?Math.min(Number(t[1]),3600000):null,testIds:ids,netError};}catch{return {name:'Error',code:null,api:null,kind:'other',timeoutMs:null,testIds:[],netError:null};}}
+-module.exports={stopReason,guardDenyCode,NET_ERRORS,TRAIL_EVENTS,TRAIL_ROUTES,navigationTrail,trackedGoto,productsSnapshot,productsDiagnostic,KNOWN_UI_COPY,uiCopyIds,safeErrorSummary,currentStage,failurePage,failureStage,controlTrace,installControlTrace,bindStartPressRecorder,pressStart,submitLogin:auth.submit,visible,attr,login,products,privateMode,openMic,primary,recording,start,stop,saved,speak,take,repeat,setupFocus,closeFocus,reopen,fingerprint,sessionCleared,signout};
++// #1884 J4.a (nightly only): the disposable signup the guarded create runs ONCE, inside its reservation (j4a-guarded-step.cjs).
++// Fills the product's own signup form with the exact reserved email and a random password that never leaves this call and is never
++// logged (the parent deletes the account; it is never signed into again). Resolves { uid } once the page holds that account's
++// session, or { uid: null } when no session appeared (the create stays unanswered: never retried).
++async function signUpDisposable(page,c,email){
++  await trackedGoto(page,c.targetUrl+'/auth/signup','route-signin',{waitUntil:'domcontentloaded',timeout:45000});
++  await visible(page,'auth-form');
++  const password='Rwt-'+require('node:crypto').randomBytes(18).toString('base64url')+'-9a!';
++  await page.getByTestId('email-input').fill(email);await page.getByTestId('password-input').fill(password);
++  await page.getByTestId('sign-up-submit').click({timeout:15000});
++  const uid=await page.waitForFunction(()=>{for(const k of Object.keys(localStorage)){if(!/sb-.*-auth-token/.test(k))continue;try{const p=JSON.parse(localStorage.getItem(k)||'');const id=p?.user?.id??p?.currentSession?.user?.id;if(id)return id;}catch{/* not a session */}}return null;},null,{timeout:60000}).then(h=>h.jsonValue(),()=>null);
++  return {uid:typeof uid==='string'&&uid?uid:null};
++}
++module.exports={signUpDisposable,stopReason,guardDenyCode,NET_ERRORS,TRAIL_EVENTS,TRAIL_ROUTES,navigationTrail,trackedGoto,productsSnapshot,productsDiagnostic,KNOWN_UI_COPY,uiCopyIds,safeErrorSummary,currentStage,failurePage,failureStage,controlTrace,installControlTrace,bindStartPressRecorder,pressStart,submitLogin:auth.submit,visible,attr,login,products,privateMode,openMic,primary,recording,start,stop,saved,speak,take,repeat,setupFocus,closeFocus,reopen,fingerprint,sessionCleared,signout};
+diff --git a/tools/cloud-test/harness/draft-adapters/save-fault-binding.cjs b/tools/cloud-test/harness/draft-adapters/save-fault-binding.cjs
+index d6bd099a5..bd1533725 100644
+--- a/tools/cloud-test/harness/draft-adapters/save-fault-binding.cjs
++++ b/tools/cloud-test/harness/draft-adapters/save-fault-binding.cjs
+@@ -15,13 +15,16 @@ function requireThat(value,message){if(!value)unavailable(message);}
+ function preflight(caseId,c,guard,configurationOnly=false){
+   requireThat(['AHT-05','AHT-06'].includes(caseId),'save fault case unsupported');
+   requireThat(c?.sourceSha===readbackContract.sourceSha&&c.servedSha===readbackContract.sourceSha,'save fault source/served release differs from inspected main70e');
+-  const b=validateReadback(c);requireThat(new URL(b.origin).host===readbackContract.host,'save fault backend differs from source-reviewed target');
++  // #1884 (Sam, option a): an explicit guarded signup starts UNBOUND (no account id; the guard's owner null). Everything else is checked now;
++  // the owner equality is enforced once the guard binds the parent-confirmed owner. Pre-provisioned runs are unchanged.
++  const guardedUnbound=c?.account?.mode==='nightly-guarded-signup'&&c.account.id===undefined;
++  const b=validateReadback(guardedUnbound?{...c,account:{...c.account,id:'00000000-0000-4000-8000-000000000000'}}:c);requireThat(new URL(b.origin).host===readbackContract.host,'save fault backend differs from source-reviewed target');
+   // Body/digest intentionally do not exist yet: they are captured once from this own new session.
+   if(c.faultBinding)requireThat(c.faultBinding.operationIdentityMode==='bound-session-capture-payload'&&!c.faultBinding.requestBodySha256&&!c.faultBinding.operationDigest,'precomputed or endpoint-only save fault binding refused');
+   if(!configurationOnly){
+     for(const name of ['saveReadbackConfiguration','bindSaveReadback','capturedSaveOperation','markCompletionRetry','completionAttemptSummary','armFault','summary'])requireThat(typeof guard?.[name]==='function','dynamic completion guard capability missing');
+     const configured=guard.saveReadbackConfiguration();
+-    requireThat(configured.sourceSha===c.sourceSha&&configured.host===readbackContract.host&&configured.accountSubjectSha256===sha(c.account.id),'reviewed dynamic oracle source/owner/backend mismatch');
++    requireThat(configured.sourceSha===c.sourceSha&&configured.host===readbackContract.host&&(guardedUnbound?configured.accountSubjectSha256===null:configured.accountSubjectSha256===sha(c.account.id)),'reviewed dynamic oracle source/owner/backend mismatch');
+   }
+   return true;
+ }
+diff --git a/tools/cloud-test/harness/draft-adapters/source-adapters.cjs b/tools/cloud-test/harness/draft-adapters/source-adapters.cjs
+index 210281a0c..b04c2122c 100644
+--- a/tools/cloud-test/harness/draft-adapters/source-adapters.cjs
++++ b/tools/cloud-test/harness/draft-adapters/source-adapters.cjs
+@@ -22,6 +22,7 @@ const finiteDenominator=require('./finite-aht-denominator.json');
+ const smokeTiming=require('./oracles/pure/smokeTiming.cjs');
+ const SOURCE_SHA='5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2';
+ const SHA=/^[0-9a-f]{64}$/;
++const J4A_GUARDED_MODE='nightly-guarded-signup';
+ const CONTRACTS={
+  'AHT-01':{rows:['fresh-first-session','saved-once','grounded-coaching','review-reopen','pdf-owner-take','same-target-repeat'],oracles:['coaching','pdfOwnerTake','sameTarget'],takes:2},
+  'AHT-02':{rows:['focus-final','focus-live-durable','saved-once','grounded-coaching','review-reopen','same-target-repeat','focus-edit-cancel-save','focus-new-set','open-mic-isolation','focus-back-reload'],oracles:['focusEvidence','coaching','sameTarget','focusControlBinding'],takes:4},
+@@ -174,10 +175,14 @@ function preflight(caseId,c,cap,guard,configurationOnly=false){
+  let url;try{url=new URL(c.targetUrl);}catch{notRun('target URL missing');}
+  requireThat(url.protocol==='https:'&&url.origin===c.targetUrl,'target must be exact approved HTTPS origin');
+  requireThat(Array.isArray(c.requiredAssertions)&&JSON.stringify([...c.requiredAssertions].sort())===JSON.stringify([...contract.rows].sort()),'required assertion denominator differs from source adapter');
+- if(!configurationOnly){requireThat(typeof cap?.writeEvidence==='function'&&typeof cap.recordAssertion==='function','evidence sink missing');requireThat(typeof cap.credentials?.email==='string'&&typeof cap.credentials?.password==='string'&&cap.credentials.email&&cap.credentials.password,'approved credential pair missing');}
+- readback.validateReadback(c);
+- requireThat(c.account.mode===(caseId==='AHT-15'?'maintained-read-only':'existing-disposable'),'wrong account role');
+- for(const name of ['preprovisionReceipt','analyticsExclusionReceipt','dispositionReceipt'])requireThat(safeRef(c.account[name]),'account '+name+' missing');
++ if(!configurationOnly){requireThat(typeof cap?.writeEvidence==='function'&&typeof cap.recordAssertion==='function','evidence sink missing');if(c?.account?.mode===J4A_GUARDED_MODE)requireThat(['send','createAccount'].every(k=>typeof cap.nightly?.[k]==='function')&&typeof cap.nightly.identity?.runId==='string','bound J4.a nightly capability missing before any page');else requireThat(typeof cap.credentials?.email==='string'&&typeof cap.credentials?.password==='string'&&cap.credentials.email&&cap.credentials.password,'approved credential pair missing');}
++ // #1884: a guarded J4.a signup has no account id before it signs up; everything else in the readback binding is validated now and the
++ // signed-up account's own id is bound right after the guarded create (the readback re-checks it against the page's own session).
++ if(c?.account?.mode===J4A_GUARDED_MODE){requireThat(c.account.id===undefined,'a guarded signup must not carry a pre-bound account id');readback.validateReadback({...c,account:{...c.account,id:'00000000-0000-4000-8000-000000000000'}});}else readback.validateReadback(c);
++ // #1884: J4.a (AHT-05) only may sign up its own run-owned account through the bound nightly capability; the parent deletes it.
++ if(c?.account?.mode===J4A_GUARDED_MODE)requireThat(caseId==='AHT-05'&&/^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/.test(c.account.emailDomain||''),'nightly guarded signup is J4.a only, under a fixed test domain');
++ else{requireThat(c.account.mode===(caseId==='AHT-15'?'maintained-read-only':'existing-disposable'),'wrong account role');
++ for(const name of ['preprovisionReceipt','analyticsExclusionReceipt','dispositionReceipt'])requireThat(safeRef(c.account[name]),'account '+name+' missing');}
+  requireThat(c.account.effectiveFeatureAccessApproved===true,'effective feature access unverified; Free label is not a verdict');
+  requireThat(c.observerSourceReviewed===true&&safeRef(c.observerQualificationReceipt),'passive browser observer source/runtime qualification missing');
+  requireThat(c.sampleMode===undefined||['full','breadth','minimal','smoke'].includes(c.sampleMode),'unknown sample mode');requireThat(c.sampleMode!=='breadth'||BREADTH_NEEDS[caseId],'breadth sample is not defined for this case; it runs in full');const need=needs(caseId,c);requireThat(Number.isInteger(c.takeCap)&&c.takeCap>=need.takes,'approved take cap insufficient');
+@@ -239,8 +244,8 @@ function installCoachingResponseHandler(page,coachingByRequest,{deadlineMs=3000}
+  return {dispose(){page.off?.('response',response);page.off?.('requestfailed',failed);}};
+ }
+ async function run(caseId,args){
+- const {context,browser,guard,caseConfig:c,capabilities:cap}=args;
+- const contract=preflight(caseId,c,cap,guard);const smoke=c.sampleMode==='smoke';const minimal=['minimal','smoke'].includes(c.sampleMode);const breadth=(c.sampleMode==='breadth'||minimal)&&['AHT-02','AHT-03'].includes(caseId);const assertions=[];let evidenceIndex=0,current='owner-bound',page=null,blocker=null,interruptionDiag=null;let cloudCount=0,sessionWriteRequests=0,startPresses=0;const coachingAttempts=[],coachingByRequest=new WeakMap();let lastPressAcquisitions=null;const executionSignals={authenticationRejected:false,startPressCapExceeded:false};
++ const {context,browser,guard,capabilities:cap}=args;let c=args.caseConfig;
++ const contract=preflight(caseId,c,cap,guard);let j4aOwnerBound=false;const j4aRoutes=c.account?.mode===J4A_GUARDED_MODE?require('../../nightly/j4a-guarded-step.cjs').j4aGuardedRoutes(cap.nightly,{identity:cap.nightly.identity,domain:c.account.emailDomain,configuredDomain:process.env.LIVE_TEST_EMAIL_DOMAIN,factory:(p,email)=>ui.signUpDisposable(p,c,email)}):null;const smoke=c.sampleMode==='smoke';const minimal=['minimal','smoke'].includes(c.sampleMode);const breadth=(c.sampleMode==='breadth'||minimal)&&['AHT-02','AHT-03'].includes(caseId);const assertions=[];let evidenceIndex=0,current='owner-bound',page=null,blocker=null,interruptionDiag=null;let cloudCount=0,sessionWriteRequests=0,startPresses=0;const coachingAttempts=[],coachingByRequest=new WeakMap();let lastPressAcquisitions=null;const executionSignals={authenticationRejected:false,startPressCapExceeded:false};
+  const pages=[],contexts=[];const coachingTakeIds={first:null,second:null};let baseline=null,firstObservationRef=null,baselineIds=null,coachingCaptureController=null,coachingCapturePromise=null,focusPresentationWindow=null,interruptionRef=null,coachingCaptureFailure=null,pcmDiagnosticRefs=[],smokeRail=null;
+  async function assertion(id,result,facts={},externalRefs=[]){
+    // Evidence is booleans/counts/closed statuses only; never pass raw DOM, IDs, errors, URLs, or text here.
+@@ -279,14 +284,26 @@ async function run(caseId,args){
+  async function liveDiagnostics(observed){try{const f=fixtureManifest.fixtures[c.fixture?.name];const windows=f?.pointAudioWindows;if(!f||!Array.isArray(windows))return [];const timing=await observer.audioTiming(page);const ref=fixtureActivity.fixtures[c.fixture?.name],reference=ref&&ref.wavSha256===c.fixture?.sha256?ref.bits:undefined;const at=audioTiming.analyze({timing,windows,loopSec:f.speechSeconds+f.trailingSilenceSeconds,reference});const rp=focusOracle.recognitionProgress(observed,windows);const rec=timing?.states?.find(s=>s[1]==='r'&&s[2]==='RECORDING');const aligned=audioTiming.alignRecognition({recognition:rp.facts,audio:at.facts,observerStartMs:observed?.perfT0,recordingMs:rec?rec[0]:null,windows});const refs=[];refs.push(await cap.writeEvidence(caseId.toLowerCase()+'-audio-timing.json',{contentSafe:true,caseId,kind:'audio-timing-diagnostic',...at.facts}));refs.push(await cap.writeEvidence(caseId.toLowerCase()+'-focus-recognition.json',{contentSafe:true,caseId,kind:'focus-recognition-diagnostic',...rp.facts,...aligned}));return refs.filter(safeRef);}catch{return [];}}
+  async function pcmDiagnostics(baseline){try{const diagnostic=await observer.pcmBoundaries(page,baseline);if(!diagnostic)return [];const ref=await cap.writeEvidence(caseId.toLowerCase()+'-pcm-boundaries.json',{contentSafe:true,caseId,kind:'pcm-boundary-diagnostic',...diagnostic});return safeRef(ref)?[ref]:[];}catch{return [];}}
+  async function objectivePublicationDiagnostics(baseline,sessionId,expectedStatuses,domStatuses){try{const diagnostic=await observer.objectivePublication(page,baseline,sessionId,expectedStatuses,domStatuses);if(!diagnostic)return{validated:false,refs:[]};const ref=await cap.writeEvidence(caseId.toLowerCase()+'-objective-publication.json',{contentSafe:true,caseId,kind:'objective-publication-diagnostic',...diagnostic});return{validated:diagnostic.validated===true,refs:safeRef(ref)?[ref]:[]};}catch{return{validated:false,refs:[]};}}
+- async function newPage(ctx=context){const p=await ctx.newPage();pages.push(p);ui.bindStartPressRecorder(p,async control=>{requireThat(typeof cap.recordStartPress==='function','per-Start press journal missing');try{const m=await observer.mic(p);if(m&&Number.isInteger(m.acquisitions))lastPressAcquisitions=m.acquisitions;}catch{/* observer not installed yet */}await cap.recordStartPress({caseId,control});startPresses++;});await observer.install(p,{pcmBoundaries:['AHT-02','AHT-03'].includes(caseId),objectivePublications:['AHT-02','AHT-03'].includes(caseId)});p.on('request',r=>{if(/assemblyai/i.test(r.url()))cloudCount++;if(r.method()==='POST'&&/\/rest\/v1\/rpc\/(create_session_and_update_usage|complete_session_v2)(?:[?]|$)/.test(r.url()))sessionWriteRequests++;});p.on('websocket',w=>{if(/assemblyai/i.test(w.url()))cloudCount++;});const isCoaching=q=>{try{return q.method()==='POST'&&/\/functions\/v1\/get-ai-suggestions(?:[?]|$)/.test(q.url());}catch{return false;}};p.on('request',q=>{if(!isCoaching(q))return;let body=null;try{body=q.postDataJSON();}catch{body=null;}const a=coachingPolicy.newAttempt(coachingAttempts.length+1,body);a.startedAt=Date.now();coachingAttempts.push(a);coachingByRequest.set(q,a);});installCoachingResponseHandler(p,coachingByRequest);return p;}
++ async function newPage(ctx=context){const p=await ctx.newPage();pages.push(p);const beforePress=async()=>{requireThat(typeof cap.recordStartPress==='function','per-Start press journal missing');try{const m=await observer.mic(p);if(m&&Number.isInteger(m.acquisitions))lastPressAcquisitions=m.acquisitions;}catch{/* observer not installed yet */}};
++  // #1884 J4.a: under the bound nightly capability the click itself runs inside the starts grant (wrapsClick); otherwise unchanged.
++  ui.bindStartPressRecorder(p,j4aRoutes?Object.assign(async(control,click)=>{if(!j4aOwnerBound)notRun('guarded owner unbound: Start refuses');await beforePress();await j4aRoutes.pressStart(async()=>{await cap.recordStartPress({caseId,control});startPresses++;await click();});},{wrapsClick:true}):async control=>{await beforePress();await cap.recordStartPress({caseId,control});startPresses++;});await observer.install(p,{pcmBoundaries:['AHT-02','AHT-03'].includes(caseId),objectivePublications:['AHT-02','AHT-03'].includes(caseId)});p.on('request',r=>{if(/assemblyai/i.test(r.url()))cloudCount++;if(r.method()==='POST'&&/\/rest\/v1\/rpc\/(create_session_and_update_usage|complete_session_v2)(?:[?]|$)/.test(r.url()))sessionWriteRequests++;});p.on('websocket',w=>{if(/assemblyai/i.test(w.url()))cloudCount++;});const isCoaching=q=>{try{return q.method()==='POST'&&/\/functions\/v1\/get-ai-suggestions(?:[?]|$)/.test(q.url());}catch{return false;}};p.on('request',q=>{if(!isCoaching(q))return;let body=null;try{body=q.postDataJSON();}catch{body=null;}const a=coachingPolicy.newAttempt(coachingAttempts.length+1,body);a.startedAt=Date.now();coachingAttempts.push(a);coachingByRequest.set(q,a);});installCoachingResponseHandler(p,coachingByRequest);return p;}
+  async function saveReopen(p,id){current='review-reopen';const own=(await rows(p)).find(r=>r.id===id);requireThat(own&&own.transcriptState==='available'&&own.transcriptSha256,'saved transcript readback unavailable for exact reopen comparison');const fingerprints=await ui.reopen(p,c,id);await check('review-reopen',fingerprints.before===own.transcriptSha256&&fingerprints.after===own.transcriptSha256,{reopenedMatchesSaved:fingerprints.before===own.transcriptSha256,reloadedMatchesSaved:fingerprints.after===own.transcriptSha256});}
+  async function rows(p=page){const all=await readback.sessions(p,c);return baselineIds&&caseId!=='AHT-15'?all.filter(r=>!baselineIds.has(r.id)):all;}
+  async function stopAndSave(p,old=null){await ui.speak(p,c);await ui.stop(p);return ui.saved(p,old);}
+  async function noResume(p,id='return-no-resume'){const m=await observer.mic(p);requireThat(m,'microphone observation missing');await check(id,!m.recording&&!m.recorderVisible&&m.liveTracks===0,{liveTracks:m.liveTracks,recording:m.recording});}
+  try{
+   page=await newPage();page.setDefaultTimeout(30000);page.setDefaultNavigationTimeout(45000);
+-  const ownerMatches=await ui.login(page,c,cap.credentials);let leaseFacts={notApplicable:true,reads:0};
++  let ownerMatches;
++  if(j4aRoutes){current='guarded-signup';const su=await j4aRoutes.signUp(page);if(!su.created){blocker=su.unresolved?'guarded-signup-unanswered':'guarded-signup-refused';notRun('guarded signup did not confirm the run-owned account');}current='guarded-owner-bound';
++   // Sam (option a): bind ONCE, only to the owner the PARENT independently confirmed (durable create, reserved email, exact lookup), and only
++   // when this page's own session is that owner. Unconfirmed: HOLD (NOT RUN), never a weaker oracle. Until bound, Start/save fault/readback refuse.
++   const conf=await cap.nightly.confirmOwner();
++   if(!conf?.ok||typeof conf.ownerId!=='string'){blocker='guarded-owner-unconfirmed';notRun('HOLD: the parent could not independently confirm the run-owned account');}
++   requireThat(su.account?.uid===conf.ownerId,'the page session is not the owner the parent confirmed');
++   guard.bindGuardedOwner(conf.ownerId);
++   requireThat(guard.saveReadbackConfiguration().accountSubjectSha256===crypto.createHash('sha256').update(conf.ownerId).digest('hex'),'guard owner binding differs from the confirmed owner');
++   c=Object.freeze({...c,account:Object.freeze({...c.account,id:conf.ownerId})});j4aOwnerBound=true;ownerMatches=true;}
++  else ownerMatches=await ui.login(page,c,cap.credentials);let leaseFacts={notApplicable:true,reads:0};
+   if(!['AHT-08','AHT-15'].includes(caseId)&&c.sampleMode==='smoke'){
+    leaseFacts=await smokeLeaseBoundary(page,c);
+    requireThat(leaseFacts.ready,'pre-case lease boundary is unreadable or live; no expiry inferred and no forced release');
+diff --git a/tools/cloud-test/tests/node/proof/helpers/fake-run.cjs b/tools/cloud-test/tests/node/proof/helpers/fake-run.cjs
+index a7fa37e1c..7dd8d8d95 100644
+--- a/tools/cloud-test/tests/node/proof/helpers/fake-run.cjs
++++ b/tools/cloud-test/tests/node/proof/helpers/fake-run.cjs
+@@ -14,7 +14,7 @@ const SOURCE_ADAPTERS=fs.realpathSync(P+'/draft-adapters/source-adapters.cjs');
+ const cfgOf=id=>({...JSON.parse(fs.readFileSync(PRIV+'/cases/'+id+'.json','utf8')),sourceSha:PIN,servedSha:PIN});
+ const MIN_NEEDS={'AHT-01':[2,2],'AHT-02':[1,1],'AHT-03':[1,1],'AHT-04':[0,1],'AHT-05':[1,1],'AHT-06':[1,1],'AHT-07':[1,1],'AHT-08':[0,0],'AHT-09':[1,1],'AHT-10':[1,1],'AHT-11':[1,3],'AHT-12':[0,1],'AHT-13':[0,1],'AHT-14':[0,1],'AHT-15':[0,0]};
+ const minCfg=id=>({...cfgOf(id),sampleMode:'minimal',takeCap:MIN_NEEDS[id][0],startPressCap:MIN_NEEDS[id][1]});
+-function anyChain(over={}){const c={isVisible:async()=>true,count:async()=>0,innerText:async()=>'Your words are still here. Retry to save.',getAttribute:async()=>'full_save',evaluateAll:async()=>true,waitFor:async()=>{},click:async()=>{},fill:async()=>{},selectOption:async()=>{},first(){return c;},filter(){return c;},or(){return c;},nth(){return c;},...over};return c;}
++function anyChain(over={}){const c={isVisible:async()=>true,isEnabled:async()=>true,count:async()=>0,innerText:async()=>'Your words are still here. Retry to save.',getAttribute:async()=>'full_save',evaluateAll:async()=>true,waitFor:async()=>{},click:async()=>{},fill:async()=>{},selectOption:async()=>{},first(){return c;},filter(){return c;},or(){return c;},nth(){return c;},...over};return c;}
+ function fake(caseId,o={}){
+  let FINAL=()=>[];
+  const real=id=>require(P+'/draft-adapters/'+id);const counts={start:0,primary:0,take:0,repeat:0,pressStart:0,resume:0,retryRun:0,finalize:0,products:0};
+@@ -38,7 +38,7 @@ function fake(caseId,o={}){
+  const c={...minCfg(caseId),...(o.cfg||{})};FINAL=()=>c.focus?.expectedFinal||[];const recorded=[],evidence=[];let n=0;
+  const oracle=r=>async a=>a.phase==='assert'||a.phase==='numeric'?{result:'PASS',contentSafe:true,evidenceRefs:['unit.json'],observed:true,...r}:{observed:true};
+  const oracles={coaching:oracle({}),pdfOwnerTake:oracle({}),sameTarget:oracle({}),feedbackReceived:oracle({}),feedbackAssociation:oracle(o.association||{}),coachingAssociation:oracle({}),focusEvidence:oracle({}),abandonmentLease:oracle({}),takeoverLease:oracle({}),...(o.oracles||{})};
+- const cap={credentials:{email:'a@b.c',password:'x'},writeEvidence:async(name,v)=>{evidence.push({name,v});return 'e'+(++n)+'.json';},recordAssertion:async a=>{recorded.push(a);},recordStartPress:async()=>{},oracles};
++ const cap={credentials:{email:'a@b.c',password:'x'},writeEvidence:async(name,v)=>{evidence.push({name,v});return 'e'+(++n)+'.json';},recordAssertion:async a=>{recorded.push(a);},recordStartPress:async()=>{},oracles,...(o.capabilities||{})};
+  const pagesCreated=[pageA];let first=true;const context={newPage:async()=>{if(first){first=false;return pageA;}const p=mkPage();pagesCreated.push(p);return p;},grantPermissions:async()=>{},clearPermissions:async()=>{}};
+  const guard=o.guard||{armDownloadFault:()=> 'dl1',resumeDownloadNetwork:async()=>{counts.resume++;},summary:()=>({faults:[{id:'f1',fired:true}],downloadFaults:[{id:'dl1',fired:true,bytesForwarded:5,browserOfflineApplied:true}]})};
+  const browser={newContext:async()=>({newPage:async()=>{const p=mkPage();pagesCreated.push(p);return p;},close:async()=>{}})};

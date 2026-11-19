@@ -3,7 +3,7 @@
   "runId": "R8-nightly-regression",
   "proposal": true,
   "workflowVersion": "1.5.0",
-  "configVersion": "1.4.1",
+  "configVersion": "1.4.0",
   "createdUtc": "2026-10-28T22:00:00Z",
   "purpose": "Ordinary nightly regression of the deployed product for a paid user: all 15 journeys and every required assertion on the version that is live, independent of any known bug, compared with the previous run and the last known good run.",
   "priority": "nightly-regression",
@@ -281,7 +281,7 @@
     }
   },
   "harness": {
-    "codeManifestSha256": "92b47ee01a6a35d40607fe1d73e997090921fb070030269eb5c15bdcea6bda64",
+    "codeManifestSha256": "d2926261e3c6253168c694b306f4d0bbe8a7fc2ea2295a3c39a25f3635b3319c",
     "packetManifestSha256": "a0113e1cbfba49be623d3dd40d35e8e87ab833d4f6039edef3b1b160e07a0f88",
     "ownerApprovalRef": null,
     "offlineProofFile": "config/proofs/offline-proof-7701a6e8.json"

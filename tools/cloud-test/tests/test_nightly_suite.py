@@ -6,15 +6,28 @@ same offline run as the rest of the package. The negative controls (nightly/nega
 and are run on their own, not here.
 """
 import hashlib
+import json
 import os
 import re
+import shutil
 import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 NIGHTLY = ROOT / "nightly"
 EXPECTED_TESTS = 435
+REPO = ROOT.parents[1]
+OFFLINE_PATCH = ROOT / "tests" / "fixtures" / "j4a-offline-packet.patch.fixture"
+OFFLINE_PATCH_SHA256 = "632ea67bb88c10a2d380ac017db62960a0be974ed2846ca7205140036ebfb529"
+HISTORICAL_CODE_SHA256 = "d2926261e3c6253168c694b306f4d0bbe8a7fc2ea2295a3c39a25f3635b3319c"
+CANDIDATE_CODE_SHA256 = "92b47ee01a6a35d40607fe1d73e997090921fb070030269eb5c15bdcea6bda64"
+
+
+def code_hash(cloud_test):
+    return hashlib.sha256((cloud_test / "harness" / "bundle" / "CODE.sha256").read_bytes()).hexdigest()
 
 # Bind the reviewed inputs the Node wrapper passes to child processes. The
 # non-Linux preload is checked as bytes on Linux, not counted as a Linux run.
@@ -35,12 +48,56 @@ class NightlySuite(unittest.TestCase):
                 self.assertFalse(fixture.is_symlink())
                 self.assertEqual(hashlib.sha256(fixture.read_bytes()).hexdigest(), expected)
 
+    def test_active_request_and_retained_receiver_agree_without_the_candidate(self):
+        config = json.loads((ROOT / "config" / "test-config.v1.json").read_bytes())
+        raw = (ROOT / "config" / "aggregate" / "manifest.json").read_bytes()
+        retained = json.loads(raw)
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), config["aggregateReceiver"]["manifestSha256"])
+        self.assertEqual(retained["workflowVersion"], config["workflowVersion"])
+        self.assertEqual(retained["codeManifestSha256"], HISTORICAL_CODE_SHA256)
+        self.assertEqual(config["harness"]["expectedCodeManifestSha256"], code_hash(ROOT))
+        self.assertEqual(code_hash(ROOT), HISTORICAL_CODE_SHA256)
+
     def test_every_nightly_node_test_passes_and_none_is_skipped(self):
-        files = sorted(str(p) for p in (NIGHTLY / "tests").glob("*.test.cjs"))
-        self.assertTrue(files, "no nightly test files found")
-        env = {"PATH": os.environ.get("PATH", ""), "NODE_OPTIONS": ""}
-        r = subprocess.run(["node", "--test", "--test-reporter=tap", *files], capture_output=True, text=True, cwd=str(NIGHTLY), env=env, timeout=180)
-        self.assertEqual(r.returncode, 0, r.stdout[-3000:] + r.stderr[-1000:])
+        self.assertEqual(code_hash(ROOT), HISTORICAL_CODE_SHA256)
+        self.assertFalse(OFFLINE_PATCH.is_symlink())
+        patch = OFFLINE_PATCH.read_bytes()
+        self.assertEqual(hashlib.sha256(patch).hexdigest(), OFFLINE_PATCH_SHA256)
+        # Keep the retained packet and request validator on their original
+        # contract. Exercise the candidate only in a private disposable copy.
+        env = {"PATH": os.environ.get("PATH", ""), "NODE_OPTIONS": "", "GIT_CONFIG_NOSYSTEM": "1",
+               "GIT_CONFIG_GLOBAL": os.devnull}
+        with tempfile.TemporaryDirectory(prefix="nightly-offline-packet-") as scratch:
+            top = Path(scratch).resolve()
+            candidate = top / "tools" / "cloud-test"
+            shutil.copytree(ROOT, candidate, ignore=shutil.ignore_patterns("__pycache__", "node_modules"))
+            shutil.copytree(REPO / "tests" / "live", top / "tests" / "live",
+                            ignore=shutil.ignore_patterns("__pycache__", "node_modules"))
+            for name in ("scripts/production-release-policy.mjs", "scripts/lib/releaseEvidenceEligibility.mjs"):
+                target = top / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(REPO / name, target)
+            # Reuse only the checkout's installed compiler for the TypeScript drift test.
+            dependency = (REPO / "node_modules" / "typescript").resolve(strict=True)
+            (top / "node_modules").mkdir()
+            (top / "node_modules" / "typescript").symlink_to(dependency, target_is_directory=True)
+            applied = subprocess.run(["git", "apply", "--whitespace=nowarn", "-"], input=patch,
+                                     capture_output=True, cwd=top, env=env, timeout=30)
+            self.assertEqual(applied.returncode, 0, applied.stderr.decode(errors="replace"))
+            self.assertEqual(code_hash(candidate), CANDIDATE_CODE_SHA256)
+            checked = subprocess.run(
+                [sys.executable, "-I", str(candidate / "scripts" / "verify_harness.py"),
+                 "--config", str(candidate / "config" / "test-config.v1.json"), "--root", str(top)],
+                capture_output=True, text=True, env=env, timeout=30)
+            self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+            nightly = candidate / "nightly"
+            files = sorted(str(p) for p in (nightly / "tests").glob("*.test.cjs"))
+            self.assertTrue(files, "no nightly test files found")
+            r = subprocess.run(["node", "--test", "--test-reporter=tap", *files], capture_output=True,
+                               text=True, cwd=nightly, env=env, timeout=180)
+        self.assertEqual(code_hash(ROOT), HISTORICAL_CODE_SHA256)
+        failures = re.findall(r"(?m)^ *not ok .*\n(?:^(?! *# Subtest:| *ok | *not ok ).*\n)*", r.stdout)
+        self.assertEqual(r.returncode, 0, "\n".join(failures)[-5000:] + r.stdout[-500:] + r.stderr[-1000:])
         counts = {k: int(v) for k, v in re.findall(r"^# (tests|pass|fail|skipped|todo|cancelled) (\d+)$", r.stdout, re.M)}
         self.assertEqual(counts, {"tests": EXPECTED_TESTS, "pass": EXPECTED_TESTS, "fail": 0, "skipped": 0, "todo": 0, "cancelled": 0})
 

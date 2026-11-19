@@ -5,7 +5,7 @@
   "coverageMode": "partial",
   "sampleMode": "minimal",
   "workflowVersion": "1.5.0",
-  "configVersion": "1.4.1",
+  "configVersion": "1.4.0",
   "createdUtc": "2026-10-28T22:00:00Z",
   "purpose": "Prove the deployed #1744 fix (blocked-microphone guidance) on the release R5 already tested: R5 had no capture device, so the microphone-denial path was never observed. One case, AHT-12, with the capture device bound. No other case runs.",
   "priority": "prove-deployed-fix",
@@ -102,7 +102,7 @@
     }
   },
   "harness": {
-    "codeManifestSha256": "92b47ee01a6a35d40607fe1d73e997090921fb070030269eb5c15bdcea6bda64",
+    "codeManifestSha256": "d2926261e3c6253168c694b306f4d0bbe8a7fc2ea2295a3c39a25f3635b3319c",
     "packetManifestSha256": "a0113e1cbfba49be623d3dd40d35e8e87ab833d4f6039edef3b1b160e07a0f88",
     "ownerApprovalRef": null,
     "offlineProofFile": "config/proofs/offline-proof-7701a6e8.json"

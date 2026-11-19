@@ -10,7 +10,7 @@
   },
   "approvedOmissions": [],
   "cleanupConditions": "every owned page, process and fixture closed and verified; guard ledgers reconciled; no marked orphan",
-  "configVersion": "1.4.1",
+  "configVersion": "1.4.0",
   "coverageMode": "full",
   "createdUtc": null,
   "deviations": [],

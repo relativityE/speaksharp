@@ -15,16 +15,13 @@ function requireThat(value,message){if(!value)unavailable(message);}
 function preflight(caseId,c,guard,configurationOnly=false){
   requireThat(['AHT-05','AHT-06'].includes(caseId),'save fault case unsupported');
   requireThat(c?.sourceSha===readbackContract.sourceSha&&c.servedSha===readbackContract.sourceSha,'save fault source/served release differs from inspected main70e');
-  // #1884 (Sam, option a): an explicit guarded signup starts UNBOUND (no account id; the guard's owner null). Everything else is checked now;
-  // the owner equality is enforced once the guard binds the parent-confirmed owner. Pre-provisioned runs are unchanged.
-  const guardedUnbound=c?.account?.mode==='nightly-guarded-signup'&&c.account.id===undefined;
-  const b=validateReadback(guardedUnbound?{...c,account:{...c.account,id:'00000000-0000-4000-8000-000000000000'}}:c);requireThat(new URL(b.origin).host===readbackContract.host,'save fault backend differs from source-reviewed target');
+  const b=validateReadback(c);requireThat(new URL(b.origin).host===readbackContract.host,'save fault backend differs from source-reviewed target');
   // Body/digest intentionally do not exist yet: they are captured once from this own new session.
   if(c.faultBinding)requireThat(c.faultBinding.operationIdentityMode==='bound-session-capture-payload'&&!c.faultBinding.requestBodySha256&&!c.faultBinding.operationDigest,'precomputed or endpoint-only save fault binding refused');
   if(!configurationOnly){
     for(const name of ['saveReadbackConfiguration','bindSaveReadback','capturedSaveOperation','markCompletionRetry','completionAttemptSummary','armFault','summary'])requireThat(typeof guard?.[name]==='function','dynamic completion guard capability missing');
     const configured=guard.saveReadbackConfiguration();
-    requireThat(configured.sourceSha===c.sourceSha&&configured.host===readbackContract.host&&(guardedUnbound?configured.accountSubjectSha256===null:configured.accountSubjectSha256===sha(c.account.id)),'reviewed dynamic oracle source/owner/backend mismatch');
+    requireThat(configured.sourceSha===c.sourceSha&&configured.host===readbackContract.host&&configured.accountSubjectSha256===sha(c.account.id),'reviewed dynamic oracle source/owner/backend mismatch');
   }
   return true;
 }
