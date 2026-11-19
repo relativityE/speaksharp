@@ -3,8 +3,9 @@
 The suite's verdict, budget, limit and oracle code is plain CommonJS beside the harness. This test runs its node:test
 files and requires every one of them to pass, with none skipped, so a change to the nightly code is checked by the
 same offline run as the rest of the package. The negative controls (nightly/negative-controls/run.cjs) rewrite files
-and are run on their own, not here.
+and run in the same kind of disposable copy as the candidate tests.
 """
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -67,7 +68,8 @@ class NightlySuite(unittest.TestCase):
         self.assertEqual(config["harness"]["expectedCodeManifestSha256"], code_hash(ROOT))
         self.assertEqual(code_hash(ROOT), HISTORICAL_CODE_SHA256)
 
-    def test_every_nightly_node_test_passes_and_none_is_skipped(self):
+    @contextmanager
+    def isolated_candidate(self):
         self.assertEqual(code_hash(ROOT), HISTORICAL_CODE_SHA256)
         self.assertFalse(OFFLINE_PATCH.is_symlink())
         patch = OFFLINE_PATCH.read_bytes()
@@ -107,15 +109,29 @@ class NightlySuite(unittest.TestCase):
                 executable = fixture.with_suffix("")
                 self.assertFalse(executable.exists())
                 fixture.rename(executable)
+            yield nightly, env
+        self.assertEqual(code_hash(ROOT), HISTORICAL_CODE_SHA256)
+
+    def test_every_nightly_node_test_passes_and_none_is_skipped(self):
+        with self.isolated_candidate() as (nightly, env):
             files = sorted(str(p) for p in (nightly / "tests").glob("*.test.cjs"))
             self.assertTrue(files, "no nightly test files found")
             r = subprocess.run(["node", "--test", "--test-reporter=tap", *files], capture_output=True,
                                text=True, cwd=nightly, env=env, timeout=180)
-        self.assertEqual(code_hash(ROOT), HISTORICAL_CODE_SHA256)
         failures = re.findall(r"(?m)^ *not ok .*\n(?:^(?! *# Subtest:| *ok | *not ok ).*\n)*", r.stdout)
         self.assertEqual(r.returncode, 0, "\n".join(failures)[-5000:] + r.stdout[-500:] + r.stderr[-1000:])
         counts = {k: int(v) for k, v in re.findall(r"^# (tests|pass|fail|skipped|todo|cancelled) (\d+)$", r.stdout, re.M)}
         self.assertEqual(counts, {"tests": EXPECTED_TESTS, "pass": EXPECTED_TESTS, "fail": 0, "skipped": 0, "todo": 0, "cancelled": 0})
+
+    def test_candidate_journal_breaks_fail_and_recover_in_the_isolated_packet(self):
+        with self.isolated_candidate() as (nightly, env):
+            for control in ("P31-j4a-admission-without-journal", "P31-j4a-hooks-without-journal"):
+                with self.subTest(control=control):
+                    result = subprocess.run(
+                        ["node", str(nightly / "negative-controls" / "run.cjs"), "--only", control],
+                        capture_output=True, text=True, cwd=nightly, env=env, timeout=60)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertEqual(result.stdout.strip(), f"{control}: break FAIL, restored PASS -> PROVEN")
 
     def test_every_nightly_module_is_covered_by_a_test_file(self):
         modules = sorted(p.relative_to(NIGHTLY).as_posix() for p in NIGHTLY.rglob("*.cjs")
@@ -128,4 +144,19 @@ class NightlySuite(unittest.TestCase):
 
 
 if __name__ == "__main__":
+    if sys.argv[1:2] == ["--negative-controls"]:
+        # Preserve the caller-relative output path rather than writing into the temporary tree.
+        import argparse
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--only")
+        parser.add_argument("--out", type=Path)
+        args = parser.parse_args(sys.argv[2:])
+        with NightlySuite().isolated_candidate() as (nightly, env):
+            command = ["node", str(nightly / "negative-controls" / "run.cjs")]
+            if args.only is not None:
+                command.extend(("--only", args.only))
+            if args.out is not None:
+                command.extend(("--out", str(args.out.resolve())))
+            result = subprocess.run(command, cwd=nightly, env=env, timeout=3600)
+        sys.exit(result.returncode)
     unittest.main()
