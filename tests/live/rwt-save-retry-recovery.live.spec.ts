@@ -39,8 +39,8 @@ import {
     parseCompletionAttempt, reviewReopenVerdict, transcriptDigest,
 } from './helpers/rwtSaveRetryAttempts';
 import {
-    J4A_COACHING_MAXIMUM, J4A_START_PRESS_BUDGET, j4aNoSecondTakeVerdict, j4aOneSaveForAccountVerdict, j4aPrivacyCleanupVerdict,
-    j4aRequestNeverReachedVerdict, saveRetryPrivacyVerdict,
+    J4A_COACHING_MAXIMUM, J4A_COACHING_ROUTE, J4A_START_PRESS_BUDGET, j4aCoachingBlockedVerdict, j4aCoachingGuard, j4aNoSecondTakeVerdict,
+    j4aOneSaveForAccountVerdict, j4aPrivacyCleanupVerdict, j4aRequestNeverReachedVerdict, saveRetryPrivacyVerdict,
 } from './helpers/rwtJ4aEvidence';
 import { SAVE_RETRY_CONSENT_MODE, type ChoiceClient, readPracticeChoice, settlePracticeConsent } from './helpers/rwtPracticeConsent';
 
@@ -170,6 +170,8 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
     // zero coaching requests, and the journey stops right after the Retry Save readback. J4.b (response lost) is unchanged.
     const j4a = variant === 'request-lost';
     let j4aChoiceVerified = false;
+    // J4.a: coaching is blocked in the browser, not only counted (Sam, Nov 19 on c558f4c). Armed below, before the first page.
+    const coachingGuard = j4aCoachingGuard();
     // #1258 C — every non-dropped completion call's answer, read from the browser's own events by request identity.
     const completions = new CompletionObserver<Request>();
     page.on('response', (response) => {
@@ -193,6 +195,11 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         // J4.b: two saved takes, at most one coaching request each. J4.a: coaching off, so none at all (Sam, Nov 19).
         await steps.step('coaching budget', () => coachingRequestBudgetRow(receipt, generations,
             { maximum: j4a ? J4A_COACHING_MAXIMUM : 2, oneRequestPerSession: takes }));
+        if (j4a) await steps.step('J4.a coaching blocked', (alive) => {
+            const v = j4aCoachingBlockedVerdict(coachingGuard);
+            aliveReceipt(receipt, alive).row('J4.a: no coaching request left the browser', v.status, v.detail,
+                { reason: v.reason, armed: coachingGuard.armed, blocked: coachingGuard.blocked });
+        });
         // Harness parity rows (catalog AHT-05/AHT-06: no-cloud-stt, start-press-budget, owned-pages-closed), before the account is
         // deleted. Bounded steps, rows only while each step is alive, and the page close in its own step, last before cleanup.
         await steps.step('harness parity counts', (alive) => {
@@ -242,6 +249,12 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         await suppressPageSnapshot(testInfo);
         // Before the first navigation (the signup below): the click recorder is an init script.
         await parity.attach(page.context());
+        // J4.a: every coaching request from any tab of this context is aborted before it leaves the browser. Never removed
+        // before the pages close, so a late request is stopped too.
+        if (j4a) {
+            await page.context().route(J4A_COACHING_ROUTE, (route) => coachingGuard.handler(route));
+            coachingGuard.armed = true;
+        }
         claimed = await prepareRunOwnedAccount(page, receipt, owner, `save-retry-${variant}`, admin, SERVICE_ROLE);
         if (!claimed) return;
         await page.goto('/practice');

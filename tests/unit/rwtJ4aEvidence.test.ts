@@ -5,7 +5,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
-    COMPLETION_WRITTEN_COLUMNS, J4A_COACHING_MAXIMUM, J4A_START_PRESS_BUDGET, SAVED_ROW_AGREEMENT_COLUMNS, j4aNoSecondTakeVerdict,
+    COMPLETION_WRITTEN_COLUMNS, J4A_COACHING_MAXIMUM, J4A_COACHING_ROUTE, J4A_START_PRESS_BUDGET, j4aCoachingBlockedVerdict, j4aCoachingGuard, SAVED_ROW_AGREEMENT_COLUMNS, j4aNoSecondTakeVerdict,
     j4aOneSaveForAccountVerdict, j4aPrivacyCleanupVerdict, j4aRequestNeverReachedVerdict, saveRetryPrivacyVerdict,
     type J4aFaultObservation, type J4aSaveObservation,
 } from '../live/helpers/rwtJ4aEvidence';
@@ -161,12 +161,13 @@ describe('J4.a and J4.b keep separate verdicts', () => {
         const spec = readFileSync('tests/live/rwt-save-retry-recovery.live.spec.ts', 'utf8');
         expect(spec).toContain("const j4a = variant === 'request-lost';");
         const gated = spec.split('if (j4a) {');
-        expect(gated.length).toBe(6);
+        expect(gated.length).toBe(7);
         expect(gated[1]).toContain("row('J4.a: one take, nothing after Retry'");
         expect(gated[2]).toContain("row('J4.a: cleanup removed the privacy choice'");
-        expect(gated[3]).toContain("receipt.row('practice privacy choice'");
-        expect(gated[4]).toContain("receipt.row('J4.a: the first save request never reached the server'");
-        expect(gated[5]).toContain("receipt.row('J4.a: Retry Save saved one take for this account only'");
+        expect(gated[3]).toContain('await page.context().route(J4A_COACHING_ROUTE, (route) => coachingGuard.handler(route));');
+        expect(gated[4]).toContain("receipt.row('practice privacy choice'");
+        expect(gated[5]).toContain("receipt.row('J4.a: the first save request never reached the server'");
+        expect(gated[6]).toContain("receipt.row('J4.a: Retry Save saved one take for this account only'");
         expect(spec.indexOf('drop.forwarded = true;')).toBeGreaterThan(spec.indexOf("if (variant === 'request-lost') return route.abort('failed');"));
         expect(spec.indexOf('drop.forwarded = true;')).toBeLessThan(spec.indexOf('const response = await route.fetch();'));
     });
@@ -287,5 +288,51 @@ describe('#1835: the required privacy row PASSes only on the exact post-#1835 ow
         ['the row is malformed', { readback: { state: 'read' as const, row: row({ consent_version: 2 }) } }, 'FAIL', 'readback_malformed'],
     ] as const)('control: %s', (_name, change, status, reason) => {
         expect(verdict(change as never)).toMatchObject({ status, reason });
+    });
+});
+
+describe('J4.a coaching block (Sam, Nov 19 on c558f4c): an unexpected coaching call never leaves the browser', () => {
+    const spec = readFileSync('tests/live/rwt-save-retry-recovery.live.spec.ts', 'utf8');
+    const fakeRoute = () => {
+        const calls: string[] = [];
+        return { calls, route: {
+            abort: async (code?: string) => { calls.push(`abort:${code}`); },
+            continue: async () => { calls.push('continue'); },
+            fulfill: async () => { calls.push('fulfill'); },
+            fetch: async () => { calls.push('fetch'); },
+        } };
+    };
+    it('the guard aborts every request it sees, counts it, and never lets one through', async () => {
+        const guard = j4aCoachingGuard();
+        const a = fakeRoute(); const b = fakeRoute();
+        await guard.handler(a.route); await guard.handler(b.route);
+        expect(a.calls).toEqual(['abort:blockedbyclient']);
+        expect(b.calls).toEqual(['abort:blockedbyclient']);
+        expect(guard.blocked).toBe(2);
+    });
+    it('the route covers the coaching endpoint with any query, on the whole browser context', () => {
+        expect(J4A_COACHING_ROUTE).toBe('**/functions/v1/get-ai-suggestions**');
+        expect(spec).toContain('await page.context().route(J4A_COACHING_ROUTE, (route) => coachingGuard.handler(route));');
+        // Armed before the first page of the run (account sign-up), after the click recorder.
+        const armed = spec.indexOf('coachingGuard.armed = true;');
+        expect(armed).toBeGreaterThan(spec.indexOf('await parity.attach(page.context());'));
+        expect(armed).toBeLessThan(spec.indexOf('claimed = await prepareRunOwnedAccount('));
+        expect(spec).not.toMatch(/unroute\(J4A_COACHING_ROUTE/);
+    });
+    it.each([
+        [{ armed: false, blocked: 0 }, 'HOLD', 'block_not_armed'],
+        [{ armed: true, blocked: -1 }, 'HOLD', 'block_uncounted'],
+        [{ armed: true, blocked: 1.5 }, 'HOLD', 'block_uncounted'],
+        [{ armed: true, blocked: 1 }, 'FAIL', 'coaching_requested'],
+        [{ armed: true, blocked: 3 }, 'FAIL', 'coaching_requested'],
+        [{ armed: true, blocked: 0 }, 'PASS', 'none_requested'],
+    ] as const)('%o → %s %s', (o, status, reason) => {
+        expect(j4aCoachingBlockedVerdict(o)).toMatchObject({ status, reason });
+    });
+    it('the block row is J4.a-only, required for request lost, and written at the final boundary', () => {
+        expect(spec).toContain("if (j4a) await steps.step('J4.a coaching blocked'");
+        expect(spec.indexOf("await steps.step('J4.a coaching blocked'")).toBeGreaterThan(spec.indexOf("await steps.step('coaching budget'"));
+        expect(requiredAutomatedRows(SAVE_RETRY_REQUEST_LOST_SUITE)!.product).toContain('J4.a: no coaching request left the browser');
+        expect(requiredAutomatedRows(SAVE_RETRY_RESPONSE_LOST_SUITE)!.product).not.toContain('J4.a: no coaching request left the browser');
     });
 });

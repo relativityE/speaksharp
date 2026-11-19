@@ -181,3 +181,40 @@ export function j4aPrivacyCleanupVerdict(o: { ownerId: string | null; choiceVeri
     if (o.count !== 0) return { status: 'FAIL', reason: 'privacy_row_left', detail: 'the owner\'s privacy choice row survived the account deletion' };
     return { status: 'PASS', reason: 'privacy_row_gone', detail: 'the owner\'s privacy choice row is gone after the account deletion (counted zero)' };
 }
+
+/**
+ * J4.a coaching block (Sam, Nov 19, on c558f4c): counting coaching requests is not enough, because a counted request has
+ * already reached the provider. J4.a routes the coaching endpoint for its WHOLE browser context (every tab) before the first
+ * navigation and aborts every request there, so an unexpected call never leaves the browser and the run fails on it.
+ */
+export const J4A_COACHING_ROUTE = '**/functions/v1/get-ai-suggestions**';
+
+/** The smallest part of a Playwright route the guard uses: it only ever aborts. */
+export interface AbortableRoute { abort(errorCode?: string): Promise<void> }
+
+export interface J4aCoachingGuard {
+    /** Set once the route is registered on the context; a guard that never armed proves nothing. */
+    armed: boolean;
+    /** Requests stopped in the browser. Each one is an unexpected coaching call that did NOT reach the provider. */
+    blocked: number;
+    handler(route: AbortableRoute): Promise<void>;
+}
+
+export function j4aCoachingGuard(): J4aCoachingGuard {
+    const guard: J4aCoachingGuard = {
+        armed: false,
+        blocked: 0,
+        async handler(route) {
+            guard.blocked += 1;
+            await route.abort('blockedbyclient');
+        },
+    };
+    return guard;
+}
+
+export function j4aCoachingBlockedVerdict(o: { armed: boolean; blocked: number }): J4aVerdict {
+    if (!o.armed) return { status: 'HOLD', reason: 'block_not_armed', detail: 'the coaching block was not in place before the first page, so nothing is proved' };
+    if (!Number.isSafeInteger(o.blocked) || o.blocked < 0) return { status: 'HOLD', reason: 'block_uncounted', detail: 'the coaching block returned no counted integer' };
+    if (o.blocked > 0) return { status: 'FAIL', reason: 'coaching_requested', detail: 'the page asked for coaching with coaching off; the block stopped it in the browser, so it never reached the provider' };
+    return { status: 'PASS', reason: 'none_requested', detail: 'the coaching block was in place for the whole run and the page asked for no coaching' };
+}

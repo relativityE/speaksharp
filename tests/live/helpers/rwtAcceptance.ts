@@ -616,7 +616,7 @@ const SAVE_RETRY_NEXT_TAKE_ROWS = Object.freeze(['next take saves only itself', 
  */
 const SAVE_RETRY_J4A_ROWS = Object.freeze([
     'practice privacy choice', 'J4.a: the first save request never reached the server', 'J4.a: Retry Save saved one take for this account only',
-    'J4.a: one take, nothing after Retry', 'J4.a: cleanup removed the privacy choice',
+    'J4.a: one take, nothing after Retry', 'J4.a: cleanup removed the privacy choice', 'J4.a: no coaching request left the browser',
 ]);
 const SAVE_RETRY_REQUEST_LOST_PRODUCT_ROWS = Object.freeze([
     ...SAVE_RETRY_PRODUCT_ROWS.filter((row) => !SAVE_RETRY_NEXT_TAKE_ROWS.includes(row)), ...SAVE_RETRY_J4A_ROWS,
