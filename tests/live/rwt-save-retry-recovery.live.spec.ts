@@ -10,6 +10,8 @@
  * real. Receipts are content-free: lengths and booleans, never transcript text. Preparation only: execution requires a
  * fresh release-bound RWT authorization.
  */
+import { readdirSync } from 'node:fs';
+import { resolve as resolvePath } from 'node:path';
 import { createClient } from '@supabase/supabase-js';
 import type { Page, Request, Route, TestInfo } from '@playwright/test';
 import { test, expect } from './helpers/rwtProductionTest';
@@ -24,6 +26,7 @@ import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
 import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
 import { HarnessParityTap, type StartPressBudget } from './helpers/rwtHarnessParity';
 import { openProductsItem } from './helpers/productsMenu';
+import { consentModeFrom, settlePracticeConsent, type ChoiceClient } from './helpers/rwtPracticeConsent';
 import {
     expectBenchmarkRecordingStarted, preparePrivateModelIfPrompted, selectBenchmarkMode, startBenchmarkRecording,
     stopBenchmarkRecording, waitForPrivateEngineReady,
@@ -199,6 +202,15 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         claimed = await prepareRunOwnedAccount(page, receipt, owner, `save-retry-${variant}`, admin, SERVICE_ROLE);
         if (!claimed) return;
         await page.goto('/practice');
+        await expect(page.getByTestId('practice-root')).toBeVisible({ timeout: 60_000 });
+        // #1835 (Sam, 2026-11-19): a fresh owner is asked on this first Practice visit. The run answers for its own disposable
+        // account only, before any take, and the server must record exactly that choice; an unknown build stops here.
+        const migrationFiles = (() => { try { return readdirSync(resolvePath(process.cwd(), 'backend/supabase/migrations')); } catch { return null; } })();
+        const consent = await settlePracticeConsent({ page, client: admin as unknown as ChoiceClient, ownerId: owner.uid, migrationFiles,
+            mode: consentModeFrom(process.env.RWT_PRACTICE_CONSENT) });
+        receipt.row('practice privacy choice', 'PASS', consent.choice ? 'this run\'s owner recorded its choice through the Practice prompt, read back from the server'
+            : 'verified pre-#1835 build: no choice to make', { build: consent.build, mode: consent.mode ?? 'none',
+            transcriptSave: consent.choice?.transcriptSave ?? null, aiCoaching: consent.choice?.aiCoaching ?? null });
         await openProductsItem(page, 'open-mic');
         await page.waitForURL(/\/session/, { timeout: 45_000 });
 
