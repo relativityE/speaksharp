@@ -274,6 +274,20 @@ describe('outcome 4 D2: the tip the repeat practised', () => {
         expect(view).toMatchObject({ outcome: 'moved', repeatResult: { status: 'available', after: 0.8 } });
     });
 
+    it('wrong take: only the tip bound to THIS repeat by its own owner is shown, never another take\'s or account\'s', async () => {
+        // Every read returns every row, as a mis-scoped query would: the loader must still pick this repeat's attempt.
+        ignoreFilters.progress_recommendation_attempts = true;
+        tables.progress_recommendation_attempts = [
+            attempt({ id: 'att-other-take', practice_session_id: 'C', next_comparable_session_id: 'C', practised_tip: 'Tip for C.' }),
+            attempt({ id: 'att-other-owner', user_id: 'user-2', practised_tip: 'Another account\'s tip.' }),
+            attempt({ id: 'att-this', practised_tip: 'Pause instead of saying um.' }),
+        ];
+        expect(await loadRepeatOrigin('B', USER)).toMatchObject({ status: 'repeat', originalSessionId: 'A',
+            tip: { status: 'saved', text: 'Pause instead of saying um.' } });
+        // The other take's page shows its own tip, not this repeat's.
+        expect(await loadRepeatOrigin('C', USER)).toMatchObject({ tip: { status: 'saved', text: 'Tip for C.' } });
+    });
+
     it('a not-comparable repeat still shows the tip it practised', async () => {
         tables.progress_recommendation_attempts = [attempt({
             lifecycle: 'not_comparable', outcome: 'not_comparable', next_comparable_session_id: null, practised_tip: 'Slow down.',
