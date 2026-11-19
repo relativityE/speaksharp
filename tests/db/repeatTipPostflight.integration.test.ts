@@ -4,7 +4,7 @@
 // "before" must pass on the predecessor catalog and "after" on the applied one; the committed expectation must re-derive byte for
 // byte from the migration; and a tampered catalog (helper grant, trigger, column, constraint, index, ledger) must be refused.
 import { strict as assert } from 'node:assert';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { PGlite } from '@electric-sql/pglite';
 import { afterAll, beforeAll, describe, it } from 'vitest';
@@ -24,6 +24,10 @@ const snapshotWith = async (mutation: string) => {
   try { return await rows(repeatTipSnapshotQuery()); } finally { await db.exec('ROLLBACK;'); }
 };
 let before: string[]; let after: string[];
+// Registered SQL consumer (scripts/lib/nativeTestExecutionEvidence.mjs): the exact migration bytes are executed here.
+const CANDIDATE = `${DIR}/${file(REPEAT_TIP_VERSION)}`;
+const consumed: { file: string; sha256: string; beforeSha256: string; afterSha256: string }[] = [];
+const sha256 = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
 
 beforeAll(async () => {
   db = new PGlite();
@@ -37,11 +41,21 @@ beforeAll(async () => {
     await ledgerAdd(v);
   }
   before = await rows(repeatTipSnapshotQuery());
-  await db.exec(readFileSync(`${DIR}/${file(REPEAT_TIP_VERSION)}`, 'utf8'));
+  const bytes = readFileSync(CANDIDATE);
+  await db.exec(bytes.toString('utf8'));
+  const beforeSha256 = sha256(bytes), afterSha256 = sha256(readFileSync(CANDIDATE));
+  assert.equal(afterSha256, beforeSha256, 'SQL bytes remain unchanged across actual execution');
+  consumed.push({ file: CANDIDATE, sha256: beforeSha256, beforeSha256, afterSha256 });
   await ledgerAdd(REPEAT_TIP_VERSION);
   after = await rows(repeatTipSnapshotQuery());
 }, 600_000);
-afterAll(async () => { await db?.close(); });
+afterAll(async () => {
+  await db?.close();
+  const binding = JSON.parse(process.env.TEST_EFFICACY_BINDING ?? 'null');
+  if (binding?.sql) writeFileSync(binding.sql.witnessFile, JSON.stringify({ schemaVersion: 1,
+    phaseId: binding.phaseId, bindingSha256: createHash('sha256').update(JSON.stringify(binding)).digest('hex'),
+    consumer: 'tests/db/repeatTipPostflight.integration.test.ts', consumed }));
+});
 
 describe('#1827 D2 repeat-tip exact-apply catalog gate', () => {
   it('passes before on the predecessor catalog and after on the applied one', () => {
