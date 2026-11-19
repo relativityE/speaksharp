@@ -146,6 +146,22 @@ function xmlRuntime(root) {
   return {entry,version:JSON.parse(fs.readFileSync(packageFile,'utf8')).version,
     entrySha256:hash(fs.readFileSync(entry)),packageSha256:hash(fs.readFileSync(packageFile))};
 }
+const PYTHON_RECEIPT_CONFORMANCE_TEST='tests/unit/pythonTestExecutionEvidence.test.mjs';
+function nativePythonFixtureBinding(contract) {
+  if(contract.testFile!==PYTHON_RECEIPT_CONFORMANCE_TEST)return null;
+  // Bind the parent runner's installed Python, not the fallback found after
+  // the nested Node test correctly switches to its scrubbed environment.
+  const launcher=binary('python3');
+  const probe=spawnSync(launcher,['-I','-B','-c',
+    'import json,pathlib,sys; print(json.dumps({"execPath":str(pathlib.Path(sys.executable).resolve()),"version":".".join(map(str,sys.version_info[:3]))}))'],
+    {encoding:'utf8',timeout:5000,env:{PATH:path.dirname(launcher),LANG:'C.UTF-8',LC_ALL:'C.UTF-8'}});
+  let observed;
+  try { observed=JSON.parse(probe.stdout); } catch { fail('NOT RUN: bound Python fixture runtime unavailable'); }
+  if(probe.status!==0||probe.signal||probe.error||!/^3\.12\.\d+$/.test(observed?.version??'')
+    ||!path.isAbsolute(observed?.execPath??'')||fs.realpathSync(observed.execPath)!==observed.execPath)
+    fail('NOT RUN: bound Python fixture requires an exact installed Python 3.12');
+  return {...observed,sha256:hash(fs.readFileSync(observed.execPath))};
+}
 export function nativeRuntime(root,runner) {
   const execPath=runner==='deno'?binary('deno'):fs.realpathSync(process.execPath);
   const version=runner==='deno'?spawnSync(execPath,['--version'],{encoding:'utf8',timeout:5000,env:{PATH:path.dirname(execPath)}}):null;
@@ -180,6 +196,8 @@ const checkoutTest='backend/supabase/functions/stripe-checkout/index.test.ts';
 export const COACHING_EDGE_TEST='backend/supabase/functions/get-ai-suggestions/index.test.ts';
 export const COACHING_EDGE_CONSENT_CASE='#1905 saved Open Mic and Focus coaching honor owner consent at send and persist';
 const COACHING_EFFICACY_PROFILE='coaching-consent-efficacy-1905';
+export const COACHING_QUALITY_TEST='backend/supabase/functions/get-ai-suggestions/evaluation/coachingBotChecks.test.ts';
+const COACHING_WRONG_TAKE_CASE='#1905 wrong-take coaching fails when only one advice section is cross-wired';
 const coachingTest=COACHING_EDGE_TEST;
 const coachingClosure=Object.freeze({
   'backend/supabase/functions/_shared/cors.ts':'74ab664c710d733534d8e0af433b0c4c48110a2dec1d5436f04f55147225e608',
@@ -696,6 +714,7 @@ export function produceNativePhase({root,cwd,contract,provenance,inputSha256,sou
   }
   const proofCases=phaseProofCasesBinding(contract,environment,binding.phaseId,root);if(proofCases)binding.proofCases=proofCases;
   const browser=nativeBrowserBinding(contract,environment);if(browser)binding.browser=browser;
+  const pythonFixture=nativePythonFixtureBinding(contract);if(pythonFixture)binding.pythonFixture=pythonFixture;
   binding.command=nativeCommand(binding);
   const env={...nativeEnvironment(cwd,environment),...(proofCases?{CT_PROOF_CASES_DIR:proofCases.directory}:{}),
     ...(browser?{CT_CHROME:browser.path}:{}),
@@ -739,6 +758,8 @@ export function validateNativePhase(phase,{root,provenance,inputSha256,runId,con
   if(JSON.stringify(b.proofCases??null)!==JSON.stringify(expectedProof))fail('Wrong or changed proof-cases binding');
   const expectedBrowser=nativeBrowserBinding(contract,environment);
   if(JSON.stringify(b.browser??null)!==JSON.stringify(expectedBrowser))fail('Wrong or changed native browser binding');
+  if(JSON.stringify(b.pythonFixture??null)!==JSON.stringify(nativePythonFixtureBinding(contract)))
+    fail('Wrong or changed native Python fixture binding');
   if(phase.execution?.status!==0||phase.execution.signal!==null||phase.execution.error!==null
     ||phase.execution.processCleanup?.status!=='drained')fail('Native execution failed or did not drain');
   if(contract.runner==='deno') {
@@ -747,7 +768,8 @@ export function validateNativePhase(phase,{root,provenance,inputSha256,runId,con
     validateWarmup(phase.warmup,b);
   }
   else if(phase.warmup||b.cacheDirectory)fail('Unexpected Node warmup/cache');
-  const requiredCases=b.syntheticSource?.id===COACHING_EFFICACY_PROFILE?[COACHING_EDGE_CONSENT_CASE]:[];
+  const requiredCases=contract.testFile===COACHING_QUALITY_TEST?[COACHING_WRONG_TAKE_CASE]
+    :b.syntheticSource?.id===COACHING_EFFICACY_PROFILE?[COACHING_EDGE_CONSENT_CASE]:[];
   const counts=contract.runner==='deno'?parseDenoJunit(phase.stdout,b,root,requiredCases):parseNodeEvents(phase.stdout,b);
   if(!counts.assertions)fail('Native zero-test execution');
   return {counts,helpers:validateNativeCallables(phase.coverage,b,root,contract.helpers)};

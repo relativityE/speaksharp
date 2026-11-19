@@ -12,7 +12,13 @@ const hash=value=>createHash('sha256').update(value).digest('hex');
 const here=path.dirname(fileURLToPath(import.meta.url)),repo=path.resolve(here,'../..');
 
 function realRuntimeOptions(f) {
-  const execPath=fs.realpathSync(execFileSync('which',['python3'],{encoding:'utf8'}).trim());
+  const nativeBinding=process.env.TEST_EFFICACY_BINDING?JSON.parse(process.env.TEST_EFFICACY_BINDING):null;
+  const pinned=nativeBinding?.pythonFixture;
+  if(nativeBinding?.phase==='native-execution') {
+    assert.ok(pinned && path.isAbsolute(pinned.execPath), 'native receipt tests require a bound Python interpreter');
+    assert.equal(hash(fs.readFileSync(pinned.execPath)),pinned.sha256,'bound Python fixture executable bytes');
+  }
+  const execPath=pinned?.execPath??fs.realpathSync(execFileSync('which',['python3'],{encoding:'utf8'}).trim());
   const version=execFileSync(execPath,['-c','import sys; print(".".join(map(str, sys.version_info[:3])))'],{encoding:'utf8'}).trim();
   const yamlFile=path.join(f.root,'yaml','__init__.py');
   const realExec=fs.realpathSync(execFileSync(execPath,['-c','import sys; print(sys.executable)'],{encoding:'utf8'}).trim());

@@ -8,7 +8,7 @@ import { canonicalPath, runtimeIdentity } from '../efficacy-reporter.mjs';
 import {HELPER_CONTRACTS,registeredHelper,helperApplicability, HELPER_CONFIG, validateHelperCoverage} from './helperExecutionEvidence.mjs';
 import {registeredSourceContract,sourceContractApplicability,SOURCE_CONSUMER,validateSourceContractWitness} from './sourceContractEvidence.mjs';
 import {validatePlaywrightExecution} from './playwrightExecutionEvidence.mjs';
-import {COACHING_EDGE_TEST,nativeTestRoute,nativeHelper,validateNativeReceipt,SQL_CONTRACTS,sqlContract,sqlSourceBinding,validateSqlWitness,
+import {COACHING_EDGE_TEST,COACHING_QUALITY_TEST,nativeTestRoute,nativeHelper,validateNativeReceipt,SQL_CONTRACTS,sqlContract,sqlSourceBinding,validateSqlWitness,
   NATIVE_BATCH_SIZE,NATIVE_MAX_BATCHES,reconcileExecutionBatches} from './nativeTestExecutionEvidence.mjs';
 import {pythonTestRoute,validatePythonReceipt} from './pythonTestExecutionEvidence.mjs';
 
@@ -287,6 +287,8 @@ function changedPaths(root, base) {
   ] : all;
   return [...new Set(files.filter(Boolean))].sort();
 }
+const COACHING_QUALITY_DIR='backend/supabase/functions/get-ai-suggestions/evaluation/';
+const COACHING_QUALITY_INPUTS=new Set(['evaluator.ts','prompt.ts','transcripts.json'].map(file=>COACHING_QUALITY_DIR+file));
 const J4A_SAVE_ROUTE_BROWSER_TEST='tests/e2e/rwt-j4a-save-no-forward.e2e.spec.ts';
 const J4A_SAVE_ROUTE_INPUTS=new Set([
   'tests/live/rwt-save-retry-recovery.live.spec.ts',
@@ -308,6 +310,7 @@ export function changedEvidencePaths(root, base) {
   // The actual producer and qualifier both derive this from the Git delta;
   // frontend-only receipts cannot satisfy a change to the Edge authority.
   if(changed.some(file=>COACHING_EDGE_SOURCE_INPUTS.has(file)))evidence.push(COACHING_EDGE_TEST);
+  if(changed.some(file=>COACHING_QUALITY_INPUTS.has(file)))evidence.push(COACHING_QUALITY_TEST);
   if(changed.some(file=>J4A_SAVE_ROUTE_INPUTS.has(file)))evidence.push(J4A_SAVE_ROUTE_BROWSER_TEST);
   return [...new Set(evidence)].sort();
 }
@@ -395,6 +398,10 @@ const RETRY_CLEANUP_INPUTS=new Set([
   'tests/live/helpers/runOwnedCleanup.ts',
   'tests/unit/rwtCleanupFinalizationEfficacy.test.ts',
 ]);
+const STT_FINALIZATION_INPUTS=new Set([
+  'scripts/private-corpus-acceptance.mjs',
+  'tests/release/private-corpus-acceptance.test.ts',
+]);
 export function requiredSemanticContracts(files) {
   if(files===null)return TEST_EFFICACY_CONTRACTS;
   return TEST_EFFICACY_CONTRACTS.filter(contract=>contract.id==='analytics-truth'
@@ -402,7 +409,8 @@ export function requiredSemanticContracts(files) {
     :contract.id==='save-consent-boundary'?files.some(file=>SAVE_CONSENT_INPUTS.has(file))
       :contract.id==='coaching-consent-boundary'?files.some(file=>COACHING_CONSENT_INPUTS.has(file))
         :contract.id==='retry-save-single-owned-take'?files.some(file=>RETRY_SAVE_INPUTS.has(file))
-          :contract.id==='retry-save-cleanup-finalization' && files.some(file=>RETRY_CLEANUP_INPUTS.has(file)));
+          :contract.id==='retry-save-cleanup-finalization'?files.some(file=>RETRY_CLEANUP_INPUTS.has(file))
+            :contract.id==='private-stop-finalization-truth' && files.some(file=>STT_FINALIZATION_INPUTS.has(file)));
 }
 
 function expectedPhaseInputs(root, expected, contract) {

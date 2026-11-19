@@ -39,7 +39,8 @@ test('scope selection still covers analytics, and empty no-base never narrows th
   assert.deepEqual(requiredSemanticContracts(['README.md']),[]);
   assert.deepEqual(requiredSemanticContracts(['frontend/src/utils/metricValidity.ts']).map(c=>c.id),['analytics-truth']);
   assert.deepEqual(requiredSemanticContracts(['frontend/src/lib/storage.ts']).map(c=>c.id),['analytics-truth','save-consent-boundary']);
-  assert.deepEqual(requiredSemanticContracts(null).map(c=>c.id),['analytics-truth','save-consent-boundary','coaching-consent-boundary','retry-save-single-owned-take','retry-save-cleanup-finalization']);
+  assert.deepEqual(requiredSemanticContracts(['scripts/private-corpus-acceptance.mjs']).map(c=>c.id),['analytics-truth','private-stop-finalization-truth']);
+  assert.deepEqual(requiredSemanticContracts(null).map(c=>c.id),['analytics-truth','save-consent-boundary','coaching-consent-boundary','retry-save-single-owned-take','retry-save-cleanup-finalization','private-stop-finalization-truth']);
 });
 
 test('an Edge consent reader change requires the unchanged native Deno consumer',async()=>{
@@ -89,5 +90,28 @@ test('a source-only Retry Save change requires the unchanged browser control',as
     assert.equal(executionRoute(browser,root).runner,'playwright');
     const expected=executionContext(root,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
     assert.equal(executionCoverage(files,{root,expected,base}).rows.find(row=>row.file===browser).status,'NOT RUN');
+  } finally {fs.rmSync(root,{recursive:true,force:true});}
+});
+
+test('coaching evaluator-only changes require the real offline Deno coaching controls',async()=>{
+  const {changedEvidencePaths,executionRoute}=await import('../../scripts/lib/testExecutionEvidence.mjs');
+  const root=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'efficacy-coaching-oracle-')));
+  try {
+    const dir='backend/supabase/functions/get-ai-suggestions/evaluation/';
+    const evaluator=dir+'evaluator.ts', check=dir+'coachingBotChecks.test.ts';
+    for(const file of [evaluator,check]) {
+      const target=path.join(root,file);
+      fs.mkdirSync(path.dirname(target),{recursive:true});
+      fs.writeFileSync(target,'synthetic fixture only\n');
+    }
+    run(root,['init']); run(root,['add','.']);
+    run(root,['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-m','baseline']);
+    const base=run(root,['rev-parse','HEAD']);
+    assert.deepEqual(changedEvidencePaths(root,base),[]);
+    fs.appendFileSync(path.join(root,evaluator),'changed evaluation only\n');
+    assert.deepEqual(changedEvidencePaths(root,base),[check]);
+    assert.equal(executionRoute(check,root).runner,'deno');
+    const expected=executionContext(root,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
+    assert.equal(executionCoverage([check],{root,expected,base}).rows[0].status,'NOT RUN');
   } finally {fs.rmSync(root,{recursive:true,force:true});}
 });

@@ -638,7 +638,7 @@ test('all-zero base selects all registered contracts; realpath accepts symlinked
     fs.symlinkSync(directory,link,'dir');
     assert.notEqual(path.resolve(link),path.resolve(directory));
     assert.equal(canonicalPath(link),canonicalPath(directory));
-    assert.deepEqual(selectContracts(link,null).map(item=>item.id), ['analytics-truth','save-consent-boundary','coaching-consent-boundary','retry-save-single-owned-take','retry-save-cleanup-finalization']);
+    assert.deepEqual(selectContracts(link,null).map(item=>item.id), ['analytics-truth','save-consent-boundary','coaching-consent-boundary','retry-save-single-owned-take','retry-save-cleanup-finalization','private-stop-finalization-truth']);
     // This deliberately reduced fixture has no second contract. A fallback to all must not silently pass one.
     assert.throws(()=>runTestEfficacy({root:link,base:'0'.repeat(40)}), /ENOENT.*storage\.ts/);
     const receipt=runTestEfficacy({root:link,base:fixtureBase(directory)});

@@ -142,6 +142,31 @@ export const TEST_EFFICACY_CONTRACTS = Object.freeze([
       },
     ],
   },
+  {
+    id: 'private-stop-finalization-truth',
+    testFile: 'tests/release/private-corpus-acceptance.test.ts',
+    sourceFile: 'scripts/private-corpus-acceptance.mjs',
+    control: [
+      { anchor: 'if (!finiteNumber(row.stopFinalizationMs)) return', replacement: 'if (finiteNumber(row.stopFinalizationMs) === false) return' },
+      { anchor: 'if (row.stopFinalizationMs > PRIVATE_ACCEPTANCE.STOP_FINALIZATION_HARD_LIMIT_MS)', replacement: 'if (PRIVATE_ACCEPTANCE.STOP_FINALIZATION_HARD_LIMIT_MS < row.stopFinalizationMs)' },
+    ],
+    mutants: [
+      {
+        id: 'credit-unobserved-stop',
+        anchor: 'if (!finiteNumber(row.stopFinalizationMs)) return',
+        replacement: 'if (false) return',
+        assertion: 'private corpus acceptance validator keeps Stop latency unqualified when the transcript is correct but finalization timing was not observed',
+        assertionAnchor: "expect(result).toMatchObject({ pass: false, invalid: true, invalidReason: 'invalid_stop_finalization_unobserved' });",
+      },
+      {
+        id: 'credit-stop-past-limit',
+        anchor: 'if (row.stopFinalizationMs > PRIVATE_ACCEPTANCE.STOP_FINALIZATION_HARD_LIMIT_MS)',
+        replacement: 'if (row.stopFinalizationMs > PRIVATE_ACCEPTANCE.STOP_FINALIZATION_HARD_LIMIT_MS + 1)',
+        assertion: 'private corpus acceptance validator fails when stop finalization exceeds the hard limit',
+        assertionAnchor: "expect(validatePrivateRow(row, ['chewed up']).failures.some((f) => f.startsWith('stop_finalization_over_limit'))).toBe(true);",
+      },
+    ],
+  },
 ]);
 
 export function qualifyEfficacyPhase(report, execution, { assertion, baselineNames, envelope, binding, assertionLocation } = {}) {
