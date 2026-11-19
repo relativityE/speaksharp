@@ -11,7 +11,7 @@ import { createHash } from 'node:crypto';
 import { coherentCoachingResult } from '../../../frontend/src/services/telemetry/coachingDiagnosticReceipt';
 import { SAVE_RETRY_SUITE } from './rwtSaveRetry';
 import { ABANDON_SUITE, TWO_TAB_SUITE } from './rwtAbandonTakeover';
-import { ADVERSE_SUITE } from './rwtAdverse';
+import { ADVERSE_SUITE, MIC_DENIED_RECOVERY_ROWS, NO_TAKE_SAVED_ROW, SAME_PAGE_RECOVERY } from './rwtAdverse';
 
 /** #1532 Codex P1 r4119969323 — one journey and the qualification stages IT exercised. */
 /** `firstDownload`: this binding carries the run's first actual model download, so its readback requires the cold-download receipt. */
@@ -206,6 +206,17 @@ export function externalParentProofGaps(row: ReceiptRow): string[] {
     if (e.unavailableShown !== true) gaps.push('the unavailable message was not shown');
     if (e.retryEnabled !== true) gaps.push('Try again was not enabled');
     return gaps;
+}
+
+/**
+ * J7.a (PO and Sam, 2026-11-19): a mic-denied receipt must record same-page recovery as UNTESTED. Recovery is never counted
+ * as a pass, and a receipt that is silent about it, or claims any other value, is not finalized.
+ */
+export function samePageRecoveryErrors(receipt: { suite: string; meta?: Record<string, unknown> }): string[] {
+    if (receipt.suite !== ADVERSE_MIC_DENIED_SUITE) return [];
+    const recorded = receipt.meta?.samePageRecovery;
+    return recorded === SAME_PAGE_RECOVERY ? []
+        : [`the ${receipt.suite} receipt must record same-page recovery as ${SAME_PAGE_RECOVERY}, not ${recorded === undefined ? 'nothing' : String(recorded)}`];
 }
 
 /** Every EXTERNAL row in an INPUT receipt must sit inside its suite's closed scope (see `EXTERNAL_SCOPES`). */
@@ -626,9 +637,14 @@ const TWO_TAB_PRODUCT_ROWS = Object.freeze([
 export const ADVERSE_MIC_DENIED_SUITE = `${ADVERSE_SUITE}-mic-denied`;
 export const ADVERSE_DOWNLOAD_FAILS_SUITE = `${ADVERSE_SUITE}-download-fails`;
 export const ADVERSE_OFFLINE_SUITE = `${ADVERSE_SUITE}-offline-mid-download`;
+/**
+ * J7.a (PO and Sam, 2026-11-19): the mic-denied suite proves the denial only. The page states the block, capture never
+ * starts, and no take is saved for the test account. Recovery after allowing the microphone is not exercised: its two former
+ * rows must be absent, and the receipt must record same-page recovery as UNTESTED (`samePageRecoveryErrors`).
+ */
 const ADVERSE_MIC_PRODUCT_ROWS = Object.freeze([
-    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'blocked microphone is stated truthfully', 'after allowing the microphone a take saves',
-    'no Cloud STT request', 'coaching request budget', 'the recovered take reopens from Analytics',
+    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'blocked microphone is stated truthfully', NO_TAKE_SAVED_ROW,
+    'no Cloud STT request', 'coaching request budget',
 ]);
 const ADVERSE_DOWNLOAD_PRODUCT_ROWS = Object.freeze([
     ...SUPPLEMENTAL_ACCOUNT_ROWS, 'model download failure is stated truthfully', 'Retry downloads the model and a take saves',
@@ -680,7 +696,7 @@ export function requiredAutomatedRows(suite: string): { required: readonly strin
                 absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };
         case ADVERSE_MIC_DENIED_SUITE:
             return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: ADVERSE_MIC_PRODUCT_ROWS,
-                absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };
+                absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS, ...MIC_DENIED_RECOVERY_ROWS] };
         case ADVERSE_DOWNLOAD_FAILS_SUITE:
         case ADVERSE_OFFLINE_SUITE:
             return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: ADVERSE_DOWNLOAD_PRODUCT_ROWS,
@@ -795,6 +811,7 @@ export function validateReceipt(raw: unknown): { receipt: ReceiptForFinalization
         errors.push(`"journey telemetry received" arrived as ${received.verdict}; only the readback merge may settle it`);
     }
     errors.push(...externalScopeErrors(receipt.suite, receipt.rows));
+    errors.push(...samePageRecoveryErrors(receipt));
     return { receipt, errors };
 }
 

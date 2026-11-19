@@ -168,13 +168,13 @@ describe('rwtAdverseJourney.ts — Start-press budgets cite every press', () => 
         const lines = src.split('\n');
         const cited = new Set([...budgetComment(src).matchAll(/rwtAdverseJourney\.ts:(\d+)|, :(\d+)\)/g)].map((m) => Number(m[1] ?? m[2])));
         const presses = new Set(lines.flatMap((l, i) => (START_CLICK.test(l) ? [i + 1] : [])));
-        expect(presses.size).toBe(6);
+        expect(presses.size).toBe(5);
         for (const n of cited) expect(lines[n - 1], `line ${n}`).toMatch(START_CLICK);
         expect([...cited].sort((a, b) => a - b)).toEqual([...presses].sort((a, b) => a - b));
     });
-    it('the budgets are the designed presses: AHT-12 two (cold control, either id), AHT-13/14 exactly download, Retry, Start', () => {
+    it('the budgets are the designed presses: AHT-12 one (the denied press, either id; J7.a), AHT-13/14 exactly download, Retry, Start', () => {
         const src = aj();
-        expect(src).toContain("const AHT12_START_PRESS_BUDGET: StartPressBudget = { total: 2, perControl: { 'mic-download': 2, 'mic-start': 2 } };");
+        expect(src).toContain("const AHT12_START_PRESS_BUDGET: StartPressBudget = { total: 1, perControl: { 'mic-download': 1, 'mic-start': 1 } };");
         for (const c of ['AHT13', 'AHT14']) {
             expect(src).toContain(`const ${c}_START_PRESS_BUDGET: StartPressBudget = { total: 3, perControl: { 'mic-download': 1, 'mic-retry': 1, 'mic-start': 1 } };`);
         }
@@ -236,9 +236,9 @@ describe('rwtAdverseJourney.ts — review-reopen, in source order', () => {
         expect(digest).toContain('innerText.trim()');
         expect(digest).toContain("crypto.subtle.digest('SHA-256'");
     });
-    it('each variant writes the reopen row right after its recovery row, on the page that saved the take', () => {
-        const allowed = src.indexOf("receipt.row('after allowing the microphone a take saves'");
-        expect(src.indexOf('await reopenRow(receipt, allowedPage, recovered);', allowed)).toBeGreaterThan(allowed);
+    it('each recovering variant writes the reopen row right after its recovery row; mic denied (J7.a) recovers nothing', () => {
+        expect(src).not.toContain("receipt.row('after allowing the microphone a take saves'");
+        expect(src).not.toContain('allowedPage');
         const retry = src.indexOf("receipt.row('Retry downloads the model and a take saves'");
         expect(src.indexOf('await reopenRow(receipt, page, recovered);', retry)).toBeGreaterThan(retry);
     });
@@ -656,7 +656,7 @@ describe('AHT-14 — the cold take is judged from the attempt, never "nothing to
     });
 });
 
-describe('AHT-12 is labelled a fresh-browser stand-in; the catalog case stays open (Sam, 2026-11-11)', () => {
+describe('AHT-12: the stand-in labels stay truthful; J7.a runs no stand-in and records same-page recovery UNTESTED (2026-11-19)', () => {
     const src = readFileSync(AJ_PATH, 'utf8');
     const catalog = JSON.parse(readFileSync(path.resolve(here, '../../tools/cloud-test/config/assertion-catalog.json'), 'utf8')) as
         Record<string, unknown>;
@@ -672,15 +672,13 @@ describe('AHT-12 is labelled a fresh-browser stand-in; the catalog case stays op
         expect(AHT12_STAND_IN_LABEL).toMatch(/does not prove Allow → Retry on the original denied page/);
         expect(AHT12_CATALOG_CASE_OPEN).toMatch(/separate requirement this test does not meet/);
     });
-    it('the recovery row carries the label and the open catalog case in its detail and evidence', () => {
-        const row = src.slice(src.indexOf("receipt.row('after allowing the microphone a take saves'"));
-        const call = row.slice(0, row.indexOf(');') + 2);
-        expect(call).toContain('${AHT12_STAND_IN_LABEL}');
-        expect(call).toContain('standIn: true');
-        expect(call).toContain('catalogCaseOpen: AHT12_CATALOG_CASE_OPEN');
+    it('J7.a writes no fresh-browser stand-in row, and records same-page recovery as UNTESTED instead', () => {
+        expect(src).not.toContain('AHT12_STAND_IN_LABEL');
+        expect(src).not.toContain('standIn: true');
+        expect(src).toContain('receipt.meta.samePageRecovery = SAME_PAGE_RECOVERY;');
     });
-    it('the catalog still asks three Starts for AHT-12 (not silently changed to two); the stand-in is designed for two', () => {
+    it('the catalog still asks three Starts for AHT-12 (not silently changed); J7.a is designed for the one denied press', () => {
         expect(findCase(catalog)?.minimumStarts).toBe(3);
-        expect(src).toContain("const AHT12_START_PRESS_BUDGET: StartPressBudget = { total: 2,");
+        expect(src).toContain("const AHT12_START_PRESS_BUDGET: StartPressBudget = { total: 1,");
     });
 });
