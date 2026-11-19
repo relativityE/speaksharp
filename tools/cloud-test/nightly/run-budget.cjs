@@ -314,6 +314,13 @@ class RunBudget {
             return true;
         return this.#read((s) => ALL_LEGS.some((l) => l.journey === journeyId && (s.refused.get(l.id)?.[CLEANUP] ?? 0) > 0), () => true);
     }
+    /**
+     * #1884: the journey's cleanup requests still grantable (its reserve minus grants and torn writes; a torn write counts as one), or
+     * null when the budget can't be read. The J4.a teardown proves this covers settlement, deletion and readback before its first delete.
+     */
+    cleanupRemaining(journeyId) {
+        return this.#read((s) => Math.max(0, this.#plan.cleanup[journeyId].requests - ((s.cleanupUsed.get(journeyId) ?? 0) + s.torn)), () => null);
+    }
     /** How many writes to the journal were cut short (null when it can't be read). Any is a reason the run isn't green. */
     journalTorn() { return this.#read((s) => s.torn, () => null); }
     /**
