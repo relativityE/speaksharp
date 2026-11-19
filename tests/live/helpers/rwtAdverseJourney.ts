@@ -3,17 +3,18 @@
  * mid-download) and `rwt-adverse-mic-denied.live.spec.ts` (mic denied). Moved verbatim from the former single spec: the
  * mic-denied variant needs its own file-level `launchOptions` (`=deny`), which Playwright refuses inside a describe group.
  */
+import { readdirSync } from 'node:fs';
+import { resolve as resolvePath } from 'node:path';
 import { createClient } from '@supabase/supabase-js';
-import { chromium, type Browser, type Page, type TestInfo } from '@playwright/test';
-import { routeVercelBypass } from './deployedLiveTest';
-import { applyRwtIdentity, rwtIdentityFor } from './rwtBrowserIdentity';
+import type { Browser, Page, TestInfo } from '@playwright/test';
 import { expect } from './rwtProductionTest';
 import { cleanupRunOwnedAccount } from './runOwnedCleanup';
 import {
-    AnalyticsTap, RWT_ACCOUNT_PREFIX, RwtReceipt, installMicAcquisitionCounter, loadRwtFixture, micAcquisitionLog, rwtLaunchArgs,
+    AnalyticsTap, RWT_ACCOUNT_PREFIX, RwtReceipt, installMicAcquisitionCounter, loadRwtFixture, micAcquisitionLog,
     suppressPageSnapshot, telemetryClassRows,
 } from './rwtJourney';
 import { type RunOwner, prepareRunOwnedAccount } from './rwtDisposableAccount';
+import { consentModeFrom, settlePracticeConsent, type ChoiceClient } from './rwtPracticeConsent';
 import { isRecording, observeCloudStt, persistedId, tabState } from './rwtPageState';
 import { bindReadbackJourneys } from './rwtOracles';
 import { CoachingGenerationTap } from './coachingGenerationTap';
@@ -27,10 +28,11 @@ import {
     ADVERSE_SUITE, type AdverseVariant, MIC_BLOCKED_COPY, MODEL_ASSETS, MODEL_FAILED_STATES, downloadFailureVerdict, armModelStatusLog, readModelStatusLog, AttemptFaultCounter,
     armRuntimeStateLog, readRuntimeStateLog, ModelTransferTracker,
     deniedAfterPress, micDeniedVerdict,
+    NO_TAKE_SAVED_ROW, SAME_PAGE_RECOVERY, SAME_PAGE_RECOVERY_REASON, type AccountSessionRead, noTakeSavedAfterDenialVerdict,
 } from './rwtAdverse';
 import type { SessionRowFacts } from './rwtSaveRetry';
 import {
-    AHT12_CATALOG_CASE_OPEN, AHT12_STAND_IN_LABEL, type ModelBytesRead, type RecoveryAttempt, type RecoveryControl, type ReopenObservation, RECOVERY_CONTROLS, isRecoveryControl,
+    type ModelBytesRead, type RecoveryAttempt, type RecoveryControl, type ReopenObservation, RECOVERY_CONTROLS, isRecoveryControl,
     type AttemptPhase, type TransferSnapshot, attemptPhase, coldTakeSettledVerdict, downloadingNow, midDownloadFailureVerdict, offlineInjectionGate,
     faultUnprovenRecoveryVerdict, offlineNotExercisedVerdict, runOfflineFault, unprovenRestoreVerdict,
     recoverySavedVerdict, retrySetupOutcome, reviewReopenVerdict, savedTranscriptDigest,
@@ -54,8 +56,11 @@ const RECORDING_MS = 600_000;
 /** AHT-14: the cold download shows its first received bytes within this bound (the former request-issued bound). */
 const MODEL_BYTES_MS = 120_000;
 
-/** The site's microphone permission, set the way a person's site setting sets it (Blocked / Allowed). */
-async function setSiteMicrophone(page: Page, browser: Browser, setting: 'denied' | 'granted'): Promise<void> {
+/**
+ * Blocks the site's microphone the way a person's site setting does. J7.a (PO and Sam, 2026-11-19): the journey only ever
+ * blocks it, so this helper cannot allow it.
+ */
+async function blockSiteMicrophone(page: Page, browser: Browser): Promise<void> {
     const pageSession = await page.context().newCDPSession(page);
     const { targetInfo } = await pageSession.send('Target.getTargetInfo');
     await pageSession.detach();
@@ -64,7 +69,7 @@ async function setSiteMicrophone(page: Page, browser: Browser, setting: 'denied'
         await browserSession.send('Browser.setPermission', {
             // CDP `Browser.setPermission` takes a W3C PermissionDescriptor (`microphone`); `audioCapture` is the distinct
             // `Browser.grantPermissions` PermissionType, which Chrome rejects here (run 38876633963).
-            permission: { name: 'microphone' }, setting, origin: new URL(page.url()).origin,
+            permission: { name: 'microphone' }, setting: 'denied', origin: new URL(page.url()).origin,
             browserContextId: targetInfo.browserContextId,
         });
     } finally {
@@ -187,28 +192,23 @@ async function waitForRetrySetup(page: Page, statusesBefore: number | null): Pro
 /**
  * The recovery's Start presses, by design (each one is counted in START_PRESS_BUDGET below). The page's offered control must be
  * the variant's designed one (`RECOVERY_CONTROLS`); otherwise nothing is pressed and the verdict decides.
- *  - AHT-12 (fresh allowing browser): ONE press of the offered cold `mic-download` (download, then recording) or `mic-start`.
+ *  - AHT-12: none. J7.a (PO and Sam, 2026-11-19) covers the denial only; the microphone is never allowed, nothing recovers.
  *  - AHT-13/14 (the failed page): `mic-retry`, then WAIT for the model to publish `ready` (Retry only re-runs setup and never
  *    records — MicCard.tsx), then ONE press of `mic-start`. A Retry that fails again, or never reaches ready, presses nothing more.
  */
 async function pressRecovery(page: Page, variant: AdverseVariant): Promise<RecoveryAttempt> {
     const attempt: RecoveryAttempt = { offered: await offeredRecoveryControl(page), retry: 'not-pressed', startEnabled: null, recorded: false };
     if (attempt.offered === null || !RECOVERY_CONTROLS[variant].includes(attempt.offered)) return attempt;
-    if (attempt.offered === 'mic-retry') {
-        const before = await modelStatuses(page);
-        await page.getByTestId('mic-retry').click();
-        attempt.retry = await waitForRetrySetup(page, before.observed ? before.statuses.length : null);
-        if (attempt.retry !== 'ready') return attempt;
-        const start = page.getByTestId('mic-start');
-        attempt.startEnabled = await expect(start).toBeEnabled({ timeout: START_ENABLED_MS }).then(() => true, () => false);
-        if (!attempt.startEnabled) return attempt;
-        await start.click();
-        attempt.recorded = await isRecording(page, RECORDING_MS);
-        return attempt;
-    }
-    const control = page.getByTestId(attempt.offered);
-    if (!(await expect(control).toBeEnabled({ timeout: RECORDING_MS }).then(() => true, () => false))) return attempt;
-    await control.click();
+    // Only AHT-13/14 recover, through Retry. Any other offer is never pressed: the verdict decides.
+    if (attempt.offered !== 'mic-retry') return attempt;
+    const before = await modelStatuses(page);
+    await page.getByTestId('mic-retry').click();
+    attempt.retry = await waitForRetrySetup(page, before.observed ? before.statuses.length : null);
+    if (attempt.retry !== 'ready') return attempt;
+    const start = page.getByTestId('mic-start');
+    attempt.startEnabled = await expect(start).toBeEnabled({ timeout: START_ENABLED_MS }).then(() => true, () => false);
+    if (!attempt.startEnabled) return attempt;
+    await start.click();
     attempt.recorded = await isRecording(page, RECORDING_MS);
     return attempt;
 }
@@ -218,6 +218,13 @@ async function readSessionIds(uid: string): Promise<string[]> {
     const { data, error } = await admin!.from('sessions').select('id').eq('user_id', uid);
     if (error || !Array.isArray(data)) throw new Error(`session baseline read failed (fail closed): ${error?.code ?? 'unreadable'}`);
     return data.map((row) => String(row.id));
+}
+
+/** J7.a: after the blocked Start, the settle wait before the account is read the second time. */
+const NO_TAKE_SETTLE_MS = 10_000;
+/** J7.a: one re-read of the account's session ids, bound to that account; null (HOLD, never PASS) when the read fails. */
+async function readAccountSessions(uid: string): Promise<AccountSessionRead | null> {
+    return readSessionIds(uid).then((ids) => ({ uid, ids }), () => null);
 }
 
 /**
@@ -313,21 +320,19 @@ async function reopenRow(receipt: RwtReceipt, page: Page, recovered: { savedId: 
  * test id (mic-start, mic-download, mic-retry, verdict-practice-again). Every variant presses once to meet its adverse state;
  * the recovery (`pressRecovery`) then presses only its variant's designed control (`RECOVERY_CONTROLS`), never in a loop, and
  * presses nothing when the page offers anything else. Each press, by its line:
- *  AHT-12 mic denied — at most 2:
- *   1. the denied press, `mic-download` or `mic-start` (whichever is offered): `await control.click()` (rwtAdverseJourney.ts:424);
- *   2. the allowing browser's ONE recovery press of its offered `mic-download` (cold: download, then recording) or `mic-start`:
- *      `await control.click()` (rwtAdverseJourney.ts:211). No Retry: a `mic-retry` offer there is a FAIL, not pressed.
- *   So `mic-download` and `mic-start` may each take both presses; `mic-retry` none. The catalog's minimumStarts 3 assumes
- *   the harness's same-context Allow → Start route, which this two-browser design does not take (a `=deny` browser never
- *   grants; see the mic-denied branch).
+ *  AHT-12 mic denied (J7.a, PO and Sam 2026-11-19) — exactly 1:
+ *   1. the denied press, `mic-download` or `mic-start` (whichever is offered): `await control.click()` (rwtAdverseJourney.ts:436).
+ *   No recovery press: J7.a covers the denial only, and the microphone is never allowed. So either control may take the one
+ *   press; `mic-retry` none. The catalog's minimumStarts 3 assumes the harness's same-context Allow → Start route, which J7.a
+ *   records as UNTESTED.
  *  AHT-13 download fails — exactly 3:
- *   1. `mic-download` with the model route aborted (rwtAdverseJourney.ts:486);
- *   2. `mic-retry` once the cause is removed (rwtAdverseJourney.ts:199);
- *   3. `mic-start` only after Retry's setup published `ready` (rwtAdverseJourney.ts:205).
- *  AHT-14 offline mid-download — exactly 3: `mic-download` (rwtAdverseJourney.ts:500), then the same `mic-retry` and
- *   `mic-start` as AHT-13 (rwtAdverseJourney.ts:199, :205).
+ *   1. `mic-download` with the model route aborted (rwtAdverseJourney.ts:485);
+ *   2. `mic-retry` once the cause is removed (rwtAdverseJourney.ts:205);
+ *   3. `mic-start` only after Retry's setup published `ready` (rwtAdverseJourney.ts:211).
+ *  AHT-14 offline mid-download — exactly 3: `mic-download` (rwtAdverseJourney.ts:499), then the same `mic-retry` and
+ *   `mic-start` as AHT-13 (rwtAdverseJourney.ts:205, :211).
  */
-const AHT12_START_PRESS_BUDGET: StartPressBudget = { total: 2, perControl: { 'mic-download': 2, 'mic-start': 2 } };
+const AHT12_START_PRESS_BUDGET: StartPressBudget = { total: 1, perControl: { 'mic-download': 1, 'mic-start': 1 } };
 const AHT13_START_PRESS_BUDGET: StartPressBudget = { total: 3, perControl: { 'mic-download': 1, 'mic-retry': 1, 'mic-start': 1 } };
 const AHT14_START_PRESS_BUDGET: StartPressBudget = { total: 3, perControl: { 'mic-download': 1, 'mic-retry': 1, 'mic-start': 1 } };
 const START_PRESS_BUDGET: Record<AdverseVariant, StartPressBudget> = {
@@ -352,10 +357,8 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
     const takes: string[] = [];
     let claimed = false;
     const context = page.context();
-    // Mic-denied only: the browser in which the person allows the microphone (see below).
-    let recoveryBrowser: Browser | null = null;
     // #1593 fail early: an unexpected failure, refusal or stall ends the journey in seconds, not at the 30-minute timeout.
-    const watch = armWatchdog({ page, tap, profile: watchProfileFor(suite), label: suite, contexts: () => recoveryBrowser?.contexts() ?? [] });
+    const watch = armWatchdog({ page, tap, profile: watchProfileFor(suite), label: suite });
     // #1593 (Sam, #1662 RETURN control 1): ONE owned finalization — the body's finally and the suite's afterEach
     // (which Playwright runs after a timeout) run this same memoized closure exactly once.
     const finish = finalizer.once(async () => {
@@ -365,7 +368,6 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
         // (bounded; page-independent, since a finalizer may run after its tabs closed).
         await steps.step('telemetry settle', () => tap.settleEveryPage((ms) => new Promise((resolve) => setTimeout(resolve, ms))));
         await steps.step('watchdog', () => watch.record(receipt));
-        await steps.step('recovery browser close', () => recoveryBrowser?.close());
         await steps.step('offline restore', () => context.setOffline(false));
         await steps.step('model route restore', () => context.unroute(MODEL_ASSETS));
         await steps.step('no cloud row', () => {
@@ -373,7 +375,7 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
             receipt.row('no Cloud STT request', cloudVerdict.status, cloudVerdict.detail, { cloudRequests: cloud.requests });
         });
         await steps.step('coaching settle', () => generations.settle(), FINALIZE_SETTLE_MS);
-        await steps.step('coaching budget', () => coachingRequestBudgetRow(receipt, generations, { maximum: 1, oneRequestPerSession: takes }));
+        await steps.step('coaching budget', () => coachingRequestBudgetRow(receipt, generations, { maximum: variant === 'mic-denied' ? 0 : 1, oneRequestPerSession: takes }));
         // Harness parity rows (catalog: no-cloud-stt, start-press-budget, owned-pages-closed), before the account is deleted. The
         // 'no Cloud STT request' row above counts only the journey's own pages; this one is the harness's context-wide definition.
         await steps.step('harness parity counts', (alive) => {
@@ -383,9 +385,9 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
         await steps.step('owned pages closed', (alive) => parity.ownedPagesClosedRow(aliveReceipt(receipt, alive)), PARITY_CLOSE_STEP_MS);
         // A signup that died before its uid was read is still found by its created email.
         if (owner.uid || owner.email) {
-            // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion; its own settlement decides the row. Writers: the pages and the recovery browser.
+            // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion; its own settlement decides the row. Writers: the journey's pages.
             await finalizeOwnedCleanup(steps, receipt, new OwnedCleanup(
-                () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX, stoppedTakes: { writersClosedAt: () => (recoveryBrowser?.isConnected() ? null : parity.ownedPagesClosedAt), unsettledSaves: () => parity.unsettledSaves } })));
+                () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX, stoppedTakes: { writersClosedAt: () => parity.ownedPagesClosedAt, unsettledSaves: () => parity.unsettledSaves } })));
         }
         await steps.step('telemetry rows', () => telemetryClassRows(receipt, tap, claimed, false));
         steps.report(receipt);
@@ -402,6 +404,16 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
         // The acquisition boundary's own outcomes (grants and NotAllowedError) are observed from the first page load.
         await installMicAcquisitionCounter(page);
         await page.goto('/practice');
+        // #1835 (Sam, 2026-11-19): a fresh owner is asked its privacy choice on the first Practice visit. Only THIS run's
+        // disposable account answers it, with the dispatch's RWT_PRACTICE_CONSENT, before any press; the product default is
+        // untouched. A verified pre-#1835 build has nothing to answer; an unknown build or an unset mode stops here, before
+        // any take could exist.
+        const migrationFiles = (() => { try { return readdirSync(resolvePath(process.cwd(), 'backend/supabase/migrations')); } catch { return null; } })();
+        const consent = await settlePracticeConsent({ page, client: admin as unknown as ChoiceClient, ownerId: owner.uid, migrationFiles,
+            mode: consentModeFrom(process.env.RWT_PRACTICE_CONSENT) });
+        receipt.row('practice privacy choice', 'PASS', consent.choice ? 'this run\'s owner recorded its choice through the Practice prompt, read back from the server'
+            : 'verified pre-#1835 build: no choice to make', { build: consent.build, mode: consent.mode ?? 'none',
+            transcriptSave: consent.choice?.transcriptSave ?? null, aiCoaching: consent.choice?.aiCoaching ?? null });
         await openProductsItem(page, 'open-mic');
         await page.waitForURL(/\/session/, { timeout: 45_000 });
         await selectBenchmarkMode(page, 'private');
@@ -409,7 +421,7 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
         await page.evaluate(armRuntimeStateLog, runtimeStateToken);
 
         if (variant === 'mic-denied') {
-            await setSiteMicrophone(page, browser, 'denied');
+            await blockSiteMicrophone(page, browser);
             // Informational only (Sam, #1662 RETURN): the verdict is decided at the acquisition boundary below.
             const permissionQuery = await micPermissionState(page);
             const control = page.getByTestId('mic-download').or(page.getByTestId('mic-start')).filter({ visible: true }).first();
@@ -432,35 +444,22 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
             const denied = micDeniedVerdict({ deniedAtAcquisition, blockedCopyShown, tab: state });
             receipt.row('blocked microphone is stated truthfully', denied.status, denied.detail,
                 { deniedAtAcquisition, acquisitionRejections: rejections.length, permissionQuery, blockedCopyShown, ...state, mode: await sttMode(page) });
+            // J7.a (PO and Sam, 2026-11-19): no take is saved for THIS account. The account is read right after the blocked
+            // copy and again after NO_TAKE_SETTLE_MS, with the page left open, nothing pressed, and recording still forbidden.
+            const reads = [await readAccountSessions(owner.uid)];
+            await page.waitForTimeout(NO_TAKE_SETTLE_MS);
+            reads.push(await readAccountSessions(owner.uid));
+            const noTake = noTakeSavedAfterDenialVerdict({ deniedAtAcquisition, uid: owner.uid, baseline: accountRows.baseline, reads });
+            receipt.row(NO_TAKE_SAVED_ROW, noTake.status, noTake.detail, {
+                baselineRows: accountRows.baseline.length, reads: reads.filter((r) => r !== null).length,
+                rowsAfter: reads[reads.length - 1]?.ids.length ?? null, settleMs: NO_TAKE_SETTLE_MS,
+            });
             watch.setForbidRecording(false);
             watch.setFaultPhase(false);
-            // #1593 (local probe, 2026-10-18): only `--use-fake-ui-for-media-stream=deny` makes the browser answer a
-            // truthful NotAllowedError, and that browser can never grant afterwards. Allowing the microphone is therefore
-            // what a person does next: the same account, in a browser that allows it (the harness's ordinary launch).
-            recoveryBrowser = await chromium.launch({ args: rwtLaunchArgs(fixture, { webgpu: false }) });
-            const baseURL = new URL(page.url()).origin;
-            const allowed = await recoveryBrowser.newContext({ baseURL, permissions: ['microphone'] });
-            await parity.attach(allowed);
-            await routeVercelBypass(allowed, baseURL);
-            const allowedPage = await allowed.newPage();
-            await applyRwtIdentity(allowed, allowedPage, await rwtIdentityFor(recoveryBrowser));
-            tap.attach(allowedPage); generations.attach(allowedPage); observeCloudStt(allowedPage, cloud);
-            watch.setPage(allowedPage);
-            if (!owner.signInOn) throw new Error('the run-owned account cannot sign in on another browser');
-            await owner.signInOn(allowedPage);
-            await allowedPage.goto('/practice');
-            await openProductsItem(allowedPage, 'open-mic');
-            await allowedPage.waitForURL(/\/session/, { timeout: 45_000 });
-            await selectBenchmarkMode(allowedPage, 'private');
-            // The recovery runs whatever the denial row read: the allowing browser's own cold Start is the case either way.
-            const recovered = await saveRecoveredTake(allowedPage, variant, true, accountRows, `adverse-${variant}`, takes);
-            // Sam, #1662 RETURN and 2026-11-11: a FRESH-BROWSER STAND-IN. It proves recovery for the SAME ACCOUNT in a fresh,
-            // allowing browser, not Allow→Retry in the originally denied page (a `=deny` browser cannot grant). The catalog's
-            // full three-press, same-context case stays open as a separate requirement (AHT12_CATALOG_CASE_OPEN).
-            receipt.row('after allowing the microphone a take saves', recovered.verdict.status,
-                `${recovered.verdict.detail} (${AHT12_STAND_IN_LABEL})`,
-                { recoveryScope: 'same_account_fresh_browser', standIn: true, catalogCaseOpen: AHT12_CATALOG_CASE_OPEN, ...recovered.evidence });
-            await reopenRow(receipt, allowedPage, recovered);
+            // J7.a scope: the app never tries to unblock the microphone and this test never allows it, so recovery on the same
+            // page is not exercised. It is recorded as UNTESTED, never as a row and never as a pass.
+            receipt.meta.samePageRecovery = SAME_PAGE_RECOVERY;
+            receipt.meta.samePageRecoveryReason = SAME_PAGE_RECOVERY_REASON;
         } else {
             // Sam's ACCEPT of PM 731eb5c0: only this download attempt's model-WEIGHT failures while the fault is armed count,
             // and the fault is armed BEFORE it is induced (a failure delivered during the awaited injection still counts).
