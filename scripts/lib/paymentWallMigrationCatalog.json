@@ -1,0 +1,506 @@
+{
+  "version": "20261114170000",
+  "targetSha256": "407a49072c928ed52015d5d696791e4506a25468f9a71098db418b1f18cf3f59",
+  "derivedFrom": "exact migration bytes applied on PGlite after the production-equivalent chain (withheld 20261027192550, 20261112130000 skipped); re-derived by tests/db/paymentWallMigrationPostflight.integration.test.ts",
+  "functions": [
+    {
+      "signature": "public._ss_payment_wall_evaluation_guard()",
+      "md5": "7c54d3bae076f5d3b17ff0224e13f907",
+      "definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "language": "plpgsql",
+      "volatility": "v",
+      "returns": "trigger",
+      "acl": []
+    },
+    {
+      "signature": "public.account_has_product_access(p_user_id uuid)",
+      "md5": "ff3be7ce81d2ece8182be97b24ff3e8c",
+      "definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "language": "sql",
+      "volatility": "s",
+      "returns": "boolean",
+      "acl": [
+        "service_role"
+      ]
+    },
+    {
+      "signature": "public.advance_recommendation_attempt(p_attempt_id uuid, p_lifecycle text, p_practice_session_id uuid, p_next_comparable_session_id uuid)",
+      "md5": "995c7268c35b9135bb51cbf4128e9f75",
+      "definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "language": "plpgsql",
+      "volatility": "v",
+      "returns": "text",
+      "acl": [
+        "authenticated"
+      ]
+    },
+    {
+      "signature": "public.advance_recommendation_attempt__unguarded(p_attempt_id uuid, p_lifecycle text, p_practice_session_id uuid, p_next_comparable_session_id uuid)",
+      "md5": "d13e7e1132bfbc6b0be7d12e983e7d96",
+      "definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "language": "plpgsql",
+      "volatility": "v",
+      "returns": "text",
+      "acl": []
+    },
+    {
+      "signature": "public.consume_ai_suggestion_quota(p_limit integer)",
+      "md5": "d2df314b7fc0e7c9255e97bf977e7c67",
+      "definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "language": "plpgsql",
+      "volatility": "v",
+      "returns": "jsonb",
+      "acl": [
+        "authenticated"
+      ]
+    },
+    {
+      "signature": "public.consume_ai_suggestion_quota__unguarded(p_limit integer)",
+      "md5": "7c262a32aad5764011faaaccc19071aa",
+      "definer": true,
+      "config": [
+        "search_path=public"
+      ],
+      "language": "plpgsql",
+      "volatility": "v",
+      "returns": "jsonb",
+      "acl": []
+    },
+    {
+      "signature": "public.consume_formatter_quota(p_limit integer)",
+      "md5": "bb6f06d8f0416a87cf4019a69616a8de",
+      "definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "language": "plpgsql",
+      "volatility": "v",
+      "returns": "jsonb",
+      "acl": [
+        "authenticated"
+      ]
+    },
+    {
+      "signature": "public.consume_formatter_quota__unguarded(p_limit integer)",
+      "md5": "0c00a7ced10bf7dab550c5f9ed96b597",
+      "definer": true,
+      "config": [
+        "search_path=public"
+      ],
+      "language": "plpgsql",
+      "volatility": "v",
+      "returns": "jsonb",
+      "acl": []
+    },
+    {
+      "signature": "public.current_account_has_product_access()",
+      "md5": "a7f94055a20008577a23adbac0331eeb",
+      "definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "language": "sql",
+      "volatility": "s",
+      "returns": "boolean",
+      "acl": [
+        "authenticated",
+        "service_role"
+      ]
+    },
+    {
+      "signature": "public.discard_unsaved_recordings_for_closure_v1()",
+      "md5": "d2ac4f6a708cfdd372b45f7bb4975a6c",
+      "definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "language": "plpgsql",
+      "volatility": "v",
+      "returns": "jsonb",
+      "acl": [
+        "authenticated"
+      ]
+    },
+    {
+      "signature": "public.get_analytics_summary(p_user_id uuid)",
+      "md5": "d6cfb808020ee3a950dcaa336e13a8c4",
+      "definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "language": "plpgsql",
+      "volatility": "v",
+      "returns": "jsonb",
+      "acl": [
+        "authenticated",
+        "service_role"
+      ]
+    },
+    {
+      "signature": "public.get_analytics_summary__unguarded(p_user_id uuid)",
+      "md5": "420c4bfa3f7833b69ae4a8ad6ed3d486",
+      "definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "language": "plpgsql",
+      "volatility": "v",
+      "returns": "jsonb",
+      "acl": []
+    },
+    {
+      "signature": "public.get_attribution_authority_v1(p_session_id uuid)",
+      "md5": "469de341897689021cc9c9feba8e1e62",
+      "definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "language": "plpgsql",
+      "volatility": "s",
+      "returns": "text",
+      "acl": [
+        "authenticated",
+        "service_role"
+      ]
+    },
+    {
+      "signature": "public.get_attribution_authority_v1__unguarded(p_session_id uuid)",
+      "md5": "0a10804eeee1fc50e440c2b1d75ca3d0",
+      "definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "language": "sql",
+      "volatility": "s",
+      "returns": "text",
+      "acl": []
+    },
+    {
+      "signature": "public.get_progress_obligations(p_limit integer, p_before_created_at timestamp with time zone, p_before_id uuid)",
+      "md5": "a474d4a0c49d10df47aa67ac7cc80711",
+      "definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "language": "plpgsql",
+      "volatility": "s",
+      "returns": "jsonb",
+      "acl": [
+        "authenticated"
+      ]
+    },
+    {
+      "signature": "public.get_progress_obligations__unguarded(p_limit integer, p_before_created_at timestamp with time zone, p_before_id uuid)",
+      "md5": "0fdc7f9d5e80a508102f695ead5e6d4d",
+      "definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "language": "plpgsql",
+      "volatility": "s",
+      "returns": "jsonb",
+      "acl": []
+    },
+    {
+      "signature": "public.get_session_engine_class_v1(p_session_id uuid)",
+      "md5": "3d31e3fa5159df0f2e3baa31ae28fca4",
+      "definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "language": "plpgsql",
+      "volatility": "s",
+      "returns": "text",
+      "acl": [
+        "authenticated",
+        "service_role"
+      ]
+    },
+    {
+      "signature": "public.get_session_engine_class_v1__unguarded(p_session_id uuid)",
+      "md5": "93a9f50e5e6d04e1f15ddf7f270b6be5",
+      "definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "language": "sql",
+      "volatility": "s",
+      "returns": "text",
+      "acl": []
+    },
+    {
+      "signature": "public.issue_objective_brief_v1(p_project_id uuid, p_event_goal text, p_time_budget_seconds integer, p_audience text, p_points jsonb)",
+      "md5": "ecb7bb42e2dcb092d3926106fcc09db8",
+      "definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "language": "plpgsql",
+      "volatility": "v",
+      "returns": "uuid",
+      "acl": [
+        "authenticated"
+      ]
+    },
+    {
+      "signature": "public.issue_objective_brief_v1__unguarded(p_project_id uuid, p_event_goal text, p_time_budget_seconds integer, p_audience text, p_points jsonb)",
+      "md5": "18b58ef68ebac0713bf3dca01836ade5",
+      "definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "language": "plpgsql",
+      "volatility": "v",
+      "returns": "uuid",
+      "acl": []
+    },
+    {
+      "signature": "public.issue_objective_project_v1(p_title text)",
+      "md5": "5be7fe3980dba5d0f16daf8217bec47e",
+      "definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "language": "plpgsql",
+      "volatility": "v",
+      "returns": "uuid",
+      "acl": [
+        "authenticated"
+      ]
+    },
+    {
+      "signature": "public.issue_objective_project_v1__unguarded(p_title text)",
+      "md5": "94712bfad4553ce132153bcf588ae319",
+      "definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "language": "plpgsql",
+      "volatility": "v",
+      "returns": "uuid",
+      "acl": []
+    },
+    {
+      "signature": "public.objective_dispute_action_v1(p_action_id uuid)",
+      "md5": "eeb944c75e49e86f79c7400fb13cd048",
+      "definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "language": "plpgsql",
+      "volatility": "v",
+      "returns": "uuid",
+      "acl": [
+        "authenticated"
+      ]
+    },
+    {
+      "signature": "public.objective_dispute_action_v1__unguarded(p_action_id uuid)",
+      "md5": "65da95e249c78b244cfed93924577c20",
+      "definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "language": "plpgsql",
+      "volatility": "v",
+      "returns": "uuid",
+      "acl": []
+    },
+    {
+      "signature": "public.objective_finalize_evidence_v1(p_session_id uuid, p_signals jsonb)",
+      "md5": "6d31599ed4c6583d052cff9789fc8504",
+      "definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "language": "plpgsql",
+      "volatility": "v",
+      "returns": "integer",
+      "acl": [
+        "authenticated"
+      ]
+    },
+    {
+      "signature": "public.objective_finalize_evidence_v1__unguarded(p_session_id uuid, p_signals jsonb)",
+      "md5": "fac61b534df0e1bd815a4d1dbeea4ebe",
+      "definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "language": "plpgsql",
+      "volatility": "v",
+      "returns": "integer",
+      "acl": []
+    },
+    {
+      "signature": "public.objective_select_action_v1(p_session_id uuid)",
+      "md5": "bf6501cdaa9fc8cbda4bbc2083e38175",
+      "definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "language": "plpgsql",
+      "volatility": "v",
+      "returns": "uuid",
+      "acl": [
+        "authenticated"
+      ]
+    },
+    {
+      "signature": "public.objective_select_action_v1__unguarded(p_session_id uuid)",
+      "md5": "43417acfa11c2167f84876443dba65db",
+      "definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "language": "plpgsql",
+      "volatility": "v",
+      "returns": "uuid",
+      "acl": []
+    },
+    {
+      "signature": "public.objective_start_session_v1(p_project_id uuid, p_brief_id uuid, p_source_session_id uuid, p_detector_version text, p_formula_version text, p_idempotency_key text)",
+      "md5": "09f0d31a9d93f277ac75db2e05f63071",
+      "definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "language": "plpgsql",
+      "volatility": "v",
+      "returns": "uuid",
+      "acl": [
+        "authenticated"
+      ]
+    },
+    {
+      "signature": "public.objective_start_session_v1__unguarded(p_project_id uuid, p_brief_id uuid, p_source_session_id uuid, p_detector_version text, p_formula_version text, p_idempotency_key text)",
+      "md5": "d0adff877fb5911869b3de4faa557a98",
+      "definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "language": "plpgsql",
+      "volatility": "v",
+      "returns": "uuid",
+      "acl": []
+    },
+    {
+      "signature": "public.record_progress_recommendation(p_source_session_id uuid, p_target_metric text, p_target_direction text, p_target_value double precision, p_target_units text, p_shown_text text)",
+      "md5": "a1f493f23924f257532d8c5161ac5e35",
+      "definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "language": "plpgsql",
+      "volatility": "v",
+      "returns": "uuid",
+      "acl": [
+        "authenticated"
+      ]
+    },
+    {
+      "signature": "public.record_progress_recommendation__unguarded(p_source_session_id uuid, p_target_metric text, p_target_direction text, p_target_value double precision, p_target_units text, p_shown_text text)",
+      "md5": "31832f96136b824fca83c23ea2593f51",
+      "definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "language": "plpgsql",
+      "volatility": "v",
+      "returns": "uuid",
+      "acl": []
+    },
+    {
+      "signature": "public.record_recommendation_attempt(p_recommendation_id uuid)",
+      "md5": "b3f818383ed074683ccb433ce1d7fa9d",
+      "definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "language": "plpgsql",
+      "volatility": "v",
+      "returns": "uuid",
+      "acl": [
+        "authenticated"
+      ]
+    },
+    {
+      "signature": "public.record_recommendation_attempt__unguarded(p_recommendation_id uuid)",
+      "md5": "a2a02c87835bcb1b7313a79ca7ff462e",
+      "definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "language": "plpgsql",
+      "volatility": "v",
+      "returns": "uuid",
+      "acl": []
+    },
+    {
+      "signature": "public.require_product_access(p_user_id uuid)",
+      "md5": "a080cad54ccb408b708da7d114cc9693",
+      "definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "language": "plpgsql",
+      "volatility": "s",
+      "returns": "void",
+      "acl": [
+        "service_role"
+      ]
+    }
+  ],
+  "policies": [
+    "objective_action objective_action_select_own r {authenticated} using=((auth.uid() = user_id) AND ( SELECT current_account_has_product_access() AS current_account_has_product_access)) check=-",
+    "objective_action_dispute objective_dispute_select_own r {authenticated} using=((auth.uid() = user_id) AND ( SELECT current_account_has_product_access() AS current_account_has_product_access)) check=-",
+    "objective_brief objective_brief_select_own r {authenticated} using=((auth.uid() = user_id) AND ( SELECT current_account_has_product_access() AS current_account_has_product_access)) check=-",
+    "objective_brief_point objective_point_select_own r {authenticated} using=((auth.uid() = user_id) AND ( SELECT current_account_has_product_access() AS current_account_has_product_access)) check=-",
+    "objective_evidence objective_evidence_select_own r {authenticated} using=((auth.uid() = user_id) AND ( SELECT current_account_has_product_access() AS current_account_has_product_access)) check=-",
+    "objective_project objective_project_select_own r {authenticated} using=((auth.uid() = user_id) AND ( SELECT current_account_has_product_access() AS current_account_has_product_access)) check=-",
+    "objective_session objective_session_select_own r {authenticated} using=((auth.uid() = user_id) AND ( SELECT current_account_has_product_access() AS current_account_has_product_access)) check=-",
+    "objective_source_recording objective_source_recording_select_own r {authenticated} using=((auth.uid() = user_id) AND ( SELECT current_account_has_product_access() AS current_account_has_product_access)) check=-",
+    "progress_recommendation_attempts prec_att_select_own r {authenticated} using=((auth.uid() = user_id) AND ( SELECT current_account_has_product_access() AS current_account_has_product_access)) check=-",
+    "progress_recommendations prec_select_own r {authenticated} using=((auth.uid() = user_id) AND ( SELECT current_account_has_product_access() AS current_account_has_product_access)) check=-",
+    "session_attribution_authority session_attribution_authority_select_own r {authenticated} using=((auth.uid() = user_id) AND ( SELECT current_account_has_product_access() AS current_account_has_product_access)) check=-",
+    "session_attribution_challenge session_attribution_challenge_select_own r {authenticated} using=((auth.uid() = user_id) AND ( SELECT current_account_has_product_access() AS current_account_has_product_access)) check=-",
+    "session_attribution_unattributed session_attribution_unattributed_select_own r {authenticated} using=((auth.uid() = user_id) AND ( SELECT current_account_has_product_access() AS current_account_has_product_access)) check=-",
+    "session_progress_evaluations spe_select_own r {authenticated} using=((auth.uid() = user_id) AND ( SELECT current_account_has_product_access() AS current_account_has_product_access)) check=-",
+    "sessions Entitled users can insert own sessions a {authenticated} using=- check=((( SELECT auth.uid() AS uid) = user_id) AND (EXISTS ( SELECT 1\n   FROM user_profiles p\n  WHERE ((p.id = ( SELECT auth.uid() AS uid)) AND (effective_subscription_tier(p.subscription_status, p.trial_expires_at, p.stripe_subscription_id, p.subscription_id, p.commercial_trial_granted_at) = 'pro'::text)))))",
+    "sessions Entitled users can update own sessions w {authenticated} using=((( SELECT auth.uid() AS uid) = user_id) AND (EXISTS ( SELECT 1\n   FROM user_profiles p\n  WHERE ((p.id = ( SELECT auth.uid() AS uid)) AND (effective_subscription_tier(p.subscription_status, p.trial_expires_at, p.stripe_subscription_id, p.subscription_id, p.commercial_trial_granted_at) = 'pro'::text))))) check=((( SELECT auth.uid() AS uid) = user_id) AND (EXISTS ( SELECT 1\n   FROM user_profiles p\n  WHERE ((p.id = ( SELECT auth.uid() AS uid)) AND (effective_subscription_tier(p.subscription_status, p.trial_expires_at, p.stripe_subscription_id, p.subscription_id, p.commercial_trial_granted_at) = 'pro'::text)))))",
+    "sessions Users can delete own sessions d {authenticated} using=(( SELECT auth.uid() AS uid) = user_id) check=-",
+    "sessions Users can read own sessions r {authenticated} using=((( SELECT auth.uid() AS uid) = user_id) AND ( SELECT current_account_has_product_access() AS current_account_has_product_access)) check=-",
+    "user_filler_words Users can manage own vocabulary * {authenticated} using=((auth.uid() = user_id) AND ( SELECT current_account_has_product_access() AS current_account_has_product_access)) check=((auth.uid() = user_id) AND ( SELECT current_account_has_product_access() AS current_account_has_product_access))",
+    "user_goals Users can insert own goals a {authenticated} using=- check=((auth.uid() = user_id) AND ( SELECT current_account_has_product_access() AS current_account_has_product_access))",
+    "user_goals Users can update own goals w {authenticated} using=((auth.uid() = user_id) AND ( SELECT current_account_has_product_access() AS current_account_has_product_access)) check=((auth.uid() = user_id) AND ( SELECT current_account_has_product_access() AS current_account_has_product_access))",
+    "user_goals Users can view own goals r {authenticated} using=((auth.uid() = user_id) AND ( SELECT current_account_has_product_access() AS current_account_has_product_access)) check=-"
+  ],
+  "triggers": [
+    {
+      "table": "public.session_progress_evaluations",
+      "name": "ss_payment_wall_evaluation_guard",
+      "function": "public._ss_payment_wall_evaluation_guard()",
+      "type": 23,
+      "enabled": "O",
+      "conditional": false,
+      "columns": 0,
+      "args": 0,
+      "definition": "CREATE TRIGGER ss_payment_wall_evaluation_guard BEFORE INSERT OR UPDATE ON public.session_progress_evaluations FOR EACH ROW EXECUTE FUNCTION _ss_payment_wall_evaluation_guard()"
+    }
+  ]
+}

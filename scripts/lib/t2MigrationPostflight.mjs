@@ -9,6 +9,7 @@ import { C1_VERSIONS, c1Contract, c1CatalogQuery, functionDefinitions } from './
 import { RETIREMENT_CATALOG_DELTA } from './retirementCatalogPins.mjs';
 import { ABANDONMENT_CATALOG_DELTA } from './abandonmentCatalogPins.mjs';
 import { FEEDBACK_FENCE_CATALOG_DELTA } from './feedbackFenceCatalogPins.mjs';
+import { PAYMENT_WALL_T2_CATALOG_DELTA, PRACTICE_PRIVACY_T2_CATALOG_DELTA } from './paymentWallPrivacyT2CatalogPins.mjs';
 
 export const RETIREMENT_VERSION = '20261110173548';
 export const RETIREMENT_FUNCTIONS = Object.freeze(['fence_account_coaching_expired_v1', 'finish_account_coaching_local_v1']);
@@ -22,6 +23,10 @@ export const FEEDBACK_FENCE_VERSION = '20261114100000';
 export const FEEDBACK_FENCE_FUNCTIONS = Object.freeze(['_rwt_feedback_fence_v1', 'clean_rwt_feedback_fence_v1',
   'close_rwt_feedback_fence_v1', 'list_unresolved_rwt_feedback_fences_v1', 'open_rwt_feedback_fence_v1', 'verify_rwt_feedback_fence_v1']);
 export const FEEDBACK_FENCE_TABLES = Object.freeze(['rwt_feedback_fences']);
+// #1863 payment wall (ledger 12) and #1835 practice privacy (ledger 13). Their own new objects are proved by their exact-apply
+// postflights; here each stage pins only the existing T2-inventoried objects it changes (paymentWallPrivacyT2CatalogPins.mjs).
+export const PAYMENT_WALL_VERSION = '20261114170000';
+export const PRACTICE_PRIVACY_VERSION = '20261117105700';
 
 export const T2_VERSIONS = Object.freeze([
   '20261018090000', '20261018170000', '20261019010000',
@@ -464,8 +469,9 @@ export function t2ReleaseContract(root, installed, options = {}) {
   }
   const ledger = typeof installed === 'string' ? JSON.parse(installed) : installed;
   const versions = [...T2_VERSIONS, ...C1_VERSIONS, ...(ledger?.length >= 9 ? [RETIREMENT_VERSION] : []),
-    ...(ledger?.length >= 10 ? [ABANDONMENT_VERSION] : []), ...(ledger?.length === 11 ? [FEEDBACK_FENCE_VERSION] : [])];
-  if (!Array.isArray(ledger) || ![6, 7, 8, 9, 10, 11].includes(ledger.length)
+    ...(ledger?.length >= 10 ? [ABANDONMENT_VERSION] : []), ...(ledger?.length >= 11 ? [FEEDBACK_FENCE_VERSION] : []),
+    ...(ledger?.length >= 12 ? [PAYMENT_WALL_VERSION] : []), ...(ledger?.length === 13 ? [PRACTICE_PRIVACY_VERSION] : [])];
+  if (!Array.isArray(ledger) || ![6, 7, 8, 9, 10, 11, 12, 13].includes(ledger.length)
     || ledger.some((version, index) => version !== versions[index])) {
     throw new Error('T2 release ledger unknown, mixed or incomplete');
   }
@@ -485,7 +491,7 @@ export function t2ReleaseContract(root, installed, options = {}) {
     return { version, sha256: pin.sha256 };
   });
   const c1Sources = [...C1_VERSIONS.slice(0, stage), ...(stage >= 3 ? [RETIREMENT_VERSION] : []),
-    ...(stage >= 4 ? [ABANDONMENT_VERSION] : []), ...(stage === 5 ? [FEEDBACK_FENCE_VERSION] : [])].map(version => sources[version]);
+    ...(stage >= 4 ? [ABANDONMENT_VERSION] : []), ...(stage >= 5 ? [FEEDBACK_FENCE_VERSION] : [])].map(version => sources[version]);
   const inventory = {
     functions: [...new Set([...T2_INVENTORY.functions, ...c1Sources.flatMap(source =>
       functionDefinitions(source).map(fn => fn.signature.split('(')[0].slice(7)))])].sort(),
@@ -498,7 +504,8 @@ export function t2ReleaseContract(root, installed, options = {}) {
   const expected = Object.assign({}, T2_CATALOG_STATES.at(-1), ...T2_C1_RELEASE_DELTAS.slice(0, stage),
     stage >= 2 && catalogContext === 'retained-production' ? RETAINED_PRODUCTION_POST128 : {},
     stage >= 3 ? RETIREMENT_CATALOG_DELTA : {}, stage >= 4 ? ABANDONMENT_CATALOG_DELTA : {},
-    stage === 5 ? FEEDBACK_FENCE_CATALOG_DELTA : {});
+    stage >= 5 ? FEEDBACK_FENCE_CATALOG_DELTA : {}, stage >= 6 ? PAYMENT_WALL_T2_CATALOG_DELTA : {},
+    stage === 7 ? PRACTICE_PRIVACY_T2_CATALOG_DELTA : {});
   // The independent source-derived C1 checker also refuses future/partial
   // objects and old body/ACL/trigger shapes, even before their ledger entry.
   const c1 = stage >= 2 ? c1Contract(root, 'after', C1_VERSIONS[1])
@@ -521,7 +528,8 @@ export function t2ReleaseContract(root, installed, options = {}) {
     throw new Error('T2 release future function shape unavailable');
   }
   const absentFamilies = futureFunctions.map(fn => fn.signature.split('(')[0].slice(7));
-  const profile = stage === 5 ? 'post-1811-feedback-fence' : stage === 4 ? 'post-1643-abandonment'
+  const profile = stage === 7 ? 'post-1835-practice-privacy' : stage === 6 ? 'post-1863-payment-wall'
+    : stage === 5 ? 'post-1811-feedback-fence' : stage === 4 ? 'post-1643-abandonment'
     : stage === 3 ? 'post-128-retirement' : `post-${126 + stage}`;
   return { profile, catalogContext, stage, ledger: [...ledger], pins, inventory, expected, c1,
     knownAbsent: { ...NEXT_RELEASE_SOURCE, families: [...absentFamilies, ...(stage < 3 ? RETIREMENT_FUNCTIONS : []),
@@ -542,9 +550,10 @@ export function t2KnownAbsentQuery(contract) {
 // installed. Keep verify/release available for historical read-only diagnostics.
 export function t2EdgeReleaseContract(root, installed) {
   const contract = t2ReleaseContract(root, installed, { catalogContext: 'retained-production' });
-  // The retirement successor is required; the later #1643 start-abandonment (10) and #1811 feedback-fence (11) ledgers
-  // still include it.
-  if (!['post-128-retirement', 'post-1643-abandonment', 'post-1811-feedback-fence'].includes(contract.profile)) {
+  // The retirement successor is required; the later #1643 start-abandonment (10), #1811 feedback-fence (11), #1863
+  // payment-wall (12) and #1835 practice-privacy (13) ledgers still include it.
+  if (!['post-128-retirement', 'post-1643-abandonment', 'post-1811-feedback-fence', 'post-1863-payment-wall',
+    'post-1835-practice-privacy'].includes(contract.profile)) {
     throw new Error('T2 Edge release requires installed coaching retirement successor');
   }
   return contract;

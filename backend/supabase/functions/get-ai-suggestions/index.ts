@@ -1055,6 +1055,18 @@ export async function handler(
     diagnosticPhase = 'persist';
     const changedConsent = privacyRefusal(await readCoachingConsent(supabaseClient, userId), consent.revision);
     if (changedConsent) return changedConsent;
+    // #1899 (Codex Security P3 r4622877344): the provider loop can outlast a trial. Recheck product access immediately
+    // before persistence with the same server-authoritative seam as admission, so an answer that finishes after the account
+    // lost access is neither stored nor returned. This narrows the window to the recheck-to-commit interval; the
+    // in-transaction check that closes it is #1900.
+    const { data: persistEntitlement, error: persistEntitlementError } = await supabaseClient.rpc('check_usage_limit');
+    if (persistEntitlementError) {
+      console.error('Entitlement recheck before save failed:', persistEntitlementError);
+      return finish({ error: 'Unable to verify analysis access' }, 503);
+    }
+    if (persistEntitlement?.can_start !== true || persistEntitlement?.is_pro !== true) {
+      return finish({ error: 'Trial has ended' }, 403);
+    }
     // Persist the coaching value and its provider/quota authority in one service-role transaction.
     // The browser's authenticated client cannot execute this RPC or write the receipt table.
     // A lost commit reply is unknown until the atomic database operation can be reconciled.

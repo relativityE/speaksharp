@@ -51,7 +51,7 @@ describe('C1 ordered exact-operation enforcement', () => {
         expect(index).toBeLessThan(job.steps.findIndex(step => step.uses?.startsWith('supabase/setup-cli@')));
         expect(index).toBeLessThan(job.steps.findIndex(step => /\bsupabase\s/.test(step.run ?? '')));
         const guard = job.steps[index];
-        expect(guard.if).toBe("${{ inputs.target_version == '20261024083000' || inputs.target_version == '20261025021046' || inputs.target_version == '20261110173548' || inputs.target_version == '20261112133000' || inputs.target_version == '20261114100000' }}");
+        expect(guard.if).toBe("${{ inputs.target_version == '20261024083000' || inputs.target_version == '20261025021046' || inputs.target_version == '20261110173548' || inputs.target_version == '20261112133000' || inputs.target_version == '20261114100000' || inputs.target_version == '20261114170000' || inputs.target_version == '20261117105700' }}");
         expect(guard['continue-on-error']).toBeUndefined();
         expect(guard.env).toBeUndefined();
         expect(job.env.SUPABASE_DB_PASSWORD).toBe('${{ secrets.SUPABASE_DB_PASSWORD }}');
@@ -110,6 +110,30 @@ describe('C1 ordered exact-operation enforcement', () => {
             expect(after.run).toContain('$RUNNER_TEMP/c1-before.json');
             expect(after['continue-on-error']).not.toBe(true);
             expect(terminal).toContain(`postflight_${version}=`);
+        }
+    });
+});
+describe('pre-apply connectivity covers every target whose checks read the verified pooler', () => {
+    // Codex P1 on #1899: connectivity_preflight is the only producer of $RUNNER_TEMP/pooler.env. A target named by any
+    // pre-apply step that reads it, but absent from the connectivity condition, can never reach apply.
+    it('names every such target (by version or file) in the connectivity_preflight condition', () => {
+        const workflow = yaml.load(readFileSync('.github/workflows/apply-exact-allowlisted-migration.yml', 'utf8'));
+        const steps = Object.values(workflow.jobs).find(job => job.steps?.some(step => step.id === 'apply')).steps;
+        const apply = steps.findIndex(step => step.id === 'apply');
+        const connectivityIndex = steps.findIndex(step => step.id === 'connectivity_preflight');
+        const connectivity = steps[connectivityIndex];
+        expect(connectivity.run).toContain('"$RUNNER_TEMP/pooler.env"');
+        const readers = steps.slice(connectivityIndex + 1, apply).filter(step => step.run?.includes('$RUNNER_TEMP/pooler.env'));
+        const targets = [...new Set(readers.flatMap(step => [...String(step.if ?? '').matchAll(/'(20\d{12})'/g)].map(m => m[1])))];
+        expect(targets).toEqual(expect.arrayContaining(['20261114100000', '20261114170000', '20261117105700']));
+        const missing = targets.filter(version => {
+            const file = EXACT_MIGRATION_ALLOWLIST.find(row => row.version === version)?.file ?? version;
+            return !connectivity.if.includes(`'${version}'`) && !connectivity.if.includes(file.replace(/\.sql$/, ''));
+        });
+        expect(missing).toEqual([]);
+        // The two release targets are named explicitly, not by a substring of another target.
+        for (const version of ['20261114170000', '20261117105700']) {
+            expect(connectivity.if).toContain(`steps.contract.outputs.target_version == '${version}'`);
         }
     });
 });
@@ -494,7 +518,7 @@ describe('exact migration gate', () => {
                 sha256: '47fce28446a1e8f56c27dd10a6bb92e803a5907db0fd9d7fa67cbf11f9701fe8', mustRemainPending: true,
             };
             const withheld = target.version === '20261110173548' ? [billing]
-                : ['20261112133000', '20261114100000'].includes(target.version) ? [billing, refund] : [];
+                : ['20261112133000', '20261114100000', '20261114170000', '20261117105700'].includes(target.version) ? [billing, refund] : [];
             expect(config.requiresIncludeAll).toBe(targetIndex === 0);
             expect(config.requiredAppliedVersions).toEqual([
                 '20260812002000',
