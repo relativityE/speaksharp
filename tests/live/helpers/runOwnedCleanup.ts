@@ -61,6 +61,9 @@ type AdminClient = {
         // Only the take settlement below uses it (sessions.status -> 'failed'); optional so older fakes still type-check.
         update?: (values: Record<string, unknown>) => UpdateFilter;
     };
+    // The save-journal step below (service_role-only functions; the table itself is not readable). Optional so callers'
+    // older fakes still type-check; a client without it fails that step closed.
+    rpc?: (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: { code?: string; message: string } | null }>;
 };
 
 /** A supabase-js filter chain: every `.eq()` narrows it; `.select()` returns the changed rows, and awaiting it runs the write. */
@@ -122,6 +125,32 @@ export const RESIDUE_CHECKS: ReadonlyArray<{ table: string; column: string }> = 
 export const PRE_DELETE_TABLES: ReadonlyArray<string> = Object.freeze(['trial_entitlements']);
 
 /**
+ * #1643 SAVE JOURNAL (PO 2026-11-19: "make sure save records are deleted"). `account_save_obligations` has no foreign key to
+ * auth.users, so its `completed` rows SURVIVE `deleteUser()`; only the product's own closure completion removes them, and
+ * service_role cannot read or write the table. Migration 20261119200000 adds two service_role-only functions: the first
+ * deletes a DELETED account's completed rows (it refuses while the account exists, while any row is unsettled, or while a
+ * product closure completion is processing) and returns what remains; the second is an independent read-only count.
+ */
+export const SAVE_JOURNAL_TABLE = 'account_save_obligations';
+export const SAVE_JOURNAL_DELETE_FN = 'delete_deleted_account_save_journal_v1';
+export const SAVE_JOURNAL_COUNT_FN = 'count_account_save_journal_v1';
+
+/**
+ * Remove the deleted account's save-journal rows and prove zero remain, through both the delete's own remainder and a separate
+ * readback. Call ONLY after the Auth deletion is proven. Fail-closed: a missing rpc, any error (including a database without
+ * the migration) or any non-zero / uncounted answer throws. Reason codes only; never the uid or provider text.
+ */
+export async function clearDeletedAccountSaveJournal(admin: Pick<AdminClient, 'rpc'>, uid: string): Promise<void> {
+    if (typeof admin.rpc !== 'function') throw new Error(`cleanup ${SAVE_JOURNAL_TABLE} delete failed (fail closed): no rpc`);
+    const { data: remaining, error } = await admin.rpc(SAVE_JOURNAL_DELETE_FN, { p_user_id: uid });
+    if (error) throw new Error(`cleanup ${SAVE_JOURNAL_TABLE} delete failed (fail closed): ${error.code ?? 'unknown'}`);
+    requireZeroResidue(remaining, SAVE_JOURNAL_TABLE);
+    const { data: readback, error: readErr } = await admin.rpc(SAVE_JOURNAL_COUNT_FN, { p_user_id: uid });
+    if (readErr) throw new Error(`cleanup residue query on ${SAVE_JOURNAL_TABLE} failed (fail closed): ${readErr.code ?? 'unknown'}`);
+    requireZeroResidue(readback, SAVE_JOURNAL_TABLE);
+}
+
+/**
  * A residue readback proves zero only when it returned a COUNTED zero. A `{ count: null, error: null }` read is an
  * unknown, not an empty table (CLI Dev 2026-10-18: `count ?? 0` let all 23 null reads emit `residue=0`), so anything
  * other than a non-negative safe integer fails closed, and a positive count is residue. Reason codes only: the table
@@ -148,7 +177,7 @@ export const RUN_OWNED_PREFIX_RE = /^(private-proof-|retention-proof-|rwt-journe
  */
 export function cleanupFailureStep(error: unknown): string {
     const m = String((error as { message?: unknown } | null)?.message ?? '');
-    const tables = new Set<string>([...RESIDUE_CHECKS.map((c) => c.table), ...PRE_DELETE_TABLES]);
+    const tables = new Set<string>([...RESIDUE_CHECKS.map((c) => c.table), ...PRE_DELETE_TABLES, SAVE_JOURNAL_TABLE]);
     const table = (re: RegExp, code: string) => { const t = re.exec(m)?.[1]; return t && tables.has(t) ? `${code}:${t}` : null; };
     return (/^cleanup getUserById failed/.test(m) && 'get_user')
         || (/^cleanup recovery listUsers failed/.test(m) && 'recovery_list_users')
@@ -157,6 +186,7 @@ export function cleanupFailureStep(error: unknown): string {
         || (/^cleanup_run_binding_mismatch/.test(m) && 'run_binding_mismatch')
         || (/^cleanup requires admin client/.test(m) && 'no_admin')
         || table(/^cleanup ([a-z_]+) pre-delete failed/, 'pre_delete')
+        || table(/^cleanup ([a-z_]+) delete failed/, 'save_journal_delete')
         || (/^cleanup take settlement (read|close) failed/.test(m) && 'settle_takes')
         || (/^cleanup deleteUser blocked by an unsettled take/.test(m) && 'delete_user_unsettled_take')
         || (/^cleanup deleteUser failed/.test(m) && 'delete_user')
@@ -501,8 +531,11 @@ export async function cleanupRunOwnedAccount(params: {
     if (teResErr) throw new Error(`cleanup residue query on trial_entitlements failed (fail closed): ${teResErr.message}`);
     requireZeroResidue(teCount, 'trial_entitlements');
 
+    // The deleted account's finished save-journal rows (no FK, so they outlive deleteUser): delete, then read back zero.
+    await clearDeletedAccountSaveJournal(admin, capturedUid);
+
     // Emitted ONLY here — after auth deletion is proven and every residue readback returned zero.
-    writeCleanupVerdict('cleanup_verified', RESIDUE_CHECKS.length + 1);
+    writeCleanupVerdict('cleanup_verified', RESIDUE_CHECKS.length + 2);
 
     return capturedUid;
 }

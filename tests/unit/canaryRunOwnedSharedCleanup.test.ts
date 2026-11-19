@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanupRunOwnedAccount } from '../live/helpers/runOwnedCleanup';
 import { __resetCreateGuardForTests, currentCanaryBinding } from '../../scripts/lib/canaryRunOwnedAccount.mjs';
 import { BINDING_KEY, RUN_OWNED_PREFIX } from '../../scripts/lib/canaryRunOwnedSweep.mjs';
-import { cleanupLane, setupLane, sweepLane } from '../../scripts/lib/canaryRunOwnedLane.mjs';
+import { cleanupLane, guardAdminForBinding, setupLane, sweepLane } from '../../scripts/lib/canaryRunOwnedLane.mjs';
 
 const ACTIONS_ENV = {
     GITHUB_ACTIONS: 'true', GITHUB_REPOSITORY: 'relativityE/speaksharp', GITHUB_RUN_ID: '43000000007', GITHUB_RUN_ATTEMPT: '1',
@@ -50,6 +50,8 @@ function fakeAdmin(o: { dropBinding?: boolean; onRead?: (n: number, u: User) => 
             delete: () => ({ eq: async () => { destructive.push(table); return { error: null }; } }),
             select: () => ({ eq: async () => ({ count: 0, data: [], error: null }) }),
         }),
+        // #1643 save journal (service_role-only functions): this account saved no take, so nothing remains.
+        rpc: vi.fn(async (fn: string) => { if (fn === 'delete_deleted_account_save_journal_v1') destructive.push('account_save_obligations'); return { data: 0, error: null }; }),
     };
 }
 const sharedCleanup = async ({ admin, uid, email }: { admin: unknown; uid: string; email: string }) => {
@@ -81,7 +83,7 @@ describe('canary lane × REAL shared runOwnedCleanup (#1826)', () => {
         expect(BINDING_KEY).not.toBe('ct_run');
         expect(await cleanupLane({ admin, env: process.env, cleanup: sharedCleanup })).toEqual({ ok: true, code: 'cleanup-verified', deleted: 1 });
         expect(admin.users.size).toBe(0);
-        expect(admin.destructive).toEqual(['trial_entitlements', 'auth.users']);
+        expect(admin.destructive).toEqual(['trial_entitlements', 'auth.users', 'account_save_obligations']);
     });
 
     it('ADVERSARIAL: in-run cleanup — valid listing, then the binding changes on the helper\'s fresh read → nothing deleted', async () => {
@@ -117,7 +119,7 @@ describe('canary lane × REAL shared runOwnedCleanup (#1826)', () => {
         const admin = fakeAdmin();
         admin.users.set('p2', canaryUser('p2', '43000000001'));
         expect(await sweepLane({ admin, env: process.env, getRun: finished, cleanup: sharedCleanup })).toMatchObject({ ok: true, report: { swept: 1 } });
-        expect(admin.destructive).toEqual(['trial_entitlements', 'auth.users']);
+        expect(admin.destructive).toEqual(['trial_entitlements', 'auth.users', 'account_save_obligations']);
     });
 
     it('bind failure: the just-created account goes through the shared cleanup (pre-delete + proof), not a bare deleteUser', async () => {
@@ -125,9 +127,24 @@ describe('canary lane × REAL shared runOwnedCleanup (#1826)', () => {
         const exportEnv = vi.fn();
         const r = await setupLane({ admin, env: process.env, mask: () => {}, exportEnv, cleanup: sharedCleanup });
         expect(r).toEqual({ ok: false, code: 'bind-failed-cleaned' });
-        expect(admin.destructive).toEqual(['trial_entitlements', 'auth.users']);
+        expect(admin.destructive).toEqual(['trial_entitlements', 'auth.users', 'account_save_obligations']);
         expect(admin.users.size).toBe(0);
         expect(exportEnv).not.toHaveBeenCalled();
         expect(currentCanaryBinding(process.env)).not.toBeNull();
+    });
+
+    it('the guarded admin forwards only the two #1643 save-journal functions, only for its own account', async () => {
+        const admin = fakeAdmin();
+        const guarded = guardAdminForBinding(admin, { uid: 'uid-a', email: 'x@example.test', expected: {}, runId: '1', runAttempt: '1' }) as {
+            rpc: (fn: string, args: Record<string, unknown>) => Promise<unknown> };
+        await expect(guarded.rpc('delete_deleted_account_save_journal_v1', { p_user_id: 'uid-a' })).resolves.toEqual({ data: 0, error: null });
+        await expect(guarded.rpc('count_account_save_journal_v1', { p_user_id: 'uid-a' })).resolves.toEqual({ data: 0, error: null });
+        for (const [fn, args] of [
+            ['delete_deleted_account_save_journal_v1', { p_user_id: 'uid-b' }],
+            ['count_account_save_journal_v1', { p_user_id: 'uid-b' }],
+            ['effective_subscription_tier', { p_user_id: 'uid-a' }],
+            ['delete_deleted_account_save_journal_v1', { p_user_id: 'uid-a', extra: 1 }],
+        ] as const) expect(() => guarded.rpc(fn, args)).toThrow(/canary_binding_changed_at_mutation/);
+        expect(admin.rpc).toHaveBeenCalledTimes(2);
     });
 });

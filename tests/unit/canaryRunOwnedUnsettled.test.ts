@@ -64,6 +64,15 @@ function canaryAccount(runId: string, o: { sessions?: Session[]; heldLeases?: st
             select: () => ({ eq: async () => { const r = rows(table); return { data: r, count: r.length, error: null }; } }),
             delete: () => ({ eq: async () => { state.preDeletes += 1; state.writes.push(`delete:${table}`); return { error: null }; } }),
         }),
+        // #1643 save journal: the migration's service_role-only functions (20261119200000), modelled exactly.
+        rpc: vi.fn(async (fn: string) => {
+            if (fn === 'count_account_save_journal_v1') return { data: obligations.size, error: null };
+            if (!state.deleted) return { data: null, error: { code: '55000', message: 'account still exists' } };
+            if ([...obligations.values()].some((p) => p !== 'completed')) return { data: null, error: { code: '55000', message: 'account admitted save unsettled' } };
+            for (const [k, p] of [...obligations]) if (p === 'completed') obligations.delete(k);
+            state.writes.push('delete:account_save_obligations');
+            return { data: obligations.size, error: null };
+        }),
     };
     return admin;
 }
@@ -106,7 +115,7 @@ describe('#1826 canary cleanup preserves interrupted and uncertain accounts (Sam
         const admin = canaryAccount(ENV.GITHUB_RUN_ID, { releasedLeases: [L1], sessions: [{ id: S1, status: 'completed', lease_id: L1, recording_fenced_at: null, created_at: iso(T0), expires_at: null, updated_at: iso(T0) }] });
         expect(await cleanupLane({ admin, env: process.env, cleanup: canaryCleanup })).toEqual({ ok: true, code: 'cleanup-verified', deleted: 1 });
         expect(admin.state).toMatchObject({ deleted: true, deleteCalls: 1 });
-        expect(admin.state.writes).toEqual(['delete:trial_entitlements']);
+        expect(admin.state.writes).toEqual(['delete:trial_entitlements', 'delete:account_save_obligations']);
     });
 
     it('an obligation the read cannot see (a RELEASED lease with no take): the guard refuses, reported delete_refused, account preserved', async () => {
