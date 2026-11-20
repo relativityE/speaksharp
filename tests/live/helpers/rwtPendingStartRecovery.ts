@@ -66,11 +66,16 @@ export interface RecoveryPressIo {
     recorderPresent(): Promise<boolean>;
     /** The control the page offers right now (from its model status), or null. */
     offeredControl(): Promise<string | null>;
-    /** One guarded activation of exactly this control; `activated` only when the click was observed reaching it. */
-    pressOnce(control: RecoveryControl): Promise<{ activated: boolean; reason?: string; staleRecorder?: boolean }>;
+    /**
+     * One guarded activation of exactly this control; `activated` only when the click was observed reaching it. The press calls
+     * `beforeClick` after ALL of its setup (finding the control, the human reflex, arming the guard), as the statement directly
+     * before the click; if it throws, nothing is clicked and the press reports `consentUnproven` with the reason.
+     */
+    pressOnce(control: RecoveryControl, beforeClick: () => Promise<void>):
+        Promise<{ activated: boolean; reason?: string; staleRecorder?: boolean; consentUnproven?: string }>;
     /** Whether the take is recording within the control's bound after that press. */
     recordingAfterPress(control: RecoveryControl): Promise<boolean>;
-    /** #1835: the owner's fresh consent readback; throws unless it is exactly the run's fixed choice. Runs right before the press. */
+    /** #1835: the owner's fresh consent readback; throws unless it is exactly the run's fixed choice. Passed to the press as `beforeClick`. */
     confirmConsent(): Promise<void>;
 }
 export type RecoveryPressOutcome =
@@ -85,20 +90,15 @@ export async function driveRecoveryPress(io: RecoveryPressIo, planned: RecoveryC
     if (await io.recorderPresent().catch(() => true)) return { kind: 'stale-recorder' };
     const offered = await io.offeredControl().catch(() => null);
     if (offered !== planned) return { kind: 'control-changed', planned, offered };
-    // #1835 (Sam, Nov 20): the owner's choice is read back immediately before the capture-capable press. A choice changed or
-    // unreadable since the first press means zero recovery presses.
+    // #1835 (Sam, Nov 20): the owner's choice is read back inside the press, after its setup and immediately before the click. A
+    // choice changed or unreadable since the first press, even during that setup, means zero recovery clicks.
+    let press: { activated: boolean; reason?: string; staleRecorder?: boolean; consentUnproven?: string };
     try {
-        await io.confirmConsent();
-    } catch (error) {
-        const reason = /^HOLD practice consent: ([a-z0-9_]+)/.exec(error instanceof Error ? error.message : '')?.[1] ?? 'not_proven';
-        return { kind: 'consent-unproven', control: planned, reason };
-    }
-    let press: { activated: boolean; reason?: string; staleRecorder?: boolean };
-    try {
-        press = await io.pressOnce(planned);
+        press = await io.pressOnce(planned, () => io.confirmConsent());
     } catch (error) {
         press = { activated: false, reason: error instanceof Error ? error.message : String(error) };
     }
+    if (press.consentUnproven !== undefined) return { kind: 'consent-unproven', control: planned, reason: press.consentUnproven };
     // A recorder that started between discovery and activation is caught by the click guard: still no deliberate recovery.
     if (press.staleRecorder === true) return { kind: 'stale-recorder' };
     if (!press.activated) return { kind: 'press-unobserved', control: planned, reason: press.reason ?? 'the activation was not observed' };
@@ -166,4 +166,9 @@ export function disarmRecoveryClickGuard(token: string): { accepted: boolean; re
     g.disarm();
     delete w.__rwtRecoveryGuards![token];
     return { ...g.state };
+}
+
+/** The content-free reason a consent readback refused (`HOLD practice consent: <reason>`), or `not_proven`. */
+export function consentRefusalReason(error: unknown): string {
+    return /^HOLD practice consent: ([a-z0-9_]+)/.exec(error instanceof Error ? error.message : '')?.[1] ?? 'not_proven';
 }

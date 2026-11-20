@@ -31,7 +31,7 @@ import { RECORDER_STOP, micControlFor } from '../helpers/micControls';
 import { nextTakeIdArrived, type SessionRowFacts } from './helpers/rwtSaveRetry';
 import {
     type RecoveryControl, armRecoveryClickGuard, disarmRecoveryClickGuard, driveRecoveryPress, recoveryPressVerdict, recoveryTakePlan,
-    recoveryTakeVerdict, PENDING_START_CONSENT_MODE,
+    recoveryTakeVerdict, PENDING_START_CONSENT_MODE, consentRefusalReason,
 } from './helpers/rwtPendingStartRecovery';
 import { captureConsentGate, settleFixedConsentOnPractice, type ChoiceClient } from './helpers/rwtPracticeConsent';
 import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
@@ -101,7 +101,8 @@ test.use({
  * that id and is enabled (otherwise the event is stopped before the product sees it). `activated` is true only when the guard
  * observed the click. The human reflex is applied explicitly (ElementHandle actions bypass the RWT locator wrapper).
  */
-async function pressRecoveryControl(page: Page, control: RecoveryControl): Promise<{ activated: boolean; reason?: string; staleRecorder?: boolean }> {
+async function pressRecoveryControl(page: Page, control: RecoveryControl, beforeClick: () => Promise<void>):
+    Promise<{ activated: boolean; reason?: string; staleRecorder?: boolean; consentUnproven?: string }> {
     const found = await page.waitForFunction((id: string) => {
         const buttons = document.querySelectorAll<HTMLButtonElement>(`[data-testid="${id}"]`);
         if (buttons.length !== 1) return false;
@@ -120,6 +121,8 @@ async function pressRecoveryControl(page: Page, control: RecoveryControl): Promi
         const reflexMs = activeHumanReflexMs();
         if (reflexMs > 0) await new Promise((resolve) => setTimeout(resolve, reflexMs));
         await target.evaluate(armRecoveryClickGuard, { id: control, recorderStopId: RECORDER_STOP, token });
+        // #1835 (Sam, Nov 20): the owner's consent readback, after all of the press's setup and directly before the click.
+        try { await beforeClick(); } catch (error) { return { activated: false, consentUnproven: consentRefusalReason(error) }; }
         const clicked = await target.click({ timeout: 30_000 }).then(() => true, () => false);
         const seen = await page.evaluate(disarmRecoveryClickGuard, token).catch(() => null);
         if (seen?.rejected && seen.reason === 'recorder') return { activated: false, staleRecorder: true, reason: 'a recorder was running at activation' };
@@ -270,6 +273,8 @@ test('leaving during a cold Start does not leave a recording or session behind @
         // reports its acquisition phase; the route change is the user's cancellation action under test.
         // #1593 (Sam, #1662 RETURN control 3): the abandoned Start's own cancellation (and the return's gate) is this
         // journey's expected fault — from the press until the return has been checked.
+        // The cold Start must be ready to press BEFORE the readback, so nothing but the press itself follows it.
+        await expect(page.getByTestId('mic-download')).toBeEnabled({ timeout: 15_000 });
         try {
             await consentGate.confirm();
         } catch {
@@ -404,7 +409,7 @@ test('leaving during a cold Start does not leave a recording or session behind @
             const pressed = await driveRecoveryPress({
                 recorderPresent: () => page.getByTestId(RECORDER_STOP).count().then((n) => n > 0),
                 offeredControl: () => page.evaluate(() => document.documentElement.getAttribute('data-model-status')).then(micControlFor),
-                pressOnce: (control) => pressRecoveryControl(page, control),
+                pressOnce: (control, beforeClick) => pressRecoveryControl(page, control, beforeClick),
                 recordingAfterPress: (control) => isRecording(page, control === 'mic-download' ? 900_000 : 600_000),
                 confirmConsent: () => consentGate.confirm(),
             }, plan.control);

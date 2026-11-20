@@ -5,7 +5,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
-    PENDING_START_CONSENT_MODE, type RecoveryControl, type RecoveryPressIo, driveRecoveryPress, recoveryPressVerdict, recoveryTakePlan, recoveryTakeVerdict,
+    PENDING_START_CONSENT_MODE, type RecoveryControl, type RecoveryPressIo, consentRefusalReason, driveRecoveryPress, recoveryPressVerdict, recoveryTakePlan,
+    recoveryTakeVerdict,
 } from '../live/helpers/rwtPendingStartRecovery';
 import { CONSENT_MODES, captureConsentGate, type ChoiceClient } from '../live/helpers/rwtPracticeConsent';
 import type { SessionRowFacts } from '../live/helpers/rwtSaveRetry';
@@ -77,7 +78,7 @@ describe('the AHT-04 spec wiring', () => {
         const row = recovery.indexOf("receipt.row('deliberate recovery take saved', pressVerdict.status, pressVerdict.detail,");
         const speak = recovery.indexOf('await page.waitForTimeout(Math.round((fixture.entry.speechSeconds + 4) * 1000));');
         for (const [x, y] of [[drive, verdict], [verdict, row], [row, speak]]) { expect(x).toBeGreaterThan(-1); expect(y).toBeGreaterThan(x); }
-        expect(recovery).toContain('pressOnce: (control) => pressRecoveryControl(page, control),');
+        expect(recovery).toContain('pressOnce: (control, beforeClick) => pressRecoveryControl(page, control, beforeClick),');
         // The guard is armed per attempt and ALWAYS disarmed in finally (Sam, #1869 on c0c085ac).
         const press = spec.slice(spec.indexOf('async function pressRecoveryControl('), spec.indexOf('\n}\n', spec.indexOf('async function pressRecoveryControl(')));
         expect(press).toContain('await target.evaluate(armRecoveryClickGuard, { id: control, recorderStopId: RECORDER_STOP, token });');
@@ -193,11 +194,20 @@ describe('J5.a consent before every capture-capable press', () => {
         return { gate, rows };
     };
     /** The recovery press with the real gate as its consent step; counts the presses that actually happened. */
-    const recoveryOver = (confirmConsent: () => Promise<void>) => {
+    /**
+     * The recovery press modelled as the spec's pressRecoveryControl: setup (find the control, the human reflex, arm the guard;
+     * `duringSetup` runs here), then `beforeClick`, then the click. A refusal returns `consentUnproven` and clicks nothing.
+     */
+    const recoveryOver = (confirmConsent: () => Promise<void>, duringSetup: () => void = () => undefined) => {
         const presses: RecoveryControl[] = [];
         const io: RecoveryPressIo = {
             recorderPresent: async () => false, offeredControl: async () => 'mic-start',
-            pressOnce: async (c) => { presses.push(c); return { activated: true }; },
+            pressOnce: async (c, beforeClick) => {
+                duringSetup();
+                try { await beforeClick(); } catch (error) { return { activated: false, consentUnproven: consentRefusalReason(error) }; }
+                presses.push(c);
+                return { activated: true };
+            },
             recordingAfterPress: async () => true, confirmConsent,
         };
         return { io, presses };
@@ -215,11 +225,18 @@ describe('J5.a consent before every capture-capable press', () => {
         expect(settle).toBeLessThan(spec.indexOf("await openProductsItem(page, 'open-mic');"));
         // A settle failure halts before any press.
         expect(spec.slice(settle, spec.indexOf("await openProductsItem(page, 'open-mic');"))).toMatch(/\} catch \{\n\s*receipt\.halt\('practice consent'[^\n]*\n\s*return;/);
-        // The cold Start: confirm (halting on failure) is directly before the press, and nothing captures in between.
+        // The cold Start: the control is ready first; then confirm (halting on failure) is directly before the press.
+        expect(spec).toMatch(/await expect\(page\.getByTestId\('mic-download'\)\)\.toBeEnabled\(\{ timeout: 15_000 \}\);\n\s*try \{\n\s*await consentGate\.confirm\(\);/);
         expect(spec).toMatch(/try \{\n\s*await consentGate\.confirm\(\);\n\s*\} catch \{\n\s*receipt\.halt\('practice consent'[^\n]*\n\s*return;\n\s*\}\n\s*watch\.setFaultPhase\(true\);\n\s*await page\.getByTestId\('mic-download'\)\.click\(\{ timeout: 15_000 \}\);\n\s*consentGate\.recordPass\(\);/);
         expect(spec.split("getByTestId('mic-download').click(").length - 1).toBe(1);
-        // The recovery press gets the same gate as its consent step.
+        // The recovery press gets the same gate as its consent step, run INSIDE the press: after the guard is armed (the 60 s
+        // control wait and the human reflex come before that) and as the statement directly before the click.
         expect(spec).toContain('confirmConsent: () => consentGate.confirm(),');
+        expect(spec).toContain('pressOnce: (control, beforeClick) => pressRecoveryControl(page, control, beforeClick),');
+        const press = spec.slice(spec.indexOf('async function pressRecoveryControl('), spec.indexOf('\n}\n', spec.indexOf('async function pressRecoveryControl(')));
+        expect(press.indexOf('const found = await page.waitForFunction(')).toBeLessThan(press.indexOf('await new Promise((resolve) => setTimeout(resolve, reflexMs));'));
+        expect(press).toMatch(/await target\.evaluate\(armRecoveryClickGuard, \{ id: control, recorderStopId: RECORDER_STOP, token \}\);\n(\s*\/\/[^\n]*\n)?\s*try \{ await beforeClick\(\); \} catch \(error\) \{ return \{ activated: false, consentUnproven: consentRefusalReason\(error\) \}; \}\n\s*const clicked = await target\.click\(/);
+        expect(press.split('target.click(').length - 1).toBe(1);
     });
 
     it('CONTROL: no saved choice means zero first presses (the cold Start confirm refuses)', async () => {
@@ -246,15 +263,29 @@ describe('J5.a consent before every capture-capable press', () => {
         }
     });
 
-    it('the consent step runs after the stale-recorder and control checks and immediately before the press', async () => {
+    it('the consent step runs inside the press: after its setup and immediately before the click', async () => {
         const order: string[] = [];
         const io: RecoveryPressIo = {
             recorderPresent: async () => { order.push('recorder'); return false; }, offeredControl: async () => { order.push('control'); return 'mic-start'; },
             confirmConsent: async () => { order.push('consent'); },
-            pressOnce: async () => { order.push('press'); return { activated: true }; },
+            pressOnce: async (_c, beforeClick) => { order.push('setup'); await beforeClick(); order.push('click'); return { activated: true }; },
             recordingAfterPress: async () => { order.push('recording'); return true; },
         };
         expect(await driveRecoveryPress(io, 'mic-start')).toEqual({ kind: 'recorded', control: 'mic-start' });
-        expect(order).toEqual(['recorder', 'control', 'consent', 'press', 'recording']);
+        expect(order).toEqual(['recorder', 'control', 'setup', 'consent', 'click', 'recording']);
+    });
+
+    it('CONTROL (Sam, Nov 20): consent that changes DURING the press setup emits the recovery HOLD and dispatches zero clicks', async () => {
+        for (const [changed, reason] of [[{ ...SAVE_ON, transcript_save: false }, 'readback_differs'], [null, 'readback_missing'], ['broken', 'readback_unreadable']] as const) {
+            const current: { row: Record<string, unknown> | null | 'broken' } = { row: { ...SAVE_ON } };
+            const { gate } = gateOver(current);
+            await gate.confirm();
+            gate.recordPass();
+            // Valid when the press starts (stale-recorder and control checks pass); it changes while the press waits and arms.
+            const { io, presses } = recoveryOver(() => gate.confirm(), () => { current.row = changed as never; });
+            const out = await driveRecoveryPress(io, 'mic-start');
+            expect({ reason, clicks: presses.length, out }).toEqual({ reason, clicks: 0, out: { kind: 'consent-unproven', control: 'mic-start', reason } });
+            expect(recoveryPressVerdict(out)).toMatchObject({ status: 'HOLD' });
+        }
     });
 });
