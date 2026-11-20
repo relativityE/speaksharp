@@ -424,7 +424,8 @@ jobs:
             # Only a domain interrupted-run recovery may delete under (rwtInterruptedRunRecovery.ts deletionDomain): set
             # explicitly, valid, and never the legacy example.com fallback. Otherwise J1.d fails here, before any admission is
             # written or J1.a starts, so an opt-in J1.d account is always recoverable. Ordinary J1.a runs are unchanged.
-            j1d_domain="$(printf '%s' "${LIVE_TEST_EMAIL_DOMAIN:-}" | tr '[:upper:]' '[:lower:]' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+            # Normalised exactly as deletionDomain does (trim, then lower-case), in Node so no pipe can mask a failure.
+            j1d_domain="$(node -e 'process.stdout.write(String(process.env.LIVE_TEST_EMAIL_DOMAIN ?? "").trim().toLowerCase())')"
             if [ -z "$j1d_domain" ] || [ "$j1d_domain" = 'example.com' ] || [ "${#j1d_domain}" -gt 253 ] \
               || ! [[ "$j1d_domain" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]]; then
               echo '::error::J1.d needs a recovery-eligible LIVE_TEST_EMAIL_DOMAIN (set, valid, not example.com); nothing ran.'

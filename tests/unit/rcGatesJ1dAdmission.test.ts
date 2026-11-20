@@ -26,9 +26,10 @@ const SPEC = 'tests/live/rwt-open-mic-first-session.live.spec.ts';
 let dirs: string[] = [];
 afterEach(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true }); dirs = []; });
 
+// `set -e` only: a run step with no `shell:` runs as GitHub's default `bash -e {0}` (no pipefail), so the test shell must not be stricter.
 function admit(env: Record<string, string>) {
   const temp = mkdtempSync(path.join(tmpdir(), 'j1d-admission-')); dirs.push(temp);
-  const r = spawnSync('bash', ['-c', `set -euo pipefail\n${block}\necho "ADMISSION=\${${J1D_ADMISSION_ENV}:-}"`], { encoding: 'utf8',
+  const r = spawnSync('bash', ['-c', `set -e\n${block}\necho "ADMISSION=\${${J1D_ADMISSION_ENV}:-}"`], { encoding: 'utf8',
     env: { PATH: process.env.PATH ?? '', RUNNER_TEMP: temp, GITHUB_RUN_ID: '4242', GITHUB_RUN_ATTEMPT: '1', DIAGNOSTIC_DAST_SPEC: SPEC,
       LIVE_TEST_EMAIL_DOMAIN: 'rwt-tests.example.org', ...env } });
   const file = /ADMISSION=(.*)/.exec(r.stdout)?.[1] ?? '';
@@ -90,7 +91,7 @@ describe('rc-gates J1.d admission (diagnostic step)', () => {
     }
     // Unset entirely (the variable absent, not just empty).
     const temp = mkdtempSync(path.join(tmpdir(), 'j1d-admission-')); dirs.push(temp);
-    const unset = spawnSync('bash', ['-c', `set -euo pipefail\n${block}`], { encoding: 'utf8', env: { PATH: process.env.PATH ?? '',
+    const unset = spawnSync('bash', ['-c', `set -e\n${block}`], { encoding: 'utf8', env: { PATH: process.env.PATH ?? '',
       RUNNER_TEMP: temp, GITHUB_RUN_ID: '4242', GITHUB_RUN_ATTEMPT: '1', DIAGNOSTIC_DAST_SPEC: SPEC, RWT_J1D_LEG: 'J1D-ON-J1A' } });
     expect(unset.status).toBe(1);
     expect(readdirSync(temp)).toEqual([]);
@@ -98,7 +99,8 @@ describe('rc-gates J1.d admission (diagnostic step)', () => {
 
   it('the workflow accepts exactly the domains interrupted-run recovery may delete under (parity with deletionDomain)', () => {
     for (const domain of ['rwt-tests.example.org', 'Mail.Example.NET', 'a.io', 'example.com', 'EXAMPLE.COM', '', 'localhost',
-      'bad_domain.org', '-lead.example.org', 'trail-.example.org', 'x.' + 'a'.repeat(64) + '.com', 'no-tld.', 'two..dots.org']) {
+      'bad_domain.org', '-lead.example.org', 'trail-.example.org', 'x.' + 'a'.repeat(64) + '.com', 'no-tld.', 'two..dots.org',
+      ' rwt-tests.example.org\t', '\u00a0a.io\n', 't\u00e9st.example.org', ' example.com\u00a0']) {
       const accepted = admit({ RWT_J1D_LEG: 'J1D-ON-J1A', LIVE_TEST_EMAIL_DOMAIN: domain }).status === 0;
       expect({ domain, accepted }).toEqual({ domain, accepted: deletionDomain(domain) !== null });
     }
