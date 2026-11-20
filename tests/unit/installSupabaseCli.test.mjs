@@ -42,11 +42,13 @@ async function server(behaviours) {
         if (behaviour === 'ok') { res.writeHead(200, { 'content-length': ARCHIVE.bytes.length }); res.end(ARCHIVE.bytes); return; }
         if (behaviour === 'stall') { res.writeHead(200, { 'content-length': ARCHIVE.bytes.length }); res.write(ARCHIVE.bytes.subarray(0, 64)); return; }
         if (behaviour === 'wrong') { res.writeHead(200); res.end(Buffer.from('not the pinned archive')); return; }
+        if (behaviour === 'stall503') { res.writeHead(503, { 'content-length': 1000 }); res.write('partial error body'); return; }
         res.writeHead(behaviour); res.end();
     });
     await new Promise((resolve) => srv.listen(0, '127.0.0.1', resolve));
     const url = `http://127.0.0.1:${srv.address().port}/cli.tar.gz`;
-    return { url, requests: () => n, close: () => { for (const r of open) r.destroy(); return new Promise((resolve) => srv.close(resolve)); } };
+    return { url, requests: () => n, openResponses: () => open.size,
+        close: () => { for (const r of open) r.destroy(); return new Promise((resolve) => srv.close(resolve)); } };
 }
 const install = (url, overrides = {}) => installSupabaseCli({ url, sha256: ARCHIVE.sha256, version: VERSION,
     destDir: mkdtempSync(join(tmpdir(), 'cli-dest-')), limits: LIMITS, ...overrides });
@@ -105,6 +107,16 @@ test('HTTP 5xx is retried; 404 is not (it cannot succeed on a retry)', async () 
         await assert.rejects(install(missing.url), /after 1 attempt\(s\): HTTP 404/);
         assert.equal(missing.requests(), 1);
     } finally { await missing.close(); }
+});
+
+test('Codex P2: a 5xx whose error body stalls is cancelled before the retry (no request left open to hold the step)', async () => {
+    const s = await server(['stall503', 'ok']);
+    try {
+        await install(s.url);
+        assert.equal(s.requests(), 2);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        assert.equal(s.openResponses(), 0, 'the stalled 503 response was cancelled, not left streaming');
+    } finally { await s.close(); }
 });
 
 test('bytes that do not match the pinned digest are refused, never retried into acceptance', async () => {

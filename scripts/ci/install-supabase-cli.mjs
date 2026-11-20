@@ -51,6 +51,10 @@ export async function downloadOnce(url, { attemptTimeoutMs, stallTimeoutMs, fetc
     } finally {
         clearTimeout(total);
         clearTimeout(stall);
+        // Leaving the attempt for any reason (including an HTTP error whose body is still streaming or stalled) cancels the
+        // request, so nothing left open can keep the process, and the workflow step, waiting (Codex P2). A no-op once the
+        // body has been read in full.
+        controller.abort();
     }
 }
 
