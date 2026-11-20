@@ -317,6 +317,15 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
         classification: 'staged',
     }),
     Object.freeze({
+        // #1827 outcome 4 D2: the original take's coaching tip kept with its repeat (attempt columns, private helpers, attempt
+        // and session triggers), copied only while the owner's #1835 choice allows AI coaching. Must follow #1835; the same
+        // two holds stay pending. Exact apply and catalog proof remain mandatory.
+        version: '20261119120000',
+        file: '20261119120000_repeat_practised_tip.sql',
+        sha256: '199f8593445e477cf84397e47cb9234cf3063c0a22a6b812ef9a7e8fb053f3f4',
+        classification: 'staged',
+    }),
+    Object.freeze({
         version: '20260812042000',
         file: '20260812042000_trial_activation_stamp_1282.sql',
         sha256: '41f10614d396769f49236cb355205e80122a969d1784f803d5b127ab8e5cb181',
@@ -392,7 +401,7 @@ export function resolveExactMigrationConfig(env = process.env) {
                 ...EXACT_MIGRATION_ALLOWLIST.slice(targetIndex + 1)
                     .map(({ version, file }) => ({ version, file })),
                 ...(target.version === '20261110173548' ? [RETIREMENT_WITHHELD_BILLING] : []),
-                ...(['20261112133000', '20261114100000', '20261114170000', '20261117105700'].includes(target.version) ? [RETIREMENT_WITHHELD_BILLING, ABANDONMENT_WITHHELD_REFUND] : []),
+                ...(['20261112133000', '20261114100000', '20261114170000', '20261117105700', '20261119120000'].includes(target.version) ? [RETIREMENT_WITHHELD_BILLING, ABANDONMENT_WITHHELD_REFUND] : []),
             ],
             allowlisted: true,
         };
@@ -775,6 +784,8 @@ export const TARGET_POSTFLIGHT_GATES = Object.freeze([
     Object.freeze({ id: 'postflight_20261114170000', targetFile: '20261114170000_payment_wall_product_access_1863' }),
     // #1835 practice privacy: choice table, grants, policies, consent functions and triggers, exact (read-only).
     Object.freeze({ id: 'postflight_20261117105700', targetFile: '20261117105700_practice_privacy_choices_1835' }),
+    // #1827 D2 repeat tip: attempt columns, private helpers and triggers exact; no API role can execute a helper (read-only).
+    Object.freeze({ id: 'postflight_20261119120000', targetFile: '20261119120000_repeat_practised_tip' }),
 ]);
 
 /**

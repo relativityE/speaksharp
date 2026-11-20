@@ -44,6 +44,12 @@ export interface OpenAttempt {
     /** Once resolution starts, retries remain durably bound to this exact repeat session. */
     resolutionSessionId?: string;
     /**
+     * #1827 D2 rev 4: set by a client that registers the repeat (this one). Such an attempt is bound only from the server's
+     * registered take (read, never stored). An attempt without it was accepted by an older client and keeps the earlier
+     * first-take rules.
+     */
+    registrationRequired?: boolean;
+    /**
      * #1258 RH-13: when the user accepted it. A reconcile round binds the attempt only to the first owed take enqueued
      * after this moment; an attempt stored before this field existed is bound by the next save, as before.
      */
@@ -68,6 +74,7 @@ export function setOpenAttempt(a: OpenAttempt): boolean {
         const safe: OpenAttempt = { attemptId: a.attemptId, userId: a.userId, sourceSessionId: a.sourceSessionId,
             ...(a.acceptedAtIso === undefined ? {} : { acceptedAtIso: a.acceptedAtIso }),
             ...(a.resolutionSessionId === undefined ? {} : { resolutionSessionId: a.resolutionSessionId }),
+            ...(a.registrationRequired === true ? { registrationRequired: true } : {}),
             ...(a.repeatTarget === undefined ? {} : { repeatTarget: sanitizeRepeatTarget(a.repeatTarget) }) };
         const raw = JSON.stringify(safe);
         localStorage.setItem(KEY, raw);
@@ -90,6 +97,7 @@ export function getOpenAttemptForUser(userId: string): OpenAttempt | null {
             attemptId: a.attemptId, userId: a.userId, sourceSessionId: a.sourceSessionId,
             ...(a.acceptedAtIso === undefined ? {} : { acceptedAtIso: a.acceptedAtIso }),
             ...(a.resolutionSessionId === undefined ? {} : { resolutionSessionId: a.resolutionSessionId }),
+            ...(a.registrationRequired === true ? { registrationRequired: true } : {}),
             ...(a.repeatTarget === undefined ? {} : { repeatTarget: sanitizeRepeatTarget(a.repeatTarget) }),
         };
         return null;

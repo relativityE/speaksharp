@@ -443,6 +443,7 @@ test('unverified phase drain retains the owned copy and refuses receipt creation
     assert.throws(()=>runVitestExecution({root:directory,base}),error=>{
       retained=error.retainedCopy;
       assert.match(error.message,/Owned phase cleanup unverified/);
+      assert.ok(error.message.includes('test="tests/unit/nonpilot.test.js" batch=0 timeoutMs=60000'));
       assert.match(error.cause.message,/Cannot inspect owned phase/);
       assert.equal(error.diagnostics.status,0,'even a successful leader cannot establish drain');
       assert.ok(fs.existsSync(retained),'unknown ownership must not delete the evidence');

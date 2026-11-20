@@ -26,6 +26,7 @@ import {
 import type { ProgressDebtReason } from './progressDebtVocabulary';
 import { emitProgressDebt, progressDebtAgeMs } from '@/services/telemetry/progressDebtTelemetry';
 import { getOpenAttemptForUser, clearOpenAttemptIfMatches, setOpenAttempt } from './openAttempt';
+import { readRepeatIdentity } from './practiceAgainIntent';
 import {
     clearRecommendationObligationIfMatches,
     listRecommendationObligations,
@@ -594,6 +595,12 @@ function bindOpenAttemptForTake(
 ): 'not_due' | 'bound' | 'failed' {
     const open = getOpenAttemptForUser(userId);
     if (!open || open.sourceSessionId === sessionId) return 'not_due'; // never resolve a recommendation against itself
+    // #1827 D2 rev 4: an attempt from a registering client is never bound here. Its repeat is the server's registered take,
+    // read (never stored) by `settleRegisteredRepeat` once that take's evaluation is durable. An attempt created against a
+    // database before the registration migration is not a registering one (the press found no such function), so it keeps
+    // these earlier rules in full, queue ordering and recovery included.
+    if (open.registrationRequired) return 'not_due';
+    // An attempt accepted by an older client (no registration): the earlier first-take rules, unchanged.
     if (open.resolutionSessionId) return open.resolutionSessionId === sessionId ? 'bound' : 'not_due';
     // Fail closed on an UNKNOWN boundary: never bind on a guess (PM 6174115505).
     if (boundaryIso === null) return 'not_due';
@@ -639,21 +646,62 @@ const advancesInFlight = new Map<string, Promise<void>>();
  * comparability; when the new session is not an eligible same-cohort comparison the attempt is resolved as
  * `not_comparable` — either way the practice session is associated and the attempt is closed exactly once.
  */
-async function resolveOpenAttemptWith(userId: string, newSessionId: string): Promise<void> {
+async function resolveOpenAttemptWith(userId: string, newSessionId: string | null): Promise<void> {
     const open = getOpenAttemptForUser(userId);
     if (!open || open.sourceSessionId === newSessionId) return; // never resolve a recommendation against itself
+    if (open.registrationRequired) return settleRegisteredRepeat(userId, open.attemptId);
     // Codex P1 r4272602941: this ADVANCES an attempt that is already bound; it never binds one. Binding is decided once,
     // by `bindOpenAttemptForTake`, before anything non-blocking is published. Binding here as well bound an attempt that
     // decision had found NOT due (accepted after this save began, or a queued take that predates acceptance) to the wrong
     // take, and left the take the user actually practised unlinked. An unbound attempt waits for the take it belongs to.
     if (!open.resolutionSessionId) return;
-    const resolutionSessionId = open.resolutionSessionId;
-    const key = `${userId}\u0000${open.attemptId}`;
+    return advanceOnce(userId, open.attemptId, open.resolutionSessionId);
+}
+
+/** One advance per (owner, attempt) on this page; later callers join the flight in progress. */
+function advanceOnce(userId: string, attemptId: string, resolutionSessionId: string): Promise<void> {
+    const key = `${userId}\u0000${attemptId}`;
     const existing = advancesInFlight.get(key);
     if (existing) return existing;
-    const flight = advanceBoundAttempt(userId, open.attemptId, resolutionSessionId).finally(() => advancesInFlight.delete(key));
+    const flight = advanceBoundAttempt(userId, attemptId, resolutionSessionId).finally(() => advancesInFlight.delete(key));
     advancesInFlight.set(key, flight);
     return flight;
+}
+
+/**
+ * #1827 D2 rev 4 — the ONE path that binds and advances a registering client's attempt, from the server's answer:
+ *   registered: the server's registered take is the repeat. Once its evaluation is durable it becomes the resolution
+ *               (replacing any other) and is advanced once. Until then nothing happens; its own save, or the next
+ *               reconciliation, reads again. A lost registration reply is answered by this read; a discarded take was
+ *               released by the server, so it is never read back.
+ *   awaiting / unknown / legacy: nothing committed, the read failed, or the server holds no registration for it: leave the
+ *               attempt unbound — never guess, never register. (A database before the migration is handled at the press:
+ *               such an attempt is never a registering one; see `declarePracticeAgainRegistration`.)
+ */
+async function settleRegisteredRepeat(userId: string, attemptId: string): Promise<void> {
+    const identity = await readRepeatIdentity(attemptId);
+    const current = () => { const o = getOpenAttemptForUser(userId); return o?.attemptId === attemptId ? o : null; };
+    if (identity.kind === 'registered') {
+        const repeat = identity.sessionId;
+        const open = current();
+        if (!open || open.sourceSessionId === repeat) return;
+        if (open.resolutionSessionId !== repeat) {
+            if (!(await hasDurableEvaluation(repeat))) return;
+            const latest = current();
+            if (!latest || !setOpenAttempt({ ...latest, resolutionSessionId: repeat })) return;
+        }
+        return advanceOnce(userId, attemptId, repeat);
+    }
+}
+
+/** Whether the take's Progress evaluation is durable (read-only; RLS returns only the owner's own rows). */
+async function hasDurableEvaluation(sessionId: string): Promise<boolean> {
+    try {
+        const { data, error } = await getSupabaseClient().from('session_progress_evaluations').select('id').eq('session_id', sessionId).maybeSingle();
+        return !error && !!data;
+    } catch {
+        return false;
+    }
 }
 
 async function advanceBoundAttempt(userId: string, attemptId: string, resolutionSessionId: string): Promise<void> {
@@ -896,10 +944,12 @@ export async function reconcileProgressEvaluations(
     sessions: ReconcilableSession[],
 ): Promise<{ queueDrained: number; swept: number }> {
     let queueDrained = 0;
-
-    // Reload reconciliation retries the exact durable attempt/repeat pair before considering later saves.
-    const pendingResolution = getOpenAttemptForUser(userId)?.resolutionSessionId;
-    if (pendingResolution) await resolveOpenAttemptWith(userId, pendingResolution);
+    // Reload reconciliation retries the exact durable attempt/repeat pair before considering later saves. #1827 D2 rev 4: a
+    // registering client's attempt reads the server's registered take here even with nothing bound locally, so a repeat
+    // whose registration reply was lost (or whose save settled before the answer) is bound and advanced now.
+    const openAtLoad = getOpenAttemptForUser(userId);
+    if (openAtLoad?.registrationRequired) await resolveOpenAttemptWith(userId, openAtLoad.resolutionSessionId ?? null);
+    else if (openAtLoad?.resolutionSessionId) await resolveOpenAttemptWith(userId, openAtLoad.resolutionSessionId);
 
     // #1258 RH-13: recommendations a durable evaluation still owes from an EARLIER page — a save or round that unlocked
     // and then closed before finishing one. Their own namespace, so no older client can have retired them. Listed BEFORE
