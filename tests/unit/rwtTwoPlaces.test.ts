@@ -9,6 +9,10 @@ import { BLOCKED_COPY, type TabState } from '../live/helpers/rwtAbandonTakeover'
 import {
     DISPLACED_FENCE_COLUMNS, type FenceRowRead, LOCAL_TAB_LOCK_COPY, LOCAL_TAB_LOCK_WORDINGS, displacedFenceVerdict, sameBrowserRefusedVerdict,
 } from '../live/helpers/rwtTwoPlaces';
+import { ABANDON_TWO_PLACES_CONSENT_MODE, CONSENT_MODES } from '../live/helpers/rwtPracticeConsent';
+import {
+    ABANDON_CLOSE_TAB_SUITE, ABANDON_NAVIGATE_SUITE, TWO_TAB_SUITE, automatedEvaluation, receiptAcceptance, requiredAutomatedRows, type ReceiptRow,
+} from '../live/helpers/rwtAcceptance';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const src = (rel: string) => readFileSync(path.resolve(here, '..', '..', rel), 'utf8');
@@ -145,4 +149,79 @@ describe('the AHT-11 spec wiring', () => {
     it('the AHT-09/10 return Start still uses the lease-or-local locator (unchanged)', () => {
         expect(spec).toContain('refusalCopyShown = await refusalShown(returned);');
     });
+});
+
+describe('J5.b/c and J6: the run\'s own account opts in before any Start (#1835; Sam, Nov 18)', () => {
+    const spec = src('tests/live/rwt-abandon-and-two-tabs.live.spec.ts');
+    const settleFn = spec.slice(spec.indexOf('async function settleRunConsent'), spec.indexOf('async function openOpenMic'));
+    const openFn = spec.slice(spec.indexOf('async function openOpenMic'), spec.indexOf('async function startFirstPrivateTake'));
+    const abandon = spec.slice(spec.indexOf('async function abandonAndReturn'), spec.indexOf("test.describe('RWT — leaving a recording"));
+    const test11 = spec.slice(spec.indexOf("test('one account, two places"));
+    const CONSENT = 'practice privacy choice';
+
+    it('the fixed mode is Save: Yes, Coaching: No, never read from the environment', () => {
+        expect(CONSENT_MODES[ABANDON_TWO_PLACES_CONSENT_MODE]).toEqual({ transcriptSave: true, aiCoaching: false });
+        expect(settleFn).toContain('mode: ABANDON_TWO_PLACES_CONSENT_MODE });');
+        expect(spec).not.toContain('RWT_PRACTICE_CONSENT');
+        expect(spec).not.toContain('consentModeFrom');
+    });
+    it('the choice is settled through the shared helper, then recorded as the receipt row (any unproven state already threw)', () => {
+        const settle = settleFn.indexOf('const consent = await settlePracticeConsent({ page, client: admin as unknown as ChoiceClient, ownerId: owner.uid, migrationFiles,');
+        const row = settleFn.indexOf(`receipt.row('${CONSENT}', 'PASS',`);
+        expect(settle).toBeGreaterThan(0);
+        expect(settle).toBeLessThan(row);
+        expect(settleFn).toContain("readdirSync(resolvePath(process.cwd(), 'backend/supabase/migrations'))");
+        // No second, hand-rolled prompt answer or row write.
+        expect(spec.match(/settlePracticeConsent\(/g)).toHaveLength(1);
+        expect(spec.match(new RegExp(`receipt\\.row\\('${CONSENT}'`, 'g'))).toHaveLength(1);
+        expect(spec).not.toContain('answerPracticePrivacyPrompt');
+    });
+    it('the first visit is answered on the Practice page, before Products → Open Mic', () => {
+        const practice = openFn.indexOf("await page.goto('/practice');");
+        const first = openFn.indexOf('if (firstVisit) await firstVisit();');
+        const product = openFn.indexOf("await openProductsItem(page, 'open-mic');");
+        expect(practice).toBeGreaterThan(0);
+        expect(practice).toBeLessThan(first);
+        expect(first).toBeLessThan(product);
+    });
+    it('J5.b/c: the account\'s first Practice visit settles it, after the claim and before the first take; the reopened tab is not asked', () => {
+        const claimed = abandon.indexOf('if (!claimed) return;');
+        const open = abandon.indexOf('await openOpenMic(page, () => settleRunConsent(page, receipt, owner));');
+        const take = abandon.indexOf('await startFirstPrivateTake(page,');
+        expect(claimed).toBeGreaterThan(0);
+        expect(claimed).toBeLessThan(open);
+        expect(open).toBeLessThan(take);
+        expect(abandon).toContain('await openOpenMic(returned);');
+        expect(abandon.match(/settleRunConsent\(/g)).toHaveLength(1);
+    });
+    it('J6: tab A\'s first visit settles it before tab A\'s take; the same-browser tab and the other device are not asked', () => {
+        const claimed = test11.indexOf('if (!claimed) return;');
+        const open = test11.indexOf('await openOpenMic(tabA, () => settleRunConsent(tabA, receipt, owner));');
+        const take = test11.indexOf("await startFirstPrivateTake(tabA, 'two-tab-a');");
+        expect(claimed).toBeGreaterThan(0);
+        expect(claimed).toBeLessThan(open);
+        expect(open).toBeLessThan(take);
+        expect(test11).toContain('await openOpenMic(sameBrowserTab);');
+        expect(test11).toContain('await openOpenMic(deviceB);');
+        expect(test11.match(/settleRunConsent\(/g)).toHaveLength(1);
+    });
+    for (const suite of [ABANDON_NAVIGATE_SUITE, ABANDON_CLOSE_TAB_SUITE, TWO_TAB_SUITE]) {
+        const inventory = requiredAutomatedRows(suite)!;
+        const rows: ReceiptRow[] = [...inventory.required, ...inventory.product].map((step) => ({ step, verdict: 'PASS', detail: 'fixture' }));
+        const receipt = { suite, release: 'a'.repeat(40), rows, readback: { journeys: [], reportedJourneyIds: [] } };
+        it(`${suite}: the privacy choice row is mandatory exactly once`, () => {
+            expect(inventory.product.filter((x) => x === CONSENT)).toHaveLength(1);
+            const evaluate = (candidate: ReceiptRow[]) => automatedEvaluation({ ...receipt, rows: candidate });
+            expect(evaluate(rows).errors).toEqual([]);
+            expect(receiptAcceptance(evaluate(rows).rows).acceptance).toBe('PASS');
+            expect(evaluate(rows.filter((r) => r.step !== CONSENT)).errors.some((e) => e.includes(CONSENT))).toBe(true);
+        });
+        it(`${suite}: a HOLD or FAIL privacy choice cannot become PASS`, () => {
+            for (const verdict of ['HOLD', 'FAIL'] as const) {
+                const evaluated = automatedEvaluation({ ...receipt, rows: rows.map((r) => (r.step === CONSENT ? { ...r, verdict } : r)) });
+                expect(evaluated.errors).toEqual([]);
+                expect(receiptAcceptance(evaluated.rows).acceptance).toBe(verdict === 'FAIL' ? 'FAIL' : 'INCOMPLETE');
+            }
+        });
+    }
 });

@@ -70,6 +70,13 @@ export function fixedConsentBeforeStartVerdict(o: {
     return { status: 'FAIL', reason: `readback_${v.reason}`, detail: `the owner's consent row read back before capture is ${v.reason}` };
 }
 
+/**
+ * J5.b / J5.c (leaving a recording) and J6 (one account, two places) save takes, so each run's own run-owned account opts in
+ * the same way: Save: Yes, Coaching: No (Sam, Nov 18: test bots opt in their own test account before Start). Fixed, never read
+ * from the environment, so a shared dispatch input meant for another journey can never switch coaching on here.
+ */
+export const ABANDON_TWO_PLACES_CONSENT_MODE: ConsentMode = 'save_on';
+
 /** The run's consent mode from its environment; null when unset or not one of the three. */
 export function consentModeFrom(value: string | undefined): ConsentMode | null {
     return value !== undefined && Object.prototype.hasOwnProperty.call(CONSENT_MODES, value) ? value as ConsentMode : null;

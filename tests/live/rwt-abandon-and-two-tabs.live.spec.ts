@@ -10,6 +10,8 @@
  * next take save only itself with no take left `active` on the server. Private never reaches Cloud STT. Receipts are
  * content-free. Preparation only: execution requires a fresh release-bound RWT authorization.
  */
+import { readdirSync } from 'node:fs';
+import { resolve as resolvePath } from 'node:path';
 import { createClient } from '@supabase/supabase-js';
 import type { BrowserContext, Dialog, Page, TestInfo } from '@playwright/test';
 import { test, expect } from './helpers/rwtProductionTest';
@@ -43,6 +45,7 @@ import {
     addCompletedTakeIds, installModelStatusHistory, leaseRefusalWindowVerdict, openObservationWindow, closeObservationWindow, armTakeoverGesture, measureRealmClock, crossRealmBoundary, type ObservationClose, refreshCompletedTakeIds, returnStartVerdict, takeOverRowsVerdict, takeOverVerdict, pressPrivateStartForLease,
 } from './helpers/rwtAbandonTakeover';
 import { DISPLACED_FENCE_COLUMNS, type FenceRowRead, LOCAL_TAB_LOCK_COPY, displacedFenceVerdict, sameBrowserRefusedVerdict } from './helpers/rwtTwoPlaces';
+import { ABANDON_TWO_PLACES_CONSENT_MODE, type ChoiceClient, settlePracticeConsent } from './helpers/rwtPracticeConsent';
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
 const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
@@ -106,8 +109,27 @@ function observe(page: Page, tap: AnalyticsTap, generations: CoachingGenerationT
     observeCloudStt(page, cloud);
 }
 
-async function openOpenMic(page: Page): Promise<void> {
+/**
+ * #1835: saving and AI coaching stay off until the owner opts in, and an owner with no recorded choice is asked on the next
+ * Practice visit. Only THIS run's fresh account answers, on its FIRST Practice visit and before any Start: Save: Yes,
+ * Coaching: No (Sam, Nov 18), read back from the owner's own server row. The app's default is untouched. Every later visit
+ * (the reopened tab, the same-browser tab, the other device) is the same owner with the choice already recorded, so it is
+ * not asked. A verified pre-#1835 build has nothing to answer; any unproven state stops with `HOLD practice consent: <reason>`
+ * before any take can exist.
+ */
+async function settleRunConsent(page: Page, receipt: RwtReceipt, owner: RunOwner): Promise<void> {
+    const migrationFiles = (() => { try { return readdirSync(resolvePath(process.cwd(), 'backend/supabase/migrations')); } catch { return null; } })();
+    const consent = await settlePracticeConsent({ page, client: admin as unknown as ChoiceClient, ownerId: owner.uid, migrationFiles,
+        mode: ABANDON_TWO_PLACES_CONSENT_MODE });
+    receipt.row('practice privacy choice', 'PASS', consent.choice ? 'this run\'s owner recorded its choice through the Practice prompt, read back from the server'
+        : 'verified pre-#1835 build: no choice to make', { build: consent.build, mode: consent.mode ?? 'none',
+        transcriptSave: consent.choice?.transcriptSave ?? null, aiCoaching: consent.choice?.aiCoaching ?? null });
+}
+
+/** `firstVisit` runs on the Practice page before Products → Open Mic: only the account's first visit settles its consent. */
+async function openOpenMic(page: Page, firstVisit?: () => Promise<void>): Promise<void> {
     await page.goto('/practice');
+    if (firstVisit) await firstVisit();
     await openProductsItem(page, 'open-mic');
     await page.waitForURL(/\/session/, { timeout: 45_000 });
 }
@@ -129,19 +151,19 @@ const finalizer = new JourneyFinalizer();
  * `mic-download` on a cold model (benchmark-utils.ts:609, the one activation that downloads AND starts), otherwise `mic-start`
  * (startBenchmarkRecording, benchmark-utils.ts:862, after waitForPrivateEngineReady). Refusal-then-take-over presses count.
  * AHT-09 (navigate away) and AHT-10 (close the tab), the same path through `abandonAndReturn`:
- *   1. the first take — startFirstPrivateTake (this file:199): `mic-download` cold, else `mic-start`;
- *   2. the return Start — `mic-start` (this file:314);
- *   3. only after the product's refusal copy, the person's second press — `mic-start` (this file:325).
+ *   1. the first take — startFirstPrivateTake (this file:258): `mic-download` cold, else `mic-start`;
+ *   2. the return Start — `mic-start` (this file:376);
+ *   3. only after the product's refusal copy, the person's second press — `mic-start` (this file:387).
  * So: 3 in all; `mic-start` at most 3, `mic-download` at most 1, no Retry press.
  */
 const AHT09_START_PRESS_BUDGET: StartPressBudget = { total: 3, perControl: { 'mic-start': 3, 'mic-download': 1 } };
 const AHT10_START_PRESS_BUDGET: StartPressBudget = { total: 3, perControl: { 'mic-start': 3, 'mic-download': 1 } };
 /**
  * AHT-11 (one account, two places):
- *   1. tab A's first take — startFirstPrivateTake (this file:413): `mic-download` cold, else `mic-start`;
- *   2. the same-browser tab's Start — `mic-start` (this file:429);
+ *   1. tab A's first take — startFirstPrivateTake (this file:475): `mic-download` cold, else `mic-start`;
+ *   2. the same-browser tab's Start — `mic-start` (this file:491);
  *   3. the other device's first press — pressPrivateStartForLease (rwtAbandonTakeover.ts:59): `mic-download` cold, else `mic-start`;
- *   4. the explicit take-over press — `mic-start` or the still-cold `mic-download` (this file:501).
+ *   4. the explicit take-over press — `mic-start` or the still-cold `mic-download` (this file:564).
  * So: 4 in all; `mic-start` at most 4, `mic-download` at most 3 (tab A, then both device-B presses, all cold), no Retry press.
  */
 const AHT11_START_PRESS_BUDGET: StartPressBudget = { total: 4, perControl: { 'mic-start': 4, 'mic-download': 3 } };
@@ -227,7 +249,7 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
         await suppressPageSnapshot(testInfo);
         claimed = await prepareRunOwnedAccount(page, receipt, owner, `abandon-${variant}`, admin, SERVICE_ROLE);
         if (!claimed) return;
-        await openOpenMic(page);
+        await openOpenMic(page, () => settleRunConsent(page, receipt, owner));
         // The account's rows before the first take: the baseline the left take's persistence is read against.
         rowsBeforeFirst = await readRows(owner.uid);
         // Case 10: the identity baseline before ANY possible Start, and phase A armed before it (cold setup may auto-start).
@@ -449,7 +471,7 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             claimed = await prepareRunOwnedAccount(tabA, receipt, owner, 'two-tab', admin, SERVICE_ROLE);
             if (!claimed) return;
             rowsBeforeFirst = await readRows(owner.uid);
-            await openOpenMic(tabA);
+            await openOpenMic(tabA, () => settleRunConsent(tabA, receipt, owner));
             await startFirstPrivateTake(tabA, 'two-tab-a');
             await tabA.waitForTimeout(3_000);
 
