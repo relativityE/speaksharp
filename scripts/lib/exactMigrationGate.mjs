@@ -326,6 +326,13 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
         classification: 'staged',
     }),
     Object.freeze({
+        // #1906: the exact deleted-account save-journal cleanup, after repeat-tip and with both existing holds.
+        version: '20261119200000',
+        file: '20261119200000_deleted_account_save_journal_cleanup_1643.sql',
+        sha256: '48088287571cca34007a42018a67df6ccd702bddcda1579ec85f208daaef834c',
+        classification: 'staged',
+    }),
+    Object.freeze({
         version: '20260812042000',
         file: '20260812042000_trial_activation_stamp_1282.sql',
         sha256: '41f10614d396769f49236cb355205e80122a969d1784f803d5b127ab8e5cb181',
@@ -401,7 +408,7 @@ export function resolveExactMigrationConfig(env = process.env) {
                 ...EXACT_MIGRATION_ALLOWLIST.slice(targetIndex + 1)
                     .map(({ version, file }) => ({ version, file })),
                 ...(target.version === '20261110173548' ? [RETIREMENT_WITHHELD_BILLING] : []),
-                ...(['20261112133000', '20261114100000', '20261114170000', '20261117105700', '20261119120000'].includes(target.version) ? [RETIREMENT_WITHHELD_BILLING, ABANDONMENT_WITHHELD_REFUND] : []),
+                ...(['20261112133000', '20261114100000', '20261114170000', '20261117105700', '20261119120000', '20261119200000'].includes(target.version) ? [RETIREMENT_WITHHELD_BILLING, ABANDONMENT_WITHHELD_REFUND] : []),
             ],
             allowlisted: true,
         };
@@ -786,6 +793,7 @@ export const TARGET_POSTFLIGHT_GATES = Object.freeze([
     Object.freeze({ id: 'postflight_20261117105700', targetFile: '20261117105700_practice_privacy_choices_1835' }),
     // #1827 D2 repeat tip: attempt columns, private helpers and triggers exact; no API role can execute a helper (read-only).
     Object.freeze({ id: 'postflight_20261119120000', targetFile: '20261119120000_repeat_practised_tip' }),
+    Object.freeze({ id: 'postflight_20261119200000', targetFile: '20261119200000_deleted_account_save_journal_cleanup_1643' }),
 ]);
 
 /**
