@@ -370,6 +370,19 @@ console.log(query.includes('objects AS')?rows.join('\\n'):rows[0]);});\n`);
     expect(tip.expected).toEqual(privacy.expected);
     expect(tip.knownAbsent).toEqual(privacy.knownAbsent);
     expect(t2EdgeReleaseContract(process.cwd(), fourteen).profile).toBe('post-1827-repeat-tip');
+    const fifteen = [...fourteen, '20261119200000'];
+    const cleanup = t2ReleaseContract(process.cwd(), fifteen);
+    expect([cleanup.profile, cleanup.stage]).toEqual(['post-1906-save-journal-cleanup', 9]);
+    expect(cleanup.inventory).toEqual(tip.inventory);
+    expect(cleanup.expected).toEqual(tip.expected);
+    expect(cleanup.pins.at(-1)).toEqual({
+      version: '20261119200000', sha256: '48088287571cca34007a42018a67df6ccd702bddcda1579ec85f208daaef834c',
+    });
+    expect(t2EdgeReleaseContract(process.cwd(), fifteen).profile).toBe('post-1906-save-journal-cleanup');
+    expect(() => t2ReleaseContract(process.cwd(), [...thirteen, '20261119200000'])).toThrow(/ledger/);
+    expect(() => t2ReleaseContract(process.cwd(), [...fourteen, '20261119200001'])).toThrow(/ledger/);
+    expect(() => t2ReleaseContract(process.cwd(), [...fourteen, '20261119200000', '20261119200001'])).toThrow(/ledger/);
+
     for (const bad of [
       [...thirteen.slice(0, -1), '20261119120000'],                       // repeat tip without #1835
       [...thirteen.slice(0, -2), '20261117105700', '20261114170000', '20261119120000'], // reordered predecessors

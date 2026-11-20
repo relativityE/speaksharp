@@ -18,6 +18,7 @@ import { finalizeEditedTakeProof, runRequiredEditedTakeProof } from './retention
 import { T2_INVENTORY, T2_VERSIONS, t2CatalogQuery, t2ExpectedCatalog, assertT2Catalog,
   t2ReleaseLedgerQuery, t2ReleaseContract, t2ReleaseSnapshotQuery, assertT2ReleaseSnapshot } from '../../scripts/lib/t2MigrationPostflight.mjs';
 import { retirementContract, retirementSnapshotQuery, assertRetirementSnapshot } from '../../scripts/lib/retirementMigrationPostflight.mjs';
+import { saveJournalCleanupContract, saveJournalCleanupSnapshotQuery, assertSaveJournalCleanupSnapshot } from '../../scripts/lib/saveJournalCleanupMigrationPostflight.mjs';
 
 // Installed successor evidence is separate from every historical replay. The
 // operational pre/post verifier is used unchanged, including its before receipt.
@@ -1009,7 +1010,9 @@ const PAYMENT_WALL_PROFILE='main-payment-wall-132';
 const PRACTICE_PRIVACY_PROFILE='main-practice-privacy-133';
 // #1827 outcome 4 D2 (ledger 14): the installed practice-privacy profile plus 20261119120000, staged after it.
 const REPEAT_TIP_PROFILE='main-repeat-tip-134';
-const FROM_PRACTICE_PRIVACY=[PRACTICE_PRIVACY_PROFILE,REPEAT_TIP_PROFILE];
+const SAVE_JOURNAL_PROFILE='main-save-journal-cleanup-135';
+const FROM_REPEAT_TIP=[REPEAT_TIP_PROFILE,SAVE_JOURNAL_PROFILE];
+const FROM_PRACTICE_PRIVACY=[PRACTICE_PRIVACY_PROFILE,...FROM_REPEAT_TIP];
 const FROM_PAYMENT_WALL=[PAYMENT_WALL_PROFILE,...FROM_PRACTICE_PRIVACY];
 const FROM_FEEDBACK_FENCE=[FEEDBACK_FENCE_PROFILE,...FROM_PAYMENT_WALL];
 const FROM_ABANDONMENT=[ABANDONMENT_PROFILE,...FROM_FEEDBACK_FENCE];
@@ -1028,7 +1031,8 @@ function selectedAdditions(profile) {
     ...(FROM_FEEDBACK_FENCE.includes(profile)?[{...FEEDBACK_FENCE_MIGRATION,stage:'feedback-fence'}]:[]),
     ...(FROM_PAYMENT_WALL.includes(profile)?[{...PAYMENT_WALL_MIGRATION,stage:'payment-wall'}]:[]),
     ...(FROM_PRACTICE_PRIVACY.includes(profile)?[{...PRACTICE_PRIVACY_MIGRATION,stage:'practice-privacy'}]:[]),
-    ...(profile===REPEAT_TIP_PROFILE?[{...REPEAT_TIP_MIGRATION,stage:'repeat-tip'}]:[])];
+    ...(FROM_REPEAT_TIP.includes(profile)?[{...REPEAT_TIP_MIGRATION,stage:'repeat-tip'}]:[]),
+    ...(profile===SAVE_JOURNAL_PROFILE?[{...SAVE_JOURNAL_CLEANUP_MIGRATION,stage:'save-journal-cleanup'}]:[])];
   return rows.sort((a,b)=>a.name.localeCompare(b.name,'en'));
 }
 const MAIN_DRAIN = '20261016180000_account_closure_drain_enforcement.sql';
@@ -1109,6 +1113,7 @@ export function buildMainU1ReplayPlan(rows, profile = 'main-120') {
     :profile===PAYMENT_WALL_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION,...REVIEWED_UNRELATED_MIGRATIONS,PRACTICE_PRIVACY_MIGRATION,REPEAT_TIP_MIGRATION,SAVE_JOURNAL_CLEANUP_MIGRATION]
     :profile===PRACTICE_PRIVACY_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION,...REVIEWED_UNRELATED_MIGRATIONS,REPEAT_TIP_MIGRATION,SAVE_JOURNAL_CLEANUP_MIGRATION]
     :profile===REPEAT_TIP_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION,...REVIEWED_UNRELATED_MIGRATIONS,SAVE_JOURNAL_CLEANUP_MIGRATION]
+    :profile===SAVE_JOURNAL_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION,...REVIEWED_UNRELATED_MIGRATIONS]
     :REVIEWED_WITHHELD_MIGRATIONS;
   const withheld=actual.filter(row=>withheldPins.some(pin=>pin.name===row.name));
   for(const row of withheld) assert.equal(row.sha256,withheldPins.find(pin=>pin.name===row.name).sha256,
@@ -1124,7 +1129,7 @@ export function buildMainU1ReplayPlan(rows, profile = 'main-120') {
   }
   for (const row of expected) assert.ok(replay.some(value => value.name === row.name), 'reviewed migration missing: ' + row.name);
   const history = excluded => versioned.filter(row => !excluded.includes(row.name)).map(row => row.version);
-  const late=[MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name,RETIREMENT_MIGRATION.name,START_ABANDONMENT_MIGRATION.name,FEEDBACK_FENCE_MIGRATION.name,PAYMENT_WALL_MIGRATION.name,PRACTICE_PRIVACY_MIGRATION.name,REPEAT_TIP_MIGRATION.name];
+  const late=[MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name,RETIREMENT_MIGRATION.name,START_ABANDONMENT_MIGRATION.name,FEEDBACK_FENCE_MIGRATION.name,PAYMENT_WALL_MIGRATION.name,PRACTICE_PRIVACY_MIGRATION.name,REPEAT_TIP_MIGRATION.name,SAVE_JOURNAL_CLEANUP_MIGRATION.name];
   const stages = [
     { name: 'baseline-before-drain', versions: history([MAIN_DRAIN, MAIN_RECOVERY, ...late]) },
     { name: 'drain-enforcement', versions: history([MAIN_RECOVERY, ...late]) },
@@ -1156,7 +1161,8 @@ export function runMainClosureProof() {
   const migrations = manifest.filter(row=>row.version!==null&&plan.replayFiles.includes(row.name));
   const completeT2=T2_PROFILES.includes(args.profile);
   const billingT2=args.profile===BILLING_PROFILE;
-  const repeatTipT2=args.profile===REPEAT_TIP_PROFILE;
+  const saveJournalT2=args.profile===SAVE_JOURNAL_PROFILE;
+  const repeatTipT2=FROM_REPEAT_TIP.includes(args.profile);
   const practicePrivacyT2=args.profile===PRACTICE_PRIVACY_PROFILE||repeatTipT2;
   const paymentWallT2=args.profile===PAYMENT_WALL_PROFILE||practicePrivacyT2;
   const feedbackFenceT2=args.profile===FEEDBACK_FENCE_PROFILE||paymentWallT2;
@@ -1257,7 +1263,7 @@ export function runMainClosureProof() {
     // Supported CLI selector; fresh staging only, never an installed/project DB.
     mkdirSync(join(directory, '.temp'), { recursive: true });
     writeFileSync(join(directory, '.temp', 'postgres-version'), postgresVersion);
-    for (const file of plan.replayFiles.filter((name) => ![candidate,recovery,MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name,RETIREMENT_MIGRATION.name,START_ABANDONMENT_MIGRATION.name,FEEDBACK_FENCE_MIGRATION.name,PAYMENT_WALL_MIGRATION.name,PRACTICE_PRIVACY_MIGRATION.name,REPEAT_TIP_MIGRATION.name].includes(name))) cpSync(join(root, file), join(directory, 'migrations', file));
+    for (const file of plan.replayFiles.filter((name) => ![candidate,recovery,MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name,RETIREMENT_MIGRATION.name,START_ABANDONMENT_MIGRATION.name,FEEDBACK_FENCE_MIGRATION.name,PAYMENT_WALL_MIGRATION.name,PRACTICE_PRIVACY_MIGRATION.name,REPEAT_TIP_MIGRATION.name,SAVE_JOURNAL_CLEANUP_MIGRATION.name].includes(name))) cpSync(join(root, file), join(directory, 'migrations', file));
     // Internal-only bridges do not publish the localhost DB port used by the
     // pinned CLI. Use a loopback-published bridge with an owned egress DROP rule
     // established before starting any database/service container instead.
@@ -1598,6 +1604,23 @@ export function runMainClosureProof() {
           assert.deepEqual(history(),plan.stages.find(row=>row.name==='repeat-tip').versions,'repeat-tip installed ledger differs');
         },
         retain: receipt => writeFileSync(join(evidence,'repeat-tip-installed-catalog.json'),JSON.stringify(receipt,null,2)) });
+    }
+    if(saveJournalT2) {
+      const sourceRoot=process.cwd(), version=SAVE_JOURNAL_CLEANUP_MIGRATION.version;
+      const check=mode => assertSaveJournalCleanupSnapshot(saveJournalCleanupContract(sourceRoot,mode,version),
+        JSON.parse(sql(`BEGIN READ ONLY; SET LOCAL search_path TO pg_catalog; ${saveJournalCleanupSnapshotQuery()} COMMIT;`)));
+      const before=check('before');
+      const release=observeSuccessorReleaseCatalog({ sql, root: sourceRoot, from: 'post-1827-repeat-tip', to: 'post-1906-save-journal-cleanup',
+        apply: () => {
+          cpSync(join(root,SAVE_JOURNAL_CLEANUP_MIGRATION.name),join(directory,'migrations',SAVE_JOURNAL_CLEANUP_MIGRATION.name));
+          cli(['migration','up','--local']);
+          assert.deepEqual(history(),plan.stages.find(row=>row.name==='save-journal-cleanup').versions,'cleanup installed ledger differs');
+        },
+        mutations: [['analytics-wrapper-anon-execute', 'GRANT EXECUTE ON FUNCTION public.get_analytics_summary(uuid) TO anon;']],
+        retain: receipt => writeFileSync(join(evidence,'save-journal-installed-t2.json'),JSON.stringify(receipt,null,2)) });
+      assert.deepEqual(release.changedFromPredecessor, {}, 'save-journal cleanup changed T2 inventory');
+      const after=check('after');
+      writeFileSync(join(evidence,'save-journal-installed-catalog.json'),JSON.stringify({before,after},null,2));
     }
     assert.deepEqual(history(),plan.stages.at(-1).versions,'historical final ledger differs from replay profile');
     for(const row of plan.withheld) assert.equal(existsSync(join(directory,'migrations',row.name)),false,'withheld migration was staged');
