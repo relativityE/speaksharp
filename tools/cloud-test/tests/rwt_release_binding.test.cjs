@@ -10,27 +10,16 @@ function fixture(t){const dir=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir
  const env={DIAGNOSTIC_RELEASE:release,GITHUB_SHA:head,DIAGNOSTIC_SPEC:SPECS[0],SELECTED_GATE:'gate-3-dast',DIAGNOSTIC_GREP:'one exact selected test',COMPARISON_CELL:'none'};
  return {dir,git,commit,release,head,env};
 }
-// The reviewed postimage of a pinned path: today's bytes when they still match the pin, otherwise the historical
-// version whose SHA-256 equals the pin, read from this checkout's full git history (cloud-test.yml fetches depth 0).
-// Pins are never moved to fit current bytes; current bytes that no longer match are refused below.
+// Hermetic by design: no git history. The quality-evidence step runs this file in a single-commit source copy, so a
+// test may read only this checkout's current bytes. A pinned path whose current bytes still equal its pin proves the
+// acceptance path; one whose bytes have drifted since its pin proves refusal. Pins are never moved to fit current bytes.
 const ROOT=path.resolve(__dirname,'../../..');
 const SOURCE_PIN_MAP={...TEST_PINS,...INTEGRATION_PINS};
 const sha256=b=>require('node:crypto').createHash('sha256').update(b).digest('hex');
-const rootGit=(args,binary=false)=>execFileSync('git',args,{cwd:ROOT,encoding:binary?null:'utf8',stdio:['ignore','pipe','pipe'],maxBuffer:1<<26});
-const reviewedBytesCache=new Map();
-function reviewedBytes(p){
- if(!Object.hasOwn(SOURCE_PIN_MAP,p))return fs.readFileSync(path.join(ROOT,p));
- if(reviewedBytesCache.has(p))return reviewedBytesCache.get(p);
- const pin=SOURCE_PIN_MAP[p];
- let found=null;
- try{const current=fs.readFileSync(path.join(ROOT,p));if(sha256(current)===pin)found=current;}catch{/* absent now: look in history */}
- if(!found)for(const rev of rootGit(['log','--all','--format=%H','--',p]).split('\n').filter(Boolean)){
-  let bytes;try{bytes=rootGit(['show',`${rev}:${p}`],true);}catch{continue;}
-  if(sha256(bytes)===pin){found=bytes;break;}
- }
- if(!found)throw new Error('reviewed pinned bytes unavailable in history: '+p);
- reviewedBytesCache.set(p,found);return found;
-}
+const currentBytes=p=>{try{return fs.readFileSync(path.join(ROOT,p));}catch{return null;}};
+const matchesPin=p=>{const b=currentBytes(p);return b!==null&&sha256(b)===SOURCE_PIN_MAP[p];};
+const MATCHING_PINS=Object.keys(SOURCE_PIN_MAP).filter(matchesPin);
+const DRIFTED_PINS=Object.keys(SOURCE_PIN_MAP).filter(p=>currentBytes(p)!==null&&!matchesPin(p));
 test('no override preserves existing workflow binding',()=>assert.deepEqual(verify({}),{kind:'unchanged-workflow-source-binding'}));
 test('every closed RWT spec permits unchanged product/live source on a proof-only successor',t=>{const f=fixture(t);for(const spec of SPECS)assert.equal(verify({...f.env,DIAGNOSTIC_SPEC:spec},f.dir).servedSha,f.release);});
 test('product or live-helper change cannot use separately pinned served ancestor',t=>{const f=fixture(t);for(const p of ['frontend/src/app.ts','tests/live/helpers/rwtJourney.ts','pnpm-lock.yaml','.github/actions/setup-environment/action.yml']){const h=f.commit(p,'changed '+p);assert.throws(()=>verify({...f.env,GITHUB_SHA:h},f.dir),/PRODUCT_OR_LIVE_TEST_SOURCE_DIFFERS/);}});
@@ -39,11 +28,13 @@ test('unknown live spec, missing grep, paid or comparison scope and all-gates se
 test('claimed source must equal checked-out actual job head',t=>{const f=fixture(t);assert.throws(()=>verify({...f.env,GITHUB_SHA:f.release},f.dir),/JOB_SOURCE_DIFFERS/);});
 test('unavailable or nonancestor release cannot be substituted',t=>{const f=fixture(t);assert.throws(()=>verify({...f.env,DIAGNOSTIC_RELEASE:'1'.repeat(40)},f.dir),/SOURCE_BINDING_UNPROVEN/);f.git('checkout','--orphan','unrelated');f.git('rm','-rf','.');const other=f.commit('other.txt','unrelated');f.git('checkout','--detach',f.head);assert.throws(()=>verify({...f.env,DIAGNOSTIC_RELEASE:other},f.dir),/SOURCE_BINDING_UNPROVEN/);});
 test('normal changed workflow plus proof files remain diagnostic only',t=>{const f=fixture(t);const head=f.commit('.github/workflows/rc-gates.yml','synthetic diagnostic workflow');assert.equal(verify({...f.env,GITHUB_SHA:head},f.dir).kind,'rwt-diagnostic-source-compatible-not-release-qualification');});
-test('only the exact accepted attribution and integration postimages may differ from deployed source',t=>{const f=fixture(t);let head=f.head;for(const p of Object.keys(SOURCE_PIN_MAP))head=f.commit(p,reviewedBytes(p));assert.equal(verify({...f.env,GITHUB_SHA:head},f.dir).servedSha,f.release);});
+test('only the exact accepted attribution and integration postimages may differ from deployed source',t=>{
+ assert.ok(MATCHING_PINS.length>0,'no pinned path still matches its pin: the acceptance path is unproven');
+ const f=fixture(t);let head=f.head;for(const p of MATCHING_PINS)head=f.commit(p,currentBytes(p));
+ assert.equal(verify({...f.env,GITHUB_SHA:head},f.dir).servedSha,f.release);});
 test('current checkout bytes that no longer match their reviewed pin still refuse',t=>{
- const drifted=Object.keys(SOURCE_PIN_MAP).filter(p=>{try{return sha256(fs.readFileSync(path.join(ROOT,p)))!==SOURCE_PIN_MAP[p];}catch{return false;}});
- if(drifted.length===0)return t.skip('no pinned path has drifted in this checkout');
- for(const p of drifted){const f=fixture(t);const head=f.commit(p,fs.readFileSync(path.join(ROOT,p)));
+ if(DRIFTED_PINS.length===0)return t.skip('no pinned path has drifted in this checkout');
+ for(const p of DRIFTED_PINS){const f=fixture(t);const head=f.commit(p,currentBytes(p));
   assert.throws(()=>verify({...f.env,GITHUB_SHA:head},f.dir),/DIAGNOSTIC_TEST_SOURCE_PIN_DIFFERS/,p);}
 });
 for(const p of Object.keys({...TEST_PINS,...INTEGRATION_PINS}))test('changed reviewed source bytes refuse: '+p,t=>{const f=fixture(t),head=f.commit(p,'synthetic unreviewed alteration');assert.throws(()=>verify({...f.env,GITHUB_SHA:head},f.dir),/DIAGNOSTIC_TEST_SOURCE_PIN_DIFFERS/);});
@@ -69,8 +60,8 @@ test('an unreviewed sibling of a v3 helper still refuses',t=>{const f=fixture(t)
 
 test('inherited main proof inputs stay individually pinned',()=>{for(const p of ['product_release/RELEASE_STATUS.md', 'product_release/ROADMAP.md', 'tests/live/rwt-open-mic-first-session.live.spec.ts'])assert.ok(Object.hasOwn(INTEGRATION_PINS,p), p);});
 
-// Exact #1834 integration delta against main 4787338d, materialized with each path's reviewed bytes (current bytes
-// when they still match the pin, else the pinned historical version; unpinned allowed paths use current bytes).
+// Exact #1834 integration delta against main 4787338d, materialized with current checkout bytes (hermetic, as above).
+// A pinned path whose bytes have drifted since its pin is left out here; its refusal is proven above.
 const RUNTIME_DISCOVERY_PATHS=[
  '.github/workflows/rc-gates.yml',
  'scripts/lib/nativeTestExecutionEvidence.mjs',
@@ -82,7 +73,7 @@ const RUNTIME_DISCOVERY_PATHS=[
 ];
 test('runtime-discovery integration delta accepts exact registered proof postimages',t=>{
  const f=fixture(t);let head=f.head;
- for(const p of RUNTIME_DISCOVERY_PATHS)head=f.commit(p,reviewedBytes(p));
+ for(const p of RUNTIME_DISCOVERY_PATHS.filter(q=>!Object.hasOwn(SOURCE_PIN_MAP,q)||matchesPin(q)))head=f.commit(p,currentBytes(p));
  assert.equal(verify({...f.env,GITHUB_SHA:head},f.dir).servedSha,f.release);
  const altered=f.commit('scripts/lib/nativeTestExecutionEvidence.mjs','unreviewed registry alteration');
  assert.throws(()=>verify({...f.env,GITHUB_SHA:altered},f.dir),/DIAGNOSTIC_TEST_SOURCE_PIN_DIFFERS/);
