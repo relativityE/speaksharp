@@ -5,6 +5,7 @@ import { useAuthProvider } from '@/contexts/AuthProvider';
 import { loadSessionProgress } from '@/services/progress/loadSessionProgress';
 import { abandonRecommendationAttempt, readPendingRecommendationAttempt, recordRecommendationAttempt } from '@/services/progress/recordProgress';
 import { getOpenAttemptForUser, openAttemptSnapshot, setOpenAttempt } from '@/services/progress/openAttempt';
+import { declarePracticeAgainRegistration, setPracticeAgainIntent } from '@/services/progress/practiceAgainIntent';
 import { isCurrentTargetOwner, resolveRepeatTarget, validateDisplayedTarget, type DisplayedRepeatTarget } from '@/services/progress/repeatPracticeTarget';
 import { authEpoch } from '@/services/loginSessionLog';
 import logger from '@/lib/logger';
@@ -98,13 +99,22 @@ export function useLinkedRepeat(sessionId: string) {
             if (!attemptId) { outcome = 'server_failed'; throw new Error('server-attempt-failed'); }
             if (target && reference) await resolveRepeatTarget(userId, sessionId, reference, current);
             checkCurrent();
+            // #1827 D2 rev 4: this client registers its repeat, so it declares that now (never blocks the press). A database
+            // before the registration migration has no such function: the attempt is then an ordinary one (today's rules).
+            const declaration = await declarePracticeAgainRegistration(attemptId);
+            checkCurrent();
             // A REUSED attempt (its create committed but the answer was lost) is accepted at THIS press (Codex P2 r4273828962,
             // r4275389955, r4275718056; PM 6178959404). No request names an attempt before the server answers, so nothing
             // proves which earlier press — on this device or another — created it, and the server's clock is never mixed
             // into client ordering. Known limitation: a take recorded between the lost create and this press stays
             // unlinked; it is never bound to a take that may predate the attempt.
-            const handoffStored = setOpenAttempt({ attemptId, userId, sourceSessionId: sessionId, acceptedAtIso,
-                ...(reference ? { repeatTarget: reference } : {}) });
+            // #1827 D2 rev 4: this client registers its repeat. Which take that is lives only on the server and is read when
+            // needed, so reusing an attempt carries nothing local that could go stale.
+            // The tab intent is what lets this tab's next Start register the repeat: a registering press without a verified
+            // intent would look successful but never link (Codex P2), so it fails the same way a failed handoff does.
+            const intentStored = setPracticeAgainIntent({ attemptId, userId }) || declaration === 'unsupported';
+            const handoffStored = intentStored && setOpenAttempt({ attemptId, userId, sourceSessionId: sessionId, acceptedAtIso,
+                ...(declaration === 'unsupported' ? {} : { registrationRequired: true }), ...(reference ? { repeatTarget: reference } : {}) });
             if (!handoffStored) {
                 // A replacement account must never issue this original owner's cleanup request.
                 if (authEpoch() !== startedEpoch || (target && !isCurrentTargetOwner(target.ownerId, target.epoch))) return;

@@ -51,7 +51,7 @@ describe('C1 ordered exact-operation enforcement', () => {
         expect(index).toBeLessThan(job.steps.findIndex(step => step.uses?.startsWith('supabase/setup-cli@')));
         expect(index).toBeLessThan(job.steps.findIndex(step => /\bsupabase\s/.test(step.run ?? '')));
         const guard = job.steps[index];
-        expect(guard.if).toBe("${{ inputs.target_version == '20261024083000' || inputs.target_version == '20261025021046' || inputs.target_version == '20261110173548' || inputs.target_version == '20261112133000' || inputs.target_version == '20261114100000' || inputs.target_version == '20261114170000' || inputs.target_version == '20261117105700' }}");
+        expect(guard.if).toBe("${{ inputs.target_version == '20261024083000' || inputs.target_version == '20261025021046' || inputs.target_version == '20261110173548' || inputs.target_version == '20261112133000' || inputs.target_version == '20261114100000' || inputs.target_version == '20261114170000' || inputs.target_version == '20261117105700' || inputs.target_version == '20261119120000' }}");
         expect(guard['continue-on-error']).toBeUndefined();
         expect(guard.env).toBeUndefined();
         expect(job.env.SUPABASE_DB_PASSWORD).toBe('${{ secrets.SUPABASE_DB_PASSWORD }}');
@@ -125,14 +125,14 @@ describe('pre-apply connectivity covers every target whose checks read the verif
         expect(connectivity.run).toContain('"$RUNNER_TEMP/pooler.env"');
         const readers = steps.slice(connectivityIndex + 1, apply).filter(step => step.run?.includes('$RUNNER_TEMP/pooler.env'));
         const targets = [...new Set(readers.flatMap(step => [...String(step.if ?? '').matchAll(/'(20\d{12})'/g)].map(m => m[1])))];
-        expect(targets).toEqual(expect.arrayContaining(['20261114100000', '20261114170000', '20261117105700']));
+        expect(targets).toEqual(expect.arrayContaining(['20261114100000', '20261114170000', '20261117105700', '20261119120000']));
         const missing = targets.filter(version => {
             const file = EXACT_MIGRATION_ALLOWLIST.find(row => row.version === version)?.file ?? version;
             return !connectivity.if.includes(`'${version}'`) && !connectivity.if.includes(file.replace(/\.sql$/, ''));
         });
         expect(missing).toEqual([]);
         // The two release targets are named explicitly, not by a substring of another target.
-        for (const version of ['20261114170000', '20261117105700']) {
+        for (const version of ['20261114170000', '20261117105700', '20261119120000']) {
             expect(connectivity.if).toContain(`steps.contract.outputs.target_version == '${version}'`);
         }
     });
@@ -518,7 +518,7 @@ describe('exact migration gate', () => {
                 sha256: '47fce28446a1e8f56c27dd10a6bb92e803a5907db0fd9d7fa67cbf11f9701fe8', mustRemainPending: true,
             };
             const withheld = target.version === '20261110173548' ? [billing]
-                : ['20261112133000', '20261114100000', '20261114170000', '20261117105700'].includes(target.version) ? [billing, refund] : [];
+                : ['20261112133000', '20261114100000', '20261114170000', '20261117105700', '20261119120000'].includes(target.version) ? [billing, refund] : [];
             expect(config.requiresIncludeAll).toBe(targetIndex === 0);
             expect(config.requiredAppliedVersions).toEqual([
                 '20260812002000',

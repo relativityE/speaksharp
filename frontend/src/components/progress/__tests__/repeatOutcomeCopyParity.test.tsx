@@ -50,7 +50,7 @@ function renderBoth(metric: Metric, direction: Direction, outcome: Outcome, resu
     });
     loadRepeatOrigin.mockResolvedValue({
         status: 'repeat', sessionId: 'B', originalSessionId: 'A', originalCreatedAt: '2025-01-17T14:00:00.000Z',
-        target, lifecycle, outcome, repeatResult,
+        target, lifecycle, outcome, repeatResult, tip: { status: 'saved', text: 'Pause instead of saying um.' },
     });
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     return render(

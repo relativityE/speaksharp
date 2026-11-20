@@ -23,6 +23,8 @@ const clearOpenAttemptIfMatches = vi.fn();
 vi.mock('@/services/progress/openAttempt', () => ({
     setOpenAttempt: (...a: unknown[]) => setOpenAttempt(...a),
     clearOpenAttemptIfMatches: (...a: unknown[]) => clearOpenAttemptIfMatches(...a),
+    // #1827 rev 4: the press reads any prior handoff for the reused attempt; none here.
+    getOpenAttemptForUser: () => null,
 }));
 vi.mock('@/lib/logger', () => ({ default: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn(), trace: vi.fn() } }));
 import { ProgressPanel } from '../ProgressPanel';

@@ -165,6 +165,17 @@ export function observePracticePrivacyReleaseCatalog({ sql, root, apply, retain 
     ] });
 }
 
+// Ledger 14 (#1827 D2): its objects are outside the T2 inventory, so the stage's expected catalog equals ledger 13's. The
+// native run confirms that, and the inventoried refusal controls must still refuse at the new ledger.
+export function observeRepeatTipReleaseCatalog({ sql, root, apply, retain }) {
+  return observeSuccessorReleaseCatalog({ sql, root, apply, retain, from: 'post-1835-practice-privacy', to: 'post-1827-repeat-tip',
+    mutations: [
+      ['coaching-persist-service-role-execute-restored',
+        'GRANT EXECUTE ON FUNCTION public.persist_account_coaching_v1(uuid,boolean,uuid,uuid,jsonb,text,text,text,date,integer,integer) TO service_role;'],
+      ['analytics-wrapper-anon-execute', 'GRANT EXECUTE ON FUNCTION public.get_analytics_summary(uuid) TO anon;'],
+    ] });
+}
+
 export function observeAbandonmentReleaseCatalog({ sql, root, apply, retain }) {
   const receipt = { status: 'INCOMPLETE', profile: 'post-1643-abandonment', negatives: [] };
   const save = () => retain(globalThis.structuredClone(receipt));
@@ -996,7 +1007,10 @@ const FEEDBACK_FENCE_PROFILE='main-feedback-fence-131';
 const PAYMENT_WALL_PROFILE='main-payment-wall-132';
 // #1835 practice privacy (ledger 13): the installed payment-wall profile plus 20261117105700, staged after it.
 const PRACTICE_PRIVACY_PROFILE='main-practice-privacy-133';
-const FROM_PAYMENT_WALL=[PAYMENT_WALL_PROFILE,PRACTICE_PRIVACY_PROFILE];
+// #1827 outcome 4 D2 (ledger 14): the installed practice-privacy profile plus 20261119120000, staged after it.
+const REPEAT_TIP_PROFILE='main-repeat-tip-134';
+const FROM_PRACTICE_PRIVACY=[PRACTICE_PRIVACY_PROFILE,REPEAT_TIP_PROFILE];
+const FROM_PAYMENT_WALL=[PAYMENT_WALL_PROFILE,...FROM_PRACTICE_PRIVACY];
 const FROM_FEEDBACK_FENCE=[FEEDBACK_FENCE_PROFILE,...FROM_PAYMENT_WALL];
 const FROM_ABANDONMENT=[ABANDONMENT_PROFILE,...FROM_FEEDBACK_FENCE];
 const FROM_RETIREMENT=[RETIREMENT_PROFILE,...FROM_ABANDONMENT];
@@ -1013,7 +1027,8 @@ function selectedAdditions(profile) {
     ...(FROM_ABANDONMENT.includes(profile)?[{...START_ABANDONMENT_MIGRATION,stage:'start-abandonment'}]:[]),
     ...(FROM_FEEDBACK_FENCE.includes(profile)?[{...FEEDBACK_FENCE_MIGRATION,stage:'feedback-fence'}]:[]),
     ...(FROM_PAYMENT_WALL.includes(profile)?[{...PAYMENT_WALL_MIGRATION,stage:'payment-wall'}]:[]),
-    ...(profile===PRACTICE_PRIVACY_PROFILE?[{...PRACTICE_PRIVACY_MIGRATION,stage:'practice-privacy'}]:[])];
+    ...(FROM_PRACTICE_PRIVACY.includes(profile)?[{...PRACTICE_PRIVACY_MIGRATION,stage:'practice-privacy'}]:[]),
+    ...(profile===REPEAT_TIP_PROFILE?[{...REPEAT_TIP_MIGRATION,stage:'repeat-tip'}]:[])];
   return rows.sort((a,b)=>a.name.localeCompare(b.name,'en'));
 }
 const MAIN_DRAIN = '20261016180000_account_closure_drain_enforcement.sql';
@@ -1039,10 +1054,15 @@ export const REVIEWED_UNRELATED_MIGRATIONS=Object.freeze([
 // after the payment wall. Elsewhere this pin recognizes repository presence, not installed privacy behavior.
 const PRACTICE_PRIVACY_MIGRATION=Object.freeze({name:'20261117105700_practice_privacy_choices_1835.sql',
   version:'20261117105700',sha256:'8e21fe2237c70c75fcaeee8cb74e17b679ab187f6936b9ccd5c311c51dedf9b7'});
+// #1827 outcome 4 D2: the repeat's practised-tip copy (sessions triggers + attempt columns). Reviewed repository inventory,
+// withheld by every profile until its own reviewed stage exists; a byte change must update this pin.
+const REPEAT_TIP_MIGRATION=Object.freeze({name:'20261119120000_repeat_practised_tip.sql',
+  version:'20261119120000',sha256:'199f8593445e477cf84397e47cb9234cf3063c0a22a6b812ef9a7e8fb053f3f4'});
 const COMMON_WITHHELD_MIGRATIONS=Object.freeze([
   PAYMENT_WALL_MIGRATION,
   ...REVIEWED_UNRELATED_MIGRATIONS,
   PRACTICE_PRIVACY_MIGRATION,
+  REPEAT_TIP_MIGRATION,
 ]);
 export const REVIEWED_WITHHELD_MIGRATIONS=Object.freeze([
   START_ABANDONMENT_MIGRATION,
@@ -1081,8 +1101,9 @@ export function buildMainU1ReplayPlan(rows, profile = 'main-120') {
     ?[MAIN_COMPLETION_BILLING_MIGRATION,START_ABANDONMENT_MIGRATION,FEEDBACK_FENCE_MIGRATION,...COMMON_WITHHELD_MIGRATIONS]
     :profile===ABANDONMENT_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION,FEEDBACK_FENCE_MIGRATION,...COMMON_WITHHELD_MIGRATIONS]
     :profile===FEEDBACK_FENCE_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION,...COMMON_WITHHELD_MIGRATIONS]
-    :profile===PAYMENT_WALL_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION,...REVIEWED_UNRELATED_MIGRATIONS,PRACTICE_PRIVACY_MIGRATION]
-    :profile===PRACTICE_PRIVACY_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION,...REVIEWED_UNRELATED_MIGRATIONS]
+    :profile===PAYMENT_WALL_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION,...REVIEWED_UNRELATED_MIGRATIONS,PRACTICE_PRIVACY_MIGRATION,REPEAT_TIP_MIGRATION]
+    :profile===PRACTICE_PRIVACY_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION,...REVIEWED_UNRELATED_MIGRATIONS,REPEAT_TIP_MIGRATION]
+    :profile===REPEAT_TIP_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION,...REVIEWED_UNRELATED_MIGRATIONS]
     :REVIEWED_WITHHELD_MIGRATIONS;
   const withheld=actual.filter(row=>withheldPins.some(pin=>pin.name===row.name));
   for(const row of withheld) assert.equal(row.sha256,withheldPins.find(pin=>pin.name===row.name).sha256,
@@ -1098,7 +1119,7 @@ export function buildMainU1ReplayPlan(rows, profile = 'main-120') {
   }
   for (const row of expected) assert.ok(replay.some(value => value.name === row.name), 'reviewed migration missing: ' + row.name);
   const history = excluded => versioned.filter(row => !excluded.includes(row.name)).map(row => row.version);
-  const late=[MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name,RETIREMENT_MIGRATION.name,START_ABANDONMENT_MIGRATION.name,FEEDBACK_FENCE_MIGRATION.name,PAYMENT_WALL_MIGRATION.name,PRACTICE_PRIVACY_MIGRATION.name];
+  const late=[MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name,RETIREMENT_MIGRATION.name,START_ABANDONMENT_MIGRATION.name,FEEDBACK_FENCE_MIGRATION.name,PAYMENT_WALL_MIGRATION.name,PRACTICE_PRIVACY_MIGRATION.name,REPEAT_TIP_MIGRATION.name];
   const stages = [
     { name: 'baseline-before-drain', versions: history([MAIN_DRAIN, MAIN_RECOVERY, ...late]) },
     { name: 'drain-enforcement', versions: history([MAIN_RECOVERY, ...late]) },
@@ -1130,7 +1151,8 @@ export function runMainClosureProof() {
   const migrations = manifest.filter(row=>row.version!==null&&plan.replayFiles.includes(row.name));
   const completeT2=T2_PROFILES.includes(args.profile);
   const billingT2=args.profile===BILLING_PROFILE;
-  const practicePrivacyT2=args.profile===PRACTICE_PRIVACY_PROFILE;
+  const repeatTipT2=args.profile===REPEAT_TIP_PROFILE;
+  const practicePrivacyT2=args.profile===PRACTICE_PRIVACY_PROFILE||repeatTipT2;
   const paymentWallT2=args.profile===PAYMENT_WALL_PROFILE||practicePrivacyT2;
   const feedbackFenceT2=args.profile===FEEDBACK_FENCE_PROFILE||paymentWallT2;
   const abandonmentT2=args.profile===ABANDONMENT_PROFILE||feedbackFenceT2;
@@ -1230,7 +1252,7 @@ export function runMainClosureProof() {
     // Supported CLI selector; fresh staging only, never an installed/project DB.
     mkdirSync(join(directory, '.temp'), { recursive: true });
     writeFileSync(join(directory, '.temp', 'postgres-version'), postgresVersion);
-    for (const file of plan.replayFiles.filter((name) => ![candidate,recovery,MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name,RETIREMENT_MIGRATION.name,START_ABANDONMENT_MIGRATION.name,FEEDBACK_FENCE_MIGRATION.name,PAYMENT_WALL_MIGRATION.name,PRACTICE_PRIVACY_MIGRATION.name].includes(name))) cpSync(join(root, file), join(directory, 'migrations', file));
+    for (const file of plan.replayFiles.filter((name) => ![candidate,recovery,MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name,RETIREMENT_MIGRATION.name,START_ABANDONMENT_MIGRATION.name,FEEDBACK_FENCE_MIGRATION.name,PAYMENT_WALL_MIGRATION.name,PRACTICE_PRIVACY_MIGRATION.name,REPEAT_TIP_MIGRATION.name].includes(name))) cpSync(join(root, file), join(directory, 'migrations', file));
     // Internal-only bridges do not publish the localhost DB port used by the
     // pinned CLI. Use a loopback-published bridge with an owned egress DROP rule
     // established before starting any database/service container instead.
@@ -1563,6 +1585,15 @@ export function runMainClosureProof() {
         },
         retain: receipt => writeFileSync(join(evidence,'practice-privacy-installed-catalog.json'),JSON.stringify(receipt,null,2)) });
     }
+    if(repeatTipT2) {
+      observeRepeatTipReleaseCatalog({ sql, root: process.cwd(),
+        apply: () => {
+          cpSync(join(root,REPEAT_TIP_MIGRATION.name),join(directory,'migrations',REPEAT_TIP_MIGRATION.name));
+          cli(['migration','up','--local']);
+          assert.deepEqual(history(),plan.stages.find(row=>row.name==='repeat-tip').versions,'repeat-tip installed ledger differs');
+        },
+        retain: receipt => writeFileSync(join(evidence,'repeat-tip-installed-catalog.json'),JSON.stringify(receipt,null,2)) });
+    }
     assert.deepEqual(history(),plan.stages.at(-1).versions,'historical final ledger differs from replay profile');
     for(const row of plan.withheld) assert.equal(existsSync(join(directory,'migrations',row.name)),false,'withheld migration was staged');
     if(!retirementT2) assert.equal(sql(`SELECT NOT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
@@ -1580,6 +1611,8 @@ export function runMainClosureProof() {
       't','withheld payment-wall catalog must remain absent');
     if(!practicePrivacyT2) assert.equal(sql(`SELECT to_regclass('public.practice_privacy_choices') IS NULL;`),
       't','withheld practice-privacy catalog must remain absent');
+    if(!repeatTipT2) assert.equal(sql(`SELECT NOT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+      WHERE n.nspname='public' AND p.proname LIKE '\\_prec\\_att\\_%');`),'t','withheld repeat-tip catalog must remain absent');
   } catch (error) {
     primaryError = error;
   } finally {
