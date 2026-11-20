@@ -15,6 +15,7 @@ import { getSupabaseClient } from './supabaseClient';
 import { currentTakeLeaseId } from '@/services/recordingLease';
 import logger from './logger';
 import { transcriptSaveAllowed } from '@/services/practicePrivacy';
+import { clearPendingRegistration, getPracticeAgainIntent, notePendingRegistration, retryPendingRegistration } from '@/services/progress/practiceAgainIntent';
 import type { PracticeSession } from '../types/session';
 import type { UserProfile } from '../types/user';
 import type { AnalyticsSummary } from '../types/analytics';
@@ -246,9 +247,35 @@ export const saveSession = async (
 
   if (data?.error === 'lease_not_held') return { status: 'failed', reason: 'lease_not_held' };
   if (data?.usage_exceeded === true) return { status: 'usage_exceeded', error: data?.error };
-  if (data?.new_session) return { status: 'saved', session: data.new_session as PracticeSession };
+  if (data?.new_session) {
+    await registerPracticeAgainTake(sessionData.user_id, (data.new_session as PracticeSession).id);
+    return { status: 'saved', session: data.new_session as PracticeSession };
+  }
   return { status: 'failed', reason: 'server_rejected' };
 };
+
+/**
+ * #1827 D2 rev 4: the originating tab's intended Start registers the take it just created with that tab's Practice-again
+ * attempt. Nothing is stored from the answer: the server's registered take is the one authority, and later decisions read
+ * it (`readRepeatIdentity`). A take from a tab without the intent is never registered. Non-blocking: a failure never fails
+ * the save. Idempotent: re-sent for the registered take it confirms; any other take is refused.
+ */
+async function registerPracticeAgainTake(userId: string | undefined, sessionId: string | undefined): Promise<void> {
+  if (!userId || !sessionId) return;
+  const intent = getPracticeAgainIntent(userId);
+  if (!intent) return;
+  // Codex P2: a request that fails before any definitive answer is retried once for this SAME take before it completes.
+  let definitive = false;
+  try {
+    const { error } = await getSupabaseClient().rpc('register_practice_again_take_v1', { p_attempt: intent.attemptId, p_session: sessionId });
+    if (error) logger.warn({ code: error.code }, '[Supabase DB] Practice again take not registered');
+    // An answer (true or false), or a database without the function, is final; a transport error is not.
+    definitive = !error || error.code === 'PGRST202' || error.code === '42883' || error.code === '42501';
+  } catch {
+    logger.warn('[Supabase DB] Practice again take not registered');
+  }
+  if (definitive) clearPendingRegistration(); else notePendingRegistration(intent.attemptId, sessionId);
+}
 
 /**
  * Sends a heartbeat to update session usage incrementally and extend expiry.
@@ -472,6 +499,9 @@ export const completeSession = async (
   // #1835: nor does a completion whose owner has not opted in to saving (unknown, declined, still loading or
   // unreadable all count as off). The session still completes metrics-only, so progress is kept. A session that was
   // once completed metrics-only stays metrics-only on a replay, so an identical replay stays identical.
+  // #1827 D2 rev 4 (Codex P2): a registration for this take that never got an answer is re-sent once, now, while the take
+  // is still open (the server refuses a completed or failed take). Never blocks or fails the completion.
+  if (status === 'completed') await retryPendingRegistration(sessionId);
   const transcriptArg = status === 'completed' && transcriptSaveAllowed() && !metricsOnlySessions.has(sessionId)
     ? (finalTranscript ?? null) : null;
   if (transcriptArg === null) metricsOnlySessions.add(sessionId);

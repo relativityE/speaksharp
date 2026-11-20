@@ -8,6 +8,7 @@ import { webcrypto } from 'node:crypto';
 import { authEpoch, setCurrentLogin } from '@/services/loginSessionLog';
 import { getOpenAttemptForUser, setOpenAttempt as writeHandoff, subscribeOpenAttempt } from '@/services/progress/openAttempt';
 import { validateDisplayedTarget } from '@/services/progress/repeatPracticeTarget';
+import { getPracticeAgainIntent } from '@/services/progress/practiceAgainIntent';
 import { CoachingCard } from '@/components/session/CoachingCard';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
@@ -126,6 +127,8 @@ describe('#1548 displayed instruction opt-in at the actual saved-review caller',
         fireEvent.click(action());
         await waitFor(() => expect(getOpenAttemptForUser('user-1')?.attemptId).toBe('new-repeat'));
         expect(recordAttempt).toHaveBeenCalledExactlyOnceWith('rec-1');
+        // #1827 rev 4: this tab carries the intent, so only its next Start is registered as the repeat.
+        expect(getPracticeAgainIntent('user-1')).toEqual({ attemptId: 'new-repeat', userId: 'user-1' });
         expect(setActiveObjectiveBrief).toHaveBeenCalledWith(expect.objectContaining({ briefId: 'b1', points: ['One', 'Two'] }));
         expect(navigate).toHaveBeenCalledWith('/session', PRACTICE_NAV);
         expect(recoveryCopy).toContain('close the pending repeat in Progress');
@@ -251,7 +254,7 @@ describe('#1548 — the saved review names the target actually measured by its l
         fireEvent.click(await screen.findByTestId('progress-accept'));
         await waitFor(() => expect(navigate).toHaveBeenCalledWith('/session'));
         expect(sourceRead).not.toHaveBeenCalled();
-        expect(setOpenAttempt).toHaveBeenCalledWith({ attemptId: 'attempt-1', userId: 'user-1', sourceSessionId: 's1', acceptedAtIso: expect.any(String) });
+        expect(setOpenAttempt).toHaveBeenCalledWith({ attemptId: 'attempt-1', userId: 'user-1', sourceSessionId: 's1', acceptedAtIso: expect.any(String), registrationRequired: true });
     });
 
     it.each([
