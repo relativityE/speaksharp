@@ -14,7 +14,9 @@ import {
     suppressPageSnapshot, telemetryClassRows,
 } from './rwtJourney';
 import { type RunOwner, prepareRunOwnedAccount } from './rwtDisposableAccount';
-import { consentModeFrom, settlePracticeConsent, type ChoiceClient } from './rwtPracticeConsent';
+import {
+    adverseConsentMode, captureConsentGate, settleFixedConsentOnPractice, type CaptureConsentGate, type ChoiceClient, type ConsentRowRecorder,
+} from './rwtPracticeConsent';
 import { isRecording, observeCloudStt, persistedId, tabState } from './rwtPageState';
 import { bindReadbackJourneys } from './rwtOracles';
 import { CoachingGenerationTap } from './coachingGenerationTap';
@@ -195,19 +197,22 @@ async function waitForRetrySetup(page: Page, statusesBefore: number | null): Pro
  *  - AHT-12: none. J7.a (PO and Sam, 2026-11-19) covers the denial only; the microphone is never allowed, nothing recovers.
  *  - AHT-13/14 (the failed page): `mic-retry`, then WAIT for the model to publish `ready` (Retry only re-runs setup and never
  *    records — MicCard.tsx), then ONE press of `mic-start`. A Retry that fails again, or never reaches ready, presses nothing more.
+ * Each press is preceded, immediately, by the consent readback (`gate.confirm()`); a choice that no longer reads back stops it.
  */
-async function pressRecovery(page: Page, variant: AdverseVariant): Promise<RecoveryAttempt> {
+async function pressRecovery(page: Page, variant: AdverseVariant, gate: CaptureConsentGate): Promise<RecoveryAttempt> {
     const attempt: RecoveryAttempt = { offered: await offeredRecoveryControl(page), retry: 'not-pressed', startEnabled: null, recorded: false };
     if (attempt.offered === null || !RECOVERY_CONTROLS[variant].includes(attempt.offered)) return attempt;
     // Only AHT-13/14 recover, through Retry. Any other offer is never pressed: the verdict decides.
     if (attempt.offered !== 'mic-retry') return attempt;
     const before = await modelStatuses(page);
+    await gate.confirm();
     await page.getByTestId('mic-retry').click();
     attempt.retry = await waitForRetrySetup(page, before.observed ? before.statuses.length : null);
     if (attempt.retry !== 'ready') return attempt;
     const start = page.getByTestId('mic-start');
     attempt.startEnabled = await expect(start).toBeEnabled({ timeout: START_ENABLED_MS }).then(() => true, () => false);
     if (!attempt.startEnabled) return attempt;
+    await gate.confirm();
     await start.click();
     attempt.recorded = await isRecording(page, RECORDING_MS);
     return attempt;
@@ -252,8 +257,8 @@ async function readNewTakeRows(uid: string, baseline: readonly string[]): Promis
  * exactly one new row for the take — the page-bound id, completed, idempotency key, transcript available and non-empty.
  */
 async function saveRecoveredTake(page: Page, variant: AdverseVariant, preconditionEstablished: boolean,
-    owner: { uid: string; baseline: readonly string[] }, label: string, takes: string[]) {
-    const attempt = await pressRecovery(page, variant);
+    owner: { uid: string; baseline: readonly string[] }, label: string, takes: string[], gate: CaptureConsentGate) {
+    const attempt = await pressRecovery(page, variant, gate);
     let savedId: string | null = null;
     let read: Awaited<ReturnType<typeof readNewTakeRows>> = { rows: [], digests: new Map() };
     if (attempt.recorded) {
@@ -321,16 +326,19 @@ async function reopenRow(receipt: RwtReceipt, page: Page, recovered: { savedId: 
  * the recovery (`pressRecovery`) then presses only its variant's designed control (`RECOVERY_CONTROLS`), never in a loop, and
  * presses nothing when the page offers anything else. Each press, by its line:
  *  AHT-12 mic denied (J7.a, PO and Sam 2026-11-19) — exactly 1:
- *   1. the denied press, `mic-download` or `mic-start` (whichever is offered): `await control.click()` (rwtAdverseJourney.ts:436).
+ *   1. the denied press, `mic-download` or `mic-start` (whichever is offered): `await control.click()` (rwtAdverseJourney.ts:448).
  *   No recovery press: J7.a covers the denial only, and the microphone is never allowed. So either control may take the one
  *   press; `mic-retry` none. The catalog's minimumStarts 3 assumes the harness's same-context Allow → Start route, which J7.a
  *   records as UNTESTED.
  *  AHT-13 download fails — exactly 3:
- *   1. `mic-download` with the model route aborted (rwtAdverseJourney.ts:485);
- *   2. `mic-retry` once the cause is removed (rwtAdverseJourney.ts:205);
- *   3. `mic-start` only after Retry's setup published `ready` (rwtAdverseJourney.ts:211).
- *  AHT-14 offline mid-download — exactly 3: `mic-download` (rwtAdverseJourney.ts:499), then the same `mic-retry` and
- *   `mic-start` as AHT-13 (rwtAdverseJourney.ts:205, :211).
+ *   1. `mic-download` with the model route aborted (rwtAdverseJourney.ts:499);
+ *   2. `mic-retry` once the cause is removed (rwtAdverseJourney.ts:209);
+ *   3. `mic-start` only after Retry's setup published `ready` (rwtAdverseJourney.ts:216).
+ *  AHT-14 offline mid-download — exactly 3: `mic-download` (rwtAdverseJourney.ts:515), then the same `mic-retry` and
+ *   `mic-start` as AHT-13 (rwtAdverseJourney.ts:209, :216).
+ * #1835 (Sam, Nov 20): every press above is preceded, immediately, by `gate.confirm()`, which reads this run's own saved privacy
+ * choice back from the server and stops the journey before the press unless it is exactly the variant's fixed choice
+ * (`adverseConsentMode`: J7.a Save No; J7.b/c Save Yes, Coaching No).
  */
 const AHT12_START_PRESS_BUDGET: StartPressBudget = { total: 1, perControl: { 'mic-download': 1, 'mic-start': 1 } };
 const AHT13_START_PRESS_BUDGET: StartPressBudget = { total: 3, perControl: { 'mic-download': 1, 'mic-retry': 1, 'mic-start': 1 } };
@@ -405,15 +413,18 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
         await installMicAcquisitionCounter(page);
         await page.goto('/practice');
         // #1835 (Sam, 2026-11-19): a fresh owner is asked its privacy choice on the first Practice visit. Only THIS run's
-        // disposable account answers it, with the dispatch's RWT_PRACTICE_CONSENT, before any press; the product default is
-        // untouched. A verified pre-#1835 build has nothing to answer; an unknown build or an unset mode stops here, before
-        // any take could exist.
+        // disposable account answers it, with the variant's FIXED choice, before any press; the product default is untouched.
+        // J7.a (denial only, no take) chooses Save: No; J7.b/c (a recovered take judged by its saved transcript) choose Save: Yes,
+        // so a Save No read back before their first press stops them (Sam, Nov 20). #1910's shared helpers do it: a pre-#1835
+        // build, an unknown build, or a choice that is not recorded stops here on Practice with the required row as FAIL or HOLD.
+        // The row's PASS belongs to the readback `gate.confirm()` takes immediately before each Start-control press below, so no
+        // press happens without a verified choice.
         const migrationFiles = (() => { try { return readdirSync(resolvePath(process.cwd(), 'backend/supabase/migrations')); } catch { return null; } })();
-        const consent = await settlePracticeConsent({ page, client: admin as unknown as ChoiceClient, ownerId: owner.uid, migrationFiles,
-            mode: consentModeFrom(process.env.RWT_PRACTICE_CONSENT) });
-        receipt.row('practice privacy choice', 'PASS', consent.choice ? 'this run\'s owner recorded its choice through the Practice prompt, read back from the server'
-            : 'verified pre-#1835 build: no choice to make', { build: consent.build, mode: consent.mode ?? 'none',
-            transcriptSave: consent.choice?.transcriptSave ?? null, aiCoaching: consent.choice?.aiCoaching ?? null });
+        const client = admin as unknown as ChoiceClient;
+        const record: ConsentRowRecorder = (status, detail, evidence) => receipt.row('practice privacy choice', status, detail, evidence);
+        const consentMode = adverseConsentMode(variant);
+        const consent = await settleFixedConsentOnPractice({ page, client, ownerId: owner.uid, migrationFiles, mode: consentMode, record });
+        const gate = captureConsentGate({ consent, client, ownerId: owner.uid, mode: consentMode, record });
         await openProductsItem(page, 'open-mic');
         await page.waitForURL(/\/session/, { timeout: 45_000 });
         await selectBenchmarkMode(page, 'private');
@@ -433,7 +444,9 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
             // Sam, #1662 RETURN: only THIS press's acquisition outcome counts — an earlier rejection on the page cannot
             // qualify a later Start that failed for another reason.
             const acquisitionsBeforePress = (await micAcquisitionLog(page)).length;
+            await gate.confirm();
             await control.click();
+            gate.recordPass();
             // The model downloads first on a fresh account; the blocked microphone is met at the recording boundary.
             const blockedCopyShown = await page.getByText(MIC_BLOCKED_COPY).first().waitFor({ timeout: 900_000 }).then(() => true).catch(() => false);
             await page.waitForTimeout(2_000);
@@ -482,7 +495,9 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
                 fault.armFault();
                 injected = await context.route(MODEL_ASSETS, (route) => route.abort('failed')).then(() => true, () => false);
                 fault.startAttempt();
+                await gate.confirm();
                 await page.getByTestId('mic-download').click();
+                gate.recordPass();
                 await failedState(page, 300_000);
             } else {
                 let modelResponses = 0;
@@ -496,7 +511,9 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
                 pressIndex = (await page.evaluate(readRuntimeStateLog).catch(() => ({ token: null, states: [] as string[] }))).states.length;
                 fault.startAttempt();
                 transfer.startAttempt();
+                await gate.confirm();
                 await page.getByTestId('mic-download').click();
+                gate.recordPass();
                 // "Mid-download" (review AHT-14): offline only once the page has RECEIVED model bytes, never merely when a request
                 // is issued, and (Sam, 2026-11-15; Codex P1 on df4db146; Sam on 887a76f6) only while the published runtime is in
                 // this attempt's setup (ENGINE_INITIALIZING, the state the download runs in), the product has counted bytes, and a
@@ -587,7 +604,7 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
                 return;
             }
             // Retry is judged only after a failed download was stated with Retry; otherwise there is nothing to recover from.
-            const recovered = await saveRecoveredTake(page, variant, failure.status === 'PASS', accountRows, `adverse-${variant}`, takes);
+            const recovered = await saveRecoveredTake(page, variant, failure.status === 'PASS', accountRows, `adverse-${variant}`, takes, gate);
             const after = await modelStatuses(page);
             receipt.row('Retry downloads the model and a take saves', recovered.verdict.status, recovered.verdict.detail,
                 { ...recovered.evidence, sawReadyAfterRetry: after.observed && after.statuses.includes('ready'), statusesObserved: after.observed,
