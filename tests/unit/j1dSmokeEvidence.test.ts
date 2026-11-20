@@ -176,8 +176,11 @@ function smokeFixture() {
     return { directory, write, body, commit, run, receipts, git, env, clean: () => fs.rmSync(directory, { recursive: true, force: true }) };
 }
 
+// Registered only on a real runtime, like the repository's other real-runtime evidence tests: outside it the block is not
+// collected at all. A collected-then-skipped test (describe.runIf) is incomplete execution, which full-evidence refuses.
 const REAL = process.env.GITHUB_ACTIONS === 'true' || process.env.TEST_EFFICACY_REAL_RUNTIME === '1';
-describe.runIf(REAL)('the smoke producer under the ACTUAL Playwright SDK', () => {
+if (REAL) {
+describe('the smoke producer under the ACTUAL Playwright SDK', () => {
     it('a passing smoke run writes a receipt bound to its job, run and attempt whose raw blob replays to the same collection', async () => {
         const f = smokeFixture();
         try {
@@ -242,6 +245,7 @@ describe.runIf(REAL)('the smoke producer under the ACTUAL Playwright SDK', () =>
         } finally { f.clean(); }
     }, 120_000);
 });
+}
 
 
 
