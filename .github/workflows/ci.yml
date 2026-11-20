@@ -212,8 +212,7 @@ jobs:
         if: needs.scope.outputs.frontend_changed == 'true' || needs.scope.outputs.e2e_required == 'true'
         run: pnpm ci:build
 
-      - name: Setup Deno
-        if: needs.scope.outputs.edge_changed == 'true'
+      - name: Setup Deno (Edge and billing qualification)
         uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
@@ -225,11 +224,6 @@ jobs:
       # #1294 — the weekly billing qualification's executable proof: the REAL stripe-webhook handler driven
       # against an ephemeral migrated PGlite DB with a fake Stripe (asserts lifecycle entitlement + request
       # shapes/ordering + fail-closed). Runs every CI so the canary-critical logic is proven at exact head.
-      - name: Setup Deno (billing qualification)
-        uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
-
       - name: Billing Qualification Contract (Deno + PGlite)
         run: pnpm test:billing-qualification
 

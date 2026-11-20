@@ -17,7 +17,6 @@ import type { E2EWindow } from './helpers/setupE2EManifest';
  *   5. WASM Isolation           — real WASM not loaded in mock mode        — Heavy tech is disabled for speed
  *   6. FSM Transition           — recording state transitions correctly    — Start/Stop button works correctly
  *   7. Transcription Smoke      — mock engine signals flow through to UI   — Words show up on screen when "talking"
- *   8. No Race Conditions       — no STT_ENGINE_MISSING errors on start    — App doesn't crash on fast clicks
  *   9. Timer Compression        — 200ms sleep completes well under 1s      — Tests run faster than real life
  *  10. No External Network      — no calls outside localhost        
  */
@@ -60,11 +59,6 @@ test.describe('Core System Validation (Deterministic)', () => {
       .toContainText(/Hello from E2E/, { timeout: 15000 });
   });
 
-  // 8. No Race Conditions (Deterministic Start)
-  test('no STT_ENGINE_MISSING errors', async ({ page }) => {
-    await startRecording(page);
-    // Log-scraping removed in favor of DOM-based forensic signaling
-  });
   // 11. Forensic Audit (Identity Guard Verification)
   test('Forensic Audit: negotiator identity guard is active', async ({ page }) => {
     await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15000 });
