@@ -534,7 +534,7 @@ export async function wireProgressEvaluationOnSave(ctx: {
     // TIME as well as outcome. The downstream work is dispatched, never awaited here, so its round trips cannot hold
     // "Finishing up". It is still dispatched when the queue could not be settled (a storage hiccup must not cost the
     // user their recommendation); that path stays blocked below.
-    dispatchProgressDownstream(userId, sessionId, settled.generation, takeBoundaryIso);
+    dispatchProgressDownstream(userId, sessionId, settled.generation);
     if (!settled.ok) return { kind: 'unresolved', reason: 'queue_unavailable' };
     return { kind: 'recorded' };
 }
@@ -592,14 +592,14 @@ function bindOpenAttemptForTake(
     sessionId: string,
     boundaryIso: string | null,
     how: { trigger: 'save' } | { trigger: 'load' | 'retry'; ownerEntries: readonly QueueEntry[] },
-    opts: { legacyFallback?: boolean } = {},
 ): 'not_due' | 'bound' | 'failed' {
     const open = getOpenAttemptForUser(userId);
     if (!open || open.sourceSessionId === sessionId) return 'not_due'; // never resolve a recommendation against itself
     // #1827 D2 rev 4: an attempt from a registering client is never bound here. Its repeat is the server's registered take,
-    // read (never stored) by `settleRegisteredRepeat` once that take's evaluation is durable. Only the explicit legacy
-    // fallback (a database before the registration migration) applies the earlier rules to it, below.
-    if (open.registrationRequired && !opts.legacyFallback) return 'not_due';
+    // read (never stored) by `settleRegisteredRepeat` once that take's evaluation is durable. An attempt created against a
+    // database before the registration migration is not a registering one (the press found no such function), so it keeps
+    // these earlier rules in full, queue ordering and recovery included.
+    if (open.registrationRequired) return 'not_due';
     // An attempt accepted by an older client (no registration): the earlier first-take rules, unchanged.
     if (open.resolutionSessionId) return open.resolutionSessionId === sessionId ? 'bound' : 'not_due';
     // Fail closed on an UNKNOWN boundary: never bind on a guess (PM 6174115505).
@@ -624,12 +624,12 @@ function bindOpenAttemptForTake(
  * Dispatch the work a durable evaluation still owes, AFTER the unlock: the recommendation (through its durable
  * obligation when one was written) and the bound attempt's advance. Never awaited by a gate; never rejects.
  */
-function dispatchProgressDownstream(userId: string, sessionId: string, generation: string | null, boundaryIso: string | null = null): void {
+function dispatchProgressDownstream(userId: string, sessionId: string, generation: string | null): void {
     const recommendation = generation
         ? settleRecommendationObligation(userId, sessionId, generation)
         : reconcileProgressRecommendationDetailed(sessionId).then(() => undefined);
     void recommendation.catch((err) => logger.warn({ err }, '[progress] recommendation reconciliation failed (non-fatal)'));
-    void resolveOpenAttemptWith(userId, sessionId, boundaryIso).catch((err) => logger.warn({ err }, '[progress] attempt resolution failed (non-fatal)'));
+    void resolveOpenAttemptWith(userId, sessionId).catch((err) => logger.warn({ err }, '[progress] attempt resolution failed (non-fatal)'));
 }
 
 /**
@@ -646,10 +646,10 @@ const advancesInFlight = new Map<string, Promise<void>>();
  * comparability; when the new session is not an eligible same-cohort comparison the attempt is resolved as
  * `not_comparable` — either way the practice session is associated and the attempt is closed exactly once.
  */
-async function resolveOpenAttemptWith(userId: string, newSessionId: string | null, boundaryIso: string | null = null): Promise<void> {
+async function resolveOpenAttemptWith(userId: string, newSessionId: string | null): Promise<void> {
     const open = getOpenAttemptForUser(userId);
     if (!open || open.sourceSessionId === newSessionId) return; // never resolve a recommendation against itself
-    if (open.registrationRequired) return settleRegisteredRepeat(userId, open.attemptId, newSessionId, boundaryIso);
+    if (open.registrationRequired) return settleRegisteredRepeat(userId, open.attemptId);
     // Codex P1 r4272602941: this ADVANCES an attempt that is already bound; it never binds one. Binding is decided once,
     // by `bindOpenAttemptForTake`, before anything non-blocking is published. Binding here as well bound an attempt that
     // decision had found NOT due (accepted after this save began, or a queued take that predates acceptance) to the wrong
@@ -674,11 +674,11 @@ function advanceOnce(userId: string, attemptId: string, resolutionSessionId: str
  *               (replacing any other) and is advanced once. Until then nothing happens; its own save, or the next
  *               reconciliation, reads again. A lost registration reply is answered by this read; a discarded take was
  *               released by the server, so it is never read back.
- *   awaiting / unknown: nothing committed, or the read failed: leave the attempt unbound — never guess, never register.
- *   legacy:     a database before the registration migration (no such columns): explicitly, the earlier first-take rule
- *               for the take that just saved, as Production behaves today.
+ *   awaiting / unknown / legacy: nothing committed, the read failed, or the server holds no registration for it: leave the
+ *               attempt unbound — never guess, never register. (A database before the migration is handled at the press:
+ *               such an attempt is never a registering one; see `declarePracticeAgainRegistration`.)
  */
-async function settleRegisteredRepeat(userId: string, attemptId: string, savedSessionId: string | null, boundaryIso: string | null): Promise<void> {
+async function settleRegisteredRepeat(userId: string, attemptId: string): Promise<void> {
     const identity = await readRepeatIdentity(attemptId);
     const current = () => { const o = getOpenAttemptForUser(userId); return o?.attemptId === attemptId ? o : null; };
     if (identity.kind === 'registered') {
@@ -691,14 +691,6 @@ async function settleRegisteredRepeat(userId: string, attemptId: string, savedSe
             if (!latest || !setOpenAttempt({ ...latest, resolutionSessionId: repeat })) return;
         }
         return advanceOnce(userId, attemptId, repeat);
-    }
-    if (identity.kind === 'legacy') {
-        const open = current();
-        if (!open) return;
-        if (open.resolutionSessionId) return advanceOnce(userId, attemptId, open.resolutionSessionId);
-        if (savedSessionId && bindOpenAttemptForTake(userId, savedSessionId, boundaryIso, { trigger: 'save' }, { legacyFallback: true }) === 'bound') {
-            return advanceOnce(userId, attemptId, savedSessionId);
-        }
     }
 }
 
@@ -868,7 +860,7 @@ async function runProgressDebtRound(
             return {
                 recommendation: Promise.all([
                     settleRecommendationObligation(userId, entry.sessionId, settled.generation),
-                    resolveOpenAttemptWith(userId, entry.sessionId, takeBoundaryOf(entry)),
+                    resolveOpenAttemptWith(userId, entry.sessionId),
                 ]).then(() => undefined),
             };
         });

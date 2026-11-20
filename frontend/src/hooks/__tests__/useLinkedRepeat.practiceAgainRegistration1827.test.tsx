@@ -100,4 +100,17 @@ describe('#1827 Practice again → Start registers only this tab\'s take', () =>
         expect(getPracticeAgainIntent(USER)).toEqual({ attemptId: 'attempt-1', userId: USER });
         expect(registered).toBe('take-b');
     });
+
+    it('a database before the migration (no registration function at the press) makes an ordinary attempt: today\'s rules', async () => {
+        rpc.mockImplementation(async (name: string, args: Record<string, string>) => (name === 'register_practice_again_take_v1' && args.p_session === null
+            ? { data: null, error: { code: 'PGRST202', message: 'Could not find the function' } } : created(nextTake)));
+        const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+        const wrapper = ({ children }: { children: React.ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+        const { result } = renderHook(() => useLinkedRepeat('session-a'), { wrapper });
+        await waitFor(() => expect(result.current.linkState).toBe('linked'));
+        await act(async () => { await result.current.accept(vi.fn()); });
+        expect(getOpenAttemptForUser(USER)).toMatchObject({ attemptId: 'attempt-1' });
+        expect(getOpenAttemptForUser(USER)).not.toHaveProperty('registrationRequired');
+    });
 });
+

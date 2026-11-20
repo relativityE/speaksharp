@@ -99,8 +99,9 @@ export function useLinkedRepeat(sessionId: string) {
             if (!attemptId) { outcome = 'server_failed'; throw new Error('server-attempt-failed'); }
             if (target && reference) await resolveRepeatTarget(userId, sessionId, reference, current);
             checkCurrent();
-            // #1827 D2 rev 4: this client registers its repeat, so it declares that now (never blocks the press).
-            await declarePracticeAgainRegistration(attemptId);
+            // #1827 D2 rev 4: this client registers its repeat, so it declares that now (never blocks the press). A database
+            // before the registration migration has no such function: the attempt is then an ordinary one (today's rules).
+            const declaration = await declarePracticeAgainRegistration(attemptId);
             checkCurrent();
             // A REUSED attempt (its create committed but the answer was lost) is accepted at THIS press (Codex P2 r4273828962,
             // r4275389955, r4275718056; PM 6178959404). No request names an attempt before the server answers, so nothing
@@ -109,8 +110,8 @@ export function useLinkedRepeat(sessionId: string) {
             // unlinked; it is never bound to a take that may predate the attempt.
             // #1827 D2 rev 4: this client registers its repeat. Which take that is lives only on the server and is read when
             // needed, so reusing an attempt carries nothing local that could go stale.
-            const handoffStored = setOpenAttempt({ attemptId, userId, sourceSessionId: sessionId, acceptedAtIso, registrationRequired: true,
-                ...(reference ? { repeatTarget: reference } : {}) });
+            const handoffStored = setOpenAttempt({ attemptId, userId, sourceSessionId: sessionId, acceptedAtIso,
+                ...(declaration === 'unsupported' ? {} : { registrationRequired: true }), ...(reference ? { repeatTarget: reference } : {}) });
             if (!handoffStored) {
                 // A replacement account must never issue this original owner's cleanup request.
                 if (authEpoch() !== startedEpoch || (target && !isCurrentTargetOwner(target.ownerId, target.epoch))) return;

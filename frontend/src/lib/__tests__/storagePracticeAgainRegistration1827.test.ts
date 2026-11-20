@@ -9,7 +9,7 @@ import { completeSession, saveSession } from '../storage';
 import { getSupabaseClient } from '../supabaseClient';
 import logger from '../logger';
 import { clearOpenAttempt, getOpenAttemptForUser, setOpenAttempt } from '@/services/progress/openAttempt';
-import { clearPracticeAgainIntent, getPracticeAgainIntent, readRepeatIdentity, setPracticeAgainIntent } from '@/services/progress/practiceAgainIntent';
+import { REGISTRATION_RETRY_DEADLINE_MS, clearPracticeAgainIntent, notePendingRegistration, getPracticeAgainIntent, readRepeatIdentity, setPracticeAgainIntent } from '@/services/progress/practiceAgainIntent';
 
 vi.mock('../supabaseClient');
 
@@ -93,6 +93,25 @@ describe('#1827 Codex P2 — a registration that failed before committing is ret
         await completeSession('s-b', { status: 'completed', duration: 1 } as never);   // a replay does not retry again
         expect(registerCalls()).toHaveLength(2);
     });
+
+    it('Sam: a stalled retry does not hold up the save — complete_session_v2 is still attempted after the deadline', async () => {
+        notePendingRegistration(ATTEMPT, 's-stall');                       // B's first request got no answer
+        supabase.rpc.mockImplementation((name: string) => {
+            if (name === 'register_practice_again_take_v1') return new Promise(() => undefined);   // the retry stalls
+            if (name === 'complete_session_v2') return Promise.resolve({ data: null, error: { code: 'XX000', message: 'stop here' } });
+            return Promise.resolve({ data: null, error: null });
+        });
+        const completedStall = () => supabase.rpc.mock.calls.some((c) => c[0] === 'complete_session_v2'
+            && (c[1] as Record<string, unknown>)?.p_session_id === 's-stall');
+        const started = Date.now();
+        const completion = completeSession('s-stall', { status: 'completed', duration: 1 } as never);
+        await new Promise((r) => setTimeout(r, REGISTRATION_RETRY_DEADLINE_MS - 500));
+        expect(completedStall()).toBe(false);                               // held only within the bound
+        await completion;
+        expect(completedStall()).toBe(true);                                // then the normal save proceeds
+        expect(Date.now() - started).toBeLessThan(REGISTRATION_RETRY_DEADLINE_MS + 2000);
+        expect(registerCalls().map((c) => (c[1] as Record<string, unknown>).p_session)).toEqual(['s-stall']);   // same take only
+    }, 15_000);
 
     it('a definitive answer (registered, refused, or no function before the migration) leaves nothing to retry', async () => {
         openAttempt();

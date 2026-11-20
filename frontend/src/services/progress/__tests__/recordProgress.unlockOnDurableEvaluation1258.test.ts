@@ -38,7 +38,9 @@ let evalReadError: unknown;
 let serverAttempt: { registered_session_id: string | null; registration_required: boolean } | null;
 let attemptReadError: { code?: string; message?: string } | null;
 let evaluatedSessions: Set<string>;
-const attemptRead = async () => (attemptReadError ? { data: null, error: attemptReadError } : { data: serverAttempt, error: null });
+let attemptReads = 0;
+const attemptReadCalls = () => attemptReads;
+const attemptRead = async () => { attemptReads++; return attemptReadError ? { data: null, error: attemptReadError } : { data: serverAttempt, error: null }; };
 function chain(table: string) {
     const filters: Record<string, unknown> = {};
     const c: Record<string, unknown> = {};
@@ -137,6 +139,7 @@ beforeEach(() => {
     evalReadError = null;
     serverAttempt = null;
     attemptReadError = null;
+    attemptReads = 0;
     evaluatedSessions = new Set();
     recommendationSucceeds();
     rpcImpl.set('advance_recommendation_attempt', async () => ({ data: 'moved', error: null }));
@@ -653,12 +656,29 @@ describe('#1827 D2 rev 4 — the server\'s registered take is the one repeat ide
         expect(advanced()).toEqual([N1]);
     });
 
-    it('pre-migration fallback (explicit): no registration columns, so the saved take is bound by the earlier first-take rule', async () => {
+    it('a registering attempt with no server registration to read (legacy or missing columns) is left unbound — never guessed', async () => {
         acceptRegistering();
-        attemptReadError = { code: '42703', message: 'column progress_recommendation_attempts.registered_session_id does not exist' };
-        expect(await within(wireProgressEvaluationOnSave(SAVE(N1, USER, '2026-10-13T11:05:00.000Z')))).toEqual({ kind: 'recorded' });
+        for (const read of [() => { attemptReadError = { code: '42703', message: 'column registered_session_id does not exist' }; },
+                            () => { attemptReadError = null; serverAttempt = { registered_session_id: null, registration_required: false }; }]) {
+            read();
+            evaluatedSessions.add(N1);
+            expect(await within(wireProgressEvaluationOnSave(SAVE(N1, USER, '2026-10-13T11:05:00.000Z')))).toEqual({ kind: 'recorded' });
+            await reconcileProgressEvaluations(USER, []);
+            await settle();
+            expect(advanced()).toEqual([]);
+        }
+    });
+
+    it('pre-migration (decided at the press): an attempt with no registration marker keeps the full first-owed-take ordering', async () => {
+        acceptAttempt('att-premigration', 'sess-source');                 // the press found no registration function
+        rpcImpl.set('record_progress_evaluation', async (args) => (args.p_session_id === N
+            ? { data: null, error: { code: '08006', message: 'connection failure' } } : { data: 'eval-1', error: null }));
+        expect(enqueueProgressReconcile(N, USER, '2026-10-13T10:40:00.000Z', '2026-10-13T10:30:00.000Z').ok).toBe(true);
+        expect(enqueueProgressReconcile(N1, USER, '2026-10-13T11:10:00.000Z', '2026-10-13T11:00:00.000Z').ok).toBe(true);
+        await reconcileProgressEvaluations(USER, []);
         await settle();
-        expect(advanced()).toEqual([N1]);
+        expect(advanced()).toEqual([]);                                    // B (N) still owes evaluation: C (N1) is not bound
+        expect(attemptReadCalls()).toBe(0);                                // no registration path for it
     });
 
     it('older client\'s attempt (no registration marker): the earlier first-take rule, with no server read', async () => {

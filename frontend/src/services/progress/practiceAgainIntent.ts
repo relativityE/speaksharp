@@ -46,17 +46,22 @@ export function getPracticeAgainIntent(userId: string): PracticeAgainIntent | nu
 
 /**
  * At the Practice again press: declare to the server that this attempt's repeat will be registered, so only the registered
- * take can be linked. An attempt an older client records is never declared and keeps the earlier rules. A database without
- * the registration migration has no such function; nothing to declare there. Never blocks the press.
+ * take can be linked. Never blocks the press.
+ *   declared:    the server will require the registered take.
+ *   unsupported: a database before the registration migration (no such function). The attempt is an ordinary one and keeps
+ *                today's first-take rules in full, queue ordering included; no registration path is used for it.
+ *   failed:      no answer; the attempt is still treated as registering (the take's registration also switches enforcement on).
  */
-export async function declarePracticeAgainRegistration(attemptId: string): Promise<boolean> {
+export type RegistrationDeclaration = 'declared' | 'unsupported' | 'failed';
+export async function declarePracticeAgainRegistration(attemptId: string): Promise<RegistrationDeclaration> {
     try {
         const { data, error } = await getSupabaseClient().rpc('register_practice_again_take_v1', { p_attempt: attemptId, p_session: null });
+        if (error && (error.code === 'PGRST202' || error.code === '42883')) return 'unsupported';
         if (error) logger.warn({ code: error.code }, '[progress] Practice again registration not declared');
-        return !error && data === true;
+        return !error && data === true ? 'declared' : 'failed';
     } catch {
         logger.warn('[progress] Practice again registration not declared');
-        return false;
+        return 'failed';
     }
 }
 
@@ -104,7 +109,10 @@ export function notePendingRegistration(attemptId: string, sessionId: string): v
 export function clearPendingRegistration(): void {
     try { if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(PENDING_KEY); } catch { /* ignore */ }
 }
-/** Re-send the pending registration for `sessionId`, once, before it completes. Never throws; never blocks the save. */
+/** How long the completion waits for that one retry before saving anyway (Sam): the save is never held by it. */
+export const REGISTRATION_RETRY_DEADLINE_MS = 3000;
+
+/** Re-send the pending registration for `sessionId`, once, before it completes; bounded, never throws, never guesses. */
 export async function retryPendingRegistration(sessionId: string): Promise<void> {
     let pending: { attemptId?: unknown; sessionId?: unknown } | null = null;
     try {
@@ -113,10 +121,21 @@ export async function retryPendingRegistration(sessionId: string): Promise<void>
     } catch { pending = null; }
     if (!pending || pending.sessionId !== sessionId || typeof pending.attemptId !== 'string') return;
     clearPendingRegistration();                                         // once: no loop, no other take
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<'deadline'>((resolve) => { timer = setTimeout(() => resolve('deadline'), REGISTRATION_RETRY_DEADLINE_MS); });
+    const attempt = (async () => {
+        try {
+            const { error } = await getSupabaseClient().rpc('register_practice_again_take_v1', { p_attempt: pending.attemptId, p_session: sessionId });
+            if (error) logger.warn({ code: error.code }, '[progress] Practice again registration retry failed');
+        } catch {
+            logger.warn('[progress] Practice again registration retry failed');
+        }
+        return 'answered' as const;
+    })();
     try {
-        const { error } = await getSupabaseClient().rpc('register_practice_again_take_v1', { p_attempt: pending.attemptId, p_session: sessionId });
-        if (error) logger.warn({ code: error.code }, '[progress] Practice again registration retry failed');
-    } catch {
-        logger.warn('[progress] Practice again registration retry failed');
+        // A stalled request does not hold up the save; it may still land server-side, and later reads see whatever committed.
+        if (await Promise.race([attempt, deadline]) === 'deadline') logger.warn('[progress] Practice again registration retry timed out');
+    } finally {
+        if (timer) clearTimeout(timer);
     }
 }
