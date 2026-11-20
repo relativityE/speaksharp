@@ -666,13 +666,16 @@ export const ADVERSE_OFFLINE_SUITE = `${ADVERSE_SUITE}-offline-mid-download`;
  * J7.a (PO and Sam, 2026-11-19): the mic-denied suite proves the denial only. The page states the block, capture never
  * starts, and no take is saved for the test account. Recovery after allowing the microphone is not exercised: its two former
  * rows must be absent, and the receipt must record same-page recovery as UNTESTED (`samePageRecoveryErrors`).
+ * All three J7 suites require 'practice privacy choice' (#1835): the run's own account made the variant's fixed choice (J7.a
+ * Save No; J7.b/c Save Yes, Coaching No) and it was read back before the first Start-control press. A pre-#1835 or unknown
+ * build records it FAIL or HOLD, never PASS.
  */
 const ADVERSE_MIC_PRODUCT_ROWS = Object.freeze([
-    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'blocked microphone is stated truthfully', NO_TAKE_SAVED_ROW,
+    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'practice privacy choice', 'blocked microphone is stated truthfully', NO_TAKE_SAVED_ROW,
     'no Cloud STT request', 'coaching request budget',
 ]);
 const ADVERSE_DOWNLOAD_PRODUCT_ROWS = Object.freeze([
-    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'model download failure is stated truthfully', 'Retry downloads the model and a take saves',
+    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'practice privacy choice', 'model download failure is stated truthfully', 'Retry downloads the model and a take saves',
     'no Cloud STT request', 'coaching request budget', 'the recovered take reopens from Analytics',
 ]);
 const RETURNING_USER_PRODUCT_ROWS = Object.freeze([

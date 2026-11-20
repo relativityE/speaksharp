@@ -77,6 +77,20 @@ export function fixedConsentBeforeStartVerdict(o: {
  */
 export const ABANDON_TWO_PLACES_CONSENT_MODE: ConsentMode = 'save_on';
 
+/**
+ * J7 (Sam, Nov 20), each run's own run-owned account, fixed and never read from the environment:
+ *   - J7.a (blocked microphone) tests the denial only and saves no take, so it does not opt in to saving: Save: No, Coaching: No.
+ *   - J7.b / J7.c (model download fails, offline mid-download) judge a recovered take by its saved transcript, so they need
+ *     saving: Save: Yes, Coaching: No. A Save No choice read back before their first press is refused (`readback_differs`).
+ */
+export const MIC_DENIED_CONSENT_MODE: ConsentMode = 'save_off';
+export const ADVERSE_RECOVERY_CONSENT_MODE: ConsentMode = 'save_on';
+
+/** The J7 variant's fixed mode: Save No only for the mic-denied case; any other variant needs saving. */
+export function adverseConsentMode(variant: string): ConsentMode {
+    return variant === 'mic-denied' ? MIC_DENIED_CONSENT_MODE : ADVERSE_RECOVERY_CONSENT_MODE;
+}
+
 /** The run's consent mode from its environment; null when unset or not one of the three. */
 export function consentModeFrom(value: string | undefined): ConsentMode | null {
     return value !== undefined && Object.prototype.hasOwnProperty.call(CONSENT_MODES, value) ? value as ConsentMode : null;
