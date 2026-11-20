@@ -133,7 +133,7 @@ describe('Browser PM case13: public service transitions drive actual rendered fa
         }
         const workers: SetupWorker[] = [];
         const adapterReady = vi.fn();
-        const adapter = new TransformersJSEngine({ onReady: adapterReady });
+        const adapter = new TransformersJSEngine({ onReady: adapterReady, onTranscriptUpdate: vi.fn() });
         const strategy = engine({
             checkAvailability: vi.fn().mockResolvedValue({ isAvailable: false, reason: 'CACHE_MISS' }),
             init: adapter.init.bind(adapter),
