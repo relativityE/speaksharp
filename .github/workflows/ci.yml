@@ -859,7 +859,7 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           path: artifacts
-          pattern: '{unit-artifacts,build-artifacts,shard-report-*,ux-review-screenshots-shard-*,lighthouse-report}'
+          pattern: '{unit-artifacts,build-artifacts,shard-report-*,health-check-report,ux-review-screenshots-shard-*,lighthouse-report}'
 
       - name: Summarise Downloaded Artifacts
         run: find artifacts -maxdepth 2 -type d -print
