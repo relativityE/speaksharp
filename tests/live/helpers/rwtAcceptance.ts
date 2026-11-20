@@ -592,6 +592,8 @@ const FEEDBACK_J8_PRODUCT_ROWS = Object.freeze([
     ...j8LegRows('J8.c', FEEDBACK_NO_SESSION_PRODUCT_ROWS), 'J8.c: both saved takes unchanged', 'J8.c: no extra Start or coaching',
 ]);
 const PENDING_START_PRODUCT_ROWS = Object.freeze([
+    // J5.a (#1835): this run's own account chose Save: Yes, Coaching: No on Practice, read back before each capture-capable press.
+    'practice privacy choice',
     ...SUPPLEMENTAL_ACCOUNT_ROWS, 'cold Start is pending', 'Start transition observed', 'abandoned Start settles after leaving',
     'leaving pending Start releases microphone', 'leaving pending Start creates no session',
     'return to Open Mic exposes truthful Start state', 'return does not resume abandoned recording', 'coaching request budget',
