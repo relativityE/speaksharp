@@ -458,6 +458,8 @@ export function cleanupFailureCode(scope: 'stripe' | 'account', error: unknown):
   if (/cleanup residue (count|query) on /.test(message)) return `account_cleanup_residue_unread_${table(/residue (?:count|query) on ([a-z_]+) /.exec(message))}`;
   // #1643 follow-up: the deleted account's finished save-journal rows could not be removed (the readback is a residue code above).
   if (/cleanup account_save_obligations delete failed/.test(message)) return 'account_cleanup_save_journal_failed';
+  // Sam (#1906): this run could not claim the account's save journal while it existed (not its run, or no migration).
+  if (/cleanup account_save_obligations claim failed/.test(message)) return 'account_cleanup_save_journal_claim_failed';
   if (/pre-delete failed/.test(message)) return 'account_cleanup_predelete_failed';
   if (/take settlement/.test(message)) return 'account_cleanup_take_settlement_failed';
   if (/cleanup_uid_email_disagreement|cleanup_refused_non_run_owned_account|cleanup_run_binding_mismatch|getUserById failed/.test(message))

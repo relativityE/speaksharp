@@ -23,6 +23,7 @@
 // because the product intentionally retains "Report issue" feedback after account deletion. That is a
 // feature, not residue, and scrubbing it would risk erasing real user feedback.
 import { appendFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { expect } from '@playwright/test';
 import { isNotFoundError, pollForRecoveryUid } from './proofAuthority';
 import { currentRunBinding, sameRunBinding, type RunBinding } from './runBinding';
@@ -127,22 +128,43 @@ export const PRE_DELETE_TABLES: ReadonlyArray<string> = Object.freeze(['trial_en
 /**
  * #1643 SAVE JOURNAL (PO 2026-11-19: "make sure save records are deleted"). `account_save_obligations` has no foreign key to
  * auth.users, so its `completed` rows SURVIVE `deleteUser()`; only the product's own closure completion removes them, and
- * service_role cannot read or write the table. Migration 20261119200000 adds two service_role-only functions: the first
- * deletes a DELETED account's completed rows (it refuses while the account exists, while any row is unsettled, or while a
- * product closure completion is processing) and returns what remains; the second is an independent read-only count.
+ * service_role cannot read or write the table. Migration 20261119200000 adds three service_role-only functions:
+ *  - a CLAIM, made while the account still exists: the database checks the address is run-owned and that the run presents
+ *    exactly the binding the service role wrote on the account (none for an unbound account), then keeps that ownership
+ *    and the SHA-256 of a one-time secret only this cleanup holds. It outlives the account (Sam, #1906 review);
+ *  - a DELETE of a DELETED account's completed rows, refused unless the same secret is presented (so a run naming another
+ *    run's account is refused), while the account exists, while any row is unsettled, or while a product closure
+ *    completion is processing; it returns what remains and drops the claim once nothing does;
+ *  - an independent read-only count.
  */
 export const SAVE_JOURNAL_TABLE = 'account_save_obligations';
+export const SAVE_JOURNAL_CLAIM_FN = 'claim_account_save_journal_cleanup_v1';
 export const SAVE_JOURNAL_DELETE_FN = 'delete_deleted_account_save_journal_v1';
 export const SAVE_JOURNAL_COUNT_FN = 'count_account_save_journal_v1';
 
+/** A fresh one-time cleanup secret (64 lowercase hex). Held only in memory for one cleanup; never logged or stored. */
+export function newSaveJournalSecret(): string { return randomBytes(32).toString('hex'); }
+
+/**
+ * Claim the account's save journal for THIS run while the account still exists. `binding` is the run binding this run
+ * proved against the account (`null` for an unbound account). Fail-closed: a missing rpc or any error throws, and the
+ * caller then deletes nothing. Reason codes only; never the uid, the secret or provider text.
+ */
+export async function claimSaveJournalCleanup(admin: Pick<AdminClient, 'rpc'>, uid: string, binding: RunBinding | null, secret: string): Promise<void> {
+    if (typeof admin.rpc !== 'function') throw new Error(`cleanup ${SAVE_JOURNAL_TABLE} claim failed (fail closed): no rpc`);
+    const { error } = await admin.rpc(SAVE_JOURNAL_CLAIM_FN, { p_user_id: uid, p_run_binding: binding ? { ...binding } : null, p_token: secret });
+    if (error) throw new Error(`cleanup ${SAVE_JOURNAL_TABLE} claim failed (fail closed): ${error.code ?? 'unknown'}`);
+}
+
 /**
  * Remove the deleted account's save-journal rows and prove zero remain, through both the delete's own remainder and a separate
- * readback. Call ONLY after the Auth deletion is proven. Fail-closed: a missing rpc, any error (including a database without
- * the migration) or any non-zero / uncounted answer throws. Reason codes only; never the uid or provider text.
+ * readback. Call ONLY after the Auth deletion is proven, with the secret this cleanup claimed the account with. Fail-closed: a
+ * missing rpc, any error (including a database without the migration, or a foreign or missing claim) or any non-zero /
+ * uncounted answer throws. Reason codes only; never the uid, the secret or provider text.
  */
-export async function clearDeletedAccountSaveJournal(admin: Pick<AdminClient, 'rpc'>, uid: string): Promise<void> {
+export async function clearDeletedAccountSaveJournal(admin: Pick<AdminClient, 'rpc'>, uid: string, secret: string): Promise<void> {
     if (typeof admin.rpc !== 'function') throw new Error(`cleanup ${SAVE_JOURNAL_TABLE} delete failed (fail closed): no rpc`);
-    const { data: remaining, error } = await admin.rpc(SAVE_JOURNAL_DELETE_FN, { p_user_id: uid });
+    const { data: remaining, error } = await admin.rpc(SAVE_JOURNAL_DELETE_FN, { p_user_id: uid, p_token: secret });
     if (error) throw new Error(`cleanup ${SAVE_JOURNAL_TABLE} delete failed (fail closed): ${error.code ?? 'unknown'}`);
     requireZeroResidue(remaining, SAVE_JOURNAL_TABLE);
     const { data: readback, error: readErr } = await admin.rpc(SAVE_JOURNAL_COUNT_FN, { p_user_id: uid });
@@ -186,6 +208,7 @@ export function cleanupFailureStep(error: unknown): string {
         || (/^cleanup_run_binding_mismatch/.test(m) && 'run_binding_mismatch')
         || (/^cleanup requires admin client/.test(m) && 'no_admin')
         || table(/^cleanup ([a-z_]+) pre-delete failed/, 'pre_delete')
+        || table(/^cleanup ([a-z_]+) claim failed/, 'save_journal_claim')
         || table(/^cleanup ([a-z_]+) delete failed/, 'save_journal_delete')
         || (/^cleanup take settlement (read|close) failed/.test(m) && 'settle_takes')
         || (/^cleanup deleteUser blocked by an unsettled take/.test(m) && 'delete_user_unsettled_take')
@@ -485,6 +508,12 @@ export async function cleanupRunOwnedAccount(params: {
         }
     }
 
+    // #1643 save journal: make this run's ownership durable while the account (and its binding) still exists, before anything
+    // is written. A refused claim stops here: nothing closed, pre-deleted or deleted. The run presents the binding it proved
+    // above: the recovery path's original, this run's own for a bound account, none for an unbound one.
+    const saveJournalSecret = newSaveJournalSecret();
+    await claimSaveJournalCleanup(admin, capturedUid, params.recovery ? params.recovery.originalBinding : (ctRun !== undefined ? mine : null), saveJournalSecret);
+
     // Only an account bound to THIS run (never an unbound local one, never the recovery path) may have a take closed. A
     // caller that closes nothing only reads, to name a refused deletion: its read failing never blocks the deletion.
     let takes: TakeSettlement | null = null;
@@ -532,7 +561,7 @@ export async function cleanupRunOwnedAccount(params: {
     requireZeroResidue(teCount, 'trial_entitlements');
 
     // The deleted account's finished save-journal rows (no FK, so they outlive deleteUser): delete, then read back zero.
-    await clearDeletedAccountSaveJournal(admin, capturedUid);
+    await clearDeletedAccountSaveJournal(admin, capturedUid, saveJournalSecret);
 
     // Emitted ONLY here — after auth deletion is proven and every residue readback returned zero.
     writeCleanupVerdict('cleanup_verified', RESIDUE_CHECKS.length + 2);

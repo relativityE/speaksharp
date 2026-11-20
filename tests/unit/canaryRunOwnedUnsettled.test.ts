@@ -25,6 +25,9 @@ const iso = (ms: number) => new Date(ms).toISOString();
 
 type Session = { id: string; status: string; lease_id: string | null; recording_fenced_at: string | null; created_at: string; expires_at: string | null; updated_at: string | null };
 
+/** jsonb equality: key order does not matter. */
+const canon = (v: unknown): string => (v && typeof v === 'object' ? JSON.stringify(Object.fromEntries(Object.entries(v).sort(([x], [y]) => x.localeCompare(y)))) : JSON.stringify(v));
+
 function canaryAccount(runId: string, o: { sessions?: Session[]; heldLeases?: string[]; releasedLeases?: string[] } = {}) {
     const email = `ctrial-run-${runId}-1-abcd1234@example.test`;
     const meta = { [BINDING_KEY]: { repository: ENV.GITHUB_REPOSITORY, workflow: ENV.GITHUB_WORKFLOW_REF, runId, runAttempt: '1', role: 'canary-active-trial' } };
@@ -38,7 +41,7 @@ function canaryAccount(runId: string, o: { sessions?: Session[]; heldLeases?: st
         obligations.set(identity, done ? 'completed' : (obligations.get(identity) ?? 'admitted'));
     };
     sessions.forEach(settle);
-    const state = { deleted: false, deleteCalls: 0, preDeletes: 0, writes: [] as string[] };
+    const state = { deleted: false, deleteCalls: 0, preDeletes: 0, writes: [] as string[], secret: null as string | null };
     const rows = (table: string) => {
         if (state.deleted) return [];
         if (table === 'sessions') return sessions;
@@ -65,9 +68,16 @@ function canaryAccount(runId: string, o: { sessions?: Session[]; heldLeases?: st
             delete: () => ({ eq: async () => { state.preDeletes += 1; state.writes.push(`delete:${table}`); return { error: null }; } }),
         }),
         // #1643 save journal: the migration's service_role-only functions (20261119200000), modelled exactly.
-        rpc: vi.fn(async (fn: string) => {
+        rpc: vi.fn(async (fn: string, args: Record<string, unknown> = {}) => {
             if (fn === 'count_account_save_journal_v1') return { data: obligations.size, error: null };
+            if (fn === 'claim_account_save_journal_cleanup_v1') {
+                // The claim must carry this account's own canary binding (the guard puts it there), not the helper's null.
+                if (state.deleted) return { data: null, error: { code: 'P0002', message: 'account not found' } };
+                if (canon(args.p_run_binding) !== canon(meta[BINDING_KEY])) return { data: null, error: { code: '42501', message: 'account is not owned by this run' } };
+                state.secret = String(args.p_token); state.writes.push('claim:account_save_obligations'); return { data: null, error: null };
+            }
             if (!state.deleted) return { data: null, error: { code: '55000', message: 'account still exists' } };
+            if (!state.secret || args.p_token !== state.secret) return { data: null, error: { code: '42501', message: 'account save journal not claimed by this run' } };
             if ([...obligations.values()].some((p) => p !== 'completed')) return { data: null, error: { code: '55000', message: 'account admitted save unsettled' } };
             for (const [k, p] of [...obligations]) if (p === 'completed') obligations.delete(k);
             state.writes.push('delete:account_save_obligations');
@@ -115,7 +125,7 @@ describe('#1826 canary cleanup preserves interrupted and uncertain accounts (Sam
         const admin = canaryAccount(ENV.GITHUB_RUN_ID, { releasedLeases: [L1], sessions: [{ id: S1, status: 'completed', lease_id: L1, recording_fenced_at: null, created_at: iso(T0), expires_at: null, updated_at: iso(T0) }] });
         expect(await cleanupLane({ admin, env: process.env, cleanup: canaryCleanup })).toEqual({ ok: true, code: 'cleanup-verified', deleted: 1 });
         expect(admin.state).toMatchObject({ deleted: true, deleteCalls: 1 });
-        expect(admin.state.writes).toEqual(['delete:trial_entitlements', 'delete:account_save_obligations']);
+        expect(admin.state.writes).toEqual(['claim:account_save_obligations', 'delete:trial_entitlements', 'delete:account_save_obligations']);
     });
 
     it('an obligation the read cannot see (a RELEASED lease with no take): the guard refuses, reported delete_refused, account preserved', async () => {
