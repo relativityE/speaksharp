@@ -638,6 +638,8 @@ const ABANDON_PRODUCT_ROWS = Object.freeze([
     ...SUPPLEMENTAL_ACCOUNT_ROWS, 'take is recording before leaving', 'leaving mid-recording releases the microphone',
     'return does not resume the abandoned take', 'recovery notice is truthful', 'return Start is truthful',
     'next take saves only itself', 'no Cloud STT request', 'coaching request budget',
+    // J5.b/c: the run's own account opted in (Save: Yes, Coaching: No) on its first Practice visit, before any Start.
+    'practice privacy choice',
 ]);
 /**
  * Navigate away also answers the product's in-app leave prompt (#1258 run 38876623812) and, because Leave is "Stop and
@@ -650,6 +652,8 @@ const TWO_TAB_PRODUCT_ROWS = Object.freeze([
     'both takes saved, none left active', 'no Cloud STT request', 'coaching request budget',
     // AHT-11 (#1811): the displaced take carries the server's 'displaced' fence.
     'displaced take is permanently fenced',
+    // J6: the run's own account opted in (Save: Yes, Coaching: No) on tab A's first Practice visit, before any Start.
+    'practice privacy choice',
 ]);
 /**
  * #1258 R3 (row 17) — `rwt-adverse-mic-model`: a blocked microphone, a failing model download, and offline mid-download.
