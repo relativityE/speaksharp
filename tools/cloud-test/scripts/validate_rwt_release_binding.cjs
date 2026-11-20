@@ -35,8 +35,8 @@ const TEST_PINS=Object.freeze({
  'tests/unit/rwtDocumentBinaryTransport.test.js':'e4722993a0e008cf6ead7fe1e092cdc50f3d8b75df0ff29066f35dd95d2bda80',
  // AHT-02..15 prep (parity rows, AHT-07 key-bound fail-closed stored-once, AHT-09 navigation-bound ready wait, AHT-04 recovery take, AHT-05/06 attempts/exact save/reopen, AHT-02/03 Focus marker and rows, AHT-08/11/12-15 checks): exact reviewed postimages.
  'tests/live/helpers/feedbackDiagnosticRef.ts':'aeccd8dbd54dd5172da83f08b87d948f1d32028090e846c50f2e5eaf55be27fe',
- 'tests/live/helpers/rwtAcceptance.ts':'724fcf8f535b74008c08f222d21d876a4861918a304b15dc7cde69fb60703a00',
- 'tests/live/helpers/rwtAdverseJourney.ts':'4cc05a65858a569c3b484c378d7f001cd52a2d1d082328c4a284f1c64299887a',
+ 'tests/live/helpers/rwtAcceptance.ts':'416bfb53ddd3bf23dfa41823e58e80bd838cabc6d95bc8f2a61493fdad39d395',
+ 'tests/live/helpers/rwtAdverseJourney.ts':'547b70de9333a094834a715c13b4768ce952b0e5f188513e1b08527500adf00e',
  'tests/live/helpers/rwtFocusPointsJourney.ts':'7bd806a84f6bce20874c2f924a2090f4e8f197f31d7720cf17278c28ca7b8ce1',
  'tests/live/helpers/rwtPendingStartRecovery.ts':'9384bc792855e5bb2fd6caff8f852affa81344242f8b0af71d1d4878e07480df',
  'tests/live/helpers/rwtSaveRetryAttempts.ts':'cfa37a628a18e1c4347bb40eed73b33b303245a6930efaca0aeb24ee39ec0be2',
@@ -83,10 +83,10 @@ const TEST_PINS=Object.freeze({
  'tests/e2e/rwt-j4a-coaching-close.e2e.spec.ts':'6dc927186afcd77db4c039ae6b371e25fe30832912435a2e23f9e7a611943ce8',
  'tests/live/helpers/rwtAdverse.ts':'c2a97edba44d9877df929b2c0e895d476b5e7a3589d4e137118af604c3624259',
  'tests/live/helpers/rwtJ4aEvidence.ts':'abfcd3e1a50aecec43b0a06c7beec29bdb2dc2fd1059e18742a516e9d71c8074',
- 'tests/live/helpers/rwtPracticeConsent.ts':'45f03ddb97155737510355675bfa732bfabed08bd23a456f39121dae4b9c7cb4',
+ 'tests/live/helpers/rwtPracticeConsent.ts':'8e33f6a11951233f7b2fce2f7435577271775967850da3eb4ebb1840b3efbea7',
  'tests/unit/rwtAdverse1258.test.ts':'5d08a56a3b7b17268efe235e7c6f2d2ba82123e06f413aa46d0bafb2e9d56875',
  'tests/unit/rwtJ4aEvidence.test.ts':'5edbee07d436a8ad276052ee03f228fd6d07b9c947bd3a9b487465d97cb4dd6a',
- 'tests/unit/rwtMicDeniedJ7a.test.ts':'429244150f7f0ad5e53e5dded77ace50cde857276b2344323d3d642dd05463c0',
+ 'tests/unit/rwtMicDeniedJ7a.test.ts':'5a76a42e8c7d9c43d8564672eb70f1229046febfdecb6c3a0679c412fec6dc55',
 });
 // These two non-product inputs are part of this diagnostic integration itself.
 // Pin their exact reviewed postimages rather than treating every workflow or
