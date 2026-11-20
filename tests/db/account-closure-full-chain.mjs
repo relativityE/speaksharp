@@ -1061,7 +1061,7 @@ const REPEAT_TIP_MIGRATION=Object.freeze({name:'20261119120000_repeat_practised_
 // #1643 follow-up: service_role-only cleanup of a DELETED run-owned proof account's finished save-journal rows. It adds four
 // functions and changes no closure, admission or completion behavior, so no historical profile replays, stages or records it.
 const SAVE_JOURNAL_CLEANUP_MIGRATION=Object.freeze({name:'20261119200000_deleted_account_save_journal_cleanup_1643.sql',
-  version:'20261119200000',sha256:'c4ccba3240eeae874693b0efb3ec0ae7f07e5702bfdef6ab0bfa2cd63d4c5e30'});
+  version:'20261119200000',sha256:'cc9ee1861e46580379c6d63ecde100ad9ccf994095eeec92ba617acd65b7e926'});
 const COMMON_WITHHELD_MIGRATIONS=Object.freeze([
   PAYMENT_WALL_MIGRATION,
   ...REVIEWED_UNRELATED_MIGRATIONS,

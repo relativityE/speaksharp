@@ -343,6 +343,7 @@ describe('#1811 feedback fences: found by the database, cleaned only after the r
         const rpc = vi.fn(async (fn: string, args: Record<string, unknown>) => {
             calls.push(`${fn}:${String(args.p_run_key ?? args.p_min_age_seconds)}`);
             if (fn === 'list_unresolved_rwt_feedback_fences_v1') return listError ? { data: null, error: listError } : { data: listed, error: null };
+            if (fn === 'list_unfinished_account_save_journal_cleanup_runs_v1') return { data: [], error: null };   // #1906: none in these cases
             const state = outcome.residue || outcome.foreign ? 'closed' : 'cleaned';
             if (fn === 'close_rwt_feedback_fence_v1') return { data: { state: 'closed', reports: outcome.deleted + outcome.residue, keys: 1 }, error: null };
             if (fn === 'clean_rwt_feedback_fence_v1') return { data: { ...outcome, state }, error: null };
@@ -361,7 +362,7 @@ describe('#1811 feedback fences: found by the database, cleaned only after the r
         const r = await recover({ ...f, runState: terminal });
         expect(r).toMatchObject({ status: 'RECOVERED', eligible: 0, feedback: { listed: 1, fences: 1, deleted: 1, residue: 0, foreign: 0, held: 0, unproven: 0 } });
         expect(terminal).toHaveBeenCalledWith(binding);
-        expect(fences.calls.map((c) => c.split(':')[0])).toEqual(['list_unresolved_rwt_feedback_fences_v1', 'close_rwt_feedback_fence_v1',
+        expect(fences.calls.map((c) => c.split(':')[0])).toEqual(['list_unresolved_rwt_feedback_fences_v1', 'list_unfinished_account_save_journal_cleanup_runs_v1', 'close_rwt_feedback_fence_v1',
             'clean_rwt_feedback_fence_v1', 'verify_rwt_feedback_fence_v1']);
         expect(recoveryReportLine(r)).toContain('feedback_listed=1 feedback_fences=1 feedback_deleted=1 feedback_residue=0 feedback_foreign=0 feedback_held=0 feedback_unproven=0');
     });
@@ -371,7 +372,7 @@ describe('#1811 feedback fences: found by the database, cleaned only after the r
         const fences = withFences(f, [fence({ state: 'open' })]);
         const r = await recover({ ...f, runState: vi.fn(async () => state) });
         expect(r).toMatchObject({ status: 'HOLD_ACTIVE_RUN', deleted: 0, feedback: { listed: 1, fences: 0, held: 1 } });
-        expect(fences.calls.map((c) => c.split(':')[0])).toEqual(['list_unresolved_rwt_feedback_fences_v1']);
+        expect(fences.calls.map((c) => c.split(':')[0])).toEqual(['list_unresolved_rwt_feedback_fences_v1', 'list_unfinished_account_save_journal_cleanup_runs_v1']);
         expect(f.cleanup).not.toHaveBeenCalled();
     });
     it('a fence that cannot read back to zero, records another account\'s report, or errors stops recovery before any account delete', async () => {
@@ -398,20 +399,83 @@ describe('#1811 feedback fences: found by the database, cleaned only after the r
         const r = await recover({ ...f, runState: terminal });
         expect(r.feedback).toMatchObject({ listed: 4, fences: 0, unproven: 4 });
         expect(terminal).not.toHaveBeenCalled();
-        expect(fences.calls.map((c) => c.split(':')[0])).toEqual(['list_unresolved_rwt_feedback_fences_v1']);
+        expect(fences.calls.map((c) => c.split(':')[0])).toEqual(['list_unresolved_rwt_feedback_fences_v1', 'list_unfinished_account_save_journal_cleanup_runs_v1']);
     });
     it('no delete acknowledgement: fences are listed and reported, nothing is touched', async () => {
         stubRun();
         const f = fakeAdmin([]);
         const fences = withFences(f, [fence()]);
         expect(await recover({ ...f, ack: '', runState: terminal })).toMatchObject({ status: 'HOLD_NO_ACK', feedback: { listed: 1, fences: 0 } });
-        expect(fences.calls.map((c) => c.split(':')[0])).toEqual(['list_unresolved_rwt_feedback_fences_v1']);
+        expect(fences.calls.map((c) => c.split(':')[0])).toEqual(['list_unresolved_rwt_feedback_fences_v1', 'list_unfinished_account_save_journal_cleanup_runs_v1']);
     });
     it('a deployment without the fence migration (function absent) recovers accounts exactly as before', async () => {
         stubRun();
         const f = fakeAdmin([{ ...user(1, journey(1), old), app_metadata: { ct_run: binding } }]);
         withFences(f, [], undefined, { code: 'PGRST202' });
         expect(await recover({ ...f, runState: terminal })).toMatchObject({ status: 'RECOVERED', deleted: 1, feedback: { listed: 0, fences: 0 } });
+    });
+});
+
+describe('#1906 save journals of interrupted runs: listed by run binding (never by account), finished only for a terminated rc-gates run', () => {
+    const repository = 'relativityE/speaksharp';
+    const workflow = `${repository}/.github/workflows/rc-gates.yml@refs/heads/main`;
+    const dead = { repository, workflow, runId: '38000000001', runAttempt: '1', role: 'rwt-journey' as const };
+    const stubRun = () => {
+        for (const [k, v] of Object.entries({ GITHUB_ACTIONS: 'true', GITHUB_REPOSITORY: repository,
+            GITHUB_WORKFLOW_REF: workflow, GITHUB_RUN_ID: '39000000001', GITHUB_RUN_ATTEMPT: '1' })) vi.stubEnv(k, v);
+    };
+    const withRuns = (f: ReturnType<typeof fakeAdmin>, listed: unknown, listError: { code: string } | null = null) => {
+        const rpc = vi.fn(async (fn: string) => {
+            if (fn === 'list_unresolved_rwt_feedback_fences_v1') return { data: [], error: null };
+            if (fn === 'list_unfinished_account_save_journal_cleanup_runs_v1') return listError ? { data: null, error: listError } : { data: listed, error: null };
+            return { data: null, error: { code: 'unexpected' } };
+        });
+        Object.assign(f.admin as object, { rpc });
+        return rpc;
+    };
+    const terminal = vi.fn(async () => 'terminal' as const);
+    it('a terminated run is finished by presenting its own binding; the report counts it', async () => {
+        stubRun();
+        const f = fakeAdmin([]);
+        const rpc = withRuns(f, [dead]);
+        const finishSaveJournal = vi.fn(async () => 2);
+        const r = await recover({ ...f, runState: terminal, finishSaveJournal });
+        expect(r).toMatchObject({ status: 'RECOVERED', saveJournal: { runs: 1, finished: 2, held: 0, unproven: 0 } });
+        expect(finishSaveJournal).toHaveBeenCalledTimes(1);
+        expect((finishSaveJournal.mock.calls[0] as unknown[])[1]).toEqual(dead);
+        expect(rpc.mock.calls.find(([fn]) => fn === 'list_unfinished_account_save_journal_cleanup_runs_v1')?.[1]).toEqual({ p_min_age_seconds: MIN_AGE_MS / 1000 });
+        expect(recoveryReportLine(r)).toMatch(/ save_journal_runs=1 save_journal_finished=2 save_journal_held=0 save_journal_unproven=0$/);
+    });
+    it('an active or unverifiable run is held; another workflow, another repository, the CURRENT run or a malformed binding is never touched', async () => {
+        stubRun();
+        for (const state of ['active', 'unverifiable'] as const) {
+            const f = fakeAdmin([]); withRuns(f, [dead]);
+            const finishSaveJournal = vi.fn(async () => 1);
+            expect(await recover({ ...f, runState: async () => state, finishSaveJournal })).toMatchObject({ status: 'HOLD_ACTIVE_RUN', saveJournal: { runs: 1, finished: 0, held: 1 } });
+            expect(finishSaveJournal).not.toHaveBeenCalled();
+        }
+        const f = fakeAdmin([]);
+        withRuns(f, [{ ...dead, workflow: `${repository}/.github/workflows/canary.yml@refs/heads/main` }, { ...dead, repository: 'someone/else' },
+            { ...dead, runId: '39000000001' }, { ...dead, extra: '1' }, { ...dead, role: 'canary-active-trial' }, null, 'x']);
+        const finishSaveJournal = vi.fn(async () => 1);
+        terminal.mockClear();
+        expect(await recover({ ...f, runState: terminal, finishSaveJournal })).toMatchObject({ status: 'RECOVERED', saveJournal: { runs: 7, finished: 0, unproven: 7 } });
+        expect(finishSaveJournal).not.toHaveBeenCalled(); expect(terminal).not.toHaveBeenCalled();
+    });
+    it('fails closed on a listing error, a malformed listing or a failed finish; holds with no acknowledgement; a deployment without the function lists none', async () => {
+        stubRun();
+        for (const [listed, err] of [[null, { code: '42501' }], [{ not: 'an array' }, null]] as const) {
+            const f = fakeAdmin([]); withRuns(f, listed, err);
+            expect((await recover({ ...f, runState: terminal, finishSaveJournal: vi.fn(async () => 1) })).status).toBe('FAILED');
+        }
+        let f = fakeAdmin([]); withRuns(f, [dead]);
+        expect((await recover({ ...f, runState: terminal, finishSaveJournal: vi.fn(async () => { throw new Error('cleanup account_save_obligations sweep failed (fail closed): 55000'); }) })).status).toBe('FAILED');
+        f = fakeAdmin([]); withRuns(f, [dead]);
+        const finishSaveJournal = vi.fn(async () => 1);
+        expect(await recover({ ...f, ack: '', runState: terminal, finishSaveJournal })).toMatchObject({ status: 'HOLD_NO_ACK', saveJournal: { runs: 1, finished: 0 } });
+        expect(finishSaveJournal).not.toHaveBeenCalled();
+        f = fakeAdmin([]); withRuns(f, null, { code: 'PGRST202' });
+        expect(await recover({ ...f, runState: terminal })).toMatchObject({ status: 'NOTHING_TO_RECOVER', saveJournal: { runs: 0 } });
     });
 });
 

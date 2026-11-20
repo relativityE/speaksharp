@@ -12,7 +12,7 @@
  */
 import { FENCE_CASES, cleanAndVerifyFeedbackFence, closeFeedbackFence, fenceRunKey, type FenceRpcClient } from './feedbackFence';
 import { currentRunBinding, sameRunBinding, type RunBinding } from './runBinding';
-import { RUN_OWNED_PREFIX_RE, cleanupRunOwnedAccount, runAttemptsTerminal } from './runOwnedCleanup';
+import { RUN_OWNED_PREFIX_RE, SAVE_JOURNAL_RUNS_FN, cleanupRunOwnedAccount, finishRunSaveJournalCleanups, runAttemptsTerminal } from './runOwnedCleanup';
 
 /** The delete acknowledgement, bound to one exact commit: `RWT-INTERRUPTED-RUN-RECOVERY-DELETE@<40-hex sha>`. */
 export const RECOVERY_DELETE_ACK_PREFIX = 'RWT-INTERRUPTED-RUN-RECOVERY-DELETE';
@@ -190,9 +190,18 @@ export type RecoveryStatus = 'HOLD_NO_DOMAIN' | 'HOLD_NO_ACK' | 'HOLD_INCOMPLETE
  * `unproven`: the fence's binding is not this repository's rc-gates run, or is the current run (nothing touched).
  */
 export interface FeedbackFenceRecovery { listed: number; fences: number; deleted: number; residue: number; foreign: number; held: number; unproven: number }
+/**
+ * #1906 save journals of interrupted runs (counts only; Sam: "the actual restarted runner still has to prove it can find that
+ * account after deletion"). A run that died after an Auth deletion and before clearing that account's save journal leaves a claim
+ * the account listing can no longer show. The database lists the run bindings that still have such claims (never ids); each is
+ * finished only once that run attempt is verified TERMINAL, by presenting its binding. `held`: active or unverifiable (nothing
+ * touched). `unproven`: not this repository's rc-gates run, or the current run (nothing touched).
+ */
+export interface SaveJournalRecovery { runs: number; finished: number; held: number; unproven: number }
 export interface RecoveryReport extends SelectionCounts {
     status: RecoveryStatus; deleted: number; minAgeMinutes: number;
     feedback: FeedbackFenceRecovery;
+    saveJournal: SaveJournalRecovery;
 }
 
 /**
@@ -218,7 +227,20 @@ function fenceBinding(raw: unknown, key: unknown): RunBinding | null {
     return parsed;
 }
 
+/** A listed save-journal binding, accepted only as another, earlier run of THIS repository's rc-gates workflow. */
+function saveJournalBinding(raw: unknown): RunBinding | null {
+    const b = raw as Partial<RunBinding> | null;
+    if (!b || typeof b !== 'object' || Array.isArray(b)) return null;
+    const parsed = currentRunBinding({ GITHUB_ACTIONS: 'true', GITHUB_REPOSITORY: b.repository, GITHUB_WORKFLOW_REF: b.workflow,
+        GITHUB_RUN_ID: b.runId, GITHUB_RUN_ATTEMPT: b.runAttempt });
+    const mine = currentRunBinding();
+    if (!parsed || !mine || !sameRunBinding({ ct_run: raw }, parsed) || parsed.repository !== mine.repository
+        || !parsed.workflow.startsWith(`${mine.repository}/.github/workflows/rc-gates.yml@refs/`) || parsed.runId === mine.runId) return null;
+    return parsed;
+}
+
 type Cleanup = typeof cleanupRunOwnedAccount;
+type FinishSaveJournal = typeof finishRunSaveJournalCleanups;
 
 /**
  * Detect, then (only with the acknowledgement bound to `sha`) recover. Stops at the first cleanup failure (fail closed) and
@@ -229,11 +251,14 @@ export async function recoverInterruptedRuns(params: {
     cleanup?: Cleanup; minAgeMs?: number; perPage?: number; maxPages?: number;
     /** #1811: how a fence's run is proven terminal; default `runAttemptsTerminal`, shared with the account deletion. */
     runState?: RunAttemptStateReader;
+    /** #1906: how a terminated run's save-journal claims are finished; default the shared `finishRunSaveJournalCleanups`. */
+    finishSaveJournal?: FinishSaveJournal;
 }): Promise<RecoveryReport> {
     const minAgeMs = params.minAgeMs ?? MIN_AGE_MS;
     const feedback: FeedbackFenceRecovery = { listed: 0, fences: 0, deleted: 0, residue: 0, foreign: 0, held: 0, unproven: 0 };
+    const saveJournal: SaveJournalRecovery = { runs: 0, finished: 0, held: 0, unproven: 0 };
     const report = (status: RecoveryStatus, counts: SelectionCounts, deleted = 0): RecoveryReport =>
-        ({ status, deleted, minAgeMinutes: Math.round(minAgeMs / 60_000), ...counts, feedback: { ...feedback } });
+        ({ status, deleted, minAgeMinutes: Math.round(minAgeMs / 60_000), ...counts, feedback: { ...feedback }, saveJournal: { ...saveJournal } });
     // No explicit domain still DETECTS and reports (legacy items included); it can never delete.
     const domain = deletionDomain(params.domain);
     const { users, complete } = await listAuthUsersBounded(params.admin, params.perPage, params.maxPages);
@@ -253,7 +278,19 @@ export async function recoverInterruptedRuns(params: {
         }
     }
     feedback.listed = fences.length;
-    if (eligible.length === 0 && fences.length === 0) return report('NOTHING_TO_RECOVER', counts);
+    // #1906: run bindings that still hold a save-journal claim for an account already gone, older than the same age floor. A
+    // deployment without the migration has none to list.
+    let journalRuns: unknown[] = [];
+    if (rpc) {
+        const { data, error } = await rpc.rpc(SAVE_JOURNAL_RUNS_FN, { p_min_age_seconds: Math.ceil(minAgeMs / 1000) });
+        if (error && error.code !== 'PGRST202') return report('FAILED', counts);
+        if (!error) {
+            if (!Array.isArray(data)) return report('FAILED', counts);
+            journalRuns = data;
+        }
+    }
+    saveJournal.runs = journalRuns.length;
+    if (eligible.length === 0 && fences.length === 0 && journalRuns.length === 0) return report('NOTHING_TO_RECOVER', counts);
     if (!SHA_RE.test(params.sha) || params.ack !== recoveryDeleteAck(params.sha)) return report('HOLD_NO_ACK', counts);
     const runState: RunAttemptStateReader = params.runState ?? (async (b) => (await runAttemptsTerminal(b) ? 'terminal' : 'unverifiable'));
     const heldRuns = new Set<string>();
@@ -273,6 +310,20 @@ export async function recoverInterruptedRuns(params: {
         }
         if (feedback.residue !== 0 || feedback.foreign !== 0) return report('FAILED', counts);
     }
+    const finishSaveJournal = params.finishSaveJournal ?? finishRunSaveJournalCleanups;
+    for (const listed of journalRuns) {
+        const binding = saveJournalBinding(listed);
+        if (!binding) { saveJournal.unproven += 1; continue; }
+        // Nothing of a run is finished before its attempt is verified terminal (the same rule as its fences and its account).
+        if (heldRuns.has(`${binding.runId}-${binding.runAttempt}`) || await runState(binding) !== 'terminal') {
+            saveJournal.held += 1; heldRuns.add(`${binding.runId}-${binding.runAttempt}`); continue;
+        }
+        try {
+            saveJournal.finished += await finishSaveJournal(params.admin as never, binding);
+        } catch {
+            return report('FAILED', counts);
+        }
+    }
     const cleanup = params.cleanup ?? cleanupRunOwnedAccount;
     let deleted = 0;
     for (const account of eligible) {
@@ -287,7 +338,7 @@ export async function recoverInterruptedRuns(params: {
         }
         deleted += 1;
     }
-    return report(feedback.held > 0 ? 'HOLD_ACTIVE_RUN' : 'RECOVERED', counts, deleted);
+    return report(feedback.held > 0 || saveJournal.held > 0 ? 'HOLD_ACTIVE_RUN' : 'RECOVERED', counts, deleted);
 }
 
 /** The one content-safe line a run prints. */
@@ -296,5 +347,7 @@ export function recoveryReportLine(r: RecoveryReport): string {
         + `ownership_unproven=${r.ownershipUnproven} legacy_unqualified=${r.legacyUnqualified} eligible=${r.eligible} fresh=${r.fresh} malformed=${r.malformed} `
         + `ambiguous=${r.ambiguous} deleted=${r.deleted} min_age_min=${r.minAgeMinutes}`
         + ` feedback_listed=${r.feedback.listed} feedback_fences=${r.feedback.fences} feedback_deleted=${r.feedback.deleted} feedback_residue=${r.feedback.residue}`
-        + ` feedback_foreign=${r.feedback.foreign} feedback_held=${r.feedback.held} feedback_unproven=${r.feedback.unproven}`;
+        + ` feedback_foreign=${r.feedback.foreign} feedback_held=${r.feedback.held} feedback_unproven=${r.feedback.unproven}`
+        + ` save_journal_runs=${r.saveJournal.runs} save_journal_finished=${r.saveJournal.finished} save_journal_held=${r.saveJournal.held}`
+        + ` save_journal_unproven=${r.saveJournal.unproven}`;
 }

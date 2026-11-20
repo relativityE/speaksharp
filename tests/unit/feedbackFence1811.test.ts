@@ -119,6 +119,8 @@ function fakeDb() {
         } else if (fn === 'list_unresolved_rwt_feedback_fences_v1') {
             reply = { data: [...fences.entries()].filter(([, x]) => x.state !== 'cleaned')
                 .map(([run_key, x]) => ({ run_key, state: x.state, binding: x.binding, opened_at: '2026-11-14T00:00:00Z' })), error: null };
+        } else if (fn === 'list_unfinished_account_save_journal_cleanup_runs_v1') {
+            reply = { data: [], error: null };   // #1906: no interrupted run left a save-journal claim in these cases
         } else if (!f) reply = fn === 'verify_rwt_feedback_fence_v1' ? { data: { exists: false }, error: null } : { data: null, error: { code: 'P0002' } };
         else if (fn === 'close_rwt_feedback_fence_v1') { if (f.state === 'open') f.state = 'closed'; reply = { data: { state: f.state, reports: f.reports.length, keys: f.reports.length }, error: null }; }
         else if (fn === 'clean_rwt_feedback_fence_v1') {
@@ -277,7 +279,8 @@ describe('#1811 JourneyFeedbackFence — the runner sequence', () => {
         const { report } = await recover(db, state);
         expect(report).toMatchObject({ status: 'HOLD_ACTIVE_RUN', feedback: { listed: 1, fences: 0, deleted: 0, held: 1 } });
         const after = db.rpc.mock.calls.slice(before).map(([fn]) => fn);
-        expect(after).toEqual(['list_unresolved_rwt_feedback_fences_v1']); // no close, clean or verify
+        // Only the two read-only listings (fences; #1906 save-journal runs): no close, clean or verify.
+        expect(after).toEqual(['list_unresolved_rwt_feedback_fences_v1', 'list_unfinished_account_save_journal_cleanup_runs_v1']);
         expect([...db.fences.values()][0].state).toBe('open');
         expect(db.reports.has('r1')).toBe(true);
     });

@@ -133,6 +133,12 @@ function account(o: { sessions?: Session[]; heldLeases?: Lease[]; releasedLeases
                     return { data: null, error: { code: '42501', message: 'account save journal not claimed by this run' } };
                 claim.secret = String(args.p_token); return { data: null, error: null };
             }
+            // The restart with NO account id (Sam, #1906): exactly the claim's non-null binding, only once the account is gone.
+            if (fn === 'resume_run_account_save_journal_cleanups_v1') {
+                if (args.p_run_binding === null || typeof args.p_run_binding !== 'object') return { data: null, error: { code: '22004', message: 'run binding required' } };
+                if (!deleted || claim.secret === null || claim.binding === null || canon(args.p_run_binding) !== canon(claim.binding)) return { data: [], error: null };
+                claim.secret = String(args.p_token); return { data: [UID], error: null };
+            }
             if (!deleted) return { data: null, error: { code: '55000', message: 'account still exists' } };
             if (claim.secret === null || args.p_token !== claim.secret) return { data: null, error: { code: '42501', message: 'account save journal not claimed by this run' } };
             if ([...obligations.values()].some((p) => p !== 'completed')) return { data: null, error: { code: '55000', message: 'account admitted save unsettled' } };
@@ -193,7 +199,9 @@ describe('run-owned cleanup closes only STOPPED takes of a run-bound synthetic j
         (a.admin as { rpc: unknown }).rpc = vi.fn(async (fn: string, args?: Record<string, unknown>) => { order.push(fn); return rpc(fn, args); });
         await expect(run(a.admin, a.proof())).resolves.toBe(UID);
         // Sam (#1906): ownership is claimed while the account (and its binding) still exists, before anything is written.
-        expect(order).toEqual(['claim_account_save_journal_cleanup_v1', 'deleteUser', 'delete_deleted_account_save_journal_v1', 'count_account_save_journal_v1']);
+        // Then, after this account is verified, the run's own leftovers are swept by its binding (none here).
+        expect(order).toEqual(['claim_account_save_journal_cleanup_v1', 'deleteUser', 'delete_deleted_account_save_journal_v1', 'count_account_save_journal_v1',
+            'resume_run_account_save_journal_cleanups_v1']);
         const calls = (a.admin.rpc as unknown as { mock: { calls: Array<[string, Record<string, unknown>]> } }).mock.calls;
         const [, claimed] = calls[0];
         expect(claimed).toEqual({ p_user_id: UID, p_run_binding: B, p_token: expect.stringMatching(/^[0-9a-f]{64}$/) });
