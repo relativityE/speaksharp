@@ -421,7 +421,15 @@ jobs:
               echo '::error::rwt_j1d_leg is accepted only as J1D-ON-J1A with tests/live/rwt-open-mic-first-session.live.spec.ts; nothing ran.'
               exit 1
             fi
-            j1d_domain="$(printf '%s' "${LIVE_TEST_EMAIL_DOMAIN:-example.com}" | tr '[:upper:]' '[:lower:]')"
+            # Only a domain interrupted-run recovery may delete under (rwtInterruptedRunRecovery.ts deletionDomain): set
+            # explicitly, valid, and never the legacy example.com fallback. Otherwise J1.d fails here, before any admission is
+            # written or J1.a starts, so an opt-in J1.d account is always recoverable. Ordinary J1.a runs are unchanged.
+            j1d_domain="$(printf '%s' "${LIVE_TEST_EMAIL_DOMAIN:-}" | tr '[:upper:]' '[:lower:]' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+            if [ -z "$j1d_domain" ] || [ "$j1d_domain" = 'example.com' ] || [ "${#j1d_domain}" -gt 253 ] \
+              || ! [[ "$j1d_domain" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]]; then
+              echo '::error::J1.d needs a recovery-eligible LIVE_TEST_EMAIL_DOMAIN (set, valid, not example.com); nothing ran.'
+              exit 1
+            fi
             # J1.a's account takes exactly the run-owned shape interrupted-run recovery recognises, rwt-journey-<label>-<ms>-<run>
             # (rwtInterruptedRunRecovery.ts OWNED_LOCAL_PARTS), so an interrupted J1.a+J1.d run can never leave an unrecoverable
             # account. The millisecond stamp keeps every attempt's account distinct.

@@ -9,7 +9,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { J1D_ADMISSION_ENV, j1dRunnerAdmission } from '../live/helpers/rwtJ1dJourney';
-import { ownedPrefixOf } from '../live/helpers/rwtInterruptedRunRecovery';
+import { deletionDomain, ownedPrefixOf } from '../live/helpers/rwtInterruptedRunRecovery';
 
 /** J1.a's account under J1.d: exactly the run-owned shape interrupted-run recovery recognises. */
 const OWNED_REF = (domain: string) => new RegExp(`^rwt-journey-open-mic-\\d{13}-4242@${domain.replace(/\./g, '\\.')}$`);
@@ -29,7 +29,8 @@ afterEach(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true
 function admit(env: Record<string, string>) {
   const temp = mkdtempSync(path.join(tmpdir(), 'j1d-admission-')); dirs.push(temp);
   const r = spawnSync('bash', ['-c', `set -euo pipefail\n${block}\necho "ADMISSION=\${${J1D_ADMISSION_ENV}:-}"`], { encoding: 'utf8',
-    env: { PATH: process.env.PATH ?? '', RUNNER_TEMP: temp, GITHUB_RUN_ID: '4242', GITHUB_RUN_ATTEMPT: '1', DIAGNOSTIC_DAST_SPEC: SPEC, ...env } });
+    env: { PATH: process.env.PATH ?? '', RUNNER_TEMP: temp, GITHUB_RUN_ID: '4242', GITHUB_RUN_ATTEMPT: '1', DIAGNOSTIC_DAST_SPEC: SPEC,
+      LIVE_TEST_EMAIL_DOMAIN: 'rwt-tests.example.org', ...env } });
   const file = /ADMISSION=(.*)/.exec(r.stdout)?.[1] ?? '';
   return { status: r.status, stdout: r.stdout, file, files: readdirSync(temp) };
 }
@@ -75,14 +76,38 @@ describe('rc-gates J1.d admission (diagnostic step)', () => {
     const r = admit({ RWT_J1D_LEG: 'J1D-ON-J1A', GITHUB_RUN_ATTEMPT: '3' });
     const record = JSON.parse(readFileSync(r.file, 'utf8'));
     expect(record.runAttempt).toBe('3');
-    expect(record.lookupRef).toMatch(OWNED_REF('example.com'));
+    expect(record.lookupRef).toMatch(OWNED_REF('rwt-tests.example.org'));
     expect(record.lookupRef).not.toBe(first.lookupRef);
     expect(j1dRunnerAdmission({ [J1D_ADMISSION_ENV]: r.file, GITHUB_RUN_ID: '4242', GITHUB_RUN_ATTEMPT: '3' }, (p) => readFileSync(p, 'utf8')).admitted).toBe(true);
   });
 
-  it('defaults the domain like newDisposableEmail does when the variable is unset', () => {
-    const r = admit({ RWT_J1D_LEG: 'J1D-ON-J1A' });
-    expect(JSON.parse(readFileSync(r.file, 'utf8')).lookupRef).toMatch(OWNED_REF('example.com'));
+  it('Sam: J1.d requires a recovery-eligible domain; unset or example.com fails before admission or J1.a, writing nothing', () => {
+    for (const domain of ['', '   ', 'example.com', 'Example.COM', ' example.com ']) {
+      const r = admit({ RWT_J1D_LEG: 'J1D-ON-J1A', LIVE_TEST_EMAIL_DOMAIN: domain });
+      expect({ domain, status: r.status }).toEqual({ domain, status: 1 });
+      expect(r.stdout).toContain('J1.d needs a recovery-eligible LIVE_TEST_EMAIL_DOMAIN');
+      expect(r.files).toEqual([]);
+    }
+    // Unset entirely (the variable absent, not just empty).
+    const temp = mkdtempSync(path.join(tmpdir(), 'j1d-admission-')); dirs.push(temp);
+    const unset = spawnSync('bash', ['-c', `set -euo pipefail\n${block}`], { encoding: 'utf8', env: { PATH: process.env.PATH ?? '',
+      RUNNER_TEMP: temp, GITHUB_RUN_ID: '4242', GITHUB_RUN_ATTEMPT: '1', DIAGNOSTIC_DAST_SPEC: SPEC, RWT_J1D_LEG: 'J1D-ON-J1A' } });
+    expect(unset.status).toBe(1);
+    expect(readdirSync(temp)).toEqual([]);
+  });
+
+  it('the workflow accepts exactly the domains interrupted-run recovery may delete under (parity with deletionDomain)', () => {
+    for (const domain of ['rwt-tests.example.org', 'Mail.Example.NET', 'a.io', 'example.com', 'EXAMPLE.COM', '', 'localhost',
+      'bad_domain.org', '-lead.example.org', 'trail-.example.org', 'x.' + 'a'.repeat(64) + '.com', 'no-tld.', 'two..dots.org']) {
+      const accepted = admit({ RWT_J1D_LEG: 'J1D-ON-J1A', LIVE_TEST_EMAIL_DOMAIN: domain }).status === 0;
+      expect({ domain, accepted }).toEqual({ domain, accepted: deletionDomain(domain) !== null });
+    }
+  });
+
+  it('ordinary J1.a (no J1.d input) is unchanged: no domain requirement, nothing written', () => {
+    const r = admit({ RWT_J1D_LEG: '', LIVE_TEST_EMAIL_DOMAIN: '' });
+    expect(r.status).toBe(0);
+    expect(r.files).toEqual([]);
   });
 
   it('CONTROL: the earlier account shape (…-j1d-<run>-<attempt>) is one interrupted-run recovery would NOT recognise', () => {
