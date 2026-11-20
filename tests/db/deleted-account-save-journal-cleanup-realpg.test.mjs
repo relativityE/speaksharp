@@ -23,6 +23,7 @@ const abandonment = 'backend/supabase/migrations/20261112133000_recording_start_
 const candidate = 'backend/supabase/migrations/20261119200000_deleted_account_save_journal_cleanup_1643.sql';
 const helper = 'tests/live/helpers/runOwnedCleanup.ts';
 const CLAIM_FN = 'claim_account_save_journal_cleanup_v1';
+const RESUME_FN = 'resume_account_save_journal_cleanup_v1';
 const DELETE_FN = 'delete_deleted_account_save_journal_v1';
 const COUNT_FN = 'count_account_save_journal_v1';
 const CLAIMS = 'account_save_journal_cleanup_claims';
@@ -53,9 +54,11 @@ test('deleted-account save-journal cleanup: only the run that owns a deleted acc
   assert.ok(bin, 'NOT RUN: installed local PostgreSQL initdb/pg_ctl/psql toolchain unavailable');
   // The shared live cleanup steps under test (TypeScript). tsImport loads them through tsx whether or not the runner passed
   // `--import tsx`: the evidence lane runs plain `node --test`, where its extensionless imports would not resolve.
-  const { claimSaveJournalCleanup, clearDeletedAccountSaveJournal, cleanupFailureStep, newSaveJournalSecret,
-    SAVE_JOURNAL_CLAIM_FN, SAVE_JOURNAL_DELETE_FN, SAVE_JOURNAL_COUNT_FN } = await tsImport(`../../${helper}`, import.meta.url);
+  const { claimSaveJournalCleanup, clearDeletedAccountSaveJournal, cleanupFailureStep, newSaveJournalSecret, cleanupRunOwnedAccount,
+    resumeSaveJournalCleanup, SAVE_JOURNAL_CLAIM_FN, SAVE_JOURNAL_RESUME_FN, SAVE_JOURNAL_DELETE_FN, SAVE_JOURNAL_COUNT_FN,
+    RESIDUE_CHECKS } = await tsImport(`../../${helper}`, import.meta.url);
   assert.equal(SAVE_JOURNAL_CLAIM_FN, CLAIM_FN); assert.equal(SAVE_JOURNAL_DELETE_FN, DELETE_FN); assert.equal(SAVE_JOURNAL_COUNT_FN, COUNT_FN);
+  assert.equal(SAVE_JOURNAL_RESUME_FN, RESUME_FN);
 
   const root = mkdtempSync(join(tmpdir(), 'save-journal-cleanup-'));
   const data = join(root, 'data'), socket = join(root, 'socket'); mkdirSync(socket);
@@ -93,7 +96,7 @@ test('deleted-account save-journal cleanup: only the run that owns a deleted acc
     } catch (e) {
       const stderr = String(e.stderr ?? e.message);
       const code = /permission denied|not claimed by this run|not owned by this run|not run-owned/.test(stderr) ? '42501'
-        : /does not exist/.test(stderr) ? '42883' : /account not found/.test(stderr) ? 'P0002' : '55000';
+        : /does not exist/.test(stderr) ? '42883' : /account not found|no cleanup claim/.test(stderr) ? 'P0002' : '55000';
       return Promise.resolve({ data: null, error: { code, message: stderr } });
     }
   } };
@@ -101,7 +104,7 @@ test('deleted-account save-journal cleanup: only the run that owns a deleted acc
   /** A run-owned proof account; `meta` is what the service role wrote into its app_metadata (the run binding). */
   function seed(meta = { ct_run: RUN_A }, prefix = 'rwt-journey-save-journal-') {
     const suffix = String(++index).padStart(12, '0');
-    const a = { user: `c9110000-0000-4000-8000-${suffix}`, n: 0, binding: meta.ct_run ?? meta.canary_run ?? null };
+    const a = { user: `c9110000-0000-4000-8000-${suffix}`, email: `${prefix}${index}@example.test`, n: 0, binding: meta.ct_run ?? meta.canary_run ?? null };
     sql(`INSERT INTO auth.users(id,email,email_confirmed_at,raw_app_meta_data) VALUES('${a.user}','${prefix}${index}@example.test',now(),
         ${lit(JSON.stringify({ provider: 'email', providers: ['email'], ...meta }))}::jsonb);
       UPDATE user_profiles SET subscription_status='pro' WHERE id='${a.user}';`);
@@ -166,13 +169,13 @@ test('deleted-account save-journal cleanup: only the run that owns a deleted acc
     sql(readFileSync(candidate, 'utf8'));
 
     await t.test('access: only service_role may execute; journal and claims stay closed to every role; definer with an empty search_path', () => {
-      for (const fn of [`${CLAIM_FN}(uuid,jsonb,text)`, `${DELETE_FN}(uuid,text)`, `${COUNT_FN}(uuid)`]) {
+      for (const fn of [`${CLAIM_FN}(uuid,jsonb,text)`, `${RESUME_FN}(uuid,text,jsonb,text)`, `${DELETE_FN}(uuid,text)`, `${COUNT_FN}(uuid)`]) {
         for (const [role, allowed] of [['anon', 'f'], ['authenticated', 'f'], ['service_role', 't'], ['public', 'f']])
           assert.equal(sql(`SELECT has_function_privilege('${role}','${fn}','EXECUTE')`), allowed, `${role} ${fn}`);
         assert.equal(sql(`SELECT prosecdef FROM pg_proc WHERE oid='${fn}'::regprocedure`), 't');
         assert.equal(sql(`SELECT proconfig::text FROM pg_proc WHERE oid='${fn}'::regprocedure`), '{"search_path=\\"\\""}');
       }
-      assert.equal(sql(`SELECT count(*) FROM pg_proc WHERE proname IN ('${CLAIM_FN}','${DELETE_FN}','${COUNT_FN}')`), '3', 'exactly one overload each');
+      assert.equal(sql(`SELECT count(*) FROM pg_proc WHERE proname IN ('${CLAIM_FN}','${RESUME_FN}','${DELETE_FN}','${COUNT_FN}')`), '4', 'exactly one overload each');
       for (const table of ['account_save_obligations', CLAIMS]) for (const role of ['anon', 'authenticated', 'service_role'])
         for (const privilege of ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE'])
           assert.equal(sql(`SELECT has_table_privilege('${role}','${table}','${privilege}')`), 'f', `${table} ${role} ${privilege}`);
@@ -184,6 +187,7 @@ test('deleted-account save-journal cleanup: only the run that owns a deleted acc
       for (const role of ['anon', 'authenticated']) {
         assert.throws(() => sql(`SET ROLE ${role}; ${fnCall(CLAIM_FN, { p_user_id: a.user, p_run_binding: RUN_A, p_token: a.secret })}`), /permission denied/, role);
         assert.throws(() => sql(`SET ROLE ${role}; ${fnCall(DELETE_FN, { p_user_id: a.user, p_token: a.secret })}`), /permission denied/, role);
+        assert.throws(() => sql(`SET ROLE ${role}; ${fnCall(RESUME_FN, { p_user_id: a.user, p_email: a.email, p_run_binding: RUN_A, p_token: a.secret })}`), /permission denied/, role);
         assert.throws(() => sql(`SET ROLE ${role}; SELECT ${COUNT_FN}('${a.user}')`), /permission denied/, role);
       }
       assert.throws(() => sql(as(a, fnCall(DELETE_FN, { p_user_id: a.user, p_token: a.secret }))), /permission denied/);
@@ -337,6 +341,176 @@ test('deleted-account save-journal cleanup: only the run that owns a deleted acc
       await assert.rejects(() => claimSaveJournalCleanup(fake([{ data: null, error: { code: '42501', message: 'x' } }]), seed().user, RUN_A, s), refusedAt('save_journal_claim:account_save_obligations'));
       await assert.rejects(() => claimSaveJournalCleanup({}, seed().user, RUN_A, s), refusedAt('save_journal_claim:account_save_obligations'));
       assert.match(newSaveJournalSecret(), /^[0-9a-f]{64}$/); assert.notEqual(newSaveJournalSecret(), newSaveJournalSecret());
+    });
+
+    // ── RESTART after Auth deletion (Sam, #1906 review: "a run using this new code must still be able to finish its own cleanup
+    //    after Auth deletion and a restart") ────────────────────────────────────────────────────────────────────────────────
+    const resumeSql = (a, binding, secret, email = a.email) => service(fnCall(RESUME_FN, { p_user_id: a.user, p_email: email, p_run_binding: binding, p_token: secret }));
+    const claimToken = a => sql(`SELECT coalesce(encode(token_sha256,'hex'),'') FROM ${CLAIMS} WHERE user_id='${a.user}'`);
+    const RUN_ENV = ['GITHUB_ACTIONS', 'GITHUB_REPOSITORY', 'GITHUB_WORKFLOW_REF', 'GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT'];
+    const savedEnv = Object.fromEntries(RUN_ENV.map(k => [k, process.env[k]]));
+    /** This process acts as the GitHub run `b` (its env is what currentRunBinding() reads), or as a local run when `b` is null. */
+    const actAs = b => {
+      for (const k of RUN_ENV) delete process.env[k];
+      if (b) Object.assign(process.env, { GITHUB_ACTIONS: 'true', GITHUB_REPOSITORY: b.repository, GITHUB_WORKFLOW_REF: b.workflow, GITHUB_RUN_ID: b.runId, GITHUB_RUN_ATTEMPT: b.runAttempt });
+    };
+    const restoreEnv = () => { for (const k of RUN_ENV) { if (savedEnv[k] === undefined) delete process.env[k]; else process.env[k] = savedEnv[k]; } };
+    const tableExists = table => sql(`SELECT to_regclass('public.${table}') IS NOT NULL`) === 't';
+    const outsideFixture = new Set();
+    /**
+     * The service-role admin client the SHARED cleanupRunOwnedAccount uses, pointed at this cluster: Auth reads and deletion are
+     * real auth.users rows (the deletion fires the product's real save-obligation guard), the save-journal functions are the
+     * real service_role functions, and every residue readback reads the real table. Residue tables this fixture does not create
+     * answer a counted 0 and are named in the receipts (they are product tables outside the save journal under test).
+     * `crash` throws, as a dead process would, right after that step: the secret the cleanup held is gone with it.
+     */
+    const realAdmin = ({ crash } = {}) => {
+      const steps = [];
+      const die = step => { if (crash === step) throw new Error(`SIMULATED_CRASH after ${step}`); };
+      const count = (table, column, value) => {
+        if (!tableExists(table)) { outsideFixture.add(table); return { count: 0, error: null }; }
+        return { count: Number(sql(`SELECT count(*) FROM public.${table} WHERE ${column}=${lit(value)}`)), error: null };
+      };
+      return {
+        steps,
+        auth: { admin: {
+          getUserById: async uid => {
+            const row = sql(`SELECT json_build_object('id',id,'email',email,'app_metadata',coalesce(raw_app_meta_data,'{}'::jsonb))::text FROM auth.users WHERE id=${lit(uid)}`);
+            return row ? { data: { user: JSON.parse(row) }, error: null }
+              : { data: { user: null }, error: { status: 404, code: 'user_not_found', message: 'User not found' } };
+          },
+          deleteUser: async uid => {
+            try { sql(`DELETE FROM auth.users WHERE id=${lit(uid)}`); } catch { return { error: { message: 'Database error deleting user' } }; }
+            steps.push('deleteUser'); die('deleteUser'); return { error: null };
+          },
+          listUsers: async () => { throw new Error('not used: the uid is known'); },
+        } },
+        from: table => ({
+          select: (columns, opts) => ({ eq: async (column, value) => {
+            if (opts?.head) return count(table, column, value);
+            if (!tableExists(table)) { outsideFixture.add(table); return { data: [], error: null }; }
+            const rows = sql(`SELECT coalesce(json_agg(json_build_object(${columns.split(',').map(c => `'${c}',${c}`).join(',')})),'[]')::text
+              FROM public.${table} WHERE ${column}=${lit(value)}`);
+            return { data: JSON.parse(rows), error: null };
+          } }),
+          delete: () => ({ eq: async (column, value) => {
+            if (tableExists(table)) sql(`DELETE FROM public.${table} WHERE ${column}=${lit(value)}`); else outsideFixture.add(table);
+            steps.push(`pre_delete:${table}`); die(`pre_delete:${table}`); return { error: null };
+          } }),
+        }),
+        rpc: async (fn, args) => { steps.push(fn); const r = await serviceRpc.rpc(fn, args); die(fn); return r; },
+      };
+    };
+    const cleanup = (admin, a) => cleanupRunOwnedAccount({ admin, capturedUid: a.user, createdEmail: a.email, runOwnedPrefix: 'rwt-journey-' });
+
+    await t.test('RESTART (Sam, #1906): a cleanup that crashed right after the Auth deletion is finished by the SAME run; another run is still refused', async () => {
+      try {
+        const a = seed({ ct_run: RUN_A }); savedTake(a); savedTake(a);   // the full take and one repeat, both saved
+        actAs(RUN_A);
+        const crashed = realAdmin({ crash: 'deleteUser' });
+        await assert.rejects(() => cleanup(crashed, a), /SIMULATED_CRASH after deleteUser/);
+        assert.deepEqual(crashed.steps, [CLAIM_FN, 'pre_delete:trial_entitlements', 'deleteUser'],
+          'claimed, pre-deleted and deleted in Auth; then the process died holding the only copy of the secret');
+        // The state Sam described: account gone, finished rows left, claim left, and nobody holds its secret any more.
+        assert.equal(authExists(a), false);
+        assert.deepEqual([journalRows(a), claimRows(a)], [2, 1]);
+        const before = journalSnapshot(a), token = claimToken(a);
+
+        // ANOTHER run restarting against this account (run B of the same workflow): the database refuses the resume. Nothing changes.
+        actAs(RUN_B);
+        const foreign = realAdmin();
+        await assert.rejects(() => cleanup(foreign, a), refusedAt('save_journal_resume:account_save_obligations'));
+        assert.deepEqual(foreign.steps, [RESUME_FN], 'refused at the resume: no delete was attempted');
+        // Nor a re-run attempt of the same run (another attempt is another owner), nor a local run that binds nothing.
+        for (const other of [{ ...RUN_A, runAttempt: '2' }, null]) {
+          actAs(other);
+          await assert.rejects(() => cleanup(realAdmin(), a), refusedAt('save_journal_resume:account_save_obligations'), JSON.stringify(other));
+        }
+        assert.deepEqual([journalSnapshot(a), claimToken(a), claimRows(a)], [before, token, 1], 'rows, claim and its secret untouched');
+
+        // THE SAME RUN restarts: it finishes its own cleanup through the shared step. Rows gone, claim gone, verdict written.
+        actAs(RUN_A);
+        const restarted = realAdmin();
+        const lines = [], con = globalThis.console, log = con.log; con.log = (...x) => { lines.push(x.join(' ')); };
+        try { assert.equal(await cleanup(restarted, a), a.user); } finally { con.log = log; }
+        assert.deepEqual(restarted.steps, [RESUME_FN, DELETE_FN, COUNT_FN], 'resume with a fresh secret, delete, independent readback; no second Auth deletion');
+        assert.deepEqual([journalRows(a), claimRows(a)], [0, 0]);
+        assert.deepEqual(lines.filter(l => /^RUN_(OWNED_CLEANUP|SAVE_JOURNAL_RESUME)/.test(l)),
+          ['RUN_SAVE_JOURNAL_RESUME claim=resumed', `RUN_OWNED_CLEANUP cleanup_verified residue=0 tables_verified=${RESIDUE_CHECKS.length + 2}`]);
+        assert.ok(!lines.some(l => l.includes(a.user) || l.includes(a.email)), 'no uid or address in the log');
+
+        // A second restart after it finished: no claim is left, so nothing is deleted and only the zero readback passes.
+        const again = realAdmin();
+        assert.equal(await cleanup(again, a), a.user);
+        assert.deepEqual(again.steps, [RESUME_FN, COUNT_FN]);
+        receipts.push({ case: 'restart_after_auth_deletion', rowsLeftByCrash: 2, foreignRunRefused: true, otherAttemptRefused: true,
+          localRunRefused: true, ownerRestartRowsAfter: 0, claimAfter: 0, residueTablesOutsideFixture: [...outsideFixture].sort() });
+      } finally { restoreEnv(); }
+    });
+
+    await t.test('RESTART: a crash at any earlier step is finished the ordinary way (the account still exists, so it is claimed again)', async () => {
+      try {
+        actAs(RUN_A);
+        for (const crash of [CLAIM_FN, 'pre_delete:trial_entitlements']) {
+          const a = seed({ ct_run: RUN_A }); savedTake(a);
+          await assert.rejects(() => cleanup(realAdmin({ crash }), a), /SIMULATED_CRASH/);
+          assert.equal(authExists(a), true, crash);
+          const restarted = realAdmin();
+          assert.equal(await cleanup(restarted, a), a.user, crash);
+          assert.deepEqual(restarted.steps, [CLAIM_FN, 'pre_delete:trial_entitlements', 'deleteUser', DELETE_FN, COUNT_FN], crash);
+          assert.deepEqual([authExists(a), journalRows(a), claimRows(a)], [false, 0, 0], crash);
+        }
+        // And a crash after the journal delete itself (claim already dropped, verdict never written): the restart passes on the readback.
+        const a = seed({ ct_run: RUN_A }); savedTake(a);
+        await assert.rejects(() => cleanup(realAdmin({ crash: DELETE_FN }), a), /SIMULATED_CRASH/);
+        assert.deepEqual([authExists(a), journalRows(a), claimRows(a)], [false, 0, 0]);
+        const restarted = realAdmin();
+        assert.equal(await cleanup(restarted, a), a.user);
+        assert.deepEqual(restarted.steps, [RESUME_FN, COUNT_FN]);
+      } finally { restoreEnv(); }
+    });
+
+    await t.test('RESUME in the database: only after deletion, only for the claim\'s own binding and address, never an unbound claim', async () => {
+      const a = seed({ ct_run: RUN_A }); savedTake(a);
+      const first = newSaveJournalSecret(), fresh = newSaveJournalSecret();
+      sql(claimSql(a, RUN_A, first));
+      assert.throws(() => sql(resumeSql(a, RUN_A, fresh)), /account still exists/, 'a live account is never resumed');
+      deleteAuth(a);
+      const token = claimToken(a);
+      for (const [binding, email, why] of [[RUN_B, a.email, 'another run'], [{ ...RUN_A, runAttempt: '2' }, a.email, 'another attempt'],
+        [{ ...RUN_A, extra: '1' }, a.email, 'an extra key'], [null, a.email, 'no binding'], [CANARY, a.email, 'the canary binding'],
+        [RUN_A, 'rwt-journey-someone-else@example.test', 'another address'], [RUN_A, null, 'no address']])
+        assert.throws(() => sql(resumeSql(a, binding, fresh, email)), /not claimed by this run/, why);
+      for (const bad of [null, '', 'A'.repeat(64), 'a'.repeat(63)]) assert.throws(() => sql(resumeSql(a, RUN_A, bad)), /cleanup secret required/, String(bad));
+      assert.throws(() => sql(service(fnCall(RESUME_FN, { p_user_id: null, p_email: a.email, p_run_binding: RUN_A, p_token: fresh }))), /account id required/);
+      assert.equal(claimToken(a), token, 'every refusal left the claim\'s secret as it was');
+      assert.throws(() => sql(resumeSql({ user: 'c9290000-0000-4000-8000-000000000001', email: a.email }, RUN_A, fresh)), /no cleanup claim/);
+      // The address is compared case-insensitively, as the claim recorded it.
+      sql(resumeSql(a, RUN_A, fresh, a.email.toUpperCase()));
+      assert.throws(() => sql(deleteSql(a, first)), /not claimed by this run/, 'the lost secret no longer deletes');
+      assert.equal(sql(deleteSql(a, fresh)), '0');
+      assert.deepEqual([journalRows(a), claimRows(a)], [0, 0]);
+      // An UNBOUND claim (a local run) is never resumable: its only proof was the secret the crash lost.
+      const u = seed({}); savedTake(u); u.secret = newSaveJournalSecret(); sql(claimSql(u, null, u.secret)); deleteAuth(u);
+      for (const binding of [null, RUN_A]) assert.throws(() => sql(resumeSql(u, binding, fresh)), /not claimed by this run/);
+      assert.equal(journalRows(u), 1);
+      await assert.rejects(() => resumeSaveJournalCleanup(serviceRpc, u.user, u.email, null, fresh), refusedAt('save_journal_resume:account_save_obligations'));
+      await assert.rejects(() => resumeSaveJournalCleanup({}, u.user, u.email, null, fresh), refusedAt('save_journal_resume:account_save_obligations'));
+      // A CANARY claim resumes only with its canary binding.
+      const c = seed({ canary_run: CANARY }, 'ctrial-run-'); savedTake(c); c.secret = newSaveJournalSecret(); sql(claimSql(c, CANARY, c.secret)); deleteAuth(c);
+      assert.throws(() => sql(resumeSql(c, RUN_A, fresh)), /not claimed by this run/);
+      sql(resumeSql(c, CANARY, fresh)); assert.equal(sql(deleteSql(c, fresh)), '0');
+      // Serialized like the delete: it waits on the per-account closure lock.
+      const w = seed({ ct_run: RUN_A }); savedTake(w); w.secret = newSaveJournalSecret(); sql(claimSql(w, RUN_A, w.secret)); deleteAuth(w);
+      const hname = `resume_holder_${index}`, wname = `resume_waiter_${index}`;
+      const holder = client(hname, `BEGIN; SELECT pg_advisory_xact_lock(hashtextextended('account-billing:${w.user}',0));`, true);
+      await waitFor(() => idle(hname));
+      const waiter = client(wname, resumeSql(w, RUN_A, fresh) + ';'); await waitFor(() => blocked(wname, hname));
+      holder.child.stdin.end('COMMIT;\n');
+      const h = await holder.done, r = await waiter.done;
+      assert.equal(h.code, 0, h.stderr); assert.equal(r.code, 0, r.stderr);
+      assert.equal(sql(deleteSql(w, fresh)), '0');
+      receipts.push({ case: 'resume_refusals', refusedBindings: 5, refusedAddresses: 2, unboundRefused: true, lockObserved: true });
     });
   } finally {
     for (const c of clients) if (!c.child.stdin.destroyed) c.child.stdin.end();

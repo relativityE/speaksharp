@@ -43,7 +43,7 @@ type Lease = { lease_id: string; heartbeat_at: string };
  * after every cleanup write (the worst order). `raceOnUpdate` lands a save just before the cleanup's write.
  */
 function account(o: { sessions?: Session[]; heldLeases?: Lease[]; releasedLeases?: string[]; email?: string; meta?: Record<string, unknown>;
-    delayedSaves?: string[]; raceOnUpdate?: string } = {}) {
+    delayedSaves?: string[]; raceOnUpdate?: string; residue?: Record<string, number> } = {}) {
     const sessions = (o.sessions ?? []).map((s) => ({ ...s }));
     const held = (o.heldLeases ?? []).map((l) => ({ ...l }));
     const obligations = new Map<string, 'admitted' | 'completed'>();
@@ -67,7 +67,7 @@ function account(o: { sessions?: Session[]; heldLeases?: Lease[]; releasedLeases
     let deleted = false;
     const updates: Array<{ values: Record<string, unknown>; filters: Record<string, unknown> }> = [];
     const meta = o.meta ?? { provider: 'email', ct_run: B };
-    const claim: { secret: string | null } = { secret: null };
+    const claim: { secret: string | null; binding?: unknown; email?: string } = { secret: null };
     const admin = {
         auth: { admin: {
             listUsers: async () => ({ data: { users: [] }, error: null }),
@@ -88,7 +88,7 @@ function account(o: { sessions?: Session[]; heldLeases?: Lease[]; releasedLeases
                         .map(({ id, status, lease_id, recording_fenced_at, created_at, expires_at, updated_at }) => ({ id, status, lease_id, recording_fenced_at, created_at, expires_at, updated_at })), count: null, error: null };
                 }
                 if (table === 'active_recording_lease' && columns === 'lease_id,heartbeat_at') return { data: held.map((l) => ({ ...l })), count: null, error: null };
-                return { count: 0, error: null };
+                return { count: o.residue?.[table] ?? 0, error: null };
             } }),
             update(this: unknown, values: Record<string, unknown>) {
                 // Like the real builder, `update` needs its receiver: a detached call has no table to write to.
@@ -122,6 +122,15 @@ function account(o: { sessions?: Session[]; heldLeases?: Lease[]; releasedLeases
                 if (deleted) return { data: null, error: { code: 'P0002', message: 'account not found' } };
                 const owner = (meta as Record<string, unknown>).ct_run ?? (meta as Record<string, unknown>).canary_run ?? null;
                 if (canon(args.p_run_binding ?? null) !== canon(owner)) return { data: null, error: { code: '42501', message: 'account is not owned by this run' } };
+                claim.secret = String(args.p_token); claim.binding = owner; claim.email = (o.email ?? EMAIL).toLowerCase();
+                return { data: null, error: null };
+            }
+            // The restart (Sam, #1906): only after deletion, only an existing claim, only its own non-null binding and address.
+            if (fn === 'resume_account_save_journal_cleanup_v1') {
+                if (!deleted) return { data: null, error: { code: '55000', message: 'account still exists' } };
+                if (claim.secret === null) return { data: null, error: { code: 'P0002', message: 'no cleanup claim' } };
+                if (claim.binding === null || canon(args.p_run_binding ?? null) !== canon(claim.binding) || String(args.p_email).toLowerCase() !== claim.email)
+                    return { data: null, error: { code: '42501', message: 'account save journal not claimed by this run' } };
                 claim.secret = String(args.p_token); return { data: null, error: null };
             }
             if (!deleted) return { data: null, error: { code: '55000', message: 'account still exists' } };
@@ -238,6 +247,127 @@ describe('run-owned cleanup closes only STOPPED takes of a run-bound synthetic j
             expect(log.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith('RUN_OWNED_CLEANUP'))).toEqual([]);
             log.mockRestore();
         }
+    });
+
+    // ── RESTART after Auth deletion (Sam, #1906 review) ──────────────────────────────────────────────────────────────────
+    /** The first cleanup dies (as a crashed process would) right after Auth deleted the account: its secret dies with it. */
+    const crashAfterDeletion = async (a: ReturnType<typeof account>) => {
+        const del = a.admin.auth.admin.deleteUser;
+        a.admin.auth.admin.deleteUser = vi.fn(async (...x: unknown[]) => {
+            const r = await (del as (...y: unknown[]) => Promise<{ error: unknown }>)(...x);
+            if (!r.error) throw new Error('SIMULATED_CRASH');
+            return r;
+        }) as never;
+        await expect(run(a.admin, a.proof())).rejects.toThrow('SIMULATED_CRASH');
+        a.admin.auth.admin.deleteUser = del;
+        (a.admin.rpc as unknown as { mockClear: () => void }).mockClear();
+        (del as unknown as { mockClear: () => void }).mockClear();
+    };
+    const verdicts = (log: { mock: { calls: unknown[][] } }) => log.mock.calls.map((c) => String(c[0])).filter((l) => /^RUN_(OWNED_CLEANUP|SAVE_JOURNAL_RESUME)/.test(l));
+
+    it('RESTART (Sam, #1906): a cleanup that crashed after the Auth deletion is finished by the SAME run, with a fresh secret', async () => {
+        const a = account({ sessions: [take(S1, 'completed', L1), take(S2, 'completed', L2)] });
+        await crashAfterDeletion(a);
+        const lost = a.claim.secret;
+        expect([a.obligations.size, lost]).toEqual([2, expect.stringMatching(/^[0-9a-f]{64}$/)]);
+        const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+        await expect(run(a.admin, a.proof())).resolves.toBe(UID);
+        const calls = (a.admin.rpc as unknown as { mock: { calls: Array<[string, Record<string, unknown>]> } }).mock.calls;
+        expect(calls.map(([fn]) => fn)).toEqual(['resume_account_save_journal_cleanup_v1', 'delete_deleted_account_save_journal_v1', 'count_account_save_journal_v1']);
+        expect(calls[0][1]).toEqual({ p_user_id: UID, p_email: EMAIL.toLowerCase(), p_run_binding: B, p_token: expect.stringMatching(/^[0-9a-f]{64}$/) });
+        expect(calls[0][1].p_token).not.toBe(lost);
+        expect(calls[1][1]).toEqual({ p_user_id: UID, p_token: calls[0][1].p_token });
+        expect(a.deleteUser).not.toHaveBeenCalled();
+        expect([a.obligations.size, a.claim.secret]).toEqual([0, null]);
+        expect(verdicts(log)).toEqual(['RUN_SAVE_JOURNAL_RESUME claim=resumed', expect.stringMatching(/^RUN_OWNED_CLEANUP cleanup_verified residue=0 /)]);
+        expect(log.mock.calls.flat().map(String).filter((l) => l.includes(UID) || l.includes(String(calls[0][1].p_token)))).toEqual([]);
+    });
+
+    it('RESTART: another run, another attempt of this run, or a local run is refused at the resume; nothing is deleted, no verdict', async () => {
+        for (const env of [{ GITHUB_RUN_ID: '42800000002' }, { GITHUB_RUN_ATTEMPT: '2' }, { GITHUB_ACTIONS: 'false' }]) {
+            const a = account({ sessions: [take(S1, 'completed', L1)] });
+            await crashAfterDeletion(a);
+            for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v);
+            const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+            expect(await stepOf(run(a.admin, a.proof()))).toBe('save_journal_resume:account_save_obligations');
+            expect((a.admin.rpc as unknown as { mock: { calls: unknown[][] } }).mock.calls.map(([fn]) => fn)).toEqual(['resume_account_save_journal_cleanup_v1']);
+            expect(a.obligations.size).toBe(1);
+            expect(verdicts(log)).toEqual([]);
+            for (const k of Object.keys(env)) vi.stubEnv(k, (ENV as Record<string, string>)[k]);
+        }
+    });
+
+    it('RESTART: a relational residue left after the deletion fails the restart BEFORE the journal is touched', async () => {
+        const a = account({ sessions: [take(S1, 'completed', L1)] });
+        await crashAfterDeletion(a);
+        const b = account({ sessions: [take(S1, 'completed', L1)], residue: { sessions: 1 } });
+        await crashAfterDeletion(b);
+        expect(await stepOf(run(b.admin, b.proof()))).toBe('residue_found:sessions');
+        expect((b.admin.rpc as unknown as { mock: { calls: unknown[][] } }).mock.calls.map(([fn]) => fn)).toEqual(['resume_account_save_journal_cleanup_v1']);
+        expect(b.obligations.size).toBe(1);
+        await expect(run(a.admin, a.proof())).resolves.toBe(UID);
+    });
+
+    it('RESTART with no claim left (the journal already finished): nothing is deleted; only a counted zero readback passes', async () => {
+        const a = account({ sessions: [take(S1, 'completed', L1)] });
+        await expect(run(a.admin, a.proof())).resolves.toBe(UID);       // the first cleanup finished: claim gone, rows gone
+        (a.admin.rpc as unknown as { mockClear: () => void }).mockClear();
+        const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+        await expect(run(a.admin, a.proof())).resolves.toBe(UID);
+        expect((a.admin.rpc as unknown as { mock: { calls: unknown[][] } }).mock.calls.map(([fn]) => fn)).toEqual(['resume_account_save_journal_cleanup_v1', 'count_account_save_journal_v1']);
+        expect(verdicts(log)).toEqual(['RUN_SAVE_JOURNAL_RESUME claim=none', expect.stringMatching(/^RUN_OWNED_CLEANUP cleanup_verified /)]);
+        // A non-zero or uncounted readback with no claim fails closed: rows that are not this run's are never deleted from here.
+        for (const [answer, step] of [[{ data: 3, error: null }, 'residue_found:account_save_obligations'], [{ data: null, error: null }, 'residue_unproven:account_save_obligations']] as const) {
+            (a.admin as { rpc: unknown }).rpc = vi.fn(async (fn: string) => (fn === 'resume_account_save_journal_cleanup_v1'
+                ? { data: null, error: { code: 'P0002', message: 'no cleanup claim' } } : answer));
+            expect(await stepOf(run(a.admin, a.proof()))).toBe(step);
+            expect((a.admin.rpc as unknown as { mock: { calls: unknown[][] } }).mock.calls.map(([fn]) => fn)).toEqual(['resume_account_save_journal_cleanup_v1', 'count_account_save_journal_v1']);
+        }
+    });
+
+    it('RESTART: only the documented not-found answer leads to the restart; any other read error still fails closed as get_user', async () => {
+        const a = account({ sessions: [take(S1, 'completed', L1)] });
+        await crashAfterDeletion(a);
+        for (const error of [{ status: 500, code: 'unexpected_failure', message: 'x' }, { code: 'user_not_found', message: 'x' }]) {
+            a.admin.auth.admin.getUserById = (async () => ({ data: null, error })) as never;
+            expect(await stepOf(run(a.admin, a.proof()))).toBe('get_user');
+        }
+        expect(a.admin.rpc).not.toHaveBeenCalled();
+        expect(a.obligations.size).toBe(1);
+    });
+
+    it('RESTART refuses an address that is not run-owned before any call, and a missing migration fails closed at the resume', async () => {
+        const a = account({ sessions: [take(S1, 'completed', L1)] });
+        await crashAfterDeletion(a);
+        await expect(cleanupRunOwnedAccount({ admin: a.admin as never, capturedUid: UID, createdEmail: 'someone@example.com', runOwnedPrefix: RWT_ACCOUNT_PREFIX }))
+            .rejects.toThrow('cleanup_refused_non_run_owned_account');
+        expect(a.admin.rpc).not.toHaveBeenCalled();
+        (a.admin as { rpc: unknown }).rpc = vi.fn(async () => ({ data: null, error: { code: '42883', message: 'function does not exist' } }));
+        expect(await stepOf(run(a.admin, a.proof()))).toBe('save_journal_resume:account_save_obligations');
+        delete (a.admin as { rpc?: unknown }).rpc;
+        expect(await stepOf(run(a.admin, a.proof()))).toBe('save_journal_resume:account_save_obligations');
+    });
+
+    it('RESTART by the RECOVERY run: resumes with the ORIGINAL binding only with its own authority and the original run terminal', async () => {
+        const sha = 'a'.repeat(40);
+        const recovery = { originalBinding: B, dispatchSha: sha, deleteAck: `RWT-INTERRUPTED-RUN-RECOVERY-DELETE@${sha}`, minAgeMs: 135 * 60_000 };
+        const terminal = (status: string) => vi.fn(async () => ({ ok: true, json: async () => ({ id: Number(B.runId), run_attempt: 1,
+            repository: { full_name: B.repository }, path: '.github/workflows/rc-gates.yml', status, conclusion: status === 'completed' ? 'cancelled' : null }) }));
+        const a = account({ sessions: [take(S1, 'completed', L1)] });
+        await crashAfterDeletion(a);                                       // the ORIGINAL run claimed with its own binding B, then died
+        for (const [k, v] of Object.entries({ GITHUB_RUN_ID: '42800000009', GITHUB_SHA: sha, GITHUB_REF: 'refs/heads/main' })) vi.stubEnv(k, v);
+        // Without the acknowledged authority: refused before any call.
+        expect(await stepOf(run(a.admin, a.proof(), { ...recovery, deleteAck: 'x' }))).toBe('run_binding_mismatch');
+        // The original run still running: HOLD, no call.
+        vi.stubGlobal('fetch', terminal('in_progress'));
+        await expect(run(a.admin, a.proof(), recovery)).rejects.toThrow('cleanup_recovery_eligibility_unproven (HOLD)');
+        expect(a.admin.rpc).not.toHaveBeenCalled();
+        // Authorized and terminal: the database receives the ORIGINAL binding (not the recovery run's own) and the cleanup finishes.
+        vi.stubGlobal('fetch', terminal('completed'));
+        await expect(run(a.admin, a.proof(), recovery)).resolves.toBe(UID);
+        const calls = (a.admin.rpc as unknown as { mock: { calls: Array<[string, Record<string, unknown>]> } }).mock.calls;
+        expect(calls[0]).toEqual(['resume_account_save_journal_cleanup_v1', expect.objectContaining({ p_run_binding: B })]);
+        expect(a.obligations.size).toBe(0);
     });
 
     it('CONTROL (Sam, v2 review): a save sent before the close and admitted LATE is never closed first, and it lands', async () => {

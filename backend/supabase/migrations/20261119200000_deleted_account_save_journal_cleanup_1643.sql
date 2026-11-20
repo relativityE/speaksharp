@@ -19,6 +19,11 @@
 --     refuses an unclaimed account or a foreign secret, while the account still exists, while any of its rows is unsettled,
 --     and while a product closure completion for that account is processing. A clean result removes the claim too, so a
 --     finished cleanup leaves nothing behind.
+--   * resume_account_save_journal_cleanup_v1(uid, email, binding, token) (Sam, #1906 review: "a run using this new code must
+--     still be able to finish its own cleanup after Auth deletion and a restart"): the one-time secret dies with a crashed
+--     cleanup, so after the account is GONE the same run may replace the secret of an existing claim, and only on the proof the
+--     claim itself recorded: exactly the run binding it was made with (never an unbound claim: an unbound account's only proof was
+--     the lost secret) and the same address. Another run's binding, another address, a live account or no claim is refused.
 --   * count_account_save_journal_v1(uid): read-only count of that account's rows, for an independent readback.
 -- No table access is granted to any client role.
 
@@ -26,6 +31,7 @@ CREATE TABLE public.account_save_journal_cleanup_claims (
   user_id uuid PRIMARY KEY,                    -- no FK: the claim must outlive the account it names
   run_binding jsonb CHECK (run_binding IS NULL OR jsonb_typeof(run_binding) = 'object'),
   token_sha256 bytea NOT NULL CHECK (octet_length(token_sha256) = 32),
+  email_sha256 bytea NOT NULL CHECK (octet_length(email_sha256) = 32),  -- the claimed address, so a resume names the same account
   claimed_at timestamptz NOT NULL DEFAULT clock_timestamp()
 );
 ALTER TABLE public.account_save_journal_cleanup_claims ENABLE ROW LEVEL SECURITY;
@@ -48,10 +54,30 @@ BEGIN
   IF (v_owner IS NOT NULL AND jsonb_typeof(v_owner) <> 'object') OR v_presented IS DISTINCT FROM v_owner THEN
     RAISE EXCEPTION 'account is not owned by this run' USING ERRCODE='42501';
   END IF;
-  INSERT INTO public.account_save_journal_cleanup_claims(user_id, run_binding, token_sha256)
-  VALUES (p_user_id, v_owner, sha256(convert_to(p_token,'UTF8')))
+  INSERT INTO public.account_save_journal_cleanup_claims(user_id, run_binding, token_sha256, email_sha256)
+  VALUES (p_user_id, v_owner, sha256(convert_to(p_token,'UTF8')), sha256(convert_to(lower(v_email),'UTF8')))
   ON CONFLICT (user_id) DO UPDATE SET run_binding=excluded.run_binding, token_sha256=excluded.token_sha256,
-    claimed_at=clock_timestamp();
+    email_sha256=excluded.email_sha256, claimed_at=clock_timestamp();
+END $$;
+
+CREATE FUNCTION public.resume_account_save_journal_cleanup_v1(p_user_id uuid, p_email text, p_run_binding jsonb, p_token text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+DECLARE v_claim public.account_save_journal_cleanup_claims%ROWTYPE; v_presented jsonb := nullif(p_run_binding,'null'::jsonb);
+BEGIN
+  IF p_user_id IS NULL THEN RAISE EXCEPTION 'account id required' USING ERRCODE='22004'; END IF;
+  IF p_token IS NULL OR p_token !~ '^[0-9a-f]{64}$' THEN RAISE EXCEPTION 'cleanup secret required' USING ERRCODE='22023'; END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended('account-billing:'||p_user_id::text,0));
+  IF EXISTS(SELECT 1 FROM auth.users WHERE id=p_user_id) THEN
+    RAISE EXCEPTION 'account still exists' USING ERRCODE='55000';
+  END IF;
+  SELECT * INTO v_claim FROM public.account_save_journal_cleanup_claims c WHERE c.user_id=p_user_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'no cleanup claim' USING ERRCODE='P0002'; END IF;
+  IF v_claim.run_binding IS NULL OR v_presented IS DISTINCT FROM v_claim.run_binding OR p_email IS NULL
+     OR v_claim.email_sha256 <> sha256(convert_to(lower(p_email),'UTF8')) THEN
+    RAISE EXCEPTION 'account save journal not claimed by this run' USING ERRCODE='42501';
+  END IF;
+  UPDATE public.account_save_journal_cleanup_claims SET token_sha256=sha256(convert_to(p_token,'UTF8')), claimed_at=clock_timestamp()
+  WHERE user_id=p_user_id;
 END $$;
 
 CREATE FUNCTION public.delete_deleted_account_save_journal_v1(p_user_id uuid, p_token text)
@@ -86,8 +112,10 @@ RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
 $$;
 
 REVOKE ALL ON FUNCTION public.claim_account_save_journal_cleanup_v1(uuid,jsonb,text),
+  public.resume_account_save_journal_cleanup_v1(uuid,text,jsonb,text),
   public.delete_deleted_account_save_journal_v1(uuid,text),public.count_account_save_journal_v1(uuid)
   FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.claim_account_save_journal_cleanup_v1(uuid,jsonb,text),
+  public.resume_account_save_journal_cleanup_v1(uuid,text,jsonb,text),
   public.delete_deleted_account_save_journal_v1(uuid,text),public.count_account_save_journal_v1(uuid)
   TO service_role;

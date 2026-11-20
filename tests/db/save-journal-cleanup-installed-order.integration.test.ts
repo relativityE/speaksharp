@@ -3,8 +3,9 @@
 // cleanup migration (20261119200000) applied as its EXACT bytes on top of the production-equivalent chain, in installed order:
 // every earlier migration in version order with the two withheld migrations skipped (as the #1863/#1835 exact-apply gate test
 // does), ending at the last migration production holds (20261117105700, #1835). It must apply cleanly, add exactly its own
-// objects (one table, three functions) with exactly the expected grants, and change NOTHING else in the catalog. Then the
-// functions run on that chain: a run cleans only the deleted account it claimed, and another run's account is refused.
+// objects (one table, four functions) with exactly the expected grants, and change NOTHING else in the catalog. Then the
+// functions run on that chain: a run cleans only the deleted account it claimed, and another run's account is refused; a run whose
+// cleanup crashed after the Auth deletion resumes its own claim on restart, and another run cannot.
 // Offline only (PGlite). This is not the exact-apply allowlist entry or a production postflight; those belong to the release lane.
 import { strict as assert } from 'node:assert';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -18,7 +19,7 @@ const LAST_IN_PRODUCTION = '20261117105700';
 const WITHHELD = new Set(['20261027192550', '20261112130000']);
 const BOOT = readFileSync('tests/db/trial-read-access-current-chain.integration.test.ts', 'utf8').split('const BOOTSTRAP = `')[1].split('`;')[0];
 const TARGET_FILE = readdirSync(DIR).find(f => f.startsWith(`${TARGET}_`))!;
-const FNS = ['claim_account_save_journal_cleanup_v1', 'delete_deleted_account_save_journal_v1', 'count_account_save_journal_v1'];
+const FNS = ['claim_account_save_journal_cleanup_v1', 'resume_account_save_journal_cleanup_v1', 'delete_deleted_account_save_journal_v1', 'count_account_save_journal_v1'];
 
 let db: PGlite;
 let ledgerBefore: string[]; let ledgerAfter: string[];
@@ -78,20 +79,22 @@ describe('#1906 save-journal cleanup: exact bytes in installed order on the prod
     for (const v of WITHHELD) assert.ok(!ledgerAfter.includes(v), `withheld ${v} stays unapplied`);
   });
 
-  it('adds exactly its own table and three functions; nothing else in the catalog changes', () => {
+  it('adds exactly its own table and four functions; nothing else in the catalog changes', () => {
     for (const k of Object.keys(before)) assert.deepEqual(removed(k), [], `${k}: nothing changed or removed`);
     assert.deepEqual(added('relations'), ['account_save_journal_cleanup_claims kind=r rls=true acl={postgres=arwdDxtm/postgres}']);
     assert.deepEqual(added('functions').map(x => x.split(' ')[0]),
-      ['claim_account_save_journal_cleanup_v1(uuid,jsonb,text)', 'count_account_save_journal_v1(uuid)', 'delete_deleted_account_save_journal_v1(uuid,text)']);
+      ['claim_account_save_journal_cleanup_v1(uuid,jsonb,text)', 'count_account_save_journal_v1(uuid)', 'delete_deleted_account_save_journal_v1(uuid,text)',
+        'resume_account_save_journal_cleanup_v1(uuid,text,jsonb,text)']);
     for (const fn of added('functions')) {
       assert.match(fn, / definer=true /, fn);
       assert.match(fn, / cfg=\{"search_path=\\"\\""\} /, fn);
       assert.match(fn, / acl=\{postgres=X\/postgres,service_role=X\/postgres\}$/, fn);
     }
     assert.deepEqual(added('columns'), ['public.account_save_journal_cleanup_claims.claimed_at timestamp with time zone null=NO def=clock_timestamp()',
-      'public.account_save_journal_cleanup_claims.run_binding jsonb null=YES def=', 'public.account_save_journal_cleanup_claims.token_sha256 bytea null=NO def=',
+      'public.account_save_journal_cleanup_claims.email_sha256 bytea null=NO def=', 'public.account_save_journal_cleanup_claims.run_binding jsonb null=YES def=', 'public.account_save_journal_cleanup_claims.token_sha256 bytea null=NO def=',
       'public.account_save_journal_cleanup_claims.user_id uuid null=NO def=']);
-    assert.deepEqual(added('constraints').map(c => c.split(' ')[0]).sort(), ['account_save_journal_cleanup_claims.account_save_journal_cleanup_claims_pkey',
+    assert.deepEqual(added('constraints').map(c => c.split(' ')[0]).sort(), ['account_save_journal_cleanup_claims.account_save_journal_cleanup_claims_email_sha256_check',
+      'account_save_journal_cleanup_claims.account_save_journal_cleanup_claims_pkey',
       'account_save_journal_cleanup_claims.account_save_journal_cleanup_claims_run_binding_check', 'account_save_journal_cleanup_claims.account_save_journal_cleanup_claims_token_sha256_check']);
     assert.deepEqual([added('policies'), added('triggers')], [[], []], 'no policy and no trigger');
   });
@@ -114,6 +117,16 @@ describe('#1906 save-journal cleanup: exact bytes in installed order on the prod
     assert.deepEqual(await col(`SELECT count(*)::text FROM public.account_save_obligations WHERE user_id='${theirs}'`), ['2']);
     assert.deepEqual(await svc(`SELECT public.delete_deleted_account_save_journal_v1('${mine}','${s1}') AS n`), [{ n: 0 }]);
     assert.deepEqual(await col(`SELECT count(*)::text FROM public.account_save_journal_cleanup_claims WHERE user_id='${mine}'`), ['0']);
+    // Restart after a crash (Sam, #1906): run B's cleanup died after the Auth deletion, so its secret s2 is gone. Run A cannot take
+    // over B's claim; B, restarting with its own binding and the account's address, hands the claim a fresh secret and finishes.
+    const s3 = '3'.repeat(64);
+    const resume = (runId: string, email: string) => svc(`SELECT public.resume_account_save_journal_cleanup_v1('${theirs}','${email}','${JSON.stringify(run(runId))}'::jsonb,'${s3}')`);
+    await assert.rejects(() => resume('44000000001', 'rwt-journey-order-2@example.test'), /not claimed by this run/);
+    await assert.rejects(() => resume('44000000002', 'rwt-journey-order-1@example.test'), /not claimed by this run/);
+    await resume('44000000002', 'rwt-journey-order-2@example.test');
+    await assert.rejects(() => svc(`SELECT public.delete_deleted_account_save_journal_v1('${theirs}','${s2}')`), /not claimed by this run/);
+    assert.deepEqual(await svc(`SELECT public.delete_deleted_account_save_journal_v1('${theirs}','${s3}') AS n`), [{ n: 0 }]);
+    assert.deepEqual(await col(`SELECT count(*)::text FROM public.account_save_obligations WHERE user_id IN ('${mine}','${theirs}')`), ['0']);
     for (const fn of FNS) assert.equal((await col(`SELECT count(*)::text FROM pg_proc WHERE proname='${fn}'`))[0], '1');
   });
 });
