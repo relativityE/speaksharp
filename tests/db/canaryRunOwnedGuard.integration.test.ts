@@ -26,7 +26,7 @@ import { cleanupLane, sweepLane } from '../../scripts/lib/canaryRunOwnedLane.mjs
 const GUARD_MIGRATION = 'backend/supabase/migrations/20261020230653_account_pending_completion_journal_1643.sql';
 // #1643 follow-up: the service_role-only save-journal cleanup the shared helper now calls after deletion.
 const SAVE_JOURNAL_CLEANUP_MIGRATION = 'backend/supabase/migrations/20261119200000_deleted_account_save_journal_cleanup_1643.sql';
-const SAVE_JOURNAL_FNS = ['delete_deleted_account_save_journal_v1', 'count_account_save_journal_v1'];
+const SAVE_JOURNAL_FNS = ['claim_account_save_journal_cleanup_v1', 'delete_deleted_account_save_journal_v1', 'count_account_save_journal_v1'];
 const FIXTURE_ONLY_RESIDUE_TABLES = ['user_goals', 'user_filler_words', 'session_attribution_authority', 'session_attribution_challenge',
     'session_attribution_unattributed', 'progress_recommendations', 'progress_recommendation_attempts', 'objective_project',
     'objective_brief', 'objective_brief_point', 'objective_session', 'objective_source_recording', 'objective_evidence', 'objective_action'];
@@ -68,11 +68,17 @@ function sqlAdmin() {
             }),
             deleteUser,
         } },
-        rpc: vi.fn(async (fn: string, args: { p_user_id: string }) => {
+        // Named arguments, exactly as PostgREST passes an rpc body; the claim returns void (supabase-js: data null).
+        rpc: vi.fn(async (fn: string, args: Record<string, unknown>) => {
             if (!SAVE_JOURNAL_FNS.includes(fn)) throw new Error('bad function');
+            const types: Record<string, string> = { p_user_id: 'uuid', p_run_binding: 'jsonb', p_token: 'text' };
+            const names = Object.keys(args);
+            if (!names.every((k) => types[k])) throw new Error('bad argument');
+            const values = names.map((k) => (k === 'p_run_binding' && args[k] !== null ? JSON.stringify(args[k]) : args[k]));
+            const call = names.map((k, i) => k + '=>$' + String(i + 1) + '::' + types[k]).join(',');
             try {
-                const { rows } = await service(() => db.query<{ n: number }>(`SELECT public.${fn}($1::uuid) AS n`, [args.p_user_id]));
-                return { data: Number(rows[0].n), error: null };
+                const { rows } = await service(() => db.query<{ n: string | null }>(`SELECT public.${fn}(${call})::text AS n`, values));
+                return { data: rows[0].n === null || rows[0].n === '' ? null : Number(rows[0].n), error: null };
             } catch (e) { return { data: null, error: { code: (e as { code?: string }).code, message: (e as Error).message } }; }
         }),
         from: (table: string) => {
@@ -108,10 +114,11 @@ async function account(runId: string) {
     const n = String(++seq).padStart(12, '0');
     const uid = `c0000000-0000-4000-8000-${n}`;
     const email = `ctrial-run-${runId}-1-${n.slice(-8)}@example.test`;
-    await owner(() => db.query('INSERT INTO auth.users VALUES($1,$2,now())', [uid, email]));
+    const app_metadata = { [BINDING_KEY]: { repository: ENV.GITHUB_REPOSITORY, workflow: ENV.GITHUB_WORKFLOW_REF, runId, runAttempt: '1', role: 'canary-active-trial' } };
+    // The same app_metadata in SQL (auth.users.raw_app_meta_data), where the REAL save-journal claim checks the run binding.
+    await owner(() => db.query('INSERT INTO auth.users(id,email,email_confirmed_at,raw_app_meta_data) VALUES($1,$2,now(),$3::jsonb)', [uid, email, JSON.stringify(app_metadata)]));
     await owner(() => db.query('INSERT INTO public.trial_entitlements(email,user_id) VALUES($1,$2) ON CONFLICT (email) DO UPDATE SET user_id=EXCLUDED.user_id', [email, uid]));
-    auth.set(uid, { email, created_at: new Date(Date.now() - 5 * H).toISOString(),
-        app_metadata: { [BINDING_KEY]: { repository: ENV.GITHUB_REPOSITORY, workflow: ENV.GITHUB_WORKFLOW_REF, runId, runAttempt: '1', role: 'canary-active-trial' } } });
+    auth.set(uid, { email, created_at: new Date(Date.now() - 5 * H).toISOString(), app_metadata });
     const lease = `d0000000-0000-4000-8000-${n}`;
     const session = `e0000000-0000-4000-8000-${n}`;
     return {
@@ -131,6 +138,8 @@ describe('#1826 canary cleanup against the ACTUAL #1643 deletion guard (PGlite, 
     beforeAll(async () => {
         db = new PGlite();
         await db.exec(completionBootstrap());
+        // Supabase Auth keeps app_metadata in auth.users.raw_app_meta_data (nullable jsonb); the shared fixture omits the column.
+        await db.exec('ALTER TABLE auth.users ADD COLUMN raw_app_meta_data jsonb');
         await db.exec(`SET ROLE closure_owner; ${readFileSync(GUARD_MIGRATION, 'utf8')} RESET ROLE;`);
         await db.exec(`SET ROLE closure_owner; ${readFileSync(SAVE_JOURNAL_CLEANUP_MIGRATION, 'utf8')} RESET ROLE;`);
         await db.exec(`SET ROLE closure_owner; ${FIXTURE_ONLY_RESIDUE_TABLES.map((t) => `CREATE TABLE public.${t}(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE);`).join(' ')} RESET ROLE;`);
@@ -185,7 +194,7 @@ describe('#1826 canary cleanup against the ACTUAL #1643 deletion guard (PGlite, 
         await a.landSave();
         expect(await a.obligations()).toEqual(['completed']);
         expect(await cleanupLane({ admin: sqlAdmin(), env: process.env, cleanup: canaryCleanup })).toEqual({ ok: true, code: 'cleanup-verified', deleted: 1 });
-        expect({ exists: await a.exists(), trial: await a.trialRows(), obligations: await a.obligations() }).toEqual({ exists: false, trial: 0, obligations: [] });
+        expect({ exists: await a.exists(), trial: await a.trialRows(), obligations: await a.obligations(), claims: (await one('SELECT 1 FROM public.account_save_journal_cleanup_claims WHERE user_id=$1', [a.uid])).length }).toEqual({ exists: false, trial: 0, obligations: [], claims: 0 });
     });
 
     it('normal completed take: the shared cleanup deletes through the REAL guard (pre-delete, deletion, zero residue)', async () => {
@@ -195,7 +204,7 @@ describe('#1826 canary cleanup against the ACTUAL #1643 deletion guard (PGlite, 
         const admin = sqlAdmin();
         expect(await cleanupLane({ admin, env: process.env, cleanup: canaryCleanup })).toEqual({ ok: true, code: 'cleanup-verified', deleted: 1 });
         expect(admin.deleteUser).toHaveBeenCalledTimes(1);
-        expect({ exists: await a.exists(), trial: await a.trialRows(), obligations: await a.obligations() }).toEqual({ exists: false, trial: 0, obligations: [] });
+        expect({ exists: await a.exists(), trial: await a.trialRows(), obligations: await a.obligations(), claims: (await one('SELECT 1 FROM public.account_save_journal_cleanup_claims WHERE user_id=$1', [a.uid])).length }).toEqual({ exists: false, trial: 0, obligations: [], claims: 0 });
     });
 
     it('released lease with no take (debt the read cannot see): the REAL guard refuses → delete_refused; Auth and debt preserved, but the trial-entitlement row WAS pre-deleted (not "nothing written")', async () => {
