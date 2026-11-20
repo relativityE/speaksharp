@@ -241,3 +241,16 @@ test('repeat-tip profile refuses changed installed or withheld bytes and unknown
     name: '20261120120000_unknown.sql', version: '20261120120000', sha256: '0'.repeat(64),
   }], repeatTipProfile), /unreviewed migration/);
 });
+
+test('save-journal release stage appends exactly the reviewed cleanup to the repeat-tip ledger', () => {
+  const profile = 'main-save-journal-cleanup-135';
+  const before = buildMainU1ReplayPlan(rows, repeatTipProfile).stages.at(-1).versions;
+  const plan = buildMainU1ReplayPlan(rows, profile);
+  assert.equal(parseMainProofArguments([`--profile=${profile}`]).profile, profile);
+  assert.equal(plan.migrations, 135);
+  assert.deepEqual(plan.stages.at(-2).versions, before);
+  assert.deepEqual(plan.stages.at(-1), { name: 'save-journal-cleanup', versions: [...before, saveJournalCleanup] });
+  assert.deepEqual(plan.withheld.map(row => row.version), [billing, refund]);
+  assert.throws(() => buildMainU1ReplayPlan(rows.map(row => row.version === saveJournalCleanup
+    ? { ...row, sha256: '0'.repeat(64) } : row), profile), /digest changed/);
+});

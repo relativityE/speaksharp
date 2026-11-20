@@ -30,6 +30,8 @@ export const PRACTICE_PRIVACY_VERSION = '20261117105700';
 // #1827 outcome 4 D2 (ledger 14): no T2-inventoried object changes (its helpers, triggers and attempt columns are outside the
 // release inventory), so the stage carries an EMPTY catalog delta. The native full-chain profile main-repeat-tip-134 proves it.
 export const REPEAT_TIP_VERSION = '20261119120000';
+// #1906 (ledger 15) adds only a private claims table and six service-role RPCs; no T2 inventory delta.
+export const SAVE_JOURNAL_CLEANUP_VERSION = '20261119200000';
 
 export const T2_VERSIONS = Object.freeze([
   '20261018090000', '20261018170000', '20261019010000',
@@ -474,8 +476,9 @@ export function t2ReleaseContract(root, installed, options = {}) {
   const versions = [...T2_VERSIONS, ...C1_VERSIONS, ...(ledger?.length >= 9 ? [RETIREMENT_VERSION] : []),
     ...(ledger?.length >= 10 ? [ABANDONMENT_VERSION] : []), ...(ledger?.length >= 11 ? [FEEDBACK_FENCE_VERSION] : []),
     ...(ledger?.length >= 12 ? [PAYMENT_WALL_VERSION] : []), ...(ledger?.length >= 13 ? [PRACTICE_PRIVACY_VERSION] : []),
-    ...(ledger?.length === 14 ? [REPEAT_TIP_VERSION] : [])];
-  if (!Array.isArray(ledger) || ![6, 7, 8, 9, 10, 11, 12, 13, 14].includes(ledger.length)
+    ...(ledger?.length >= 14 ? [REPEAT_TIP_VERSION] : []),
+    ...(ledger?.length === 15 ? [SAVE_JOURNAL_CLEANUP_VERSION] : [])];
+  if (!Array.isArray(ledger) || ![6, 7, 8, 9, 10, 11, 12, 13, 14, 15].includes(ledger.length)
     || ledger.some((version, index) => version !== versions[index])) {
     throw new Error('T2 release ledger unknown, mixed or incomplete');
   }
@@ -532,7 +535,7 @@ export function t2ReleaseContract(root, installed, options = {}) {
     throw new Error('T2 release future function shape unavailable');
   }
   const absentFamilies = futureFunctions.map(fn => fn.signature.split('(')[0].slice(7));
-  const profile = stage === 8 ? 'post-1827-repeat-tip' : stage === 7 ? 'post-1835-practice-privacy' : stage === 6 ? 'post-1863-payment-wall'
+  const profile = stage === 9 ? 'post-1906-save-journal-cleanup' : stage === 8 ? 'post-1827-repeat-tip' : stage === 7 ? 'post-1835-practice-privacy' : stage === 6 ? 'post-1863-payment-wall'
     : stage === 5 ? 'post-1811-feedback-fence' : stage === 4 ? 'post-1643-abandonment'
     : stage === 3 ? 'post-128-retirement' : `post-${126 + stage}`;
   return { profile, catalogContext, stage, ledger: [...ledger], pins, inventory, expected, c1,
@@ -557,7 +560,7 @@ export function t2EdgeReleaseContract(root, installed) {
   // The retirement successor is required; the later #1643 start-abandonment (10), #1811 feedback-fence (11), #1863
   // payment-wall (12), #1835 practice-privacy (13) and #1827 repeat-tip (14) ledgers still include it.
   if (!['post-128-retirement', 'post-1643-abandonment', 'post-1811-feedback-fence', 'post-1863-payment-wall',
-    'post-1835-practice-privacy', 'post-1827-repeat-tip'].includes(contract.profile)) {
+    'post-1835-practice-privacy', 'post-1827-repeat-tip', 'post-1906-save-journal-cleanup'].includes(contract.profile)) {
     throw new Error('T2 Edge release requires installed coaching retirement successor');
   }
   return contract;
