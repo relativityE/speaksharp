@@ -85,6 +85,10 @@ export const NATIVE_HELPERS=Object.freeze([
   {file:'tools/cloud-test/scripts/resolve_rwt_served_release.mjs',consumer:'tools/cloud-test/tests/rwt_served_release.test.mjs',
     callables:['resolveRwtServedRelease','verifyRwtServedRelease'],
     claim:'actual runtime release identity and compatibility guards with mocked production responses and synthetic Git; deployment and live writes NOT RUN'},
+  // #1906 restart and recovery proofs: the runner is spawned as fresh child processes (coverage inherited through the environment).
+  {file:'tests/db/save-journal-restart-runner.mjs',consumer:'tests/db/deleted-account-save-journal-cleanup-realpg.test.mjs',
+    callables:['createPsqlAdmin','runTeardown','runRecovery','tampered'],
+    claim:'actual runner processes (shared teardown and governed recovery entry points) against an owned disposable PostgreSQL; hosted database, GitHub and live runs NOT RUN'},
 ]);
 const fail=message=>{throw new Error(message);};
 function regular(root,file) {

@@ -13,7 +13,6 @@ import { createRunOwnedTrialAccount, currentCanaryBinding } from './canaryRunOwn
 
 export const PER_PAGE = 200;
 /** #1906: the service_role-only listing of runs whose deleted accounts still hold an unfinished save-journal cleanup claim. */
-export const SAVE_JOURNAL_RUNS_FN = 'list_unfinished_account_save_journal_cleanup_runs_v1';
 
 /** A canary run's binding in the exact shape its save-journal claim stores (the account's own `canary_run`). */
 export function canaryClaimBinding(expected, runId, runAttempt) {
@@ -136,23 +135,25 @@ export function bindFailureAdmin(admin, { uid, binding }) {
 
 /**
  * RESTART AFTER DELETION for canary runs (Codex on 62b50df). A canary cleanup that stopped after the Auth deletion and before its
- * save journal was cleared leaves a claim that no Auth listing can find. The runs holding such claims are listed (bindings only,
- * never ids), and each canary run of THIS repository/workflow is finished by its binding (`finishSaveJournal(admin, binding)`:
- * the shared helper's resume-by-run, residue read-back, delete and zero read-back), but only when GitHub shows that exact attempt
+ * save journal was cleared leaves a claim that no Auth listing can find. The complete inventory of open claims is read
+ * (`readSaveJournal(admin, minAgeSeconds)`: the shared helper's reader, bindings and counts only, never ids), and each canary run
+ * of THIS repository/workflow is finished by its binding (`finishSaveJournal(admin, binding)`: the shared helper's resume-by-run,
+ * residue read-back, delete and zero read-back), but only when none of its claims is recent, GitHub shows that exact attempt
  * completed long enough ago, and never the current run (its own cleanup step finishes it). Other workflows' runs (RWT) are not
- * the canary's and are left to their own recovery. Returns counts only; `failed` > 0 fails the sweep.
+ * the canary's and are left to their own recovery. An inventory that cannot be read or proven complete (Sam, #1906 review)
+ * fails the sweep. Returns counts only; `failed` > 0 fails the sweep.
  */
-export async function sweepSaveJournalRuns({ admin, getRun, expected, now, finishSaveJournal }) {
+export async function sweepSaveJournalRuns({ admin, getRun, expected, now, finishSaveJournal, readSaveJournal }) {
     const out = { runs: 0, finished: 0, left: 0, failed: 0 };
-    let listed;
-    try { listed = await admin.rpc(SAVE_JOURNAL_RUNS_FN, { p_min_age_seconds: MIN_ACCOUNT_AGE_MS / 1000 }); } catch { out.failed += 1; return out; }
-    if (listed?.error) { if (listed.error.code !== 'PGRST202') out.failed += 1; return out; }
-    if (!Array.isArray(listed?.data)) { out.failed += 1; return out; }
-    for (const raw of listed.data) {
-        const b = parseBinding({ [BINDING_KEY]: raw }, expected);
+    let read;
+    try { read = await readSaveJournal(admin, MIN_ACCOUNT_AGE_MS / 1000); } catch { read = { status: 'error' }; }
+    if (read?.status === 'absent') return out;
+    if (read?.status !== 'ok' || !Array.isArray(read.inventory?.runs)) { out.failed += 1; return out; }
+    for (const entry of read.inventory.runs) {
+        const b = parseBinding({ [BINDING_KEY]: entry?.binding }, expected);
         if (!b) continue;
         out.runs += 1;
-        if (b.runId === expected.runId) { out.left += 1; continue; }
+        if (b.runId === expected.runId || entry.recent !== 0) { out.left += 1; continue; }
         let run;
         try { run = await getRun(b.runId, b.runAttempt); } catch { run = { error: true }; }
         const done = Date.parse(run?.updated_at ?? '');
@@ -244,10 +245,11 @@ export async function cleanupLane({ admin, env, cleanup, finishSaveJournal }) {
  * Hygiene sweep of orphans from finished runs. Fails only on a failed listing, an unproven deletion or the cap;
  * accounts LEFT for a reason (young, run still going, foreign ref, unbound…) are reported as warnings, not failures.
  */
-export async function sweepLane({ admin, env, getRun, cleanup, finishSaveJournal, now = Date.now() }) {
+export async function sweepLane({ admin, env, getRun, cleanup, finishSaveJournal, readSaveJournal, now = Date.now() }) {
     const binding = currentCanaryBinding(env);
     if (!binding) return { ok: false, code: 'no-run-binding', report: null };
     if (typeof finishSaveJournal !== 'function') return { ok: false, code: 'no-save-journal-finish', report: null };
+    if (typeof readSaveJournal !== 'function') return { ok: false, code: 'no-save-journal-read', report: null };
     const preserved = [];
     const byId = new Map();
     const report = await sweep({
@@ -273,7 +275,7 @@ export async function sweepLane({ admin, env, getRun, cleanup, finishSaveJournal
             }
         },
     }, { now, expected: binding, self: { runId: binding.runId } });
-    report.saveJournal = await sweepSaveJournalRuns({ admin, getRun, expected: binding, now, finishSaveJournal });
+    report.saveJournal = await sweepSaveJournalRuns({ admin, getRun, expected: binding, now, finishSaveJournal, readSaveJournal });
     const failed = Object.keys(report.failures).length > 0 || report.capReached || report.saveJournal.failed > 0;
     return { ok: !failed, code: failed ? 'sweep-failed' : 'sweep-ok', report, preserved };
 }

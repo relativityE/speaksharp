@@ -23,10 +23,11 @@ import { canaryCleanup } from '../../scripts/lib/canaryCleanupAdapter';
 import { BINDING_KEY } from '../../scripts/lib/canaryRunOwnedSweep.mjs';
 import { bindFailureAdmin, canaryClaimBinding, cleanupLane, guardAdminForBinding, sweepLane } from '../../scripts/lib/canaryRunOwnedLane.mjs';
 import { currentCanaryBinding } from '../../scripts/lib/canaryRunOwnedAccount.mjs';
-import { cleanupRunOwnedAccount, finishRunSaveJournalCleanups, newSaveJournalSecret } from '../../tests/live/helpers/runOwnedCleanup';
+import { cleanupRunOwnedAccount, finishRunSaveJournalCleanups, newSaveJournalSecret, readSaveJournalInventory } from '../../tests/live/helpers/runOwnedCleanup';
 
 /** #1906: the real restart-after-deletion finish (resume by run binding, residue read-back, delete, zero read-back). */
 const FINISH = (admin: unknown, binding: Readonly<Record<string, string>>) => finishRunSaveJournalCleanups(admin as never, binding);
+const READ = (admin: unknown, minAgeSeconds: number) => readSaveJournalInventory(admin as never, minAgeSeconds);
 
 const GUARD_MIGRATION = 'backend/supabase/migrations/20261020230653_account_pending_completion_journal_1643.sql';
 // #1643 follow-up: the service_role-only save-journal cleanup the shared helper now calls after deletion.
@@ -34,7 +35,7 @@ const SAVE_JOURNAL_CLEANUP_MIGRATION = 'backend/supabase/migrations/202611192000
 const SAVE_JOURNAL_FNS = ['claim_account_save_journal_cleanup_v1', 'delete_deleted_account_save_journal_v1', 'count_account_save_journal_v1',
     'resume_run_account_save_journal_cleanups_v1', 'list_unfinished_account_save_journal_cleanup_runs_v1'];
 // Set-returning: PostgREST answers them as a JSON array.
-const SETOF_FNS = new Set(['resume_run_account_save_journal_cleanups_v1', 'list_unfinished_account_save_journal_cleanup_runs_v1']);
+const JSON_FNS = new Set(['resume_run_account_save_journal_cleanups_v1', 'list_unfinished_account_save_journal_cleanup_runs_v1']);
 const FIXTURE_ONLY_RESIDUE_TABLES = ['user_goals', 'user_filler_words', 'session_attribution_authority', 'session_attribution_challenge',
     'session_attribution_unattributed', 'progress_recommendations', 'progress_recommendation_attempts', 'objective_project',
     'objective_brief', 'objective_brief_point', 'objective_session', 'objective_source_recording', 'objective_evidence', 'objective_action'];
@@ -85,8 +86,9 @@ function sqlAdmin() {
             const values = names.map((k) => (k === 'p_run_binding' && args[k] !== null ? JSON.stringify(args[k]) : args[k]));
             const call = names.map((k, i) => k + '=>$' + String(i + 1) + '::' + types[k]).join(',');
             try {
-                if (SETOF_FNS.has(fn)) {
-                    const { rows } = await service(() => db.query<{ n: string }>(`SELECT coalesce(json_agg(x),'[]')::text AS n FROM public.${fn}(${call}) x`, values));
+                if (JSON_FNS.has(fn)) {
+                    // One jsonb value, as PostgREST answers a scalar jsonb function.
+                    const { rows } = await service(() => db.query<{ n: string }>(`SELECT public.${fn}(${call})::text AS n`, values));
                     return { data: JSON.parse(rows[0].n), error: null };
                 }
                 const { rows } = await service(() => db.query<{ n: string | null }>(`SELECT public.${fn}(${call})::text AS n`, values));
@@ -238,7 +240,7 @@ describe('#1826 canary cleanup against the ACTUAL #1643 deletion guard (PGlite, 
         process.env.GITHUB_RUN_ID = '43000000020';
         const admin = sqlAdmin();
         const finished = async () => ({ status: 'completed', run_attempt: 1, updated_at: new Date(Date.now() - 2 * H).toISOString() });
-        const r = await sweepLane({ finishSaveJournal: FINISH, admin, env: process.env, getRun: finished, cleanup: canaryCleanup });
+        const r = await sweepLane({ readSaveJournal: READ, finishSaveJournal: FINISH, admin, env: process.env, getRun: finished, cleanup: canaryCleanup });
         // The database is shared across this file, so earlier tests' preserved accounts are orphans too; assert this one.
         expect(r.report?.failures?.unsettled_take ?? 0).toBeGreaterThanOrEqual(1);
         expect(r.report?.swept).toBe(0);
@@ -286,7 +288,7 @@ describe('#1826 canary cleanup against the ACTUAL #1643 deletion guard (PGlite, 
         const getRun = async (runId: string) => (runId === '43000000041'
             ? { status: 'in_progress', run_attempt: 1, updated_at: new Date(Date.now() - 2 * H).toISOString() }
             : { status: 'completed', run_attempt: 1, updated_at: new Date(Date.now() - 2 * H).toISOString() });
-        const r = await sweepLane({ finishSaveJournal: FINISH, admin: sqlAdmin(), env: process.env, getRun, cleanup: canaryCleanup });
+        const r = await sweepLane({ readSaveJournal: READ, finishSaveJournal: FINISH, admin: sqlAdmin(), env: process.env, getRun, cleanup: canaryCleanup });
         expect(r.report?.saveJournal).toMatchObject({ finished: 1, failed: 0 });
         expect(r.report?.saveJournal?.left).toBeGreaterThanOrEqual(1);
         expect({ obligations: await done.obligations(), claims: await claims(done.uid) }).toEqual({ obligations: [], claims: 0 });

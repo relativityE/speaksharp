@@ -96,7 +96,7 @@ describe('cleanup', () => {
             from: () => ({ delete: () => ({ eq: async () => ({ error: null }) }), select: () => ({ eq: async () => ({ data: [], count: 0, error: null }) }) }),
             // #1643 save journal (service_role-only functions): no take saved, nothing remains.
             // Save-journal steps answer zero; the own-run sweep (by run binding, #1906) finds nothing.
-            rpc: vi.fn(async (fn: string) => ({ data: fn === 'resume_run_account_save_journal_cleanups_v1' ? [] : 0, error: null })),
+            rpc: vi.fn(async (fn: string) => ({ data: fn === 'resume_run_account_save_journal_cleanups_v1' ? { count: 0, ids: [] } : 0, error: null })),
         };
     };
     it('deletes an account bound to THIS run; CASUALTY: an account bound to another run is refused before any deletion', async () => {

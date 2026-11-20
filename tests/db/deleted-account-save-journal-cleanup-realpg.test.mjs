@@ -86,8 +86,8 @@ test('deleted-account save-journal cleanup: only the run that owns a deleted acc
   const fnCall = (fn, p) => `SELECT public.${fn}(${Object.entries(p).map(([k, v]) =>
     `${k}=>${k === 'p_run_binding' ? (v === null ? 'NULL::jsonb' : `${lit(JSON.stringify(v))}::jsonb`) : k === 'p_user_id' ? (v === null ? 'NULL::uuid' : `${lit(v)}::uuid`)
       : k === 'p_min_age_seconds' ? (v === null ? 'NULL::integer' : `${Number(v)}::integer`) : `${lit(v)}::text`}`).join(',')})`;
-  /** A set-returning function's rows as a JSON array (PostgREST answers these as an array). */
-  const setCall = (fn, p) => `SELECT coalesce(json_agg(x),'[]')::text FROM ${fnCall(fn, p).replace(/^SELECT /, '')} x`;
+  /** A jsonb function's one value as JSON text (PostgREST answers a scalar jsonb function with that value). */
+  const jsonCall = (fn, p) => `${fnCall(fn, p)}::text`;
   const claimSql = (a, binding, secret) => service(fnCall(CLAIM_FN, { p_user_id: a.user, p_run_binding: binding, p_token: secret }));
   const deleteSql = (a, secret) => service(fnCall(DELETE_FN, { p_user_id: a.user ?? a, p_token: secret }));
 
@@ -98,16 +98,16 @@ test('deleted-account save-journal cleanup: only the run that owns a deleted acc
    */
   const serviceRpc = { calls: [], rpc(fn, params) {
     this.calls.push(fn);
-    const setOf = fn === RUN_RESUME_FN || fn === RUNS_FN;
-    assert.ok(/^[a-z_0-9]+$/.test(fn) && (setOf || UUID.test(String(params.p_user_id))), 'rpc adapter only forwards a plain function name and a uuid');
+    const jsonValued = fn === RUN_RESUME_FN || fn === RUNS_FN;
+    assert.ok(/^[a-z_0-9]+$/.test(fn) && (jsonValued || UUID.test(String(params.p_user_id))), 'rpc adapter only forwards a plain function name and a uuid');
     try {
-      if (setOf) return Promise.resolve({ data: JSON.parse(sql(service(setCall(fn, params)))), error: null });
+      if (jsonValued) return Promise.resolve({ data: JSON.parse(sql(service(jsonCall(fn, params)))), error: null });
       const value = sql(service(fnCall(fn, params)));
       return Promise.resolve({ data: value === '' ? null : Number(value), error: null });
     } catch (e) {
       const stderr = String(e.stderr ?? e.message);
       const code = /permission denied|not claimed by this run|not owned by this run|not run-owned/.test(stderr) ? '42501'
-        : /does not exist/.test(stderr) ? '42883' : /account not found|no cleanup claim/.test(stderr) ? 'P0002'
+        : /does not exist/.test(stderr) ? '42883' : /account not found|no cleanup claim/.test(stderr) ? 'P0002' : /too many/.test(stderr) ? '54000'
         : /run binding required/.test(stderr) ? '22004' : /secret required|minimum age required/.test(stderr) ? '22023' : '55000';
       return Promise.resolve({ data: null, error: { code, message: stderr } });
     }
@@ -528,15 +528,25 @@ test('deleted-account save-journal cleanup: only the run that owns a deleted acc
 
     // ── RESTART WITH NO ACCOUNT ID (Sam, #1906 review: "the actual restarted runner still has to prove it can find that account
     //    after deletion"). A REAL runner process is killed right after the Auth deletion; fresh processes start with no memory. ──
-    const runSql = (binding, secret) => service(setCall(RUN_RESUME_FN, { p_run_binding: binding, p_token: secret }));
-    const runsSql = age => service(setCall(RUNS_FN, { p_min_age_seconds: age }));
+    const runSql = (binding, secret) => service(jsonCall(RUN_RESUME_FN, { p_run_binding: binding, p_token: secret }));
+    const runsSql = age => service(jsonCall(RUNS_FN, { p_min_age_seconds: age }));
+    const NONE = { count: 0, ids: [] };
+    /** Every claim's account, secret and age, and every journal row: what "nothing changed" is checked against. */
+    const claimsSnapshot = () => sql(`SELECT coalesce(string_agg(user_id::text||':'||encode(token_sha256,'hex')||':'||claimed_at::text, ',' ORDER BY user_id),'') FROM ${CLAIMS}`);
+    const journalAll = () => sql(`SELECT coalesce(string_agg(user_id::text||':'||lease_id::text||':'||phase, ',' ORDER BY user_id, lease_id),'') FROM account_save_obligations`);
     const age = (a, seconds) => sql(`UPDATE ${CLAIMS} SET claimed_at=clock_timestamp()-make_interval(secs=>${seconds}) WHERE user_id='${a.user}'`);
-    /** Start the shared teardown in a NEW node process, as the GitHub run `binding` (null = local), for account `a`. */
-    const runnerProcess = (binding, a, { hangAfter } = {}) => {
-      const childEnv = { ...Object.fromEntries(Object.entries(env).filter(([k]) => !k.startsWith('GITHUB_') && k !== 'PROOF_CLEANUP_VERDICT_FILE' && k !== 'CI')),
-        SJ_PSQL: bin.psql, SJ_UID: a.user, SJ_EMAIL: a.email, ...(hangAfter ? { SJ_HANG_AFTER: hangAfter } : {}),
+    /**
+     * Start the runner in a NEW node process, as the GitHub run `binding` (null = local): the shared teardown of account `a`, or (with
+     * `mode: 'recover'`) the governed recovery's entry point. Plain `node`: the runner loads the TypeScript helpers itself, so its own
+     * code runs as written (and the evidence lane's coverage, inherited through the environment, sees its functions).
+     */
+    const runnerProcess = (binding, a, { hangAfter, mode, tamper, terminalRuns, ack } = {}) => {
+      const childEnv = { ...Object.fromEntries(Object.entries(env).filter(([k]) => !k.startsWith('GITHUB_') && !k.startsWith('SJ_') && k !== 'PROOF_CLEANUP_VERDICT_FILE' && k !== 'CI')),
+        SJ_PSQL: bin.psql, ...(a ? { SJ_UID: a.user, SJ_EMAIL: a.email } : {}), ...(hangAfter ? { SJ_HANG_AFTER: hangAfter } : {}),
+        ...(mode ? { SJ_MODE: mode, SJ_SHA: 'f'.repeat(40), SJ_TERMINAL_RUNS: (terminalRuns ?? []).join(','), SJ_ACK: ack ? '1' : '0' } : {}),
+        ...(tamper ? { SJ_TAMPER: tamper } : {}),
         ...(binding ? { GITHUB_ACTIONS: 'true', GITHUB_REPOSITORY: binding.repository, GITHUB_WORKFLOW_REF: binding.workflow, GITHUB_RUN_ID: binding.runId, GITHUB_RUN_ATTEMPT: binding.runAttempt } : {}) };
-      const child = spawn(process.execPath, ['--import', 'tsx', runner], { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] });
+      const child = spawn(process.execPath, [runner], { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] });
       const p = { child, stdout: '', stderr: '' };
       child.stdout.on('data', x => { p.stdout += x; }); child.stderr.on('data', x => { p.stderr += x; });
       p.done = new Promise((resolve, reject) => { child.on('error', reject); child.on('close', (code, signal) => resolve({ code, signal, stdout: p.stdout, stderr: p.stderr })); });
@@ -581,7 +591,7 @@ test('deleted-account save-journal cleanup: only the run that owns a deleted acc
       }
       // And directly: another binding, another attempt, an extra key, the canary's binding find nothing and change nothing.
       for (const other of [RUN_B, { ...RUN_K, runAttempt: '2' }, { ...RUN_K, extra: '1' }, CANARY])
-        assert.equal(sql(runSql(other, newSaveJournalSecret())), '[]', JSON.stringify(other));
+        assert.deepEqual(JSON.parse(sql(runSql(other, newSaveJournalSecret()))), NONE, JSON.stringify(other));
       assert.equal(claimToken(a), token);
 
       // 3. THE SAME RUN, a fresh process with no memory of `a`: its normal teardown of its next account finishes `a` too.
@@ -608,19 +618,33 @@ test('deleted-account save-journal cleanup: only the run that owns a deleted acc
       const before = tokens();
       for (const bad of [null, 'null', '[]', '"x"']) assert.throws(() => sql(service(`SELECT * FROM ${RUN_RESUME_FN}(${bad === null ? 'NULL' : `'${bad}'`}::jsonb,'${'a'.repeat(64)}')`)), /run binding required/, String(bad));
       for (const bad of [null, '', 'A'.repeat(64), 'a'.repeat(63)]) assert.throws(() => sql(runSql(RUN_D, bad)), /cleanup secret required/, String(bad));
-      assert.equal(sql(runSql({}, newSaveJournalSecret())), '[]', 'an empty binding matches no claim');
+      assert.deepEqual(JSON.parse(sql(runSql({}, newSaveJournalSecret()))), NONE, 'an empty binding matches no claim');
       assert.deepEqual(tokens(), before, 'every refusal changed nothing');
       const fresh = newSaveJournalSecret();
       // Key order does not matter (jsonb), but every key and value must.
       const reordered = Object.fromEntries(Object.entries(RUN_D).reverse());
-      assert.deepEqual(JSON.parse(sql(runSql(reordered, fresh))).sort(), [gone1.user, gone2.user].sort(), 'both deleted accounts of the run, not the live one');
+      const ages = () => sql(`SELECT string_agg(claimed_at::text, ',' ORDER BY user_id) FROM ${CLAIMS} WHERE user_id IN ('${gone1.user}','${gone2.user}')`);
+      const agesBefore = ages();
+      const found = JSON.parse(sql(runSql(reordered, fresh)));
+      assert.deepEqual(Object.keys(found).sort(), ['count', 'ids'], 'one value: the ids and their count');
+      assert.deepEqual([found.count, [...found.ids].sort()], [2, [gone1.user, gone2.user].sort()], 'both deleted accounts of the run, not the live one');
+      assert.equal(ages(), agesBefore, 'only the secret changes: each claim stays exactly as old as it was');
       assert.equal(claimToken(live), before[2], 'the live account\'s claim is untouched'); assert.equal(claimToken(unbound), before[3], 'the unbound claim is untouched');
       for (const a of [gone1, gone2]) { assert.throws(() => sql(deleteSql(a, a.secret)), /not claimed by this run/); assert.equal(sql(deleteSql(a, fresh)), '0'); }
       // Through the shared step: finishes nothing once done; a non-array, a non-uuid or an error fails closed.
       assert.equal(await finishRunSaveJournalCleanups(realAdmin(), RUN_D), 0);
-      const fake = answer => ({ rpc: async () => answer, from: () => { throw new Error('unused'); } });
-      for (const answer of [{ data: null, error: null }, { data: ['not-a-uuid'], error: null }, { data: 3, error: null }, { data: null, error: { code: '42883', message: 'x' } }])
-        await assert.rejects(() => finishRunSaveJournalCleanups(fake(answer), RUN_D), refusedAt('save_journal_sweep:account_save_obligations'), JSON.stringify(answer));
+      // Sam: an answer that does not prove it carries EVERY re-keyed id (a clipped list, a count that does not match, a duplicate,
+      // the old row-set shape) deletes nothing and fails closed, as does an error or a refusal to re-key too many.
+      const id1 = gone1.user, id2 = gone2.user;
+      for (const answer of [{ data: null, error: null }, { data: ['not-a-uuid'], error: null }, { data: 3, error: null }, { data: [id1], error: null },
+        { data: { count: 2, ids: [id1] }, error: null }, { data: { count: 1, ids: [id1, id2] }, error: null }, { data: { count: 2, ids: [id1, id1] }, error: null },
+        { data: { count: 1, ids: ['not-a-uuid'] }, error: null }, { data: { count: 1, ids: [id1], extra: 1 }, error: null }, { data: { ids: [] }, error: null },
+        { data: { count: '0', ids: [] }, error: null }, { data: null, error: { code: '42883', message: 'x' } }, { data: null, error: { code: '54000', message: 'x' } }]) {
+        const calls = [];
+        const spy = { rpc: async (fn, x) => { calls.push(fn); return fn === RUN_RESUME_FN ? answer : { data: null, error: { code: 'unexpected' } }; }, from: () => { throw new Error('unused'); } };
+        await assert.rejects(() => finishRunSaveJournalCleanups(spy, RUN_D), refusedAt('save_journal_sweep:account_save_obligations'), JSON.stringify(answer));
+        assert.deepEqual(calls, [RUN_RESUME_FN], `${JSON.stringify(answer)}: nothing deleted or read after it`);
+      }
       await assert.rejects(() => finishRunSaveJournalCleanups({}, RUN_D), refusedAt('save_journal_sweep:account_save_obligations'));
       // Serialized with the product closure: it waits on the per-account closure lock of a matching account.
       const w = seed({ ct_run: RUN_D }); savedTake(w); w.secret = newSaveJournalSecret(); sql(claimSql(w, RUN_D, w.secret)); deleteAuth(w);
@@ -637,45 +661,163 @@ test('deleted-account save-journal cleanup: only the run that owns a deleted acc
       receipts.push({ case: 'resume_by_run_refusals', foundForRun: 2, liveUntouched: true, unboundUntouched: true, lockObserved: true });
     });
 
-    await t.test('INTERRUPTED-RUN RECOVERY (a CI re-run is another label): the governed recovery lists runs with unfinished claims and finishes only a TERMINATED rc-gates run', async () => {
+    await t.test('BOUNDED (Sam, #1906): more than 100 claims for one run, or more than 200 runs, is refused BEFORE anything changes', () => {
+      // Fixture rows written directly (as the table owner): claims on accounts that no longer exist, as crashed cleanups leave them.
+      const insertClaims = (n, bindingSql) => sql(`INSERT INTO ${CLAIMS}(user_id, run_binding, token_sha256, email_sha256, claimed_at)
+        SELECT gen_random_uuid(), ${bindingSql}, sha256(convert_to('t'||g,'UTF8')), sha256(convert_to('e'||g,'UTF8')), clock_timestamp()-interval '3 hours'
+        FROM generate_series(1,${n}) g`);
+      // The earlier cases leave their refusal fixtures' claims (on live and deleted accounts) in this disposable database. The
+      // inventory cases from here on need a known starting point, so the table owner clears them once.
+      sql(`DELETE FROM ${CLAIMS}`);
+      assert.equal(claimsSnapshot(), '');
+      const RUN_CAP = runBinding('44000000501');
+      insertClaims(100, `${lit(JSON.stringify(RUN_CAP))}::jsonb`);
+      const at100 = claimsSnapshot();
+      const fresh = newSaveJournalSecret();
+      assert.equal(JSON.parse(sql(runSql(RUN_CAP, fresh))).count, 100, '100 is within the bound');
+      assert.notEqual(claimsSnapshot(), at100);
+      insertClaims(1, `${lit(JSON.stringify(RUN_CAP))}::jsonb`);
+      const at101 = claimsSnapshot();
+      assert.throws(() => sql(runSql(RUN_CAP, newSaveJournalSecret())), /too many cleanup claims for one run/);
+      assert.equal(claimsSnapshot(), at101, 'refused: not one claim was re-keyed');
+      sql(`DELETE FROM ${CLAIMS}`);
+      // 200 runs are listed (in one value that adds up); 201 is refused (the caller then holds).
+      sql(`INSERT INTO ${CLAIMS}(user_id, run_binding, token_sha256, email_sha256)
+        SELECT gen_random_uuid(), jsonb_build_object('runId', g::text), sha256(convert_to('t'||g,'UTF8')), sha256(convert_to('e'||g,'UTF8')) FROM generate_series(1,200) g`);
+      const listed = JSON.parse(sql(runsSql(0)));
+      assert.deepEqual([listed.claims, listed.live, listed.unbound, listed.runs.length], [200, 0, 0, 200]);
+      insertClaims(1, `'{"runId":"201"}'::jsonb`);
+      assert.throws(() => sql(runsSql(0)), /too many unfinished cleanup runs to list/);
+      sql(`DELETE FROM ${CLAIMS}`);
+      receipts.push({ case: 'bounded_before_change', perRunBound: 100, runListBound: 200, rekeyedWhenRefused: 0 });
+    });
+
+    /** Each open claim of these accounts, finished directly as their own run would (fixture cleanup between cases). */
+    const finishDirectly = (...accounts) => {
+      for (const a of accounts) {
+        if (authExists(a)) deleteAuth(a);
+        if (a.binding) sql(runSql(a.binding, a.secret));   // re-key to the secret this fixture holds (an unbound claim keeps its own)
+        if (claimRows(a)) assert.equal(sql(deleteSql(a, a.secret)), '0');
+      }
+    };
+    /** A run-owned account of `binding` with one saved take, claimed by its run, deleted in Auth, its claim made `ageSeconds` old. */
+    const leftover = (binding, { ageSeconds = 3 * 3600, prefix, meta } = {}) => {
+      const a = seed(meta ?? (binding ? { ct_run: binding } : {}), prefix); savedTake(a);
+      a.secret = newSaveJournalSecret(); sql(claimSql(a, a.binding, a.secret)); deleteAuth(a);
+      if (ageSeconds) age(a, ageSeconds);
+      return a;
+    };
+
+    await t.test('INVENTORY (Sam, #1906): one value from one snapshot that adds up: every claim counted (live, unbound, recent), runs never ids', () => {
+      const RUN_I = runBinding('44000000601'), RUN_J = runBinding('44000000602');
+      const old1 = leftover(RUN_I), old2 = leftover(RUN_I), young = leftover(RUN_I, { ageSeconds: 0 }), other = leftover(RUN_J);
+      const unbound = leftover(null);
+      const live = seed({ ct_run: RUN_J }); savedTake(live); live.secret = newSaveJournalSecret(); sql(claimSql(live, RUN_J, live.secret));
+      assert.throws(() => sql(runsSql(-1)), /minimum age required/); assert.throws(() => sql(runsSql(null)), /minimum age required/);
+      const listed = JSON.parse(sql(runsSql(135 * 60)));
+      assert.deepEqual(Object.keys(listed).sort(), ['claims', 'live', 'runs', 'unbound']);
+      assert.deepEqual([listed.claims, listed.live, listed.unbound], [6, 1, 1]);
+      const byRun = Object.fromEntries(listed.runs.map(r => [r.binding.runId, [r.claims, r.recent]]));
+      assert.deepEqual(byRun, { [RUN_I.runId]: [3, 1], [RUN_J.runId]: [1, 0] }, 'the recent claim is counted, not hidden by the age floor');
+      assert.equal(listed.runs.reduce((n, r) => n + r.claims, 0) + listed.live + listed.unbound, listed.claims, 'the counts add up');
+      assert.ok(!JSON.stringify(listed).match(/[0-9a-f]{8}-[0-9a-f]{4}-/), 'no account id is listed');
+      // A floor of 0 makes every claim old; the totals do not change.
+      assert.deepEqual(JSON.parse(sql(runsSql(0))).runs.map(r => r.recent), [0, 0]);
+      finishDirectly(old1, old2, young, other, unbound, live);
+      assert.deepEqual(JSON.parse(sql(runsSql(0))), { claims: 0, live: 0, unbound: 0, runs: [] });
+      receipts.push({ case: 'inventory_complete', claims: 6, live: 1, unbound: 1, runs: 2, recentCounted: 1 });
+    });
+
+    await t.test('INTERRUPTED-RUN RECOVERY (in process): finishes only a TERMINATED rc-gates run with no recent claim; everything else is counted and held', async () => {
       try {
-        const DEAD = runBinding('44000000401'), ACTIVE = runBinding('44000000402'), NOW = runBinding('44000000403');
-        const dead = seed({ ct_run: DEAD }), active = seed({ ct_run: ACTIVE }), canary = seed({ canary_run: CANARY }, 'ctrial-run-'), young = seed({ ct_run: DEAD });
-        for (const a of [dead, active, canary, young]) { savedTake(a); a.secret = newSaveJournalSecret(); sql(claimSql(a, a.binding, a.secret)); deleteAuth(a); }
-        // Never listed, however old: a run whose account still exists (its own teardown is still to come), and a local (unbound) claim.
-        const LIVE = runBinding('44000000404'), liveAcct = seed({ ct_run: LIVE }), unbound = seed({});
-        for (const a of [liveAcct, unbound]) { savedTake(a); a.secret = newSaveJournalSecret(); sql(claimSql(a, a.binding, a.secret)); }
-        deleteAuth(unbound);
-        for (const a of [dead, active, canary, liveAcct, unbound]) age(a, 3 * 3600);
-        unbound.token0 = claimToken(unbound);
-        assert.throws(() => sql(runsSql(-1)), /minimum age required/); assert.throws(() => sql(runsSql(null)), /minimum age required/);
-        const listed = JSON.parse(sql(runsSql(135 * 60)));
-        assert.equal(listed.length, 3, 'three runs with an old unfinished claim (bindings only, never ids)');
-        assert.ok(listed.every(b => b !== null && b.runId !== LIVE.runId), 'neither the live account\'s run nor the unbound claim is listed');
-        assert.ok(!JSON.stringify(listed).match(UUID), 'no account id is listed');
-        const before = [active, canary].map(journalSnapshot);
+        const DEAD = runBinding('44000000401'), ACTIVE = runBinding('44000000402'), NOW = runBinding('44000000403'), YOUNG = runBinding('44000000405');
+        const dead = leftover(DEAD), dead2 = leftover(DEAD), active = leftover(ACTIVE), canary = leftover(CANARY, { prefix: 'ctrial-run-', meta: { canary_run: CANARY } });
+        const young = leftover(YOUNG, { ageSeconds: 0 }), unbound = leftover(null);
+        const LIVE = runBinding('44000000404'), liveAcct = seed({ ct_run: LIVE }); savedTake(liveAcct);
+        liveAcct.secret = newSaveJournalSecret(); sql(claimSql(liveAcct, LIVE, liveAcct.secret)); age(liveAcct, 3 * 3600);
+        const others = [active, canary, young, unbound, liveAcct];
+        const before = others.map(journalSnapshot), tokens = others.map(claimToken);
         actAs(NOW);
         const sha = 'f'.repeat(40);
         const recoveryAdmin = { ...realAdmin(), auth: { admin: { listUsers: async () => ({ data: { users: [] }, error: null }) } },
           rpc: async (fn, args) => (fn === 'list_unresolved_rwt_feedback_fences_v1' ? { data: [], error: null } : serviceRpc.rpc(fn, args)) };
         const states = [];
         const report = await recoverInterruptedRuns({ admin: recoveryAdmin, nowMs: Date.now(), ack: recoveryDeleteAck(sha), sha, domain: 'example.test',
-          runState: async b => { states.push(b.runId); return b.runId === DEAD.runId ? 'terminal' : 'active'; } });
+          runState: async b => { states.push(b.runId); return b.runId === DEAD.runId || b.runId === YOUNG.runId ? 'terminal' : 'active'; } });
         assert.equal(report.status, 'HOLD_ACTIVE_RUN', recoveryReportLine(report));
-        assert.deepEqual(report.saveJournal, { runs: 3, finished: 2, held: 1, unproven: 1 }, 'dead run: both claims (the old one and its younger sibling) finished; active run held; canary not an rc-gates run');
-        assert.deepEqual(states.sort(), [ACTIVE.runId, DEAD.runId].sort(), 'run state was read for the rc-gates runs only');
-        assert.deepEqual([journalRows(dead), claimRows(dead), journalRows(young), claimRows(young)], [0, 0, 0, 0]);
-        assert.deepEqual([active, canary].map(journalSnapshot), before, 'the active run and the canary run are untouched');
-        assert.match(recoveryReportLine(report), / save_journal_runs=3 save_journal_finished=2 save_journal_held=1 save_journal_unproven=1$/);
+        assert.deepEqual(report.saveJournal, { claims: 7, runs: 4, finished: 2, held: 2, unproven: 2, live: 1, remaining: 5 },
+          'dead run: both claims finished; active and young runs held; canary and unbound unproven; the live account counted');
+        assert.deepEqual(states.sort(), [ACTIVE.runId, DEAD.runId].sort(), 'run state read only for rc-gates runs with no recent claim');
+        assert.deepEqual([dead, dead2].flatMap(a => [journalRows(a), claimRows(a)]), [0, 0, 0, 0]);
+        assert.deepEqual([others.map(journalSnapshot), others.map(claimToken)], [before, tokens], 'every other run untouched');
+        assert.match(recoveryReportLine(report), / save_journal_claims=7 save_journal_runs=4 save_journal_finished=2 save_journal_held=2 save_journal_unproven=2 save_journal_live=1 save_journal_remaining=5$/);
         // Without the delete acknowledgement it holds and touches nothing.
         const held = await recoverInterruptedRuns({ admin: recoveryAdmin, nowMs: Date.now(), ack: '', sha, domain: 'example.test', runState: async () => 'terminal' });
-        assert.equal(held.status, 'HOLD_NO_ACK'); assert.deepEqual([active, canary].map(journalSnapshot), before);
-        // Clean the fixture's leftovers.
-        for (const a of [active, canary]) { sql(service(`SELECT * FROM ${RUN_RESUME_FN}('${JSON.stringify(a.binding)}'::jsonb,'${a.secret}')`)); assert.equal(sql(deleteSql(a, a.secret)), '0'); }
-        assert.equal(claimToken(unbound), unbound.token0, 'the unbound claim was untouched by the recovery'); assert.equal(sql(deleteSql(unbound, unbound.secret)), '0');
-        deleteAuth(liveAcct); sql(service(`SELECT * FROM ${RUN_RESUME_FN}('${JSON.stringify(liveAcct.binding)}'::jsonb,'${liveAcct.secret}')`)); assert.equal(sql(deleteSql(liveAcct, liveAcct.secret)), '0');
-        receipts.push({ case: 'recovery_finishes_terminated_run', listedRuns: 3, finished: 2, held: 1, unproven: 1 });
+        assert.equal(held.status, 'HOLD_NO_ACK'); assert.deepEqual(others.map(claimToken), tokens);
+        finishDirectly(...others);
+        receipts.push({ case: 'recovery_in_process', claims: 7, finished: 2, held: 2, unproven: 2, live: 1, remaining: 5 });
       } finally { restoreEnv(); }
+    });
+
+    await t.test('FRESH RECOVERY PROCESS (Sam, #1906): the real recovery entry point, empty of accounts, finds a killed run\'s claim, proves zero residue, leaves other runs untouched, and HOLDS when it cannot prove the list complete', async () => {
+      const X = runBinding('44000000701'), ACTIVE = runBinding('44000000702'), RECENT = runBinding('44000000703'), NOW = runBinding('44000000704');
+      // 1. The killed run: a real runner process of run X is SIGKILLed right after the Auth deletion (its secret dies with it).
+      const a = seed({ ct_run: X }); savedTake(a); savedTake(a);
+      const victim = runnerProcess(X, a, { hangAfter: 'deleteUser' });
+      await waitForOutput(victim, 'HUNG_AFTER deleteUser');
+      victim.child.kill('SIGKILL'); assert.equal((await victim.done).signal, 'SIGKILL');
+      assert.deepEqual([authExists(a), journalRows(a), claimRows(a)], [false, 2, 1]);
+      age(a, 3 * 3600);
+      // Other runs' claims: an active rc-gates run, a canary run, a terminated run whose claim is recent, a local (unbound) claim.
+      const active = leftover(ACTIVE), canary = leftover(CANARY, { prefix: 'ctrial-run-', meta: { canary_run: CANARY } });
+      const recent = leftover(RECENT, { ageSeconds: 0 }), unbound = leftover(null);
+      const others = [active, canary, recent, unbound];
+      const run = async opts => {
+        const r = await runnerProcess(NOW, null, { mode: 'recover', terminalRuns: [X.runId, RECENT.runId], ...opts }).done;
+        assert.equal(r.code, 0, r.stderr);
+        const line = r.stdout.trim().split('\n').at(-1);
+        assert.ok(!line.includes(a.user) && !line.includes('@'), 'counts only');
+        return Object.fromEntries(line.split(' ').slice(1).map(kv => kv.split('=')));
+      };
+      const unchanged = () => [claimsSnapshot(), journalAll()];
+      // 2. It cannot prove the list complete: a clipped or malformed inventory, or a clipped resume answer. It HOLDS and deletes nothing.
+      let snap = unchanged();
+      for (const tamper of ['clip-inventory', 'malformed-inventory']) {
+        const r = await run({ ack: true, tamper });
+        assert.equal(r.status, 'HOLD_INCOMPLETE_LISTING', tamper);
+        assert.deepEqual(unchanged(), snap, `${tamper}: nothing re-keyed, nothing deleted`);
+      }
+      const clipped = await run({ ack: true, tamper: 'clip-resume' });
+      assert.equal(clipped.status, 'HOLD_INCOMPLETE_LISTING');
+      assert.equal(journalAll(), snap[1], 'a resume answer missing an id deletes nothing');
+      assert.deepEqual(others.map(claimToken), others.map(o => snap[0].split(',').find(c => c.startsWith(o.user)).split(':')[1]), 'other runs\' claims untouched');
+      assert.equal(JSON.parse(sql(runsSql(135 * 60))).runs.find(r => r.binding.runId === X.runId)?.recent, 0, 'the killed run\'s claim did not become recent');
+      // 3. No acknowledgement: it holds and touches nothing.
+      snap = unchanged();
+      assert.equal((await run({ ack: false })).status, 'HOLD_NO_ACK'); assert.deepEqual(unchanged(), snap);
+      // 4. The real run: X is finished (rows and claim gone, readback zero); every other run is untouched; it HOLDS on what is left.
+      const othersBefore = [others.map(journalSnapshot), others.map(claimToken)];
+      const done = await run({ ack: true });
+      assert.equal(done.status, 'HOLD_ACTIVE_RUN');
+      assert.deepEqual([done.eligible, done.deleted, done.save_journal_claims, done.save_journal_finished, done.save_journal_held, done.save_journal_unproven, done.save_journal_remaining],
+        ['0', '0', '5', '1', '2', '2', '4']);
+      assert.deepEqual([journalRows(a), claimRows(a), sql(service(`SELECT ${COUNT_FN}('${a.user}')`))], [0, 0, '0'], 'the killed run\'s save journal is gone: readback zero');
+      assert.deepEqual([others.map(journalSnapshot), others.map(claimToken)], othersBefore, 'other runs untouched');
+      // 5. Sam's two cases, each alone with no account to find: a claim younger than the floor is never "nothing to recover", and a
+      //    claim whose binding is not a run binding is never "recovered".
+      finishDirectly(active, canary, unbound);
+      assert.equal((await run({ ack: true })).status, 'HOLD_ACTIVE_RUN', 'only the recent claim of a terminated run is left');
+      finishDirectly(recent);
+      const odd = leftover(null, { meta: { ct_run: { x: '1' } } });
+      const unproven = await run({ ack: true });
+      assert.deepEqual([unproven.status, unproven.save_journal_unproven, unproven.save_journal_remaining], ['HOLD_UNFINISHED_CLAIMS', '1', '1']);
+      assert.equal(claimRows(odd), 1, 'not finished');
+      finishDirectly(odd);
+      // 6. Nothing left anywhere: now, and only now, nothing to recover.
+      assert.equal((await run({ ack: true })).status, 'NOTHING_TO_RECOVER');
+      assert.deepEqual(JSON.parse(sql(runsSql(0))), { claims: 0, live: 0, unbound: 0, runs: [] });
+      receipts.push({ case: 'fresh_recovery_process', killedRunFinished: 1, residueAfter: 0, othersTouched: 0,
+        heldOnClippedInventory: true, heldOnMalformedInventory: true, heldOnClippedResume: true, recentNotNothing: true, malformedNotRecovered: true });
     });
   } finally {
     for (const c of clients) if (!c.child.stdin.destroyed) c.child.stdin.end();

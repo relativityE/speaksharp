@@ -144,7 +144,7 @@ const REPEAT_TIP=Object.freeze({name:'20261119120000_repeat_practised_tip.sql',
   version:'20261119120000',sha256:'199f8593445e477cf84397e47cb9234cf3063c0a22a6b812ef9a7e8fb053f3f4'});
 // #1643 follow-up: deleted proof-account save-journal cleanup. Repository inventory that no historical profile replays.
 const SAVE_JOURNAL_CLEANUP=Object.freeze({name:'20261119200000_deleted_account_save_journal_cleanup_1643.sql',
-  version:'20261119200000',sha256:'cc9ee1861e46580379c6d63ecde100ad9ccf994095eeec92ba617acd65b7e926'});
+  version:'20261119200000',sha256:'48088287571cca34007a42018a67df6ccd702bddcda1579ec85f208daaef834c'});
 const physical=repositoryPhysical.filter(row=>![WITHHELD.name,START_ABANDONMENT.name,REFUND.name,FEEDBACK_FENCE.name,PAYMENT_WALL.name,PRACTICE_PRIVACY.name,REPEAT_TIP.name,SAVE_JOURNAL_CLEANUP.name].includes(row.name));
 const main = physical.filter(row => ![U1.name, ANALYTICS.name, ...ACCOUNT.map(row=>row.name), FENCE.name, RETENTION.name, BILLING.name].includes(row.name));
 const receiving = [...main, U1].sort((a, b) => a.name.localeCompare(b.name, 'en'));
