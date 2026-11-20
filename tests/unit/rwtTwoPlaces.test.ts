@@ -5,11 +5,15 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import type { Page } from '@playwright/test';
 import { BLOCKED_COPY, type TabState } from '../live/helpers/rwtAbandonTakeover';
 import {
     DISPLACED_FENCE_COLUMNS, type FenceRowRead, LOCAL_TAB_LOCK_COPY, LOCAL_TAB_LOCK_WORDINGS, displacedFenceVerdict, sameBrowserRefusedVerdict,
 } from '../live/helpers/rwtTwoPlaces';
-import { ABANDON_TWO_PLACES_CONSENT_MODE, CONSENT_MODES } from '../live/helpers/rwtPracticeConsent';
+import {
+    ABANDON_TWO_PLACES_CONSENT_MODE, CONSENT_MODES, PRACTICE_PRIVACY_PROMPT, PRIVACY_MIGRATION_1835, captureConsentGate, settleFixedConsentOnPractice,
+    type ChoiceClient,
+} from '../live/helpers/rwtPracticeConsent';
 import {
     ABANDON_CLOSE_TAB_SUITE, ABANDON_NAVIGATE_SUITE, TWO_TAB_SUITE, automatedEvaluation, receiptAcceptance, requiredAutomatedRows, type ReceiptRow,
 } from '../live/helpers/rwtAcceptance';
@@ -153,28 +157,34 @@ describe('the AHT-11 spec wiring', () => {
 
 describe('J5.b/c and J6: the run\'s own account opts in before any Start (#1835; Sam, Nov 18)', () => {
     const spec = src('tests/live/rwt-abandon-and-two-tabs.live.spec.ts');
-    const settleFn = spec.slice(spec.indexOf('async function settleRunConsent'), spec.indexOf('async function openOpenMic'));
+    const settleFn = spec.slice(spec.indexOf('async function settleRunConsent'), spec.indexOf('function requireGate'));
     const openFn = spec.slice(spec.indexOf('async function openOpenMic'), spec.indexOf('async function startFirstPrivateTake'));
+    const firstTake = spec.slice(spec.indexOf('async function startFirstPrivateTake'), spec.indexOf('/** #1593 (live case 12)'));
     const abandon = spec.slice(spec.indexOf('async function abandonAndReturn'), spec.indexOf("test.describe('RWT — leaving a recording"));
     const test11 = spec.slice(spec.indexOf("test('one account, two places"));
     const CONSENT = 'practice privacy choice';
+    /** `statement` is the statement directly after a consent readback (only blank lines and comments between). */
+    const confirmedBefore = (body: string, statement: string, gate = 'await requireGate\\(consentGate\\)\\.confirm\\(\\);') =>
+        new RegExp(`${gate}\\n(\\s*//[^\\n]*\\n)*\\s*${statement.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`).test(body);
 
     it('the fixed mode is Save: Yes, Coaching: No, never read from the environment', () => {
         expect(CONSENT_MODES[ABANDON_TWO_PLACES_CONSENT_MODE]).toEqual({ transcriptSave: true, aiCoaching: false });
-        expect(settleFn).toContain('mode: ABANDON_TWO_PLACES_CONSENT_MODE });');
+        expect(settleFn.match(/mode: ABANDON_TWO_PLACES_CONSENT_MODE, record/g)).toHaveLength(2);
         expect(spec).not.toContain('RWT_PRACTICE_CONSENT');
         expect(spec).not.toContain('consentModeFrom');
     });
-    it('the choice is settled through the shared helper, then recorded as the receipt row (any unproven state already threw)', () => {
-        const settle = settleFn.indexOf('const consent = await settlePracticeConsent({ page, client: admin as unknown as ChoiceClient, ownerId: owner.uid, migrationFiles,');
-        const row = settleFn.indexOf(`receipt.row('${CONSENT}', 'PASS',`);
+    it('#1910\'s helpers settle the prompt and gate capture; the spec never writes the row itself or reads consent another way', () => {
+        const settle = settleFn.indexOf('const consent = await settleFixedConsentOnPractice({ page, client, ownerId: owner.uid, migrationFiles,');
+        const gate = settleFn.indexOf('return captureConsentGate({ consent, client, ownerId: owner.uid,');
         expect(settle).toBeGreaterThan(0);
-        expect(settle).toBeLessThan(row);
+        expect(settle).toBeLessThan(gate);
         expect(settleFn).toContain("readdirSync(resolvePath(process.cwd(), 'backend/supabase/migrations'))");
-        // No second, hand-rolled prompt answer or row write.
-        expect(spec.match(/settlePracticeConsent\(/g)).toHaveLength(1);
+        expect(settleFn).toContain(`receipt.row('${CONSENT}', status, detail, evidence);`);
+        // Sam (Nov 20): the old path recorded PASS when a pre-#1835 build returned choice: null. No hand-written row remains.
+        expect(spec).not.toContain(`receipt.row('${CONSENT}', 'PASS'`);
         expect(spec.match(new RegExp(`receipt\\.row\\('${CONSENT}'`, 'g'))).toHaveLength(1);
-        expect(spec).not.toContain('answerPracticePrivacyPrompt');
+        expect(spec).not.toMatch(/settlePracticeConsent\(|readPracticeChoice\(|fixedConsentBeforeStartVerdict\(|answerPracticePrivacyPrompt/);
+        expect(spec).not.toContain('consent.choice');
     });
     it('the first visit is answered on the Practice page, before Products → Open Mic', () => {
         const practice = openFn.indexOf("await page.goto('/practice');");
@@ -184,26 +194,160 @@ describe('J5.b/c and J6: the run\'s own account opts in before any Start (#1835;
         expect(practice).toBeLessThan(first);
         expect(first).toBeLessThan(product);
     });
-    it('J5.b/c: the account\'s first Practice visit settles it, after the claim and before the first take; the reopened tab is not asked', () => {
+    it('the first take: a readback immediately before the cold model helper and before the ordinary Start; only a confirmed capture records PASS', () => {
+        expect(firstTake).toMatch(/\n\s*await gate\.confirm\(\);\n\s*const setup = await preparePrivateModelIfPrompted\(page, 900_000\);\n\s*if \(setup\.recordingAlreadyStarted\) \{\n\s*gate\.recordPass\(\);\n\s*return;\n\s*\}/);
+        expect(firstTake).toMatch(/\n\s*await gate\.confirm\(\);\n\s*await startBenchmarkRecording\(page, label\);\n\s*gate\.recordPass\(\);\n\}/);
+        expect(spec.match(/preparePrivateModelIfPrompted\(/g)).toHaveLength(1);
+        expect(spec.match(/await startBenchmarkRecording\(/g)).toHaveLength(1);
+        expect(spec.match(/recordPass\(\)/g)).toHaveLength(2);
+    });
+    it('J5.b/c: the first Practice visit settles it after the claim; every Start press, first take included, is confirmed first', () => {
         const claimed = abandon.indexOf('if (!claimed) return;');
-        const open = abandon.indexOf('await openOpenMic(page, () => settleRunConsent(page, receipt, owner));');
-        const take = abandon.indexOf('await startFirstPrivateTake(page,');
+        const open = abandon.indexOf('await openOpenMic(page, async () => { consentGate = await settleRunConsent(page, receipt, owner); });');
+        const take = abandon.indexOf('await startFirstPrivateTake(page, `abandon-${variant}-1`, requireGate(consentGate));');
         expect(claimed).toBeGreaterThan(0);
         expect(claimed).toBeLessThan(open);
         expect(open).toBeLessThan(take);
         expect(abandon).toContain('await openOpenMic(returned);');
         expect(abandon.match(/settleRunConsent\(/g)).toHaveLength(1);
+        // The return Start and the person's second press: each the statement right after a fresh readback.
+        expect(abandon.match(/getByTestId\('mic-start'\)\.click\(\)/g)).toHaveLength(2);
+        expect(abandon.match(/await requireGate\(consentGate\)\.confirm\(\);\n\s*await returned\.getByTestId\('mic-start'\)\.click\(\);/g)).toHaveLength(2);
     });
-    it('J6: tab A\'s first visit settles it before tab A\'s take; the same-browser tab and the other device are not asked', () => {
+    it('J6: tab A\'s first visit settles it; tab A\'s take, the same-browser press, both other-device presses are confirmed first', () => {
         const claimed = test11.indexOf('if (!claimed) return;');
-        const open = test11.indexOf('await openOpenMic(tabA, () => settleRunConsent(tabA, receipt, owner));');
-        const take = test11.indexOf("await startFirstPrivateTake(tabA, 'two-tab-a');");
+        const open = test11.indexOf('await openOpenMic(tabA, async () => { consentGate = await settleRunConsent(tabA, receipt, owner); });');
+        const take = test11.indexOf("await startFirstPrivateTake(tabA, 'two-tab-a', requireGate(consentGate));");
         expect(claimed).toBeGreaterThan(0);
         expect(claimed).toBeLessThan(open);
         expect(open).toBeLessThan(take);
         expect(test11).toContain('await openOpenMic(sameBrowserTab);');
         expect(test11).toContain('await openOpenMic(deviceB);');
         expect(test11.match(/settleRunConsent\(/g)).toHaveLength(1);
+        expect(confirmedBefore(test11, "await sameBrowserTab.getByTestId('mic-start').click();")).toBe(true);
+        expect(confirmedBefore(test11, `await deviceB.locator('[data-testid="mic-start"], [data-testid="mic-download"]').first().click();`)).toBe(true);
+        // The other device's first press: the readback is the first thing its pre-press callback does.
+        expect(test11).toMatch(/pressPrivateStartForLease\(deviceB, waitForPrivateEngineReady, async \(\) => \{\n(\s*\/\/[^\n]*\n)*\s*await requireGate\(consentGate\)\.confirm\(\);/);
+        expect(test11.match(/getByTestId\('mic-start'\)\.click\(\)|\.first\(\)\.click\(\)/g)).toHaveLength(2);
+    });
+    it('a press before the first visit settled the gate is refused', () => {
+        expect(spec).toContain("if (!gate) throw new Error('HOLD practice consent: not_settled');");
+        expect(spec.match(/let consentGate: CaptureConsentGate \| null = null;/g)).toHaveLength(2);
+    });
+
+    // Caller-level controls (Sam, Nov 20): the journey's order offline, with the spec's own helpers and its fixed mode. A press
+    // happens only after the confirm before it passed, as in the spec; `presses` counts later presses (return Start, second
+    // press, same-browser tab, other device, take-over), each confirmed first.
+    const OWNER = 'owner-1';
+    const ROW = { user_id: OWNER, transcript_save: true, ai_coaching: false, consent_version: 1 };
+    type Table = { rows: Array<Record<string, unknown>> };
+    function client(table: Table | 'absent', broken: () => boolean = () => false): ChoiceClient {
+        const fail = (code: string) => ({ data: null, error: { code } });
+        return {
+            from: () => ({
+                select: () => ({
+                    eq: (_col: string, v: string) => ({
+                        maybeSingle: async () => table === 'absent' ? fail('PGRST205') : broken() ? fail('57014')
+                            : { data: table.rows.find((r) => r.user_id === v) ?? null, error: null },
+                    }),
+                    limit: async () => table === 'absent' ? fail('42P01') : { data: [], error: null },
+                }),
+            }),
+        };
+    }
+    /** The #1835 prompt as the product renders it, for Save: Yes then Coaching: No (enough for the shared answerer). */
+    function prompt(onContinue: () => void) {
+        const state = { save: null as boolean | null, ai: null as boolean | null, open: true };
+        const clicks: string[] = [];
+        const P = PRACTICE_PRIVACY_PROMPT;
+        const control = (id: string) => ({
+            click: async () => {
+                clicks.push(id);
+                if (id === P.saveYes) state.save = true;
+                if (id === P.aiYes || id === P.aiNo) state.ai = id === P.aiYes;
+                if (id === P.continue) { state.open = false; onContinue(); }
+            },
+            getAttribute: async (name: string) => {
+                if (name === 'aria-disabled') return null;
+                if (name !== 'aria-checked') return null;
+                if (id === P.aiYes || id === P.aiNo) return String(state.ai === (id === P.aiYes));
+                return String(state.save === (id === P.saveYes));
+            },
+            isVisible: async () => id !== P.aiNeedsSave,
+        });
+        const root = { waitFor: async (o?: { state?: string }) => { if (o?.state === 'hidden' && state.open) throw new Error('Timeout'); }, getByTestId: control };
+        return { page: { getByTestId: (id: string) => (id === P.root ? root : control(id)) } as unknown as Page, clicks };
+    }
+    type Row = { status: string; evidence: Record<string, string> };
+    async function journey(opts: { files?: readonly string[] | null; absent?: boolean; onContinue?: (t: Table) => void;
+        beforeCapture?: (t: Table) => void; beforePress?: number; change?: (t: Table) => void; broken?: () => boolean; presses?: number }) {
+        const table: Table = { rows: [] };
+        const { page, clicks } = prompt(() => (opts.onContinue ?? ((t) => t.rows.push({ ...ROW })))(table));
+        const rows: Row[] = [];
+        const record = (status: 'PASS' | 'FAIL' | 'HOLD', _detail: string, evidence: Record<string, string>) => rows.push({ status, evidence });
+        const c = opts.absent ? client('absent') : client(table, opts.broken);
+        let captures = 0;
+        const outcome = await (async () => {
+            const consent = await settleFixedConsentOnPractice({ page, client: c, ownerId: OWNER, migrationFiles: opts.files === undefined ? ['a.sql', PRIVACY_MIGRATION_1835] : opts.files,
+                mode: ABANDON_TWO_PLACES_CONSENT_MODE, record });
+            const gate = captureConsentGate({ consent, client: c, ownerId: OWNER, mode: ABANDON_TWO_PLACES_CONSENT_MODE, record });
+            opts.beforeCapture?.(table);
+            await gate.confirm();
+            captures += 1; // the first take
+            gate.recordPass();
+            for (let i = 0; i < (opts.presses ?? 3); i++) {
+                if (i === opts.beforePress) opts.change?.(table);
+                await gate.confirm();
+                captures += 1;
+            }
+            return 'all presses';
+        })().catch((e: Error) => e.message);
+        return { outcome, captures, rows, clicks };
+    }
+
+    it('caller PASS: the prompt is answered Save: Yes, Coaching: No; the row is PASS exactly once across every later press', async () => {
+        const r = await journey({});
+        expect(r.outcome).toBe('all presses');
+        expect(r.captures).toBe(4);
+        expect(r.clicks).toEqual([PRACTICE_PRIVACY_PROMPT.saveYes, PRACTICE_PRIVACY_PROMPT.aiNo, PRACTICE_PRIVACY_PROMPT.continue]);
+        expect(r.rows).toEqual([{ status: 'PASS', evidence: { reason: 'choice_recorded', build: 'includes_1835', mode: 'save_on' } }]);
+    });
+    it('caller NEGATIVE (Sam, Nov 20): a pre-#1835 build, with no saved choice to read back, records FAIL and never presses Start', async () => {
+        const r = await journey({ files: ['a.sql'], absent: true });
+        expect(r.captures).toBe(0);
+        expect(r.outcome).toBe('HOLD practice consent: legacy_build');
+        expect(r.clicks).toEqual([]);
+        expect(r.rows).toEqual([{ status: 'FAIL', evidence: { reason: 'legacy_build', build: 'predates_1835', mode: 'save_on' } }]);
+    });
+    it('caller NEGATIVE: an unknown build, or a prompt that recorded no choice, stops on Practice with a HOLD row', async () => {
+        const unknown = await journey({ files: null });
+        expect(unknown.captures).toBe(0);
+        expect(unknown.rows).toEqual([{ status: 'HOLD', evidence: { reason: 'build_unknown', mode: 'save_on' } }]);
+        const missing = await journey({ onContinue: () => undefined });
+        expect(missing.captures).toBe(0);
+        expect(missing.outcome).toBe('HOLD practice consent: choice_missing');
+        expect(missing.rows).toEqual([{ status: 'HOLD', evidence: { reason: 'choice_missing', mode: 'save_on' } }]);
+        const coachingOn = await journey({ onContinue: (t) => t.rows.push({ ...ROW, ai_coaching: true }) });
+        expect(coachingOn.captures).toBe(0);
+        expect(coachingOn.rows).toEqual([{ status: 'HOLD', evidence: { reason: 'choice_differs', mode: 'save_on' } }]);
+    });
+    it('caller NEGATIVE: a saved choice removed, changed or unreadable before the first take stops that take', async () => {
+        const removed = await journey({ beforeCapture: (t) => { t.rows.length = 0; } });
+        expect(removed.captures).toBe(0);
+        expect(removed.rows).toEqual([expect.objectContaining({ status: 'FAIL', evidence: expect.objectContaining({ reason: 'readback_missing' }) })]);
+        const changed = await journey({ beforeCapture: (t) => { t.rows[0] = { ...ROW, transcript_save: false }; } });
+        expect(changed.captures).toBe(0);
+        expect(changed.rows[0]).toMatchObject({ status: 'FAIL', evidence: { reason: 'readback_differs' } });
+        let reads = 0;
+        const unreadable = await journey({ broken: () => ++reads > 2 }); // settle reads twice; the first confirm cannot read
+        expect(unreadable.captures).toBe(0);
+        expect(unreadable.rows).toEqual([expect.objectContaining({ status: 'HOLD', evidence: expect.objectContaining({ reason: 'readback_unreadable' }) })]);
+    });
+    it('caller NEGATIVE: a saved choice removed before a later press stops that press (the first take\'s row stays its own PASS)', async () => {
+        const r = await journey({ beforePress: 1, change: (t) => { t.rows.length = 0; } });
+        expect(r.outcome).toBe('HOLD practice consent: readback_missing');
+        expect(r.captures).toBe(2); // the first take and the return Start only; the second press never happens
+        expect(r.rows).toEqual([expect.objectContaining({ status: 'PASS' })]);
     });
     for (const suite of [ABANDON_NAVIGATE_SUITE, ABANDON_CLOSE_TAB_SUITE, TWO_TAB_SUITE]) {
         const inventory = requiredAutomatedRows(suite)!;
