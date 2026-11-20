@@ -5,7 +5,15 @@
  *
  * Pure decisions only; the spec drives the page. Case-only helper: nothing AHT-01 loads imports it.
  */
+import type { ConsentMode } from './rwtPracticeConsent';
 import { savedTakeReadbackVerdict, type SessionRowFacts, type Verdict } from './rwtSaveRetry';
+
+/**
+ * J5.a (#1835, Sam Nov 20): the recovery take must keep its transcript, so this run's own fresh account opts in to saving through
+ * the Practice prompt (Save: Yes, Coaching: No; the coaching budget is a ceiling, so zero requests passes). Fixed, never read
+ * from the environment: the app's default stays off and only this test account opts in.
+ */
+export const PENDING_START_CONSENT_MODE: ConsentMode = 'save_on';
 
 /** The control the settled return offered: `returnControlSample(...).expectedControl` (a test id), or null when unreadable. */
 export type ReturnedControl = string | null;
@@ -62,18 +70,29 @@ export interface RecoveryPressIo {
     pressOnce(control: RecoveryControl): Promise<{ activated: boolean; reason?: string; staleRecorder?: boolean }>;
     /** Whether the take is recording within the control's bound after that press. */
     recordingAfterPress(control: RecoveryControl): Promise<boolean>;
+    /** #1835: the owner's fresh consent readback; throws unless it is exactly the run's fixed choice. Runs right before the press. */
+    confirmConsent(): Promise<void>;
 }
 export type RecoveryPressOutcome =
     | { kind: 'recorded'; control: RecoveryControl }
     | { kind: 'stale-recorder' }
     | { kind: 'control-changed'; planned: RecoveryControl; offered: string | null }
     | { kind: 'press-unobserved'; control: RecoveryControl; reason: string }
-    | { kind: 'pressed-no-recording'; control: RecoveryControl };
+    | { kind: 'pressed-no-recording'; control: RecoveryControl }
+    | { kind: 'consent-unproven'; control: RecoveryControl; reason: string };
 
 export async function driveRecoveryPress(io: RecoveryPressIo, planned: RecoveryControl): Promise<RecoveryPressOutcome> {
     if (await io.recorderPresent().catch(() => true)) return { kind: 'stale-recorder' };
     const offered = await io.offeredControl().catch(() => null);
     if (offered !== planned) return { kind: 'control-changed', planned, offered };
+    // #1835 (Sam, Nov 20): the owner's choice is read back immediately before the capture-capable press. A choice changed or
+    // unreadable since the first press means zero recovery presses.
+    try {
+        await io.confirmConsent();
+    } catch (error) {
+        const reason = /^HOLD practice consent: ([a-z0-9_]+)/.exec(error instanceof Error ? error.message : '')?.[1] ?? 'not_proven';
+        return { kind: 'consent-unproven', control: planned, reason };
+    }
     let press: { activated: boolean; reason?: string; staleRecorder?: boolean };
     try {
         press = await io.pressOnce(planned);
@@ -100,6 +119,8 @@ export function recoveryPressVerdict(o: RecoveryPressOutcome): Verdict | null {
             return { status: 'HOLD', detail: `the ${o.control} activation was not observed (${o.reason}); no recovery credit is given` };
         case 'pressed-no-recording':
             return { status: 'FAIL', detail: `a proven press of ${o.control} for the recovery take did not start recording` };
+        case 'consent-unproven':
+            return { status: 'HOLD', detail: `the owner's consent was not proven right before the recovery press (${o.reason}); nothing was pressed` };
     }
 }
 

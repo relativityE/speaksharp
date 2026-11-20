@@ -8,6 +8,8 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Page } from '@playwright/test';
 import { expect, test } from './helpers/rwtProductionTest';
+import { readdirSync } from 'node:fs';
+import { resolve as resolvePath } from 'node:path';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
 import {
     AnalyticsTap, RWT_ACCOUNT_PREFIX, RWT_CANARY_CLAIM_ACK_VALUE, RwtReceipt, canaryClaimAuthorized,
@@ -29,8 +31,9 @@ import { RECORDER_STOP, micControlFor } from '../helpers/micControls';
 import { nextTakeIdArrived, type SessionRowFacts } from './helpers/rwtSaveRetry';
 import {
     type RecoveryControl, armRecoveryClickGuard, disarmRecoveryClickGuard, driveRecoveryPress, recoveryPressVerdict, recoveryTakePlan,
-    recoveryTakeVerdict,
+    recoveryTakeVerdict, PENDING_START_CONSENT_MODE,
 } from './helpers/rwtPendingStartRecovery';
+import { captureConsentGate, settleFixedConsentOnPractice, type ChoiceClient } from './helpers/rwtPracticeConsent';
 import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
 import { HarnessParityTap, type StartPressBudget } from './helpers/rwtHarnessParity';
 
@@ -240,6 +243,21 @@ test('leaving during a cold Start does not leave a recording or session behind @
         }
 
         await page.goto('/practice');
+        // #1835 (Sam, Nov 20): saving stays off until the owner opts in, and the recovery take must keep its transcript. THIS run's
+        // own fresh account answers the Practice prompt (Save: Yes, Coaching: No) as a user would; the owner's row is read back
+        // immediately before each capture-capable press (the cold Start below and the recovery press). No proven choice: no press.
+        const migrationFiles = (() => { try { return readdirSync(resolvePath(process.cwd(), 'backend/supabase/migrations')); } catch { return null; } })();
+        const recordConsent = (status: 'PASS' | 'FAIL' | 'HOLD', detail: string, evidence: Record<string, string>) =>
+            receipt.row('practice privacy choice', status, detail, evidence);
+        let consentGate: ReturnType<typeof captureConsentGate>;
+        try {
+            const consent = await settleFixedConsentOnPractice({ page, client: admin as unknown as ChoiceClient, ownerId: uid, migrationFiles,
+                mode: PENDING_START_CONSENT_MODE, record: recordConsent });
+            consentGate = captureConsentGate({ consent, client: admin as unknown as ChoiceClient, ownerId: uid, mode: PENDING_START_CONSENT_MODE, record: recordConsent });
+        } catch {
+            receipt.halt('practice consent', 'HOLD before any press: the Practice privacy choice was not settled for this run\'s account');
+            return;
+        }
         await openProductsItem(page, 'open-mic');
         await page.waitForURL(/\/session/, { timeout: 45_000 });
         await selectBenchmarkMode(page, 'private');
@@ -252,8 +270,15 @@ test('leaving during a cold Start does not leave a recording or session behind @
         // reports its acquisition phase; the route change is the user's cancellation action under test.
         // #1593 (Sam, #1662 RETURN control 3): the abandoned Start's own cancellation (and the return's gate) is this
         // journey's expected fault — from the press until the return has been checked.
+        try {
+            await consentGate.confirm();
+        } catch {
+            receipt.halt('practice consent', 'HOLD before the cold Start: the owner\'s consent was not proven immediately before the press');
+            return;
+        }
         watch.setFaultPhase(true);
         await page.getByTestId('mic-download').click({ timeout: 15_000 });
+        consentGate.recordPass();
         // Codex P1 r4247193674: TranscriptionService publishes BOTH DOWNLOADING and ENGINE_INITIALIZING as the root
         // `data-model-status="loading"`; `downloading`/`initializing` are never written, so only `loading` is the pending Start.
         const pendingObserved = await page.waitForFunction(
@@ -381,7 +406,9 @@ test('leaving during a cold Start does not leave a recording or session behind @
                 offeredControl: () => page.evaluate(() => document.documentElement.getAttribute('data-model-status')).then(micControlFor),
                 pressOnce: (control) => pressRecoveryControl(page, control),
                 recordingAfterPress: (control) => isRecording(page, control === 'mic-download' ? 900_000 : 600_000),
+                confirmConsent: () => consentGate.confirm(),
             }, plan.control);
+            if (pressed.kind === 'recorded' || pressed.kind === 'pressed-no-recording') consentGate.recordPass();
             const pressVerdict = recoveryPressVerdict(pressed);
             if (pressVerdict) {
                 receipt.row('deliberate recovery take saved', pressVerdict.status, pressVerdict.detail,
