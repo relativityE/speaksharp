@@ -18,6 +18,9 @@ import { resolve } from 'node:path';
 const DIR = resolve(process.cwd(), 'backend', 'supabase', 'migrations');
 const SHIPPED = readdirSync(DIR).filter((f) => /^\d{8,14}_.+\.sql$/.test(f)).sort();
 const D2 = '20261119120000_repeat_practised_tip.sql';
+// #1906 (merged after D2): the deleted-account save-journal cleanup is the only shipped migration after D2. It touches no
+// sessions, attempt or coaching object, so the shipped chain keeps it; any OTHER later migration must be reviewed here.
+const AFTER_D2 = ['20261119200000_deleted_account_save_journal_cleanup_1643.sql'];
 
 /** Only what Supabase provides outside the migrations (verbatim from the trial current-chain suite). */
 const SUPABASE_BOOTSTRAP = `
@@ -53,8 +56,9 @@ afterEach(async () => { await db?.close(); db = null; });
 async function shippedChain(opts: { activateRetention?: boolean; withholdD2?: boolean } = {}): Promise<PGlite> {
     const pg = new PGlite();
     await pg.exec(SUPABASE_BOOTSTRAP);
-    expect(SHIPPED.at(-1)).toBe(D2);
-    for (const f of opts.withholdD2 ? SHIPPED.slice(0, -1) : SHIPPED) await pg.exec(readFileSync(resolve(DIR, f), 'utf8'));
+    expect(SHIPPED.filter((f) => f > D2)).toEqual(AFTER_D2);
+    expect(SHIPPED.filter((f) => f <= D2).at(-1)).toBe(D2);
+    for (const f of opts.withholdD2 ? SHIPPED.filter((f) => f !== D2) : SHIPPED) await pg.exec(readFileSync(resolve(DIR, f), 'utf8'));
     if (opts.activateRetention !== false) await pg.query('SELECT public.activate_transcript_retention_newest_one()');
     return pg;
 }
