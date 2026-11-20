@@ -57,7 +57,7 @@ describe('cleanup reserve: structural worst case, read from the cleanup code', (
     });
     it('sizes each journey from its accounts (one per harness case today), open takes and fenced cases', () => {
         const perAccount = ACCOUNT_DELETION.reduce((n, o) => n + o.requests, 0);
-        expect(perAccount).toBe(33);
+        expect(perAccount).toBe(34);
         const starts = (j) => JOURNEYS.find((x) => x.id === j).legs.reduce((n, l) => n + l.startPresses, 0);
         expect(runOwnedAccounts(JOURNEYS.find((x) => x.id === 'J6'))).toBe(1);
         expect(runOwnedAccounts(JOURNEYS.find((x) => x.id === 'J5'))).toBe(3);

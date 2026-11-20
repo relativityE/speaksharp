@@ -1380,13 +1380,30 @@ export async function performCandidateSwitch(page: Page, run: RunTarget, journey
 }
 
 /**
+ * #1835 (Sam, Nov 20): a capture-capable press inside a shared helper is preceded, immediately, by the caller's consent readback
+ * (`beforeCapture`, e.g. `CaptureConsentGate.confirm`). A refused readback is never recorded as a product step that failed: the
+ * press does not happen and the refusal propagates to the journey unchanged. No hook: nothing is read (callers that gate only
+ * their first take are unchanged).
+ */
+class CaptureConsentStop extends Error {
+    constructor(readonly original: unknown) { super('capture consent stop'); }
+}
+async function beforeCapturePress(beforeCapture: (() => Promise<void>) | undefined): Promise<void> {
+    if (!beforeCapture) return;
+    try { await beforeCapture(); } catch (error) { throw new CaptureConsentStop(error); }
+}
+function rethrowConsentStop(error: unknown): void {
+    if (error instanceof CaptureConsentStop) throw error.original;
+}
+
+/**
  * THE NEXT START (#1471 / #1521 pattern). From a fresh `/session`, the next take must begin without the Progress
  * hold: no "Finishing up your last session" at rest or during Start, recording within the ceiling, and the actual wait
  * reported. It must then STOP and the microphone must be confirmed OFF (every acquired audio track ended). A take
  * that cannot be stopped, or a microphone left live, is a failure (PM 2026-09-25) — never a successful next Start.
  * On any failure a bounded teardown is attempted before run-owned cleanup; its outcome is reported, not assumed.
  */
-export async function nextStartEvidence(page: Page, label: string): Promise<{
+export async function nextStartEvidence(page: Page, label: string, beforeCapture?: () => Promise<void>): Promise<{
     holdSeen: boolean; nextStartMs: number | null; stopped: boolean; liveTracksAfterStop: number | null; reason: string | null;
     startFailure: StartFailureState | null;
 }> {
@@ -1401,6 +1418,7 @@ export async function nextStartEvidence(page: Page, label: string): Promise<{
     const watch = setInterval(() => {
         void page.getByText(FINISHING_UP).count().then((n) => { if (n > 0) holdSeen = true; }).catch(() => undefined);
     }, 250);
+    try { await beforeCapturePress(beforeCapture); } catch (error) { clearInterval(watch); rethrowConsentStop(error); throw error; }
     const startedAt = Date.now();
     let nextStartMs: number | null = null;
     try {
@@ -1649,8 +1667,9 @@ export async function practiceAgainEvidence(
     page: Page, label: string, sessionId: string, product: 'open_mic' | 'focus_points', pointLabels: readonly string[] = [],
     /** #1532 Codex P1 r4124290575: called right after the SAVE take's Stop, so the caller can close that take's sent-stream window. */
     onSaveTakeStopped?: () => void,
-    /** How long the save take records (default SAVE_TAKE_PERSIST_MS; out-of-range values fall back to it). */
-    opts: { saveTakeMs?: number } = {},
+    /** How long the save take records (default SAVE_TAKE_PERSIST_MS; out-of-range values fall back to it). `beforeCapture`
+     *  (#1835): the caller's consent readback, awaited immediately before the save take's Start and the repeat action's press. */
+    opts: { saveTakeMs?: number; beforeCapture?: () => Promise<void> } = {},
 ): Promise<PracticeAgainEvidence> {
     const FINISHING_UP = /Finishing up your last session/;
     const ev: PracticeAgainEvidence = {
@@ -1694,6 +1713,7 @@ export async function practiceAgainEvidence(
     try {
         await expect(page.getByTestId('mic-status')).toContainText('Mic ready on this device', { timeout: 60_000 });
         step = 'start';
+        await beforeCapturePress(opts.beforeCapture);
         await startBenchmarkRecording(page, `${label}-save`);
         ev.saveTakeStartPressed = true;
         step = 'recording_started';
@@ -1724,7 +1744,8 @@ export async function practiceAgainEvidence(
         // the bounded persistence wait, so downstream readers (the two-take coaching read, product markers) bind the take
         // that was actually saved, never a stale pre-save value.
         Object.assign(ev, await savedTakeIdentity(page, sessionId));
-    } catch {
+    } catch (error) {
+        rethrowConsentStop(error);
         ev.reviewReached = false;
         ev.saveTakeFailedStep = step;
         // Read WHY before teardown navigates away; a timed-out read stays marked unread and the failure stands.
@@ -1749,6 +1770,8 @@ export async function practiceAgainEvidence(
         await expect(again).toBeEnabled({ timeout: 15_000 });
         ev.afterActionEnabledMs = Date.now() - offeredAt;
         ev.saveToGateClearMs = savedAtForGate !== null ? Math.max(0, Date.now() - savedAtForGate) : null;
+        // #1835: the consent readback comes before the trace is armed, so it never counts toward press → warm-up done.
+        await beforeCapturePress(opts.beforeCapture);
         // The product's own controller trace, armed just before the press, times press → warm-up done.
         const pressPerf = await Promise.resolve().then(() => page.evaluate(() => {
             const w = window as unknown as { __NATIVE_BROWSER_TRACE__?: unknown[] };
@@ -1766,8 +1789,9 @@ export async function practiceAgainEvidence(
             const done = trace.find((e) => e.event === 'controller_warmup_done' && e.t >= from);
             return done ? Math.round(done.t - from) : null;
         }, pressPerf)).catch(() => null);
-    } catch {
+    } catch (error) {
         clearInterval(watch);
+        rethrowConsentStop(error);
         // Read WHY before teardown navigates away (#1258 run 38298685079: the reason was swallowed here).
         if (ev.afterActionEnabledMs !== null) ev.startFailure = await readStartFailureState(page);
         ev.liveTracksAfterStop = await boundedTeardown(page, `${label}-again`);
