@@ -43,6 +43,33 @@ export const CONSENT_MODES: Readonly<Record<ConsentMode, PracticeChoice>> = Obje
  */
 export const SAVE_RETRY_CONSENT_MODE: ConsentMode = 'save_on';
 
+/**
+ * J1 (Open Mic first session) reviews the take's saved transcript and its AI coaching, so its own fresh run-owned account opts
+ * in to both through the Practice prompt (Save: Yes, Coaching: Yes). Fixed, never read from the environment: the app's
+ * default stays off and only this test account opts in.
+ */
+export const OPEN_MIC_FIRST_SESSION_CONSENT_MODE: ConsentMode = 'save_on_coaching_on';
+
+/**
+ * Pure: the owner's choice, read back from the server right before Start, is exactly the run's FIXED mode on a #1835 build.
+ * A pre-#1835 build or another mode FAILs; an unknown build or a missing or unreadable readback HOLDs. Only PASS lets the
+ * journey go on to Start.
+ */
+export function fixedConsentBeforeStartVerdict(o: {
+    build: PrivacyBuild; mode: ConsentMode | null; expected: ConsentMode; readback: ChoiceRead | null; ownerId: string | null;
+}): { status: 'PASS' | 'FAIL' | 'HOLD'; reason: string; detail: string } {
+    const want = CONSENT_MODES[o.expected];
+    const label = `Save: ${want.transcriptSave ? 'Yes' : 'No'}, Coaching: ${want.aiCoaching ? 'Yes' : 'No'}`;
+    if (o.build === 'predates_1835') return { status: 'FAIL', reason: 'legacy_build', detail: 'the build predates #1835 and shows no privacy prompt; this journey runs only on a post-#1835 build' };
+    if (o.build !== 'includes_1835') return { status: 'HOLD', reason: 'build_unknown', detail: 'the build\'s #1835 state is unknown, so the owner consent cannot be proven' };
+    if (o.mode !== o.expected) return { status: 'FAIL', reason: 'wrong_mode', detail: `the run did not choose ${label}` };
+    if (!o.ownerId || o.readback === null) return { status: 'HOLD', reason: 'readback_missing', detail: 'the owner\'s consent was not read back before Start' };
+    const v = privacyChoiceVerdict(o.readback, o.ownerId, want);
+    if (v.verdict === 'PASS') return { status: 'PASS', reason: 'choice_recorded', detail: `this run's own account chose ${label} in the Practice prompt, read back from the server right before Start` };
+    if (v.reason === 'unreadable') return { status: 'HOLD', reason: 'readback_unreadable', detail: 'the owner\'s consent row could not be read before Start' };
+    return { status: 'FAIL', reason: `readback_${v.reason}`, detail: `the owner's consent row read back before Start is ${v.reason}` };
+}
+
 /** The run's consent mode from its environment; null when unset or not one of the three. */
 export function consentModeFrom(value: string | undefined): ConsentMode | null {
     return value !== undefined && Object.prototype.hasOwnProperty.call(CONSENT_MODES, value) ? value as ConsentMode : null;
@@ -257,4 +284,32 @@ export async function settlePracticeConsent(input: {
     const recorded = privacyChoiceVerdict(await readPracticeChoice(input.client, input.ownerId), input.ownerId, choice);
     if (recorded.verdict !== 'PASS') throw new Error(`HOLD practice consent: choice_${recorded.reason}`);
     return { build, choice, mode: input.mode };
+}
+
+/** One receipt row, as the caller records it (content-free: reasons and states only, never a thrown message). */
+export type ConsentRowRecorder = (status: 'PASS' | 'FAIL' | 'HOLD', detail: string, evidence: Record<string, string>) => void;
+
+/**
+ * The caller J1.a uses on the Practice page, before Open Mic and any Start (Sam, Nov 20): settle this run's FIXED consent for
+ * its fresh run-owned owner, read the owner's own row back right before Start, record the required `practice privacy
+ * choice` row, and return only on PASS. Every other outcome (prompt not settled, choice missing, unreadable, another
+ * owner's or another choice, an unknown or pre-#1835 build) records the row with its reason and throws
+ * `HOLD practice consent: <reason>`, so no take can start.
+ */
+export async function settleFixedConsentBeforeStart(input: {
+    page: Page; client: ChoiceClient; ownerId: string; migrationFiles: readonly string[] | null; mode: ConsentMode; record: ConsentRowRecorder;
+}): Promise<SettledConsent> {
+    let consent: SettledConsent;
+    try {
+        consent = await settlePracticeConsent({ page: input.page, client: input.client, ownerId: input.ownerId, migrationFiles: input.migrationFiles, mode: input.mode });
+    } catch (error) {
+        const reason = /^HOLD practice consent: ([a-z0-9_]+)/.exec(error instanceof Error ? error.message : '')?.[1] ?? 'not_settled';
+        input.record('HOLD', `the Practice prompt was not settled for this run's account before Start (${reason})`, { reason, mode: input.mode });
+        throw error;
+    }
+    const readback = consent.build === 'includes_1835' ? await readPracticeChoice(input.client, input.ownerId) : null;
+    const privacy = fixedConsentBeforeStartVerdict({ build: consent.build, mode: consent.mode, expected: input.mode, readback, ownerId: input.ownerId || null });
+    input.record(privacy.status, privacy.detail, { reason: privacy.reason, build: consent.build, mode: consent.mode ?? 'none' });
+    if (privacy.status !== 'PASS') throw new Error(`HOLD practice consent: ${privacy.reason}`);
+    return consent;
 }

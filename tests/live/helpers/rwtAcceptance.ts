@@ -480,6 +480,8 @@ export async function recordRunOwnedCleanup(
 // Focus suites and returning-user navigation (maximum 0), so a receipt with the row stripped can never finalize PASS.
 const OPEN_MIC_PRODUCT_ROWS = Object.freeze([
     'coaching request budget', 'base_q4 primary', 'signup', 'sign-in', 'session bears canary claim', 'Products → Open Mic', 'no mic on navigation',
+    // J1.a (#1835): this run's own account chose Save: Yes, Coaching: Yes in the Practice prompt, read back before Start.
+    'practice privacy choice',
     'model identity', 'new-account entitlement', 'live filler highlighting', 'session saved', 'saved exactly once',
     'coaching rendered', 'coaching length', 'coaching phrases distinct', 'coaching visible = saved', 'coaching server receipt',
     // #1258 R4: the coaching checks text can prove — ceiling, no contradiction with saved fillers, not identical across takes.

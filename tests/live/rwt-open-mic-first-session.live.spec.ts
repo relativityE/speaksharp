@@ -26,7 +26,8 @@
  * With no comparison cell the run records the deployed default and is labelled diagnostic.
  */
 import { createClient } from '@supabase/supabase-js';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { resolve as resolvePath } from 'node:path';
 import { J1D_LEG, J1D_ROWS, J1D_SUITE, j1dCaseAssertions, j1dRunnerAdmission, j1dVerdicts } from './helpers/rwtJ1dJourney';
 import { runJ1dLeg } from './helpers/rwtJ1dLeg';
 import { test } from './helpers/rwtProductionTest';
@@ -120,6 +121,7 @@ import { capturedTakesDifferVerdict, coachingPromptBindingRow, coachingRequestBu
 import { answerOrder, latestAnsweredAt, lateCoachingSavedRow, ownerNewerCompletedCounter, ownerSessionReader } from './helpers/rwtLateCoaching';
 import { coachingContract } from './helpers/rwtCoachingEvidence';
 import { openProductsItem } from './helpers/productsMenu';
+import { OPEN_MIC_FIRST_SESSION_CONSENT_MODE, settleFixedConsentBeforeStart, type ChoiceClient } from './helpers/rwtPracticeConsent';
 import {
     LEGACY_PHRASE, PROGRESS_FORMULA, REPEAT_METRIC_ROW, pressLinkage, repeatMetricPrerequisites, repeatMetricWordingVerdict,
     type PanelObservation, type ServerEvidence,
@@ -510,6 +512,13 @@ test.describe('RWT — Open Mic first session @live', () => {
             await test.step('row 2 — reach Open Mic; no microphone on navigation', async () => {
                 await page.goto('/practice');
                 await expect(page.getByTestId('practice-root')).toBeVisible({ timeout: 60_000 });
+                // #1835: saving and coaching stay off until the owner opts in, and an owner with no recorded choice is asked on
+                // Practice. J1 reviews the take's saved transcript and its AI coaching, so THIS run's own fresh account answers the
+                // prompt (Save: Yes, Coaching: Yes) as a user would, before anything else on the page. The owner's server row is
+                // then read back as exactly that choice, and any other outcome, a pre-#1835 build included, stops before Open Mic.
+                const migrationFiles = (() => { try { return readdirSync(resolvePath(process.cwd(), 'backend/supabase/migrations')); } catch { return null; } })();
+                await settleFixedConsentBeforeStart({ page, client: admin as unknown as ChoiceClient, ownerId: capturedUid, migrationFiles,
+                    mode: OPEN_MIC_FIRST_SESSION_CONSENT_MODE, record: (status, detail, evidence) => receipt.row('practice privacy choice', status, detail, evidence) });
                 const switched = await performCandidateSwitch(page, run, JOURNEY);
                 receipt.meta.switchOutcome = switched;
                 if (run.mode === 'switch' && switched !== 'ok') throw new Error(`HOLD candidate switch: ${switched}`);
