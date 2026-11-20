@@ -123,13 +123,13 @@ describe('#1826 canary cleanup preserves interrupted and uncertain accounts (Sam
         expect(await cleanupLane({ finishSaveJournal: FINISH, admin, env: process.env, cleanup: canaryCleanup })).toMatchObject({ ok: false, code: 'unsettled_take' });
         expect(admin.state).toMatchObject({ deleted: false, deleteCalls: 0 });
         admin.landSave(S1);
-        expect(await cleanupLane({ finishSaveJournal: FINISH, admin, env: process.env, cleanup: canaryCleanup })).toEqual({ ok: true, code: 'cleanup-verified', deleted: 1 });
+        expect(await cleanupLane({ finishSaveJournal: FINISH, admin, env: process.env, cleanup: canaryCleanup })).toEqual({ ok: true, code: 'cleanup-verified', deleted: 1, orphans: 0 });
         expect(admin.state).toMatchObject({ deleted: true, deleteCalls: 1 });
     });
 
     it('normal settled take: deleted through the shared cleanup with the trial-entitlements pre-delete and zero residue', async () => {
         const admin = canaryAccount(ENV.GITHUB_RUN_ID, { releasedLeases: [L1], sessions: [{ id: S1, status: 'completed', lease_id: L1, recording_fenced_at: null, created_at: iso(T0), expires_at: null, updated_at: iso(T0) }] });
-        expect(await cleanupLane({ finishSaveJournal: FINISH, admin, env: process.env, cleanup: canaryCleanup })).toEqual({ ok: true, code: 'cleanup-verified', deleted: 1 });
+        expect(await cleanupLane({ finishSaveJournal: FINISH, admin, env: process.env, cleanup: canaryCleanup })).toEqual({ ok: true, code: 'cleanup-verified', deleted: 1, orphans: 0 });
         expect(admin.state).toMatchObject({ deleted: true, deleteCalls: 1 });
         expect(admin.state.writes).toEqual(['claim:account_save_obligations', 'delete:trial_entitlements', 'delete:account_save_obligations']);
     });

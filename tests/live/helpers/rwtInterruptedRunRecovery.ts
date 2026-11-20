@@ -286,14 +286,14 @@ export async function recoverInterruptedRuns(params: {
     feedback.listed = fences.length;
     // #1906: the complete inventory of open save-journal claims, as one value that must add up. A deployment without the migration
     // has none; an inventory that cannot be proven complete holds (Sam, #1906 review), and any other error fails.
+    // Read through the admin itself: an admin that cannot call the database cannot prove there is no claim (FAILED, never zero).
+    // Only a database that answers "no such function" (before the migration, where no claim can exist) reads as empty.
     const minAgeSeconds = Math.ceil(minAgeMs / 1000);
     let inventory: SaveJournalInventory = { claims: 0, live: 0, unbound: 0, runs: [] };
-    if (rpc) {
-        const read = await readSaveJournalInventory(rpc as never, minAgeSeconds);
-        if (read.status === 'error') return report('FAILED', counts);
-        if (read.status === 'incomplete') return report('HOLD_INCOMPLETE_LISTING', counts);
-        if (read.status === 'ok') inventory = read.inventory;
-    }
+    const first = await readSaveJournalInventory(params.admin as never, minAgeSeconds);
+    if (first.status === 'error') return report('FAILED', counts);
+    if (first.status === 'incomplete') return report('HOLD_INCOMPLETE_LISTING', counts);
+    if (first.status === 'ok') inventory = first.inventory;
     saveJournal.claims = inventory.claims; saveJournal.runs = inventory.runs.length; saveJournal.live = inventory.live;
     saveJournal.remaining = inventory.claims;
     // Nothing to recover only when there is no account, no fence AND no open claim at all (Sam: never while a claim remains).
@@ -330,13 +330,15 @@ export async function recoverInterruptedRuns(params: {
         if (listed.recent > 0 || heldRuns.has(run) || await runState(binding) !== 'terminal') {
             saveJournal.held += listed.claims; heldRuns.add(run); continue;
         }
-        let finished: number;
+        let finished: unknown;
         try {
             finished = await finishSaveJournal(params.admin as never, binding);
         } catch (error) {
             // An answer that cannot be proven complete deleted nothing: hold (Sam, #1906 review); any other failure fails.
             return report(saveJournalSweepIncomplete(error) ? 'HOLD_INCOMPLETE_LISTING' : 'FAILED', counts);
         }
+        // A finish that does not report a counted number proved nothing (never read as zero).
+        if (typeof finished !== 'number' || !Number.isSafeInteger(finished) || finished < 0) return report('FAILED', counts);
         saveJournal.finished += finished;
         finishedRuns.add(canonicalBinding(listed.binding));
     }
@@ -356,15 +358,17 @@ export async function recoverInterruptedRuns(params: {
     }
     // After any change, read the inventory again: a run this recovery finished must have no claim left (else FAILED), and anything
     // still open holds. With no change the first inventory stands.
-    if (rpc && (finishedRuns.size > 0 || deleted > 0)) {
-        const after: SaveJournalInventoryRead = await readSaveJournalInventory(rpc as never, minAgeSeconds);
+    if (finishedRuns.size > 0 || deleted > 0) {
+        const after: SaveJournalInventoryRead = await readSaveJournalInventory(params.admin as never, minAgeSeconds);
         if (after.status === 'error') return report('FAILED', counts, deleted);
         if (after.status === 'incomplete') return report('HOLD_INCOMPLETE_LISTING', counts, deleted);
         if (after.status === 'ok') {
             saveJournal.remaining = after.inventory.claims;
             if (after.inventory.runs.some((r) => finishedRuns.has(canonicalBinding(r.binding)))) return report('FAILED', counts, deleted);
-        } else {
-            saveJournal.remaining = 0;
+        } else if (first.status === 'ok') {
+            // Sam, #1906 review of 6b8943d: the first read proved the inventory exists; a follow-up that now reads "no such
+            // function" is a lost check, not zero. Hold. (Only a database that never had the migration reads as empty.)
+            return report('HOLD_INCOMPLETE_LISTING', counts, deleted);
         }
     }
     if (feedback.held > 0 || saveJournal.held > 0) return report('HOLD_ACTIVE_RUN', counts, deleted);

@@ -52,7 +52,7 @@ if (command === 'setup') {
 
 if (command === 'cleanup') {
     const result = await cleanupLane({ admin, env: process.env, cleanup, finishSaveJournal });
-    console.log(`canary-run-owned cleanup: ${result.code} deleted=${result.deleted}`);
+    console.log(`canary-run-owned cleanup: ${result.code} deleted=${result.deleted}${typeof result.orphans === 'number' ? ` orphans=${result.orphans}` : ''}`);
     if (result.preserved) console.log(`::warning::canary run-owned account PRESERVED (${result.code}) for authorized recovery: run=${result.preserved.runId} attempt=${result.preserved.runAttempt} account=${result.preserved.accountPattern}`);
     process.exit(result.ok ? 0 : 1);
 }

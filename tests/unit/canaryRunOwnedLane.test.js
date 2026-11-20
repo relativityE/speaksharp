@@ -125,11 +125,11 @@ describe('cleanupLane — only this run+attempt, only with proof', () => {
     it('deletes exactly this run+attempt\'s bound account through the shared cleanup', async () => {
         const cleanup = vi.fn(async () => {});
         const r = await cleanupLane({ finishSaveJournal: FINISH, admin: admin([MINE, ...others]), env: ENV, cleanup });
-        expect(r).toEqual({ ok: true, code: 'cleanup-verified', deleted: 1 });
+        expect(r).toEqual({ ok: true, code: 'cleanup-verified', deleted: 1, orphans: 0 });
         expect(cleanup.mock.calls).toEqual([[expect.objectContaining({ uid: 'm1', email: MINE.email })]]);
     });
     it('reports nothing-to-clean truthfully when the complete listing has no account of this run', async () => {
-        expect(await cleanupLane({ finishSaveJournal: FINISH, admin: admin(others), env: ENV, cleanup: vi.fn() })).toEqual({ ok: true, code: 'nothing-to-clean', deleted: 0 });
+        expect(await cleanupLane({ finishSaveJournal: FINISH, admin: admin(others), env: ENV, cleanup: vi.fn() })).toEqual({ ok: true, code: 'nothing-to-clean', deleted: 0, orphans: 0 });
     });
     it('fails when the shared cleanup cannot prove deletion and zero residue', async () => {
         const r = await cleanupLane({ finishSaveJournal: FINISH, admin: admin([MINE]), env: ENV, cleanup: async () => { throw new Error('residue'); } });
@@ -142,7 +142,7 @@ describe('cleanupLane — only this run+attempt, only with proof', () => {
         const forged = user('f1', 'ctrial-run-43000000002-1-eeee5555@example.test', bind('43000000002', '1', { workflow: 'other/repo/.github/workflows/x.yml@refs/heads/main' }));
         const cleanup = vi.fn(async () => {});
         const r = await cleanupLane({ finishSaveJournal: FINISH, admin: admin([MINE, forged]), env: ENV, cleanup });
-        expect(r).toEqual({ ok: false, code: 'prefix-without-binding', deleted: 1 });
+        expect(r).toEqual({ ok: false, code: 'prefix-without-binding', deleted: 1, orphans: 0 });
         expect(cleanup.mock.calls.map((c) => c[0].uid)).toEqual(['m1']);
     });
     it('outside a run it touches nothing', async () => {
@@ -205,12 +205,12 @@ describe('#1906 restart after deletion: canary save-journal claims (Codex on 62b
         const order = [];
         const cleanup = vi.fn(async () => { order.push('own'); });
         const finish = vi.fn(async () => { order.push('finish'); return 1; });
-        expect(await cleanupLane({ finishSaveJournal: finish, admin: admin([MINE]), env: ENV, cleanup })).toEqual({ ok: true, code: 'cleanup-verified', deleted: 1 });
+        expect(await cleanupLane({ finishSaveJournal: finish, admin: admin([MINE]), env: ENV, cleanup })).toEqual({ ok: true, code: 'cleanup-verified', deleted: 1, orphans: 1 });
         expect(order).toEqual(['own', 'finish']);
         expect(finish.mock.calls[0][1]).toEqual(claimOf('43000000002'));
-        // Nothing of its own listed: still finished by binding (a stopped cleanup whose account is already gone).
+        // Nothing of its own listed: still finished by binding (a stopped cleanup whose account is already gone), and REPORTED as a cleanup, never "nothing to clean" (Sam, #1906 review of 6b8943d).
         const finish2 = vi.fn(async () => 1);
-        expect(await cleanupLane({ finishSaveJournal: finish2, admin: admin([]), env: ENV, cleanup: vi.fn() })).toEqual({ ok: true, code: 'nothing-to-clean', deleted: 0 });
+        expect(await cleanupLane({ finishSaveJournal: finish2, admin: admin([]), env: ENV, cleanup: vi.fn() })).toEqual({ ok: true, code: 'cleanup-verified', deleted: 0, orphans: 1 });
         expect(finish2).toHaveBeenCalledTimes(1);
     });
     it('cleanupLane fails closed when the finish fails, and refuses to run without one', async () => {
@@ -242,6 +242,17 @@ describe('#1906 restart after deletion: canary save-journal claims (Codex on 62b
             env: ENV, getRun, cleanup: vi.fn(), now: NOW });
         expect(r).toMatchObject({ ok: true, report: { saveJournal: { runs: 1, finished: 0, left: 1, failed: 0 } } });
         expect(finish).not.toHaveBeenCalled();
+    });
+    it('a finish that reports no counted number, or fewer than the claims listed for that run, is never success (no missing-equals-zero)', async () => {
+        for (const bad of [undefined, null, '2', -1, 1.5, Number.NaN, 1]) {     // 1 < the 2 claims listed
+            const r = await sweepLane({ readSaveJournal: READ, finishSaveJournal: vi.fn(async () => bad), admin: admin([], { journal: inventory([[claimOf('43000000010'), 2]]) }),
+                env: ENV, getRun, cleanup: vi.fn(), now: NOW });
+            expect(r).toMatchObject({ ok: false, code: 'sweep-failed', report: { saveJournal: { finished: 0, failed: 1 } } });
+        }
+        for (const bad of [undefined, null, '0', -1, 0.5, Number.NaN]) {
+            expect(await cleanupLane({ finishSaveJournal: vi.fn(async () => bad), admin: admin([MINE]), env: ENV, cleanup: vi.fn(async () => {}) }))
+                .toEqual({ ok: false, code: 'save-journal-unproven', deleted: 1 });
+        }
     });
     it('sweepLane fails on a failed finish, a listing error, a refused (too many) or unprovable inventory; a database without the function lists nothing', async () => {
         const one = inventory([[claimOf('43000000010')]]);

@@ -207,7 +207,7 @@ describe('#1826 canary cleanup against the ACTUAL #1643 deletion guard (PGlite, 
         expect(await a.exists()).toBe(true);
         await a.landSave();
         expect(await a.obligations()).toEqual(['completed']);
-        expect(await cleanupLane({ finishSaveJournal: FINISH, admin: sqlAdmin(), env: process.env, cleanup: canaryCleanup })).toEqual({ ok: true, code: 'cleanup-verified', deleted: 1 });
+        expect(await cleanupLane({ finishSaveJournal: FINISH, admin: sqlAdmin(), env: process.env, cleanup: canaryCleanup })).toEqual({ ok: true, code: 'cleanup-verified', deleted: 1, orphans: 0 });
         expect({ exists: await a.exists(), trial: await a.trialRows(), obligations: await a.obligations(), claims: (await one('SELECT 1 FROM public.account_save_journal_cleanup_claims WHERE user_id=$1', [a.uid])).length }).toEqual({ exists: false, trial: 0, obligations: [], claims: 0 });
     });
 
@@ -216,7 +216,7 @@ describe('#1826 canary cleanup against the ACTUAL #1643 deletion guard (PGlite, 
         await a.holdLease(); await a.openTake(); await a.landSave(); await a.releaseLease();
         process.env.GITHUB_RUN_ID = '43000000012';
         const admin = sqlAdmin();
-        expect(await cleanupLane({ finishSaveJournal: FINISH, admin, env: process.env, cleanup: canaryCleanup })).toEqual({ ok: true, code: 'cleanup-verified', deleted: 1 });
+        expect(await cleanupLane({ finishSaveJournal: FINISH, admin, env: process.env, cleanup: canaryCleanup })).toEqual({ ok: true, code: 'cleanup-verified', deleted: 1, orphans: 0 });
         expect(admin.deleteUser).toHaveBeenCalledTimes(1);
         expect({ exists: await a.exists(), trial: await a.trialRows(), obligations: await a.obligations(), claims: (await one('SELECT 1 FROM public.account_save_journal_cleanup_claims WHERE user_id=$1', [a.uid])).length }).toEqual({ exists: false, trial: 0, obligations: [], claims: 0 });
     });
@@ -269,14 +269,14 @@ describe('#1826 canary cleanup against the ACTUAL #1643 deletion guard (PGlite, 
         const a = await stoppedAfterDeletion('43000000030');
         // Another run's cleanup finds nothing of it and leaves it.
         process.env.GITHUB_RUN_ID = '43000000031';
-        expect(await cleanupLane({ finishSaveJournal: FINISH, admin: sqlAdmin(), env: process.env, cleanup: canaryCleanup })).toEqual({ ok: true, code: 'nothing-to-clean', deleted: 0 });
+        expect(await cleanupLane({ finishSaveJournal: FINISH, admin: sqlAdmin(), env: process.env, cleanup: canaryCleanup })).toEqual({ ok: true, code: 'nothing-to-clean', deleted: 0, orphans: 0 });
         expect({ obligations: await a.obligations(), claims: await claims(a.uid) }).toEqual({ obligations: ['completed'], claims: 1 });
         // A re-run attempt of the same run is a different binding: also nothing.
         process.env.GITHUB_RUN_ID = '43000000030'; process.env.GITHUB_RUN_ATTEMPT = '2';
-        expect(await cleanupLane({ finishSaveJournal: FINISH, admin: sqlAdmin(), env: process.env, cleanup: canaryCleanup })).toEqual({ ok: true, code: 'nothing-to-clean', deleted: 0 });
+        expect(await cleanupLane({ finishSaveJournal: FINISH, admin: sqlAdmin(), env: process.env, cleanup: canaryCleanup })).toEqual({ ok: true, code: 'nothing-to-clean', deleted: 0, orphans: 0 });
         expect(await claims(a.uid)).toBe(1);
         process.env.GITHUB_RUN_ATTEMPT = '1';
-        expect(await cleanupLane({ finishSaveJournal: FINISH, admin: sqlAdmin(), env: process.env, cleanup: canaryCleanup })).toEqual({ ok: true, code: 'nothing-to-clean', deleted: 0 });
+        expect(await cleanupLane({ finishSaveJournal: FINISH, admin: sqlAdmin(), env: process.env, cleanup: canaryCleanup })).toEqual({ ok: true, code: 'cleanup-verified', deleted: 0, orphans: 1 });
         expect({ obligations: await a.obligations(), claims: await claims(a.uid) }).toEqual({ obligations: [], claims: 0 });
     });
 

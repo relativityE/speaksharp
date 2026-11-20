@@ -116,7 +116,7 @@ describe('canary lane × REAL shared runOwnedCleanup (#1826)', () => {
         expect(setup).toEqual({ ok: true, code: 'created-bound' });
         expect(Object.keys(admin.users.get('uid-new')!.app_metadata)).toEqual([BINDING_KEY]);
         expect(BINDING_KEY).not.toBe('ct_run');
-        expect(await cleanupLane({ finishSaveJournal: FINISH, admin, env: process.env, cleanup: sharedCleanup })).toEqual({ ok: true, code: 'cleanup-verified', deleted: 1 });
+        expect(await cleanupLane({ finishSaveJournal: FINISH, admin, env: process.env, cleanup: sharedCleanup })).toEqual({ ok: true, code: 'cleanup-verified', deleted: 1, orphans: 0 });
         expect(admin.users.size).toBe(0);
         expect(admin.destructive).toEqual(['trial_entitlements', 'auth.users', 'account_save_obligations']);
     });

@@ -14,7 +14,8 @@
 //     SJ_ACK=1 for the delete acknowledgement bound to that SHA. Output: the recovery's one counts-only report line.
 //   SJ_TAMPER (either mode) changes what the database answered before the caller sees it, as a broken gateway would:
 //   `clip-inventory` drops the last run from the inventory, `malformed-inventory` nulls a run's binding, `clip-resume` drops one
-//   id from a resume-by-run answer. The database itself is never changed by it.
+//   id from a resume-by-run answer, `lose-second-inventory` answers the SECOND inventory read with "no such function" (PGRST202),
+//   as a gateway that lost the function after the first read would. The database itself is never changed by it.
 import { execFileSync } from 'node:child_process';
 import process from 'node:process';
 import { setInterval } from 'node:timers';
@@ -47,6 +48,7 @@ function createPsqlAdmin({ psql, hangAfter, tamper }) {
   const sql = text => execFileSync(psql, ['-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-c', text],
     { encoding: 'utf8', timeout: 10000, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   const tableExists = table => sql(`SELECT to_regclass('public.${table}') IS NOT NULL`) === 't';
+  let inventoryReads = 0;
   return {
     auth: { admin: {
       getUserById: async uid => {
@@ -92,6 +94,9 @@ function createPsqlAdmin({ psql, hangAfter, tamper }) {
     // thrown. The feedback-fence listing (another migration, not in this fixture) answers "no such function", as PostgREST would.
     rpc: async (fn, params) => {
       if (!IDENT.test(fn)) throw new Error('bad function');
+      if (fn === 'list_unfinished_account_save_journal_cleanup_runs_v1' && ++inventoryReads === 2 && tamper === 'lose-second-inventory') {
+        return { data: null, error: { code: 'PGRST202', message: 'lost' } };
+      }
       if (fn === 'list_unresolved_rwt_feedback_fences_v1') return { data: null, error: { code: 'PGRST202', message: 'not in this fixture' } };
       const call = `public.${fn}(${Object.entries(params).map(([k, v]) => arg(k, v)).join(',')})`;
       try {

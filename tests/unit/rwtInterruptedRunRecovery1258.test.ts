@@ -36,7 +36,9 @@ const fakeAdmin = (initial: AuthUserLike[], perPageLimit = Number.POSITIVE_INFIN
         const size = Math.min(perPage, perPageLimit);
         return { data: { users: users.slice((page - 1) * size, page * size) }, error: null };
     });
-    const admin = { auth: { admin: { listUsers } } } as unknown as AdminLike;
+    // A database before the #1811/#1906 migrations: every listing function answers "no such function" (nothing can be listed).
+    const rpc = vi.fn(async () => ({ data: null, error: { code: 'PGRST202' } }));
+    const admin = { auth: { admin: { listUsers } }, rpc } as unknown as AdminLike;
     const cleanup = vi.fn(async ({ capturedUid }: { capturedUid: string }) => {
         const i = users.findIndex((u) => u.id === capturedUid);
         users.splice(i, 1);
@@ -528,6 +530,38 @@ describe('#1906 save journals of interrupted runs: a complete inventory or HOLD;
         expect((await recover({ ...f, runState: terminal, finishSaveJournal: vi.fn(async () => { throw new Error('cleanup account_save_obligations sweep failed (fail closed): 55000'); }) })).status).toBe('FAILED');
         f = fakeAdmin([]); withRuns(f, { data: null, error: { code: 'PGRST202' } });
         expect(await recover({ ...f, runState: terminal })).toMatchObject({ status: 'NOTHING_TO_RECOVER', saveJournal: { runs: 0, claims: 0 } });
+    });
+    it('Sam (6b8943d): a follow-up inventory LOST after the first read proved claims exist HOLDs; the foreign claim is untouched', async () => {
+        stubRun();
+        const f = fakeAdmin([]);
+        // owned (terminated) + foreign (active) claims; the owned one is finished; then the second read answers "no such function".
+        const rpc = withRuns(f, inv([[dead], [other]]), { data: null, error: { code: 'PGRST202' } });
+        const finishSaveJournal = vi.fn(async () => 1);
+        const r = await recover({ ...f, runState: async (b: { runId: string }) => (b.runId === dead.runId ? 'terminal' : 'active'), finishSaveJournal });
+        expect(r.status).toBe('HOLD_INCOMPLETE_LISTING');
+        expect(r.saveJournal).toMatchObject({ claims: 2, finished: 1 });
+        expect(finishSaveJournal.mock.calls.map((c) => (c as unknown[])[1])).toEqual([dead]);
+        expect(listings(rpc)).toHaveLength(2);
+        // Also after an account deletion alone (no run finished): a lost follow-up is never zero.
+        const g = fakeAdmin([user(1, journey(1), old)]); withRuns(g, inv([], { live: 1 }), { data: null, error: { code: 'PGRST202' } });
+        expect((await recover({ ...g, runState: terminal })).status).toBe('HOLD_INCOMPLETE_LISTING');
+        // The case that would have read as RECOVERED: the other claim is unbound (never held), so only a lost check could hide it.
+        const h = fakeAdmin([]); withRuns(h, inv([[dead]], { unbound: 1 }), { data: null, error: { code: 'PGRST202' } });
+        expect(await recover({ ...h, runState: terminal, finishSaveJournal: vi.fn(async () => 1) })).toMatchObject({ status: 'HOLD_INCOMPLETE_LISTING', saveJournal: { remaining: 2 } });
+    });
+    it('pre-migration compatibility stays distinct: a database WITHOUT the function at both reads is empty, not a lost check', async () => {
+        stubRun();
+        const f = fakeAdmin([user(1, journey(1), old)]);   // default rpc: "no such function" for every listing
+        expect(await recover({ ...f, runState: terminal })).toMatchObject({ status: 'RECOVERED', deleted: 1, saveJournal: { claims: 0, remaining: 0 } });
+    });
+    it('an admin that cannot call the database, or a finish that reports no counted number, FAILS (never zero)', async () => {
+        stubRun();
+        const f = fakeAdmin([]); delete (f.admin as { rpc?: unknown }).rpc;
+        expect((await recover({ ...f, runState: terminal })).status).toBe('FAILED');
+        for (const bad of [undefined, null, '1', -1, 1.5, Number.NaN]) {
+            const g = fakeAdmin([]); withRuns(g, inv([[dead]]), EMPTY);
+            expect((await recover({ ...g, runState: terminal, finishSaveJournal: vi.fn(async () => bad as never) })).status).toBe('FAILED');
+        }
     });
 });
 

@@ -819,6 +819,28 @@ test('deleted-account save-journal cleanup: only the run that owns a deleted acc
       receipts.push({ case: 'fresh_recovery_process', killedRunFinished: 1, residueAfter: 0, othersTouched: 0,
         heldOnClippedInventory: true, heldOnMalformedInventory: true, heldOnClippedResume: true, recentNotNothing: true, malformedNotRecovered: true });
     });
+
+    await t.test('LOST FOLLOW-UP CHECK (Sam, #1906 review of 6b8943d): a second inventory read that is lost after the first proved claims exist is never zero', async () => {
+      const OWNED = runBinding('44000000801'), FOREIGN = runBinding('44000000802'), NOW = runBinding('44000000804');
+      // The table starts empty, so every count below is this case's own.
+      assert.deepEqual(JSON.parse(sql(runsSql(0))), { claims: 0, live: 0, unbound: 0, runs: [] });
+      const owned = leftover(OWNED), foreign = leftover(FOREIGN);
+      const foreignBefore = [journalSnapshot(foreign), claimToken(foreign)];
+      const r = await runnerProcess(NOW, null, { mode: 'recover', terminalRuns: [OWNED.runId], ack: true, tamper: 'lose-second-inventory' }).done;
+      assert.equal(r.code, 0, r.stderr);
+      const line = Object.fromEntries(r.stdout.trim().split('\n').at(-1).split(' ').slice(1).map(kv => kv.split('=')));
+      // The owned claim was finished (readback zero), the follow-up read was lost: HOLD, never RECOVERED, never remaining=0 as proof.
+      assert.equal(line.status, 'HOLD_INCOMPLETE_LISTING');
+      assert.deepEqual([line.save_journal_claims, line.save_journal_finished], ['2', '1']);
+      assert.deepEqual([journalRows(owned), claimRows(owned)], [0, 0], 'the owned claim was finished');
+      assert.deepEqual([journalSnapshot(foreign), claimToken(foreign)], foreignBefore, 'the foreign claim is untouched');
+      // The same recovery with the follow-up read intact HOLDS on the foreign run's claim it may not finish (active).
+      const intact = await runnerProcess(NOW, null, { mode: 'recover', terminalRuns: [], ack: true }).done;
+      assert.equal(Object.fromEntries(intact.stdout.trim().split('\n').at(-1).split(' ').slice(1).map(kv => kv.split('='))).status, 'HOLD_ACTIVE_RUN');
+      finishDirectly(foreign);
+      assert.deepEqual(JSON.parse(sql(runsSql(0))), { claims: 0, live: 0, unbound: 0, runs: [] });
+      receipts.push({ case: 'lost_follow_up_inventory', ownedFinished: 1, foreignTouched: 0, status: 'HOLD_INCOMPLETE_LISTING' });
+    });
   } finally {
     for (const c of clients) if (!c.child.stdin.destroyed) c.child.stdin.end();
     if (started) execFileSync(bin.pg_ctl, ['-D', data, '-w', 'stop', '-m', 'immediate'], { encoding: 'utf8' });

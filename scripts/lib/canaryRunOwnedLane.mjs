@@ -159,7 +159,12 @@ export async function sweepSaveJournalRuns({ admin, getRun, expected, now, finis
         const done = Date.parse(run?.updated_at ?? '');
         if (!run || run.error || String(run.run_attempt) !== b.runAttempt || run.status !== 'completed'
             || !Number.isFinite(done) || now - done < MIN_RUN_COMPLETED_MS) { out.left += 1; continue; }
-        try { out.finished += await finishSaveJournal(admin, canaryClaimBinding(expected, b.runId, b.runAttempt)); } catch { out.failed += 1; }
+        let finished;
+        try { finished = await finishSaveJournal(admin, canaryClaimBinding(expected, b.runId, b.runAttempt)); } catch { out.failed += 1; continue; }
+        // A finish must report a counted number, and at least every claim the inventory listed for that run: fewer means some
+        // claim was not reached (never read as zero or as done).
+        if (!Number.isSafeInteger(finished) || finished < entry.claims) { out.failed += 1; continue; }
+        out.finished += finished;
     }
     return out;
 }
@@ -195,7 +200,8 @@ export async function setupLane({ admin, env, mask, exportEnv, cleanup }) {
 /**
  * Delete exactly this run+attempt's run-owned account(s) through the shared zero-residue cleanup.
  * `cleanup({admin, uid, email})` must throw unless deletion AND residue zero are proven; it receives the GUARDED admin.
- * Returns {ok, code, deleted}. Zero accounts is truthful only because the listing is complete (it throws otherwise).
+ * Returns {ok, code, deleted, orphans}: `orphans` counts this run+attempt's own stopped cleanups (account already gone) finished
+ * by binding. Zero accounts is truthful only because the listing is complete (it throws otherwise).
  */
 /**
  * The closed failure code of one cleanup (#1826, Sam's option c): the adapter's own code when it names one (`unsettled_take`,
@@ -235,10 +241,14 @@ export async function cleanupLane({ admin, env, cleanup, finishSaveJournal }) {
     }
     // RESTART AFTER DELETION (Codex on 62b50df): an earlier cleanup of THIS run+attempt that stopped after the Auth deletion left a
     // claim no listing above can see. Finish it by this run's own binding (plain client: the account is gone, nothing to revalidate).
-    try { await finishSaveJournal(admin, canaryClaimBinding(binding, binding.runId, binding.runAttempt)); }
+    let orphans;
+    try { orphans = await finishSaveJournal(admin, canaryClaimBinding(binding, binding.runId, binding.runAttempt)); }
     catch { return { ok: false, code: 'save-journal-unproven', deleted }; }
-    if (unbound > 0) return { ok: false, code: 'prefix-without-binding', deleted };
-    return { ok: true, code: deleted ? 'cleanup-verified' : 'nothing-to-clean', deleted };
+    // A finish that does not report a counted number proved nothing (never read as zero).
+    if (!Number.isSafeInteger(orphans) || orphans < 0) return { ok: false, code: 'save-journal-unproven', deleted };
+    if (unbound > 0) return { ok: false, code: 'prefix-without-binding', deleted, orphans };
+    // Sam, #1906 review of 6b8943d: an own leftover that was actually finished is reported as a cleanup, never as nothing to clean.
+    return { ok: true, code: deleted || orphans ? 'cleanup-verified' : 'nothing-to-clean', deleted, orphans };
 }
 
 /**
