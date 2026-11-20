@@ -15,6 +15,7 @@ const journal = 'backend/supabase/migrations/20261020230653_account_pending_comp
 const abandonment = 'backend/supabase/migrations/20261112133000_recording_start_abandonment_1643.sql';
 const candidate = 'backend/supabase/migrations/20261119200000_deleted_account_save_journal_cleanup_1643.sql';
 const CLAIM_FN = 'claim_account_save_journal_cleanup_v1';
+const RESUME_FN = 'resume_account_save_journal_cleanup_v1';
 const DELETE_FN = 'delete_deleted_account_save_journal_v1';
 const CLAIMS = 'account_save_journal_cleanup_claims';
 // The RWT journeys' run binding (app_metadata.ct_run); RUN_B is another run of the same workflow.
@@ -100,7 +101,7 @@ afterAll(async () => {
 
 describe('deleted-account save-journal cleanup (#1643)', () => {
   it('only service_role may execute; the journal and the claims stay closed to every client role; definer with an empty search_path', async () => {
-    for (const fn of [`${CLAIM_FN}(uuid,jsonb,text)`, `${DELETE_FN}(uuid,text)`, `${COUNT_FN}(uuid)`]) {
+    for (const fn of [`${CLAIM_FN}(uuid,jsonb,text)`, `${RESUME_FN}(uuid,text,jsonb,text)`, `${DELETE_FN}(uuid,text)`, `${COUNT_FN}(uuid)`]) {
       for (const [role, allowed] of [['anon', false], ['authenticated', false], ['service_role', true], ['public', false]] as const)
         expect({ role, fn, can: await value(`SELECT has_function_privilege('${role}','${fn}','EXECUTE')`) }).toEqual({ role, fn, can: allowed });
       expect(await value(`SELECT prosecdef FROM pg_proc WHERE oid='${fn}'::regprocedure`)).toBe(true);
@@ -117,6 +118,7 @@ describe('deleted-account save-journal cleanup (#1643)', () => {
       expect(await failure(`SET ROLE ${role}; SELECT ${DELETE_FN}('${a.user}','${a.secret}')`)).toMatch(/permission denied/);
       expect(await failure(`SET ROLE ${role}; SELECT ${CLAIM_FN}('${a.user}',NULL,'${a.secret}')`)).toMatch(/permission denied/);
       expect(await failure(`SET ROLE ${role}; SELECT ${COUNT_FN}('${a.user}')`)).toMatch(/permission denied/);
+      expect(await failure(`SET ROLE ${role}; SELECT ${RESUME_FN}('${a.user}','x@example.test','${JSON.stringify(a.run)}'::jsonb,'${a.secret}')`)).toMatch(/permission denied/);
     }
     expect(await rows(a)).toBe(1);
   });
@@ -179,6 +181,25 @@ describe('deleted-account save-journal cleanup (#1643)', () => {
     expect(await snapshot(b)).toBe(bBefore);
     await sql(`UPDATE account_completion_executions SET phase='completed' WHERE user_id='${b.user}'`);
     expect(await cleanup(b)).toBe(0);
+  });
+
+  it('RESTART (Sam, #1906): after a crash that lost the secret, the same run resumes its own claim; another run cannot', async () => {
+    const a = await seed(RUN_A); await savedTake(a); await savedTake(a); await claimAndDelete(a);
+    const email = await value<string>(`SELECT 'rwt-journey-save-journal-'||${index}||'@example.test'`);
+    const fresh = 'e'.repeat(64);
+    const resume = (run: object | null, addr = email) => service(`SELECT ${RESUME_FN}('${a.user}','${addr}',${run ? `'${JSON.stringify(run)}'::jsonb` : 'NULL'},'${fresh}')`);
+    const before = await snapshot(a);
+    expect(await failure(resume(RUN_B))).toMatch(/not claimed by this run/);
+    expect(await failure(resume(null))).toMatch(/not claimed by this run/);
+    expect(await failure(resume(RUN_A, 'rwt-journey-other@example.test'))).toMatch(/not claimed by this run/);
+    expect(await snapshot(a)).toBe(before);
+    await sql(resume(RUN_A));
+    expect(await failure(del(a.user, a.secret))).toMatch(/not claimed by this run/);
+    expect(await value<number>(del(a.user, fresh))).toBe(0);
+    expect([await rows(a), await claims(a)]).toEqual([0, 0]);
+    expect(await failure(resume(RUN_A))).toMatch(/no cleanup claim/);
+    const live = await seed(RUN_A); await claim(live);
+    expect(await failure(service(`SELECT ${RESUME_FN}('${live.user}','x@example.test','${JSON.stringify(RUN_A)}'::jsonb,'${fresh}')`))).toMatch(/account still exists/);
   });
 
   it('a null id is refused; an unclaimed id is refused', async () => {

@@ -31,6 +31,7 @@ function fakeAdmin(o: { dropBinding?: boolean; onRead?: (n: number, u: User) => 
     const destructive: string[] = [];
     const reads = new Map<string, number>();
     const claims = new Map<string, string>();
+    const claimOwners = new Map<string, { binding: string; email: string }>();
     const notFound = { status: 404, code: 'user_not_found', message: 'User not found' };
     return {
         users, destructive, claims,
@@ -61,6 +62,16 @@ function fakeAdmin(o: { dropBinding?: boolean; onRead?: (n: number, u: User) => 
                 const u = users.get(uid);
                 if (!u) return { data: null, error: { code: 'P0002', message: 'account not found' } };
                 if (canon(args.p_run_binding ?? null) !== canon(u.app_metadata[BINDING_KEY] ?? null)) return { data: null, error: { code: '42501', message: 'account is not owned by this run' } };
+                claims.set(uid, String(args.p_token)); claimOwners.set(uid, { binding: canon(args.p_run_binding ?? null), email: u.email.toLowerCase() });
+                return { data: null, error: null };
+            }
+            // The restart (#1906): only once the account is gone, only for the claim's own non-null binding and address.
+            if (fn === 'resume_account_save_journal_cleanup_v1') {
+                if (users.has(uid)) return { data: null, error: { code: '55000', message: 'account still exists' } };
+                const owner = claimOwners.get(uid);
+                if (!claims.has(uid) || !owner) return { data: null, error: { code: 'P0002', message: 'no cleanup claim' } };
+                if (owner.binding === 'null' || owner.binding !== canon(args.p_run_binding ?? null) || owner.email !== String(args.p_email).toLowerCase())
+                    return { data: null, error: { code: '42501', message: 'account save journal not claimed by this run' } };
                 claims.set(uid, String(args.p_token)); return { data: null, error: null };
             }
             if (fn === 'delete_deleted_account_save_journal_v1') {
@@ -184,6 +195,46 @@ describe('canary lane × REAL shared runOwnedCleanup (#1826)', () => {
             ['count_account_save_journal_v1', { p_user_id: 'uid-a', p_token: secret }],
         ] as const) await expect(guarded.rpc(fn, args as Record<string, unknown>), `${fn} ${JSON.stringify(args)}`).rejects.toThrow(/canary_binding_changed_at_mutation/);
         expect(admin.rpc.mock.calls.length).toBe(before);
+    });
+
+    it('RESTART (#1906): a canary cleanup that crashed after the Auth deletion is finished through the guard with THIS run\'s canary binding', async () => {
+        const admin = fakeAdmin();
+        admin.users.set('uid-a', canaryUser('uid-a', ACTIONS_ENV.GITHUB_RUN_ID));
+        const email = admin.users.get('uid-a')!.email;
+        const expected = { repository: ACTIONS_ENV.GITHUB_REPOSITORY, workflow: ACTIONS_ENV.GITHUB_WORKFLOW_REF };
+        const guard = (runId = ACTIONS_ENV.GITHUB_RUN_ID) => guardAdminForBinding(admin, { uid: 'uid-a', email, expected, runId, runAttempt: '1' });
+        // The first cleanup dies right after Auth deleted the account: claimed with the canary binding, secret lost.
+        const del = admin.auth.admin.deleteUser;
+        admin.auth.admin.deleteUser = vi.fn(async (id: string) => { await del(id); throw new Error('SIMULATED_CRASH'); }) as never;
+        await expect(sharedCleanup({ admin: guard(), uid: 'uid-a', email })).rejects.toThrow('SIMULATED_CRASH');
+        admin.auth.admin.deleteUser = del;
+        expect([admin.users.has('uid-a'), admin.claims.has('uid-a')]).toEqual([false, true]);
+        // The guard forwards the resume with THIS run's canary binding (the helper passed its own RWT-shaped one).
+        const lost = admin.claims.get('uid-a');
+        admin.rpc.mockClear();
+        await expect(sharedCleanup({ admin: guard(), uid: 'uid-a', email })).resolves.toBeUndefined();
+        expect(admin.rpc.mock.calls[0]).toEqual(['resume_account_save_journal_cleanup_v1', { p_user_id: 'uid-a', p_email: email.toLowerCase(),
+            p_run_binding: { ...expected, role: 'canary-active-trial', runId: ACTIONS_ENV.GITHUB_RUN_ID, runAttempt: '1' }, p_token: expect.stringMatching(/^[0-9a-f]{64}$/) }]);
+        expect(admin.rpc.mock.calls[0][1].p_token).not.toBe(lost);
+        expect(admin.claims.has('uid-a')).toBe(false);
+        // Another canary run's guard: refused by the database (its own binding is not the claim's).
+        const b = fakeAdmin();
+        b.users.set('uid-a', canaryUser('uid-a', ACTIONS_ENV.GITHUB_RUN_ID));
+        const g1 = guardAdminForBinding(b, { uid: 'uid-a', email, expected, runId: ACTIONS_ENV.GITHUB_RUN_ID, runAttempt: '1' }) as { rpc: (fn: string, a: Record<string, unknown>) => Promise<unknown> };
+        await g1.rpc('claim_account_save_journal_cleanup_v1', { p_user_id: 'uid-a', p_run_binding: null, p_token: 'a'.repeat(64) });
+        b.users.delete('uid-a');
+        const other = guardAdminForBinding(b, { uid: 'uid-a', email, expected, runId: '43000000099', runAttempt: '1' }) as { rpc: (fn: string, a: Record<string, unknown>) => Promise<unknown> };
+        await expect(other.rpc('resume_account_save_journal_cleanup_v1', { p_user_id: 'uid-a', p_email: email, p_run_binding: null, p_token: 'b'.repeat(64) }))
+            .resolves.toEqual({ data: null, error: { code: '42501', message: 'account save journal not claimed by this run' } });
+        expect(b.claims.get('uid-a')).toBe('a'.repeat(64));
+        // The guard itself refuses another account, another address or any other argument shape before the database.
+        const before = b.rpc.mock.calls.length;
+        for (const args of [{ p_user_id: 'uid-b', p_email: email, p_run_binding: null, p_token: 'b'.repeat(64) },
+            { p_user_id: 'uid-a', p_email: 'ctrial-run-1-1-other@example.test', p_run_binding: null, p_token: 'b'.repeat(64) },
+            { p_user_id: 'uid-a', p_email: email, p_token: 'b'.repeat(64) },
+            { p_user_id: 'uid-a', p_email: email, p_run_binding: null, p_token: 'b'.repeat(64), extra: 1 }])
+            await expect(other.rpc('resume_account_save_journal_cleanup_v1', args)).rejects.toThrow(/canary_binding_changed_at_mutation/);
+        expect(b.rpc.mock.calls.length).toBe(before);
     });
 
     it('the claim revalidates the binding at the boundary: a changed or vanished canary binding is refused before the claim', async () => {

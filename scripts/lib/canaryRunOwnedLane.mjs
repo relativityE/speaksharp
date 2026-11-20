@@ -47,7 +47,8 @@ export function makeGetRun({ fetchImpl, token, repository, apiUrl = 'https://api
  * The admin client handed to the SHARED cleanup. The shared helper knows nothing of `canary_run`, so every DESTRUCTIVE call it
  * makes — the trial_entitlements pre-delete and deleteUser — first re-reads the account and requires the same email and the
  * exact expected canary binding (`expected` repo/workflow/role plus `runId`/`runAttempt`). Reads pass through unchanged; the
- * three #1643 save-journal functions pass only for this account (the claim revalidated and carrying this run's binding); any other mutation is refused. A changed, foreign or vanished binding at the mutation boundary throws: nothing is deleted.
+ * four #1643 save-journal functions pass only for this account (the claim revalidated, the claim and its restart resume carrying
+ * this run's binding); any other mutation is refused. A changed, foreign or vanished binding at the mutation boundary throws: nothing is deleted.
  */
 export function guardAdminForBinding(admin, { uid, email, expected, runId, runAttempt }) {
     const refuse = () => { throw new Error('canary_binding_changed_at_mutation (fail closed)'); };
@@ -87,6 +88,13 @@ export function guardAdminForBinding(admin, { uid, email, expected, runId, runAt
                 if (keys !== 'p_run_binding,p_token,p_user_id' || args.p_run_binding !== null) refuse();
                 await revalidate();
                 return admin.rpc(fn, { p_user_id: uid, p_run_binding: { repository: expected.repository, workflow: expected.workflow, role: ROLE, runId, runAttempt }, p_token: args.p_token });
+            }
+            // The restart after Auth deletion (Sam, #1906): the account is gone, so there is nothing to revalidate; the binding is
+            // THIS run's exact canary binding in place of whatever the shared helper passed (it knows nothing of canary_run), and the
+            // database accepts it only if the claim was made with that binding and this address.
+            if (fn === 'resume_account_save_journal_cleanup_v1') {
+                if (keys !== 'p_email,p_run_binding,p_token,p_user_id' || String(args.p_email).toLowerCase() !== String(email).toLowerCase()) refuse();
+                return admin.rpc(fn, { p_user_id: uid, p_email: args.p_email, p_run_binding: { repository: expected.repository, workflow: expected.workflow, role: ROLE, runId, runAttempt }, p_token: args.p_token });
             }
             if (fn === 'delete_deleted_account_save_journal_v1' ? keys !== 'p_token,p_user_id'
                 : fn !== 'count_account_save_journal_v1' || keys !== 'p_user_id') refuse();
