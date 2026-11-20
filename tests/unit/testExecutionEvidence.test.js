@@ -1119,6 +1119,7 @@ if(process.env.GITHUB_ACTIONS==='true' || process.env.TEST_EFFICACY_REAL_RUNTIME
         `// ${contract.mutants[0].assertionAnchor}\nexpect(true).toBe(true);`));
       const red=run();assert.equal(red.error,undefined);assert.equal(red.status,1,red.stderr);
       assert.match(red.stderr,/\[blank-is-zero\] Efficacy process failed/);
+      assert.ok(red.stderr.includes('test="frontend/src/lib/__tests__/analyticsEvidenceValidity.test.ts" batch=semantic timeoutMs=60000'));
       assert.doesNotMatch(red.stderr,/NOT RUN|Unsupported|anchor missing|Cannot find module/);
       assert.equal(fs.existsSync(evidence),false,'a weak test cannot leave a stale quality PASS');
       assert.match(fs.readFileSync(path.join(dir,contract.testFile),'utf8'),/expect\(true\)\.toBe\(true\)/);

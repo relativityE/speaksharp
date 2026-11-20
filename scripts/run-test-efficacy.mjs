@@ -368,7 +368,7 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
       } catch (cause) {
         const timeoutMs = executionOnly ? vitestExecutionTimeoutMs(contract.testFile) : 60_000;
         const location = `test=${JSON.stringify(contract.testFile)} batch=${executionOnly ? batch : 'semantic'} timeoutMs=${timeoutMs}`;
-        const error = new Error(`[${phase}] ${location}: ${cause.message}`, {cause});
+        const error = new Error(`[${phase}] ${cause.message} (${location})`, {cause});
         Object.defineProperty(error,'diagnostics',{value:diagnostics});
         // Bounded diagnostic, not a qualifying receipt. Lets acceptance tests distinguish
         // the intended assertion/skip from an unrelated import/setup exception.

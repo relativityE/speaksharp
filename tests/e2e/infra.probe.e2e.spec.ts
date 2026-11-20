@@ -1,40 +1,26 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { goToApp, programmaticLoginWithRoutes, startRecording, selectTranscriptionEngine } from './helpers';
 import type { E2EWindow } from './helpers/setupE2EManifest';
 
-/**
- * Core System Probe (Deterministic, Zero-Auth)
- *
- * Validates the application's infrastructure foundation before the UI layer.
- * These tests are independent of external network calls and randomness.
- * Must run in < 60s.
- *
- * Coverage:
- *   1. App Boot Integrity       — SessionPage renders, no JS crashes       — App starts and shows the session screen
- *   2. ENV Bridge Validity      — window.__SS_E2E__ readable at runtime    — Test settings are correctly loaded
- *   3. Registry Injection (T=0) — manifest registry present at boot        — Mock settings are ready before start
- *   4. Engine Selection         — engineType propagated from manifest      — Using the fast mock engine as told
- *   5. WASM Isolation           — real WASM not loaded in mock mode        — Heavy tech is disabled for speed
- *   6. FSM Transition           — recording state transitions correctly    — Start/Stop button works correctly
- *   7. Transcription Smoke      — mock engine signals flow through to UI   — Words show up on screen when "talking"
- *   9. Timer Compression        — 200ms sleep completes well under 1s      — Tests run faster than real life
- *  10. No External Network      — no calls outside localhost        
- */
+// Local mock runtime smoke. These cases verify the initial app, recording, transcript
+// rendering and Private selection, not speech recognition accuracy or model loading.
+async function openPrivateSession(page: Page) {
+  await programmaticLoginWithRoutes(page, { userType: 'free' });
+  await goToApp(page, '/session');
+  await selectTranscriptionEngine(page, 'private');
+}
+
+test('app boots without uncaught runtime errors', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await openPrivateSession(page);
+  await expect(page.locator('html')).toHaveAttribute('data-runtime-state', 'READY');
+  expect(errors, 'uncaught errors before the Private recorder became ready').toEqual([]);
+});
 
 test.describe('Core System Validation (Deterministic)', () => {
   test.beforeEach(async ({ page }) => {
-    await programmaticLoginWithRoutes(page, { userType: 'free' });
-    await goToApp(page, '/session');
-    // #1184/#1222: Private is the only engine — there is no selector to pick native. The new session page
-    // has no `stt-mode-select`; the recorder surface itself is the confirmation. selectTranscriptionEngine
-    // asserts the Private recorder (mic card) is mounted before the deterministic probes run. The mock
-    // engine services Private just as it did native, so the infra probes stay deterministic.
-    await selectTranscriptionEngine(page, 'private');
-  });
-
-  // 1. App Boot Integrity
-  test('app boots without runtime errors', async ({ page }) => {
-    await page.waitForSelector('html[data-runtime-state]', { timeout: 15000 });
+    await openPrivateSession(page);
   });
 
   // 6. FSM Transition (Async Correctness)
