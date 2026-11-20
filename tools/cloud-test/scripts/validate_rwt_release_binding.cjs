@@ -7,7 +7,7 @@ const {spawnSync}=require('node:child_process'),{createHash}=require('node:crypt
 // Exact diagnostic postimages; never a broad live-test exception.
 const TEST_PINS=Object.freeze({
  // J1.d admission wiring (rc-gates J1D-ON-J1A): its unit test may differ from the served release without changing product source.
- 'tests/unit/rcGatesJ1dAdmission.test.ts':'79b4056bb96004ddbb821d715711fd704332bd5108a6438cafd2fbd0aa77b81d',
+ 'tests/unit/rcGatesJ1dAdmission.test.ts':'826a9d8459bfa32d65f693011f299fc9bfd4ea4ef2cb3f1e1f3f14ae20b25309',
  'tests/unit/rwtPartialFixtureMatcher.test.ts':'9a6b7f29a5c3cccf7560b2ce0a93cd13b24ef8d2cf105d320cbb2cf04ba87848',
  'tests/unit/rwtComparableSaveTake.test.ts':'c93b6f4507b63d0f3b68e75abdea028edb5835cb557cfdfbea5e7574b87cdfa5',
  // Reviewed #1811 v3 cleanup/watchdog and evidence-registry postimages.

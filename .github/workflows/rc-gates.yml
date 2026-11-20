@@ -422,9 +422,14 @@ jobs:
               exit 1
             fi
             j1d_domain="$(printf '%s' "${LIVE_TEST_EMAIL_DOMAIN:-example.com}" | tr '[:upper:]' '[:lower:]')"
+            # J1.a's account takes exactly the run-owned shape interrupted-run recovery recognises, rwt-journey-<label>-<ms>-<run>
+            # (rwtInterruptedRunRecovery.ts OWNED_LOCAL_PARTS), so an interrupted J1.a+J1.d run can never leave an unrecoverable
+            # account. The millisecond stamp keeps every attempt's account distinct.
+            j1d_ms="$(node -e 'process.stdout.write(String(Date.now()))')"
+            [[ "$j1d_ms" =~ ^[0-9]{13}$ ]] || { echo '::error::J1.d admission could not stamp the account; nothing ran.'; exit 1; }
             RWT_J1D_RUNNER_ADMISSION="$RUNNER_TEMP/rwt-j1d-admission-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.json"
             jq -n --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" \
-              --arg ref "rwt-journey-open-mic-j1d-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT@$j1d_domain" \
+              --arg ref "rwt-journey-open-mic-$j1d_ms-$GITHUB_RUN_ID@$j1d_domain" \
               '{suite: "returning-signout-j1d", runId: $run, runAttempt: $attempt, reusesLeg: "J1.a", lookupRef: $ref}' > "$RWT_J1D_RUNNER_ADMISSION"
             export RWT_J1D_RUNNER_ADMISSION
             echo "J1.d admitted on J1.a's run-owned account for run $GITHUB_RUN_ID attempt $GITHUB_RUN_ATTEMPT."

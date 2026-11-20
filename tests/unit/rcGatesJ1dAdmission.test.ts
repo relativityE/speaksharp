@@ -9,6 +9,10 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { J1D_ADMISSION_ENV, j1dRunnerAdmission } from '../live/helpers/rwtJ1dJourney';
+import { ownedPrefixOf } from '../live/helpers/rwtInterruptedRunRecovery';
+
+/** J1.a's account under J1.d: exactly the run-owned shape interrupted-run recovery recognises. */
+const OWNED_REF = (domain: string) => new RegExp(`^rwt-journey-open-mic-\\d{13}-4242@${domain.replace(/\./g, '\\.')}$`);
 
 const workflowText = readFileSync('.github/workflows/rc-gates.yml', 'utf8');
 const workflow = parse(workflowText) as { on: { workflow_dispatch: { inputs: Record<string, { default?: string }> } };
@@ -52,11 +56,14 @@ describe('rc-gates J1.d admission (diagnostic step)', () => {
     const r = admit({ RWT_J1D_LEG: 'J1D-ON-J1A', LIVE_TEST_EMAIL_DOMAIN: 'Test.Example.COM' });
     expect(r.status).toBe(0);
     const record = JSON.parse(readFileSync(r.file, 'utf8'));
-    expect(record).toEqual({ suite: 'returning-signout-j1d', runId: '4242', runAttempt: '1', reusesLeg: 'J1.a',
-      lookupRef: 'rwt-journey-open-mic-j1d-4242-1@test.example.com' });
+    expect(record).toMatchObject({ suite: 'returning-signout-j1d', runId: '4242', runAttempt: '1', reusesLeg: 'J1.a' });
+    expect(Object.keys(record).sort()).toEqual(['lookupRef', 'reusesLeg', 'runAttempt', 'runId', 'suite']);
+    expect(record.lookupRef).toMatch(OWNED_REF('test.example.com'));
+    // Interrupted-run recovery recognises J1.a's account, so an interrupted J1.a+J1.d run cannot orphan it.
+    expect(ownedPrefixOf(record.lookupRef, 'test.example.com')).toBe('rwt-journey-');
     const read = (p: string) => readFileSync(p, 'utf8');
     expect(j1dRunnerAdmission({ [J1D_ADMISSION_ENV]: r.file, GITHUB_RUN_ID: '4242', GITHUB_RUN_ATTEMPT: '1' }, read))
-      .toEqual({ admitted: true, lookupRef: 'rwt-journey-open-mic-j1d-4242-1@test.example.com' });
+      .toEqual({ admitted: true, lookupRef: record.lookupRef });
     // The same record is refused under another attempt or run, and never carries an account-create attempt.
     expect(j1dRunnerAdmission({ [J1D_ADMISSION_ENV]: r.file, GITHUB_RUN_ID: '4242', GITHUB_RUN_ATTEMPT: '2' }, read).admitted).toBe(false);
     expect(j1dRunnerAdmission({ [J1D_ADMISSION_ENV]: r.file, GITHUB_RUN_ID: '9999', GITHUB_RUN_ATTEMPT: '1' }, read).admitted).toBe(false);
@@ -64,15 +71,22 @@ describe('rc-gates J1.d admission (diagnostic step)', () => {
   });
 
   it('a rerun attempt gets its own record and account reference, never the first attempt\'s', () => {
+    const first = JSON.parse(readFileSync(admit({ RWT_J1D_LEG: 'J1D-ON-J1A' }).file, 'utf8'));
     const r = admit({ RWT_J1D_LEG: 'J1D-ON-J1A', GITHUB_RUN_ATTEMPT: '3' });
     const record = JSON.parse(readFileSync(r.file, 'utf8'));
-    expect([record.runAttempt, record.lookupRef]).toEqual(['3', 'rwt-journey-open-mic-j1d-4242-3@example.com']);
+    expect(record.runAttempt).toBe('3');
+    expect(record.lookupRef).toMatch(OWNED_REF('example.com'));
+    expect(record.lookupRef).not.toBe(first.lookupRef);
     expect(j1dRunnerAdmission({ [J1D_ADMISSION_ENV]: r.file, GITHUB_RUN_ID: '4242', GITHUB_RUN_ATTEMPT: '3' }, (p) => readFileSync(p, 'utf8')).admitted).toBe(true);
   });
 
   it('defaults the domain like newDisposableEmail does when the variable is unset', () => {
     const r = admit({ RWT_J1D_LEG: 'J1D-ON-J1A' });
-    expect(JSON.parse(readFileSync(r.file, 'utf8')).lookupRef).toBe('rwt-journey-open-mic-j1d-4242-1@example.com');
+    expect(JSON.parse(readFileSync(r.file, 'utf8')).lookupRef).toMatch(OWNED_REF('example.com'));
+  });
+
+  it('CONTROL: the earlier account shape (…-j1d-<run>-<attempt>) is one interrupted-run recovery would NOT recognise', () => {
+    expect(ownedPrefixOf('rwt-journey-open-mic-j1d-4242-1@example.com', 'example.com')).toBeNull();
   });
 
   it('NEGATIVE: any other value, or the right value with another spec, fails before the spec and writes nothing', () => {
