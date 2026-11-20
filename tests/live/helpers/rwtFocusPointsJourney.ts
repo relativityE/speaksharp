@@ -23,6 +23,8 @@ import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbac
 import { cleanupRunOwnedAccount } from './runOwnedCleanup';
 import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, armWatchdog, watchProfileFor, type JourneyFinalizer } from './rwtWatchdog';
 import { savedFocusIdentityVerdict } from './rwtSavedFocusIdentity';
+import { J3B_REPEAT_ROW, J3_PRIVACY_ROW, J3_SAVED_TIMING_ROW, focusAcceptancePrivacyVerdict, focusSavedTimingVerdict, j3bRepeatReopenVerdict, repeatReviewCard } from './rwtJ3Evidence';
+import { loadedReviewSessionId } from './rwtJ1dJourney';
 import { railSettled, readRailRowCount } from './rwtLiveTimedTake';
 import { armTakeMonitor, awaitTakeOutcome, disposeTakeMonitor, holdMeasuredLiveTake, readTakeMonitor, stopMeasuredTake, stopMonitoredTake, takeEvidenceRows, type ArmedTakeMonitor, type TakeOutcome } from './rwtLiveTakeMonitor';
 import { consentModeFrom, consentReadbackVerdict, settlePracticeConsent, type ChoiceClient, type SavedSessionRead, type SettledConsent } from './rwtPracticeConsent';
@@ -267,6 +269,8 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     let persistedId: string | null = null;
     /** #1258 (Browser PM 6093772463 item 3): the brief this journey set up, read right after Head to session, before any take. */
     let expectedBriefId: string | null = null;
+    /** J3.b (#1904): the first take's objective session id, read at its Stop. */
+    let firstObjectiveId: string | null = null;
     /** The first take's rail after Stop, in point order: the expected per-point verdicts for the saved-identity proof. */
     let firstTakeRail: (RailStatus | null)[] = [];
     // The take's own generation count, snapshotted before the Practice-again pass records more takes.
@@ -499,9 +503,15 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             // #1835: a fresh owner is asked on this first Practice visit. Settled before any take; an unknown build stops here.
             const migrationFiles = (() => { try { return readdirSync(resolvePath(process.cwd(), 'backend/supabase/migrations')); } catch { return null; } })();
             consent = await settlePracticeConsent({ page, client: admin as unknown as ChoiceClient, ownerId: owner.uid, migrationFiles, mode: consent.mode });
-            receipt.row('practice privacy choice', 'PASS', consent.choice ? 'this run\'s owner recorded its choice through the Practice prompt, read back from the server'
-                : 'verified pre-#1835 build: no choice to make', { build: consent.build, mode: consent.mode ?? 'none',
-                transcriptSave: consent.choice?.transcriptSave ?? null, aiCoaching: consent.choice?.aiCoaching ?? null });
+            // J3 step 2 (#1904): bound before Start. Acceptance needs the post-#1835 build with Save Yes / Coaching Yes; a legacy build
+            // FAILS and any other mode is a diagnostic run that HOLDS (settlePracticeConsent already threw on an unproven choice).
+            const privacy = focusAcceptancePrivacyVerdict({ build: consent.build, mode: consent.mode, choiceRecorded: consent.choice !== null });
+            receipt.row(J3_PRIVACY_ROW, privacy.status, privacy.status === 'PASS'
+                ? 'this run\'s owner chose Save Yes / Coaching Yes through the Practice prompt before Start, read back from the server'
+                : privacy.reason === 'legacy_build' ? 'the build predates the privacy choice, so it is not the release under test'
+                    : 'this run\'s privacy choice cannot earn Focus coaching credit (diagnostic run)',
+                { reason: privacy.reason, build: consent.build, mode: consent.mode ?? 'none',
+                    transcriptSave: consent.choice?.transcriptSave ?? null, aiCoaching: consent.choice?.aiCoaching ?? null });
             const switched = await performCandidateSwitch(page, run, JOURNEY);
             receipt.meta.switchOutcome = switched;
             if (run.mode === 'switch' && switched !== 'ok') throw new Error(`HOLD candidate switch: ${switched}`);
@@ -710,14 +720,22 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 close ? 'average = elapsed ÷ detected' : echoesGuide ? 'the average echoes the 1:00 guide' : 'the average does not match elapsed ÷ detected',
                 { averageSec: average, elapsedSec: Math.round(elapsedSec), expectedAverageSec: expectedAverage === null ? null : Math.round(expectedAverage) });
 
-            if (!persistedId) return;
+            const timingRow = (v: { status: 'PASS' | 'FAIL' | 'HOLD'; reason: string }, extra: Record<string, number | null> = {}) =>
+                receipt.row(J3_SAVED_TIMING_ROW, v.status, v.status === 'PASS'
+                    ? 'the saved duration is this take\'s Start to Stop, the shown average is that saved duration ÷ detected, and each saved detection is inside the take'
+                    : 'the saved timing does not prove this take\'s measured timing', { reason: v.reason, elapsedSec: Math.round(elapsedSec), shownAverageSec: average, ...extra });
+            if (!persistedId) { timingRow({ status: 'HOLD', reason: 'no_saved_take' }); return; }
             const { data: session, error } = await admin!.from('objective_session').select('id,actual_duration_seconds,time_budget_seconds')
                 .eq('source_session_id', persistedId).eq('user_id', owner.uid).maybeSingle();
             if (error) throw new Error(`objective session read failed (fail closed): ${error.code ?? 'unknown'}`);
-            if (!session) { receipt.row('persisted verdicts', 'FAIL', 'no objective session was persisted for this take'); return; }
+            if (!session) {
+                receipt.row('persisted verdicts', 'FAIL', 'no objective session was persisted for this take');
+                timingRow({ status: 'FAIL', reason: 'no_objective_session' });
+                return;
+            }
             // #1532 Codex P2 r4120338752: compared PER POINT (by brief_point_id -> sort_order), never by counts — a swapped
             // detected / not-detected pair keeps both counts.
-            const { data: evidence, error: eErr } = await admin!.from('objective_evidence').select('brief_point_id,verdict')
+            const { data: evidence, error: eErr } = await admin!.from('objective_evidence').select('brief_point_id,verdict,detected_at_seconds')
                 .eq('session_id', session.id).eq('user_id', owner.uid);
             if (eErr) throw new Error(`objective evidence read failed (fail closed): ${eErr.code ?? 'unknown'}`);
             const pointIds = [...new Set((evidence ?? []).map((r) => r.brief_point_id as string))];
@@ -736,6 +754,12 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     : 'a saved verdict differs from the rail for its point, or the evidence does not map to one brief',
                 { rows: (evidence ?? []).length, mismatchedPoints: mismatches.join(','), briefs: briefIds.size, shown: covered,
                     budgetSec: session.time_budget_seconds as number | null, durationSec: session.actual_duration_seconds as number | null });
+            // J3 step 3 (#1904): the measured timing on the exact saved take, from saved state.
+            const savedDuration = typeof session.actual_duration_seconds === 'number' ? session.actual_duration_seconds as number : null;
+            firstObjectiveId = session.id as string;
+            timingRow(focusSavedTimingVerdict({ elapsedSec, savedDurationSec: savedDuration, shownAverageSec: average, detectedExpected,
+                evidence: (evidence ?? []).map((r) => ({ verdict: r.verdict as string, detected_at_seconds: (r.detected_at_seconds as number | null) ?? null })) }),
+            { savedDurationSec: savedDuration });
         });
 
         // ── Row 11 (continued) — the Focus Points coaching pair after Stop ─────────────────────────────────
@@ -1054,6 +1078,81 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 captured: coachingCapture, releaseSha: expectedReleaseSha() });
             receipt.row(FOCUS_TAKES_DIFFER_ROW, differ.verdict, differ.detail, differ.evidence);
         });
+
+        // ── J3.b step 4 (#1904): the one repeat take on the same set, saved on its own, checked against the fixture and reopened. ──
+        // Reads only: saved state through the service client, and the repeat's Analytics detail in its OWN tab, so the main page
+        // and its telemetry stay where the later steps expect them. The first take is re-read too: the repeat must not change it.
+        if (fixtureKey === 'focus_points_partial_tts') {
+            await test.step('J3.b — the repeat take saved and reopened against the fixture', async () => {
+                const fail = (where: string) => (e: { code?: string } | null) => { if (e) throw new Error(`${where} read failed (fail closed): ${e.code ?? 'unknown'}`); };
+                let repeatObjective: { id: string; source_session_id: string; brief_id: string } | null | 'error' = 'error';
+                let firstBriefId: string | null = null;
+                let firstMismatchesAfter: number[] | null = null;
+                let repeatCoachingSaved: boolean | null = null;
+                let repeatIdentity: ReturnType<typeof savedFocusIdentityVerdict> | null = null;
+                let repeatCardId: string | null = null;
+                try {
+                    if (persistedId && firstObjectiveId) {
+                        const { data: firstOs, error: e1 } = await admin!.from('objective_session').select('brief_id').eq('id', firstObjectiveId).eq('user_id', owner.uid).maybeSingle();
+                        fail('first objective_session')(e1);
+                        firstBriefId = (firstOs?.brief_id as string | undefined) ?? null;
+                        const [{ data: fp, error: e2 }, { data: fe, error: e3 }] = await Promise.all([
+                            firstBriefId ? admin!.from('objective_brief_point').select('id,sort_order').eq('brief_id', firstBriefId).eq('user_id', owner.uid)
+                                : Promise.resolve({ data: [], error: null }),
+                            admin!.from('objective_evidence').select('brief_point_id,verdict').eq('session_id', firstObjectiveId).eq('user_id', owner.uid),
+                        ]);
+                        fail('first points')(e2); fail('first evidence')(e3);
+                        firstMismatchesAfter = persistedVerdictMismatches(firstTakeRail,
+                            (fp ?? []).map((p) => ({ id: p.id as string, sort_order: p.sort_order as number })),
+                            (fe ?? []).map((r) => ({ brief_point_id: r.brief_point_id as string, verdict: r.verdict as string })));
+                    }
+                    if (repeatSessionId && repeatSessionId !== persistedId) {
+                        const { data: ros, error: e4 } = await admin!.from('objective_session').select('id,source_session_id,brief_id')
+                            .eq('source_session_id', repeatSessionId).eq('user_id', owner.uid);
+                        fail('repeat objective_session')(e4);
+                        // More than one scored result for one take is itself a substitution risk: none is chosen.
+                        repeatObjective = (ros ?? []).length === 1 ? ros![0] as { id: string; source_session_id: string; brief_id: string } : (ros ?? []).length === 0 ? null : 'error';
+                        const source = await readFocusSource(repeatSessionId);
+                        repeatCoachingSaved = source === 'error' || source === null ? null : source.ai_suggestions !== null && source.ai_suggestions !== undefined;
+                        if (repeatObjective && repeatObjective !== 'error' && repeatCoachingSaved) {
+                            const [{ data: rp, error: e5 }, { data: re, error: e6 }] = await Promise.all([
+                                admin!.from('objective_brief_point').select('id,brief_id,sort_order,label').eq('brief_id', repeatObjective.brief_id).eq('user_id', owner.uid),
+                                admin!.from('objective_evidence').select('brief_point_id,verdict').eq('session_id', repeatObjective.id).eq('user_id', owner.uid),
+                            ]);
+                            fail('repeat points')(e5); fail('repeat evidence')(e6);
+                            const tab = await page.context().newPage();
+                            let visible: string[] = [];
+                            try {
+                                await tab.goto(`/analytics/${repeatSessionId}`);
+                                // J1.d pattern (Sam, Nov 19 on 947d357): wait for the card's own loaded id, and read evidence only
+                                // from the card that carries the repeat's id; any other card (the first take's) is never read.
+                                repeatCardId = await loadedReviewSessionId(tab);
+                                if (repeatCardId === repeatSessionId) {
+                                    const block = repeatReviewCard(tab, repeatSessionId).getByTestId('review-evidence').first();
+                                    if (await block.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false)) {
+                                        visible = (await block.innerText({ timeout: 10_000 }).catch(() => '')).split('\n');
+                                    }
+                                }
+                            } finally { await tab.close(); }
+                            // The fixture's own statuses, never the repeat's rail or its saved result under test.
+                            repeatIdentity = savedFocusIdentityVerdict(focusIdentityObservation({
+                                expectedBriefId: firstBriefId, savedBriefId: repeatObjective.brief_id, labels: points,
+                                railStatuses: expectedFinal.map((e) => (e === 'covered' || e === 'partial' || e === 'missing' ? e : null)),
+                                savedPoints: (rp ?? []).map((p) => ({ id: p.id as string, brief_id: p.brief_id as string, sort_order: p.sort_order as number, label: p.label as string })),
+                                evidence: (re ?? []).map((r) => ({ brief_point_id: r.brief_point_id as string, verdict: r.verdict as string })),
+                                visibleEvidence: visible,
+                            }));
+                        }
+                    } else repeatObjective = null;
+                } catch { /* every unread part stays null / 'error' and holds */ }
+                const v = j3bRepeatReopenVerdict({ reviewMode: reviewModeOf(consent), firstSessionId: persistedId, repeatSessionId, firstObjectiveId,
+                    repeatObjective, repeatCoachingSaved, firstBriefId, repeatIdentity, firstMismatchesAfter, repeatCardId });
+                receipt.row(J3B_REPEAT_ROW, v.status, v.status === 'PASS'
+                    ? 'the repeat on the same set saved on its own, its saved and reopened point results match the fixture (partial counts as detected), and the first take is unchanged'
+                    : 'the repeat take is not proved to be its own save matching the fixture, or it changed the first take',
+                { reason: v.reason, mismatchedOrdinals: repeatIdentity?.mismatchedOrdinals.join(',') ?? null, errors: repeatIdentity?.errors.join('; ') ?? null });
+            });
+        }
 
         // ── AHT-02/03 same-target-repeat, its Progress part (G03 #1548 A2, as AHT-01): the repeat result names the measured metric.
         // Shared pure parts (repeatMetricWording.ts), unchanged. The panel is read in its OWN tab of this context, so the main

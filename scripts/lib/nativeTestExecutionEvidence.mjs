@@ -38,6 +38,10 @@ export const SQL_CONTRACTS=Object.freeze([
       'backend/supabase/migrations/20261117105700_practice_privacy_choices_1835.sql',
       'tests/db/fixtures/practice-privacy-choices-1835.sql',
     ])}),
+  // #1827 D2 repeat tip: the catalog gate test executes the exact migration over the shipped PGlite chain and writes its witness;
+  // the native database runs in the account-closure full-chain proof workflow (profile main-repeat-tip-134).
+  Object.freeze({consumer:'tests/db/repeatTipPostflight.integration.test.ts',
+    files:Object.freeze(['backend/supabase/migrations/20261119120000_repeat_practised_tip.sql'])}),
 ]);
 export const sqlContract=file=>SQL_CONTRACTS.find(item=>item.files.includes(file));
 export const NATIVE_HELPERS=Object.freeze([
@@ -69,6 +73,11 @@ export const NATIVE_HELPERS=Object.freeze([
     claim:'actual cleanup barrier, owned-process cleanup and launch-ownership callables with real child processes; browser and live run NOT RUN'},
   {file:'tests/model-dropin/identityExclusion.mjs',consumer:'tests/model-dropin/identityExclusion.node.test.mjs',
     callables:['assertNotMaintainedIdentity'],claim:'actual maintained-identity refusal with synthetic identifiers; credentials and accounts NOT RUN'},
+  // Bounded Supabase CLI installer for the disposable database-proof workflow: stall, retry, digest and version controls
+  // against a local fake release server.
+  {file:'scripts/ci/install-supabase-cli.mjs',consumer:'tests/unit/installSupabaseCli.test.mjs',
+    callables:['installSupabaseCli','downloadOnce'],
+    claim:'actual installer callables against a local fake release server; the real GitHub release download and hosted runner NOT RUN'},
   {file:'tools/cloud-test/scripts/resolve_rwt_served_release.mjs',consumer:'tools/cloud-test/tests/rwt_served_release.test.mjs',
     callables:['resolveRwtServedRelease','verifyRwtServedRelease'],
     claim:'actual runtime release identity and compatibility guards with mocked production responses and synthetic Git; deployment and live writes NOT RUN'},

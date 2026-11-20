@@ -37,6 +37,12 @@ export const CONSENT_MODES: Readonly<Record<ConsentMode, PracticeChoice>> = Obje
     save_off: { transcriptSave: false, aiCoaching: false },
 });
 
+/**
+ * Save retry (J4.a / J4.b) expects a saved transcript, so its own run-owned account opts in to saving, with coaching off
+ * (Sam, Nov 18). Fixed, never read from the environment: the app's default stays off and only this test account opts in.
+ */
+export const SAVE_RETRY_CONSENT_MODE: ConsentMode = 'save_on';
+
 /** The run's consent mode from its environment; null when unset or not one of the three. */
 export function consentModeFrom(value: string | undefined): ConsentMode | null {
     return value !== undefined && Object.prototype.hasOwnProperty.call(CONSENT_MODES, value) ? value as ConsentMode : null;

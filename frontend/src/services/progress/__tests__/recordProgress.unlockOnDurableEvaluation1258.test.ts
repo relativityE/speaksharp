@@ -34,10 +34,18 @@ let recRows: Set<string>;
 let recReadError: unknown;
 let evalRow: Record<string, unknown> | null;
 let evalReadError: unknown;
+/** #1827 D2 rev 4: the server's attempt row (registered take) and which takes have a durable evaluation. */
+let serverAttempt: { registered_session_id: string | null; registration_required: boolean } | null;
+let attemptReadError: { code?: string; message?: string } | null;
+let evaluatedSessions: Set<string>;
+let attemptReads = 0;
+const attemptReadCalls = () => attemptReads;
+const attemptRead = async () => { attemptReads++; return attemptReadError ? { data: null, error: attemptReadError } : { data: serverAttempt, error: null }; };
 function chain(table: string) {
     const filters: Record<string, unknown> = {};
     const c: Record<string, unknown> = {};
-    c.select = () => c;
+    let selected = '';
+    c.select = (cols: string) => { selected = cols; return c; };
     c.eq = (col: string, v: unknown) => { filters[col] = v; return c; };
     c.maybeSingle = async () => {
         if (table === 'progress_recommendations') {
@@ -45,7 +53,12 @@ function chain(table: string) {
             const sid = String(filters.source_session_id);
             return { data: recRows.has(sid) ? { id: `rec-${sid}` } : null, error: null };
         }
-        if (table === 'session_progress_evaluations') return { data: evalRow, error: evalReadError };
+        if (table === 'session_progress_evaluations') {
+            // #1827: the durable-evaluation check reads by session; other readbacks use the configured row.
+            if (selected === 'id' && filters.session_id !== undefined) return { data: evaluatedSessions.has(String(filters.session_id)) ? { id: `eval-${filters.session_id}` } : null, error: null };
+            return { data: evalRow, error: evalReadError };
+        }
+        if (table === 'progress_recommendation_attempts') return attemptRead();
         return { data: null, error: null };
     };
     return c;
@@ -95,7 +108,9 @@ function failWritesTo(match: (key: string) => boolean): void {
         return real.call(this, k, v);
     });
 }
-const acceptAttempt = (attemptId: string, sourceSessionId: string, userId = USER, acceptedAtIso = '2026-10-13T10:00:00.000Z') =>
+/** Practice again accepted by a client that does not register its repeat (the earlier first-take rules). */
+const acceptAttempt = (attemptId: string, sourceSessionId: string, userId = USER, acceptedAtIso = '2026-10-13T10:00:00.000Z',
+    _legacyRegisteredHint?: string) =>
     expect(setOpenAttempt({ attemptId, userId, sourceSessionId, acceptedAtIso } as Parameters<typeof setOpenAttempt>[0])).toBe(true);
 
 /** Hold the recommendation RPC; on release it creates the row (the server's own uniqueness makes repeats no-ops). */
@@ -122,6 +137,10 @@ beforeEach(() => {
     recReadError = null;
     evalRow = { ...ELIGIBLE };
     evalReadError = null;
+    serverAttempt = null;
+    attemptReadError = null;
+    attemptReads = 0;
+    evaluatedSessions = new Set();
     recommendationSucceeds();
     rpcImpl.set('advance_recommendation_attempt', async () => ({ data: 'moved', error: null }));
     useSessionStore.getState().setProgressGate(null);
@@ -221,7 +240,7 @@ describe('B4 — a failed obligation write keeps Start blocked, and downstream s
 
 describe('B5 — the attempt is bound before anything non-blocking is published, and a failed bind blocks', () => {
     it('a failed binding is unresolved: nothing published, nothing advanced, and the debt keeps blocking', async () => {
-        acceptAttempt('att-1', 'sess-source');
+        acceptAttempt('att-1', 'sess-source', USER, undefined, N);
         failWritesTo((k) => k === OPEN_ATTEMPT_KEY);
         const outcome = await within(wireProgressEvaluationOnSave(SAVE(N)));
         expect(outcome).toEqual({ kind: 'unresolved', reason: 'attempt_binding_unavailable' });
@@ -245,7 +264,7 @@ describe('B5 — the attempt is bound before anything non-blocking is published,
     });
 
     it('binds BEFORE publishing: the open attempt names N by the time the queue entry is gone', async () => {
-        acceptAttempt('att-b5-order', 'sess-source');
+        acceptAttempt('att-b5-order', 'sess-source', USER, undefined, N);
         // The clear is published as the queue TOMBSTONE write: by then the binding must already be durable.
         const realSet = Storage.prototype.setItem;
         let boundWhenCleared: string | undefined | null = null;
@@ -290,7 +309,7 @@ describe('Codex P1 r4273828969 — acceptance is compared with the TAKE\'S START
     });
 
     it('save path: a take that started AFTER acceptance is bound', async () => {
-        acceptAttempt('att-c1-after', 'sess-source', USER, '2026-10-14T10:00:00.000Z');
+        acceptAttempt('att-c1-after', 'sess-source', USER, '2026-10-14T10:00:00.000Z', N);
         expect(await within(wireProgressEvaluationOnSave(SAVE(N, USER, '2026-10-14T10:01:00.000Z')))).toEqual({ kind: 'recorded' });
         await settle();
         // Bound to N and resolved against N (the resolved attempt is then cleared from the handoff).
@@ -328,7 +347,7 @@ describe('PM 6174115505 — an UNKNOWN take start fails closed (never guessed fr
 
 describe('B6 — rapid N then N+1: one advance, bound to N', () => {
     it('N+1 joins N\'s in-flight advance instead of rebinding or advancing again', async () => {
-        acceptAttempt('att-b6', 'sess-source');
+        acceptAttempt('att-b6', 'sess-source', USER, undefined, N);
         const advance = deferred();
         rpcImpl.set('advance_recommendation_attempt', () => advance.promise);
         expect(await within(wireProgressEvaluationOnSave(SAVE(N))), 'the held advance held the save').toEqual({ kind: 'recorded' });
@@ -441,7 +460,7 @@ describe('PM 6174115505 — the controller carries each take\'s remembered start
         ['Focus Points', { mode: 'focus_points', brief: { projectId: 'p', briefId: 'b' }, segments: [], durationSeconds: 10 }],
     ])('%s: a take started after acceptance is bound through the seam; the same take with no remembered start is not', async (_label, ctx) => {
         finalizeObjectiveSessionOnSave.mockResolvedValue({ ok: true, registered: true, coverage: null });
-        acceptAttempt(`att-seam-${String((ctx as { mode: string }).mode)}`, 'sess-source', USER, '2026-10-13T10:00:00.000Z');
+        acceptAttempt(`att-seam-${String((ctx as { mode: string }).mode)}`, 'sess-source', USER, '2026-10-13T10:00:00.000Z', N1);
         // After a reload (no remembered start): unbound — fail closed.
         expect(await controllerWith(undefined).completeProgressForRecording(ctx, N, 'verified', true, () => true)).toEqual({ kind: 'recorded' });
         await settle();
@@ -505,7 +524,7 @@ describe('Codex P1 r4275718048 — a take queued first WITHOUT its start (server
         return raw?.takeStartedAtIso;
     };
     it('the save merges its start into the existing entry, and a later retry round binds the accepted attempt to that take', async () => {
-        acceptAttempt('att-hydrated', 'sess-source', USER, '2026-10-14T10:00:00.000Z');
+        acceptAttempt('att-hydrated', 'sess-source', USER, '2026-10-14T10:00:00.000Z', N);
         expect(enqueueProgressReconcile(N, USER, '2026-10-14T10:02:00.000Z').ok).toBe(true); // hydration: no boundary
         expect(startOf(N)).toBeUndefined();
         rpcImpl.set('record_progress_evaluation', async () => ({ data: null, error: { message: 'x' } }));
@@ -531,7 +550,7 @@ describe('Codex P1 r4275718048 — a take queued first WITHOUT its start (server
 describe('PM 6178959404 — a reused attempt accepted at the retry press never binds an earlier take', () => {
     it('a take that began between the failed local press and the retry stays unlinked; the next take is bound', async () => {
         // What the linked repeat stores on an unproved reuse: the retry press (11:01), not the failed press (11:00).
-        acceptAttempt('att-reused', 'sess-source', USER, '2026-10-14T11:01:00.000Z');
+        acceptAttempt('att-reused', 'sess-source', USER, '2026-10-14T11:01:00.000Z', N1);
         expect(await within(wireProgressEvaluationOnSave(SAVE(N, USER, '2026-10-14T11:00:30.000Z')))).toEqual({ kind: 'recorded' });
         await settle();
         expect(callsTo('advance_recommendation_attempt')).toHaveLength(0);
@@ -555,5 +574,117 @@ describe('Codex P2 r4276808814 — a load round evaluates every blocking entry b
         expect(await within(round, 50), 'the load round itself still waits for its downstream work').toBe('HELD');
         for (const d of held) d.resolve({ data: null, error: null });
         expect(await round).toMatchObject({ drained: 2 });
+    });
+});
+
+describe('#1827 D2 rev 4 — the server\'s registered take is the one repeat identity (read, never stored)', () => {
+    const acceptRegistering = (attemptId = 'att-reg') => expect(setOpenAttempt({ attemptId, userId: USER, sourceSessionId: 'sess-source',
+        acceptedAtIso: '2026-10-13T10:00:00.000Z', registrationRequired: true })).toBe(true);
+    const advanced = () => callsTo('advance_recommendation_attempt').map((c) => c[1].p_practice_session_id);
+    const registerCalls = () => callsTo('register_practice_again_take_v1');
+
+    it('another tab\'s take C saved first is never bound or advanced; the registered take B then is, exactly once', async () => {
+        acceptRegistering();
+        serverAttempt = { registered_session_id: N1, registration_required: true };
+        evaluatedSessions.add(N);
+        expect(await within(wireProgressEvaluationOnSave(SAVE(N)))).toEqual({ kind: 'recorded' });
+        await settle();
+        expect(advanced()).toEqual([]);
+        evaluatedSessions.add(N1);
+        expect(await within(wireProgressEvaluationOnSave(SAVE(N1, USER, '2026-10-13T11:05:00.000Z')))).toEqual({ kind: 'recorded' });
+        await settle();
+        expect(advanced()).toEqual([N1]);
+        expect(getOpenAttemptForUser(USER)).toBeNull();
+        expect(registerCalls()).toEqual([]);                    // reading never registers
+    });
+
+    it('Sam\'s control: B never registers, C appears in reconciliation, and C does not claim the repeat', async () => {
+        acceptRegistering();
+        serverAttempt = { registered_session_id: null, registration_required: true };   // nothing committed
+        evaluatedSessions.add(N);
+        expect(enqueueProgressReconcile(N, USER, '2026-10-13T10:40:00.000Z', '2026-10-13T10:30:00.000Z').ok).toBe(true);
+        await reconcileProgressEvaluations(USER, []);
+        await settle();
+        expect(advanced()).toEqual([]);
+        expect(registerCalls()).toEqual([]);
+        expect(getOpenAttemptForUser(USER)).toMatchObject({ attemptId: 'att-reg' });
+        expect(getOpenAttemptForUser(USER)?.resolutionSessionId).toBeUndefined();
+    });
+
+    it('lost reply: B\'s save could not read the server; the next load reads B back, binds and advances it once', async () => {
+        acceptRegistering();
+        attemptReadError = { code: '08006', message: 'connection failure' };
+        evaluatedSessions.add(N1);
+        expect(await within(wireProgressEvaluationOnSave(SAVE(N1, USER, '2026-10-13T11:05:00.000Z')))).toEqual({ kind: 'recorded' });
+        await settle();
+        expect(advanced()).toEqual([]);                          // unknown: decide nothing
+        attemptReadError = null;
+        serverAttempt = { registered_session_id: N1, registration_required: true };    // B had committed
+        await reconcileProgressEvaluations(USER, []);
+        await settle();
+        expect(advanced()).toEqual([N1]);
+    });
+
+    it('recovered discard: the server released discarded B; D registered next is the repeat, with no stale client state', async () => {
+        acceptRegistering();
+        serverAttempt = { registered_session_id: null, registration_required: true };   // B discarded → released server-side
+        await reconcileProgressEvaluations(USER, []);
+        await settle();
+        expect(advanced()).toEqual([]);
+        serverAttempt = { registered_session_id: N1, registration_required: true };     // D (N1) registered from the tab
+        evaluatedSessions.add(N1);
+        expect(await within(wireProgressEvaluationOnSave(SAVE(N1, USER, '2026-10-13T11:05:00.000Z')))).toEqual({ kind: 'recorded' });
+        await settle();
+        expect(advanced()).toEqual([N1]);
+    });
+
+    it('a registered take is advanced only once its evaluation is durable; before that, nothing', async () => {
+        acceptRegistering();
+        serverAttempt = { registered_session_id: N1, registration_required: true };
+        await reconcileProgressEvaluations(USER, []);           // N1 registered but not yet saved/evaluated
+        await settle();
+        expect(advanced()).toEqual([]);
+    });
+
+    it('a resolution left on another take (an older tab) is replaced by the server\'s registered take', async () => {
+        expect(setOpenAttempt({ attemptId: 'att-reg', userId: USER, sourceSessionId: 'sess-source', acceptedAtIso: '2026-10-13T10:00:00.000Z',
+            registrationRequired: true, resolutionSessionId: N })).toBe(true);
+        serverAttempt = { registered_session_id: N1, registration_required: true };
+        evaluatedSessions.add(N1);
+        await reconcileProgressEvaluations(USER, []);
+        await settle();
+        expect(advanced()).toEqual([N1]);
+    });
+
+    it('a registering attempt with no server registration to read (legacy or missing columns) is left unbound — never guessed', async () => {
+        acceptRegistering();
+        for (const read of [() => { attemptReadError = { code: '42703', message: 'column registered_session_id does not exist' }; },
+                            () => { attemptReadError = null; serverAttempt = { registered_session_id: null, registration_required: false }; }]) {
+            read();
+            evaluatedSessions.add(N1);
+            expect(await within(wireProgressEvaluationOnSave(SAVE(N1, USER, '2026-10-13T11:05:00.000Z')))).toEqual({ kind: 'recorded' });
+            await reconcileProgressEvaluations(USER, []);
+            await settle();
+            expect(advanced()).toEqual([]);
+        }
+    });
+
+    it('pre-migration (decided at the press): an attempt with no registration marker keeps the full first-owed-take ordering', async () => {
+        acceptAttempt('att-premigration', 'sess-source');                 // the press found no registration function
+        rpcImpl.set('record_progress_evaluation', async (args) => (args.p_session_id === N
+            ? { data: null, error: { code: '08006', message: 'connection failure' } } : { data: 'eval-1', error: null }));
+        expect(enqueueProgressReconcile(N, USER, '2026-10-13T10:40:00.000Z', '2026-10-13T10:30:00.000Z').ok).toBe(true);
+        expect(enqueueProgressReconcile(N1, USER, '2026-10-13T11:10:00.000Z', '2026-10-13T11:00:00.000Z').ok).toBe(true);
+        await reconcileProgressEvaluations(USER, []);
+        await settle();
+        expect(advanced()).toEqual([]);                                    // B (N) still owes evaluation: C (N1) is not bound
+        expect(attemptReadCalls()).toBe(0);                                // no registration path for it
+    });
+
+    it('older client\'s attempt (no registration marker): the earlier first-take rule, with no server read', async () => {
+        acceptAttempt('att-legacy', 'sess-source');
+        expect(await within(wireProgressEvaluationOnSave(SAVE(N)))).toEqual({ kind: 'recorded' });
+        await settle();
+        expect(advanced()).toEqual([N]);
     });
 });

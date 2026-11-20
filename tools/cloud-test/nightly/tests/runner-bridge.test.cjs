@@ -3,6 +3,7 @@
 // through the REAL harness runner (`campaign-core.runCampaign`, unmodified) offline, with the run budget, cleanup
 // evidence and leg verdicts wired through runner-bridge.cjs. No browser, no network, no production: the case is a fake
 // that sends only through the `nightly` hooks it is given, onto a recorded wire.
+const J4A_STORES = require('../residue-inventory.cjs').j4aRequiredStores();
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -114,6 +115,10 @@ function fakeIo(scenario, wire) {
                     if (g.unwritableEvidence) fs.chmodSync(scenario.evidenceDir, 0o700);
                 }
             }
+            else if (leg === 'J4.a') {
+                const created = await nightly.createAccount(leg, `acct-unit-${c.id}`, async () => ({ outcome: 'created', accountRef: 'unit-owner' }));
+                assert.equal(created.answered, true);
+            }
             else
                 nightly.created(leg, { kind: 'account', ref: `acct-unit-${c.id}` });
             if (scenario.createFence)
@@ -142,7 +147,7 @@ function fakeIo(scenario, wire) {
                     left: scenario.leftFor?.[c.id] ?? (j6 ? scenario.left : undefined) ?? [],
                     ...(scenario.claimNothingCreated ? { verification: { kind: 'nothing-created' } }
                         : scenario.emptyQueriesFor === c.id ? { verification: { kind: 'zero-residue', queries: [] } }
-                            : query.sent ? { verification: { kind: 'zero-residue', queries: [{ kind: 'account', scope: `unit-run:${c.id}`, count: query.value }] } } : {}),
+                            : query.sent ? { verification: { kind: 'zero-residue', queries: (leg === 'J4.a' ? J4A_STORES.map((x) => [x.table === 'sessions' ? 'session' : x.table === 'active_recording_lease' ? 'lease' : 'account', x.id]) : [['account', undefined]]).map(([kind, store]) => ({ kind, ...(store ? { store } : {}), scope: leg === 'J4.a' ? `acct-unit-${c.id}` : `unit-run:${c.id}`, count: query.value })) } } : {}),
                 },
             };
         },
