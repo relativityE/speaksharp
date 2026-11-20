@@ -3,6 +3,8 @@
  * J1.d reserved-namespace smoke: the pure verdicts the disposable-stack smoke uses. These prove the checks
  * themselves, both ways; they are NOT the browser run, which only the disposable stack's own Playwright evidence can prove.
  */
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
     SMOKE_EMAIL_DOMAIN, confirmationLink, confirmationMessage, loopbackTargets, quietReturnVerdict, receiptLeaks, sameAccountVerdict,
@@ -113,5 +115,21 @@ describe('j1dSmokeChecks: the receipt carries no secret', () => {
         expect(receiptLeaks('{"t":"access_token=x"}', [])).toEqual(['token_or_link_shape']);
         // Short values are not matched (a 1-5 character value would match ordinary text).
         expect(receiptLeaks('{"a":"abc"}', ['abc'])).toEqual([]);
+    });
+});
+
+describe('j1dSmokeChecks: the smokes use the shared visible-readiness helper (AGENTS.md: Signals And Readiness)', () => {
+    const smokeDir = path.join(process.cwd(), 'tests/smoke');
+    const sources = fs.readdirSync(smokeDir).filter((f) => f.endsWith('.ts')).map((f) => [f, fs.readFileSync(path.join(smokeDir, f), 'utf8')] as const);
+    it('no smoke file defines its own readiness probe on the app-ready attributes', () => {
+        for (const [file, text] of sources) expect({ file, own: /data-app(-visible)?-ready/.test(text) }).toEqual({ file, own: false });
+    });
+    it('every browser smoke spec waits through waitForAppVisibleReady from tests/e2e/helpers', () => {
+        const specs = sources.filter(([file]) => file.endsWith('.smoke.spec.ts'));
+        expect(specs.length).toBeGreaterThan(0);
+        for (const [file, text] of specs) {
+            expect({ file, imported: /import \{[^}]*\bwaitForAppVisibleReady\b[^}]*\} from '\.\.\/e2e\/helpers'/.test(text),
+                used: /await waitForAppVisibleReady\(/.test(text) }).toEqual({ file, imported: true, used: true });
+        }
     });
 });

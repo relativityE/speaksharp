@@ -3,13 +3,10 @@
  * place of a link the person would click. The app origin comes from the stack script's env (loopback only, checked by each spec).
  */
 import type { Page } from '@playwright/test';
+import { waitForAppVisibleReady } from '../e2e/helpers';
 
 const APP = process.env.J1D_SMOKE_APP_URL ?? '';
 
-export async function visibleReady(page: Page): Promise<void> {
-    await page.locator('html[data-app-ready="true"]').waitFor({ state: 'attached', timeout: 45_000 });
-    await page.locator('html[data-app-visible-ready="true"]').waitFor({ state: 'attached', timeout: 45_000 });
-}
 /** The Auth user id of the session this browser holds, or null (read in the page; the token itself never leaves it). */
 export const sessionUid = (page: Page) => page.evaluate(() => {
     for (const key of Object.keys(localStorage)) {
@@ -23,7 +20,7 @@ export const signedOutLinks = (page: Page) => page.getByRole('navigation', { nam
 /** From the homepage, as a person would: click the header link, and land on its form. */
 export async function openFromHomepage(page: Page, link: 'Get Started' | 'Sign In', expectPath: string): Promise<void> {
     await page.goto(`${APP}/`);
-    await visibleReady(page);
+    await waitForAppVisibleReady(page);
     await signedOutLinks(page).getByRole('link', { name: link, exact: true }).click();
     await page.waitForURL((u) => u.pathname === expectPath, { timeout: 30_000 });
     await page.getByTestId('auth-form').waitFor({ state: 'visible', timeout: 30_000 });

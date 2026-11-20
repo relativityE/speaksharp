@@ -23,7 +23,8 @@ import { loopbackTargets, receiptLeaks, smokeIdentity, type MailSummary, type Sm
 import {
     closureRefusedVerdict, freshSignInWallVerdict, openPageWallVerdict, provisionedTrialVerdict, serverRefusalVerdict, type ClosureAnswer, type RpcOutcome, type UsageAnswer,
 } from './j1efTrialChecks';
-import { openFromHomepage, sessionUid, signInThroughForm, visibleReady } from './smokePage';
+import { openFromHomepage, sessionUid, signInThroughForm } from './smokePage';
+import { waitForAppVisibleReady } from '../e2e/helpers';
 
 const APP = process.env.J1D_SMOKE_APP_URL ?? '';
 const API = process.env.J1D_SMOKE_API_URL ?? '';
@@ -168,7 +169,7 @@ test('J1.e: the trial ends on an open session page, then on a fresh sign-in, and
             await signInFromHomepage(open.page, acct().email, acct().password);
             await expect.poll(() => sessionUid(open!.page), { timeout: 30_000 }).toBe(acct().uid);
             await open.page.goto(`${APP}/session`);
-            await visibleReady(open.page);
+            await waitForAppVisibleReady(open.page);
             productShownBefore = await open.page.getByTestId(SESSION).waitFor({ state: 'visible', timeout: 30_000 }).then(() => true, () => false);
             wallBefore = await visible(open.page, WALL);
             pathBefore = new URL(open.page.url()).pathname;
@@ -187,7 +188,7 @@ test('J1.e: the trial ends on an open session page, then on a fresh sign-in, and
             await signInFromHomepage(fresh.page, acct().email, acct().password);
             const signedIn = await expect.poll(() => sessionUid(fresh!.page), { timeout: 30_000 }).toBe(acct().uid).then(() => true, () => false);
             await fresh.page.goto(`${APP}/practice`);
-            await visibleReady(fresh.page);
+            await waitForAppVisibleReady(fresh.page);
             const wallShown = await fresh.page.getByTestId(WALL).waitFor({ state: 'visible', timeout: 30_000 }).then(() => true, () => false);
             return freshSignInWallVerdict({ signedIn, wallShown, productShown: await visible(fresh.page, 'practice-root') || await visible(fresh.page, SESSION) });
         });
@@ -231,7 +232,7 @@ test('J1.f: an already-expired account reaches deletion from the wall, and delet
             await signInFromHomepage(s.page, acct().email, acct().password);
             await expect.poll(() => sessionUid(s!.page), { timeout: 30_000 }).toBe(acct().uid);
             await s.page.goto(`${APP}/practice`);
-            await visibleReady(s.page);
+            await waitForAppVisibleReady(s.page);
             return (await s.page.getByTestId(WALL).waitFor({ state: 'visible', timeout: 30_000 }).then(() => true, () => false))
                 ? { status: 'PASS', reason: 'wall_shown' } : { status: 'FAIL', reason: 'no_wall_for_expired_account' };
         });

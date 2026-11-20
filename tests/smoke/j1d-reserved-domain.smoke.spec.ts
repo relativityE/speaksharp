@@ -18,7 +18,8 @@ import {
     confirmationLink, confirmationMessage, loopbackTargets, quietReturnVerdict, receiptLeaks, sameAccountVerdict, signedOutRedirectVerdict,
     smokeIdentity, type MailSummary, type SmokeVerdict,
 } from './j1dSmokeChecks';
-import { openFromHomepage, sessionUid, signInThroughForm, signOutThroughApp, signedOutLinks, visibleReady } from './smokePage';
+import { openFromHomepage, sessionUid, signInThroughForm, signOutThroughApp, signedOutLinks } from './smokePage';
+import { waitForAppVisibleReady } from '../e2e/helpers';
 
 const APP = process.env.J1D_SMOKE_APP_URL ?? '';
 const API = process.env.J1D_SMOKE_API_URL ?? '';
@@ -127,7 +128,7 @@ test('J1.d smoke: a disposable speaksharp.test account confirms, signs out, is r
         // 2. Sign-in is refused before confirmation.
         await step(rows, 'sign-in is refused before confirmation', async () => {
             await page.goto(`${APP}/auth/signin`);
-            await visibleReady(page);
+            await waitForAppVisibleReady(page);
             await signInThroughForm(page, email, password);
             await page.getByTestId('auth-error-message').waitFor({ state: 'visible', timeout: 30_000 });
             return (await sessionUid(page)) ? { status: 'FAIL', reason: 'signed_in_unconfirmed' } : { status: 'PASS', reason: 'refused_unconfirmed' };
@@ -142,7 +143,7 @@ test('J1.d smoke: a disposable speaksharp.test account confirms, signs out, is r
             if (!found) return { status: 'HOLD', reason: 'confirmation_link_unusable' };
             link = found;
             await page.goto(link);
-            await visibleReady(page);
+            await waitForAppVisibleReady(page);
             const confirmed = await userByEmail(email);
             return confirmed?.email_confirmed_at ? { status: 'PASS', reason: 'confirmed' } : { status: 'FAIL', reason: 'not_confirmed_after_link' };
         });
@@ -152,7 +153,7 @@ test('J1.d smoke: a disposable speaksharp.test account confirms, signs out, is r
             main = await freshContext.newPage();
             await main.addInitScript(micCounter);
             await main.goto(`${APP}/`);
-            await visibleReady(main);
+            await waitForAppVisibleReady(main);
             if (await sessionUid(main)) return { status: 'HOLD', reason: 'fresh_context_not_fresh' };
             await openFromHomepage(main, 'Sign In', '/auth/signin');
             await signInThroughForm(main, email, password);
@@ -163,7 +164,7 @@ test('J1.d smoke: a disposable speaksharp.test account confirms, signs out, is r
                 if (await signedOutLinks(main).getByRole('link', { name, exact: true }).count() !== 0) return { status: 'FAIL', reason: 'signed_out_links_still_shown' };
             }
             await main.goto(`${APP}${PROTECTED}`);
-            await visibleReady(main);
+            await waitForAppVisibleReady(main);
             await main.getByTestId('membership-status').waitFor({ state: 'visible', timeout: 30_000 });
             return { status: 'PASS', reason: 'signed_in_with_owned_detail' };
         });
@@ -184,7 +185,7 @@ test('J1.d smoke: a disposable speaksharp.test account confirms, signs out, is r
             };
             main.on('response', watch);
             await main.goto(`${APP}${PROTECTED}`);
-            await visibleReady(main);
+            await waitForAppVisibleReady(main);
             await main.waitForTimeout(2_000);
             const visible = await main.getByTestId('account-page').or(main.getByTestId('membership-status')).first().isVisible().catch(() => false);
             main.off('response', watch);
@@ -210,7 +211,7 @@ test('J1.d smoke: a disposable speaksharp.test account confirms, signs out, is r
         };
         await step(controls, 'CONTROL no redirect: a signed-out public route is not a redirect', () => fresh(async (p) => {
             await p.goto(`${APP}/`);
-            await visibleReady(p);
+            await waitForAppVisibleReady(p);
             if (await sessionUid(p)) return { status: 'HOLD', reason: 'control_not_signed_out' };
             const v = signedOutRedirectVerdict({ requested: '/', landedPath: new URL(p.url()).pathname, protectedContentVisible: false, ownedReadSucceeded: false });
             return v.reason === 'no_redirect' ? { status: 'PASS', reason: 'caught_no_redirect' } : { status: 'FAIL', reason: `control_missed_${v.reason}` };
@@ -223,7 +224,7 @@ test('J1.d smoke: a disposable speaksharp.test account confirms, signs out, is r
             if (error || !data.user) return { status: 'HOLD', reason: 'control_account_not_created' };
             controlUid = data.user.id;
             await p.goto(`${APP}${PROTECTED}`);
-            await visibleReady(p);
+            await waitForAppVisibleReady(p);
             await signInThroughForm(p, controlEmail, controlPassword);
             await p.waitForURL((u) => u.pathname === PROTECTED, { timeout: 30_000 }).catch(() => undefined);
             const owned = await p.getByTestId('membership-status').waitFor({ state: 'visible', timeout: 30_000 }).then(() => true, () => false);
