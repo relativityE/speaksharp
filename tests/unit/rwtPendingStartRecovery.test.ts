@@ -9,6 +9,7 @@ import {
     recoveryPressVerdict, recoveryTakePlan, recoveryTakeVerdict,
 } from '../live/helpers/rwtPendingStartRecovery';
 import { CONSENT_MODES, captureConsentGate, type ChoiceClient } from '../live/helpers/rwtPracticeConsent';
+import { requiredAutomatedRows } from '../live/helpers/rwtAcceptance';
 import type { SessionRowFacts } from '../live/helpers/rwtSaveRetry';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -212,6 +213,10 @@ describe('J5.a consent before every capture-capable press', () => {
         };
         return { io, presses };
     };
+
+    it('the privacy row is REQUIRED for J5.a, so a receipt without it can never finalize PASS', () => {
+        expect(requiredAutomatedRows('pending-start-navigation')?.product).toContain('practice privacy choice');
+    });
 
     it('the fixed choice is Save: Yes, Coaching: No (the recovery keeps its transcript; coaching is only a ceiling)', () => {
         expect(CONSENT_MODES[PENDING_START_CONSENT_MODE]).toEqual({ transcriptSave: true, aiCoaching: false });
