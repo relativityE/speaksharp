@@ -569,7 +569,7 @@ test('existing workflow collects Node tests and explicitly selects the exact129 
   const workflow = read('.github/workflows/account-closure-full-chain-proof.yml');
   const collection = workflow.indexOf('run: node --test tests/db/account-closure-full-chain-main-u1-plan.test.mjs');
   assert.ok(collection > workflow.indexOf('actions/setup-node@v6'));
-  assert.ok(collection < workflow.indexOf('supabase/setup-cli@v2'));
+  assert.ok(collection < workflow.indexOf('- name: Install pinned Supabase CLI (bounded, verified)'));
   assert.ok(workflow.includes('profile: [main-completion-billing-129, main-coaching-retirement-129, main-start-abandonment-130, main-feedback-fence-131, main-payment-wall-132, main-practice-privacy-133, main-repeat-tip-134]'));
   assert.ok(workflow.includes('run: node tests/db/account-closure-full-chain.mjs --profile=${{ matrix.profile }}'));
   assert.ok(workflow.includes('run: node tests/db/account-closure-full-chain.mjs --cleanup --profile=${{ matrix.profile }}'));

@@ -99,11 +99,12 @@ jobs:
           node-version: '22'
       - name: Prove explicit main, Analytics, U1 and account replay plans offline
         run: node --test tests/db/account-closure-full-chain-main-u1-plan.test.mjs tests/db/account-closure-full-chain-retirement-plan.test.mjs tests/db/t2-native-catalog-proof.test.mjs tests/db/t2-native-catalog-expanded.test.mjs tests/db/retention-edited-take-full-chain.test.mjs
-      - uses: supabase/setup-cli@v2
-        env:
-          SUPABASE_CLI_GITHUB_TOKEN: ${{ github.token }}
-        with:
-          version: 2.101.0
+      # Bounded and verified (replaces the setup-cli v2 action, whose download has no deadline: run 44645972965 job
+      # 135988517462 stalled 29m51s in "Setup Supabase CLI" until the job limit; 2.8 s on the rerun). Pinned CLI 2.101.0 and
+      # its SHA-256; transient stalls are retried within this step's timeout, otherwise the step fails and no proof runs.
+      - name: Install pinned Supabase CLI (bounded, verified)
+        timeout-minutes: 8
+        run: node scripts/ci/install-supabase-cli.mjs
       - name: Install native PostgreSQL 17 host binaries (bounded)
         run: |
           set -euo pipefail
