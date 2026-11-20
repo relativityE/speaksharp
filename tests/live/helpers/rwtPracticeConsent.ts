@@ -51,9 +51,9 @@ export const SAVE_RETRY_CONSENT_MODE: ConsentMode = 'save_on';
 export const OPEN_MIC_FIRST_SESSION_CONSENT_MODE: ConsentMode = 'save_on_coaching_on';
 
 /**
- * Pure: the owner's choice, read back from the server right before Start, is exactly the run's FIXED mode on a #1835 build.
+ * Pure: the owner's choice, read back from the server immediately before capture, is exactly the run's FIXED mode on a #1835 build.
  * A pre-#1835 build or another mode FAILs; an unknown build or a missing or unreadable readback HOLDs. Only PASS lets the
- * journey go on to Start.
+ * journey go on to capture.
  */
 export function fixedConsentBeforeStartVerdict(o: {
     build: PrivacyBuild; mode: ConsentMode | null; expected: ConsentMode; readback: ChoiceRead | null; ownerId: string | null;
@@ -63,11 +63,11 @@ export function fixedConsentBeforeStartVerdict(o: {
     if (o.build === 'predates_1835') return { status: 'FAIL', reason: 'legacy_build', detail: 'the build predates #1835 and shows no privacy prompt; this journey runs only on a post-#1835 build' };
     if (o.build !== 'includes_1835') return { status: 'HOLD', reason: 'build_unknown', detail: 'the build\'s #1835 state is unknown, so the owner consent cannot be proven' };
     if (o.mode !== o.expected) return { status: 'FAIL', reason: 'wrong_mode', detail: `the run did not choose ${label}` };
-    if (!o.ownerId || o.readback === null) return { status: 'HOLD', reason: 'readback_missing', detail: 'the owner\'s consent was not read back before Start' };
+    if (!o.ownerId || o.readback === null) return { status: 'HOLD', reason: 'readback_missing', detail: 'the owner\'s consent was not read back before capture' };
     const v = privacyChoiceVerdict(o.readback, o.ownerId, want);
-    if (v.verdict === 'PASS') return { status: 'PASS', reason: 'choice_recorded', detail: `this run's own account chose ${label} in the Practice prompt, read back from the server right before Start` };
-    if (v.reason === 'unreadable') return { status: 'HOLD', reason: 'readback_unreadable', detail: 'the owner\'s consent row could not be read before Start' };
-    return { status: 'FAIL', reason: `readback_${v.reason}`, detail: `the owner's consent row read back before Start is ${v.reason}` };
+    if (v.verdict === 'PASS') return { status: 'PASS', reason: 'choice_recorded', detail: `this run's own account chose ${label} in the Practice prompt, read back from the server immediately before the first capture-capable call` };
+    if (v.reason === 'unreadable') return { status: 'HOLD', reason: 'readback_unreadable', detail: 'the owner\'s consent row could not be read before capture' };
+    return { status: 'FAIL', reason: `readback_${v.reason}`, detail: `the owner's consent row read back before capture is ${v.reason}` };
 }
 
 /** The run's consent mode from its environment; null when unset or not one of the three. */
@@ -290,26 +290,65 @@ export async function settlePracticeConsent(input: {
 export type ConsentRowRecorder = (status: 'PASS' | 'FAIL' | 'HOLD', detail: string, evidence: Record<string, string>) => void;
 
 /**
- * The caller J1.a uses on the Practice page, before Open Mic and any Start (Sam, Nov 20): settle this run's FIXED consent for
- * its fresh run-owned owner, read the owner's own row back right before Start, record the required `practice privacy
- * choice` row, and return only on PASS. Every other outcome (prompt not settled, choice missing, unreadable, another
- * owner's or another choice, an unknown or pre-#1835 build) records the row with its reason and throws
- * `HOLD practice consent: <reason>`, so no take can start.
+ * J1.a, on the Practice page before anything else there (Sam, Nov 20): settle this run's FIXED consent for its fresh run-owned
+ * owner through the prompt. A failure records the required `practice privacy choice` row as HOLD with its reason and rethrows,
+ * so the journey never leaves Practice. Success records nothing yet: the row's PASS belongs to the final readback, which
+ * `captureConsentGate` takes immediately before the first capture-capable call.
  */
-export async function settleFixedConsentBeforeStart(input: {
+export async function settleFixedConsentOnPractice(input: {
     page: Page; client: ChoiceClient; ownerId: string; migrationFiles: readonly string[] | null; mode: ConsentMode; record: ConsentRowRecorder;
 }): Promise<SettledConsent> {
-    let consent: SettledConsent;
     try {
-        consent = await settlePracticeConsent({ page: input.page, client: input.client, ownerId: input.ownerId, migrationFiles: input.migrationFiles, mode: input.mode });
+        return await settlePracticeConsent({ page: input.page, client: input.client, ownerId: input.ownerId, migrationFiles: input.migrationFiles, mode: input.mode });
     } catch (error) {
         const reason = /^HOLD practice consent: ([a-z0-9_]+)/.exec(error instanceof Error ? error.message : '')?.[1] ?? 'not_settled';
-        input.record('HOLD', `the Practice prompt was not settled for this run's account before Start (${reason})`, { reason, mode: input.mode });
+        input.record('HOLD', `the Practice prompt was not settled for this run's account before capture (${reason})`, { reason, mode: input.mode });
         throw error;
     }
-    const readback = consent.build === 'includes_1835' ? await readPracticeChoice(input.client, input.ownerId) : null;
-    const privacy = fixedConsentBeforeStartVerdict({ build: consent.build, mode: consent.mode, expected: input.mode, readback, ownerId: input.ownerId || null });
-    input.record(privacy.status, privacy.detail, { reason: privacy.reason, build: consent.build, mode: consent.mode ?? 'none' });
-    if (privacy.status !== 'PASS') throw new Error(`HOLD practice consent: ${privacy.reason}`);
-    return consent;
+}
+
+export interface CaptureConsentGate {
+    /** Read the owner's row back NOW and require exactly the fixed choice; call it immediately before a capture-capable call. */
+    confirm(): Promise<void>;
+    /** Record the required row as PASS once capture has begun after a confirm; a capture with no fresh confirm is a HOLD. */
+    recordPass(): void;
+}
+
+/**
+ * The final consent check (Sam, Nov 20: "right before Start" means before the first capture-capable call, not before navigation).
+ * The cold model helper can itself start capture, so the journey confirms immediately before it, and again immediately before
+ * an ordinary Start if that helper did not record. Each confirm reads the owner's own row from the server; anything but the
+ * fixed choice for this owner on a #1835 build records the row with its reason and throws `HOLD practice consent: <reason>`.
+ * The row is recorded exactly once.
+ */
+export function captureConsentGate(input: {
+    consent: SettledConsent; client: ChoiceClient; ownerId: string; mode: ConsentMode; record: ConsentRowRecorder;
+}): CaptureConsentGate {
+    let confirmed: ReturnType<typeof fixedConsentBeforeStartVerdict> | null = null;
+    let recorded = false;
+    const evidence = (reason: string) => ({ reason, build: input.consent.build, mode: input.consent.mode ?? 'none' });
+    const once = (status: 'PASS' | 'FAIL' | 'HOLD', detail: string, reason: string) => {
+        if (recorded) return;
+        recorded = true;
+        input.record(status, detail, evidence(reason));
+    };
+    return {
+        async confirm() {
+            confirmed = null;
+            const readback = input.consent.build === 'includes_1835' ? await readPracticeChoice(input.client, input.ownerId) : null;
+            const v = fixedConsentBeforeStartVerdict({ build: input.consent.build, mode: input.consent.mode, expected: input.mode, readback,
+                ownerId: input.ownerId || null });
+            if (v.status !== 'PASS') { once(v.status, v.detail, v.reason); throw new Error(`HOLD practice consent: ${v.reason}`); }
+            confirmed = v;
+        },
+        recordPass() {
+            const v = confirmed;
+            confirmed = null; // a later capture needs its own fresh confirm
+            if (!v) {
+                once('HOLD', 'capture began without a consent readback immediately before it', 'not_confirmed_before_capture');
+                throw new Error('HOLD practice consent: not_confirmed_before_capture');
+            }
+            once('PASS', v.detail, v.reason);
+        },
+    };
 }
