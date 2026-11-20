@@ -188,19 +188,24 @@ export function validatePrivateRow(row, requiredFinalSubstrings = []) {
 
 /**
  * Validate a whole corpus artifact. `expectations` maps fixtureId ->
- * requiredFinalSubstrings[]. Returns per-row results plus an overall verdict.
+ * requiredFinalSubstrings[] for every required fixture in this run or subset.
+ * Missing required fixtures prevent a pass, even when every observed row passes.
+ * Counts refer to observed private rows, not missing fixtures.
  */
 export function validatePrivateCorpusArtifact(artifact, expectations = {}) {
   const results = Array.isArray(artifact?.results) ? artifact.results : [];
-  const rows = results
-    .filter((row) => row && row.mode !== 'native' && row.fixture)
-    .map((row) => validatePrivateRow(row, expectations[row.fixture] ?? []));
+  const observed = results.filter((row) => row && row.mode !== 'native' && row.fixture);
+  const expected = new Map(Object.entries(expectations));
+  const observedFixtures = new Set(observed.map((row) => row.fixture));
+  const missingExpectedFixtures = [...expected.keys()].filter((fixture) => !observedFixtures.has(fixture));
+  const rows = observed.map((row) => validatePrivateRow(row, expected.get(row.fixture) ?? []));
 
   return {
     rowCount: rows.length,
     passCount: rows.filter((r) => r.pass).length,
     failCount: rows.filter((r) => !r.pass).length,
-    pass: rows.length > 0 && rows.every((r) => r.pass),
+    missingExpectedFixtures,
+    pass: missingExpectedFixtures.length === 0 && rows.length > 0 && rows.every((r) => r.pass),
     rows,
   };
 }

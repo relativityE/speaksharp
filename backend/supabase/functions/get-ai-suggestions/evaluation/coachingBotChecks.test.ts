@@ -85,7 +85,11 @@ function noPraiseForUndetected(take: EvaluationItem, answerText: string): Verdic
   return verdict(praised.map((p) => `what_worked praises the undetected point "${p.label}"`));
 }
 
-/** C5: the pair is about THIS take. FAIL when it is anchored only to another take's anchors (a cross-wired answer). */
+// Reviewed factual cue for the scripted bill-pitch vs onboarding cross-wire.
+// A bare shared word such as "setup", or a new practice technique, is not evidence.
+const ONBOARDING_DELAY = /\b(?:verification delay in account setup|account setup (?:slowed|was delayed) (?:down )?by (?:a |the )?late verification email)\b/iu;
+
+/** C5: fixture-specific cross-wire checks, not an independent semantic judge. */
 function ownTake(take: EvaluationItem, r: ItemRecord, answerText: string): Verdict {
   if (r.outcome !== 'none') return verdict([`not served: ${r.outcome}`]);
   const parsed = JSON.parse(answerText) as { what_worked: string; what_to_try_next: string };
@@ -99,7 +103,11 @@ function ownTake(take: EvaluationItem, r: ItemRecord, answerText: string): Verdi
     // Each field can be cross-wired independently. A correct praise line cannot
     // lend its grounding to a next step that's exclusively about another fixture.
     const crossed = Object.entries({ what_worked: parsed.what_worked, what_to_try_next: parsed.what_to_try_next }).flatMap(([field, text]) => {
-      if (anchoredTo(take, text)) return [];
+      if (anchoredTo(take, text)) {
+        return take.id === 'om-03-fast-pitch' && ONBOARDING_DELAY.test(text)
+          ? [`${field} borrows an account-setup fact from om-01-team-update`]
+          : [];
+      }
       const wrongTakes = SET.items.filter((o) => o.id !== take.id && o.grounding.anchors.some((anchor) =>
         hasAnchor(anchor, text) && !hasAnchor(anchor, take.transcript))).map((o) => o.id);
       return wrongTakes.length ? [`${field} is anchored only to another take (${wrongTakes.join(', ')})`] : [];
@@ -200,6 +208,26 @@ Deno.test('#1905 wrong-take coaching fails when only one advice section is cross
       const output = await run({ [id]: mixed }, id);
       assertEquals(ownTake(item(id), output.record, output.text).verdict, 'FAIL', `${id} ${field}: advice from the other take`);
     }
+  }
+});
+
+Deno.test('#1905 a correct anchor does not excuse a foreign factual claim in the same section', async () => {
+  const id = 'om-03-fast-pitch';
+  const { what_worked: worked } = JSON.parse(CORRECT[id]);
+  const novel = await run({ [id]: pair(worked,
+    'Before discussing late payments, pause and try a show-of-hands question about utility bills.') }, id);
+  const sharedWord = await run({ [id]: pair(worked,
+    'Slow the setup before naming late payments.') }, id);
+  assertEquals(ownTake(item(id), novel.record, novel.text), verdict([]));
+  assertEquals(ownTake(item(id), sharedWord.record, sharedWord.text), verdict([]));
+  for (const advice of [
+    'Before discussing late payments, explain the verification delay in account setup.',
+    'Before the pilot result, mention that account setup was delayed by a late verification email.',
+  ]) {
+    const foreignClaim = await run({ [id]: pair(worked, advice) }, id);
+    assertEquals(foreignClaim.record.outcome, 'none', 'the provider answer was served; the rubric must catch the fault');
+    assertEquals(ownTake(item(id), foreignClaim.record, foreignClaim.text),
+      verdict(['what_to_try_next borrows an account-setup fact from om-01-team-update']));
   }
 });
 

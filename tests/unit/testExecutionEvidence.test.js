@@ -537,6 +537,23 @@ test('deleted ordinary tests remain non-executable across dirty staged and commi
   assert.deepEqual(coverage.pilot,{required:true,status:'NOT RUN'});
 }));
 
+test('deleting or renaming a registered workflow input refuses changed evidence without credit',()=>withTrackedExecutionFixture(f=>{
+  const input='tools/cloud-test/scripts/prerequisite_preflight.cjs';
+  const replacement='tools/cloud-test/scripts/prerequisite_preflight_copy.cjs';
+  f.write(input,"module.exports = () => 'fixture';\n");
+  f.git(['add',input]); const base=f.commit();
+  f.write(input,"module.exports = () => 'modified fixture';\n");
+  assert.deepEqual(changedEvidencePaths(f.dir,base),[input]);
+  f.git(['restore',input]);
+  fs.renameSync(path.join(f.dir,input),path.join(f.dir,replacement));
+  for(const state of ['dirty','staged','committed']) {
+    if(state==='staged') f.git(['add','-A','tools']);
+    if(state==='committed') f.commit();
+    assert.throws(()=>changedEvidencePaths(f.dir,base),
+      {message:`NOT RUN: required registered test input missing: ${input}`}, state);
+  }
+}));
+
 test('deleted obsolete test does not break the actual quality writer or earn execution credit',()=>withTrackedExecutionFixture(f=>{
   fs.rmSync(path.join(f.dir,f.file));
   const scratch=fs.mkdtempSync(path.join(os.tmpdir(),'deleted-test-writer-'));

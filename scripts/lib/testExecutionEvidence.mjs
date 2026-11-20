@@ -281,8 +281,8 @@ function changedPaths(root, base) {
   if (base && !/^[a-f0-9]{40}$/.test(base)) throw new Error('Diff base must be an exact commit SHA');
   const all=git(root,['ls-files','-z','--cached','--others','--exclude-standard','--exclude=/apt-bundle/']).split('\0');
   const files=base && !/^0+$/.test(base) ? [
-    ...git(root,['diff','--name-only','-z',base,'HEAD']).split('\0'),
-    ...git(root,['diff','--name-only','-z','HEAD']).split('\0'),
+    ...git(root,['diff','--no-renames','--name-only','-z',base,'HEAD']).split('\0'),
+    ...git(root,['diff','--no-renames','--name-only','-z','HEAD']).split('\0'),
     ...git(root,['ls-files','-z','--others','--exclude-standard','--exclude=/apt-bundle/']).split('\0'),
   ] : all;
   return [...new Set(files.filter(Boolean))].sort();
@@ -298,13 +298,23 @@ const COACHING_EDGE_SOURCE_INPUTS=new Set([
   'backend/supabase/functions/get-ai-suggestions/index.ts',
   'backend/supabase/functions/get-ai-suggestions/practicePrivacy.ts',
 ]);
+const isRegisteredEvidenceInput = file => Boolean(registeredFixture(file) || registeredHelper(file)
+  || registeredSourceContract(file) || nativeHelper(file) || sqlContract(file)
+  || Object.hasOwn(sqlConsumers,file) || pythonTestRoute(file)?.runner==='python-unittest-input');
+
 export function changedEvidencePaths(root, base) {
-  // Deletions still affect raw change/pilot applicability, but cannot be executed.
+  // Keep both sides of a rename in the raw delta. Deleting ordinary obsolete
+  // tests is allowed; still-registered inputs must not disappear from proof.
   // lstat retains malformed existing entries (including dangling links) for refusal.
   // Python unittest modules are named test_*.py; outside tests/ they were silently omitted, not reported UNCOVERED.
   // A registered native helper is evidence input by registration, wherever it lives: without this a change to
   // tools/cloud-test/scripts/prerequisite_preflight.cjs alone never reached its node:test consumer (#1787).
   const changed=changedPaths(root,base);
+  for (const file of changed) {
+    if (isRegisteredEvidenceInput(file) && fs.lstatSync(path.join(root,file),{throwIfNoEntry:false})===undefined) {
+      throw new Error(`NOT RUN: required registered test input missing: ${file}`);
+    }
+  }
   const evidence=changed.filter(file=>(/^(tests\/|frontend\/tests\/|backend\/supabase\/functions\/.*(?:test|fixture))|\/(?:__tests__|__mocks__|fixtures|mocks)\/|\.(?:test|spec)\.|\.sql$|(?:^|\/)test_[^/]+\.py$/.test(file)
     || nativeHelper(file)!==undefined || pythonTestRoute(file)?.runner==='python-unittest-input') && fs.lstatSync(path.join(root,file),{throwIfNoEntry:false})!==undefined);
   // The actual producer and qualifier both derive this from the Git delta;

@@ -266,6 +266,28 @@ describe('private corpus acceptance validator', () => {
     });
   });
 
+  it('refuses corpus credit when an expected speech recording is absent or replaced', () => {
+    const recorded = {
+      fixture: 'h1_6',
+      privateRuntime: 'wasm-singlethread',
+      privateProvider: 'transformers-js',
+      privateCloudFallbackAttempted: false,
+      detailTranscript: 'They like fresh coffee.',
+      stopFinalizationMs: 1200,
+    };
+    const required = { h1_2: ['pepper spoils'], h1_6: ['fresh coffee'] };
+    const pepper = { ...recorded, fixture: 'h1_2', detailTranscript: 'A dash of pepper spoils beef stew.' };
+
+    expect(validatePrivateCorpusArtifact({ results: [recorded, pepper] }, required).pass).toBe(true);
+    expect(validatePrivateCorpusArtifact({ results: [recorded] }, { h1_6: ['fresh coffee'] }).pass).toBe(true);
+
+    for (const replacement of [[], [{ ...pepper, fixture: 'different_speech', detailTranscript: '' }],
+      [{ ...pepper, mode: 'native' }], [recorded]]) {
+      expect(validatePrivateCorpusArtifact({ results: [recorded, ...replacement] }, required))
+        .toMatchObject({ pass: false, missingExpectedFixtures: ['h1_2'] });
+    }
+  });
+
   it('reproduces the report failure classes with a portable synthetic corpus', () => {
     // Report-shaped synthetic rows, not a rerun of the original recordings.
     const artifact = {
