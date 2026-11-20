@@ -3,9 +3,10 @@
 // cleanup migration (20261119200000) applied as its EXACT bytes on top of the production-equivalent chain, in installed order:
 // every earlier migration in version order with the two withheld migrations skipped (as the #1863/#1835 exact-apply gate test
 // does), ending at the last migration production holds (20261117105700, #1835). It must apply cleanly, add exactly its own
-// objects (one table, four functions) with exactly the expected grants, and change NOTHING else in the catalog. Then the
+// objects (one table, six functions) with exactly the expected grants, and change NOTHING else in the catalog. Then the
 // functions run on that chain: a run cleans only the deleted account it claimed, and another run's account is refused; a run whose
-// cleanup crashed after the Auth deletion resumes its own claim on restart, and another run cannot.
+// cleanup crashed after the Auth deletion resumes its own claim on restart, and another run cannot; a restarted run that knows only
+// its run binding (no account id) finds and finishes its own claim, and another run's binding finds nothing.
 // #1827's repeat-tip migration (20261119120000) merged before this one and is not in production yet, so either may reach
 // production first: the target must add the same objects on top of it, and both orders must end in the same catalog.
 // Offline only (PGlite). This is not the exact-apply allowlist entry or a production postflight; those belong to the release lane.
@@ -22,7 +23,8 @@ const WITHHELD = new Set(['20261027192550', '20261112130000']);
 const UNRELEASED_BEFORE_TARGET = ['20261119120000']; // #1827 repeat tip: merged, not yet in production
 const BOOT = readFileSync('tests/db/trial-read-access-current-chain.integration.test.ts', 'utf8').split('const BOOTSTRAP = `')[1].split('`;')[0];
 const TARGET_FILE = readdirSync(DIR).find(f => f.startsWith(`${TARGET}_`))!;
-const FNS = ['claim_account_save_journal_cleanup_v1', 'resume_account_save_journal_cleanup_v1', 'delete_deleted_account_save_journal_v1', 'count_account_save_journal_v1'];
+const FNS = ['claim_account_save_journal_cleanup_v1', 'resume_account_save_journal_cleanup_v1', 'delete_deleted_account_save_journal_v1', 'count_account_save_journal_v1',
+  'resume_run_account_save_journal_cleanups_v1', 'list_unfinished_account_save_journal_cleanup_runs_v1'];
 
 let db: PGlite;
 let ledgerBefore: string[]; let ledgerAfter: string[];
@@ -112,12 +114,13 @@ describe('#1906 save-journal cleanup: exact bytes in installed order on the prod
     for (const v of WITHHELD) assert.ok(!ledgerAfter.includes(v), `withheld ${v} stays unapplied`);
   });
 
-  it('adds exactly its own table and four functions; nothing else in the catalog changes', () => {
+  it('adds exactly its own table and six functions; nothing else in the catalog changes', () => {
     for (const k of Object.keys(before)) assert.deepEqual(removed(k), [], `${k}: nothing changed or removed`);
     assert.deepEqual(added('relations'), ['account_save_journal_cleanup_claims kind=r rls=true acl={postgres=arwdDxtm/postgres}']);
     assert.deepEqual(added('functions').map(x => x.split(' ')[0]),
       ['claim_account_save_journal_cleanup_v1(uuid,jsonb,text)', 'count_account_save_journal_v1(uuid)', 'delete_deleted_account_save_journal_v1(uuid,text)',
-        'resume_account_save_journal_cleanup_v1(uuid,text,jsonb,text)']);
+        'list_unfinished_account_save_journal_cleanup_runs_v1(integer)', 'resume_account_save_journal_cleanup_v1(uuid,text,jsonb,text)',
+        'resume_run_account_save_journal_cleanups_v1(jsonb,text)']);
     for (const fn of added('functions')) {
       assert.match(fn, / definer=true /, fn);
       assert.match(fn, / cfg=\{"search_path=\\"\\""\} /, fn);
@@ -168,6 +171,19 @@ describe('#1906 save-journal cleanup: exact bytes in installed order on the prod
     await assert.rejects(() => svc(`SELECT public.delete_deleted_account_save_journal_v1('${theirs}','${s2}')`), /not claimed by this run/);
     assert.deepEqual(await svc(`SELECT public.delete_deleted_account_save_journal_v1('${theirs}','${s3}') AS n`), [{ n: 0 }]);
     assert.deepEqual(await col(`SELECT count(*)::text FROM public.account_save_obligations WHERE user_id IN ('${mine}','${theirs}')`), ['0']);
+    // Restart with NO account id (Sam, #1906): run C's process died after deleting its account; a fresh process has only run C's
+    // binding. Run D's binding finds nothing; run C's finds exactly that account and finishes it.
+    const lost = 'c9310000-0000-4000-8000-000000000003', s4 = '4'.repeat(64), s5 = '5'.repeat(64);
+    await db.query('INSERT INTO auth.users(id,email,raw_app_meta_data) VALUES($1,$2,$3::jsonb)', [lost, 'rwt-journey-order-3@example.test', JSON.stringify({ ct_run: run('44000000003') })]);
+    await db.exec(`INSERT INTO public.account_save_obligations(user_id,lease_id,phase) VALUES('${lost}',gen_random_uuid(),'completed')`);
+    await svc(`SELECT public.claim_account_save_journal_cleanup_v1('${lost}','${JSON.stringify(run('44000000003'))}'::jsonb,'${s4}')`);
+    await db.exec(`DELETE FROM auth.users WHERE id='${lost}'`);
+    const byRun = (runId: string) => svc(`SELECT u::text AS id FROM public.resume_run_account_save_journal_cleanups_v1('${JSON.stringify(run(runId))}'::jsonb,'${s5}') u`);
+    assert.deepEqual(await byRun('44000000004'), []);
+    assert.deepEqual((await svc(`SELECT r::text AS b FROM public.list_unfinished_account_save_journal_cleanup_runs_v1(0) r`)).length, 1);
+    assert.deepEqual(await byRun('44000000003'), [{ id: lost }]);
+    assert.deepEqual(await svc(`SELECT public.delete_deleted_account_save_journal_v1('${lost}','${s5}') AS n`), [{ n: 0 }]);
+    assert.deepEqual(await col(`SELECT count(*)::text FROM public.account_save_journal_cleanup_claims`), ['0']);
     for (const fn of FNS) assert.equal((await col(`SELECT count(*)::text FROM pg_proc WHERE proname='${fn}'`))[0], '1');
   });
 });

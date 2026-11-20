@@ -24,6 +24,15 @@
 --     cleanup, so after the account is GONE the same run may replace the secret of an existing claim, and only on the proof the
 --     claim itself recorded: exactly the run binding it was made with (never an unbound claim: an unbound account's only proof was
 --     the lost secret) and the same address. Another run's binding, another address, a live account or no claim is refused.
+--   * resume_run_account_save_journal_cleanups_v1(binding, token) (Sam, #1906 review: "the actual restarted runner still has to
+--     prove it can find that account after deletion"): a restarted process has lost the deleted account's id with its memory, but
+--     its run binding (the GitHub run it belongs to) is in its environment and in every claim it made. For exactly that non-null
+--     binding, each claim made with it whose account is GONE gets the fresh secret and its id is returned, so the run can finish
+--     it. Another run's binding (including another attempt of the same run) finds nothing and changes nothing; an unbound
+--     (local) run cannot ask.
+--   * list_unfinished_account_save_journal_cleanup_runs_v1(min_age_seconds): the run bindings (never account ids) of claims whose
+--     account is gone and that are older than the floor, so the governed interrupted-run recovery can find a run that died before
+--     finishing; it finishes a terminated run only through the function above, presenting that run's binding.
 --   * count_account_save_journal_v1(uid): read-only count of that account's rows, for an independent readback.
 -- No table access is granted to any client role.
 
@@ -80,6 +89,30 @@ BEGIN
   WHERE user_id=p_user_id;
 END $$;
 
+CREATE FUNCTION public.resume_run_account_save_journal_cleanups_v1(p_run_binding jsonb, p_token text)
+RETURNS SETOF uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+DECLARE v_presented jsonb := nullif(p_run_binding,'null'::jsonb); v_user uuid;
+BEGIN
+  IF v_presented IS NULL OR jsonb_typeof(v_presented) <> 'object' THEN RAISE EXCEPTION 'run binding required' USING ERRCODE='22004'; END IF;
+  IF p_token IS NULL OR p_token !~ '^[0-9a-f]{64}$' THEN RAISE EXCEPTION 'cleanup secret required' USING ERRCODE='22023'; END IF;
+  FOR v_user IN SELECT c.user_id FROM public.account_save_journal_cleanup_claims c WHERE c.run_binding = v_presented ORDER BY c.user_id LOOP
+    -- Same per-account lock as every other step, taken in id order; then re-checked under it.
+    PERFORM pg_advisory_xact_lock(hashtextextended('account-billing:'||v_user::text,0));
+    UPDATE public.account_save_journal_cleanup_claims c SET token_sha256=sha256(convert_to(p_token,'UTF8')), claimed_at=clock_timestamp()
+    WHERE c.user_id=v_user AND c.run_binding = v_presented AND NOT EXISTS(SELECT 1 FROM auth.users u WHERE u.id=v_user);
+    IF FOUND THEN RETURN NEXT v_user; END IF;
+  END LOOP;
+END $$;
+
+CREATE FUNCTION public.list_unfinished_account_save_journal_cleanup_runs_v1(p_min_age_seconds integer)
+RETURNS SETOF jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+BEGIN
+  IF p_min_age_seconds IS NULL OR p_min_age_seconds < 0 THEN RAISE EXCEPTION 'minimum age required' USING ERRCODE='22023'; END IF;
+  RETURN QUERY SELECT DISTINCT c.run_binding FROM public.account_save_journal_cleanup_claims c
+  WHERE c.run_binding IS NOT NULL AND c.claimed_at <= clock_timestamp() - make_interval(secs => p_min_age_seconds)
+    AND NOT EXISTS(SELECT 1 FROM auth.users u WHERE u.id=c.user_id);
+END $$;
+
 CREATE FUNCTION public.delete_deleted_account_save_journal_v1(p_user_id uuid, p_token text)
 RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
 DECLARE v_remaining integer; v_claim bytea;
@@ -113,9 +146,11 @@ $$;
 
 REVOKE ALL ON FUNCTION public.claim_account_save_journal_cleanup_v1(uuid,jsonb,text),
   public.resume_account_save_journal_cleanup_v1(uuid,text,jsonb,text),
+  public.resume_run_account_save_journal_cleanups_v1(jsonb,text),public.list_unfinished_account_save_journal_cleanup_runs_v1(integer),
   public.delete_deleted_account_save_journal_v1(uuid,text),public.count_account_save_journal_v1(uuid)
   FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.claim_account_save_journal_cleanup_v1(uuid,jsonb,text),
   public.resume_account_save_journal_cleanup_v1(uuid,text,jsonb,text),
+  public.resume_run_account_save_journal_cleanups_v1(jsonb,text),public.list_unfinished_account_save_journal_cleanup_runs_v1(integer),
   public.delete_deleted_account_save_journal_v1(uuid,text),public.count_account_save_journal_v1(uuid)
   TO service_role;

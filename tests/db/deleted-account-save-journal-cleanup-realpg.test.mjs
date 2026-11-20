@@ -26,6 +26,9 @@ const CLAIM_FN = 'claim_account_save_journal_cleanup_v1';
 const RESUME_FN = 'resume_account_save_journal_cleanup_v1';
 const DELETE_FN = 'delete_deleted_account_save_journal_v1';
 const COUNT_FN = 'count_account_save_journal_v1';
+const RUN_RESUME_FN = 'resume_run_account_save_journal_cleanups_v1';
+const RUNS_FN = 'list_unfinished_account_save_journal_cleanup_runs_v1';
+const runner = 'tests/db/save-journal-restart-runner.mjs';
 const CLAIMS = 'account_save_journal_cleanup_claims';
 const scope = 'a'.repeat(64);
 const service = text => `SET ROLE service_role; ${text}`;
@@ -36,6 +39,8 @@ const lit = v => (v === null || v === undefined ? 'NULL' : `'${String(v).replace
 const runBinding = runId => ({ repository: 'relativityE/speaksharp', workflow: 'relativityE/speaksharp/.github/workflows/rc-gates.yml@refs/heads/main',
   runId, runAttempt: '1', role: 'rwt-journey' });
 const RUN_A = runBinding('44000000001'), RUN_B = runBinding('44000000002');
+// Each restart case runs as its own GitHub run, so a later teardown's own-run sweep never meets an earlier case's leftovers.
+const RUN_R1 = runBinding('44000000101'), RUN_R2 = runBinding('44000000102');
 const CANARY = { repository: 'relativityE/speaksharp', workflow: 'relativityE/speaksharp/.github/workflows/canary.yml@refs/heads/main',
   runId: '44000000003', runAttempt: '1', role: 'canary-active-trial' };
 
@@ -56,9 +61,10 @@ test('deleted-account save-journal cleanup: only the run that owns a deleted acc
   // `--import tsx`: the evidence lane runs plain `node --test`, where its extensionless imports would not resolve.
   const { claimSaveJournalCleanup, clearDeletedAccountSaveJournal, cleanupFailureStep, newSaveJournalSecret, cleanupRunOwnedAccount,
     resumeSaveJournalCleanup, SAVE_JOURNAL_CLAIM_FN, SAVE_JOURNAL_RESUME_FN, SAVE_JOURNAL_DELETE_FN, SAVE_JOURNAL_COUNT_FN,
-    RESIDUE_CHECKS } = await tsImport(`../../${helper}`, import.meta.url);
+    RESIDUE_CHECKS, SAVE_JOURNAL_RUN_RESUME_FN, SAVE_JOURNAL_RUNS_FN, finishRunSaveJournalCleanups } = await tsImport(`../../${helper}`, import.meta.url);
+  const { recoverInterruptedRuns, recoveryDeleteAck, recoveryReportLine } = await tsImport('../live/helpers/rwtInterruptedRunRecovery.ts', import.meta.url);
   assert.equal(SAVE_JOURNAL_CLAIM_FN, CLAIM_FN); assert.equal(SAVE_JOURNAL_DELETE_FN, DELETE_FN); assert.equal(SAVE_JOURNAL_COUNT_FN, COUNT_FN);
-  assert.equal(SAVE_JOURNAL_RESUME_FN, RESUME_FN);
+  assert.equal(SAVE_JOURNAL_RESUME_FN, RESUME_FN); assert.equal(SAVE_JOURNAL_RUN_RESUME_FN, RUN_RESUME_FN); assert.equal(SAVE_JOURNAL_RUNS_FN, RUNS_FN);
 
   const root = mkdtempSync(join(tmpdir(), 'save-journal-cleanup-'));
   const data = join(root, 'data'), socket = join(root, 'socket'); mkdirSync(socket);
@@ -78,7 +84,10 @@ test('deleted-account save-journal cleanup: only the run that owns a deleted acc
   const authExists = a => sql(`SELECT EXISTS(SELECT 1 FROM auth.users WHERE id='${a.user}')`) === 't';
   const deleteAuth = a => sql(`DELETE FROM auth.users WHERE id='${a.user}'`);
   const fnCall = (fn, p) => `SELECT public.${fn}(${Object.entries(p).map(([k, v]) =>
-    `${k}=>${k === 'p_run_binding' ? (v === null ? 'NULL::jsonb' : `${lit(JSON.stringify(v))}::jsonb`) : k === 'p_user_id' ? (v === null ? 'NULL::uuid' : `${lit(v)}::uuid`) : `${lit(v)}::text`}`).join(',')})`;
+    `${k}=>${k === 'p_run_binding' ? (v === null ? 'NULL::jsonb' : `${lit(JSON.stringify(v))}::jsonb`) : k === 'p_user_id' ? (v === null ? 'NULL::uuid' : `${lit(v)}::uuid`)
+      : k === 'p_min_age_seconds' ? (v === null ? 'NULL::integer' : `${Number(v)}::integer`) : `${lit(v)}::text`}`).join(',')})`;
+  /** A set-returning function's rows as a JSON array (PostgREST answers these as an array). */
+  const setCall = (fn, p) => `SELECT coalesce(json_agg(x),'[]')::text FROM ${fnCall(fn, p).replace(/^SELECT /, '')} x`;
   const claimSql = (a, binding, secret) => service(fnCall(CLAIM_FN, { p_user_id: a.user, p_run_binding: binding, p_token: secret }));
   const deleteSql = (a, secret) => service(fnCall(DELETE_FN, { p_user_id: a.user ?? a, p_token: secret }));
 
@@ -89,14 +98,17 @@ test('deleted-account save-journal cleanup: only the run that owns a deleted acc
    */
   const serviceRpc = { calls: [], rpc(fn, params) {
     this.calls.push(fn);
-    assert.ok(/^[a-z_0-9]+$/.test(fn) && UUID.test(String(params.p_user_id)), 'rpc adapter only forwards a plain function name and a uuid');
+    const setOf = fn === RUN_RESUME_FN || fn === RUNS_FN;
+    assert.ok(/^[a-z_0-9]+$/.test(fn) && (setOf || UUID.test(String(params.p_user_id))), 'rpc adapter only forwards a plain function name and a uuid');
     try {
+      if (setOf) return Promise.resolve({ data: JSON.parse(sql(service(setCall(fn, params)))), error: null });
       const value = sql(service(fnCall(fn, params)));
       return Promise.resolve({ data: value === '' ? null : Number(value), error: null });
     } catch (e) {
       const stderr = String(e.stderr ?? e.message);
       const code = /permission denied|not claimed by this run|not owned by this run|not run-owned/.test(stderr) ? '42501'
-        : /does not exist/.test(stderr) ? '42883' : /account not found|no cleanup claim/.test(stderr) ? 'P0002' : '55000';
+        : /does not exist/.test(stderr) ? '42883' : /account not found|no cleanup claim/.test(stderr) ? 'P0002'
+        : /run binding required/.test(stderr) ? '22004' : /secret required|minimum age required/.test(stderr) ? '22023' : '55000';
       return Promise.resolve({ data: null, error: { code, message: stderr } });
     }
   } };
@@ -169,13 +181,14 @@ test('deleted-account save-journal cleanup: only the run that owns a deleted acc
     sql(readFileSync(candidate, 'utf8'));
 
     await t.test('access: only service_role may execute; journal and claims stay closed to every role; definer with an empty search_path', () => {
-      for (const fn of [`${CLAIM_FN}(uuid,jsonb,text)`, `${RESUME_FN}(uuid,text,jsonb,text)`, `${DELETE_FN}(uuid,text)`, `${COUNT_FN}(uuid)`]) {
+      for (const fn of [`${CLAIM_FN}(uuid,jsonb,text)`, `${RESUME_FN}(uuid,text,jsonb,text)`, `${DELETE_FN}(uuid,text)`, `${COUNT_FN}(uuid)`,
+        `${RUN_RESUME_FN}(jsonb,text)`, `${RUNS_FN}(integer)`]) {
         for (const [role, allowed] of [['anon', 'f'], ['authenticated', 'f'], ['service_role', 't'], ['public', 'f']])
           assert.equal(sql(`SELECT has_function_privilege('${role}','${fn}','EXECUTE')`), allowed, `${role} ${fn}`);
         assert.equal(sql(`SELECT prosecdef FROM pg_proc WHERE oid='${fn}'::regprocedure`), 't');
         assert.equal(sql(`SELECT proconfig::text FROM pg_proc WHERE oid='${fn}'::regprocedure`), '{"search_path=\\"\\""}');
       }
-      assert.equal(sql(`SELECT count(*) FROM pg_proc WHERE proname IN ('${CLAIM_FN}','${RESUME_FN}','${DELETE_FN}','${COUNT_FN}')`), '4', 'exactly one overload each');
+      assert.equal(sql(`SELECT count(*) FROM pg_proc WHERE proname IN ('${CLAIM_FN}','${RESUME_FN}','${DELETE_FN}','${COUNT_FN}','${RUN_RESUME_FN}','${RUNS_FN}')`), '6', 'exactly one overload each');
       for (const table of ['account_save_obligations', CLAIMS]) for (const role of ['anon', 'authenticated', 'service_role'])
         for (const privilege of ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE'])
           assert.equal(sql(`SELECT has_table_privilege('${role}','${table}','${privilege}')`), 'f', `${table} ${role} ${privilege}`);
@@ -405,8 +418,8 @@ test('deleted-account save-journal cleanup: only the run that owns a deleted acc
 
     await t.test('RESTART (Sam, #1906): a cleanup that crashed right after the Auth deletion is finished by the SAME run; another run is still refused', async () => {
       try {
-        const a = seed({ ct_run: RUN_A }); savedTake(a); savedTake(a);   // the full take and one repeat, both saved
-        actAs(RUN_A);
+        const a = seed({ ct_run: RUN_R1 }); savedTake(a); savedTake(a);   // the full take and one repeat, both saved
+        actAs(RUN_R1);
         const crashed = realAdmin({ crash: 'deleteUser' });
         await assert.rejects(() => cleanup(crashed, a), /SIMULATED_CRASH after deleteUser/);
         assert.deepEqual(crashed.steps, [CLAIM_FN, 'pre_delete:trial_entitlements', 'deleteUser'],
@@ -422,14 +435,14 @@ test('deleted-account save-journal cleanup: only the run that owns a deleted acc
         await assert.rejects(() => cleanup(foreign, a), refusedAt('save_journal_resume:account_save_obligations'));
         assert.deepEqual(foreign.steps, [RESUME_FN], 'refused at the resume: no delete was attempted');
         // Nor a re-run attempt of the same run (another attempt is another owner), nor a local run that binds nothing.
-        for (const other of [{ ...RUN_A, runAttempt: '2' }, null]) {
+        for (const other of [{ ...RUN_R1, runAttempt: '2' }, null]) {
           actAs(other);
           await assert.rejects(() => cleanup(realAdmin(), a), refusedAt('save_journal_resume:account_save_obligations'), JSON.stringify(other));
         }
         assert.deepEqual([journalSnapshot(a), claimToken(a), claimRows(a)], [before, token, 1], 'rows, claim and its secret untouched');
 
         // THE SAME RUN restarts: it finishes its own cleanup through the shared step. Rows gone, claim gone, verdict written.
-        actAs(RUN_A);
+        actAs(RUN_R1);
         const restarted = realAdmin();
         const lines = [], con = globalThis.console, log = con.log; con.log = (...x) => { lines.push(x.join(' ')); };
         try { assert.equal(await cleanup(restarted, a), a.user); } finally { con.log = log; }
@@ -450,18 +463,18 @@ test('deleted-account save-journal cleanup: only the run that owns a deleted acc
 
     await t.test('RESTART: a crash at any earlier step is finished the ordinary way (the account still exists, so it is claimed again)', async () => {
       try {
-        actAs(RUN_A);
+        actAs(RUN_R2);
         for (const crash of [CLAIM_FN, 'pre_delete:trial_entitlements']) {
-          const a = seed({ ct_run: RUN_A }); savedTake(a);
+          const a = seed({ ct_run: RUN_R2 }); savedTake(a);
           await assert.rejects(() => cleanup(realAdmin({ crash }), a), /SIMULATED_CRASH/);
           assert.equal(authExists(a), true, crash);
           const restarted = realAdmin();
           assert.equal(await cleanup(restarted, a), a.user, crash);
-          assert.deepEqual(restarted.steps, [CLAIM_FN, 'pre_delete:trial_entitlements', 'deleteUser', DELETE_FN, COUNT_FN], crash);
+          assert.deepEqual(restarted.steps, [CLAIM_FN, 'pre_delete:trial_entitlements', 'deleteUser', DELETE_FN, COUNT_FN, RUN_RESUME_FN], crash);
           assert.deepEqual([authExists(a), journalRows(a), claimRows(a)], [false, 0, 0], crash);
         }
         // And a crash after the journal delete itself (claim already dropped, verdict never written): the restart passes on the readback.
-        const a = seed({ ct_run: RUN_A }); savedTake(a);
+        const a = seed({ ct_run: RUN_R2 }); savedTake(a);
         await assert.rejects(() => cleanup(realAdmin({ crash: DELETE_FN }), a), /SIMULATED_CRASH/);
         assert.deepEqual([authExists(a), journalRows(a), claimRows(a)], [false, 0, 0]);
         const restarted = realAdmin();
@@ -511,6 +524,158 @@ test('deleted-account save-journal cleanup: only the run that owns a deleted acc
       assert.equal(h.code, 0, h.stderr); assert.equal(r.code, 0, r.stderr);
       assert.equal(sql(deleteSql(w, fresh)), '0');
       receipts.push({ case: 'resume_refusals', refusedBindings: 5, refusedAddresses: 2, unboundRefused: true, lockObserved: true });
+    });
+
+    // ── RESTART WITH NO ACCOUNT ID (Sam, #1906 review: "the actual restarted runner still has to prove it can find that account
+    //    after deletion"). A REAL runner process is killed right after the Auth deletion; fresh processes start with no memory. ──
+    const runSql = (binding, secret) => service(setCall(RUN_RESUME_FN, { p_run_binding: binding, p_token: secret }));
+    const runsSql = age => service(setCall(RUNS_FN, { p_min_age_seconds: age }));
+    const age = (a, seconds) => sql(`UPDATE ${CLAIMS} SET claimed_at=clock_timestamp()-make_interval(secs=>${seconds}) WHERE user_id='${a.user}'`);
+    /** Start the shared teardown in a NEW node process, as the GitHub run `binding` (null = local), for account `a`. */
+    const runnerProcess = (binding, a, { hangAfter } = {}) => {
+      const childEnv = { ...Object.fromEntries(Object.entries(env).filter(([k]) => !k.startsWith('GITHUB_') && k !== 'PROOF_CLEANUP_VERDICT_FILE' && k !== 'CI')),
+        SJ_PSQL: bin.psql, SJ_UID: a.user, SJ_EMAIL: a.email, ...(hangAfter ? { SJ_HANG_AFTER: hangAfter } : {}),
+        ...(binding ? { GITHUB_ACTIONS: 'true', GITHUB_REPOSITORY: binding.repository, GITHUB_WORKFLOW_REF: binding.workflow, GITHUB_RUN_ID: binding.runId, GITHUB_RUN_ATTEMPT: binding.runAttempt } : {}) };
+      const child = spawn(process.execPath, ['--import', 'tsx', runner], { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] });
+      const p = { child, stdout: '', stderr: '' };
+      child.stdout.on('data', x => { p.stdout += x; }); child.stderr.on('data', x => { p.stderr += x; });
+      p.done = new Promise((resolve, reject) => { child.on('error', reject); child.on('close', (code, signal) => resolve({ code, signal, stdout: p.stdout, stderr: p.stderr })); });
+      return p;
+    };
+    async function waitForOutput(p, text) {
+      const end = Date.now() + 60_000;
+      while (Date.now() < end) { if (p.stdout.includes(text)) return; if (p.child.exitCode !== null) break; await delay(25); }
+      throw new Error(`runner never printed ${text}: ${p.stdout} ${p.stderr}`);
+    }
+    /** A fresh runner of `binding` tears down its OWN new account `own`; returns its counts-only output lines. */
+    async function freshTeardown(binding, own) {
+      const r = await runnerProcess(binding, own).done;
+      assert.equal(r.code, 0, r.stderr);
+      return r.stdout.trim().split('\n');
+    }
+
+    await t.test('RESTART WITH NO ACCOUNT ID (Sam, #1906): the runner process is SIGKILLed after the Auth deletion; a fresh process of the same run finds and finishes it from its run binding alone', async () => {
+      const RUN_K = runBinding('44000000201');
+      const a = seed({ ct_run: RUN_K }); savedTake(a); savedTake(a);   // the J3.b shape: the full take and one repeat, both saved
+      // 1. The real runner, mid-teardown: claim, pre-delete, Auth deletion; then it is killed. Its memory (uid, secret) is gone.
+      const victim = runnerProcess(RUN_K, a, { hangAfter: 'deleteUser' });
+      await waitForOutput(victim, 'HUNG_AFTER deleteUser');
+      victim.child.kill('SIGKILL');
+      const killed = await victim.done;
+      assert.equal(killed.signal, 'SIGKILL'); assert.ok(!killed.stdout.includes('RESULT'), 'the teardown never finished');
+      assert.equal(authExists(a), false);
+      assert.deepEqual([journalRows(a), claimRows(a)], [2, 1], 'Sam\'s state: account gone, finished rows and claim left, secret lost');
+      assert.deepEqual(JSON.parse(sql(`SELECT run_binding::text FROM ${CLAIMS} WHERE user_id='${a.user}'`)), RUN_K, 'the claim carries the run binding');
+      const before = journalSnapshot(a), token = claimToken(a);
+
+      // 2. NEGATIVE CONTROLS, each a fresh process tearing down its own account through the same entry point: another run, a CI
+      //    re-run of the same run (attempt 2 is another label), and a local run. Each finishes its own account; none finds `a`.
+      for (const [binding, meta, why] of [[runBinding('44000000202'), m => ({ ct_run: m }), 'another run'],
+        [{ ...RUN_K, runAttempt: '2' }, m => ({ ct_run: m }), 'a CI re-run (new attempt)'], [null, () => ({}), 'a local run']]) {
+        const own = seed(meta(binding)); savedTake(own);
+        const lines = await freshTeardown(binding, own);
+        assert.equal(lines.at(-1), 'RESULT verified', why);
+        assert.deepEqual(lines.filter(l => l.startsWith('RUN_SAVE_JOURNAL_SWEEP')), binding ? ['RUN_SAVE_JOURNAL_SWEEP finished=0'] : [], why);
+        assert.deepEqual([authExists(own), journalRows(own), claimRows(own)], [false, 0, 0], why);
+        assert.deepEqual([journalSnapshot(a), claimToken(a), claimRows(a)], [before, token, 1], `${why}: the killed run's rows and claim untouched`);
+      }
+      // And directly: another binding, another attempt, an extra key, the canary's binding find nothing and change nothing.
+      for (const other of [RUN_B, { ...RUN_K, runAttempt: '2' }, { ...RUN_K, extra: '1' }, CANARY])
+        assert.equal(sql(runSql(other, newSaveJournalSecret())), '[]', JSON.stringify(other));
+      assert.equal(claimToken(a), token);
+
+      // 3. THE SAME RUN, a fresh process with no memory of `a`: its normal teardown of its next account finishes `a` too.
+      const next = seed({ ct_run: RUN_K }); savedTake(next);
+      const lines = await freshTeardown(RUN_K, next);
+      assert.deepEqual(lines.filter(l => /^(RUN_|RESULT)/.test(l)), ['RUN_TAKE_SETTLEMENT closed=0 not_stopped=0 unsettleable=0 lease_only=0', `RUN_OWNED_CLEANUP cleanup_verified residue=0 tables_verified=${RESIDUE_CHECKS.length + 2}`,
+        'RUN_SAVE_JOURNAL_SWEEP finished=1', 'RESULT verified']);
+      assert.deepEqual([journalRows(a), claimRows(a), sql(service(`SELECT ${COUNT_FN}('${a.user}')`))], [0, 0, '0'], 'the killed run\'s rows are gone: readback zero');
+      assert.deepEqual([authExists(next), journalRows(next), claimRows(next)], [false, 0, 0]);
+      assert.ok(!lines.some(l => l.includes(a.user) || l.includes(a.email) || l.includes(next.user)), 'no uid or address in the log');
+      // 4. Once finished, another fresh process of the run finds nothing more (idempotent).
+      const third = seed({ ct_run: RUN_K }); savedTake(third);
+      assert.deepEqual((await freshTeardown(RUN_K, third)).filter(l => /^(RUN_SAVE|RESULT)/.test(l)), ['RUN_SAVE_JOURNAL_SWEEP finished=0', 'RESULT verified']);
+      receipts.push({ case: 'restart_by_run_binding_real_process', killedSignal: killed.signal, rowsLeftByKill: 2, foreignRunFound: 0,
+        ciRerunFound: 0, localRunFound: 0, ownRunFinished: 1, rowsAfter: 0, claimAfter: 0 });
+    });
+
+    await t.test('RESUME BY RUN in the database: exact non-null binding, only accounts already gone, never an unbound claim, nothing for another run', async () => {
+      const RUN_D = runBinding('44000000301');
+      const gone1 = seed({ ct_run: RUN_D }), gone2 = seed({ ct_run: RUN_D }), live = seed({ ct_run: RUN_D }), unbound = seed({});
+      for (const a of [gone1, gone2, live, unbound]) { savedTake(a); a.secret = newSaveJournalSecret(); sql(claimSql(a, a.binding, a.secret)); }
+      deleteAuth(gone1); deleteAuth(gone2); deleteAuth(unbound);
+      const tokens = () => [gone1, gone2, live, unbound].map(claimToken);
+      const before = tokens();
+      for (const bad of [null, 'null', '[]', '"x"']) assert.throws(() => sql(service(`SELECT * FROM ${RUN_RESUME_FN}(${bad === null ? 'NULL' : `'${bad}'`}::jsonb,'${'a'.repeat(64)}')`)), /run binding required/, String(bad));
+      for (const bad of [null, '', 'A'.repeat(64), 'a'.repeat(63)]) assert.throws(() => sql(runSql(RUN_D, bad)), /cleanup secret required/, String(bad));
+      assert.equal(sql(runSql({}, newSaveJournalSecret())), '[]', 'an empty binding matches no claim');
+      assert.deepEqual(tokens(), before, 'every refusal changed nothing');
+      const fresh = newSaveJournalSecret();
+      // Key order does not matter (jsonb), but every key and value must.
+      const reordered = Object.fromEntries(Object.entries(RUN_D).reverse());
+      assert.deepEqual(JSON.parse(sql(runSql(reordered, fresh))).sort(), [gone1.user, gone2.user].sort(), 'both deleted accounts of the run, not the live one');
+      assert.equal(claimToken(live), before[2], 'the live account\'s claim is untouched'); assert.equal(claimToken(unbound), before[3], 'the unbound claim is untouched');
+      for (const a of [gone1, gone2]) { assert.throws(() => sql(deleteSql(a, a.secret)), /not claimed by this run/); assert.equal(sql(deleteSql(a, fresh)), '0'); }
+      // Through the shared step: finishes nothing once done; a non-array, a non-uuid or an error fails closed.
+      assert.equal(await finishRunSaveJournalCleanups(realAdmin(), RUN_D), 0);
+      const fake = answer => ({ rpc: async () => answer, from: () => { throw new Error('unused'); } });
+      for (const answer of [{ data: null, error: null }, { data: ['not-a-uuid'], error: null }, { data: 3, error: null }, { data: null, error: { code: '42883', message: 'x' } }])
+        await assert.rejects(() => finishRunSaveJournalCleanups(fake(answer), RUN_D), refusedAt('save_journal_sweep:account_save_obligations'), JSON.stringify(answer));
+      await assert.rejects(() => finishRunSaveJournalCleanups({}, RUN_D), refusedAt('save_journal_sweep:account_save_obligations'));
+      // Serialized with the product closure: it waits on the per-account closure lock of a matching account.
+      const w = seed({ ct_run: RUN_D }); savedTake(w); w.secret = newSaveJournalSecret(); sql(claimSql(w, RUN_D, w.secret)); deleteAuth(w);
+      const hname = `run_resume_holder_${index}`, wname = `run_resume_waiter_${index}`;
+      const holder = client(hname, `BEGIN; SELECT pg_advisory_xact_lock(hashtextextended('account-billing:${w.user}',0));`, true);
+      await waitFor(() => idle(hname));
+      const waiter = client(wname, runSql(RUN_D, fresh) + ';'); await waitFor(() => blocked(wname, hname));
+      holder.child.stdin.end('COMMIT;\n');
+      const h = await holder.done, r = await waiter.done;
+      assert.equal(h.code, 0, h.stderr); assert.equal(r.code, 0, r.stderr);
+      assert.equal(sql(deleteSql(w, fresh)), '0');
+      // Clean the fixture's live and unbound leftovers so later cases start clean.
+      deleteAuth(live); assert.equal(sql(deleteSql(live, live.secret)), '0'); assert.equal(sql(deleteSql(unbound, unbound.secret)), '0');
+      receipts.push({ case: 'resume_by_run_refusals', foundForRun: 2, liveUntouched: true, unboundUntouched: true, lockObserved: true });
+    });
+
+    await t.test('INTERRUPTED-RUN RECOVERY (a CI re-run is another label): the governed recovery lists runs with unfinished claims and finishes only a TERMINATED rc-gates run', async () => {
+      try {
+        const DEAD = runBinding('44000000401'), ACTIVE = runBinding('44000000402'), NOW = runBinding('44000000403');
+        const dead = seed({ ct_run: DEAD }), active = seed({ ct_run: ACTIVE }), canary = seed({ canary_run: CANARY }, 'ctrial-run-'), young = seed({ ct_run: DEAD });
+        for (const a of [dead, active, canary, young]) { savedTake(a); a.secret = newSaveJournalSecret(); sql(claimSql(a, a.binding, a.secret)); deleteAuth(a); }
+        // Never listed, however old: a run whose account still exists (its own teardown is still to come), and a local (unbound) claim.
+        const LIVE = runBinding('44000000404'), liveAcct = seed({ ct_run: LIVE }), unbound = seed({});
+        for (const a of [liveAcct, unbound]) { savedTake(a); a.secret = newSaveJournalSecret(); sql(claimSql(a, a.binding, a.secret)); }
+        deleteAuth(unbound);
+        for (const a of [dead, active, canary, liveAcct, unbound]) age(a, 3 * 3600);
+        unbound.token0 = claimToken(unbound);
+        assert.throws(() => sql(runsSql(-1)), /minimum age required/); assert.throws(() => sql(runsSql(null)), /minimum age required/);
+        const listed = JSON.parse(sql(runsSql(135 * 60)));
+        assert.equal(listed.length, 3, 'three runs with an old unfinished claim (bindings only, never ids)');
+        assert.ok(listed.every(b => b !== null && b.runId !== LIVE.runId), 'neither the live account\'s run nor the unbound claim is listed');
+        assert.ok(!JSON.stringify(listed).match(UUID), 'no account id is listed');
+        const before = [active, canary].map(journalSnapshot);
+        actAs(NOW);
+        const sha = 'f'.repeat(40);
+        const recoveryAdmin = { ...realAdmin(), auth: { admin: { listUsers: async () => ({ data: { users: [] }, error: null }) } },
+          rpc: async (fn, args) => (fn === 'list_unresolved_rwt_feedback_fences_v1' ? { data: [], error: null } : serviceRpc.rpc(fn, args)) };
+        const states = [];
+        const report = await recoverInterruptedRuns({ admin: recoveryAdmin, nowMs: Date.now(), ack: recoveryDeleteAck(sha), sha, domain: 'example.test',
+          runState: async b => { states.push(b.runId); return b.runId === DEAD.runId ? 'terminal' : 'active'; } });
+        assert.equal(report.status, 'HOLD_ACTIVE_RUN', recoveryReportLine(report));
+        assert.deepEqual(report.saveJournal, { runs: 3, finished: 2, held: 1, unproven: 1 }, 'dead run: both claims (the old one and its younger sibling) finished; active run held; canary not an rc-gates run');
+        assert.deepEqual(states.sort(), [ACTIVE.runId, DEAD.runId].sort(), 'run state was read for the rc-gates runs only');
+        assert.deepEqual([journalRows(dead), claimRows(dead), journalRows(young), claimRows(young)], [0, 0, 0, 0]);
+        assert.deepEqual([active, canary].map(journalSnapshot), before, 'the active run and the canary run are untouched');
+        assert.match(recoveryReportLine(report), / save_journal_runs=3 save_journal_finished=2 save_journal_held=1 save_journal_unproven=1$/);
+        // Without the delete acknowledgement it holds and touches nothing.
+        const held = await recoverInterruptedRuns({ admin: recoveryAdmin, nowMs: Date.now(), ack: '', sha, domain: 'example.test', runState: async () => 'terminal' });
+        assert.equal(held.status, 'HOLD_NO_ACK'); assert.deepEqual([active, canary].map(journalSnapshot), before);
+        // Clean the fixture's leftovers.
+        for (const a of [active, canary]) { sql(service(`SELECT * FROM ${RUN_RESUME_FN}('${JSON.stringify(a.binding)}'::jsonb,'${a.secret}')`)); assert.equal(sql(deleteSql(a, a.secret)), '0'); }
+        assert.equal(claimToken(unbound), unbound.token0, 'the unbound claim was untouched by the recovery'); assert.equal(sql(deleteSql(unbound, unbound.secret)), '0');
+        deleteAuth(liveAcct); sql(service(`SELECT * FROM ${RUN_RESUME_FN}('${JSON.stringify(liveAcct.binding)}'::jsonb,'${liveAcct.secret}')`)); assert.equal(sql(deleteSql(liveAcct, liveAcct.secret)), '0');
+        receipts.push({ case: 'recovery_finishes_terminated_run', listedRuns: 3, finished: 2, held: 1, unproven: 1 });
+      } finally { restoreEnv(); }
     });
   } finally {
     for (const c of clients) if (!c.child.stdin.destroyed) c.child.stdin.end();

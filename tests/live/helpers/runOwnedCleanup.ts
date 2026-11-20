@@ -128,7 +128,7 @@ export const PRE_DELETE_TABLES: ReadonlyArray<string> = Object.freeze(['trial_en
 /**
  * #1643 SAVE JOURNAL (PO 2026-11-19: "make sure save records are deleted"). `account_save_obligations` has no foreign key to
  * auth.users, so its `completed` rows SURVIVE `deleteUser()`; only the product's own closure completion removes them, and
- * service_role cannot read or write the table. Migration 20261119200000 adds four service_role-only functions:
+ * service_role cannot read or write the table. Migration 20261119200000 adds six service_role-only functions:
  *  - a CLAIM, made while the account still exists: the database checks the address is run-owned and that the run presents
  *    exactly the binding the service role wrote on the account (none for an unbound account), then keeps that ownership
  *    and the SHA-256 of a one-time secret only this cleanup holds. It outlives the account (Sam, #1906 review);
@@ -139,6 +139,10 @@ export const PRE_DELETE_TABLES: ReadonlyArray<string> = Object.freeze(['trial_en
  *    and a restart"): the secret lives only in the cleanup that made it, so a crash after the Auth deletion loses it. Once the
  *    account is gone, the same run replaces the secret of the existing claim, and the database allows it only for exactly the
  *    run binding and address the claim was made with (never an unbound claim);
+ *  - a RESUME BY RUN (Sam, #1906 review: "the actual restarted runner still has to prove it can find that account after
+ *    deletion"): a restarted process no longer knows the deleted account's id, only its run binding (from its environment). The
+ *    database hands every claim made with exactly that binding whose account is gone a fresh secret and returns their ids;
+ *  - a LISTING of the run bindings (never ids) that still have such claims, for the governed interrupted-run recovery;
  *  - an independent read-only count.
  */
 export const SAVE_JOURNAL_TABLE = 'account_save_obligations';
@@ -146,6 +150,8 @@ export const SAVE_JOURNAL_CLAIM_FN = 'claim_account_save_journal_cleanup_v1';
 export const SAVE_JOURNAL_RESUME_FN = 'resume_account_save_journal_cleanup_v1';
 export const SAVE_JOURNAL_DELETE_FN = 'delete_deleted_account_save_journal_v1';
 export const SAVE_JOURNAL_COUNT_FN = 'count_account_save_journal_v1';
+export const SAVE_JOURNAL_RUN_RESUME_FN = 'resume_run_account_save_journal_cleanups_v1';
+export const SAVE_JOURNAL_RUNS_FN = 'list_unfinished_account_save_journal_cleanup_runs_v1';
 
 /** A fresh one-time cleanup secret (64 lowercase hex). Held only in memory for one cleanup; never logged or stored. */
 export function newSaveJournalSecret(): string { return randomBytes(32).toString('hex'); }
@@ -239,6 +245,7 @@ export function cleanupFailureStep(error: unknown): string {
         || table(/^cleanup ([a-z_]+) claim failed/, 'save_journal_claim')
         || table(/^cleanup ([a-z_]+) resume failed/, 'save_journal_resume')
         || table(/^cleanup ([a-z_]+) delete failed/, 'save_journal_delete')
+        || table(/^cleanup ([a-z_]+) sweep failed/, 'save_journal_sweep')
         || (/^cleanup take settlement (read|close) failed/.test(m) && 'settle_takes')
         || (/^cleanup deleteUser blocked by an unsettled take/.test(m) && 'delete_user_unsettled_take')
         || (/^cleanup deleteUser failed/.test(m) && 'delete_user')
@@ -458,19 +465,52 @@ function recoveryAuthorityHolds(recovery: { originalBinding: RunBinding; dispatc
         && deleteAck === `RWT-INTERRUPTED-RUN-RECOVERY-DELETE@${dispatchSha}`;
 }
 
-/** Every relational residue readback of a deleted account (by uid, and its trial entitlement by address). Fail-closed. */
-async function proveRelationalResidueZero(admin: AdminClient, uid: string, email: string): Promise<void> {
+/** Every uid-keyed relational residue readback of a deleted account. Fail-closed. */
+async function proveUidResidueZero(admin: Pick<AdminClient, 'from'>, uid: string): Promise<void> {
     for (const { table, column } of RESIDUE_CHECKS) {
         const { count, error: rErr } = await admin
             .from(table).select(column, { count: 'exact', head: true }).eq(column, uid);
         if (rErr) throw new Error(`cleanup residue query on ${table} failed (fail closed): ${rErr.message}`);
         requireZeroResidue(count, table);
     }
+}
+
+/** Every relational residue readback of a deleted account (by uid, and its trial entitlement by address). Fail-closed. */
+async function proveRelationalResidueZero(admin: AdminClient, uid: string, email: string): Promise<void> {
+    await proveUidResidueZero(admin, uid);
 
     const { count: teCount, error: teResErr } = await admin
         .from('trial_entitlements').select('email', { count: 'exact', head: true }).eq('email', email.toLowerCase());
     if (teResErr) throw new Error(`cleanup residue query on trial_entitlements failed (fail closed): ${teResErr.message}`);
     requireZeroResidue(teCount, 'trial_entitlements');
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * RESTART WITH NO ACCOUNT ID (Sam, #1906 review: "the actual restarted runner still has to prove it can find that account after
+ * deletion"). A process that died after an Auth deletion took the account's id and the claim secret with it; a fresh process of
+ * the SAME run has only its run binding. The database finds every claim made with exactly `binding` whose account is gone, gives
+ * them a fresh secret and returns their ids; each is then finished like the first attempt: every uid-keyed residue readback, the
+ * journal delete with the new secret, and the independent readback. (The trial entitlement, keyed by address, was removed before
+ * the Auth deletion; the address is not known here.) Another run's binding finds nothing. Returns how many were finished.
+ * Fail-closed: a missing rpc, any error, a malformed answer or any non-zero residue throws. Counts only in the log.
+ */
+export async function finishRunSaveJournalCleanups(admin: Pick<AdminClient, 'rpc' | 'from'>,
+    binding: RunBinding | Readonly<{ [key: string]: string }>): Promise<number> {
+    if (typeof admin.rpc !== 'function') throw new Error(`cleanup ${SAVE_JOURNAL_TABLE} sweep failed (fail closed): no rpc`);
+    const secret = newSaveJournalSecret();
+    const { data, error } = await admin.rpc(SAVE_JOURNAL_RUN_RESUME_FN, { p_run_binding: { ...binding }, p_token: secret });
+    if (error) throw new Error(`cleanup ${SAVE_JOURNAL_TABLE} sweep failed (fail closed): ${error.code ?? 'unknown'}`);
+    if (!Array.isArray(data) || data.some((id) => typeof id !== 'string' || !UUID_RE.test(id))) {
+        throw new Error(`cleanup ${SAVE_JOURNAL_TABLE} sweep failed (fail closed): malformed`);
+    }
+    for (const uid of data as string[]) {
+        await proveUidResidueZero(admin, uid);
+        await clearDeletedAccountSaveJournal(admin, uid, secret);
+    }
+    console.log(`RUN_SAVE_JOURNAL_SWEEP finished=${data.length}`);
+    return data.length;
 }
 
 /**
@@ -645,6 +685,12 @@ export async function cleanupRunOwnedAccount(params: {
 
     // Emitted ONLY here — after auth deletion is proven and every residue readback returned zero.
     writeCleanupVerdict('cleanup_verified', RESIDUE_CHECKS.length + 2);
+
+    // RESTART WITH NO ACCOUNT ID (Sam, #1906): an earlier process of THIS run may have died after deleting an account in Auth and
+    // before clearing its save journal; its id died with it. This run's normal teardown finishes such leftovers by its own run
+    // binding, after its own account is verified (so one stuck leftover never blocks this account's cleanup) and only for an
+    // account bound to this run: never an unbound local run, never the recovery path (which finishes terminated runs itself).
+    if (!params.recovery && ctRun !== undefined && mine) await finishRunSaveJournalCleanups(admin, mine);
 
     return capturedUid;
 }
