@@ -7,7 +7,7 @@ import { TEST_EFFICACY_CONTRACTS, qualifyEfficacyPhase } from './softwareQuality
 import { canonicalPath, runtimeIdentity } from '../efficacy-reporter.mjs';
 import {HELPER_CONTRACTS,registeredHelper,helperApplicability, HELPER_CONFIG, validateHelperCoverage} from './helperExecutionEvidence.mjs';
 import {registeredSourceContract,sourceContractApplicability,SOURCE_CONSUMER,validateSourceContractWitness} from './sourceContractEvidence.mjs';
-import {validatePlaywrightExecution} from './playwrightExecutionEvidence.mjs';
+import {INFRA_PROBE_FILE,validatePlaywrightExecution} from './playwrightExecutionEvidence.mjs';
 import {COACHING_EDGE_TEST,COACHING_QUALITY_TEST,nativeTestRoute,nativeHelper,validateNativeReceipt,SQL_CONTRACTS,sqlContract,sqlSourceBinding,validateSqlWitness,
   NATIVE_BATCH_SIZE,NATIVE_MAX_BATCHES,reconcileExecutionBatches} from './nativeTestExecutionEvidence.mjs';
 import {pythonTestRoute,validatePythonReceipt} from './pythonTestExecutionEvidence.mjs';
@@ -622,7 +622,8 @@ export function executionCoverage(files, {root,expected,pilot,execution,native,p
     const route=executionRoute(file,root);
     return {file,route,status:executed.has(file) && registeredSourceContract(file)?'SOURCE QUALIFIED':proven.has(file) || executed.has(file) || browser.has(file)||nativeFiles.has(file)||pythonFiles.has(file)?'EXECUTED':route?'NOT RUN':'UNCOVERED',
       ...(registeredSourceContract(file)?{liveExecution:'NOT RUN'}:{}),
-      claim:proven.has(file)?'registered semantic faults only':pythonFiles.has(file)?'actual Python unittest collection and execution only; not browser/database/live acceptance':nativeFiles.has(file)?route.claim??'actual native test collection and execution only; not database/live acceptance':browser.has(file)?'ordinary CI shard collection and execution only; not live acceptance':executed.has(file)
+      claim:proven.has(file)?'registered semantic faults only':pythonFiles.has(file)?'actual Python unittest collection and execution only; not browser/database/live acceptance':nativeFiles.has(file)?route.claim??'actual native test collection and execution only; not database/live acceptance':browser.has(file)?
+        file===INFRA_PROBE_FILE?'dedicated browser health collection and execution only; not live acceptance':'ordinary CI shard collection and execution only; not live acceptance':executed.has(file)
         ?registeredSourceContract(file)?'fault-sensitive wiring/fixture contract only; live test body not executed'
           :registeredHelper(file)?'registered source-mapped helper callables executed; not journey acceptance'
           :sqlContract(file)?'actual SQL consumed in PGlite fixture; native database NOT RUN':registeredFixture(file)?'pinned fixture consumed by its executed workflow control; not journey acceptance':'collection and execution only':null};

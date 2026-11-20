@@ -6,6 +6,10 @@ import {fileURLToPath} from 'node:url';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 export const HELPER_CONTRACTS = Object.freeze([{
+  helperFile: 'tests/evidence/normalization/officialNormalizer.ts',
+  testFile: 'tests/evidence/normalization/__tests__/officialNormalizer.goldens.test.ts',
+  callables: ['normalizeOfficialCore', 'normalizeOfficialTrackA', 'normalizeOfficialTrackB'],
+}, {
   helperFile: 'frontend/tests/test-utils/practicePrivacy.ts',
   testFile: 'tests/unit/practicePrivacyFixture1835.test.ts',
   callables: ['grantPracticePrivacy'],

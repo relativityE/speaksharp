@@ -206,7 +206,9 @@ if(process.env.GITHUB_ACTIONS==='true'||process.env.TEST_EFFICACY_REAL_RUNTIME==
       assert.equal(withInfra.shards.length,4);
       assert.deepEqual(withInfra.infra.producer.collection.map(t=>t.file),[INFRA_PROBE_FILE]);
       assert.deepEqual([...validatePlaywrightExecution(withInfra,{root:f.directory,expected,requiredFiles})],requiredFiles);
-      assert.equal(executionCoverage(requiredFiles,{root:f.directory,base:f.base,expected,playwright:withInfra}).status,'COMPLETE');
+      const coverage=executionCoverage(requiredFiles,{root:f.directory,base:f.base,expected,playwright:withInfra});
+      assert.equal(coverage.status,'COMPLETE');
+      assert.match(coverage.rows.find(row=>row.file===INFRA_PROBE_FILE).claim,/dedicated browser health.*not live acceptance/);
       assert.throws(()=>validatePlaywrightExecution(withInfra,{root:f.directory,expected,requiredFiles:f.files}),/unexpected dedicated infra/);
       for(const mutate of [
         entry=>{entry.producer.lineage.runAttempt='3';},
