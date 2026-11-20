@@ -9,7 +9,7 @@
 // Each claim has a negative control: a mutant of the D2 triggers with the one rule removed, which must lose it.
 //
 // Content-free: synthetic identifiers and text only.
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, afterAll } from 'vitest';
 import { PGlite } from '@electric-sql/pglite';
 import { readFileSync, readdirSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
@@ -53,7 +53,19 @@ const REVIEW = JSON.stringify({ version: 'gemini_coaching_v1', what_worked: 'The
 let db: PGlite | null = null;
 afterEach(async () => { await db?.close(); db = null; });
 
+// The full shipped chain is built ONCE per shape and each test gets an independent copy of it (PGlite clone: its own data
+// directory, nothing shared). Rebuilding the whole chain for every test took this file past the 60 s per-file execution
+// budget of the changed-file evidence run (#1906). The chain each test sees is unchanged.
+const built = new Map<string, Promise<PGlite>>();
+afterAll(async () => { for (const pg of built.values()) await (await pg).close(); built.clear(); });
+
 async function shippedChain(opts: { activateRetention?: boolean; withholdD2?: boolean } = {}): Promise<PGlite> {
+    const key = `${opts.activateRetention !== false}:${opts.withholdD2 === true}`;
+    if (!built.has(key)) built.set(key, buildShippedChain(opts));
+    return (await (await built.get(key)!).clone()) as PGlite;
+}
+
+async function buildShippedChain(opts: { activateRetention?: boolean; withholdD2?: boolean }): Promise<PGlite> {
     const pg = new PGlite();
     await pg.exec(SUPABASE_BOOTSTRAP);
     expect(SHIPPED.filter((f) => f > D2)).toEqual(AFTER_D2);
