@@ -172,3 +172,31 @@ export function disarmRecoveryClickGuard(token: string): { accepted: boolean; re
 export function consentRefusalReason(error: unknown): string {
     return /^HOLD practice consent: ([a-z0-9_]+)/.exec(error instanceof Error ? error.message : '')?.[1] ?? 'not_proven';
 }
+
+/** The cold Start press (the abandoned Start): its readiness, the person's think-time, the consent readback, then the click. */
+export interface ColdStartPressIo {
+    /** The one enabled `mic-download` control is resolved and ready to press. */
+    ready(): Promise<boolean>;
+    /** The human-reflex think-time a person takes before pressing. */
+    reflex(): Promise<void>;
+    /** #1835: the owner's fresh consent readback; throws unless it is exactly the run's fixed choice. */
+    confirmConsent(): Promise<void>;
+    /** The click itself; true when it completed. */
+    click(): Promise<boolean>;
+}
+export type ColdStartPressOutcome = { kind: 'pressed' } | { kind: 'not-ready' } | { kind: 'consent-unproven'; reason: string } | { kind: 'click-failed' };
+
+/**
+ * #1835 (Sam, Nov 20): the readback is the LAST step before the click. Readiness and the human-reflex pause come first, so a choice
+ * that changes while the person "thinks" is still caught; a refusal dispatches no click.
+ */
+export async function coldStartPress(io: ColdStartPressIo): Promise<ColdStartPressOutcome> {
+    if (!(await io.ready().catch(() => false))) return { kind: 'not-ready' };
+    await io.reflex();
+    try {
+        await io.confirmConsent();
+    } catch (error) {
+        return { kind: 'consent-unproven', reason: consentRefusalReason(error) };
+    }
+    return (await io.click().catch(() => false)) ? { kind: 'pressed' } : { kind: 'click-failed' };
+}

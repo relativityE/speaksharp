@@ -6,7 +6,7 @@
  * or session survives. Preparation only; execution requires a fresh release-bound RWT authorization.
  */
 import { createClient } from '@supabase/supabase-js';
-import type { Page } from '@playwright/test';
+import type { ElementHandle, Page } from '@playwright/test';
 import { expect, test } from './helpers/rwtProductionTest';
 import { readdirSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
@@ -31,7 +31,7 @@ import { RECORDER_STOP, micControlFor } from '../helpers/micControls';
 import { nextTakeIdArrived, type SessionRowFacts } from './helpers/rwtSaveRetry';
 import {
     type RecoveryControl, armRecoveryClickGuard, disarmRecoveryClickGuard, driveRecoveryPress, recoveryPressVerdict, recoveryTakePlan,
-    recoveryTakeVerdict, PENDING_START_CONSENT_MODE, consentRefusalReason,
+    recoveryTakeVerdict, PENDING_START_CONSENT_MODE, coldStartPress, consentRefusalReason,
 } from './helpers/rwtPendingStartRecovery';
 import { captureConsentGate, settleFixedConsentOnPractice, type ChoiceClient } from './helpers/rwtPracticeConsent';
 import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
@@ -273,16 +273,29 @@ test('leaving during a cold Start does not leave a recording or session behind @
         // reports its acquisition phase; the route change is the user's cancellation action under test.
         // #1593 (Sam, #1662 RETURN control 3): the abandoned Start's own cancellation (and the return's gate) is this
         // journey's expected fault — from the press until the return has been checked.
-        // The cold Start must be ready to press BEFORE the readback, so nothing but the press itself follows it.
-        await expect(page.getByTestId('mic-download')).toBeEnabled({ timeout: 15_000 });
-        try {
-            await consentGate.confirm();
-        } catch {
-            receipt.halt('practice consent', 'HOLD before the cold Start: the owner\'s consent was not proven immediately before the press');
+        // #1835 (Sam, Nov 20): readiness and the person's think-time come first; the owner's consent readback is the last step before
+        // the click (an ElementHandle click, so the locator wrapper adds no pause after it). A refusal dispatches no click.
+        const coldControl: { handle: ElementHandle | null } = { handle: null };
+        const cold = await coldStartPress({
+            ready: async () => {
+                coldControl.handle = await page.getByTestId('mic-download').elementHandle({ timeout: 15_000 }).catch(() => null);
+                return coldControl.handle !== null && await coldControl.handle.isEnabled().catch(() => false);
+            },
+            reflex: () => new Promise((resolve) => setTimeout(resolve, activeHumanReflexMs())),
+            confirmConsent: () => consentGate.confirm(),
+            click: async () => {
+                // #1593 (Sam, #1662 RETURN control 3): the abandoned Start's own cancellation (and the return's gate) is this
+                // journey's expected fault, from the press until the return has been checked.
+                watch.setFaultPhase(true);
+                return coldControl.handle ? coldControl.handle.click({ timeout: 15_000 }).then(() => true, () => false) : false;
+            },
+        });
+        await coldControl.handle?.dispose().catch(() => undefined);
+        if (cold.kind === 'consent-unproven') {
+            receipt.halt('practice consent', `HOLD before the cold Start: the owner's consent was not proven immediately before the press (${cold.reason})`);
             return;
         }
-        watch.setFaultPhase(true);
-        await page.getByTestId('mic-download').click({ timeout: 15_000 });
+        if (cold.kind !== 'pressed') throw new Error(`cold Start ${cold.kind}`);
         consentGate.recordPass();
         // Codex P1 r4247193674: TranscriptionService publishes BOTH DOWNLOADING and ENGINE_INITIALIZING as the root
         // `data-model-status="loading"`; `downloading`/`initializing` are never written, so only `loading` is the pending Start.

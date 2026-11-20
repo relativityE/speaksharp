@@ -5,8 +5,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
-    PENDING_START_CONSENT_MODE, type RecoveryControl, type RecoveryPressIo, consentRefusalReason, driveRecoveryPress, recoveryPressVerdict, recoveryTakePlan,
-    recoveryTakeVerdict,
+    PENDING_START_CONSENT_MODE, type ColdStartPressIo, type RecoveryControl, type RecoveryPressIo, coldStartPress, consentRefusalReason, driveRecoveryPress,
+    recoveryPressVerdict, recoveryTakePlan, recoveryTakeVerdict,
 } from '../live/helpers/rwtPendingStartRecovery';
 import { CONSENT_MODES, captureConsentGate, type ChoiceClient } from '../live/helpers/rwtPracticeConsent';
 import type { SessionRowFacts } from '../live/helpers/rwtSaveRetry';
@@ -225,10 +225,15 @@ describe('J5.a consent before every capture-capable press', () => {
         expect(settle).toBeLessThan(spec.indexOf("await openProductsItem(page, 'open-mic');"));
         // A settle failure halts before any press.
         expect(spec.slice(settle, spec.indexOf("await openProductsItem(page, 'open-mic');"))).toMatch(/\} catch \{\n\s*receipt\.halt\('practice consent'[^\n]*\n\s*return;/);
-        // The cold Start: the control is ready first; then confirm (halting on failure) is directly before the press.
-        expect(spec).toMatch(/await expect\(page\.getByTestId\('mic-download'\)\)\.toBeEnabled\(\{ timeout: 15_000 \}\);\n\s*try \{\n\s*await consentGate\.confirm\(\);/);
-        expect(spec).toMatch(/try \{\n\s*await consentGate\.confirm\(\);\n\s*\} catch \{\n\s*receipt\.halt\('practice consent'[^\n]*\n\s*return;\n\s*\}\n\s*watch\.setFaultPhase\(true\);\n\s*await page\.getByTestId\('mic-download'\)\.click\(\{ timeout: 15_000 \}\);\n\s*consentGate\.recordPass\(\);/);
-        expect(spec.split("getByTestId('mic-download').click(").length - 1).toBe(1);
+        // The cold Start goes through coldStartPress (ready → think-time → readback → click) with the gate as its consent step;
+        // a refusal halts with no click, and the one cold click is an ElementHandle click inside it (no locator pause after the readback).
+        const cold = spec.slice(spec.indexOf('const cold = await coldStartPress({'), spec.indexOf('consentGate.recordPass();', spec.indexOf('const cold = await coldStartPress({')));
+        expect(cold).toContain("coldControl.handle = await page.getByTestId('mic-download').elementHandle({ timeout: 15_000 })");
+        expect(cold).toContain('reflex: () => new Promise((resolve) => setTimeout(resolve, activeHumanReflexMs())),');
+        expect(cold).toContain('confirmConsent: () => consentGate.confirm(),');
+        expect(cold).toContain('coldControl.handle.click({ timeout: 15_000 })');
+        expect(cold).toMatch(/if \(cold\.kind === 'consent-unproven'\) \{\n\s*receipt\.halt\('practice consent'[^\n]*\n\s*return;/);
+        expect(spec).not.toContain("getByTestId('mic-download').click(");
         // The recovery press gets the same gate as its consent step, run INSIDE the press: after the guard is armed (the 60 s
         // control wait and the human reflex come before that) and as the statement directly before the click.
         expect(spec).toContain('confirmConsent: () => consentGate.confirm(),');
@@ -287,5 +292,39 @@ describe('J5.a consent before every capture-capable press', () => {
             expect({ reason, clicks: presses.length, out }).toEqual({ reason, clicks: 0, out: { kind: 'consent-unproven', control: 'mic-start', reason } });
             expect(recoveryPressVerdict(out)).toMatchObject({ status: 'HOLD' });
         }
+    });
+
+    describe('the cold Start press (Sam, Nov 20): ready → think-time → readback → click', () => {
+        const coldOver = (confirmConsent: () => Promise<void>, o: { ready?: boolean; duringReflex?: () => void } = {}) => {
+            const order: string[] = [];
+            const io: ColdStartPressIo = {
+                ready: async () => { order.push('ready'); return o.ready !== false; },
+                reflex: async () => { order.push('reflex'); o.duringReflex?.(); },
+                confirmConsent: async () => { order.push('consent'); await confirmConsent(); },
+                click: async () => { order.push('click'); return true; },
+            };
+            return { io, order };
+        };
+        it('the readback is the last step before the click, after readiness and the human-reflex pause', async () => {
+            const { gate } = gateOver({ row: { ...SAVE_ON } });
+            const { io, order } = coldOver(() => gate.confirm());
+            expect(await coldStartPress(io)).toEqual({ kind: 'pressed' });
+            expect(order).toEqual(['ready', 'reflex', 'consent', 'click']);
+        });
+        it('CONTROL: consent that changes DURING the think-time pause dispatches zero clicks', async () => {
+            for (const [changed, reason] of [[{ ...SAVE_ON, transcript_save: false }, 'readback_differs'], [null, 'readback_missing'], ['broken', 'readback_unreadable']] as const) {
+                const current: { row: Record<string, unknown> | null | 'broken' } = { row: { ...SAVE_ON } };
+                const { gate } = gateOver(current);
+                const { io, order } = coldOver(() => gate.confirm(), { duringReflex: () => { current.row = changed as never; } });
+                expect({ reason, out: await coldStartPress(io) }).toEqual({ reason, out: { kind: 'consent-unproven', reason } });
+                expect(order).not.toContain('click');
+            }
+        });
+        it('a control that is not ready is never pressed, and no readback is spent on it', async () => {
+            const { gate } = gateOver({ row: { ...SAVE_ON } });
+            const { io, order } = coldOver(() => gate.confirm(), { ready: false });
+            expect(await coldStartPress(io)).toEqual({ kind: 'not-ready' });
+            expect(order).toEqual(['ready']);
+        });
     });
 });
