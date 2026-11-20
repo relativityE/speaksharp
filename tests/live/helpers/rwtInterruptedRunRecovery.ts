@@ -12,7 +12,8 @@
  */
 import { FENCE_CASES, cleanAndVerifyFeedbackFence, closeFeedbackFence, fenceRunKey, type FenceRpcClient } from './feedbackFence';
 import { currentRunBinding, sameRunBinding, type RunBinding } from './runBinding';
-import { RUN_OWNED_PREFIX_RE, SAVE_JOURNAL_RUNS_FN, cleanupRunOwnedAccount, finishRunSaveJournalCleanups, runAttemptsTerminal } from './runOwnedCleanup';
+import { RUN_OWNED_PREFIX_RE, cleanupRunOwnedAccount, finishRunSaveJournalCleanups, readSaveJournalInventory, runAttemptsTerminal,
+    saveJournalSweepIncomplete, type SaveJournalInventory, type SaveJournalInventoryRead } from './runOwnedCleanup';
 
 /** The delete acknowledgement, bound to one exact commit: `RWT-INTERRUPTED-RUN-RECOVERY-DELETE@<40-hex sha>`. */
 export const RECOVERY_DELETE_ACK_PREFIX = 'RWT-INTERRUPTED-RUN-RECOVERY-DELETE';
@@ -182,7 +183,8 @@ export async function listAuthUsersBounded(admin: AdminLike, perPage = 200, maxP
     return { users, complete: false };
 }
 
-export type RecoveryStatus = 'HOLD_NO_DOMAIN' | 'HOLD_NO_ACK' | 'HOLD_INCOMPLETE_LISTING' | 'HOLD_RECOVERY_ELIGIBILITY' | 'HOLD_ACTIVE_RUN' | 'NOTHING_TO_RECOVER' | 'RECOVERED' | 'FAILED';
+export type RecoveryStatus = 'HOLD_NO_DOMAIN' | 'HOLD_NO_ACK' | 'HOLD_INCOMPLETE_LISTING' | 'HOLD_RECOVERY_ELIGIBILITY' | 'HOLD_ACTIVE_RUN'
+    | 'HOLD_UNFINISHED_CLAIMS' | 'NOTHING_TO_RECOVER' | 'RECOVERED' | 'FAILED';
 /**
  * #1811 feedback fences of interrupted runs (counts only). Found by the database's own unresolved-fence listing — never through
  * the account, which a normal journey deletes BEFORE its fence cleanup (Sam, #1860 review) — and cleaned only once the original
@@ -192,12 +194,16 @@ export type RecoveryStatus = 'HOLD_NO_DOMAIN' | 'HOLD_NO_ACK' | 'HOLD_INCOMPLETE
 export interface FeedbackFenceRecovery { listed: number; fences: number; deleted: number; residue: number; foreign: number; held: number; unproven: number }
 /**
  * #1906 save journals of interrupted runs (counts only; Sam: "the actual restarted runner still has to prove it can find that
- * account after deletion"). A run that died after an Auth deletion and before clearing that account's save journal leaves a claim
- * the account listing can no longer show. The database lists the run bindings that still have such claims (never ids); each is
- * finished only once that run attempt is verified TERMINAL, by presenting its binding. `held`: active or unverifiable (nothing
- * touched). `unproven`: not this repository's rc-gates run, or the current run (nothing touched).
+ * account after deletion"; "prove complete inventory or return HOLD"). A run that died after an Auth deletion and before clearing
+ * that account's save journal leaves a claim the account listing can no longer show. The database returns the COMPLETE inventory
+ * of open claims in one value (never ids); each run's claims are finished only once that run attempt is verified TERMINAL and none
+ * of its claims is recent, by presenting its binding; then the inventory is read again.
+ * `claims`: every open claim listed. `runs`: run bindings listed. `finished`: accounts finished. `held`: claims of a run that is
+ * active, unverifiable or has a recent claim (nothing touched). `unproven`: claims that are not this repository's earlier rc-gates
+ * run (the current run, a canary run, another workflow, a malformed binding) or are unbound (nothing touched). `live`: claims
+ * whose account still exists (its account cleanup owns them). `remaining`: claims in the final inventory.
  */
-export interface SaveJournalRecovery { runs: number; finished: number; held: number; unproven: number }
+export interface SaveJournalRecovery { claims: number; runs: number; finished: number; held: number; unproven: number; live: number; remaining: number }
 export interface RecoveryReport extends SelectionCounts {
     status: RecoveryStatus; deleted: number; minAgeMinutes: number;
     feedback: FeedbackFenceRecovery;
@@ -256,7 +262,7 @@ export async function recoverInterruptedRuns(params: {
 }): Promise<RecoveryReport> {
     const minAgeMs = params.minAgeMs ?? MIN_AGE_MS;
     const feedback: FeedbackFenceRecovery = { listed: 0, fences: 0, deleted: 0, residue: 0, foreign: 0, held: 0, unproven: 0 };
-    const saveJournal: SaveJournalRecovery = { runs: 0, finished: 0, held: 0, unproven: 0 };
+    const saveJournal: SaveJournalRecovery = { claims: 0, runs: 0, finished: 0, held: 0, unproven: 0, live: 0, remaining: 0 };
     const report = (status: RecoveryStatus, counts: SelectionCounts, deleted = 0): RecoveryReport =>
         ({ status, deleted, minAgeMinutes: Math.round(minAgeMs / 60_000), ...counts, feedback: { ...feedback }, saveJournal: { ...saveJournal } });
     // No explicit domain still DETECTS and reports (legacy items included); it can never delete.
@@ -278,19 +284,20 @@ export async function recoverInterruptedRuns(params: {
         }
     }
     feedback.listed = fences.length;
-    // #1906: run bindings that still hold a save-journal claim for an account already gone, older than the same age floor. A
-    // deployment without the migration has none to list.
-    let journalRuns: unknown[] = [];
+    // #1906: the complete inventory of open save-journal claims, as one value that must add up. A deployment without the migration
+    // has none; an inventory that cannot be proven complete holds (Sam, #1906 review), and any other error fails.
+    const minAgeSeconds = Math.ceil(minAgeMs / 1000);
+    let inventory: SaveJournalInventory = { claims: 0, live: 0, unbound: 0, runs: [] };
     if (rpc) {
-        const { data, error } = await rpc.rpc(SAVE_JOURNAL_RUNS_FN, { p_min_age_seconds: Math.ceil(minAgeMs / 1000) });
-        if (error && error.code !== 'PGRST202') return report('FAILED', counts);
-        if (!error) {
-            if (!Array.isArray(data)) return report('FAILED', counts);
-            journalRuns = data;
-        }
+        const read = await readSaveJournalInventory(rpc as never, minAgeSeconds);
+        if (read.status === 'error') return report('FAILED', counts);
+        if (read.status === 'incomplete') return report('HOLD_INCOMPLETE_LISTING', counts);
+        if (read.status === 'ok') inventory = read.inventory;
     }
-    saveJournal.runs = journalRuns.length;
-    if (eligible.length === 0 && fences.length === 0 && journalRuns.length === 0) return report('NOTHING_TO_RECOVER', counts);
+    saveJournal.claims = inventory.claims; saveJournal.runs = inventory.runs.length; saveJournal.live = inventory.live;
+    saveJournal.remaining = inventory.claims;
+    // Nothing to recover only when there is no account, no fence AND no open claim at all (Sam: never while a claim remains).
+    if (eligible.length === 0 && fences.length === 0 && inventory.claims === 0) return report('NOTHING_TO_RECOVER', counts);
     if (!SHA_RE.test(params.sha) || params.ack !== recoveryDeleteAck(params.sha)) return report('HOLD_NO_ACK', counts);
     const runState: RunAttemptStateReader = params.runState ?? (async (b) => (await runAttemptsTerminal(b) ? 'terminal' : 'unverifiable'));
     const heldRuns = new Set<string>();
@@ -311,18 +318,27 @@ export async function recoverInterruptedRuns(params: {
         if (feedback.residue !== 0 || feedback.foreign !== 0) return report('FAILED', counts);
     }
     const finishSaveJournal = params.finishSaveJournal ?? finishRunSaveJournalCleanups;
-    for (const listed of journalRuns) {
-        const binding = saveJournalBinding(listed);
-        if (!binding) { saveJournal.unproven += 1; continue; }
-        // Nothing of a run is finished before its attempt is verified terminal (the same rule as its fences and its account).
-        if (heldRuns.has(`${binding.runId}-${binding.runAttempt}`) || await runState(binding) !== 'terminal') {
-            saveJournal.held += 1; heldRuns.add(`${binding.runId}-${binding.runAttempt}`); continue;
+    // Unbound claims on deleted accounts can never be finished by binding (a local run's only proof was its lost secret).
+    saveJournal.unproven += inventory.unbound;
+    const finishedRuns = new Set<string>();
+    for (const listed of inventory.runs) {
+        const binding = saveJournalBinding(listed.binding);
+        if (!binding) { saveJournal.unproven += listed.claims; continue; }
+        const run = `${binding.runId}-${binding.runAttempt}`;
+        // Nothing of a run is finished before its attempt is verified terminal (the same rule as its fences and its account), and
+        // not while any of its claims is younger than the floor (it may still be finishing it).
+        if (listed.recent > 0 || heldRuns.has(run) || await runState(binding) !== 'terminal') {
+            saveJournal.held += listed.claims; heldRuns.add(run); continue;
         }
+        let finished: number;
         try {
-            saveJournal.finished += await finishSaveJournal(params.admin as never, binding);
-        } catch {
-            return report('FAILED', counts);
+            finished = await finishSaveJournal(params.admin as never, binding);
+        } catch (error) {
+            // An answer that cannot be proven complete deleted nothing: hold (Sam, #1906 review); any other failure fails.
+            return report(saveJournalSweepIncomplete(error) ? 'HOLD_INCOMPLETE_LISTING' : 'FAILED', counts);
         }
+        saveJournal.finished += finished;
+        finishedRuns.add(canonicalBinding(listed.binding));
     }
     const cleanup = params.cleanup ?? cleanupRunOwnedAccount;
     let deleted = 0;
@@ -338,7 +354,28 @@ export async function recoverInterruptedRuns(params: {
         }
         deleted += 1;
     }
-    return report(feedback.held > 0 || saveJournal.held > 0 ? 'HOLD_ACTIVE_RUN' : 'RECOVERED', counts, deleted);
+    // After any change, read the inventory again: a run this recovery finished must have no claim left (else FAILED), and anything
+    // still open holds. With no change the first inventory stands.
+    if (rpc && (finishedRuns.size > 0 || deleted > 0)) {
+        const after: SaveJournalInventoryRead = await readSaveJournalInventory(rpc as never, minAgeSeconds);
+        if (after.status === 'error') return report('FAILED', counts, deleted);
+        if (after.status === 'incomplete') return report('HOLD_INCOMPLETE_LISTING', counts, deleted);
+        if (after.status === 'ok') {
+            saveJournal.remaining = after.inventory.claims;
+            if (after.inventory.runs.some((r) => finishedRuns.has(canonicalBinding(r.binding)))) return report('FAILED', counts, deleted);
+        } else {
+            saveJournal.remaining = 0;
+        }
+    }
+    if (feedback.held > 0 || saveJournal.held > 0) return report('HOLD_ACTIVE_RUN', counts, deleted);
+    return report(saveJournal.remaining > 0 ? 'HOLD_UNFINISHED_CLAIMS' : 'RECOVERED', counts, deleted);
+}
+
+/** A binding as one comparable string (key order does not matter). */
+function canonicalBinding(v: unknown): string {
+    return v && typeof v === 'object' && !Array.isArray(v)
+        ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canonicalBinding((v as Record<string, unknown>)[k])}`).join(',')}}`
+        : JSON.stringify(v);
 }
 
 /** The one content-safe line a run prints. */
@@ -348,6 +385,7 @@ export function recoveryReportLine(r: RecoveryReport): string {
         + `ambiguous=${r.ambiguous} deleted=${r.deleted} min_age_min=${r.minAgeMinutes}`
         + ` feedback_listed=${r.feedback.listed} feedback_fences=${r.feedback.fences} feedback_deleted=${r.feedback.deleted} feedback_residue=${r.feedback.residue}`
         + ` feedback_foreign=${r.feedback.foreign} feedback_held=${r.feedback.held} feedback_unproven=${r.feedback.unproven}`
-        + ` save_journal_runs=${r.saveJournal.runs} save_journal_finished=${r.saveJournal.finished} save_journal_held=${r.saveJournal.held}`
-        + ` save_journal_unproven=${r.saveJournal.unproven}`;
+        + ` save_journal_claims=${r.saveJournal.claims} save_journal_runs=${r.saveJournal.runs} save_journal_finished=${r.saveJournal.finished}`
+        + ` save_journal_held=${r.saveJournal.held} save_journal_unproven=${r.saveJournal.unproven} save_journal_live=${r.saveJournal.live}`
+        + ` save_journal_remaining=${r.saveJournal.remaining}`;
 }

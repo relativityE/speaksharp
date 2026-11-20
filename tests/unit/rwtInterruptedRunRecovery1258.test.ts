@@ -343,7 +343,7 @@ describe('#1811 feedback fences: found by the database, cleaned only after the r
         const rpc = vi.fn(async (fn: string, args: Record<string, unknown>) => {
             calls.push(`${fn}:${String(args.p_run_key ?? args.p_min_age_seconds)}`);
             if (fn === 'list_unresolved_rwt_feedback_fences_v1') return listError ? { data: null, error: listError } : { data: listed, error: null };
-            if (fn === 'list_unfinished_account_save_journal_cleanup_runs_v1') return { data: [], error: null };   // #1906: none in these cases
+            if (fn === 'list_unfinished_account_save_journal_cleanup_runs_v1') return { data: { claims: 0, live: 0, unbound: 0, runs: [] }, error: null };   // #1906: none in these cases
             const state = outcome.residue || outcome.foreign ? 'closed' : 'cleaned';
             if (fn === 'close_rwt_feedback_fence_v1') return { data: { state: 'closed', reports: outcome.deleted + outcome.residue, keys: 1 }, error: null };
             if (fn === 'clean_rwt_feedback_fence_v1') return { data: { ...outcome, state }, error: null };
@@ -416,66 +416,118 @@ describe('#1811 feedback fences: found by the database, cleaned only after the r
     });
 });
 
-describe('#1906 save journals of interrupted runs: listed by run binding (never by account), finished only for a terminated rc-gates run', () => {
+describe('#1906 save journals of interrupted runs: a complete inventory or HOLD; finished only for a terminated rc-gates run', () => {
     const repository = 'relativityE/speaksharp';
     const workflow = `${repository}/.github/workflows/rc-gates.yml@refs/heads/main`;
     const dead = { repository, workflow, runId: '38000000001', runAttempt: '1', role: 'rwt-journey' as const };
+    const other = { ...dead, runId: '38000000002' };
     const stubRun = () => {
         for (const [k, v] of Object.entries({ GITHUB_ACTIONS: 'true', GITHUB_REPOSITORY: repository,
             GITHUB_WORKFLOW_REF: workflow, GITHUB_RUN_ID: '39000000001', GITHUB_RUN_ATTEMPT: '1' })) vi.stubEnv(k, v);
     };
-    const withRuns = (f: ReturnType<typeof fakeAdmin>, listed: unknown, listError: { code: string } | null = null) => {
+    type Answer = { data: unknown; error: { code: string } | null };
+    /** An inventory answer: one entry per binding [binding, claims, recent]; live and unbound claims as given. */
+    const inv = (entries: Array<[unknown, number?, number?]>, extra: { live?: number; unbound?: number } = {}): Answer => {
+        const runs = entries.map(([binding, claims = 1, recent = 0]) => ({ binding, claims, recent }));
+        const live = extra.live ?? 0; const unbound = extra.unbound ?? 0;
+        return { data: { claims: live + unbound + runs.reduce((n, r) => n + r.claims, 0), live, unbound, runs }, error: null };
+    };
+    const EMPTY = inv([]);
+    /** The inventory answers in order (the last one repeats): the first listing, then the re-read after any change. */
+    const withRuns = (f: ReturnType<typeof fakeAdmin>, ...answers: Answer[]) => {
         const rpc = vi.fn(async (fn: string) => {
             if (fn === 'list_unresolved_rwt_feedback_fences_v1') return { data: [], error: null };
-            if (fn === 'list_unfinished_account_save_journal_cleanup_runs_v1') return listError ? { data: null, error: listError } : { data: listed, error: null };
+            if (fn === 'list_unfinished_account_save_journal_cleanup_runs_v1') return answers.length > 1 ? answers.shift()! : answers[0];
             return { data: null, error: { code: 'unexpected' } };
         });
         Object.assign(f.admin as object, { rpc });
         return rpc;
     };
+    const listings = (rpc: ReturnType<typeof withRuns>) => rpc.mock.calls.filter(([fn]) => fn === 'list_unfinished_account_save_journal_cleanup_runs_v1');
     const terminal = vi.fn(async () => 'terminal' as const);
-    it('a terminated run is finished by presenting its own binding; the report counts it', async () => {
+    it('a terminated run is finished by presenting its own binding, then the inventory is read again and must show none left', async () => {
         stubRun();
         const f = fakeAdmin([]);
-        const rpc = withRuns(f, [dead]);
+        const rpc = withRuns(f, inv([[dead, 2]]), EMPTY);
         const finishSaveJournal = vi.fn(async () => 2);
         const r = await recover({ ...f, runState: terminal, finishSaveJournal });
-        expect(r).toMatchObject({ status: 'RECOVERED', saveJournal: { runs: 1, finished: 2, held: 0, unproven: 0 } });
+        expect(r).toMatchObject({ status: 'RECOVERED', saveJournal: { claims: 2, runs: 1, finished: 2, held: 0, unproven: 0, live: 0, remaining: 0 } });
         expect(finishSaveJournal).toHaveBeenCalledTimes(1);
         expect((finishSaveJournal.mock.calls[0] as unknown[])[1]).toEqual(dead);
-        expect(rpc.mock.calls.find(([fn]) => fn === 'list_unfinished_account_save_journal_cleanup_runs_v1')?.[1]).toEqual({ p_min_age_seconds: MIN_AGE_MS / 1000 });
-        expect(recoveryReportLine(r)).toMatch(/ save_journal_runs=1 save_journal_finished=2 save_journal_held=0 save_journal_unproven=0$/);
+        expect(listings(rpc).map(([, a]) => a)).toEqual([{ p_min_age_seconds: MIN_AGE_MS / 1000 }, { p_min_age_seconds: MIN_AGE_MS / 1000 }]);
+        expect(recoveryReportLine(r)).toMatch(/ save_journal_claims=2 save_journal_runs=1 save_journal_finished=2 save_journal_held=0 save_journal_unproven=0 save_journal_live=0 save_journal_remaining=0$/);
     });
-    it('an active or unverifiable run is held; another workflow, another repository, the CURRENT run or a malformed binding is never touched', async () => {
+    it('a finished run that still has a claim in the second inventory FAILS; a second inventory that cannot be read fails or holds', async () => {
+        stubRun();
+        let f = fakeAdmin([]); withRuns(f, inv([[dead]]), inv([[dead]]));
+        expect((await recover({ ...f, runState: terminal, finishSaveJournal: vi.fn(async () => 1) })).status).toBe('FAILED');
+        f = fakeAdmin([]); withRuns(f, inv([[dead]]), { data: null, error: { code: '42501' } });
+        expect((await recover({ ...f, runState: terminal, finishSaveJournal: vi.fn(async () => 1) })).status).toBe('FAILED');
+        f = fakeAdmin([]); withRuns(f, inv([[dead]]), { data: [], error: null });
+        expect((await recover({ ...f, runState: terminal, finishSaveJournal: vi.fn(async () => 1) })).status).toBe('HOLD_INCOMPLETE_LISTING');
+    });
+    it('an active or unverifiable run, or a run with a RECENT claim, is held (nothing finished); the held claims are counted', async () => {
         stubRun();
         for (const state of ['active', 'unverifiable'] as const) {
-            const f = fakeAdmin([]); withRuns(f, [dead]);
+            const f = fakeAdmin([]); withRuns(f, inv([[dead, 3]]));
             const finishSaveJournal = vi.fn(async () => 1);
-            expect(await recover({ ...f, runState: async () => state, finishSaveJournal })).toMatchObject({ status: 'HOLD_ACTIVE_RUN', saveJournal: { runs: 1, finished: 0, held: 1 } });
+            expect(await recover({ ...f, runState: async () => state, finishSaveJournal })).toMatchObject({ status: 'HOLD_ACTIVE_RUN', saveJournal: { runs: 1, finished: 0, held: 3, remaining: 3 } });
             expect(finishSaveJournal).not.toHaveBeenCalled();
         }
-        const f = fakeAdmin([]);
-        withRuns(f, [{ ...dead, workflow: `${repository}/.github/workflows/canary.yml@refs/heads/main` }, { ...dead, repository: 'someone/else' },
-            { ...dead, runId: '39000000001' }, { ...dead, extra: '1' }, { ...dead, role: 'canary-active-trial' }, null, 'x']);
+        const f = fakeAdmin([]); const rpc = withRuns(f, inv([[dead, 2, 1], [other]]), EMPTY);
         const finishSaveJournal = vi.fn(async () => 1);
         terminal.mockClear();
-        expect(await recover({ ...f, runState: terminal, finishSaveJournal })).toMatchObject({ status: 'RECOVERED', saveJournal: { runs: 7, finished: 0, unproven: 7 } });
+        expect(await recover({ ...f, runState: terminal, finishSaveJournal })).toMatchObject({ status: 'HOLD_ACTIVE_RUN', saveJournal: { claims: 3, finished: 1, held: 2 } });
+        expect(finishSaveJournal.mock.calls.map((c) => (c as unknown[])[1])).toEqual([other]);
+        expect(terminal.mock.calls.map((c) => (c as unknown[])[0])).toEqual([other]);
+        expect(listings(rpc)).toHaveLength(2);
+    });
+    it('claims it may not finish (another workflow or repository, the CURRENT run, a canary or malformed binding, unbound, live) HOLD, never RECOVERED', async () => {
+        stubRun();
+        const f = fakeAdmin([]);
+        withRuns(f, inv([[{ ...dead, workflow: `${repository}/.github/workflows/canary.yml@refs/heads/main` }], [{ ...dead, repository: 'someone/else' }],
+            [{ ...dead, runId: '39000000001' }, 2], [{ ...dead, extra: '1' }], [{ ...dead, role: 'canary-active-trial' }], [{ x: 1 }]], { unbound: 1, live: 1 }));
+        const finishSaveJournal = vi.fn(async () => 1);
+        terminal.mockClear();
+        expect(await recover({ ...f, runState: terminal, finishSaveJournal }))
+            .toMatchObject({ status: 'HOLD_UNFINISHED_CLAIMS', saveJournal: { claims: 9, runs: 6, finished: 0, unproven: 8, live: 1, remaining: 9 } });
         expect(finishSaveJournal).not.toHaveBeenCalled(); expect(terminal).not.toHaveBeenCalled();
     });
-    it('fails closed on a listing error, a malformed listing or a failed finish; holds with no acknowledgement; a deployment without the function lists none', async () => {
+    it('Sam: with NO account in Auth, a remaining claim is never NOTHING_TO_RECOVER (unbound, live, or one hidden by the age floor)', async () => {
         stubRun();
-        for (const [listed, err] of [[null, { code: '42501' }], [{ not: 'an array' }, null]] as const) {
-            const f = fakeAdmin([]); withRuns(f, listed, err);
-            expect((await recover({ ...f, runState: terminal, finishSaveJournal: vi.fn(async () => 1) })).status).toBe('FAILED');
+        for (const answer of [inv([], { unbound: 1 }), inv([], { live: 1 }), inv([[dead, 1, 1]])]) {
+            const f = fakeAdmin([]); withRuns(f, answer);
+            const r = await recover({ ...f, runState: terminal, finishSaveJournal: vi.fn(async () => 1) });
+            expect(r.status).not.toBe('NOTHING_TO_RECOVER');
+            expect(['HOLD_UNFINISHED_CLAIMS', 'HOLD_ACTIVE_RUN']).toContain(r.status);
+            const noAck = fakeAdmin([]); withRuns(noAck, answer);
+            expect((await recover({ ...noAck, ack: '', runState: terminal })).status).toBe('HOLD_NO_ACK');
         }
-        let f = fakeAdmin([]); withRuns(f, [dead]);
+        const f = fakeAdmin([]); withRuns(f, EMPTY);
+        expect(await recover({ ...f, runState: terminal })).toMatchObject({ status: 'NOTHING_TO_RECOVER', saveJournal: { claims: 0, remaining: 0 } });
+    });
+    it('Sam: an inventory that does not prove it is complete HOLDs and touches nothing (refused as too many, clipped, malformed, not adding up)', async () => {
+        stubRun();
+        const one = inv([[dead, 2]]).data as { claims: number; live: number; unbound: number; runs: Array<Record<string, unknown>> };
+        for (const answer of [{ data: null, error: { code: '54000' } }, { data: [dead], error: null }, { data: null, error: null }, { data: 'x', error: null },
+            { data: { ...one, runs: [] }, error: null }, { data: { ...one, claims: 3 }, error: null }, { data: { ...one, claims: -1 }, error: null },
+            { data: { ...one, live: 1.5 }, error: null }, { data: { ...one, extra: 1 }, error: null }, { data: { ...one, runs: [one.runs[0], one.runs[0]], claims: 4 }, error: null },
+            { data: { ...one, runs: [{ ...one.runs[0], binding: null }] }, error: null }, { data: { ...one, runs: [{ ...one.runs[0], binding: [dead] }] }, error: null },
+            { data: { ...one, runs: [{ ...one.runs[0], recent: 3 }] }, error: null }, { data: { ...one, runs: [{ ...one.runs[0], claims: 0 }], claims: 0 }, error: null }] as Answer[]) {
+            const f = fakeAdmin([]); withRuns(f, answer);
+            const finishSaveJournal = vi.fn(async () => 1);
+            expect((await recover({ ...f, runState: terminal, finishSaveJournal })).status).toBe('HOLD_INCOMPLETE_LISTING');
+            expect(finishSaveJournal).not.toHaveBeenCalled();
+        }
+    });
+    it('fails closed on a listing error or a failed finish; a deployment without the function lists none', async () => {
+        stubRun();
+        let f = fakeAdmin([]); withRuns(f, { data: null, error: { code: '42501' } });
+        expect((await recover({ ...f, runState: terminal, finishSaveJournal: vi.fn(async () => 1) })).status).toBe('FAILED');
+        f = fakeAdmin([]); withRuns(f, inv([[dead]]));
         expect((await recover({ ...f, runState: terminal, finishSaveJournal: vi.fn(async () => { throw new Error('cleanup account_save_obligations sweep failed (fail closed): 55000'); }) })).status).toBe('FAILED');
-        f = fakeAdmin([]); withRuns(f, [dead]);
-        const finishSaveJournal = vi.fn(async () => 1);
-        expect(await recover({ ...f, ack: '', runState: terminal, finishSaveJournal })).toMatchObject({ status: 'HOLD_NO_ACK', saveJournal: { runs: 1, finished: 0 } });
-        expect(finishSaveJournal).not.toHaveBeenCalled();
-        f = fakeAdmin([]); withRuns(f, null, { code: 'PGRST202' });
-        expect(await recover({ ...f, runState: terminal })).toMatchObject({ status: 'NOTHING_TO_RECOVER', saveJournal: { runs: 0 } });
+        f = fakeAdmin([]); withRuns(f, { data: null, error: { code: 'PGRST202' } });
+        expect(await recover({ ...f, runState: terminal })).toMatchObject({ status: 'NOTHING_TO_RECOVER', saveJournal: { runs: 0, claims: 0 } });
     });
 });
 

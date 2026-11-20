@@ -27,12 +27,16 @@
 --   * resume_run_account_save_journal_cleanups_v1(binding, token) (Sam, #1906 review: "the actual restarted runner still has to
 --     prove it can find that account after deletion"): a restarted process has lost the deleted account's id with its memory, but
 --     its run binding (the GitHub run it belongs to) is in its environment and in every claim it made. For exactly that non-null
---     binding, each claim made with it whose account is GONE gets the fresh secret and its id is returned, so the run can finish
---     it. Another run's binding (including another attempt of the same run) finds nothing and changes nothing; an unbound
---     (local) run cannot ask.
---   * list_unfinished_account_save_journal_cleanup_runs_v1(min_age_seconds): the run bindings (never account ids) of claims whose
---     account is gone and that are older than the floor, so the governed interrupted-run recovery can find a run that died before
---     finishing; it finishes a terminated run only through the function above, presenting that run's binding.
+--     binding, each claim made with it whose account is GONE gets the fresh secret, and the answer is ONE value with every such
+--     id and their count (Sam, #1906 review: a row set can be clipped by the gateway, re-keying a claim the caller never sees).
+--     More than 100 claims for one binding is refused before anything changes. Another run's binding (including another
+--     attempt of the same run) finds nothing and changes nothing; an unbound (local) run cannot ask.
+--   * list_unfinished_account_save_journal_cleanup_runs_v1(min_age_seconds): the COMPLETE inventory of open claims as one value
+--     (Sam, #1906 review: the recovery must prove the list is complete or hold): how many claims exist, how many still have a
+--     live account, how many are unbound with the account gone, and for each run binding (never an account id) with claims on
+--     deleted accounts, how many it has and how many of those are younger than the floor. The counts come from one snapshot and
+--     add up; more than 200 runs is refused. The governed interrupted-run recovery finishes a terminated run only through the
+--     function above, presenting that run's binding, and holds on everything else.
 --   * count_account_save_journal_v1(uid): read-only count of that account's rows, for an independent readback.
 -- No table access is granted to any client role.
 
@@ -90,27 +94,50 @@ BEGIN
 END $$;
 
 CREATE FUNCTION public.resume_run_account_save_journal_cleanups_v1(p_run_binding jsonb, p_token text)
-RETURNS SETOF uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE v_presented jsonb := nullif(p_run_binding,'null'::jsonb); v_user uuid;
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+DECLARE v_presented jsonb := nullif(p_run_binding,'null'::jsonb); v_user uuid; v_candidates uuid[]; v_ids uuid[] := '{}'::uuid[];
 BEGIN
   IF v_presented IS NULL OR jsonb_typeof(v_presented) <> 'object' THEN RAISE EXCEPTION 'run binding required' USING ERRCODE='22004'; END IF;
   IF p_token IS NULL OR p_token !~ '^[0-9a-f]{64}$' THEN RAISE EXCEPTION 'cleanup secret required' USING ERRCODE='22023'; END IF;
-  FOR v_user IN SELECT c.user_id FROM public.account_save_journal_cleanup_claims c WHERE c.run_binding = v_presented ORDER BY c.user_id LOOP
+  SELECT coalesce(array_agg(c.user_id ORDER BY c.user_id), '{}'::uuid[]) INTO v_candidates
+  FROM public.account_save_journal_cleanup_claims c WHERE c.run_binding = v_presented;
+  -- Bounded BEFORE anything changes (Sam, #1906 review: no claim may be re-keyed that the caller does not see): above the bound the
+  -- call refuses and re-keys nothing.
+  IF cardinality(v_candidates) > 100 THEN RAISE EXCEPTION 'too many cleanup claims for one run' USING ERRCODE='54000'; END IF;
+  FOREACH v_user IN ARRAY v_candidates LOOP
     -- Same per-account lock as every other step, taken in id order; then re-checked under it.
     PERFORM pg_advisory_xact_lock(hashtextextended('account-billing:'||v_user::text,0));
-    UPDATE public.account_save_journal_cleanup_claims c SET token_sha256=sha256(convert_to(p_token,'UTF8')), claimed_at=clock_timestamp()
+    -- Only the secret changes (never claimed_at): an answer the caller rejects leaves the claim exactly as old as it was, still this
+    -- run's, for its next sweep or the governed recovery.
+    UPDATE public.account_save_journal_cleanup_claims c SET token_sha256=sha256(convert_to(p_token,'UTF8'))
     WHERE c.user_id=v_user AND c.run_binding = v_presented AND NOT EXISTS(SELECT 1 FROM auth.users u WHERE u.id=v_user);
-    IF FOUND THEN RETURN NEXT v_user; END IF;
+    IF FOUND THEN v_ids := v_ids || v_user; END IF;
   END LOOP;
+  -- One value (never a row set a gateway can clip): every re-keyed id, and how many there are, so the caller can prove it saw all.
+  RETURN jsonb_build_object('count', cardinality(v_ids), 'ids', to_jsonb(v_ids));
 END $$;
 
 CREATE FUNCTION public.list_unfinished_account_save_journal_cleanup_runs_v1(p_min_age_seconds integer)
-RETURNS SETOF jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+DECLARE v_cutoff timestamptz; v_claims integer; v_live integer; v_unbound integer; v_run_count integer; v_runs jsonb;
 BEGIN
   IF p_min_age_seconds IS NULL OR p_min_age_seconds < 0 THEN RAISE EXCEPTION 'minimum age required' USING ERRCODE='22023'; END IF;
-  RETURN QUERY SELECT DISTINCT c.run_binding FROM public.account_save_journal_cleanup_claims c
-  WHERE c.run_binding IS NOT NULL AND c.claimed_at <= clock_timestamp() - make_interval(secs => p_min_age_seconds)
-    AND NOT EXISTS(SELECT 1 FROM auth.users u WHERE u.id=c.user_id);
+  v_cutoff := clock_timestamp() - make_interval(secs => p_min_age_seconds);
+  -- One statement, so every count comes from the same snapshot and they add up: claims = live + unbound + the sum over runs.
+  WITH c AS (
+    SELECT k.run_binding, k.claimed_at, EXISTS(SELECT 1 FROM auth.users u WHERE u.id=k.user_id) AS live
+    FROM public.account_save_journal_cleanup_claims k
+  ), r AS (
+    SELECT c.run_binding, count(*)::integer AS claims, (count(*) FILTER (WHERE c.claimed_at > v_cutoff))::integer AS recent
+    FROM c WHERE NOT c.live AND c.run_binding IS NOT NULL GROUP BY c.run_binding
+  )
+  SELECT (SELECT count(*) FROM c)::integer, (SELECT count(*) FROM c WHERE c.live)::integer,
+         (SELECT count(*) FROM c WHERE NOT c.live AND c.run_binding IS NULL)::integer, (SELECT count(*) FROM r)::integer,
+         (SELECT coalesce(jsonb_agg(jsonb_build_object('binding', r.run_binding, 'claims', r.claims, 'recent', r.recent)
+            ORDER BY r.run_binding), '[]'::jsonb) FROM r)
+  INTO v_claims, v_live, v_unbound, v_run_count, v_runs;
+  IF v_run_count > 200 THEN RAISE EXCEPTION 'too many unfinished cleanup runs to list' USING ERRCODE='54000'; END IF;
+  RETURN jsonb_build_object('claims', v_claims, 'live', v_live, 'unbound', v_unbound, 'runs', v_runs);
 END $$;
 
 CREATE FUNCTION public.delete_deleted_account_save_journal_v1(p_user_id uuid, p_token text)

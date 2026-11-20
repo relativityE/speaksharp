@@ -491,10 +491,12 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * RESTART WITH NO ACCOUNT ID (Sam, #1906 review: "the actual restarted runner still has to prove it can find that account after
  * deletion"). A process that died after an Auth deletion took the account's id and the claim secret with it; a fresh process of
  * the SAME run has only its run binding. The database finds every claim made with exactly `binding` whose account is gone, gives
- * them a fresh secret and returns their ids; each is then finished like the first attempt: every uid-keyed residue readback, the
- * journal delete with the new secret, and the independent readback. (The trial entitlement, keyed by address, was removed before
- * the Auth deletion; the address is not known here.) Another run's binding finds nothing. Returns how many were finished.
- * Fail-closed: a missing rpc, any error, a malformed answer or any non-zero residue throws. Counts only in the log.
+ * them a fresh secret and returns ONE value with their ids and count; each is then finished like the first attempt: every
+ * uid-keyed residue readback, the journal delete with the new secret, and the independent readback. (The trial entitlement,
+ * keyed by address, was removed before the Auth deletion; the address is not known here.) Another run's binding finds nothing.
+ * Returns how many were finished. Fail-closed: a missing rpc, any error (including more than 100 claims for one run, refused by
+ * the database before it re-keys anything), an answer that is malformed or does not prove it lists every re-keyed id (count,
+ * distinct ids) or any non-zero residue throws, and an incomplete answer deletes nothing. Counts only in the log.
  */
 export async function finishRunSaveJournalCleanups(admin: Pick<AdminClient, 'rpc' | 'from'>,
     binding: RunBinding | Readonly<{ [key: string]: string }>): Promise<number> {
@@ -502,15 +504,96 @@ export async function finishRunSaveJournalCleanups(admin: Pick<AdminClient, 'rpc
     const secret = newSaveJournalSecret();
     const { data, error } = await admin.rpc(SAVE_JOURNAL_RUN_RESUME_FN, { p_run_binding: { ...binding }, p_token: secret });
     if (error) throw new Error(`cleanup ${SAVE_JOURNAL_TABLE} sweep failed (fail closed): ${error.code ?? 'unknown'}`);
-    if (!Array.isArray(data) || data.some((id) => typeof id !== 'string' || !UUID_RE.test(id))) {
-        throw new Error(`cleanup ${SAVE_JOURNAL_TABLE} sweep failed (fail closed): malformed`);
-    }
-    for (const uid of data as string[]) {
+    const ids = runResumeIds(data);
+    // Sam, #1906 review: an answer that does not prove it carries EVERY re-keyed id deletes nothing (the claims stay with this
+    // run's binding; the next sweep of this run re-keys and finishes them).
+    if (!ids) throw new Error(`cleanup ${SAVE_JOURNAL_TABLE} sweep failed (fail closed): malformed`);
+    for (const uid of ids) {
         await proveUidResidueZero(admin, uid);
         await clearDeletedAccountSaveJournal(admin, uid, secret);
     }
-    console.log(`RUN_SAVE_JOURNAL_SWEEP finished=${data.length}`);
-    return data.length;
+    console.log(`RUN_SAVE_JOURNAL_SWEEP finished=${ids.length}`);
+    return ids.length;
+}
+
+/**
+ * Whether a sweep failed because its answer could not be proven complete (more than the database's bound for one run, or an
+ * answer that does not prove it carries every re-keyed id), not because a step failed. Nothing was deleted in either case.
+ */
+export function saveJournalSweepIncomplete(error: unknown): boolean {
+    return error instanceof Error && /^cleanup account_save_obligations sweep failed \(fail closed\): (malformed|54000)$/.test(error.message);
+}
+
+/** The resume-by-run answer `{count, ids}`, accepted only when it is complete: distinct UUIDs, exactly `count` of them. */
+function runResumeIds(data: unknown): string[] | null {
+    if (!isPlainObject(data) || Object.keys(data).length !== 2 || !Number.isSafeInteger(data.count) || (data.count as number) < 0
+        || !Array.isArray(data.ids) || data.ids.length !== data.count) return null;
+    const ids = data.ids as unknown[];
+    if (ids.some((id) => typeof id !== 'string' || !UUID_RE.test(id)) || new Set(ids).size !== ids.length) return null;
+    return ids as string[];
+}
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+    return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+/** One run's open claims on deleted accounts, from the inventory: its binding (as stored), how many, and how many are recent. */
+export interface SaveJournalRunEntry { binding: Record<string, unknown>; claims: number; recent: number }
+/** The complete inventory of open save-journal claims (counts only; never an account id). */
+export interface SaveJournalInventory { claims: number; live: number; unbound: number; runs: SaveJournalRunEntry[] }
+export type SaveJournalInventoryRead =
+    | { status: 'ok'; inventory: SaveJournalInventory }
+    | { status: 'absent' }        // a database without the migration: no claim can exist
+    | { status: 'incomplete' }    // the database refused to list them all (too many) or the answer does not prove completeness
+    | { status: 'error' };        // any other error
+
+const canonicalJson = (v: unknown): string => (isPlainObject(v)
+    ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canonicalJson(v[k])}`).join(',')}}`
+    : JSON.stringify(v));
+
+/**
+ * The inventory answer, accepted only when it proves it is complete (Sam, #1906 review: "prove complete inventory or return
+ * HOLD"): non-negative integer counts that add up (claims = live + unbound + the sum over runs), each run listed once with an
+ * object binding, at least one claim and no more recent claims than claims. Anything else is `null`.
+ */
+export function parseSaveJournalInventory(data: unknown): SaveJournalInventory | null {
+    if (!isPlainObject(data) || Object.keys(data).length !== 4 || !Array.isArray(data.runs)) return null;
+    const count = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 0;
+    const { claims, live, unbound } = data;
+    if (!count(claims) || !count(live) || !count(unbound)) return null;
+    const runs: SaveJournalRunEntry[] = [];
+    const seen = new Set<string>();
+    for (const r of data.runs as unknown[]) {
+        if (!isPlainObject(r) || Object.keys(r).length !== 3 || !isPlainObject(r.binding) || !count(r.claims) || r.claims < 1
+            || !count(r.recent) || r.recent > r.claims) return null;
+        const key = canonicalJson(r.binding);
+        if (seen.has(key)) return null;
+        seen.add(key);
+        runs.push({ binding: r.binding, claims: r.claims, recent: r.recent });
+    }
+    if (live + unbound + runs.reduce((n, r) => n + r.claims, 0) !== claims) return null;
+    return { claims, live, unbound, runs };
+}
+
+/**
+ * Read the complete inventory of open save-journal claims (bindings and counts only). `minAgeSeconds` splits each run's claims
+ * into recent and older. Never throws: a database without the migration is `absent`; a refusal to list them all (54000), a
+ * malformed answer or one that does not add up is `incomplete`; any other failure is `error`.
+ */
+export async function readSaveJournalInventory(admin: Pick<AdminClient, 'rpc'>, minAgeSeconds: number): Promise<SaveJournalInventoryRead> {
+    if (typeof admin.rpc !== 'function') return { status: 'error' };
+    let answer: { data: unknown; error: { code?: string } | null };
+    try {
+        answer = await admin.rpc(SAVE_JOURNAL_RUNS_FN, { p_min_age_seconds: minAgeSeconds }) as typeof answer;
+    } catch {
+        return { status: 'error' };
+    }
+    if (answer?.error) {
+        if (answer.error.code === 'PGRST202') return { status: 'absent' };
+        return { status: answer.error.code === '54000' ? 'incomplete' : 'error' };
+    }
+    const inventory = parseSaveJournalInventory(answer?.data);
+    return inventory ? { status: 'ok', inventory } : { status: 'incomplete' };
 }
 
 /**

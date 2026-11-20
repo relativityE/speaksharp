@@ -178,10 +178,11 @@ describe('#1906 save-journal cleanup: exact bytes in installed order on the prod
     await db.exec(`INSERT INTO public.account_save_obligations(user_id,lease_id,phase) VALUES('${lost}',gen_random_uuid(),'completed')`);
     await svc(`SELECT public.claim_account_save_journal_cleanup_v1('${lost}','${JSON.stringify(run('44000000003'))}'::jsonb,'${s4}')`);
     await db.exec(`DELETE FROM auth.users WHERE id='${lost}'`);
-    const byRun = (runId: string) => svc(`SELECT u::text AS id FROM public.resume_run_account_save_journal_cleanups_v1('${JSON.stringify(run(runId))}'::jsonb,'${s5}') u`);
-    assert.deepEqual(await byRun('44000000004'), []);
-    assert.deepEqual((await svc(`SELECT r::text AS b FROM public.list_unfinished_account_save_journal_cleanup_runs_v1(0) r`)).length, 1);
-    assert.deepEqual(await byRun('44000000003'), [{ id: lost }]);
+    const byRun = async (runId: string) => JSON.parse(String((await svc(`SELECT public.resume_run_account_save_journal_cleanups_v1('${JSON.stringify(run(runId))}'::jsonb,'${s5}')::text AS r`))[0].r));
+    assert.deepEqual(await byRun('44000000004'), { count: 0, ids: [] });
+    const inventory = JSON.parse(String((await svc(`SELECT public.list_unfinished_account_save_journal_cleanup_runs_v1(0)::text AS r`))[0].r));
+    assert.deepEqual(inventory, { claims: 1, live: 0, unbound: 0, runs: [{ binding: run('44000000003'), claims: 1, recent: 0 }] });
+    assert.deepEqual(await byRun('44000000003'), { count: 1, ids: [lost] });
     assert.deepEqual(await svc(`SELECT public.delete_deleted_account_save_journal_v1('${lost}','${s5}') AS n`), [{ n: 0 }]);
     assert.deepEqual(await col(`SELECT count(*)::text FROM public.account_save_journal_cleanup_claims`), ['0']);
     for (const fn of FNS) assert.equal((await col(`SELECT count(*)::text FROM pg_proc WHERE proname='${fn}'`))[0], '1');

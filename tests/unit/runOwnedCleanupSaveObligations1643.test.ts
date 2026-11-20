@@ -136,8 +136,8 @@ function account(o: { sessions?: Session[]; heldLeases?: Lease[]; releasedLeases
             // The restart with NO account id (Sam, #1906): exactly the claim's non-null binding, only once the account is gone.
             if (fn === 'resume_run_account_save_journal_cleanups_v1') {
                 if (args.p_run_binding === null || typeof args.p_run_binding !== 'object') return { data: null, error: { code: '22004', message: 'run binding required' } };
-                if (!deleted || claim.secret === null || claim.binding === null || canon(args.p_run_binding) !== canon(claim.binding)) return { data: [], error: null };
-                claim.secret = String(args.p_token); return { data: [UID], error: null };
+                if (!deleted || claim.secret === null || claim.binding === null || canon(args.p_run_binding) !== canon(claim.binding)) return { data: { count: 0, ids: [] }, error: null };
+                claim.secret = String(args.p_token); return { data: { count: 1, ids: [UID] }, error: null };
             }
             if (!deleted) return { data: null, error: { code: '55000', message: 'account still exists' } };
             if (claim.secret === null || args.p_token !== claim.secret) return { data: null, error: { code: '42501', message: 'account save journal not claimed by this run' } };

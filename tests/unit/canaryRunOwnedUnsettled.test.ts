@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { canaryCleanup } from '../../scripts/lib/canaryCleanupAdapter';
 import { BINDING_KEY } from '../../scripts/lib/canaryRunOwnedSweep.mjs';
 import { cleanupLane, sweepLane } from '../../scripts/lib/canaryRunOwnedLane.mjs';
+import { readSaveJournalInventory } from '../live/helpers/runOwnedCleanup';
 
 const ENV = {
     GITHUB_ACTIONS: 'true', GITHUB_REPOSITORY: 'relativityE/speaksharp', GITHUB_RUN_ID: '43000000007', GITHUB_RUN_ATTEMPT: '1',
@@ -19,6 +20,7 @@ const ENV = {
 const H = 3600_000;
 /** #1906: the restart-after-deletion finish (its own tests are in the save-journal suites); none left over here. */
 const FINISH = async () => 0;
+const READ = (a: unknown, s: number) => readSaveJournalInventory(a as never, s);
 const UID = '00000000-0000-4000-8000-0000000000c1';
 const L1 = '10000000-0000-4000-8000-0000000000c1';
 const S1 = '20000000-0000-4000-8000-0000000000c1';
@@ -72,7 +74,7 @@ function canaryAccount(runId: string, o: { sessions?: Session[]; heldLeases?: st
         // #1643 save journal: the migration's service_role-only functions (20261119200000), modelled exactly.
         rpc: vi.fn(async (fn: string, args: Record<string, unknown> = {}) => {
             // #1906: no run here has an unfinished claim on a deleted account.
-            if (fn === 'list_unfinished_account_save_journal_cleanup_runs_v1') return { data: [], error: null };
+            if (fn === 'list_unfinished_account_save_journal_cleanup_runs_v1') return { data: { claims: 0, live: 0, unbound: 0, runs: [] }, error: null };
             if (fn === 'count_account_save_journal_v1') return { data: obligations.size, error: null };
             if (fn === 'claim_account_save_journal_cleanup_v1') {
                 // The claim must carry this account's own canary binding (the guard puts it there), not the helper's null.
@@ -142,7 +144,7 @@ describe('#1826 canary cleanup preserves interrupted and uncertain accounts (Sam
     it('sweep: an unsettled orphan of a finished run is preserved and reported with its identity, never counted as removed', async () => {
         const admin = canaryAccount('43000000001', { heldLeases: [L1] });
         const finished = async () => ({ status: 'completed', run_attempt: 1, updated_at: iso(Date.now() - 2 * H) });
-        const r = await sweepLane({ finishSaveJournal: FINISH, admin, env: process.env, getRun: finished, cleanup: canaryCleanup });
+        const r = await sweepLane({ readSaveJournal: READ, finishSaveJournal: FINISH, admin, env: process.env, getRun: finished, cleanup: canaryCleanup });
         expect(r).toMatchObject({ ok: false, code: 'sweep-failed', report: { swept: 0, failures: { unsettled_take: 1 }, saveJournal: { runs: 0, failed: 0 } } });
         expect(r.preserved).toEqual([{ step: 'unsettled_take', runId: '43000000001', runAttempt: '1', accountPattern: 'ctrial-run-43000000001-1-*' }]);
         expect(admin.state).toMatchObject({ deleted: false, deleteCalls: 0, preDeletes: 0 });

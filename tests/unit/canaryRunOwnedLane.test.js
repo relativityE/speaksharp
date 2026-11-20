@@ -2,15 +2,27 @@
 /** #1826 controls: the canary run-owned lane orchestration (setup / cleanup / sweep) with injected admin, GitHub and cleanup. */
 import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { __resetCreateGuardForTests, currentCanaryBinding } from '../../scripts/lib/canaryRunOwnedAccount.mjs';
-import { MAX_PAGES, PER_PAGE, SAVE_JOURNAL_RUNS_FN, bindFailureAdmin, cleanupLane, describeSweep, domainFrom, listRunOwnedAccounts, makeGetRun, setupLane, sweepLane } from '../../scripts/lib/canaryRunOwnedLane.mjs';
+import { MAX_PAGES, PER_PAGE, bindFailureAdmin, cleanupLane, describeSweep, domainFrom, listRunOwnedAccounts, makeGetRun, setupLane, sweepLane } from '../../scripts/lib/canaryRunOwnedLane.mjs';
 
 const WF = 'relativityE/speaksharp/.github/workflows/canary.yml@refs/heads/main';
 const ENV = { GITHUB_ACTIONS: 'true', GITHUB_REPOSITORY: 'relativityE/speaksharp', GITHUB_RUN_ID: '43000000002', GITHUB_RUN_ATTEMPT: '1',
     GITHUB_WORKFLOW_REF: WF, CANARY_TRIAL_EMAIL: 'trial-identity@Example.Test' };
 const NOW = Date.parse('2026-11-12T12:00:00Z');
 const H = 3600_000;
+import { readSaveJournalInventory } from '../../tests/live/helpers/runOwnedCleanup';
+
 /** #1906: the restart-after-deletion finish (its own tests are in the save-journal suites); none left over here. */
 const FINISH = async () => 0;
+/** #1906: the shared inventory reader (it parses what the admin double's rpc answers). */
+const READ = (a, s) => readSaveJournalInventory(a, s);
+const SAVE_JOURNAL_RUNS_FN = 'list_unfinished_account_save_journal_cleanup_runs_v1';
+const EMPTY_INVENTORY = { data: { claims: 0, live: 0, unbound: 0, runs: [] }, error: null };
+/** An inventory of claims on deleted accounts, one entry per binding (recent claims as given). */
+const inventory = (entries, extra = {}) => {
+    const runs = entries.map(([binding, claims = 1, recent = 0]) => ({ binding, claims, recent }));
+    const live = extra.live ?? 0; const unbound = extra.unbound ?? 0;
+    return { data: { claims: live + unbound + runs.reduce((n, r) => n + r.claims, 0), live, unbound, runs }, error: null };
+};
 const bind = (runId, runAttempt = '1', over = {}) => ({ canary_run: { repository: 'relativityE/speaksharp', workflow: WF, runId, runAttempt, role: 'canary-active-trial', ...over } });
 const user = (id, email, meta, ageH = 5) => ({ id, email, app_metadata: meta, created_at: new Date(NOW - ageH * H).toISOString() });
 const MINE = user('m1', 'ctrial-run-43000000002-1-aaaa1111@example.test', bind('43000000002'));
@@ -28,7 +40,7 @@ const admin = (users, o = {}) => ({
         deleteUser: vi.fn(async () => ({ error: null })),
     } },
     // #1906: the listing of runs with an unfinished save-journal claim (none unless the test says so).
-    rpc: vi.fn(async (fn) => (fn === SAVE_JOURNAL_RUNS_FN ? (o.journal ?? { data: [], error: null }) : { data: null, error: { code: '42883', message: 'x' } })),
+    rpc: vi.fn(async (fn) => (fn === SAVE_JOURNAL_RUNS_FN ? (o.journal ?? EMPTY_INVENTORY) : { data: null, error: { code: '42883', message: 'x' } })),
 });
 beforeEach(() => __resetCreateGuardForTests());
 
@@ -146,13 +158,13 @@ describe('sweepLane — hygiene failures vs warnings', () => {
     it('sweeps a proven orphan of a finished run through the shared cleanup, with the attempt-aware run read', async () => {
         const cleanup = vi.fn(async () => {});
         const getRun = vi.fn(finished);
-        const r = await sweepLane({ finishSaveJournal: FINISH, admin: admin([orphan]), env: ENV, getRun, cleanup, now: NOW });
+        const r = await sweepLane({ readSaveJournal: READ, finishSaveJournal: FINISH, admin: admin([orphan]), env: ENV, getRun, cleanup, now: NOW });
         expect(r).toMatchObject({ ok: true, code: 'sweep-ok', report: { swept: 1 } });
         expect(cleanup.mock.calls).toEqual([[expect.objectContaining({ uid: 'p1', email: orphan.email })]]);
         expect(getRun).toHaveBeenCalledWith('43000000001', '1');
     });
     it('an unproven orphan deletion FAILS the hygiene step', async () => {
-        const r = await sweepLane({ finishSaveJournal: FINISH, admin: admin([orphan]), env: ENV, getRun: finished, cleanup: async () => { throw new Error('x'); }, now: NOW });
+        const r = await sweepLane({ readSaveJournal: READ, finishSaveJournal: FINISH, admin: admin([orphan]), env: ENV, getRun: finished, cleanup: async () => { throw new Error('x'); }, now: NOW });
         expect(r).toMatchObject({ ok: false, code: 'sweep-failed', report: { failures: { 'cleanup-unproven': 1 } } });
     });
     it('accounts it must leave (run still going, foreign ref, own run) are warnings, not failures, and are never deleted', async () => {
@@ -161,17 +173,17 @@ describe('sweepLane — hygiene failures vs warnings', () => {
         const own = user('p4', 'ctrial-run-43000000002-1-3333cccc@example.test', bind('43000000002'));
         const cleanup = vi.fn();
         const getRun = async (id) => (id === '43000000004' ? { status: 'in_progress', run_attempt: 1, updated_at: '' } : finished());
-        const r = await sweepLane({ finishSaveJournal: FINISH, admin: admin([running, foreign, own]), env: ENV, getRun, cleanup, now: NOW });
+        const r = await sweepLane({ readSaveJournal: READ, finishSaveJournal: FINISH, admin: admin([running, foreign, own]), env: ENV, getRun, cleanup, now: NOW });
         expect(r.ok).toBe(true);
         expect(r.report.left).toEqual({ 'run-not-completed': 1, 'malformed-or-foreign-binding': 1, 'own-current-run': 1 });
         expect(cleanup).not.toHaveBeenCalled();
     });
     it('a failed listing fails the hygiene step', async () => {
-        const r = await sweepLane({ finishSaveJournal: FINISH, admin: admin([orphan], { listError: true }), env: ENV, getRun: finished, cleanup: vi.fn(), now: NOW });
+        const r = await sweepLane({ readSaveJournal: READ, finishSaveJournal: FINISH, admin: admin([orphan], { listError: true }), env: ENV, getRun: finished, cleanup: vi.fn(), now: NOW });
         expect(r).toMatchObject({ ok: false, code: 'sweep-failed' });
     });
     it('the summary line is content-free', async () => {
-        const r = await sweepLane({ finishSaveJournal: FINISH, admin: admin([orphan]), env: ENV, getRun: finished, cleanup: async () => {}, now: NOW });
+        const r = await sweepLane({ readSaveJournal: READ, finishSaveJournal: FINISH, admin: admin([orphan]), env: ENV, getRun: finished, cleanup: async () => {}, now: NOW });
         const line = describeSweep(r.report);
         expect(line).toBe('sweep: swept=1 left(none) failures(none) cap=false save_journal(runs=0,finished=0,left=0,failed=0)');
         expect(line).not.toMatch(/@|ctrial-run-\d|p1/);
@@ -208,29 +220,57 @@ describe('#1906 restart after deletion: canary save-journal claims (Codex on 62b
             const a = admin([MINE]);
             expect(await cleanupLane({ finishSaveJournal, admin: a, env: ENV, cleanup: vi.fn() })).toEqual({ ok: false, code: 'no-save-journal-finish', deleted: 0 });
             expect(a.auth.admin.listUsers).not.toHaveBeenCalled();
-            expect(await sweepLane({ finishSaveJournal, admin: a, env: ENV, getRun, cleanup: vi.fn(), now: NOW })).toMatchObject({ ok: false, code: 'no-save-journal-finish' });
+            expect(await sweepLane({ readSaveJournal: READ, finishSaveJournal, admin: a, env: ENV, getRun, cleanup: vi.fn(), now: NOW })).toMatchObject({ ok: false, code: 'no-save-journal-finish' });
         }
     });
     it('sweepLane finishes only canary runs of this repo/workflow whose exact attempt finished long enough ago; never the current run', async () => {
-        const listed = [claimOf('43000000010'), claimOf('43000000011'), claimOf('43000000012'), claimOf('43000000013'), claimOf('43000000002'),
-            rwt, claimOf('43000000010', '1', { workflow: 'other/repo/.github/workflows/canary.yml@refs/heads/main' }), null, 'x'];
+        const listed = inventory([[claimOf('43000000010')], [claimOf('43000000011')], [claimOf('43000000012')], [claimOf('43000000013')],
+            [claimOf('43000000002')], [rwt], [claimOf('43000000010', '1', { workflow: 'other/repo/.github/workflows/canary.yml@refs/heads/main' })]], { live: 1, unbound: 1 });
         const finish = vi.fn(async () => 2);
-        const r = await sweepLane({ finishSaveJournal: finish, admin: admin([], { journal: { data: listed, error: null } }), env: ENV, getRun, cleanup: vi.fn(), now: NOW });
+        const r = await sweepLane({ readSaveJournal: READ, finishSaveJournal: finish, admin: admin([], { journal: listed }), env: ENV, getRun, cleanup: vi.fn(), now: NOW });
         expect(r.ok).toBe(true);
         expect(r.report.saveJournal).toEqual({ runs: 5, finished: 2, left: 4, failed: 0 });
         expect(finish.mock.calls.map((c) => c[1])).toEqual([claimOf('43000000010')]);
         expect(describeSweep(r.report)).toMatch(/ save_journal\(runs=5,finished=2,left=4,failed=0\)$/);
+        const a = admin([], { journal: listed });
+        await sweepLane({ readSaveJournal: READ, finishSaveJournal: finish, admin: a, env: ENV, getRun, cleanup: vi.fn(), now: NOW });
+        expect(a.rpc.mock.calls.find(([fn]) => fn === SAVE_JOURNAL_RUNS_FN)?.[1]).toEqual({ p_min_age_seconds: 2 * 3600 });
     });
-    it('sweepLane fails on a failed finish, a listing error or a malformed listing; a database without the function lists nothing', async () => {
-        const one = { data: [claimOf('43000000010')], error: null };
-        const fails = await sweepLane({ finishSaveJournal: async () => { throw new Error('x'); }, admin: admin([], { journal: one }), env: ENV, getRun, cleanup: vi.fn(), now: NOW });
+    it('sweepLane leaves a finished run that still has a RECENT claim (Sam, #1906 review: it may still be finishing it)', async () => {
+        const finish = vi.fn(async () => 1);
+        const r = await sweepLane({ readSaveJournal: READ, finishSaveJournal: finish, admin: admin([], { journal: inventory([[claimOf('43000000010'), 2, 1]]) }),
+            env: ENV, getRun, cleanup: vi.fn(), now: NOW });
+        expect(r).toMatchObject({ ok: true, report: { saveJournal: { runs: 1, finished: 0, left: 1, failed: 0 } } });
+        expect(finish).not.toHaveBeenCalled();
+    });
+    it('sweepLane fails on a failed finish, a listing error, a refused (too many) or unprovable inventory; a database without the function lists nothing', async () => {
+        const one = inventory([[claimOf('43000000010')]]);
+        const fails = await sweepLane({ readSaveJournal: READ, finishSaveJournal: async () => { throw new Error('x'); }, admin: admin([], { journal: one }), env: ENV, getRun, cleanup: vi.fn(), now: NOW });
         expect(fails).toMatchObject({ ok: false, code: 'sweep-failed', report: { saveJournal: { runs: 1, finished: 0, failed: 1 } } });
-        for (const journal of [{ data: null, error: { code: '42501', message: 'x' } }, { data: null, error: null }, { data: 3, error: null }]) {
-            const r = await sweepLane({ finishSaveJournal: vi.fn(), admin: admin([], { journal }), env: ENV, getRun, cleanup: vi.fn(), now: NOW });
+        const sum = one.data;
+        for (const journal of [{ data: null, error: { code: '42501', message: 'x' } }, { data: null, error: { code: '54000', message: 'x' } }, { data: null, error: null },
+            { data: 3, error: null }, { data: [claimOf('43000000010')], error: null },                       // the old row-set shape
+            { data: { ...sum, claims: sum.claims + 1 }, error: null },                                          // a claim not accounted for
+            { data: { ...sum, runs: [] }, error: null },                                                        // a clipped run list
+            { data: { ...sum, runs: [{ ...sum.runs[0], binding: null }] }, error: null },                       // a malformed binding
+            { data: { ...sum, runs: [{ ...sum.runs[0], recent: 2 }] }, error: null }]) {
+            const finish = vi.fn();
+            const r = await sweepLane({ readSaveJournal: READ, finishSaveJournal: finish, admin: admin([], { journal }), env: ENV, getRun, cleanup: vi.fn(), now: NOW });
             expect(r).toMatchObject({ ok: false, code: 'sweep-failed', report: { saveJournal: { failed: 1 } } });
+            expect(finish).not.toHaveBeenCalled();
         }
-        const absent = await sweepLane({ finishSaveJournal: vi.fn(), admin: admin([], { journal: { data: null, error: { code: 'PGRST202', message: 'x' } } }), env: ENV, getRun, cleanup: vi.fn(), now: NOW });
+        const throws = await sweepLane({ readSaveJournal: async () => { throw new Error('x'); }, finishSaveJournal: vi.fn(), admin: admin([]), env: ENV, getRun, cleanup: vi.fn(), now: NOW });
+        expect(throws).toMatchObject({ ok: false, report: { saveJournal: { failed: 1 } } });
+        const absent = await sweepLane({ readSaveJournal: READ, finishSaveJournal: vi.fn(), admin: admin([], { journal: { data: null, error: { code: 'PGRST202', message: 'x' } } }), env: ENV, getRun, cleanup: vi.fn(), now: NOW });
         expect(absent).toMatchObject({ ok: true, report: { saveJournal: { runs: 0, failed: 0 } } });
+    });
+    it('sweepLane refuses to run without the inventory reader', async () => {
+        for (const readSaveJournal of [undefined, null, {}]) {
+            const a = admin([MINE]);
+            expect(await sweepLane({ readSaveJournal, finishSaveJournal: FINISH, admin: a, env: ENV, getRun, cleanup: vi.fn(), now: NOW }))
+                .toMatchObject({ ok: false, code: 'no-save-journal-read', report: null });
+            expect(a.auth.admin.listUsers).not.toHaveBeenCalled();
+        }
     });
     it('bindFailureAdmin changes only this account\'s unbound claim: this run\'s binding when the account carries it, unbound otherwise', async () => {
         const binding = currentCanaryBinding(ENV);

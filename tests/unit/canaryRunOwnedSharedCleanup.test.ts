@@ -8,7 +8,7 @@
  *  - a bind failure goes through the shared cleanup (trial_entitlements pre-delete + residue proof), never a bare deleteUser.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanupRunOwnedAccount } from '../live/helpers/runOwnedCleanup';
+import { cleanupRunOwnedAccount, readSaveJournalInventory } from '../live/helpers/runOwnedCleanup';
 import { __resetCreateGuardForTests, createRunOwnedTrialAccount, currentCanaryBinding } from '../../scripts/lib/canaryRunOwnedAccount.mjs';
 import { BINDING_KEY, RUN_OWNED_PREFIX } from '../../scripts/lib/canaryRunOwnedSweep.mjs';
 import { cleanupLane, guardAdminForBinding, setupLane, sweepLane } from '../../scripts/lib/canaryRunOwnedLane.mjs';
@@ -20,6 +20,7 @@ const ACTIONS_ENV = {
 const H = 3600_000;
 /** #1906: the restart-after-deletion finish (its own tests are in the save-journal suites); none left over here. */
 const FINISH = async () => 0;
+const READ = (a: unknown, s: number) => readSaveJournalInventory(a as never, s);
 
 /** jsonb equality: key order does not matter. */
 const canon = (v: unknown): string => (v && typeof v === 'object' ? JSON.stringify(Object.fromEntries(Object.entries(v).sort(([x], [y]) => x.localeCompare(y)))) : JSON.stringify(v));
@@ -61,7 +62,7 @@ function fakeAdmin(o: { dropBinding?: boolean; onRead?: (n: number, u: User) => 
         // The claim is checked like the database does: the account must exist and carry exactly the presented binding.
         rpc: vi.fn(async (fn: string, args: Record<string, unknown> = {}) => {
             // #1906: no run here has an unfinished claim on a deleted account.
-            if (fn === 'list_unfinished_account_save_journal_cleanup_runs_v1') return { data: [], error: null };
+            if (fn === 'list_unfinished_account_save_journal_cleanup_runs_v1') return { data: { claims: 0, live: 0, unbound: 0, runs: [] }, error: null };
             const uid = String(args.p_user_id);
             if (fn === 'claim_account_save_journal_cleanup_v1') {
                 const u = users.get(uid);
@@ -135,7 +136,7 @@ describe('canary lane × REAL shared runOwnedCleanup (#1826)', () => {
         // Read 1 = the sweep's own re-check, read 2 = the shared cleanup's identity read; from read 3 the binding is foreign.
         const admin = fakeAdmin({ onRead: (n, u) => { if (n >= 3) u.app_metadata = { [BINDING_KEY]: { ...(u.app_metadata[BINDING_KEY] as object), workflow: 'evil/repo/.github/workflows/x.yml@refs/heads/main' } }; } });
         admin.users.set('p1', orphan);
-        const r = await sweepLane({ finishSaveJournal: FINISH, admin, env: process.env, getRun: finished, cleanup: sharedCleanup });
+        const r = await sweepLane({ readSaveJournal: READ, finishSaveJournal: FINISH, admin, env: process.env, getRun: finished, cleanup: sharedCleanup });
         expect(r).toMatchObject({ ok: false, code: 'sweep-failed', report: { swept: 0, failures: { 'cleanup-unproven': 1 } } });
         expect(admin.destructive).toEqual([]);
         expect(admin.users.has('p1')).toBe(true);
@@ -152,7 +153,7 @@ describe('canary lane × REAL shared runOwnedCleanup (#1826)', () => {
     it('the sweep deletes an unchanged proven orphan through the guard with the full shared proof', async () => {
         const admin = fakeAdmin();
         admin.users.set('p2', canaryUser('p2', '43000000001'));
-        expect(await sweepLane({ finishSaveJournal: FINISH, admin, env: process.env, getRun: finished, cleanup: sharedCleanup })).toMatchObject({ ok: true, report: { swept: 1 } });
+        expect(await sweepLane({ readSaveJournal: READ, finishSaveJournal: FINISH, admin, env: process.env, getRun: finished, cleanup: sharedCleanup })).toMatchObject({ ok: true, report: { swept: 1 } });
         expect(admin.destructive).toEqual(['trial_entitlements', 'auth.users', 'account_save_obligations']);
     });
 
