@@ -8,10 +8,17 @@
  * Everything external is injected (admin client, fetch, the zero-residue cleanup, env, output sinks) so the
  * negative controls run offline. Output is closed codes and counts only: never an email, id, token or password.
  */
-import { ROLE, RUN_OWNED_PREFIX, parseBinding, sweep } from './canaryRunOwnedSweep.mjs';
+import { BINDING_KEY, MIN_ACCOUNT_AGE_MS, MIN_RUN_COMPLETED_MS, ROLE, RUN_OWNED_PREFIX, parseBinding, sweep } from './canaryRunOwnedSweep.mjs';
 import { createRunOwnedTrialAccount, currentCanaryBinding } from './canaryRunOwnedAccount.mjs';
 
 export const PER_PAGE = 200;
+/** #1906: the service_role-only listing of runs whose deleted accounts still hold an unfinished save-journal cleanup claim. */
+export const SAVE_JOURNAL_RUNS_FN = 'list_unfinished_account_save_journal_cleanup_runs_v1';
+
+/** A canary run's binding in the exact shape its save-journal claim stores (the account's own `canary_run`). */
+export function canaryClaimBinding(expected, runId, runAttempt) {
+    return { repository: expected.repository, workflow: expected.workflow, role: ROLE, runId, runAttempt };
+}
 export const MAX_PAGES = 50;
 
 /** Every run-owned-prefix account. Any page error, or more pages than the bound, throws (fail closed). */
@@ -87,20 +94,73 @@ export function guardAdminForBinding(admin, { uid, email, expected, runId, runAt
             if (fn === 'claim_account_save_journal_cleanup_v1') {
                 if (keys !== 'p_run_binding,p_token,p_user_id' || args.p_run_binding !== null) refuse();
                 await revalidate();
-                return admin.rpc(fn, { p_user_id: uid, p_run_binding: { repository: expected.repository, workflow: expected.workflow, role: ROLE, runId, runAttempt }, p_token: args.p_token });
+                return admin.rpc(fn, { p_user_id: uid, p_run_binding: canaryClaimBinding(expected, runId, runAttempt), p_token: args.p_token });
             }
             // The restart after Auth deletion (Sam, #1906): the account is gone, so there is nothing to revalidate; the binding is
             // THIS run's exact canary binding in place of whatever the shared helper passed (it knows nothing of canary_run), and the
             // database accepts it only if the claim was made with that binding and this address.
             if (fn === 'resume_account_save_journal_cleanup_v1') {
                 if (keys !== 'p_email,p_run_binding,p_token,p_user_id' || String(args.p_email).toLowerCase() !== String(email).toLowerCase()) refuse();
-                return admin.rpc(fn, { p_user_id: uid, p_email: args.p_email, p_run_binding: { repository: expected.repository, workflow: expected.workflow, role: ROLE, runId, runAttempt }, p_token: args.p_token });
+                return admin.rpc(fn, { p_user_id: uid, p_email: args.p_email, p_run_binding: canaryClaimBinding(expected, runId, runAttempt), p_token: args.p_token });
             }
             if (fn === 'delete_deleted_account_save_journal_v1' ? keys !== 'p_token,p_user_id'
                 : fn !== 'count_account_save_journal_v1' || keys !== 'p_user_id') refuse();
             return admin.rpc(fn, args);
         },
     };
+}
+
+/**
+ * The admin client for the BIND-FAILURE cleanup of the account THIS process just created (Codex on 62b50df). Everything passes to
+ * the plain client as before, except the save-journal claim: the shared helper knows nothing of `canary_run` and claims as an
+ * unbound account, which the database refuses for an account that does carry a binding. So the claim re-reads the account and,
+ * when it carries THIS run's exact binding (the read-back that failed was only transient), presents that binding; otherwise it
+ * stays unbound, which the database accepts only for an account with no binding at all. Only this account's claim is changed.
+ */
+export function bindFailureAdmin(admin, { uid, binding }) {
+    return {
+        auth: admin.auth,
+        from: (table) => admin.from(table),
+        rpc: async (fn, args) => {
+            if (fn !== 'claim_account_save_journal_cleanup_v1' || args?.p_user_id !== uid || args?.p_run_binding !== null) return admin.rpc(fn, args);
+            let presented = null;
+            try {
+                const { data, error } = await admin.auth.admin.getUserById(uid);
+                const b = error ? null : parseBinding(data?.user?.app_metadata, binding);
+                if (b && b.runId === binding.runId && b.runAttempt === binding.runAttempt) presented = canaryClaimBinding(binding, b.runId, b.runAttempt);
+            } catch { presented = null; }
+            return admin.rpc(fn, { ...args, p_run_binding: presented });
+        },
+    };
+}
+
+/**
+ * RESTART AFTER DELETION for canary runs (Codex on 62b50df). A canary cleanup that stopped after the Auth deletion and before its
+ * save journal was cleared leaves a claim that no Auth listing can find. The runs holding such claims are listed (bindings only,
+ * never ids), and each canary run of THIS repository/workflow is finished by its binding (`finishSaveJournal(admin, binding)`:
+ * the shared helper's resume-by-run, residue read-back, delete and zero read-back), but only when GitHub shows that exact attempt
+ * completed long enough ago, and never the current run (its own cleanup step finishes it). Other workflows' runs (RWT) are not
+ * the canary's and are left to their own recovery. Returns counts only; `failed` > 0 fails the sweep.
+ */
+export async function sweepSaveJournalRuns({ admin, getRun, expected, now, finishSaveJournal }) {
+    const out = { runs: 0, finished: 0, left: 0, failed: 0 };
+    let listed;
+    try { listed = await admin.rpc(SAVE_JOURNAL_RUNS_FN, { p_min_age_seconds: MIN_ACCOUNT_AGE_MS / 1000 }); } catch { out.failed += 1; return out; }
+    if (listed?.error) { if (listed.error.code !== 'PGRST202') out.failed += 1; return out; }
+    if (!Array.isArray(listed?.data)) { out.failed += 1; return out; }
+    for (const raw of listed.data) {
+        const b = parseBinding({ [BINDING_KEY]: raw }, expected);
+        if (!b) continue;
+        out.runs += 1;
+        if (b.runId === expected.runId) { out.left += 1; continue; }
+        let run;
+        try { run = await getRun(b.runId, b.runAttempt); } catch { run = { error: true }; }
+        const done = Date.parse(run?.updated_at ?? '');
+        if (!run || run.error || String(run.run_attempt) !== b.runAttempt || run.status !== 'completed'
+            || !Number.isFinite(done) || now - done < MIN_RUN_COMPLETED_MS) { out.left += 1; continue; }
+        try { out.finished += await finishSaveJournal(admin, canaryClaimBinding(expected, b.runId, b.runAttempt)); } catch { out.failed += 1; }
+    }
+    return out;
 }
 
 /** The account domain is the operator-owned domain of the configured trial identity (already validated upstream). */
@@ -121,7 +181,8 @@ export async function setupLane({ admin, env, mask, exportEnv, cleanup }) {
     if (typeof cleanup !== 'function') return { ok: false, code: 'no-cleanup' };
     // Bind failure: the account this process just created (its uid from createUser) has no valid binding to revalidate, so it
     // goes through the shared cleanup on its uid+email identity alone.
-    const result = await createRunOwnedTrialAccount(admin, { binding, domain: domainFrom(env), cleanup: ({ uid, email }) => cleanup({ admin, uid, email }) });
+    const result = await createRunOwnedTrialAccount(admin, { binding, domain: domainFrom(env),
+        cleanup: ({ uid, email }) => cleanup({ admin: bindFailureAdmin(admin, { uid, binding }), uid, email }) });
     if (result.status !== 'created') return { ok: false, code: result.code };
     mask(result.email);
     mask(result.password);
@@ -150,9 +211,10 @@ export function ownedIdentity(binding) {
     return { runId: binding.runId, runAttempt: binding.runAttempt, accountPattern: `ctrial-run-${binding.runId}-${binding.runAttempt}-*` };
 }
 
-export async function cleanupLane({ admin, env, cleanup }) {
+export async function cleanupLane({ admin, env, cleanup, finishSaveJournal }) {
     const binding = currentCanaryBinding(env);
     if (!binding) return { ok: false, code: 'no-run-binding', deleted: 0 };
+    if (typeof finishSaveJournal !== 'function') return { ok: false, code: 'no-save-journal-finish', deleted: 0 };
     let accounts;
     try { accounts = await listRunOwnedAccounts(admin); } catch { return { ok: false, code: 'list-failed', deleted: 0 }; }
     const prefix = `${RUN_OWNED_PREFIX}${binding.runId}-${binding.runAttempt}-`;
@@ -170,6 +232,10 @@ export async function cleanupLane({ admin, env, cleanup }) {
             return code === 'cleanup-unproven' ? { ok: false, code, deleted } : { ok: false, code, deleted, preserved: ownedIdentity(binding) };
         }
     }
+    // RESTART AFTER DELETION (Codex on 62b50df): an earlier cleanup of THIS run+attempt that stopped after the Auth deletion left a
+    // claim no listing above can see. Finish it by this run's own binding (plain client: the account is gone, nothing to revalidate).
+    try { await finishSaveJournal(admin, canaryClaimBinding(binding, binding.runId, binding.runAttempt)); }
+    catch { return { ok: false, code: 'save-journal-unproven', deleted }; }
     if (unbound > 0) return { ok: false, code: 'prefix-without-binding', deleted };
     return { ok: true, code: deleted ? 'cleanup-verified' : 'nothing-to-clean', deleted };
 }
@@ -178,9 +244,10 @@ export async function cleanupLane({ admin, env, cleanup }) {
  * Hygiene sweep of orphans from finished runs. Fails only on a failed listing, an unproven deletion or the cap;
  * accounts LEFT for a reason (young, run still going, foreign ref, unbound…) are reported as warnings, not failures.
  */
-export async function sweepLane({ admin, env, getRun, cleanup, now = Date.now() }) {
+export async function sweepLane({ admin, env, getRun, cleanup, finishSaveJournal, now = Date.now() }) {
     const binding = currentCanaryBinding(env);
     if (!binding) return { ok: false, code: 'no-run-binding', report: null };
+    if (typeof finishSaveJournal !== 'function') return { ok: false, code: 'no-save-journal-finish', report: null };
     const preserved = [];
     const byId = new Map();
     const report = await sweep({
@@ -206,7 +273,8 @@ export async function sweepLane({ admin, env, getRun, cleanup, now = Date.now() 
             }
         },
     }, { now, expected: binding, self: { runId: binding.runId } });
-    const failed = Object.keys(report.failures).length > 0 || report.capReached;
+    report.saveJournal = await sweepSaveJournalRuns({ admin, getRun, expected: binding, now, finishSaveJournal });
+    const failed = Object.keys(report.failures).length > 0 || report.capReached || report.saveJournal.failed > 0;
     return { ok: !failed, code: failed ? 'sweep-failed' : 'sweep-ok', report, preserved };
 }
 
@@ -214,5 +282,6 @@ export async function sweepLane({ admin, env, getRun, cleanup, now = Date.now() 
 export function describeSweep(report) {
     if (!report) return 'sweep: not-run';
     const fmt = (o) => Object.entries(o).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${k}=${v}`).join(',') || 'none';
-    return `sweep: swept=${report.swept} left(${fmt(report.left)}) failures(${fmt(report.failures)}) cap=${report.capReached}`;
+    const sj = report.saveJournal ? ` save_journal(runs=${report.saveJournal.runs},finished=${report.saveJournal.finished},left=${report.saveJournal.left},failed=${report.saveJournal.failed})` : '';
+    return `sweep: swept=${report.swept} left(${fmt(report.left)}) failures(${fmt(report.failures)}) cap=${report.capReached}${sj}`;
 }
