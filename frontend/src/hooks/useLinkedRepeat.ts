@@ -110,7 +110,10 @@ export function useLinkedRepeat(sessionId: string) {
             // unlinked; it is never bound to a take that may predate the attempt.
             // #1827 D2 rev 4: this client registers its repeat. Which take that is lives only on the server and is read when
             // needed, so reusing an attempt carries nothing local that could go stale.
-            const handoffStored = setOpenAttempt({ attemptId, userId, sourceSessionId: sessionId, acceptedAtIso,
+            // The tab intent is what lets this tab's next Start register the repeat: a registering press without a verified
+            // intent would look successful but never link (Codex P2), so it fails the same way a failed handoff does.
+            const intentStored = setPracticeAgainIntent({ attemptId, userId }) || declaration === 'unsupported';
+            const handoffStored = intentStored && setOpenAttempt({ attemptId, userId, sourceSessionId: sessionId, acceptedAtIso,
                 ...(declaration === 'unsupported' ? {} : { registrationRequired: true }), ...(reference ? { repeatTarget: reference } : {}) });
             if (!handoffStored) {
                 // A replacement account must never issue this original owner's cleanup request.
@@ -130,8 +133,6 @@ export function useLinkedRepeat(sessionId: string) {
                 outcome = abandoned ? 'handoff_failed_abandoned' : 'handoff_failed_unclosed';
                 return;
             }
-            // #1827 D2 rev 4: this tab's next Start is the repeat; only it registers with the attempt.
-            setPracticeAgainIntent({ attemptId, userId });
             if (authEpoch() !== startedEpoch || generation.current !== startedGeneration) return;
             if (target) {
                 const stored = getOpenAttemptForUser(userId);

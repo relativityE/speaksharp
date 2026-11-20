@@ -112,5 +112,26 @@ describe('#1827 Practice again → Start registers only this tab\'s take', () =>
         expect(getOpenAttemptForUser(USER)).toMatchObject({ attemptId: 'attempt-1' });
         expect(getOpenAttemptForUser(USER)).not.toHaveProperty('registrationRequired');
     });
+
+    it('Codex P2: if this tab cannot store its intent, the press fails like a failed handoff (no silent, unlinkable repeat)', async () => {
+        const realSet = Storage.prototype.setItem;
+        const refuse = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+            if (this === sessionStorage && key === 'speaksharp_practice_again_intent_v1') throw new Error('QuotaExceededError');
+            return realSet.call(this, key, value);
+        });
+        try {
+            const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+            const wrapper = ({ children }: { children: React.ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+            const { result } = renderHook(() => useLinkedRepeat('session-a'), { wrapper });
+            await waitFor(() => expect(result.current.linkState).toBe('linked'));
+            const afterLinked = vi.fn();
+            await act(async () => { await result.current.accept(afterLinked); });
+            expect(afterLinked).not.toHaveBeenCalled();                      // no navigation into an unlinkable repeat
+            expect(getOpenAttemptForUser(USER)).toBeNull();                  // no handoff left behind
+            expect(result.current.actionError).toMatch(/could not be linked/);
+        } finally {
+            refuse.mockRestore();
+        }
+    });
 });
 

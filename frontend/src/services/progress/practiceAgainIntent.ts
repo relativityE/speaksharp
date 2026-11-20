@@ -16,10 +16,16 @@ import logger from '@/lib/logger';
 const KEY = 'speaksharp_practice_again_intent_v1';
 export interface PracticeAgainIntent { attemptId: string; userId: string }
 
-export function setPracticeAgainIntent(intent: PracticeAgainIntent): void {
+/** Write this tab's intent and verify it by readback (Codex P2): a registering press must not proceed without it. */
+export function setPracticeAgainIntent(intent: PracticeAgainIntent): boolean {
     try {
-        if (typeof sessionStorage !== 'undefined') sessionStorage.setItem(KEY, JSON.stringify({ attemptId: intent.attemptId, userId: intent.userId }));
-    } catch { /* best effort */ }
+        if (typeof sessionStorage === 'undefined') return false;
+        const raw = JSON.stringify({ attemptId: intent.attemptId, userId: intent.userId });
+        sessionStorage.setItem(KEY, raw);
+        return sessionStorage.getItem(KEY) === raw;
+    } catch {
+        return false;
+    }
 }
 
 export function clearPracticeAgainIntent(): void {
