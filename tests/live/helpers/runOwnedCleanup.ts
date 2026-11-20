@@ -128,7 +128,7 @@ export const PRE_DELETE_TABLES: ReadonlyArray<string> = Object.freeze(['trial_en
 /**
  * #1643 SAVE JOURNAL (PO 2026-11-19: "make sure save records are deleted"). `account_save_obligations` has no foreign key to
  * auth.users, so its `completed` rows SURVIVE `deleteUser()`; only the product's own closure completion removes them, and
- * service_role cannot read or write the table. Migration 20261119200000 adds three service_role-only functions:
+ * service_role cannot read or write the table. Migration 20261119200000 adds four service_role-only functions:
  *  - a CLAIM, made while the account still exists: the database checks the address is run-owned and that the run presents
  *    exactly the binding the service role wrote on the account (none for an unbound account), then keeps that ownership
  *    and the SHA-256 of a one-time secret only this cleanup holds. It outlives the account (Sam, #1906 review);

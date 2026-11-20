@@ -6,6 +6,8 @@
 // objects (one table, four functions) with exactly the expected grants, and change NOTHING else in the catalog. Then the
 // functions run on that chain: a run cleans only the deleted account it claimed, and another run's account is refused; a run whose
 // cleanup crashed after the Auth deletion resumes its own claim on restart, and another run cannot.
+// #1827's repeat-tip migration (20261119120000) merged before this one and is not in production yet, so either may reach
+// production first: the target must add the same objects on top of it, and both orders must end in the same catalog.
 // Offline only (PGlite). This is not the exact-apply allowlist entry or a production postflight; those belong to the release lane.
 import { strict as assert } from 'node:assert';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -17,6 +19,7 @@ const DIR = 'backend/supabase/migrations';
 const TARGET = '20261119200000';
 const LAST_IN_PRODUCTION = '20261117105700';
 const WITHHELD = new Set(['20261027192550', '20261112130000']);
+const UNRELEASED_BEFORE_TARGET = ['20261119120000']; // #1827 repeat tip: merged, not yet in production
 const BOOT = readFileSync('tests/db/trial-read-access-current-chain.integration.test.ts', 'utf8').split('const BOOTSTRAP = `')[1].split('`;')[0];
 const TARGET_FILE = readdirSync(DIR).find(f => f.startsWith(`${TARGET}_`))!;
 const FNS = ['claim_account_save_journal_cleanup_v1', 'resume_account_save_journal_cleanup_v1', 'delete_deleted_account_save_journal_v1', 'count_account_save_journal_v1'];
@@ -24,10 +27,32 @@ const FNS = ['claim_account_save_journal_cleanup_v1', 'resume_account_save_journ
 let db: PGlite;
 let ledgerBefore: string[]; let ledgerAfter: string[];
 let before: Record<string, string[]>; let after: Record<string, string[]>;
-const col = async (query: string) => (await db.query<Record<string, string>>(query)).rows.map(r => String(Object.values(r)[0]));
+const colOn = async (pg: PGlite, query: string) => (await pg.query<Record<string, string>>(query)).rows.map(r => String(Object.values(r)[0]));
+const col = (query: string) => colOn(db, query);
+const migrationFile = (v: string) => readdirSync(DIR).find(f => f.startsWith(`${v}_`))!;
+const applyVersion = async (pg: PGlite, v: string) => {
+  await pg.exec(readFileSync(`${DIR}/${migrationFile(v)}`, 'utf8'));
+  await pg.query('INSERT INTO supabase_migrations.schema_migrations VALUES ($1)', [v]);
+};
+/** The production-equivalent chain: every migration through LAST_IN_PRODUCTION in version order, withheld ones skipped. */
+async function productionChain(): Promise<PGlite> {
+  const pg = new PGlite();
+  await pg.exec(BOOT);
+  await pg.exec('CREATE SCHEMA IF NOT EXISTS supabase_migrations; CREATE TABLE IF NOT EXISTS supabase_migrations.schema_migrations(version text PRIMARY KEY);');
+  for (const f of readdirSync(DIR).filter(f => /^\d{8,14}_.+\.sql$/.test(f)).sort()) {
+    const v = f.split('_')[0];
+    if (v > LAST_IN_PRODUCTION) break;
+    if (WITHHELD.has(v)) continue;
+    await pg.exec(readFileSync(`${DIR}/${f}`, 'utf8'));
+    await pg.query('INSERT INTO supabase_migrations.schema_migrations VALUES ($1)', [v]);
+  }
+  return pg;
+}
+let otherOrder: { added: Record<string, string[]>; removed: Record<string, string[]>; finalTargetFirst: Record<string, string[]>; finalVersionOrder: Record<string, string[]> };
 
 /** Every catalog object a migration could touch in the API schemas, one comparable line each (bodies by md5, ACLs, config). */
-async function catalog(): Promise<Record<string, string[]>> {
+async function catalog(pg: PGlite = db): Promise<Record<string, string[]>> {
+  const col = (query: string) => colOn(pg, query);
   return {
     functions: await col(`SELECT p.oid::regprocedure::text||' definer='||p.prosecdef||' vol='||p.provolatile::text||' cfg='||coalesce(p.proconfig::text,'')
         ||' ret='||pg_get_function_result(p.oid)||' md5='||md5(p.prosrc)||' acl='||coalesce(p.proacl::text,'')
@@ -49,16 +74,7 @@ const added = (k: string) => after[k].filter(x => !before[k].includes(x));
 const removed = (k: string) => before[k].filter(x => !after[k].includes(x));
 
 beforeAll(async () => {
-  db = new PGlite();
-  await db.exec(BOOT);
-  await db.exec('CREATE SCHEMA IF NOT EXISTS supabase_migrations; CREATE TABLE IF NOT EXISTS supabase_migrations.schema_migrations(version text PRIMARY KEY);');
-  for (const f of readdirSync(DIR).filter(f => /^\d{8,14}_.+\.sql$/.test(f)).sort()) {
-    const v = f.split('_')[0];
-    if (v >= TARGET) break;
-    if (WITHHELD.has(v)) continue;
-    await db.exec(readFileSync(`${DIR}/${f}`, 'utf8'));
-    await db.query('INSERT INTO supabase_migrations.schema_migrations VALUES ($1)', [v]);
-  }
+  db = await productionChain();
   ledgerBefore = await col('SELECT version FROM supabase_migrations.schema_migrations ORDER BY version');
   before = await catalog();
   const source = readFileSync(`${DIR}/${TARGET_FILE}`);
@@ -67,6 +83,23 @@ beforeAll(async () => {
   assert.equal(createHash('sha256').update(readFileSync(`${DIR}/${TARGET_FILE}`)).digest('hex'), createHash('sha256').update(source).digest('hex'));
   ledgerAfter = await col('SELECT version FROM supabase_migrations.schema_migrations ORDER BY version');
   after = await catalog();
+  // The other order: the unreleased earlier migrations reach production first, then the target. Then the target-first chain
+  // receives those migrations afterwards, and both must end in the same catalog.
+  const versionOrder = await productionChain();
+  try {
+    for (const v of UNRELEASED_BEFORE_TARGET) await applyVersion(versionOrder, v);
+    const pre = await catalog(versionOrder);
+    await applyVersion(versionOrder, TARGET);
+    const post = await catalog(versionOrder);
+    const added2: Record<string, string[]> = {}, removed2: Record<string, string[]> = {};
+    for (const k of Object.keys(pre)) { added2[k] = post[k].filter(x => !pre[k].includes(x)); removed2[k] = pre[k].filter(x => !post[k].includes(x)); }
+    const targetFirst = await productionChain();
+    try {
+      await applyVersion(targetFirst, TARGET);
+      for (const v of UNRELEASED_BEFORE_TARGET) await applyVersion(targetFirst, v);
+      otherOrder = { added: added2, removed: removed2, finalTargetFirst: await catalog(targetFirst), finalVersionOrder: post };
+    } finally { await targetFirst.close(); }
+  } finally { await versionOrder.close(); }
 }, 600_000);
 afterAll(async () => { await db?.close(); });
 
@@ -74,7 +107,7 @@ describe('#1906 save-journal cleanup: exact bytes in installed order on the prod
   it('applies directly after the last migration production holds, with nothing between and the withheld migrations still absent', () => {
     assert.equal(ledgerBefore.at(-1), LAST_IN_PRODUCTION, 'the predecessor ledger ends where production does');
     const later = readdirSync(DIR).map(f => f.split('_')[0]).filter(v => /^\d{14}$/.test(v) && v > LAST_IN_PRODUCTION);
-    assert.deepEqual(later, [TARGET], 'no other migration sits between production and this target');
+    assert.deepEqual(later, [...UNRELEASED_BEFORE_TARGET, TARGET], 'only the reviewed unreleased migrations sit between production and this target');
     assert.deepEqual(ledgerAfter, [...ledgerBefore, TARGET]);
     for (const v of WITHHELD) assert.ok(!ledgerAfter.includes(v), `withheld ${v} stays unapplied`);
   });
@@ -97,6 +130,14 @@ describe('#1906 save-journal cleanup: exact bytes in installed order on the prod
       'account_save_journal_cleanup_claims.account_save_journal_cleanup_claims_pkey',
       'account_save_journal_cleanup_claims.account_save_journal_cleanup_claims_run_binding_check', 'account_save_journal_cleanup_claims.account_save_journal_cleanup_claims_token_sha256_check']);
     assert.deepEqual([added('policies'), added('triggers')], [[], []], 'no policy and no trigger');
+  });
+
+  it('applies the same way after the unreleased #1827 migration, and both orders end in the same catalog', () => {
+    for (const k of Object.keys(before)) {
+      assert.deepEqual(otherOrder.removed[k], [], `${k}: nothing changed or removed after #1827 either`);
+      assert.deepEqual(otherOrder.added[k], added(k), `${k}: the same objects are added after #1827`);
+      assert.deepEqual(otherOrder.finalTargetFirst[k], otherOrder.finalVersionOrder[k], `${k}: either order ends in the same catalog`);
+    }
   });
 
   it('runs on that chain: a run cleans only the deleted account it claimed; another run naming it is refused', async () => {
