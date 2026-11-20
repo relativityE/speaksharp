@@ -34,6 +34,11 @@ on:
       - 'tests/db/account-coaching-admission-realpg.mjs'
       - 'tests/db/account-completion-realpg.test.mjs'
       - 'tests/db/account-recording-admission-realpg.mjs'
+      # #1643 follow-up: deleted run-owned account save-journal cleanup, its native proof and the shared live cleanup step it drives.
+      - 'tests/db/deleted-account-save-journal-cleanup-realpg.test.mjs'
+      - 'tests/db/save-journal-restart-runner.mjs'
+      - 'tests/live/helpers/runOwnedCleanup.ts'
+      - 'tests/live/helpers/rwtInterruptedRunRecovery.ts'
       - 'tests/db/account-closure-tokens.integration.test.ts'
       - 'tests/db/account-closure-enforcement-full-chain.sql'
       - 'tests/db/account-closure-denial-control.sql'
@@ -155,3 +160,36 @@ jobs:
             artifacts/recording-start-abandonment/receipts.json
           if-no-files-found: error
           retention-days: 1
+
+  # #1643 follow-up: a deleted run-owned proof account's finished save-journal rows. Native disposable PostgreSQL (one owned
+  # cluster, no hosted database); the test also drives the SHARED live cleanup step (TypeScript, so it needs the workspace).
+  save-journal-cleanup:
+    name: Deleted-account save-journal cleanup (native PostgreSQL)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      PROOF_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - name: Use the runner's native PostgreSQL 16 host binaries
+        run: |
+          set -euo pipefail
+          echo '/usr/lib/postgresql/16/bin' >> "$GITHUB_PATH"
+          /usr/lib/postgresql/16/bin/initdb --version
+          /usr/lib/postgresql/16/bin/pg_ctl --version
+          /usr/lib/postgresql/16/bin/psql --version
+      - name: Prove the save-journal cleanup on the exact requested head
+        run: |
+          set -euo pipefail
+          actual_head="$(git rev-parse HEAD)"
+          [ "$actual_head" = "$PROOF_HEAD_SHA" ] || { echo '::error::native proof source differs from requested head'; exit 1; }
+          node --import tsx --test tests/db/deleted-account-save-journal-cleanup-realpg.test.mjs

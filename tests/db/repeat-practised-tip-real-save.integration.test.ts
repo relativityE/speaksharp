@@ -9,7 +9,7 @@
 // Each claim has a negative control: a mutant of the D2 triggers with the one rule removed, which must lose it.
 //
 // Content-free: synthetic identifiers and text only.
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, afterAll } from 'vitest';
 import { PGlite } from '@electric-sql/pglite';
 import { readFileSync, readdirSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
@@ -18,6 +18,9 @@ import { resolve } from 'node:path';
 const DIR = resolve(process.cwd(), 'backend', 'supabase', 'migrations');
 const SHIPPED = readdirSync(DIR).filter((f) => /^\d{8,14}_.+\.sql$/.test(f)).sort();
 const D2 = '20261119120000_repeat_practised_tip.sql';
+// #1906 (merged after D2): the deleted-account save-journal cleanup is the only shipped migration after D2. It touches no
+// sessions, attempt or coaching object, so the shipped chain keeps it; any OTHER later migration must be reviewed here.
+const AFTER_D2 = ['20261119200000_deleted_account_save_journal_cleanup_1643.sql'];
 
 /** Only what Supabase provides outside the migrations (verbatim from the trial current-chain suite). */
 const SUPABASE_BOOTSTRAP = `
@@ -50,11 +53,24 @@ const REVIEW = JSON.stringify({ version: 'gemini_coaching_v1', what_worked: 'The
 let db: PGlite | null = null;
 afterEach(async () => { await db?.close(); db = null; });
 
+// The full shipped chain is built ONCE per shape and each test gets an independent copy of it (PGlite clone: its own data
+// directory, nothing shared). Rebuilding the whole chain for every test took this file past the 60 s per-file execution
+// budget of the changed-file evidence run (#1906). The chain each test sees is unchanged.
+const built = new Map<string, Promise<PGlite>>();
+afterAll(async () => { for (const pg of built.values()) await (await pg).close(); built.clear(); });
+
 async function shippedChain(opts: { activateRetention?: boolean; withholdD2?: boolean } = {}): Promise<PGlite> {
+    const key = `${opts.activateRetention !== false}:${opts.withholdD2 === true}`;
+    if (!built.has(key)) built.set(key, buildShippedChain(opts));
+    return (await (await built.get(key)!).clone()) as PGlite;
+}
+
+async function buildShippedChain(opts: { activateRetention?: boolean; withholdD2?: boolean }): Promise<PGlite> {
     const pg = new PGlite();
     await pg.exec(SUPABASE_BOOTSTRAP);
-    expect(SHIPPED.at(-1)).toBe(D2);
-    for (const f of opts.withholdD2 ? SHIPPED.slice(0, -1) : SHIPPED) await pg.exec(readFileSync(resolve(DIR, f), 'utf8'));
+    expect(SHIPPED.filter((f) => f > D2)).toEqual(AFTER_D2);
+    expect(SHIPPED.filter((f) => f <= D2).at(-1)).toBe(D2);
+    for (const f of opts.withholdD2 ? SHIPPED.filter((f) => f !== D2) : SHIPPED) await pg.exec(readFileSync(resolve(DIR, f), 'utf8'));
     if (opts.activateRetention !== false) await pg.query('SELECT public.activate_transcript_retention_newest_one()');
     return pg;
 }

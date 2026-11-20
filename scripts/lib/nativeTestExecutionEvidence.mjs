@@ -33,6 +33,10 @@ export const SQL_CONTRACTS=Object.freeze([
   // the native database is NOT RUN (no ledger-12 full-chain stage yet).
   Object.freeze({consumer:'tests/db/payment-wall-guards-1863.integration.test.ts',
     files:Object.freeze(['backend/supabase/migrations/20261114170000_payment_wall_product_access_1863.sql'])}),
+  // #1643 follow-up: the deleted-account save-journal cleanup functions execute over the actual recording/journal chain in PGlite;
+  // native lock serialization and the shared live step are the realpg proof in the full-chain proof workflow.
+  Object.freeze({consumer:'tests/db/deleted-account-save-journal-cleanup.integration.test.ts',
+    files:Object.freeze(['backend/supabase/migrations/20261119200000_deleted_account_save_journal_cleanup_1643.sql'])}),
   Object.freeze({consumer:'tests/db/practicePrivacyCurrentChain.integration.test.ts',
     files:Object.freeze([
       'backend/supabase/migrations/20261117105700_practice_privacy_choices_1835.sql',
@@ -81,6 +85,10 @@ export const NATIVE_HELPERS=Object.freeze([
   {file:'tools/cloud-test/scripts/resolve_rwt_served_release.mjs',consumer:'tools/cloud-test/tests/rwt_served_release.test.mjs',
     callables:['resolveRwtServedRelease','verifyRwtServedRelease'],
     claim:'actual runtime release identity and compatibility guards with mocked production responses and synthetic Git; deployment and live writes NOT RUN'},
+  // #1906 restart and recovery proofs: the runner is spawned as fresh child processes (coverage inherited through the environment).
+  {file:'tests/db/save-journal-restart-runner.mjs',consumer:'tests/db/deleted-account-save-journal-cleanup-realpg.test.mjs',
+    callables:['createPsqlAdmin','runTeardown','runRecovery','tampered'],
+    claim:'actual runner processes (shared teardown and governed recovery entry points) against an owned disposable PostgreSQL; hosted database, GitHub and live runs NOT RUN'},
 ]);
 const fail=message=>{throw new Error(message);};
 function regular(root,file) {
