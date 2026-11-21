@@ -115,13 +115,46 @@ export const BOOTSTRAP = `
     RETURNS jsonb LANGUAGE sql AS $fn$ SELECT jsonb_build_object('overload','legacy') $fn$;
 `;
 
+/** One fresh database with exactly the schema this environment models: the bootstrap, then the migrations in order. */
+export async function buildCompletionDb(steps: readonly string[] = [BOOTSTRAP, STAGE_A, ATOMIC, PRODUCT_MARKER_TABLE],
+  create: () => PGlite = () => new PGlite()): Promise<PGlite> {
+  const db = create();
+  try {
+    for (const sql of steps) await db.exec(sql);
+    return db;
+  } catch (setupError) {
+    // Never leak the handle; the original setup error is what the caller sees, whatever closing does.
+    await db.close().catch(() => undefined);
+    throw setupError;
+  }
+}
+
+// One migrated template per test file (each file is its own module instance), built on first use. Every db0() is an
+// independent clone of it, so no test sees another's rows, auth context, role or settings. Suites that test migration
+// application itself must not use this: they build from fresh SQL. If the template cannot be built, every db0() rejects
+// with that error, so the file fails rather than passing on a partial schema.
+let template: Promise<PGlite> | null = null;
+const opened: PGlite[] = [];
+
 export async function db0(): Promise<PGlite> {
-  const db = new PGlite();
-  await db.exec(BOOTSTRAP);
-  await db.exec(STAGE_A);
-  await db.exec(ATOMIC);
-  await db.exec(PRODUCT_MARKER_TABLE);
+  template ??= buildCompletionDb();
+  const db = (await (await template).clone()) as PGlite;
+  opened.push(db);
   return db;
+}
+
+/** Close every clone handed out since the last call (afterEach), and the template too when the file ends (afterAll). */
+export async function closeCompletionDbs({ template: closeTemplate = false } = {}): Promise<void> {
+  // Drain every owned handle even if one close fails, then report the first close failure.
+  const handles = opened.splice(0);
+  if (closeTemplate && template) {
+    const built = await template.catch(() => null); // a failed build already closed its own handle
+    template = null;
+    if (built) handles.push(built);
+  }
+  const results = await Promise.allSettled(handles.map((db) => db.close()));
+  const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+  if (failed) throw failed.reason;
 }
 
 export async function actingAs(db: PGlite, uid: string) { await db.query(`UPDATE public.auth_ctx SET uid = $1`, [uid]); }
