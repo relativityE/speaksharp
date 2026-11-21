@@ -27,11 +27,12 @@ import {
     coachingFailureReason, coachingParentVerdict, coachingRequestBindingRow, focusExternalDependentRows, providerStatusFrom, takeExchangeEvidence,
     isCoachingUnavailableHeadline,
 } from './coachingExternal';
-import { RECORDER_BAR, RECORDER_STOP } from '../../helpers/micControls';
+import { type SaveHold, holdThenStop } from './rwtSaveHold';
 import type { CoachingGenerationTap } from './coachingGenerationTap';
 import type { ActionCaptureAttempt, ActionCaptureOutcome } from './rwtOracles';
 import {
     AUDIO_ARGS,
+    confirmBenchmarkStopped,
     expectBenchmarkRecordingStarted,
     startBenchmarkRecording,
     stopBenchmarkRecording,
@@ -1453,44 +1454,6 @@ async function pressRepeatAction(page: Page, again: ReturnType<Page['getByTestId
  * that cannot be stopped, or a microphone left live, is a failure (PM 2026-09-25) — never a successful next Start.
  * On any failure a bounded teardown is attempted before run-owned cleanup; its outcome is reported, not assumed.
  */
-/**
- * J1 option B (Sam, 21 Nov): a take that is meant to SAVE must record past the product's minimum before its Stop. The product
- * discards an explicit Stop under MIN_SESSION_DURATION_SECONDS (5 s, useSessionLifecycle.ts); live run 44955832135 stopped takes
- * 3 and 4 at ~2 s and both were discarded. The hold is measured from the moment recording was proven, plus a small buffer, and
- * it only counts while the SAME recorder stays live: the recorder bar element present at the start is still connected and its
- * Stop control still enabled at every poll. An early end, a dropped recorder or a replaced one is never a completed hold.
- */
-export const SAVE_MINIMUM_MS = 5_000;
-export const SAVE_HOLD_BUFFER_MS = 1_500;
-export type SaveHold = { ok: boolean; heldMs: number; reason: string | null };
-export type SaveHoldPoll = { connected: boolean | null; stopEnabled: boolean | null };
-export function saveHoldVerdict(heldMs: number, polls: readonly SaveHoldPoll[]): SaveHold {
-    if (polls.length === 0) return { ok: false, heldMs, reason: 'the recording was never observed during the hold' };
-    if (polls.some((p) => p.connected !== true)) return { ok: false, heldMs, reason: 'the recording was dropped or replaced during the hold' };
-    if (polls.some((p) => p.stopEnabled !== true)) return { ok: false, heldMs, reason: 'the recording stopped being stoppable during the hold' };
-    if (!(heldMs >= SAVE_MINIMUM_MS + SAVE_HOLD_BUFFER_MS)) return { ok: false, heldMs, reason: 'the take was not held past the 5 s save minimum' };
-    return { ok: true, heldMs, reason: null };
-}
-/** Holds the live take until it has recorded SAVE_MINIMUM_MS + SAVE_HOLD_BUFFER_MS since `recordingAt`, polling the same recorder. */
-export async function holdPastSaveMinimum(page: Page, recordingAt: number, pollMs = 250): Promise<SaveHold> {
-    const bar = await page.getByTestId(RECORDER_BAR).elementHandle({ timeout: 5_000 }).catch(() => null);
-    const polls: SaveHoldPoll[] = [];
-    const target = recordingAt + SAVE_MINIMUM_MS + SAVE_HOLD_BUFFER_MS;
-    try {
-        do {
-            const connected = bar === null ? false : await bar.evaluate((el) => el.isConnected).catch(() => null);
-            const stopEnabled = await page.getByTestId(RECORDER_STOP).isEnabled({ timeout: 1_000 }).catch(() => null);
-            polls.push({ connected, stopEnabled });
-            if (connected !== true || stopEnabled !== true) break;
-            const left = target - Date.now();
-            if (left > 0) await page.waitForTimeout(Math.min(pollMs, left));
-        } while (Date.now() < target);
-        return saveHoldVerdict(Date.now() - recordingAt, polls);
-    } finally {
-        await bar?.dispose().catch(() => undefined);
-    }
-}
-
 export async function nextStartEvidence(page: Page, label: string, beforeCapture?: () => Promise<void>,
     /** J1 option B: hold the take past the 5 s save minimum before its Stop (default: Stop at once, as Focus designs it). */
     opts: { holdPastSaveMinimum?: boolean } = {}): Promise<{
@@ -1528,9 +1491,12 @@ export async function nextStartEvidence(page: Page, label: string, beforeCapture
         return { saveHold: null, holdSeen, nextStartMs: null, stopped: false, liveTracksAfterStop: tracks, reason: 'the next Start did not begin recording', startFailure };
     }
     clearInterval(watch);
-    const saveHold = opts.holdPastSaveMinimum ? await holdPastSaveMinimum(page, recordingAt) : null;
+    // J1 option B: the hold clicks the validated recorder's own Stop itself; a failed hold still stops whatever is recording.
+    const held = opts.holdPastSaveMinimum ? await holdThenStop(page, recordingAt) : null;
+    const saveHold = held?.hold ?? null;
     try {
-        await stopBenchmarkRecording(page, label);
+        if (held?.clicked) await confirmBenchmarkStopped(page, label);
+        else await stopBenchmarkRecording(page, label);
     } catch {
         const tracks = await boundedTeardown(page, label);
         return { saveHold, holdSeen, nextStartMs, stopped: false, liveTracksAfterStop: tracks, reason: 'the next take could not be stopped', startFailure: null };
@@ -1955,10 +1921,13 @@ export async function practiceAgainEvidence(
         return ev;
     }
     clearInterval(watch);
-    ev.saveHold = opts.holdRepeatPastSaveMinimum && ev.repeatRecordingAt ? await holdPastSaveMinimum(page, ev.repeatRecordingAt) : null;
+    // J1 option B: the hold clicks the validated recorder's own Stop itself; a failed hold still stops whatever is recording.
+    const held = opts.holdRepeatPastSaveMinimum && ev.repeatRecordingAt ? await holdThenStop(page, ev.repeatRecordingAt) : null;
+    ev.saveHold = held?.hold ?? null;
     if (ev.saveHold && !ev.saveHold.ok) ev.reason = ev.saveHold.reason;
     try {
-        await stopBenchmarkRecording(page, `${label}-again`);
+        if (held?.clicked) await confirmBenchmarkStopped(page, `${label}-again`);
+        else await stopBenchmarkRecording(page, `${label}-again`);
     } catch {
         ev.liveTracksAfterStop = await boundedTeardown(page, `${label}-again`);
         ev.reason = 'the repeated take could not be stopped';
