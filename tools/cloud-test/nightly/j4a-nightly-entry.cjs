@@ -28,7 +28,7 @@ function saveJournalCapabilityFault(cap) {
 }
 
 /** The parent's J4.a hooks for createAdapter. `recordRunId`: the bridge's run id (durable records); `emailRunId`: the execution run id. */
-function j4aParentHooks({ admin, transport, saveJournal, evidenceDir, recordRunId, emailRunId, configuredDomain }) {
+function j4aParentHooks({ admin, transport, saveJournal, evidenceDir, recordRunId, emailRunId, configuredDomain, observeTakes = null }) {
     const fault = saveJournalCapabilityFault(saveJournal);
     if (fault) throw new Error(fault);
     if (!admin || typeof admin.from !== 'function' || typeof admin.auth?.admin?.listUsers !== 'function')
@@ -45,7 +45,7 @@ function j4aParentHooks({ admin, transport, saveJournal, evidenceDir, recordRunI
             const endsAt = Date.now() + teardownWindowMs();
             let journal = null; // bound to THIS run and the preserved owner; a bind failure leaves none, so teardown HOLDs before any request
             try { journal = saveJournal.bind({ runId: emailRunId, owner: preservedOwner }); } catch { journal = null; }
-            return j4aParentTeardown({ nightly, confirmedAccount, preservedOwner, childClosed, stopped, binding, timeLeftMs: () => endsAt - Date.now(), saveJournal: journal, ...common() });
+            return j4aParentTeardown({ nightly, confirmedAccount, preservedOwner, childClosed, stopped, binding, timeLeftMs: () => endsAt - Date.now(), saveJournal: journal, observeTakes, ...common() });
         },
     });
 }
@@ -67,13 +67,24 @@ const teardownWindowMs = () => require('./cleanup-plan.cjs').cleanupReserve('J4'
 /**
  * The nightly J4.a composition: createAdapter (sealed) with the parent hooks, wrapped by the nightly bridge. Returns the bridge's
  * { io, outcome, finish }; the caller drives it with campaign-core runCampaign (main) or case by case (offline proofs).
+ * `saveWitness` (j4a-save-witness.cjs, offline only): the parent's save journal around the one case launch. It supplies the stopped-writer
+ * verifier, sees teardown's takes read and holds the case's save rows unless the lost save, the one Retry, the one saved take, the stopped
+ * writer and the takes all agree. It never comes with a separate offline verifier: one source of writer proof.
  */
-function composeJ4aNightly({ plan, bundle, admin, transport, saveJournal, configuredDomain, nightly, adapterOptions = {}, offlineStoppedWritersVerifier = null }) {
+function composeJ4aNightly({ plan, bundle, admin, transport, saveJournal, configuredDomain, nightly, adapterOptions = {}, offlineStoppedWritersVerifier = null, saveWitness = null }) {
     const { createAdapter } = require(path.join(HARNESS, 'campaign-runner.cjs'));
+    if (saveWitness !== null && (offlineStoppedWritersVerifier !== null || ['commandRunner', 'verifier', 'observeTakes', 'gate'].some((k) => typeof saveWitness?.[k] !== 'function')))
+        throw new Error('the J4.a save witness is the only writer proof: no second verifier, and all four of its parts');
     const hooks = j4aParentHooks({ admin, transport, saveJournal, evidenceDir: nightly.evidenceDir, recordRunId: nightly.runId,
-        emailRunId: plan?.executionIdentity?.runId, configuredDomain });
-    const raw = createAdapter(plan, bundle, { executeR0: true, ...adapterOptions, verifyJ4aStopped: offlineStoppedWritersVerifier, j4aOwner: hooks.j4aOwner, j4aTeardown: hooks.j4aTeardown });
-    return nightlyAdapter(raw, nightly);
+        emailRunId: plan?.executionIdentity?.runId, configuredDomain, observeTakes: saveWitness ? saveWitness.observeTakes : null });
+    const options = saveWitness
+        ? { ...adapterOptions, commandRunner: saveWitness.commandRunner(adapterOptions.commandRunner ?? require(path.join(HARNESS, 'admission.cjs')).supervisedCommand) }
+        : adapterOptions;
+    const raw = createAdapter(plan, bundle, { executeR0: true, ...options, verifyJ4aStopped: saveWitness ? saveWitness.verifier : offlineStoppedWritersVerifier,
+        j4aOwner: hooks.j4aOwner, j4aTeardown: hooks.j4aTeardown });
+    // The gate sits between the sealed adapter and the bridge, so the bridge splits only rows the parent witness has seen.
+    const io = saveWitness ? { ...raw, runCase: async (...args) => saveWitness.gate(await raw.runCase(...args)) } : raw;
+    return nightlyAdapter(io, nightly);
 }
 
 /**
@@ -133,7 +144,8 @@ async function main(argv, env = process.env, deps = {}) {
     for (const k of ['SUPABASE_URL', 'LIVE_TEST_EMAIL_DOMAIN'])
         if (!env[k]) return { exitCode: 78, reason: `BLOCKED_SETUP: ${k} is not set in the parent` };
     // Pilot ADMISSION (Sam, 17 Nov): no reviewed save-journal cleanup capability, no run. Nothing is locked, built, launched or sent.
-    // Production supplies none today; `deps.saveJournal` exists for the reviewed capability and for offline proofs only.
+    // Production supplies none today; `deps.saveJournal` exists for the reviewed capability and for offline proofs only, and so does
+    // `deps.saveWitness` (the production guard writes no save journal yet).
     const journalFault = saveJournalCapabilityFault(deps.saveJournal);
     if (journalFault) return { exitCode: 78, reason: journalFault };
     if (typeof deps.createClient !== 'function' || typeof deps.releaseFetch !== 'function' || typeof deps.readReleaseGitHub !== 'function')
@@ -154,7 +166,7 @@ async function main(argv, env = process.env, deps = {}) {
         const transport = j4aAdminTransport(deps.fetchImpl);
         const admin = deps.createClient(origin, { auth: { persistSession: false, autoRefreshToken: false }, global: { fetch: transport.fetch } });
         const { io, outcome, finish } = composeJ4aNightly({ plan: { ...plan, runRoot: root }, bundle, admin, transport, saveJournal: deps.saveJournal,
-            adapterOptions: deps.adapterOptions ?? {}, configuredDomain: env.LIVE_TEST_EMAIL_DOMAIN,
+            adapterOptions: deps.adapterOptions ?? {}, configuredDomain: env.LIVE_TEST_EMAIL_DOMAIN, saveWitness: deps.saveWitness ?? null,
             nightly: { runDir: a['--run-dir'], evidenceDir: a['--evidence-dir'], runId: a['--run-id'], selected: ['J4.a'], satisfiedGates: [] } });
         const r = await runCampaign(plan, io, { executeR0: true });
         return await finishJ4aNightly(r, { finish, outcome });
