@@ -759,8 +759,8 @@ test('the workflow can dispatch every local-stack journey, the paid loop with it
 });
 
 test('declined checkout (J2): only an unpaid, incomplete subscription of this session and customer may be attached', () => {
-  // Shape observed in the Stripe sandbox (run 44937743744): the decline creates an `incomplete` subscription whose first invoice
-  // is open with nothing paid, attached to the still-open session; cleanup later moves it to `incomplete_expired`.
+  // The shape Stripe's sandbox events showed for run 44937743744: an `incomplete` subscription whose first invoice is open with nothing
+  // paid (cleanup later moved it to `incomplete_expired`). That receipt did not establish the session attachment, so it is modelled here.
   const session = { livemode: false, status: 'open', payment_status: 'unpaid', subscription: 'sub_1' };
   const subscription = { id: 'sub_1', livemode: false, customer: 'cus_1', status: 'incomplete', latest_invoice: 'in_1' };
   const invoice = { id: 'in_1', customer: 'cus_1', livemode: false, status: 'open', amount_paid: 0 };
