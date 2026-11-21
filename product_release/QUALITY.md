@@ -205,6 +205,20 @@ The inventory is complete for release-candidate purposes: every RC-counted file 
 
 Every RC-counted test must identify the **independent source of truth** it enforces. Coverage from implementation-mirroring tests is not RC confidence. Contract sources: **Math** (RMS, WPM, filler count, duration); **State machine** (browser/STT/session lifecycle); **Message protocol** (workers, engines, Edge Functions); **Security/product rule** (tiering, quota, auth, CORS, Stripe); **Human journey** (UX smoke, live tester paths). Tests whose expected values were copied from current implementation output are **suspect** and must not be promoted to RC-counted evidence until reviewed against a contract source.
 
+### Test efficacy and CI audit
+
+Use this checklist for the test-suite audit tracked in [#1539](https://github.com/relativityE/speaksharp/issues/1539). It is guidance for choosing and improving tests, not a new CI gate or release dependency. The code follow-up to [#1905](https://github.com/relativityE/speaksharp/pull/1905) is tracked separately in [#1921](https://github.com/relativityE/speaksharp/pull/1921).
+
+| Review area | What to verify | Accountable role |
+| --- | --- | --- |
+| Runner and journey coverage | Confirm discovery and actual execution across unit, Node, Python, Deno/Edge, database, browser, disposable and live lanes. Map J1–J9 legs and feature claims to reproducible commands, targets and artifacts. Keep live, disposable and diagnostic claims distinct; list gaps explicitly. | Test engineering |
+| New or changed tests | Name the independent product contract, the observable result and a control that fails for the intended break. Check that the maintained runner executes it. Start assertion and coverage scans in report-only mode and calibrate them by reading representative tests: zero `expect` calls does not mean zero assertions. | Feature engineering and quality |
+| Tooling and workflow overlap | Inventory all workflows, their triggers, commands, inputs, environments and consumers. Verify which duplicate jobs actually prove the same thing before removing them. Triage hanging, weak and duplicate diagnostics; verify migration tests are wired to the intended database lane and do not infer hosted migration proof from local runs. | CI and database engineering |
+| Runtime, repeatability and cost | Baseline per-job and per-shard timings. Start with one bounded disposable database pilot; verify cleanup, comparable inputs and evidence parity before scaling. Track retries, flakes and skips by owner and cause; fix, consolidate or retire them without hiding unexecuted coverage. | CI and database engineering |
+| Product usefulness | Check that tests catch user-visible failures. Distinguish deterministic STT fixtures from real-device proof; exercise Focus Points false positives and challenge mocks that could let broken permissions, state or integration behavior pass. | Feature engineering and quality |
+
+Record completion by theme with an owner, the command and target actually run, before/after evidence, any remaining gap, and a follow-up decision. Use observed durations and verified outcomes; do not treat scan counts, estimated savings or green jobs without execution evidence as completed work.
+
 ### How tests are decided into gates
 
 A test folds into an RC gate when it proves one of that gate's release-blocking claims; it stays outside RC when it is diagnostic, exploratory, benchmarking-only, utility-only, or too environment-specific to run as a normal blocker. Does it prove a claim a tester/customer relies on → Gate 1 or 5. Does it prove users cannot bypass entitlement/quota/auth/CORS/Stripe/token → Gate 2 or 3. Does it need a deployed app/real secrets/live Edge behavior → Gate 3 or live matrix. Does it check known vulnerable deps / supply-chain risk → Gate 4. Does it measure a speed/quality ceiling but not pass/fail → benchmark/advisory. Is it a one-incident probe → diagnostic until it becomes a maintained regression.
