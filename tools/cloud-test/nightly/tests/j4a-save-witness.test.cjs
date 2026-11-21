@@ -69,6 +69,46 @@ test('save path refuses every missing or contradicted fact (HOLD, content-free r
     assert.equal(decideSavePath(entries(), { binding: 'nope', runId: RUN }).verdict, 'HOLD');
 });
 
+/** J4.b (response lost): the dropped completion reached the server (upstream started) and the page saw no answer. */
+const responseLost = (x) => {
+    Object.assign(x[2], { decision: 'planned-response-lost', upstreamStarted: true,
+        terminal: { attempt: x[2].attempt, backendConfirmed: true, savedRowCount: 1, pageAnswered: false } });
+    return x;
+};
+const j4b = { ...expected, fault: 'response-lost' };
+
+test('J4.b save path: the lost answer\'s request reached the server, one explicit Retry, one confirmed single row: CONFIRMED', () => {
+    const v = decideSavePath(entries(responseLost), j4b);
+    assert.equal(v.verdict, 'CONFIRMED');
+    assert.equal(v.boundSession, sha(T1));
+    assert.deepEqual([...v.savedSessions].sort(), [sha(T1), sha(T2)].sort());
+});
+
+test('J4.b save path refuses the other fault, a request that never left, a seen answer, and a doubled save; faults never cross', () => {
+    const cases = [
+        ['J4.a journal under the J4.b witness', (x) => x, /other planned save fault/],
+        ['the request never left', (x) => { responseLost(x); x[2].upstreamStarted = false; return x; }, /lost answer was not proven/],
+        ['the server never answered', (x) => { responseLost(x); x[2].terminal = null; return x; }, /lost answer was not proven/],
+        ['the page saw the answer', (x) => { responseLost(x); x[2].terminal.pageAnswered = true; return x; }, /lost answer was not proven/],
+        ['the answer is another attempt\'s', (x) => { responseLost(x); x[2].terminal.attempt = x[4].attempt; return x; }, /lost answer was not proven/],
+        ['the server saved two rows first', (x) => { responseLost(x); x[2].terminal.savedRowCount = 2; return x; }, /lost answer was not proven/],
+        ['the Retry saved a second row', (x) => { responseLost(x); x[4].terminal.savedRowCount = 2; return x; }, /no backend-confirmed single saved row/],
+        ['no Retry', (x) => renumber(responseLost(x).filter((e) => e.kind !== 'retry-intent')), /explicit Retry, saw 0/],
+        ['a second completion after the Retry', (x) => [...responseLost(x), { ...x[4], attempt: sha('w'), seq: 8 }], /3 completion attempt/],
+        ['both faults in one journal', (x) => [...responseLost(x), { ...x[6], attempt: sha('v'), seq: 8, decision: 'planned-request-lost', upstreamStarted: false, terminal: null }],
+            /other planned save fault/],
+    ];
+    for (const [name, edit, why] of cases) {
+        const v = decideSavePath(entries(edit), j4b);
+        assert.equal(v.verdict, 'HOLD', name);
+        assert.match(v.reason, why, name);
+    }
+    // A J4.b journal never passes the J4.a witness, and an unknown fault never passes at all.
+    assert.equal(decideSavePath(entries(responseLost), expected).verdict, 'HOLD');
+    assert.equal(decideSavePath(entries(), { ...expected, fault: 'both' }).verdict, 'HOLD');
+    assert.throws(() => j4aSaveWitness({ dir: path.join(os.tmpdir(), 'x'), fault: 'both' }), /planned save fault/);
+});
+
 test('takes: the retried take reads back exactly once and the saved takes are exactly the confirmed ones', () => {
     const save = decideSavePath(entries(), expected);
     const ok = [{ id: T1, status: 'completed' }, { id: T2, status: 'completed' }];
@@ -114,11 +154,11 @@ test('supervisor close: only the parent\'s clean exit with no descendants and a 
 });
 
 /** A witness around one fake case launch whose "guard" writes `list` into the armed journal and whose close is `close`. */
-async function witnessRun(t, { list = entries(), close = { status: 0, signal: null, reason: null, cleanupIncomplete: false }, after = null } = {}) {
+async function witnessRun(t, { list = entries(), close = { status: 0, signal: null, reason: null, cleanupIncomplete: false }, after = null, fault = undefined } = {}) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'j4a-witness-'));
     t.after(() => fs.rmSync(root, { recursive: true, force: true }));
     const runDir = path.join(root, 'run'); fs.mkdirSync(runDir);
-    const w = j4aSaveWitness({ dir: path.join(root, 'journal') });
+    const w = j4aSaveWitness({ dir: path.join(root, 'journal'), ...(fault ? { fault } : {}) });
     const inner = async (_node, args, _options, deps) => {
         if (!args[0].endsWith('run-guarded.cjs')) return { status: 0, signal: null, reason: null, cleanupIncomplete: false, passedThrough: deps.env.J4A_SAVE_JOURNAL === undefined };
         const file = deps.env.J4A_SAVE_JOURNAL;
@@ -146,6 +186,20 @@ test('witness: armed before the launch, sealed after a clean close, it derives t
     const gated = w.gate({ assertions: [{ id: 'retry-saved-once', result: 'PASS' }] });
     assert.deepEqual(gated.assertions, [{ id: 'retry-saved-once', result: 'PASS' }]);
     await assert.rejects(run('node', [path.join('x', 'harness', 'run-guarded.cjs'), '--run-dir', runDir], {}, { env: {} }), /one case launch per witness/);
+});
+
+test('J4.b witness: the response-lost journal derives the stopped-writer proof and, with one saved row each, confirms the rows', async (t) => {
+    const { w, token } = await witnessRun(t, { list: entries(responseLost), fault: 'response-lost' });
+    assert.ok(readJ4aStoppedWriters(token, { binding: BINDING, runId: RUN, owner: OWNER }));
+    w.observeTakes([{ id: T1, status: 'completed' }, { id: T2, status: 'completed' }]);
+    assert.equal(w.verdict().verdict, 'CONFIRMED');
+    // The Retry after a committed save must not add a row: two rows for the lost take hold the leg.
+    w.observeTakes([{ id: T1, status: 'completed' }, { id: T1, status: 'completed' }, { id: T2, status: 'completed' }]);
+    assert.match(w.verdict().reason, /reads back 2 time/);
+    // A J4.a journal under the J4.b witness issues no token and holds the rows.
+    const crossed = await witnessRun(t, { fault: 'response-lost' });
+    assert.equal(readJ4aStoppedWriters(crossed.token, { binding: BINDING, runId: RUN, owner: OWNER }), null);
+    assert.equal(crossed.w.gate({ assertions: [] }).j4aSaveWitness.verdict, 'HOLD');
 });
 
 test('witness: missing proof holds the save rows and issues no stopped-writer token', async (t) => {

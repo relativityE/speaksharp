@@ -61,7 +61,22 @@ function parseJournal(bytes, token) {
  * The save path, from the journal's entries for one binding and run. Resolves { verdict: 'CONFIRMED', boundSession, droppedSave,
  * savedSessions } or { verdict: 'HOLD', reason }.
  */
-function decideSavePath(entries, { binding, runId }) {
+// The two planned save faults (journey plan J4). J4.a: the request never leaves the page (no upstream, no terminal). J4.b: the
+// request reaches the server, which commits one row and answers; the guard records that confirmed answer but never hands it to the
+// page (`pageAnswered: false`). Either way the page saw no answer, and one explicit Retry follows.
+const SAVE_FAULTS = Object.freeze({
+    'request-lost': Object.freeze({ decision: 'planned-request-lost',
+        dropped: (e) => e.upstreamStarted === false && e.terminal === null,
+        refusal: 'the lost save may have left: its upstream was not proven unstarted' }),
+    'response-lost': Object.freeze({ decision: 'planned-response-lost',
+        dropped: (e) => e.upstreamStarted === true && e.terminal?.attempt === e.attempt && e.terminal.backendConfirmed === true
+            && e.terminal.savedRowCount === 1 && e.terminal.pageAnswered === false,
+        refusal: 'the lost answer was not proven: the server\'s confirmed single row, withheld from the page, is missing' }),
+});
+
+function decideSavePath(entries, { binding, runId, fault = 'request-lost' }) {
+    const planned = Object.hasOwn(SAVE_FAULTS, fault) ? SAVE_FAULTS[fault] : null;
+    if (!planned) return hold('no planned save fault for this witness');
     if (!Array.isArray(entries)) return hold('no save journal entries');
     if (!SHA.test(binding ?? '') || typeof runId !== 'string' || !runId) return hold('no bound run for the save journal');
     const seen = new Set();
@@ -73,10 +88,12 @@ function decideSavePath(entries, { binding, runId }) {
         if (![...WRITER_KINDS, 'retry-intent'].includes(e.kind)) return hold('a save journal entry has an unknown kind');
         if ((e.kind === 'save' || e.kind === 'retry-intent') && !SHA.test(e.session ?? '')) return hold('a save or Retry names no take');
     }
-    const drops = entries.filter((e) => e.kind === 'save' && e.decision === 'planned-request-lost');
+    const other = Object.values(SAVE_FAULTS).find((f) => f !== planned).decision;
+    if (entries.some((e) => e.decision === other)) return hold('the journal names the other planned save fault');
+    const drops = entries.filter((e) => e.kind === 'save' && e.decision === planned.decision);
     if (drops.length !== 1) return hold(`expected exactly one lost save, saw ${drops.length}`);
     const [drop] = drops;
-    if (drop.upstreamStarted !== false || drop.terminal !== null) return hold('the lost save may have left: its upstream was not proven unstarted');
+    if (!planned.dropped(drop)) return hold(planned.refusal);
     const confirmed = (e) => e.decision === 'forwarded' && e.upstreamStarted === true && e.terminal?.attempt === e.attempt
         && e.terminal.backendConfirmed === true && e.terminal.savedRowCount === 1;
     const retries = entries.filter((e) => e.kind === 'retry-intent');
@@ -144,8 +161,9 @@ function supervisorClose(r, summary) {
  *   - `observeTakes(rows)`: teardown's own takes read for the bound owner, before any delete;
  *   - `gate(result)`: the case result with the save rows held unless save path, stopped writer and takes all agree.
  */
-function j4aSaveWitness({ dir, now = Date.now } = {}) {
+function j4aSaveWitness({ dir, now = Date.now, fault: saveFault = 'request-lost' } = {}) {
     if (typeof dir !== 'string' || !path.isAbsolute(dir)) throw new Error('the J4.a save witness needs an absolute private directory');
+    if (!Object.hasOwn(SAVE_FAULTS, saveFault)) throw new Error('the save witness needs a planned save fault (request-lost or response-lost)');
     const state = { armed: null, launches: 0, close: null, sealed: null, save: null, writer: null, takes: null, faults: [] };
     const fault = (why) => { state.faults.push(why); };
 
@@ -192,10 +210,10 @@ function j4aSaveWitness({ dir, now = Date.now } = {}) {
         const intact = Buffer.isBuffer(bytes) && sha(bytes) === state.sealed.sha256;
         const parsed = intact ? parseJournal(bytes, state.armed.token) : { hold: 'the save journal changed after it was sealed' };
         if (parsed.hold) { state.save = hold(parsed.hold); return null; }
-        state.save = decideSavePath(parsed.entries, { binding, runId });
+        state.save = decideSavePath(parsed.entries, { binding, runId, fault: saveFault });
         if (state.save.verdict !== 'CONFIRMED') return null;
         const identity = { binding, runId, owner };
-        const token = verifyJ4aStoppedWriters({ ...identity, droppedSave: state.save.droppedSave }, {
+        const token = verifyJ4aStoppedWriters({ ...identity, droppedSave: state.save.droppedSave, fault: saveFault }, {
             ...identity, ...state.close, writersClosedAt: state.sealed.writersClosedAt,
         }, {
             ...identity, armedBeforeLaunch: true, closedAfterLastWriter: true, integrityVerified: true,
@@ -225,4 +243,4 @@ function j4aSaveWitness({ dir, now = Date.now } = {}) {
     return Object.freeze({ commandRunner, verifier, observeTakes, gate, verdict });
 }
 
-module.exports = { SAVE_ROWS, SCHEMA, decideSavePath, decideTakes, j4aSaveWitness, parseJournal, supervisorClose };
+module.exports = { SAVE_FAULTS, SAVE_ROWS, SCHEMA, decideSavePath, decideTakes, j4aSaveWitness, parseJournal, supervisorClose };
