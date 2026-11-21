@@ -15,7 +15,7 @@
 //   * SERVER STATE   — transcript_state is derived server-side and cannot be asserted by a client.
 //
 // Content-free: synthetic strings only, no real transcript text.
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach, afterAll } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { executableText } from '../deps/lib/source-text';
@@ -40,8 +40,11 @@ function clientCompleteSessionArgNames(): string[] {
 // The PGlite schema, migrations and completion call live in one shared module so the round-trip suite
 // (transcript-authority-round-trip) exercises the SAME environment rather than a drifting copy.
 import {
-  U, OTHER, sid, REC, db0, actingAs, newSession, complete, transcriptBearingCount, row,
+  U, OTHER, sid, REC, db0, actingAs, newSession, complete, transcriptBearingCount, row, closeCompletionDbs,
 } from './helpers/completionEnv';
+
+afterEach(() => closeCompletionDbs());
+afterAll(() => closeCompletionDbs({ template: true }));
 
 describe('#1314 atomic completion — the transcript is persisted with the metrics, in one transaction', () => {
   it('persists transcript, metrics, filler snapshot, next action, duration and status together', async () => {
