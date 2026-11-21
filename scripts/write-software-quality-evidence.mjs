@@ -224,7 +224,7 @@ try {
   if (process.argv.slice(2).some(arg=>arg!=='--service-levels')) throw new Error('Unknown quality evidence argument');
   ({COVERAGE_RELEASE_FLOOR,assertSoftwareQualityEvidence,parseCiAuditOverride}=await import('./lib/softwareQualityEvidenceQualification.mjs'));
   const {runTestEfficacy,runVitestExecution,runNativeExecution,runPythonExecution}=await import('./run-test-efficacy.mjs');
-  const {executionContext,changedEvidencePaths,executionCoverage,resolveComparisonBase}=await import('./lib/testExecutionEvidence.mjs');
+  const {executionContext,changedEvidencePaths,executionCoverage,requiredSmokeExecution,resolveComparisonBase}=await import('./lib/testExecutionEvidence.mjs');
   const {collectPlaywrightExecution}=await import('./lib/playwrightExecutionEvidence.mjs');
   // Standalone local writes get a new identity; consumers must receive this identity from the
   // invoking controller, never adopt it from the receipt they are trying to validate.
@@ -248,8 +248,12 @@ try {
   const changed=changedEvidencePaths(process.cwd(),process.env.TEST_EFFICACY_BASE);
   evidence.playwrightExecution=collectPlaywrightExecution({root:process.cwd(),expected:provenance,
     requiredFiles:changed.filter(file=>/^tests\/e2e\/.+\.spec\.[jt]s$/.test(file))});
+  if (requiredSmokeExecution(process.cwd(),process.env.TEST_EFFICACY_BASE)) {
+    const {collectSmokeExecution}=await import('./j1d-smoke/ciEvidence.mjs');
+    evidence.smokeExecution=collectSmokeExecution({root:process.cwd(),expected:provenance});
+  }
   evidence.executionCoverage=executionCoverage(changedEvidencePaths(process.cwd(),process.env.TEST_EFFICACY_BASE),
-    {root:process.cwd(),expected:provenance,pilot:evidence.testEfficacy,execution:evidence.testExecution,native:evidence.nativeTestExecution,python:evidence.pythonTestExecution,playwright:evidence.playwrightExecution,base:process.env.TEST_EFFICACY_BASE});
+    {root:process.cwd(),expected:provenance,pilot:evidence.testEfficacy,execution:evidence.testExecution,native:evidence.nativeTestExecution,python:evidence.pythonTestExecution,playwright:evidence.playwrightExecution,smoke:evidence.smokeExecution,base:process.env.TEST_EFFICACY_BASE});
   evidence.overallStatus=evidence.executionCoverage.status==='COMPLETE'?'QUALIFIED':'UNQUALIFIED';
   evidence.trust='candidate-controlled observation; independent checker/runtime isolation not established';
   if (evidence.run.source === 'github-actions' && evidence.run.commitSha !== evidence.testEfficacy.commit) {

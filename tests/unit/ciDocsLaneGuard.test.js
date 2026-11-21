@@ -193,7 +193,15 @@ describe('docs-lane workflow wiring', () => {
     // Codex P1 on e302468: with rename detection, code renamed to Markdown listed only the Markdown destination.
     const diffLine = (job, name) => jobs[job].steps.find((s) => s.name === name).run.split('\n')
       .map((l) => l.trim()).find((l) => l.startsWith('git diff') && l.includes('changed.txt'));
-    const lines = [diffLine('scope', 'Resolve Changed Files'), diffLine('docs-evidence', 'Re-derive The Docs Lane On This Checkout')];
+    const lines = [diffLine('docs-evidence', 'Re-derive The Docs Lane On This Checkout')];
+    // The scope job resolves the same diff in Node (resolveCiComparison, shared with the quality writer); take its exact git
+    // arguments from the step and run them below against the same real-git rename.
+    const scopeRun = jobs.scope.steps.find((s) => s.id === 'smoke_scope').run;
+    const scopeCall = scopeRun.match(/git\('diff',((?:'[^']*',)+)base,head\)/);
+    expect(scopeCall, 'scope step computes changed.txt from one git diff call').not.toBeNull();
+    const scopeArgs = [...scopeCall[1].matchAll(/'([^']*)'/g)].map((m) => m[1]);
+    expect(scopeArgs).toEqual(['--no-renames', '--name-only', '-z']);
+    expect(scopeRun).toContain('changed.txt');
     const repo = mkdtempSync(join(tmpdir(), 'docs-lane-rename-'));
     const git = (...args) => spawnSync('git', args, { cwd: repo, encoding: 'utf8',
       env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } });
@@ -206,6 +214,11 @@ describe('docs-lane workflow wiring', () => {
       const base = git('rev-parse', 'HEAD').stdout.trim();
       mkdirSync(join(repo, 'docs'), { recursive: true });
       git('mv', 'tests/e2e/flow.e2e.spec.ts', 'docs/retired.md'); git('commit', '-qm', 'rename');
+      const scoped = git('diff', ...scopeArgs, base, 'HEAD');
+      expect(scoped.status).toBe(0);
+      const scopeChanged = scoped.stdout.split('\0').filter(Boolean);
+      expect(scopeChanged.sort()).toEqual(['docs/retired.md', 'tests/e2e/flow.e2e.spec.ts']);
+      expect(isDocsLaneChange(scopeChanged)).toBe(false);
       for (const line of lines) {
         expect(line).toContain('--no-renames');
         const out = spawnSync('bash', ['-c', `set -euo pipefail; ${line}; cat "$RUNNER_TEMP/changed.txt"`],

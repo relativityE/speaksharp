@@ -144,7 +144,7 @@ export function replayBlobLifecycle(jsonl,{repositoryRoot,shard,commit}={}) {
 
 // The wrapper retains the original immutable ZIP so later synchronous quality
 // consumers can independently reopen it, rather than trusting a collector's totals.
-function replayEmbeddedBlob(root,bytes) {
+export function replayEmbeddedBlob(root,bytes) {
   if(!Buffer.isBuffer(bytes) || !bytes.length || bytes.length>MAX_BLOB_BYTES)throw new Error('Invalid embedded blob');
   const child=spawnSync(process.execPath,[fileURLToPath(import.meta.url),'--decode-blob',root],{
     input:bytes,encoding:'utf8',timeout:15000,maxBuffer:MAX_REPORT_BYTES+1024,
@@ -240,7 +240,7 @@ export function collectPlaywrightExecution({root,expected,requiredFiles}={}) {
   return wrapper;
 }
 
-function readArtifact(root,file,limit) {
+export function readArtifact(root,file,limit) {
   const target=path.join(root,file);
   const stat=fs.lstatSync(target);
   if(!stat.isFile() || fs.realpathSync(target)!==target || stat.size>limit)throw new Error('Aliased or oversized original shard artifact');

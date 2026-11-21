@@ -50,25 +50,36 @@ jobs:
       frontend_changed: ${{ steps.classify.outputs.frontend_changed }}
       edge_changed: ${{ steps.classify.outputs.edge_changed }}
       e2e_required: ${{ steps.classify.outputs.e2e_required }}
+      j1d_smoke_required: ${{ steps.smoke_scope.outputs.required }}
+      comparison_base: ${{ steps.smoke_scope.outputs.base }}
+      comparison_head: ${{ steps.smoke_scope.outputs.head }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      # #1837: --no-renames lists BOTH sides of a rename or copy. With rename detection on, a file moved from
-      # code to Markdown would list only its Markdown destination and could pass for a docs-only change.
-      - name: Resolve Changed Files
-        shell: bash
+      - name: Bind disposable smoke scope and quality comparison to this checkout
+        id: smoke_scope
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          TEST_EFFICACY_EVENT_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          TEST_EFFICACY_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.number }}
         run: |
-          set -euo pipefail
-          if [[ -n "${BASE_SHA:-}" ]] && ! [[ "$BASE_SHA" =~ ^0+$ ]]; then
-            git diff --no-renames --name-only "$BASE_SHA"...HEAD > "$RUNNER_TEMP/changed.txt" || : > "$RUNNER_TEMP/changed.txt"
-          else
-            : > "$RUNNER_TEMP/changed.txt"
-          fi
+          node --input-type=module <<'NODE'
+          import { execFileSync } from 'node:child_process';
+          import { appendFileSync, writeFileSync } from 'node:fs';
+          import { resolveCiComparison } from './scripts/lib/testExecutionEvidence.mjs';
+          import { smokeAffected } from './scripts/j1d-smoke/smokeEvidence.mjs';
+          const git = (...args) => execFileSync('git', args, {encoding:'utf8'}).trim();
+          const {base,head} = resolveCiComparison(process.cwd());
+          // Keep BOTH sides of a rename; downstream scope classifier reads one path per line.
+          const changed = git('diff','--no-renames','--name-only','-z',base,head).split('\0').filter(Boolean);
+          if (changed.some(file => /[\r\n]/.test(file))) throw new Error('Unsafe CI comparison path');
+          writeFileSync(`${process.env.RUNNER_TEMP}/changed.txt`, changed.join('\n') + '\n');
+          appendFileSync(process.env.GITHUB_OUTPUT,`base=${base}\nhead=${head}\nrequired=${smokeAffected(changed)}\n`);
+          NODE
 
       # #1837 docs lane (drafts only): a DRAFT PR that changes only docs-lane Markdown is a CANDIDATE. It takes
       # the docs lane only if the guard below shows, on this checkout, that no job the docs lane skips reads a
@@ -80,7 +91,7 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           IS_DRAFT: ${{ github.event.pull_request.draft || false }}
-          FORCE_FULL: ${{ github.event.inputs.force_full || false }}
+          FORCE_FULL: ${{ steps.smoke_scope.outputs.required == 'true' || github.event.inputs.force_full || false }}
         run: node scripts/ci-change-scope.mjs "$RUNNER_TEMP/changed.txt"
 
       - name: Setup Environment (docs-lane guard)
@@ -109,7 +120,7 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           IS_DRAFT: ${{ github.event.pull_request.draft || false }}
-          FORCE_FULL: ${{ github.event.inputs.force_full || false }}
+          FORCE_FULL: ${{ steps.smoke_scope.outputs.required == 'true' || github.event.inputs.force_full || false }}
           DOCS_LANE_CONFIRMED: ${{ steps.docs_guard.outputs.confirmed == 'true' }}
         run: node scripts/ci-change-scope.mjs "$RUNNER_TEMP/changed.txt"
 
@@ -767,9 +778,16 @@ jobs:
   # Heavy evidence generation for the FULL lane. It installs dependencies because it genuinely needs
   # them (playwright merge-reports, ci:report:github, aggregate-ci, report-ci-timing). Splitting this
   # out keeps the required `report` gate thin AND keeps evidence inside the acceptance result.
+  j1d-smoke:
+    needs: scope
+    if: needs.scope.outputs.j1d_smoke_required == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    permissions:
+      contents: read
+    uses: ./.github/workflows/j1d-reserved-namespace-smoke.yml
+
   full-evidence:
     name: full-evidence
-    needs: [scope, unit-coverage-merge, edge-tests, build, health-check, e2e, lighthouse-advisory]
+    needs: [scope, unit-coverage-merge, edge-tests, build, health-check, e2e, lighthouse-advisory, j1d-smoke]
     if: always() && !cancelled() && needs.scope.outputs.full_required == 'true'
     # The cloud-test browser baseline is Chrome >=156 with no download/install.
     # ubuntu-24.04's rolling pool can still assign image 20261018.96.1 (Chrome 155),
@@ -784,8 +802,13 @@ jobs:
           BUILD: ${{ needs.build.result }}
           HEALTH: ${{ needs.health-check.result }}
           E2E: ${{ needs.e2e.result }}
+          SMOKE_EXPECTED: ${{ needs.scope.outputs.j1d_smoke_required }}
+          SMOKE_RESULT: ${{ needs.j1d-smoke.result }}
         run: |
           set -euo pipefail
+          if [ "$SMOKE_EXPECTED" = true ] && [ "$SMOKE_RESULT" != success ]; then
+            echo '::error::required disposable smoke did not succeed (including skipped fork proof)'; exit 1
+          fi
           echo "unit=$UNIT edge=$EDGE build=$BUILD health=$HEALTH e2e=$E2E"
           for r in "$UNIT" "$EDGE" "$BUILD" "$HEALTH" "$E2E"; do
             [[ "$r" == "success" ]] || { echo "::error::upstream job failed; skipping evidence aggregation"; exit 1; }
@@ -865,7 +888,7 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           path: artifacts
-          pattern: '{unit-artifacts,build-artifacts,shard-report-*,ux-review-screenshots-shard-*,lighthouse-report}'
+          pattern: '{unit-artifacts,build-artifacts,shard-report-*,ux-review-screenshots-shard-*,lighthouse-report,j1d-smoke-evidence-${{ github.run_id }}-${{ github.run_attempt }}}'
 
       - name: Summarise Downloaded Artifacts
         run: find artifacts -maxdepth 2 -type d -print
@@ -900,7 +923,7 @@ jobs:
           # shard-1/ assertion). Missing, duplicate or ambiguous shard reports are rejected.
           shard_error=0
           for shard in 1 2 3 4; do
-            matches=$(find artifacts -type f -name "report-*${shard}.zip" ! -path 'artifacts/playwright/*' | sort)
+            matches=$(find "artifacts/shard-report-${shard}/blob-report" -type f -name "report-*${shard}.zip" | sort)
             count=$(printf '%s\n' "$matches" | grep -c . || true)
             if [ "$count" -eq 0 ]; then
               echo "::error::no Playwright report found for shard ${shard}"; shard_error=1; continue
@@ -1000,16 +1023,23 @@ jobs:
 
       - name: Resolve exact efficacy comparison base
         env:
-          TEST_EFFICACY_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          TEST_EFFICACY_BASE: ${{ needs.scope.outputs.comparison_base }}
+          TEST_EFFICACY_HEAD: ${{ needs.scope.outputs.comparison_head }}
+          TEST_EFFICACY_EVENT_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
           TEST_EFFICACY_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.number }}
         shell: bash
         run: |
           set -euo pipefail
           node --input-type=module <<'NODE'
           const { appendFileSync } = await import('node:fs');
-          const { resolveComparisonBase } = await import('./scripts/lib/testExecutionEvidence.mjs');
-          const comparisonBase = resolveComparisonBase(process.cwd());
-          appendFileSync(process.env.GITHUB_ENV, `TEST_EFFICACY_BASE=${comparisonBase}\n`);
+          const { resolveCiComparison } = await import('./scripts/lib/testExecutionEvidence.mjs');
+          const {base,head} = resolveCiComparison(process.cwd());
+          if (head !== process.env.TEST_EFFICACY_HEAD || base !== process.env.TEST_EFFICACY_BASE) {
+            throw new Error('Unbound scope/quality comparison');
+          }
+          appendFileSync(process.env.GITHUB_ENV, `TEST_EFFICACY_BASE=${base}\n`);
           NODE
 
       - name: Generate qualified software quality evidence
