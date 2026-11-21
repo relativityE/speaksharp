@@ -99,7 +99,8 @@ export type OmissionForm = 'none' | 'past_claim' | 'implied_point' | 'present_po
 const PAST_CLAIM = /\b(missed|skipped|forgot|forgotten|omitted|overlooked)\b|\bleft\s+(?:(?:it|them|that|this)\s+)?out\b|\b(?:didn'?t|did\s+not|never)\s+(?:mention|cover|say|address|include|get\s+to)\b|\b(?:never|(?:was|were)(?:n'?t|\s+not|\s+never)|(?:has|have)(?:n'?t|\s+not|\s+never)(?:\s+been)?)\s+(?:mentioned|covered|said|addressed|included|got\s+to)\b|\bwent\s+unmentioned\b/i;
 const IMPERATIVE_OMIT = /\b(?:don'?t|do\s+not|never|avoid)\s+(?:skip(?:ping)?|miss(?:ing)?|forget(?:ting)?|leav(?:e|ing)\s+out|omit(?:ting)?)\b/i;
 const PRESENT_MISSING = /\b(?:is|are|was|were|still)\s+missing\b|\bmissing\s+(?:the|your)\b/i;
-const OMISSION_WORD = /\b(?:miss\w*|skip\w*|forg[eo]t\w*|left\s+out|leav\w*\s+out|omit\w*|unmentioned)\b/i;
+// Codex P2 on 01363817: the verbs' own inflections only, so `mission`, `skipper` or `omittance`-like words never match.
+const OMISSION_WORD = /\b(?:miss(?:es|ed|ing)?|skip(?:s|ped|ping)?|forg(?:et|ets|etting|ot|otten)|left\s+out|leav(?:e|es|ing)\s+out|omit(?:s|ted|ting)?|unmentioned)\b/i;
 export function omissionClaimVerdict(o: { well: string; next: string; labels: readonly string[] | null }): Verdict & { form: OmissionForm } {
     const labelWords = (o.labels ?? []).flatMap((label) => norm(label).split(/[^a-z0-9']+/).filter((w) => w.length >= 4 && !STOPWORDS.has(w)));
     const namesPoint = (clause: string) => labelWords.some((w) => new RegExp(`\\b${w}`).test(norm(clause)));

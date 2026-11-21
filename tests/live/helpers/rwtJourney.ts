@@ -2561,8 +2561,9 @@ export async function focusCoachingRows(
         { wellWords: countWords(well), nextWords: countWords(next), withinTarget });
     const distinct = normalisePhraseText(well) !== normalisePhraseText(next);
     receipt.row('Focus coaching distinct', distinct ? 'PASS' : 'FAIL', distinct ? 'two different suggestions' : 'both headings show the same phrase');
-    // Live run 44941790511: the old word match failed harmless advice ("skip the filler words") and kept no phrase. The verdict
-    // tells a stated or implied omission of a chosen point from unrelated wording; the receipt keeps only its closed form token.
+    // Live run 44941790511 failed the old word match and kept no phrase, so its cause is unknown; that match also failed harmless
+    // advice such as "skip the filler words" (an example of a false positive, not the observed phrase). The verdict tells a stated
+    // or implied omission of a chosen point from unrelated wording; the receipt keeps only its closed form token.
     const omission = omissionClaimVerdict({ well, next, labels: request.openPoints?.labels ?? null });
     receipt.row('Focus coaching makes no omission claim', omission.status, omission.detail, { form: omission.form });
     // #1258 R4: the provider schema's own ceiling, and an evident reference to a point that is still open (never a FAIL on

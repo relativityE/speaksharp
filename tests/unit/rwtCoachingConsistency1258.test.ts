@@ -162,6 +162,14 @@ describe('omissionClaimVerdict — J3 advice that asserts a point was missed vs 
         // The same wording with no labels to judge it is HOLD, never PASS.
         expect(verdict('You skip the launch date.', null)).toMatchObject({ status: 'HOLD', form: 'unknown_point' });
     });
+    it('PASS: words that only start like an omission verb are not omission wording (Codex P2 on 01363817)', () => {
+        const withMission = ['Mission statement', 'Launch date'];
+        for (const next of ['Your mission statement was clear and well paced.', 'Name the mission statement before the launch date.']) {
+            expect(verdict(next, withMission)).toMatchObject({ status: 'PASS', form: 'none' });
+        }
+        // The real inflections still count.
+        expect(verdict('You keep missing the mission statement.', withMission)).toMatchObject({ status: 'FAIL', form: 'present_point' });
+    });
     it('PASS: omission words that are not about any chosen point, and advice with none', () => {
         for (const next of ['Skip the filler words between points.', "Don't miss a breath before the close.", 'Avoid skipping transitions.']) {
             expect(verdict(next)).toMatchObject({ status: 'PASS', form: 'unrelated' });
