@@ -116,10 +116,17 @@ export const BOOTSTRAP = `
 `;
 
 /** One fresh database with exactly the schema this environment models: the bootstrap, then the migrations in order. */
-export async function buildCompletionDb(steps: readonly string[] = [BOOTSTRAP, STAGE_A, ATOMIC, PRODUCT_MARKER_TABLE]): Promise<PGlite> {
-  const db = new PGlite();
-  for (const sql of steps) await db.exec(sql);
-  return db;
+export async function buildCompletionDb(steps: readonly string[] = [BOOTSTRAP, STAGE_A, ATOMIC, PRODUCT_MARKER_TABLE],
+  create: () => PGlite = () => new PGlite()): Promise<PGlite> {
+  const db = create();
+  try {
+    for (const sql of steps) await db.exec(sql);
+    return db;
+  } catch (setupError) {
+    // Never leak the handle; the original setup error is what the caller sees, whatever closing does.
+    await db.close().catch(() => undefined);
+    throw setupError;
+  }
 }
 
 // One migrated template per test file (each file is its own module instance), built on first use. Every db0() is an
@@ -138,12 +145,16 @@ export async function db0(): Promise<PGlite> {
 
 /** Close every clone handed out since the last call (afterEach), and the template too when the file ends (afterAll). */
 export async function closeCompletionDbs({ template: closeTemplate = false } = {}): Promise<void> {
-  while (opened.length) await opened.pop()!.close();
+  // Drain every owned handle even if one close fails, then report the first close failure.
+  const handles = opened.splice(0);
   if (closeTemplate && template) {
-    const built = await template.catch(() => null);
+    const built = await template.catch(() => null); // a failed build already closed its own handle
     template = null;
-    await built?.close();
+    if (built) handles.push(built);
   }
+  const results = await Promise.allSettled(handles.map((db) => db.close()));
+  const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+  if (failed) throw failed.reason;
 }
 
 export async function actingAs(db: PGlite, uid: string) { await db.query(`UPDATE public.auth_ctx SET uid = $1`, [uid]); }

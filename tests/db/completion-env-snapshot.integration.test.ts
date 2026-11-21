@@ -6,7 +6,8 @@
 //   - fidelity: a clone carries the real schema, so a constraint the suites rely on still refuses, and the same steps
 //     with that constraint removed accept the forbidden write (the planted break a cloned suite must still catch).
 // Content-free: synthetic strings only.
-import { describe, it, expect, afterEach, afterAll } from 'vitest';
+import { describe, it, expect, afterEach, afterAll, vi } from 'vitest';
+import { PGlite } from '@electric-sql/pglite';
 import {
   U, OTHER, BOOTSTRAP, STAGE_A, ATOMIC, PRODUCT_MARKER_TABLE, db0, buildCompletionDb, actingAs, newSession, complete,
   closeCompletionDbs,
@@ -58,5 +59,23 @@ describe('completion environment: each db0() is an isolated clone of one migrate
     try {
       await expect(forceExpiredWithText(broken)).resolves.toMatchObject({ affectedRows: 1 });
     } finally { await broken.close(); }
+  });
+
+  it('a setup step that throws closes its own handle and surfaces the original setup error', async () => {
+    let created: PGlite | null = null;
+    await expect(buildCompletionDb([BOOTSTRAP, 'PLANTED SETUP FAILURE'], () => (created = new PGlite())))
+      .rejects.toThrow(/syntax error at or near "PLANTED"/);
+    expect(created).not.toBeNull();
+    expect(created!.closed).toBe(true);
+  });
+
+  it('a clone that fails to close does not stop the others from closing, and the failure is reported', async () => {
+    const a = await db0();
+    const b = await db0();
+    const failing = vi.spyOn(a, 'close').mockRejectedValueOnce(new Error('planted close failure'));
+    await expect(closeCompletionDbs()).rejects.toThrow('planted close failure');
+    expect(b.closed).toBe(true);
+    failing.mockRestore();
+    await a.close();
   });
 });
