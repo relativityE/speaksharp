@@ -154,6 +154,14 @@ describe('omissionClaimVerdict — J3 advice that asserts a point was missed vs 
         expect(verdict('Never forget the launch date.')).toMatchObject({ status: 'FAIL', form: 'implied_point' });
         expect(verdict('The pricing tiers are still missing.')).toMatchObject({ status: 'FAIL', form: 'present_point' });
     });
+    it('FAIL: affirmative and attributive omission wording that names a chosen point (Codex P2 on 2b407b8f)', () => {
+        for (const next of ['You skip the launch date.', 'The missing guarantee needs a mention.', 'You skip past the pricing tiers.',
+            'Leaving out the launch date weakens the close.']) {
+            expect(verdict(next)).toMatchObject({ status: 'FAIL', form: 'present_point' });
+        }
+        // The same wording with no labels to judge it is HOLD, never PASS.
+        expect(verdict('You skip the launch date.', null)).toMatchObject({ status: 'HOLD', form: 'unknown_point' });
+    });
     it('PASS: omission words that are not about any chosen point, and advice with none', () => {
         for (const next of ['Skip the filler words between points.', "Don't miss a breath before the close.", 'Avoid skipping transitions.']) {
             expect(verdict(next)).toMatchObject({ status: 'PASS', form: 'unrelated' });

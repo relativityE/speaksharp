@@ -116,7 +116,12 @@ export function omissionClaimVerdict(o: { well: string; next: string; labels: re
             else take('unrelated');
             continue;
         }
-        if (OMISSION_WORD.test(clause)) take('unrelated');
+        // Codex P2 on 2b407b8f: an affirmative or attributive claim ("You skip the launch date", "The missing guarantee…")
+        // is judged like the forms above: naming a chosen point FAILs, unknown labels HOLD; only unrelated wording passes.
+        if (OMISSION_WORD.test(clause)) {
+            if (o.labels === null || labelWords.length === 0) take('unknown_point');
+            else take(namesPoint(clause) ? 'present_point' : 'unrelated');
+        }
     }
     if (form === 'past_claim' || form === 'implied_point' || form === 'present_point') {
         return { status: 'FAIL', form, detail: `the advice asserts an omission (${form}); the matcher cannot know a point was missed` };
