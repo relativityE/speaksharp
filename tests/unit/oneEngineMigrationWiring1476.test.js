@@ -64,6 +64,7 @@ describe('#1476 migration is wired into the exact allowlisted apply path', () =>
     });
 
     it('pins the FINAL byte hash of the file in the tree', () => {
+        expect.assertions(1);
         assertMigrationBytePin(resolve(SUPABASE, 'migrations', FILE), entry.sha256);
     });
 
@@ -75,6 +76,7 @@ describe('#1476 migration is wired into the exact allowlisted apply path', () =>
     });
 
     it('a dry-run is accepted only when it would push this target alone', () => {
+        expect.assertions(2);
         assertTargetOnlyDryRunCases(FILE, ACTIVATION.file, config);
     });
 

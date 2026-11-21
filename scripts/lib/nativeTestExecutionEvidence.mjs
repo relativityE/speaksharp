@@ -10,6 +10,7 @@ import {spawnSync} from 'node:child_process';
 const hash=value=>createHash('sha256').update(value).digest('hex');
 export const NATIVE_REPORTER='scripts/lib/nativeTestExecutionEvidence.mjs';
 export const PROOF_CASES_TEST='tools/cloud-test/tests/node/proof/harness-fixes-r15.offline.test.cjs';
+export const MODEL_PRIVACY_BROWSER_TEST='tests/model-dropin/errorContextPrivacy.node.test.mjs';
 export const REAL_BROWSER_TEST='tools/cloud-test/tests/node/proof/real-browser-r15.test.cjs';
 export const SQL_CONSUMER='tests/unit/accountCompletionBillingSettlement.test.ts';
 export const SQL_INPUTS=Object.freeze([
@@ -443,7 +444,7 @@ export function nativeEnvironment(cwd,environment) {
     TMPDIR:temporary,TMP:temporary,TEMP:temporary,LANG:'C.UTF-8',LC_ALL:'C.UTF-8',TZ:'UTC',CI:'true',NODE_ENV:'test'};
 }
 export function nativeBrowserBinding(contract,environment) {
-  if(contract.testFile!==REAL_BROWSER_TEST)return null;
+  if(![REAL_BROWSER_TEST,MODEL_PRIVACY_BROWSER_TEST].includes(contract.testFile))return null;
   const file=environment?.CT_CHROME;
   try {
     if(typeof file!=='string'||!path.isAbsolute(file)||fs.realpathSync(file)!==file||!fs.lstatSync(file).isFile())throw new Error();

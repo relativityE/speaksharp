@@ -61,10 +61,12 @@ describe('#1258 P0 typed-expiry follow-up is wired into the exact allowlisted ap
     });
 
     it('is allowlisted as staged, directly after 20261013120000, before the held commercial-activation entry', () => {
+        expect.assertions(3);
         assertStagedMigrationOrder(FILE, VERSION, PREVIOUS, ACTIVATION);
     });
 
     it('pins the FINAL byte hash of the file in the tree', () => {
+        expect.assertions(1);
         assertMigrationBytePin(resolve(SUPABASE, 'migrations', FILE), entry.sha256);
     });
 
@@ -76,6 +78,7 @@ describe('#1258 P0 typed-expiry follow-up is wired into the exact allowlisted ap
     });
 
     it('a dry-run is accepted only when it would push this target alone', () => {
+        expect.assertions(2);
         assertTargetOnlyDryRunCases(FILE, ACTIVATION.file, config);
     });
 

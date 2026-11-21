@@ -64,10 +64,12 @@ describe('trial-capability migration is wired into the exact allowlisted apply p
     });
 
     it('is allowlisted as staged, directly after #1258, before the held commercial-activation entry', () => {
+        expect.assertions(3);
         assertStagedMigrationOrder(FILE, VERSION, PREVIOUS, ACTIVATION);
     });
 
     it('pins the FINAL byte hash of the file in the tree', () => {
+        expect.assertions(1);
         assertMigrationBytePin(resolve(SUPABASE, 'migrations', FILE), entry.sha256);
     });
 
@@ -79,6 +81,7 @@ describe('trial-capability migration is wired into the exact allowlisted apply p
     });
 
     it('a dry-run is accepted only when it would push this target alone', () => {
+        expect.assertions(2);
         assertTargetOnlyDryRunCases(FILE, ACTIVATION.file, config);
     });
 
