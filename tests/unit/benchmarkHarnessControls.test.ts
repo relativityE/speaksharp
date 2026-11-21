@@ -1006,6 +1006,47 @@ describe('#1916 review hold (Sam): the caller\'s consent readback runs inside th
         } finally { release(); vi.useRealTimers(); }
     });
 
+    it('ordinary Start: a slow refusal (longer than the whole control budget) → zero clicks, guard removed, the HOLD propagates unchanged', async () => {
+        const release = applyHumanReflex(reflexInstallPage, 500);
+        vi.useFakeTimers();
+        renderState('ready');
+        const seen: Array<{ clicks: number; guards: number; status: string | null }> = [];
+        try {
+            // The server read takes 9 s, then reports the choice withdrawn: the refusal, not a budget timeout, decides.
+            const slowRefusal = async () => {
+                await new Promise((resolve) => setTimeout(resolve, 9_000));
+                await readback({ choice: 'withdrawn' }, seen)();
+            };
+            const outcome = startBenchmarkRecording(page, 'slow-refusal', undefined, { beforeClick: slowRefusal })
+                .then(() => null, (error: unknown) => error);
+            await vi.advanceTimersByTimeAsync(9_600);
+            expect(await outcome).toBe(WITHDRAWN); // the caller's own error object, never wrapped as a start failure
+            expect(seen).toEqual([{ clicks: 0, guards: 1, status: 'ready' }]);
+            expect(clicked).toEqual([]);
+            expect(installed.size).toBe(0);
+            expect(document.querySelector('[data-testid="mic-start"]')).not.toBeNull(); // nothing was started
+        } finally { release(); vi.useRealTimers(); }
+    });
+
+    it('ordinary Start: a control already out of time still fails with a readback in place → the readback runs, zero clicks, budget expired', async () => {
+        const release = applyHumanReflex(reflexInstallPage, 500);
+        vi.useFakeTimers();
+        renderState('ready');
+        // Readiness takes 7.8 s and the reflex 0.5 s: the 8 s control budget is gone before the readback starts. The
+        // readback's own time is added back, but only that: nothing restores the time already spent.
+        afterReadinessObservation = () => { vi.advanceTimersByTime(7_800); };
+        const seen: Array<{ clicks: number; guards: number; status: string | null }> = [];
+        try {
+            const outcome = startBenchmarkRecording(page, 'out-of-time-with-readback', undefined, { beforeClick: readback({ choice: 'yes' }, seen) })
+                .then(() => null, (error: Error) => error);
+            await vi.advanceTimersByTimeAsync(8_500);
+            expect((await outcome)?.message).toMatch(/Start control budget expired/);
+            expect(seen).toEqual([{ clicks: 0, guards: 1, status: 'ready' }]);
+            expect(clicked).toEqual([]);
+            expect(installed.size).toBe(0);
+        } finally { release(); vi.useRealTimers(); }
+    });
+
     it('ordinary Start after a model-readiness wait: the readback still comes after that wait, right before the click', async () => {
         renderState('loading');
         const seen: Array<{ clicks: number; guards: number; status: string | null }> = [];
