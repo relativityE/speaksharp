@@ -111,6 +111,26 @@ describe('J8 receipt mapping', () => {
         // The splitter reads NOT_RUN as NOT RUN.
         expect(splitCaseResult('J8', out).get('J8.c')['new:no-session-choice-with-takes']).toBe('NOT RUN');
     });
+    it('a leg whose prerequisites FAIL fails every one of its rows, never NOT RUN, and only that leg', () => {
+        // Elon's probe: J8.a's setup failed while the journey's signup passed.
+        const out = mapJ8Receipt(passingReceipt([{ step: 'J8.a: prerequisites', verdict: 'FAIL' }]));
+        const legA = out.assertions.filter((a) => a.leg === 'J8.a');
+        expect(legA.length).toBe(rowsForLeg('J8.a').length);
+        expect(legA.every((a) => a.result === 'FAIL')).toBe(true);
+        expect(legA.every((a) => a.sources.includes('J8.a: prerequisites'))).toBe(true);
+        expect(rowOf(out, 'J8.b', 'AHT-07:feedback-attempts').result).toBe('PASS');
+        expect(rowOf(out, 'J8.c', 'new:no-session-choice-with-takes'.slice(4)).result).toBe('PASS');
+        expect(splitCaseResult('J8', out).get('J8.a')['AHT-08:fresh-acknowledgment']).toBe('FAIL');
+        // A repeated prerequisites step is the worst of its verdicts.
+        const twice = mapJ8Receipt(passingReceipt([{ step: 'J8.a: prerequisites', verdict: 'PASS' }, { step: 'J8.a: prerequisites', verdict: 'FAIL' }]));
+        expect(twice.assertions.filter((a) => a.leg === 'J8.a').every((a) => a.result === 'FAIL')).toBe(true);
+        // A human or external prerequisite is not a failure: the leg was NOT RUN. A passed one names no prerequisite source.
+        const human = mapJ8Receipt(passingReceipt([{ step: 'J8.a: prerequisites', verdict: 'HUMAN' }]));
+        expect(human.assertions.filter((a) => a.leg === 'J8.a').every((a) => a.result === 'NOT_RUN')).toBe(true);
+        const passed = mapJ8Receipt(passingReceipt([{ step: 'J8.a: prerequisites', verdict: 'PASS' }]));
+        expect(rowOf(passed, 'J8.a', 'AHT-08:fresh-acknowledgment')).toMatchObject({ result: 'PASS' });
+        expect(rowOf(passed, 'J8.a', 'AHT-08:fresh-acknowledgment').sources.includes('J8.a: prerequisites')).toBe(false);
+    });
     it('refuses a receipt that is not J8\'s or is malformed', () => {
         expect(thrown(() => mapJ8Receipt(null))).toBe('expected the feedback-association-boundaries-j8 receipt, got nothing');
         expect(thrown(() => mapJ8Receipt({ ...passingReceipt(), suite: 'feedback-association-boundaries-no-session' })))

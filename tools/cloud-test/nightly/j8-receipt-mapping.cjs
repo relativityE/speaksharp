@@ -11,7 +11,9 @@
 // - Leg-scoped steps (`J8.x: …`) prove only their own leg. A journey-wide step is used only where the property is one of the
 //   whole journey (one account, one browser context), so it holds for every leg if it holds for the journey.
 // - A plan row the receipt has no step for yet is a named GAP: HOLD with its reason, never borrowed from another leg.
-// - A leg whose `prerequisites` step HOLDs was NOT RUN: all its rows are NOT RUN.
+// - A leg's `prerequisites` step decides whether the leg ran. FAIL: every row of the leg FAILs (a failed setup is a failure, never
+//   hidden as NOT RUN). Anything else that is not PASS (HOLD, HUMAN, EXTERNAL): the leg was NOT RUN, so its rows are NOT RUN unless
+//   one already FAILs.
 // - Every receipt step the mapping does not consume floors the rows it could affect: a journey-wide one every leg, a leg-scoped one
 //   that leg. FAIL floors to FAIL; anything else that is not PASS floors to HOLD. So a renamed, new or failed step is never ignored.
 const { rowsForLeg } = require('./journey-plan.cjs');
@@ -130,7 +132,7 @@ function mapJ8Receipt(receipt) {
     }
     const assertions = [];
     for (const leg of LEGS) {
-        const notRun = steps.has(`${leg}: prerequisites`) && steps.get(`${leg}: prerequisites`) !== 'PASS';
+        const prerequisites = steps.has(`${leg}: prerequisites`) ? steps.get(`${leg}: prerequisites`) : 'PASS';
         for (const [row, sources] of Object.entries(MAP[leg])) {
             let outcome = 'PASS';
             const used = [];
@@ -141,8 +143,10 @@ function mapJ8Receipt(receipt) {
                 outcome = worse(outcome, steps.has(name) ? steps.get(name) : 'HOLD');
             }
             outcome = worse(worse(outcome, floor.journey), floor[leg]);
-            // A leg that never opened ran nothing: its rows are NOT RUN, unless something already FAILed.
-            if (notRun && outcome !== 'FAIL') outcome = 'NOT RUN';
+            if (prerequisites !== 'PASS') used.push(`${leg}: prerequisites`);
+            // A failed setup fails the leg. A leg that never opened ran nothing: its rows are NOT RUN, unless something already FAILed.
+            if (prerequisites === 'FAIL') outcome = 'FAIL';
+            else if (prerequisites !== 'PASS' && outcome !== 'FAIL') outcome = 'NOT RUN';
             assertions.push({ id: reportedId(row), leg, result: toResult(outcome), sources: used });
         }
     }
