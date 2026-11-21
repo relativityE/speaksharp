@@ -1,0 +1,158 @@
+name: Cutover rehearsal B (browser/database recovery only, disposable local stack)
+
+# One narrow, credential-free disposable rehearsal of the production cutover's old-tab case: the old frontend
+# (446e09fa) records a synthetic take, #1863 and #1835 are applied under it, the refused save survives as a
+# finalized draft and recovers once on the new frontend. Browser/database recovery only: the local Edge runtime serves
+# this checkout's functions (check-usage-limit answers Start, as the new Edge released first would) with no provider key,
+# and the spec aborts every coaching request, so it neither upgrades the Edge probe nor establishes old-Edge drain. No
+# secret, no protected environment, no Stripe, no provider key, no production identifier. Everything is created and destroyed inside
+# this runner.
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/cutover-rehearsal-local-stack.yml'
+      - 'playwright.cutover-rehearsal.config.ts'
+      - 'tests/release/cutover/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cutover-rehearsal-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  old-tab:
+    name: cutover B old-tab recovery (local stack)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      OLD_SHA: 446e09fad7a664b0ff49805d6c13ee10e2e466f0
+      NEW_SHA: ffa5cdb8ae07e145d26e21187f7b6c6c0f462827
+      SUPABASE_WORKDIR: backend
+      LOCAL_STACK_PROJECT: cutover-rehearsal-${{ github.run_id }}-${{ github.run_attempt }}
+      LOCAL_API_URL: http://127.0.0.1:54321
+      LOCAL_DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Bind the rehearsal to the reviewed old and new releases
+        run: |
+          set -euo pipefail
+          # The new frontend is exactly the released main commit; this PR adds only the rehearsal files on top.
+          git merge-base --is-ancestor "$NEW_SHA" HEAD || { echo '::error::PR head does not contain the release commit.'; exit 1; }
+          changed="$(git diff --name-only "$NEW_SHA" HEAD)"
+          echo "$changed"
+          if grep -vqE '^(\.github/workflows/cutover-rehearsal-local-stack\.yml|playwright\.cutover-rehearsal\.config\.ts|tests/release/cutover/.*)$' <<<"$changed"; then
+            echo '::error::The rehearsal head changes product files; the new build would not be the release commit.'; exit 1
+          fi
+          git cat-file -e "$OLD_SHA^{commit}"
+
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - uses: supabase/setup-cli@v2
+        env:
+          SUPABASE_CLI_GITHUB_TOKEN: ${{ github.token }}
+        with:
+          version: 2.101.0
+
+      - name: Start the stack at production's schema (both release migrations held back)
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
+          printf '\n[db.seed]\nenabled = false\n' >> "$SUPABASE_WORKDIR/supabase/config.toml"
+          sed -i "s/^project_id = .*/project_id = \"$LOCAL_STACK_PROJECT\"/" "$SUPABASE_WORKDIR/supabase/config.toml"
+          grep -qx "project_id = \"$LOCAL_STACK_PROJECT\"" "$SUPABASE_WORKDIR/supabase/config.toml"
+          held="$RUNNER_TEMP/held-migrations"; mkdir -p "$held"
+          # Production is at 20261114100000: the two release targets are applied by the spec, mid-take, in order.
+          # Billing settlement and the refund follow-ups stay withheld exactly as in production.
+          for v in 20261114170000 20261117105700 20261027192550 20261112130000; do
+            f=$(ls "$SUPABASE_WORKDIR/supabase/migrations/${v}_"*.sql)
+            mv "$f" "$held/"
+          done
+          echo "CUTOVER_SOURCE_MIGRATIONS=$held" >> "$GITHUB_ENV"
+          # No provider or Stripe key reaches the Edge runtime: no functions env file, none in this job's environment.
+          [ ! -e "$SUPABASE_WORKDIR/supabase/functions/.env" ] || { echo '::error::A functions env file is present.'; exit 1; }
+          env | grep -qE '^(GEMINI|OPENAI|ANTHROPIC|STRIPE)[A-Z_]*=' && { echo '::error::A provider or Stripe variable is set.'; exit 1; }
+          supabase start --workdir "$SUPABASE_WORKDIR" -x studio,imgproxy,vector,logflare
+          status="$(supabase status --workdir "$SUPABASE_WORKDIR" -o json)"
+          [ "$(jq -r '.API_URL' <<<"$status")" = "$LOCAL_API_URL" ] || { echo '::error::Unexpected local API URL.'; exit 1; }
+          anon="$(jq -r '.ANON_KEY' <<<"$status")"; service="$(jq -r '.SERVICE_ROLE_KEY' <<<"$status")"
+          echo "::add-mask::$anon"; echo "::add-mask::$service"
+          { echo "LOCAL_ANON_KEY=$anon"; echo "LOCAL_SERVICE_ROLE_KEY=$service"; } >> "$GITHUB_ENV"
+          latest="$(psql "$LOCAL_DB_URL" -Atqc "SELECT max(version) FROM supabase_migrations.schema_migrations")"
+          [ "$latest" = 20261114100000 ] || { echo "::error::Stack schema is not production's ledger (latest $latest)."; exit 1; }
+
+      - name: Build the old (446e09fa) and new (release) frontends against the local stack
+        env:
+          VITE_SUPABASE_URL: ${{ env.LOCAL_API_URL }}
+          VITE_AUTH_MODE: real
+        run: |
+          set -euo pipefail
+          old="$RUNNER_TEMP/old-src"
+          git worktree add --detach "$old" "$OLD_SHA"
+          (cd "$old" && pnpm install --frozen-lockfile \
+            && BUILD_ID="$OLD_SHA" VITE_SUPABASE_ANON_KEY="$LOCAL_ANON_KEY" pnpm --dir frontend exec vite build --mode production)
+          BUILD_ID="$NEW_SHA" VITE_SUPABASE_ANON_KEY="$LOCAL_ANON_KEY" pnpm --dir frontend exec vite build --mode production
+          grep -q "$OLD_SHA" "$old/frontend/dist/index.html" && grep -q "$NEW_SHA" frontend/dist/index.html
+          { echo "CUTOVER_OLD_DIST=$old/frontend/dist"; echo "CUTOVER_NEW_DIST=$GITHUB_WORKSPACE/frontend/dist"; } >> "$GITHUB_ENV"
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run the old-tab rehearsal
+        env:
+          CUTOVER_SUPABASE_URL: ${{ env.LOCAL_API_URL }}
+          CUTOVER_OLD_SHA: ${{ env.OLD_SHA }}
+          CUTOVER_NEW_SHA: ${{ env.NEW_SHA }}
+          CUTOVER_SUPABASE_WORKDIR: ${{ env.SUPABASE_WORKDIR }}
+          CUTOVER_LOCAL_DB_URL: ${{ env.LOCAL_DB_URL }}
+        run: |
+          set -euo pipefail
+          CUTOVER_ANON_KEY="$LOCAL_ANON_KEY" CUTOVER_SERVICE_ROLE_KEY="$LOCAL_SERVICE_ROLE_KEY" pnpm exec playwright test -c playwright.cutover-rehearsal.config.ts --reporter=list
+
+      # Teardown is checked, never assumed: stop must succeed and nothing labelled with this run's project may remain.
+      # It runs BEFORE the receipt is uploaded, so the artifact carries the cleanup evidence with the result.
+      - name: Destroy the disposable stack and prove it is gone
+        if: always()
+        run: |
+          set -euo pipefail
+          stop_status=0
+          supabase stop --workdir "$SUPABASE_WORKDIR" --no-backup || stop_status=$?
+          label="label=com.supabase.cli.project=$LOCAL_STACK_PROJECT"
+          containers=$(docker ps -aq --filter "$label" | wc -l | tr -d ' ')
+          volumes=$(docker volume ls -q --filter "$label" | wc -l | tr -d ' ')
+          networks=$(docker network ls -q --filter "$label" | wc -l | tr -d ' ')
+          jq -n --argjson stop "$stop_status" --argjson c "$containers" --argjson v "$volumes" --argjson n "$networks" \
+            '{schemaVersion: 1, project: "run-scoped", stopExit: $stop, containers: $c, volumes: $v, networks: $n,
+              removed: ($stop == 0 and $c == 0 and $v == 0 and $n == 0)}' > cutover-rehearsal-b-cleanup.json
+          cat cutover-rehearsal-b-cleanup.json
+          [ "$stop_status" = 0 ] && [ "$containers" = 0 ] && [ "$volumes" = 0 ] && [ "$networks" = 0 ] \
+            || { echo '::error::The disposable stack was not fully removed.'; exit 1; }
+
+      - name: Content-free receipt
+        if: always()
+        run: |
+          set -euo pipefail
+          for f in cutover-rehearsal-b-receipt.json cutover-rehearsal-b-cleanup.json; do [ -f "$f" ] && cat "$f"; done; true
+
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: cutover-rehearsal-b-${{ github.event.pull_request.head.sha }}
+          path: |
+            cutover-rehearsal-b-receipt.json
+            cutover-rehearsal-b-cleanup.json
+          if-no-files-found: warn
+          retention-days: 1
