@@ -81,7 +81,7 @@ const CLEANUP_REQUEST_DEADLINE_S = 10;
 const FENCED_CASES = Object.freeze(['AHT-01', 'AHT-02', 'J8']);
 /** The counts read from the cleanup code. tests/cleanup.test.cjs re-reads them from the source and fails on drift. */
 const SOURCE_COUNTS = Object.freeze({
-    residueChecks: 22, // RESIDUE_CHECKS entries
+    residueChecks: 23, // RESIDUE_CHECKS entries
     preDeleteTables: 1, // PRE_DELETE_TABLES entries
     takeReadsPerSettlement: 3, // readTakes calls in settleRunOwnedTakes (first, fresh, final)
     requestsPerTakeRead: 2, // sessions + active_recording_lease

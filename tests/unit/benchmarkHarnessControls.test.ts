@@ -14,7 +14,7 @@
 //
 // Playwright's assertion library is replaced with a shim that understands the same matchers, because
 // the subject under test is the helpers' SELECTOR CHOICE and CONTROL FLOW, not Playwright itself.
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { MIC_CONTROL_BY_STATUS, RECORDER_BAR, RECORDER_STOP, RETIRED_COMBINED_CONTROL } from '../helpers/micControls';
@@ -112,7 +112,7 @@ interface FakeLocator {
     /** Playwright's locator union / index, as the helpers use them. */
     or(other: FakeLocator): FakeLocator;
     first(): FakeLocator;
-    elementHandle(): Promise<{ click(): Promise<void>; dispose(): Promise<void> } | null>;
+    elementHandle(): Promise<{ click(): Promise<void>; evaluate(fn: (element: Element, arg: unknown) => unknown, arg: unknown): Promise<unknown>; dispose(): Promise<void> } | null>;
 }
 
 /** Every testid the helper asked for, and every one it clicked — the two things that broke. */
@@ -177,7 +177,8 @@ const locatorFor = (selector: string): FakeLocator => ({
             if (!original.isConnected) throw new Error('the original start control was detached');
             if (original.hasAttribute('disabled')) throw new Error('the original start control is disabled');
             await locatorFor(selector).click();
-        }, dispose: async () => undefined } : null;
+        }, evaluate: async (fn: (element: Element, arg: unknown) => unknown, arg: unknown) => fn(original, arg),
+        dispose: async () => undefined } : null;
     },
     click: async () => {
         const el = document.querySelector(selector);
@@ -911,5 +912,234 @@ describe('#1519 every cold-setup consumer delegates its start to the recording-a
             expect(src, `${file} starts a take, so it must call startBenchmarkRecording`)
                 .toContain('startBenchmarkRecording(');
         }
+    });
+});
+
+describe('#1916 review hold (Sam): the caller\'s consent readback runs inside the activation path, immediately before the click', () => {
+    /** Capture-phase click listeners currently installed on the document: the ordinary Start's event-time guard. */
+    const installed = new Set<EventListenerOrEventListenerObject>();
+    // applyHumanReflex patches real class prototypes (as Playwright's are), so install it through classes like #1667's.
+    // The activation calls below use the ordinary fake page: the helpers' pinned-handle clicks are not wrapped, and the
+    // reflex they take is the explicit one they read from activeHumanReflexMs().
+    class ConsentReflexLocator {
+        constructor(readonly base: FakeLocator) {}
+        click() { return this.base.click(); }
+    }
+    class ConsentReflexKeyboard { async press() { /* not used */ } }
+    const reflexInstallPage = {
+        ...page,
+        locator: (selector: string) => new ConsentReflexLocator(locatorFor(selector)),
+        keyboard: new ConsentReflexKeyboard(),
+    } as unknown as typeof page;
+    afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
+    const realAdd = document.addEventListener.bind(document);
+    const realRemove = document.removeEventListener.bind(document);
+    beforeEach(() => {
+        installed.clear();
+        vi.spyOn(document, 'addEventListener').mockImplementation((type: string, fn: EventListenerOrEventListenerObject, opt?: boolean | AddEventListenerOptions) => {
+            if (type === 'click' && opt === true) installed.add(fn);
+            realAdd(type, fn, opt);
+        });
+        vi.spyOn(document, 'removeEventListener').mockImplementation((type: string, fn: EventListenerOrEventListenerObject, opt?: boolean | EventListenerOptions) => {
+            if (type === 'click' && opt === true) installed.delete(fn);
+            realRemove(type, fn, opt);
+        });
+    });
+    const WITHDRAWN = new Error('HOLD practice consent: readback_differs');
+    /** A readback that records what had already happened when it ran, and refuses once the choice is withdrawn. */
+    const readback = (state: { choice: 'yes' | 'withdrawn' }, seen: Array<{ clicks: number; guards: number; status: string | null }>) =>
+        async () => {
+            seen.push({ clicks: clicked.length, guards: installed.size, status: document.documentElement.getAttribute('data-model-status') });
+            if (state.choice === 'withdrawn') throw WITHDRAWN;
+        };
+
+    it('ordinary Start: the readback runs after the reflex pause and with the click guard armed, then the click follows', async () => {
+        const release = applyHumanReflex(reflexInstallPage, 500);
+        vi.useFakeTimers();
+        renderState('ready');
+        const seen: Array<{ clicks: number; guards: number; status: string | null }> = [];
+        try {
+            const pending = startBenchmarkRecording(page, 'ordinary-consent', undefined, { beforeClick: readback({ choice: 'yes' }, seen) });
+            await vi.advanceTimersByTimeAsync(499);
+            expect(seen).toEqual([]); // still inside the reflex pause: no readback yet
+            await vi.advanceTimersByTimeAsync(1);
+            await pending;
+            expect(seen).toEqual([{ clicks: 0, guards: 1, status: 'ready' }]);
+            expect(clicked).toEqual(['[data-testid="mic-start"]']);
+            expect(installed.size).toBe(0);
+        } finally { release(); vi.useRealTimers(); }
+    });
+
+    it('ordinary Start: consent withdrawn during setup (the reflex pause) → zero clicks, guard removed, the HOLD propagates unchanged', async () => {
+        const release = applyHumanReflex(reflexInstallPage, 500);
+        vi.useFakeTimers();
+        renderState('ready');
+        const state: { choice: 'yes' | 'withdrawn' } = { choice: 'yes' };
+        const seen: Array<{ clicks: number; guards: number; status: string | null }> = [];
+        try {
+            const outcome = startBenchmarkRecording(page, 'withdrawn-during-setup', undefined, { beforeClick: readback(state, seen) })
+                .then(() => null, (error: unknown) => error);
+            setTimeout(() => { state.choice = 'withdrawn'; }, 250);
+            await vi.advanceTimersByTimeAsync(500);
+            expect(await outcome).toBe(WITHDRAWN); // the caller's own error object, never wrapped as a start failure
+            expect(seen).toHaveLength(1);
+            expect(clicked).toEqual([]);
+            expect(installed.size).toBe(0);
+            expect(document.querySelector('[data-testid="mic-start"]')).not.toBeNull(); // nothing was started
+        } finally { release(); vi.useRealTimers(); }
+    });
+
+    it('ordinary Start: a slow but successful readback does not spend the control budget (Codex on ab89d68)', async () => {
+        const release = applyHumanReflex(reflexInstallPage, 500);
+        vi.useFakeTimers();
+        renderState('ready');
+        const seen: Array<{ clicks: number; guards: number; status: string | null }> = [];
+        try {
+            // A server read slower than the whole 8 s control budget, after the reflex pause has already used part of it.
+            const slow = async () => { await readback({ choice: 'yes' }, seen)(); await new Promise((resolve) => setTimeout(resolve, 9_000)); };
+            const outcome = startBenchmarkRecording(page, 'slow-readback', undefined, { beforeClick: slow }).then(() => null, (error: Error) => error);
+            await vi.advanceTimersByTimeAsync(9_600);
+            expect(await outcome).toBeNull();
+            expect(seen).toEqual([{ clicks: 0, guards: 1, status: 'ready' }]);
+            expect(clicked).toEqual(['[data-testid="mic-start"]']);
+            expect(installed.size).toBe(0);
+        } finally { release(); vi.useRealTimers(); }
+    });
+
+    it('ordinary Start: a slow refusal (longer than the whole control budget) → zero clicks, guard removed, the HOLD propagates unchanged', async () => {
+        const release = applyHumanReflex(reflexInstallPage, 500);
+        vi.useFakeTimers();
+        renderState('ready');
+        const seen: Array<{ clicks: number; guards: number; status: string | null }> = [];
+        try {
+            // The server read takes 9 s, then reports the choice withdrawn: the refusal, not a budget timeout, decides.
+            const slowRefusal = async () => {
+                await new Promise((resolve) => setTimeout(resolve, 9_000));
+                await readback({ choice: 'withdrawn' }, seen)();
+            };
+            const outcome = startBenchmarkRecording(page, 'slow-refusal', undefined, { beforeClick: slowRefusal })
+                .then(() => null, (error: unknown) => error);
+            await vi.advanceTimersByTimeAsync(9_600);
+            expect(await outcome).toBe(WITHDRAWN); // the caller's own error object, never wrapped as a start failure
+            expect(seen).toEqual([{ clicks: 0, guards: 1, status: 'ready' }]);
+            expect(clicked).toEqual([]);
+            expect(installed.size).toBe(0);
+            expect(document.querySelector('[data-testid="mic-start"]')).not.toBeNull(); // nothing was started
+        } finally { release(); vi.useRealTimers(); }
+    });
+
+    it('ordinary Start: a control already out of time still fails with a readback in place → the readback runs, zero clicks, budget expired', async () => {
+        const release = applyHumanReflex(reflexInstallPage, 500);
+        vi.useFakeTimers();
+        renderState('ready');
+        // Readiness takes 7.8 s and the reflex 0.5 s: the 8 s control budget is gone before the readback starts. The
+        // readback's own time is added back, but only that: nothing restores the time already spent.
+        afterReadinessObservation = () => { vi.advanceTimersByTime(7_800); };
+        const seen: Array<{ clicks: number; guards: number; status: string | null }> = [];
+        try {
+            const outcome = startBenchmarkRecording(page, 'out-of-time-with-readback', undefined, { beforeClick: readback({ choice: 'yes' }, seen) })
+                .then(() => null, (error: Error) => error);
+            await vi.advanceTimersByTimeAsync(8_500);
+            expect((await outcome)?.message).toMatch(/Start control budget expired/);
+            expect(seen).toEqual([{ clicks: 0, guards: 1, status: 'ready' }]);
+            expect(clicked).toEqual([]);
+            expect(installed.size).toBe(0);
+        } finally { release(); vi.useRealTimers(); }
+    });
+
+    it('ordinary Start after a model-readiness wait: the readback still comes after that wait, right before the click', async () => {
+        renderState('loading');
+        const seen: Array<{ clicks: number; guards: number; status: string | null }> = [];
+        setTimeout(() => renderState('ready'), 20);
+        await startBenchmarkRecording(page, 'after-loading', 1_000, { beforeClick: readback({ choice: 'yes' }, seen) });
+        expect(seen).toEqual([{ clicks: 0, guards: 1, status: 'ready' }]);
+        expect(clicked).toEqual(['[data-testid="mic-start"]']);
+    });
+
+    it('ordinary Start: a take already running is never read back or clicked', async () => {
+        renderRecording();
+        const seen: Array<{ clicks: number; guards: number; status: string | null }> = [];
+        await startBenchmarkRecording(page, 'already-running', undefined, { beforeClick: readback({ choice: 'yes' }, seen) });
+        expect(seen).toEqual([]);
+        expect(clicked).toEqual([]);
+    });
+
+    it('cold Start: the readback runs after the CTA checks, scroll and reflex pause, then the one cold click follows', async () => {
+        const release = applyHumanReflex(reflexInstallPage, 500);
+        vi.useFakeTimers();
+        renderState('download-required');
+        const seen: Array<{ clicks: number; guards: number; status: string | null }> = [];
+        try {
+            const pending = preparePrivateModelIfPrompted(page, 5_000, { beforeClick: readback({ choice: 'yes' }, seen) });
+            await vi.advanceTimersByTimeAsync(499);
+            expect(seen).toEqual([]);
+            await vi.advanceTimersByTimeAsync(1);
+            await vi.advanceTimersByTimeAsync(1_000);
+            await expect(pending).resolves.toEqual({ recordingAlreadyStarted: true });
+            expect(seen).toEqual([{ clicks: 0, guards: 0, status: 'download-required' }]);
+            expect(clicked).toEqual(['[data-testid="mic-download"]']);
+        } finally { release(); vi.useRealTimers(); }
+    });
+
+    it('cold Start: consent withdrawn during setup → zero clicks, the model is not downloaded, the HOLD propagates unchanged', async () => {
+        const release = applyHumanReflex(reflexInstallPage, 500);
+        vi.useFakeTimers();
+        renderState('download-required');
+        const state: { choice: 'yes' | 'withdrawn' } = { choice: 'yes' };
+        const seen: Array<{ clicks: number; guards: number; status: string | null }> = [];
+        try {
+            const outcome = preparePrivateModelIfPrompted(page, 5_000, { beforeClick: readback(state, seen) }).then(() => null, (error: unknown) => error);
+            setTimeout(() => { state.choice = 'withdrawn'; }, 250);
+            await vi.advanceTimersByTimeAsync(500);
+            expect(await outcome).toBe(WITHDRAWN);
+            expect(seen).toHaveLength(1);
+            expect(clicked).toEqual([]);
+            expect(document.documentElement.getAttribute('data-model-status')).toBe('download-required');
+        } finally { release(); vi.useRealTimers(); }
+    });
+
+    it('cold Start: a CTA that changed during the reflex pause is never read back or clicked', async () => {
+        const release = applyHumanReflex(reflexInstallPage, 500);
+        vi.useFakeTimers();
+        renderState('download-required');
+        const seen: Array<{ clicks: number; guards: number; status: string | null }> = [];
+        try {
+            const outcome = preparePrivateModelIfPrompted(page, 5_000, { beforeClick: readback({ choice: 'yes' }, seen) }).then(() => null, (error: Error) => error);
+            setTimeout(() => document.querySelector('button')!.setAttribute('disabled', ''), 250);
+            await vi.advanceTimersByTimeAsync(500);
+            expect((await outcome)?.message).toMatch(/CTA_CHANGED/);
+            expect(seen).toEqual([]);
+            expect(clicked).toEqual([]);
+        } finally { release(); vi.useRealTimers(); }
+    });
+
+    it('cold Start: a CTA that changed during a slow readback is never clicked (re-checked after the readback)', async () => {
+        renderState('download-required');
+        const seen: Array<{ clicks: number; guards: number; status: string | null }> = [];
+        const slow = async () => { await readback({ choice: 'yes' }, seen)(); document.querySelector('button')!.setAttribute('disabled', ''); };
+        const outcome = await preparePrivateModelIfPrompted(page, 5_000, { beforeClick: slow }).then(() => null, (error: Error) => error);
+        expect(outcome?.message).toMatch(/CTA_CHANGED/);
+        expect(seen).toHaveLength(1);
+        expect(clicked).toEqual([]);
+    });
+
+    it('cold Start: a warm cache presses nothing and reads nothing back (the ordinary Start reads back at its own click)', async () => {
+        renderState('ready');
+        const seen: Array<{ clicks: number; guards: number; status: string | null }> = [];
+        await expect(preparePrivateModelIfPrompted(page, 5_000, { beforeClick: readback({ choice: 'yes' }, seen) }))
+            .resolves.toEqual({ recordingAlreadyStarted: false });
+        expect(seen).toEqual([]);
+        expect(clicked).toEqual([]);
+    });
+
+    it('no hook: both helpers behave exactly as before (the cold CTA is a plain locator click, no pinned handle)', async () => {
+        renderState('download-required');
+        await expect(preparePrivateModelIfPrompted(page, 5_000)).resolves.toEqual({ recordingAlreadyStarted: true });
+        expect(clicked).toEqual(['[data-testid="mic-download"]']);
+        expect(locatorHandleBudgets).toEqual([]);
+        clicked.length = 0;
+        renderState('ready');
+        await startBenchmarkRecording(page, 'no-hook');
+        expect(clicked).toEqual(['[data-testid="mic-start"]']);
     });
 });

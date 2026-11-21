@@ -18,18 +18,18 @@ describe('Focus journey Start presses match the designed budget', () => {
     });
     it('this file presses Start exactly at the four cited calls (first take, and the full run\'s three extra takes)', () => {
         expect(count(/await startBenchmarkRecording\(/g)).toBe(4);
-        expect(count(/await startBenchmarkRecording\(page, suite\);/g)).toBe(1);
-        expect(count(/await startBenchmarkRecording\(page, `\$\{suite\}-switch-openmic`\);/g)).toBe(1);
-        expect(count(/await startBenchmarkRecording\(page, `\$\{suite\}-switch-focus`\);/g)).toBe(1);
-        expect(count(/await startBenchmarkRecording\(page, `\$\{suite\}-edited`\);/g)).toBe(1);
+        expect(count(/await startBenchmarkRecording\(page, suite, undefined, firstClick\);/g)).toBe(1);
+        expect(count(/await startBenchmarkRecording\(page, `\$\{suite\}-switch-openmic`, undefined, atClick\(\)\);/g)).toBe(1);
+        expect(count(/await startBenchmarkRecording\(page, `\$\{suite\}-switch-focus`, undefined, switchClick\);/g)).toBe(1);
+        expect(count(/await startBenchmarkRecording\(page, `\$\{suite\}-edited`, undefined, editedClick\);/g)).toBe(1);
         // The cold first take's one activation (mic-download) also starts it; it is the same press as the warm Start, never both.
-        expect(count(/await preparePrivateModelIfPrompted\(page, 900_000\);/g)).toBe(1);
-        expect(src).toMatch(/if \(!setup\.recordingAlreadyStarted\) \{\s*await waitForPrivateEngineReady\(page, 600_000\);\s*firstPressedAt = Date\.now\(\);\s*await startBenchmarkRecording\(page, suite\);/);
+        expect(count(/await preparePrivateModelIfPrompted\(page, 900_000, atClick\(\)\);/g)).toBe(1);
+        expect(src).toMatch(/if \(setup\.recordingAlreadyStarted\) \{\s*captureGate\(\)\.recordPass\(\);\s*\} else \{\s*await waitForPrivateEngineReady\(page, 600_000\);\s*const firstClick = atClick\(\);\s*firstPressedAt = Date\.now\(\);\s*try \{ await startBenchmarkRecording\(page, suite, undefined, firstClick\); \} finally \{ firstPressedAt \+= firstClick\.spentMs\(\); \}/);
     });
     it('the three extra takes run only in the full (AHT-02) journey', () => {
         const fullOnly = src.indexOf("if (fixtureKey === 'focus_points_tts') {\n            // Both steps drive the current page");
         expect(fullOnly).toBeGreaterThan(0);
-        for (const take of ['switch-openmic', 'switch-focus', 'edited']) expect(src.indexOf(`await startBenchmarkRecording(page, \`\${suite}-${take}\`);`)).toBeGreaterThan(fullOnly);
+        for (const take of ['switch-openmic', 'switch-focus', 'edited']) expect(src.indexOf(`await startBenchmarkRecording(page, \`\${suite}-${take}\`, undefined, `)).toBeGreaterThan(fullOnly);
     });
     it('no Start-like control is clicked directly in this file (presses go through the cited helpers)', () => {
         for (const id of ['mic-start', 'mic-download', 'mic-retry', 'focus-points-retry', 'verdict-practice-again']) {

@@ -117,6 +117,9 @@ export const RESIDUE_CHECKS: ReadonlyArray<{ table: string; column: string }> = 
     { table: 'transcript_retention_arming', column: 'user_id' },
     // … and a later saved take tombstones the earlier take's transcript, so this row carries transcript text.
     { table: 'transcript_retention_tombstones', column: 'user_id' },
+    // #1835 Practice privacy choice (Sam, Nov 20): one row per account, ON DELETE CASCADE from auth.users. Every consent-gated
+    // journey's account records one, so a regression that dropped the cascade would leave a privacy choice behind unseen.
+    { table: 'practice_privacy_choices', column: 'user_id' },
 ]);
 
 /**
