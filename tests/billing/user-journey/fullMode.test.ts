@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { afterAll, beforeAll, test } from 'vitest';
 import { parse } from 'yaml';
-import { selectRunnerJourneys, receipt, isRefundCancellation, assertFullRefund, assertCheckoutGrantedNothing,
+import { selectRunnerJourneys, receipt, isRefundCancellation, assertFullRefund, assertCheckoutGrantedNothing, assertDeclinedCheckoutGrantedNothing,
   checkoutSessionFromUrl, assertCheckoutIdentity, newlyAddedCard, assertNoSecondCharge,
   BILLING_JOURNEYS, FULL_MODE_JOURNEYS, RUNNER_JOURNEYS, LOCAL_STACK_JOURNEYS, REQUIRED_STEPS, POLICY_PENDING_STEPS, PENDING_POLICY } from './contract';
 import { finaliseLocalStackReceipt, journeyReceiptDefects } from './localStackReceipt.mjs';
@@ -756,4 +756,51 @@ test('the workflow can dispatch every local-stack journey, the paid loop with it
   assert.equal(doc.jobs.journey['timeout-minutes'], "${{ inputs.journey == 'paid_value_loop' && 90 || 60 }}");
   // Every dispatched journey's receipt is accepted by the same combined-receipt step, so none bypasses it.
   for (const journey of LOCAL_STACK_JOURNEYS) assert.ok(REQUIRED_STEPS[journey].length > 0, journey);
+});
+
+test('declined checkout (J2): only an unpaid, incomplete subscription of this session and customer may be attached', () => {
+  // Shape observed in the Stripe sandbox (run 44937743744): the decline creates an `incomplete` subscription whose first invoice
+  // is open with nothing paid, attached to the still-open session; cleanup later moves it to `incomplete_expired`.
+  const session = { livemode: false, status: 'open', payment_status: 'unpaid', subscription: 'sub_1' };
+  const subscription = { id: 'sub_1', livemode: false, customer: 'cus_1', status: 'incomplete', latest_invoice: 'in_1' };
+  const invoice = { id: 'in_1', customer: 'cus_1', livemode: false, status: 'open', amount_paid: 0 };
+  const base = { session, subscription, invoice, customer: 'cus_1', succeededCharges: 0, expectedStatus: 'open' as const };
+  assertDeclinedCheckoutGrantedNothing(base);
+  assertDeclinedCheckoutGrantedNothing({ ...base, subscription: { ...subscription, status: 'incomplete_expired' } });
+  assertDeclinedCheckoutGrantedNothing({ ...base, session: { ...session, subscription: { id: 'sub_1' } } });
+  assertDeclinedCheckoutGrantedNothing({ ...base, session: { ...session, subscription: null }, subscription: null, invoice: null });
+  assertDeclinedCheckoutGrantedNothing({ ...base, session: { ...session, status: 'expired' }, expectedStatus: 'expired' });
+  const refused = (input: typeof base | Record<string, unknown>) => {
+    try { assertDeclinedCheckoutGrantedNothing(input as typeof base); return null; } catch (e) { return (e as Error).message.replace('BILLING_JOURNEY:', ''); }
+  };
+  for (const [wrong, code] of [
+    [{ ...base, session: { ...session, payment_status: 'paid' } }, 'declined_checkout_session_not_unpaid'],
+    [{ ...base, session: { ...session, status: 'complete' } }, 'declined_checkout_session_not_unpaid'],
+    [{ ...base, session: { ...session, livemode: true } }, 'declined_checkout_session_not_unpaid'],
+    [{ ...base, expectedStatus: 'expired' }, 'declined_checkout_session_not_unpaid'],
+    [{ ...base, succeededCharges: 1 }, 'declined_checkout_charged'],
+    [{ ...base, succeededCharges: null }, 'declined_checkout_charges_unread'],
+    [{ ...base, subscription: null }, 'declined_checkout_subscription_unread'],
+    [{ ...base, subscription: { ...subscription, id: 'sub_other' } }, 'declined_checkout_subscription_unread'],
+    [{ ...base, subscription: { ...subscription, customer: 'cus_other' } }, 'declined_checkout_subscription_foreign'],
+    [{ ...base, subscription: { ...subscription, livemode: true } }, 'declined_checkout_subscription_foreign'],
+    ...['active', 'trialing', 'past_due', 'unpaid', 'canceled', 'paused'].map((status) =>
+      [{ ...base, subscription: { ...subscription, status } }, 'declined_checkout_subscription_not_incomplete'] as const),
+    [{ ...base, invoice: null }, 'declined_checkout_invoice_unread'],
+    [{ ...base, invoice: { ...invoice, id: 'in_other' } }, 'declined_checkout_invoice_unread'],
+    [{ ...base, invoice: { ...invoice, customer: 'cus_other' } }, 'declined_checkout_invoice_unread'],
+    [{ ...base, invoice: { ...invoice, livemode: true } }, 'declined_checkout_invoice_unread'],
+    [{ ...base, invoice: { ...invoice, status: 'paid' } }, 'declined_checkout_invoice_paid'],
+    [{ ...base, invoice: { ...invoice, amount_paid: 1000 } }, 'declined_checkout_invoice_paid'],
+    [{ ...base, invoice: { ...invoice, amount_paid: undefined } }, 'declined_checkout_invoice_paid'],
+  ] as const) {
+    assert.equal(refused(wrong), code, JSON.stringify(wrong));
+  }
+  // The walk-away (before any card) keeps the strict no-subscription rule; both declined reads (open, then forced expiry) use the
+  // declined rule, which also reads the attached subscription, its latest invoice and the customer's charges.
+  const branch = between("} else if (this.journey === 'failed_checkout') {\n      // Walk-away (J2)", '    } else {\n      checkoutUrl = await invoke();');
+  assert.match(branch, /assertCheckoutGrantedNothing\(await this\.stripe\(`checkout\/sessions\/\$\{walked\}`\), 'open'\)/);
+  assert.match(branch, /await this\.declinedGrantedNothing\(declined, 'open'\)/);
+  assert.match(branch, /await this\.declinedGrantedNothing\(declined, 'expired'\)/);
+  assert.doesNotMatch(branch, /assertCheckoutGrantedNothing\([^)]*declined/);
 });
