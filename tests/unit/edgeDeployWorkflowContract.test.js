@@ -57,4 +57,33 @@ describe('deploy-supabase-migrations Edge deploy/readback job conditions', () =>
     expect(cond).toContain("needs.deploy-edge-functions.result == 'success'");
     expect(jobs['verify-edge-functions'].needs).toContain('deploy-edge-functions');
   });
+  it('captures every reviewed function version before publication and reconciles after success OR partial failure', () => {
+    const steps = jobs['deploy-edge-functions'].steps;
+    const at = name => steps.findIndex(step => step.name === name);
+    const before = at('Capture Edge function versions before publication');
+    const deploy = at('Deploy Edge Functions');
+    const reconcile = at('Reconcile Edge function versions after publication');
+    const keep = at('Keep the Edge version reconciliation');
+    expect([before, deploy, reconcile, keep].every(i => i > -1)).toBe(true);
+    expect(before < deploy && deploy < reconcile && reconcile < keep).toBe(true);
+    expect(steps[deploy].id).toBe('deploy_edge');
+    // Every function the deploy publishes is captured, in both reads.
+    const published = [...steps[deploy].run.matchAll(/supabase functions deploy ([a-z-]+) /g)].map(m => m[1]);
+    expect(published).toHaveLength(10);
+    for (const step of [steps[before], steps[reconcile]]) {
+      const names = /--arg names "([a-z -]+)"/.exec(step.run)[1].split(' ');
+      expect(names).toEqual(published);
+      expect(step.run).toContain('supabase functions list --project-ref "$SUPABASE_PROJECT_ID" -o json');
+      // Metadata only: slug, version, status and timestamp; never source or environment.
+      expect(step.run).toContain('{slug: $n, version: ($f.version // null), status: ($f.status // null), updated_at: ($f.updated_at // null)}');
+    }
+    // Runs after a partial failure too, and a "success" in which any function did not advance fails.
+    for (const step of [steps[reconcile], steps[keep]]) expect(step.if).toBe("${{ always() && steps.deploy_edge.outcome != 'skipped' }}");
+    expect(steps[reconcile].env.DEPLOY_OUTCOME).toBe('${{ steps.deploy_edge.outcome }}');
+    expect(steps[reconcile].run).toContain('advanced: (($a.version // 0) > ($b.version // 0))');
+    expect(steps[reconcile].run).toContain('if [ "$DEPLOY_OUTCOME" = success ] && [ "$(jq -r .allAdvanced edge-version-reconciliation.json)" != true ]; then');
+    expect(steps[keep].uses).toBe('actions/upload-artifact@v6');
+    expect(steps[keep].with['retention-days']).toBe(1);
+    expect(steps[keep].with.path).toBe('edge-version-reconciliation.json');
+  });
 });

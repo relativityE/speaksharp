@@ -223,7 +223,20 @@ jobs:
           bash scripts/assert-db-connectivity-tls.sh
           node scripts/t2-migration-postflight.mjs verify edge-release
 
+      # Release readback (cutover review): record every reviewed function's deployed version BEFORE publication, so the
+      # reconciliation below can show exactly which functions changed even when a later deploy in the list fails.
+      # Metadata only (slug, version, status, updated_at): never source, secrets or environment.
+      - name: Capture Edge function versions before publication
+        run: |
+          set -euo pipefail
+          supabase functions list --project-ref "$SUPABASE_PROJECT_ID" -o json \
+            | jq --arg names "stripe-webhook check-usage-limit create-user observability-smoke attest-session-engine objective-register-source get-ai-suggestions stripe-checkout stripe-billing-portal account-closure" '[($names | split(" "))[] as $n | (map(select(.slug == $n)) | first // null) as $f
+                | {slug: $n, version: ($f.version // null), status: ($f.status // null), updated_at: ($f.updated_at // null)}]' \
+            > "$RUNNER_TEMP/edge-versions-before.json"
+          jq -c '.[]' "$RUNNER_TEMP/edge-versions-before.json"
+
       - name: Deploy Edge Functions
+        id: deploy_edge
         working-directory: backend/supabase
         run: |
           supabase functions deploy stripe-webhook --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt --use-api
@@ -236,6 +249,42 @@ jobs:
           supabase functions deploy stripe-checkout --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt --use-api
           supabase functions deploy stripe-billing-portal --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt --use-api
           supabase functions deploy account-closure --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt --use-api
+
+      # Runs after success AND after a partial failure: the after-versions are reconciled against the before-versions,
+      # function by function, so a release that stopped midway reports exactly which functions are already live.
+      - name: Reconcile Edge function versions after publication
+        if: ${{ always() && steps.deploy_edge.outcome != 'skipped' }}
+        env:
+          DEPLOY_OUTCOME: ${{ steps.deploy_edge.outcome }}
+        run: |
+          set -euo pipefail
+          supabase functions list --project-ref "$SUPABASE_PROJECT_ID" -o json \
+            | jq --arg names "stripe-webhook check-usage-limit create-user observability-smoke attest-session-engine objective-register-source get-ai-suggestions stripe-checkout stripe-billing-portal account-closure" '[($names | split(" "))[] as $n | (map(select(.slug == $n)) | first // null) as $f
+                | {slug: $n, version: ($f.version // null), status: ($f.status // null), updated_at: ($f.updated_at // null)}]' \
+            > "$RUNNER_TEMP/edge-versions-after.json"
+          jq -n --arg outcome "$DEPLOY_OUTCOME" --slurpfile before "$RUNNER_TEMP/edge-versions-before.json" \
+            --slurpfile after "$RUNNER_TEMP/edge-versions-after.json" \
+            '{schemaVersion: 1, deployOutcome: $outcome, functions: [range(0; ($before[0] | length)) as $i
+              | ($before[0][$i]) as $b | ($after[0][$i]) as $a
+              | {slug: $b.slug, before: $b.version, after: $a.version, status: $a.status,
+                 advanced: (($a.version // 0) > ($b.version // 0))}]}
+             | .allAdvanced = ([.functions[].advanced] | all)
+             | .advanced = [.functions[] | select(.advanced) | .slug]
+             | .notAdvanced = [.functions[] | select(.advanced | not) | .slug]' > edge-version-reconciliation.json
+          cat edge-version-reconciliation.json
+          if [ "$DEPLOY_OUTCOME" = success ] && [ "$(jq -r .allAdvanced edge-version-reconciliation.json)" != true ]; then
+            echo "::error::Deploy reported success but these functions did not advance: $(jq -c .notAdvanced edge-version-reconciliation.json)"
+            exit 1
+          fi
+
+      - name: Keep the Edge version reconciliation
+        if: ${{ always() && steps.deploy_edge.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: edge-version-reconciliation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: edge-version-reconciliation.json
+          if-no-files-found: warn
+          retention-days: 1
 
   verify-edge-functions:
     needs: [validate-edge-configuration, deploy-edge-functions]
