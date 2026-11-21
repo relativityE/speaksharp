@@ -6,7 +6,7 @@
 import { readdirSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import { createClient } from '@supabase/supabase-js';
-import type { Browser, Page, TestInfo } from '@playwright/test';
+import type { Browser, CDPSession, Page, TestInfo } from '@playwright/test';
 import { expect } from './rwtProductionTest';
 import { cleanupRunOwnedAccount } from './runOwnedCleanup';
 import {
@@ -57,6 +57,22 @@ const START_ENABLED_MS = 60_000;
 const RECORDING_MS = 600_000;
 /** AHT-14: the cold download shows its first received bytes within this bound (the former request-issued bound). */
 const MODEL_BYTES_MS = 120_000;
+
+/** J7.c: the cold download's throughput while the offline-mid-download attempt runs (bytes per second). */
+export const MID_DOWNLOAD_THROUGHPUT_BPS = 512 * 1024;
+/** Slows this page's downloads (not uploads) through its own CDP session, so a model body is in flight long enough to fault. */
+async function throttleDownloads(page: Page): Promise<CDPSession> {
+    const session = await page.context().newCDPSession(page);
+    await session.send('Network.emulateNetworkConditions',
+        { offline: false, latency: 20, downloadThroughput: MID_DOWNLOAD_THROUGHPUT_BPS, uploadThroughput: -1 });
+    return session;
+}
+/** Clears the throttle (no-op when none was applied); bounded by the finalization step that calls it. */
+async function clearDownloadThrottle(session: CDPSession | null): Promise<void> {
+    if (!session) return;
+    await session.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 })
+        .finally(() => session.detach().catch(() => undefined));
+}
 
 /**
  * Blocks the site's microphone the way a person's site setting does. J7.a (PO and Sam, 2026-11-19): the journey only ever
@@ -325,16 +341,16 @@ async function reopenRow(receipt: RwtReceipt, page: Page, recovered: { savedId: 
  * the recovery (`pressRecovery`) then presses only its variant's designed control (`RECOVERY_CONTROLS`), never in a loop, and
  * presses nothing when the page offers anything else. Each press, by its line:
  *  AHT-12 mic denied (J7.a, PO and Sam 2026-11-19) — exactly 1:
- *   1. the denied press, `mic-download` or `mic-start` (whichever is offered): `pressCaptureControl` (rwtAdverseJourney.ts:445).
+ *   1. the denied press, `mic-download` or `mic-start` (whichever is offered): `pressCaptureControl` (rwtAdverseJourney.ts:464).
  *   No recovery press: J7.a covers the denial only, and the microphone is never allowed. So either control may take the one
  *   press; `mic-retry` none. The catalog's minimumStarts 3 assumes the harness's same-context Allow → Start route, which J7.a
  *   records as UNTESTED.
  *  AHT-13 download fails — exactly 3:
- *   1. `mic-download` with the model route aborted (rwtAdverseJourney.ts:495);
- *   2. `mic-retry` once the cause is removed (rwtAdverseJourney.ts:209);
- *   3. `mic-start` only after Retry's setup published `ready` (rwtAdverseJourney.ts:215).
- *  AHT-14 offline mid-download — exactly 3: `mic-download` (rwtAdverseJourney.ts:510), then the same `mic-retry` and
- *   `mic-start` as AHT-13 (rwtAdverseJourney.ts:209, :215).
+ *   1. `mic-download` with the model route aborted (rwtAdverseJourney.ts:514);
+ *   2. `mic-retry` once the cause is removed (rwtAdverseJourney.ts:225);
+ *   3. `mic-start` only after Retry's setup published `ready` (rwtAdverseJourney.ts:231).
+ *  AHT-14 offline mid-download — exactly 3: `mic-download` (rwtAdverseJourney.ts:533), then the same `mic-retry` and
+ *   `mic-start` as AHT-13 (rwtAdverseJourney.ts:225, :231).
  * #1835 (Sam, Nov 20; #1916): every press above runs `gate.confirm()` inside the press, immediately before its click
  * (`pressCaptureControl`), which reads this run's own saved privacy choice back from the server and stops the journey with
  * nothing pressed unless it is exactly the variant's fixed choice (`adverseConsentMode`: J7.a Save No; J7.b/c Save Yes, Coaching No).
@@ -364,6 +380,8 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
     const takes: string[] = [];
     let claimed = false;
     const context = page.context();
+    // J7.c (run 44946784400): the throttle the offline-mid-download attempt applies to this page's downloads; cleared in finalization.
+    let downloadThrottle: CDPSession | null = null;
     // #1593 fail early: an unexpected failure, refusal or stall ends the journey in seconds, not at the 30-minute timeout.
     const watch = armWatchdog({ page, tap, profile: watchProfileFor(suite), label: suite });
     // #1593 (Sam, #1662 RETURN control 1): ONE owned finalization — the body's finally and the suite's afterEach
@@ -376,6 +394,7 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
         await steps.step('telemetry settle', () => tap.settleEveryPage((ms) => new Promise((resolve) => setTimeout(resolve, ms))));
         await steps.step('watchdog', () => watch.record(receipt));
         await steps.step('offline restore', () => context.setOffline(false));
+        await steps.step('download throttle restore', () => clearDownloadThrottle(downloadThrottle));
         await steps.step('model route restore', () => context.unroute(MODEL_ASSETS));
         await steps.step('no cloud row', () => {
             const cloudVerdict = noCloudVerdict(cloud.requests);
@@ -505,6 +524,10 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
                 context.on('requestfinished', (r) => transfer.onFinished(r));
                 context.on('requestfailed', (r) => transfer.onFailed(r));
                 pressIndex = (await page.evaluate(readRuntimeStateLog).catch(() => ({ token: null, states: [] as string[] }))).states.length;
+                // J7.c (run 44946784400): on a GitHub runner the last model body finished between the gate and setOffline, so
+                // the fault never reached a download. Slow this page's downloads for the cold attempt so a body stays in flight
+                // for seconds; the gate, the fault and every verdict are unchanged. Cleared right after the fault step, and in finalization.
+                downloadThrottle = await throttleDownloads(page);
                 fault.startAttempt();
                 transfer.startAttempt();
                 await pressCaptureControl(page, ['mic-download'], { beforeClick: () => gate.confirm() });
@@ -530,6 +553,9 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
                     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
                     now: () => Date.now(),
                 }, atOffline, { boundMs: 300_000, pollMs: 50 });
+                // The throttle served only the fault: recovery (Retry) downloads at full speed.
+                await clearDownloadThrottle(downloadThrottle).catch(() => undefined);
+                downloadThrottle = null;
                 injected = offlineOutcome.kind === 'exercised';
                 if (offlineOutcome.kind !== 'exercised') {
                     // No mid-download fault reached a download: never PASS. The cold take is stopped and saved, or FAILs.

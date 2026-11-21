@@ -114,4 +114,27 @@ describe('guards — the spec, the acceptance map and the product stay in step',
         expect(journey).not.toMatch(/setting: 'granted'|'granted' \| 'denied'|'denied' \| 'granted'/);
         expect(spec).not.toMatch(/route\.fulfill|addInitScript/);
     });
+
+    it('J7.c (run 44946784400): only the offline-mid-download attempt is throttled, before its press, and the throttle is always cleared', () => {
+        const journey = src('tests/live/helpers/rwtAdverseJourney.ts');
+        const failsFrom = journey.indexOf("if (variant === 'download-fails') {");
+        const offlineFrom = journey.indexOf('} else {', failsFrom);
+        const throttleAt = journey.indexOf('downloadThrottle = await throttleDownloads(page);');
+        const pressAt = journey.indexOf("await pressCaptureControl(page, ['mic-download']", throttleAt);
+        const faultAt = journey.indexOf('const offlineOutcome = await runOfflineFault({', throttleAt);
+        const clearAt = journey.indexOf('await clearDownloadThrottle(downloadThrottle).catch(() => undefined);', faultAt);
+        // Applied once, in the offline-mid-download branch, immediately before that branch's cold press.
+        expect(journey.split('throttleDownloads(page)').length - 1).toBe(1);
+        expect(failsFrom).toBeGreaterThan(0);
+        expect(throttleAt).toBeGreaterThan(offlineFrom);
+        expect(offlineFrom).toBeGreaterThan(failsFrom);
+        expect(pressAt).toBeGreaterThan(throttleAt);
+        expect(journey.slice(throttleAt, pressAt)).not.toMatch(/setOffline|route\(/);
+        // Cleared as soon as the fault step returns (recovery downloads at full speed), and again in finalization.
+        expect(clearAt).toBeGreaterThan(faultAt);
+        expect(journey.slice(clearAt, journey.indexOf('injected = offlineOutcome.kind', clearAt))).toContain('downloadThrottle = null;');
+        expect(journey).toContain("await steps.step('download throttle restore', () => clearDownloadThrottle(downloadThrottle));");
+        // Downloads only: uploads are never throttled, and the throttle never takes the page offline itself.
+        expect(journey).toContain("{ offline: false, latency: 20, downloadThroughput: MID_DOWNLOAD_THROUGHPUT_BPS, uploadThroughput: -1 }");
+    });
 });
