@@ -650,18 +650,24 @@ export function assertNoSecondCharge(listed: unknown, expected: { customer: stri
  * separately (noPaidAccess). Before any card entry the plain rule (no subscription at all) still applies.
  */
 export function assertDeclinedCheckoutGrantedNothing(input: {
-  session: unknown; subscription: unknown; invoice: unknown; customer: string; succeededCharges: number | null;
+  session: unknown; subscription: unknown; invoice: unknown; customer: string; charges: unknown; chargesHasMore: unknown;
   expectedStatus: 'open' | 'expired';
 }): string | null {
   const session = (input.session ?? {}) as { livemode?: unknown; status?: unknown; payment_status?: unknown; subscription?: unknown };
   requireFact(session.livemode === false && session.status === input.expectedStatus && session.payment_status === 'unpaid',
     'declined_checkout_session_not_unpaid');
-  requireFact(input.succeededCharges === 0, input.succeededCharges === null ? 'declined_checkout_charges_unread' : 'declined_checkout_charged');
-  const attached = typeof session.subscription === 'string' ? session.subscription
-    : (session.subscription as { id?: unknown } | null | undefined)?.id ?? null;
-  if (attached === null) return null;
+  // Every charge row must be one Stripe documents; an unknown row is unread, never "not a success". Only `failed` is allowed.
+  const charges = Array.isArray(input.charges) ? input.charges as Array<{ status?: unknown } | null> : null;
+  requireFact(charges !== null && input.chargesHasMore === false && charges.every((c) => c !== null && typeof c === 'object'
+    && ['succeeded', 'pending', 'failed'].includes(c.status as string)), 'declined_checkout_charges_unread');
+  requireFact(charges.every((c) => c?.status === 'failed'), 'declined_checkout_charged');
+  // Only an actual null or absent reference means no attachment; anything else must be a well-formed subscription reference.
+  const ref = session.subscription;
+  if (ref === null || ref === undefined) return null;
+  const attached = typeof ref === 'string' ? ref : typeof ref === 'object' ? (ref as { id?: unknown }).id : undefined;
+  requireFact(typeof attached === 'string' && /^sub_[A-Za-z0-9]+$/.test(attached), 'declined_checkout_subscription_malformed');
   const sub = (input.subscription ?? {}) as { id?: unknown; livemode?: unknown; customer?: unknown; status?: unknown; latest_invoice?: unknown };
-  requireFact(typeof attached === 'string' && sub.id === attached, 'declined_checkout_subscription_unread');
+  requireFact(sub.id === attached, 'declined_checkout_subscription_unread');
   requireFact(sub.livemode === false && sub.customer === input.customer, 'declined_checkout_subscription_foreign');
   // While Checkout is still open after the decline only `incomplete` is allowed; `incomplete_expired` only after expiry.
   requireFact(declinedSubscriptionStatuses(input.expectedStatus).includes(sub.status as string), 'declined_checkout_subscription_not_incomplete');
@@ -671,24 +677,33 @@ export function assertDeclinedCheckoutGrantedNothing(input: {
   requireFact(typeof invoiceId === 'string' && invoice.id === invoiceId && invoice.customer === input.customer
     && invoice.livemode === false, 'declined_checkout_invoice_unread');
   requireFact(invoice.status !== 'paid' && invoice.amount_paid === 0, 'declined_checkout_invoice_paid');
-  return attached as string;
+  return attached;
+}
+
+/** The only non-Pro profile status SpeakSharp has (no Basic product); anything else, absent included, is not observed non-Pro. */
+export const NON_PRO_PROFILE_STATUS = 'free';
+
+/**
+ * J2 app access, judged on its own and BEFORE any Stripe read so a Stripe error cannot mask it: the account cannot start a
+ * session and its profile reads exactly the non-Pro status. Anything else is `failed_checkout_granted_access`.
+ */
+export function assertNoAppAccess(input: { canStart: unknown; profileStatus: unknown }): void {
+  requireFact(input.canStart === false && input.profileStatus === NON_PRO_PROFILE_STATUS, 'failed_checkout_granted_access');
 }
 
 /**
- * J2 "no paid access" after each step. App access is judged FIRST and independently: a usable account or a Pro profile fails
- * as `failed_checkout_granted_access` whatever Stripe holds. Then the customer's subscriptions: none at all, except that after
- * a decline the one subscription the declined session attached (already verified unpaid by assertDeclinedCheckoutGrantedNothing)
- * may be listed, in one of the statuses allowed for that phase. Anything else, or an incomplete list, is `failed_checkout_subscribed`.
+ * J2 the customer's subscriptions, on a complete list: none at all, except that after a decline the one subscription the declined
+ * session attached (verified unpaid by assertDeclinedCheckoutGrantedNothing) may be listed ONCE, in that phase's allowed
+ * statuses. Anything else, a duplicate, or an incomplete or unread list is `failed_checkout_subscribed`.
  */
-export function assertNoPaidAccess(input: {
-  canStart: unknown; profileStatus: unknown;
-  subscriptions: unknown; hasMore: unknown;
-  allowed: { id: string; statuses: readonly string[] } | null;
+export function assertSubscriptionsAllowed(input: {
+  subscriptions: unknown; hasMore: unknown; allowed: { id: string; statuses: readonly string[] } | null;
 }): void {
-  requireFact(input.canStart === false && input.profileStatus !== 'pro', 'failed_checkout_granted_access');
-  const listed = Array.isArray(input.subscriptions) ? input.subscriptions as Array<{ id?: unknown; status?: unknown }> : null;
-  requireFact(listed !== null && input.hasMore === false && listed.every((sub) => input.allowed !== null
-    && sub.id === input.allowed.id && input.allowed.statuses.includes(sub.status as string)), 'failed_checkout_subscribed');
+  const listed = Array.isArray(input.subscriptions) ? input.subscriptions as Array<{ id?: unknown; status?: unknown } | null> : null;
+  const { allowed } = input;
+  requireFact(listed !== null && input.hasMore === false && listed.length <= (allowed === null ? 0 : 1)
+    && listed.every((sub) => allowed !== null && sub !== null && typeof sub === 'object'
+      && sub.id === allowed.id && allowed.statuses.includes(sub.status as string)), 'failed_checkout_subscribed');
 }
 
 /** After a decline: only `incomplete` while Checkout is still open; `incomplete_expired` too, but only after expiry. */

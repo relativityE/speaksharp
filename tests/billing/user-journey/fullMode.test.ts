@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { afterAll, beforeAll, test } from 'vitest';
 import { parse } from 'yaml';
-import { selectRunnerJourneys, receipt, isRefundCancellation, assertFullRefund, assertCheckoutGrantedNothing, assertDeclinedCheckoutGrantedNothing, assertNoPaidAccess, declinedSubscriptionStatuses,
+import { selectRunnerJourneys, receipt, isRefundCancellation, assertFullRefund, assertCheckoutGrantedNothing, assertDeclinedCheckoutGrantedNothing, assertNoAppAccess, assertSubscriptionsAllowed, declinedSubscriptionStatuses,
   checkoutSessionFromUrl, assertCheckoutIdentity, newlyAddedCard, assertNoSecondCharge,
   BILLING_JOURNEYS, FULL_MODE_JOURNEYS, RUNNER_JOURNEYS, LOCAL_STACK_JOURNEYS, REQUIRED_STEPS, POLICY_PENDING_STEPS, PENDING_POLICY } from './contract';
 import { finaliseLocalStackReceipt, journeyReceiptDefects } from './localStackReceipt.mjs';
@@ -764,12 +764,17 @@ test('declined checkout (J2): only an unpaid, incomplete subscription of this se
   const session = { livemode: false, status: 'open', payment_status: 'unpaid', subscription: 'sub_1' };
   const subscription = { id: 'sub_1', livemode: false, customer: 'cus_1', status: 'incomplete', latest_invoice: 'in_1' };
   const invoice = { id: 'in_1', customer: 'cus_1', livemode: false, status: 'open', amount_paid: 0 };
-  const base = { session, subscription, invoice, customer: 'cus_1', succeededCharges: 0, expectedStatus: 'open' as const };
+  const failedCharge = { status: 'failed' };
+  const base = { session, subscription, invoice, customer: 'cus_1', charges: [failedCharge] as unknown[], chargesHasMore: false,
+    expectedStatus: 'open' as const };
   assertDeclinedCheckoutGrantedNothing(base);
   assertDeclinedCheckoutGrantedNothing({ ...base, session: { ...session, status: 'expired' }, expectedStatus: 'expired',
     subscription: { ...subscription, status: 'incomplete_expired' } });
   assertDeclinedCheckoutGrantedNothing({ ...base, session: { ...session, subscription: { id: 'sub_1' } } });
-  assertDeclinedCheckoutGrantedNothing({ ...base, session: { ...session, subscription: null }, subscription: null, invoice: null });
+  assert.equal(assertDeclinedCheckoutGrantedNothing({ ...base, session: { ...session, subscription: null }, subscription: null, invoice: null }), null);
+  assert.equal(assertDeclinedCheckoutGrantedNothing({ ...base, session: { livemode: false, status: 'open', payment_status: 'unpaid' },
+    subscription: null, invoice: null, charges: [] }), null);
+  assert.equal(assertDeclinedCheckoutGrantedNothing(base), 'sub_1');
   assertDeclinedCheckoutGrantedNothing({ ...base, session: { ...session, status: 'expired' }, expectedStatus: 'expired' });
   const refused = (input: typeof base | Record<string, unknown>) => {
     try { assertDeclinedCheckoutGrantedNothing(input as typeof base); return null; } catch (e) { return (e as Error).message.replace('BILLING_JOURNEY:', ''); }
@@ -780,8 +785,20 @@ test('declined checkout (J2): only an unpaid, incomplete subscription of this se
     [{ ...base, session: { ...session, livemode: true } }, 'declined_checkout_session_not_unpaid'],
     [{ ...base, expectedStatus: 'expired' }, 'declined_checkout_session_not_unpaid'],
     [{ ...base, subscription: { ...subscription, status: 'incomplete_expired' } }, 'declined_checkout_subscription_not_incomplete'],
-    [{ ...base, succeededCharges: 1 }, 'declined_checkout_charged'],
-    [{ ...base, succeededCharges: null }, 'declined_checkout_charges_unread'],
+    [{ ...base, charges: [failedCharge, { status: 'succeeded' }] }, 'declined_checkout_charged'],
+    [{ ...base, charges: [{ status: 'pending' }] }, 'declined_checkout_charged'],
+    [{ ...base, chargesHasMore: true }, 'declined_checkout_charges_unread'],
+    [{ ...base, charges: null }, 'declined_checkout_charges_unread'],
+    // Sam 11-21: an unknown charge row is unread, never "not a success".
+    [{ ...base, charges: [failedCharge, { status: 'refunded_weird' }] }, 'declined_checkout_charges_unread'],
+    [{ ...base, charges: [failedCharge, {}] }, 'declined_checkout_charges_unread'],
+    [{ ...base, charges: [null] }, 'declined_checkout_charges_unread'],
+    // Sam 11-21: only an actual null or absent reference is "no attachment"; a malformed one fails.
+    [{ ...base, session: { ...session, subscription: {} } }, 'declined_checkout_subscription_malformed'],
+    [{ ...base, session: { ...session, subscription: '' } }, 'declined_checkout_subscription_malformed'],
+    [{ ...base, session: { ...session, subscription: 42 } }, 'declined_checkout_subscription_malformed'],
+    [{ ...base, session: { ...session, subscription: { id: 7 } } }, 'declined_checkout_subscription_malformed'],
+    [{ ...base, session: { ...session, subscription: 'not-a-sub' } }, 'declined_checkout_subscription_malformed'],
     [{ ...base, subscription: null }, 'declined_checkout_subscription_unread'],
     [{ ...base, subscription: { ...subscription, id: 'sub_other' } }, 'declined_checkout_subscription_unread'],
     [{ ...base, subscription: { ...subscription, customer: 'cus_other' } }, 'declined_checkout_subscription_foreign'],
@@ -807,41 +824,53 @@ test('declined checkout (J2): only an unpaid, incomplete subscription of this se
   assert.doesNotMatch(branch, /assertCheckoutGrantedNothing\([^)]*declined/);
 });
 
-test('no paid access (J2): app access is judged first and independently; only the declined session\'s own subscription may be listed', () => {
+test('no paid access (J2): app access is asserted first and on its own; only the declined session\'s own subscription, once', () => {
+  const code = (f: () => unknown) => { try { f(); return null; } catch (e) { return (e as Error).message.replace('BILLING_JOURNEY:', ''); } };
+  // App access: exactly can_start false and the observed non-Pro status (Sam 11-21: not merely "not pro").
+  assert.equal(code(() => assertNoAppAccess({ canStart: false, profileStatus: 'free' })), null);
+  for (const wrong of [{ canStart: true, profileStatus: 'free' }, { canStart: false, profileStatus: 'pro' }, { canStart: null, profileStatus: 'free' },
+    { canStart: undefined, profileStatus: 'free' }, { canStart: false, profileStatus: null }, { canStart: false, profileStatus: undefined },
+    { canStart: false, profileStatus: 'basic' }, { canStart: false, profileStatus: 'Pro' }, { canStart: 'false', profileStatus: 'free' }]) {
+    assert.equal(code(() => assertNoAppAccess(wrong)), 'failed_checkout_granted_access', JSON.stringify(wrong));
+  }
   const sub = { id: 'sub_1', status: 'incomplete' };
   const allowedOpen = { id: 'sub_1', statuses: declinedSubscriptionStatuses('open') };
   const allowedExpired = { id: 'sub_1', statuses: declinedSubscriptionStatuses('expired') };
-  const ok = { canStart: false, profileStatus: 'free', subscriptions: [] as unknown[], hasMore: false, allowed: null };
-  const code = (input: Parameters<typeof assertNoPaidAccess>[0]) => {
-    try { assertNoPaidAccess(input); return null; } catch (e) { return (e as Error).message.replace('BILLING_JOURNEY:', ''); }
-  };
-  // Passing shapes: nothing at all (walk-away); after the decline, only that session's incomplete subscription.
-  assert.equal(code(ok), null);
-  assert.equal(code({ ...ok, subscriptions: [sub], allowed: allowedOpen }), null);
-  assert.equal(code({ ...ok, subscriptions: [{ ...sub, status: 'incomplete_expired' }], allowed: allowedExpired }), null);
-  assert.equal(code({ ...ok, allowed: allowedOpen }), null);
-  // Wrongly granted access fails as access, even when the subscription side is exactly the allowed incomplete one (Sam 11-21).
-  for (const wrong of [{ canStart: true }, { profileStatus: 'pro' }, { canStart: null }, { canStart: undefined }]) {
-    assert.equal(code({ ...ok, subscriptions: [sub], allowed: allowedOpen, ...wrong }), 'failed_checkout_granted_access', JSON.stringify(wrong));
-    assert.equal(code({ ...ok, ...wrong }), 'failed_checkout_granted_access', JSON.stringify(wrong));
-    // Access is judged before the subscription list, so a bad list never masks it.
-    assert.equal(code({ ...ok, subscriptions: [{ id: 'sub_x', status: 'active' }], ...wrong }), 'failed_checkout_granted_access');
-  }
-  // Subscription side: none allowed before the decline; after it, only that id in that phase's statuses, on a complete list.
-  for (const [input, why] of [
-    [{ ...ok, subscriptions: [sub] }, 'any subscription with nothing allowed'],
-    [{ ...ok, subscriptions: [{ ...sub, id: 'sub_other' }], allowed: allowedOpen }, 'a different subscription'],
-    [{ ...ok, subscriptions: [sub, { ...sub, id: 'sub_2' }], allowed: allowedOpen }, 'a second subscription'],
-    [{ ...ok, subscriptions: [{ ...sub, status: 'incomplete_expired' }], allowed: allowedOpen }, 'incomplete_expired while open'],
-    ...['active', 'trialing', 'past_due', 'unpaid', 'canceled'].map((status) =>
-      [{ ...ok, subscriptions: [{ ...sub, status }], allowed: allowedExpired }, status] as const),
-    [{ ...ok, subscriptions: [sub], hasMore: true, allowed: allowedOpen }, 'an incomplete list'],
-    [{ ...ok, subscriptions: null, allowed: allowedOpen }, 'an unread list'],
+  const subs = (subscriptions: unknown, allowed: typeof allowedOpen | null, hasMore: unknown = false) =>
+    code(() => assertSubscriptionsAllowed({ subscriptions, hasMore, allowed }));
+  assert.equal(subs([], null), null);
+  assert.equal(subs([], allowedOpen), null);
+  assert.equal(subs([sub], allowedOpen), null);
+  assert.equal(subs([{ ...sub, status: 'incomplete_expired' }], allowedExpired), null);
+  for (const [list, allowed, hasMore, why] of [
+    [[sub], null, false, 'any subscription with nothing allowed'],
+    [[sub, sub], allowedOpen, false, 'Sam 11-21: two copies of the allowed id'],
+    [[{ ...sub, id: 'sub_other' }], allowedOpen, false, 'a different subscription'],
+    [[sub, { ...sub, id: 'sub_2' }], allowedOpen, false, 'a second subscription'],
+    [[{ ...sub, status: 'incomplete_expired' }], allowedOpen, false, 'incomplete_expired while open'],
+    ...['active', 'trialing', 'past_due', 'unpaid', 'canceled'].map((status) => [[{ ...sub, status }], allowedExpired, false, status] as const),
+    [[sub], allowedOpen, true, 'an incomplete list'],
+    [null, allowedOpen, false, 'an unread list'],
+    [[null], allowedOpen, false, 'a null row'],
   ] as const) {
-    assert.equal(code(input as Parameters<typeof assertNoPaidAccess>[0]), 'failed_checkout_subscribed', why);
+    assert.equal(subs(list, allowed as typeof allowedOpen | null, hasMore), 'failed_checkout_subscribed', why);
   }
-  // Wiring: the walk-away keeps the strict form; each declined read passes on exactly the subscription it verified, and the
-  // expired read must report the same subscription as the open one.
+  // End to end, offline, in the spec's order on the observed decline shape: the declined read verifies the incomplete subscription,
+  // app access is asserted next, then the list allows exactly that subscription. Wrongly granted access fails there, as access.
+  const declined = (canStart: unknown, profileStatus: unknown) => code(() => {
+    const id = assertDeclinedCheckoutGrantedNothing({
+      session: { livemode: false, status: 'open', payment_status: 'unpaid', subscription: 'sub_1' },
+      subscription: { id: 'sub_1', livemode: false, customer: 'cus_1', status: 'incomplete', latest_invoice: 'in_1' },
+      invoice: { id: 'in_1', customer: 'cus_1', livemode: false, status: 'open', amount_paid: 0 },
+      customer: 'cus_1', charges: [{ status: 'failed' }], chargesHasMore: false, expectedStatus: 'open' });
+    assertNoAppAccess({ canStart, profileStatus });
+    assertSubscriptionsAllowed({ subscriptions: [sub], hasMore: false, allowed: id === null ? null : { id, statuses: declinedSubscriptionStatuses('open') } });
+  });
+  assert.equal(declined(false, 'free'), null);
+  assert.equal(declined(true, 'free'), 'failed_checkout_granted_access');
+  assert.equal(declined(false, 'pro'), 'failed_checkout_granted_access');
+  // Wiring: the walk-away keeps the strict form; each declined read passes on exactly the subscription it verified, the expired read
+  // must report the same one, and app access is asserted before the Stripe list is requested.
   const branch = between("} else if (this.journey === 'failed_checkout') {\n      // Walk-away (J2)", '    } else {\n      checkoutUrl = await invoke();');
   assert.match(branch, /this\.steps\.add\('walked_away_from_checkout'\);\n\s+await this\.noPaidAccess\(\);/);
   assert.match(branch, /const declinedSubscription = await this\.declinedGrantedNothing\(declined, 'open'\);/);
@@ -849,5 +878,5 @@ test('no paid access (J2): app access is judged first and independently; only th
   assert.match(branch, /requireFact\(expiredSubscription === declinedSubscription, 'declined_checkout_subscription_changed'\)/);
   assert.match(branch, /noPaidAccess\(expiredSubscription === null \? null : \{ id: expiredSubscription, statuses: declinedSubscriptionStatuses\('expired'\) \}\)/);
   const helper = between('  async noPaidAccess(', '\n  }\n');
-  assert.ok(helper.indexOf('this.usage()') < helper.indexOf('subscriptions?') && helper.indexOf('this.profile()') < helper.indexOf('subscriptions?'));
+  assert.ok(helper.indexOf('assertNoAppAccess(') >= 0 && helper.indexOf('assertNoAppAccess(') < helper.indexOf('subscriptions?'), 'access asserted before the Stripe list');
 });
