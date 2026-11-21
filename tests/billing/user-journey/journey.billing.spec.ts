@@ -495,8 +495,23 @@ class SandboxJourney {
       requireFact((await customerSessions()).join(',') === only, 'retry_created_second_session');
       this.steps.add('checkout_retried');
     } else if (this.journey === 'failed_checkout') {
-      // A declined card: Stripe shows the decline on its own page, nothing is paid, nothing is granted.
+      // Walk-away (J2): the expired owner opens Checkout, leaves without paying and comes back to the app. While that exact
+      // session is still open and unpaid, the app shows the payment wall and the server grants nothing.
+      const walked = await this.openCheckout(await invoke());
+      await this.page.goto(`${this.targets.app}/practice`);
+      requireFact(new URL(this.page.url()).origin === new URL(this.targets.app).origin, 'walk_away_left_app');
+      await expect(this.page.getByTestId('trial-payment-wall')).toBeVisible({ timeout: 30_000 })
+        .catch(() => { throw new Error('BILLING_JOURNEY:walk_away_wall_not_shown'); });
+      assertCheckoutGrantedNothing(await this.stripe(`checkout/sessions/${walked}`), 'open');
+      this.steps.add('walked_away_from_checkout');
+      await this.noPaidAccess();
+      this.steps.add('no_access_while_session_open');
+      // Returning to Checkout reuses the walked-away session, never a second one. Its own step, so a failure here cannot erase
+      // or stand in for the walk-away observation above.
       const declined = await this.openCheckout(await invoke());
+      requireFact(declined === walked, 'walk_away_return_created_second_session');
+      this.steps.add('checkout_return_reused_session');
+      // A declined card: Stripe shows the decline on its own page, nothing is paid, nothing is granted.
       await this.payOnHostedPage('4000000000000002');
       await expect(this.page.getByText(/declined/i).first()).toBeVisible({ timeout: 60_000 })
         .catch(() => { throw new Error('BILLING_JOURNEY:decline_not_shown'); });

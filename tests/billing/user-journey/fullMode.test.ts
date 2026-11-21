@@ -115,15 +115,30 @@ test('portal recovery repairs billing in Manage billing only, never with an API 
   assert.match(branch, /portal_recovery_pay_unavailable/);
 });
 
-test('failed checkout: a declining test card, an expired session, then one paid subscription', () => {
-  const branch = between("} else if (this.journey === 'failed_checkout') {\n      // A declined card", '    } else {\n      checkoutUrl = await invoke();');
+test('failed checkout: a walk-away, a declining test card, an expired session, then one paid subscription', () => {
+  const branch = between("} else if (this.journey === 'failed_checkout') {\n      // Walk-away (J2)", '    } else {\n      checkoutUrl = await invoke();');
+  // Walk-away: the owner leaves the open Checkout for the app, which still shows the wall while that session is open and unpaid.
+  assert.match(branch, /const walked = await this\.openCheckout\(await invoke\(\)\);/);
+  assert.match(branch, /this\.page\.goto\(`\$\{this\.targets\.app\}\/practice`\)/);
+  assert.match(branch, /getByTestId\('trial-payment-wall'\)/);
+  assert.match(branch, /assertCheckoutGrantedNothing\(await this\.stripe\(`checkout\/sessions\/\$\{walked\}`\), 'open'\)/);
+  assert.match(branch, /requireFact\(declined === walked, 'walk_away_return_created_second_session'\)/);
   assert.match(branch, /payOnHostedPage\('4000000000000002'\)/);
   assert.match(branch, /checkout\/sessions\/\$\{declined\}\/expire`, 'POST'/);
   assert.match(branch, /sessionOf\(checkoutUrl\) !== declined, 'retry_checkout_refused'/);
-  const order = ['declined_checkout', 'no_access_after_decline', 'abandoned_checkout', 'no_access_after_abandon']
+  const order = ['walked_away_from_checkout', 'no_access_while_session_open', 'checkout_return_reused_session', 'declined_checkout',
+    'no_access_after_decline', 'abandoned_checkout', 'no_access_after_abandon']
     .map(step => branch.indexOf(`steps.add('${step}')`));
   assert.deepEqual([...order].sort((a, b) => a - b), order);
   assert.ok(order.every(index => index > -1));
+  // The walk-away observation is recorded before the reuse check, any card entry and any expiry call, so a failure in
+  // those later checks cannot erase it or stand in for it; session reuse is its own step.
+  const walkAwayRecorded = branch.indexOf("steps.add('no_access_while_session_open')");
+  for (const later of ["'walk_away_return_created_second_session'", 'payOnHostedPage(', '/expire`']) {
+    assert.ok(branch.indexOf(later) > walkAwayRecorded, `${later} must follow the walk-away observation`);
+  }
+  assert.ok(branch.indexOf("'walk_away_return_created_second_session'") < branch.indexOf("steps.add('checkout_return_reused_session')"));
+  assert.ok(branch.indexOf("steps.add('checkout_return_reused_session')") < branch.indexOf('payOnHostedPage('));
   // The declined Checkout is checked before the browser goes to it (Sam's fa7e7180 return).
   assert.match(branch, /const declined = await this\.openCheckout\(await invoke\(\)\);/);
   assert.match(SPEC, /all\.data\.length === 1\s*\n?\s*&& all\.data\[0\]\.id === this\.subscription, 'more_than_one_subscription'/);
@@ -206,7 +221,9 @@ test('Checkout is validated before navigation: every page.goto of a Checkout URL
   // Nowhere else does the browser go to a Checkout URL, and the three Checkout entries all use the helper.
   const gotos = [...SPEC.matchAll(/this\.page\.goto\(([^)]*)\)/g)].map(match => match[1]);
   assert.deepEqual(gotos.filter(arg => !arg.includes('this.targets.app')), ['raw as string']);
-  assert.equal(SPEC.match(/await this\.openCheckout\(/g)?.length, 3);
+  assert.equal(SPEC.match(/await this\.openCheckout\(/g)?.length, 4);
+  // The fourth entry is J2's walk-away: the same helper, so the walked-away session is validated before the browser goes there.
+  assert.match(SPEC, /const walked = await this\.openCheckout\(await invoke\(\)\);/);
   assert.match(SPEC, /requireFact\(await this\.openCheckout\(answers\[0\]\) === only, 'repeated_click_two_sessions'\);/);
   assert.match(SPEC, /this\.session = await this\.openCheckout\(checkoutUrl\);/);
 });
