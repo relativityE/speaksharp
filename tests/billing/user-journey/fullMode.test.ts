@@ -209,6 +209,14 @@ test('contract helpers: only a whole, succeeded, test refund of this charge; onl
   assert.equal(named({ ...open, status: 'Weird Value https://x' }, 'open'),
     'BILLING_JOURNEY:failed_checkout_granted_something_status_other_payment_unpaid_subscription_none_mode_test');
   assert.equal(named(null, 'open'), 'BILLING_JOURNEY:failed_checkout_granted_something_status_none_payment_none_subscription_none_mode_unread');
+  // Only Stripe's documented values are named (status: open/complete/expired; payment: paid/unpaid/no_payment_required); any other
+  // string, even a lowercase token-shaped one, is `other`, so no unexpected upstream text enters the receipt.
+  assert.equal(named({ ...open, status: 'processing', payment_status: 'requires_action' }, 'open'),
+    'BILLING_JOURNEY:failed_checkout_granted_something_status_other_payment_other_subscription_none_mode_test');
+  assert.equal(named({ ...open, payment_status: 'no_payment_required' }, 'open'),
+    'BILLING_JOURNEY:failed_checkout_granted_something_status_open_payment_no_payment_required_subscription_none_mode_test');
+  assert.equal(named({ ...open, status: 'expired' }, 'open'),
+    'BILLING_JOURNEY:failed_checkout_granted_something_status_expired_payment_unpaid_subscription_none_mode_test');
   for (const [wrong, status] of [[{ ...open, subscription: 'sub_1' }, 'open'], [{ ...open, status: 'complete' }, 'open']] as const) {
     assert.match(named(wrong, status) ?? '', /^BILLING_JOURNEY:[a-z0-9_]{1,160}$/); // within safeFailureReason's alphabet
   }
