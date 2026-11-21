@@ -645,8 +645,8 @@ export function assertNoSecondCharge(listed: unknown, expected: { customer: stri
  * J2 after a DECLINED card (Stripe sandbox, run 44937743744): Stripe creates the subscription at the decline as `incomplete`
  * with its first invoice failed, and attaches it to the still-open session. That is not access. The declined session grants
  * nothing only when: test mode, the expected session status, unpaid, no successful charge for the customer; and, if a
- * subscription is attached, it is exactly that session's subscription, for this customer, in test mode, `incomplete` (or
- * `incomplete_expired`), and its latest invoice is this customer's and has nothing paid on it. App access is checked
+ * subscription is attached, it is exactly that session's subscription, for this customer, in test mode, `incomplete` (after a forced
+ * expiry also `incomplete_expired`), and its latest invoice is this customer's and has nothing paid on it. App access is checked
  * separately (noPaidAccess). Before any card entry the plain rule (no subscription at all) still applies.
  */
 export function assertDeclinedCheckoutGrantedNothing(input: {
@@ -663,7 +663,9 @@ export function assertDeclinedCheckoutGrantedNothing(input: {
   const sub = (input.subscription ?? {}) as { id?: unknown; livemode?: unknown; customer?: unknown; status?: unknown; latest_invoice?: unknown };
   requireFact(typeof attached === 'string' && sub.id === attached, 'declined_checkout_subscription_unread');
   requireFact(sub.livemode === false && sub.customer === input.customer, 'declined_checkout_subscription_foreign');
-  requireFact(sub.status === 'incomplete' || sub.status === 'incomplete_expired', 'declined_checkout_subscription_not_incomplete');
+  // While Checkout is still open after the decline only `incomplete` is allowed; `incomplete_expired` only after expiry.
+  const allowed = input.expectedStatus === 'open' ? ['incomplete'] : ['incomplete', 'incomplete_expired'];
+  requireFact(allowed.includes(sub.status as string), 'declined_checkout_subscription_not_incomplete');
   const invoiceId = typeof sub.latest_invoice === 'string' ? sub.latest_invoice
     : (sub.latest_invoice as { id?: unknown } | null | undefined)?.id;
   const invoice = (input.invoice ?? {}) as { id?: unknown; customer?: unknown; livemode?: unknown; status?: unknown; amount_paid?: unknown };
