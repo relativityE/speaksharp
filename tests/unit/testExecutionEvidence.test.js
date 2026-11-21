@@ -195,7 +195,8 @@ function withPilotFixture(check) {
     }
     const git=args=>execFileSync('git',args,{cwd:dir,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
     git(['init']);
-    git(['-c','user.name=Receipt fixture','-c','user.email=fixture@example.invalid','commit','--allow-empty','-m','comparison base']);
+    git(['add','pnpm-lock.yaml']);
+    git(['-c','user.name=Receipt fixture','-c','user.email=fixture@example.invalid','commit','-m','comparison base']);
     const base=git(['rev-parse','HEAD']);
     git(['add','.']);
     git(['-c','user.name=Receipt fixture','-c','user.email=fixture@example.invalid','commit','-m','bounded maintained pilot bytes']);
@@ -1151,6 +1152,8 @@ if(process.env.GITHUB_ACTIONS==='true' || process.env.TEST_EFFICACY_REAL_RUNTIME
       assert.equal(ordinary.status,0,ordinary.stderr);assert.match(ordinary.stdout,/Full merge-candidate lane passed/);};
     try {
       write('frontend/vitest.config.mjs',`export default {test:{environment:'node',include:[${JSON.stringify(contract.testFile)},'tests/unit/*.test.js'],pool:'forks',maxWorkers:1,minWorkers:1}};`);
+      git(['add','frontend/vitest.config.mjs']);
+      git(['-c','user.name=Execution fixture','-c','user.email=fixture@example.invalid','commit','-m','fixture runner baseline']);
       write(contract.testFile,original);
       await green();
       // Keep the registered anchor exactly once as a comment: the mutant must survive
