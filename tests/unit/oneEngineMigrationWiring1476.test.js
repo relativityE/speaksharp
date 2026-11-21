@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { createHash } from 'node:crypto';
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -7,12 +6,12 @@ import {
     EXACT_MIGRATION_ALLOWLIST,
     assertAfterApply,
     assertBeforeApply,
-    assertExactDryRun,
     expectedAuthorizationPhrase,
     ledgerAwareConfig,
     prepareExactMigrationWorkspace,
     resolveExactMigrationConfig,
 } from '../../scripts/lib/exactMigrationGate.mjs';
+import { assertMigrationBytePin, assertTargetOnlyDryRunCases } from '../helpers/exactMigrationWiringCases.ts';
 
 /**
  * #1476 PM pre-push review — the one-account/one-engine migration must be APPLICABLE through the exact allowlisted
@@ -65,8 +64,7 @@ describe('#1476 migration is wired into the exact allowlisted apply path', () =>
     });
 
     it('pins the FINAL byte hash of the file in the tree', () => {
-        const bytes = readFileSync(resolve(SUPABASE, 'migrations', FILE));
-        expect(entry.sha256).toBe(createHash('sha256').update(bytes).digest('hex'));
+        assertMigrationBytePin(resolve(SUPABASE, 'migrations', FILE), entry.sha256);
     });
 
     it('is selectable as a dispatch target, and the phrase binds its filename, hash and the exact main SHA', () => {
@@ -77,8 +75,7 @@ describe('#1476 migration is wired into the exact allowlisted apply path', () =>
     });
 
     it('a dry-run is accepted only when it would push this target alone', () => {
-        expect(assertExactDryRun(`Would push these migrations:\n • ${FILE}\nFinished supabase db push.`, config).files).toEqual([FILE]);
-        expect(() => assertExactDryRun(`Would push these migrations:\n • ${FILE}\n • ${ACTIVATION.file}\n`, config)).toThrow(/target-only/);
+        assertTargetOnlyDryRunCases(FILE, ACTIVATION.file, config);
     });
 
     // The REAL Production ledger: read-only Migrations Preflight run 35919387314 (main@1319e8b58, 2026-09-23). Pending:

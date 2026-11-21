@@ -60,6 +60,9 @@ export const HELPER_CONTRACTS = Object.freeze([{
   helperFile:'tests/db/helpers/completionEnv.ts', testFile:'tests/db/atomic-completion-retention.integration.test.ts',
   callables:['MIG','sid','buildCompletionDb','db0','closeCompletionDbs','actingAs','newSession','complete','transcriptBearingCount','row'],
 }, {
+  helperFile:'tests/helpers/exactMigrationWiringCases.ts', testFile:'tests/unit/progressEvaluationMigrationWiring1471.test.js',
+  callables:['assertMigrationBytePin','assertStagedMigrationOrder','assertTargetOnlyDryRunCases'],
+}, {
   helperFile:'tests/db/c1CatalogStages.js', testFile:'tests/unit/exactMigrationGate.test.js',
   callables:['proveC1CatalogStages'],
 }, {

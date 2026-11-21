@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { createHash } from 'node:crypto';
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -8,13 +7,13 @@ import {
     TARGET_POSTFLIGHT_GATES,
     assertAfterApply,
     assertBeforeApply,
-    assertExactDryRun,
     assertTerminalOutcome,
     expectedAuthorizationPhrase,
     ledgerAwareConfig,
     prepareExactMigrationWorkspace,
     resolveExactMigrationConfig,
 } from '../../scripts/lib/exactMigrationGate.mjs';
+import { assertMigrationBytePin, assertStagedMigrationOrder, assertTargetOnlyDryRunCases } from '../helpers/exactMigrationWiringCases.ts';
 
 /**
  * #1258 P0 — returning users' later saves failed with 42501 because the retention expiry set the superuser-only
@@ -64,15 +63,11 @@ describe('#1258 P0 retention-expiry migration is wired into the exact allowliste
     });
 
     it('is allowlisted as staged, directly after the trial capability, before the held commercial-activation entry', () => {
-        expect(entry).toMatchObject({ file: FILE, classification: 'staged' });
-        const order = EXACT_MIGRATION_ALLOWLIST.map((e) => e.version);
-        expect(order.indexOf(VERSION)).toBe(order.indexOf(PREVIOUS) + 1);
-        expect(EXACT_MIGRATION_ALLOWLIST.indexOf(entry)).toBeLessThan(EXACT_MIGRATION_ALLOWLIST.indexOf(ACTIVATION));
+        assertStagedMigrationOrder(FILE, VERSION, PREVIOUS, ACTIVATION);
     });
 
     it('pins the FINAL byte hash of the file in the tree', () => {
-        const bytes = readFileSync(resolve(SUPABASE, 'migrations', FILE));
-        expect(entry.sha256).toBe(createHash('sha256').update(bytes).digest('hex'));
+        assertMigrationBytePin(resolve(SUPABASE, 'migrations', FILE), entry.sha256);
     });
 
     it('is selectable as a dispatch target, and the phrase binds its filename, hash and the exact main SHA', () => {
@@ -83,8 +78,7 @@ describe('#1258 P0 retention-expiry migration is wired into the exact allowliste
     });
 
     it('a dry-run is accepted only when it would push this target alone', () => {
-        expect(assertExactDryRun(`Would push these migrations:\n • ${FILE}\nFinished supabase db push.`, config).files).toEqual([FILE]);
-        expect(() => assertExactDryRun(`Would push these migrations:\n • ${FILE}\n • ${ACTIVATION.file}\n`, config)).toThrow(/target-only/);
+        assertTargetOnlyDryRunCases(FILE, ACTIVATION.file, config);
     });
 
     // The real Production ledger fixture (2026-09-23), advanced so every earlier queue entry is applied, with the trial
