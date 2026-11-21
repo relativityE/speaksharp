@@ -104,7 +104,8 @@ describe('the fault counts only its own attempt\'s failures, armed before induct
         expect(armBeforeRoute).toBeGreaterThan(-1);
         expect(offline).toBeGreaterThan(route);
         expect(armForOffline).toBeGreaterThan(offline);
-        const press = spec.indexOf("await page.getByTestId('mic-download').click();", route);
+        const press = spec.indexOf("await pressCaptureControl(page, ['mic-download'], { beforeClick: () => gate.confirm() });", route);
+        expect(press).toBeGreaterThan(route);
         expect(spec.lastIndexOf('fault.startAttempt();', press)).toBeGreaterThan(route);
         expect(spec).not.toMatch(/faultOn/);
         expect(spec).toContain('await page.evaluate(armModelStatusLog, modelStatusToken);');

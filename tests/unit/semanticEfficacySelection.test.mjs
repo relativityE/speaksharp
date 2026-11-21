@@ -115,3 +115,69 @@ test('coaching evaluator-only changes require the real offline Deno coaching con
     assert.equal(executionCoverage([check],{root,expected,base}).rows[0].status,'NOT RUN');
   } finally {fs.rmSync(root,{recursive:true,force:true});}
 });
+
+test('enrolled changed controls include real imports, runner configuration and conservative route fallbacks', async()=>{
+  const {changedEvidencePaths,semanticChangedInputs}=await import('../../scripts/lib/testExecutionEvidence.mjs');
+  const {COACHING_EDGE_TEST}=await import('../../scripts/lib/nativeTestExecutionEvidence.mjs');
+  const edge='backend/supabase/functions/get-ai-suggestions/';
+  const live='tests/live/helpers/';
+  const inputs=[
+    [edge+'providerRetry.ts','coaching-consent-boundary'],
+    [edge+'contract.json','coaching-consent-boundary'],
+    ['backend/supabase/functions/_shared/cors.ts','coaching-consent-boundary'],
+    [edge+'providers/newUnclassifiedInput.ts','coaching-consent-boundary'],
+    [live+'rwtWatchdog.ts','retry-save-cleanup-finalization'],
+    [live+'rwtDocumentIdentity.ts','retry-save-cleanup-finalization'],
+    [live+'rwtCoachingEvidence.ts','retry-save-single-owned-take'],
+    ['frontend/src/lib/supabaseClient.ts','save-consent-boundary'],
+    ['frontend/src/services/recordingLease.ts','save-consent-boundary'],
+    ['frontend/src/services/progress/practiceAgainIntent.ts','save-consent-boundary'],
+    ['frontend/tests/test-utils/practicePrivacy.ts','save-consent-boundary'],
+  ];
+  const root=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'efficacy-dependency-')));
+  const source='frontend/src/lib/storage.ts';
+  const consumer='frontend/src/lib/__tests__/storageConsent1835.test.ts';
+  const dependency='isolated/independent-input.ts';
+  const make=(file,body='baseline\n')=>{
+    const target=path.join(root,file);fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,body);
+  };
+  try {
+    for(const [file] of inputs)make(file);
+    for(const file of [COACHING_EDGE_TEST,'README.md','vitest.config.mjs','frontend/vitest.config.mjs',
+      'scripts/lib/helperExecutionEvidence.mjs','scripts/lib/softwareQualityEvidenceQualification.mjs','tests/unit/rwtCleanupFinalizationEfficacy.test.ts',consumer,dependency]) make(file);
+    make(source,"import '../../../isolated/independent-input.ts';\n");
+    const setupInput='isolated/setup-input.ts';
+    make('frontend/tests/setup.ts',"import '../../isolated/setup-input.ts';\n");
+    make(setupInput);
+    run(root,['init']); run(root,['add','.']);
+    run(root,['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-m','baseline']);
+    const base=run(root,['rev-parse','HEAD']);
+    const exercise=(file,fn)=>{fs.appendFileSync(path.join(root,file),'change\n');try{fn();}finally{run(root,['restore','--',file]);}};
+    const check=(file,wanted)=>exercise(file,()=>{
+      const exact=semanticChangedInputs(root,base);
+      assert.deepEqual(exact,[file]);
+      const producer=selectContracts(root,exact).map(x=>x.id);
+      const validator=requiredSemanticContracts(exact,root).map(x=>x.id);
+      assert.deepEqual(validator,producer);
+      assert.ok(producer.includes(wanted),file);
+      if(file.startsWith('backend/'))assert.ok(changedEvidencePaths(root,base).includes(COACHING_EDGE_TEST),file);
+    });
+    for(const [file,id] of [...inputs,[dependency,'save-consent-boundary']]) check(file,id);
+    for(const file of ['vitest.config.mjs','frontend/vitest.config.mjs','scripts/lib/helperExecutionEvidence.mjs',
+      'scripts/lib/softwareQualityEvidenceQualification.mjs','frontend/tests/setup.ts',setupInput]) exercise(file,()=>assert.equal(
+      selectContracts(root,semanticChangedInputs(root,base)).length,6,file));
+    exercise('README.md',()=>assert.deepEqual(selectContracts(root,semanticChangedInputs(root,base)).map(x=>x.id),[]));
+    const replacement='isolated/renamed-input.ts';
+    run(root,['mv',dependency,replacement]);
+    assert.deepEqual(semanticChangedInputs(root,base),[dependency,replacement]);
+    assert.ok(selectContracts(root,semanticChangedInputs(root,base)).some(x=>x.id==='save-consent-boundary'),
+      'an unresolved enrolled local import must not suppress its actual consumer');
+  }finally{fs.rmSync(root,{recursive:true,force:true});}
+});
+
+
+test('a newly registered contract is never silently dropped by the legacy ID dispatch',()=>{
+  const extra={id:'new-unclassified-contract',sourceFile:'new/source.ts',testFile:'new/test.ts'};
+  assert.deepEqual(requiredSemanticContracts(['trigger/unknown.ts'],null,[extra]),[extra]);
+  assert.deepEqual(requiredSemanticContracts([],null,[extra]),[]);
+});

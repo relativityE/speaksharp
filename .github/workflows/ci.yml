@@ -947,6 +947,9 @@ jobs:
           TEST_EFFICACY_DENO_REAL_RUNTIME: '1'
         run: node --test tests/unit/nativeTestExecutionEvidence.test.js
 
+      - name: Run Node evidence contract tests
+        run: node --test tests/unit/semanticEfficacySelection.test.mjs tests/unit/pythonTestExecutionEvidence.test.mjs
+
       - name: Download Named Artifacts
         uses: actions/download-artifact@v7
         with:
@@ -1130,6 +1133,25 @@ jobs:
           }, null, 2));
           NODE
 
+      - name: Report changed test integrity (advisory only)
+        continue-on-error: true
+        env:
+          TEST_EFFICACY_HEAD: ${{ needs.scope.outputs.comparison_head }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          out=artifacts/changed-test-integrity.json
+          rm -f -- "$out"
+          tmp="$(mktemp "$RUNNER_TEMP/changed-test-integrity.XXXXXX")"
+          trap 'rm -f -- "$tmp"' EXIT
+          # Do not emit exception/source text into the Actions log.
+          if timeout 30s node scripts/test-integrity-audit.mjs --changed-ci-report >"$tmp" 2>/dev/null && [ "$(wc -c <"$tmp")" -le 524288 ]; then
+            mv -- "$tmp" "$out"
+            printf '%s\n' 'Changed-test integrity: advisory only (ci-metrics artifact); no execution credit.' >>"$GITHUB_STEP_SUMMARY"
+          else
+            echo '::warning::Changed-test integrity report unavailable; required quality checks are unchanged.'
+          fi
+
       - name: Upload CI Metrics
         uses: actions/upload-artifact@v6
         with:
@@ -1139,6 +1161,7 @@ jobs:
             artifacts/ci-wall-clock.json
             artifacts/ci-job-timing.json
             artifacts/software-quality-input-origin.json
+            artifacts/changed-test-integrity.json
             artifacts/metrics/native-deno-conformance.json
             artifacts/metrics/native-coaching-policy-conformance.json
             test-results/metrics.json

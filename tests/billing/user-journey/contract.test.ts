@@ -976,3 +976,18 @@ test('(PO + Sam, 18 Nov) on the local stack neither journey spec calls the Auth 
   assert.match(conversion, /stripeClean = await proveStripeFixtureDeleted\(/);
   assert.match(conversion, /requireFact\(!stripeFailed && !accountFailed && stripeClean && !this\.uncertainStripeCreate, failure \?\? 'cleanup_unproven'\);/);
 });
+
+test('decline scan trusts only the hosted Checkout page and Stripe frames; an unrelated frame can never satisfy it', async () => {
+  const { trustedCheckoutFrame } = await import('./contract');
+  const checkout = 'https://checkout.stripe.com/c/pay/cs_test_a1#fragment';
+  assert.equal(trustedCheckoutFrame(checkout, checkout), true);
+  assert.equal(trustedCheckoutFrame(checkout, 'https://js.stripe.com/v3/elements-inner-payment.html'), true);
+  for (const foreign of ['https://evil.example/declined', 'https://checkout.stripe.com.evil.example/', 'http://js.stripe.com/x',
+    'https://m.stripe.network/inner.html', 'about:blank', 'not a url', '']) {
+    assert.equal(trustedCheckoutFrame(checkout, foreign), false, foreign);
+  }
+  // Not on the hosted Checkout page (the app, a redirect, a look-alike host): no frame counts, Stripe's included.
+  for (const page of ['http://127.0.0.1:5173/practice', 'https://checkout.stripe.com.evil.example/c/pay', 'about:blank']) {
+    assert.equal(trustedCheckoutFrame(page, 'https://js.stripe.com/v3/x.html'), false, page);
+  }
+});

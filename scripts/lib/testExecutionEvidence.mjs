@@ -306,16 +306,16 @@ function changedPaths(root, base) {
   ] : all;
   return [...new Set(files.filter(Boolean))].sort();
 }
-const COACHING_QUALITY_DIR='backend/supabase/functions/get-ai-suggestions/evaluation/';
-const COACHING_QUALITY_INPUTS=new Set(['evaluator.ts','prompt.ts','transcripts.json'].map(file=>COACHING_QUALITY_DIR+file));
+const COACHING_EDGE_DIR='backend/supabase/functions/get-ai-suggestions/';
+const COACHING_QUALITY_DIR=COACHING_EDGE_DIR+'evaluation/';
+const DENO_IMPORT_CONFIG=new Set(['backend/supabase/functions/deno.json','backend/supabase/functions/deno.lock']);
+const coachingQualityInput=file=>file.startsWith(COACHING_QUALITY_DIR)||DENO_IMPORT_CONFIG.has(file);
+const coachingEdgeInput=file=>(file.startsWith(COACHING_EDGE_DIR)&&!file.startsWith(COACHING_QUALITY_DIR))
+  ||file.startsWith('backend/supabase/functions/_shared/')||DENO_IMPORT_CONFIG.has(file);
 const J4A_SAVE_ROUTE_BROWSER_TEST='tests/e2e/rwt-j4a-save-no-forward.e2e.spec.ts';
 const J4A_SAVE_ROUTE_INPUTS=new Set([
   'tests/live/rwt-save-retry-recovery.live.spec.ts',
   'tests/live/helpers/rwtSaveRetryAttempts.ts',
-]);
-const COACHING_EDGE_SOURCE_INPUTS=new Set([
-  'backend/supabase/functions/get-ai-suggestions/index.ts',
-  'backend/supabase/functions/get-ai-suggestions/practicePrivacy.ts',
 ]);
 const isRegisteredEvidenceInput = file => Boolean(registeredFixture(file) || registeredHelper(file)
   || registeredSourceContract(file) || nativeHelper(file) || sqlContract(file)
@@ -338,8 +338,8 @@ export function changedEvidencePaths(root, base) {
     || nativeHelper(file)!==undefined || pythonTestRoute(file)?.runner==='python-unittest-input') && fs.lstatSync(path.join(root,file),{throwIfNoEntry:false})!==undefined);
   // The actual producer and qualifier both derive this from the Git delta;
   // frontend-only receipts cannot satisfy a change to the Edge authority.
-  if(changed.some(file=>COACHING_EDGE_SOURCE_INPUTS.has(file)))evidence.push(COACHING_EDGE_TEST);
-  if(changed.some(file=>COACHING_QUALITY_INPUTS.has(file)))evidence.push(COACHING_QUALITY_TEST);
+  if(changed.some(coachingEdgeInput))evidence.push(COACHING_EDGE_TEST);
+  if(changed.some(coachingQualityInput))evidence.push(COACHING_QUALITY_TEST);
   if(changed.some(file=>J4A_SAVE_ROUTE_INPUTS.has(file)))evidence.push(J4A_SAVE_ROUTE_BROWSER_TEST);
   return [...new Set(evidence)].sort();
 }
@@ -404,9 +404,11 @@ export function pilotAffectedByPaths(files) {
 // Map actual changed inputs, not receipt claims, to the reviewed control set.
 const SAVE_CONSENT_INPUTS=new Set([
   'frontend/src/lib/storage.ts',
+  'frontend/src/lib/supabaseClient.ts',
   'frontend/src/lib/__tests__/storageConsent1835.test.ts',
   'frontend/src/services/practicePrivacy.ts',
   'frontend/src/services/__tests__/practicePrivacy1835.test.ts',
+  'frontend/tests/test-utils/practicePrivacy.ts',
   'backend/supabase/migrations/20261117105700_practice_privacy_choices_1835.sql',
   'tests/live/rwt-save-retry-recovery.live.spec.ts',
 ]);
@@ -416,7 +418,6 @@ const COACHING_CONSENT_INPUTS=new Set([
   'frontend/src/components/session/AISuggestions.tsx',
   'frontend/src/components/session/__tests__/coachingConsent1835.test.tsx',
   'backend/supabase/migrations/20261117105700_practice_privacy_choices_1835.sql',
-  ...COACHING_EDGE_SOURCE_INPUTS,
 ]);
 const RETRY_SAVE_INPUTS=new Set([
   'tests/live/rwt-save-retry-recovery.live.spec.ts',
@@ -433,15 +434,87 @@ const STT_FINALIZATION_INPUTS=new Set([
   'scripts/private-corpus-acceptance.mjs',
   'tests/release/private-corpus-acceptance.test.ts',
 ]);
-export function requiredSemanticContracts(files) {
-  if(files===null)return TEST_EFFICACY_CONTRACTS;
-  return TEST_EFFICACY_CONTRACTS.filter(contract=>contract.id==='analytics-truth'
-    ?pilotAffectedByPaths(files)
-    :contract.id==='save-consent-boundary'?files.some(file=>SAVE_CONSENT_INPUTS.has(file))
-      :contract.id==='coaching-consent-boundary'?files.some(file=>COACHING_CONSENT_INPUTS.has(file))
-        :contract.id==='retry-save-single-owned-take'?files.some(file=>RETRY_SAVE_INPUTS.has(file))
-          :contract.id==='retry-save-cleanup-finalization'?files.some(file=>RETRY_CLEANUP_INPUTS.has(file))
-            :contract.id==='private-stop-finalization-truth' && files.some(file=>STT_FINALIZATION_INPUTS.has(file)));
+// Resolve the registered test's local import closure, including type imports. An unresolved
+// local dependency fails closed; external packages are covered by lockfile/config triggers.
+export function dependencyPaths(root, entry, seen = new Set()) {
+  if (seen.has(entry)) return seen;
+  const safe=entry && !path.posix.isAbsolute(entry) && !entry.startsWith('../') && path.posix.normalize(entry)===entry;
+  if(!safe || !fs.lstatSync(path.join(root,entry),{throwIfNoEntry:false})?.isFile())
+    throw new Error(`Unresolved contract dependency: ${entry}`);
+  seen.add(entry);
+  const content = fs.readFileSync(path.join(root, entry), 'utf8');
+  const imports = content.matchAll(/(?:\bfrom\s*|\bimport\s*\(?\s*)['"]([^'"]+)['"]/g);
+  for (const [, specifier] of imports) {
+    if (!specifier.startsWith('.') && !specifier.startsWith('@/')) continue;
+    const lookup=specifier.replace(/\?(?:worker(?:&url)?|url|raw)$/,'');
+    const stem = lookup.startsWith('@/') ? `frontend/src/${lookup.slice(2)}` : path.posix.join(path.posix.dirname(entry), lookup);
+    if(path.posix.isAbsolute(stem) || stem.startsWith('../'))throw new Error(`Dependency escapes checkout: ${entry}: ${specifier}`);
+    const resolved = ['', '.ts', '.tsx', '.js', '.jsx', '.mjs', '/index.ts', '/index.tsx'].map(suffix => stem + suffix)
+      .find(candidate => fs.lstatSync(path.join(root,candidate),{throwIfNoEntry:false})?.isFile());
+    if (!resolved) throw new Error(`Unresolved contract dependency: ${entry}: ${specifier}`);
+    if (/\.[cm]?[jt]sx?$/.test(resolved)) dependencyPaths(root, resolved, seen);
+    else seen.add(resolved);
+  }
+  return seen;
+}
+
+// The enrolled contracts name their authoritative source/test paths. Explicit
+// extras retain non-import (SQL, route and fixture) inputs. These directory
+// fences are conservative: an unresolved import or a new input in an enrolled
+// area reruns the relevant controls instead of trusting a static import guess.
+const SEMANTIC_SHARED_INPUTS=new Set([
+  'vitest.config.mjs','frontend/vitest.config.mjs','frontend/tests/setup.ts','package.json','frontend/package.json',
+  'pnpm-lock.yaml','pnpm-workspace.yaml','playwright.config.ts','playwright.live.config.ts',
+  'scripts/efficacy-reporter.mjs','scripts/run-test-efficacy.mjs',
+  'scripts/lib/testExecutionEvidence.mjs','scripts/lib/softwareQualityEvidenceQualification.mjs',
+  'scripts/lib/helperExecutionEvidence.mjs','scripts/lib/nativeTestExecutionEvidence.mjs',
+  'scripts/efficacy-helper-vitest.config.mjs',
+]);
+const sharedSemanticInput=file=>SEMANTIC_SHARED_INPUTS.has(file)
+  || /^(?:frontend\/)?(?:tsconfig[^/]*\.json|vitest\.setup\.[^/]+)$/.test(file);
+const storageInput=file=>/^frontend\/src\/services\/(?:progress\/|recordingLease(?:\.|\/))/.test(file);
+const coachingUiInput=file=>/^frontend\/src\/(?:components\/session|services|contracts|types)\//.test(file);
+const retryContextInput=file=>/^tests\/live\/helpers\/(?:rwtDocument|rwtCoaching|rwtLateCoaching|coaching)/.test(file);
+function enrolledDependencyChanged(root,contract,files) {
+  if(!root)return false;
+  const entries=[contract.sourceFile,contract.testFile];
+  // Tiny isolated test fixtures omit both entrypoints. Source/test deletions in
+  // actual diffs still match the registered identities before reaching here.
+  if(entries.every(entry=>!fs.existsSync(path.join(root,entry))))return false;
+  try {
+    const dependencies=new Set();
+    for(const entry of entries)dependencyPaths(root,entry,dependencies);
+    return files.some(file=>dependencies.has(file));
+  } catch {
+    // Incomplete graph: require the real control; it cannot earn credit if the
+    // changed import no longer resolves or the named test cannot run.
+    return files.length>0;
+  }
+}
+export function requiredSemanticContracts(files,root=null,contracts=TEST_EFFICACY_CONTRACTS) {
+  if(files===null || files.some(sharedSemanticInput))return contracts;
+  const setup='frontend/tests/setup.ts';
+  if(root && files.length && fs.existsSync(path.join(root,setup))) {
+    try {
+      const dependencies=dependencyPaths(root,setup);
+      if(files.some(file=>dependencies.has(file)))return contracts;
+    } catch {
+      return contracts;
+    }
+  }
+  return contracts.filter(contract=>files.some(file=>file===contract.sourceFile||file===contract.testFile)
+    || (contract.id==='analytics-truth'?pilotAffectedByPaths(files)
+      :contract.id==='save-consent-boundary'?files.some(file=>SAVE_CONSENT_INPUTS.has(file)||storageInput(file))
+        :contract.id==='coaching-consent-boundary'?files.some(file=>COACHING_CONSENT_INPUTS.has(file)||coachingUiInput(file)||coachingEdgeInput(file))
+          :contract.id==='retry-save-single-owned-take'?files.some(file=>RETRY_SAVE_INPUTS.has(file)||retryContextInput(file))
+            :contract.id==='retry-save-cleanup-finalization'?files.some(file=>RETRY_CLEANUP_INPUTS.has(file)||retryContextInput(file))
+              :contract.id==='private-stop-finalization-truth'?files.some(file=>STT_FINALIZATION_INPUTS.has(file))
+                :files.length>0)
+    || enrolledDependencyChanged(root,contract,files));
+}
+
+export function semanticChangedInputs(root,base) {
+  return !base||base==='0'.repeat(40)?null:changedPaths(root,base);
 }
 
 function expectedPhaseInputs(root, expected, contract) {
@@ -613,7 +686,7 @@ export function validateVitestBatches(receipts,expected,root,{base,kind}={}) {
 
 export function executionCoverage(files, {root,expected,pilot,execution,native,python,playwright,smoke,base}={}) {
   const changes=changedPaths(root,base);
-  const semantic=requiredSemanticContracts(!base || base==='0'.repeat(40)?null:changes);
+  const semantic=requiredSemanticContracts(base && base!=='0'.repeat(40)?changes:null,root);
   const required=semantic.length>0;
   let proven=new Set();
   if (pilot?.status==='executed') {

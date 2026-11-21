@@ -31,7 +31,7 @@ import { RECORDER_STOP, micControlFor } from '../helpers/micControls';
 import { nextTakeIdArrived, type SessionRowFacts } from './helpers/rwtSaveRetry';
 import {
     type RecoveryControl, armRecoveryClickGuard, disarmRecoveryClickGuard, driveRecoveryPress, recoveryPressVerdict, recoveryTakePlan,
-    recoveryTakeVerdict, PENDING_START_CONSENT_MODE, coldStartPress, consentRefusalReason,
+    recoveryTakeVerdict, PENDING_START_CONSENT_MODE, coldStartPress, consentRefusalReason, stillTheOneEnabledControl,
 } from './helpers/rwtPendingStartRecovery';
 import { captureConsentGate, settleFixedConsentOnPractice, type ChoiceClient } from './helpers/rwtPracticeConsent';
 import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
@@ -284,10 +284,15 @@ test('leaving during a cold Start does not leave a recording or session behind @
             reflex: () => new Promise((resolve) => setTimeout(resolve, activeHumanReflexMs())),
             confirmConsent: () => consentGate.confirm(),
             click: async () => {
+                const handle = coldControl.handle;
+                if (!handle) return false;
+                // #1835 (Sam, #1916): the readback is a server read and can outlast the control. The pinned node must still be the
+                // one enabled `mic-download` when it returns; otherwise nothing is pressed.
+                if (!(await handle.evaluate(stillTheOneEnabledControl, 'mic-download').catch(() => false))) return false;
                 // #1593 (Sam, #1662 RETURN control 3): the abandoned Start's own cancellation (and the return's gate) is this
                 // journey's expected fault, from the press until the return has been checked.
                 watch.setFaultPhase(true);
-                return coldControl.handle ? coldControl.handle.click({ timeout: 15_000 }).then(() => true, () => false) : false;
+                return handle.click({ timeout: 15_000 }).then(() => true, () => false);
             },
         });
         await coldControl.handle?.dispose().catch(() => undefined);

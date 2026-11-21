@@ -487,6 +487,21 @@ test('each CI job provisions Deno once before its own required tests or evidence
   assert.equal(steps[conformance].run,'node --test tests/unit/nativeTestExecutionEvidence.test.js');
 });
 
+test('ordinary full CI runs both Node evidence suites before writing the quality report',()=>{
+  const require=createRequire(path.join(root,'package.json')),yaml=require('yaml');
+  const workflow=yaml.parse(fs.readFileSync(path.join(root,'.github/workflows/ci.yml'),'utf8'));
+  const steps=workflow.jobs['full-evidence'].steps;
+  const matches=steps.filter(step=>step.name==='Run Node evidence contract tests');
+  assert.equal(matches.length,1,'full-evidence needs one dedicated Node step');
+  const [step]=matches;
+  assert.equal(step.run.trim(),'node --test tests/unit/semanticEfficacySelection.test.mjs tests/unit/pythonTestExecutionEvidence.test.mjs');
+  assert.equal(step.if,undefined,'required on every ordinary full-evidence run');
+  assert.equal(step['continue-on-error'],undefined,'failed assertions must stop qualification');
+  const python=steps.findIndex(entry=>entry.name==='Install pinned Python execution-evidence dependency');
+  const writer=steps.findIndex(entry=>entry.name==='Generate qualified software quality evidence');
+  assert.ok(python>=0 && python<steps.indexOf(step) && steps.indexOf(step)<writer,'after pinned setup, before the writer');
+});
+
 test('service caller provisions Deno before any live setup and the paired quality writer',()=>{
   const require=createRequire(path.join(root,'package.json')),yaml=require('yaml');
   const workflow=yaml.parse(fs.readFileSync(path.join(root,'.github/workflows/service-level-evidence.yml'),'utf8'));

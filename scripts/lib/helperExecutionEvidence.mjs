@@ -57,6 +57,9 @@ export const HELPER_CONTRACTS = Object.freeze([{
   helperFile:'tests/live/helpers/repeatMetricWording.ts', testFile:'tests/unit/repeatMetricWording1548.test.ts',
   callables:['normalizeLine','validRecommendation','expectedTargetLine','expectedOutcomeLine','pressLinkage','repeatMetricPrerequisites','repeatMetricWordingVerdict'],
 }, {
+  helperFile:'tests/db/helpers/completionEnv.ts', testFile:'tests/db/atomic-completion-retention.integration.test.ts',
+  callables:['MIG','sid','buildCompletionDb','db0','closeCompletionDbs','actingAs','newSession','complete','transcriptBearingCount','row'],
+}, {
   helperFile:'tests/db/c1CatalogStages.js', testFile:'tests/unit/exactMigrationGate.test.js',
   callables:['proveC1CatalogStages'],
 }, {
@@ -241,6 +244,10 @@ export const HELPER_CONTRACTS = Object.freeze([{
 }, {
   helperFile:'tests/live/helpers/rwtTwoPlaces.ts',testFile:'tests/unit/rwtTwoPlaces.test.ts',
   callables:["sameBrowserRefusedVerdict","displacedFenceVerdict"],
+}, {
+  // #1835 (J5.b/c, J6): the lease press reads consent back at the click; its verdicts and that press run offline.
+  helperFile:'tests/live/helpers/rwtAbandonTakeover.ts',testFile:'tests/unit/rwtAbandonTakeover1258.test.ts',
+  callables:["pressPrivateStartForLease","releasedVerdict","answerLeaveDialog","leavePromptVerdict","returnStartVerdict","classifyRecoveryClaim","newRowsSince","priorTakeSaved","leftTakeSavedOnce","leftTakeSavedVerdict","recoveryNoticeVerdict","nextTakeOnlyItselfVerdict","modelWorkBeforeRefusal","secondTabBlockedVerdict","leaseRefusalWindowVerdict","takeOverVerdict","noCloudVerdict","takeOverRowsVerdict"],
 }, {
   helperFile:'tests/live/helpers/servedReleaseBinding.ts', testFile:'tests/unit/servedReleaseBinding.test.ts',
   callables:['servedReleaseVerdict','requiresReleaseBinding'],
