@@ -1023,8 +1023,11 @@ test.describe('RWT — Open Mic first session @live', () => {
                 // A candidate comparable save take (run 43065574631: the 7 s take was below progress eligibility by construction).
                 // Its time budget is not proven here (see OPEN_MIC_COMPARABLE_SAVE_TAKE_MS).
                 saveTakeMs = OPEN_MIC_COMPARABLE_SAVE_TAKE_MS;
+                // #1835 later presses (Sam, Nov 21; kept apart from #1917): the save take's Start and the review's Practice again
+                // each read the owner's choice back inside the press, immediately before its click, as J3 does. A refusal
+                // clicks nothing and stops the journey with its HOLD.
                 const again = await practiceAgainEvidence(page, `${SUITE}-again`, persistedId, 'open_mic', [], () => { saveTakeEnd = tap.events.length; },
-                    { saveTakeMs });
+                    { saveTakeMs, beforeCapture: () => captureGate().confirm() });
                 // The window closes at the SAVE take's Stop, so the review's repeat Start can never stand in for it.
                 repeatWindow = [repeatFrom, saveTakeEnd >= 0 ? saveTakeEnd : tap.events.length];
                 practiceAgainRows(receipt, 'open_mic', again);
@@ -1049,7 +1052,8 @@ test.describe('RWT — Open Mic first session @live', () => {
             });
 
             await test.step('next Start without a hold', async () => {
-                const next = await nextStartEvidence(page, `${SUITE}-next`);
+                // #1835: the next Start reads the choice back inside its press too.
+                const next = await nextStartEvidence(page, `${SUITE}-next`, () => captureGate().confirm());
                 nextStartRows(receipt, next);
             });
 
