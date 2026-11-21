@@ -48,6 +48,10 @@ import { activeHumanReflexMs } from './rwtHumanReflex';
 import { resolveProductsTrigger } from './productsMenu';
 import { WATCHED_FIELDS } from './rwtWatchdog';
 import { runBindingState, sameRunBinding } from './runBinding';
+import {
+    SHORT_STOP_SETTLE_MS, ShortStopSaveTap, armShortStopProbe, awaitShortStopSettled, emptyShortStopObservation, readShortStopProbe, shownFacts, stopFacts,
+    type SessionRow, type ShortStopObservation,
+} from './rwtShortStop';
 
 export const APPROVED_ORIGIN = 'https://speaksharp-public.vercel.app';
 /** The disposable-account prefix these suites own; `runOwnedCleanup` refuses any other. */
@@ -1486,6 +1490,62 @@ export async function nextStartEvidence(page: Page, label: string, beforeCapture
     }
     const live = await expect.poll(() => liveMicTracks(page), { timeout: 10_000 }).toBe(0).then(() => 0).catch(async () => liveMicTracks(page));
     return { holdSeen, nextStartMs, stopped: true, liveTracksAfterStop: live, reason: live === 0 ? null : 'the microphone stayed live after Stop', startFailure: null };
+}
+
+/**
+ * J1.c (Sam, 21 Nov) — THE SHORT STOP, a separately addressable substep of the shared runner. From a fresh `/session`: arm the
+ * page's own probe, read the account's rows, press Start once, Stop as soon as the recorder is recording, then wait (bounded)
+ * until the recorder is gone, no save request is pending and the page has said what happened. It returns observations only;
+ * the verdict is the nightly oracle's (`shortStopRow` in rwtShortStop.ts feeds `shortStopVerdict`). Anything it could not
+ * observe stays null, which the oracle holds. Like the next Start, a take that will not stop gets the bounded teardown, and a
+ * refused consent readback clicked nothing and stops the journey.
+ */
+export async function shortStopEvidence(page: Page, label: string, readRows: () => Promise<SessionRow[] | null>,
+    beforeCapture?: () => Promise<void>): Promise<ShortStopObservation> {
+    const obs = emptyShortStopObservation();
+    await page.goto('/session');
+    try {
+        await expect(page.getByTestId('mic-status')).toContainText('Mic ready on this device', { timeout: 60_000 });
+    } catch {
+        return { ...obs, startPressed: false, reason: 'the session page did not reach rest (mic-status)' };
+    }
+    const tap = new ShortStopSaveTap();
+    tap.attach(page.context());
+    const counts = (): Partial<ShortStopObservation> => ({ acceptedCompletingSaves: tap.acceptedCompletingSaves, acceptedFailedMarks: tap.acceptedFailedMarks,
+        acceptedUnreadableSaves: tap.acceptedUnreadable, pendingSaves: tap.pending, coachingRequests: tap.coachingRequests });
+    try {
+        await armShortStopProbe(page);
+        obs.rowsBefore = await readRows();
+        const consent = consentAtClick(beforeCapture);
+        try {
+            await startBenchmarkRecording(page, label, undefined, consent);
+            await expectBenchmarkRecordingStarted(page, label);
+        } catch (error) {
+            // A refused readback clicked nothing: no take, so no teardown; the journey stops.
+            rethrowConsentStop(error);
+            const probe = await readShortStopProbe(page);
+            const tracks = await boundedTeardown(page, label);
+            return { ...obs, ...stopFacts(probe), ...shownFacts(probe), ...counts(), liveTracksAfterStop: tracks, reason: 'the short-Stop take did not begin recording' };
+        }
+        try {
+            await stopBenchmarkRecording(page, label, SHORT_STOP_SETTLE_MS);
+        } catch {
+            const probe = await readShortStopProbe(page);
+            const tracks = await boundedTeardown(page, label);
+            return { ...obs, ...stopFacts(probe), ...shownFacts(probe), ...counts(), liveTracksAfterStop: tracks, reason: 'the short-Stop take could not be stopped' };
+        }
+        const { probe, settled } = await awaitShortStopSettled({
+            readProbe: () => readShortStopProbe(page),
+            recorderGone: async () => (await page.getByTestId('recorder-bar').count()) === 0,
+            pendingSaves: () => tap.pending,
+        });
+        obs.settled = settled;
+        obs.rowsAfter = await readRows();
+        const live = await expect.poll(() => liveMicTracks(page), { timeout: 10_000 }).toBe(0).then(() => 0).catch(async () => liveMicTracks(page).catch(() => null));
+        return { ...obs, ...stopFacts(probe), ...shownFacts(probe), ...counts(), liveTracksAfterStop: live };
+    } finally {
+        tap.detach();
+    }
 }
 
 /**

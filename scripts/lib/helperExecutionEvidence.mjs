@@ -242,6 +242,11 @@ export const HELPER_CONTRACTS = Object.freeze([{
   helperFile:'tests/live/helpers/rwtJ4aEvidence.ts',testFile:'tests/unit/rwtJ4aEvidence.test.ts',
   callables:["j4aRequestNeverReachedVerdict","j4aOneSaveForAccountVerdict","saveRetryPrivacyVerdict","j4aNoSecondTakeVerdict","j4aPrivacyCleanupVerdict","j4aCoachingGuard","j4aCoachingBlockedVerdict","j4aCoachingBlockedRow"],
 }, {
+  // J1.c: the short Stop that saves nothing, its probe, save tap, rows reader and oracle row, through its own unit consumer.
+  helperFile:'tests/live/helpers/rwtShortStop.ts',testFile:'tests/unit/rwtShortStop.test.ts',
+  callables:["emptyShortStopObservation","armShortStopProbe","readShortStopProbe","stopFacts","shownFacts","awaitShortStopSettled",
+    "sessionRowsReader","shortStopInput","shortStopRow","shortStopTakeOf","ShortStopSaveTap#attach","ShortStopSaveTap#detach"],
+}, {
   helperFile:'tests/live/helpers/rwtTwoPlaces.ts',testFile:'tests/unit/rwtTwoPlaces.test.ts',
   callables:["sameBrowserRefusedVerdict","displacedFenceVerdict"],
 }, {

@@ -620,7 +620,7 @@ const SAVE_RETRY_NEXT_TAKE_ROWS = Object.freeze(['next take saves only itself', 
  * J4.a (request lost), bounded (Sam, Nov 18-19; PO's approved run: one take, coaching off): Save: Yes / Coaching: No proven on
  * the post-#1835 build before Start; the save request never reached the server; Retry Save saved one take for the run-owned
  * account and no other; nothing after the Retry readback; and cleanup removed the owner's privacy choice. J4.b (response lost)
- * keeps its own rows and must not carry these.
+ * keeps its own rows and must not carry J4.a's own (it shares only the privacy choice row).
  */
 const SAVE_RETRY_J4A_ROWS = Object.freeze([
     'practice privacy choice', 'J4.a: the first save request never reached the server', 'J4.a: Retry Save saved one take for this account only',
@@ -629,6 +629,12 @@ const SAVE_RETRY_J4A_ROWS = Object.freeze([
 const SAVE_RETRY_REQUEST_LOST_PRODUCT_ROWS = Object.freeze([
     ...SAVE_RETRY_PRODUCT_ROWS.filter((row) => !SAVE_RETRY_NEXT_TAKE_ROWS.includes(row)), ...SAVE_RETRY_J4A_ROWS,
 ]);
+/**
+ * J4.b (response lost), #1835 (Sam, Nov 20): its own run-owned account proves Save: Yes / Coaching: No at each Start click, and
+ * cleanup removes the owner's privacy choice. It carries none of J4.a's own rows.
+ */
+const SAVE_RETRY_J4B_ROWS = Object.freeze(['practice privacy choice', 'J4.b: cleanup removed the privacy choice']);
+const SAVE_RETRY_RESPONSE_LOST_PRODUCT_ROWS = Object.freeze([...SAVE_RETRY_PRODUCT_ROWS, ...SAVE_RETRY_J4B_ROWS]);
 /**
  * #1258 R2 (row 16) — `rwt-abandon-and-two-tabs`: leaving mid-recording (navigate away; close the tab) and the same
  * account's two-tab take-over. No journey readback is qualified (like pending Start); each carries its own cleanup row.
@@ -715,7 +721,7 @@ export function requiredAutomatedRows(suite: string): { required: readonly strin
             return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: SAVE_RETRY_REQUEST_LOST_PRODUCT_ROWS,
                 absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS, ...SAVE_RETRY_NEXT_TAKE_ROWS] };
         case SAVE_RETRY_RESPONSE_LOST_SUITE:
-            return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: SAVE_RETRY_PRODUCT_ROWS,
+            return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: SAVE_RETRY_RESPONSE_LOST_PRODUCT_ROWS,
                 absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };
         case ABANDON_NAVIGATE_SUITE:
             return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: ABANDON_NAVIGATE_PRODUCT_ROWS,

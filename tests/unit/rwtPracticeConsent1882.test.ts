@@ -321,6 +321,17 @@ describe('J1.a (#1835): the Open Mic first session opts its own account in to sa
         expect(spec).not.toContain('if (!takeAlreadyRunning) await startBenchmarkRecording(');
     });
 
+    it('Sam (Nov 21): J1\'s later presses (the Practice-again save take, its repeat and the next Start) read back inside each press', () => {
+        // The shared helpers pass the hook as each press's own click hook (behaviour: rwtJ3ConsentGate.test.ts); J1 hands it to both.
+        expect(spec).toMatch(/practiceAgainEvidence\(page, `\$\{SUITE\}-again`, persistedId, 'open_mic', \[\], [^\n]*\n\s*\{ saveTakeMs, beforeCapture: \(\) => captureGate\(\)\.confirm\(\) \}\);/);
+        expect(spec).toContain('const next = await nextStartEvidence(page, `${SUITE}-next`, () => captureGate().confirm());');
+        // Each helper is called exactly once, and never without the hook.
+        expect(spec.split('await practiceAgainEvidence(').length - 1).toBe(1);
+        expect(spec.split('await nextStartEvidence(').length - 1).toBe(1);
+        expect(spec).not.toMatch(/nextStartEvidence\(page, `\$\{SUITE\}-next`\)/);
+        expect(spec).not.toMatch(/\{ saveTakeMs \}\)/);
+    });
+
     it('the choice is fixed, never taken from the dispatch environment', () => {
         expect(spec).toContain('mode: OPEN_MIC_FIRST_SESSION_CONSENT_MODE, record:');
         expect(spec).not.toMatch(/consentModeFrom|RWT_PRACTICE_CONSENT/);
