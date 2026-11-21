@@ -251,6 +251,10 @@ export const HELPER_CONTRACTS = Object.freeze([{
 }, {
   helperFile:'tests/live/helpers/servedReleaseBinding.ts', testFile:'tests/unit/servedReleaseBinding.test.ts',
   callables:['servedReleaseVerdict','requiresReleaseBinding'],
+}, {
+  // J3: the coaching fallback row, read from the review card and never pressed, through its own unit consumer.
+  helperFile:'tests/live/helpers/rwtCoachingFallback.ts',testFile:'tests/unit/rwtCoachingFallback.test.tsx',
+  callables:["readCoachingFallback","coachingFallbackVerdict","coachingFallbackRow"],
 }]);
 export const HELPER_CONFIG = 'scripts/efficacy-helper-vitest.config.mjs';
 
