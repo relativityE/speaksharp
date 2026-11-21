@@ -30,6 +30,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import { J1D_LEG, J1D_ROWS, J1D_SUITE, j1dCaseAssertions, j1dRunnerAdmission, j1dVerdicts } from './helpers/rwtJ1dJourney';
 import { runJ1dLeg } from './helpers/rwtJ1dLeg';
+import { J1C_LEG, J1C_ROW, sessionRowsReader, shortStopRow, shortStopTakeOf, type ShortStopTake } from './helpers/rwtShortStop';
 import { test } from './helpers/rwtProductionTest';
 import { MainThreadTrace, TRACE_OP_TIMEOUT_MS, TRACE_START_WORST_CASE_MS, TRACE_STOP_WORST_CASE_MS, boundedStopWithTrace, withDeadline } from './helpers/rwtMainThreadTrace';
 import { DiagnosticRecord, ProcessSampler, diagnosticWindowFor, requireWindowBudget, runBoundedWindow } from './helpers/rwtDiagnosticWindow';
@@ -44,7 +45,7 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './helpers/benchmark-utils';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
-import { HarnessParityTap, numericComparisonRow, probeSaveIsolationRow, readRepeatEligibility, type NumericResult, type RepeatEligibility } from './helpers/rwtHarnessParity';
+import { HarnessParityTap, numericComparisonRow, probeSaveIsolationRow, readRepeatEligibility, type NumericResult, type RepeatEligibility, type TakeSaveExpectation } from './helpers/rwtHarnessParity';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
@@ -65,6 +66,7 @@ import {
     micAcquisitions,
     newDisposableEmail,
     nextStartEvidence,
+    shortStopEvidence,
     nextStartRows,
     practiceAgainEvidence,
     OPEN_MIC_COMPARABLE_SAVE_TAKE_MS,
@@ -196,16 +198,19 @@ test.use({
 });
 
 /**
- * Harness parity, from the journey's DESIGN (not a run's count). AHT-01 records four takes, each with one Start press:
+ * Harness parity, from the journey's DESIGN (not a run's count). AHT-01 records five takes, each with one Start press:
  *   1. the first take — `mic-download` on a cold first use ("Download to start speaking"), otherwise `mic-start`;
  *   2. the Practice-again pass from Analytics — `mic-start`;
  *   3. the completed review's Practice again — `verdict-practice-again`;
- *   4. the next Start — `mic-start`.
- * So: 4 presses in all; `mic-start` at most 3 (2 when the first take downloads), `mic-download` at most 1, `verdict-practice-again`
- * at most 1, and no Retry press. One completed session per take: 4.
+ *   4. the next Start — `mic-start`;
+ *   5. J1.c's short Stop (Sam, 21 Nov) — `mic-start`, stopped inside the 5 s minimum: a no-save probe.
+ * So: 5 presses in all; `mic-start` at most 4 (3 when the first take downloads), `mic-download` at most 1, `verdict-practice-again`
+ * at most 1, and no Retry press. One completed session per save take (takes 1–4), none for the probe. The journey captures the
+ * session ids of takes 1 and 2 (the comparison pair); takes 3 and 4 are proven by their own lease and the recorder.
  */
-const AHT01_START_PRESS_BUDGET = { total: 4, perControl: { 'mic-start': 3, 'mic-download': 1, 'verdict-practice-again': 1 } } as const;
-const AHT01_DESIGNED_TAKES = 4;
+const AHT01_START_PRESS_BUDGET = { total: 5, perControl: { 'mic-start': 4, 'mic-download': 1, 'verdict-practice-again': 1 } } as const;
+const AHT01_DESIGNED_TAKES = 5;
+const AHT01_DESIGNED_SAVES: readonly TakeSaveExpectation[] = Object.freeze(['saved', 'saved', 'uncaptured', 'uncaptured', 'probe'] as const);
 /** The page-close step's own bound: each page close is itself bounded at 15 s inside it. */
 const PARITY_CLOSE_STEP_MS = 60_000;
 /** #1593 (live case 12): the journey's finalization must survive a test timeout — see `JourneyFinalizer`. */
@@ -333,6 +338,8 @@ test.describe('RWT — Open Mic first session @live', () => {
         // Without the named runner's admission it does nothing and J1.d stays NOT RUN.
         const j1dAdmission = j1dRunnerAdmission(process.env, (f) => readFileSync(f, 'utf8'));
         let signInOnShownForm: (() => Promise<void>) | null = null;
+        // J1.c: what its take means for probe-save-isolation (a no-save probe only when the short Stop was exercised).
+        let shortStopTake: ShortStopTake = 'not-started';
         const finish = finalizer.once(async () => {
             // Sam, #1662 RETURN: every step is bounded and isolated, so the account cleanup and the receipt always run.
             const steps = new FinalizationSteps();
@@ -443,11 +450,12 @@ test.describe('RWT — Open Mic first session @live', () => {
                 parity.startPressRow(aliveReceipt(receipt, alive), AHT01_START_PRESS_BUDGET);
             });
             await steps.step('probe saves isolated', async (alive) => {
-                // All four takes use normal Stop, including the two rapid restart checks. Stop saves;
-                // neither check exercises discard. Require one lease-bound save for each take, not
-                // a fabricated no-save outcome (run 43214173919). The first two remain the comparison pair.
-                if (admin) await probeSaveIsolationRow(aliveReceipt(receipt, alive), admin as never, capturedUid, [persistedId, repeatSessionId], parity.takeBindings(), parity.leaseIds, AHT01_DESIGNED_TAKES);
-                else aliveReceipt(receipt, alive).row('probe saves isolated', 'HOLD', 'no server read is available in this run');
+                // Takes 1–4 use normal Stop, including the two rapid restart checks: each must save once under its own lease, not
+                // a fabricated no-save outcome (run 43214173919). The first two remain the comparison pair. Take 5 is J1.c's short
+                // Stop: a no-save probe, but only when it was exercised; a slow Stop may have saved a normal take, so that is held.
+                if (!admin) aliveReceipt(receipt, alive).row('probe saves isolated', 'HOLD', 'no server read is available in this run');
+                else if (shortStopTake === 'unknown') aliveReceipt(receipt, alive).row('probe saves isolated', 'HOLD', 'J1.c\'s short Stop was not exercised, so whether its take may save is unknown');
+                else await probeSaveIsolationRow(aliveReceipt(receipt, alive), admin as never, capturedUid, [persistedId, repeatSessionId], parity.takeBindings(), parity.leaseIds, AHT01_DESIGNED_TAKES, AHT01_DESIGNED_SAVES);
             });
             await steps.step('owned pages closed', (alive) => parity.ownedPagesClosedRow(aliveReceipt(receipt, alive)), PARITY_CLOSE_STEP_MS);
             // #1811: every owned page is closed, so no feedback write can still come from a page: close the fence (acknowledged).
@@ -1242,6 +1250,21 @@ test.describe('RWT — Open Mic first session @live', () => {
                     result = (e as { code?: string })?.code === 'NOT_RUN' ? { result: 'NOT RUN', facts: { reason: 'numeric-source-not-run' } } : null;
                 }
                 numericComparisonRow(receipt, result, repeatEligibility, saveTakeMs);
+            });
+
+            // ── J1.c (Sam, 21 Nov): a short Stop saves nothing — its own step and row, on this account, after J1.a's takes ─────
+            // The shared runner's short-Stop substep observes; the nightly oracle (shortStopVerdict) judges. A failure here is
+            // J1.c's own HOLD and never stops J1.a's rows or J1.d. Only the error class leaves the step (a message can carry ids).
+            await test.step('J1.c — a short Stop saves nothing', async () => {
+                try {
+                    const obs = await shortStopEvidence(page, `${SUITE}-short-stop`, sessionRowsReader(admin as never, capturedUid));
+                    shortStopTake = shortStopTakeOf(obs);
+                    shortStopRow(receipt, obs);
+                } catch (error) {
+                    shortStopTake = 'unknown';
+                    const name = error instanceof Error && /^[A-Za-z]{1,40}Error$/.test(error.name) ? error.name : 'Error';
+                    receipt.row(J1C_ROW, 'HOLD', `the J1.c short Stop did not complete (${name})`, { leg: J1C_LEG });
+                }
             });
 
             // ── J1.d: sign out and return, on this account and its saved takes (a separate J1D receipt) ─────────────────────
