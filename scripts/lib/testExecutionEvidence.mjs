@@ -7,10 +7,10 @@ import { TEST_EFFICACY_CONTRACTS, qualifyEfficacyPhase } from './softwareQuality
 import { canonicalPath, runtimeIdentity } from '../efficacy-reporter.mjs';
 import {HELPER_CONTRACTS,registeredHelper,helperApplicability, HELPER_CONFIG, validateHelperCoverage} from './helperExecutionEvidence.mjs';
 import {registeredSourceContract,sourceContractApplicability,SOURCE_CONSUMER,validateSourceContractWitness} from './sourceContractEvidence.mjs';
-import {validatePlaywrightExecution} from './playwrightExecutionEvidence.mjs';
+import {INFRA_PROBE_FILE,validatePlaywrightExecution} from './playwrightExecutionEvidence.mjs';
 import {validateSmokeExecution} from '../j1d-smoke/ciEvidence.mjs';
 import {SMOKE_CONFIG,SMOKE_FILE,SMOKE_HELPERS,smokeAffected} from '../j1d-smoke/smokeEvidence.mjs';
-import {nativeTestRoute,nativeHelper,validateNativeReceipt,SQL_CONTRACTS,sqlContract,sqlSourceBinding,validateSqlWitness,
+import {COACHING_EDGE_TEST,COACHING_QUALITY_TEST,nativeTestRoute,nativeHelper,validateNativeReceipt,SQL_CONTRACTS,sqlContract,sqlSourceBinding,validateSqlWitness,
   NATIVE_BATCH_SIZE,NATIVE_MAX_BATCHES,reconcileExecutionBatches} from './nativeTestExecutionEvidence.mjs';
 import {pythonTestRoute,validatePythonReceipt} from './pythonTestExecutionEvidence.mjs';
 
@@ -306,14 +306,42 @@ function changedPaths(root, base) {
   ] : all;
   return [...new Set(files.filter(Boolean))].sort();
 }
+const COACHING_QUALITY_DIR='backend/supabase/functions/get-ai-suggestions/evaluation/';
+const COACHING_QUALITY_INPUTS=new Set(['evaluator.ts','prompt.ts','transcripts.json'].map(file=>COACHING_QUALITY_DIR+file));
+const J4A_SAVE_ROUTE_BROWSER_TEST='tests/e2e/rwt-j4a-save-no-forward.e2e.spec.ts';
+const J4A_SAVE_ROUTE_INPUTS=new Set([
+  'tests/live/rwt-save-retry-recovery.live.spec.ts',
+  'tests/live/helpers/rwtSaveRetryAttempts.ts',
+]);
+const COACHING_EDGE_SOURCE_INPUTS=new Set([
+  'backend/supabase/functions/get-ai-suggestions/index.ts',
+  'backend/supabase/functions/get-ai-suggestions/practicePrivacy.ts',
+]);
+const isRegisteredEvidenceInput = file => Boolean(registeredFixture(file) || registeredHelper(file)
+  || registeredSourceContract(file) || nativeHelper(file) || sqlContract(file)
+  || Object.hasOwn(sqlConsumers,file) || pythonTestRoute(file)?.runner==='python-unittest-input');
+
 export function changedEvidencePaths(root, base) {
-  // Deletions still affect raw change/pilot applicability, but cannot be executed.
+  // Keep both sides of a rename in the raw delta. Deleting ordinary obsolete
+  // tests is allowed; still-registered inputs must not disappear from proof.
   // lstat retains malformed existing entries (including dangling links) for refusal.
   // Python unittest modules are named test_*.py; outside tests/ they were silently omitted, not reported UNCOVERED.
   // A registered native helper is evidence input by registration, wherever it lives: without this a change to
   // tools/cloud-test/scripts/prerequisite_preflight.cjs alone never reached its node:test consumer (#1787).
-  return changedPaths(root,base).filter(file=>(/^(tests\/|frontend\/tests\/|backend\/supabase\/functions\/.*(?:test|fixture))|\/(?:__tests__|__mocks__|fixtures|mocks)\/|\.(?:test|spec)\.|\.sql$|(?:^|\/)test_[^/]+\.py$/.test(file)
-    || nativeHelper(file)!==undefined) && fs.lstatSync(path.join(root,file),{throwIfNoEntry:false})!==undefined);
+  const changed=changedPaths(root,base);
+  for (const file of changed) {
+    if (isRegisteredEvidenceInput(file) && fs.lstatSync(path.join(root,file),{throwIfNoEntry:false})===undefined) {
+      throw new Error(`NOT RUN: required registered test input missing: ${file}`);
+    }
+  }
+  const evidence=changed.filter(file=>(/^(tests\/|frontend\/tests\/|backend\/supabase\/functions\/.*(?:test|fixture))|\/(?:__tests__|__mocks__|fixtures|mocks)\/|\.(?:test|spec)\.|\.sql$|(?:^|\/)test_[^/]+\.py$/.test(file)
+    || nativeHelper(file)!==undefined || pythonTestRoute(file)?.runner==='python-unittest-input') && fs.lstatSync(path.join(root,file),{throwIfNoEntry:false})!==undefined);
+  // The actual producer and qualifier both derive this from the Git delta;
+  // frontend-only receipts cannot satisfy a change to the Edge authority.
+  if(changed.some(file=>COACHING_EDGE_SOURCE_INPUTS.has(file)))evidence.push(COACHING_EDGE_TEST);
+  if(changed.some(file=>COACHING_QUALITY_INPUTS.has(file)))evidence.push(COACHING_QUALITY_TEST);
+  if(changed.some(file=>J4A_SAVE_ROUTE_INPUTS.has(file)))evidence.push(J4A_SAVE_ROUTE_BROWSER_TEST);
+  return [...new Set(evidence)].sort();
 }
 
 export const requiredSmokeExecution = (root, base) => smokeAffected(changedPaths(root, base));
@@ -373,6 +401,49 @@ export function selectExecutionContracts(root,evidenceFiles,{helpersOnly=false}=
 export function pilotAffectedByPaths(files) {
   return files===null || files.some(file=>/^(scripts\/|tests\/unit\/testEfficacy\.test\.js$|package\.json$|pnpm-lock\.yaml$|pnpm-workspace\.yaml$|frontend\/(src\/|package\.json|vitest\.config\.mjs|tsconfig[^/]*\.json|tests\/)|\.github\/)/.test(file));
 }
+// Map actual changed inputs, not receipt claims, to the reviewed control set.
+const SAVE_CONSENT_INPUTS=new Set([
+  'frontend/src/lib/storage.ts',
+  'frontend/src/lib/__tests__/storageConsent1835.test.ts',
+  'frontend/src/services/practicePrivacy.ts',
+  'frontend/src/services/__tests__/practicePrivacy1835.test.ts',
+  'backend/supabase/migrations/20261117105700_practice_privacy_choices_1835.sql',
+  'tests/live/rwt-save-retry-recovery.live.spec.ts',
+]);
+const COACHING_CONSENT_INPUTS=new Set([
+  'frontend/src/services/practicePrivacy.ts',
+  'frontend/src/services/__tests__/practicePrivacy1835.test.ts',
+  'frontend/src/components/session/AISuggestions.tsx',
+  'frontend/src/components/session/__tests__/coachingConsent1835.test.tsx',
+  'backend/supabase/migrations/20261117105700_practice_privacy_choices_1835.sql',
+  ...COACHING_EDGE_SOURCE_INPUTS,
+]);
+const RETRY_SAVE_INPUTS=new Set([
+  'tests/live/rwt-save-retry-recovery.live.spec.ts',
+  'tests/live/helpers/rwtSaveRetryAttempts.ts',
+  'tests/unit/rwtSaveRetryAttempts.test.ts',
+]);
+const RETRY_CLEANUP_INPUTS=new Set([
+  'tests/live/rwt-save-retry-recovery.live.spec.ts',
+  'tests/live/helpers/rwtWatchdog.ts',
+  'tests/live/helpers/runOwnedCleanup.ts',
+  'tests/unit/rwtCleanupFinalizationEfficacy.test.ts',
+]);
+const STT_FINALIZATION_INPUTS=new Set([
+  'scripts/private-corpus-acceptance.mjs',
+  'tests/release/private-corpus-acceptance.test.ts',
+]);
+export function requiredSemanticContracts(files) {
+  if(files===null)return TEST_EFFICACY_CONTRACTS;
+  return TEST_EFFICACY_CONTRACTS.filter(contract=>contract.id==='analytics-truth'
+    ?pilotAffectedByPaths(files)
+    :contract.id==='save-consent-boundary'?files.some(file=>SAVE_CONSENT_INPUTS.has(file))
+      :contract.id==='coaching-consent-boundary'?files.some(file=>COACHING_CONSENT_INPUTS.has(file))
+        :contract.id==='retry-save-single-owned-take'?files.some(file=>RETRY_SAVE_INPUTS.has(file))
+          :contract.id==='retry-save-cleanup-finalization'?files.some(file=>RETRY_CLEANUP_INPUTS.has(file))
+            :contract.id==='private-stop-finalization-truth' && files.some(file=>STT_FINALIZATION_INPUTS.has(file)));
+}
+
 function expectedPhaseInputs(root, expected, contract) {
   const entries=sourceEntries(root);
   if (hash(JSON.stringify(entries))!==expected.snapshotSha256) throw new Error('Reviewed source snapshot changed');
@@ -393,44 +464,54 @@ function expectedPhaseInputs(root, expected, contract) {
 }
 
 export function validatePilotExecution(receipt, expected, root) {
+  return [...validateRequiredSemanticExecution(receipt,expected,root,[TEST_EFFICACY_CONTRACTS[0]])][0];
+}
+export function validateRequiredSemanticExecution(receipt, expected, root, contracts) {
   assertProvenance(receipt?.provenance,expected);
   for (const key of ['commit','tree','snapshotSha256']) {
     if (receipt[key]!==expected[key]) throw new Error(`Pilot ${key} differs from source`);
   }
-  if (receipt.status!=='executed' || receipt.contracts?.length!==1) throw new Error('Pilot NOT RUN or missing');
-  const contract=TEST_EFFICACY_CONTRACTS[0];
-  const result=receipt.contracts[0];
-  if (result.id!==contract.id || result.testFile!==contract.testFile || result.sourceFile!==contract.sourceFile
-    || result.testSha256!==hash(fs.readFileSync(path.join(root,contract.testFile)))
-    || result.sourceSha256!==hash(fs.readFileSync(path.join(root,contract.sourceFile)))) throw new Error('Wrong pilot source/test identity');
-  const phases=[result.baseline,result.control,...(result.mutants || []),result.restored];
-  const labels=['baseline','semantic-control',...contract.mutants.map(m=>m.id),'restored'];
-  if (phases.length!==5 || phases.some((phase,index)=>phase?.binding?.phase!==labels[index])
-    || new Set(phases.map(phase=>phase.binding.phaseId)).size!==5) throw new Error('Missing/duplicate pilot phases');
-  const expectedInputs=expectedPhaseInputs(root,expected,contract);
-  for (let index=0;index<phases.length;index++) {
-    const phase=phases[index];const mutant=index===2||index===3?contract.mutants[index-2]:null;
-    const binding=phase.binding;
-    if (phase.inputSha256!==expectedInputs[index] || binding.inputSha256!==expectedInputs[index]) {
-      throw new Error(`Phase bytes do not match registered transformation: ${labels[index]}`);
+  if (receipt.status!=='executed' || !contracts.length || !Array.isArray(receipt.contracts)
+    || JSON.stringify(receipt.contracts.map(result=>result?.id))!==JSON.stringify(contracts.map(contract=>contract.id)))
+    throw new Error('Wrong required semantic contract set: missing, extra, or out of order');
+  const proven=new Set(), phaseIds=new Set();
+  for (let i=0;i<contracts.length;i++) {
+    const contract=contracts[i],result=receipt.contracts[i];
+    if (result.id!==contract.id || result.testFile!==contract.testFile || result.sourceFile!==contract.sourceFile
+      || result.testSha256!==hash(fs.readFileSync(path.join(root,contract.testFile)))
+      || result.sourceSha256!==hash(fs.readFileSync(path.join(root,contract.sourceFile)))) throw new Error('Wrong pilot source/test identity');
+    const phases=[result.baseline,result.control,...(result.mutants || []),result.restored];
+    const labels=['baseline','semantic-control',...contract.mutants.map(m=>m.id),'restored'];
+    if (phases.length!==5 || phases.some((phase,index)=>phase?.binding?.phase!==labels[index])
+      || new Set(phases.map(phase=>phase.binding.phaseId)).size!==5) throw new Error('Missing/duplicate pilot phases');
+    const expectedInputs=expectedPhaseInputs(root,expected,contract);
+    for (let index=0;index<phases.length;index++) {
+      const phase=phases[index];const mutant=index===2||index===3?contract.mutants[index-2]:null;
+      const binding=phase.binding;
+      if(phaseIds.has(binding.phaseId)) throw new Error('Duplicate semantic phase identity');
+      phaseIds.add(binding.phaseId);
+      if (phase.inputSha256!==expectedInputs[index] || binding.inputSha256!==expectedInputs[index]) {
+        throw new Error(`Phase bytes do not match registered transformation: ${labels[index]}`);
+      }
+      if (binding.runId!==receipt.runId || binding.command?.at(-1)!==contract.testFile
+        || phase.inputSha256!==binding.inputSha256
+        || JSON.stringify(binding.runtime)!==JSON.stringify(result.baseline.binding.runtime)
+        || binding.repoLockSha256!==hash(fs.readFileSync(path.join(root,'pnpm-lock.yaml')))) throw new Error('Wrong phase command/run/lock identity');
+      let assertionLocation;
+      if (mutant) {
+        const source=fs.readFileSync(path.join(root,contract.testFile),'utf8');
+        if (source.split(mutant.assertionAnchor).length!==2) throw new Error('Assertion anchor mismatch');
+        assertionLocation=source.slice(0,source.indexOf(mutant.assertionAnchor)).split('\n').length;
+      }
+      // Replays raw evidence, not a claimed PASS, filename list, job ID or neighboring suite count.
+      if (!phase.execution || phase.execution.status!==(mutant?1:0)) throw new Error('Missing/failed subprocess execution evidence');
+      qualifyEfficacyPhase(phase.report,phase.execution,{envelope:phase.envelope,binding,
+        assertion:mutant?.assertion,assertionLocation,baselineNames:result.baseline.names});
     }
-    if (binding.runId!==receipt.runId || binding.command?.at(-1)!==contract.testFile
-      || phase.inputSha256!==binding.inputSha256
-      || JSON.stringify(binding.runtime)!==JSON.stringify(result.baseline.binding.runtime)
-      || binding.repoLockSha256!==hash(fs.readFileSync(path.join(root,'pnpm-lock.yaml')))) throw new Error('Wrong phase command/run/lock identity');
-    let assertionLocation;
-    if (mutant) {
-      const source=fs.readFileSync(path.join(root,contract.testFile),'utf8');
-      if (source.split(mutant.assertionAnchor).length!==2) throw new Error('Assertion anchor mismatch');
-      assertionLocation=source.slice(0,source.indexOf(mutant.assertionAnchor)).split('\n').length;
-    }
-    // Replays raw evidence, not a claimed PASS, filename list, job ID or neighboring suite count.
-    if (!phase.execution || phase.execution.status!==(mutant?1:0)) throw new Error('Missing/failed subprocess execution evidence');
-    qualifyEfficacyPhase(phase.report,phase.execution,{envelope:phase.envelope,binding,
-      assertion:mutant?.assertion,assertionLocation,baselineNames:result.baseline.names});
+    if (result.baseline.inputSha256!==result.restored.inputSha256) throw new Error('Restoration identity mismatch');
+    proven.add(contract.testFile);
   }
-  if (result.baseline.inputSha256!==result.restored.inputSha256) throw new Error('Restoration identity mismatch');
-  return contract.testFile;
+  return proven;
 }
 
 export function validateVitestExecution(receipt, expected, root) {
@@ -532,9 +613,13 @@ export function validateVitestBatches(receipts,expected,root,{base,kind}={}) {
 
 export function executionCoverage(files, {root,expected,pilot,execution,native,python,playwright,smoke,base}={}) {
   const changes=changedPaths(root,base);
-  const required=pilotAffectedByPaths(!base || base==='0'.repeat(40)?null:changes);
-  let proven=null;
-  if (pilot?.status==='executed') proven=validatePilotExecution(pilot,expected,root);
+  const semantic=requiredSemanticContracts(!base || base==='0'.repeat(40)?null:changes);
+  const required=semantic.length>0;
+  let proven=new Set();
+  if (pilot?.status==='executed') {
+    if(pilot.base!==(base && base!=='0'.repeat(40)?base:null))throw new Error('Wrong semantic execution comparison base');
+    proven=validateRequiredSemanticExecution(pilot,expected,root,semantic);
+  }
   const executions=Array.isArray(execution)?execution:execution?[execution]:[];
   if(executions.some(item=>item?.base!==(base||null)||item?.executionKind!=='changed-evidence'))throw new Error('Wrong Vitest execution comparison base/kind');
   const executed=executions.some(item=>['executed','incomplete'].includes(item?.status))
@@ -561,16 +646,17 @@ export function executionCoverage(files, {root,expected,pilot,execution,native,p
   const rows=files.map(file=> {
     const route=executionRoute(file,root);
     const browserSmoke=smokeFiles.has(file) || (smokeFiles.size>0 && SMOKE_HELPERS.includes(file));
-    return {file,route,status:executed.has(file) && registeredSourceContract(file)?'SOURCE QUALIFIED':file===proven || executed.has(file) || browser.has(file)||browserSmoke||nativeFiles.has(file)||pythonFiles.has(file)?'EXECUTED':route?'NOT RUN':'UNCOVERED',
+    return {file,route,status:executed.has(file) && registeredSourceContract(file)?'SOURCE QUALIFIED':proven.has(file) || executed.has(file) || browser.has(file)||browserSmoke||nativeFiles.has(file)||pythonFiles.has(file)?'EXECUTED':route?'NOT RUN':'UNCOVERED',
       ...(registeredSourceContract(file)?{liveExecution:'NOT RUN'}:{}),
-      claim:browserSmoke?'disposable stack smoke execution only; no live acceptance':file===proven?'registered analytics-truth faults only':pythonFiles.has(file)?'actual Python unittest collection and execution only; not browser/database/live acceptance':nativeFiles.has(file)?route.claim??'actual native test collection and execution only; not database/live acceptance':browser.has(file)?'ordinary CI shard collection and execution only; not live acceptance':executed.has(file)
+      claim:browserSmoke?'disposable stack smoke execution only; no live acceptance':proven.has(file)?'registered semantic faults only':pythonFiles.has(file)?'actual Python unittest collection and execution only; not browser/database/live acceptance':nativeFiles.has(file)?route.claim??'actual native test collection and execution only; not database/live acceptance':browser.has(file)?
+        file===INFRA_PROBE_FILE?'dedicated browser health collection and execution only; not live acceptance':'ordinary CI shard collection and execution only; not live acceptance':executed.has(file)
         ?registeredSourceContract(file)?'fault-sensitive wiring/fixture contract only; live test body not executed'
           :registeredHelper(file)?'registered source-mapped helper callables executed; not journey acceptance'
           :sqlContract(file)?'actual SQL consumed in PGlite fixture; native database NOT RUN':registeredFixture(file)?'pinned fixture consumed by its executed workflow control; not journey acceptance':'collection and execution only':null};
   });
   return {scope:'changed tests and fixtures; not a product requirement inventory',
-    pilot:{required,status:proven?'EXECUTED':required?'NOT RUN':'NOT APPLICABLE'},
-    status:(required && !proven) || (smokeRequired && !smoke) || rows.some(row=>!['EXECUTED','SOURCE QUALIFIED'].includes(row.status))?'INCOMPLETE':'COMPLETE',rows};
+    pilot:{required,status:proven.size?'EXECUTED':required?'NOT RUN':'NOT APPLICABLE'},
+    status:(required && proven.size!==semantic.length) || (smokeRequired && !smoke) || rows.some(row=>!['EXECUTED','SOURCE QUALIFIED'].includes(row.status))?'INCOMPLETE':'COMPLETE',rows};
 }
 
 export function readCurrentQuality(file, expected, root=process.cwd(), base=process.env.TEST_EFFICACY_BASE) {

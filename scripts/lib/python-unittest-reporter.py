@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.machinery
 import importlib.util
 import builtins
 import io
@@ -11,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import sys
+from types import CodeType
 import unittest
 
 
@@ -109,6 +111,57 @@ def main() -> int:
         if source != root / item["file"] or not source.is_file() or _sha256(source) != item["sha256"]:
             raise RuntimeError("Changed or aliased Python input source")
         expected_sources[str(source)] = item
+    # Executable inputs require a real call, not merely import or file reads.
+    method = binding.get("testMethod")
+    call_sources = {}
+    observed_calls = set()
+    loaded_sources = set()
+    for row in binding.get("sourceCalls", []):
+        filename = str(root / row["file"])
+        if not method or filename not in expected_sources or filename in call_sources:
+            raise RuntimeError("Unbound Python source call")
+        source = Path(filename).read_bytes()
+        if hashlib.sha256(source).hexdigest() != expected_sources[filename]["sha256"]:
+            raise RuntimeError("Changed Python executable input")
+        compiled = compile(source, filename, "exec", dont_inherit=True)
+        definitions = [c for c in compiled.co_consts
+                       if isinstance(c, CodeType) and c.co_qualname == row["callable"]]
+        if len(definitions) != 1:
+            raise RuntimeError("Required Python source callable absent or duplicated")
+        call_sources[filename] = (row, definitions[0])
+
+    class ExactSourceLoader(importlib.machinery.SourceFileLoader):
+        def get_code(self, fullname):
+            filename = self.get_filename(fullname)
+            source = Path(filename).read_bytes()
+            if hashlib.sha256(source).hexdigest() != expected_sources[filename]["sha256"]:
+                raise RuntimeError("Changed Python executable import")
+            compiled = self.source_to_code(source, filename)
+            loaded_sources.add(filename)
+            return compiled
+
+    class ExactSourceFinder:
+        def find_spec(self, fullname, search_path=None, target=None):
+            spec = importlib.machinery.PathFinder.find_spec(fullname, search_path, target)
+            if spec is None or spec.origin not in call_sources:
+                return None
+            spec.loader = ExactSourceLoader(fullname, spec.origin)
+            return spec
+
+    def observe_call(frame, event, _argument):
+        if event != "call":
+            return
+        entry = call_sources.get(frame.f_code.co_filename)
+        if not entry or frame.f_code.co_filename not in loaded_sources or frame.f_code != entry[1]:
+            return
+        ancestor = frame.f_back
+        while ancestor:
+            code = ancestor.f_code
+            if code.co_filename == str(target) and code.co_qualname == method:
+                observed_calls.add(frame.f_code.co_filename)
+                return
+            ancestor = ancestor.f_back
+
     observed_source_reads: set[str] = set()
 
     class ObservedReader:
@@ -171,7 +224,7 @@ def main() -> int:
             candidate = str(supplied.resolve(strict=True))
         except (OSError, RuntimeError, TypeError, ValueError):
             return stream
-        if lexical not in expected_sources or candidate not in expected_sources or not stream.readable():
+        if lexical not in expected_sources or candidate not in expected_sources or candidate in call_sources or not stream.readable():
             return stream
         return ObservedReader(stream, candidate)
 
@@ -184,20 +237,35 @@ def main() -> int:
     # helpers (for example `_fixtures`), so bind the selected test directory too.
     sys.path[:] = [str(target.parent), str(package_root), str(root)] + [p for p in sys.path if p]
     module_name = "_evidence_" + hashlib.sha256(relative.encode()).hexdigest()
+    finder = ExactSourceFinder()
+    if call_sources:
+        sys.meta_path.insert(0, finder)
     try:
         spec = importlib.util.spec_from_file_location(module_name, target)
         if spec is None or spec.loader is None:
             raise RuntimeError("Python test module cannot be loaded")
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        suite = unittest.defaultTestLoader.loadTestsFromModule(module)
+        if method and not binding.get("wholeModule"):
+            suite = unittest.defaultTestLoader.loadTestsFromName(method, module)
+        else:
+            suite = unittest.defaultTestLoader.loadTestsFromModule(module)
         collected = [test.id() for test in _tests(suite)]
         if not collected or len(collected) != len(set(collected)):
             raise RuntimeError("Python unittest collection is empty or duplicated")
 
         result = ReceiptResult()
-        suite.run(result)
+        previous_profile = sys.getprofile()
+        try:
+            if call_sources:
+                sys.setprofile(observe_call)
+            suite.run(result)
+        finally:
+            if call_sources:
+                sys.setprofile(previous_profile)
     finally:
+        if call_sources:
+            sys.meta_path.remove(finder)
         builtins.open = original_builtin_open
         io.open = original_io_open
     import yaml  # Imported inside the bound runtime; version is independently checked.
@@ -223,6 +291,10 @@ def main() -> int:
         },
         "collected": collected,
         "outcomes": result.outcomes,
+        "sourceCalls": [
+            {**call_sources[source][0], "sha256": _sha256(Path(source))}
+            for source in sorted(observed_calls)
+        ],
         "sourceReads": [
             {"file": expected_sources[source]["file"], "sha256": _sha256(Path(source))}
             for source in sorted(observed_source_reads)

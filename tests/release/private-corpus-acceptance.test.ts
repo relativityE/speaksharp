@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { existsSync, readFileSync } from 'node:fs';
 import {
   validatePrivateRow,
   validatePrivateCorpusArtifact,
@@ -70,6 +69,25 @@ describe('private corpus acceptance validator', () => {
       stopFinalizationMs: PRIVATE_ACCEPTANCE.STOP_FINALIZATION_HARD_LIMIT_MS + 1,
     };
     expect(validatePrivateRow(row, ['chewed up']).failures.some((f) => f.startsWith('stop_finalization_over_limit'))).toBe(true);
+  });
+
+  it('keeps Stop latency unqualified when the transcript is correct but finalization timing was not observed', () => {
+    const row = {
+      fixture: 'h1_6',
+      privateRuntime: 'wasm-singlethread',
+      privateProvider: 'transformers-js',
+      privateCloudFallbackAttempted: false,
+      detailTranscript: 'They like fresh coffee.',
+      privateAudioChunks: [{ samples: 16000, durationSec: 1, rms: 0.04, peak: 0.2 }],
+      privateTrace: [{ event: 'process_audio_ready' }, { event: 'speech_start_detected' }],
+    };
+    expect(validatePrivateRow({ ...row, stopFinalizationMs: 1200 }, ['fresh coffee']).pass).toBe(true);
+    for (const timing of [undefined, null, Number.NaN, Number.POSITIVE_INFINITY, '1200']) {
+      const unobserved = { ...row, stopFinalizationMs: timing };
+      const result = validatePrivateRow(unobserved, ['fresh coffee']);
+      expect(result).toMatchObject({ pass: false, invalid: true, invalidReason: 'invalid_stop_finalization_unobserved' });
+      expect(buildPrivateHarnessPrecheck(unobserved).valid).toBe(false);
+    }
   });
 
   it('marks zero-audio delivery INVALID before model accuracy verdicts', () => {
@@ -248,26 +266,42 @@ describe('private corpus acceptance validator', () => {
     });
   });
 
-  // Cross-check against the REAL failing artifact from the test-agent report so the
-  // validator provably reproduces the report's verdict (not just synthetic cases).
-  it('reproduces the report verdict on the real pre-fix corpus artifact (if present)', () => {
-    const artifactPath = '/private/tmp/speaksharp-stt-corpus-1780341387199.json';
-    if (!existsSync(artifactPath)) {
-      // Artifact is environment-local; skip cleanly elsewhere.
-      return;
+  it('refuses corpus credit when an expected speech recording is absent or replaced', () => {
+    const recorded = {
+      fixture: 'h1_6',
+      privateRuntime: 'wasm-singlethread',
+      privateProvider: 'transformers-js',
+      privateCloudFallbackAttempted: false,
+      detailTranscript: 'They like fresh coffee.',
+      stopFinalizationMs: 1200,
+    };
+    const required = { h1_2: ['pepper spoils'], h1_6: ['fresh coffee'] };
+    const pepper = { ...recorded, fixture: 'h1_2', detailTranscript: 'A dash of pepper spoils beef stew.' };
+
+    expect(validatePrivateCorpusArtifact({ results: [recorded, pepper] }, required).pass).toBe(true);
+    expect(validatePrivateCorpusArtifact({ results: [recorded] }, { h1_6: ['fresh coffee'] }).pass).toBe(true);
+
+    for (const replacement of [[], [{ ...pepper, fixture: 'different_speech', detailTranscript: '' }],
+      [{ ...pepper, mode: 'native' }], [recorded]]) {
+      expect(validatePrivateCorpusArtifact({ results: [recorded, ...replacement] }, required))
+        .toMatchObject({ pass: false, missingExpectedFixtures: ['h1_2'] });
     }
-    const artifact = JSON.parse(readFileSync(artifactPath, 'utf8'));
-    const verdict = validatePrivateCorpusArtifact(artifact, {
-      h1_2: ['pepper spoils'],
-      h1_6: ['they, like'],
-    });
-    // The report classified this run as gatePass=false. The validator must agree.
+  });
+
+  it('reproduces the report failure classes with a portable synthetic corpus', () => {
+    // Report-shaped synthetic rows, not a rerun of the original recordings.
+    const artifact = {
+      results: [
+        { fixture: 'h1_2', privateRuntime: null, privateProvider: null, privateCloudFallbackAttempted: false,
+          detailTranscript: 'A dash of pepper spurtles beef stew.', stopFinalizationMs: 4000 },
+        { fixture: 'h1_6', privateRuntime: 'wasm-singlethread', privateProvider: 'transformers-js', privateCloudFallbackAttempted: false,
+          detailTranscript: 'They like fresh coffee.', stopFinalizationMs: 4000 },
+      ],
+    };
+    const verdict = validatePrivateCorpusArtifact(artifact, { h1_2: ['pepper spoils'], h1_6: ['they, like'] });
     expect(verdict.pass).toBe(false);
-    const h1_2 = verdict.rows.find((r) => r.fixture === 'h1_2');
-    const h1_6 = verdict.rows.find((r) => r.fixture === 'h1_6');
-    // Pre-fix run: telemetry null + wrong finals are the documented failures.
-    expect(h1_2?.failures).toContain('runtime_telemetry_null');
-    expect(h1_2?.failures).toContain('final_missing:pepper spoils');
-    expect(h1_6?.failures).toContain('final_missing:they, like');
+    expect(verdict.rows.find((row) => row.fixture === 'h1_2')?.failures)
+      .toEqual(expect.arrayContaining(['runtime_telemetry_null', 'final_missing:pepper spoils']));
+    expect(verdict.rows.find((row) => row.fixture === 'h1_6')?.failures).toContain('final_missing:they, like');
   });
 });

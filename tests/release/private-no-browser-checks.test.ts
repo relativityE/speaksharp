@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { existsSync, readFileSync } from 'node:fs';
 import { reducePrivateTiming } from '../../scripts/private-timing-reducer.mjs';
 import { reducePrivateStatus } from '../../scripts/private-status-reducer.mjs';
 import { sanitizeTranscriptText } from '../../frontend/src/services/transcription/transcriptSanitizer';
@@ -26,19 +25,24 @@ describe('Private no-browser check #1: timing reducer', () => {
     expect(t.forcedTailSkipped).toBe(true);
   });
 
-  it('reproduces the report timing math on the real pre-fix artifact (if present)', () => {
-    const p = '/private/tmp/speaksharp-stt-corpus-1780341387199.json';
-    if (!existsSync(p)) return;
-    const artifact = JSON.parse(readFileSync(p, 'utf8'));
-    for (const fixture of ['h1_2', 'h1_6']) {
-      const row = artifact.results.find((r: { fixture: string }) => r.fixture === fixture);
-      const t = reducePrivateTiming(row.privateTrace, row);
-      // Report: ~5s pre-decode wait — the dead time the latency fix removes.
-      expect(t.stopToWholeStart).toBeGreaterThan(4500);
-      expect(t.stopToWholeStart).toBeLessThan(5500);
-      // Pre-fix runs did NOT skip the forced tail (the fix is not in this artifact).
-      expect(t.forcedTailSkipped).toBe(false);
-    }
+  it('distinguishes delayed whole decode and forced-tail fallback from a skipped tail', () => {
+    // Portable synthetic trace; the historical machine-local corpus is not replayed.
+    const delayed = [
+      { event: 'stop_requested', epochMs: 10000 },
+      { event: 'whole_utterance_commit_start', epochMs: 14920 },
+      { event: 'whole_utterance_commit_accept', epochMs: 18100 },
+      { event: 'stop_force_tail_fallback', epochMs: 18110 },
+      { event: 'stop_force_processing_complete', epochMs: 18450 },
+    ];
+    expect(reducePrivateTiming(delayed)).toMatchObject({
+      stopToWholeStart: 4920,
+      wholeDecodeDuration: 3180,
+      stopFinalizationMs: 8450,
+      forcedTailSkipped: false,
+      forcedTailFallback: true,
+    });
+    expect(reducePrivateTiming(delayed.filter(({ event }) => event !== 'whole_utterance_commit_start')))
+      .toMatchObject({ stopToWholeStart: null, wholeDecodeDuration: null, stopFinalizationMs: 8450 });
   });
 });
 

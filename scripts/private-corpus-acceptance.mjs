@@ -8,7 +8,7 @@
  *   - structured runtime telemetry is missing (privateRuntime/privateProvider null)
  *   - cloud fallback was attempted (privacy violation) or not provably false
  *   - the final transcript is wrong (truth-preserving substrings missing)
- *   - stop finalization exceeded the hard latency limit
+ *   - stop finalization was not observed or exceeded the hard latency limit
  *
  * Pure + dependency-free so it runs with no browser. Used both by the artifact
  * validator test and (optionally) by the corpus harness to gate a run.
@@ -22,6 +22,10 @@ export const PRIVATE_ACCEPTANCE = {
 const asArray = (value) => Array.isArray(value) ? value : [];
 const eventName = (event) => String(event?.event ?? event?.name ?? event?.type ?? '');
 const finiteNumber = (value) => typeof value === 'number' && Number.isFinite(value);
+const invalidStopFinalizationReason = (row) => {
+  if (!finiteNumber(row.stopFinalizationMs)) return 'invalid_stop_finalization_unobserved';
+  return row.stopFinalizationMs <= 0 ? `invalid_impossible_timing:${row.stopFinalizationMs}` : null;
+};
 const isSpeechFixture = (row) => {
   if (row?.expectedSpeech === false || row?.expectedSilence === true) return false;
   const fixture = String(row?.fixture ?? '').toLowerCase();
@@ -78,12 +82,13 @@ export function buildPrivateHarnessPrecheck(row) {
   }
 
   const signals = readPrivateHarnessSignals(row);
+  const timingIssue = invalidStopFinalizationReason(row);
   let reason = null;
 
   if (!signals.hasProofFields) {
     reason = 'invalid_harness_proof_missing';
-  } else if (finiteNumber(row.stopFinalizationMs) && row.stopFinalizationMs <= 0) {
-    reason = `invalid_impossible_timing:${row.stopFinalizationMs}`;
+  } else if (timingIssue) {
+    reason = timingIssue;
   } else if (signals.privateAudioChunks.length === 0) {
     reason = 'invalid_no_audio_delivered';
   } else if (!signals.hasProcessAudioReady) {
@@ -147,13 +152,14 @@ export function validatePrivateRow(row, requiredFinalSubstrings = []) {
   }
 
   const audioValidity = classifyPrivateAudioValidity(row);
-  if (!audioValidity.valid) {
+  const invalidReason = audioValidity.reason ?? invalidStopFinalizationReason(row);
+  if (invalidReason) {
     return {
       fixture: row.fixture,
       pass: false,
       invalid: true,
-      invalidReason: audioValidity.reason,
-      failures: [audioValidity.reason],
+      invalidReason,
+      failures: [invalidReason],
     };
   }
 
@@ -173,7 +179,7 @@ export function validatePrivateRow(row, requiredFinalSubstrings = []) {
   }
 
   // Latency gate.
-  if (typeof row.stopFinalizationMs === 'number' && row.stopFinalizationMs > PRIVATE_ACCEPTANCE.STOP_FINALIZATION_HARD_LIMIT_MS) {
+  if (row.stopFinalizationMs > PRIVATE_ACCEPTANCE.STOP_FINALIZATION_HARD_LIMIT_MS) {
     failures.push(`stop_finalization_over_limit:${row.stopFinalizationMs}`);
   }
 
@@ -182,19 +188,24 @@ export function validatePrivateRow(row, requiredFinalSubstrings = []) {
 
 /**
  * Validate a whole corpus artifact. `expectations` maps fixtureId ->
- * requiredFinalSubstrings[]. Returns per-row results plus an overall verdict.
+ * requiredFinalSubstrings[] for every required fixture in this run or subset.
+ * Missing required fixtures prevent a pass, even when every observed row passes.
+ * Counts refer to observed private rows, not missing fixtures.
  */
 export function validatePrivateCorpusArtifact(artifact, expectations = {}) {
   const results = Array.isArray(artifact?.results) ? artifact.results : [];
-  const rows = results
-    .filter((row) => row && row.mode !== 'native' && row.fixture)
-    .map((row) => validatePrivateRow(row, expectations[row.fixture] ?? []));
+  const observed = results.filter((row) => row && row.mode !== 'native' && row.fixture);
+  const expected = new Map(Object.entries(expectations));
+  const observedFixtures = new Set(observed.map((row) => row.fixture));
+  const missingExpectedFixtures = [...expected.keys()].filter((fixture) => !observedFixtures.has(fixture));
+  const rows = observed.map((row) => validatePrivateRow(row, expected.get(row.fixture) ?? []));
 
   return {
     rowCount: rows.length,
     passCount: rows.filter((r) => r.pass).length,
     failCount: rows.filter((r) => !r.pass).length,
-    pass: rows.length > 0 && rows.every((r) => r.pass),
+    missingExpectedFixtures,
+    pass: missingExpectedFixtures.length === 0 && rows.length > 0 && rows.every((r) => r.pass),
     rows,
   };
 }

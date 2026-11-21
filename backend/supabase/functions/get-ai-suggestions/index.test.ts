@@ -448,6 +448,37 @@ Deno.test('#1835 fresh coaching proceeds only with both positive owner choices',
   assertEquals(fetchCount, 0);
 });
 
+Deno.test('#1905 saved Open Mic and Focus coaching honor owner consent at send and persist', async () => {
+  const yes = { transcript_save: true, ai_coaching: true, consent_version: 1, choice_revision: 1 };
+  const no = { ...yes, ai_coaching: false };
+  const focus = {
+    objective: { id: 'objective-a', brief_id: 'brief-a' },
+    brief: { event_goal: 'Make the next step clear' },
+    points: [{ id: 'point-a', label: 'Name who owns the next step.', sort_order: 0 }],
+    evidence: [{ brief_point_id: 'point-a', verdict: 'detected', detected_at_seconds: 5 }],
+  };
+  const observations = [];
+  for (const product of ['open_mic', 'focus_points'] as const) {
+    const options = product === 'focus_points' ? { session: focusSession(), focus } : { session: savedSession() };
+    const run = async (consentReads: NonNullable<MockOptions['consentReads']>) => {
+      resetProvider();
+      const mock = mockSupabase({ ...options, consentReads });
+      const response = await handler(request({ sessionId: 'session-a', product, accepted_coaching_versions: CAPABLE_CLIENT }), mock.create);
+      return { status: response.status, sends: fetchCount, quota: mock.state.quotaCount, persist: mock.state.authorityRpcCount };
+    };
+    observations.push({
+      product, allowed: await run([]), denied: await run([{ data: no }]),
+      revoked: await run([{ data: yes }, { data: yes }, { data: no }]),
+    });
+  }
+  assertEquals(observations, ['open_mic', 'focus_points'].map((product) => ({
+    product,
+    allowed: { status: 200, sends: 1, quota: 1, persist: 1 },
+    denied: { status: 403, sends: 0, quota: 0, persist: 0 },
+    revoked: { status: 403, sends: 1, quota: 1, persist: 0 },
+  })));
+});
+
 Deno.test('#1835 unknown schema or a changed choice stops new provider attempts and review writes', async () => {
   const yes = { transcript_save: true, ai_coaching: true, consent_version: 1, choice_revision: 1 };
   resetProvider();

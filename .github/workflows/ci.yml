@@ -71,6 +71,7 @@ jobs:
           TEST_EFFICACY_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.number }}
+          SQUASH_TRUST_TOKEN: ${{ github.event_name == 'push' && github.event.forced == true && github.token || '' }}
         run: |
           node --input-type=module <<'NODE'
           import { execFileSync } from 'node:child_process';
@@ -78,7 +79,8 @@ jobs:
           import { resolveCiComparison } from './scripts/lib/testExecutionEvidence.mjs';
           import { smokeAffected } from './scripts/j1d-smoke/smokeEvidence.mjs';
           const git = (...args) => execFileSync('git', args, {encoding:'utf8'}).trim();
-          const {base,head} = resolveCiComparison(process.cwd());
+          const { resolveVerifiedSquashComparison } = await import('./scripts/lib/ciManualSquashComparison.mjs');
+          const {base,head} = await resolveVerifiedSquashComparison(process.cwd()) ?? resolveCiComparison(process.cwd());
           // Keep BOTH sides of a rename; downstream scope classifier reads one path per line.
           const changed = git('diff','--no-renames','--name-only','-z',base,head).split('\0').filter(Boolean);
           if (changed.some(file => /[\r\n]/.test(file))) throw new Error('Unsafe CI comparison path');
@@ -286,8 +288,7 @@ jobs:
         if: needs.scope.outputs.frontend_changed == 'true' || needs.scope.outputs.e2e_required == 'true'
         run: pnpm ci:build
 
-      - name: Setup Deno
-        if: needs.scope.outputs.edge_changed == 'true'
+      - name: Setup Deno (Edge and billing qualification)
         uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
@@ -299,11 +300,6 @@ jobs:
       # #1294 — the weekly billing qualification's executable proof: the REAL stripe-webhook handler driven
       # against an ephemeral migrated PGlite DB with a fake Stripe (asserts lifecycle entitlement + request
       # shapes/ordering + fail-closed). Runs every CI so the canary-critical logic is proven at exact head.
-      - name: Setup Deno (billing qualification)
-        uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
-
       - name: Billing Qualification Contract (Deno + PGlite)
         run: pnpm test:billing-qualification
 
@@ -849,6 +845,10 @@ jobs:
     uses: ./.github/workflows/j1d-reserved-namespace-smoke.yml
 
   full-evidence:
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
     name: full-evidence
     needs: [scope, unit-coverage-merge, edge-tests, build, health-check, e2e, lighthouse-advisory, j1d-smoke]
     if: (always() && !cancelled() && needs.scope.outputs.full_required == 'true') && needs.scope.outputs.base_only_proof == ''
@@ -951,7 +951,7 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           path: artifacts
-          pattern: '{unit-artifacts,build-artifacts,shard-report-*,ux-review-screenshots-shard-*,lighthouse-report,j1d-smoke-evidence-${{ github.run_id }}-${{ github.run_attempt }}}'
+          pattern: '{unit-artifacts,build-artifacts,shard-report-*,health-check-report,ux-review-screenshots-shard-*,lighthouse-report,j1d-smoke-evidence-${{ github.run_id }}-${{ github.run_attempt }}}'
 
       - name: Summarise Downloaded Artifacts
         run: find artifacts -maxdepth 2 -type d -print
@@ -1092,13 +1092,15 @@ jobs:
           TEST_EFFICACY_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.number }}
+          SQUASH_TRUST_TOKEN: ${{ github.event_name == 'push' && github.event.forced == true && github.token || '' }}
         shell: bash
         run: |
           set -euo pipefail
           node --input-type=module <<'NODE'
           const { appendFileSync } = await import('node:fs');
           const { resolveCiComparison } = await import('./scripts/lib/testExecutionEvidence.mjs');
-          const {base,head} = resolveCiComparison(process.cwd());
+          const { resolveVerifiedSquashComparison } = await import('./scripts/lib/ciManualSquashComparison.mjs');
+          const {base,head} = await resolveVerifiedSquashComparison(process.cwd()) ?? resolveCiComparison(process.cwd());
           if (head !== process.env.TEST_EFFICACY_HEAD || base !== process.env.TEST_EFFICACY_BASE) {
             throw new Error('Unbound scope/quality comparison');
           }
@@ -1218,6 +1220,10 @@ jobs:
   # the protected pre-merge guard's default API path without rerunning engineering.
   review-qualification:
     name: exact-head-review-qualification
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
     needs: [scope, full-evidence]
     # #1430 P1 — RUNS ON PUSH TOO. Skipping `push` meant a commit that reached `main` directly was
     # reported release-qualified with no review authority examined at all, and `main` is the ref the
@@ -1227,7 +1233,35 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: ${{ github.event_name == 'push' && github.event.forced == true && '0' || '1' }}
+      - name: Verify owner-approved unchanged-tree history rewrite
+        id: squash_review
+        if: github.event_name == 'push' && github.event.forced == true
+        env:
+          TEST_EFFICACY_EVENT_BASE: ${{ github.event.before }}
+          SQUASH_TRUST_TOKEN: ${{ github.token }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync, writeFileSync } from 'node:fs';
+          import { acquireVerifiedSquash, manualSquashAuditReceipt } from './scripts/lib/ciManualSquashComparison.mjs';
+          const verified = await acquireVerifiedSquash(process.cwd());
+          if (verified) {
+            const receipt = manualSquashAuditReceipt(verified);
+            writeFileSync(`${process.env.RUNNER_TEMP}/manual-squash-verification.json`, JSON.stringify(receipt) + '\n', {mode: 0o600, flag: 'wx'});
+            appendFileSync(process.env.GITHUB_OUTPUT, 'verified=true\n');
+          }
+          NODE
+      - name: Upload manual squash verification (not a PR review receipt)
+        if: steps.squash_review.outputs.verified == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: manual-squash-verification-${{ github.sha }}
+          path: ${{ runner.temp }}/manual-squash-verification.json
+          retention-days: 14
+          if-no-files-found: error
       - name: Read independent review from GitHub and qualify the exact head
+        if: steps.squash_review.outputs.verified != 'true'
         env:
           GITHUB_TOKEN: ${{ github.token }}
           EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -1239,7 +1273,7 @@ jobs:
           REVIEW_QUALIFICATION_FILE: ${{ runner.temp }}/review-qualification.json
         run: node scripts/collect-review-qualification.mjs
       - name: Upload qualified exact-head review receipt
-        if: ${{ success() }}
+        if: ${{ success() && steps.squash_review.outputs.verified != 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: review-qualification-${{ github.event.pull_request.head.sha || github.sha }}

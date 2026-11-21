@@ -235,7 +235,7 @@ describe('#1835 History: a legacy saved transcript opened before visiting Practi
         expect(screen.getByText(/190 words/)).toBeInTheDocument();
         expect(screen.getByTestId('saved-review-practice')).toBeInTheDocument();
         const band = screen.getByTestId('restored-review-retry');
-        expect(band).toHaveAttribute('data-retry', 'coaching_off');
+        expect(band.getAttribute('data-retry')).toBe('coaching_off');
         expect(screen.getByTestId('restored-review-coaching-off')).toHaveTextContent(copy);
         expect(screen.getByTestId('restored-review-privacy-link')).toHaveAttribute('href', '/account#privacy-data');
         expect(screen.queryByTestId('restored-review-retry-button')).toBeNull();
