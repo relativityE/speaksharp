@@ -302,7 +302,12 @@ describe('J1.c wiring (the Open Mic journey and the shared runner)', () => {
         const j1d = spec.indexOf("await test.step('J1.d — sign out, deep link, sign back in, history preserved'");
         expect([numeric > -1, j1c > numeric, j1d > j1c]).toEqual([true, true, true]);
         const step = spec.slice(j1c, j1d);
-        expect(step).toContain("const obs = await shortStopEvidence(page, `${SUITE}-short-stop`, sessionRowsReader(admin as never, capturedUid));");
+        expect(step).toContain("const obs = await shortStopEvidence(page, `${SUITE}-short-stop`, sessionRowsReader(admin as never, capturedUid),\n                        () => captureGate().confirm());");
+        // #1835: a changed privacy choice is the run's stop, rethrown after J1.c records its own HOLD.
+        const caught = step.slice(step.indexOf('} catch (error) {'));
+        expect(caught.indexOf("receipt.row(J1C_ROW, 'HOLD'")).toBeGreaterThan(0);
+        expect(caught.indexOf("if (error instanceof Error && error.message.startsWith('HOLD practice consent:')) throw error;"))
+            .toBeGreaterThan(caught.indexOf("receipt.row(J1C_ROW, 'HOLD'"));
         expect(step).toContain('shortStopTake = shortStopTakeOf(obs);');
         expect(step).toContain('shortStopRow(receipt, obs);');
         expect(step).toContain("shortStopTake = 'unknown';");

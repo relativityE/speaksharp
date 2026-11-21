@@ -1255,15 +1255,19 @@ test.describe('RWT — Open Mic first session @live', () => {
             // ── J1.c (Sam, 21 Nov): a short Stop saves nothing — its own step and row, on this account, after J1.a's takes ─────
             // The shared runner's short-Stop substep observes; the nightly oracle (shortStopVerdict) judges. A failure here is
             // J1.c's own HOLD and never stops J1.a's rows or J1.d. Only the error class leaves the step (a message can carry ids).
+            // #1835: its Start reads the privacy choice back inside the press, like every later press. A changed choice is the
+            // run's own stop (the gate has written its row), so it is rethrown after J1.c records its HOLD.
             await test.step('J1.c — a short Stop saves nothing', async () => {
                 try {
-                    const obs = await shortStopEvidence(page, `${SUITE}-short-stop`, sessionRowsReader(admin as never, capturedUid));
+                    const obs = await shortStopEvidence(page, `${SUITE}-short-stop`, sessionRowsReader(admin as never, capturedUid),
+                        () => captureGate().confirm());
                     shortStopTake = shortStopTakeOf(obs);
                     shortStopRow(receipt, obs);
                 } catch (error) {
                     shortStopTake = 'unknown';
                     const name = error instanceof Error && /^[A-Za-z]{1,40}Error$/.test(error.name) ? error.name : 'Error';
                     receipt.row(J1C_ROW, 'HOLD', `the J1.c short Stop did not complete (${name})`, { leg: J1C_LEG });
+                    if (error instanceof Error && error.message.startsWith('HOLD practice consent:')) throw error;
                 }
             });
 

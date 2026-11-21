@@ -19,7 +19,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 NIGHTLY = ROOT / "nightly"
-EXPECTED_TESTS = 455
+EXPECTED_TESTS = 474
 REPO = ROOT.parents[1]
 OFFLINE_PATCH = ROOT / "tests" / "fixtures" / "j4a-offline-packet.patch.fixture"
 OFFLINE_PATCH_SHA256 = "632ea67bb88c10a2d380ac017db62960a0be974ed2846ca7205140036ebfb529"
@@ -36,7 +36,7 @@ REVIEWED_J4A_FIXTURE_SHA256 = {
     "j4a-entry-child.cjs": "d20d7880c299434df21aefc00c32969616e2e1465a1b9df3bc31099e81aef5b0",
     "j4a-guarded-child.cjs": "01d77d88a08c77a7e7050edc0ac09684acb3d1c63250aad631f024f6d79da903",
     "j4a-supervised-child.cjs": "c4a23e8fe983ac06955eab8d8f81e05ba1f3759c554b5215459f6b936b756199",
-    "j4a-writer-proof.cjs": "1f5c167b4238feeca137b835d31fa3d49cf38217288ff11e58f93641b9b1ed12",
+    "j4a-writer-proof.cjs": "4828c7adfcb1dc017ef8b18366715aaca130261f24607c6db85ddec8995419b4",
     "no-proc-shim.cjs": "333e0f5b99ab4472a3cc95d54a73a9a20099dddc168a7b8e255b9b856166accf",
 }
 
