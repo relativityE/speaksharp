@@ -61,10 +61,13 @@ export async function holdThenStopWith(deps: SaveHoldDeps, recordingAt: number, 
     const target = recordingAt + SAVE_MINIMUM_MS + SAVE_HOLD_BUFFER_MS;
     for (;;) {
         const seen = await deps.read().catch(() => ({ same: null, stopEnabled: null }));
-        polls.push({ t: deps.now(), ...seen });
+        const t = deps.now();
+        polls.push({ t, ...seen });
         if (seen.same !== true || seen.stopEnabled !== true) break;
-        const left = target - deps.now();
-        if (left <= 0) break; // this poll was taken at or after the deadline
+        // Codex P2 on a1e49105: decide from the RECORDED poll time, never a second clock read, so the loop only exits on a
+        // poll that itself was taken at or after the deadline.
+        const left = target - t;
+        if (left <= 0) break;
         await deps.sleep(Math.min(pollMs, left));
     }
     const hold = saveHoldVerdict(recordingAt, polls);

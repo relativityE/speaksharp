@@ -60,6 +60,23 @@ describe('holdThenStopWith on a fake clock', () => {
         expect(f.reads.at(-1)).toBe(ENOUGH);
         expect(f.clicks()).toBe(1);
     });
+    it('Codex P2 on a1e49105: a clock that moves between reads still ends on a poll taken at or after the deadline', async () => {
+        // Every clock read advances 1 ms, so the deadline check is always one tick after its poll's timestamp.
+        let t = ENOUGH - 1; // the first poll is stamped one tick before the deadline; the old second read lands on it
+        const reads: number[] = [];
+        let clicks = 0;
+        const deps: SaveHoldDeps = {
+            pin: async () => true,
+            read: async () => ok,
+            clickPinnedStop: async () => { clicks += 1; return 'clicked'; },
+            now: () => { const v = t; t += 1; reads.push(v); return v; },
+            sleep: async (ms) => { t += ms; },
+        };
+        const r = await holdThenStopWith(deps, 0, 250);
+        expect(r.hold.ok).toBe(true);
+        expect(r.hold.heldMs).toBeGreaterThanOrEqual(ENOUGH);
+        expect(clicks).toBe(1);
+    });
     it('Sam on b3455e86: a recorder replaced in the FINAL interval fails and receives no Stop', async () => {
         const f = fake({ readAt: (t) => (t >= ENOUGH - 100 ? { same: false, stopEnabled: true } : ok) });
         const r = await holdThenStopWith(f.deps, 0, 250);
