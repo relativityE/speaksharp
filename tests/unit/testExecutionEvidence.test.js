@@ -5,6 +5,7 @@ import os from 'node:os';
 import {createHash,randomUUID} from 'node:crypto';
 import {execFileSync,spawn,spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
+import {createRequire} from 'node:module';
 import {executionContext,assertProvenance,executionRoute,executionCoverage,validatePilotExecution,
   changedEvidencePaths,readCurrentQuality,testEnvironment,validateVitestExecution,sourceIdentity,resolveComparisonBase,
   registeredFixture,fixtureSourceBinding,fixturePackageManagerIdentity,validateFixtureWitness,
@@ -405,17 +406,48 @@ test('manual full evidence receives an exact base on both a feature ref and main
     try {
       git(['add',file]);const head=commit();
       git(['update-ref','refs/remotes/origin/main',dispatchRef==='main'?head:base]);
-      const output=path.join(dir,'job-env');
-      const result=spawnSync(process.execPath,['--input-type=module','-e',
-        scriptFor('Begin fresh quality evidence attempt')+'\n'+scriptFor('Resolve exact efficacy comparison base')],
-      {cwd:dir,encoding:'utf8',env:{...process.env,GITHUB_ENV:output,GITHUB_ACTIONS:'true',
-        GITHUB_EVENT_NAME:'workflow_dispatch',GITHUB_SHA:head,TEST_EFFICACY_BASE:'',TEST_EFFICACY_DEFAULT_BRANCH:'main'}});
+      const output=path.join(dir,'job-env'), scopeOutput=path.join(dir,'scope-output');
+      const event={...process.env,GITHUB_ENV:output,GITHUB_OUTPUT:scopeOutput,RUNNER_TEMP:dir,GITHUB_ACTIONS:'true',
+        GITHUB_EVENT_NAME:'workflow_dispatch',GITHUB_SHA:head,TEST_EFFICACY_EVENT_BASE:'',TEST_EFFICACY_DEFAULT_BRANCH:'main'};
+      const run=(script,env)=>spawnSync(process.execPath,['--input-type=module','-e',script],{cwd:dir,encoding:'utf8',env});
+      const values=file=>Object.fromEntries(fs.readFileSync(file,'utf8').trim().split('\n').map(line=>line.split('=')));
+      const scope=run(scriptFor('Bind disposable smoke scope and quality comparison to this checkout'),event);
+      assert.equal(scope.status,0,scope.stderr);
+      assert.deepEqual(values(scopeOutput),{base,head,required:'false'});
+      assert.equal(fs.readFileSync(path.join(dir,'changed.txt'),'utf8'),`${file}\n`);
+      const script=scriptFor('Begin fresh quality evidence attempt')+'\n'+scriptFor('Resolve exact efficacy comparison base');
+      const scoped={...event,TEST_EFFICACY_BASE:values(scopeOutput).base,TEST_EFFICACY_HEAD:values(scopeOutput).head};
+      const result=run(script,scoped);
       assert.equal(result.status,0,result.stderr);
-      const values=Object.fromEntries(fs.readFileSync(output,'utf8').trim().split('\n').map(line=>line.split('=')));
-      assert.equal(values.TEST_EFFICACY_BASE,base,`manual ${dispatchRef} must compare the intended exact ancestor`);
+      assert.equal(values(output).TEST_EFFICACY_BASE,base,`manual ${dispatchRef} must compare the intended exact ancestor`);
+      for(const override of [{TEST_EFFICACY_BASE:''},{TEST_EFFICACY_HEAD:''},{TEST_EFFICACY_BASE:head},{TEST_EFFICACY_HEAD:base}]) {
+        fs.rmSync(output,{force:true});
+        const denied=run(script,{...scoped,...override});
+        assert.equal(denied.status,1);
+        assert.match(denied.stderr,/Unbound scope\/quality comparison/);
+        assert.equal(Object.hasOwn(values(output),'TEST_EFFICACY_BASE'),false);
+      }
       const generation=workflow.split('- name: Generate qualified software quality evidence')[1].split('- name: Upload CI Metrics')[0];
       assert.doesNotMatch(generation,/TEST_EFFICACY_BASE:/,'the writer must not replace the resolved job base with an empty event field');
     } finally {fs.rmSync(dir,{recursive:true,force:true});}
+  }
+});
+
+test('rendered named artifact glob selects ordinary wildcard artifacts and only this smoke attempt',()=>{
+  // The downloader uses minimatch; resolve the installed matcher via the declared ESLint dependency.
+  const require=createRequire(import.meta.url);
+  const matcher=createRequire(require.resolve('eslint/package.json'))('minimatch');
+  const matches=typeof matcher==='function'?matcher:matcher.minimatch;
+  const workflow=fs.readFileSync(path.join(root,'.github/workflows/ci.yml'),'utf8');
+  const pattern=workflow.match(/- name: Download Named Artifacts[\s\S]*?pattern: '([^']+)'/)?.[1];
+  assert.ok(pattern);
+  const rendered=pattern.replace(/\$\{\{\s*github\.(run_id|run_attempt)\s*\}\}/g,
+    (_,field)=>field==='run_id'?'9001':'2');
+  assert.doesNotMatch(rendered,/\$\{\{/);
+  for(const name of ['unit-artifacts','build-artifacts','shard-report-1','shard-report-4','ux-review-screenshots-shard-3',
+    'lighthouse-report','j1d-smoke-evidence-9001-2']) assert.equal(matches(name,rendered),true,name);
+  for(const name of ['j1d-smoke-evidence-9001-1','j1d-smoke-evidence-9002-2','shard-missing','unexpected']) {
+    assert.equal(matches(name,rendered),false,name);
   }
 });
 
@@ -476,7 +508,7 @@ function executionFixture(installed=false) {
   const dir=canonicalPath(fs.mkdtempSync(path.join(os.tmpdir(),'quality-vitest-execution-')));
   const write=(file,bytes)=>{fs.mkdirSync(path.dirname(path.join(dir,file)),{recursive:true});fs.writeFileSync(path.join(dir,file),bytes);};
   for(const file of ['scripts/write-software-quality-evidence.mjs','scripts/run-test-efficacy.mjs',
-    'scripts/efficacy-reporter.mjs','scripts/coverage-thresholds.mjs','scripts/lib/testExecutionEvidence.mjs','scripts/lib/nativeTestExecutionEvidence.mjs','scripts/lib/pythonTestExecutionEvidence.mjs','scripts/lib/python-unittest-reporter.py','scripts/lib/playwrightExecutionEvidence.mjs','scripts/lib/helperExecutionEvidence.mjs','scripts/lib/sourceContractEvidence.mjs',
+    'scripts/efficacy-reporter.mjs','scripts/coverage-thresholds.mjs','scripts/lib/testExecutionEvidence.mjs','scripts/j1d-smoke/ciEvidence.mjs','scripts/j1d-smoke/smokeEvidence.mjs','scripts/lib/nativeTestExecutionEvidence.mjs','scripts/lib/pythonTestExecutionEvidence.mjs','scripts/lib/python-unittest-reporter.py','scripts/lib/playwrightExecutionEvidence.mjs','scripts/lib/helperExecutionEvidence.mjs','scripts/lib/sourceContractEvidence.mjs',
     'scripts/lib/softwareQualityEvidenceQualification.mjs',...dependencyPaths(root,contract.testFile)]) {
     write(file,fs.readFileSync(path.join(root,file)));
   }
@@ -1117,7 +1149,7 @@ test('CI-invoked writer fails incomplete coverage and succeeds after valid evide
     assert.ok(command,'exercise the writer command actually invoked by CI');
     const files=['scripts/write-software-quality-evidence.mjs','scripts/run-test-efficacy.mjs',
       'scripts/efficacy-reporter.mjs','scripts/coverage-thresholds.mjs',
-      'scripts/lib/testExecutionEvidence.mjs','scripts/lib/nativeTestExecutionEvidence.mjs','scripts/lib/pythonTestExecutionEvidence.mjs','scripts/lib/python-unittest-reporter.py','scripts/lib/playwrightExecutionEvidence.mjs','scripts/lib/helperExecutionEvidence.mjs','scripts/lib/sourceContractEvidence.mjs','scripts/lib/softwareQualityEvidenceQualification.mjs',
+      'scripts/lib/testExecutionEvidence.mjs','scripts/j1d-smoke/ciEvidence.mjs','scripts/j1d-smoke/smokeEvidence.mjs','scripts/lib/nativeTestExecutionEvidence.mjs','scripts/lib/pythonTestExecutionEvidence.mjs','scripts/lib/python-unittest-reporter.py','scripts/lib/playwrightExecutionEvidence.mjs','scripts/lib/helperExecutionEvidence.mjs','scripts/lib/sourceContractEvidence.mjs','scripts/lib/softwareQualityEvidenceQualification.mjs',
       ...dependencyPaths(root,contract.testFile)];
     for (const file of files) {
       fs.mkdirSync(path.dirname(path.join(dir,file)),{recursive:true});
