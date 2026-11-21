@@ -7,7 +7,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { TEST_EFFICACY_CONTRACTS, qualifyEfficacyPhase } from './lib/softwareQualityEvidenceQualification.mjs';
 import { canonicalPath, runtimeIdentity } from './efficacy-reporter.mjs';
-import { executionContext, testEnvironment, requiredSemanticContracts,
+import { executionContext, testEnvironment, requiredSemanticContracts, semanticChangedInputs, dependencyPaths,
   executionRequiredFiles,unavailableExecutionInputs,fixtureSourceBinding, validateFixtureWitness, selectExecutionContracts,
   vitestExecutionTimeoutMs } from './lib/testExecutionEvidence.mjs';
 import {HELPER_CONFIG, helperSourceBinding, validateHelperCoverage} from './lib/helperExecutionEvidence.mjs';
@@ -147,28 +147,11 @@ export function mutateBytes(bytes, anchor, replacement) {
   return mutated;
 }
 
-// Resolve the registered test's local import closure, including type imports. An unresolved
-// local dependency fails closed; external packages are covered by lockfile/config triggers.
-export function dependencyPaths(root, entry, seen = new Set()) {
-  if (seen.has(entry)) return seen;
-  seen.add(entry);
-  const content = fs.readFileSync(path.join(root, entry), 'utf8');
-  const imports = content.matchAll(/(?:\bfrom\s*|\bimport\s*\(?\s*)['"]([^'"]+)['"]/g);
-  for (const [, specifier] of imports) {
-    if (!specifier.startsWith('.') && !specifier.startsWith('@/')) continue;
-    const stem = specifier.startsWith('@/') ? `frontend/src/${specifier.slice(2)}` : path.posix.join(path.posix.dirname(entry), specifier);
-    const resolved = ['', '.ts', '.tsx', '.js', '.jsx', '.mjs', '/index.ts', '/index.tsx'].map(suffix => stem + suffix)
-      .find(candidate => fs.existsSync(path.join(root, candidate)) && fs.statSync(path.join(root, candidate)).isFile());
-    if (!resolved) throw new Error(`Unresolved contract dependency: ${entry}: ${specifier}`);
-    if (/\.[cm]?[jt]sx?$/.test(resolved)) dependencyPaths(root, resolved, seen);
-    else seen.add(resolved);
-  }
-  return seen;
-}
+export {dependencyPaths};
 
 export function selectContracts(_root, changedPaths) {
   // The consumer derives the same scope independently from the checkout.
-  return requiredSemanticContracts(changedPaths);
+  return requiredSemanticContracts(changedPaths,_root);
 }
 
 function snapshot(root) {
@@ -216,11 +199,7 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
   // GitHub uses this sentinel for a newly created ref; it is not a resolvable commit.
   if (base === '0'.repeat(40)) base = undefined;
   // Absent base means conservative selection of all registered contracts, never an empty PASS.
-  const changed = base ? [...new Set([
-    ...git(root, ['diff', '--name-only', '-z', base, 'HEAD']).split('\0'),
-    ...git(root, ['diff', '--name-only', '-z', 'HEAD']).split('\0'),
-    ...git(root, ['ls-files', '--others', '--exclude-standard', '--exclude=/apt-bundle/', '-z']).split('\0'),
-  ].filter(Boolean))] : null;
+  const changed = semanticChangedInputs(root,base);
   const executionKind=helpersOnly?'registered-helpers':'changed-evidence';
   const evidenceFiles=executionOnly?executionRequiredFiles(root,base,executionKind):[];
   const unavailable=executionOnly?unavailableExecutionInputs(root,evidenceFiles):[];
