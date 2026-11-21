@@ -34,6 +34,7 @@ import {
     expectBenchmarkRecordingStarted,
     startBenchmarkRecording,
     stopBenchmarkRecording,
+    type StartActivationOptions,
 } from './benchmark-utils';
 import { extractUidFromAuthStorage } from './proofAuthority';
 import { waitForAppVisibleReady } from '../../e2e/helpers';
@@ -1380,20 +1381,58 @@ export async function performCandidateSwitch(page: Page, run: RunTarget, journey
 }
 
 /**
- * #1835 (Sam, Nov 20): a capture-capable press inside a shared helper is preceded, immediately, by the caller's consent readback
- * (`beforeCapture`, e.g. `CaptureConsentGate.confirm`). A refused readback is never recorded as a product step that failed: the
- * press does not happen and the refusal propagates to the journey unchanged. No hook: nothing is read (callers that gate only
- * their first take are unchanged).
+ * #1835 (Sam, #1916 review hold): a capture-capable press inside a shared helper runs the caller's consent readback
+ * (`beforeCapture`, e.g. `CaptureConsentGate.confirm`) INSIDE the activation path, immediately before the actual click —
+ * after the control wait, the reflex pause and the click guard (`StartActivationOptions.beforeClick`). A refused readback
+ * clicks nothing and is never recorded as a product step that failed: it propagates to the journey unchanged. The readback's
+ * own time is excluded from every press timing these helpers report. No hook: nothing is read and every path is unchanged.
  */
 class CaptureConsentStop extends Error {
     constructor(readonly original: unknown) { super('capture consent stop'); }
 }
-async function beforeCapturePress(beforeCapture: (() => Promise<void>) | undefined): Promise<void> {
-    if (!beforeCapture) return;
-    try { await beforeCapture(); } catch (error) { throw new CaptureConsentStop(error); }
+interface ConsentAtClick extends StartActivationOptions { spentMs(): number }
+function consentAtClick(beforeCapture: (() => Promise<void>) | undefined): ConsentAtClick {
+    let spent = 0;
+    if (!beforeCapture) return { spentMs: () => 0 };
+    return {
+        beforeClick: async () => {
+            const t = Date.now();
+            try { await beforeCapture(); } catch (error) { throw new CaptureConsentStop(error); } finally { spent += Date.now() - t; }
+        },
+        spentMs: () => spent,
+    };
 }
 function rethrowConsentStop(error: unknown): void {
     if (error instanceof CaptureConsentStop) throw error.original;
+}
+
+/**
+ * The completed review's repeat action (Practice Again / Focus retry). Without a consent hook this is the plain locator
+ * click it always was (the RWT reflex wrapper pauses inside it). With one (#1835, Sam's #1916 hold), the node is pinned,
+ * the same reflex pause is taken explicitly (an ElementHandle click is not wrapped, so it still happens exactly once), the
+ * SAME node is re-checked as the one enabled repeat action, and only then is consent read back and the node clicked, with
+ * nothing in between. A refusal clicks nothing.
+ */
+async function pressRepeatAction(page: Page, again: ReturnType<Page['getByTestId']>, testId: string, consent: StartActivationOptions): Promise<void> {
+    if (!consent.beforeClick) { await again.click(); return; }
+    const handle = await again.elementHandle({ timeout: 15_000 });
+    if (!handle) throw new Error('the repeat action disappeared before activation');
+    try {
+        const reflexMs = activeHumanReflexMs();
+        if (reflexMs > 0) await new Promise((resolve) => setTimeout(resolve, reflexMs));
+        const identity = await handle.evaluate((element, expected) => ({
+            connected: element.isConnected, control: element.getAttribute('data-testid'),
+            disabled: element instanceof HTMLButtonElement ? element.disabled : element.hasAttribute('disabled'),
+            unique: document.querySelectorAll(`[data-testid="${expected}"]`).length === 1,
+        }), testId);
+        if (!identity.connected || identity.control !== testId || identity.disabled || !identity.unique) {
+            throw new Error(`the repeat action changed before activation (${JSON.stringify(identity)})`);
+        }
+        await consent.beforeClick();
+        await handle.click({ timeout: 15_000 });
+    } finally {
+        await handle.dispose().catch(() => undefined);
+    }
 }
 
 /**
@@ -1418,15 +1457,17 @@ export async function nextStartEvidence(page: Page, label: string, beforeCapture
     const watch = setInterval(() => {
         void page.getByText(FINISHING_UP).count().then((n) => { if (n > 0) holdSeen = true; }).catch(() => undefined);
     }, 250);
-    try { await beforeCapturePress(beforeCapture); } catch (error) { clearInterval(watch); rethrowConsentStop(error); throw error; }
+    const consent = consentAtClick(beforeCapture);
     const startedAt = Date.now();
     let nextStartMs: number | null = null;
     try {
-        await startBenchmarkRecording(page, label);
+        await startBenchmarkRecording(page, label, undefined, consent);
         await expectBenchmarkRecordingStarted(page, label);
-        nextStartMs = Date.now() - startedAt;
-    } catch {
+        nextStartMs = Date.now() - startedAt - consent.spentMs();
+    } catch (error) {
         clearInterval(watch);
+        // A refused readback clicked nothing: no take, so no teardown and no start-failure evidence; the journey stops.
+        rethrowConsentStop(error);
         const startFailure = await readStartFailureState(page);
         const tracks = await boundedTeardown(page, label);
         return { holdSeen, nextStartMs: null, stopped: false, liveTracksAfterStop: tracks, reason: 'the next Start did not begin recording', startFailure };
@@ -1713,8 +1754,7 @@ export async function practiceAgainEvidence(
     try {
         await expect(page.getByTestId('mic-status')).toContainText('Mic ready on this device', { timeout: 60_000 });
         step = 'start';
-        await beforeCapturePress(opts.beforeCapture);
-        await startBenchmarkRecording(page, `${label}-save`);
+        await startBenchmarkRecording(page, `${label}-save`, undefined, consentAtClick(opts.beforeCapture));
         ev.saveTakeStartPressed = true;
         step = 'recording_started';
         await expectBenchmarkRecordingStarted(page, `${label}-save`);
@@ -1770,8 +1810,6 @@ export async function practiceAgainEvidence(
         await expect(again).toBeEnabled({ timeout: 15_000 });
         ev.afterActionEnabledMs = Date.now() - offeredAt;
         ev.saveToGateClearMs = savedAtForGate !== null ? Math.max(0, Date.now() - savedAtForGate) : null;
-        // #1835: the consent readback comes before the trace is armed, so it never counts toward press → warm-up done.
-        await beforeCapturePress(opts.beforeCapture);
         // The product's own controller trace, armed just before the press, times press → warm-up done.
         const pressPerf = await Promise.resolve().then(() => page.evaluate(() => {
             const w = window as unknown as { __NATIVE_BROWSER_TRACE__?: unknown[] };
@@ -1779,16 +1817,18 @@ export async function practiceAgainEvidence(
             return performance.now();
         })).catch(() => null);
         const pressedAt = Date.now();
-        await again.click();
+        const consent = consentAtClick(opts.beforeCapture);
+        await pressRepeatAction(page, again, product === 'focus_points' ? 'focus-points-retry' : 'verdict-practice-again', consent);
         await expectBenchmarkRecordingStarted(page, `${label}-again`);
-        ev.afterStartMs = Date.now() - pressedAt;
+        // #1835: the readback's own time is excluded, so press → recording and press → warm-up measure what they did before.
+        ev.afterStartMs = Date.now() - pressedAt - consent.spentMs();
         ev.repeatRecordingAt = Date.now();
         ev.pressToRecordingMs = ev.afterStartMs;
         ev.pressToWarmupDoneMs = pressPerf === null ? null : await Promise.resolve().then(() => page.evaluate((from) => {
             const trace = (window as unknown as { __NATIVE_BROWSER_TRACE__?: Array<{ t: number; event: string }> }).__NATIVE_BROWSER_TRACE__ ?? [];
             const done = trace.find((e) => e.event === 'controller_warmup_done' && e.t >= from);
             return done ? Math.round(done.t - from) : null;
-        }, pressPerf)).catch(() => null);
+        }, pressPerf)).then((ms) => (ms === null ? null : Math.max(0, ms - consent.spentMs()))).catch(() => null);
     } catch (error) {
         clearInterval(watch);
         rethrowConsentStop(error);

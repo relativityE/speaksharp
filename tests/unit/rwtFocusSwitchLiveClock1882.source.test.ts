@@ -17,10 +17,10 @@ const between = (from: string, to: string): string => {
 };
 
 /** The switch take: from the line before its Start press to the switch verdict. */
-const switchTake = between('const switchPressedAt = Date.now();', 'const iso = switchIsolationVerdict({');
+const switchTake = between('const switchClick = atClick();', 'const iso = switchIsolationVerdict({');
 const switchStop = switchTake.indexOf('const switchStop = await stopMeasuredTake(page, switchMonitor, switchHold,');
 /** The edited-set take: from its Start press to its rail settle. */
-const editedTake = between('const editedPressedAt = Date.now();', 'railSettled(await readRailRowCount(page), (await readRail(page, edited.length)).statuses, edited.length)');
+const editedTake = between('const editedClick = atClick();', 'railSettled(await readRailRowCount(page), (await readRail(page, edited.length)).statuses, edited.length)');
 const editedStop = editedTake.indexOf('const editedStop = await stopMeasuredTake(page, editedMonitor, editedHold,');
 /** The first take: from the model setup to its final rail read. */
 const firstTake = between('firstTakeMonitor = await armTakeMonitor(page, suite);', 'firstTakeRail = final;');
@@ -34,7 +34,9 @@ describe('#1882 — every Focus take is measured live through its own Stop', () 
 
     it('the switch take: armed before the press, held on the measured live clock, never a bare wait from the click', () => {
         expect(src.indexOf('const switchMonitor = await armTakeMonitor(page, `${suite}-switch-focus`);'))
-            .toBeLessThan(src.indexOf('await startBenchmarkRecording(page, `${suite}-switch-focus`);'));
+            .toBeLessThan(src.indexOf('await startBenchmarkRecording(page, `${suite}-switch-focus`, undefined, switchClick);'));
+        // #1916: the press is timed from the call, less the consent readback the helper runs right before its click.
+        expect(switchTake).toMatch(/const switchCalledAt = Date\.now\(\);\n\s*await startBenchmarkRecording\(page, `\$\{suite\}-switch-focus`, undefined, switchClick\);\n\s*const switchPressedAt = switchCalledAt \+ switchClick\.spentMs\(\);/);
         const held = switchTake.slice(0, switchStop);
         expect(held).toMatch(/const switchHold = await holdMeasuredLiveTake\(page, switchMonitor, shortTakeSeconds, \{ nodePressedAt: switchPressedAt \}\);/);
         expect(held).not.toMatch(/waitForTimeout\(|holdLiveTake\(/);
@@ -50,7 +52,8 @@ describe('#1882 — every Focus take is measured live through its own Stop', () 
 
     it('the edited take: the click-timed wait is gone; armed before the press and measured from live', () => {
         expect(src.indexOf('const editedMonitor = await armTakeMonitor(page, `${suite}-edited`);'))
-            .toBeLessThan(src.indexOf('await startBenchmarkRecording(page, `${suite}-edited`);'));
+            .toBeLessThan(src.indexOf('await startBenchmarkRecording(page, `${suite}-edited`, undefined, editedClick);'));
+        expect(editedTake).toMatch(/const editedCalledAt = Date\.now\(\);\n\s*await startBenchmarkRecording\(page, `\$\{suite\}-edited`, undefined, editedClick\);\n\s*const editedPressedAt = editedCalledAt \+ editedClick\.spentMs\(\);/);
         const held = editedTake.slice(0, editedStop);
         expect(held).toMatch(/const editedHold = await holdMeasuredLiveTake\(page, editedMonitor, fixture\.entry\.speechSeconds \+ 10, \{ nodePressedAt: editedPressedAt \}\);/);
         expect(held).not.toMatch(/waitForTimeout\(/);
@@ -94,9 +97,9 @@ describe('#1882 — every Focus take is measured live through its own Stop', () 
     it('#1897 f2bb1ae HOLD: the Open Mic source take is armed before its press and stops only through that monitor', () => {
         const take = between('const openMicMonitor = await armTakeMonitor(page, `${suite}-switch-openmic`);', 'const openMicId = await waitForNewPersistedSession(page, before);');
         expect(take.length).toBeGreaterThan(0);
-        expect(take.indexOf('await startBenchmarkRecording(page, `${suite}-switch-openmic`);')).toBeGreaterThan(0);
+        expect(take.indexOf('await startBenchmarkRecording(page, `${suite}-switch-openmic`, undefined, atClick());')).toBeGreaterThan(0);
         const stopAt = take.indexOf('const openMicStop = await stopMonitoredTake(page, openMicMonitor,');
-        expect(stopAt).toBeGreaterThan(take.indexOf('await startBenchmarkRecording(page, `${suite}-switch-openmic`);'));
+        expect(stopAt).toBeGreaterThan(take.indexOf('await startBenchmarkRecording(page, `${suite}-switch-openmic`, undefined, atClick());'));
         expect(take.slice(stopAt)).toContain('() => confirmBenchmarkStopped(page, `${suite}-switch-openmic`, 180_000));');
         // A refused Stop never waits for a save candidate.
         const refused = take.indexOf('if (!openMicStop.pressed) throw new Error(`FOCUS_JOURNEY:open_mic_take_not_stopped_${openMicStop.reason}`);');
@@ -106,7 +109,7 @@ describe('#1882 — every Focus take is measured live through its own Stop', () 
 
     it('the first take: armed before anything that may press Start, and measured for the whole spoken fixture', () => {
         expect(firstTake.indexOf('await selectBenchmarkMode(page, \'private\');')).toBeGreaterThan(0);
-        expect(firstTake).toMatch(/firstPressedAt = Date\.now\(\);\n\s*await startBenchmarkRecording\(page, suite\);/);
+        expect(firstTake).toMatch(/const firstClick = atClick\(\);\n\s*firstPressedAt = Date\.now\(\);\n\s*try \{ await startBenchmarkRecording\(page, suite, undefined, firstClick\); \} finally \{ firstPressedAt \+= firstClick\.spentMs\(\); \}/);
         expect(firstTake).toMatch(/await awaitTakeOutcome\(page, firstMonitor\.token, 180_000\)/);
         expect(firstTake).toMatch(/await measuredTakeRows\('Focus first take', firstTakeMonitor, fixture\.entry\.speechSeconds, firstPressedAt, persistedId\)/);
     });

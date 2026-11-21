@@ -557,7 +557,26 @@ export async function waitForPrivateEngineReady(page: Page, timeout = 180_000) {
     }
 }
 
-export async function preparePrivateModelIfPrompted(page: Page, timeout = 600_000): Promise<{ recordingAlreadyStarted: boolean }> {
+/**
+ * #1835 (Sam, #1916 review hold): a caller's consent readback, run INSIDE the activation path — after every wait, the scroll,
+ * the human-reflex pause and (ordinary Start) the click guard are in place, immediately before the one real click. A refusal
+ * presses nothing: no click is attempted, an armed guard is still removed, and the caller's own error propagates unchanged
+ * (never wrapped as a harness/product start failure). Without a hook, every path behaves exactly as before.
+ */
+export interface StartActivationOptions { beforeClick?: () => Promise<void> }
+class BeforeClickRefusal extends Error {
+    constructor(readonly original: unknown) { super('the caller refused the click before activation'); }
+}
+async function runBeforeClick(beforeClick: (() => Promise<void>) | undefined): Promise<void> {
+    if (!beforeClick) return;
+    try { await beforeClick(); } catch (error) { throw new BeforeClickRefusal(error); }
+}
+const reflexPause = async (): Promise<void> => {
+    const reflexMs = activeHumanReflexMs();
+    if (reflexMs > 0) await new Promise((resolve) => setTimeout(resolve, reflexMs));
+};
+
+export async function preparePrivateModelIfPrompted(page: Page, timeout = 600_000, opts: StartActivationOptions = {}): Promise<{ recordingAlreadyStarted: boolean }> {
     // STATE-SPECIFIC CONTROL. MicCard renders a DIFFERENT testid per model state:
     //   download-required -> 'mic-download'   (aria-label "Download to start speaking")
     //   init-failed/error -> 'mic-retry'
@@ -606,7 +625,31 @@ export async function preparePrivateModelIfPrompted(page: Page, timeout = 600_00
     await expect(downloadCta, 'the download CTA must be enabled').toBeEnabled({ timeout: MISSING_CONTROL_TIMEOUT_MS });
 
     await downloadCta.scrollIntoViewIfNeeded().catch(() => undefined);
-    await downloadCta.click({ timeout: 10_000 });
+    if (!opts.beforeClick) {
+        await downloadCta.click({ timeout: 10_000 });
+    } else {
+        // #1835: pin the CTA node, take the human-reflex pause explicitly (an ElementHandle click is not delayed by the RWT
+        // reflex wrapper, so the pause still happens exactly once), re-check that the SAME node is still the one enabled
+        // CTA, then read consent back and click it with nothing in between.
+        const handle = await downloadCta.elementHandle({ timeout: 10_000 });
+        if (!handle) throw new Error('INVALID_SETUP setup.model_provider CTA_NOT_RENDERED the download CTA disappeared before activation');
+        try {
+            await reflexPause();
+            const identity = await handle.evaluate((element, expected) => ({
+                connected: element.isConnected, control: element.getAttribute('data-testid'),
+                disabled: element instanceof HTMLButtonElement ? element.disabled : element.hasAttribute('disabled'),
+                unique: document.querySelectorAll(`[data-testid="${expected}"]`).length === 1,
+            }), MIC_CONTROL_BY_STATUS['download-required']);
+            if (!identity.connected || identity.control !== MIC_CONTROL_BY_STATUS['download-required'] || identity.disabled || !identity.unique) {
+                throw new Error(`INVALID_SETUP setup.model_provider CTA_CHANGED the download CTA changed before activation (${JSON.stringify(identity)})`);
+            }
+            // Nothing wraps this helper's errors, so a refusal reaches the caller unchanged; no click follows it.
+            await opts.beforeClick();
+            await handle.click({ timeout: 10_000 });
+        } finally {
+            await handle.dispose().catch(() => undefined);
+        }
+    }
     await logBenchmarkPhase(page, 'SETUP_MODEL_PROVIDER_BUTTON_CLICKED');
 
     // The CTA must MOVE the state within a short bounded interval. Staying at download-required means
@@ -748,7 +791,7 @@ export async function expectBenchmarkRecordingStarted(page: Page, label: string)
  * A known loading state gets its own bounded readiness wait. Once actionable, an absent control is
  * a harness/product mismatch and uses the separate short control budget.
  */
-export async function startBenchmarkRecording(page: Page, label: string, modelReadinessTimeoutMs = 30_000): Promise<void> {
+export async function startBenchmarkRecording(page: Page, label: string, modelReadinessTimeoutMs = 30_000, opts: StartActivationOptions = {}): Promise<void> {
     if (!Number.isFinite(modelReadinessTimeoutMs) || modelReadinessTimeoutMs <= 0) {
         throw new Error('INVALID_SETUP model readiness budget must be finite and positive');
     }
@@ -857,6 +900,9 @@ export async function startBenchmarkRecording(page: Page, label: string, modelRe
                 return state;
             }, control);
             try {
+                // #1835: the readback is the last thing before the click — after the control wait, the reflex pause, the
+                // identity check and the event-time guard. A refusal clicks nothing; the finally below still removes the guard.
+                await runBeforeClick(opts.beforeClick);
                 const remaining = controlDeadline - Date.now();
                 if (remaining <= 0) throw new Error('the Start control budget expired before activation');
                 await target.click({ timeout: remaining });
@@ -870,6 +916,7 @@ export async function startBenchmarkRecording(page: Page, label: string, modelRe
             await observed.dispose().catch(() => undefined);
         }
     } catch (error) {
+        if (error instanceof BeforeClickRefusal) throw error.original;
         const snapshot = await collectBenchmarkPreconditionSnapshot(page, `${label}-recording-not-started`);
         throw new Error(`Benchmark start precondition failed for ${label}\n${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`);
     }

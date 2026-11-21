@@ -17,6 +17,7 @@ import {
     startBenchmarkRecording,
     confirmBenchmarkStopped,
     waitForBenchmarkSaveCandidate,
+    type StartActivationOptions,
 } from './benchmark-utils';
 import { MODEL_COMPARISON_AUTH_KEY } from './practiceLoopJourney';
 import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches, newSetSourcePoints, newSetEditVerdicts, setupIsBlank, switchIsolationVerdict, switchSaveOffVerdicts, switchSavedFocusProduct, completingPageMarkersInPage, SWITCH_METRICS_ONLY_ROW, SWITCH_CARRY_OVER_TESTED_ROW, switchSourceState, railShowsExactFourPoints, labelHeardIn, focusBackReloadVerdict, focusIdentityObservation, firstTakeSavedExactlyOnceVerdict, type SwitchSourceSnapshot } from './rwtOracles';
@@ -177,9 +178,11 @@ const meetsExpectation = (expected: string, got: RailStatus | null): boolean => 
  *   5. the Open Mic take before the product switch — the startBenchmarkRecording call with `${suite}-switch-openmic`;
  *   6. the Focus take right after the switch — the startBenchmarkRecording call with `${suite}-switch-focus`;
  *   7. the take on the edited set — the startBenchmarkRecording call with `${suite}-edited`.
- * J3 consent gate (Sam, Nov 20): every one of these presses comes immediately after a fresh server readback of the owner's
- * choice (`captureGate().confirm()`, or the `beforeCapture` hook the shared helpers run for presses 2-4); a readback that is
- * not exactly the run's choice presses nothing. The readback is a database read, not a Start press, so the budget is unchanged.
+ * J3 consent gate (Sam, Nov 20; #1916 review hold): every one of these presses runs a fresh server readback of the owner's
+ * choice INSIDE its activation path, after the waits, scroll, reflex pause and click guard and immediately before the actual
+ * click (`atClick()` → `beforeClick`, or the `beforeCapture` hook the shared helpers pass through for presses 2-4); a
+ * readback that is not exactly the run's choice clicks nothing. It is a database read, not a Start press, so the budget is
+ * unchanged, and its own time is excluded from the press timings.
  * This file's presses are cited by call, not by line, so checks added around them cannot stale the citation; checks that only
  * read the rail or the database, or open and dismiss the Edit dialog, press no Start (tests/unit/rwtFocusStartPressBudget.test.ts).
  * The `mic-start` cap counts the warm first take too (one fewer when the first take downloads), `mic-download` at most 1,
@@ -332,6 +335,15 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     const captureGate = (): CaptureConsentGate => {
         if (!consentGate) throw new Error('HOLD practice consent: not_settled');
         return consentGate;
+    };
+    // #1916 review hold (Sam): the readback runs inside the Start helpers, immediately before the actual click. `spentMs` is
+    // its own time, excluded from the press → live timing so that evidence measures what it did before.
+    const atClick = (): StartActivationOptions & { spentMs(): number } => {
+        let spent = 0;
+        return {
+            beforeClick: async () => { const t = Date.now(); try { await captureGate().confirm(); } finally { spent += Date.now() - t; } },
+            spentMs: () => spent,
+        };
     };
     const readSavedForConsent = async (id: string): Promise<SavedSessionRead | null> => {
         const { data, error } = await admin!.from('sessions').select('id,user_id,status,duration,transcript,transcript_state').eq('id', id).eq('user_id', owner.uid).maybeSingle();
@@ -601,17 +613,17 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             // #1882: armed before anything that may press Start (preparePrivateModelIfPrompted can start the take itself).
             firstTakeMonitor = await armTakeMonitor(page, suite);
             await selectBenchmarkMode(page, 'private');
-            // J3 consent gate: the cold model helper can itself start the take, so the readback comes immediately before it, and
-            // again immediately before an ordinary Start if that helper did not start one. PASS is recorded once capture began.
-            await captureGate().confirm();
-            const setup = await preparePrivateModelIfPrompted(page, 900_000);
+            // J3 consent gate (#1916 hold): the cold model helper can itself start the take, so it reads consent back
+            // immediately before its one cold click; if it did not click (warm cache), the ordinary Start reads it back
+            // immediately before its click. PASS is recorded once capture began, only after a confirm at that click.
+            const setup = await preparePrivateModelIfPrompted(page, 900_000, atClick());
             if (setup.recordingAlreadyStarted) {
                 captureGate().recordPass();
             } else {
                 await waitForPrivateEngineReady(page, 600_000);
-                await captureGate().confirm();
+                const firstClick = atClick();
                 firstPressedAt = Date.now();
-                await startBenchmarkRecording(page, suite);
+                try { await startBenchmarkRecording(page, suite, undefined, firstClick); } finally { firstPressedAt += firstClick.spentMs(); }
                 captureGate().recordPass();
             }
             startedAt = Date.now();
@@ -1358,8 +1370,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 // #1897 (Sam, f2bb1ae HOLD): armed before the press so its Stop is the same atomic check-and-click, bound to
                 // this Open Mic take; a dropped, replaced or never-live take gets no click and the switch step stops here.
                 const openMicMonitor = await armTakeMonitor(page, `${suite}-switch-openmic`);
-                await captureGate().confirm();
-                await startBenchmarkRecording(page, `${suite}-switch-openmic`);
+                await startBenchmarkRecording(page, `${suite}-switch-openmic`, undefined, atClick());
                 await page.waitForTimeout(Math.round((fixture.entry.speechSeconds + 4) * 1000));
                 const openMicStop = await stopMonitoredTake(page, openMicMonitor,
                     () => confirmBenchmarkStopped(page, `${suite}-switch-openmic`, 180_000));
@@ -1412,9 +1423,10 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 // #1882 (Sam, Nov 18): MEASURED, not claimed. The monitor is armed before the press and records every live edge,
                 // the take's identity and the actual Stop press; the hold ends early if capture drops or the take changes.
                 const switchMonitor = await armTakeMonitor(page, `${suite}-switch-focus`);
-                await captureGate().confirm();
-                const switchPressedAt = Date.now();
-                await startBenchmarkRecording(page, `${suite}-switch-focus`);
+                const switchClick = atClick();
+                const switchCalledAt = Date.now();
+                await startBenchmarkRecording(page, `${suite}-switch-focus`, undefined, switchClick);
+                const switchPressedAt = switchCalledAt + switchClick.spentMs();
                 const switchHold = await holdMeasuredLiveTake(page, switchMonitor, shortTakeSeconds, { nodePressedAt: switchPressedAt });
                 // #1897 review 2 (Sam): a hold that reports a drop or a replacement never presses Stop. Otherwise the final take
                 // check and the click run together in one page task (f2bb1ae HOLD), so a replacement can never receive it.
@@ -1619,9 +1631,10 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     if (railLabelsMatchEdit) {
                         // #1882: held from capture live (measured), not from the click; bound to its own Stop and saved row.
                         const editedMonitor = await armTakeMonitor(page, `${suite}-edited`);
-                        await captureGate().confirm();
-                        const editedPressedAt = Date.now();
-                        await startBenchmarkRecording(page, `${suite}-edited`);
+                        const editedClick = atClick();
+                        const editedCalledAt = Date.now();
+                        await startBenchmarkRecording(page, `${suite}-edited`, undefined, editedClick);
+                        const editedPressedAt = editedCalledAt + editedClick.spentMs();
                         const editedHold = await holdMeasuredLiveTake(page, editedMonitor, fixture.entry.speechSeconds + 10, { nodePressedAt: editedPressedAt });
                         // #1897 review 2 (Sam): no Stop after a hold that reports a drop or a replacement; otherwise one atomic
                         // check-and-click in the page, bound to this take (f2bb1ae HOLD).
