@@ -114,6 +114,18 @@ describe('J3 coaching_fallback_shown, read from the real review card', () => {
         expect(v.missing).toContain('Try again is enabled');
     });
 
+    it('a read that fails is unknown, never absence: the verdict is HOLD, not FAIL', async () => {
+        const root = await failedCard();
+        const real = domCard(root);
+        const broken: CardLocator = { getByTestId: (id: string) => {
+            const nodes = real.getByTestId(id);
+            return id === 'ai-suggestions-still-coming' ? { ...nodes, count: async () => { throw new Error('detached'); } } as never : nodes;
+        } };
+        const o = await readCoachingFallback(broken);
+        expect(o.stillComingVisible).toBeNull();
+        expect(coachingFallbackVerdict(o)).toEqual(expect.objectContaining({ verdict: 'HOLD', missing: [] }));
+    });
+
     it('rendered coaching has no pair-free fallback to read, and the reader sees its pair', async () => {
         invoke.mockResolvedValueOnce(ok);
         render(<AISuggestions transcript="Hello world" canReview sessionId="s-ok" retryBackoffMs={10} />);
