@@ -652,26 +652,48 @@ export function assertNoSecondCharge(listed: unknown, expected: { customer: stri
 export function assertDeclinedCheckoutGrantedNothing(input: {
   session: unknown; subscription: unknown; invoice: unknown; customer: string; succeededCharges: number | null;
   expectedStatus: 'open' | 'expired';
-}): void {
+}): string | null {
   const session = (input.session ?? {}) as { livemode?: unknown; status?: unknown; payment_status?: unknown; subscription?: unknown };
   requireFact(session.livemode === false && session.status === input.expectedStatus && session.payment_status === 'unpaid',
     'declined_checkout_session_not_unpaid');
   requireFact(input.succeededCharges === 0, input.succeededCharges === null ? 'declined_checkout_charges_unread' : 'declined_checkout_charged');
   const attached = typeof session.subscription === 'string' ? session.subscription
     : (session.subscription as { id?: unknown } | null | undefined)?.id ?? null;
-  if (attached === null) return;
+  if (attached === null) return null;
   const sub = (input.subscription ?? {}) as { id?: unknown; livemode?: unknown; customer?: unknown; status?: unknown; latest_invoice?: unknown };
   requireFact(typeof attached === 'string' && sub.id === attached, 'declined_checkout_subscription_unread');
   requireFact(sub.livemode === false && sub.customer === input.customer, 'declined_checkout_subscription_foreign');
   // While Checkout is still open after the decline only `incomplete` is allowed; `incomplete_expired` only after expiry.
-  const allowed = input.expectedStatus === 'open' ? ['incomplete'] : ['incomplete', 'incomplete_expired'];
-  requireFact(allowed.includes(sub.status as string), 'declined_checkout_subscription_not_incomplete');
+  requireFact(declinedSubscriptionStatuses(input.expectedStatus).includes(sub.status as string), 'declined_checkout_subscription_not_incomplete');
   const invoiceId = typeof sub.latest_invoice === 'string' ? sub.latest_invoice
     : (sub.latest_invoice as { id?: unknown } | null | undefined)?.id;
   const invoice = (input.invoice ?? {}) as { id?: unknown; customer?: unknown; livemode?: unknown; status?: unknown; amount_paid?: unknown };
   requireFact(typeof invoiceId === 'string' && invoice.id === invoiceId && invoice.customer === input.customer
     && invoice.livemode === false, 'declined_checkout_invoice_unread');
   requireFact(invoice.status !== 'paid' && invoice.amount_paid === 0, 'declined_checkout_invoice_paid');
+  return attached as string;
+}
+
+/**
+ * J2 "no paid access" after each step. App access is judged FIRST and independently: a usable account or a Pro profile fails
+ * as `failed_checkout_granted_access` whatever Stripe holds. Then the customer's subscriptions: none at all, except that after
+ * a decline the one subscription the declined session attached (already verified unpaid by assertDeclinedCheckoutGrantedNothing)
+ * may be listed, in one of the statuses allowed for that phase. Anything else, or an incomplete list, is `failed_checkout_subscribed`.
+ */
+export function assertNoPaidAccess(input: {
+  canStart: unknown; profileStatus: unknown;
+  subscriptions: unknown; hasMore: unknown;
+  allowed: { id: string; statuses: readonly string[] } | null;
+}): void {
+  requireFact(input.canStart === false && input.profileStatus !== 'pro', 'failed_checkout_granted_access');
+  const listed = Array.isArray(input.subscriptions) ? input.subscriptions as Array<{ id?: unknown; status?: unknown }> : null;
+  requireFact(listed !== null && input.hasMore === false && listed.every((sub) => input.allowed !== null
+    && sub.id === input.allowed.id && input.allowed.statuses.includes(sub.status as string)), 'failed_checkout_subscribed');
+}
+
+/** After a decline: only `incomplete` while Checkout is still open; `incomplete_expired` too, but only after expiry. */
+export function declinedSubscriptionStatuses(phase: 'open' | 'expired'): readonly string[] {
+  return phase === 'open' ? ['incomplete'] : ['incomplete', 'incomplete_expired'];
 }
 
 /** Stripe's documented Checkout Session `status` and `payment_status` values (API reference, Checkout Session object). */

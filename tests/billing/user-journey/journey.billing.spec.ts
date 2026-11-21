@@ -8,7 +8,7 @@ import localStackTarget from './sandbox-target.local.json' with { type: 'json' }
 import { runnerPreflight } from './runnerPreflight.mjs';
 import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, requireFact, assertSandboxConfiguration, PENDING_POLICY,
   assertTestPrice, assertInvoice, isCorrelatedDelivery, safeFailureReason, testClockCreateFields, localStackStatus,
-  assertFullRefund, isRefundCancellation, assertCheckoutGrantedNothing, assertDeclinedCheckoutGrantedNothing,
+  assertFullRefund, isRefundCancellation, assertCheckoutGrantedNothing, assertDeclinedCheckoutGrantedNothing, assertNoPaidAccess, declinedSubscriptionStatuses,
   checkoutSessionFromUrl, assertCheckoutIdentity, newlyAddedCard, assertNoSecondCharge,
   type RunnerJourney, type BillingEvent, hostedFieldUnavailable, hostedEmailDecision, type HostedField,
   HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl, cleanupFailureCode, proveStripeFixtureDeleted,
@@ -435,7 +435,7 @@ class SandboxJourney {
    * The declined session read with what Stripe attached at the decline: the exact subscription, its latest invoice, and the
    * customer's charges. Only an unpaid, incomplete subscription of this session may be attached (see the contract rule).
    */
-  async declinedGrantedNothing(sessionId: string, expectedStatus: 'open' | 'expired'): Promise<void> {
+  async declinedGrantedNothing(sessionId: string, expectedStatus: 'open' | 'expired'): Promise<string | null> {
     const session = await this.stripe(`checkout/sessions/${sessionId}`);
     const attached = typeof session.subscription === 'string' ? session.subscription : null;
     const subscription = attached ? await this.stripe(`subscriptions/${encodeURIComponent(attached)}`) : null;
@@ -444,16 +444,18 @@ class SandboxJourney {
     const charges = await this.stripe(`charges?${new URLSearchParams({ customer: this.customer, limit: '10' })}`);
     const succeededCharges = Array.isArray(charges.data) && charges.has_more === false
       ? (charges.data as Array<{ status?: unknown }>).filter((c) => c.status === 'succeeded').length : null;
-    assertDeclinedCheckoutGrantedNothing({ session, subscription, invoice, customer: this.customer, succeededCharges, expectedStatus });
+    return assertDeclinedCheckoutGrantedNothing({ session, subscription, invoice, customer: this.customer, succeededCharges, expectedStatus });
   }
 
-  /** Nothing paid: no subscription of any status for this customer, no paid access, no Pro profile. */
-  async noPaidAccess(): Promise<void> {
+  /**
+   * Nothing paid. App access (usage and profile) is read and judged first, independently of Stripe; then the customer's
+   * subscriptions: none, or after a decline only the declined session's own subscription in that phase's allowed statuses.
+   */
+  async noPaidAccess(allowed: { id: string; statuses: readonly string[] } | null = null): Promise<void> {
+    const canStart = (await this.usage()).can_start;
+    const profileStatus = (await this.profile()).subscription_status;
     const subscriptions = await this.stripe(`subscriptions?${new URLSearchParams({ customer: this.customer, status: 'all', limit: '10' })}`);
-    requireFact(Array.isArray(subscriptions.data) && subscriptions.has_more === false && subscriptions.data.length === 0,
-      'failed_checkout_subscribed');
-    requireFact((await this.usage()).can_start === false, 'failed_checkout_granted_access');
-    requireFact((await this.profile()).subscription_status !== 'pro', 'failed_checkout_granted_access');
+    assertNoPaidAccess({ canStart, profileStatus, subscriptions: subscriptions.data, hasMore: subscriptions.has_more, allowed });
   }
 
   /**
@@ -552,15 +554,16 @@ class SandboxJourney {
         throw new Error(`BILLING_JOURNEY:decline_not_shown_alerts_${n(f.alerts)}_invalid_${n(f.invalid)}_challenge_${b(f.challenge)}`);
       }
       requireFact(new URL(this.page.url()).origin === 'https://checkout.stripe.com', 'decline_left_checkout');
-      await this.declinedGrantedNothing(declined, 'open');
+      const declinedSubscription = await this.declinedGrantedNothing(declined, 'open');
       this.steps.add('declined_checkout');
-      await this.noPaidAccess();
+      await this.noPaidAccess(declinedSubscription === null ? null : { id: declinedSubscription, statuses: declinedSubscriptionStatuses('open') });
       this.steps.add('no_access_after_decline');
       // Abandoned: the customer walks away and the session expires (expired here instead of waiting 24 hours).
       await this.stripe(`checkout/sessions/${declined}/expire`, 'POST');
-      await this.declinedGrantedNothing(declined, 'expired');
+      const expiredSubscription = await this.declinedGrantedNothing(declined, 'expired');
+      requireFact(expiredSubscription === declinedSubscription, 'declined_checkout_subscription_changed');
       this.steps.add('abandoned_checkout');
-      await this.noPaidAccess();
+      await this.noPaidAccess(expiredSubscription === null ? null : { id: expiredSubscription, statuses: declinedSubscriptionStatuses('expired') });
       this.steps.add('no_access_after_abandon');
       // Retry: the server reconciles the expired session and issues a new one.
       checkoutUrl = await invoke();
