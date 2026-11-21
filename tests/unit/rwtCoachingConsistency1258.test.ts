@@ -142,6 +142,13 @@ describe('omissionClaimVerdict — J3 advice that asserts a point was missed vs 
             expect(verdict(next)).toMatchObject({ status: 'FAIL', form: 'past_claim' });
         }
     });
+    it('FAIL: past-tense "never" and perfect forms still claim an omission (Codex P2 on 7a4fb486)', () => {
+        for (const next of ['You never mentioned the guarantee.', 'The launch date was never covered.', 'You never said the pricing tiers.',
+            'You never got to the guarantee.', "You haven't mentioned the launch date.", 'The pricing tiers have not been covered.',
+            'The guarantee has never been addressed.']) {
+            expect(verdict(next)).toMatchObject({ status: 'FAIL', form: 'past_claim' });
+        }
+    });
     it('FAIL: an imperative or present form that presupposes a chosen point was omitted', () => {
         expect(verdict("Don't skip the guarantee next time.")).toMatchObject({ status: 'FAIL', form: 'implied_point' });
         expect(verdict('Never forget the launch date.')).toMatchObject({ status: 'FAIL', form: 'implied_point' });

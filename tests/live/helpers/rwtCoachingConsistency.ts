@@ -96,7 +96,7 @@ export function openPointReferenceVerdict(o: { well: string; next: string; label
  * Only these closed tokens are recorded, never the phrase.
  */
 export type OmissionForm = 'none' | 'past_claim' | 'implied_point' | 'present_point' | 'unrelated' | 'unknown_point';
-const PAST_CLAIM = /\b(missed|skipped|forgot|forgotten|omitted|overlooked)\b|\bleft\s+(?:(?:it|them|that|this)\s+)?out\b|\b(?:didn'?t|did\s+not|never)\s+(?:mention|cover|say|address|include|get\s+to)\b|\b(?:was|were)(?:n'?t|\s+not)\s+(?:mentioned|covered|said|addressed|included)\b|\bwent\s+unmentioned\b/i;
+const PAST_CLAIM = /\b(missed|skipped|forgot|forgotten|omitted|overlooked)\b|\bleft\s+(?:(?:it|them|that|this)\s+)?out\b|\b(?:didn'?t|did\s+not|never)\s+(?:mention|cover|say|address|include|get\s+to)\b|\b(?:never|(?:was|were)(?:n'?t|\s+not|\s+never)|(?:has|have)(?:n'?t|\s+not|\s+never)(?:\s+been)?)\s+(?:mentioned|covered|said|addressed|included|got\s+to)\b|\bwent\s+unmentioned\b/i;
 const IMPERATIVE_OMIT = /\b(?:don'?t|do\s+not|never|avoid)\s+(?:skip(?:ping)?|miss(?:ing)?|forget(?:ting)?|leav(?:e|ing)\s+out|omit(?:ting)?)\b/i;
 const PRESENT_MISSING = /\b(?:is|are|was|were|still)\s+missing\b|\bmissing\s+(?:the|your)\b/i;
 const OMISSION_WORD = /\b(?:miss\w*|skip\w*|forg[eo]t\w*|left\s+out|leav\w*\s+out|omit\w*|unmentioned)\b/i;
