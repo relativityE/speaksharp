@@ -173,6 +173,17 @@ export function consentRefusalReason(error: unknown): string {
     return /^HOLD practice consent: ([a-z0-9_]+)/.exec(error instanceof Error ? error.message : '')?.[1] ?? 'not_proven';
 }
 
+/**
+ * #1835 (Sam, #1916): a self-contained page check (`handle.evaluate(stillTheOneEnabledControl, id)`) run on a pinned node AFTER the
+ * consent readback and before its click, because the readback is a server read and can outlast the control: the node is still
+ * connected, still carries `id`, is enabled, and is the only element with that id. Anything else means nothing is pressed.
+ */
+export function stillTheOneEnabledControl(node: Element, id: string): boolean {
+    const disabled = (node as HTMLButtonElement).disabled === true || node.hasAttribute('disabled') || node.getAttribute('aria-disabled') === 'true';
+    return node.isConnected && node.getAttribute('data-testid') === id && !disabled
+        && node.ownerDocument.querySelectorAll(`[data-testid="${id}"]`).length === 1;
+}
+
 /** The cold Start press (the abandoned Start): its readiness, the person's think-time, the consent readback, then the click. */
 export interface ColdStartPressIo {
     /** The one enabled `mic-download` control is resolved and ready to press. */
@@ -181,7 +192,7 @@ export interface ColdStartPressIo {
     reflex(): Promise<void>;
     /** #1835: the owner's fresh consent readback; throws unless it is exactly the run's fixed choice. */
     confirmConsent(): Promise<void>;
-    /** The click itself; true when it completed. */
+    /** The click itself, after re-checking that the pinned control is still the one enabled control; true when it completed. */
     click(): Promise<boolean>;
 }
 export type ColdStartPressOutcome = { kind: 'pressed' } | { kind: 'not-ready' } | { kind: 'consent-unproven'; reason: string } | { kind: 'click-failed' };

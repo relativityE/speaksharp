@@ -576,6 +576,71 @@ const reflexPause = async (): Promise<void> => {
     if (reflexMs > 0) await new Promise((resolve) => setTimeout(resolve, reflexMs));
 };
 
+export interface CaptureControlPressOptions extends StartActivationOptions {
+    /** How long the control may take to be the one enabled, visible control (default 60 s). It is spent before the readback. */
+    waitMs?: number;
+    /** The click's own timeout, which starts only AFTER the readback (default 30 s). */
+    clickTimeoutMs?: number;
+}
+
+/**
+ * #1835 (Sam, #1916 review hold): ONE press of a capture-capable control that a journey presses directly — a Retry, a Start or
+ * cold Download pressed outside the Start helpers, a take-over press. The caller's consent readback runs INSIDE the press,
+ * immediately before the click, never as a separate statement before a locator click (whose own actionability wait and RWT
+ * human-reflex pause would sit between the readback and the actual click):
+ *   1. within `waitMs`, exactly ONE visible element carries one of `testIds`, and it is enabled. Not in time: the press fails
+ *      with nothing read back and nothing clicked (the time already spent is never given back);
+ *   2. that node is pinned and the human-reflex pause is taken explicitly (an ElementHandle click is not wrapped by the RWT
+ *      reflex, so the pause still happens exactly once);
+ *   3. the SAME node must still be the one enabled, visible control with its id; consent is read back (`beforeClick`); the same
+ *      is required again, because the readback is a server read and can outlast the control;
+ *   4. that node is clicked, with `clickTimeoutMs` starting after the readback (the readback's own time never spends it).
+ * A refused readback clicks nothing and propagates as the caller's own error, unchanged. Returns the test id that was pressed.
+ */
+export async function pressCaptureControl(page: Page, testIds: readonly string[], opts: CaptureControlPressOptions = {}): Promise<string> {
+    const waitMs = opts.waitMs ?? 60_000;
+    const label = testIds.join(' or ');
+    const found = await page.waitForFunction((ids: string[]) => {
+        const shown = ids.flatMap((id) => Array.from(document.querySelectorAll<HTMLElement>(`[data-testid="${id}"]`)))
+            .filter((el) => typeof el.checkVisibility !== 'function' || el.checkVisibility({ visibilityProperty: true }));
+        if (shown.length !== 1) return false;
+        const el = shown[0];
+        const disabled = el instanceof HTMLButtonElement ? el.disabled : el.hasAttribute('disabled');
+        return disabled ? false : el;
+    }, [...testIds], { timeout: waitMs }).catch(() => null);
+    const handle = found?.asElement() ?? null;
+    try {
+        if (!handle) throw new Error(`the ${label} control was not the one enabled control within ${waitMs} ms; nothing was pressed`);
+        const pressed = await handle.evaluate((el) => el.getAttribute('data-testid'));
+        if (pressed === null || !testIds.includes(pressed)) throw new Error(`the ${label} control lost its id before activation`);
+        await reflexPause();
+        const requireSameControl = async (): Promise<void> => {
+            const identity = await handle.evaluate((el, ids: string[]) => {
+                const shown = ids.flatMap((id) => Array.from(document.querySelectorAll<HTMLElement>(`[data-testid="${id}"]`)))
+                    .filter((other) => typeof other.checkVisibility !== 'function' || other.checkVisibility({ visibilityProperty: true }));
+                return {
+                    connected: el.isConnected, control: el.getAttribute('data-testid'),
+                    disabled: el instanceof HTMLButtonElement ? el.disabled : el.hasAttribute('disabled'),
+                    onlyShown: shown.length === 1 && shown[0] === el,
+                };
+            }, [...testIds]);
+            if (!identity.connected || identity.control !== pressed || identity.disabled || !identity.onlyShown) {
+                throw new Error(`the ${pressed} control changed before activation (${JSON.stringify(identity)}); nothing was pressed`);
+            }
+        };
+        await requireSameControl();
+        await runBeforeClick(opts.beforeClick);
+        await requireSameControl();
+        await handle.click({ timeout: opts.clickTimeoutMs ?? 30_000 });
+        return pressed;
+    } catch (error) {
+        if (error instanceof BeforeClickRefusal) throw error.original;
+        throw error;
+    } finally {
+        await found?.dispose().catch(() => undefined);
+    }
+}
+
 export async function preparePrivateModelIfPrompted(page: Page, timeout = 600_000, opts: StartActivationOptions = {}): Promise<{ recordingAlreadyStarted: boolean }> {
     // STATE-SPECIFIC CONTROL. MicCard renders a DIFFERENT testid per model state:
     //   download-required -> 'mic-download'   (aria-label "Download to start speaking")

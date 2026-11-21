@@ -22,7 +22,7 @@ import { bindReadbackJourneys } from './rwtOracles';
 import { CoachingGenerationTap } from './coachingGenerationTap';
 import { coachingRequestBudgetRow } from './rwtCoachingCollector';
 import { openProductsItem } from './productsMenu';
-import { selectBenchmarkMode, stopBenchmarkRecording } from './benchmark-utils';
+import { pressCaptureControl, selectBenchmarkMode, stopBenchmarkRecording } from './benchmark-utils';
 import { noCloudVerdict } from './rwtAbandonTakeover';
 import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './rwtWatchdog';
 import { HarnessParityTap, type StartPressBudget } from './rwtHarnessParity';
@@ -197,7 +197,8 @@ async function waitForRetrySetup(page: Page, statusesBefore: number | null): Pro
  *  - AHT-12: none. J7.a (PO and Sam, 2026-11-19) covers the denial only; the microphone is never allowed, nothing recovers.
  *  - AHT-13/14 (the failed page): `mic-retry`, then WAIT for the model to publish `ready` (Retry only re-runs setup and never
  *    records — MicCard.tsx), then ONE press of `mic-start`. A Retry that fails again, or never reaches ready, presses nothing more.
- * Each press is preceded, immediately, by the consent readback (`gate.confirm()`); a choice that no longer reads back stops it.
+ * Each press reads consent back (`gate.confirm()`) inside the press, immediately before its click (Sam, #1916:
+ * `pressCaptureControl`); a choice that no longer reads back stops it with nothing pressed.
  */
 async function pressRecovery(page: Page, variant: AdverseVariant, gate: CaptureConsentGate): Promise<RecoveryAttempt> {
     const attempt: RecoveryAttempt = { offered: await offeredRecoveryControl(page), retry: 'not-pressed', startEnabled: null, recorded: false };
@@ -205,15 +206,13 @@ async function pressRecovery(page: Page, variant: AdverseVariant, gate: CaptureC
     // Only AHT-13/14 recover, through Retry. Any other offer is never pressed: the verdict decides.
     if (attempt.offered !== 'mic-retry') return attempt;
     const before = await modelStatuses(page);
-    await gate.confirm();
-    await page.getByTestId('mic-retry').click();
+    await pressCaptureControl(page, ['mic-retry'], { beforeClick: () => gate.confirm() });
     attempt.retry = await waitForRetrySetup(page, before.observed ? before.statuses.length : null);
     if (attempt.retry !== 'ready') return attempt;
     const start = page.getByTestId('mic-start');
     attempt.startEnabled = await expect(start).toBeEnabled({ timeout: START_ENABLED_MS }).then(() => true, () => false);
     if (!attempt.startEnabled) return attempt;
-    await gate.confirm();
-    await start.click();
+    await pressCaptureControl(page, ['mic-start'], { beforeClick: () => gate.confirm() });
     attempt.recorded = await isRecording(page, RECORDING_MS);
     return attempt;
 }
@@ -326,19 +325,19 @@ async function reopenRow(receipt: RwtReceipt, page: Page, recovered: { savedId: 
  * the recovery (`pressRecovery`) then presses only its variant's designed control (`RECOVERY_CONTROLS`), never in a loop, and
  * presses nothing when the page offers anything else. Each press, by its line:
  *  AHT-12 mic denied (J7.a, PO and Sam 2026-11-19) — exactly 1:
- *   1. the denied press, `mic-download` or `mic-start` (whichever is offered): `await control.click()` (rwtAdverseJourney.ts:448).
+ *   1. the denied press, `mic-download` or `mic-start` (whichever is offered): `pressCaptureControl` (rwtAdverseJourney.ts:445).
  *   No recovery press: J7.a covers the denial only, and the microphone is never allowed. So either control may take the one
  *   press; `mic-retry` none. The catalog's minimumStarts 3 assumes the harness's same-context Allow → Start route, which J7.a
  *   records as UNTESTED.
  *  AHT-13 download fails — exactly 3:
- *   1. `mic-download` with the model route aborted (rwtAdverseJourney.ts:499);
+ *   1. `mic-download` with the model route aborted (rwtAdverseJourney.ts:495);
  *   2. `mic-retry` once the cause is removed (rwtAdverseJourney.ts:209);
- *   3. `mic-start` only after Retry's setup published `ready` (rwtAdverseJourney.ts:216).
- *  AHT-14 offline mid-download — exactly 3: `mic-download` (rwtAdverseJourney.ts:515), then the same `mic-retry` and
- *   `mic-start` as AHT-13 (rwtAdverseJourney.ts:209, :216).
- * #1835 (Sam, Nov 20): every press above is preceded, immediately, by `gate.confirm()`, which reads this run's own saved privacy
- * choice back from the server and stops the journey before the press unless it is exactly the variant's fixed choice
- * (`adverseConsentMode`: J7.a Save No; J7.b/c Save Yes, Coaching No).
+ *   3. `mic-start` only after Retry's setup published `ready` (rwtAdverseJourney.ts:215).
+ *  AHT-14 offline mid-download — exactly 3: `mic-download` (rwtAdverseJourney.ts:510), then the same `mic-retry` and
+ *   `mic-start` as AHT-13 (rwtAdverseJourney.ts:209, :215).
+ * #1835 (Sam, Nov 20; #1916): every press above runs `gate.confirm()` inside the press, immediately before its click
+ * (`pressCaptureControl`), which reads this run's own saved privacy choice back from the server and stops the journey with
+ * nothing pressed unless it is exactly the variant's fixed choice (`adverseConsentMode`: J7.a Save No; J7.b/c Save Yes, Coaching No).
  */
 const AHT12_START_PRESS_BUDGET: StartPressBudget = { total: 1, perControl: { 'mic-download': 1, 'mic-start': 1 } };
 const AHT13_START_PRESS_BUDGET: StartPressBudget = { total: 3, perControl: { 'mic-download': 1, 'mic-retry': 1, 'mic-start': 1 } };
@@ -417,8 +416,8 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
         // J7.a (denial only, no take) chooses Save: No; J7.b/c (a recovered take judged by its saved transcript) choose Save: Yes,
         // so a Save No read back before their first press stops them (Sam, Nov 20). #1910's shared helpers do it: a pre-#1835
         // build, an unknown build, or a choice that is not recorded stops here on Practice with the required row as FAIL or HOLD.
-        // The row's PASS belongs to the readback `gate.confirm()` takes immediately before each Start-control press below, so no
-        // press happens without a verified choice.
+        // The row's PASS belongs to the readback `gate.confirm()` takes inside each Start-control press below, immediately before
+        // its click, so no press happens without a verified choice.
         const migrationFiles = (() => { try { return readdirSync(resolvePath(process.cwd(), 'backend/supabase/migrations')); } catch { return null; } })();
         const client = admin as unknown as ChoiceClient;
         const record: ConsentRowRecorder = (status, detail, evidence) => receipt.row('practice privacy choice', status, detail, evidence);
@@ -435,7 +434,6 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
             await blockSiteMicrophone(page, browser);
             // Informational only (Sam, #1662 RETURN): the verdict is decided at the acquisition boundary below.
             const permissionQuery = await micPermissionState(page);
-            const control = page.getByTestId('mic-download').or(page.getByTestId('mic-start')).filter({ visible: true }).first();
             // Live case 12: with the microphone denied, a RECORDING transition is the failure itself — stop there. Armed
             // whether or not the denial reads as applied: a recording here is never this scenario's truthful outcome.
             watch.setForbidRecording(true);
@@ -444,8 +442,7 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
             // Sam, #1662 RETURN: only THIS press's acquisition outcome counts — an earlier rejection on the page cannot
             // qualify a later Start that failed for another reason.
             const acquisitionsBeforePress = (await micAcquisitionLog(page)).length;
-            await gate.confirm();
-            await control.click();
+            await pressCaptureControl(page, ['mic-download', 'mic-start'], { beforeClick: () => gate.confirm() });
             gate.recordPass();
             // The model downloads first on a fresh account; the blocked microphone is met at the recording boundary.
             const blockedCopyShown = await page.getByText(MIC_BLOCKED_COPY).first().waitFor({ timeout: 900_000 }).then(() => true).catch(() => false);
@@ -495,8 +492,7 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
                 fault.armFault();
                 injected = await context.route(MODEL_ASSETS, (route) => route.abort('failed')).then(() => true, () => false);
                 fault.startAttempt();
-                await gate.confirm();
-                await page.getByTestId('mic-download').click();
+                await pressCaptureControl(page, ['mic-download'], { beforeClick: () => gate.confirm() });
                 gate.recordPass();
                 await failedState(page, 300_000);
             } else {
@@ -511,8 +507,7 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
                 pressIndex = (await page.evaluate(readRuntimeStateLog).catch(() => ({ token: null, states: [] as string[] }))).states.length;
                 fault.startAttempt();
                 transfer.startAttempt();
-                await gate.confirm();
-                await page.getByTestId('mic-download').click();
+                await pressCaptureControl(page, ['mic-download'], { beforeClick: () => gate.confirm() });
                 gate.recordPass();
                 // "Mid-download" (review AHT-14): offline only once the page has RECEIVED model bytes, never merely when a request
                 // is issued, and (Sam, 2026-11-15; Codex P1 on df4db146; Sam on 887a76f6) only while the published runtime is in

@@ -117,7 +117,7 @@ describe('the AHT-11 spec wiring', () => {
     const test11 = spec.slice(spec.indexOf("test('one account, two places"));
 
     it('the same-browser tab is judged by its own copy observation and the case-only verdict, never the lease-or-local locator', () => {
-        const press = test11.indexOf("await sameBrowserTab.getByTestId('mic-start').click();");
+        const press = test11.indexOf("await pressCaptureControl(sameBrowserTab, ['mic-start'], { beforeClick: () => requireGate(consentGate).confirm() });");
         const look = test11.indexOf('const localRefusal = await sameBrowserRefusalCopy(sameBrowserTab);');
         const verdict = test11.indexOf('const local = sameBrowserRefusedVerdict({ ...localRefusal, tabB: refusedLocal, tabA: stillA });');
         const row = test11.indexOf("receipt.row('same-browser tab is refused', local.status");
@@ -163,9 +163,11 @@ describe('J5.b/c and J6: the run\'s own account opts in before any Start (#1835;
     const abandon = spec.slice(spec.indexOf('async function abandonAndReturn'), spec.indexOf("test.describe('RWT — leaving a recording"));
     const test11 = spec.slice(spec.indexOf("test('one account, two places"));
     const CONSENT = 'practice privacy choice';
-    /** `statement` is the statement directly after a consent readback (only blank lines and comments between). */
-    const confirmedBefore = (body: string, statement: string, gate = 'await requireGate\\(consentGate\\)\\.confirm\\(\\);') =>
-        new RegExp(`${gate}\\n(\\s*//[^\\n]*\\n)*\\s*${statement.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`).test(body);
+    /** #1835 (Sam, #1916): a direct capture-capable press reads the owner's row back INSIDE the press, at its click. */
+    const pressAtClick = (page: string, ids: string) => `await pressCaptureControl(${page}, [${ids}], { beforeClick: () => requireGate(consentGate).confirm() });`;
+    /** No readback runs as a statement before a press, and no capture control is clicked through a locator. */
+    const STANDALONE_CONFIRM = /await requireGate\(consentGate\)\.confirm\(\);/g;
+    const LOCATOR_CAPTURE_CLICK = /getByTestId\('mic-(start|download|retry)'\)\.click\(|data-testid="mic-(start|download|retry)"[^\n]*\.click\(/;
 
     it('the fixed mode is Save: Yes, Coaching: No, never read from the environment', () => {
         expect(CONSENT_MODES[ABANDON_TWO_PLACES_CONSENT_MODE]).toEqual({ transcriptSave: true, aiCoaching: false });
@@ -194,9 +196,10 @@ describe('J5.b/c and J6: the run\'s own account opts in before any Start (#1835;
         expect(practice).toBeLessThan(first);
         expect(first).toBeLessThan(product);
     });
-    it('the first take: a readback immediately before the cold model helper and before the ordinary Start; only a confirmed capture records PASS', () => {
-        expect(firstTake).toMatch(/\n\s*await gate\.confirm\(\);\n\s*const setup = await preparePrivateModelIfPrompted\(page, 900_000\);\n\s*if \(setup\.recordingAlreadyStarted\) \{\n\s*gate\.recordPass\(\);\n\s*return;\n\s*\}/);
-        expect(firstTake).toMatch(/\n\s*await gate\.confirm\(\);\n\s*await startBenchmarkRecording\(page, label\);\n\s*gate\.recordPass\(\);\n\}/);
+    it('the first take: the readback runs inside the cold model helper\'s press and inside the ordinary Start, at each click; only a confirmed capture records PASS', () => {
+        expect(firstTake).toMatch(/\n\s*const setup = await preparePrivateModelIfPrompted\(page, 900_000, \{ beforeClick: \(\) => gate\.confirm\(\) \}\);\n\s*if \(setup\.recordingAlreadyStarted\) \{\n\s*gate\.recordPass\(\);\n\s*return;\n\s*\}/);
+        expect(firstTake).toMatch(/\n\s*await startBenchmarkRecording\(page, label, undefined, \{ beforeClick: \(\) => gate\.confirm\(\) \}\);\n\s*gate\.recordPass\(\);\n\}/);
+        expect(firstTake).not.toMatch(/await gate\.confirm\(\)/);
         expect(spec.match(/preparePrivateModelIfPrompted\(/g)).toHaveLength(1);
         expect(spec.match(/await startBenchmarkRecording\(/g)).toHaveLength(1);
         expect(spec.match(/recordPass\(\)/g)).toHaveLength(2);
@@ -210,9 +213,11 @@ describe('J5.b/c and J6: the run\'s own account opts in before any Start (#1835;
         expect(open).toBeLessThan(take);
         expect(abandon).toContain('await openOpenMic(returned);');
         expect(abandon.match(/settleRunConsent\(/g)).toHaveLength(1);
-        // The return Start and the person's second press: each the statement right after a fresh readback.
-        expect(abandon.match(/getByTestId\('mic-start'\)\.click\(\)/g)).toHaveLength(2);
-        expect(abandon.match(/await requireGate\(consentGate\)\.confirm\(\);\n\s*await returned\.getByTestId\('mic-start'\)\.click\(\);/g)).toHaveLength(2);
+        // The return Start and the person's second press: each reads consent back inside the press, at its click.
+        expect(abandon.split(pressAtClick('returned', "'mic-start'")).length - 1).toBe(2);
+        expect(abandon.match(/pressCaptureControl\(/g)).toHaveLength(2);
+        expect(abandon).not.toMatch(STANDALONE_CONFIRM);
+        expect(abandon).not.toMatch(LOCATOR_CAPTURE_CLICK);
     });
     it('J6: tab A\'s first visit settles it; tab A\'s take, the same-browser press, both other-device presses are confirmed first', () => {
         const claimed = test11.indexOf('if (!claimed) return;');
@@ -224,11 +229,15 @@ describe('J5.b/c and J6: the run\'s own account opts in before any Start (#1835;
         expect(test11).toContain('await openOpenMic(sameBrowserTab);');
         expect(test11).toContain('await openOpenMic(deviceB);');
         expect(test11.match(/settleRunConsent\(/g)).toHaveLength(1);
-        expect(confirmedBefore(test11, "await sameBrowserTab.getByTestId('mic-start').click();")).toBe(true);
-        expect(confirmedBefore(test11, `await deviceB.locator('[data-testid="mic-start"], [data-testid="mic-download"]').first().click();`)).toBe(true);
-        // The other device's first press: the readback is the first thing its pre-press callback does.
-        expect(test11).toMatch(/pressPrivateStartForLease\(deviceB, waitForPrivateEngineReady, async \(\) => \{\n(\s*\/\/[^\n]*\n)*\s*await requireGate\(consentGate\)\.confirm\(\);/);
-        expect(test11.match(/getByTestId\('mic-start'\)\.click\(\)|\.first\(\)\.click\(\)/g)).toHaveLength(2);
+        expect(test11).toContain(pressAtClick('sameBrowserTab', "'mic-start'"));
+        expect(test11).toContain(pressAtClick('deviceB', "'mic-start', 'mic-download'"));
+        // The other device's first press: the readback is the LAST thing its in-press callback does (after the windows open),
+        // and that callback is handed to pressCaptureControl, which runs it immediately before the click.
+        expect(test11).toMatch(/pressPrivateStartForLease\(deviceB, waitForPrivateEngineReady, async \(\) => \{\n[\s\S]*?openedB = await deviceB\.evaluate\(openObservationWindow[^\n]*\n(\s*\/\/[^\n]*\n)*\s*await requireGate\(consentGate\)\.confirm\(\);\n\s*\}, \(p, control, beforeClick\) => pressCaptureControl\(p, \[control\], \{ beforeClick, waitMs: 30_000, clickTimeoutMs: 30_000 \}\)\.then\(\(\) => undefined\)\);/);
+        expect(test11.match(STANDALONE_CONFIRM), 'only the lease press\'s in-press callback').toHaveLength(1);
+        expect(test11.match(/pressCaptureControl\(/g)).toHaveLength(3);
+        expect(test11).not.toMatch(LOCATOR_CAPTURE_CLICK);
+        expect(test11).not.toContain('.first().click()');
     });
     it('a press before the first visit settled the gate is refused', () => {
         expect(spec).toContain("if (!gate) throw new Error('HOLD practice consent: not_settled');");
