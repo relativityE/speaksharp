@@ -308,13 +308,16 @@ describe('J1.a (#1835): the Open Mic first session opts its own account in to sa
         expect(spec).not.toMatch(/settlePracticeConsent\(|readPracticeChoice\(|fixedConsentBeforeStartVerdict\(/);
     });
 
-    it('Sam (Nov 20): the final readback is IMMEDIATELY before each first-take capture-capable call, cold and warm', () => {
-        // Cold first use: the model helper itself presses Download to start speaking, so the confirm is the statement before it.
-        expect(spec).toMatch(/\n\s*await captureGate\(\)\.confirm\(\);\n\s*const setup = await preparePrivateModelIfPrompted\(page, 900_000\);\n\s*takeAlreadyRunning = setup\.recordingAlreadyStarted;\n\s*if \(takeAlreadyRunning\) captureGate\(\)\.recordPass\(\);/);
-        // Warm (or a cold helper that did not record): the ordinary Start is confirmed the statement before it.
-        expect(spec).toMatch(/if \(!takeAlreadyRunning\) \{\n(\s*\/\/[^\n]*\n)?\s*await captureGate\(\)\.confirm\(\);\n\s*await startBenchmarkRecording\(page, SUITE\);\n\s*captureGate\(\)\.recordPass\(\);\n\s*\}/);
-        // No first-take capture call runs unguarded.
+    it('Sam (Nov 20; #1916 hold): the final readback runs INSIDE each first-take capture-capable press, at its click, cold and warm', () => {
+        // Cold first use: the model helper itself presses Download to start speaking, so it gets the readback as its click hook.
+        expect(spec).toMatch(/\n\s*const setup = await preparePrivateModelIfPrompted\(page, 900_000, \{ beforeClick: \(\) => captureGate\(\)\.confirm\(\) \}\);\n\s*takeAlreadyRunning = setup\.recordingAlreadyStarted;\n\s*if \(takeAlreadyRunning\) captureGate\(\)\.recordPass\(\);/);
+        // Warm (or a cold helper that did not record): the ordinary Start reads it back at its own click.
+        expect(spec).toMatch(/if \(!takeAlreadyRunning\) \{\n(\s*\/\/[^\n]*\n)*\s*await startBenchmarkRecording\(page, SUITE, undefined, \{ beforeClick: \(\) => captureGate\(\)\.confirm\(\) \}\);\n\s*captureGate\(\)\.recordPass\(\);\n\s*\}/);
+        // No first-take capture call runs without the hook, and no readback runs as a statement before a press (where the
+        // helper's own waits, scroll and reflex pause would sit between it and the click).
         expect(spec.split('await preparePrivateModelIfPrompted(').length - 1).toBe(1);
+        expect(spec.split('await startBenchmarkRecording(').length - 1).toBe(1);
+        expect(spec).not.toMatch(/await captureGate\(\)\.confirm\(\)/);
         expect(spec).not.toContain('if (!takeAlreadyRunning) await startBenchmarkRecording(');
     });
 

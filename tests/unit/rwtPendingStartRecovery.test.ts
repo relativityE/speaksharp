@@ -3,10 +3,10 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
     PENDING_START_CONSENT_MODE, type ColdStartPressIo, type RecoveryControl, type RecoveryPressIo, coldStartPress, consentRefusalReason, driveRecoveryPress,
-    recoveryPressVerdict, recoveryTakePlan, recoveryTakeVerdict,
+    recoveryPressVerdict, recoveryTakePlan, recoveryTakeVerdict, stillTheOneEnabledControl,
 } from '../live/helpers/rwtPendingStartRecovery';
 import { CONSENT_MODES, captureConsentGate, type ChoiceClient } from '../live/helpers/rwtPracticeConsent';
 import { requiredAutomatedRows } from '../live/helpers/rwtAcceptance';
@@ -236,7 +236,15 @@ describe('J5.a consent before every capture-capable press', () => {
         expect(cold).toContain("coldControl.handle = await page.getByTestId('mic-download').elementHandle({ timeout: 15_000 })");
         expect(cold).toContain('reflex: () => new Promise((resolve) => setTimeout(resolve, activeHumanReflexMs())),');
         expect(cold).toContain('confirmConsent: () => consentGate.confirm(),');
-        expect(cold).toContain('coldControl.handle.click({ timeout: 15_000 })');
+        // #1916: after the readback (a server read) the pinned node must still be the one enabled `mic-download`, checked
+        // before the fault phase opens and the click; a changed node is never clicked.
+        const io = cold.slice(cold.indexOf('click: async () => {'));
+        const recheck = io.indexOf("if (!(await handle.evaluate(stillTheOneEnabledControl, 'mic-download').catch(() => false))) return false;");
+        expect(io).toMatch(/const handle = coldControl\.handle;\n\s*if \(!handle\) return false;/);
+        expect(recheck).toBeGreaterThan(-1);
+        expect(recheck).toBeLessThan(io.indexOf('watch.setFaultPhase(true);'));
+        expect(io.indexOf('watch.setFaultPhase(true);')).toBeLessThan(io.indexOf('return handle.click({ timeout: 15_000 }).then(() => true, () => false);'));
+        expect(io.split('.click(').length - 1).toBe(1);
         expect(cold).toMatch(/if \(cold\.kind === 'consent-unproven'\) \{\n\s*receipt\.halt\('practice consent'[^\n]*\n\s*return;/);
         expect(spec).not.toContain("getByTestId('mic-download').click(");
         // The recovery press gets the same gate as its consent step, run INSIDE the press: after the guard is armed (the 60 s
@@ -330,6 +338,83 @@ describe('J5.a consent before every capture-capable press', () => {
             const { io, order } = coldOver(() => gate.confirm(), { ready: false });
             expect(await coldStartPress(io)).toEqual({ kind: 'not-ready' });
             expect(order).toEqual(['ready']);
+        });
+        // #1916 (Sam's three proofs, per journey): the readback's own time never spends the click's bound.
+        it('a SLOW readback that succeeds (longer than the 15 s click bound) still clicks exactly once', async () => {
+            vi.useFakeTimers();
+            try {
+                const { gate } = gateOver({ row: { ...SAVE_ON } });
+                const { io, order } = coldOver(async () => { await new Promise((r) => setTimeout(r, 20_000)); await gate.confirm(); });
+                const out = coldStartPress(io);
+                await vi.advanceTimersByTimeAsync(20_000);
+                expect(await out).toEqual({ kind: 'pressed' });
+                expect(order.filter((step) => step === 'click')).toHaveLength(1);
+            } finally { vi.useRealTimers(); }
+        });
+        it('a SLOW refusal clicks nothing and stays the consent HOLD (never a click failure)', async () => {
+            vi.useFakeTimers();
+            try {
+                const current: { row: Record<string, unknown> | null | 'broken' } = { row: { ...SAVE_ON } };
+                const { gate } = gateOver(current);
+                const { io, order } = coldOver(async () => {
+                    await new Promise((r) => setTimeout(r, 20_000));
+                    current.row = { ...SAVE_ON, transcript_save: false };
+                    await gate.confirm();
+                });
+                const out = coldStartPress(io);
+                await vi.advanceTimersByTimeAsync(20_000);
+                expect(await out).toEqual({ kind: 'consent-unproven', reason: 'readback_differs' });
+                expect(order).not.toContain('click');
+            } finally { vi.useRealTimers(); }
+        });
+        it('out of time: a control that never became ready still fails (not-ready), with no readback and no click', async () => {
+            const { gate } = gateOver({ row: { ...SAVE_ON } });
+            const confirm = vi.fn(() => gate.confirm());
+            const { io, order } = coldOver(confirm, { ready: false });
+            expect(await coldStartPress(io)).toEqual({ kind: 'not-ready' });
+            expect(confirm).not.toHaveBeenCalled();
+            expect(order).not.toContain('click');
+        });
+        it('a control that changed while the readback ran is not pressed (the click step refuses it): click-failed, not pressed', async () => {
+            const { gate } = gateOver({ row: { ...SAVE_ON } });
+            const order: string[] = [];
+            const io: ColdStartPressIo = {
+                ready: async () => { order.push('ready'); return true; },
+                reflex: async () => { order.push('reflex'); },
+                confirmConsent: async () => { order.push('consent'); await gate.confirm(); },
+                click: async () => { order.push('recheck'); return false; }, // stillTheOneEnabledControl said no: nothing dispatched
+            };
+            expect(await coldStartPress(io)).toEqual({ kind: 'click-failed' });
+            expect(order).toEqual(['ready', 'reflex', 'consent', 'recheck']);
+        });
+    });
+
+    describe('stillTheOneEnabledControl — the pinned node after a readback (#1916)', () => {
+        const node = (o: { connected?: boolean; id?: string; disabled?: boolean; attrDisabled?: boolean; ariaDisabled?: boolean; count?: number } = {}) => {
+            const attrs: Record<string, string> = { 'data-testid': o.id ?? 'mic-download' };
+            if (o.attrDisabled) attrs.disabled = '';
+            if (o.ariaDisabled) attrs['aria-disabled'] = 'true';
+            const el = {
+                isConnected: o.connected ?? true,
+                disabled: o.disabled ?? false,
+                getAttribute: (n: string) => attrs[n] ?? null,
+                hasAttribute: (n: string) => n in attrs,
+                ownerDocument: { querySelectorAll: (sel: string) => (sel === '[data-testid="mic-download"]' ? new Array(o.count ?? 1).fill(null) : []) },
+            };
+            return el as unknown as Element;
+        };
+        it('the same connected, enabled, only `mic-download` → true', () => {
+            expect(stillTheOneEnabledControl(node(), 'mic-download')).toBe(true);
+        });
+        it('detached, renamed (now Start or Retry), disabled any way, or no longer the only one → false', () => {
+            expect(stillTheOneEnabledControl(node({ connected: false }), 'mic-download')).toBe(false);
+            expect(stillTheOneEnabledControl(node({ id: 'mic-start' }), 'mic-download')).toBe(false);
+            expect(stillTheOneEnabledControl(node({ id: 'mic-retry' }), 'mic-download')).toBe(false);
+            expect(stillTheOneEnabledControl(node({ disabled: true }), 'mic-download')).toBe(false);
+            expect(stillTheOneEnabledControl(node({ attrDisabled: true }), 'mic-download')).toBe(false);
+            expect(stillTheOneEnabledControl(node({ ariaDisabled: true }), 'mic-download')).toBe(false);
+            expect(stillTheOneEnabledControl(node({ count: 2 }), 'mic-download')).toBe(false);
+            expect(stillTheOneEnabledControl(node({ count: 0 }), 'mic-download')).toBe(false);
         });
     });
 });

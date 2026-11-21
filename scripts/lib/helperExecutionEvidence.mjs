@@ -242,6 +242,10 @@ export const HELPER_CONTRACTS = Object.freeze([{
   helperFile:'tests/live/helpers/rwtTwoPlaces.ts',testFile:'tests/unit/rwtTwoPlaces.test.ts',
   callables:["sameBrowserRefusedVerdict","displacedFenceVerdict"],
 }, {
+  // #1835 (J5.b/c, J6): the lease press reads consent back at the click; its verdicts and that press run offline.
+  helperFile:'tests/live/helpers/rwtAbandonTakeover.ts',testFile:'tests/unit/rwtAbandonTakeover1258.test.ts',
+  callables:["pressPrivateStartForLease","releasedVerdict","answerLeaveDialog","leavePromptVerdict","returnStartVerdict","classifyRecoveryClaim","newRowsSince","priorTakeSaved","leftTakeSavedOnce","leftTakeSavedVerdict","recoveryNoticeVerdict","nextTakeOnlyItselfVerdict","modelWorkBeforeRefusal","secondTabBlockedVerdict","leaseRefusalWindowVerdict","takeOverVerdict","noCloudVerdict","takeOverRowsVerdict"],
+}, {
   helperFile:'tests/live/helpers/servedReleaseBinding.ts', testFile:'tests/unit/servedReleaseBinding.test.ts',
   callables:['servedReleaseVerdict','requiresReleaseBinding'],
 }]);

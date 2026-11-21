@@ -69,8 +69,10 @@ describe('J7.a: the journey checks exactly the agreed scope', () => {
         expect(journey).toMatch(/const NO_TAKE_SETTLE_MS = \d[\d_]*;/);
     });
     it('never allows the microphone, presses nothing after the denied press, and records same-page recovery as UNTESTED', () => {
-        expect(branch).not.toMatch(/chromium\.launch|grantPermissions\(|signInOn\(|allowedPage|saveRecoveredTake|\.click\(\)[\s\S]*\.click\(\)/);
-        expect(branch.match(/\.click\(\)/g)).toHaveLength(1);
+        expect(branch).not.toMatch(/chromium\.launch|grantPermissions\(|signInOn\(|allowedPage|saveRecoveredTake|\.click\(/);
+        // The one press: the denied press, through pressCaptureControl (#1835, Sam #1916: consent read back at its click).
+        expect(branch.match(/pressCaptureControl\(/g)).toHaveLength(1);
+        expect(branch).toContain("await pressCaptureControl(page, ['mic-download', 'mic-start'], { beforeClick: () => gate.confirm() });");
         expect(journey).toContain("permission: { name: 'microphone' }, setting: 'denied',");
         expect(branch).toContain('receipt.meta.samePageRecovery = SAME_PAGE_RECOVERY;');
         expect(branch).toContain('receipt.meta.samePageRecoveryReason = SAME_PAGE_RECOVERY_REASON;');
@@ -152,7 +154,7 @@ describe('J7.a: acceptance requires the no-take row and UNTESTED recovery, and r
 describe('J7.a/b/c: no Start-control press without the variant\'s verified saved privacy choice (#1835)', () => {
     const journey = src('tests/live/helpers/rwtAdverseJourney.ts');
     const CONSENT = 'practice privacy choice';
-    const START_CLICK = /await (?:control|start|page\.getByTestId\('(?:mic-download|mic-retry|mic-start)'\))\.click\(\);/;
+    const START_CLICK = /await pressCaptureControl\(page, \[(?:'mic-(?:download|retry|start)'(?:, )?)+\], \{ beforeClick: \(\) => gate\.confirm\(\) \}\);/;
     const lines = journey.split('\n');
 
     it('fixed modes, never read from the environment: J7.a Save No; J7.b/c Save Yes, Coaching No', () => {
@@ -175,18 +177,21 @@ describe('J7.a/b/c: no Start-control press without the variant\'s verified saved
         expect(journey).not.toMatch(/settlePracticeConsent\(/);
         expect(journey.indexOf('const gate = captureConsentGate(')).toBeLessThan(journey.indexOf("await openProductsItem(page, 'open-mic');"));
     });
-    it('every Start-control press (all five) is immediately preceded by a fresh readback', () => {
+    it('every Start-control press (all five) reads consent back INSIDE the press, at its click (Sam, #1916)', () => {
         const presses = lines.flatMap((l, i) => (START_CLICK.test(l) ? [i] : []));
         expect(presses).toHaveLength(5);
-        for (const i of presses) expect(lines[i - 1].trim(), `line ${i + 1}`).toBe('await gate.confirm();');
-        expect(lines.filter((l) => l.trim() === 'await gate.confirm();')).toHaveLength(5);
+        // No readback runs as a statement before a press, and no capture control is clicked through a locator.
+        expect(lines.filter((l) => l.trim() === 'await gate.confirm();')).toHaveLength(0);
+        expect(journey.match(/beforeClick: \(\) => gate\.confirm\(\)/g)).toHaveLength(5);
+        expect(journey).not.toMatch(/getByTestId\('mic-(?:download|retry|start)'\)\.click\(|await (?:control|start)\.click\(/);
+        expect(journey.match(/pressCaptureControl\(/g)).toHaveLength(5);
     });
     it('the first press of each variant records the row right after it; the recovery presses only confirm', () => {
         const recordPasses = lines.flatMap((l, i) => (l.trim() === 'gate.recordPass();' ? [i] : []));
         expect(recordPasses).toHaveLength(3);
         for (const i of recordPasses) {
-            expect(lines[i - 1]).toMatch(/await (?:control|page\.getByTestId\('mic-download'\))\.click\(\);/);
-            expect(lines[i - 2].trim()).toBe('await gate.confirm();');
+            expect(lines[i - 1]).toMatch(START_CLICK);
+            expect(lines[i - 1]).not.toContain("'mic-retry'");
         }
         const fn = (name: string) => journey.slice(journey.indexOf(`async function ${name}(`), journey.indexOf('\n}\n', journey.indexOf(`async function ${name}(`)));
         expect(fn('pressRecovery')).not.toContain('recordPass');

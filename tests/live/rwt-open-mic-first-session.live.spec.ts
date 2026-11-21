@@ -555,9 +555,10 @@ test.describe('RWT — Open Mic first session @live', () => {
             await test.step('row 3 — first microphone use and model acquisition', async () => {
                 const began = Date.now();
                 await selectBenchmarkMode(page, 'private');
-                // #1835 final readback: on a cold first use this helper itself presses Download to start speaking, which captures.
-                await captureGate().confirm();
-                const setup = await preparePrivateModelIfPrompted(page, 900_000);
+                // #1835 final readback (Sam, #1916): on a cold first use this helper itself presses Download to start speaking, which
+                // captures, so it reads consent back inside that press, immediately before the click. A warm cache presses nothing here
+                // and reads nothing back: the ordinary Start below then reads it back at its own click.
+                const setup = await preparePrivateModelIfPrompted(page, 900_000, { beforeClick: () => captureGate().confirm() });
                 takeAlreadyRunning = setup.recordingAlreadyStarted;
                 if (takeAlreadyRunning) captureGate().recordPass();
                 if (!takeAlreadyRunning) await waitForPrivateEngineReady(page, 600_000);
@@ -601,9 +602,9 @@ test.describe('RWT — Open Mic first session @live', () => {
                         diag.mark('trace_start_settled');
                         await test.step('row 4 — speak the corpus', async () => {
                             if (!takeAlreadyRunning) {
-                                // #1835 final readback, immediately before the ordinary Start (the model helper did not record).
-                                await captureGate().confirm();
-                                await startBenchmarkRecording(page, SUITE);
+                                // #1835 final readback (Sam, #1916), inside the ordinary Start immediately before its click (the model
+                                // helper did not record): after the control wait, the reflex pause and the click guard.
+                                await startBenchmarkRecording(page, SUITE, undefined, { beforeClick: () => captureGate().confirm() });
                                 captureGate().recordPass();
                             }
                             diag.mark('row4_take_running');
