@@ -13,7 +13,7 @@ import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, re
   type RunnerJourney, type BillingEvent, hostedFieldUnavailable, hostedEmailDecision, type HostedField,
   HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl, cleanupFailureCode, proveStripeFixtureDeleted,
   observeCaptureLive, holdThenStop, APP_TOO_SHORT_STATUS, WATCH_INSTALL_SCRIPT, takeStatusScript, stopGateScript, pageScript, takeOutcome,
-  type StopGateResult, privacyBuildState, PRIVACY_PROMPT, optInThroughPrompt, type PrivacyTableRead } from './contract';
+  type StopGateResult, privacyBuildState, PRIVACY_PROMPT, optInThroughPrompt, type PrivacyTableRead, trustedCheckoutFrame } from './contract';
 import { fillHostedEmail } from './hostedEmail';
 import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { selectBenchmarkMode, preparePrivateModelIfPrompted, startBenchmarkRecording,
@@ -306,6 +306,19 @@ class SandboxJourney {
     return null;
   }
 
+  /** Whether text matching `pattern` becomes visible on the hosted Checkout page or one of Stripe's own frames within the bound. */
+  async textVisibleInCheckoutFrames(pattern: RegExp, timeoutMs: number): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    do {
+      for (const frame of this.page.frames()) {
+        if (!trustedCheckoutFrame(this.page.url(), frame.url())) continue;
+        if (await frame.getByText(pattern).first().isVisible().catch(() => false)) return true;
+      }
+      await sleep(500);
+    } while (Date.now() < deadline);
+    return false;
+  }
+
   /** The first ATTACHED match of `selector` in any frame (no wait; a styled-over input is attached but may not be visible), or null. */
   async attachedInFrames(selector: string): Promise<import('@playwright/test').Locator | null> {
     for (const frame of this.page.frames()) {
@@ -495,11 +508,33 @@ class SandboxJourney {
       requireFact((await customerSessions()).join(',') === only, 'retry_created_second_session');
       this.steps.add('checkout_retried');
     } else if (this.journey === 'failed_checkout') {
-      // A declined card: Stripe shows the decline on its own page, nothing is paid, nothing is granted.
+      // Walk-away (J2): the expired owner opens Checkout, leaves without paying and comes back to the app. While that exact
+      // session is still open and unpaid, the app shows the payment wall and the server grants nothing.
+      const walked = await this.openCheckout(await invoke());
+      await this.page.goto(`${this.targets.app}/practice`);
+      requireFact(new URL(this.page.url()).origin === new URL(this.targets.app).origin, 'walk_away_left_app');
+      await expect(this.page.getByTestId('trial-payment-wall')).toBeVisible({ timeout: 30_000 })
+        .catch(() => { throw new Error('BILLING_JOURNEY:walk_away_wall_not_shown'); });
+      assertCheckoutGrantedNothing(await this.stripe(`checkout/sessions/${walked}`), 'open');
+      this.steps.add('walked_away_from_checkout');
+      await this.noPaidAccess();
+      this.steps.add('no_access_while_session_open');
+      // Returning to Checkout reuses the walked-away session, never a second one. Its own step, so a failure here cannot erase
+      // or stand in for the walk-away observation above.
       const declined = await this.openCheckout(await invoke());
+      requireFact(declined === walked, 'walk_away_return_created_second_session');
+      this.steps.add('checkout_return_reused_session');
+      // A declined card: Stripe shows the decline on its own page, nothing is paid, nothing is granted.
       await this.payOnHostedPage('4000000000000002');
-      await expect(this.page.getByText(/declined/i).first()).toBeVisible({ timeout: 60_000 })
-        .catch(() => { throw new Error('BILLING_JOURNEY:decline_not_shown'); });
+      // Run 44915558806: Subscribe was clicked and no decline was seen in 60 s, but only the top frame was searched while every hosted
+      // control is found across frames. Same oracle and bound, read on the Checkout page and Stripe's own frames only; on a miss the
+      // reason names what the page showed (content-free).
+      if (!await this.textVisibleInCheckoutFrames(/declined/i, 60_000)) {
+        const f = await this.afterSubmitFacts();
+        const n = (v: number | null) => (Number.isSafeInteger(v) && (v as number) >= 0 ? String(v) : 'unread');
+        const b = (v: boolean | null) => (v === true ? 'shown' : v === false ? 'none' : 'unread');
+        throw new Error(`BILLING_JOURNEY:decline_not_shown_alerts_${n(f.alerts)}_invalid_${n(f.invalid)}_challenge_${b(f.challenge)}`);
+      }
       requireFact(new URL(this.page.url()).origin === 'https://checkout.stripe.com', 'decline_left_checkout');
       assertCheckoutGrantedNothing(await this.stripe(`checkout/sessions/${declined}`), 'open');
       this.steps.add('declined_checkout');
