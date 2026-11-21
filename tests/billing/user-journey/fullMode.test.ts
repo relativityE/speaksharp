@@ -766,7 +766,8 @@ test('declined checkout (J2): only an unpaid, incomplete subscription of this se
   const invoice = { id: 'in_1', customer: 'cus_1', livemode: false, status: 'open', amount_paid: 0 };
   const base = { session, subscription, invoice, customer: 'cus_1', succeededCharges: 0, expectedStatus: 'open' as const };
   assertDeclinedCheckoutGrantedNothing(base);
-  assertDeclinedCheckoutGrantedNothing({ ...base, subscription: { ...subscription, status: 'incomplete_expired' } });
+  assertDeclinedCheckoutGrantedNothing({ ...base, session: { ...session, status: 'expired' }, expectedStatus: 'expired',
+    subscription: { ...subscription, status: 'incomplete_expired' } });
   assertDeclinedCheckoutGrantedNothing({ ...base, session: { ...session, subscription: { id: 'sub_1' } } });
   assertDeclinedCheckoutGrantedNothing({ ...base, session: { ...session, subscription: null }, subscription: null, invoice: null });
   assertDeclinedCheckoutGrantedNothing({ ...base, session: { ...session, status: 'expired' }, expectedStatus: 'expired' });
@@ -778,6 +779,7 @@ test('declined checkout (J2): only an unpaid, incomplete subscription of this se
     [{ ...base, session: { ...session, status: 'complete' } }, 'declined_checkout_session_not_unpaid'],
     [{ ...base, session: { ...session, livemode: true } }, 'declined_checkout_session_not_unpaid'],
     [{ ...base, expectedStatus: 'expired' }, 'declined_checkout_session_not_unpaid'],
+    [{ ...base, subscription: { ...subscription, status: 'incomplete_expired' } }, 'declined_checkout_subscription_not_incomplete'],
     [{ ...base, succeededCharges: 1 }, 'declined_checkout_charged'],
     [{ ...base, succeededCharges: null }, 'declined_checkout_charges_unread'],
     [{ ...base, subscription: null }, 'declined_checkout_subscription_unread'],
