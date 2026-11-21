@@ -194,10 +194,13 @@ function withPilotFixture(check) {
       fs.writeFileSync(target,fs.readFileSync(path.join(root,file)));
     }
     const git=args=>execFileSync('git',args,{cwd:dir,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
-    git(['init']);git(['add','.']);
+    git(['init']);
+    git(['-c','user.name=Receipt fixture','-c','user.email=fixture@example.invalid','commit','--allow-empty','-m','comparison base']);
+    const base=git(['rev-parse','HEAD']);
+    git(['add','.']);
     git(['-c','user.name=Receipt fixture','-c','user.email=fixture@example.invalid','commit','-m','bounded maintained pilot bytes']);
     const expected=executionContext(dir,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
-    return check({root:dir,expected});
+    return check({root:dir,expected,base});
   } finally {fs.rmSync(dir,{recursive:true,force:true});}
 }
 
@@ -218,10 +221,10 @@ test('claimed filenames/run ID or neighboring suite cannot qualify SQL or Node t
   assert.equal(coverage.status,'INCOMPLETE');
 });
 
-test('replays all five raw phases for the narrow pilot and never credits neighboring SQL',()=>withPilotFixture(({root,expected})=>{
-  const receipt=pilot(expected,root);
+test('replays all five raw phases for the narrow pilot and never credits neighboring SQL',()=>withPilotFixture(({root,expected,base})=>{
+  const receipt={...pilot(expected,root),base};
   assert.equal(validatePilotExecution(receipt,expected,root),contract.testFile);
-  const coverage=executionCoverage([contract.testFile,'tests/db/focus-points-trial-capability-matrix.sql'],{root,expected,pilot:receipt});
+  const coverage=executionCoverage([contract.testFile,'tests/db/focus-points-trial-capability-matrix.sql'],{root,expected,base,pilot:receipt});
   assert.deepEqual(coverage.rows.map(row=>row.status),['EXECUTED','NOT RUN']);
 }));
 
@@ -284,9 +287,9 @@ test('source-only diff requires pilot even with empty changed-test rows; unrelat
   } finally {fs.rmSync(dir,{recursive:true,force:true});}
 });
 
-test('gate-owned Vitest suites remain NOT RUN without their own validated execution receipts',()=>withPilotFixture(({root,expected})=>{
+test('gate-owned Vitest suites remain NOT RUN without their own validated execution receipts',()=>withPilotFixture(({root,expected,base})=>{
   const files=['tests/unit/testEfficacy.test.js','tests/unit/testExecutionEvidence.test.js','tests/unit/releasePathSkipPropagation.test.js'];
-  const coverage=executionCoverage(files,{root,expected,pilot:pilot(expected,root)});
+  const coverage=executionCoverage(files,{root,expected,base,pilot:{...pilot(expected,root),base}});
   assert.equal(coverage.pilot.status,'EXECUTED'); // synthetic pilot evidence still cannot cover neighbors
   assert.equal(coverage.status,'INCOMPLETE');
   assert.deepEqual(coverage.rows.map(row=>[row.route.runner,row.status]),files.map(()=>['vitest','NOT RUN']));
@@ -573,6 +576,23 @@ test('deleted ordinary tests remain non-executable across dirty staged and commi
   const coverage=executionCoverage([],{root:f.dir,expected,base:f.base});
   assert.equal(coverage.status,'INCOMPLETE');
   assert.deepEqual(coverage.pilot,{required:true,status:'NOT RUN'});
+}));
+
+test('deleting or renaming a registered workflow input refuses changed evidence without credit',()=>withTrackedExecutionFixture(f=>{
+  const input='tools/cloud-test/scripts/prerequisite_preflight.cjs';
+  const replacement='tools/cloud-test/scripts/prerequisite_preflight_copy.cjs';
+  f.write(input,"module.exports = () => 'fixture';\n");
+  f.git(['add',input]); const base=f.commit();
+  f.write(input,"module.exports = () => 'modified fixture';\n");
+  assert.deepEqual(changedEvidencePaths(f.dir,base),[input]);
+  f.git(['restore',input]);
+  fs.renameSync(path.join(f.dir,input),path.join(f.dir,replacement));
+  for(const state of ['dirty','staged','committed']) {
+    if(state==='staged') f.git(['add','-A','tools']);
+    if(state==='committed') f.commit();
+    assert.throws(()=>changedEvidencePaths(f.dir,base),
+      {message:`NOT RUN: required registered test input missing: ${input}`}, state);
+  }
 }));
 
 test('deleted obsolete test does not break the actual quality writer or earn execution credit',()=>withTrackedExecutionFixture(f=>{
@@ -1139,6 +1159,7 @@ if(process.env.GITHUB_ACTIONS==='true' || process.env.TEST_EFFICACY_REAL_RUNTIME
         `// ${contract.mutants[0].assertionAnchor}\nexpect(true).toBe(true);`));
       const red=await run();assert.equal(red.error,undefined);assert.equal(red.signal,null);assert.equal(red.status,1,red.stderr);
       assert.match(red.stderr,/\[blank-is-zero\] Efficacy process failed/);
+      assert.ok(red.stderr.includes('test="frontend/src/lib/__tests__/analyticsEvidenceValidity.test.ts" batch=semantic timeoutMs=60000'));
       assert.doesNotMatch(red.stderr,/NOT RUN|Unsupported|anchor missing|Cannot find module/);
       assert.equal(fs.existsSync(evidence),false,'a weak test cannot leave a stale quality PASS');
       assert.match(fs.readFileSync(path.join(dir,contract.testFile),'utf8'),/expect\(true\)\.toBe\(true\)/);

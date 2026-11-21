@@ -178,6 +178,14 @@ test('Deno parses real-shaped JUnit with the actually installed jsdom-relative s
   assert.equal(JSON.parse(fs.readFileSync(require.resolve('saxes/package.json'))).version,'6.0.0');
   assert.deepEqual(parseDenoJunit(xml(),denoBinding,root),{collected:1,assertions:1});
 });
+test('Deno JUnit requires an exact named case, once, when the source contract requires it',()=>{
+  const spec='actual assertion';
+  assert.deepEqual(parseDenoJunit(xml(),denoBinding,root,[spec]),{collected:1,assertions:1});
+  assert.throws(()=>parseDenoJunit(xml().replace(spec,'some other success'),denoBinding,root,[spec]),/required case/);
+  const duplicate=xml('<testcase name="actual assertion" classname="./backend/supabase/functions/fixture.test.ts"/>'.repeat(2),
+    'tests="2" failures="0" errors="0"');
+  assert.throws(()=>parseDenoJunit(duplicate,denoBinding,root,[spec]),/required case/);
+});
 for(const [name,raw] of [
   ['absent',''],['truncated',xml().slice(0,-10)],['invalid entity',xml().replace('actual assertion','&missing;')],
   ['wrong file',xml().replaceAll('fixture.test.ts','other.test.ts')],['zero tests',xml('','tests="0" failures="0" errors="0"')],
@@ -366,7 +374,7 @@ test('reviewed coaching source admits exactly its pinned inputs (handler, provid
   try {
     const admitted=validateSyntheticSource(f.dir,entry);
 
-    assert.equal(admitted.id,'coaching-persist-entitlement-1899');
+    assert.equal(admitted.id,'coaching-consent-efficacy-1905');
     assert.equal(Object.keys(admitted.files).length,17);
     for(const added of ['evaluation/prompt.ts','evaluation/transcripts.json','practicePrivacy.ts'])
       assert.ok(files.includes(`backend/supabase/functions/get-ai-suggestions/${added}`),added);
@@ -379,7 +387,7 @@ test('reviewed coaching source admits exactly its pinned inputs (handler, provid
       f.write(file,original);
     }
 
-    assert.equal(validateSyntheticSource(f.dir,entry).id,'coaching-persist-entitlement-1899');
+    assert.equal(validateSyntheticSource(f.dir,entry).id,'coaching-consent-efficacy-1905');
   }finally{f.clean();}
 });
 test('owned frozen import warmup is separate and cannot disappear, fail, drift or grant test permissions',()=>{
@@ -456,9 +464,19 @@ test('coaching SQL selects its actual consumer and cannot borrow billing consump
   assert.equal(nativeTestRoute(native.replace('local-fence','unregistered-fence'),root),null);
   assert.deepEqual(selectNativeContracts(root,[native]).map(item=>item.testFile),[native]);
 });
-test('full-evidence provisions Deno on its own runner; the Edge job is not its runtime',()=>{
+test('each CI job provisions Deno once before its own required tests or evidence',()=>{
   const require=createRequire(path.join(root,'package.json')),yaml=require('yaml');
   const workflow=yaml.parse(fs.readFileSync(path.join(root,'.github/workflows/ci.yml'),'utf8'));
+  const draft=workflow.jobs['draft-checks'].steps;
+  const draftSetup=draft.filter(step=>step.uses==='denoland/setup-deno@v2');
+  assert.equal(draftSetup.length,1,'edge-changing and other drafts share one Deno setup');
+  assert.equal(draftSetup[0].if,undefined);
+  assert.equal(draftSetup[0].with['deno-version'],'v2.x');
+  const draftEdge=draft.findIndex(step=>step.run==='pnpm test:edge');
+  const draftBilling=draft.findIndex(step=>step.run==='pnpm test:billing-qualification');
+  assert.ok(draftEdge>draft.indexOf(draftSetup[0])&&draftBilling>draftEdge);
+  assert.equal(draft[draftEdge].if,"needs.scope.outputs.edge_changed == 'true'");
+  assert.equal(draft[draftBilling].if,undefined);
   assert.equal(workflow.jobs['full-evidence']['runs-on'],'ubuntu-26.04');
   const steps=workflow.jobs['full-evidence'].steps;
   assert.equal(steps.filter(step=>step.uses==='denoland/setup-deno@v2'&&step.with?.['deno-version']==='v2.x').length,1);

@@ -7,6 +7,9 @@ import {fileURLToPath,pathToFileURL} from 'node:url';
 
 export const PLAYWRIGHT_RECEIPT_VERSION=1;
 export const PLAYWRIGHT_VERSION='1.57.0';
+export const INFRA_PROBE_FILE='tests/e2e/infra.probe.e2e.spec.ts';
+export const INFRA_EXECUTION_DIR='test-results/playwright-infra';
+export const INFRA_BLOB_NAME='infra-execution.zip';
 export const MAX_BLOB_BYTES=32*1024*1024;
 export const MAX_REPORT_BYTES=64*1024*1024;
 export const digest=bytes=>createHash('sha256').update(bytes).digest('hex');
@@ -80,7 +83,7 @@ function evidenceFile(root,rootDir,file) {
 }
 
 // Replay actual SDK events, never final totals alone. Retries/skips/errors do not earn credit.
-export function replayBlobLifecycle(jsonl,{repositoryRoot,shard,commit}={}) {
+export function replayBlobLifecycle(jsonl,{repositoryRoot,shard,commit,project='full-suite'}={}) {
   if(typeof jsonl!=='string' || Buffer.byteLength(jsonl)>MAX_REPORT_BYTES)throw new Error('Invalid raw Playwright report');
   let records;
   try {records=jsonl.trim().split('\n').map(line=>JSON.parse(line));}
@@ -93,8 +96,11 @@ export function replayBlobLifecycle(jsonl,{repositoryRoot,shard,commit}={}) {
   const metadata=unique('onBlobReportMetadata');
   const config=unique('onConfigure')?.config;
   if(metadata?.version!==2 || !metadata.userAgent?.startsWith(`Playwright/${PLAYWRIGHT_VERSION} `)
-    || !same(metadata.shard,shard) || config?.version!==PLAYWRIGHT_VERSION)throw new Error('Wrong blob/runtime/shard identity');
-  if(!Number.isInteger(shard?.current) || shard.current<1 || shard.total!==4 || shard.current>4)throw new Error('Wrong Playwright shard');
+    || config?.version!==PLAYWRIGHT_VERSION)throw new Error('Wrong blob/runtime/shard identity');
+  const infra=project==='infra-probe';
+  if(infra ? (shard!==null || metadata.shard!==undefined)
+    : (project!=='full-suite' || !same(metadata.shard,shard) || !Number.isInteger(shard?.current)
+      || shard.current<1 || shard.total!==4 || shard.current>4))throw new Error('Wrong Playwright shard');
   for(const value of [config?.metadata?.ci?.commitHash,config?.metadata?.gitCommit?.hash]) {
     if(value!==undefined && value!==commit)throw new Error('Wrong blob source commit');
   }
@@ -106,7 +112,7 @@ export function replayBlobLifecycle(jsonl,{repositoryRoot,shard,commit}={}) {
     throw new Error('Playwright error or incomplete terminal result');
   }
   const projects=records.filter(item=>item.method==='onProject').map(item=>item.params?.project);
-  if(projects.length!==1 || projects[0]?.name!=='full-suite')throw new Error('Wrong Playwright project');
+  if(projects.length!==1 || projects[0]?.name!==project)throw new Error('Wrong Playwright project');
   const collected=new Map();
   const visit=suite=>{
     if(!Array.isArray(suite.entries))throw new Error('Missing raw Playwright collection');
@@ -120,6 +126,9 @@ export function replayBlobLifecycle(jsonl,{repositoryRoot,shard,commit}={}) {
   };
   if(!Array.isArray(projects[0].suites))throw new Error('Missing project suites');
   projects[0].suites.forEach(visit);
+  if(infra && (!collected.size || [...collected.values()].some(test=>test.file!==INFRA_PROBE_FILE))) {
+    throw new Error('Dedicated infra Playwright collection must contain only the exact infra file');
+  }
   const begun=new Map(),ended=new Set();let active=false,closed=false;
   for(const event of records) {
     if(event.method==='onBegin'){active=true;continue;}
@@ -162,9 +171,13 @@ export function validatePlaywrightExecution(wrapper,{root,expected,requiredFiles
   const runtime=playwrightRuntimeIdentity(root);
   const lockSha256=digest(fs.readFileSync(path.join(root,'pnpm-lock.yaml')));
   const shards=new Set(),producers=new Set(),testIds=new Set(),files=new Set();
-  for(const entry of wrapper.shards) {
-    const producer=entry.producer;
-    if(producer?.schemaVersion!==1 || producer.role!=='playwright-shard-producer'
+  const requireInfra=Array.isArray(requiredFiles) && requiredFiles.includes(INFRA_PROBE_FILE);
+  if(Object.hasOwn(wrapper,'infra')!==requireInfra)throw new Error('Missing or unexpected dedicated infra Playwright evidence');
+  const entries=wrapper.shards.map(entry=>[entry,false]);
+  if(requireInfra) entries.push([wrapper.infra,true]);
+  for(const [entry,infra] of entries) {
+    const producer=entry?.producer;
+    if(producer?.schemaVersion!==1 || producer.role!==(infra?'playwright-infra-producer':'playwright-shard-producer')
       || !/^[a-f0-9-]{36}$/.test(producer.producerId || '') || producers.has(producer.producerId)
       || Object.hasOwn(producer,'invocation') || Object.hasOwn(producer.source || {},'invocation')
       || producer.lineage?.source!==expected.source || producer.lineage.runId!==expected.runId
@@ -174,16 +187,27 @@ export function validatePlaywrightExecution(wrapper,{root,expected,requiredFiles
       throw new Error('Wrong producer identity/source/lock/runtime or cross-job lineage');
     }
     const current=producer.shard?.current;
-    if(!Number.isInteger(current) || current<1 || current>4 || producer.shard.total!==4 || shards.has(current))throw new Error('Missing/duplicate producer shard');
-    shards.add(current);producers.add(producer.producerId);
-    const prefix=`artifacts/shard-report-${current}/`;
-    if(entry.receiptPath!==`${prefix}test-results/playwright/${entry.receiptName}`
-      || !/^playwright-execution-\d+-\d+-[1-4]-[a-f0-9-]{36}\.json$/.test(entry.receiptName || '')
-      || entry.receiptName!==`playwright-execution-${expected.runId}-${expected.runAttempt}-${current}-${producer.producerId}.json`
-      || typeof producer.blob?.name!=='string' || path.basename(producer.blob.name)!==producer.blob.name
-      || !producer.blob.name.endsWith('.zip') || entry.blobPath!==`${prefix}blob-report/${producer.blob.name}`) {
-      throw new Error('Receipt/blob not paired in original producing-shard artifact');
+    if(infra) {
+      const prefix='artifacts/health-check-report/';
+      if(producer.project!=='infra-probe' || producer.shard!==null
+        || entry.receiptName!==`infra-execution-${expected.runId}-${expected.runAttempt}-${producer.producerId}.json`
+        || entry.receiptPath!==`${prefix}${entry.receiptName}`
+        || producer.blob?.name!==INFRA_BLOB_NAME || entry.blobPath!==`${prefix}${INFRA_BLOB_NAME}`) {
+        throw new Error('Receipt/blob not paired in the dedicated infra artifact');
+      }
+    } else {
+      if(!Number.isInteger(current) || current<1 || current>4 || producer.shard.total!==4 || shards.has(current))throw new Error('Missing/duplicate producer shard');
+      shards.add(current);
+      const prefix=`artifacts/shard-report-${current}/`;
+      if(entry.receiptPath!==`${prefix}test-results/playwright/${entry.receiptName}`
+        || !/^playwright-execution-\d+-\d+-[1-4]-[a-f0-9-]{36}\.json$/.test(entry.receiptName || '')
+        || entry.receiptName!==`playwright-execution-${expected.runId}-${expected.runAttempt}-${current}-${producer.producerId}.json`
+        || typeof producer.blob?.name!=='string' || path.basename(producer.blob.name)!==producer.blob.name
+        || !producer.blob.name.endsWith('.zip') || entry.blobPath!==`${prefix}blob-report/${producer.blob.name}`) {
+        throw new Error('Receipt/blob not paired in original producing-shard artifact');
+      }
     }
+    producers.add(producer.producerId);
     if(typeof entry.blobBase64!=='string' || entry.blobBase64.length>Math.ceil(MAX_BLOB_BYTES/3)*4
       || !/^[A-Za-z0-9+/]*={0,2}$/.test(entry.blobBase64))throw new Error('Malformed embedded original ZIP');
     const bytes=Buffer.from(entry.blobBase64,'base64');
@@ -193,7 +217,7 @@ export function validatePlaywrightExecution(wrapper,{root,expected,requiredFiles
     }
     const jsonl=replayEmbeddedBlob(root,bytes);
     if(digest(jsonl)!==producer.blob.reportSha256)throw new Error('Raw SDK report bytes changed');
-    const tests=replayBlobLifecycle(jsonl,{repositoryRoot:producer.repositoryRoot,shard:producer.shard,commit:expected.commit});
+    const tests=replayBlobLifecycle(jsonl,{repositoryRoot:producer.repositoryRoot,shard:producer.shard,commit:expected.commit,project:infra?'infra-probe':'full-suite'});
     if(!same(tests,producer.collection) || producer.beginCalls!==1 || producer.endCalls!==1 || producer.errorCalls!==0
       || producer.terminalStatus!=='passed' || producer.rawReplayError!==null
       || !Array.isArray(producer.begins) || !Array.isArray(producer.ends)
@@ -206,6 +230,7 @@ export function validatePlaywrightExecution(wrapper,{root,expected,requiredFiles
         || ends[0].status!=='passed' || ends[0].expectedStatus!=='passed' || ends[0].errors!==0) {
         throw new Error('Producer callbacks missing, duplicated, retried, skipped or failed');
       }
+      if(!infra && test.file===INFRA_PROBE_FILE)throw new Error('Infra test cannot earn ordinary shard credit');
       files.add(test.file);
     }
   }
@@ -221,20 +246,29 @@ export function collectPlaywrightExecution({root,expected,requiredFiles}={}) {
   if(!requiredFiles.length)return null;
   if(expected.source!=='github-actions')throw new Error('Playwright artifact collection requires exact CI lineage');
   const wrapper={schemaVersion:1,role:'playwright-report-wrapper',provenance:expected,shards:[]};
-  for(let current=1;current<=4;current++) {
-    const prefix=`artifacts/shard-report-${current}/`;
-    const directory=path.join(root,prefix,'test-results/playwright');
-    const names=fs.readdirSync(directory).filter(name=>name.startsWith('playwright-execution-') && name.endsWith('.json'));
-    if(names.length!==1)throw new Error('Missing/ambiguous original shard producer receipt');
-    const receiptPath=`${prefix}test-results/playwright/${names[0]}`;
+  const collect=(receiptDir,receiptPrefix,blobDir,infra=false)=>{
+    const directory=path.join(root,receiptDir);
+    const names=fs.existsSync(directory)
+      ? fs.readdirSync(directory).filter(name=>name.startsWith(receiptPrefix) && name.endsWith('.json')) : [];
+    if(names.length!==1)throw new Error(infra?'Missing/ambiguous dedicated infra producer receipt':'Missing/ambiguous original shard producer receipt');
+    const receiptPath=`${receiptDir}/${names[0]}`;
     const raw=readArtifact(root,receiptPath,MAX_REPORT_BYTES);
     const producer=JSON.parse(raw.toString('utf8'));
-    if(typeof producer.blob?.name!=='string' || path.basename(producer.blob.name)!==producer.blob.name)throw new Error('Invalid original blob name');
-    const blobPath=`${prefix}blob-report/${producer.blob.name}`;
+    if(typeof producer.blob?.name!=='string' || path.basename(producer.blob.name)!==producer.blob.name
+      || (infra && producer.blob.name!==INFRA_BLOB_NAME))throw new Error('Invalid original blob name');
+    const blobPath=`${blobDir}/${producer.blob.name}`;
     const bytes=readArtifact(root,blobPath,MAX_BLOB_BYTES);
     // Canonical JSON equality prevents unobserved duplicate keys or misleading whitespace identity.
     if(raw.toString('utf8')!==JSON.stringify(producer))throw new Error('Noncanonical producer receipt bytes');
-    wrapper.shards.push({producer,receiptName:names[0],receiptPath,receiptSha256:digest(raw),blobPath,blobBase64:bytes.toString('base64')});
+    return {producer,receiptName:names[0],receiptPath,receiptSha256:digest(raw),blobPath,blobBase64:bytes.toString('base64')};
+  };
+  for(let current=1;current<=4;current++) {
+    const prefix=`artifacts/shard-report-${current}`;
+    wrapper.shards.push(collect(`${prefix}/test-results/playwright`,'playwright-execution-',`${prefix}/blob-report`));
+  }
+  if(requiredFiles.includes(INFRA_PROBE_FILE)) {
+    const prefix='artifacts/health-check-report';
+    wrapper.infra=collect(prefix,'infra-execution-',prefix,true);
   }
   validatePlaywrightExecution(wrapper,{root,expected,requiredFiles});
   return wrapper;

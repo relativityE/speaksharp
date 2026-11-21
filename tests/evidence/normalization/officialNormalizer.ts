@@ -14,7 +14,7 @@
  * Fillers (`hmm|mm|mhm|mmm|uh|um`) and bracketed markers ARE REMOVED here — that is upstream behaviour
  * and it belongs to Track A only. Track B preserves both; see `tracks.ts`.
  */
-import spellings from './english.json';
+import spellings from './english.json' with { type: 'json' };
 import { normalizeEnglishNumbers } from './englishNumberNormalizer';
 
 const SPELLINGS = spellings as Record<string, string>;

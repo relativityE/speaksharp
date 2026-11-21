@@ -85,15 +85,35 @@ function noPraiseForUndetected(take: EvaluationItem, answerText: string): Verdic
   return verdict(praised.map((p) => `what_worked praises the undetected point "${p.label}"`));
 }
 
-/** C5: the pair is about THIS take. FAIL when it is anchored only to another take's anchors (a cross-wired answer). */
+// Reviewed factual cue for the scripted bill-pitch vs onboarding cross-wire.
+// A bare shared word such as "setup", or a new practice technique, is not evidence.
+const ONBOARDING_DELAY = /\b(?:verification delay in account setup|account setup (?:slowed|was delayed) (?:down )?by (?:a |the )?late verification email)\b/iu;
+
+/** C5: fixture-specific cross-wire checks, not an independent semantic judge. */
 function ownTake(take: EvaluationItem, r: ItemRecord, answerText: string): Verdict {
   if (r.outcome !== 'none') return verdict([`not served: ${r.outcome}`]);
   const parsed = JSON.parse(answerText) as { what_worked: string; what_to_try_next: string };
   const phrases = [parsed.what_worked, parsed.what_to_try_next];
-  const anchoredTo = (other: EvaluationItem) => other.grounding.anchors.some((a) =>
-    new RegExp(`(?<![\\p{L}\\p{N}_])${a.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}_])`, 'iu').test(phrases.join(' ')));
+  const hasAnchor = (anchor: string, text: string) =>
+    new RegExp(`(?<![\\p{L}\\p{N}_])${anchor.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}_])`, 'iu').test(text);
+  const anchoredTo = (other: EvaluationItem, text = phrases.join(' ')) =>
+    other.grounding.anchors.some((anchor) => hasAnchor(anchor, text));
   const others = SET.items.filter((o) => o.id !== take.id && anchoredTo(o)).map((o) => o.id);
-  if (anchoredTo(take)) return verdict([]);
+  if (anchoredTo(take)) {
+    // Each field can be cross-wired independently. A correct praise line cannot
+    // lend its grounding to a next step that's exclusively about another fixture.
+    const crossed = Object.entries({ what_worked: parsed.what_worked, what_to_try_next: parsed.what_to_try_next }).flatMap(([field, text]) => {
+      if (anchoredTo(take, text)) {
+        return take.id === 'om-03-fast-pitch' && ONBOARDING_DELAY.test(text)
+          ? [`${field} borrows an account-setup fact from om-01-team-update`]
+          : [];
+      }
+      const wrongTakes = SET.items.filter((o) => o.id !== take.id && o.grounding.anchors.some((anchor) =>
+        hasAnchor(anchor, text) && !hasAnchor(anchor, take.transcript))).map((o) => o.id);
+      return wrongTakes.length ? [`${field} is anchored only to another take (${wrongTakes.join(', ')})`] : [];
+    });
+    return verdict(crossed);
+  }
   return verdict([others.length ? `anchored to another take (${others.join(', ')}), not this one` : 'not anchored to any take']);
 }
 
@@ -175,6 +195,40 @@ Deno.test('#1816 C5 wrong-session tips: a cross-wired answer (om-01\'s pair serv
   }
   console.log(`#1816_BOT_CHECK ${JSON.stringify({ check: 'C5 swap matrix', fixture: 'om-01..06', crossedPairs: 30, caught })}`);
   assertEquals(caught, 30);
+});
+
+Deno.test('#1905 wrong-take coaching fails when only one advice section is cross-wired', async () => {
+  for (const id of ['om-03-fast-pitch', 'fp-02-point-not-detected']) {
+    const current = JSON.parse(CORRECT[id]);
+    const foreign = JSON.parse(CORRECT['om-01-team-update']);
+    const good = await run({}, id);
+    assertEquals(ownTake(item(id), good.record, good.text).verdict, 'PASS');
+    for (const field of ['what_worked', 'what_to_try_next']) {
+      const mixed = JSON.stringify({ ...current, [field]: foreign[field] });
+      const output = await run({ [id]: mixed }, id);
+      assertEquals(ownTake(item(id), output.record, output.text).verdict, 'FAIL', `${id} ${field}: advice from the other take`);
+    }
+  }
+});
+
+Deno.test('#1905 a correct anchor does not excuse a foreign factual claim in the same section', async () => {
+  const id = 'om-03-fast-pitch';
+  const { what_worked: worked } = JSON.parse(CORRECT[id]);
+  const novel = await run({ [id]: pair(worked,
+    'Before discussing late payments, pause and try a show-of-hands question about utility bills.') }, id);
+  const sharedWord = await run({ [id]: pair(worked,
+    'Slow the setup before naming late payments.') }, id);
+  assertEquals(ownTake(item(id), novel.record, novel.text), verdict([]));
+  assertEquals(ownTake(item(id), sharedWord.record, sharedWord.text), verdict([]));
+  for (const advice of [
+    'Before discussing late payments, explain the verification delay in account setup.',
+    'Before the pilot result, mention that account setup was delayed by a late verification email.',
+  ]) {
+    const foreignClaim = await run({ [id]: pair(worked, advice) }, id);
+    assertEquals(foreignClaim.record.outcome, 'none', 'the provider answer was served; the rubric must catch the fault');
+    assertEquals(ownTake(item(id), foreignClaim.record, foreignClaim.text),
+      verdict(['what_to_try_next borrows an account-setup fact from om-01-team-update']));
+  }
 });
 
 Deno.test('#1816 C7 both advice sections: a one-section answer is refused and a number recital is flagged', async () => {
