@@ -8,7 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
-    COACHING_CHARACTER_CEILING, characterCeilingVerdict, fillerAdviceVerdict, openPointReferenceVerdict, readTwoTakesCoaching,
+    COACHING_CHARACTER_CEILING, characterCeilingVerdict, fillerAdviceVerdict, omissionClaimVerdict, openPointReferenceVerdict, readTwoTakesCoaching,
     takesDifferVerdict,
 } from '../live/helpers/rwtCoachingConsistency';
 import { requiredAutomatedRows } from '../live/helpers/rwtAcceptance';
@@ -130,5 +130,41 @@ describe('guards — the journeys write every R4 row, and a provider outage sett
     it('the Open Mic outage scope lists its R4 rows as provider-dependent', () => {
         const acceptance = src('tests/live/helpers/rwtAcceptance.ts');
         expect(acceptance).toContain("'coaching within the character ceiling', 'coaching consistent with saved fillers', 'coaching differs between takes',\n            ...COACHING_DEPENDENT_ANALYTICS_ROWS,");
+    });
+});
+
+describe('omissionClaimVerdict — J3 advice that asserts a point was missed vs harmless omission wording (live run 44941790511)', () => {
+    const labels = ['Money-back guarantee', 'Launch date', 'Pricing tiers'];
+    const verdict = (next: string, l: readonly string[] | null = labels) => omissionClaimVerdict({ well: 'Clear opening with a steady pace.', next, labels: l });
+    it('FAIL: the advice states an omission, whatever the subject', () => {
+        for (const next of ['You missed the money-back guarantee.', 'The launch date was not mentioned.', "You didn't cover the pricing tiers.",
+            'You left it out at the end.', 'You forgot the guarantee.', 'The guarantee went unmentioned.', 'You skipped your strongest point.']) {
+            expect(verdict(next)).toMatchObject({ status: 'FAIL', form: 'past_claim' });
+        }
+    });
+    it('FAIL: an imperative or present form that presupposes a chosen point was omitted', () => {
+        expect(verdict("Don't skip the guarantee next time.")).toMatchObject({ status: 'FAIL', form: 'implied_point' });
+        expect(verdict('Never forget the launch date.')).toMatchObject({ status: 'FAIL', form: 'implied_point' });
+        expect(verdict('The pricing tiers are still missing.')).toMatchObject({ status: 'FAIL', form: 'present_point' });
+    });
+    it('PASS: omission words that are not about any chosen point, and advice with none', () => {
+        for (const next of ['Skip the filler words between points.', "Don't miss a breath before the close.", 'Avoid skipping transitions.']) {
+            expect(verdict(next)).toMatchObject({ status: 'PASS', form: 'unrelated' });
+        }
+        for (const next of ['Name the guarantee early so it is unmistakable.', 'Pause before the launch date so it lands.']) {
+            expect(verdict(next)).toMatchObject({ status: 'PASS', form: 'none' });
+        }
+    });
+    it('HOLD, never PASS: an imperative omission form with no point labels to tie it to', () => {
+        expect(verdict("Don't skip the guarantee next time.", null)).toMatchObject({ status: 'HOLD', form: 'unknown_point' });
+        expect(verdict("Don't skip the guarantee next time.", [])).toMatchObject({ status: 'HOLD', form: 'unknown_point' });
+        expect(verdict('You missed the guarantee.', null)).toMatchObject({ status: 'FAIL', form: 'past_claim' });
+    });
+    it('the old word match flagged every harmless example above; the verdict records only a closed form token, never the phrase', () => {
+        const OLD = /\b(miss(ed|ing)?|skip(ped)?|forg(o|e)t|left out|didn'?t (mention|cover|say)|never (mentioned|covered|said))\b/i;
+        expect(['Skip the filler words between points.', "Don't miss a breath before the close."].every((p) => OLD.test(p))).toBe(true);
+        const v = verdict('You missed the money-back guarantee.');
+        expect(JSON.stringify(v)).not.toContain('money-back');
+        expect(['none', 'past_claim', 'implied_point', 'present_point', 'unrelated', 'unknown_point']).toContain(v.form);
     });
 });

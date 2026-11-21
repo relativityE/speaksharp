@@ -66,7 +66,7 @@ export const RWT_WRITES_ACK_VALUE = 'RWT-DISPOSABLE-ACCOUNT-WRITES';
 export { humanWorksheet, receiptAcceptance, type ReceiptRow, type Verdict };
 // #1258 (PM 6174134686): the closed coaching failure vocabulary lives with the EXTERNAL classifier, which publishes it.
 export { COACHING_FAILURE_REASONS, coachingFailureReason } from './coachingExternal';
-import { characterCeilingVerdict, openPointReferenceVerdict } from './rwtCoachingConsistency';
+import { characterCeilingVerdict, omissionClaimVerdict, openPointReferenceVerdict } from './rwtCoachingConsistency';
 import { coachingFallbackRow } from './rwtCoachingFallback';
 
 /**
@@ -2405,9 +2405,6 @@ export function modelIdentityRow(receipt: RwtReceipt, run: RunTarget, identity: 
     receipt.row('model identity', 'PASS', 'the deployed default ran and identified itself (diagnostic; not base_q4 evidence)', evidence);
 }
 
-/** Words the coaching must never use about a point the matcher did not detect (runbook v12: no certainty of omission). */
-const OMISSION_CLAIM = /\b(miss(ed|ing)?|skip(ped)?|forg(o|e)t|left out|didn'?t (mention|cover|say)|never (mentioned|covered|said))\b/i;
-
 /**
  * #1258 (runbook v12 Product 2 row 5) — the Focus Points coaching pair after Stop, as the person sees it. The same
  * contract as Open Mic (two distinct phrases (about 8–10 words: a soft target), visible = saved, server receipt) plus the Focus rules: the
@@ -2564,9 +2561,10 @@ export async function focusCoachingRows(
         { wellWords: countWords(well), nextWords: countWords(next), withinTarget });
     const distinct = normalisePhraseText(well) !== normalisePhraseText(next);
     receipt.row('Focus coaching distinct', distinct ? 'PASS' : 'FAIL', distinct ? 'two different suggestions' : 'both headings show the same phrase');
-    const claims = OMISSION_CLAIM.test(well) || OMISSION_CLAIM.test(next);
-    receipt.row('Focus coaching makes no omission claim', claims ? 'FAIL' : 'PASS',
-        claims ? 'a phrase claims a point was missed or skipped (the matcher cannot know that)' : 'neither phrase claims a point was missed or skipped');
+    // Live run 44941790511: the old word match failed harmless advice ("skip the filler words") and kept no phrase. The verdict
+    // tells a stated or implied omission of a chosen point from unrelated wording; the receipt keeps only its closed form token.
+    const omission = omissionClaimVerdict({ well, next, labels: request.openPoints?.labels ?? null });
+    receipt.row('Focus coaching makes no omission claim', omission.status, omission.detail, { form: omission.form });
     // #1258 R4: the provider schema's own ceiling, and an evident reference to a point that is still open (never a FAIL on
     // wording: the human check decides when no open point is named).
     const ceiling = characterCeilingVerdict(well, next);
