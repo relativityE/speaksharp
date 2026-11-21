@@ -98,8 +98,7 @@ describe('J3 coaching_fallback_shown, read from the real review card', () => {
             const root = await failedCard();
             mutate(root);
             const v = coachingFallbackVerdict(await readCoachingFallback(domCard(root)));
-            expect(v.verdict, name).toBe('FAIL');
-            expect(v.missing, name).toEqual(check.split('|'));
+            expect({ name, verdict: v.verdict, missing: v.missing }).toEqual({ name, verdict: 'FAIL', missing: check.split('|') });
             cleanup();
         }
     });
