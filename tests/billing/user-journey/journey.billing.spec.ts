@@ -16,6 +16,8 @@ import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, re
   type StopGateResult, privacyBuildState, PRIVACY_PROMPT, optInThroughPrompt, type PrivacyTableRead, trustedCheckoutFrame } from './contract';
 import { fillHostedEmail } from './hostedEmail';
 import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
+import { SESSION_FACT_COLUMNS, sessionFactsFromRows, type SessionRowFacts } from '../../live/helpers/rwtNavigationRows';
+import { assertTakeReadable, assertHistoryWalled, assertHistoryRestored, assertSingleCharge, portalShowsPlan } from './restoreAccess';
 import { selectBenchmarkMode, preparePrivateModelIfPrompted, startBenchmarkRecording,
   expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput } from '../../live/helpers/benchmark-utils';
 
@@ -60,6 +62,8 @@ class SandboxJourney {
     { auth: { autoRefreshToken: false, persistSession: false } });
   readonly eventIds = new Set<string>();
   uid = ''; customer = ''; subscription = ''; clock = ''; session = ''; savedSession = '';
+  /** restore_access (J9.b): the take saved during the trial, and the member's own history as read then (content-free facts). */
+  trialTake = ''; trialHistory: SessionRowFacts[] | null = null;
   /** The Checkout session openCheckout positively bound to this run (assertCheckoutIdentity); null until then. */
   boundCheckout: string | null = null;
   /** Whether the bound Customer's email IS this run's fixture email: compared only, never kept or reported; null when unread. */
@@ -148,6 +152,57 @@ class SandboxJourney {
     await expect(this.page.getByTestId('nav-account-avatar')).toBeVisible();
   }
 
+  /** The account's session rows as content-free facts (digests, never transcript text); null when the read is not a clean list. */
+  async history(client: SupabaseClient): Promise<SessionRowFacts[] | null> {
+    const { data, error } = await client.from('sessions').select(SESSION_FACT_COLUMNS).eq('user_id', this.uid)
+      .order('created_at', { ascending: true }).order('id', { ascending: true });
+    return error ? null : sessionFactsFromRows(data);
+  }
+
+  /** Progress (the canonical /progress list) lists this take's own Open control. */
+  async progressLists(takeId: string): Promise<boolean> {
+    await this.page.goto(`${this.targets.app}/progress`);
+    return this.page.getByTestId(`open-session-detail-${takeId}`).first()
+      .waitFor({ state: 'visible', timeout: 45_000 }).then(() => true, () => false);
+  }
+
+  /** J9.b before the trial ends: a real take saved by the member, readable by them and listed on Progress. */
+  async trialTakeSaved(): Promise<void> {
+    await this.login();
+    await this.record();
+    this.trialTake = this.savedSession;
+    this.trialHistory = await this.history(this.member);
+    assertTakeReadable(this.trialHistory, this.trialTake, 'pre_expiry_take_not_readable');
+    this.steps.add('pre_expiry_take');
+    requireFact(await this.progressLists(this.trialTake), 'progress_did_not_list_trial_take');
+    this.steps.add('pre_expiry_progress');
+  }
+
+  /**
+   * J9.b after the trial ends: the member's own read of the take is empty while the row is kept, and the app shows the payment
+   * wall on Progress instead of the take (#1863: "No payment, no service or access to their past data").
+   */
+  async historyWalled(): Promise<void> {
+    assertHistoryWalled(await this.history(this.member), await this.history(this.admin), this.trialTake);
+    await this.page.goto(`${this.targets.app}/progress`);
+    await expect(this.page.getByTestId('trial-payment-wall')).toBeVisible({ timeout: 30_000 })
+      .catch(() => { throw new Error('BILLING_JOURNEY:progress_not_walled'); });
+    requireFact(await this.page.getByTestId(`open-session-detail-${this.trialTake}`).count() === 0, 'progress_listed_walled_take');
+    this.steps.add('history_walled');
+  }
+
+  /** J9.b: Manage billing opens the Stripe portal for this member, and the portal names the $10.00 monthly plan. */
+  async portalPlan(): Promise<void> {
+    await this.page.goto(`${this.targets.app}/account`);
+    const manage = this.page.getByRole('button', { name: 'Manage billing', exact: true });
+    await expect(manage).toBeVisible({ timeout: 30_000 }).catch(() => { throw new Error('BILLING_JOURNEY:manage_billing_unavailable'); });
+    await manage.click();
+    await this.page.waitForURL(url => url.origin === 'https://billing.stripe.com', { timeout: 60_000 })
+      .catch(() => { throw new Error('BILLING_JOURNEY:portal_not_opened'); });
+    // The page text stays in memory: only whether it names the plan leaves.
+    await this.poll(async () => portalShowsPlan(await this.page.locator('body').innerText().catch(() => null)), Boolean, 'portal_plan_not_shown');
+  }
+
   async account(label: RegExp): Promise<void> {
     await this.page.goto(`${this.targets.app}/account`);
     await expect(this.page.getByTestId('membership-status')).toContainText(label);
@@ -181,7 +236,8 @@ class SandboxJourney {
     requireFact(!auth.error && auth.data.user?.id === this.uid, 'fixture_auth_failed');
     const trial = await this.usage();
     requireFact(trial.trial_active === true && trial.can_start === true, 'trial_access_missing');
-    if (this.journey === 'conversion') this.steps.add('trial_granted');
+    if (this.journey === 'conversion' || this.journey === 'restore_access') this.steps.add('trial_granted');
+    if (this.journey === 'restore_access') await this.trialTakeSaved();
     // Controlled expiry of ONLY this disposable sandbox fixture. Never alter the immutable grant marker.
     const expired = await this.admin.from('user_profiles').update({ trial_expires_at: new Date(Date.now() - 60_000).toISOString() }).eq('id', this.uid);
     requireFact(!expired.error, 'fixture_expiry_failed');
@@ -189,7 +245,8 @@ class SandboxJourney {
     requireFact(after.commercial_trial_granted_at === initial.commercial_trial_granted_at, 'trial_grant_changed');
     const usage = await this.usage();
     requireFact(usage.trial_active === false && usage.can_start === false && usage.is_pro === false, 'expired_access_not_blocked');
-    if (this.journey === 'conversion' || this.journey === 'failed_checkout') this.steps.add('trial_expired');
+    if (this.journey === 'conversion' || this.journey === 'failed_checkout' || this.journey === 'restore_access') this.steps.add('trial_expired');
+    if (this.journey === 'restore_access') await this.historyWalled();
 
     // Clock-backed customers keep each branch independent; unsupported sandbox capabilities fail closed.
     this.uncertainStripeCreate = true;
@@ -209,7 +266,8 @@ class SandboxJourney {
     if (this.journey === 'conversion') this.checkpoint('existing_customer_fixture');
     const seeded = await this.admin.from('user_profiles').update({ stripe_customer_id: this.customer }).eq('id', this.uid);
     requireFact(!seeded.error, 'fixture_customer_binding_failed');
-    await this.login();
+    // restore_access signed in before the trial ended, to save its take.
+    if (this.journey !== 'restore_access') await this.login();
   }
 
   /** Fills Stripe's hosted card form (Checkout or the portal) and submits. Never reads or reports its content. */
@@ -705,6 +763,22 @@ class SandboxJourney {
       await this.stripe(`subscriptions/${this.subscription}`, 'POST', { default_payment_method: good.id });
       // API recovery here; portal_recovery proves the member's own path through Manage billing.
       await this.recovered(await this.stripe(`invoices/${failedInvoice}/pay`, 'POST', { payment_method: good.id }), failedInvoice);
+    } else if (this.journey === 'restore_access') {
+      requireFact(new URL(this.page.url()).origin === this.targets.app, 'return_missing');
+      this.steps.add('returned_to_app');
+      // Exactly one successful $10.00 test-mode charge, and it is the first invoice's own.
+      const sub = await this.stripe(`subscriptions/${this.subscription}`);
+      const invoice = await this.stripe(`invoices/${id(sub.latest_invoice)}`);
+      assertSingleCharge(await this.stripe(`charges?${new URLSearchParams({ customer: this.customer, limit: '10' })}`),
+        { customer: this.customer, invoiceCharge: id(invoice.charge) });
+      this.steps.add('single_charge');
+      await this.account(/Pro · Active/); this.steps.add('paid_ui');
+      // The same take, unchanged, back in the member's own read and on Progress (read before the next take adds a row).
+      assertHistoryRestored(this.trialHistory, await this.history(this.member), this.trialTake);
+      requireFact(await this.progressLists(this.trialTake), 'progress_did_not_list_restored_take');
+      this.steps.add('history_restored');
+      await this.portalPlan(); this.steps.add('portal_plan');
+      await this.record(); this.steps.add('next_recording');
     } else if (this.journey === 'failed_checkout') {
       // A declined then abandoned Checkout and a paid retry leave exactly one subscription.
       const all = await this.stripe(`subscriptions?${new URLSearchParams({ customer: this.customer, status: 'all', limit: '10' })}`);
