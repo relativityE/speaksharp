@@ -1533,7 +1533,9 @@ describe('Codex P2 on 06fe109b — telemetry settles before the watchdog verdict
     it('Codex P2 r4314462589: the return retry is strict — the refusal allowance and fault phase end BEFORE the second press', () => {
         const src = readFileSync('tests/live/rwt-abandon-and-two-tabs.live.spec.ts', 'utf8');
         const branch = src.slice(src.indexOf('if (refusalCopyShown) {'), src.indexOf('secondPressRecorded = await isRecording(returned, 60_000);'));
-        const click = branch.indexOf("await returned.getByTestId('mic-start').click();");
+        // #1835 (Sam, #1916): the second press reads consent back inside the press, at its click.
+        const click = branch.indexOf("await pressCaptureControl(returned, ['mic-start'], { beforeClick: () => requireGate(consentGate).confirm() });");
+        expect(click).toBeGreaterThan(-1);
         expect(branch.indexOf('watch.setStartRefusedAllowed(false);')).toBeGreaterThan(-1);
         expect(branch.indexOf('watch.setStartRefusedAllowed(false);')).toBeLessThan(click);
         expect(branch.indexOf('watch.setFaultPhase(false);')).toBeGreaterThan(-1);

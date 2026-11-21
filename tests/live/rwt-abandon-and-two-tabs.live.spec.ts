@@ -37,7 +37,8 @@ import {
     type FenceCaptures, type RecoveryDb, SessionCreateBinding, readBaselineRows, readRecording, readSnapshot, recoveryFenceRow,
 } from './helpers/rwtRecoveryCapture';
 import {
-    preparePrivateModelIfPrompted, selectBenchmarkMode, startBenchmarkRecording, stopBenchmarkRecording, waitForPrivateEngineReady,
+    preparePrivateModelIfPrompted, pressCaptureControl, selectBenchmarkMode, startBenchmarkRecording, stopBenchmarkRecording,
+    waitForPrivateEngineReady,
 } from './helpers/benchmark-utils';
 import {
     ABANDON_SUITE, type AbandonVariant, BLOCKED_COPY, DISPLACED_COPY, type RowFacts, SAME_BROWSER_TAB_COPY,
@@ -145,21 +146,20 @@ async function openOpenMic(page: Page, firstVisit?: () => Promise<void>): Promis
 }
 
 /**
- * The first take, with the #1835 final readback immediately before each capture-capable call (as J1.a): on a cold first use
- * the model helper itself presses Download to start speaking, so it is confirmed first; when it did not record, the ordinary
- * Start is confirmed again. The confirmed capture records the `practice privacy choice` row PASS.
+ * The first take, with the #1835 final readback inside each capture-capable press, immediately before its click (as J1.a;
+ * Sam, #1916): on a cold first use the model helper itself presses Download to start speaking, so it reads consent back at
+ * that click; when it did not record (a warm cache presses nothing and reads nothing back), the ordinary Start reads it back
+ * at its own click. The confirmed capture records the `practice privacy choice` row PASS.
  */
 async function startFirstPrivateTake(page: Page, label: string, gate: CaptureConsentGate): Promise<void> {
     await selectBenchmarkMode(page, 'private');
-    await gate.confirm();
-    const setup = await preparePrivateModelIfPrompted(page, 900_000);
+    const setup = await preparePrivateModelIfPrompted(page, 900_000, { beforeClick: () => gate.confirm() });
     if (setup.recordingAlreadyStarted) {
         gate.recordPass();
         return;
     }
     await waitForPrivateEngineReady(page, 600_000);
-    await gate.confirm();
-    await startBenchmarkRecording(page, label);
+    await startBenchmarkRecording(page, label, undefined, { beforeClick: () => gate.confirm() });
     gate.recordPass();
 }
 
@@ -172,18 +172,18 @@ const finalizer = new JourneyFinalizer();
  * (startBenchmarkRecording, benchmark-utils.ts:862, after waitForPrivateEngineReady). Refusal-then-take-over presses count.
  * AHT-09 (navigate away) and AHT-10 (close the tab), the same path through `abandonAndReturn`:
  *   1. the first take — startFirstPrivateTake (this file:280): `mic-download` cold, else `mic-start`;
- *   2. the return Start — `mic-start` (this file:400);
- *   3. only after the product's refusal copy, the person's second press — `mic-start` (this file:412).
+ *   2. the return Start — `mic-start` (pressCaptureControl, this file:399);
+ *   3. only after the product's refusal copy, the person's second press — `mic-start` (pressCaptureControl, this file:410).
  * So: 3 in all; `mic-start` at most 3, `mic-download` at most 1, no Retry press.
  */
 const AHT09_START_PRESS_BUDGET: StartPressBudget = { total: 3, perControl: { 'mic-start': 3, 'mic-download': 1 } };
 const AHT10_START_PRESS_BUDGET: StartPressBudget = { total: 3, perControl: { 'mic-start': 3, 'mic-download': 1 } };
 /**
  * AHT-11 (one account, two places):
- *   1. tab A's first take — startFirstPrivateTake (this file:502): `mic-download` cold, else `mic-start`;
- *   2. the same-browser tab's Start — `mic-start` (this file:519);
- *   3. the other device's first press — pressPrivateStartForLease (rwtAbandonTakeover.ts:59): `mic-download` cold, else `mic-start`;
- *   4. the explicit take-over press — `mic-start` or the still-cold `mic-download` (this file:595).
+ *   1. tab A's first take — startFirstPrivateTake (this file:500): `mic-download` cold, else `mic-start`;
+ *   2. the same-browser tab's Start — `mic-start` (pressCaptureControl, this file:516);
+ *   3. the other device's first press — pressPrivateStartForLease (rwtAbandonTakeover.ts:67, through pressCaptureControl): `mic-download` cold, else `mic-start`;
+ *   4. the explicit take-over press — `mic-start` or the still-cold `mic-download` (pressCaptureControl, this file:591).
  * So: 4 in all; `mic-start` at most 4, `mic-download` at most 3 (tab A, then both device-B presses, all cold), no Retry press.
  */
 const AHT11_START_PRESS_BUDGET: StartPressBudget = { total: 4, perControl: { 'mic-start': 4, 'mic-download': 3 } };
@@ -395,9 +395,8 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
         fence.beforeSuccessor = await readBaselineRows(recoveryDb, owner.uid);
         await waitForPrivateEngineReady(returned, 600_000);
         creations.arm('B');
-        // #1835: the owner's row is read back immediately before each later capture-capable press too.
-        await requireGate(consentGate).confirm();
-        await returned.getByTestId('mic-start').click();
+        // #1835 (Sam, #1916): the owner's row is read back inside each later capture-capable press too, immediately before its click.
+        await pressCaptureControl(returned, ['mic-start'], { beforeClick: () => requireGate(consentGate).confirm() });
         const firstPressRecorded = await isRecording(returned, 30_000);
         let refusalCopyShown = false;
         let secondPressRecorded: boolean | null = null;
@@ -408,8 +407,7 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
                 // take-over: a refusal or an allowed lease failure of THIS press trips the watchdog at once.
                 watch.setStartRefusedAllowed(false);
                 watch.setFaultPhase(false);
-                await requireGate(consentGate).confirm();
-                await returned.getByTestId('mic-start').click();
+                await pressCaptureControl(returned, ['mic-start'], { beforeClick: () => requireGate(consentGate).confirm() });
                 secondPressRecorded = await isRecording(returned, 60_000);
             }
         }
@@ -515,8 +513,7 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             await installMicAcquisitionCounter(sameBrowserTab);
             await openOpenMic(sameBrowserTab);
             await waitForPrivateEngineReady(sameBrowserTab, 600_000);
-            await requireGate(consentGate).confirm();
-            await sameBrowserTab.getByTestId('mic-start').click();
+            await pressCaptureControl(sameBrowserTab, ['mic-start'], { beforeClick: () => requireGate(consentGate).confirm() });
             // Front-run F3: only this browser's own tab-lock copy refuses here; the account lease's copy on this tab is a FAIL.
             const localRefusal = await sameBrowserRefusalCopy(sameBrowserTab);
             await sameBrowserTab.waitForTimeout(2_000);
@@ -564,14 +561,14 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             let openedA = false;
             let openedB = false;
             const coldB = await pressPrivateStartForLease(deviceB, waitForPrivateEngineReady, async () => {
-                // #1835: the owner's row is read back first, then the windows open immediately before the press.
-                await requireGate(consentGate).confirm();
                 // Do not count background idle→download-required availability as model work caused by Start.
                 // Both windows still open before the actual first press and remain open through take-over.
                 await deviceB.evaluate(installModelStatusHistory);
                 openedA = await tabA.evaluate(openObservationWindow, { token: `${windowToken}-a`, recorderTestId: RECORDER_BAR }).catch(() => false);
                 openedB = await deviceB.evaluate(openObservationWindow, { token: `${windowToken}-b`, recorderTestId: RECORDER_BAR }).catch(() => false);
-            });
+                // #1835 (Sam, #1916): the owner's row is read back LAST, inside the press, immediately before its click.
+                await requireGate(consentGate).confirm();
+            }, (p, control, beforeClick) => pressCaptureControl(p, [control], { beforeClick, waitMs: 30_000, clickTimeoutMs: 30_000 }).then(() => undefined));
             // Sam, #1662 RETURN (lease-before-model): the lease decides BEFORE any engine or model work — the start handler
             // acquires it first (useSessionLifecycle acquireTakeLease). So the first press must be refused within a bounded
             // window, and on a cold device the model must still be `download-required` when it is: a refusal that only
@@ -591,8 +588,7 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             // Codex P2 r4309303711: the expected refusal is spent — a refusal of THIS press trips the watchdog at once, and a
             // take-over that never records ends the scenario here instead of carrying on through the later waits.
             watch.setStartRefusedAllowed(false);
-            await requireGate(consentGate).confirm();
-            await deviceB.locator('[data-testid="mic-start"], [data-testid="mic-download"]').first().click();
+            await pressCaptureControl(deviceB, ['mic-start', 'mic-download'], { beforeClick: () => requireGate(consentGate).confirm() });
             const closedB = await deviceB.evaluate(closeObservationWindow, {}).catch(() => null);
             const gestureAt = closedB?.gestureAt ?? null;
             // B's gesture is in B's clock: map it into A's with MEASURED offsets and their actual uncertainty.

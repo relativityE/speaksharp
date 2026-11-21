@@ -50,6 +50,7 @@ const AHT1811_HELPERS=[
   ['tests/live/helpers/rwtJ3Evidence.ts','tests/unit/rwtJ3Evidence.test.ts',["focusAcceptancePrivacyVerdict","focusSavedTimingVerdict","j3bRepeatReopenVerdict","repeatReviewCard"]],
   ['tests/live/helpers/rwtJ4aEvidence.ts','tests/unit/rwtJ4aEvidence.test.ts',["j4aRequestNeverReachedVerdict","j4aOneSaveForAccountVerdict","saveRetryPrivacyVerdict","j4aNoSecondTakeVerdict","j4aPrivacyCleanupVerdict","j4aCoachingGuard","j4aCoachingBlockedVerdict","j4aCoachingBlockedRow"]],
   ['tests/live/helpers/rwtTwoPlaces.ts','tests/unit/rwtTwoPlaces.test.ts',["sameBrowserRefusedVerdict","displacedFenceVerdict"]],
+  ['tests/live/helpers/rwtAbandonTakeover.ts','tests/unit/rwtAbandonTakeover1258.test.ts',["pressPrivateStartForLease","releasedVerdict","answerLeaveDialog","leavePromptVerdict","returnStartVerdict","classifyRecoveryClaim","newRowsSince","priorTakeSaved","leftTakeSavedOnce","leftTakeSavedVerdict","recoveryNoticeVerdict","nextTakeOnlyItselfVerdict","modelWorkBeforeRefusal","secondTabBlockedVerdict","leaseRefusalWindowVerdict","takeOverVerdict","noCloudVerdict","takeOverRowsVerdict"]],
 ];
 test('AHT-02 through AHT-15 helpers select exact offline callable consumers on helper-only changes',()=>{
   for(const [helperFile,testFile,callables] of AHT1811_HELPERS) {
