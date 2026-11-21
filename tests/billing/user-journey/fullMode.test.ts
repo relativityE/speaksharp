@@ -124,6 +124,14 @@ test('failed checkout: a walk-away, a declining test card, an expired session, t
   assert.match(branch, /assertCheckoutGrantedNothing\(await this\.stripe\(`checkout\/sessions\/\$\{walked\}`\), 'open'\)/);
   assert.match(branch, /requireFact\(declined === walked, 'walk_away_return_created_second_session'\)/);
   assert.match(branch, /payOnHostedPage\('4000000000000002'\)/);
+  // Run 44915558806: the decline is read on the Checkout page and Stripe's own frames, never the top page alone and never any other
+  // frame; same oracle and bound, and a miss names what the page showed.
+  assert.match(branch, /if \(!await this\.textVisibleInCheckoutFrames\(\/declined\/i, 60_000\)\)/);
+  assert.doesNotMatch(branch, /this\.page\.getByText\(\/declined\/i\)/);
+  assert.match(branch, /BILLING_JOURNEY:decline_not_shown_alerts_\$\{n\(f\.alerts\)\}_invalid_\$\{n\(f\.invalid\)\}_challenge_\$\{b\(f\.challenge\)\}/);
+  const scan = between('  async textVisibleInCheckoutFrames(', '\n  }\n');
+  assert.match(scan, /for \(const frame of this\.page\.frames\(\)\) \{\n\s+if \(!trustedCheckoutFrame\(this\.page\.url\(\), frame\.url\(\)\)\) continue;/);
+  assert.match(scan, /frame\.getByText\(pattern\)\.first\(\)\.isVisible\(\)/);
   assert.match(branch, /checkout\/sessions\/\$\{declined\}\/expire`, 'POST'/);
   assert.match(branch, /sessionOf\(checkoutUrl\) !== declined, 'retry_checkout_refused'/);
   const order = ['walked_away_from_checkout', 'no_access_while_session_open', 'checkout_return_reused_session', 'declined_checkout',
