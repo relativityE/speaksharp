@@ -642,12 +642,13 @@ export function assertNoSecondCharge(listed: unknown, expected: { customer: stri
 
 /** A declined or abandoned Checkout grants nothing: no subscription, no payment, the session not complete. */
 /**
- * J2 after a DECLINED card (Stripe sandbox, run 44937743744): Stripe creates the subscription at the decline as `incomplete`
- * with its first invoice failed, and attaches it to the still-open session. That is not access. The declined session grants
- * nothing only when: test mode, the expected session status, unpaid, no successful charge for the customer; and, if a
+ * J2 after a DECLINED card. In the Stripe sandbox events for run 44937743744, the decline created an `incomplete` subscription
+ * whose first invoice failed; that run's receipt did not establish that this exact session was the one it attached to, so this
+ * rule allows such a subscription only when the session itself references it. The declined session grants nothing only when:
+ * test mode, the expected session status, unpaid, every charge row for the customer `failed`; and, if a
  * subscription is attached, it is exactly that session's subscription, for this customer, in test mode, `incomplete` (after a forced
  * expiry also `incomplete_expired`), and its latest invoice is this customer's and has nothing paid on it. App access is checked
- * separately (noPaidAccess). Before any card entry the plain rule (no subscription at all) still applies.
+ * separately and first (assertNoAppAccess). Before any card entry the plain rule (no subscription at all) still applies.
  */
 export function assertDeclinedCheckoutGrantedNothing(input: {
   session: unknown; subscription: unknown; invoice: unknown; customer: string; charges: unknown; chargesHasMore: unknown;
