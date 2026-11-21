@@ -19,7 +19,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 NIGHTLY = ROOT / "nightly"
-EXPECTED_TESTS = 474
+EXPECTED_TESTS = 483
 REPO = ROOT.parents[1]
 OFFLINE_PATCH = ROOT / "tests" / "fixtures" / "j4a-offline-packet.patch.fixture"
 OFFLINE_PATCH_SHA256 = "632ea67bb88c10a2d380ac017db62960a0be974ed2846ca7205140036ebfb529"
@@ -35,6 +35,7 @@ def code_hash(cloud_test):
 REVIEWED_J4A_FIXTURE_SHA256 = {
     "j4a-entry-child.cjs": "d20d7880c299434df21aefc00c32969616e2e1465a1b9df3bc31099e81aef5b0",
     "j4a-guarded-child.cjs": "01d77d88a08c77a7e7050edc0ac09684acb3d1c63250aad631f024f6d79da903",
+    "j4a-retry-child.cjs": "dc5e82a84a2ff35828af4b15b42b4c7d5a1850bcd282a191df5727ec48b72170",
     "j4a-supervised-child.cjs": "c4a23e8fe983ac06955eab8d8f81e05ba1f3759c554b5215459f6b936b756199",
     "j4a-writer-proof.cjs": "4828c7adfcb1dc017ef8b18366715aaca130261f24607c6db85ddec8995419b4",
     "no-proc-shim.cjs": "333e0f5b99ab4472a3cc95d54a73a9a20099dddc168a7b8e255b9b856166accf",
@@ -45,6 +46,7 @@ REVIEWED_J4A_FIXTURE_SHA256 = {
 REVIEWED_OFFLINE_TEST_SHA256 = {
     "j4a-guarded-owner.test.cjs.fixture": "d4d4c73eeff7b9a2e1e43195ecdf71f27ff933c1235cd3be56d709709847f131",
     "j4a-nightly-entry.test.cjs.fixture": "6c8e893a84c923c72fd7057178e3996abd3e971f0106c2225e2429ea67ec3c44",
+    "j4a-save-retry.test.cjs.fixture": "60c0c5b2f1e762a3a354db68f2e80c3b9ddc9af5452abd362cf75f2e63991029",
     "j4a-supervised-adapter.test.cjs.fixture": "6009e95031e30fc9d6f434e05074e4dd94d7cebb4cb55dff3fff5d8751151d0e",
     "j4a-supervised-entrypoint.test.cjs.fixture": "7e7a22a5a9914e963e945075084b01061fee3a87f19b4c6886161eca58eae696",
     "j4a-supervisor-termination.test.cjs.fixture": "4e96f432f4a5a1c217851b693df89456a5c8f8faba31be0a71d197b1cdc597c7",

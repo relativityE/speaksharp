@@ -7,7 +7,6 @@ account, Stripe or production; the active packet in this checkout is unchanged.
 
     python3 tools/cloud-test/scripts/j4a_local_smoke.py
 """
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -22,11 +21,11 @@ WITNESS_TESTS = "j4a-save-witness.test.cjs"
 
 def main():
     with NightlySuite().isolated_candidate() as (nightly, env):
+        # isolated_candidate installs the reviewed smoke (pinned in REVIEWED_OFFLINE_TEST_SHA256); run only that exact copy.
         target = nightly / "tests" / "j4a-save-retry.test.cjs"
-        if target.exists() or SMOKE.is_symlink():
-            print("BLOCKED_SETUP: the smoke source is aliased or already present in the candidate copy")
+        if SMOKE.is_symlink() or target.is_symlink() or not target.is_file() or target.read_bytes() != SMOKE.read_bytes():
+            print("BLOCKED_SETUP: the smoke source is aliased, or the candidate copy is missing or differs from it")
             return 78
-        shutil.copyfile(SMOKE, target)
         result = subprocess.run(["node", "--test", "--test-reporter=spec", str(target), str(nightly / "tests" / WITNESS_TESTS)],
                                 cwd=nightly, env=env, timeout=600)
     return result.returncode
