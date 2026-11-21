@@ -641,6 +641,37 @@ export function assertNoSecondCharge(listed: unknown, expected: { customer: stri
 }
 
 /** A declined or abandoned Checkout grants nothing: no subscription, no payment, the session not complete. */
+/**
+ * J2 after a DECLINED card (Stripe sandbox, run 44937743744): Stripe creates the subscription at the decline as `incomplete`
+ * with its first invoice failed, and attaches it to the still-open session. That is not access. The declined session grants
+ * nothing only when: test mode, the expected session status, unpaid, no successful charge for the customer; and, if a
+ * subscription is attached, it is exactly that session's subscription, for this customer, in test mode, `incomplete` (or
+ * `incomplete_expired`), and its latest invoice is this customer's and has nothing paid on it. App access is checked
+ * separately (noPaidAccess). Before any card entry the plain rule (no subscription at all) still applies.
+ */
+export function assertDeclinedCheckoutGrantedNothing(input: {
+  session: unknown; subscription: unknown; invoice: unknown; customer: string; succeededCharges: number | null;
+  expectedStatus: 'open' | 'expired';
+}): void {
+  const session = (input.session ?? {}) as { livemode?: unknown; status?: unknown; payment_status?: unknown; subscription?: unknown };
+  requireFact(session.livemode === false && session.status === input.expectedStatus && session.payment_status === 'unpaid',
+    'declined_checkout_session_not_unpaid');
+  requireFact(input.succeededCharges === 0, input.succeededCharges === null ? 'declined_checkout_charges_unread' : 'declined_checkout_charged');
+  const attached = typeof session.subscription === 'string' ? session.subscription
+    : (session.subscription as { id?: unknown } | null | undefined)?.id ?? null;
+  if (attached === null) return;
+  const sub = (input.subscription ?? {}) as { id?: unknown; livemode?: unknown; customer?: unknown; status?: unknown; latest_invoice?: unknown };
+  requireFact(typeof attached === 'string' && sub.id === attached, 'declined_checkout_subscription_unread');
+  requireFact(sub.livemode === false && sub.customer === input.customer, 'declined_checkout_subscription_foreign');
+  requireFact(sub.status === 'incomplete' || sub.status === 'incomplete_expired', 'declined_checkout_subscription_not_incomplete');
+  const invoiceId = typeof sub.latest_invoice === 'string' ? sub.latest_invoice
+    : (sub.latest_invoice as { id?: unknown } | null | undefined)?.id;
+  const invoice = (input.invoice ?? {}) as { id?: unknown; customer?: unknown; livemode?: unknown; status?: unknown; amount_paid?: unknown };
+  requireFact(typeof invoiceId === 'string' && invoice.id === invoiceId && invoice.customer === input.customer
+    && invoice.livemode === false, 'declined_checkout_invoice_unread');
+  requireFact(invoice.status !== 'paid' && invoice.amount_paid === 0, 'declined_checkout_invoice_paid');
+}
+
 /** Stripe's documented Checkout Session `status` and `payment_status` values (API reference, Checkout Session object). */
 export const CHECKOUT_SESSION_STATUSES = Object.freeze(['open', 'complete', 'expired']);
 export const CHECKOUT_PAYMENT_STATUSES = Object.freeze(['paid', 'unpaid', 'no_payment_required']);
