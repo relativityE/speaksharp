@@ -119,7 +119,7 @@ function setup(t, { scenario = 'ok', witness = true } = {}) {
     const transport = j4aAdminTransport(async () => ({}));
     const fa = fakeAdmin(dbFile, transport);
     const saveJournal = journal ? journalCapability(dbFile, transport, fa.calls) : undefined;
-    const witnessRef = witness ? j4aSaveWitness({ dir: path.join(root, 'parent-journal') }) : null;
+    const witnessRef = witness ? j4aSaveWitness({ dir: path.join(root, 'parent-journal'), fault: 'request-lost' }) : null;
     const composed = composeJ4aNightly({ plan, bundle: B, admin: fa.admin, transport, saveJournal, configuredDomain: 'example.com', adapterOptions: { commandRunner }, saveWitness: witnessRef,
         nightly: { runDir: path.join(root, 'nightly-run'), evidenceDir, runId: 'unit-entry-1', selected: ['J4.a'], satisfiedGates: [] } });
     const wire = () => fs.readFileSync(wireFile, 'utf8').trim().split('\n').filter(Boolean);

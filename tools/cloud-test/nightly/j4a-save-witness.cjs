@@ -74,7 +74,7 @@ const SAVE_FAULTS = Object.freeze({
         refusal: 'the lost answer was not proven: the server\'s confirmed single row, withheld from the page, is missing' }),
 });
 
-function decideSavePath(entries, { binding, runId, fault = 'request-lost' }) {
+function decideSavePath(entries, { binding, runId, fault }) {
     const planned = Object.hasOwn(SAVE_FAULTS, fault) ? SAVE_FAULTS[fault] : null;
     if (!planned) return hold('no planned save fault for this witness');
     if (!Array.isArray(entries)) return hold('no save journal entries');
@@ -161,7 +161,7 @@ function supervisorClose(r, summary) {
  *   - `observeTakes(rows)`: teardown's own takes read for the bound owner, before any delete;
  *   - `gate(result)`: the case result with the save rows held unless save path, stopped writer and takes all agree.
  */
-function j4aSaveWitness({ dir, now = Date.now, fault: saveFault = 'request-lost' } = {}) {
+function j4aSaveWitness({ dir, now = Date.now, fault: saveFault } = {}) {
     if (typeof dir !== 'string' || !path.isAbsolute(dir)) throw new Error('the J4.a save witness needs an absolute private directory');
     if (!Object.hasOwn(SAVE_FAULTS, saveFault)) throw new Error('the save witness needs a planned save fault (request-lost or response-lost)');
     const state = { armed: null, launches: 0, close: null, sealed: null, save: null, writer: null, takes: null, faults: [] };

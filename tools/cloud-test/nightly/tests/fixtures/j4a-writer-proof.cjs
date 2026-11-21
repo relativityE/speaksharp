@@ -5,7 +5,7 @@ const { verifyJ4aStoppedWriters } = require('../../j4a-writer-evidence.cjs');
 function offlineWriterProof({binding, runId, owner}) {
     const droppedSave = 'c'.repeat(64);
     const identity = { binding, runId, owner };
-    return verifyJ4aStoppedWriters({ ...identity, droppedSave }, {
+    return verifyJ4aStoppedWriters({ ...identity, droppedSave, fault: 'request-lost' }, {
         ...identity, exited: true, ownedPagesClosed: true, descendantCount: 0,
         interrupted: false, guardTransportDrained: true, writersClosedAt: 1,
     }, {

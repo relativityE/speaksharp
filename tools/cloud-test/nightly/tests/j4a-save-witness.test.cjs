@@ -30,7 +30,7 @@ function entries(edit = (e) => e) {
     return edit([e('signup'), e('start'), e('save', { session: sha(T1), decision: 'planned-request-lost', upstreamStarted: false }),
         e('retry-intent', { session: sha(T1), decision: 'intent', upstreamStarted: false }), e('save', { session: sha(T1) }), e('start'), e('save', { session: sha(T2) })]);
 }
-const expected = { binding: BINDING, runId: RUN };
+const expected = { binding: BINDING, runId: RUN, fault: 'request-lost' };
 const renumber = (x) => x.map((e, i) => ({ ...e, seq: i + 1 }));
 
 test('save path: one lost save, one explicit Retry, one confirmed completion for that take, the next take saved once: CONFIRMED', () => {
@@ -106,6 +106,9 @@ test('J4.b save path refuses the other fault, a request that never left, a seen 
     // A J4.b journal never passes the J4.a witness, and an unknown fault never passes at all.
     assert.equal(decideSavePath(entries(responseLost), expected).verdict, 'HOLD');
     assert.equal(decideSavePath(entries(), { ...expected, fault: 'both' }).verdict, 'HOLD');
+    // A missing fault is never assumed: even a J4.a journal holds without one.
+    const { fault: _omitted, ...unnamed } = expected;
+    assert.deepEqual(decideSavePath(entries(), unnamed), { verdict: 'HOLD', reason: 'no planned save fault for this witness' });
     assert.throws(() => j4aSaveWitness({ dir: path.join(os.tmpdir(), 'x'), fault: 'both' }), /planned save fault/);
 });
 
@@ -154,11 +157,11 @@ test('supervisor close: only the parent\'s clean exit with no descendants and a 
 });
 
 /** A witness around one fake case launch whose "guard" writes `list` into the armed journal and whose close is `close`. */
-async function witnessRun(t, { list = entries(), close = { status: 0, signal: null, reason: null, cleanupIncomplete: false }, after = null, fault = undefined } = {}) {
+async function witnessRun(t, { list = entries(), close = { status: 0, signal: null, reason: null, cleanupIncomplete: false }, after = null, fault = 'request-lost' } = {}) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'j4a-witness-'));
     t.after(() => fs.rmSync(root, { recursive: true, force: true }));
     const runDir = path.join(root, 'run'); fs.mkdirSync(runDir);
-    const w = j4aSaveWitness({ dir: path.join(root, 'journal'), ...(fault ? { fault } : {}) });
+    const w = j4aSaveWitness({ dir: path.join(root, 'journal'), fault });
     const inner = async (_node, args, _options, deps) => {
         if (!args[0].endsWith('run-guarded.cjs')) return { status: 0, signal: null, reason: null, cleanupIncomplete: false, passedThrough: deps.env.J4A_SAVE_JOURNAL === undefined };
         const file = deps.env.J4A_SAVE_JOURNAL;
@@ -222,14 +225,15 @@ test('witness: missing proof holds the save rows and issues no stopped-writer to
 test('witness: only the case launch is wrapped; no directory or runner is refused before anything runs', async (t) => {
     const { passthrough } = await witnessRun(t);
     assert.equal(passthrough.passedThrough, true, 'other commands (admission, identity) pass through untouched, with no journal');
-    assert.throws(() => j4aSaveWitness({ dir: 'relative' }), /absolute private directory/);
-    assert.throws(() => j4aSaveWitness({ dir: os.tmpdir() }).commandRunner(null), /wraps a supervised command runner/);
-    assert.equal(j4aSaveWitness({ dir: os.tmpdir() }).verifier({ binding: BINDING, runId: RUN, owner: OWNER }), null, 'never armed, no proof');
+    assert.throws(() => j4aSaveWitness({ dir: 'relative', fault: 'request-lost' }), /absolute private directory/);
+    assert.throws(() => j4aSaveWitness({ dir: os.tmpdir() }), /planned save fault/, 'a missing fault is never assumed');
+    assert.throws(() => j4aSaveWitness({ dir: os.tmpdir(), fault: 'request-lost' }).commandRunner(null), /wraps a supervised command runner/);
+    assert.equal(j4aSaveWitness({ dir: os.tmpdir(), fault: 'request-lost' }).verifier({ binding: BINDING, runId: RUN, owner: OWNER }), null, 'never armed, no proof');
 });
 
 test('composition: the witness is the only writer proof and must be whole', () => {
     const { composeJ4aNightly } = require('../j4a-nightly-entry.cjs');
-    const w = j4aSaveWitness({ dir: os.tmpdir() });
+    const w = j4aSaveWitness({ dir: os.tmpdir(), fault: 'request-lost' });
     const base = { plan: {}, bundle: '/x', admin: {}, transport: {}, saveJournal: { reviewed: 'x', bind() {} }, configuredDomain: 'example.com', nightly: { evidenceDir: '/x', runId: 'r' } };
     assert.throws(() => composeJ4aNightly({ ...base, saveWitness: w, offlineStoppedWritersVerifier: () => null }), /only writer proof/);
     assert.throws(() => composeJ4aNightly({ ...base, saveWitness: { commandRunner() {}, verifier() {} } }), /only writer proof/);

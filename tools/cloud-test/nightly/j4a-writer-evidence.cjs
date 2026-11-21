@@ -4,23 +4,28 @@
 // not a child step result or a caller-supplied attestation.
 const SHA = /^[a-f0-9]{64}$/;
 const KINDS = new Set(['signup', 'start', 'save', 'coaching', 'lease']);
+const FAULTS = new Set(['request-lost', 'response-lost']);
 const hold = (reason) => ({ verdict: 'HOLD', reason });
 
 /**
  * The planned drop is stopped only as its fault defines it. J4.a (request lost): the request never left (no upstream). J4.b
- * (response lost): the request reached the server and the reviewed endpoint oracle confirmed the backend finished it; only the
- * page was not told (`pageAnswered: false`). An answer still owed by the server is never a stopped writer.
+ * (response lost): the request reached the server and the reviewed endpoint oracle confirmed the backend finished it with exactly
+ * one saved row, as the save witness requires; only the page was not told (`pageAnswered: false`). An answer still owed by the
+ * server is never a stopped writer.
  */
 function plannedDrop(fault, event) {
     if (fault === 'request-lost') return event.decision === 'planned-request-lost' && event.upstreamStarted === false;
     if (fault === 'response-lost') return event.decision === 'planned-response-lost' && event.upstreamStarted === true
-        && event.terminal?.attempt === event.attempt && event.terminal.backendConfirmed === true && event.terminal.pageAnswered === false;
+        && event.terminal?.attempt === event.attempt && event.terminal.backendConfirmed === true
+        && event.terminal.savedRowCount === 1 && event.terminal.pageAnswered === false;
     return false;
 }
 
 function decideJ4aWriters(expected, supervisor, journal) {
     if (!SHA.test(expected?.binding ?? '') || !SHA.test(expected?.droppedSave ?? '')
         || supervisor?.binding !== expected.binding || journal?.binding !== expected.binding) return hold('binding');
+    // The planned fault is named by the caller, never assumed: a missing one stops nothing.
+    if (!FAULTS.has(expected.fault)) return hold('fault');
     if (supervisor.exited !== true || supervisor.ownedPagesClosed !== true
         || supervisor.descendantCount !== 0 || supervisor.interrupted !== false) return hold('writers-not-stopped');
     if (journal.armedBeforeLaunch !== true || journal.closedAfterLastWriter !== true
@@ -31,7 +36,7 @@ function decideJ4aWriters(expected, supervisor, journal) {
     for (const event of journal.attempts) {
         if (!SHA.test(event?.attempt ?? '') || seen.has(event.attempt) || !KINDS.has(event.kind)) return hold('attempt-integrity');
         seen.add(event.attempt);
-        if (event.kind === 'save' && event.attempt === expected.droppedSave && plannedDrop(expected.fault ?? 'request-lost', event)) {
+        if (event.kind === 'save' && event.attempt === expected.droppedSave && plannedDrop(expected.fault, event)) {
             ++drops;
             continue;
         }
