@@ -947,6 +947,9 @@ jobs:
           TEST_EFFICACY_DENO_REAL_RUNTIME: '1'
         run: node --test tests/unit/nativeTestExecutionEvidence.test.js
 
+      - name: Run Node evidence contract tests
+        run: node --test tests/unit/semanticEfficacySelection.test.mjs tests/unit/pythonTestExecutionEvidence.test.mjs
+
       - name: Download Named Artifacts
         uses: actions/download-artifact@v7
         with:

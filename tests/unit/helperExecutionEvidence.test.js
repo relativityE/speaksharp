@@ -113,6 +113,30 @@ test('registers explicit canary and reader callable consumers without a generic 
   }
   assert.equal(HELPER_CONTRACTS.some(item=>item.helperFile==='tests/live/helpers/unregistered.ts'),false);
 });
+test('completion environment requires its real PGlite consumer and callable execution route',()=>{
+  const helperFile='tests/db/helpers/completionEnv.ts';
+  const testFile='tests/db/atomic-completion-retention.integration.test.ts';
+  const callables=['MIG','sid','buildCompletionDb','db0','closeCompletionDbs','actingAs','newSession','complete','transcriptBearingCount','row'];
+  assert.deepEqual(registeredHelper(helperFile),{helperFile,testFile,callables});
+  assert.equal(executionRoute(helperFile,root).runner,'vitest-helper');
+  assert.equal(executionRoute(helperFile,root).applicable,true);
+  const selected=selectExecutionContracts(root,[helperFile],{helpersOnly:true});
+  assert.deepEqual(selected.map(item=>[item.helperFile,item.testFile]),[[helperFile,testFile]]);
+  const directory=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'completion-env-helper-route-')));
+  try {
+    fs.mkdirSync(path.join(directory,'tests/db/helpers'),{recursive:true});
+    fs.symlinkSync(path.join(root,'node_modules'),path.join(directory,'node_modules'),'dir');
+    const source=fs.readFileSync(path.join(root,helperFile),'utf8');
+    fs.writeFileSync(path.join(directory,helperFile),source);
+    assert.equal(executionRoute(helperFile,directory).applicable,false,'missing exact consumer cannot qualify');
+    fs.copyFileSync(path.join(root,testFile),path.join(directory,testFile));
+    assert.equal(executionRoute(helperFile,directory).applicable,true);
+    const broken=source.replace('function db0(', 'function renamedDb0(');
+    assert.notEqual(source,broken);
+    fs.writeFileSync(path.join(directory,helperFile),broken);
+    assert.equal(executionRoute(helperFile,directory).applicable,false,'missing registered callable cannot qualify');
+  } finally {fs.rmSync(directory,{recursive:true,force:true});}
+});
 test('replays the provider normalizer on raw equal-count adjacent ranges without changing call counts',()=>{
   const raw=[{scriptId:'1',url:'file:///independent-helper.js',functions:[{functionName:'loop',isBlockCoverage:true,ranges:[
     {startOffset:0,endOffset:100,count:3},

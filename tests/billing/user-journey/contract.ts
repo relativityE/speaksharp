@@ -381,6 +381,17 @@ export function checkoutNotReturned(f: { optIn: 'checked' | 'clear' | 'absent' |
   return `checkout_success_not_reached_optin_${optIn}_phone_${b(f.phoneShown, 'shown', 'none')}_alerts_${n(f.alerts)}_invalid_${n(f.invalid)}_challenge_${b(f.challenge, 'shown', 'none')}_fields_${fields}`;
 }
 
+/**
+ * Run 44915558806: the card decline is read across frames, but only Stripe's own. The page must be the hosted Checkout itself, and a
+ * frame counts only when it is that page or one of Stripe's embedded frames. A decline-looking string in any other frame (an ad, an
+ * extension, a third-party widget) can never satisfy the check.
+ */
+export const TRUSTED_CHECKOUT_FRAME_ORIGINS = Object.freeze(['https://checkout.stripe.com', 'https://js.stripe.com']);
+export function trustedCheckoutFrame(pageUrl: string, frameUrl: string): boolean {
+  const origin = (raw: string) => { try { return new URL(raw).origin; } catch { return null; } };
+  return origin(pageUrl) === 'https://checkout.stripe.com' && TRUSTED_CHECKOUT_FRAME_ORIGINS.includes(origin(frameUrl) ?? '');
+}
+
 /** Stripe Link's default-ticked "save my information" opt-in could not be cleared; the journey never creates a Link account. */
 export const HOSTED_LINK_OPT_IN_NOT_CLEARED = 'hosted_link_optin_not_cleared';
 
