@@ -1,7 +1,8 @@
 // A read-only engineering reuse decision. The normal CI and review gates remain
 // responsible for current branch status and review authority; never post a check here.
 import { execFileSync } from 'node:child_process';
-import { lstatSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { inspectBaseOnlyCiInputs } from './ciCarryInputIdentity.mjs';
@@ -10,6 +11,9 @@ import { REQUIRED_RELEASE_JOBS } from '../production-release-policy.mjs';
 const SHA = /^(?!0{40}$)[0-9a-f]{40}$/;
 const REPO = 'relativityE/speaksharp';
 const CI = '.github/workflows/ci.yml';
+const MAX_ORIGIN_ARCHIVE = 25_000_000;
+const ORIGIN_FILE = 'artifacts/software-quality-input-origin.json';
+const ORIGIN_DIGEST = /^sha256:[a-f0-9]{64}$/;
 const REQUIRED = new Set([...REQUIRED_RELEASE_JOBS, 'scope', 'quality', 'report']);
 const positive = n => Number.isSafeInteger(n) && n > 0;
 const validSha = x => typeof x === 'string' && SHA.test(x);
@@ -75,10 +79,11 @@ export async function verifyBaseOnlyEngineering({ root, repository, eventName, e
         const [artifact] = Array.isArray(records) ? records : [];
         if (listArtifacts?.total_count !== 1 || records.length !== 1 || artifact.name !== 'ci-metrics'
             || !positive(artifact.id) || artifact.expired !== false || !positive(artifact.size_in_bytes)
-            || artifact.size_in_bytes > 25_000_000 || artifact.workflow_run?.id !== run.id
+            || artifact.size_in_bytes > MAX_ORIGIN_ARCHIVE || artifact.workflow_run?.id !== run.id
             || artifact.workflow_run?.head_sha !== oldHead || typeof readArtifact !== 'function')
             return hold('prior-origin-artifact-unproven');
-        const origin = await readArtifact({ runId:run.id, artifactId:artifact.id });
+        if (typeof artifact.digest !== 'string' || !ORIGIN_DIGEST.test(artifact.digest)) return hold('prior-origin-digest-unproven');
+        const origin = await readArtifact({ runId:run.id, artifactId:artifact.id, digest:artifact.digest });
         const recorded = origin?.originatingCi;
         const observed = origin?.qualityProvenance;
         const recordedCheckout = recorded?.commit;
@@ -116,7 +121,7 @@ export async function verifyBaseOnlyEngineering({ root, repository, eventName, e
             return hold('prior-attempt-superseded');
         if (!same(await read(`${endpoint}/pulls/${pr}`))) return hold('live-pr-moved');
         return { eligible:true, kind:'verified-base-only-engineering-reuse', repository, pr,
-            source:{head:oldHead,base:oldBase,checkoutHead:recordedCheckout,tree:observed.tree,artifactId:artifact.id,runId:run.id,attempt:run.run_attempt},
+            source:{head:oldHead,base:oldBase,checkoutHead:recordedCheckout,tree:observed.tree,artifactId:artifact.id,artifactDigest:artifact.digest,runId:run.id,attempt:run.run_attempt},
             target:{head:newHead,base:newBase,checkoutHead} };
     } catch {
         return hold('github-engineering-proof-unavailable');
@@ -132,6 +137,7 @@ export function acceptBaseOnlyAudit(proof, env) {
         && validSha(proof.source?.head) && proof.source.head === env.PR_BEFORE_SHA && proof.source.head !== proof.target.head
         && validSha(proof.source.base) && proof.source.base !== proof.target.base
         && validSha(proof.source.checkoutHead) && validSha(proof.source.tree) && positive(proof.source.artifactId)
+        && typeof proof.source.artifactDigest === 'string' && ORIGIN_DIGEST.test(proof.source.artifactDigest)
         && positive(proof.source.runId) && positive(proof.source.attempt)
         && proof.reviewHead === proof.target.head && proof.reviewBase === proof.target.base
         && proof.runId === env.GITHUB_RUN_ID && proof.runAttempt === env.GITHUB_RUN_ATTEMPT
@@ -139,17 +145,49 @@ export function acceptBaseOnlyAudit(proof, env) {
 }
 
 
-// GitHub CLI's existing archive downloader handles the authenticated GitHub
-// request and its storage redirect. Do not copy tokens into URLs or our output.
-export function downloadPriorCiOrigin(runId, token) {
-    if (!positive(runId) || typeof token !== 'string' || !token) throw new Error('Missing artifact read authority');
+// Download the selected immutable artifact ID, never a mutable run/name lookup.
+export async function downloadPriorCiOrigin({ artifactId, digest, token, fetchImpl = globalThis.fetch } = {}) {
+    if (!positive(artifactId) || typeof token !== 'string' || !token || /[\r\n]/.test(token)
+        || (typeof digest !== 'string' || !ORIGIN_DIGEST.test(digest))) throw new Error('Missing artifact read authority');
+    const endpoint = `https://api.github.com/repos/${REPO}/actions/artifacts/${artifactId}/zip`;
+    const ttl = AbortSignal.timeout(20_000);
+    const authorization = await fetchImpl(endpoint, { redirect:'manual', credentials:'omit', signal:ttl,
+        headers:{ authorization:`Bearer ${token}`, accept:'application/vnd.github+json', 'x-github-api-version':'2022-11-28' } });
+    let location;
+    if (authorization.status === 302 && !authorization.redirected) {
+        const redirected = authorization.headers.get('location');
+        if (redirected) location = new URL(redirected);
+    }
+    await authorization.body?.cancel();
+    // GitHub supplies the signed storage address over its authenticated API.
+    // Do not forward the API token or follow an additional redirect.
+    if (!location || location.protocol !== 'https:' || location.username || location.password || location.port || location.hash || !location.search
+        || !/^productionresultssa[0-9]+\.blob\.core\.windows\.net$/.test(location.hostname))
+        throw new Error('Unproven artifact redirect');
+    const storage = await fetchImpl(location.href, { redirect:'error', credentials:'omit', signal:ttl });
+    if (storage.status !== 200 || storage.redirected || !storage.body) throw new Error('Artifact archive unavailable');
+    const reader = storage.body.getReader();
+    const chunks = [];
+    let bytes = 0;
+    try {
+        for (;;) {
+            const { done,value } = await reader.read();
+            if (done) break;
+            bytes += value.byteLength;
+            if (bytes > MAX_ORIGIN_ARCHIVE) throw new Error('Artifact archive exceeds bound');
+            chunks.push(value);
+        }
+    } finally { await reader.cancel().catch(() => {}); }
+    const archive = Buffer.concat(chunks,bytes);
+    if (!bytes || digest !== `sha256:${createHash('sha256').update(archive).digest('hex')}`)
+        throw new Error('Artifact archive digest mismatch');
     const temp = mkdtempSync(join(tmpdir(),'prior-ci-origin-'));
     try {
-        execFileSync('gh',['run','download',String(runId),'--repo',REPO,'--name','ci-metrics','--dir',temp],
-            {timeout:15_000, env:{PATH:process.env.PATH, GH_TOKEN:token, GH_PROMPT_DISABLED:'1'},stdio:'ignore'});
-        const path = join(temp,'artifacts','software-quality-input-origin.json');
-        const file = lstatSync(path);
-        if (!file.isFile() || file.size <= 0 || file.size > 32_768) throw new Error('Invalid old origin file');
-        return JSON.parse(readFileSync(path,'utf8'));
+        const zip = join(temp,'artifact.zip');
+        writeFileSync(zip,archive,{flag:'wx',mode:0o600});
+        const options = {timeout:5_000,encoding:'utf8',maxBuffer:32_768,stdio:['ignore','pipe','ignore'],env:{PATH:process.env.PATH,LANG:'C'}};
+        const names = execFileSync('unzip',['-Z1',zip],options).split('\n');
+        if (names.filter(name=>name===ORIGIN_FILE).length !== 1) throw new Error('Invalid old origin archive entry');
+        return JSON.parse(execFileSync('unzip',['-p',zip,ORIGIN_FILE],options));
     } finally { rmSync(temp,{recursive:true,force:true}); }
 }

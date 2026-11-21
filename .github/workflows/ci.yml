@@ -110,7 +110,7 @@ jobs:
           };
           const result = await verifyBaseOnlyEngineering({ root:process.cwd(), repository:env.GITHUB_REPOSITORY,
             eventName:env.GITHUB_EVENT_NAME, event:JSON.parse(readFileSync(env.GITHUB_EVENT_PATH,'utf8')), checkoutHead:env.GITHUB_SHA, read,
-            readArtifact:({runId})=>downloadPriorCiOrigin(runId,env.READ_TOKEN) });
+            readArtifact:({artifactId,digest})=>downloadPriorCiOrigin({artifactId,digest,token:env.READ_TOKEN}) });
           console.log(result.eligible ? 'Verified unchanged-tree prior CI evidence.' : `Keep full CI: ${result.reason}`);
           if (result.eligible) {
             let currentReview;
