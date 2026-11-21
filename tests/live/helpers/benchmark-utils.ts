@@ -634,17 +634,22 @@ export async function preparePrivateModelIfPrompted(page: Page, timeout = 600_00
         const handle = await downloadCta.elementHandle({ timeout: 10_000 });
         if (!handle) throw new Error('INVALID_SETUP setup.model_provider CTA_NOT_RENDERED the download CTA disappeared before activation');
         try {
+            const requireSameCta = async (): Promise<void> => {
+                const identity = await handle.evaluate((element, expected) => ({
+                    connected: element.isConnected, control: element.getAttribute('data-testid'),
+                    disabled: element instanceof HTMLButtonElement ? element.disabled : element.hasAttribute('disabled'),
+                    unique: document.querySelectorAll(`[data-testid="${expected}"]`).length === 1,
+                }), MIC_CONTROL_BY_STATUS['download-required']);
+                if (!identity.connected || identity.control !== MIC_CONTROL_BY_STATUS['download-required'] || identity.disabled || !identity.unique) {
+                    throw new Error(`INVALID_SETUP setup.model_provider CTA_CHANGED the download CTA changed before activation (${JSON.stringify(identity)})`);
+                }
+            };
             await reflexPause();
-            const identity = await handle.evaluate((element, expected) => ({
-                connected: element.isConnected, control: element.getAttribute('data-testid'),
-                disabled: element instanceof HTMLButtonElement ? element.disabled : element.hasAttribute('disabled'),
-                unique: document.querySelectorAll(`[data-testid="${expected}"]`).length === 1,
-            }), MIC_CONTROL_BY_STATUS['download-required']);
-            if (!identity.connected || identity.control !== MIC_CONTROL_BY_STATUS['download-required'] || identity.disabled || !identity.unique) {
-                throw new Error(`INVALID_SETUP setup.model_provider CTA_CHANGED the download CTA changed before activation (${JSON.stringify(identity)})`);
-            }
+            await requireSameCta();
             // Nothing wraps this helper's errors, so a refusal reaches the caller unchanged; no click follows it.
             await opts.beforeClick();
+            // The readback is a server read and can take a while: the CTA must still be the same enabled node when it returns.
+            await requireSameCta();
             await handle.click({ timeout: 10_000 });
         } finally {
             await handle.dispose().catch(() => undefined);
@@ -902,8 +907,11 @@ export async function startBenchmarkRecording(page: Page, label: string, modelRe
             try {
                 // #1835: the readback is the last thing before the click — after the control wait, the reflex pause, the
                 // identity check and the event-time guard. A refusal clicks nothing; the finally below still removes the guard.
+                // The readback's own latency (a server read) never counts against the control budget: a slow but successful read
+                // must not turn an enabled Start into a start-precondition failure (Codex on ab89d68).
+                const readbackStartedAt = Date.now();
                 await runBeforeClick(opts.beforeClick);
-                const remaining = controlDeadline - Date.now();
+                const remaining = controlDeadline + (Date.now() - readbackStartedAt) - Date.now();
                 if (remaining <= 0) throw new Error('the Start control budget expired before activation');
                 await target.click({ timeout: remaining });
                 const result = await activation.evaluate((state) => ({ accepted: state.accepted, rejected: state.rejected }));

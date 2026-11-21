@@ -989,6 +989,23 @@ describe('#1916 review hold (Sam): the caller\'s consent readback runs inside th
         } finally { release(); vi.useRealTimers(); }
     });
 
+    it('ordinary Start: a slow but successful readback does not spend the control budget (Codex on ab89d68)', async () => {
+        const release = applyHumanReflex(reflexInstallPage, 500);
+        vi.useFakeTimers();
+        renderState('ready');
+        const seen: Array<{ clicks: number; guards: number; status: string | null }> = [];
+        try {
+            // A server read slower than the whole 8 s control budget, after the reflex pause has already used part of it.
+            const slow = async () => { await readback({ choice: 'yes' }, seen)(); await new Promise((resolve) => setTimeout(resolve, 9_000)); };
+            const outcome = startBenchmarkRecording(page, 'slow-readback', undefined, { beforeClick: slow }).then(() => null, (error: Error) => error);
+            await vi.advanceTimersByTimeAsync(9_600);
+            expect(await outcome).toBeNull();
+            expect(seen).toEqual([{ clicks: 0, guards: 1, status: 'ready' }]);
+            expect(clicked).toEqual(['[data-testid="mic-start"]']);
+            expect(installed.size).toBe(0);
+        } finally { release(); vi.useRealTimers(); }
+    });
+
     it('ordinary Start after a model-readiness wait: the readback still comes after that wait, right before the click', async () => {
         renderState('loading');
         const seen: Array<{ clicks: number; guards: number; status: string | null }> = [];
@@ -1053,6 +1070,16 @@ describe('#1916 review hold (Sam): the caller\'s consent readback runs inside th
             expect(seen).toEqual([]);
             expect(clicked).toEqual([]);
         } finally { release(); vi.useRealTimers(); }
+    });
+
+    it('cold Start: a CTA that changed during a slow readback is never clicked (re-checked after the readback)', async () => {
+        renderState('download-required');
+        const seen: Array<{ clicks: number; guards: number; status: string | null }> = [];
+        const slow = async () => { await readback({ choice: 'yes' }, seen)(); document.querySelector('button')!.setAttribute('disabled', ''); };
+        const outcome = await preparePrivateModelIfPrompted(page, 5_000, { beforeClick: slow }).then(() => null, (error: Error) => error);
+        expect(outcome?.message).toMatch(/CTA_CHANGED/);
+        expect(seen).toHaveLength(1);
+        expect(clicked).toEqual([]);
     });
 
     it('cold Start: a warm cache presses nothing and reads nothing back (the ordinary Start reads back at its own click)', async () => {

@@ -103,7 +103,7 @@ describe('shared helpers: a fresh readback immediately before every press, and a
         expect(ev.reviewReached).toBe(true);
         const seq = script.calls.filter((c) => /^(confirm|setup:|start:|pin:|identity:|click:focus)/.test(c));
         expect(seq).toEqual(['setup:pa-save', 'confirm', 'start:pa-save',
-            'pin:focus-points-retry', 'identity:focus-points-retry', 'confirm', 'click:focus-points-retry']);
+            'pin:focus-points-retry', 'identity:focus-points-retry', 'confirm', 'identity:focus-points-retry', 'click:focus-points-retry']);
     });
     it('practiceAgainEvidence: a choice withdrawn during the repeat action\'s setup → zero repeat clicks, the stop propagates', async () => {
         const refuse = hook([2]);
@@ -117,6 +117,14 @@ describe('shared helpers: a fresh readback immediately before every press, and a
         const ev = await practiceAgainEvidence(fakePage(), 'pa', 'take-1', 'focus_points', [], undefined, { beforeCapture: hook() });
         expect(ev.reason).toBe('the repeat action did not begin recording');
         expect(script.calls.filter((c) => c === 'confirm')).toHaveLength(1); // the save take's only
+        expect(script.calls).not.toContain('click:focus-points-retry');
+    });
+    it('practiceAgainEvidence: a repeat node that changed during a slow readback is never clicked (re-checked after it)', async () => {
+        let n = 0;
+        const changesDuringRead = async () => { n += 1; script.calls.push('confirm'); if (n === 2) script.repeatChanged = true; };
+        const ev = await practiceAgainEvidence(fakePage(), 'pa', 'take-1', 'focus_points', [], undefined, { beforeCapture: changesDuringRead });
+        expect(ev.reason).toBe('the repeat action did not begin recording');
+        expect(script.calls.filter((c) => c === 'confirm')).toHaveLength(2);
         expect(script.calls).not.toContain('click:focus-points-retry');
     });
     it('practiceAgainEvidence: the readback\'s own time is excluded from press → recording', async () => {
@@ -325,8 +333,8 @@ describe('shared helper source: the readback is passed into each click path, nev
     const src = readFileSync('tests/live/helpers/rwtJourney.ts', 'utf8');
     it('practiceAgainEvidence: the save take hands the hook to the Start helper; the repeat action reads back after its reflex and re-check', () => {
         expect(src).toMatch(/step = 'start';\n\s*await startBenchmarkRecording\(page, `\$\{label\}-save`, undefined, consentAtClick\(opts\.beforeCapture\)\);/);
-        expect(src).toMatch(/await reflexPauseForRepeat|if \(reflexMs > 0\) await new Promise\(\(resolve\) => setTimeout\(resolve, reflexMs\)\);\n\s*const identity = await handle\.evaluate/);
-        expect(src).toMatch(/throw new Error\(`the repeat action changed before activation[^\n]*\n\s*\}\n\s*await consent\.beforeClick\(\);\n\s*await handle\.click\(\{ timeout: 15_000 \}\);/);
+        expect(src).toMatch(/if \(reflexMs > 0\) await new Promise\(\(resolve\) => setTimeout\(resolve, reflexMs\)\);\n\s*const requireSameAction = async/);
+        expect(src).toMatch(/await requireSameAction\(\);\n\s*await consent\.beforeClick\(\);\n[^\n]*\n\s*await requireSameAction\(\);\n\s*await handle\.click\(\{ timeout: 15_000 \}\);/);
         expect(src).toContain("if (!consent.beforeClick) { await again.click(); return; }");
     });
     it('nextStartEvidence: the hook goes into the Start helper; a refusal clears the watch and stops, with no teardown', () => {

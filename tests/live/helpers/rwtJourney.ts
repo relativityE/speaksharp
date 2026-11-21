@@ -1420,15 +1420,20 @@ async function pressRepeatAction(page: Page, again: ReturnType<Page['getByTestId
     try {
         const reflexMs = activeHumanReflexMs();
         if (reflexMs > 0) await new Promise((resolve) => setTimeout(resolve, reflexMs));
-        const identity = await handle.evaluate((element, expected) => ({
-            connected: element.isConnected, control: element.getAttribute('data-testid'),
-            disabled: element instanceof HTMLButtonElement ? element.disabled : element.hasAttribute('disabled'),
-            unique: document.querySelectorAll(`[data-testid="${expected}"]`).length === 1,
-        }), testId);
-        if (!identity.connected || identity.control !== testId || identity.disabled || !identity.unique) {
-            throw new Error(`the repeat action changed before activation (${JSON.stringify(identity)})`);
-        }
+        const requireSameAction = async (): Promise<void> => {
+            const identity = await handle.evaluate((element, expected) => ({
+                connected: element.isConnected, control: element.getAttribute('data-testid'),
+                disabled: element instanceof HTMLButtonElement ? element.disabled : element.hasAttribute('disabled'),
+                unique: document.querySelectorAll(`[data-testid="${expected}"]`).length === 1,
+            }), testId);
+            if (!identity.connected || identity.control !== testId || identity.disabled || !identity.unique) {
+                throw new Error(`the repeat action changed before activation (${JSON.stringify(identity)})`);
+            }
+        };
+        await requireSameAction();
         await consent.beforeClick();
+        // The readback is a server read and can take a while: the action must still be the same enabled node when it returns.
+        await requireSameAction();
         await handle.click({ timeout: 15_000 });
     } finally {
         await handle.dispose().catch(() => undefined);
