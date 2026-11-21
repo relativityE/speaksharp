@@ -1,5 +1,5 @@
 import type { APIResponse, Page } from '@playwright/test';
-import { test, expect } from './helpers/deployedLiveTest';
+import { test, expect } from '../helpers/deployedLiveTest';
 
 /**
  * REAL Vercel preview proof for the stale-chunk P0, run through the approved CI-secret bypass path

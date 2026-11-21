@@ -12,7 +12,9 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-const LIVE_DIRS = ['tests/live', 'tests/live/helpers'];
+// tests/live/diagnostics holds the named diagnostic proofs moved out of the journey folder; they keep
+// the same privacy rules.
+const LIVE_DIRS = ['tests/live', 'tests/live/helpers', 'tests/live/diagnostics'];
 
 /** Variables that hold run-owned identifiers. Interpolating any of these into printed text leaks it. */
 const IDENTIFIER_BINDINGS = [

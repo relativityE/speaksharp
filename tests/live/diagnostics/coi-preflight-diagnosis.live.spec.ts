@@ -1,5 +1,5 @@
 import type { Page, BrowserContext } from '@playwright/test';
-import { test, expect } from './helpers/deployedLiveTest';
+import { test, expect } from '../helpers/deployedLiveTest';
 
 /**
  * #1043 BOUNDED DIAGNOSIS (single attempt): why does the cross-origin Supabase Edge Function call

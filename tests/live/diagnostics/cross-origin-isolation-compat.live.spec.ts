@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { test, expect } from './helpers/deployedLiveTest';
+import { test, expect } from '../helpers/deployedLiveTest';
 
 /**
  * #1043 — cross-origin-isolation COMPATIBILITY AUDIT against a deployed preview.

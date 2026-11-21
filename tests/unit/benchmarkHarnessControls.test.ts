@@ -838,10 +838,12 @@ describe('#1519 every cold-setup consumer delegates its start to the recording-a
     const repoRoot = resolve(__dirname, '..', '..');
     const EXCLUDED = ['tester-b-private-native-stt.live.spec.ts'];
 
-    const consumers = readdirSync(resolve(repoRoot, 'tests/live'))
-        .filter((f) => f.endsWith('.spec.ts'))
-        .filter((f) => !EXCLUDED.includes(f))
-        .map((f) => ({ file: f, src: readFileSync(resolve(repoRoot, 'tests/live', f), 'utf8') }))
+    // tests/live/diagnostics holds named diagnostic proofs moved out of the journey folder; they stay in this sweep.
+    const consumers = ['tests/live', 'tests/live/diagnostics']
+        .flatMap((dir) => readdirSync(resolve(repoRoot, dir)).map((f) => ({ dir, f })))
+        .filter(({ f }) => f.endsWith('.spec.ts'))
+        .filter(({ f }) => !EXCLUDED.includes(f))
+        .map(({ dir, f }) => ({ file: f, src: readFileSync(resolve(repoRoot, dir, f), 'utf8') }))
         .filter(({ src }) => src.includes('preparePrivateModelIfPrompted'));
 
     it('the scope actually resolved (an empty sweep would make every assertion below vacuous)', () => {

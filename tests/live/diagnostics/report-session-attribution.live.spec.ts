@@ -1,7 +1,7 @@
 import { type Page } from '@playwright/test';
-import { test, expect } from './helpers/deployedLiveTest';
-import { goToPublicRoute, navigateToRoute } from '../e2e/helpers';
-import { ROUTES, TEST_IDS } from '../constants';
+import { test, expect } from '../helpers/deployedLiveTest';
+import { goToPublicRoute, navigateToRoute } from '../../e2e/helpers';
+import { ROUTES, TEST_IDS } from '../../constants';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 // LIVE production proof for PR #1014 (report→session attribution) on top of the PR #1015 DB ownership

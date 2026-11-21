@@ -2,20 +2,20 @@ import { test, expect, type Page } from '@playwright/test';
 import {
   AUDIO_ARGS, collectBenchmarkPreconditionSnapshot, selectBenchmarkMode,
   startBenchmarkRecording, stopBenchmarkRecording,
-} from './helpers/benchmark-utils';
+} from '../helpers/benchmark-utils';
 // The MODEL-STATE CONTROL MAP. This spec clicked `session-start-stop-button`, the combined toggle the
 // session overhaul retired — it renders on no viewport, so the download click and both recording
 // clicks had no target. `live-release-matrix` still invokes this spec, so it is migrated rather than
 // left in a known-broken ledger.
-import { MIC_CONTROL_BY_STATUS } from '../helpers/micControls';
+import { MIC_CONTROL_BY_STATUS } from '../../helpers/micControls';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { CANDIDATES, candidateForRuntime } from '../../frontend/src/services/transcription/candidateRegistry';
-import { HARVARD_BENCHMARK_LONG_AUDIO } from './helpers/audio-fixtures';
+import { CANDIDATES, candidateForRuntime } from '../../../frontend/src/services/transcription/candidateRegistry';
+import { HARVARD_BENCHMARK_LONG_AUDIO } from '../helpers/audio-fixtures';
 
 // #1258: read at runtime — a bare ESM `.json` import fails to load under Playwright on Node 22 ("type": "module").
 const privateSttConfig = JSON.parse(readFileSync(
-  fileURLToPath(new URL('../../frontend/src/config/private-stt.config.json', import.meta.url)), 'utf8',
+  fileURLToPath(new URL('../../../frontend/src/config/private-stt.config.json', import.meta.url)), 'utf8',
 )) as { candidate: string };
 
 const BASE_URL = process.env.BASE_URL;
@@ -198,7 +198,7 @@ async function startZeroHuggingFaceAudit(page: Page): Promise<{
 }> {
   // JS helper intentionally lives outside the app bundle. It uses Playwright request
   // events so worker model fetches are visible to the live release matrix.
-  const { trackPrivateModelRequests } = await import('./helpers/zeroHuggingFaceAudit.mjs');
+  const { trackPrivateModelRequests } = await import('../helpers/zeroHuggingFaceAudit.mjs');
   return trackPrivateModelRequests(page);
 }
 

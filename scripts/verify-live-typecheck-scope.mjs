@@ -85,12 +85,15 @@ for (const required of REQUIRED) {
     }
 }
 
-// Every *.live.spec.ts on disk must be in the resolved set.
-const onDisk = readdirSync(LIVE_SPEC_DIR).filter((f) => f.endsWith('.live.spec.ts'));
+// Every *.live.spec.ts on disk must be in the resolved set, including those in sub-folders such as
+// tests/live/diagnostics, so moving a spec into a folder cannot take it out of this check.
+const onDisk = readdirSync(LIVE_SPEC_DIR, { recursive: true })
+    .map((f) => String(f).split('\\').join('/'))
+    .filter((f) => f.endsWith('.live.spec.ts'));
 if (onDisk.length === 0) fail('found no live specs on disk — the comparison would be vacuous');
 const uncovered = onDisk.filter((spec) => !files.some((f) => f.endsWith(`${LIVE_SPEC_DIR}/${spec}`)));
 if (uncovered.length > 0) {
-    fail(`${uncovered.length} root live spec(s) are OUT of scope: ${uncovered.join(', ')}`);
+    fail(`${uncovered.length} live spec(s) are OUT of scope: ${uncovered.join(', ')}`);
 }
 
 for (const { fragment, why } of FORBIDDEN) {
