@@ -37,7 +37,8 @@ import { HarnessParityTap, START_CONTROLS } from './helpers/rwtHarnessParity';
 import { JourneyFeedbackFence } from './helpers/feedbackFence';
 import {
     J8_FENCE_CASE, J8_FENCE_KEY_CAP, J8_LEGS, J8_SUITE, type J8Leg, J8WriteGate, type J8WriteOutcome, TAKE_PROJECTION_FIELDS, j8RunnerAdmission,
-    legReadback, legReceipt, legSink, mergeLegReadback, readTakeDigests, takesReadComplete, takesUnchangedVerdict, writerDrainedVerdict,
+    j8bFinalSentFeedbackVerdict, legReadback, legReceipt, legSink, mergeLegReadback, readTakeDigests, takesReadComplete, takesUnchangedVerdict, writerDrainedVerdict,
+    type StartPressCounts, legStartPressVerdict, startPressSnapshot,
 } from './helpers/rwtJ8Journey';
 import { readFileSync } from 'node:fs';
 import { currentRunBinding } from './helpers/runBinding';
@@ -521,16 +522,24 @@ async function finishJ8Receipt(
     receipt: RwtReceipt, testInfo: TestInfo, tap: AnalyticsTap, claimed: boolean, steps: FinalizationSteps,
     windows: Partial<Record<J8Leg, { fromMs: number; toMs: number }>>, faultLegJourneys: readonly string[],
     storedProof: Partial<Record<J8Leg, { storedRows: number; insertKeys: number }>>,
+    finalB: { fromMs: number; submitAt?: number } | null,
 ): Promise<void> {
     await steps.step('telemetry rows', () => telemetryClassRows(receipt, tap, claimed, true));
     steps.report(receipt);
     const ctx = { expectedReleaseSha: expectedReleaseSha(), expectedRunId: process.env.GITHUB_RUN_ID, expectedRunAttempt: process.env.GITHUB_RUN_ATTEMPT };
     const plans = Object.fromEntries(J8_LEGS.map((leg) => {
-        const w = windows[leg] ?? { fromMs: Number.POSITIVE_INFINITY, toMs: Number.NEGATIVE_INFINITY };
+        const w = leg === 'J8.b'
+            ? { fromMs: finalB?.fromMs ?? Number.POSITIVE_INFINITY, toMs: windows[leg]?.toMs ?? Number.NEGATIVE_INFINITY }
+            : windows[leg] ?? { fromMs: Number.POSITIVE_INFINITY, toMs: Number.NEGATIVE_INFINITY };
         return [leg, legReadback(tap.events, { ...w, bindings: tap.actionBindings, captures: tap.actionCaptures,
             excludeJourneys: leg === 'J8.b' ? faultLegJourneys : [], stored: storedProof[leg] ?? null }, ctx)];
     })) as Record<J8Leg, ReturnType<typeof legReadback>>;
     const merged = mergeLegReadback(plans);
+    if (finalB) {
+        const sent = j8bFinalSentFeedbackVerdict(tap.sent('feedback_submit'), merged.legJourneys['J8.b'], finalB.submitAt,
+            windows['J8.b']?.toMs, tap.blindAt, expectedReleaseSha());
+        legSink(receipt, 'J8.b').row('final feedback pair sent', sent.verdict, sent.detail, sent.evidence);
+    }
     // The leg -> journey map the nine-journey splitter reads to scope each leg's received readback (the readback itself is per journey).
     const oneEach = J8_LEGS.every((leg) => merged.legJourneys[leg].length === 1);
     receipt.row('J8 leg readback bindings', oneEach ? 'PASS' : 'HOLD',
@@ -750,6 +759,9 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
         test.setTimeout(2_400_000);
         const owner: Owner = { email: '', uid: '' };
         const receipt = new RwtReceipt(J8_SUITE);
+        // The nightly entry maps this receipt only when it names the entry's own run-bound create attempt (Sam: the receipt and
+        // cleanup bind to the same run and attempt). The attempt id is the runner's own label, never an account identifier.
+        receipt.meta.runnerAttempt = admission.attemptId;
         const tap = new AnalyticsTap();
         const generations = new CoachingGenerationTap();
         tap.attach(page); generations.attach(page);
@@ -771,6 +783,11 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
         const submitWindows: Partial<Record<J8Leg, { feedbackBefore: number; submitAt: number }>> = {};
         // Each leg's own independently observed submit proof (stored rows under its own observed insert keys) for its readback.
         const storedProof: Partial<Record<J8Leg, { storedRows: number; insertKeys: number }>> = {};
+        let finalB: { fromMs: number; submitAt?: number } | null = null;
+        // Each leg's OWN Start presses: tap snapshots at the journey's start, at J8.a's end and at J8.b's end (J8.b's interval
+        // includes its two takes, which run before its write window opens). J8.c counts its own (`no extra Start or coaching`).
+        let startsAtAttach: StartPressCounts | null = null;
+        let startsAfterJ8a: StartPressCounts | null = null;
         // A leg opens only when no earlier write is in flight or has an unknown outcome; otherwise it is NOT RUN (HOLD).
         const openLeg = (leg: J8Leg): boolean => {
             if (gate.pending === 0 && gate.unresolvedCount === 0) { gate.open(leg); return true; }
@@ -842,10 +859,11 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
                     FINALIZE_CLEANUP_MS);
                 if (written !== true) receipt.row(ZERO_RESIDUE_ROW, 'FAIL', 'the fence cleanup step did not finish; the recovery dispatch closes and cleans it by run key');
             }
-            await finishJ8Receipt(receipt, testInfo, tap, claimed, steps, windows, faultLegJourneys, storedProof);
+            await finishJ8Receipt(receipt, testInfo, tap, claimed, steps, windows, faultLegJourneys, storedProof, finalB);
         });
         try {
             await parity.attach(page.context());
+            startsAtAttach = startPressSnapshot(parity.startPressesByControl);
             await suppressPageSnapshot(testInfo);
             const ready = await prepareDisposable(page, receipt, owner, admission.lookupRef);
             claimed = ready;
@@ -872,6 +890,10 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             windows['J8.a'].toMs = Date.now();
             storedProof['J8.a'] = { storedRows: storedA.storedRows, insertKeys: storedA.insertKeys };
             writeNoSessionReportRows(a, storedA);
+            // J8.a's own zero-Start observation: from the journey's start (signup included) to the end of its No-session submit.
+            startsAfterJ8a = startPressSnapshot(parity.startPressesByControl);
+            const aStarts = legStartPressVerdict(startsAtAttach, startsAfterJ8a, 'none');
+            a.row('no Start press', aStarts.status, aStarts.detail, aStarts.evidence);
             a.row('no coaching before any take', generations.exchanges.length === 0 ? 'PASS' : 'FAIL',
                 generations.exchanges.length === 0 ? 'no coaching request was sent before the first take' : 'a coaching request was sent before any take existed',
                 { coachingRequests: generations.exchanges.length });
@@ -902,7 +924,14 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             let storedB: (StoredFeedbackReport & { acknowledged: boolean }) | null = null;
             if (bEstablished) {
                 ledger.beginFinal();
-                storedB = await submitFeedback(page, tap, owner.uid, 'selected_older_session', olderId, newerId);
+                // The final submit's own window (it binds J8.b's readback, so the fault attempts are outside it) and its own fresh
+                // acknowledgment (the fault legs' toasts are marked first).
+                const finalSubmit: { fromMs: number; submitAt?: number } = { fromMs: Date.now() };
+                finalB = finalSubmit;
+                storedB = await submitFeedback(page, tap, owner.uid, 'selected_older_session', olderId, newerId, {
+                    onSubmitted: ({ submitAt }) => { finalSubmit.submitAt = submitAt; },
+                    onFreshAcknowledgment: (observation) => writeFreshAcknowledgmentRow(b, observation),
+                });
                 ledger.endWindow();
                 observedLedger = feedbackLedgerVerdict(ledger.attempts);
                 retentionReportId = storedB.id;
@@ -918,6 +947,9 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             }
             gate.close('J8.b');
             windows['J8.b'].toMs = Date.now();
+            // J8.b's own Start presses: its two takes, from J8.a's end to here, against AHT-07's designed budget.
+            const bStarts = legStartPressVerdict(startsAfterJ8a, startPressSnapshot(parity.startPressesByControl), AHT07_START_PRESS_BUDGET);
+            b.row('Start presses within budget', bStarts.status, bStarts.detail, bStarts.evidence);
 
             // J8.c — No session with both takes listed. Sam on 94fe88d7: it must EARN its write. Before C opens: J8.b's report is stored
             // exactly once AND linked to the older take, and both saved takes read completely and owner-bound. Otherwise NOT RUN.

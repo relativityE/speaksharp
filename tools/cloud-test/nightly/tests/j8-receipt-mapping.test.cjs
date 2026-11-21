@@ -9,18 +9,24 @@ const { splitCaseResult } = require('../case-results.cjs');
 const { rowsForLeg } = require('../journey-plan.cjs');
 
 const LEGS = ['J8.a', 'J8.b', 'J8.c'];
-const GAP_ROWS = {
-    'J8.a': ['invariant:start-press-budget', 'AHT-08:start-press-budget'],
-    'J8.b': ['invariant:start-press-budget', 'AHT-07:start-press-budget', 'AHT-07:fresh-acknowledgment', 'AHT-07:received-feedback-proof'],
-    'J8.c': [],
-};
-/** Every receipt step the mapping reads, each PASS, plus account and journey rows the mapping does not consume. */
+const RELEASE = 'b'.repeat(40);
+const JOURNEY_OF = { 'J8.a': 'journey-a', 'J8.b': 'journey-final-b', 'J8.c': 'journey-c' };
+/** Every receipt step the mapping reads, each PASS, plus account and journey rows the mapping does not consume. Each leg is bound
+ * to its own journey (`J8 leg readback bindings`), and the receipt declares those three journeys for the readback. */
 function passingReceipt(extra = []) {
     const steps = new Set(['receipt content-free', 'zero residue', 'feedback retention', 'feedback fence close', 'telemetry rows']);
     for (const leg of LEGS) for (const sources of Object.values(J8_RECEIPT_MAP[leg]))
-        for (const s of sources) if (!s.gap) steps.add(s.scope === 'leg' ? `${leg}: ${s.step}` : s.step);
-    return { suite: J8_SUITE, rows: [...[...steps].map((step) => ({ step, verdict: 'PASS', detail: '' })), ...extra] };
+        for (const s of sources) if (s.scope !== 'readback') steps.add(s.scope === 'leg' ? `${leg}: ${s.step}` : s.step);
+    const rows = [...steps].map((step) => (step === 'J8 leg readback bindings'
+        ? { step, verdict: 'PASS', detail: '', evidence: { ...JOURNEY_OF } } : { step, verdict: 'PASS', detail: '' }));
+    return { suite: J8_SUITE, release: RELEASE, rows: [...rows, ...extra],
+        readback: { journeys: LEGS.map((l) => ({ journeyId: JOURNEY_OF[l], stages: ['share_feedback'] })), reportedJourneyIds: [], missingBindings: [] } };
 }
+/** The independent readback for a receipt: every bound journey QUALIFIED unless `verdicts` says otherwise. */
+const readbackFor = (r, verdicts = {}) => ({ suite: J8_SUITE, release: r.release, missingBindings: [],
+    journeys: r.readback.journeys.map((j) => ({ journeyId: j.journeyId, stages: [...j.stages], verdict: verdicts[j.journeyId] ?? 'QUALIFIED' })) });
+/** The mapping with a passing independent readback unless one is given. */
+const map = (r, rb = readbackFor(r)) => mapJ8Receipt(r, rb);
 const without = (r, step) => ({ ...r, rows: r.rows.filter((x) => x.step !== step) });
 const withVerdict = (r, step, verdict) => ({ ...r, rows: r.rows.map((x) => (x.step === step ? { ...x, verdict } : x)) });
 const rowOf = (out, leg, id) => out.assertions.find((a) => a.leg === leg && a.id === id);
@@ -29,25 +35,83 @@ const planId = (row) => (row.startsWith('invariant:') || row.startsWith('new:') 
 
 describe('J8 receipt mapping', () => {
     it('covers exactly every plan row of every J8 leg, once each', () => {
-        const out = mapJ8Receipt(passingReceipt());
+        const out = map(passingReceipt());
         for (const leg of LEGS) {
             const ids = out.assertions.filter((a) => a.leg === leg).map((a) => a.id).sort();
             expect(ids).toEqual(rowsForLeg(leg).map(planId).sort());
         }
         expect(out.assertions.length).toBe(13 + 19 + 5);
     });
-    it('passes every row a passing receipt proves, and keeps each named gap HOLD with its reason', () => {
-        const out = mapJ8Receipt(passingReceipt());
-        for (const leg of LEGS) for (const row of rowsForLeg(leg)) {
-            const a = rowOf(out, leg, planId(row));
-            if (GAP_ROWS[leg].includes(row)) {
-                expect(a.result).toBe('HOLD');
-                expect(a.sources.some((s) => s.startsWith('GAP: '))).toBe(true);
-            } else expect(a.result).toBe('PASS');
+    it('passes every row a passing receipt proves: no row is a named gap any more', () => {
+        const out = map(passingReceipt());
+        for (const leg of LEGS) for (const row of rowsForLeg(leg)) expect({ leg, row, result: rowOf(out, leg, planId(row)).result }).toEqual({ leg, row, result: 'PASS' });
+        expect(out.assertions.filter((a) => a.sources.some((s) => s.startsWith('GAP'))).length).toBe(0);
+    });
+    it('J8.a\'s Start-press rows rest on its OWN zero-Start row; the journey-wide count never stands in for it', () => {
+        const out = map(without(passingReceipt(), 'J8.a: no Start press'));
+        for (const id of ['start-press-budget', 'AHT-08:start-press-budget']) expect(rowOf(out, 'J8.a', id).result).toBe('HOLD');
+        const pressed = map(withVerdict(passingReceipt(), 'J8.a: no Start press', 'FAIL'));
+        for (const id of ['start-press-budget', 'AHT-08:start-press-budget']) expect(rowOf(pressed, 'J8.a', id).result).toBe('FAIL');
+        // A J8.a press never touches J8.b's own count (J8.b's other rows stay PASS).
+        expect(rowOf(pressed, 'J8.b', 'AHT-07:start-press-budget').result).toBe('PASS');
+    });
+    it('J8.b\'s Start-press rows need BOTH its own count and the journey-wide count', () => {
+        for (const step of ['J8.b: Start presses within budget', 'Start presses within budget']) {
+            const out = map(without(passingReceipt(), step));
+            for (const id of ['start-press-budget', 'AHT-07:start-press-budget']) expect({ step, id, r: rowOf(out, 'J8.b', id).result }).toEqual({ step, id, r: 'HOLD' });
         }
+        // J8.c's own Start check is its own row, unaffected by J8.b's.
+        expect(rowOf(map(without(passingReceipt(), 'J8.b: Start presses within budget')), 'J8.c', 'start-press-budget').result).toBe('PASS');
+    });
+    it('J8.b\'s fresh acknowledgment and final pair are its own: J8.a\'s or J8.c\'s never stand in', () => {
+        const noAck = map(without(passingReceipt(), 'J8.b: fresh acknowledgment'));
+        expect(rowOf(noAck, 'J8.b', 'AHT-07:fresh-acknowledgment').result).toBe('HOLD');
+        expect(rowOf(noAck, 'J8.a', 'AHT-08:fresh-acknowledgment').result).toBe('PASS');
+        const noSent = map(without(passingReceipt(), 'J8.b: final feedback pair sent'));
+        expect(rowOf(noSent, 'J8.b', 'AHT-07:received-feedback-proof').result).toBe('HOLD');
+        expect(rowOf(noSent, 'J8.a', 'AHT-08:received-feedback-proof').result).toBe('PASS');
+        const notIsolated = map(withVerdict(passingReceipt(), 'J8.b: final submit isolated from the fault legs', 'FAIL'));
+        expect(rowOf(notIsolated, 'J8.b', 'AHT-07:received-feedback-proof').result).toBe('FAIL');
+    });
+    it('SENT IS NOT RECEIVED (Sam): with every sent row PASS, received rows rest on the independent readback only', () => {
+        const r = passingReceipt();
+        for (const [leg, id] of [['J8.a', 'AHT-08:received-feedback-proof'], ['J8.b', 'AHT-07:received-feedback-proof'], ['J8.c', 'no-session-choice-with-takes']]) {
+            // No readback at all: HOLD, never PASS, whatever the receipt's own sent rows say.
+            expect({ leg, r: rowOf(mapJ8Receipt(r), leg, id).result }).toEqual({ leg, r: 'HOLD' });
+            // The leg's own journey not qualified: HOLD; an observed received failure: FAIL.
+            expect({ leg, r: rowOf(map(r, readbackFor(r, { [JOURNEY_OF[leg]]: 'HOLD' })), leg, id).result }).toEqual({ leg, r: 'HOLD' });
+            expect({ leg, r: rowOf(map(r, readbackFor(r, { [JOURNEY_OF[leg]]: 'FAIL' })), leg, id).result }).toEqual({ leg, r: 'FAIL' });
+        }
+        // Another leg's journey failing its readback never touches J8.b's received row.
+        expect(rowOf(map(r, readbackFor(r, { 'journey-a': 'HOLD' })), 'J8.b', 'AHT-07:received-feedback-proof').result).toBe('PASS');
+        // A receipt row named like the readback source is never read as it.
+        const forged = passingReceipt([{ step: 'J8.b: received feedback (independent readback)', verdict: 'PASS', detail: '' }]);
+        expect(rowOf(mapJ8Receipt(forged), 'J8.b', 'AHT-07:received-feedback-proof').result).toBe('HOLD');
+    });
+    it('BORROWED EVIDENCE: a readback that is not this receipt\'s, or a leg not bound once to its own journey, is HOLD', () => {
+        const r = passingReceipt();
+        const id = 'AHT-07:received-feedback-proof';
+        const cases = {
+            'another release': [r, { ...readbackFor(r), release: 'c'.repeat(40) }],
+            'another suite': [r, { ...readbackFor(r), suite: 'feedback-association-boundaries-older-take' }],
+            'an extra journey (an earlier submit\'s)': [r, { ...readbackFor(r), journeys: [...readbackFor(r).journeys, { journeyId: 'journey-fault-1', stages: ['share_feedback'], verdict: 'QUALIFIED' }] }],
+            'a journey missing': [r, { ...readbackFor(r), journeys: readbackFor(r).journeys.filter((j) => j.journeyId !== 'journey-final-b') }],
+            'another stage': [r, { ...readbackFor(r), journeys: readbackFor(r).journeys.map((j) => ({ ...j, stages: ['session_after_open_mic'] })) }],
+            'malformed': [r, { suite: J8_SUITE, release: RELEASE }],
+        };
+        for (const [name, [receipt, rb]] of Object.entries(cases)) expect({ name, r: rowOf(map(receipt, rb), 'J8.b', id).result }).toEqual({ name, r: 'HOLD' });
+        // J8.b bound to two journeys (a fault attempt's and the final one's), or the binding row not PASS: HOLD even if both qualified.
+        const two = { ...r, rows: r.rows.map((x) => (x.step === 'J8 leg readback bindings' ? { ...x, evidence: { ...JOURNEY_OF, 'J8.b': 'journey-final-b,journey-fault-1' } } : x)),
+            readback: { ...r.readback, journeys: [...r.readback.journeys, { journeyId: 'journey-fault-1', stages: ['share_feedback'] }] } };
+        expect(rowOf(map(two, readbackFor(two)), 'J8.b', id).result).toBe('HOLD');
+        // J8.b bound to a journey the readback qualified, but which the receipt did not declare for its feedback stage: HOLD.
+        const elsewhere = { ...r, rows: r.rows.map((x) => (x.step === 'J8 leg readback bindings' ? { ...x, evidence: { ...JOURNEY_OF, 'J8.b': 'journey-fault-1' } } : x)) };
+        expect(rowOf(map(elsewhere, readbackFor(r)), 'J8.b', id).result).toBe('HOLD');
+        // The sources name why.
+        expect(rowOf(mapJ8Receipt(r), 'J8.b', id).sources).toContain('J8.b: received feedback (independent readback): no independent readback');
     });
     it('lands every row on its own leg through the case-result splitter, with nothing unplaced', () => {
-        const split = splitCaseResult('J8', mapJ8Receipt(passingReceipt()));
+        const split = splitCaseResult('J8', map(passingReceipt()));
         for (const leg of LEGS) {
             const rows = split.get(leg);
             expect(Object.keys(rows).sort()).toEqual([...rowsForLeg(leg)].sort());
@@ -55,65 +119,65 @@ describe('J8 receipt mapping', () => {
         }
     });
     it('CONTROL: a missing leg step is HOLD on that leg only, and another leg\'s same step never stands in for it', () => {
-        const out = mapJ8Receipt(without(passingReceipt(), 'J8.a: fresh acknowledgment'));
+        const out = map(without(passingReceipt(), 'J8.a: fresh acknowledgment'));
         expect(rowOf(out, 'J8.a', 'AHT-08:fresh-acknowledgment').result).toBe('HOLD');
         // J8.c's fresh acknowledgment is still in the receipt and still passes J8.c.
         expect(rowOf(out, 'J8.c', 'no-session-choice-with-takes').result).toBe('PASS');
     });
     it('CONTROL: an unprefixed step never proves a leg-scoped row', () => {
         const r = without(passingReceipt([{ step: 'no-session association', verdict: 'PASS' }]), 'J8.a: no-session association');
-        expect(rowOf(mapJ8Receipt(r), 'J8.a', 'AHT-08:no-session-association').result).toBe('HOLD');
+        expect(rowOf(map(r), 'J8.a', 'AHT-08:no-session-association').result).toBe('HOLD');
     });
     it('a FAIL step fails every row that rests on it, and only those', () => {
-        const out = mapJ8Receipt(withVerdict(passingReceipt(), 'J8.b: feedback leg request lost: same key on Retry', 'FAIL'));
+        const out = map(withVerdict(passingReceipt(), 'J8.b: feedback leg request lost: same key on Retry', 'FAIL'));
         expect(rowOf(out, 'J8.b', 'AHT-07:feedback-transport-form-retry').result).toBe('FAIL');
         expect(rowOf(out, 'J8.b', 'AHT-07:feedback-failure-retry-form').result).toBe('FAIL');
         expect(rowOf(out, 'J8.b', 'AHT-07:feedback-rejection-form-retry').result).toBe('PASS');
         expect(rowOf(out, 'J8.a', 'AHT-08:fresh-acknowledgment').result).toBe('PASS');
     });
     it('a journey-wide step affects every leg: one account, one browser context', () => {
-        const out = mapJ8Receipt(withVerdict(passingReceipt(), 'no Cloud speech-to-text request', 'FAIL'));
+        const out = map(withVerdict(passingReceipt(), 'no Cloud speech-to-text request', 'FAIL'));
         for (const leg of LEGS) expect(rowOf(out, leg, 'no-cloud-stt').result).toBe('FAIL');
-        const held = mapJ8Receipt(withVerdict(passingReceipt(), 'canary claim in fresh login', 'HOLD'));
+        const held = map(withVerdict(passingReceipt(), 'canary claim in fresh login', 'HOLD'));
         for (const leg of LEGS) expect(rowOf(held, leg, 'owner-bound').result).toBe('HOLD');
     });
     it('HUMAN and EXTERNAL steps are never a PASS', () => {
         for (const v of ['HUMAN', 'EXTERNAL', 'SOMETHING']) {
-            const out = mapJ8Receipt(withVerdict(passingReceipt(), 'J8.c: both saved takes unchanged', v));
+            const out = map(withVerdict(passingReceipt(), 'J8.c: both saved takes unchanged', v));
             expect(rowOf(out, 'J8.c', 'no-session-choice-with-takes').result).toBe('HOLD');
         }
     });
     it('a step written twice keeps its worse verdict', () => {
-        const out = mapJ8Receipt(passingReceipt([{ step: 'J8.a: no-session report stored once', verdict: 'FAIL' }]));
+        const out = map(passingReceipt([{ step: 'J8.a: no-session report stored once', verdict: 'FAIL' }]));
         expect(rowOf(out, 'J8.a', 'AHT-08:feedback-stored-once').result).toBe('FAIL');
         // Order does not matter: a FAIL written first is not replaced by a later PASS.
         const r = passingReceipt();
         const first = { ...r, rows: [{ step: 'J8.a: no-session association', verdict: 'FAIL' }, ...r.rows] };
-        expect(rowOf(mapJ8Receipt(first), 'J8.a', 'AHT-08:no-session-association').result).toBe('FAIL');
+        expect(rowOf(map(first), 'J8.a', 'AHT-08:no-session-association').result).toBe('FAIL');
     });
     it('CONTROL: an unconsumed failing step is never ignored: journey-wide floors every leg, leg-scoped floors its own leg', () => {
-        const journey = mapJ8Receipt(passingReceipt([{ step: 'scenario execution', verdict: 'FAIL' }]));
+        const journey = map(passingReceipt([{ step: 'scenario execution', verdict: 'FAIL' }]));
         for (const leg of LEGS) expect(journey.assertions.filter((a) => a.leg === leg).every((a) => a.result === 'FAIL')).toBe(true);
         expect(journey.unmapped.filter((u) => u.step === 'scenario execution')).toEqual([{ step: 'scenario execution', outcome: 'FAIL' }]);
-        const legOnly = mapJ8Receipt(passingReceipt([{ step: 'J8.c: a renamed row', verdict: 'HOLD' }]));
+        const legOnly = map(passingReceipt([{ step: 'J8.c: a renamed row', verdict: 'HOLD' }]));
         expect(legOnly.assertions.filter((a) => a.leg === 'J8.c').every((a) => a.result === 'HOLD')).toBe(true);
         expect(rowOf(legOnly, 'J8.a', 'AHT-08:fresh-acknowledgment').result).toBe('PASS');
         // An unconsumed PASS (e.g. the content-free row) floors nothing.
-        expect(rowOf(mapJ8Receipt(passingReceipt()), 'J8.a', 'AHT-08:fresh-acknowledgment').result).toBe('PASS');
+        expect(rowOf(map(passingReceipt()), 'J8.a', 'AHT-08:fresh-acknowledgment').result).toBe('PASS');
     });
     it('a leg whose prerequisites HOLD was NOT RUN, but an earlier FAIL on it stays FAIL', () => {
         const r = passingReceipt([{ step: 'J8.c: prerequisites', verdict: 'HOLD' }]);
-        const out = mapJ8Receipt(r);
+        const out = map(r);
         expect(out.assertions.filter((a) => a.leg === 'J8.c').every((a) => a.result === 'NOT_RUN')).toBe(true);
         expect(rowOf(out, 'J8.b', 'AHT-07:feedback-attempts').result).toBe('PASS');
-        const failed = mapJ8Receipt(withVerdict(r, 'no Cloud speech-to-text request', 'FAIL'));
+        const failed = map(withVerdict(r, 'no Cloud speech-to-text request', 'FAIL'));
         expect(rowOf(failed, 'J8.c', 'no-cloud-stt').result).toBe('FAIL');
         // The splitter reads NOT_RUN as NOT RUN.
         expect(splitCaseResult('J8', out).get('J8.c')['new:no-session-choice-with-takes']).toBe('NOT RUN');
     });
     it('a leg whose prerequisites FAIL fails every one of its rows, never NOT RUN, and only that leg', () => {
         // Elon's probe: J8.a's setup failed while the journey's signup passed.
-        const out = mapJ8Receipt(passingReceipt([{ step: 'J8.a: prerequisites', verdict: 'FAIL' }]));
+        const out = map(passingReceipt([{ step: 'J8.a: prerequisites', verdict: 'FAIL' }]));
         const legA = out.assertions.filter((a) => a.leg === 'J8.a');
         expect(legA.length).toBe(rowsForLeg('J8.a').length);
         expect(legA.every((a) => a.result === 'FAIL')).toBe(true);
@@ -122,12 +186,12 @@ describe('J8 receipt mapping', () => {
         expect(rowOf(out, 'J8.c', 'new:no-session-choice-with-takes'.slice(4)).result).toBe('PASS');
         expect(splitCaseResult('J8', out).get('J8.a')['AHT-08:fresh-acknowledgment']).toBe('FAIL');
         // A repeated prerequisites step is the worst of its verdicts.
-        const twice = mapJ8Receipt(passingReceipt([{ step: 'J8.a: prerequisites', verdict: 'PASS' }, { step: 'J8.a: prerequisites', verdict: 'FAIL' }]));
+        const twice = map(passingReceipt([{ step: 'J8.a: prerequisites', verdict: 'PASS' }, { step: 'J8.a: prerequisites', verdict: 'FAIL' }]));
         expect(twice.assertions.filter((a) => a.leg === 'J8.a').every((a) => a.result === 'FAIL')).toBe(true);
         // A human or external prerequisite is not a failure: the leg was NOT RUN. A passed one names no prerequisite source.
-        const human = mapJ8Receipt(passingReceipt([{ step: 'J8.a: prerequisites', verdict: 'HUMAN' }]));
+        const human = map(passingReceipt([{ step: 'J8.a: prerequisites', verdict: 'HUMAN' }]));
         expect(human.assertions.filter((a) => a.leg === 'J8.a').every((a) => a.result === 'NOT_RUN')).toBe(true);
-        const passed = mapJ8Receipt(passingReceipt([{ step: 'J8.a: prerequisites', verdict: 'PASS' }]));
+        const passed = map(passingReceipt([{ step: 'J8.a: prerequisites', verdict: 'PASS' }]));
         expect(rowOf(passed, 'J8.a', 'AHT-08:fresh-acknowledgment')).toMatchObject({ result: 'PASS' });
         expect(rowOf(passed, 'J8.a', 'AHT-08:fresh-acknowledgment').sources.includes('J8.a: prerequisites')).toBe(false);
     });
@@ -145,8 +209,9 @@ describe('J8 receipt mapping', () => {
             'helpers/rwtAcceptance.ts'].map((f) => fs.readFileSync(path.join(live, f), 'utf8')).join('\n');
         const missing = new Set();
         for (const leg of LEGS) for (const sources_ of Object.values(J8_RECEIPT_MAP[leg])) for (const s of sources_) {
-            if (s.gap) continue;
-            // A fault-leg row is written from FEEDBACK_LEG_ROWS as one literal; every other step is a literal row name.
+            // A fault-leg row is written from FEEDBACK_LEG_ROWS as one literal; every other step is a literal row name. The readback
+            // source is not a receipt row at all (it is the independent readback's verdict).
+            if (s.scope === 'readback') continue;
             if (!sources.includes(`'${s.step}'`)) missing.add(s.step);
         }
         expect([...missing]).toEqual([]);

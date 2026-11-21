@@ -3,14 +3,16 @@
  * J8 (nine-journey design; Sam's disposition 2026-11-15): one run-owned account, three feedback legs, one fence, one receipt
  * with three leg-scoped readback results. The pure rules behind it, with their failing controls.
  */
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
     J8_ADMISSION_ENV, J8_FENCE_CASE, J8_FENCE_KEY_CAP, J8_KEY_CAPS, J8_SUITE, J8WriteGate, TAKE_PROJECTION_FIELDS, j8RunnerAdmission, legReadback,
     legReceipt, legSink, mergeLegReadback, readTakeDigests, takeDigest, takesReadComplete, takesUnchangedVerdict, writerDrainedVerdict,
-    type J8Leg,
+    j8bFinalSentFeedbackVerdict, legStartPressVerdict, startPressSnapshot, type J8Leg, type StartPressCounts,
 } from '../live/helpers/rwtJ8Journey';
 import type { ReadbackActionBinding } from '../live/helpers/rwtAcceptance';
 import type { ReadbackPlan } from '../live/helpers/rwtOracles';
@@ -170,6 +172,9 @@ describe('j8RunnerAdmission: no runner, no signup (Sam on 94fe88d7)', () => {
         expect(skip).toBeGreaterThan(gate);
         expect(ret).toBeGreaterThan(skip);
         expect(body).toContain('await prepareDisposable(page, receipt, owner, admission.lookupRef)');
+        // The receipt names the runner's own attempt, so the nightly entry maps only this run's receipt.
+        expect(body).toContain('receipt.meta.runnerAttempt = admission.attemptId;');
+        expect(body.indexOf('receipt.meta.runnerAttempt = admission.attemptId;')).toBeLessThan(body.indexOf('prepareDisposable('));
     });
 });
 
@@ -343,4 +348,154 @@ describe('writerDrainedVerdict', () => {
         expect(reader).not.toContain('new Map()');
         expect(flat).toContain('const before = linkedToOlder ? await readTakes() : null;');
     });
+});
+
+describe('legStartPressVerdict: each leg\'s OWN Start presses (J8.a zero, J8.b its two takes)', () => {
+    const counts = (o: Partial<Record<string, number>> = {}): StartPressCounts => startPressSnapshot({ 'mic-start': 0, 'mic-download': 0,
+        'mic-retry': 0, 'verdict-practice-again': 0, 'focus-points-retry': 0, ...o } as StartPressCounts);
+    const AHT07 = { total: 2, perControl: { 'mic-start': 1, 'mic-download': 1, 'verdict-practice-again': 1 } };
+    it('a snapshot is a frozen copy: the tap counting on never changes it', () => {
+        const live = { 'mic-start': 0, 'mic-download': 0, 'mic-retry': 0, 'verdict-practice-again': 0, 'focus-points-retry': 0 };
+        const snap = startPressSnapshot(live);
+        live['mic-start'] = 5;
+        expect(snap['mic-start']).toBe(0);
+        expect(Object.isFrozen(snap)).toBe(true);
+    });
+    it('J8.a (none): PASS only for zero presses in its interval; one press of ANY control FAILs', () => {
+        expect(legStartPressVerdict(counts(), counts(), 'none').status).toBe('PASS');
+        for (const c of ['mic-start', 'mic-download', 'mic-retry', 'verdict-practice-again', 'focus-points-retry']) {
+            expect({ c, s: legStartPressVerdict(counts(), counts({ [c]: 1 }), 'none').status }).toEqual({ c, s: 'FAIL' });
+        }
+        // Presses before the interval do not count against the leg (only the delta does).
+        expect(legStartPressVerdict(counts({ 'mic-start': 3 }), counts({ 'mic-start': 3 }), 'none').status).toBe('PASS');
+    });
+    it('J8.b (budget): its two designed takes PASS; zero, three, or a control over its cap FAIL', () => {
+        const from = counts();
+        expect(legStartPressVerdict(from, counts({ 'mic-start': 1, 'verdict-practice-again': 1 }), AHT07)).toMatchObject({ status: 'PASS',
+            evidence: { startPresses: 2, cap: 2, overControls: null } });
+        expect(legStartPressVerdict(from, counts({ 'mic-download': 1, 'verdict-practice-again': 1 }), AHT07).status).toBe('PASS');
+        expect(legStartPressVerdict(from, counts(), AHT07).status).toBe('FAIL');
+        expect(legStartPressVerdict(from, counts({ 'mic-start': 1, 'mic-download': 1, 'verdict-practice-again': 1 }), AHT07).detail)
+            .toMatch(/more often than designed/);
+        expect(legStartPressVerdict(from, counts({ 'mic-start': 2 }), AHT07)).toMatchObject({ status: 'FAIL', evidence: { overControls: 'mic-start' } });
+        // An unlisted control allows none: one Start Retry fails even within the total.
+        expect(legStartPressVerdict(from, counts({ 'mic-start': 1, 'mic-retry': 1 }), AHT07)).toMatchObject({ status: 'FAIL', evidence: { overControls: 'mic-retry' } });
+    });
+    it('CONTROL: a press in J8.a is never hidden by J8.b\'s count, because each leg has its own interval', () => {
+        const start = counts();
+        const afterA = counts({ 'mic-start': 1 }); // a stray press in J8.a
+        const afterB = counts({ 'mic-start': 1, 'verdict-practice-again': 1 }); // J8.b then pressed only one
+        expect(legStartPressVerdict(start, afterA, 'none').status).toBe('FAIL');
+        // The journey-wide total is 2 (would pass a total-only check); J8.b's own count is 1, still within its cap, so the
+        // proof that J8.b ran its two takes rests on J8.a's own FAIL above, never on the total.
+        expect(legStartPressVerdict(afterA, afterB, AHT07)).toMatchObject({ evidence: { startPresses: 1 } });
+    });
+    it('a missing snapshot, a negative or an unreadable count is HOLD, never PASS', () => {
+        expect(legStartPressVerdict(null, counts(), 'none').status).toBe('HOLD');
+        expect(legStartPressVerdict(counts(), null, AHT07).status).toBe('HOLD');
+        expect(legStartPressVerdict(counts({ 'mic-start': 2 }), counts({ 'mic-start': 1 }), 'none').status).toBe('HOLD');
+        expect(legStartPressVerdict(counts(), counts({ 'mic-start': Number.NaN }), 'none').status).toBe('HOLD');
+        expect(legStartPressVerdict(counts(), { ...counts(), 'mic-start': undefined } as unknown as StartPressCounts, 'none').status).toBe('HOLD');
+    });
+});
+
+describe('J8.b final older-take sent evidence', () => {
+    const event = (outcome: string, at: number, journeyId: string | undefined = 'final-b') => ({
+        event: 'feedback_submit', at, journeyId, bootId: 'boot-b', releaseSha: RELEASE,
+        trafficType: 'canary', fields: { outcome, submit_seq: 7 },
+    });
+    const own = [event('attempted', 21), event('storage_ok', 23)];
+    it('binds only the final pair and keeps telemetry receipt distinct from sent evidence', () => {
+        const neighboring = { ...event('storage_ok', 22), journeyId: 'fault-leg' };
+        const v = j8bFinalSentFeedbackVerdict([event('attempted', 10), own[0], neighboring, own[1]], ['final-b'], 20, 24, [], RELEASE);
+        expect(v.verdict).toBe('PASS');
+        expect(v.detail).toMatch(/left the page.*readback/);
+        expect(v.evidence).toMatchObject({ attempted: 1, storageOk: 1 });
+    });
+    it('holds on missing or borrowed bindings, blind beacons, missing pair and invalid time', () => {
+        for (const [j, from, to, blind] of [
+            [[], 20, 24, []], [['final-b', 'elsewhere'], 20, 24, []],
+            [['elsewhere'], 20, 24, []], [['final-b'], 20, 22, []],
+            [['final-b'], 20, 24, [22]], [['final-b'], Number.NaN, 24, []],
+        ] as const) expect(j8bFinalSentFeedbackVerdict(own, j, from, to, blind, RELEASE).verdict).toBe('HOLD');
+        expect(j8bFinalSentFeedbackVerdict([...own, { ...event('attempted', 22), journeyId: undefined }],
+            ['final-b'], 20, 24, [], RELEASE).verdict).toBe('HOLD');
+    });
+    it('does not turn duplicate or mismatched final-pair observations into a pass', () => {
+        expect(j8bFinalSentFeedbackVerdict([...own, event('attempted', 24)], ['final-b'], 20, 24, [], RELEASE).verdict).toBe('FAIL');
+        const wrong = { ...own[1], fields: { outcome: 'storage_ok', submit_seq: 8 } };
+        expect(j8bFinalSentFeedbackVerdict([own[0], wrong], ['final-b'], 20, 24, [], RELEASE).verdict).toBe('FAIL');
+    });
+});
+
+describe('the J8 spec writes the three former gaps on their own legs', () => {
+    const spec = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../live/rwt-feedback-association-boundaries.live.spec.ts'), 'utf8');
+    const body = spec.slice(spec.indexOf("test('J8: one account"), spec.indexOf("test('No session feedback stores no take"));
+    it('J8.a: its own zero-Start row, from the journey start to the end of its submit', () => {
+        expect(body).toContain("startsAtAttach = startPressSnapshot(parity.startPressesByControl);");
+        expect(body.indexOf('startsAtAttach = startPressSnapshot')).toBeLessThan(body.indexOf('prepareDisposable(page'));
+        expect(body).toContain("legStartPressVerdict(startsAtAttach, startsAfterJ8a, 'none')");
+        expect(body).toContain("a.row('no Start press', aStarts.status, aStarts.detail, aStarts.evidence);");
+        expect(body.indexOf('startsAfterJ8a = startPressSnapshot')).toBeGreaterThan(body.indexOf("gate.close('J8.a')"));
+    });
+    it('J8.b: its own Start count from J8.a\'s end to its own end, against AHT-07\'s budget', () => {
+        expect(body).toContain("legStartPressVerdict(startsAfterJ8a, startPressSnapshot(parity.startPressesByControl), AHT07_START_PRESS_BUDGET)");
+        expect(body).toContain("b.row('Start presses within budget', bStarts.status, bStarts.detail, bStarts.evidence);");
+        expect(body.indexOf('const bStarts')).toBeGreaterThan(body.indexOf("gate.close('J8.b')"));
+    });
+    it('J8.b: the final submit observes its fresh acknowledgment, and its window starts before the submit', () => {
+        const final = body.slice(body.indexOf('ledger.beginFinal();'), body.indexOf('ledger.endWindow();', body.indexOf('ledger.beginFinal();')));
+        expect(final).toContain('const finalSubmit: { fromMs: number; submitAt?: number } = { fromMs: Date.now() };');
+        expect(final.indexOf('finalB = finalSubmit;')).toBeLessThan(final.indexOf("submitFeedback(page, tap, owner.uid, 'selected_older_session'"));
+        expect(final).toContain('onSubmitted: ({ submitAt }) => { finalSubmit.submitAt = submitAt; }');
+        expect(final).toContain('onFreshAcknowledgment: (observation) => writeFreshAcknowledgmentRow(b, observation)');
+    });
+    it('J8.b: its readback is bound to the final submit only, and the sent pair is its own row (received is readback)', () => {
+        const finish = spec.slice(spec.indexOf('async function finishJ8Receipt('), spec.indexOf('const finalizer = new JourneyFinalizer();'));
+        expect(finish).toContain("{ fromMs: finalB?.fromMs ?? Number.POSITIVE_INFINITY, toMs: windows[leg]?.toMs ?? Number.NEGATIVE_INFINITY }");
+        expect(finish).toContain("excludeJourneys: leg === 'J8.b' ? faultLegJourneys : []");
+        expect(finish).toContain("legSink(receipt, 'J8.b').row('final feedback pair sent', sent.verdict, sent.detail, sent.evidence);");
+        expect(body).toContain('finishJ8Receipt(receipt, testInfo, tap, claimed, steps, windows, faultLegJourneys, storedProof, finalB);');
+        // No J8.b row may claim RECEIVED from the browser's own sent events.
+        expect(spec).not.toContain("steps.step('J8.b received feedback'");
+    });
+});
+
+describe('J8.b received evidence is the final submit\'s own (Sam: fault attempts excluded, borrowed submits refused)', () => {
+    const STORED = { storedRows: 1, insertKeys: 1 };
+    // A fault attempt's submit on a journey the run did not record as a fault leg, early in J8.b's leg window.
+    const earlier = { event: 'feedback_submit', at: 201, journeyId: 'journey-unlisted-fault', bootId: 'boot-x', releaseSha: RELEASE, trafficType: 'canary' };
+    it('BORROWED: over the whole leg window an earlier submit is the first one, so J8.b binds nothing', () => {
+        const whole = legReadback([...ALL_EVENTS, earlier], { ...B.window, bindings: [B.binding], excludeJourneys: [], stored: STORED }, CTX);
+        expect(whole.missingBindings).toEqual(['share_feedback']);
+    });
+    it('the final submit\'s window (from just before its click) binds only the final submit\'s journey', () => {
+        const final = legReadback([...ALL_EVENTS, earlier], { fromMs: 202, toMs: B.window.toMs, bindings: [B.binding], excludeJourneys: [], stored: STORED }, CTX);
+        expect(final.missingBindings).toEqual([]);
+        expect(final.journeys.map((j) => j.journeyId)).toEqual([B.journeyId]);
+    });
+});
+
+describe('the J8 nightly entry\'s admission is the one the spec accepts, for this run and attempt only', () => {
+    const require = createRequire(import.meta.url);
+    const entry = require('../../tools/cloud-test/nightly/j8-nightly-entry.cjs') as {
+        admitJ8: (o: Record<string, unknown>) => { admissionFile: string; attemptId: string; email: string };
+        finalizerEvaluate: (r: unknown, rb: unknown, o: { workDir: string }) => { errors: string[] } | null;
+    };
+    const fresh = () => { const d = mkdtempSync(path.join(tmpdir(), 'j8-adm-')); return d; };
+    it('j8RunnerAdmission admits the entry\'s record, with its reserved email, and refuses another run or attempt', () => {
+        const dir = fresh();
+        const adm = entry.admitJ8({ evidenceDir: dir, runId: RUN_ID, runAttempt: RUN_ATTEMPT, configuredDomain: 'tests.example.com', now: () => 1795300000000 });
+        const env = { [J8_ADMISSION_ENV]: adm.admissionFile, GITHUB_RUN_ID: RUN_ID, GITHUB_RUN_ATTEMPT: RUN_ATTEMPT };
+        const read = (f: string) => readFileSync(f, 'utf8');
+        expect(j8RunnerAdmission(env, read)).toEqual({ admitted: true, lookupRef: adm.email, attemptId: adm.attemptId });
+        expect(j8RunnerAdmission({ ...env, GITHUB_RUN_ATTEMPT: '2' }, read).admitted).toBe(false);
+        expect(j8RunnerAdmission({ ...env, GITHUB_RUN_ID: '43000000001' }, read).admitted).toBe(false);
+    });
+    it('the entry settles a receipt with the reviewed finalizer: a receipt it cannot validate comes back with errors, never rows', () => {
+        const out = entry.finalizerEvaluate({ suite: J8_SUITE, release: RELEASE, rows: [] }, { suite: J8_SUITE, release: RELEASE, journeys: [], missingBindings: [] },
+            { workDir: fresh() });
+        expect(out).not.toBeNull();
+        expect(out!.errors.length).toBeGreaterThan(0);
+    }, 30_000);
 });
