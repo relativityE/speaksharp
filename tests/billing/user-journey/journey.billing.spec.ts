@@ -8,7 +8,7 @@ import localStackTarget from './sandbox-target.local.json' with { type: 'json' }
 import { runnerPreflight } from './runnerPreflight.mjs';
 import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, requireFact, assertSandboxConfiguration, PENDING_POLICY,
   assertTestPrice, assertInvoice, isCorrelatedDelivery, safeFailureReason, testClockCreateFields, localStackStatus,
-  assertFullRefund, isRefundCancellation, assertCheckoutGrantedNothing, assertDeclinedCheckoutGrantedNothing, assertNoPaidAccess, declinedSubscriptionStatuses,
+  assertFullRefund, isRefundCancellation, assertCheckoutGrantedNothing, assertDeclinedCheckoutGrantedNothing, assertNoAppAccess, assertSubscriptionsAllowed, declinedSubscriptionStatuses,
   checkoutSessionFromUrl, assertCheckoutIdentity, newlyAddedCard, assertNoSecondCharge,
   type RunnerJourney, type BillingEvent, hostedFieldUnavailable, hostedEmailDecision, type HostedField,
   HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl, cleanupFailureCode, proveStripeFixtureDeleted,
@@ -437,25 +437,25 @@ class SandboxJourney {
    */
   async declinedGrantedNothing(sessionId: string, expectedStatus: 'open' | 'expired'): Promise<string | null> {
     const session = await this.stripe(`checkout/sessions/${sessionId}`);
-    const attached = typeof session.subscription === 'string' ? session.subscription : null;
+    const ref = session.subscription as unknown;
+    const attached = typeof ref === 'string' ? ref : ref && typeof ref === 'object' && typeof (ref as { id?: unknown }).id === 'string'
+      ? (ref as { id: string }).id : null;
     const subscription = attached ? await this.stripe(`subscriptions/${encodeURIComponent(attached)}`) : null;
     const invoiceId = subscription && typeof subscription.latest_invoice === 'string' ? subscription.latest_invoice : null;
     const invoice = invoiceId ? await this.stripe(`invoices/${encodeURIComponent(invoiceId)}`) : null;
     const charges = await this.stripe(`charges?${new URLSearchParams({ customer: this.customer, limit: '10' })}`);
-    const succeededCharges = Array.isArray(charges.data) && charges.has_more === false
-      ? (charges.data as Array<{ status?: unknown }>).filter((c) => c.status === 'succeeded').length : null;
-    return assertDeclinedCheckoutGrantedNothing({ session, subscription, invoice, customer: this.customer, succeededCharges, expectedStatus });
+    return assertDeclinedCheckoutGrantedNothing({ session, subscription, invoice, customer: this.customer,
+      charges: charges.data, chargesHasMore: charges.has_more, expectedStatus });
   }
 
   /**
-   * Nothing paid. App access (usage and profile) is read and judged first, independently of Stripe; then the customer's
+   * Nothing paid. App access (usage and profile) is read and ASSERTED first, before any Stripe request; then the customer's
    * subscriptions: none, or after a decline only the declined session's own subscription in that phase's allowed statuses.
    */
   async noPaidAccess(allowed: { id: string; statuses: readonly string[] } | null = null): Promise<void> {
-    const canStart = (await this.usage()).can_start;
-    const profileStatus = (await this.profile()).subscription_status;
+    assertNoAppAccess({ canStart: (await this.usage()).can_start, profileStatus: (await this.profile()).subscription_status });
     const subscriptions = await this.stripe(`subscriptions?${new URLSearchParams({ customer: this.customer, status: 'all', limit: '10' })}`);
-    assertNoPaidAccess({ canStart, profileStatus, subscriptions: subscriptions.data, hasMore: subscriptions.has_more, allowed });
+    assertSubscriptionsAllowed({ subscriptions: subscriptions.data, hasMore: subscriptions.has_more, allowed });
   }
 
   /**
