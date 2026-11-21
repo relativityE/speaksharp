@@ -802,6 +802,32 @@ export function applyEnforcementToReceipt(receipt, enforcement) {
   return receipt;
 }
 
+/** A missing review/thread surface is not a clean API snapshot. */
+export function hasLiveReviewSurfaces(pullRequest) {
+  return [['files','hasNextPage'], ['reviews','hasPreviousPage'], ['reviewThreads','hasNextPage'],
+    ['comments','hasPreviousPage']].every(([field, page]) =>
+    Array.isArray(pullRequest?.[field]?.nodes) && typeof pullRequest[field].pageInfo?.[page] === 'boolean')
+    && pullRequest.reviewThreads.nodes.every(thread => typeof thread?.isResolved === 'boolean'
+      && Array.isArray(thread.comments?.nodes) && typeof thread.comments.pageInfo?.hasPreviousPage === 'boolean');
+}
+
+/** The same read-only collector used by CI, also available to the local merge guard. */
+export async function collectLiveReviewReceipt({ repository, number, token, expectedHeadSha, expectedBaseSha,
+  readPull = readPullRequest, readEnforcement = readReviewThreadResolutionEnforcement } = {}) {
+  const pullRequest = await readPull({ repository, number, token });
+  // CI's post-merge target is intentionally different. The guard names the
+  // exact base and this path must be a still-open PR from that API snapshot.
+  if (expectedBaseSha !== undefined && (!hasLiveReviewSurfaces(pullRequest) || pullRequest?.state !== 'OPEN' || pullRequest.number !== number
+    || pullRequest.baseRefName !== 'main' || pullRequest.baseRepository?.nameWithOwner !== repository
+    || pullRequest.headRefOid?.toLowerCase() !== expectedHeadSha?.toLowerCase()
+    || pullRequest.baseRefOid?.toLowerCase() !== expectedBaseSha?.toLowerCase())) {
+    throw new Error('Requested live PR identity unavailable');
+  }
+  const receipt = buildReviewReceipt({ pullRequest, expectedHeadSha });
+  const enforcement = await readEnforcement({ repository, branch: pullRequest.baseRefName, token });
+  return applyEnforcementToReceipt(receipt, enforcement);
+}
+
 async function main() {
   const repository = process.env.GITHUB_REPOSITORY ?? '';
   const expectedHeadSha = process.env.EXPECTED_HEAD_SHA ?? '';
@@ -820,15 +846,8 @@ async function main() {
       eventName: process.env.GITHUB_EVENT_NAME ?? '',
       baseRef: process.env.GITHUB_BASE_REF_FOR_PUSH ?? '',
     });
-    const pullRequest = await readPullRequest({ repository, number, token });
     // On a push this is the reviewed head, not the pushed merge commit — see resolveQualificationTarget.
-    const receipt = buildReviewReceipt({ pullRequest, expectedHeadSha: reviewedSha });
-    const reviewThreadResolutionEnforced = await readReviewThreadResolutionEnforcement({
-      repository,
-      branch: pullRequest.baseRefName,
-      token,
-    });
-    applyEnforcementToReceipt(receipt, reviewThreadResolutionEnforced);
+    const receipt = await collectLiveReviewReceipt({ repository, number, token, expectedHeadSha: reviewedSha });
     if (process.env.REVIEW_QUALIFICATION_FILE) {
       writeFileSync(process.env.REVIEW_QUALIFICATION_FILE, `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600 });
     }

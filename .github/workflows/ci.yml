@@ -1212,6 +1212,10 @@ jobs:
             echo "Affected draft lane passed."
           fi
 
+  # On a verified reuse the in-CI review still runs. The separate default-branch
+  # review-only workflow intentionally requires fresh full-evidence; it cannot
+  # relabel a skip as success. Operators can refresh live review directly through
+  # the protected pre-merge guard's default API path without rerunning engineering.
   review-qualification:
     name: exact-head-review-qualification
     needs: [scope, full-evidence]

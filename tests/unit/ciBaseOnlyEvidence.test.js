@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { evaluateEngineeringEvidence, ENGINEERING_HOLD } from '../../scripts/ci-engineering-evidence.mjs';
+import { collectLiveReviewReceipt } from '../../scripts/collect-review-qualification.mjs';
+import { guardedMerge } from '../../scripts/pre-merge-gate.mjs';
 import { acceptBaseOnlyAudit, verifyBaseOnlyEngineering } from '../../scripts/lib/ciBaseOnlyEvidence.mjs';
 import { REQUIRED_RELEASE_JOBS } from '../../scripts/production-release-policy.mjs';
 
@@ -98,6 +101,37 @@ it('the required report executes the actual reuse branch and refuses missing or 
     expect(run({}).status).toBe(0);
     for (const bad of [{BASE_ONLY_PROOF:''},{GITHUB_RUN_ATTEMPT:'3'},{BASE_ONLY_PROOF:JSON.stringify({...proof,reviewHead:SHA(9)})},{SCOPE_RESULT:'failure'},{FULL_REQUIRED:'false'}])
         expect(run(bad).status).not.toBe(0);
+    // The trusted advisory consumer cannot claim fresh engineering for this run.
+    const advisory = evaluateEngineeringEvidence({pr:1915, liveHeadSha:SHA(2), liveBaseSha:SHA(4),
+        expectedHeadSha:SHA(2), workflowUnchanged:true, headContainsBase:true,
+        runs:[{id:100,head_sha:SHA(2),event:'pull_request',status:'completed',conclusion:'success'}],
+        jobsByRun:{100:{scope:'success',report:'success','full-evidence':'skipped'}}});
+    expect(advisory).toMatchObject({qualified:false,reasons:[ENGINEERING_HOLD.JOB_NOT_SUCCESSFUL]});
+
+    // The actual default API guard does not read that workflow or a receipt
+    // file; it still refuses a finding reopened after the first API snapshot.
+    const reviewer = {login:'chatgpt-codex-connector'};
+    const head = SHA(2), base = SHA(4);
+    const clean = {number:1915,state:'OPEN',headRefOid:head,baseRefOid:base,baseRefName:'main',
+        baseRepository:{nameWithOwner:repository},
+        files:{nodes:[{path:'scripts/representative.mjs'}],pageInfo:{hasNextPage:false}},
+        comments:{nodes:[],pageInfo:{hasPreviousPage:false}},
+        reviews:{nodes:[{author:reviewer,commit:{oid:head},state:'COMMENTED',body:'reviewed',submittedAt:end}],
+            pageInfo:{hasPreviousPage:false}},
+        reviewThreads:{nodes:[],pageInfo:{hasNextPage:false}}};
+    const reopened = { ...clean, reviewThreads:{ ...clean.reviewThreads,nodes:[{isResolved:false,
+        comments:{nodes:[{author:reviewer,body:'P1 Badge — unresolved finding',commit:{oid:head},
+            pullRequestReview:{state:'COMMENTED',commit:{oid:head}}}],pageInfo:{hasPreviousPage:false}}}]}};
+    for (const final of [clean,reopened]) {
+        const read = vi.fn().mockResolvedValueOnce(clean).mockResolvedValueOnce(final);
+        const mergeExecutor=vi.fn(async()=>({sha:'mock-merge'}));
+        const result = await guardedMerge({repository,prNumber:1915,expectedHeadSha:head,expectedBaseSha:base,token:'synthetic',
+            collectDefaultReceipt:args=>collectLiveReviewReceipt({...args,readPull:read,readEnforcement:async()=>true}),
+            readPullRequest:read,readBaseProtection:async()=>'enforced',mergeExecutor});
+        expect(read).toHaveBeenCalledTimes(2);
+        expect(result.mergeInvoked).toBe(final===clean);
+        expect(mergeExecutor).toHaveBeenCalledTimes(final===clean ? 1 : 0);
+    }
     expect(workflow.jobs['review-qualification'].needs).toEqual(['scope','full-evidence']);
     expect(workflow.jobs.report.needs).not.toContain('review-qualification');
     expect(workflow.jobs['merge-qualification'].steps.at(-1).run).toContain('results["review-qualification"] !== "success"');
