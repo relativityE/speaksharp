@@ -27,6 +27,7 @@ import {
     coachingFailureReason, coachingParentVerdict, coachingRequestBindingRow, focusExternalDependentRows, providerStatusFrom, takeExchangeEvidence,
     isCoachingUnavailableHeadline,
 } from './coachingExternal';
+import { RECORDER_BAR, RECORDER_STOP } from '../../helpers/micControls';
 import type { CoachingGenerationTap } from './coachingGenerationTap';
 import type { ActionCaptureAttempt, ActionCaptureOutcome } from './rwtOracles';
 import {
@@ -1452,7 +1453,49 @@ async function pressRepeatAction(page: Page, again: ReturnType<Page['getByTestId
  * that cannot be stopped, or a microphone left live, is a failure (PM 2026-09-25) — never a successful next Start.
  * On any failure a bounded teardown is attempted before run-owned cleanup; its outcome is reported, not assumed.
  */
-export async function nextStartEvidence(page: Page, label: string, beforeCapture?: () => Promise<void>): Promise<{
+/**
+ * J1 option B (Sam, 21 Nov): a take that is meant to SAVE must record past the product's minimum before its Stop. The product
+ * discards an explicit Stop under MIN_SESSION_DURATION_SECONDS (5 s, useSessionLifecycle.ts); live run 44955832135 stopped takes
+ * 3 and 4 at ~2 s and both were discarded. The hold is measured from the moment recording was proven, plus a small buffer, and
+ * it only counts while the SAME recorder stays live: the recorder bar element present at the start is still connected and its
+ * Stop control still enabled at every poll. An early end, a dropped recorder or a replaced one is never a completed hold.
+ */
+export const SAVE_MINIMUM_MS = 5_000;
+export const SAVE_HOLD_BUFFER_MS = 1_500;
+export type SaveHold = { ok: boolean; heldMs: number; reason: string | null };
+export type SaveHoldPoll = { connected: boolean | null; stopEnabled: boolean | null };
+export function saveHoldVerdict(heldMs: number, polls: readonly SaveHoldPoll[]): SaveHold {
+    if (polls.length === 0) return { ok: false, heldMs, reason: 'the recording was never observed during the hold' };
+    if (polls.some((p) => p.connected !== true)) return { ok: false, heldMs, reason: 'the recording was dropped or replaced during the hold' };
+    if (polls.some((p) => p.stopEnabled !== true)) return { ok: false, heldMs, reason: 'the recording stopped being stoppable during the hold' };
+    if (!(heldMs >= SAVE_MINIMUM_MS + SAVE_HOLD_BUFFER_MS)) return { ok: false, heldMs, reason: 'the take was not held past the 5 s save minimum' };
+    return { ok: true, heldMs, reason: null };
+}
+/** Holds the live take until it has recorded SAVE_MINIMUM_MS + SAVE_HOLD_BUFFER_MS since `recordingAt`, polling the same recorder. */
+export async function holdPastSaveMinimum(page: Page, recordingAt: number, pollMs = 250): Promise<SaveHold> {
+    const bar = await page.getByTestId(RECORDER_BAR).elementHandle({ timeout: 5_000 }).catch(() => null);
+    const polls: SaveHoldPoll[] = [];
+    const target = recordingAt + SAVE_MINIMUM_MS + SAVE_HOLD_BUFFER_MS;
+    try {
+        do {
+            const connected = bar === null ? false : await bar.evaluate((el) => el.isConnected).catch(() => null);
+            const stopEnabled = await page.getByTestId(RECORDER_STOP).isEnabled({ timeout: 1_000 }).catch(() => null);
+            polls.push({ connected, stopEnabled });
+            if (connected !== true || stopEnabled !== true) break;
+            const left = target - Date.now();
+            if (left > 0) await page.waitForTimeout(Math.min(pollMs, left));
+        } while (Date.now() < target);
+        return saveHoldVerdict(Date.now() - recordingAt, polls);
+    } finally {
+        await bar?.dispose().catch(() => undefined);
+    }
+}
+
+export async function nextStartEvidence(page: Page, label: string, beforeCapture?: () => Promise<void>,
+    /** J1 option B: hold the take past the 5 s save minimum before its Stop (default: Stop at once, as Focus designs it). */
+    opts: { holdPastSaveMinimum?: boolean } = {}): Promise<{
+    /** The hold past the 5 s save minimum; null when no hold was asked for. */
+    saveHold: SaveHold | null;
     holdSeen: boolean; nextStartMs: number | null; stopped: boolean; liveTracksAfterStop: number | null; reason: string | null;
     startFailure: StartFailureState | null;
 }> {
@@ -1461,7 +1504,7 @@ export async function nextStartEvidence(page: Page, label: string, beforeCapture
     try {
         await expect(page.getByTestId('mic-status')).toContainText('Mic ready on this device', { timeout: 60_000 });
     } catch {
-        return { holdSeen: false, nextStartMs: null, stopped: false, liveTracksAfterStop: null, reason: 'the session page did not reach rest (mic-status)', startFailure: null };
+        return { saveHold: null, holdSeen: false, nextStartMs: null, stopped: false, liveTracksAfterStop: null, reason: 'the session page did not reach rest (mic-status)', startFailure: null };
     }
     let holdSeen = (await page.getByText(FINISHING_UP).count()) > 0;
     const watch = setInterval(() => {
@@ -1470,27 +1513,30 @@ export async function nextStartEvidence(page: Page, label: string, beforeCapture
     const consent = consentAtClick(beforeCapture);
     const startedAt = Date.now();
     let nextStartMs: number | null = null;
+    let recordingAt = 0;
     try {
         await startBenchmarkRecording(page, label, undefined, consent);
         await expectBenchmarkRecordingStarted(page, label);
-        nextStartMs = Date.now() - startedAt - consent.spentMs();
+        recordingAt = Date.now();
+        nextStartMs = recordingAt - startedAt - consent.spentMs();
     } catch (error) {
         clearInterval(watch);
         // A refused readback clicked nothing: no take, so no teardown and no start-failure evidence; the journey stops.
         rethrowConsentStop(error);
         const startFailure = await readStartFailureState(page);
         const tracks = await boundedTeardown(page, label);
-        return { holdSeen, nextStartMs: null, stopped: false, liveTracksAfterStop: tracks, reason: 'the next Start did not begin recording', startFailure };
+        return { saveHold: null, holdSeen, nextStartMs: null, stopped: false, liveTracksAfterStop: tracks, reason: 'the next Start did not begin recording', startFailure };
     }
     clearInterval(watch);
+    const saveHold = opts.holdPastSaveMinimum ? await holdPastSaveMinimum(page, recordingAt) : null;
     try {
         await stopBenchmarkRecording(page, label);
     } catch {
         const tracks = await boundedTeardown(page, label);
-        return { holdSeen, nextStartMs, stopped: false, liveTracksAfterStop: tracks, reason: 'the next take could not be stopped', startFailure: null };
+        return { saveHold, holdSeen, nextStartMs, stopped: false, liveTracksAfterStop: tracks, reason: 'the next take could not be stopped', startFailure: null };
     }
     const live = await expect.poll(() => liveMicTracks(page), { timeout: 10_000 }).toBe(0).then(() => 0).catch(async () => liveMicTracks(page));
-    return { holdSeen, nextStartMs, stopped: true, liveTracksAfterStop: live, reason: live === 0 ? null : 'the microphone stayed live after Stop', startFailure: null };
+    return { saveHold, holdSeen, nextStartMs, stopped: true, liveTracksAfterStop: live, reason: live === 0 ? (saveHold?.reason ?? null) : 'the microphone stayed live after Stop', startFailure: null };
 }
 
 /**
@@ -1707,6 +1753,8 @@ export function startFailureEvidence(s: StartFailureState | null): Record<string
 }
 
 export interface PracticeAgainEvidence {
+    /** J1 option B (Sam, 21 Nov): the repeated take's hold past the 5 s save minimum; null when the caller asked for no hold. */
+    saveHold?: SaveHold | null;
     analyticsActionOpened: boolean | null; sameSetPending: boolean | null;
     reviewReached: boolean | null; afterActionEnabledMs: number | null; holdSeen: boolean;
     /** The session id of the short take this pass saved (for the saved-product-marker row); null when not reached. */
@@ -1776,7 +1824,9 @@ export async function practiceAgainEvidence(
     onSaveTakeStopped?: () => void,
     /** How long the save take records (default SAVE_TAKE_PERSIST_MS; out-of-range values fall back to it). `beforeCapture`
      *  (#1835): the caller's consent readback, awaited immediately before the save take's Start and the repeat action's press. */
-    opts: { saveTakeMs?: number; beforeCapture?: () => Promise<void> } = {},
+    opts: { saveTakeMs?: number; beforeCapture?: () => Promise<void>;
+        /** J1 option B: hold the repeated take past the 5 s save minimum before its Stop (default: Stop at once). */
+        holdRepeatPastSaveMinimum?: boolean } = {},
 ): Promise<PracticeAgainEvidence> {
     const FINISHING_UP = /Finishing up your last session/;
     const ev: PracticeAgainEvidence = {
@@ -1905,6 +1955,8 @@ export async function practiceAgainEvidence(
         return ev;
     }
     clearInterval(watch);
+    ev.saveHold = opts.holdRepeatPastSaveMinimum && ev.repeatRecordingAt ? await holdPastSaveMinimum(page, ev.repeatRecordingAt) : null;
+    if (ev.saveHold && !ev.saveHold.ok) ev.reason = ev.saveHold.reason;
     try {
         await stopBenchmarkRecording(page, `${label}-again`);
     } catch {
@@ -2015,10 +2067,10 @@ export function practiceAgainRows(receipt: RwtReceipt, product: 'open_mic' | 'fo
             pressToWarmupDoneMs: ev.pressToWarmupDoneMs, pressToRecordingMs: ev.pressToRecordingMs,
             saveTakePersisted: ev.saveTakePersisted, saveTakeNewSession: ev.saveTakeNewSession, ...startFailureEvidence(ev.startFailure),
         });
-    const offOk = ev.stopped && ev.liveTracksAfterStop === 0;
+    const offOk = ev.stopped && ev.liveTracksAfterStop === 0 && (ev.saveHold == null || ev.saveHold.ok);
     receipt.row('repeated take stopped, microphone off', offOk ? 'PASS' : 'FAIL',
         offOk ? 'the take stopped and every microphone track ended' : (ev.reason ?? 'the take could not be stopped'),
-        { stopped: ev.stopped, liveTracksAfterStop: ev.liveTracksAfterStop });
+        { stopped: ev.stopped, liveTracksAfterStop: ev.liveTracksAfterStop, ...(ev.saveHold ? { saveHeldMs: ev.saveHold.heldMs, saveHoldOk: ev.saveHold.ok } : {}) });
 }
 
 /** Two rows from one next-Start attempt: the Start itself, and the Stop with the microphone confirmed off. */
@@ -2029,11 +2081,13 @@ export function nextStartRows(receipt: RwtReceipt, next: Awaited<ReturnType<type
         startOk ? 'the next take started without "Finishing up"'
             : !started ? (next.reason ?? 'the next Start did not begin') : next.holdSeen ? '"Finishing up" was shown' : 'the next Start exceeded the 15 s ceiling',
         { nextStartMs: next.nextStartMs, holdSeen: next.holdSeen, ...startFailureEvidence(next.startFailure) });
-    const offOk = next.stopped && next.liveTracksAfterStop === 0;
+    const holdOk = next.saveHold == null || next.saveHold.ok;
+    const offOk = next.stopped && next.liveTracksAfterStop === 0 && holdOk;
     receipt.row('next take stopped, microphone off', offOk ? 'PASS' : 'FAIL',
         offOk ? 'the take stopped and every microphone track ended'
-            : !next.stopped ? (next.reason ?? 'the take could not be stopped') : 'the microphone stayed live after Stop',
-        { stopped: next.stopped, liveTracksAfterStop: next.liveTracksAfterStop });
+            : !next.stopped ? (next.reason ?? 'the take could not be stopped') : !holdOk ? (next.saveHold!.reason ?? 'the take was not held past the 5 s save minimum')
+                : 'the microphone stayed live after Stop',
+        { stopped: next.stopped, liveTracksAfterStop: next.liveTracksAfterStop, ...(next.saveHold ? { saveHeldMs: next.saveHold.heldMs, saveHoldOk: next.saveHold.ok } : {}) });
 }
 
 /** The saved coaching response (`sessions.ai_suggestions`), held in memory only. */
