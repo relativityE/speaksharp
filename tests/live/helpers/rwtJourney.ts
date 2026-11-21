@@ -63,6 +63,7 @@ export { humanWorksheet, receiptAcceptance, type ReceiptRow, type Verdict };
 // #1258 (PM 6174134686): the closed coaching failure vocabulary lives with the EXTERNAL classifier, which publishes it.
 export { COACHING_FAILURE_REASONS, coachingFailureReason } from './coachingExternal';
 import { characterCeilingVerdict, openPointReferenceVerdict } from './rwtCoachingConsistency';
+import { coachingFallbackRow } from './rwtCoachingFallback';
 
 /**
  * #1258 (Codex r4188372882 / r4188372897) — read a failed coaching response's closed reason as a PROMISE the spec
@@ -2468,6 +2469,9 @@ export async function focusCoachingRows(
             providerStatus: take.evidence.providerStatus, externalOutcome: parent.external, savedTakeProven: two ? null : savedTakeProven,
             accountCompletedSessions: firstSave?.accountCompletedSessions ?? null, thisTakeCompleted: firstSave?.thisTakeCompleted ?? null,
             unavailableShown: two ? null : ui.unavailableShown, retryEnabled: two ? null : ui.retryEnabled, takeExchangeUnique: take.unique });
+    // J3 `coaching_fallback_shown` (Elon, Sam 2026-11-21): its own row, read only, never pressed, and never a reason to pass the
+    // coaching row above. NOT RUN (no row) when coaching rendered.
+    await coachingFallbackRow(receipt, card, { settled: terminal, rendered: two, reviewState: state });
     receipt.row('Focus coaching request marked focus_points', request.product === 'focus_points' ? 'PASS' : 'FAIL',
         request.product === 'focus_points' ? 'the request asked for coaching about this take\'s chosen points' : 'the request was not marked focus_points',
         { requestProduct: request.product });
