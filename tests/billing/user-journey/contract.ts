@@ -643,8 +643,13 @@ export function assertNoSecondCharge(listed: unknown, expected: { customer: stri
 /** A declined or abandoned Checkout grants nothing: no subscription, no payment, the session not complete. */
 export function assertCheckoutGrantedNothing(input: unknown, expectedStatus: 'open' | 'expired'): void {
   const session = (input ?? {}) as { livemode?: unknown; status?: unknown; payment_status?: unknown; subscription?: unknown };
-  requireFact(session.livemode === false && session.status === expectedStatus && session.payment_status === 'unpaid'
-    && (session.subscription === null || session.subscription === undefined), 'failed_checkout_granted_something');
+  // Run 44937743744: the same rule as before, but a refusal now names what Stripe reported (closed tokens only, no ids), so a
+  // declined Checkout that is not open+unpaid+subscription-free says which of those it was instead of one bare code.
+  const token = (v: unknown) => (typeof v === 'string' && /^[a-z_]{1,24}$/.test(v) ? v : v === null || v === undefined ? 'none' : 'other');
+  const subscription = session.subscription === null || session.subscription === undefined ? 'none' : 'attached';
+  const livemode = session.livemode === false ? 'test' : session.livemode === true ? 'live' : 'unread';
+  requireFact(session.livemode === false && session.status === expectedStatus && session.payment_status === 'unpaid' && subscription === 'none',
+    `failed_checkout_granted_something_status_${token(session.status)}_payment_${token(session.payment_status)}_subscription_${subscription}_mode_${livemode}`);
 }
 
 /**
