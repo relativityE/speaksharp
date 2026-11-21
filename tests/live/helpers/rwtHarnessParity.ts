@@ -204,6 +204,12 @@ export class HarnessParityTap {
     }
 }
 
+/**
+ * A designed take's save expectation: `saved` — a save take whose session the journey captured (in press order); `uncaptured` — a
+ * save take the journey does not capture an id for (its own lease and the recorder still prove it); `probe` — a no-save take.
+ */
+export type TakeSaveExpectation = 'saved' | 'uncaptured' | 'probe';
+
 type SessionsAdmin = {
     from: (t: string) => { select: (c: string) => { eq: (k: string, v: string) => { eq: (k: string, v: string) => Promise<{ data: Array<{ id: string; lease_id?: string | null }> | null; error: { code?: string } | null }> } } };
 };
@@ -213,7 +219,9 @@ type SessionsAdmin = {
  * its saved session through the take's OWN recording identity: take k's Start acquired lease k (`leaseIds`, in request order), and
  * the saved row records the lease it was created under (`sessions.lease_id`). The document recorder (`bindings`) must agree.
  * PASS: exactly `designedTakes` takes and leases; every completed session carries one of those leases; each save take has one
- *   completed session; probes have none; the recorder bound each save take to exactly that lease's session; the captured takes are the first two; no stray.
+ *   completed session; probes have none; the recorder bound each save take to exactly that lease's session; the captured takes are the
+ *   `saved` takes in press order (with no expectations, the first saved takes); no stray. With expectations, the `saved` takes must
+ *   equal the captured takes in number (a dropped capture never passes); `uncaptured` save takes are proven by lease and recorder only.
  * HOLD: fewer takes or leases than designed, a completed session without a recorded lease (association unavailable), a save take with
  *   no or two recorder bindings, a captured take unknown, or a failed read.
  * FAIL: a stray save, more takes or leases than designed, a completed session under a lease no take acquired, two completed
@@ -222,8 +230,10 @@ type SessionsAdmin = {
  */
 export async function probeSaveIsolationRow(receipt: RowSink, admin: SessionsAdmin, userId: string, capturedTakes: Array<string | null | undefined>,
     bindings: TakeBindings, leaseIds: readonly string[], designedTakes: number,
-    expectedSaves?: readonly ('saved' | 'probe')[]): Promise<void> {
-    const saveExpectations = expectedSaves ?? Array.from({ length: Number.isSafeInteger(designedTakes) && designedTakes >= 0 ? designedTakes : 0 }, () => 'saved' as const);
+    expectedSaves?: readonly TakeSaveExpectation[]): Promise<void> {
+    const saveExpectations: readonly TakeSaveExpectation[] = expectedSaves
+        ?? Array.from({ length: Number.isSafeInteger(designedTakes) && designedTakes >= 0 ? designedTakes : 0 }, () => 'saved' as const);
+    const isSave = (x: TakeSaveExpectation) => x === 'saved' || x === 'uncaptured';
     const captured = capturedTakes.filter((x): x is string => typeof x === 'string' && x.length > 0);
     const leases = [...new Set(leaseIds)];
     const missing = bindings.takes.filter((t) => t.ids.length === 0).length;
@@ -231,7 +241,7 @@ export async function probeSaveIsolationRow(receipt: RowSink, admin: SessionsAdm
     const base = { designedTakes, takes: bindings.takes.length, leases: leases.length, missingBindings: missing, ambiguousBindings: ambiguous,
         straySaves: bindings.stray.length, capturedTakes: captured.length };
     const row = (v: 'PASS' | 'FAIL' | 'HOLD', d: string, e: Record<string, string | number | boolean | null> = {}) => receipt.row('probe saves isolated', v, d, { ...base, ...e });
-    if (saveExpectations.length !== designedTakes || saveExpectations.some((x) => x !== 'saved' && x !== 'probe')
+    if (saveExpectations.length !== designedTakes || saveExpectations.some((x) => x !== 'saved' && x !== 'uncaptured' && x !== 'probe')
         || (expectedSaves ? saveExpectations.filter((x) => x === 'saved').length !== capturedTakes.length
             : saveExpectations.filter((x) => x === 'saved').length < capturedTakes.length)) {
         return row('HOLD', 'the designed take save expectations are invalid');
@@ -250,15 +260,15 @@ export async function probeSaveIsolationRow(receipt: RowSink, admin: SessionsAdm
     const perLease = leases.map((l) => data.filter((r) => r.lease_id === l).map((r) => r.id));
     if (perLease.some((ids) => ids.length > 1)) return row('FAIL', 'a take saved more than one session (a double save)', { completedSessions: data.length });
     if (perLease.some((ids, k) => saveExpectations[k] === 'probe' && ids.length !== 0)) return row('FAIL', 'a no-save recording probe created a completed session');
-    if (perLease.some((ids, k) => saveExpectations[k] === 'saved' && ids.length === 0)) return row('FAIL', 'a take\'s recording saved no completed session', { completedSessions: data.length });
+    if (perLease.some((ids, k) => isSave(saveExpectations[k]) && ids.length === 0)) return row('FAIL', 'a take\'s recording saved no completed session', { completedSessions: data.length });
     const sessionOfTake = perLease.map((ids) => ids[0]);
     const savedIndices = saveExpectations.flatMap((x, k) => x === 'saved' ? [k] : []);
     if (captured.some((id, k) => sessionOfTake[savedIndices[k]] !== id)) return row('FAIL', 'a captured take\'s session is not the session of that take\'s own recording');
     if (bindings.takes.some((t, k) => saveExpectations[k] === 'probe' && t.ids.length > 0)) return row('FAIL', 'a no-save recording probe observed a save');
-    if (savedIndices.some((k) => bindings.takes[k].ids.length === 0) || ambiguous > 0) {
+    if (saveExpectations.some((x, k) => isSave(x) && bindings.takes[k].ids.length === 0) || ambiguous > 0) {
         return row('HOLD', missing > 0 ? 'a take has no saved session observed in its own interval' : 'a take has more than one saved session observed in its interval');
     }
-    const disagree = bindings.takes.filter((t, k) => saveExpectations[k] === 'saved' && t.ids[0] !== sessionOfTake[k]).length;
+    const disagree = bindings.takes.filter((t, k) => isSave(saveExpectations[k]) && t.ids[0] !== sessionOfTake[k]).length;
     return row(disagree === 0 ? 'PASS' : 'FAIL',
         disagree === 0 ? 'every save take persisted under its own recording; no-save probes and stray recordings saved nothing'
             : 'a take\'s observed save is not the session of its own recording', { completedSessions: data.length, disagree });

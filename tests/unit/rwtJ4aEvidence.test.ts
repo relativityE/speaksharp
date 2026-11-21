@@ -139,8 +139,8 @@ describe('J4.a and J4.b keep separate verdicts', () => {
         expect(completionDropDisposition('response-lost', { completionPosts: 1, droppedStatus: 200, dropped: true }, [
             { id: TAKE, status: 'completed', hasIdempotencyKey: true, transcriptState: 'available', transcriptLength: 5 }]).status).toBe('PASS');
     });
-    it('only the request-lost suite requires the J4.a rows; the response-lost suite (J4.b) is unchanged and carries none', () => {
-        const j4a = ['practice privacy choice', 'J4.a: the first save request never reached the server', 'J4.a: Retry Save saved one take for this account only',
+    it('only the request-lost suite requires the J4.a rows; both suites require the privacy choice and their own privacy cleanup', () => {
+        const j4a = ['J4.a: the first save request never reached the server', 'J4.a: Retry Save saved one take for this account only',
             'J4.a: one take, nothing after Retry', 'J4.a: cleanup removed the privacy choice'];
         const lost = requiredAutomatedRows(SAVE_RETRY_REQUEST_LOST_SUITE)!;
         const response = requiredAutomatedRows(SAVE_RETRY_RESPONSE_LOST_SUITE)!;
@@ -148,6 +148,10 @@ describe('J4.a and J4.b keep separate verdicts', () => {
             expect(lost.product).toContain(row);
             expect(response.product).not.toContain(row);
         }
+        // #1835 (Sam, Nov 20): J4.b's own account opts in too, so it proves the choice and that cleanup removed it.
+        for (const suite of [lost, response]) expect(suite.product).toContain('practice privacy choice');
+        expect(response.product).toContain('J4.b: cleanup removed the privacy choice');
+        expect(lost.product).not.toContain('J4.b: cleanup removed the privacy choice');
         // J4.a stops after the Retry readback: the second-take rows are J4.b's only, and J4.a must not carry them.
         for (const row of ['next take saves only itself', 'review reopens the saved take']) {
             expect(lost.product).not.toContain(row);
@@ -161,13 +165,18 @@ describe('J4.a and J4.b keep separate verdicts', () => {
         const spec = readFileSync('tests/live/rwt-save-retry-recovery.live.spec.ts', 'utf8');
         expect(spec).toContain("const j4a = variant === 'request-lost';");
         const gated = spec.split('if (j4a) {');
-        expect(gated.length).toBe(7);
+        expect(gated.length).toBe(5);
         expect(gated[1]).toContain("row('J4.a: one take, nothing after Retry'");
-        expect(gated[2]).toContain("row('J4.a: cleanup removed the privacy choice'");
-        expect(gated[3]).toContain('await page.context().route(J4A_COACHING_ROUTE, (route) => coachingGuard.handler(route));');
-        expect(gated[4]).toContain("receipt.row('practice privacy choice'");
-        expect(gated[5]).toContain("receipt.row('J4.a: the first save request never reached the server'");
-        expect(gated[6]).toContain("receipt.row('J4.a: Retry Save saved one take for this account only'");
+        expect(gated[2]).toContain('await page.context().route(J4A_COACHING_ROUTE, (route) => coachingGuard.handler(route));');
+        expect(gated[3]).toContain("receipt.row('J4.a: the first save request never reached the server'");
+        expect(gated[4]).toContain("receipt.row('J4.a: Retry Save saved one take for this account only'");
+        // The consent settle and the privacy cleanup run for both legs, never only inside a J4.a branch.
+        for (const part of gated.slice(1)) {
+            expect(part.split('\n        }')[0]).not.toContain('settleFixedConsentOnPractice(');
+            expect(part.split('\n        }')[0]).not.toContain('privacy choice cleanup');
+        }
+        expect(spec).toContain("const leg = j4a ? 'J4.a' : 'J4.b';");
+        expect(spec).toContain("row(j4a ? 'J4.a: cleanup removed the privacy choice' : 'J4.b: cleanup removed the privacy choice',");
         expect(spec.indexOf('drop.forwarded = true;')).toBeGreaterThan(spec.indexOf("if (variant === 'request-lost') return route.abort('failed');"));
         expect(spec.indexOf('drop.forwarded = true;')).toBeLessThan(spec.indexOf('const response = await route.fetch();'));
     });
@@ -184,14 +193,14 @@ describe('J4.a bounds (Sam, Nov 19; PO: one take, coaching off): stop after the 
     it('fails before (Sam, Nov 19): J4.a returns right after its Retry readback, before the second take and the Analytics reopen', () => {
         const ret = spec.indexOf('            return;\n        }\n\n        // The next Start');
         expect(ret).toBeGreaterThan(spec.indexOf("receipt.row('J4.a: Retry Save saved one take for this account only'"));
-        expect(ret).toBeLessThan(spec.indexOf("const again = page.getByTestId('verdict-practice-again');"));
+        expect(ret).toBeLessThan(spec.indexOf("await pressCaptureControl(page, ['verdict-practice-again']"));
         expect(ret).toBeLessThan(spec.indexOf('await reopenFromAnalytics('));
     });
     it('the one-take check runs at the final boundary (after every owned page closed), before cleanup', () => {
         const one = spec.indexOf("await steps.step('J4.a one take'");
         expect(one).toBeGreaterThan(spec.indexOf("await steps.step('owned pages closed'"));
         expect(one).toBeLessThan(spec.indexOf('accountDeleted = (await finalizeOwnedCleanup('));
-        const gone = spec.indexOf("await steps.step('J4.a privacy choice cleanup'");
+        const gone = spec.indexOf('await steps.step(`${leg} privacy choice cleanup`');
         expect(gone).toBeGreaterThan(spec.indexOf('accountDeleted = (await finalizeOwnedCleanup('));
         expect(spec).toContain(".from('practice_privacy_choices').select('user_id', { count: 'exact', head: true }).eq('user_id', owner.uid)");
     });
@@ -234,33 +243,43 @@ describe('J4.a bounds (Sam, Nov 19; PO: one take, coaching off): stop after the 
     });
 });
 
-describe('#1835: J4.a opts its own account in to saving before Start, on the post-#1835 build only (Sam, Nov 18-19)', () => {
+describe('#1835: J4.a and J4.b opt their own account in, and read it back at every Start click (Sam, Nov 18-20)', () => {
     const spec = readFileSync('tests/live/rwt-save-retry-recovery.live.spec.ts', 'utf8');
     it('the fixed choice is Save: Yes, Coaching: No', () => {
         expect(CONSENT_MODES[SAVE_RETRY_CONSENT_MODE]).toEqual({ transcriptSave: true, aiCoaching: false });
     });
-    it('the choice is settled and read back on the Practice page before any Start, and is never taken from the environment', () => {
-        const settle = spec.indexOf('await settlePracticeConsent(');
+    it('the choice is settled on the Practice page before Open Mic for both legs, and is never taken from the environment', () => {
+        const settle = spec.indexOf('await settleFixedConsentOnPractice(');
         expect(settle).toBeGreaterThan(spec.indexOf("await page.goto('/practice');"));
         expect(settle).toBeLessThan(spec.indexOf("await openProductsItem(page, 'open-mic');"));
-        expect(settle).toBeLessThan(spec.indexOf('await startBenchmarkRecording('));
-        expect(settle).toBeLessThan(spec.indexOf('await preparePrivateModelIfPrompted('));
-        expect(spec).toContain('mode: SAVE_RETRY_CONSENT_MODE });');
+        expect(spec).toContain('mode: SAVE_RETRY_CONSENT_MODE, record });');
+        expect(spec).toContain('captureConsentGate({ consent, client, ownerId: owner.uid, mode: SAVE_RETRY_CONSENT_MODE, record })');
         expect(spec).not.toMatch(/consentModeFrom|RWT_PRACTICE_CONSENT/);
     });
-    it('fails before (Sam, Nov 19): the row was written as PASS with no choice, and a legacy build went on to record', () => {
+    it('fails before (Sam, Nov 20): the readback ran before navigation, not at the click, and J4.b never answered the prompt', () => {
+        // The old one-shot readback before Open Mic is gone; nothing writes the row as PASS outside the gate.
+        expect(spec).not.toContain('await readPracticeChoice(');
+        expect(spec).not.toContain('await settlePracticeConsent(');
         expect(spec).not.toContain("receipt.row('practice privacy choice', 'PASS'");
-        expect(spec).toContain("receipt.row('practice privacy choice', privacy.status, privacy.detail,");
-        // ANY verdict but PASS, a pre-#1835 build included, stops before Open Mic.
-        expect(spec).toContain("if (privacy.status !== 'PASS') throw new Error(`HOLD practice consent: ${privacy.reason}`);");
-        expect(spec).not.toContain("consent.build === 'includes_1835' && privacy.status !== 'PASS'");
+        expect(spec).not.toContain('j4aChoiceVerified');
+        expect(spec).not.toContain('J4.b is unchanged.');
+        // The raw second Start click is gone: it pinned nothing and read nothing back.
+        expect(spec).not.toContain('await again.click();');
     });
-    it('the owner consent is read back again right before Start, and a failed readback stops before any take', () => {
-        const read = spec.indexOf('await readPracticeChoice(');
-        expect(read).toBeGreaterThan(spec.indexOf('await settlePracticeConsent('));
-        expect(read).toBeLessThan(spec.indexOf("await openProductsItem(page, 'open-mic');"));
-        expect(spec.indexOf('throw new Error(`HOLD practice consent: ${privacy.reason}`)')).toBeLessThan(spec.indexOf("await openProductsItem(page, 'open-mic');"));
-        expect(spec.indexOf('j4aChoiceVerified = true;')).toBeGreaterThan(spec.indexOf('throw new Error(`HOLD practice consent: ${privacy.reason}`)'));
+    it('every capture-capable press reads consent back at its own click, and each confirmed capture records the row', () => {
+        expect(spec).toContain("await preparePrivateModelIfPrompted(page, 900_000, { beforeClick: () => gate.confirm() });");
+        expect(spec).toContain("await startBenchmarkRecording(page, `save-retry-${variant}-1`, undefined, { beforeClick: () => gate.confirm() });");
+        expect(spec).toContain("await pressCaptureControl(page, ['verdict-practice-again'], { waitMs: 120_000, beforeClick: () => gate.confirm() });");
+        expect(spec.match(/beforeClick: \(\) => gate\.confirm\(\)/g)?.length).toBe(3);
+        expect(spec.match(/gate\.recordPass\(\);/g)?.length).toBe(2);
+        // The first take's record follows both of its possible presses; the cleanup proof counts only a confirmed capture.
+        const firstRecord = spec.indexOf('gate.recordPass();');
+        expect(firstRecord).toBeGreaterThan(spec.indexOf("await startBenchmarkRecording(page, `save-retry-${variant}-1`"));
+        // Cleanup must prove the row gone once the prompt recorded it, even if a later Start is refused; never on a legacy build.
+        expect(spec).toContain("choiceVerified = consent.build === 'includes_1835' && consent.choice !== null;");
+        expect(spec.indexOf('choiceVerified = consent.build')).toBeGreaterThan(spec.indexOf('await settleFixedConsentOnPractice('));
+        expect(spec.lastIndexOf('gate.recordPass();')).toBeGreaterThan(spec.indexOf("await pressCaptureControl(page, ['verdict-practice-again']"));
+        expect(spec.indexOf('await openProductsItem(page, \'open-mic\');')).toBeGreaterThan(spec.indexOf('const gate: CaptureConsentGate = await'));
     });
 });
 

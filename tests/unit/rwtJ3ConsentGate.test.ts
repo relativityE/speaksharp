@@ -6,7 +6,8 @@
  *    guard, immediately before the actual click. The shared helpers (`practiceAgainEvidence`, `nextStartEvidence`) pass the
  *    caller's `beforeCapture` through as the Start helpers' `beforeClick`, and the repeat action pins its node, takes the
  *    reflex pause, re-checks it, then reads back and clicks. A refused readback clicks nothing and propagates unchanged; it
- *    is never recorded as a product step that failed. Its own time is excluded from press timings. No hook (J1): unchanged.
+ *    is never recorded as a product step that failed. Its own time is excluded from press timings. No hook: unchanged.
+ *  - J1's later presses (Sam, Nov 21) hand the same hook to both helpers, with the real J1 gate (Save Yes / Coaching Yes).
  *    The real Start helpers' ordering and guard cleanup are proved in benchmarkHarnessControls.test.ts.
  *  - The J3 privacy row is written exactly once, by the gate: PASS only for Save Yes / Coaching Yes read back before the first
  *    press; a diagnostic mode HOLDS; a legacy build, a missing, different or unreadable choice stops before any press.
@@ -46,7 +47,7 @@ vi.mock('../live/helpers/rwtStepDiagnostics', async (importOriginal) => ({
 
 const { nextStartEvidence, practiceAgainEvidence, RwtReceipt } = await import('../live/helpers/rwtJourney');
 const { J3_PRIVACY_ROW, j3ConsentRowRecorder } = await import('../live/helpers/rwtJ3Evidence');
-const { CONSENT_MODES, captureConsentGate } = await import('../live/helpers/rwtPracticeConsent');
+const { CONSENT_MODES, OPEN_MIC_FIRST_SESSION_CONSENT_MODE, captureConsentGate } = await import('../live/helpers/rwtPracticeConsent');
 type SettledConsent = import('../live/helpers/rwtPracticeConsent').SettledConsent;
 type ChoiceClient = import('../live/helpers/rwtPracticeConsent').ChoiceClient;
 type ConsentMode = import('../live/helpers/rwtPracticeConsent').ConsentMode;
@@ -146,7 +147,7 @@ describe('shared helpers: a fresh readback immediately before every press, and a
         expect(presses()).toEqual(['start:pa-save']);
         expect(script.calls).not.toContain('goto:about:blank');
     });
-    it('practiceAgainEvidence: with no hook (J1) nothing is read and the presses are unchanged (plain locator click)', async () => {
+    it('practiceAgainEvidence: with no hook nothing is read and the presses are unchanged (plain locator click)', async () => {
         await practiceAgainEvidence(fakePage(), 'pa', 'take-1', 'open_mic');
         expect(script.calls).not.toContain('confirm');
         expect(script.calls.some((c) => c.startsWith('pin:'))).toBe(false);
@@ -172,7 +173,7 @@ describe('shared helpers: a fresh readback immediately before every press, and a
         expect(ok.nextStartMs).not.toBeNull();
         expect(ok.nextStartMs!).toBeLessThan(40);
     });
-    it('nextStartEvidence: with no hook (J1) nothing is read', async () => {
+    it('nextStartEvidence: with no hook nothing is read', async () => {
         await nextStartEvidence(fakePage(), 'nx');
         expect(script.calls).not.toContain('confirm');
         expect(presses()).toEqual(['start:nx']);
@@ -280,6 +281,70 @@ describe('J3 privacy row: written once by the gate after a fresh readback', () =
         const receipt = new RwtReceipt('focus-points-partial');
         j3ConsentRowRecorder(receipt, () => settled('save_on_coaching_on', 'unknown'))('HOLD', 'not settled', { reason: 'prompt_not_shown', mode: 'save_on_coaching_on' });
         expect(receipt.rows.filter((r) => r.step === J3_PRIVACY_ROW)).toEqual([expect.objectContaining({ verdict: 'HOLD', evidence: expect.objectContaining({ reason: 'prompt_not_shown' }) })]);
+    });
+});
+
+/**
+ * J1's later presses (Sam, Nov 21; kept apart from #1917): the Practice-again save take's Start, the review's Practice again and the
+ * next Start, through the shared helpers exactly as the J1 spec calls them, with the real gate J1 builds (its own receipt row) over
+ * a slow server read. The first take already recorded the row PASS; a later refusal clicks nothing and stops, adding no row.
+ */
+describe('J1 later presses: the real J1 gate at each press of the shared helpers (open_mic)', () => {
+    const J1_ROW = 'practice privacy choice';
+    const j1Gate = (read: () => { data: unknown; error: { code?: string } | null }) => {
+        const receipt = new RwtReceipt('open-mic-first-session');
+        const reads = { n: 0 };
+        const slow = (): ChoiceClient => ({
+            from: () => ({
+                select: () => ({ eq: () => ({ maybeSingle: async () => {
+                    reads.n += 1; script.calls.push('read');
+                    await new Promise((r) => setTimeout(r, 40)); // slower than any helper step in this script
+                    return read();
+                } }), limit: async () => ({ data: [], error: null }) }),
+            }),
+        });
+        const gate = captureConsentGate({ consent: settled(OPEN_MIC_FIRST_SESSION_CONSENT_MODE), client: slow(), ownerId: 'owner-1',
+            mode: OPEN_MIC_FIRST_SESSION_CONSENT_MODE, record: (status, detail, evidence) => receipt.row(J1_ROW, status, detail, evidence) });
+        return { gate, reads, rows: () => receipt.rows.filter((r) => r.step === J1_ROW) };
+    };
+    const firstTakeRecorded = async (g: ReturnType<typeof j1Gate>) => { await g.gate.confirm(); g.gate.recordPass(); script.calls = []; };
+    const j1Presses = () => script.calls.filter((c) => c.startsWith('start:') || c === 'click:verdict-practice-again');
+
+    it('slow success: each of the three later presses reads back once, after its setup, right before its one click', async () => {
+        const g = j1Gate(() => ({ data: rowFor(OPEN_MIC_FIRST_SESSION_CONSENT_MODE), error: null }));
+        await firstTakeRecorded(g);
+        const again = await practiceAgainEvidence(fakePage(), 'j1-again', 'take-1', 'open_mic', [], undefined, { beforeCapture: () => g.gate.confirm() });
+        expect(again.stopped).toBe(true);
+        const next = await nextStartEvidence(fakePage(), 'j1-next', () => g.gate.confirm());
+        expect(next.stopped).toBe(true);
+        expect(script.calls.filter((c) => /^(read|setup:|start:|pin:|identity:|click:verdict)/.test(c))).toEqual([
+            'setup:j1-again-save', 'read', 'start:j1-again-save',
+            'pin:verdict-practice-again', 'identity:verdict-practice-again', 'read', 'identity:verdict-practice-again', 'click:verdict-practice-again',
+            'setup:j1-next', 'read', 'start:j1-next',
+        ]);
+        expect(g.reads.n).toBe(1 + 3);
+        expect(g.rows()).toEqual([expect.objectContaining({ verdict: 'PASS' })]);
+    });
+    it.each([
+        ['the save take\'s Start', 1, []],
+        ['the review\'s Practice again', 2, ['start:j1-again-save']],
+    ] as const)('slow refusal at %s: that press clicks nothing, the HOLD propagates, the first take\'s PASS stands alone', async (_label, at, pressed) => {
+        let n = 0;
+        const g = j1Gate(() => { n += 1; return { data: n > at ? rowFor('save_off') : rowFor(OPEN_MIC_FIRST_SESSION_CONSENT_MODE), error: null }; });
+        await firstTakeRecorded(g);
+        await expect(practiceAgainEvidence(fakePage(), 'j1-again', 'take-1', 'open_mic', [], undefined, { beforeCapture: () => g.gate.confirm() }))
+            .rejects.toThrow('HOLD practice consent: readback_differs');
+        expect(j1Presses()).toEqual([...pressed]);
+        expect(script.calls).not.toContain('goto:about:blank');
+        expect(g.rows()).toEqual([expect.objectContaining({ verdict: 'PASS' })]);
+    });
+    it('slow refusal at the next Start: no Start press, the HOLD propagates, no teardown', async () => {
+        let reads = 0;
+        const g = j1Gate(() => { reads += 1; return { data: reads > 1 ? null : rowFor(OPEN_MIC_FIRST_SESSION_CONSENT_MODE), error: null }; });
+        await firstTakeRecorded(g);
+        await expect(nextStartEvidence(fakePage(), 'j1-next', () => g.gate.confirm())).rejects.toThrow('HOLD practice consent: readback_missing');
+        expect(j1Presses()).toEqual([]);
+        expect(script.calls).not.toContain('goto:about:blank');
     });
 });
 

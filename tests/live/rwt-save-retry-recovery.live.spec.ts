@@ -27,7 +27,7 @@ import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, fina
 import { HarnessParityTap, type StartPressBudget } from './helpers/rwtHarnessParity';
 import { openProductsItem } from './helpers/productsMenu';
 import {
-    expectBenchmarkRecordingStarted, preparePrivateModelIfPrompted, selectBenchmarkMode, startBenchmarkRecording,
+    expectBenchmarkRecordingStarted, preparePrivateModelIfPrompted, pressCaptureControl, selectBenchmarkMode, startBenchmarkRecording,
     stopBenchmarkRecording, waitForPrivateEngineReady,
 } from './helpers/benchmark-utils';
 import {
@@ -40,9 +40,11 @@ import {
 } from './helpers/rwtSaveRetryAttempts';
 import {
     J4A_COACHING_MAXIMUM, J4A_COACHING_ROUTE, J4A_START_PRESS_BUDGET, j4aCoachingBlockedRow, j4aCoachingGuard, j4aNoSecondTakeVerdict,
-    j4aOneSaveForAccountVerdict, j4aPrivacyCleanupVerdict, j4aRequestNeverReachedVerdict, saveRetryPrivacyVerdict,
+    j4aOneSaveForAccountVerdict, j4aPrivacyCleanupVerdict, j4aRequestNeverReachedVerdict,
 } from './helpers/rwtJ4aEvidence';
-import { SAVE_RETRY_CONSENT_MODE, type ChoiceClient, readPracticeChoice, settlePracticeConsent } from './helpers/rwtPracticeConsent';
+import {
+    SAVE_RETRY_CONSENT_MODE, captureConsentGate, settleFixedConsentOnPractice, type CaptureConsentGate, type ChoiceClient, type ConsentRowRecorder,
+} from './helpers/rwtPracticeConsent';
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
 const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
@@ -166,10 +168,11 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
     const attempts: CompletionAttempt[] = [];
     const attemptByRequest = new Map<Request, CompletionAttempt>();
     let retryMarked = false;
-    // J4.a (request lost) is bounded (Sam, Nov 19; PO's approved run): Save: Yes / Coaching: No proven before Start, ONE take,
-    // zero coaching requests, and the journey stops right after the Retry Save readback. J4.b (response lost) is unchanged.
+    // J4.a (request lost) is bounded (Sam, Nov 19; PO's approved run): ONE take, zero coaching requests, and the journey stops
+    // right after the Retry Save readback. BOTH legs prove Save: Yes / Coaching: No at each Start click (#1835; Sam, Nov 20).
     const j4a = variant === 'request-lost';
-    let j4aChoiceVerified = false;
+    const leg = j4a ? 'J4.a' : 'J4.b';
+    let choiceVerified = false;
     // J4.a: coaching is blocked in the browser, not only counted (Sam, Nov 19 on c558f4c). Armed below, before the first page.
     const coachingGuard = j4aCoachingGuard();
     // #1258 C — every non-dropped completion call's answer, read from the browser's own events by request identity.
@@ -231,17 +234,16 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
                 () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX,
                     stoppedTakes: { writersClosedAt: () => parity.ownedPagesClosedAt, unsettledSaves: () => parity.unsettledSaves } })))) === 'deleted';
         }
-        // J4.a (Sam, Nov 19): cleanup must also leave no privacy choice row for the owner (a counted zero by its exact id).
-        if (j4a) {
-            await steps.step('J4.a privacy choice cleanup', async (alive) => {
-                const read = owner.uid && accountDeleted
-                    ? await admin!.from('practice_privacy_choices').select('user_id', { count: 'exact', head: true }).eq('user_id', owner.uid)
-                    : null;
-                const gone = j4aPrivacyCleanupVerdict({ ownerId: owner.uid || null, choiceVerified: j4aChoiceVerified, accountDeleted,
-                    count: read?.count ?? null, readError: Boolean(read?.error) });
-                aliveReceipt(receipt, alive).row('J4.a: cleanup removed the privacy choice', gone.status, gone.detail, { reason: gone.reason });
-            });
-        }
+        // J4.a and J4.b (Sam, Nov 19): cleanup must also leave no privacy choice row for the owner (a counted zero by its exact id).
+        await steps.step(`${leg} privacy choice cleanup`, async (alive) => {
+            const read = owner.uid && accountDeleted
+                ? await admin!.from('practice_privacy_choices').select('user_id', { count: 'exact', head: true }).eq('user_id', owner.uid)
+                : null;
+            const gone = j4aPrivacyCleanupVerdict({ ownerId: owner.uid || null, choiceVerified, accountDeleted,
+                count: read?.count ?? null, readError: Boolean(read?.error) });
+            aliveReceipt(receipt, alive).row(j4a ? 'J4.a: cleanup removed the privacy choice' : 'J4.b: cleanup removed the privacy choice',
+                gone.status, gone.detail, { reason: gone.reason });
+        });
         await steps.step('telemetry rows', () => telemetryClassRows(receipt, tap, claimed, false));
         steps.report(receipt);
         receipt.write(testInfo, bindReadbackJourneys(tap.events, { recording: [], feedback: false }), tap.trafficTypes());
@@ -259,21 +261,20 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         claimed = await prepareRunOwnedAccount(page, receipt, owner, `save-retry-${variant}`, admin, SERVICE_ROLE);
         if (!claimed) return;
         await page.goto('/practice');
-        // #1835: saving is off until the owner opts in, and the app's default stays off. J4.a expects a saved transcript, so its
-        // OWN run-owned account opts in through the Practice prompt (Save: Yes, Coaching: No), the owner's server row is read back
-        // as exactly that choice right before Start, and any other outcome, a pre-#1835 build included, stops before any take
-        // (Sam, Nov 19). J4.b is unchanged.
-        if (j4a) {
+        // #1835: saving is off until the owner opts in, and the app's default stays off. Both legs expect saved transcripts, so the
+        // run's OWN account opts in through the Practice prompt (Save: Yes, Coaching: No) before anything else there. The row's
+        // PASS belongs to the readback the gate takes immediately before each Start click (Sam, Nov 20, #1916); any other outcome,
+        // a pre-#1835 build included, records the row and stops before that press.
+        const gate: CaptureConsentGate = await (async () => {
             const migrationFiles = (() => { try { return readdirSync(resolvePath(process.cwd(), 'backend/supabase/migrations')); } catch { return null; } })();
-            const consent = await settlePracticeConsent({ page, client: admin as unknown as ChoiceClient, ownerId: owner.uid, migrationFiles,
-                mode: SAVE_RETRY_CONSENT_MODE });
-            const readback = consent.build === 'includes_1835' ? await readPracticeChoice(admin as unknown as ChoiceClient, owner.uid) : null;
-            const privacy = saveRetryPrivacyVerdict({ build: consent.build, mode: consent.mode, readback, ownerId: owner.uid || null });
-            receipt.row('practice privacy choice', privacy.status, privacy.detail, { reason: privacy.reason, build: consent.build,
-                mode: consent.mode ?? 'none', legacyBuild: consent.build === 'predates_1835' });
-            if (privacy.status !== 'PASS') throw new Error(`HOLD practice consent: ${privacy.reason}`);
-            j4aChoiceVerified = true;
-        }
+            const client = admin as unknown as ChoiceClient;
+            const record: ConsentRowRecorder = (status, detail, evidence) => receipt.row('practice privacy choice', status, detail, evidence);
+            const consent = await settleFixedConsentOnPractice({ page, client, ownerId: owner.uid, migrationFiles, mode: SAVE_RETRY_CONSENT_MODE, record });
+            // The prompt's choice is recorded and read back for this owner, so cleanup must prove its row gone, even if a Start
+            // is later refused (a pre-#1835 build has no row to clean).
+            choiceVerified = consent.build === 'includes_1835' && consent.choice !== null;
+            return captureConsentGate({ consent, client, ownerId: owner.uid, mode: SAVE_RETRY_CONSENT_MODE, record });
+        })();
         await openProductsItem(page, 'open-mic');
         await page.waitForURL(/\/session/, { timeout: 45_000 });
 
@@ -299,11 +300,14 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         });
 
         await selectBenchmarkMode(page, 'private');
-        const setup = await preparePrivateModelIfPrompted(page, 900_000);
+        // The faulted take's Start: the cold model helper reads consent back at its own Download click; when it did not record,
+        // the ordinary Start reads it back at its click. The confirmed capture records the privacy row PASS.
+        const setup = await preparePrivateModelIfPrompted(page, 900_000, { beforeClick: () => gate.confirm() });
         if (!setup.recordingAlreadyStarted) {
             await waitForPrivateEngineReady(page, 600_000);
-            await startBenchmarkRecording(page, `save-retry-${variant}-1`);
+            await startBenchmarkRecording(page, `save-retry-${variant}-1`, undefined, { beforeClick: () => gate.confirm() });
         }
+        gate.recordPass();
         await page.waitForTimeout(Math.round((fixture.entry.speechSeconds + 4) * 1000));
         // The Start session, read while it is still active (durable-save-oracle `validateBaseline`): its id, key and lease bind
         // the exact retry-saved-once check. A fresh account has exactly one active row here; anything else leaves it unknown.
@@ -378,9 +382,9 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         }
 
         // The next Start, from the completed review's own repeat action, saves only itself.
-        const again = page.getByTestId('verdict-practice-again');
-        await expect(again).toBeEnabled({ timeout: 120_000 });
-        await again.click();
+        // J4.b's second Start press reads consent back at its click too (pin, pause, re-check, readback, click).
+        await pressCaptureControl(page, ['verdict-practice-again'], { waitMs: 120_000, beforeClick: () => gate.confirm() });
+        gate.recordPass();
         await expectBenchmarkRecordingStarted(page, `save-retry-${variant}-2`);
         await page.waitForTimeout(Math.round((fixture.entry.speechSeconds + 4) * 1000));
         await stopBenchmarkRecording(page, `save-retry-${variant}-2`, 180_000);
