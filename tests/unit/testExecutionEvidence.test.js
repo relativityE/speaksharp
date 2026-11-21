@@ -7,7 +7,7 @@ import {execFileSync,spawn,spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {createRequire} from 'node:module';
 import yaml from 'js-yaml';
-import {executionContext,assertProvenance,executionRoute,executionCoverage,validatePilotExecution,
+import {executionContext,assertProvenance,executionRoute,executionCoverage,validatePilotExecution,validateRequiredSemanticExecution,
   changedEvidencePaths,readCurrentQuality,testEnvironment,validateVitestExecution,sourceIdentity,resolveComparisonBase,
   registeredFixture,fixtureSourceBinding,fixturePackageManagerIdentity,validateFixtureWitness,
   vitestExecutionTimeoutMs} from '../../scripts/lib/testExecutionEvidence.mjs';
@@ -227,6 +227,63 @@ test('replays all five raw phases for the narrow pilot and never credits neighbo
   assert.equal(validatePilotExecution(receipt,expected,root),contract.testFile);
   const coverage=executionCoverage([contract.testFile,'tests/db/focus-points-trial-capability-matrix.sql'],{root,expected,base,pilot:receipt});
   assert.deepEqual(coverage.rows.map(row=>row.status),['EXECUTED','NOT RUN']);
+}));
+
+test('an otherwise qualifying semantic receipt cannot cross comparison bases',()=>withPilotFixture(({root,expected,base})=>{
+  const wrongBase=execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();
+  assert.notEqual(wrongBase,base);
+  const receipt={...pilot(expected,root),base};
+  assert.equal(executionCoverage([contract.testFile],{root,expected,base,pilot:receipt}).status,'COMPLETE');
+  assert.throws(()=>executionCoverage([contract.testFile],{root,expected,base,pilot:{...receipt,base:wrongBase}}),
+    /Wrong semantic execution comparison base/);
+}));
+
+test('distinct semantic contracts can share one file without merging their proof',()=>withPilotFixture(({root,expected})=>{
+  const required=[contract,{...contract,id:'independent-control-sharing-test-file'}];
+  const receipt=pilot(expected,root);
+  receipt.contracts.push({...pilot(expected,root).contracts[0],id:required[1].id});
+  const validated=validateRequiredSemanticExecution(receipt,expected,root,required);
+  assert.deepEqual([...validated.keys()],required.map(control=>control.id));
+  assert.deepEqual([...new Set(validated.values())],[contract.testFile]);
+  assert.throws(()=>validateRequiredSemanticExecution({...receipt,contracts:receipt.contracts.slice(0,1)},expected,root,required),
+    /missing, extra, or out of order/);
+  const reused=structuredClone(receipt);
+  reused.contracts[1].restored=reused.contracts[0].restored;
+  assert.throws(()=>validateRequiredSemanticExecution(reused,expected,root,required),/Duplicate semantic phase identity/);
+}));
+
+test('duplicate required semantic ID is refused despite otherwise valid independent phases',()=>withPilotFixture(({root,expected})=>{
+  const receipt=pilot(expected,root);
+  const separate={...contract,id:'another-independent-contract'};
+  const second=pilot(expected,root).contracts[0];
+  receipt.contracts.push({...second,id:separate.id});
+  assert.deepEqual([...validateRequiredSemanticExecution(receipt,expected,root,[contract,separate]).keys()],[contract.id,separate.id]);
+  receipt.contracts[1].id=contract.id;
+  assert.throws(()=>validateRequiredSemanticExecution(receipt,expected,root,[contract,contract]),/Wrong pilot source\/test identity/);
+}));
+
+test('an aliased parent cannot lend exact semantic test identity even with identical file bytes',()=>withPilotFixture(({root,expected})=>{
+  const receipt=pilot(expected,root);
+  assert.equal(validatePilotExecution(receipt,expected,root),contract.testFile);
+  const directory=path.dirname(path.join(root,contract.testFile));
+  const external=fs.mkdtempSync(path.join(os.tmpdir(),'pilot-aliased-parent-'));
+  const target=path.join(external,'original');
+  try {
+    fs.appendFileSync(path.join(root,'.git/info/exclude'),`\n/${path.relative(root,directory)}\n`);
+    fs.renameSync(directory,target);
+    fs.symlinkSync(target,directory,'dir');
+    assert.equal(fs.lstatSync(path.join(root,contract.testFile)).isFile(),true);
+    assert.equal(sourceIdentity(root).snapshotSha256,expected.snapshotSha256,'alias resolves to the same tracked bytes');
+    assert.throws(()=>validatePilotExecution(receipt,expected,root),
+      {message:`NOT RUN: required semantic source or test is missing or aliased: ${contract.testFile}`});
+  } finally {fs.rmSync(external,{recursive:true,force:true});}
+}));
+
+test('missing enrolled semantic file is named without a filesystem stack',()=>withPilotFixture(({root,expected})=>{
+  const receipt=pilot(expected,root);
+  fs.unlinkSync(path.join(root,contract.testFile));
+  assert.throws(()=>validatePilotExecution(receipt,expected,root),
+    {message:`NOT RUN: required semantic source or test is missing or aliased: ${contract.testFile}`});
 }));
 
 test('bounded receipt fixture retains exact maintained inputs and refuses a changed source snapshot',()=>withPilotFixture(({root:fixtureRoot,expected})=>{
