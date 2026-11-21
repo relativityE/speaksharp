@@ -13,7 +13,7 @@
  * be handed `GH_PAT`.
  *
  * What IS available is the moment of merge itself. This module is that moment. It re-reads live thread
- * state, revalidates the age of the receipt the green run produced, and refuses to invoke the merge
+ * state, revalidates the age of a fresh API (or explicitly supplied) review receipt, and refuses to invoke the merge
  * unless both hold. A thread reopened at any point before merge is seen, because the read happens after
  * the reopen by construction.
  *
@@ -28,13 +28,15 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { buildReviewReceipt, readPullRequest as readPullRequestLive } from './collect-review-qualification.mjs';
-import { RECEIPT_MAX_AGE_MS } from './review-qualification.mjs';
+import { buildReviewReceipt, collectLiveReviewReceipt, hasLiveReviewSurfaces, readPullRequest as readPullRequestLive } from './collect-review-qualification.mjs';
 import { carryForwardBound } from './review-carry-forward.mjs';
+
+export const PRE_MERGE_RECEIPT_MAX_AGE_MS = 60 * 60 * 1000;
 
 /** Why a merge was refused. Bounded, so a caller cannot invent a reason that reads as permission. */
 export const PRE_MERGE_HOLD = Object.freeze({
   RECEIPT_MISSING: 'pre_merge_receipt_missing',
+  RECEIPT_API_UNAVAILABLE: 'pre_merge_api_receipt_unavailable',
   RECEIPT_UNDATED: 'pre_merge_receipt_generated_at_missing_or_invalid',
   RECEIPT_STALE: 'pre_merge_receipt_stale',
   RECEIPT_FUTURE: 'pre_merge_receipt_generated_in_the_future',
@@ -142,11 +144,12 @@ export async function guardedMerge({
   expectedBaseSha,
   token,
   priorReceipt,
+  collectDefaultReceipt,
   readPullRequest,
   readBaseProtection,
   mergeExecutor,
-  now = Date.now(),
-  maxAgeMs = RECEIPT_MAX_AGE_MS,
+  now,
+  maxAgeMs = PRE_MERGE_RECEIPT_MAX_AGE_MS,
 } = {}) {
   const holds = [];
 
@@ -157,6 +160,26 @@ export async function guardedMerge({
   if (!/^[^/\s]+\/[^/\s]+$/.test(String(repository ?? ''))) holds.push(PRE_MERGE_HOLD.REPOSITORY_UNAUTHORIZED);
   if (!/^[0-9a-f]{40}$/i.test(String(expectedBaseSha ?? ''))) holds.push(PRE_MERGE_HOLD.BASE_UNAUTHORIZED);
 
+  // Only an omitted receipt enters the collector path. null (explicit but
+  // unreadable) and invalid supplied evidence must never fall back to API.
+  const apiReceipt = priorReceipt === undefined && typeof collectDefaultReceipt === 'function';
+  if (apiReceipt && holds.length === 0) {
+    try {
+      priorReceipt = await collectDefaultReceipt({ repository, number: prNumber, token, expectedHeadSha, expectedBaseSha });
+    } catch {
+      holds.push(PRE_MERGE_HOLD.RECEIPT_API_UNAVAILABLE);
+    }
+  }
+  const decisionTime = () => now ?? Date.now();
+  const receiptAgeHolds = () => {
+    const producedAt = Date.parse(String(priorReceipt?.generatedAt ?? ''));
+    if (!Number.isFinite(producedAt)) return [PRE_MERGE_HOLD.RECEIPT_UNDATED];
+    const age = decisionTime() - producedAt;
+    if (age < 0) return [PRE_MERGE_HOLD.RECEIPT_FUTURE];
+    if (age > maxAgeMs) return [`${PRE_MERGE_HOLD.RECEIPT_STALE}:${Math.round(age / 1000)}s`];
+    return [];
+  };
+
   /*
    * THE RECEIPT'S AGE IS CHECKED FIRST, and a missing one is a hold rather than a reason to skip the
    * check. "No receipt" and "a receipt we cannot date" are both indistinguishable from stale, and
@@ -165,12 +188,7 @@ export async function guardedMerge({
   if (!priorReceipt || typeof priorReceipt !== 'object') {
     holds.push(PRE_MERGE_HOLD.RECEIPT_MISSING);
   } else {
-    const producedAt = Date.parse(String(priorReceipt.generatedAt ?? ''));
-    if (!Number.isFinite(producedAt)) holds.push(PRE_MERGE_HOLD.RECEIPT_UNDATED);
-    else if (now - producedAt < 0) holds.push(PRE_MERGE_HOLD.RECEIPT_FUTURE);
-    else if (now - producedAt > maxAgeMs) {
-      holds.push(`${PRE_MERGE_HOLD.RECEIPT_STALE}:${Math.round((now - producedAt) / 1000)}s`);
-    }
+    holds.push(...receiptAgeHolds());
     // Age alone was the whole of the old check. A fresh receipt from another PR or head passed it.
     holds.push(...bindingHolds({
       receipt: priorReceipt,
@@ -196,15 +214,15 @@ export async function guardedMerge({
   let live = null;
   try {
     live = await readPullRequest({ repository, number: prNumber, token });
-  } catch {
-    holds.push(PRE_MERGE_HOLD.LIVE_READ_FAILED);
-  }
+  } catch { /* handled below */ }
 
+  if (!live || (apiReceipt && !hasLiveReviewSurfaces(live))) holds.push(PRE_MERGE_HOLD.LIVE_READ_FAILED);
   if (live) {
     const liveHead = live?.headRefOid?.toLowerCase?.() ?? '';
     const expected = String(expectedHeadSha ?? '').toLowerCase();
     // The authorization named a SHA. If the head moved, this decision is about a different tree.
     if (!liveHead || liveHead !== expected) holds.push(PRE_MERGE_HOLD.HEAD_MOVED);
+    if (apiReceipt && live.state !== 'OPEN') holds.push(`${PRE_MERGE_HOLD.LIVE_NOT_QUALIFIED}:not_open`);
 
     /*
      * THE BASE AND THE REPOSITORY, LIVE. The authorization named one base SHA in one repository. If the
@@ -265,6 +283,7 @@ export async function guardedMerge({
   if (upToDateUnreadable) holds.push(PRE_MERGE_HOLD.UP_TO_DATE_UNREADABLE);
   else if (upToDate !== 'enforced') holds.push(PRE_MERGE_HOLD.UP_TO_DATE_NOT_ENFORCED);
 
+  if (holds.length === 0) holds.push(...receiptAgeHolds());
   if (holds.length > 0) {
     // The executor is NEVER reached on a hold. That is the whole contract.
     return { merged: false, holds, mergeInvoked: false };
@@ -337,27 +356,31 @@ function ghMergeExecutor({ repository, number, expectedHeadSha }) {
  * behind it in this same module and nothing else in the repository invokes one. A hold exits non-zero
  * having called nothing.
  */
+export function readExplicitReceipt(receiptPath) {
+  if (receiptPath === undefined) return undefined;
+  if (!receiptPath || !existsSync(receiptPath)) return null;
+  try { return JSON.parse(readFileSync(receiptPath, 'utf8')); } catch { return null; }
+}
+
 export async function main(argv = process.argv.slice(2)) {
   const arg = (n) => argv.find((a) => a.startsWith(`--${n}=`))?.split('=').slice(1).join('=');
   const repository = arg('repo') ?? process.env.GITHUB_REPOSITORY ?? '';
   const prNumber = arg('pr') ?? process.env.PR_NUMBER ?? '';
   const expectedHeadSha = arg('sha') ?? process.env.EXPECTED_HEAD_SHA ?? '';
   const expectedBaseSha = arg('base-sha') ?? process.env.EXPECTED_BASE_SHA ?? '';
-  const receiptPath = arg('receipt') ?? process.env.REVIEW_QUALIFICATION_FILE ?? '';
+  const receiptPath = arg('receipt') ?? process.env.REVIEW_QUALIFICATION_FILE;
   const token = process.env.GITHUB_TOKEN ?? '';
 
   if (!/^[^/]+\/[^/]+$/.test(repository) || !/^[1-9]\d*$/.test(prNumber)
       || !/^[0-9a-f]{40}$/i.test(expectedHeadSha) || !/^[0-9a-f]{40}$/i.test(expectedBaseSha) || !token) {
     console.error('MERGE HELD: usage --repo=<owner/name> --pr=<n> --sha=<40-hex head> --base-sha=<40-hex base> '
-      + '--receipt=<file>, with GITHUB_TOKEN set');
+      + '[--receipt=<file>], with GITHUB_TOKEN set (default receipt: live GitHub API)');
     return 2;
   }
 
-  // A receipt that cannot be READ is not a receipt. `guardedMerge` treats the missing case as a hold.
-  let priorReceipt = null;
-  if (receiptPath && existsSync(receiptPath)) {
-    try { priorReceipt = JSON.parse(readFileSync(receiptPath, 'utf8')); } catch { priorReceipt = null; }
-  }
+  // Undefined means not supplied; null means an explicitly selected artifact
+  // was unusable. Never silently switch the operator's explicit evidence.
+  const priorReceipt = readExplicitReceipt(receiptPath);
 
   const outcome = await guardedMerge({
     repository,
@@ -366,6 +389,7 @@ export async function main(argv = process.argv.slice(2)) {
     expectedBaseSha,
     token,
     priorReceipt,
+    collectDefaultReceipt: collectLiveReviewReceipt,
     readPullRequest: readPullRequestLive,
     readBaseProtection: readBaseProtectionLive,
     mergeExecutor: ghMergeExecutor,

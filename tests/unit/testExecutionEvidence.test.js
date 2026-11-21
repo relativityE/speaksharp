@@ -6,6 +6,7 @@ import {createHash,randomUUID} from 'node:crypto';
 import {execFileSync,spawn,spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {createRequire} from 'node:module';
+import yaml from 'js-yaml';
 import {executionContext,assertProvenance,executionRoute,executionCoverage,validatePilotExecution,
   changedEvidencePaths,readCurrentQuality,testEnvironment,validateVitestExecution,sourceIdentity,resolveComparisonBase,
   registeredFixture,fixtureSourceBinding,fixturePackageManagerIdentity,validateFixtureWitness,
@@ -25,6 +26,14 @@ const test=(name,...args)=>{
   if(process.env.TEST_EFFICACY_SERVICE_CALLER_FIXTURE!=='1' || name===fixtureConsumer.assertion) return registerTest(name,...args);
 };
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
+function ciStepProgram(job,name) {
+  const workflow=yaml.load(fs.readFileSync(path.join(root,'.github/workflows/ci.yml'),'utf8'));
+  const steps=(workflow.jobs?.[job]?.steps ?? []).filter(step=>step.name===name);
+  assert.equal(steps.length,1,`expected one CI step ${job}/${name}`);
+  assert.ok(typeof steps[0].run==='string' && steps[0].run.trim(),`missing shell for ${job}/${name}`);
+  return steps[0].run;
+}
+
 
 test('retention pin input requires its exact reviewed consumer and complete schema2 observations',()=>{
   const file='tests/db/retention-owner-matrix-pins.json',contract=registeredFixture(file);
@@ -1104,49 +1113,49 @@ if(process.env.GITHUB_ACTIONS==='true' || process.env.TEST_EFFICACY_REAL_RUNTIME
     } finally {fs.rmSync(dir,{recursive:true,force:true});}
   },600000);
 
-  test('INSTALLED Vitest: weakening a registered assertion fails the actual writer and thin report, then restores GREEN',()=>{
+  test('INSTALLED Vitest: weakening a registered assertion fails the actual writer and thin report, then restores GREEN',async()=>{
     const {dir,write,git}=executionFixture(true);
     const evidence=path.join(dir,'product_release/evidence/software-quality.latest.json');
     const original="import {it,expect} from 'vitest';\nimport {isValidMetric} from '../../utils/metricValidity';\n"
       +contract.mutants.map(mutant=>`it(${JSON.stringify(mutant.assertion)},()=>{\n${mutant.assertionAnchor}\n});`).join('\n');
-    const workflow=fs.readFileSync(path.join(root,'.github/workflows/ci.yml'),'utf8');
-    const reportSection=workflow.split('\n  report:')[1].split('\n  review-qualification:')[0];
-    const reportScript=reportSection.split('        run: |\n')[1].trimEnd().split('\n').map(line=>line.slice(10)).join('\n');
+    const reportScript=ciStepProgram('report','Enforce Selected Lane');
     const report=state=>spawnSync('/bin/bash',['-c',reportScript],{encoding:'utf8',env:{...process.env,
-      FULL_REQUIRED:'true',SCOPE_RESULT:'success',UNIT_RESULT:'success',EDGE_RESULT:'success',BUILD_RESULT:'success',
+      BASE_ONLY_PROOF:'',FULL_REQUIRED:'true',SCOPE_RESULT:'success',UNIT_RESULT:'success',EDGE_RESULT:'success',BUILD_RESULT:'success',
       HEALTH_RESULT:'success',E2E_RESULT:'success',QUALITY_RESULT:'success',EVIDENCE_RESULT:state}});
-    const run=()=>{const head=git(['rev-parse','HEAD']);return spawnSync(process.execPath,['scripts/write-software-quality-evidence.mjs'],{
-      cwd:dir,encoding:'utf8',timeout:120000,env:{...process.env,GITHUB_ACTIONS:'true',GITHUB_SHA:head,
+    const run=()=>{const head=git(['rev-parse','HEAD']);return runAsync(process.execPath,['scripts/write-software-quality-evidence.mjs'],{
+      cwd:dir,timeout:80_000,env:{...process.env,GITHUB_ACTIONS:'true',GITHUB_SHA:head,
         GITHUB_RUN_ID:'902',GITHUB_RUN_ATTEMPT:'1',TEST_EFFICACY_BASE:head,SOFTWARE_QUALITY_INVOCATION:randomUUID()}});};
-    const green=()=>{const result=run();assert.equal(result.error,undefined);assert.equal(result.status,0,result.stderr);
+    const green=async()=>{const result=await run();assert.equal(result.error,undefined);assert.equal(result.signal,null);assert.equal(result.status,0,result.stderr);
       assert.equal(JSON.parse(fs.readFileSync(evidence,'utf8')).testEfficacy.contracts[0].mutants.length,2);
-      assert.equal(report('success').status,0);};
+      const ordinary=report('success');assert.equal(ordinary.error,undefined);
+      assert.equal(ordinary.status,0,ordinary.stderr);assert.match(ordinary.stdout,/Full merge-candidate lane passed/);};
     try {
       write('frontend/vitest.config.mjs',`export default {test:{environment:'node',include:[${JSON.stringify(contract.testFile)},'tests/unit/*.test.js'],pool:'forks',maxWorkers:1,minWorkers:1}};`);
       write(contract.testFile,original);
-      green();
+      await green();
       // Keep the registered anchor exactly once as a comment: the mutant must survive
       // the weakened assertion, rather than failing merely because its anchor vanished.
       write(contract.testFile,original.replace(contract.mutants[0].assertionAnchor,
         `// ${contract.mutants[0].assertionAnchor}\nexpect(true).toBe(true);`));
-      const red=run();assert.equal(red.error,undefined);assert.equal(red.status,1,red.stderr);
+      const red=await run();assert.equal(red.error,undefined);assert.equal(red.signal,null);assert.equal(red.status,1,red.stderr);
       assert.match(red.stderr,/\[blank-is-zero\] Efficacy process failed/);
       assert.doesNotMatch(red.stderr,/NOT RUN|Unsupported|anchor missing|Cannot find module/);
       assert.equal(fs.existsSync(evidence),false,'a weak test cannot leave a stale quality PASS');
       assert.match(fs.readFileSync(path.join(dir,contract.testFile),'utf8'),/expect\(true\)\.toBe\(true\)/);
-      const blocked=report('failure');assert.equal(blocked.status,1);assert.match(blocked.stdout+blocked.stderr,/full lane failed/);
-      write(contract.testFile,original);green();
+      const blocked=report('failure');assert.equal(blocked.status,1,blocked.stderr);assert.match(blocked.stdout+blocked.stderr,/full lane failed/);
+      write(contract.testFile,original);await green();
     } finally {fs.rmSync(dir,{recursive:true,force:true});}
-  });
+  // This runs three installed writer invocations (baseline, mutation, restore).
+  // One observed complete local execution took 43 s; each assertion is unchanged.
+  },90_000);
 }
 
 test('CI-invoked writer fails incomplete coverage and succeeds after valid evidence is restored',()=>{
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'quality-ci-enforcement-'));
   try {
-    const workflow=fs.readFileSync(path.join(root,'.github/workflows/ci.yml'),'utf8');
-    const step=workflow.split('- name: Generate qualified software quality evidence')[1].split('- name:')[0];
-    const command=step.match(/\brun:\s*(node scripts\/write-software-quality-evidence\.mjs)\s*\n/);
-    assert.ok(command,'exercise the writer command actually invoked by CI');
+    const command=ciStepProgram('full-evidence','Generate qualified software quality evidence');
+    const entry='scripts/write-software-quality-evidence.mjs';
+    assert.equal(command.trim(),`node ${entry}`,'exercise the writer command actually invoked by CI');
     const files=['scripts/write-software-quality-evidence.mjs','scripts/run-test-efficacy.mjs',
       'scripts/efficacy-reporter.mjs','scripts/coverage-thresholds.mjs',
       'scripts/lib/testExecutionEvidence.mjs','scripts/j1d-smoke/ciEvidence.mjs','scripts/j1d-smoke/smokeEvidence.mjs','scripts/lib/nativeTestExecutionEvidence.mjs','scripts/lib/pythonTestExecutionEvidence.mjs','scripts/lib/python-unittest-reporter.py','scripts/lib/playwrightExecutionEvidence.mjs','scripts/lib/helperExecutionEvidence.mjs','scripts/lib/sourceContractEvidence.mjs','scripts/lib/softwareQualityEvidenceQualification.mjs',
@@ -1168,7 +1177,7 @@ test('CI-invoked writer fails incomplete coverage and succeeds after valid evide
     }));
     const evidenceFile=path.join(dir,'product_release/evidence/software-quality.latest.json');
     const markdownFile=path.join(dir,'product_release/evidence/software-quality-summary.latest.md');
-    const run=()=>spawnSync(process.execPath,[command[1].split(' ')[1]],{cwd:dir,encoding:'utf8',
+    const run=()=>spawnSync(process.execPath,[entry],{cwd:dir,encoding:'utf8',
       env:{...process.env,GITHUB_ACTIONS:'true',GITHUB_RUN_ID:'9001',GITHUB_RUN_ATTEMPT:'2',GITHUB_SHA:head,
         TEST_EFFICACY_BASE:head,SOFTWARE_QUALITY_INVOCATION:randomUUID(),NODE_V8_COVERAGE:''}});
     // This positive control has no affected tests and runs no product runtime. Metrics are fixture

@@ -260,7 +260,14 @@ CI has two PR modes:
   `workflow_dispatch` with `force_full=true` receives the full merge-candidate lane.
 
 Before merge, the required full-lane contexts must pass on the exact current PR head.
-Skipped or absent required contexts are not green. If marking a Draft ready does not
+Skipped or absent required contexts are not green. The only exception to rerunning the
+full lane is the verified, exact-tree base-refresh path: strict branch protection stays
+enabled, and CI must prove the same PR patch and identical tested integration tree from
+the original successful full run and attempt, including its digest-verified artifact.
+The current required report and merge qualification must attest that reuse, and current
+independent review must still qualify. Reusing evidence does not mark skipped jobs green
+or claim fresh execution. If any proof is missing or differs, run full CI.
+If marking a Draft ready does not
 start the full lane, dispatch it on the PR branch:
 
 ```bash
