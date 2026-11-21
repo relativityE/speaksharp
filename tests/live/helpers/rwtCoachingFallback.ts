@@ -14,6 +14,10 @@
  * coaching verdict stays FAIL. A missing fallback is FAIL here too, so it is visible in the receipt. When coaching succeeds the
  * row is NOT RUN, which a receipt records by writing no row. A request still unsettled at the coaching bound is HOLD: the
  * failure ending was never reached, so nothing about its fallback is judged. Evidence is booleans and counts only.
+ *
+ * The row is automated. Its id goes under `fallbackObservation`, never `observationId`: the receipt reads any
+ * `observationId` as a human observation, which would drop this verdict from the automated result and let the human
+ * worksheet overwrite it.
  */
 import type { Locator } from '@playwright/test';
 
@@ -117,7 +121,7 @@ export async function coachingFallbackRow(
     read: (c: CardLocator) => Promise<CoachingFallbackObservation> = readCoachingFallback,
 ): Promise<'NOT RUN' | 'PASS' | 'FAIL' | 'HOLD'> {
     if (take.rendered) return 'NOT RUN';
-    const base: FallbackEvidence = { observationId: COACHING_FALLBACK_OBSERVATION, reviewState: take.reviewState };
+    const base: FallbackEvidence = { fallbackObservation: COACHING_FALLBACK_OBSERVATION, reviewState: take.reviewState };
     if (!take.settled) {
         receipt.row(COACHING_FALLBACK_ROW, 'HOLD', 'the coaching request had not settled at the coaching bound, so no failure ending was reached to judge',
             { ...base, settled: false });

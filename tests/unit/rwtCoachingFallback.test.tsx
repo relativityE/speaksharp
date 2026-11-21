@@ -13,6 +13,7 @@ import { render, screen, cleanup, waitFor } from '../../frontend/tests/support/t
 import AISuggestions from '@/components/session/AISuggestions';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { grantPracticePrivacy } from '../../frontend/tests/test-utils/practicePrivacy';
+import { receiptAcceptance, humanWorksheet } from '../live/helpers/rwtAcceptance';
 import {
     COACHING_FALLBACK_ROW, IN_FLIGHT_HEADLINE, coachingFallbackRow, coachingFallbackVerdict, readCoachingFallback,
     type CardLocator, type CoachingFallbackObservation,
@@ -170,9 +171,21 @@ describe('J3 coaching_fallback_shown row', () => {
             expect(await coachingFallbackRow(r, noCard, { settled: true, rendered: false, reviewState: 'error' }, fixedRead(o))).toBe(want);
             expect(r.rows.map((x) => [x.step, x.verdict])).toEqual([[COACHING_FALLBACK_ROW, want]]);
             const ev = r.rows[0].evidence!;
-            expect(ev.observationId).toBe('coaching_fallback_shown');
+            expect(ev.fallbackObservation).toBe('coaching_fallback_shown');
+            expect(ev).not.toHaveProperty('observationId');
             expect(Object.values(ev).every((v) => v === null || ['boolean', 'number'].includes(typeof v) || v === 'error' || v === 'coaching_fallback_shown')).toBe(true);
         }
+    });
+
+    it('the row stays automated in the receipt: a fallback FAIL fails acceptance and is never a human observation', async () => {
+        const r = sink();
+        await coachingFallbackRow(r, noCard, { settled: true, rendered: false, reviewState: 'error' }, fixedRead({ ...allGood, disclosureVisible: false }));
+        const rows = [{ step: 'Focus coaching rendered', verdict: 'PASS' as const, detail: 'x' },
+            ...r.rows.map((x) => ({ ...x, verdict: x.verdict as 'FAIL', evidence: x.evidence as Record<string, string | number | boolean | null> }))];
+        const a = receiptAcceptance(rows);
+        expect({ acceptance: a.acceptance, automatedRowsAllPass: a.automatedRowsAllPass, human: a.humanObservations })
+            .toEqual({ acceptance: 'FAIL', automatedRowsAllPass: false, human: [] });
+        expect(humanWorksheet('suite', 'rel', ['J3.a'], rows)).not.toContain('coaching_fallback_shown');
     });
 
     it('the J3 coaching step writes the row after the coaching row, never changes it, and the reader presses nothing', () => {
