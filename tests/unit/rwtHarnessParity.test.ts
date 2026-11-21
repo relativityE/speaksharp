@@ -306,21 +306,24 @@ describe('AHT-01 design budgets (review: from the journey design, not a run coun
         const leases = ['L0', 'L1', 'L2', 'L3', 'L4'];
         const good = [{ id: 's0', lease_id: 'L0' }, { id: 's1', lease_id: 'L1' }, { id: 's2', lease_id: 'L2' }, { id: 's3', lease_id: 'L3' }];
         const base = { takes: [...good.map((r) => ({ control: 'mic-start', ids: [r.id] })), { control: 'mic-start', ids: [] as string[] }], stray: [] as string[] };
-        const check = async (o: { rows?: typeof good; bindings?: typeof base; captured?: Array<string | null>; leaseIds?: string[]; designed?: number;
+        const judge = async (o: { rows?: typeof good; bindings?: typeof base; captured?: Array<string | null>; leaseIds?: string[]; designed?: number;
             expected?: readonly string[] } = {}) => {
             const r = sink();
             const rows = o.rows ?? good;
             const admin = { from: () => ({ select: () => ({ eq: () => ({ eq: async () => ({ data: rows, error: null }) }) }) }) };
             await probeSaveIsolationRow(r, admin as never, 'u', o.captured ?? ['s0', 's1'], (o.bindings ?? base) as never, o.leaseIds ?? leases, o.designed ?? 5,
                 (o.expected ?? design) as never);
-            return r.rows[0].verdict;
+            return r.rows[0];
         };
+        const check = async (o: Parameters<typeof judge>[0] = {}) => (await judge(o)).verdict;
         expect(await check()).toBe('PASS');
         // the probe saved: by the server, or seen by the recorder
         expect(await check({ rows: [...good, { id: 'p', lease_id: 'L4' }] })).toBe('FAIL');
         expect(await check({ bindings: { ...base, takes: base.takes.map((t, k) => (k === 4 ? { ...t, ids: ['p'] } : t)) } })).toBe('FAIL');
         // an uncaptured take saved nothing, twice, or not the session of its own lease
-        expect(await check({ rows: good.filter((r) => r.lease_id !== 'L3') })).toBe('FAIL');
+        const lostUncaptured = await judge({ rows: good.filter((r) => r.lease_id !== 'L3') });
+        expect(lostUncaptured.verdict).toBe('FAIL');
+        expect(lostUncaptured.detail).toBe('a take\'s recording saved no completed session');
         expect(await check({ rows: [...good, { id: 's3b', lease_id: 'L3' }] })).toBe('FAIL');
         expect(await check({ bindings: { ...base, takes: base.takes.map((t, k) => (k === 2 ? { ...t, ids: ['s3'] } : k === 3 ? { ...t, ids: ['s2'] } : t)) } })).toBe('FAIL');
         // an uncaptured take with no recorder binding cannot be judged
