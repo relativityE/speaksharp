@@ -480,6 +480,8 @@ export async function recordRunOwnedCleanup(
 // Focus suites and returning-user navigation (maximum 0), so a receipt with the row stripped can never finalize PASS.
 const OPEN_MIC_PRODUCT_ROWS = Object.freeze([
     'coaching request budget', 'base_q4 primary', 'signup', 'sign-in', 'session bears canary claim', 'Products → Open Mic', 'no mic on navigation',
+    // J1.a (#1835): this run's own account chose Save: Yes, Coaching: Yes in the Practice prompt, read back before Start.
+    'practice privacy choice',
     'model identity', 'new-account entitlement', 'live filler highlighting', 'session saved', 'saved exactly once',
     'coaching rendered', 'coaching length', 'coaching phrases distinct', 'coaching visible = saved', 'coaching server receipt',
     // #1258 R4: the coaching checks text can prove — ceiling, no contradiction with saved fillers, not identical across takes.
@@ -590,6 +592,8 @@ const FEEDBACK_J8_PRODUCT_ROWS = Object.freeze([
     ...j8LegRows('J8.c', FEEDBACK_NO_SESSION_PRODUCT_ROWS), 'J8.c: both saved takes unchanged', 'J8.c: no extra Start or coaching',
 ]);
 const PENDING_START_PRODUCT_ROWS = Object.freeze([
+    // J5.a (#1835): this run's own account chose Save: Yes, Coaching: No on Practice, read back before each capture-capable press.
+    'practice privacy choice',
     ...SUPPLEMENTAL_ACCOUNT_ROWS, 'cold Start is pending', 'Start transition observed', 'abandoned Start settles after leaving',
     'leaving pending Start releases microphone', 'leaving pending Start creates no session',
     'return to Open Mic exposes truthful Start state', 'return does not resume abandoned recording', 'coaching request budget',
@@ -636,6 +640,8 @@ const ABANDON_PRODUCT_ROWS = Object.freeze([
     ...SUPPLEMENTAL_ACCOUNT_ROWS, 'take is recording before leaving', 'leaving mid-recording releases the microphone',
     'return does not resume the abandoned take', 'recovery notice is truthful', 'return Start is truthful',
     'next take saves only itself', 'no Cloud STT request', 'coaching request budget',
+    // J5.b/c: the run's own account opted in (Save: Yes, Coaching: No) on its first Practice visit, before any Start.
+    'practice privacy choice',
 ]);
 /**
  * Navigate away also answers the product's in-app leave prompt (#1258 run 38876623812) and, because Leave is "Stop and
@@ -648,6 +654,8 @@ const TWO_TAB_PRODUCT_ROWS = Object.freeze([
     'both takes saved, none left active', 'no Cloud STT request', 'coaching request budget',
     // AHT-11 (#1811): the displaced take carries the server's 'displaced' fence.
     'displaced take is permanently fenced',
+    // J6: the run's own account opted in (Save: Yes, Coaching: No) on tab A's first Practice visit, before any Start.
+    'practice privacy choice',
 ]);
 /**
  * #1258 R3 (row 17) — `rwt-adverse-mic-model`: a blocked microphone, a failing model download, and offline mid-download.
@@ -660,13 +668,16 @@ export const ADVERSE_OFFLINE_SUITE = `${ADVERSE_SUITE}-offline-mid-download`;
  * J7.a (PO and Sam, 2026-11-19): the mic-denied suite proves the denial only. The page states the block, capture never
  * starts, and no take is saved for the test account. Recovery after allowing the microphone is not exercised: its two former
  * rows must be absent, and the receipt must record same-page recovery as UNTESTED (`samePageRecoveryErrors`).
+ * All three J7 suites require 'practice privacy choice' (#1835): the run's own account made the variant's fixed choice (J7.a
+ * Save No; J7.b/c Save Yes, Coaching No) and it was read back before the first Start-control press. A pre-#1835 or unknown
+ * build records it FAIL or HOLD, never PASS.
  */
 const ADVERSE_MIC_PRODUCT_ROWS = Object.freeze([
-    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'blocked microphone is stated truthfully', NO_TAKE_SAVED_ROW,
+    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'practice privacy choice', 'blocked microphone is stated truthfully', NO_TAKE_SAVED_ROW,
     'no Cloud STT request', 'coaching request budget',
 ]);
 const ADVERSE_DOWNLOAD_PRODUCT_ROWS = Object.freeze([
-    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'model download failure is stated truthfully', 'Retry downloads the model and a take saves',
+    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'practice privacy choice', 'model download failure is stated truthfully', 'Retry downloads the model and a take saves',
     'no Cloud STT request', 'coaching request budget', 'the recovered take reopens from Analytics',
 ]);
 const RETURNING_USER_PRODUCT_ROWS = Object.freeze([

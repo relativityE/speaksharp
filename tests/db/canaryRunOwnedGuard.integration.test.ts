@@ -36,6 +36,17 @@ const SAVE_JOURNAL_FNS = ['claim_account_save_journal_cleanup_v1', 'delete_delet
     'resume_run_account_save_journal_cleanups_v1', 'list_unfinished_account_save_journal_cleanup_runs_v1'];
 // Set-returning: PostgREST answers them as a JSON array.
 const JSON_FNS = new Set(['resume_run_account_save_journal_cleanups_v1', 'list_unfinished_account_save_journal_cleanup_runs_v1']);
+// #1835: the shared residue check counts the Practice privacy choice. Its REAL table (columns, primary key and the ON DELETE
+// CASCADE from auth.users), sliced from the migration so it can't drift; the rest of that migration (session opt-in trigger,
+// coaching RPCs) is outside this test's boundary.
+const PRIVACY_CHOICES_MIGRATION = 'backend/supabase/migrations/20261117105700_practice_privacy_choices_1835.sql';
+const privacyChoicesTable = (): string => {
+    const sql = readFileSync(PRIVACY_CHOICES_MIGRATION, 'utf8');
+    const start = sql.indexOf('CREATE TABLE public.practice_privacy_choices (');
+    const end = sql.indexOf('\n);', start);
+    if (start < 0 || end < 0) throw new Error('practice_privacy_choices table not found in its migration');
+    return sql.slice(start, end + 3);
+};
 const FIXTURE_ONLY_RESIDUE_TABLES = ['user_goals', 'user_filler_words', 'session_attribution_authority', 'session_attribution_challenge',
     'session_attribution_unattributed', 'progress_recommendations', 'progress_recommendation_attempts', 'objective_project',
     'objective_brief', 'objective_brief_point', 'objective_session', 'objective_source_recording', 'objective_evidence', 'objective_action'];
@@ -132,6 +143,8 @@ async function account(runId: string) {
     // The same app_metadata in SQL (auth.users.raw_app_meta_data), where the REAL save-journal claim checks the run binding.
     await owner(() => db.query('INSERT INTO auth.users(id,email,email_confirmed_at,raw_app_meta_data) VALUES($1,$2,now(),$3::jsonb)', [uid, email, JSON.stringify(app_metadata)]));
     await owner(() => db.query('INSERT INTO public.trial_entitlements(email,user_id) VALUES($1,$2) ON CONFLICT (email) DO UPDATE SET user_id=EXCLUDED.user_id', [email, uid]));
+    // #1835: every test account settles its Practice privacy choice first (Save Yes / Coaching No), so cleanup must remove it.
+    await owner(() => db.query('INSERT INTO public.practice_privacy_choices(user_id,transcript_save,ai_coaching) VALUES($1,true,false)', [uid]));
     auth.set(uid, { email, created_at: new Date(Date.now() - 5 * H).toISOString(), app_metadata });
     const lease = `d0000000-0000-4000-8000-${n}`;
     const session = `e0000000-0000-4000-8000-${n}`;
@@ -144,6 +157,7 @@ async function account(runId: string) {
         obligations: async () => (await one<string>('SELECT phase FROM account_save_obligations WHERE user_id=$1 ORDER BY lease_id', [uid])).map((r) => String(r.phase)),
         exists: async () => (await one('SELECT 1 FROM auth.users WHERE id=$1', [uid])).length === 1,
         trialRows: async () => Number((await one<number>('SELECT count(*)::int AS n FROM trial_entitlements WHERE email=$1', [email]))[0].n),
+        choiceRows: async () => Number((await one<number>('SELECT count(*)::int AS n FROM public.practice_privacy_choices WHERE user_id=$1', [uid]))[0].n),
     };
 }
 
@@ -156,6 +170,7 @@ describe('#1826 canary cleanup against the ACTUAL #1643 deletion guard (PGlite, 
         await db.exec('ALTER TABLE auth.users ADD COLUMN raw_app_meta_data jsonb');
         await db.exec(`SET ROLE closure_owner; ${readFileSync(GUARD_MIGRATION, 'utf8')} RESET ROLE;`);
         await db.exec(`SET ROLE closure_owner; ${readFileSync(SAVE_JOURNAL_CLEANUP_MIGRATION, 'utf8')} RESET ROLE;`);
+        await db.exec(`SET ROLE closure_owner; ${privacyChoicesTable()} RESET ROLE;`);
         await db.exec(`SET ROLE closure_owner; ${FIXTURE_ONLY_RESIDUE_TABLES.map((t) => `CREATE TABLE public.${t}(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE);`).join(' ')} RESET ROLE;`);
     }, 120_000);
     afterAll(async () => { await db?.close(); });
@@ -208,7 +223,7 @@ describe('#1826 canary cleanup against the ACTUAL #1643 deletion guard (PGlite, 
         await a.landSave();
         expect(await a.obligations()).toEqual(['completed']);
         expect(await cleanupLane({ finishSaveJournal: FINISH, admin: sqlAdmin(), env: process.env, cleanup: canaryCleanup })).toEqual({ ok: true, code: 'cleanup-verified', deleted: 1, orphans: 0 });
-        expect({ exists: await a.exists(), trial: await a.trialRows(), obligations: await a.obligations(), claims: (await one('SELECT 1 FROM public.account_save_journal_cleanup_claims WHERE user_id=$1', [a.uid])).length }).toEqual({ exists: false, trial: 0, obligations: [], claims: 0 });
+        expect({ exists: await a.exists(), trial: await a.trialRows(), choices: await a.choiceRows(), obligations: await a.obligations(), claims: (await one('SELECT 1 FROM public.account_save_journal_cleanup_claims WHERE user_id=$1', [a.uid])).length }).toEqual({ exists: false, trial: 0, choices: 0, obligations: [], claims: 0 });
     });
 
     it('normal completed take: the shared cleanup deletes through the REAL guard (pre-delete, deletion, zero residue)', async () => {
@@ -218,7 +233,7 @@ describe('#1826 canary cleanup against the ACTUAL #1643 deletion guard (PGlite, 
         const admin = sqlAdmin();
         expect(await cleanupLane({ finishSaveJournal: FINISH, admin, env: process.env, cleanup: canaryCleanup })).toEqual({ ok: true, code: 'cleanup-verified', deleted: 1, orphans: 0 });
         expect(admin.deleteUser).toHaveBeenCalledTimes(1);
-        expect({ exists: await a.exists(), trial: await a.trialRows(), obligations: await a.obligations(), claims: (await one('SELECT 1 FROM public.account_save_journal_cleanup_claims WHERE user_id=$1', [a.uid])).length }).toEqual({ exists: false, trial: 0, obligations: [], claims: 0 });
+        expect({ exists: await a.exists(), trial: await a.trialRows(), choices: await a.choiceRows(), obligations: await a.obligations(), claims: (await one('SELECT 1 FROM public.account_save_journal_cleanup_claims WHERE user_id=$1', [a.uid])).length }).toEqual({ exists: false, trial: 0, choices: 0, obligations: [], claims: 0 });
     });
 
     it('released lease with no take (debt the read cannot see): the REAL guard refuses → delete_refused; Auth and debt preserved, but the trial-entitlement row WAS pre-deleted (not "nothing written")', async () => {
@@ -231,7 +246,7 @@ describe('#1826 canary cleanup against the ACTUAL #1643 deletion guard (PGlite, 
         expect(r).toMatchObject({ ok: false, code: 'delete_refused', deleted: 0, preserved: { runId: '43000000013', runAttempt: '1' } });
         expect(admin.deleteUser).toHaveBeenCalledTimes(1);
         // Pinned side effect (Sam): the shared helper's trial_entitlements pre-delete ran before the guard refused.
-        expect({ exists: await a.exists(), obligations: await a.obligations(), trial: await a.trialRows() }).toEqual({ exists: true, obligations: ['admitted'], trial: 0 });
+        expect({ exists: await a.exists(), obligations: await a.obligations(), trial: await a.trialRows(), choices: await a.choiceRows() }).toEqual({ exists: true, obligations: ['admitted'], trial: 0, choices: 1 });
     });
 
     it('sweep: an unsettled orphan of a finished run is preserved and reported, never counted as removed', async () => {

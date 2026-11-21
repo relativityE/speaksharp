@@ -467,7 +467,7 @@ describe('nightly runner bridge: the guarded account-create route', () => {
         const sent = sentOf(d, 'g5');
         const after = (ms) => new Date(Date.parse(sent.recordedAt) + ms).toISOString();
         const residue = (over = {}) => ({ lookupRef: sent.lookupRef, observedAt: after(1), queries: [{ kind: 'account', scope: sent.lookupRef, count: 0 }],
-            residueChecks: 22, residueNonZero: 0, ...over });
+            residueChecks: 23, residueNonZero: 0, ...over });
         const terminal = (over = {}) => ({ attemptId: sent.attemptId, lookupRef: sent.lookupRef, outcome: 'created', accountRef: 'acct-server-unit',
             receivedAt: after(1), beforeAbort: true, ...over });
         const tryRecover = (proof, opts) => recordAttemptRecovery(d.evidenceDir, 'g5', sent.attemptId, proof, opts);
@@ -479,7 +479,7 @@ describe('nightly runner bridge: the guarded account-create route', () => {
         assert.throws(() => tryRecover({ kind: 'terminal', result: terminal({ beforeAbort: false }) }), /may still complete/);
         // A created terminal result also needs complete zero residue for that account: missing, incomplete, future, nonzero.
         assert.throws(() => tryRecover({ kind: 'terminal', result: terminal() }), /no residue lookup/);
-        assert.throws(() => tryRecover({ kind: 'terminal', result: terminal(), residue: residue({ residueChecks: 21 }) }), /incomplete/);
+        assert.throws(() => tryRecover({ kind: 'terminal', result: terminal(), residue: residue({ residueChecks: 22 }) }), /incomplete/);
         assert.throws(() => tryRecover({ kind: 'terminal', result: terminal(), residue: residue({ observedAt: new Date(Date.now() + 3600_000).toISOString() }) }), /future time/);
         assert.throws(() => tryRecover({ kind: 'terminal', result: terminal(), residue: residue({ queries: [{ kind: 'account', scope: sent.lookupRef, count: 1 }] }) }), /zero count/);
         // Codex P1 on 8641c4ec: a zero observed before the create was answered (a day earlier, or between the record and
@@ -498,7 +498,7 @@ describe('nightly runner bridge: the guarded account-create route', () => {
         const sent = sentOf(d, 'g9');
         const deadline = { ms: 600_000, source: 'unit-test documented server deadline (not production)' };
         const at = (ms) => new Date(Date.parse(sent.recordedAt) + ms).toISOString();
-        const residue = (observedAt) => ({ lookupRef: sent.lookupRef, observedAt, queries: [{ kind: 'account', scope: sent.lookupRef, count: 0 }], residueChecks: 22, residueNonZero: 0 });
+        const residue = (observedAt) => ({ lookupRef: sent.lookupRef, observedAt, queries: [{ kind: 'account', scope: sent.lookupRef, count: 0 }], residueChecks: 23, residueNonZero: 0 });
         const opts = { serverDeadline: deadline, now: Date.parse(sent.recordedAt) + 3600_000 };
         assert.throws(() => recordAttemptRecovery(d.evidenceDir, 'g9', sent.attemptId, { kind: 'after-server-deadline', residue: residue(at(599_999)) }, opts),
             /before the server-enforced deadline, so a delayed create could still land/);
@@ -599,10 +599,10 @@ describe('nightly runner bridge: one account create per journey reservation, acr
         // Cleared only by a complete zero-residue lookup for that account, taken after it was found.
         ev.recordRecovery(d.evidenceDir, 'r4', 'unit-run-recovery');
         const landedAt = JSON.parse(fs.readFileSync(path.join(d.evidenceDir, attemptStem(d, 'r4').replace('.sent.json', '.landed.json')), 'utf8')).landedAt;
-        const residue = (observedAt, over = {}) => ({ lookupRef: sent.lookupRef, observedAt, queries: [{ kind: 'account', scope: sent.lookupRef, count: 0 }], residueChecks: 22, residueNonZero: 0, ...over });
+        const residue = (observedAt, over = {}) => ({ lookupRef: sent.lookupRef, observedAt, queries: [{ kind: 'account', scope: sent.lookupRef, count: 0 }], residueChecks: 23, residueNonZero: 0, ...over });
         const before = new Date(Date.parse(landedAt) - 1).toISOString();
         assert.throws(() => ev.recordAttemptRecovery(d.evidenceDir, 'r4', sent.attemptId, { kind: 'landed-and-cleaned', residue: residue(before) }), /before the account was found/);
-        assert.throws(() => ev.recordAttemptRecovery(d.evidenceDir, 'r4', sent.attemptId, { kind: 'landed-and-cleaned', residue: residue(landedAt, { residueChecks: 21 }) }), /incomplete/);
+        assert.throws(() => ev.recordAttemptRecovery(d.evidenceDir, 'r4', sent.attemptId, { kind: 'landed-and-cleaned', residue: residue(landedAt, { residueChecks: 22 }) }), /incomplete/);
         ev.recordAttemptRecovery(d.evidenceDir, 'r4', sent.attemptId, { kind: 'landed-and-cleaned', residue: residue(landedAt) });
         assert.equal(fresh().admitRun(d.evidenceDir).admitted, true, 'found, scoped-deleted and proven gone readmits');
     });
@@ -610,7 +610,7 @@ describe('nightly runner bridge: one account create per journey reservation, acr
         const { d, sent } = await lost('r5');
         const ev = fresh();
         ev.recordRecovery(d.evidenceDir, 'r5', 'unit-run-recovery');
-        const residue = { lookupRef: sent.lookupRef, observedAt: new Date().toISOString(), queries: [{ kind: 'account', scope: sent.lookupRef, count: 0 }], residueChecks: 22, residueNonZero: 0 };
+        const residue = { lookupRef: sent.lookupRef, observedAt: new Date().toISOString(), queries: [{ kind: 'account', scope: sent.lookupRef, count: 0 }], residueChecks: 23, residueNonZero: 0 };
         assert.throws(() => ev.recordAttemptRecovery(d.evidenceDir, 'r5', sent.attemptId, { kind: 'landed-and-cleaned', residue }), /no landed record/);
         assert.equal(fresh().admitRun(d.evidenceDir).admitted, false);
     });
@@ -742,7 +742,7 @@ describe('nightly runner bridge: recovering a lost guarded signup through the co
         const sent = JSON.parse(fs.readFileSync(path.join(s.d.evidenceDir, landedName.replace('.landed.json', '.sent.json')), 'utf8'));
         const landedAt = JSON.parse(fs.readFileSync(path.join(s.d.evidenceDir, landedName), 'utf8')).landedAt;
         e.recordAttemptRecovery(s.d.evidenceDir, runId, s.attemptId, { kind: 'landed-and-cleaned', residue: { lookupRef: sent.lookupRef, observedAt: landedAt,
-            queries: [{ kind: 'account', scope: sent.lookupRef, count: 0 }], residueChecks: 22, residueNonZero: 0 } });
+            queries: [{ kind: 'account', scope: sent.lookupRef, count: 0 }], residueChecks: 23, residueNonZero: 0 } });
         assert.equal(ev().admitRun(s.d.evidenceDir).admitted, true);
     });
     // Codex P2 on df64d30e: the domain is bound durably at send time; a domain configured differently later is refused.

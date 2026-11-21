@@ -42,7 +42,7 @@ describe('save-take duration is behavioural: default, fallback and time budget',
         const partial = Number(sizing![1].replaceAll('_', ''));
         const full = Number(sizing![2].replaceAll('_', ''));
         expect([partial, full]).toEqual([60_000, 42_000]);
-        expect(callers[0]).toMatch(/practiceAgainEvidence\([\s\S]*?\{ saveTakeMs \}\)/);
+        expect(callers[0]).toMatch(/practiceAgainEvidence\([\s\S]*?\{ saveTakeMs, beforeCapture: \(\) => captureGate\(\)\.confirm\(\) \}\)/);
         expect(callers[0]).toContain('numericComparisonRow(receipt, result, repeatEligibility, saveTakeMs)');
         expect(callers[0]).toContain("const sourceTakeMs = fixtureKey === 'focus_points_partial_tts' ? 60_000 : Math.round((fixture.entry.speechSeconds + 4) * 1000);");
         const frozen = callers[0].indexOf('await freezeMarkerObserver(page, armed.token)');

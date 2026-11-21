@@ -1,0 +1,95 @@
+# J1.d reserved-namespace smoke: a disposable `speaksharp.test` account confirms its email through local
+# Mailpit, signs out, is redirected from its protected Account page, and signs back into the same account and its own detail.
+# DISPOSABLE SMOKE EVIDENCE ONLY: a run-unique local Supabase stack on this runner's loopback, this commit's app, headless
+# Chromium. No production environment, secret, hosted project, live-suite flag or exposed port. Not a production J1.d pass and
+# not proof that hosted Supabase accepts `.test`. The same scripts/j1d-smoke/stack.sh and spec were proven in a private Codespace.
+name: J1.d reserved-namespace smoke (disposable stack)
+
+on:
+  # Manual reuse only. On a pull request the smoke runs once, as the j1d-smoke job of the main CI run, whose evidence the gate
+  # credits; this workflow never adds a second PR-triggered run of the same smoke.
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: j1d-reserved-namespace-smoke-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # The job id is the smoke producer's lineage (scripts/j1d-smoke/smoke-playwright-reporter.mjs refuses any other job).
+  j1d-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      J1D_SMOKE_RUN: ${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22.23.4' # Same runtime as full-evidence's setup-environment.
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install the pinned Supabase CLI (bounded, checksum-verified)
+        run: node scripts/ci/install-supabase-cli.mjs
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Start the disposable stack and this commit's app (loopback only)
+        id: stack_up
+        run: |
+          set -euo pipefail
+          export J1D_SMOKE_STATE="$RUNNER_TEMP/j1d-state"
+          scripts/j1d-smoke/stack.sh up
+
+      - name: Run the J1.d smoke against the disposable stack
+        id: smoke
+        run: |
+          set -euo pipefail
+          export J1D_SMOKE_STATE="$RUNNER_TEMP/j1d-state"
+          set -a; . "$J1D_SMOKE_STATE/env"; set +a
+          J1D_SMOKE_IDENTITY_SHA256="$(sha256sum "$J1D_SMOKE_STATE/identity.json" | cut -d' ' -f1)"
+          export J1D_SMOKE_IDENTITY_SHA256
+          export J1D_SMOKE_RECEIPT="$J1D_SMOKE_STATE/receipt.json" J1D_SMOKE_EVIDENCE=1
+          pnpm exec playwright test -c playwright.j1d-smoke.config.ts
+
+      # Always, after a start was attempted. A failed stop or an unproven teardown fails this step; it never overwrites the
+      # smoke's own result, which stays on its step.
+      - name: Stop the disposable stack and prove it destroyed
+        id: stack_down
+        if: always() && steps.stack_up.outcome != 'skipped'
+        run: |
+          set -euo pipefail
+          export J1D_SMOKE_STATE="$RUNNER_TEMP/j1d-state"
+          scripts/j1d-smoke/stack.sh down
+
+      # Stage only the three allowlisted proof types, never env, auth storage, logs or raw stack identity.
+      - name: Stage exact disposable execution evidence
+        if: steps.smoke.outcome == 'success' && steps.stack_down.outcome == 'success'
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          receipts=(test-results/j1d-smoke/smoke-execution-*.json)
+          blobs=(blob-report/report*.zip)
+          [ "${#receipts[@]}" -eq 1 ] && [ "${#blobs[@]}" -eq 1 ]
+          stage="$RUNNER_TEMP/j1d-evidence"
+          mkdir -p "$stage/test-results/j1d-smoke" "$stage/blob-report"
+          cp -- "${receipts[0]}" "$stage/test-results/j1d-smoke/"
+          cp -- "${blobs[0]}" "$stage/blob-report/"
+          cp -- "$RUNNER_TEMP/j1d-state/destroyed.json" "$stage/"
+      - name: Keep exact smoke evidence and teardown proof (1 day)
+        uses: actions/upload-artifact@v6
+        with:
+          name: j1d-smoke-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/j1d-evidence/
+          if-no-files-found: error
+          retention-days: 1

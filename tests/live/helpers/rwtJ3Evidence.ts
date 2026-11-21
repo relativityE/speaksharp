@@ -14,7 +14,7 @@
  *
  * Fail closed: an unreadable or missing input is HOLD, a contradiction is FAIL, PASS only when every part is proved.
  */
-import type { ConsentMode, PrivacyBuild } from './rwtPracticeConsent';
+import type { ConsentMode, ConsentRowRecorder, PrivacyBuild, SettledConsent } from './rwtPracticeConsent';
 import type { SavedFocusIdentityResult } from './rwtSavedFocusIdentity';
 
 export type J3Verdict = { status: 'PASS' | 'FAIL' | 'HOLD'; reason: string };
@@ -33,6 +33,30 @@ export function focusAcceptancePrivacyVerdict(input: { build: PrivacyBuild; mode
     if (!input.choiceRecorded) return { status: 'HOLD', reason: 'choice_unverified' };
     if (input.mode !== J3_ACCEPTANCE_CONSENT_MODE) return { status: 'HOLD', reason: 'not_acceptance_mode' };
     return { status: 'PASS', reason: 'save_yes_coaching_yes' };
+}
+
+/** The receipt surface the J3 privacy row is written to (RwtReceipt.row). */
+export interface J3PrivacyRowSink {
+    row(name: string, verdict: 'PASS' | 'FAIL' | 'HOLD', detail: string, evidence?: Record<string, string | number | boolean | null>): void;
+}
+
+/**
+ * J3 consent gate (Sam, Nov 20; the #1910/#1911 gate): the recorder `captureConsentGate` writes the required privacy row
+ * through, exactly once. A refused readback (or an unsettled prompt) is written as the gate's own HOLD/FAIL with its reason.
+ * A readback that matched the run's choice immediately before the first capture-capable press is then judged for J3 credit:
+ * only Save Yes / Coaching Yes on a #1835 build is PASS, any other mode is a diagnostic run that HOLDS.
+ */
+export function j3ConsentRowRecorder(sink: J3PrivacyRowSink, consentNow: () => SettledConsent): ConsentRowRecorder {
+    return (status, detail, evidence) => {
+        const consent = consentNow();
+        const choice = { transcriptSave: consent.choice?.transcriptSave ?? null, aiCoaching: consent.choice?.aiCoaching ?? null };
+        if (status !== 'PASS') { sink.row(J3_PRIVACY_ROW, status, detail, { ...evidence, ...choice }); return; }
+        const privacy = focusAcceptancePrivacyVerdict({ build: consent.build, mode: consent.mode, choiceRecorded: consent.choice !== null });
+        sink.row(J3_PRIVACY_ROW, privacy.status, privacy.status === 'PASS'
+            ? 'this run\'s owner chose Save Yes / Coaching Yes through the Practice prompt, read back from the server immediately before the first capture-capable press'
+            : 'this run\'s privacy choice read back before capture, but it cannot earn Focus coaching credit (diagnostic run)',
+        { reason: privacy.reason, build: consent.build, mode: consent.mode ?? 'none', ...choice });
+    };
 }
 
 /** Saved duration vs the take's own Start → Stop. Node-side Start/Stop include page latency, so a few seconds either way. */

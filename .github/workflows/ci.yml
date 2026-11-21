@@ -40,35 +40,111 @@ jobs:
   # as does any push, any force_full dispatch, any non-draft PR, and any unresolvable diff.
   scope:
     name: scope
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
     # Pinned with rc-gates (#1839): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build and
     # apt-prefetch gets no install-deps list (main CI 43413866919). Remove with the Playwright upgrade (#1840).
     runs-on: ubuntu-24.04
     outputs:
       full_required: ${{ steps.classify.outputs.full_required }}
+      base_only_proof: ${{ steps.base_only.outputs.proof }}
       docs_lane: ${{ steps.classify.outputs.docs_lane }}
       docs_only: ${{ steps.classify.outputs.docs_only }}
       frontend_changed: ${{ steps.classify.outputs.frontend_changed }}
       edge_changed: ${{ steps.classify.outputs.edge_changed }}
       e2e_required: ${{ steps.classify.outputs.e2e_required }}
+      j1d_smoke_required: ${{ steps.smoke_scope.outputs.required }}
+      comparison_base: ${{ steps.smoke_scope.outputs.base }}
+      comparison_head: ${{ steps.smoke_scope.outputs.head }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      # #1837: --no-renames lists BOTH sides of a rename or copy. With rename detection on, a file moved from
-      # code to Markdown would list only its Markdown destination and could pass for a docs-only change.
-      - name: Resolve Changed Files
-        shell: bash
+      - name: Bind disposable smoke scope and quality comparison to this checkout
+        id: smoke_scope
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          TEST_EFFICACY_EVENT_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          TEST_EFFICACY_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.number }}
+          SQUASH_TRUST_TOKEN: ${{ github.event_name == 'push' && github.event.forced == true && github.token || '' }}
         run: |
-          set -euo pipefail
-          if [[ -n "${BASE_SHA:-}" ]] && ! [[ "$BASE_SHA" =~ ^0+$ ]]; then
-            git diff --no-renames --name-only "$BASE_SHA"...HEAD > "$RUNNER_TEMP/changed.txt" || : > "$RUNNER_TEMP/changed.txt"
-          else
-            : > "$RUNNER_TEMP/changed.txt"
+          node --input-type=module <<'NODE'
+          import { execFileSync } from 'node:child_process';
+          import { appendFileSync, writeFileSync } from 'node:fs';
+          import { resolveCiComparison } from './scripts/lib/testExecutionEvidence.mjs';
+          import { smokeAffected } from './scripts/j1d-smoke/smokeEvidence.mjs';
+          const git = (...args) => execFileSync('git', args, {encoding:'utf8'}).trim();
+          const { resolveVerifiedSquashComparison } = await import('./scripts/lib/ciManualSquashComparison.mjs');
+          const {base,head} = await resolveVerifiedSquashComparison(process.cwd()) ?? resolveCiComparison(process.cwd());
+          // Keep BOTH sides of a rename; downstream scope classifier reads one path per line.
+          const changed = git('diff','--no-renames','--name-only','-z',base,head).split('\0').filter(Boolean);
+          if (changed.some(file => /[\r\n]/.test(file))) throw new Error('Unsafe CI comparison path');
+          writeFileSync(`${process.env.RUNNER_TEMP}/changed.txt`, changed.join('\n') + '\n');
+          appendFileSync(process.env.GITHUB_OUTPUT,`base=${base}\nhead=${head}\nrequired=${smokeAffected(changed)}\n`);
+          NODE
+
+      - name: Verify exact prior full evidence for an unchanged-tree base refresh
+        id: base_only
+        if: github.event_name == 'pull_request' && github.event.action == 'synchronize' && github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          READ_TOKEN: ${{ github.token }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if ! git diff --quiet HEAD "$PR_BASE_SHA" -- .github/workflows/ci.yml scripts/lib/ciBaseOnlyEvidence.mjs scripts/lib/ciCarryInputIdentity.mjs scripts/lib/releaseEvidenceEligibility.mjs scripts/production-release-policy.mjs scripts/collect-review-qualification.mjs scripts/review-qualification.mjs scripts/review-carry-forward.mjs scripts/ci-change-scope.mjs; then
+            echo 'Keep full CI: reuse verifier differs from the protected base.'
+            exit 0
           fi
+          node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
+          import { downloadPriorCiOrigin, verifyBaseOnlyEngineering } from './scripts/lib/ciBaseOnlyEvidence.mjs';
+          import { applyEnforcementToReceipt, buildReviewReceipt, readPullRequest, readReviewThreadResolutionEnforcement } from './scripts/collect-review-qualification.mjs';
+          const env = process.env;
+          const read = async path => {
+            const response = await fetch('https://api.github.com' + path, { redirect:'error', signal:AbortSignal.timeout(7000),
+              headers:{ authorization:`Bearer ${env.READ_TOKEN}`, accept:'application/vnd.github+json' } });
+            if (!response.ok) throw new Error('Cannot verify GitHub evidence');
+            return response.json();
+          };
+          const result = await verifyBaseOnlyEngineering({ root:process.cwd(), repository:env.GITHUB_REPOSITORY,
+            eventName:env.GITHUB_EVENT_NAME, event:JSON.parse(readFileSync(env.GITHUB_EVENT_PATH,'utf8')), checkoutHead:env.GITHUB_SHA, read,
+            readArtifact:({artifactId,digest})=>downloadPriorCiOrigin({artifactId,digest,token:env.READ_TOKEN}) });
+          console.log(result.eligible ? 'Verified unchanged-tree prior CI evidence.' : `Keep full CI: ${result.reason}`);
+          if (result.eligible) {
+            let currentReview;
+            try {
+              const pull = await readPullRequest({repository:result.repository,number:result.pr,token:env.READ_TOKEN});
+              if (pull.state === 'OPEN' && pull.baseRefName === 'main' && pull.number === result.pr
+                && pull.baseRepository?.nameWithOwner === result.repository) {
+                const receipt = buildReviewReceipt({pullRequest:pull,expectedHeadSha:result.target.head});
+                currentReview = applyEnforcementToReceipt(receipt,await readReviewThreadResolutionEnforcement({
+                  repository:result.repository,branch:pull.baseRefName,token:env.READ_TOKEN}));
+              }
+            } catch {
+              console.log('Keep full CI: live review state unavailable.');
+            }
+            if (currentReview?.qualified !== true || currentReview.currentSha !== result.target.head || currentReview.baseSha !== result.target.base) {
+              console.log('Keep full CI: current review does not qualify.');
+              process.exit(0);
+            }
+            const proof = JSON.stringify({...result,runId:env.GITHUB_RUN_ID,runAttempt:env.GITHUB_RUN_ATTEMPT,
+              reviewHead:currentReview.currentSha,reviewBase:currentReview.baseSha});
+            writeFileSync(`${env.RUNNER_TEMP}/base-only-evidence.json`, proof + '\n', {flag:'wx'});
+            appendFileSync(env.GITHUB_OUTPUT, `proof=${proof}\n`);
+          }
+          NODE
+
+      - name: Upload base refresh evidence (not a current execution receipt)
+        if: steps.base_only.outputs.proof != ''
+        uses: actions/upload-artifact@v6
+        with:
+          name: verified-base-only-evidence
+          path: ${{ runner.temp }}/base-only-evidence.json
+          if-no-files-found: error
 
       # #1837 docs lane (drafts only): a DRAFT PR that changes only docs-lane Markdown is a CANDIDATE. It takes
       # the docs lane only if the guard below shows, on this checkout, that no job the docs lane skips reads a
@@ -80,7 +156,7 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           IS_DRAFT: ${{ github.event.pull_request.draft || false }}
-          FORCE_FULL: ${{ github.event.inputs.force_full || false }}
+          FORCE_FULL: ${{ steps.smoke_scope.outputs.required == 'true' || github.event.inputs.force_full || false }}
         run: node scripts/ci-change-scope.mjs "$RUNNER_TEMP/changed.txt"
 
       - name: Setup Environment (docs-lane guard)
@@ -109,7 +185,7 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           IS_DRAFT: ${{ github.event.pull_request.draft || false }}
-          FORCE_FULL: ${{ github.event.inputs.force_full || false }}
+          FORCE_FULL: ${{ steps.smoke_scope.outputs.required == 'true' || github.event.inputs.force_full || false }}
           DOCS_LANE_CONFIRMED: ${{ steps.docs_guard.outputs.confirmed == 'true' }}
         run: node scripts/ci-change-scope.mjs "$RUNNER_TEMP/changed.txt"
 
@@ -240,7 +316,7 @@ jobs:
     name: deps-prep
     needs: scope
     # #1837: the docs lane runs the complete unit suite too, so it needs the shards' apt bundle.
-    if: always() && (needs.scope.outputs.full_required == 'true' || needs.scope.outputs.docs_lane == 'true')
+    if: (always() && (needs.scope.outputs.full_required == 'true' || needs.scope.outputs.docs_lane == 'true')) && needs.scope.outputs.base_only_proof == ''
     # Pinned with rc-gates (#1839): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build and
     # apt-prefetch gets no install-deps list (main CI 43413866919). Remove with the Playwright upgrade (#1840).
     runs-on: ubuntu-24.04
@@ -291,7 +367,7 @@ jobs:
   unit-shard:
     name: unit-shard-${{ matrix.shard }}
     needs: [scope, deps-prep]
-    if: always() && (needs.scope.outputs.full_required == 'true' || needs.scope.outputs.docs_lane == 'true')
+    if: (always() && (needs.scope.outputs.full_required == 'true' || needs.scope.outputs.docs_lane == 'true')) && needs.scope.outputs.base_only_proof == ''
     # Pinned with rc-gates (#1839): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build and
     # apt-prefetch gets no install-deps list (main CI 43413866919). Remove with the Playwright upgrade (#1840).
     runs-on: ubuntu-24.04
@@ -349,7 +425,7 @@ jobs:
   quality:
     name: quality
     needs: scope
-    if: needs.scope.outputs.full_required == 'true' || needs.scope.outputs.docs_lane == 'true'
+    if: (needs.scope.outputs.full_required == 'true' || needs.scope.outputs.docs_lane == 'true') && needs.scope.outputs.base_only_proof == ''
     # Pinned with rc-gates (#1839): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build and
     # apt-prefetch gets no install-deps list (main CI 43413866919). Remove with the Playwright upgrade (#1840).
     runs-on: ubuntu-24.04
@@ -369,7 +445,7 @@ jobs:
   unit-coverage-merge:
     name: unit-coverage-merge
     needs: [scope, unit-shard, quality]
-    if: always() && !cancelled() && (needs.scope.outputs.full_required == 'true' || needs.scope.outputs.docs_lane == 'true')
+    if: (always() && !cancelled() && (needs.scope.outputs.full_required == 'true' || needs.scope.outputs.docs_lane == 'true')) && needs.scope.outputs.base_only_proof == ''
     # Pinned with rc-gates (#1839): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build and
     # apt-prefetch gets no install-deps list (main CI 43413866919). Remove with the Playwright upgrade (#1840).
     runs-on: ubuntu-24.04
@@ -517,7 +593,7 @@ jobs:
   edge-tests:
     name: edge-tests
     needs: scope
-    if: needs.scope.outputs.full_required == 'true'
+    if: (needs.scope.outputs.full_required == 'true') && needs.scope.outputs.base_only_proof == ''
     # Pinned with rc-gates (#1839): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build and
     # apt-prefetch gets no install-deps list (main CI 43413866919). Remove with the Playwright upgrade (#1840).
     runs-on: ubuntu-24.04
@@ -544,7 +620,7 @@ jobs:
       contents: read
       actions: read
     needs: scope
-    if: needs.scope.outputs.full_required == 'true'
+    if: (needs.scope.outputs.full_required == 'true') && needs.scope.outputs.base_only_proof == ''
     # Pinned with rc-gates (#1839): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build and
     # apt-prefetch gets no install-deps list (main CI 43413866919). Remove with the Playwright upgrade (#1840).
     runs-on: ubuntu-24.04
@@ -597,7 +673,7 @@ jobs:
   health-check:
     name: health-check
     needs: [scope, e2e]
-    if: always() && needs.scope.outputs.full_required == 'true'
+    if: (always() && needs.scope.outputs.full_required == 'true') && needs.scope.outputs.base_only_proof == ''
     runs-on: ubuntu-latest
     steps:
       - name: Download Health Check Report
@@ -620,7 +696,7 @@ jobs:
     # CI-PERF: E2E consumes only the build artifact, so it no longer waits on unit work,
     # edge tests or health-check. Those still gate the overall result via `report`.
     needs: [scope, build, deps-prep]
-    if: success() && needs.scope.outputs.full_required == 'true'
+    if: (success() && needs.scope.outputs.full_required == 'true') && needs.scope.outputs.base_only_proof == ''
     # Pinned with rc-gates (#1839): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build and
     # apt-prefetch gets no install-deps list (main CI 43413866919). Remove with the Playwright upgrade (#1840).
     runs-on: ubuntu-24.04
@@ -715,7 +791,7 @@ jobs:
   lighthouse-advisory:
     name: lighthouse-advisory
     needs: [scope, build]
-    if: always() && !cancelled() && needs.scope.outputs.full_required == 'true'
+    if: (always() && !cancelled() && needs.scope.outputs.full_required == 'true') && needs.scope.outputs.base_only_proof == ''
     # Pinned with rc-gates (#1839): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build and
     # apt-prefetch gets no install-deps list (main CI 43413866919). Remove with the Playwright upgrade (#1840).
     runs-on: ubuntu-24.04
@@ -761,10 +837,21 @@ jobs:
   # Heavy evidence generation for the FULL lane. It installs dependencies because it genuinely needs
   # them (playwright merge-reports, ci:report:github, aggregate-ci, report-ci-timing). Splitting this
   # out keeps the required `report` gate thin AND keeps evidence inside the acceptance result.
+  j1d-smoke:
+    needs: scope
+    if: (needs.scope.outputs.j1d_smoke_required == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && needs.scope.outputs.base_only_proof == ''
+    permissions:
+      contents: read
+    uses: ./.github/workflows/j1d-reserved-namespace-smoke.yml
+
   full-evidence:
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
     name: full-evidence
-    needs: [scope, unit-coverage-merge, edge-tests, build, health-check, e2e, lighthouse-advisory]
-    if: always() && !cancelled() && needs.scope.outputs.full_required == 'true'
+    needs: [scope, unit-coverage-merge, edge-tests, build, health-check, e2e, lighthouse-advisory, j1d-smoke]
+    if: (always() && !cancelled() && needs.scope.outputs.full_required == 'true') && needs.scope.outputs.base_only_proof == ''
     # The cloud-test browser baseline is Chrome >=156 with no download/install.
     # ubuntu-24.04's rolling pool can still assign image 20261018.96.1 (Chrome 155),
     # while the supported ubuntu-26.04 images established for this lane ship 156+.
@@ -778,8 +865,13 @@ jobs:
           BUILD: ${{ needs.build.result }}
           HEALTH: ${{ needs.health-check.result }}
           E2E: ${{ needs.e2e.result }}
+          SMOKE_EXPECTED: ${{ needs.scope.outputs.j1d_smoke_required }}
+          SMOKE_RESULT: ${{ needs.j1d-smoke.result }}
         run: |
           set -euo pipefail
+          if [ "$SMOKE_EXPECTED" = true ] && [ "$SMOKE_RESULT" != success ]; then
+            echo '::error::required disposable smoke did not succeed (including skipped fork proof)'; exit 1
+          fi
           echo "unit=$UNIT edge=$EDGE build=$BUILD health=$HEALTH e2e=$E2E"
           for r in "$UNIT" "$EDGE" "$BUILD" "$HEALTH" "$E2E"; do
             [[ "$r" == "success" ]] || { echo "::error::upstream job failed; skipping evidence aggregation"; exit 1; }
@@ -859,7 +951,7 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           path: artifacts
-          pattern: '{unit-artifacts,build-artifacts,shard-report-*,health-check-report,ux-review-screenshots-shard-*,lighthouse-report}'
+          pattern: '{unit-artifacts,build-artifacts,shard-report-*,health-check-report,ux-review-screenshots-shard-*,lighthouse-report,j1d-smoke-evidence-${{ github.run_id }}-${{ github.run_attempt }}}'
 
       - name: Summarise Downloaded Artifacts
         run: find artifacts -maxdepth 2 -type d -print
@@ -894,7 +986,7 @@ jobs:
           # shard-1/ assertion). Missing, duplicate or ambiguous shard reports are rejected.
           shard_error=0
           for shard in 1 2 3 4; do
-            matches=$(find artifacts -type f -name "report-*${shard}.zip" ! -path 'artifacts/playwright/*' | sort)
+            matches=$(find "artifacts/shard-report-${shard}/blob-report" -type f -name "report-*${shard}.zip" | sort)
             count=$(printf '%s\n' "$matches" | grep -c . || true)
             if [ "$count" -eq 0 ]; then
               echo "::error::no Playwright report found for shard ${shard}"; shard_error=1; continue
@@ -994,16 +1086,25 @@ jobs:
 
       - name: Resolve exact efficacy comparison base
         env:
-          TEST_EFFICACY_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          TEST_EFFICACY_BASE: ${{ needs.scope.outputs.comparison_base }}
+          TEST_EFFICACY_HEAD: ${{ needs.scope.outputs.comparison_head }}
+          TEST_EFFICACY_EVENT_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
           TEST_EFFICACY_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.number }}
+          SQUASH_TRUST_TOKEN: ${{ github.event_name == 'push' && github.event.forced == true && github.token || '' }}
         shell: bash
         run: |
           set -euo pipefail
           node --input-type=module <<'NODE'
           const { appendFileSync } = await import('node:fs');
-          const { resolveComparisonBase } = await import('./scripts/lib/testExecutionEvidence.mjs');
-          const comparisonBase = resolveComparisonBase(process.cwd());
-          appendFileSync(process.env.GITHUB_ENV, `TEST_EFFICACY_BASE=${comparisonBase}\n`);
+          const { resolveCiComparison } = await import('./scripts/lib/testExecutionEvidence.mjs');
+          const { resolveVerifiedSquashComparison } = await import('./scripts/lib/ciManualSquashComparison.mjs');
+          const {base,head} = await resolveVerifiedSquashComparison(process.cwd()) ?? resolveCiComparison(process.cwd());
+          if (head !== process.env.TEST_EFFICACY_HEAD || base !== process.env.TEST_EFFICACY_BASE) {
+            throw new Error('Unbound scope/quality comparison');
+          }
+          appendFileSync(process.env.GITHUB_ENV, `TEST_EFFICACY_BASE=${base}\n`);
           NODE
 
       - name: Generate qualified software quality evidence
@@ -1058,8 +1159,17 @@ jobs:
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v6
+        if: needs.scope.outputs.base_only_proof != ''
+        with:
+          persist-credentials: false
       - name: Enforce Selected Lane
         env:
+          BASE_ONLY_PROOF: ${{ needs.scope.outputs.base_only_proof }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_BEFORE_SHA: ${{ github.event.before }}
           FULL_REQUIRED: ${{ needs.scope.outputs.full_required }}
           DOCS_LANE: ${{ needs.scope.outputs.docs_lane }}
           DOCS_RESULT: ${{ needs.docs-evidence.result }}
@@ -1077,6 +1187,12 @@ jobs:
           if [[ "$SCOPE_RESULT" != "success" ]]; then
             echo "::error::change classification failed (scope=$SCOPE_RESULT); refusing to accept."
             exit 1
+          fi
+          if [[ -n "${BASE_ONLY_PROOF:-}" ]]; then
+            node --input-type=module -e 'import { acceptBaseOnlyAudit } from "./scripts/lib/ciBaseOnlyEvidence.mjs";
+              if (process.env.FULL_REQUIRED !== "true" || !acceptBaseOnlyAudit(JSON.parse(process.env.BASE_ONLY_PROOF), process.env)) process.exit(1);'
+            echo "Required report: verified reuse of prior green CI for identical source tree; no tests claimed for this run."
+            exit 0
           fi
           if [[ "$FULL_REQUIRED" == "true" ]]; then
             echo "Full merge-candidate lane: quality=$QUALITY_RESULT unit=$UNIT_RESULT edge=$EDGE_RESULT build=$BUILD_RESULT health=$HEALTH_RESULT e2e=$E2E_RESULT evidence=$EVIDENCE_RESULT"
@@ -1098,18 +1214,54 @@ jobs:
             echo "Affected draft lane passed."
           fi
 
+  # On a verified reuse the in-CI review still runs. The separate default-branch
+  # review-only workflow intentionally requires fresh full-evidence; it cannot
+  # relabel a skip as success. Operators can refresh live review directly through
+  # the protected pre-merge guard's default API path without rerunning engineering.
   review-qualification:
     name: exact-head-review-qualification
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
     needs: [scope, full-evidence]
     # #1430 P1 — RUNS ON PUSH TOO. Skipping `push` meant a commit that reached `main` directly was
     # reported release-qualified with no review authority examined at all, and `main` is the ref the
     # release is cut from. The push lane resolves the merged associated PR and qualifies the SHA that PR
     # was reviewed at; a direct push has no such PR and HOLDS. See resolveQualificationTarget.
-    if: ${{ always() && needs.scope.outputs.full_required == 'true' && needs.full-evidence.result == 'success' }}
+    if: ${{ always() && needs.scope.outputs.full_required == 'true' && (needs.full-evidence.result == 'success' || (needs.scope.result == 'success' && needs.scope.outputs.base_only_proof != '')) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: ${{ github.event_name == 'push' && github.event.forced == true && '0' || '1' }}
+      - name: Verify owner-approved unchanged-tree history rewrite
+        id: squash_review
+        if: github.event_name == 'push' && github.event.forced == true
+        env:
+          TEST_EFFICACY_EVENT_BASE: ${{ github.event.before }}
+          SQUASH_TRUST_TOKEN: ${{ github.token }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync, writeFileSync } from 'node:fs';
+          import { acquireVerifiedSquash, manualSquashAuditReceipt } from './scripts/lib/ciManualSquashComparison.mjs';
+          const verified = await acquireVerifiedSquash(process.cwd());
+          if (verified) {
+            const receipt = manualSquashAuditReceipt(verified);
+            writeFileSync(`${process.env.RUNNER_TEMP}/manual-squash-verification.json`, JSON.stringify(receipt) + '\n', {mode: 0o600, flag: 'wx'});
+            appendFileSync(process.env.GITHUB_OUTPUT, 'verified=true\n');
+          }
+          NODE
+      - name: Upload manual squash verification (not a PR review receipt)
+        if: steps.squash_review.outputs.verified == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: manual-squash-verification-${{ github.sha }}
+          path: ${{ runner.temp }}/manual-squash-verification.json
+          retention-days: 14
+          if-no-files-found: error
       - name: Read independent review from GitHub and qualify the exact head
+        if: steps.squash_review.outputs.verified != 'true'
         env:
           GITHUB_TOKEN: ${{ github.token }}
           EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -1121,7 +1273,7 @@ jobs:
           REVIEW_QUALIFICATION_FILE: ${{ runner.temp }}/review-qualification.json
         run: node scripts/collect-review-qualification.mjs
       - name: Upload qualified exact-head review receipt
-        if: ${{ success() }}
+        if: ${{ success() && steps.squash_review.outputs.verified != 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: review-qualification-${{ github.event.pull_request.head.sha || github.sha }}
@@ -1160,6 +1312,11 @@ jobs:
 
       - name: Evaluate merge qualification (fail closed)
         env:
+          BASE_ONLY_PROOF: ${{ needs.scope.outputs.base_only_proof }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_BEFORE_SHA: ${{ github.event.before }}
           FULL_REQUIRED: ${{ needs.scope.outputs.full_required }}
           EVENT_NAME: ${{ github.event_name }}
           RESULTS: ${{ toJSON(needs) }}
@@ -1186,6 +1343,13 @@ jobs:
              * `postMergePush` still selects the REPORT wording, because a push genuinely is verification
              * of a merged tree rather than a pre-merge decision. Only the required-set exclusion is gone.
              */
+            if (process.env.BASE_ONLY_PROOF) {
+              const {acceptBaseOnlyAudit} = await import("./scripts/lib/ciBaseOnlyEvidence.mjs");
+              if (process.env.FULL_REQUIRED !== "true" || results?.scope !== "success" || results["review-qualification"] !== "success"
+                || !acceptBaseOnlyAudit(JSON.parse(process.env.BASE_ONLY_PROOF),process.env)) process.exit(1);
+              console.log("MERGE-QUALIFIED: verified prior engineering reuse and current independent review qualification; not fresh engineering execution.");
+              process.exit(0);
+            }
             const postMergePush = process.env.EVENT_NAME === "push";
             const required = [...REQUIRED_JOBS, "review-qualification"];
             const decision = evaluateMergeQualification({

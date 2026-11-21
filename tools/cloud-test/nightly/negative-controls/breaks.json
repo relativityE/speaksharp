@@ -1014,8 +1014,8 @@
       "id": "P6-reserve-drifts-from-code",
       "guards": "the cleanup reserve is re-read from the cleanup code and fails on drift",
       "file": "cleanup-plan.cjs",
-      "find": "residueChecks: 22,",
-      "replace": "residueChecks: 21,",
+      "find": "residueChecks: 23,",
+      "replace": "residueChecks: 22,",
       "test": "tests/cleanup.test.cjs"
     },
     {

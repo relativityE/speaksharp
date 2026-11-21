@@ -26,7 +26,8 @@
  * With no comparison cell the run records the deployed default and is labelled diagnostic.
  */
 import { createClient } from '@supabase/supabase-js';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { resolve as resolvePath } from 'node:path';
 import { J1D_LEG, J1D_ROWS, J1D_SUITE, j1dCaseAssertions, j1dRunnerAdmission, j1dVerdicts } from './helpers/rwtJ1dJourney';
 import { runJ1dLeg } from './helpers/rwtJ1dLeg';
 import { test } from './helpers/rwtProductionTest';
@@ -120,6 +121,7 @@ import { capturedTakesDifferVerdict, coachingPromptBindingRow, coachingRequestBu
 import { answerOrder, latestAnsweredAt, lateCoachingSavedRow, ownerNewerCompletedCounter, ownerSessionReader } from './helpers/rwtLateCoaching';
 import { coachingContract } from './helpers/rwtCoachingEvidence';
 import { openProductsItem } from './helpers/productsMenu';
+import { OPEN_MIC_FIRST_SESSION_CONSENT_MODE, captureConsentGate, settleFixedConsentOnPractice, type CaptureConsentGate, type ChoiceClient } from './helpers/rwtPracticeConsent';
 import {
     LEGACY_PHRASE, PROGRESS_FORMULA, REPEAT_METRIC_ROW, pressLinkage, repeatMetricPrerequisites, repeatMetricWordingVerdict,
     type PanelObservation, type ServerEvidence,
@@ -214,6 +216,12 @@ test.describe('RWT — Open Mic first session @live', () => {
     let activeTap: AnalyticsTap | null = null;
     let createdEmail = '';
     let capturedUid = '';
+    // J1.a (#1835): the final consent readback, taken immediately before the first take's capture-capable call.
+    let consentGate: CaptureConsentGate | null = null;
+    const captureGate = (): CaptureConsentGate => {
+        if (!consentGate) throw new Error('HOLD practice consent: not_settled');
+        return consentGate;
+    };
     let feedbackReportId: string | null = null;
     // #1811 (Sam, #1859 review): the run's feedback fence — confirmed open before the one feedback write, closed at the final
     // boundary, cleaned (fence-recorded reports only) after the account deletion and its retention proof.
@@ -510,6 +518,18 @@ test.describe('RWT — Open Mic first session @live', () => {
             await test.step('row 2 — reach Open Mic; no microphone on navigation', async () => {
                 await page.goto('/practice');
                 await expect(page.getByTestId('practice-root')).toBeVisible({ timeout: 60_000 });
+                // #1835: saving and coaching stay off until the owner opts in, and an owner with no recorded choice is asked on
+                // Practice. J1 reviews the take's saved transcript and its AI coaching, so THIS run's own fresh account answers the
+                // prompt (Save: Yes, Coaching: Yes) as a user would, before anything else on the page; a prompt that does not settle
+                // stops here. The owner's server row is read back again immediately before the first capture-capable call (row 3/4).
+                const migrationFiles = (() => { try { return readdirSync(resolvePath(process.cwd(), 'backend/supabase/migrations')); } catch { return null; } })();
+                const recordConsent = (status: 'PASS' | 'FAIL' | 'HOLD', detail: string, evidence: Record<string, string>) =>
+                    receipt.row('practice privacy choice', status, detail, evidence);
+                consentGate = null;
+                const consent = await settleFixedConsentOnPractice({ page, client: admin as unknown as ChoiceClient, ownerId: capturedUid, migrationFiles,
+                    mode: OPEN_MIC_FIRST_SESSION_CONSENT_MODE, record: recordConsent });
+                consentGate = captureConsentGate({ consent, client: admin as unknown as ChoiceClient, ownerId: capturedUid,
+                    mode: OPEN_MIC_FIRST_SESSION_CONSENT_MODE, record: recordConsent });
                 const switched = await performCandidateSwitch(page, run, JOURNEY);
                 receipt.meta.switchOutcome = switched;
                 if (run.mode === 'switch' && switched !== 'ok') throw new Error(`HOLD candidate switch: ${switched}`);
@@ -535,8 +555,11 @@ test.describe('RWT — Open Mic first session @live', () => {
             await test.step('row 3 — first microphone use and model acquisition', async () => {
                 const began = Date.now();
                 await selectBenchmarkMode(page, 'private');
+                // #1835 final readback: on a cold first use this helper itself presses Download to start speaking, which captures.
+                await captureGate().confirm();
                 const setup = await preparePrivateModelIfPrompted(page, 900_000);
                 takeAlreadyRunning = setup.recordingAlreadyStarted;
+                if (takeAlreadyRunning) captureGate().recordPass();
                 if (!takeAlreadyRunning) await waitForPrivateEngineReady(page, 600_000);
                 const acquisitionMs = Date.now() - began;
                 modelIdentityRow(receipt, run, await readSttIdentity(page), acquisitionMs, await readCpuRuntime(page));
@@ -577,7 +600,12 @@ test.describe('RWT — Open Mic first session @live', () => {
                         diag.update({ trace_state: started.trace_state, trace_cleanup: started.trace_cleanup });
                         diag.mark('trace_start_settled');
                         await test.step('row 4 — speak the corpus', async () => {
-                            if (!takeAlreadyRunning) await startBenchmarkRecording(page, SUITE);
+                            if (!takeAlreadyRunning) {
+                                // #1835 final readback, immediately before the ordinary Start (the model helper did not record).
+                                await captureGate().confirm();
+                                await startBenchmarkRecording(page, SUITE);
+                                captureGate().recordPass();
+                            }
                             diag.mark('row4_take_running');
                             // Stop inside the fixture's 15 s trailing silence: all speech, and never a second loop of it.
                             await page.waitForTimeout(Math.round((fixture.entry.speechSeconds + 4) * 1000));

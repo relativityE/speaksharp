@@ -138,11 +138,15 @@ describe('J3 rows are required and written by the journey', () => {
         expect(partial).toContain(J3B_REPEAT_ROW);
         expect(full).not.toContain(J3B_REPEAT_ROW);
     });
-    it('the privacy row is the verdict, never a fixed PASS', () => {
-        expect(journey).not.toMatch(/receipt\.row\('practice privacy choice', 'PASS'/);
-        expect(journey).toMatch(/focusAcceptancePrivacyVerdict\(\{ build: consent\.build, mode: consent\.mode/);
-        // Bound before Start: the row is written before the first take is armed.
-        expect(journey.indexOf('receipt.row(J3_PRIVACY_ROW')).toBeLessThan(journey.indexOf('firstTakeMonitor = await armTakeMonitor'));
+    it('the privacy row is the verdict, never a fixed PASS, written only by the consent gate', () => {
+        expect(journey).not.toMatch(/receipt\.row\('practice privacy choice'/);
+        expect(journey).not.toContain('J3_PRIVACY_ROW');
+        const evidence = readFileSync('tests/live/helpers/rwtJ3Evidence.ts', 'utf8');
+        expect(evidence).toMatch(/focusAcceptancePrivacyVerdict\(\{ build: consent\.build, mode: consent\.mode/);
+        // Bound before Start (J3 consent gate, Sam Nov 20): the gate exists before the first take is armed; the row itself is
+        // written at the first capture-capable press, after a fresh readback (tests/unit/rwtJ3ConsentGate.test.ts).
+        expect(journey.indexOf('consentGate = captureConsentGate({')).toBeGreaterThan(0);
+        expect(journey.indexOf('consentGate = captureConsentGate({')).toBeLessThan(journey.indexOf('firstTakeMonitor = await armTakeMonitor'));
     });
     it('the repeat is judged against the fixture statuses, not its own rail or saved result', () => {
         const step = journey.slice(journey.indexOf("'J3.b — the repeat take saved and reopened against the fixture'"));

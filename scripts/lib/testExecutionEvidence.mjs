@@ -8,6 +8,8 @@ import { canonicalPath, runtimeIdentity } from '../efficacy-reporter.mjs';
 import {HELPER_CONTRACTS,registeredHelper,helperApplicability, HELPER_CONFIG, validateHelperCoverage} from './helperExecutionEvidence.mjs';
 import {registeredSourceContract,sourceContractApplicability,SOURCE_CONSUMER,validateSourceContractWitness} from './sourceContractEvidence.mjs';
 import {INFRA_PROBE_FILE,validatePlaywrightExecution} from './playwrightExecutionEvidence.mjs';
+import {validateSmokeExecution} from '../j1d-smoke/ciEvidence.mjs';
+import {SMOKE_CONFIG,SMOKE_FILE,SMOKE_HELPERS,smokeAffected} from '../j1d-smoke/smokeEvidence.mjs';
 import {COACHING_EDGE_TEST,COACHING_QUALITY_TEST,nativeTestRoute,nativeHelper,validateNativeReceipt,SQL_CONTRACTS,sqlContract,sqlSourceBinding,validateSqlWitness,
   NATIVE_BATCH_SIZE,NATIVE_MAX_BATCHES,reconcileExecutionBatches} from './nativeTestExecutionEvidence.mjs';
 import {pythonTestRoute,validatePythonReceipt} from './pythonTestExecutionEvidence.mjs';
@@ -57,6 +59,21 @@ export function resolveComparisonBase(root, env=process.env) {
   } catch (cause) {
     throw new Error('Exact comparison base unavailable; provide TEST_EFFICACY_BASE or fetched default-branch history', {cause});
   }
+}
+
+// Resolve the same event/checkout identity independently in scope and the writer job.
+export function resolveCiComparison(root, env=process.env) {
+  const head=git(root,['rev-parse','HEAD']);
+  if(head!==env.GITHUB_SHA) throw new Error('CI comparison checkout differs');
+  let base=resolveComparisonBase(root,{...env,TEST_EFFICACY_BASE:env.TEST_EFFICACY_EVENT_BASE});
+  if(env.GITHUB_EVENT_NAME==='pull_request') {
+    const parents=git(root,['show','-s','--format=%P','HEAD']).split(' ');
+    if(!/^[1-9]\d*$/.test(env.PR_NUMBER??'') || env.GITHUB_REF!==`refs/pull/${env.PR_NUMBER}/merge`
+      || parents.length!==2 || parents[1]!==env.PR_HEAD_SHA) throw new Error('Unverified CI PR merge');
+    git(root,['merge-base','--is-ancestor',base,parents[0]]);
+    base=parents[0];
+  }
+  return {base,head};
 }
 
 export function executionContext(root, env=process.env) {
@@ -264,6 +281,8 @@ export function executionRoute(file, root) {
   if (/^backend\/supabase\/functions\/.*(?:\.test|_test)\.ts$/.test(file)) {
     return {runner:'deno',consumer:file,config:'backend/supabase/functions/deno.json'};
   }
+  if (SMOKE_FILE.test(file)) return {runner:'playwright-smoke',consumer:file,config:SMOKE_CONFIG};
+  if (SMOKE_HELPERS.includes(file)) return {runner:'playwright-smoke-helper',consumer:SMOKE_CONFIG,config:SMOKE_CONFIG};
   if (/^tests\/e2e\/.*\.spec\.[jt]s$/.test(file)) return {runner:'playwright',consumer:file,config:'playwright.config.ts'};
   if (/^tests\/live\/.*\.spec\.[jt]s$/.test(file)) return {runner:'playwright-live',consumer:file,config:'playwright.live.config.ts'};
   if (/\.test\.mjs$/.test(file) && fs.existsSync(path.join(root,file))
@@ -324,6 +343,8 @@ export function changedEvidencePaths(root, base) {
   if(changed.some(file=>J4A_SAVE_ROUTE_INPUTS.has(file)))evidence.push(J4A_SAVE_ROUTE_BROWSER_TEST);
   return [...new Set(evidence)].sort();
 }
+
+export const requiredSmokeExecution = (root, base) => smokeAffected(changedPaths(root, base));
 
 export function executionRequiredFiles(root,base,kind='changed-evidence') {
   if(kind==='changed-evidence') return changedEvidencePaths(root,base);
@@ -590,7 +611,7 @@ export function validateVitestBatches(receipts,expected,root,{base,kind}={}) {
   return files;
 }
 
-export function executionCoverage(files, {root,expected,pilot,execution,native,python,playwright,base}={}) {
+export function executionCoverage(files, {root,expected,pilot,execution,native,python,playwright,smoke,base}={}) {
   const changes=changedPaths(root,base);
   const semantic=requiredSemanticContracts(!base || base==='0'.repeat(40)?null:changes);
   const required=semantic.length>0;
@@ -605,6 +626,10 @@ export function executionCoverage(files, {root,expected,pilot,execution,native,p
     ?validateVitestBatches(executions,expected,root,{base:base||null,kind:'changed-evidence'}):new Set();
   const ordinary=files.filter(file=>executionRoute(file,root)?.runner==='playwright');
   const browser=playwright ? validatePlaywrightExecution(playwright,{root,expected,requiredFiles:ordinary}):new Set();
+  const smokeRequired=smokeAffected(changes);
+  const selectedSmoke=files.filter(file=>SMOKE_FILE.test(file));
+  if (!smokeRequired && smoke) throw new Error('Unexpected disposable smoke evidence');
+  const smokeFiles=smoke ? validateSmokeExecution(smoke,{root,expected,requiredFiles:selectedSmoke}) : new Set();
   let nativeFiles=new Set();
   if(native) {
     for(const receipt of Array.isArray(native)?native:[native]) {
@@ -620,9 +645,10 @@ export function executionCoverage(files, {root,expected,pilot,execution,native,p
   if ([...executed].some(file=>!files.includes(file))) throw new Error('Unexpected execution outside changed test selection');
   const rows=files.map(file=> {
     const route=executionRoute(file,root);
-    return {file,route,status:executed.has(file) && registeredSourceContract(file)?'SOURCE QUALIFIED':proven.has(file) || executed.has(file) || browser.has(file)||nativeFiles.has(file)||pythonFiles.has(file)?'EXECUTED':route?'NOT RUN':'UNCOVERED',
+    const browserSmoke=smokeFiles.has(file) || (smokeFiles.size>0 && SMOKE_HELPERS.includes(file));
+    return {file,route,status:executed.has(file) && registeredSourceContract(file)?'SOURCE QUALIFIED':proven.has(file) || executed.has(file) || browser.has(file)||browserSmoke||nativeFiles.has(file)||pythonFiles.has(file)?'EXECUTED':route?'NOT RUN':'UNCOVERED',
       ...(registeredSourceContract(file)?{liveExecution:'NOT RUN'}:{}),
-      claim:proven.has(file)?'registered semantic faults only':pythonFiles.has(file)?'actual Python unittest collection and execution only; not browser/database/live acceptance':nativeFiles.has(file)?route.claim??'actual native test collection and execution only; not database/live acceptance':browser.has(file)?
+      claim:browserSmoke?'disposable stack smoke execution only; no live acceptance':proven.has(file)?'registered semantic faults only':pythonFiles.has(file)?'actual Python unittest collection and execution only; not browser/database/live acceptance':nativeFiles.has(file)?route.claim??'actual native test collection and execution only; not database/live acceptance':browser.has(file)?
         file===INFRA_PROBE_FILE?'dedicated browser health collection and execution only; not live acceptance':'ordinary CI shard collection and execution only; not live acceptance':executed.has(file)
         ?registeredSourceContract(file)?'fault-sensitive wiring/fixture contract only; live test body not executed'
           :registeredHelper(file)?'registered source-mapped helper callables executed; not journey acceptance'
@@ -630,13 +656,13 @@ export function executionCoverage(files, {root,expected,pilot,execution,native,p
   });
   return {scope:'changed tests and fixtures; not a product requirement inventory',
     pilot:{required,status:proven.size?'EXECUTED':required?'NOT RUN':'NOT APPLICABLE'},
-    status:(required && proven.size!==semantic.length) || rows.some(row=>!['EXECUTED','SOURCE QUALIFIED'].includes(row.status))?'INCOMPLETE':'COMPLETE',rows};
+    status:(required && proven.size!==semantic.length) || (smokeRequired && !smoke) || rows.some(row=>!['EXECUTED','SOURCE QUALIFIED'].includes(row.status))?'INCOMPLETE':'COMPLETE',rows};
 }
 
 export function readCurrentQuality(file, expected, root=process.cwd(), base=process.env.TEST_EFFICACY_BASE) {
   const evidence=JSON.parse(fs.readFileSync(file,'utf8'));
   assertProvenance(evidence.provenance,expected);
-  const actualCoverage=executionCoverage(changedEvidencePaths(root,base),{root,expected,pilot:evidence.testEfficacy,execution:evidence.testExecution,native:evidence.nativeTestExecution,python:evidence.pythonTestExecution,playwright:evidence.playwrightExecution,base});
+  const actualCoverage=executionCoverage(changedEvidencePaths(root,base),{root,expected,pilot:evidence.testEfficacy,execution:evidence.testExecution,native:evidence.nativeTestExecution,python:evidence.pythonTestExecution,playwright:evidence.playwrightExecution,smoke:evidence.smokeExecution,base});
   if (evidence.overallStatus!=='QUALIFIED' || actualCoverage.status!=='COMPLETE'
     || JSON.stringify(actualCoverage)!==JSON.stringify(evidence.executionCoverage)) {
     throw new Error('Quality execution coverage is UNCOVERED/NOT RUN');

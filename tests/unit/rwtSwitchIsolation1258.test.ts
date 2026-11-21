@@ -72,7 +72,7 @@ describe('take after switching products is clean', () => {
         const helper = readFileSync(resolve(__dirname, '../live/helpers/rwtFocusPointsJourney.ts'), 'utf8');
         const step = helper.slice(helper.indexOf("'Open Mic take, then a Focus take right after the product switch'"), helper.indexOf("receipt.row('take after switching products is clean'"));
         const observed = step.indexOf('staleCoachingBeforeStart =');
-        const started = step.indexOf('startBenchmarkRecording(page, `${suite}-switch-focus`)');
+        const started = step.indexOf('startBenchmarkRecording(page, `${suite}-switch-focus`, undefined, switchClick)');
         expect([observed > 0, started > observed, /staleCoachingShown/.test(step)]).toEqual([true, true, false]);
     });
     // PO 2026-10-10: the full Focus suite gains ~115 s of takes and three coaching requests; its limit is 35 min, inside the

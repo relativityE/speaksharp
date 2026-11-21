@@ -23,10 +23,13 @@ describe('#1501 — merge-queue CI support', () => {
 
     it('the scope step resolves a base for a queue candidate, which carries no pull_request object', () => {
         // #1837 split diff resolution from classification (the docs-lane guard runs between them); both still
-        // see the queue candidate: the diff resolves against merge_group.base_sha, the classifier sees the event.
-        const resolve = ci.jobs.scope.steps?.find((step) => step.env && 'BASE_SHA' in step.env);
-        expect(resolve?.env?.BASE_SHA).toBe('${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}');
-        expect(resolve?.run).toContain('git diff --no-renames --name-only "$BASE_SHA"...HEAD > "$RUNNER_TEMP/changed.txt"');
+        // see the queue candidate: the diff resolves against merge_group.base_sha (resolveCiComparison, shared with the
+        // quality writer), the classifier sees the event.
+        const resolve = ci.jobs.scope.steps?.find((step) => step.id === 'smoke_scope');
+        expect(resolve?.env?.TEST_EFFICACY_EVENT_BASE).toBe('${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}');
+        expect(resolve?.run).toContain('resolveCiComparison(process.cwd())');
+        expect(resolve?.run).toContain("git('diff','--no-renames','--name-only','-z',base,head)");
+        expect(resolve?.run).toContain('changed.txt');
         const classify = ci.jobs.scope.steps?.find((step) => step.id === 'classify');
         expect(classify?.env?.EVENT_NAME).toBe('${{ github.event_name }}');
         expect(classify?.run).toContain('node scripts/ci-change-scope.mjs "$RUNNER_TEMP/changed.txt"');

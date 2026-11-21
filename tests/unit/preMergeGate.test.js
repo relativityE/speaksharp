@@ -16,7 +16,8 @@
  * by a function that merely reports a refusal while merging anyway.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { guardedMerge, PRE_MERGE_HOLD } from '../../scripts/pre-merge-gate.mjs';
+import { guardedMerge, readExplicitReceipt, PRE_MERGE_HOLD } from '../../scripts/pre-merge-gate.mjs';
+import { collectLiveReviewReceipt } from '../../scripts/collect-review-qualification.mjs';
 import { DOCUMENTATION_EVIDENCE_ADMISSION } from '../../scripts/review-qualification.mjs';
 
 const HEAD = 'e'.repeat(40);
@@ -518,5 +519,83 @@ describe('#1430 fix-forward `3991388525` — a resolved same-head blocker does n
     });
     expect(mergeExecutor).toHaveBeenCalledTimes(1);
     expect(outcome).toMatchObject({ merged: true, mergeInvoked: true, holds: [] });
+  });
+});
+
+describe('default API merge receipt', () => {
+  const apiPull = (threads, over = {}) => livePull(threads, { state:'OPEN',
+    comments:{nodes:[],pageInfo:{hasPreviousPage:false}}, ...over });
+  async function run({ first, last, explicit, collectorAge, protection, now } = {}) {
+    const clean = apiPull([]);
+    const read = vi.fn()
+      .mockImplementationOnce(first ?? (async () => clean))
+      .mockImplementationOnce(last ?? (async () => clean));
+    const readEnforcement = vi.fn(async () => true);
+    const collector = vi.fn(async args => {
+      const value = await collectLiveReviewReceipt({ ...args, readPull: read, readEnforcement });
+      if (collectorAge !== undefined) value.generatedAt = receiptAgedMinutes(collectorAge).generatedAt;
+      return value;
+    });
+    const mergeExecutor = vi.fn(async () => ({ sha: 'merged' }));
+    const result = await guardedMerge({
+      repository: REPOSITORY, prNumber: 1430, expectedHeadSha: HEAD, expectedBaseSha: BASE, token: 'synthetic',
+      priorReceipt: explicit, collectDefaultReceipt: collector, readPullRequest: read,
+      readBaseProtection: protection ?? (async () => 'enforced'), mergeExecutor, now,
+    });
+    return { result, read, collector, mergeExecutor, readEnforcement };
+  }
+
+  it('collects from API by default, then confirms current state and strict protection before the executor', async () => {
+    const { result, read, collector, mergeExecutor, readEnforcement } = await run();
+    expect(result.merged).toBe(true);
+    expect(collector).toHaveBeenCalledExactlyOnceWith({
+      repository: REPOSITORY, number: 1430, token: 'synthetic', expectedHeadSha: HEAD, expectedBaseSha: BASE,
+    });
+    expect(readEnforcement).toHaveBeenCalledExactlyOnceWith({ repository: REPOSITORY, branch: 'main', token: 'synthetic' });
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(mergeExecutor).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['collector down', { first: async () => { throw Error('unavailable'); } }, PRE_MERGE_HOLD.RECEIPT_API_UNAVAILABLE],
+    ['moved first receipt base', { first: async () => apiPull([], {state:'OPEN', baseRefOid:PRIOR_HEAD}) }, PRE_MERGE_HOLD.RECEIPT_API_UNAVAILABLE],
+    ['reopened thread after collection', { last: async () => apiPull([thread(false, RELEASE_FINDING_BODY)], {state:'OPEN'}) }, PRE_MERGE_HOLD.LIVE_FINDINGS],
+    ['head moved after collection', { last: async () => apiPull([], {state:'OPEN', headRefOid:PRIOR_HEAD}) }, PRE_MERGE_HOLD.HEAD_MOVED],
+    ['base moved after collection', { last: async () => apiPull([], {state:'OPEN', baseRefOid:PRIOR_HEAD}) }, PRE_MERGE_HOLD.BASE_MOVED],
+    ['closed after collection', { last: async () => apiPull([], {state:'CLOSED'}) }, PRE_MERGE_HOLD.LIVE_NOT_QUALIFIED],
+    ['missing review threads in final API read', { last: async () => apiPull([], {reviewThreads:null}) }, PRE_MERGE_HOLD.LIVE_READ_FAILED],
+    ['null final API read', { last: async () => null }, PRE_MERGE_HOLD.LIVE_READ_FAILED],
+    ['final read failed', { last: async () => { throw Error('unavailable'); } }, PRE_MERGE_HOLD.LIVE_READ_FAILED],
+    ['stale collector receipt', { collectorAge:61 }, PRE_MERGE_HOLD.RECEIPT_STALE],
+    ['strict is off', { protection:async ()=>'not_enforced' }, PRE_MERGE_HOLD.UP_TO_DATE_NOT_ENFORCED],
+  ])('does not invoke the merge if %s', async (_, args, reason) => {
+    const { result, mergeExecutor } = await run(args);
+    expect(result.holds.some(value => value.startsWith(reason))).toBe(true);
+    expect(mergeExecutor).not.toHaveBeenCalled();
+  });
+
+  it('accepts an explicit 59-minute receipt without collecting; an expired or missing explicit file never falls back', async () => {
+    const good = await run({ explicit: receiptAgedMinutes(59) });
+    expect(good.result.merged).toBe(true);
+    expect(good.collector).not.toHaveBeenCalled();
+    for (const explicit of [receiptAgedMinutes(61), readExplicitReceipt(''), readExplicitReceipt('/missing-explicit-review-receipt')]) {
+      const value = await run({ explicit });
+      expect(value.result.merged).toBe(false);
+      expect(value.collector).not.toHaveBeenCalled();
+      expect(value.mergeExecutor).not.toHaveBeenCalled();
+    }
+    expect(readExplicitReceipt(undefined)).toBeUndefined();
+  });
+
+  it('rechecks freshness immediately before executing after a slow API/protection read', async () => {
+    vi.useFakeTimers();
+    try {
+      const result = await run({ explicit: receiptAgedMinutes(59), protection: async () => {
+        vi.setSystemTime(Date.now() + 2 * 60_000);
+        return 'enforced';
+      } });
+      expect(result.result.holds.join(' ')).toContain(PRE_MERGE_HOLD.RECEIPT_STALE);
+      expect(result.mergeExecutor).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
   });
 });

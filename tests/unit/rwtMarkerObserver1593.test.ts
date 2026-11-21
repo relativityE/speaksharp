@@ -359,7 +359,7 @@ describe('bounded cleanup through the finalizer, and the journey wiring', () => 
         const src = readFileSync('tests/live/helpers/rwtFocusPointsJourney.ts', 'utf8');
         const armedAt = src.indexOf('await armMarkerObserver(page, points.length)');
         expect(armedAt).toBeGreaterThan(-1);
-        expect(armedAt).toBeLessThan(src.indexOf('await preparePrivateModelIfPrompted(page, 900_000)'));
+        expect(armedAt).toBeLessThan(src.indexOf('await preparePrivateModelIfPrompted(page, 900_000, atClick())'));
         const frozenAt = src.indexOf('await freezeMarkerObserver(page, armed.token)');
         expect(frozenAt).toBeGreaterThan(armedAt);
         expect(frozenAt).toBeLessThan(src.indexOf("receipt.row('marker timing vs audio'"));

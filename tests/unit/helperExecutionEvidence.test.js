@@ -35,7 +35,7 @@ const AHT1811_HELPERS=[
   ['tests/live/helpers/rwtLiveTimedTake.ts','tests/unit/rwtFocusSwitchLiveClock1882.test.ts',["readRailRowCount","railSettled"]],
   ['tests/live/helpers/rwtLiveTakeMonitor.ts','tests/unit/rwtLiveTakeMonitor1882.test.ts',["installTakeMonitor","readTakeMonitorInPage","disposeTakeMonitorInPage","armTakeMonitor","readTakeMonitor","disposeTakeMonitor","firstLiveEdge","firstBreakAfter","holdMeasuredLiveTake","stopGuardVerdict","guardedStopInPage","guardedStopClick","stopMeasuredTake","stopMonitoredTake","awaitTakeOutcome","takeOutcomeOf","liveTakeVerdict","savedTakeBinding","takeEvidenceRows"]],
   ['tests/live/helpers/benchmark-utils.ts','tests/unit/rwtStopClickCallback1258.test.ts',["confirmBenchmarkStopped"]],
-  ['tests/live/helpers/rwtPracticeConsent.ts','tests/unit/rwtPracticeConsent1882.test.ts',["consentModeFrom","privacyBuildOf","privacyChoiceVerdict","aiControlsVerdict","answerPracticePrivacyPrompt","consentReadbackVerdict","readPracticeChoice","probePrivacyTable","settlePracticeConsent"]],
+  ['tests/live/helpers/rwtPracticeConsent.ts','tests/unit/rwtPracticeConsent1882.test.ts',["consentModeFrom","privacyBuildOf","privacyChoiceVerdict","aiControlsVerdict","answerPracticePrivacyPrompt","consentReadbackVerdict","readPracticeChoice","probePrivacyTable","settlePracticeConsent","fixedConsentBeforeStartVerdict","settleFixedConsentOnPractice","captureConsentGate"]],
   ['tests/live/helpers/rwtCoachingOff.ts','tests/unit/rwtCoachingOff1897.test.ts',["reviewModeOf","expectedSavedFocus","savedFocusMatches","coachingOffVerdict","offBackReloadVerdict","offAnalyticsRows","readSavedFocusStatuses","readCoachingOffAfterStop","readOffRestoredView","analyticsOffThroughActions","offNoCoachingVerdict","offRepeatVerdict"]],
   ['tests/live/helpers/rwtFocusNextMarker.ts','tests/unit/rwtFocusNextMarker.test.ts',["expectedNextMarker","nextPointMarkedVerdict","sampleFocusRail"]],
   ['tests/live/helpers/rwtFocusOpenMicIsolation.ts','tests/unit/rwtFocusOpenMicIsolation.test.ts',["openMicIsolationVerdict"]],
@@ -181,7 +181,7 @@ function fixture() {
   const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'helper-evidence-')));
   const write = (name, content) => {fs.mkdirSync(path.dirname(path.join(directory,name)),{recursive:true}); fs.writeFileSync(path.join(directory,name),content);};
   const files = ['scripts/lib/helperExecutionEvidence.mjs','scripts/lib/sourceContractEvidence.mjs','scripts/efficacy-helper-vitest.config.mjs',
-    'scripts/lib/testExecutionEvidence.mjs','scripts/lib/nativeTestExecutionEvidence.mjs','scripts/lib/pythonTestExecutionEvidence.mjs','scripts/lib/python-unittest-reporter.py','scripts/lib/playwrightExecutionEvidence.mjs','scripts/lib/softwareQualityEvidenceQualification.mjs',
+    'scripts/lib/testExecutionEvidence.mjs','scripts/j1d-smoke/ciEvidence.mjs','scripts/j1d-smoke/smokeEvidence.mjs','scripts/lib/nativeTestExecutionEvidence.mjs','scripts/lib/pythonTestExecutionEvidence.mjs','scripts/lib/python-unittest-reporter.py','scripts/lib/playwrightExecutionEvidence.mjs','scripts/lib/softwareQualityEvidenceQualification.mjs',
     'scripts/run-test-efficacy.mjs','scripts/efficacy-reporter.mjs','scripts/write-software-quality-evidence.mjs','scripts/coverage-thresholds.mjs',
     'pnpm-lock.yaml','package.json',...dependencyPaths(root,TEST_EFFICACY_CONTRACTS[0].testFile)];
   for (const file of files) write(file,fs.readFileSync(path.join(root,file)));

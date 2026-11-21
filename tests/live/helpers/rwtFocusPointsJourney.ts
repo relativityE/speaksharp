@@ -17,17 +17,18 @@ import {
     startBenchmarkRecording,
     confirmBenchmarkStopped,
     waitForBenchmarkSaveCandidate,
+    type StartActivationOptions,
 } from './benchmark-utils';
 import { MODEL_COMPARISON_AUTH_KEY } from './practiceLoopJourney';
 import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches, newSetSourcePoints, newSetEditVerdicts, setupIsBlank, switchIsolationVerdict, switchSaveOffVerdicts, switchSavedFocusProduct, completingPageMarkersInPage, SWITCH_METRICS_ONLY_ROW, SWITCH_CARRY_OVER_TESTED_ROW, switchSourceState, railShowsExactFourPoints, labelHeardIn, focusBackReloadVerdict, focusIdentityObservation, firstTakeSavedExactlyOnceVerdict, type SwitchSourceSnapshot } from './rwtOracles';
 import { cleanupRunOwnedAccount } from './runOwnedCleanup';
 import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, armWatchdog, watchProfileFor, type JourneyFinalizer } from './rwtWatchdog';
 import { savedFocusIdentityVerdict } from './rwtSavedFocusIdentity';
-import { J3B_REPEAT_ROW, J3_PRIVACY_ROW, J3_SAVED_TIMING_ROW, focusAcceptancePrivacyVerdict, focusSavedTimingVerdict, j3bRepeatReopenVerdict, repeatReviewCard } from './rwtJ3Evidence';
+import { J3B_REPEAT_ROW, J3_ACCEPTANCE_CONSENT_MODE, J3_SAVED_TIMING_ROW, focusSavedTimingVerdict, j3ConsentRowRecorder, j3bRepeatReopenVerdict, repeatReviewCard } from './rwtJ3Evidence';
 import { loadedReviewSessionId } from './rwtJ1dJourney';
 import { railSettled, readRailRowCount } from './rwtLiveTimedTake';
 import { armTakeMonitor, awaitTakeOutcome, disposeTakeMonitor, holdMeasuredLiveTake, readTakeMonitor, stopMeasuredTake, stopMonitoredTake, takeEvidenceRows, type ArmedTakeMonitor, type TakeOutcome } from './rwtLiveTakeMonitor';
-import { consentModeFrom, consentReadbackVerdict, settlePracticeConsent, type ChoiceClient, type SavedSessionRead, type SettledConsent } from './rwtPracticeConsent';
+import { captureConsentGate, consentModeFrom, consentReadbackVerdict, settlePracticeConsent, type CaptureConsentGate, type ChoiceClient, type SavedSessionRead, type SettledConsent } from './rwtPracticeConsent';
 import { FOCUS_COACHING_OFF_ROW, FOCUS_OFF_NO_COACHING_ROW, FOCUS_OFF_REPEAT_ROW, offNoCoachingVerdict, offRepeatVerdict, analyticsOffThroughActions, coachingOffVerdict, offAnalyticsRows, offBackReloadVerdict, readCoachingOffAfterStop, readOffRestoredView, reviewModeOf } from './rwtCoachingOff';
 import { recordRunOwnedCleanup } from './rwtAcceptance';
 import { HarnessParityTap, numericComparisonRow, probeSaveIsolationRow, readRepeatEligibility, type NumericResult, type RepeatEligibility, type StartPressBudget } from './rwtHarnessParity';
@@ -177,6 +178,11 @@ const meetsExpectation = (expected: string, got: RailStatus | null): boolean => 
  *   5. the Open Mic take before the product switch — the startBenchmarkRecording call with `${suite}-switch-openmic`;
  *   6. the Focus take right after the switch — the startBenchmarkRecording call with `${suite}-switch-focus`;
  *   7. the take on the edited set — the startBenchmarkRecording call with `${suite}-edited`.
+ * J3 consent gate (Sam, Nov 20; #1916 review hold): every one of these presses runs a fresh server readback of the owner's
+ * choice INSIDE its activation path, after the waits, scroll, reflex pause and click guard and immediately before the actual
+ * click (`atClick()` → `beforeClick`, or the `beforeCapture` hook the shared helpers pass through for presses 2-4); a
+ * readback that is not exactly the run's choice clicks nothing. It is a database read, not a Start press, so the budget is
+ * unchanged, and its own time is excluded from the press timings.
  * This file's presses are cited by call, not by line, so checks added around them cannot stale the citation; checks that only
  * read the rail or the database, or open and dismiss the Edit dialog, press no Start (tests/unit/rwtFocusStartPressBudget.test.ts).
  * The `mic-start` cap counts the warm first take too (one fewer when the first take downloads), `mic-download` at most 1,
@@ -322,6 +328,23 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     // #1882 live timing (Sam, Nov 18 reset row 3): every Focus take is measured live on the page, bound to its own Stop and
     // saved row, and read back against this run's consent (settled on the first Practice visit, before any take).
     let consent: SettledConsent = { build: 'unknown', choice: null, mode: consentModeFrom(process.env.RWT_PRACTICE_CONSENT) };
+    // J3 consent gate (Sam, Nov 20; the #1910/#1911 gate): the owner's choice is read back from the server immediately before
+    // EVERY capture-capable press, not only once on the Practice page. Built in row 8 once the choice is settled; a press
+    // reached without it stops instead of pressing.
+    let consentGate: CaptureConsentGate | null = null;
+    const captureGate = (): CaptureConsentGate => {
+        if (!consentGate) throw new Error('HOLD practice consent: not_settled');
+        return consentGate;
+    };
+    // #1916 review hold (Sam): the readback runs inside the Start helpers, immediately before the actual click. `spentMs` is
+    // its own time, excluded from the press → live timing so that evidence measures what it did before.
+    const atClick = (): StartActivationOptions & { spentMs(): number } => {
+        let spent = 0;
+        return {
+            beforeClick: async () => { const t = Date.now(); try { await captureGate().confirm(); } finally { spent += Date.now() - t; } },
+            spentMs: () => spent,
+        };
+    };
     const readSavedForConsent = async (id: string): Promise<SavedSessionRead | null> => {
         const { data, error } = await admin!.from('sessions').select('id,user_id,status,duration,transcript,transcript_state').eq('id', id).eq('user_id', owner.uid).maybeSingle();
         return error ? null : (data as SavedSessionRead | null);
@@ -502,16 +525,20 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             await expect(page.getByTestId('practice-root')).toBeVisible({ timeout: 60_000 });
             // #1835: a fresh owner is asked on this first Practice visit. Settled before any take; an unknown build stops here.
             const migrationFiles = (() => { try { return readdirSync(resolvePath(process.cwd(), 'backend/supabase/migrations')); } catch { return null; } })();
-            consent = await settlePracticeConsent({ page, client: admin as unknown as ChoiceClient, ownerId: owner.uid, migrationFiles, mode: consent.mode });
-            // J3 step 2 (#1904): bound before Start. Acceptance needs the post-#1835 build with Save Yes / Coaching Yes; a legacy build
-            // FAILS and any other mode is a diagnostic run that HOLDS (settlePracticeConsent already threw on an unproven choice).
-            const privacy = focusAcceptancePrivacyVerdict({ build: consent.build, mode: consent.mode, choiceRecorded: consent.choice !== null });
-            receipt.row(J3_PRIVACY_ROW, privacy.status, privacy.status === 'PASS'
-                ? 'this run\'s owner chose Save Yes / Coaching Yes through the Practice prompt before Start, read back from the server'
-                : privacy.reason === 'legacy_build' ? 'the build predates the privacy choice, so it is not the release under test'
-                    : 'this run\'s privacy choice cannot earn Focus coaching credit (diagnostic run)',
-                { reason: privacy.reason, build: consent.build, mode: consent.mode ?? 'none',
-                    transcriptSave: consent.choice?.transcriptSave ?? null, aiCoaching: consent.choice?.aiCoaching ?? null });
+            // J3 consent gate (Sam, Nov 20): the required row is written exactly once, by the gate, at the FIRST capture-capable
+            // press after a fresh readback. A stop here (unsettled prompt) or at any later press records it with its reason.
+            const record = j3ConsentRowRecorder(receipt, () => consent);
+            try {
+                consent = await settlePracticeConsent({ page, client: admin as unknown as ChoiceClient, ownerId: owner.uid, migrationFiles, mode: consent.mode });
+            } catch (error) {
+                const reason = /^HOLD practice consent: ([a-z0-9_]+)/.exec(error instanceof Error ? error.message : '')?.[1] ?? 'not_settled';
+                record('HOLD', `the Practice prompt was not settled for this run's account before capture (${reason})`, { reason, mode: consent.mode ?? 'none' });
+                throw error;
+            }
+            // The gate's expected choice is the run's own mode. On a verified pre-#1835 build (no mode needed to settle) it
+            // FAILS legacy_build at the first press, before anything is pressed.
+            consentGate = captureConsentGate({ consent, client: admin as unknown as ChoiceClient, ownerId: owner.uid,
+                mode: consent.mode ?? J3_ACCEPTANCE_CONSENT_MODE, record });
             const switched = await performCandidateSwitch(page, run, JOURNEY);
             receipt.meta.switchOutcome = switched;
             if (run.mode === 'switch' && switched !== 'ok') throw new Error(`HOLD candidate switch: ${switched}`);
@@ -586,11 +613,18 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             // #1882: armed before anything that may press Start (preparePrivateModelIfPrompted can start the take itself).
             firstTakeMonitor = await armTakeMonitor(page, suite);
             await selectBenchmarkMode(page, 'private');
-            const setup = await preparePrivateModelIfPrompted(page, 900_000);
-            if (!setup.recordingAlreadyStarted) {
+            // J3 consent gate (#1916 hold): the cold model helper can itself start the take, so it reads consent back
+            // immediately before its one cold click; if it did not click (warm cache), the ordinary Start reads it back
+            // immediately before its click. PASS is recorded once capture began, only after a confirm at that click.
+            const setup = await preparePrivateModelIfPrompted(page, 900_000, atClick());
+            if (setup.recordingAlreadyStarted) {
+                captureGate().recordPass();
+            } else {
                 await waitForPrivateEngineReady(page, 600_000);
+                const firstClick = atClick();
                 firstPressedAt = Date.now();
-                await startBenchmarkRecording(page, suite);
+                try { await startBenchmarkRecording(page, suite, undefined, firstClick); } finally { firstPressedAt += firstClick.spentMs(); }
+                captureGate().recordPass();
             }
             startedAt = Date.now();
             modelIdentityRow(receipt, run, await readSttIdentity(page), startedAt - acquisitionStarted, await readCpuRuntime(page));
@@ -1007,7 +1041,8 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             })();
             let again: Awaited<ReturnType<typeof practiceAgainEvidence>>;
             try {
-                again = await practiceAgainEvidence(page, `${suite}-again`, persistedId, 'focus_points', points, () => { saveTakeEnd = tap.events.length; targetWatch = false; }, { saveTakeMs });
+                again = await practiceAgainEvidence(page, `${suite}-again`, persistedId, 'focus_points', points, () => { saveTakeEnd = tap.events.length; targetWatch = false; },
+                    { saveTakeMs, beforeCapture: () => captureGate().confirm() });
             } finally {
                 targetWatch = false;
                 await targetWatcher;
@@ -1040,7 +1075,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         });
 
         await test.step('next Start without a hold', async () => {
-            const next = await nextStartEvidence(page, `${suite}-next`);
+            const next = await nextStartEvidence(page, `${suite}-next`, () => captureGate().confirm());
             nextStartRows(receipt, next);
         });
 
@@ -1335,7 +1370,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 // #1897 (Sam, f2bb1ae HOLD): armed before the press so its Stop is the same atomic check-and-click, bound to
                 // this Open Mic take; a dropped, replaced or never-live take gets no click and the switch step stops here.
                 const openMicMonitor = await armTakeMonitor(page, `${suite}-switch-openmic`);
-                await startBenchmarkRecording(page, `${suite}-switch-openmic`);
+                await startBenchmarkRecording(page, `${suite}-switch-openmic`, undefined, atClick());
                 await page.waitForTimeout(Math.round((fixture.entry.speechSeconds + 4) * 1000));
                 const openMicStop = await stopMonitoredTake(page, openMicMonitor,
                     () => confirmBenchmarkStopped(page, `${suite}-switch-openmic`, 180_000));
@@ -1388,8 +1423,10 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 // #1882 (Sam, Nov 18): MEASURED, not claimed. The monitor is armed before the press and records every live edge,
                 // the take's identity and the actual Stop press; the hold ends early if capture drops or the take changes.
                 const switchMonitor = await armTakeMonitor(page, `${suite}-switch-focus`);
-                const switchPressedAt = Date.now();
-                await startBenchmarkRecording(page, `${suite}-switch-focus`);
+                const switchClick = atClick();
+                const switchCalledAt = Date.now();
+                await startBenchmarkRecording(page, `${suite}-switch-focus`, undefined, switchClick);
+                const switchPressedAt = switchCalledAt + switchClick.spentMs();
                 const switchHold = await holdMeasuredLiveTake(page, switchMonitor, shortTakeSeconds, { nodePressedAt: switchPressedAt });
                 // #1897 review 2 (Sam): a hold that reports a drop or a replacement never presses Stop. Otherwise the final take
                 // check and the click run together in one page task (f2bb1ae HOLD), so a replacement can never receive it.
@@ -1594,8 +1631,10 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     if (railLabelsMatchEdit) {
                         // #1882: held from capture live (measured), not from the click; bound to its own Stop and saved row.
                         const editedMonitor = await armTakeMonitor(page, `${suite}-edited`);
-                        const editedPressedAt = Date.now();
-                        await startBenchmarkRecording(page, `${suite}-edited`);
+                        const editedClick = atClick();
+                        const editedCalledAt = Date.now();
+                        await startBenchmarkRecording(page, `${suite}-edited`, undefined, editedClick);
+                        const editedPressedAt = editedCalledAt + editedClick.spentMs();
                         const editedHold = await holdMeasuredLiveTake(page, editedMonitor, fixture.entry.speechSeconds + 10, { nodePressedAt: editedPressedAt });
                         // #1897 review 2 (Sam): no Stop after a hold that reports a drop or a replacement; otherwise one atomic
                         // check-and-click in the page, bound to this take (f2bb1ae HOLD).
