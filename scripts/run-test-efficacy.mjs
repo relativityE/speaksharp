@@ -5,7 +5,7 @@ import os from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { TEST_EFFICACY_CONTRACTS, qualifyEfficacyPhase } from './lib/softwareQualityEvidenceQualification.mjs';
+import { qualifyEfficacyPhase } from './lib/softwareQualityEvidenceQualification.mjs';
 import { canonicalPath, runtimeIdentity } from './efficacy-reporter.mjs';
 import { executionContext, testEnvironment, requiredSemanticContracts, semanticChangedInputs, dependencyPaths,
   executionRequiredFiles,unavailableExecutionInputs,fixtureSourceBinding, validateFixtureWitness, selectExecutionContracts,
@@ -207,7 +207,7 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
   if (userHarmControls && (selected.length !== 3 || selected.some(contract => contract.mutants.length !== 1 || contract.control?.length !== 1))) {
     throw new Error('User-harm control budget: three named boundaries, one mutant and one semantic control each');
   }
-  if (!executionOnly && !userHarmControls && (selected.length > TEST_EFFICACY_CONTRACTS.length || selected.some(contract => contract.mutants.length !== 2 || contract.control?.length !== 2))) {
+  if (!executionOnly && !userHarmControls && selected.some(contract => contract.mutants.length !== 2 || contract.control?.length !== 2)) {
     throw new Error('Efficacy budget: two mutants and a two-seam harmless control per named contract');
   }
   // One invocation executes exactly one batch of at most eight contracts; the caller runs every batch.
