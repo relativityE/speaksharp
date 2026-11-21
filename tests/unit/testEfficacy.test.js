@@ -204,15 +204,17 @@ test('selects only affected registered contracts and follows transitive dependen
   const dependencies = dependencyPaths(root, contract.testFile);
   assert.ok(dependencies.has('frontend/src/contracts/fillerEvidence.ts'));
   assert.equal(selectContracts(root, ['README.md']).length, 0);
-  for (const file of [contract.sourceFile, contract.testFile, 'frontend/src/contracts/fillerEvidence.ts', 'pnpm-lock.yaml', '.github/workflows/ci.yml']) {
+  for (const file of [contract.sourceFile, contract.testFile, '.github/workflows/ci.yml']) {
     assert.deepEqual(selectContracts(root, [file]).map(item => item.id), ['analytics-truth']);
   }
+  assert.ok(selectContracts(root, ['frontend/src/contracts/fillerEvidence.ts']).some(item=>item.id==='analytics-truth'));
+  assert.deepEqual(selectContracts(root, ['pnpm-lock.yaml']), TEST_EFFICACY_CONTRACTS);
 });
 
 for (const file of ['frontend/src/services/transcription/STTRegistry.ts', 'frontend/src/stores/useSessionStore.ts']) {
   test(`selects pilot for setup dependency outside contract import closure: ${file}`, () => {
     assert.equal(dependencyPaths(root, contract.testFile).has(file), false);
-    assert.deepEqual(selectContracts(root, [file]).map(item => item.id), ['analytics-truth']);
+    assert.ok(selectContracts(root, [file]).some(item => item.id==='analytics-truth'));
   });
 }
 
@@ -264,7 +266,8 @@ function fixture() {
   `);
   const git = args => execFileSync('git', args, { cwd: directory, stdio: 'pipe' }).toString().trim();
   git(['init']);
-  git(['-c', 'user.name=Efficacy fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--allow-empty', '-m', 'fixture comparison base']);
+  git(['add','pnpm-lock.yaml','scripts/efficacy-reporter.mjs']);
+  git(['-c', 'user.name=Efficacy fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-m', 'fixture comparison base']);
   git(['add', '.']);
   git(['-c', 'user.name=Efficacy fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-m', 'fixture']);
   return { directory, write, git };
@@ -654,7 +657,7 @@ if (process.env.GITHUB_ACTIONS === 'true' || process.env.TEST_EFFICACY_REAL_RUNT
   test('INSTALLED Vitest 3.2.4: real fixture phases and adversarial setup/hook/error rejection', () => {
     runtimeIdentity(root); // Missing/wrong runtime fails; never substitutes the synthetic adapter.
     for (const scenario of ['ordinary', 'beforeEach', 'afterEach', 'beforeAll', 'afterAll', 'cleanup', 'import', 'unhandled', 'interruption']) {
-      const {directory,write}=fixture();
+      const {directory,write,git}=fixture();
       try {
         fs.rmSync(path.join(directory,'node_modules'),{recursive:true,force:true});
         fs.symlinkSync(path.join(root,'node_modules'),path.join(directory,'node_modules'),'dir');
@@ -670,8 +673,13 @@ if (process.env.GITHUB_ACTIONS === 'true' || process.env.TEST_EFFICACY_REAL_RUNT
         if (scenario==='unhandled') setup+="beforeAll(()=>{if(isValidMetric('')) process.emit('unhandledRejection',new Error('adversarial unhandled'));});";
         if (scenario==='interruption') setup+="import {writeSync} from 'node:fs';\nbeforeAll(()=>{if(isValidMetric('')) { writeSync(2,'EFFICACY_INJECTED_WORKER_SIGTERM\\n'); process.kill(process.pid,'SIGTERM'); }});";
         write('efficacy-setup.ts',setup);
+        const fixtureSource=fs.readFileSync(path.join(directory,contract.sourceFile));
+        git(['add','.']);
+        git(['-c','user.name=Installed fixture','-c','user.email=fixture@example.invalid','commit','-m','fixture runner baseline']);
+        write(contract.sourceFile,Buffer.concat([fixtureSource,Buffer.from('\n// source-only test input\n')]));
+        const base=git(['rev-parse','HEAD']);
         if (scenario==='ordinary') {
-          const result=runTestEfficacy({root:directory,base:fixtureBase(directory)});
+          const result=runTestEfficacy({root:directory,base});
           assert.equal(result.contracts[0].mutants.length,2);
           assert.equal(result.contracts[0].restored.report.success,true);
         } else {
@@ -686,7 +694,7 @@ if (process.env.GITHUB_ACTIONS === 'true' || process.env.TEST_EFFICACY_REAL_RUNT
             unhandled:/Efficacy unhandled runtime\/setup error|Missing, stale, interrupted or inconsistent raw phase evidence/,
             interruption:/Efficacy unhandled runtime\/setup error|Missing, stale, interrupted or inconsistent raw phase evidence/,
           };
-          assert.throws(()=>runTestEfficacy({root:directory,base:fixtureBase(directory)}),error=>{
+          assert.throws(()=>runTestEfficacy({root:directory,base}),error=>{
             assert.equal(error.phase,phase,scenario);
             assert.deepEqual(error.completedPhases,phase==='baseline'?[]:['baseline','semantic-control'],scenario);
             assert.match(error.cause.message,reasons[scenario],scenario);
