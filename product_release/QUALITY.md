@@ -209,6 +209,19 @@ Every RC-counted test must identify the **independent source of truth** it enfor
 
 Use this checklist for the test-suite audit tracked in [#1539](https://github.com/relativityE/speaksharp/issues/1539). It is guidance for choosing and improving tests, not a new CI gate or release dependency. The code follow-up to [#1905](https://github.com/relativityE/speaksharp/pull/1905) is tracked separately in [#1921](https://github.com/relativityE/speaksharp/pull/1921).
 
+#### Standard for new and changed tests
+
+For unit, browser/live, Python, Deno and workflow tests, record the following in the test or its PR:
+
+1. **Claim and assertion:** name the journey, feature or guard and the harm it prevents. Assert the externally observable behavior using an expectation independent of the implementation.
+2. **Runner and evidence:** name the maintained command, discovery route and target. Show the named test executed at the claimed layer. A mocked or disposable result is not live evidence.
+3. **Fixtures and failure controls:** state what the mocks replace and what they cannot prove. For a critical path, show a deliberate break fails for the intended reason and the restored path passes.
+4. **Skips, overlap and cost:** link each skip or exception to a reason, accountable owner and review point. Record observed runtime for expensive additions, and justify coverage that overlaps an existing test.
+
+CI and quality engineering own calibration in existing CI. Start report-only; automate runner/admission checks, unaccounted skips and measurable runtime or duplicate signals. Reviewers judge whether assertions, mocks and purported duplicates prove the intended behavior. Graduate an individual mechanical check only after a labelled sample across every affected runner has zero false positives, the check detects known violations, and exceptions have a recorded scope, reason, owner and review date. Use existing CI checks, not a new release gate. This standard documents the expected evidence and rollout; automated enforcement has not shipped.
+
+#### Audit workstreams
+
 | Review area | What to verify | Accountable role |
 | --- | --- | --- |
 | Runner and journey coverage | Confirm discovery and actual execution across unit, Node, Python, Deno/Edge, database, browser, disposable and live lanes. Map J1–J9 legs and feature claims to reproducible commands, targets and artifacts. Keep live, disposable and diagnostic claims distinct; list gaps explicitly. | Test engineering |
