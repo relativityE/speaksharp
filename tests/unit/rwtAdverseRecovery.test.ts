@@ -124,11 +124,11 @@ describe('rwtAdverseJourney.ts — the recovery presses, in source order', () =>
     it('Retry is pressed, then the model must reach ready, then Start is enabled and pressed, then RECORDING is awaited', () => {
         const body = fn(aj(), 'pressRecovery');
         const order = [
-            "await page.getByTestId('mic-retry').click();",
+            "await pressCaptureControl(page, ['mic-retry'], { beforeClick: () => gate.confirm() });",
             'attempt.retry = await waitForRetrySetup(page,',
             "if (attempt.retry !== 'ready') return attempt;",
             'await expect(start).toBeEnabled({ timeout: START_ENABLED_MS })',
-            'await start.click();',
+            "await pressCaptureControl(page, ['mic-start'], { beforeClick: () => gate.confirm() });",
             'attempt.recorded = await isRecording(page, RECORDING_MS);',
         ].map((m) => body.indexOf(m));
         expect(order.filter((i) => i < 0)).toEqual([]);
@@ -146,7 +146,8 @@ describe('rwtAdverseJourney.ts — the recovery presses, in source order', () =>
         const body = fn(aj(), 'pressRecovery');
         const guard = body.indexOf('if (attempt.offered === null || !RECOVERY_CONTROLS[variant].includes(attempt.offered)) return attempt;');
         expect(guard).toBeGreaterThan(-1);
-        expect(guard).toBeLessThan(body.indexOf('.click()'));
+        expect(guard).toBeLessThan(body.indexOf('pressCaptureControl('));
+        expect(body).not.toContain('.click(');
     });
     it('the recovery is judged on the full own-saved readback against the pre-press baseline', () => {
         const src = aj();
@@ -161,7 +162,8 @@ describe('rwtAdverseJourney.ts — the recovery presses, in source order', () =>
 });
 
 describe('rwtAdverseJourney.ts — Start-press budgets cite every press', () => {
-    const START_CLICK = /await (?:control|start|page\.getByTestId\('(?:mic-download|mic-retry|mic-start)'\))\.click\(\);/;
+    // #1835 (Sam, #1916): every Start-control press is ONE pressCaptureControl call, its readback inside the press.
+    const START_CLICK = /await pressCaptureControl\(page, \[(?:'mic-(?:download|retry|start)'(?:, )?)+\], \{ beforeClick: \(\) => gate\.confirm\(\) \}\);/;
     const budgetComment = (src: string) => src.slice(src.indexOf(' * Harness parity (PO route 2026-11-10)'), src.indexOf('const AHT12_START_PRESS_BUDGET'));
     it('every cited line is a Start-control press, and every Start-control press in the journey is cited', () => {
         const src = aj();
@@ -279,7 +281,7 @@ describe('AHT-14 — offline only after model bytes were received, mid-transfer'
     });
     it('the journey gates going offline on received bytes, after the press; the controller arms the fault before going offline', () => {
         const src = aj();
-        const press = src.indexOf("await page.getByTestId('mic-download').click();", src.indexOf('let modelResponses = 0;'));
+        const press = src.indexOf("await pressCaptureControl(page, ['mic-download'], { beforeClick: () => gate.confirm() });", src.indexOf('let modelResponses = 0;'));
         const gate = src.indexOf('atOffline = await waitForTransfer(page, () => transfer.snapshot());', press);
         const run = src.indexOf('await runOfflineFault({', gate);
         expect(press).toBeGreaterThan(-1);
@@ -621,7 +623,7 @@ describe('AHT-14 — the cold take is judged from the attempt, never "nothing to
     it('the journey: log index read before the press; the controller decides; the cold take reads the attempt, not the current state', () => {
         const src = aj();
         const index = src.indexOf('pressIndex = (await page.evaluate(readRuntimeStateLog)');
-        const press = src.indexOf("await page.getByTestId('mic-download').click();", index);
+        const press = src.indexOf("await pressCaptureControl(page, ['mic-download'], { beforeClick: () => gate.confirm() });", index);
         const gate = src.indexOf('atOffline = await waitForTransfer(page, () => transfer.snapshot());', press);
         const run = src.indexOf('const offlineOutcome = await runOfflineFault({', gate);
         for (const [a, b] of [[index, press], [press, gate], [gate, run]]) { expect(a).toBeGreaterThan(-1); expect(b).toBeGreaterThan(a); }
@@ -630,7 +632,7 @@ describe('AHT-14 — the cold take is judged from the attempt, never "nothing to
         expect(src).toContain("context.on('response', (r) => transfer.onResponse(r.request()));");
         expect(src).toContain("context.on('requestfinished', (r) => transfer.onFinished(r));");
         expect(src).toContain("context.on('requestfailed', (r) => transfer.onFailed(r));");
-        expect(src.indexOf('transfer.startAttempt();')).toBeLessThan(src.indexOf("await page.getByTestId('mic-download').click();", src.indexOf('transfer.startAttempt();')));
+        expect(src.indexOf('transfer.startAttempt();')).toBeLessThan(src.indexOf("await pressCaptureControl(page, ['mic-download'], { beforeClick: () => gate.confirm() });", src.indexOf('transfer.startAttempt();')));
         expect(src).toContain('isOnline: () => page.evaluate(() => navigator.onLine)');
         expect(src).toContain('await settleColdTake(page, `adverse-${variant}-cold`, takes, pressIndex);');
         const settle = src.slice(src.indexOf('async function settleColdTake('), src.indexOf('\n}\n', src.indexOf('async function settleColdTake(')));
