@@ -950,6 +950,19 @@ jobs:
       - name: Run Node evidence contract tests
         run: node --test tests/unit/semanticEfficacySelection.test.mjs tests/unit/pythonTestExecutionEvidence.test.mjs
 
+      - name: Verify synthetic browser failure artifacts remain private
+        shell: bash
+        run: |
+          set -euo pipefail
+          browser="$(python3 -I tools/cloud-test/scripts/install_browser.py \
+            --config tools/cloud-test/config/test-config.v1.json \
+            --received-installed-receipt "$CT_BROWSER_RECEIPT" \
+            --baselines tools/cloud-test/config/browser-baselines.v1.json --environment github-hosted \
+            --source-sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID.$GITHUB_RUN_ATTEMPT" \
+            --receipt "$RUNNER_TEMP/software-quality-privacy-browser.json")"
+          [[ -n "$browser" && "$browser" == "$CT_CHROME" ]]
+          CT_CHROME="$browser" node --test tests/model-dropin/errorContextPrivacy.node.test.mjs
+
       - name: Download Named Artifacts
         uses: actions/download-artifact@v7
         with:
