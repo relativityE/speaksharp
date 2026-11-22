@@ -38,7 +38,8 @@
  * then is HOLD `not-saved-in-window` (no final read, never FAIL: the window, not the product, ran out); the reopen is bounded by
  * the time left (`openSavedReview(budgetMs)`) and a reopen that cannot finish in the window is HOLD `reopen-outside-window`;
  * the reported-only newer-completed probes are not taken before the reopen, so they cannot spend the window. The post-reopen
- * re-read still binds the verdict to A while retained. The ORDER (A's answer vs the next take's recording) stays recorded only:
+ * re-read still binds the verdict to A while retained, and it too gets only the time left (Sam on cf07d0d9): none left, or not
+ * settled by the close, is HOLD `reread-outside-window`; the after-reopen probe is capped the same way (none left = null). The ORDER (A's answer vs the next take's recording) stays recorded only:
  * `deferredLateCoachingSink` holds the row until the caller knows it, so the after-successor case is never judged here.
  */
 import { createHash } from 'node:crypto';
@@ -196,9 +197,13 @@ export async function lateCoachingSavedRow(
     const readOnce = (ms: number) => bounded(() => deps.readSaved().catch((): SavedRead => ({ ok: false })), ms);
     const startedAt = now();
     const deadline = inWindow ? Math.min(startedAt + waitMs, o.closesAt as number) : startedAt + waitMs;
+    /** In-window mode: the time left before the next take's Stop (Sam on cf07d0d9: no read gets a fresh budget past it). */
+    const windowLeft = () => (inWindow ? (o.closesAt as number) - now() : Infinity);
     const probe = async (anchor: { createdAt: string; id: string }): Promise<number | null | undefined> => {
         if (!deps.newerCompleted) return undefined;
-        const r = await bounded(() => deps.newerCompleted!(anchor).catch(() => null), PROBE_MS);
+        const ms = Math.min(PROBE_MS, windowLeft());
+        if (ms <= 0) return null;
+        const r = await bounded(() => deps.newerCompleted!(anchor).catch(() => null), ms);
         return r.done && Number.isInteger(r.value) && (r.value as number) >= 0 ? r.value : null;
     };
     const newer: Record<string, number | null> = {};
@@ -304,7 +309,16 @@ export async function lateCoachingSavedRow(
     const equal = deps.same(reopened.pair.what_worked, saved.well) && deps.same(reopened.pair.what_to_try_next, saved.next);
     if (equal) {
         // Post-reopen binding: one more atomic read of A — the same take, still retained, the same saved pair.
-        const again = await readOnce(POST_REOPEN_READ_MS);
+        const rereadMs = Math.min(POST_REOPEN_READ_MS, windowLeft());
+        if (rereadMs <= 0) {
+            sink.row(LATE_COACHING_ROW, 'HOLD', 'the interrupted take could not be re-read before the next take\'s Stop; the next take was not delayed', { reason: 'reread-outside-window' });
+            return;
+        }
+        const again = await readOnce(rereadMs);
+        if (inWindow && !again.done) {
+            sink.row(LATE_COACHING_ROW, 'HOLD', 'the interrupted take could not be re-read before the next take\'s Stop; the next take was not delayed', { reason: 'reread-outside-window' });
+            return;
+        }
         if (!again.done || !again.value.ok) { sink.row(LATE_COACHING_ROW, 'HOLD', 'the interrupted take could not be re-read after the reopen', { reason: 'owner-read-failed-after-reopen' }); return; }
         const c = classifyTarget(again.value.row, { sessionId, uid: deps.expectedUid });
         if (anchor) record('newerCompletedAfterReopen', await probe(anchor));

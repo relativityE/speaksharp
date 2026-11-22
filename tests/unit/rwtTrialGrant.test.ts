@@ -6,7 +6,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { TRIAL_ROW, TRIAL_START_SKEW_MS, trialGrantRow, trialGrantVerdict } from '../live/helpers/rwtTrialGrant';
+import { TRIAL_CLOCK_SKEW_MS, TRIAL_ROW, trialGrantRow, trialGrantVerdict } from '../live/helpers/rwtTrialGrant';
 
 const DAY = 86_400_000;
 const SIGNUP = Date.parse('2026-11-22T12:00:00.000Z');
@@ -29,8 +29,8 @@ describe('trialGrantVerdict', () => {
             [profile({ commercial_trial_granted_at: null }), SIGNUP],
             [profile({ trial_expires_at: new Date(SIGNUP + 2_000 + 14 * DAY).toISOString() }), SIGNUP],
             [profile({ trial_expires_at: new Date(SIGNUP + 2_000 + 31 * DAY).toISOString() }), SIGNUP],
-            [profile({ trial_started_at: new Date(SIGNUP - TRIAL_START_SKEW_MS - 1_000).toISOString(),
-                trial_expires_at: new Date(SIGNUP - TRIAL_START_SKEW_MS - 1_000 + 30 * DAY).toISOString() }), SIGNUP],
+            [profile({ trial_started_at: new Date(SIGNUP - TRIAL_CLOCK_SKEW_MS - 1_000).toISOString(),
+                trial_expires_at: new Date(SIGNUP - TRIAL_CLOCK_SKEW_MS - 1_000 + 30 * DAY).toISOString() }), SIGNUP + 60_000],
             [profile(), SIGNUP + 31 * DAY],
             [profile({ subscription_status: 'pro' }), SIGNUP],
             [profile({ subscription_status: undefined }), SIGNUP],
@@ -39,6 +39,27 @@ describe('trialGrantVerdict', () => {
         ] as const) {
             expect(trialGrantVerdict(p as never, SIGNUP, now).status).toBe('FAIL');
         }
+    });
+    it('Sam on cf07d0d9: a start or grant in the future, or before the sign-up moment, FAILs (clock tolerance only)', () => {
+        const NOW = SIGNUP + 60_000;
+        const at = (ms: number) => new Date(ms).toISOString();
+        for (const p of [
+            // started (and expiring 30 days later) after the read: the future
+            profile({ trial_started_at: at(NOW + TRIAL_CLOCK_SKEW_MS + 1_000), trial_expires_at: at(NOW + TRIAL_CLOCK_SKEW_MS + 1_000 + 30 * DAY) }),
+            // granted after the read
+            profile({ commercial_trial_granted_at: at(NOW + TRIAL_CLOCK_SKEW_MS + 1_000) }),
+            // started a minute before this sign-up: not this sign-up's trial
+            profile({ trial_started_at: at(SIGNUP - 60_000), trial_expires_at: at(SIGNUP - 60_000 + 30 * DAY) }),
+            // granted before this sign-up
+            profile({ commercial_trial_granted_at: at(SIGNUP - 60_000) }),
+        ]) {
+            expect(trialGrantVerdict(p as never, SIGNUP, NOW).status).toBe('FAIL');
+        }
+        // inside the clock tolerance on both sides is still this sign-up's trial
+        expect(trialGrantVerdict(profile({ trial_started_at: at(SIGNUP - TRIAL_CLOCK_SKEW_MS), trial_expires_at: at(SIGNUP - TRIAL_CLOCK_SKEW_MS + 30 * DAY),
+            commercial_trial_granted_at: at(SIGNUP - TRIAL_CLOCK_SKEW_MS) }) as never, SIGNUP, NOW).status).toBe('PASS');
+        expect(trialGrantVerdict(profile({ trial_started_at: at(NOW + TRIAL_CLOCK_SKEW_MS), trial_expires_at: at(NOW + TRIAL_CLOCK_SKEW_MS + 30 * DAY),
+            commercial_trial_granted_at: at(NOW + TRIAL_CLOCK_SKEW_MS) }) as never, SIGNUP, NOW).status).toBe('PASS');
     });
     it('HOLD, never PASS, when the profile could not be read; evidence carries no ids or timestamps', () => {
         expect(trialGrantVerdict(null, SIGNUP, SIGNUP)).toMatchObject({ status: 'HOLD', evidence: { profileRead: false } });

@@ -365,6 +365,36 @@ describe('in-window mode: inside the next take\'s recording window, never delayi
         expect(s.rows[0]).toMatchObject({ verdict: 'HOLD', evidence: { reason: 'reopen-outside-window' } });
         expect(opened).toBe(0);
     });
+    it('Sam on cf07d0d9: the post-reopen re-read gets only the time left in the window; none left is HOLD reread-outside-window', async () => {
+        const d = deps({ savedAfter: 0 });
+        let t0 = 0;
+        const clock = { get: () => d.now!() };
+        // The reopen itself finishes exactly at the close: no time is left for the binding re-read.
+        const sleepTo = d.sleep!;
+        d.openSavedReview = async () => { await sleepTo(CLOSES - clock.get()); t0 = clock.get(); return reopened(); };
+        const r = await inWindow(d);
+        expect(t0).toBe(CLOSES);
+        expect(r).toMatchObject({ verdict: 'HOLD', evidence: { reason: 'reread-outside-window' } });
+        expect(d.now!()).toBeLessThanOrEqual(CLOSES);
+    });
+    it('Sam on cf07d0d9: a hanging re-read or count probe is released at the close, never given a fresh budget', async () => {
+        // A re-read that never settles: HOLD at the close.
+        const hang = deps({ savedAfter: 0 });
+        const read = hang.readSaved;
+        let n = 0;
+        hang.readSaved = async () => { n += 1; return n === 1 ? read() : never(); };
+        expect(await inWindow(hang)).toMatchObject({ verdict: 'HOLD', evidence: { reason: 'reread-outside-window' } });
+        expect(hang.now!()).toBe(CLOSES);
+        // A count probe that never settles: the verdict still lands, and the probe ends at the close (reported as null).
+        const p = deps({ savedAfter: 0 });
+        p.newerCompleted = () => never<number | null>();
+        // The reopen takes 3 s, so less than the probe's own 5 s budget is left: the window, not PROBE_MS, must bound it.
+        const sleep3 = p.sleep!;
+        p.openSavedReview = async () => { await sleep3(3_000); return reopened(); };
+        const r = await inWindow(p);
+        expect(r).toMatchObject({ verdict: 'PASS', evidence: { reason: 'saved-and-shown', newerCompletedAfterReopen: null } });
+        expect(p.now!()).toBeLessThanOrEqual(CLOSES);
+    });
     it('the ordinary verdicts are unchanged in the window: wrong session FAIL, expired HOLD, unreadable HOLD', async () => {
         expect(await inWindow(deps({ review: reopened({ renderedSessionId: 'session-B' }) }))).toMatchObject({ verdict: 'FAIL', evidence: { reason: 'wrong-session-rendered' } });
         expect(await inWindow(deps({ rows: [{ transcript_state: 'expired', transcript: null, ai_suggestions: null }] }))).toMatchObject({ verdict: 'HOLD', evidence: { reason: 'target-expired' } });

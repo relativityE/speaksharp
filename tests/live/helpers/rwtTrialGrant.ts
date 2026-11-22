@@ -4,14 +4,16 @@
  * profile and checks the trial itself, the same rule the billing journey asserts:
  *  - the trial was granted (`commercial_trial_granted_at` set);
  *  - its window is 30 days (`trial_expires_at - trial_started_at`, within 0.01 day);
- *  - it started at this sign-up (within the bound of the sign-up moment), and has not expired;
+ *  - it was started AND granted by this sign-up: both timestamps lie between the sign-up moment the journey observed and the
+ *    read (a new account's start and grant are the database's own sign-up `now()`, ensure_trial_profile_for_new_user), within
+ *    a clock tolerance only, so a future or earlier timestamp FAILs (Sam on cf07d0d9); and it has not expired;
  *  - the profile is not Pro (`subscription_status` is exactly `free`).
  * A failed or partial read is HOLD, never a pass. Evidence is booleans and rounded numbers only (no ids, no timestamps).
  */
 export const TRIAL_ROW = 'new account starts a 30-day trial';
 export const TRIAL_DAYS = 30;
-/** How far the recorded trial start may sit from the sign-up moment the journey observed (clock skew plus the trigger). */
-export const TRIAL_START_SKEW_MS = 10 * 60_000;
+/** Runner/database clock tolerance on each side of [sign-up moment, read]; nothing wider. */
+export const TRIAL_CLOCK_SKEW_MS = 5_000;
 
 export type TrialProfile = {
     trial_started_at?: unknown; trial_expires_at?: unknown; commercial_trial_granted_at?: unknown; subscription_status?: unknown;
@@ -24,18 +26,21 @@ export function trialGrantVerdict(profile: TrialProfile | null, signupAt: number
     if (!profile) return { status: 'HOLD', detail: 'the account profile could not be read', evidence: { profileRead: false } };
     const started = time(profile.trial_started_at);
     const expires = time(profile.trial_expires_at);
-    const granted = time(profile.commercial_trial_granted_at) !== null;
+    const grantedAt = time(profile.commercial_trial_granted_at);
+    const granted = grantedAt !== null;
+    const inSignup = (t: number) => t >= signupAt - TRIAL_CLOCK_SKEW_MS && t <= now + TRIAL_CLOCK_SKEW_MS;
     const windowDays = started !== null && expires !== null ? Math.round(((expires - started) / 86_400_000) * 100) / 100 : null;
     const evidence = {
         profileRead: true, trialGranted: granted, windowDays,
-        startedAtSignup: started === null ? null : Math.abs(started - signupAt) <= TRIAL_START_SKEW_MS,
+        startedAtSignup: started === null ? null : inSignup(started),
+        grantedAtSignup: grantedAt === null ? null : inSignup(grantedAt),
         active: expires === null ? null : expires > now,
         free: profile.subscription_status === 'free',
     };
     if (started === null || expires === null) {
         return { status: 'FAIL', detail: 'the new account has no complete trial window', evidence };
     }
-    const ok = granted && windowDays !== null && Math.abs(windowDays - TRIAL_DAYS) < 0.01 && evidence.startedAtSignup === true
+    const ok = granted && evidence.grantedAtSignup === true && windowDays !== null && Math.abs(windowDays - TRIAL_DAYS) < 0.01 && evidence.startedAtSignup === true
         && evidence.active === true && evidence.free;
     return ok
         ? { status: 'PASS', detail: 'the new account was granted a 30-day trial that started at sign-up and is active', evidence }
