@@ -35,6 +35,10 @@ export const HELPER_CONTRACTS = Object.freeze([{
   helperFile:'tests/live/helpers/rwtJourney.ts', testFile:'tests/unit/progressReaderUrlPredicates.test.ts',
   callables:['analyticsThroughActions','backFromProgressRestoresSession'],
 }, {
+  // J1 option B (Sam, 21 Nov): the save-minimum hold and its atomic Stop, through its own unit consumer.
+  helperFile:'tests/live/helpers/rwtSaveHold.ts', testFile:'tests/unit/rwtSaveHold.test.ts',
+  callables:['saveHoldVerdict','stopClickVerdict','holdThenStopWith','pageSaveHoldDeps','holdThenStop'],
+}, {
   helperFile:'tests/live/helpers/rwtOracles.ts', testFile:'tests/unit/rwtReadbackBindingReasons1258.test.ts',
   callables:['bindReadbackJourneys'],
 }, {
