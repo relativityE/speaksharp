@@ -7,7 +7,6 @@ import { act } from '../../../../tests/support/test-utils';
 import { renderHookWithProviders } from '@test-utils/renderHookWithProviders';
 import useSpeechRecognition from '../index';
 import { getEngine as _getEngine } from '@/services/transcription/STTRegistry';
-import { getTranscriptionService as _getTranscriptionService } from '@/services/transcription/TranscriptionService';
 import type { TranscriptionServiceOptions } from '@/services/transcription/TranscriptionService';
 import { TranscriptionModeOptions } from '@/services/transcription/modes/types';
 import { MockTranscriptionService } from '../../../../tests/mocks/MockTranscriptionService';
@@ -17,8 +16,6 @@ import { STTStrategyFactory as _STTStrategyFactory } from '@/services/transcript
 import type { Session as _SupabaseSession } from '@supabase/supabase-js';
 import type { ITranscriptionEngine as _ITranscriptionEngine } from '@/services/transcription/modes/types';
 import { MIC_BLOCKED_MESSAGE } from '@/lib/micAccessErrors';
-
-// Witnesses moved to test block to satisfy linter usage check
 
 // Mock the STTRegistry to ensure we can register our mock
 vi.mock('@/services/transcription/STTRegistry', async () => {
@@ -113,18 +110,6 @@ describe('useSpeechRecognition Integration', () => {
         vi.stubGlobal('__E2E_MOCK_LOCAL_WHISPER__', true);
         vi.stubGlobal('MockNativeBrowser', MockTranscriptionService);
         vi.stubGlobal('MockPrivateWhisper', MockTranscriptionService);
-    });
-
-    it('should satisfy linter requirements for mock imports and types', () => {
-        expect(_getEngine).toBeDefined();
-        expect(_STTStrategyFactory).toBeDefined();
-        expect(_getTranscriptionService).toBeDefined();
-
-        // Type witnesses
-        const _session: _SupabaseSession | null = null;
-        const _engine: _ITranscriptionEngine | null = null;
-        expect(_session).toBeNull();
-        expect(_engine).toBeNull();
     });
 
     afterEach(async () => {
