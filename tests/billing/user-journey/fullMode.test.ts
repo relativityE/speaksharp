@@ -196,6 +196,30 @@ test('contract helpers: only a whole, succeeded, test refund of this charge; onl
     [{ ...open, subscription: 'sub_1' }, 'open'], [{ ...open, livemode: true }, 'open'], [open, 'expired'], [null, 'open']] as const) {
     assert.throws(() => assertCheckoutGrantedNothing(wrong, status), /failed_checkout_granted_something/, JSON.stringify(wrong));
   }
+  // A refusal names exactly what Stripe reported, as closed tokens; ids and free text never appear.
+  const named = (wrong: unknown, status: 'open' | 'expired') => {
+    try { assertCheckoutGrantedNothing(wrong, status); return null; } catch (e) { return (e as Error).message; }
+  };
+  assert.equal(named({ ...open, subscription: 'sub_123ABC' }, 'open'),
+    'BILLING_JOURNEY:failed_checkout_granted_something_status_open_payment_unpaid_subscription_attached_mode_test');
+  assert.equal(named({ ...open, status: 'complete', payment_status: 'paid' }, 'open'),
+    'BILLING_JOURNEY:failed_checkout_granted_something_status_complete_payment_paid_subscription_none_mode_test');
+  assert.equal(named({ ...open, livemode: true }, 'open'),
+    'BILLING_JOURNEY:failed_checkout_granted_something_status_open_payment_unpaid_subscription_none_mode_live');
+  assert.equal(named({ ...open, status: 'Weird Value https://x' }, 'open'),
+    'BILLING_JOURNEY:failed_checkout_granted_something_status_other_payment_unpaid_subscription_none_mode_test');
+  assert.equal(named(null, 'open'), 'BILLING_JOURNEY:failed_checkout_granted_something_status_none_payment_none_subscription_none_mode_unread');
+  // Only Stripe's documented values are named (status: open/complete/expired; payment: paid/unpaid/no_payment_required); any other
+  // string, even a lowercase token-shaped one, is `other`, so no unexpected upstream text enters the receipt.
+  assert.equal(named({ ...open, status: 'processing', payment_status: 'requires_action' }, 'open'),
+    'BILLING_JOURNEY:failed_checkout_granted_something_status_other_payment_other_subscription_none_mode_test');
+  assert.equal(named({ ...open, payment_status: 'no_payment_required' }, 'open'),
+    'BILLING_JOURNEY:failed_checkout_granted_something_status_open_payment_no_payment_required_subscription_none_mode_test');
+  assert.equal(named({ ...open, status: 'expired' }, 'open'),
+    'BILLING_JOURNEY:failed_checkout_granted_something_status_expired_payment_unpaid_subscription_none_mode_test');
+  for (const [wrong, status] of [[{ ...open, subscription: 'sub_1' }, 'open'], [{ ...open, status: 'complete' }, 'open']] as const) {
+    assert.match(named(wrong, status) ?? '', /^BILLING_JOURNEY:[a-z0-9_]{1,160}$/); // within safeFailureReason's alphabet
+  }
 });
 
 // A pending receipt exactly as the spec writes it on the local stack.
