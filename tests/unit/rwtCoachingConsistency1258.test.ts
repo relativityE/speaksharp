@@ -162,6 +162,13 @@ describe('omissionClaimVerdict — J3 advice that asserts a point was missed vs 
         // The same wording with no labels to judge it is HOLD, never PASS.
         expect(verdict('You skip the launch date.', null)).toMatchObject({ status: 'HOLD', form: 'unknown_point' });
     });
+    it('PASS: a phrase that denies an omission is not a claim; an assertion beside it still FAILs (Codex P2 on 4b4d5083)', () => {
+        for (const next of ['No chosen point was overlooked.', 'You covered every point; nothing was omitted.', 'Not one point was skipped.',
+            'None of the guarantee details were left out.']) {
+            expect(verdict(next)).toMatchObject({ status: 'PASS' });
+        }
+        expect(verdict('Nothing was omitted, but you skipped the launch date.')).toMatchObject({ status: 'FAIL', form: 'past_claim' });
+    });
     it('PASS: words that only start like an omission verb are not omission wording (Codex P2 on 01363817)', () => {
         const withMission = ['Mission statement', 'Launch date'];
         for (const next of ['Your mission statement was clear and well paced.', 'Name the mission statement before the launch date.']) {

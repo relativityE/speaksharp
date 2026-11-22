@@ -101,10 +101,13 @@ const IMPERATIVE_OMIT = /\b(?:don'?t|do\s+not|never|avoid)\s+(?:skip(?:ping)?|mi
 const PRESENT_MISSING = /\b(?:is|are|was|were|still)\s+missing\b|\bmissing\s+(?:the|your)\b/i;
 // Codex P2 on 01363817: the verbs' own inflections only, so `mission`, `skipper` or `omittance`-like words never match.
 const OMISSION_WORD = /\b(?:miss(?:es|ed|ing)?|skip(?:s|ped|ping)?|forg(?:et|ets|etting|ot|otten)|left\s+out|leav(?:e|es|ing)\s+out|omit(?:s|ted|ting)?|unmentioned)\b/i;
+const NEGATED_OMISSION = /\b(?:no|nothing|none|not\s+(?:a|one|any)|neither|nor)\b[^,]*?\b(?:missed|skipped|omitted|overlooked|forgotten|left\s+out|unmentioned)\b/gi;
 export function omissionClaimVerdict(o: { well: string; next: string; labels: readonly string[] | null }): Verdict & { form: OmissionForm } {
     const labelWords = (o.labels ?? []).flatMap((label) => norm(label).split(/[^a-z0-9']+/).filter((w) => w.length >= 4 && !STOPWORDS.has(w)));
     const namesPoint = (clause: string) => labelWords.some((w) => new RegExp(`\\b${w}`).test(norm(clause)));
-    const clauses = `${o.well}. ${o.next}`.split(/[.;!?]+/).map((c) => c.trim()).filter(Boolean);
+    // Codex P2 on 4b4d5083: a phrase that DENIES an omission ("no chosen point was overlooked", "nothing was omitted") is not
+    // a claim. Only that comma-bounded phrase is removed, so a clause that also asserts an omission elsewhere is still judged.
+    const clauses = `${o.well}. ${o.next}`.split(/[.;!?]+/).map((c) => c.replace(NEGATED_OMISSION, ' ').trim()).filter(Boolean);
     let form = 'none' as OmissionForm;
     const rank: Record<OmissionForm, number> = { none: 0, unrelated: 1, unknown_point: 2, present_point: 3, implied_point: 3, past_claim: 4 };
     const take = (f: OmissionForm) => { if (rank[f] > rank[form]) form = f; };
