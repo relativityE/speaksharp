@@ -9,7 +9,7 @@
  *
  * ITS OWN APP (Sam, 2026-11-22, option B): the spec never uses the standard E2E bundle. A worker fixture builds this commit's app
  * into a fresh temp directory through Vite's build API, in a child process whose environment is built from nothing: the exact fake
- * loopback Supabase URL and key, cross-origin isolation off, an empty envDir (no .env file is read for VITE_ values), and no
+ * loopback Supabase URL and key, cross-origin isolation off, an empty envDir and no repo-root dotenv file present (the build refuses to start if one exists, because vite.config.mjs reads them itself), and no
  * inherited service credential. It is served by the shared E2E server app (`createE2eApp`) on its own loopback port, and the test
  * fails BEFORE any navigation unless the built bundle carries the exact fake URL and key and no Supabase project URL. The same path
  * runs locally and in the ordinary CI shard, which is what credits it; the server and temp build are removed afterwards.
@@ -31,6 +31,7 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createE2eApp } from '../../scripts/serve-e2e.mjs';
+import { assertNoRootDotenv } from './helpers/isolatedBuildDotenv';
 import { MOCK_SESSION } from '@shared/test-fixtures';
 import { navigateToRoute } from './helpers';
 import { setupE2EMocks } from './mock-routes';
@@ -51,13 +52,18 @@ const REAL_WORKER = /^\/assets\/transformers-js\.worker-.*\.js$/;
 const FAKE_SUPABASE_URL = 'http://127.0.0.1:54321';
 const FAKE_ANON_KEY = 'isolated-local-anon-key';
 const PROJECT_URL = /https:\/\/[a-z0-9]{20}\.supabase\.co/;
+/** The isolated build's Vite mode; it also names the repo-root dotenv files the build's own config would read. */
+const BUILD_MODE = 'production';
 const BUILD_SCRIPT = `import { build } from 'vite';
-await build({ configFile: process.env.J7C_CONFIG, mode: 'production', envDir: process.env.J7C_ENV_DIR, logLevel: 'warn',
+await build({ configFile: process.env.J7C_CONFIG, mode: '${BUILD_MODE}', envDir: process.env.J7C_ENV_DIR, logLevel: 'warn',
   build: { outDir: process.env.J7C_OUT, emptyOutDir: true } });`;
 
 /** This commit's app, built with the fake config only (a child process with a from-nothing environment), into `out`. */
 async function buildIsolatedApp(out: string, envDir: string) {
     const frontend = join(process.cwd(), 'frontend');
+    // vite.config.mjs reads the repo root's dotenv files itself (loadEnv(mode, repoRoot, '')), whatever envDir says.
+    // Refuse before spawning if any exists; existence only, never read.
+    assertNoRootDotenv(process.cwd(), BUILD_MODE);
     const env = {
         PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? tmpdir(),
         VITE_SUPABASE_URL: FAKE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY: FAKE_ANON_KEY, STT_CROSS_ORIGIN_ISOLATED: '0', BUILD_ID: 'j7c-isolated',
