@@ -93,18 +93,20 @@ provider `transformers-js` (fell back to v2-base). One-shot, no data loss.
 
 ---
 
-## 4. GATE 3 — WebGPU benchmark RUN (REAL GPU)
+## 4. GATE 3 — WebGPU benchmark (real GPU): NOT RUN
 
-**Proves the numbers** that feed the activation decision. Populates `engines.Private.v4.floors`.
-```bash
-V4_VARIANT=base_q4   V4_DEVICE=webgpu pnpm exec playwright test tests/live/benchmark-v4.live.spec.ts
-V4_VARIANT=distil_q4 V4_DEVICE=webgpu pnpm exec playwright test tests/live/benchmark-v4.live.spec.ts
-V4_VARIANT=base_q4   V4_DEVICE=wasm   pnpm exec playwright test tests/live/benchmark-v4.live.spec.ts
-```
-**PASS criteria:**
-- The run log shows the loaded model = `whisper-base.en` / `distil-small.en` — **NOT tiny.en** (if it says tiny.en, the run is invalid; do not record it).
-- Results write to `engines.Private.v4.floors[variant|device]` in `tests/STT_BENCHMARKS.json`.
-- Compare each accuracy against **v2-base = 93.89%** on harvard-list-1.
+[The legacy benchmark spec](../../tests/live/benchmark-v4.live.spec.ts) contains a diagnostic error in
+its setup, not a qualified benchmark path. The retired local-storage model and device selectors no
+longer control the app. Running it could measure
+the configured candidate while labeling the result as a different variant or device. Do not use it to
+qualify this gate or update benchmark floors. No replacement run is specified here.
+
+Before this gate can run, rebind the harness to current app configuration and verify the actual model
+and device for every arm. Preserve the original qualification criteria:
+
+- The loaded model must be the intended rollout model (`whisper-base.en` or `distil-small.en`), not `tiny.en`.
+- Record qualified results in `engines.Private.v4.floors[variant|device]` in `tests/STT_BENCHMARKS.json`.
+- The historical v2-base reference is **93.89%** on harvard-list-1; it is not a current v4 result.
 
 ---
 
@@ -118,7 +120,7 @@ V4_VARIANT=base_q4   V4_DEVICE=wasm   pnpm exec playwright test tests/live/bench
 
 - Gate 1: the vitest result + smoke notes.
 - Gate 2: the `STT_CORPUS_OUT` JSON artifacts (3A + 3B + 3C) showing the PASS fields above.
-- Gate 3: the updated `floors` in `tests/STT_BENCHMARKS.json` + the per-config accuracy vs 93.89%.
+- Gate 3: **NOT RUN** until the harness is rebound to current app configuration. Then report the verified variant/device, updated `floors`, and per-config accuracy against the historical reference.
 - A one-line verdict per gate (PASS/FAIL) and the overall readiness recommendation.
 - Hand the result to Dev/release-owner on `product_release/ACTIVE_COORDINATION.md` (tracked SSOT).
 
@@ -141,5 +143,5 @@ V4_VARIANT=base_q4   V4_DEVICE=wasm   pnpm exec playwright test tests/live/bench
 - [ ] Gate 2 safe one-shot fallback to v2-base on v4 failure (no data loss).
 - [ ] Privacy: no PII/transcript/audio to analytics; sanitized telemetry; id via `distinct_id`.
 - [ ] No user-facing v4/model/GPU/ONNX jargon anywhere.
-- [ ] Gate 3 benchmark run on the rollout models (not tiny.en), floors recorded.
+- [ ] Gate 3: rebind the benchmark harness, verify the rollout model and device for each arm, and record qualified floors. Until then, NOT RUN.
 - [ ] A v4 config meets/beats v2-base 93.89% (else keep OFF).
