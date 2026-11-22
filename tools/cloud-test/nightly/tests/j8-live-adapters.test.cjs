@@ -144,9 +144,11 @@ describe('J8 live adapters', () => {
         const l = harness([{ ...LIST_OK, drained: false }, { status: 0, stdout: '' }]);
         const out = await l.adapters.runSpec({ env });
         expect({ exitCode: out.exitCode, drained: out.drained, calls: l.calls.map((x) => x.args.at(-1)) }).toEqual({ exitCode: null, drained: false, calls: ['--list'] });
-        // The list, the spec and both drains end inside the entry's spec deadline, so the entry never moves on while they run.
+        // The list, the spec and both settles (drain plus close grace) end inside the entry's spec deadline, so the entry never moves
+        // on while they run.
         const entry = require('../j8-nightly-entry.cjs');
-        expect(live.LIST_TIMEOUT_MS + live.SPEC_TIMEOUT_MS + 2 * live.DRAIN_TIMEOUT_MS < entry.DEADLINES.specMs).toBe(true);
+        expect(live.SETTLE_MS).toBe(live.DRAIN_TIMEOUT_MS + live.CLOSE_GRACE_MS);
+        expect(live.LIST_TIMEOUT_MS + live.SPEC_TIMEOUT_MS + 2 * live.SETTLE_MS < entry.DEADLINES.specMs).toBe(true);
     });
 
     it('a listing that is not exactly the J8 test runs nothing: two or three tests, another test, another file, a failed or killed list', async () => {
@@ -241,6 +243,75 @@ describe('J8 live adapters', () => {
         fs.rmSync(pidFile, { force: true });
         expect({ status: r.status, drained: r.drained, grandchildGone: gone(pid) }).toEqual({ status: 0, drained: true, grandchildGone: true });
     });
+    // Sam on eb8165a0: a detached grandchild that inherited stdout keeps the pipe open, so the drain must not wait for the pipe to close.
+    // It starts when the child exits or its deadline passes; the grandchild here would hold the pipe for 20 s on its own.
+    const pipeHolderScript = (pidFile, then, env = 'process.env') => `const { spawn } = require('node:child_process');
+        const g = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 20000)'], { detached: true, stdio: ['ignore', 'inherit', 'ignore'], env: ${env} });
+        require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(g.pid)); g.unref(); console.log('started'); ${then}`;
+    it('the drain starts when the child exits, not when a grandchild that inherited stdout lets the pipe close', async () => {
+        const pidFile = path.join(require('node:os').tmpdir(), `j8-drain-${process.pid}-c`);
+        const started = Date.now();
+        const r = await live.spawnRunner()(process.execPath, ['-e', pipeHolderScript(pidFile, 'process.exit(0);')], { env: process.env, cwd: __dirname, timeout: 10_000 });
+        const ms = Date.now() - started;
+        const pid = Number(fs.readFileSync(pidFile, 'utf8'));
+        fs.rmSync(pidFile, { force: true });
+        expect({ status: r.status, timedOut: r.timedOut, drained: r.drained, out: r.stdout.trim(), grandchildGone: gone(pid), quick: ms < 5_000 })
+            .toEqual({ status: 0, timedOut: false, drained: true, out: 'started', grandchildGone: true, quick: true });
+    });
+    it('the drain starts at the deadline (250 ms), not when a grandchild that inherited stdout lets the pipe close', async () => {
+        const pidFile = path.join(require('node:os').tmpdir(), `j8-drain-${process.pid}-d`);
+        const started = Date.now();
+        const r = await live.spawnRunner()(process.execPath, ['-e', pipeHolderScript(pidFile, 'setInterval(() => {}, 1000);')], { env: process.env, cwd: __dirname, timeout: 250 });
+        const ms = Date.now() - started;
+        const pid = Number(fs.readFileSync(pidFile, 'utf8'));
+        fs.rmSync(pidFile, { force: true });
+        expect({ status: r.status, timedOut: r.timedOut, drained: r.drained, grandchildGone: gone(pid), quick: ms < 5_000 })
+            .toEqual({ status: null, timedOut: true, drained: true, grandchildGone: true, quick: true });
+    });
+    // A root whose exit is never reported (stuck in the kernel, or the group kill not reaching it) is still drained at its deadline:
+    // the deadline itself starts the drain, so the runner resolves within its deadline plus the settle, never waiting on the exit.
+    const fakeSpawn = (onKill) => () => {
+        const { EventEmitter } = require('node:events');
+        const { PassThrough } = require('node:stream');
+        const child = new EventEmitter();
+        child.pid = 2 ** 22 + 4242; // above Linux's highest pid, so the group kill finds nothing and nothing real is signalled
+        child.stdout = new PassThrough();
+        child.kill = () => { onKill?.(child); return true; };
+        return child;
+    };
+    it('the deadline starts the drain even when the root\'s exit is never reported', async () => {
+        const events = [];
+        let stdout;
+        const drain = async () => { events.push('drain'); stdout.end(); return true; };
+        const run = live.spawnRunner({ drain, closeGraceMs: 300, spawn: (...a) => { const c = fakeSpawn(() => events.push('kill'))(...a); stdout = c.stdout; return c; } });
+        const started = Date.now();
+        const r = await run('x', [], { env: {}, cwd: __dirname, timeout: 100 });
+        expect({ status: r.status, timedOut: r.timedOut, drained: r.drained, events, quick: Date.now() - started < 2_000 })
+            .toEqual({ status: null, timedOut: true, drained: true, events: ['kill', 'drain'], quick: true });
+        // With the pipe never reaching end of file either, the tree is not confirmed stopped, within the close grace.
+        const held = await live.spawnRunner({ drain: async () => true, closeGraceMs: 300, spawn: fakeSpawn() })('x', [], { env: {}, cwd: __dirname, timeout: 100 });
+        expect({ timedOut: held.timedOut, drained: held.drained }).toEqual({ timedOut: true, drained: false });
+        // A spawn that fails (no pid, then an error) settles at once with no status, drained, and never waits out the grace.
+        const failed = await live.spawnRunner({ drain: async () => true, closeGraceMs: 60_000, spawn: () => {
+            const c = fakeSpawn()(); c.pid = undefined; setImmediate(() => c.emit('error', new Error('ENOENT'))); return c; } })('x', [], { env: {}, cwd: __dirname, timeout: 60_000 });
+        expect({ status: failed.status, timedOut: failed.timedOut, drained: failed.drained }).toEqual({ status: null, timedOut: false, drained: true });
+    });
+    it('a pipe still held after the drain by a process without the tag leaves the tree not confirmed stopped, within the close grace', async () => {
+        const pidFile = path.join(require('node:os').tmpdir(), `j8-drain-${process.pid}-e`);
+        const untagged = `Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== ${JSON.stringify(live.PROC_TAG_ENV)}))`;
+        const started = Date.now();
+        let pid;
+        try {
+            const r = await live.spawnRunner({ closeGraceMs: 300 })(process.execPath, ['-e', pipeHolderScript(pidFile, 'process.exit(0);', untagged)], { env: process.env, cwd: __dirname, timeout: 10_000 });
+            const ms = Date.now() - started;
+            pid = Number(fs.readFileSync(pidFile, 'utf8'));
+            expect({ status: r.status, timedOut: r.timedOut, drained: r.drained, quick: ms < 5_000 }).toEqual({ status: 0, timedOut: false, drained: false, quick: true });
+        } finally {
+            if (!pid && fs.existsSync(pidFile)) pid = Number(fs.readFileSync(pidFile, 'utf8'));
+            if (pid) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }
+            fs.rmSync(pidFile, { force: true });
+        }
+    });
     it('the drain is true only once a scan finds nothing; unreadable /proc or a process that outlives the window is false', async () => {
         let t = 0;
         const clock = { now: () => t, sleep: async (ms) => { t += ms; } };
@@ -257,9 +328,59 @@ describe('J8 live adapters', () => {
         expect(await live.drainTagged('tag', { list: () => (n++ ? [] : [14]), kill: () => { throw new Error('ESRCH'); }, ...clock })).toBe(true);
         // The scan matches the exact tag entry only, never a prefix or another variable.
         const procFs = { readdirSync: () => ['1', '2', '3', '4', 'self'], readFileSync: (f) => ({ '/proc/1/environ': `A=b\0${live.PROC_TAG_ENV}=tag\0`,
-            '/proc/2/environ': `${live.PROC_TAG_ENV}=tag2\0`, '/proc/3/environ': `X${live.PROC_TAG_ENV}=tag\0` })[f] ?? (() => { throw new Error('EACCES'); })() };
-        expect(live.taggedPids('tag', { procFs, selfPid: 99 })).toEqual([1]);
+            '/proc/2/environ': `${live.PROC_TAG_ENV}=tag2\0`, '/proc/3/environ': `X${live.PROC_TAG_ENV}=tag\0` })[f] ?? fail('ENOENT') };
+        expect(live.taggedPids('tag', { procFs, selfPid: 99, uid: 1000 })).toEqual([1]);
         expect(live.taggedPids('tag', { procFs: { readdirSync: () => { throw new Error('no /proc'); } } })).toBe(null);
+    });
+    // Sam on eb8165a0: a process the scan cannot inspect may be this run's, so the scan fails closed on it rather than skipping it.
+    const fail = (code) => { throw Object.assign(new Error(code), { code }); };
+    const statusOf = (uid) => `Name:\tchrome\nUmask:\t0022\nState:\tS (sleeping)\nUid:\t${uid}\t${uid}\t${uid}\t${uid}\nGid:\t0\t0\t0\t0\n`;
+    // /proc/<pid>/stat with the start time (field 22) given; the command name has spaces and a ')' to prove the parse.
+    const statOf = (ticks) => `6 (a) b) S 1 6 6 0 -1 4194560 100 0 0 0 1 1 0 0 20 0 1 0 ${ticks} 1000 100 18446744073709551615`;
+    const SELF = 99;
+    const procWith = (environ, status, stat = () => statOf(5_000)) => ({ readdirSync: () => ['5', '6', String(SELF)], readFileSync: (f) => {
+        if (f === '/proc/5/environ') return `${live.PROC_TAG_ENV}=tag\0`;
+        if (f === '/proc/6/environ') return environ();
+        if (f === '/proc/6/status') return status();
+        if (f === '/proc/6/stat') return stat();
+        if (f === `/proc/${SELF}/stat`) return statOf(1_000);
+        return fail('ENOENT');
+    } });
+    it('the scan fails closed on a process it cannot inspect that may be this run\'s; it skips only one that cannot be', () => {
+        const scan = (environ, status, stat) => live.taggedPids('tag', { procFs: procWith(environ, status, stat), selfPid: SELF, uid: 1000 });
+        const cases = {
+            'environ denied, our uid, started after this runner': [() => fail('EACCES'), () => statusOf(1000), undefined, null],
+            'environ denied (EPERM), our uid': [() => fail('EPERM'), () => statusOf(1000), undefined, null],
+            'environ unreadable with no code, our uid': [() => { throw new Error('io'); }, () => statusOf(1000), undefined, null],
+            'environ denied, status denied': [() => fail('EACCES'), () => fail('EACCES'), undefined, null],
+            'environ denied, status without a uid': [() => fail('EACCES'), () => 'Name:\tx\n', undefined, null],
+            'environ denied, stat denied, our uid': [() => fail('EACCES'), () => statusOf(1000), () => fail('EACCES'), null],
+            'environ denied, stat unparsable, our uid': [() => fail('EACCES'), () => statusOf(1000), () => '6 (a) S 1', null],
+            'environ denied, started the same tick as this runner': [() => fail('EACCES'), () => statusOf(1000), () => statOf(1_000), null],
+            'environ denied, started before this runner': [() => fail('EACCES'), () => statusOf(1000), () => statOf(999), [5]],
+            'environ denied, another real uid (effective uid ours)': [() => fail('EACCES'), () => 'Uid:\t0\t1000\t1000\t1000\n', undefined, [5]],
+            'environ denied, another user': [() => fail('EACCES'), () => statusOf(0), undefined, [5]],
+            'environ denied, then exited before its stat': [() => fail('EACCES'), () => statusOf(1000), () => fail('ENOENT'), [5]],
+            'environ denied, then exited before its status': [() => fail('EACCES'), () => fail('ESRCH'), undefined, [5]],
+            'exited (ENOENT)': [() => fail('ENOENT'), () => statusOf(1000), undefined, [5]],
+            'no address space (ESRCH: a kernel thread or a process exiting)': [() => fail('ESRCH'), () => statusOf(1000), undefined, [5]],
+        };
+        for (const [name, [environ, status, stat, want]] of Object.entries(cases)) expect({ name, pids: scan(environ, status, stat) }).toEqual({ name, pids: want });
+        // A setuid program started by this run keeps our real uid, so it is never skipped.
+        expect(live.taggedPids('tag', { procFs: procWith(() => fail('EACCES'), () => 'Uid:\t1000\t0\t0\t0\n'), selfPid: SELF, uid: 1000 })).toBe(null);
+        // This runner's own start time unreadable: the start-time rule cannot skip anything, so the uid decides.
+        const noSelf = procWith(() => fail('EACCES'), () => statusOf(1000), () => statOf(1));
+        const inner = noSelf.readFileSync;
+        noSelf.readFileSync = (f) => (f === `/proc/${SELF}/stat` ? fail('EACCES') : inner(f));
+        expect(live.taggedPids('tag', { procFs: noSelf, selfPid: SELF, uid: 1000 })).toBe(null);
+    });
+    it('a process the scan cannot inspect leaves the drain false and the runner\'s tree not confirmed stopped', async () => {
+        let t = 0;
+        const clock = { now: () => t, sleep: async (ms) => { t += ms; } };
+        const list = (tag) => live.taggedPids(tag, { procFs: procWith(() => fail('EACCES'), () => statusOf(1000)), selfPid: SELF, uid: 1000 });
+        expect(await live.drainTagged('tag', { list, kill: () => {}, ...clock })).toBe(false);
+        const r = await live.spawnRunner({ drain: () => false })(process.execPath, ['-e', 'process.exit(0)'], { env: process.env, cwd: __dirname, timeout: 10_000 });
+        expect({ status: r.status, drained: r.drained }).toEqual({ status: 0, drained: false });
     });
     describe('the parent recovery\'s calls (Sam on 27ee1856, route (b))', () => {
         const BINDING = { repository: 'o/r', workflow: 'o/r/.github/workflows/n.yml@refs/heads/main', runId: '7', runAttempt: '1', role: 'rwt-journey' };
@@ -313,8 +434,8 @@ describe('J8 live adapters', () => {
             const short = harness([{ status: 0, stdout: `${VERDICT}\n` }], { admin: admin(), clock: () => 1_000 });
             await short.adapters.scopedDelete({ uid: 'u1', email: 'rwt-journey-a@t.example.com', binding: BINDING, timeoutMs: 2 * 60_000 });
             expect({ timeout: short.calls[0].timeout, deadline: short.calls[0].env.RWT_J8_DELETE_DEADLINE_AT })
-                .toEqual({ timeout: 2 * 60_000 - live.DRAIN_TIMEOUT_MS, deadline: String(1_000 + 2 * 60_000 - live.DRAIN_TIMEOUT_MS) });
-            for (const timeoutMs of [undefined, 0, -1, live.DRAIN_TIMEOUT_MS, Number.NaN]) {
+                .toEqual({ timeout: 2 * 60_000 - live.SETTLE_MS, deadline: String(1_000 + 2 * 60_000 - live.SETTLE_MS) });
+            for (const timeoutMs of [undefined, 0, -1, live.DRAIN_TIMEOUT_MS, live.SETTLE_MS, Number.NaN]) {
                 const none = harness([{ status: 0, stdout: `${VERDICT}\n` }], { admin: admin() });
                 expect({ timeoutMs, r: await none.adapters.scopedDelete({ uid: 'u1', email: 'rwt-journey-a@t.example.com', binding: BINDING, timeoutMs }), calls: none.calls.length })
                     .toEqual({ timeoutMs, r: { deleted: false, drained: true }, calls: 0 });

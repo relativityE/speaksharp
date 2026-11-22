@@ -50,9 +50,15 @@ const INGESTION_WAIT_MS = 120_000;
 const RETRY_WAIT_MS = 60_000;
 const ATTEMPTS = 3;
 const READBACK_TIMEOUT_MS = 5 * 60_000;
-// The list, the spec and both drains end inside the entry's 32-minute spec deadline, so the entry never moves on while they run.
+// The list, the spec and both settles (drain plus close grace) end inside the entry's 32-minute spec deadline, so the entry never
+// moves on while they run.
 const SPEC_TIMEOUT_MS = 28 * 60_000;
 const DRAIN_TIMEOUT_MS = 30_000;
+// After the drain, how long the runner waits for the child's stdout to reach end of file. A pipe still open then is held by a process
+// that does not carry the tag, so the tree is not confirmed stopped (Sam on eb8165a0).
+const CLOSE_GRACE_MS = 2_000;
+// The most a runner can take after its deadline: the drain window, then the close grace.
+const SETTLE_MS = DRAIN_TIMEOUT_MS + CLOSE_GRACE_MS;
 const PROC_TAG_ENV = 'RWT_J8_PROC_TAG';
 const LOOKUP_TIMEOUT_MS = 2 * 60_000;
 const SHA = /^[a-f0-9]{40}$/;
@@ -71,8 +77,43 @@ const countOf = (r) => (!r?.error && Number.isSafeInteger(r?.count) && r.count >
 
 const realSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** The pids of every live process whose environment carries `PROC_TAG_ENV=tag`; null when /proc cannot be listed. */
-function taggedPids(tag, { procFs = require('node:fs'), selfPid = process.pid } = {}) {
+// Reading a process's environment fails with ENOENT once it has exited and ESRCH when it has no address space (a kernel thread, or
+// a process already exiting); neither can carry the tag or run code, so neither is a process to drain.
+const NO_ENVIRONMENT = new Set(['ENOENT', 'ESRCH']);
+/** Field 22 of /proc/<pid>/stat, the start time in clock ticks since boot: a number, 'gone', or null when it cannot be read. */
+function startTicksOf(pid, procFs) {
+    let stat;
+    try { stat = procFs.readFileSync(`/proc/${pid}/stat`, 'latin1'); } catch (e) { return NO_ENVIRONMENT.has(e?.code) ? 'gone' : null; }
+    const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+    return /^\d+$/.test(fields[19] ?? '') ? Number(fields[19]) : null;
+}
+/** The real uid (the first Uid: field) of /proc/<pid>/status: a number, 'gone', or null when it cannot be read. */
+function realUidOf(pid, procFs) {
+    let status;
+    try { status = procFs.readFileSync(`/proc/${pid}/status`, 'latin1'); } catch (e) { return NO_ENVIRONMENT.has(e?.code) ? 'gone' : null; }
+    const m = /^Uid:\s+(\d+)\s/m.exec(status);
+    return m ? Number(m[1]) : null;
+}
+/**
+ * Whether a process whose environment cannot be read may still be this run's (Sam on eb8165a0): true unless it has exited, started
+ * before this runner's own process (so it cannot descend from it), or runs with another real uid (a program this run starts keeps
+ * ours, setuid or not). Anything that cannot be read is treated as this run's.
+ */
+function mayBeRunOwned(pid, { procFs, selfPid, uid }) {
+    const started = startTicksOf(pid, procFs);
+    if (started === 'gone') return false;
+    const self = startTicksOf(selfPid, procFs);
+    if (Number.isInteger(started) && Number.isInteger(self) && started < self) return false;
+    const owner = realUidOf(pid, procFs);
+    if (owner === 'gone' || (Number.isInteger(owner) && owner !== uid)) return false;
+    return true;
+}
+
+/**
+ * The pids of every live process whose environment carries `PROC_TAG_ENV=tag`; null when /proc cannot be listed, or when a process
+ * that may be this run's cannot be inspected (above), so the drain fails closed rather than skip it.
+ */
+function taggedPids(tag, { procFs = require('node:fs'), selfPid = process.pid, uid = process.getuid() } = {}) {
     let entries;
     try { entries = procFs.readdirSync('/proc'); } catch { return null; }
     const needle = `${PROC_TAG_ENV}=${tag}`;
@@ -80,7 +121,10 @@ function taggedPids(tag, { procFs = require('node:fs'), selfPid = process.pid } 
     for (const e of entries) {
         if (!/^\d+$/.test(e) || Number(e) === selfPid) continue;
         let environ;
-        try { environ = procFs.readFileSync(`/proc/${e}/environ`, 'latin1'); } catch { continue; }
+        try { environ = procFs.readFileSync(`/proc/${e}/environ`, 'latin1'); } catch (err) {
+            if (NO_ENVIRONMENT.has(err?.code) || !mayBeRunOwned(e, { procFs, selfPid, uid })) continue;
+            return null;
+        }
         if (environ.split('\0').includes(needle)) pids.push(Number(e));
     }
     return pids;
@@ -105,33 +149,52 @@ async function drainTagged(tag, { list = taggedPids, kill = (pid) => process.kil
 
 /**
  * The process runner: (command, args, { env, cwd, timeout }) -> Promise<{ status, stdout, timedOut, drained }>. The process starts in
- * its own group, tagged; at its deadline the group is killed (SIGKILL) and it is reported `timedOut` with no status. It resolves
- * only after the tagged tree is drained (above). Proofs inject a runner instead.
+ * its own group, tagged; at its deadline the group is killed (SIGKILL) and it is reported `timedOut` with no status. The drain (above)
+ * starts when the child exits or its deadline passes, never from the stdout pipe closing, since a descendant that inherited stdout
+ * holds the pipe open (Sam on eb8165a0). After the drain, stdout must reach end of file within the close grace; a pipe still held
+ * then belongs to a process without the tag, so `drained` is false. It resolves within `timeout` + SETTLE_MS. Proofs inject a runner.
  */
-function spawnRunner({ drain = drainTagged, newTag = () => require('node:crypto').randomUUID() } = {}) {
-    const { spawn } = require('node:child_process');
+function spawnRunner({ drain = drainTagged, newTag = () => require('node:crypto').randomUUID(), closeGraceMs = CLOSE_GRACE_MS,
+    spawn = require('node:child_process').spawn } = {}) {
     return (command, args, { env, cwd, timeout }) => new Promise((resolve) => {
         const tag = newTag();
         let stdout = '';
         let timedOut = false;
-        let done = false;
+        let settling = false;
         let child;
         let timer;
-        const finish = (status) => {
-            if (done) return;
-            done = true;
+        let closed = false;
+        let onClosed = () => {};
+        const pipeClosed = () => { closed = true; onClosed(); };
+        const endOfFile = () => new Promise((done) => {
+            if (closed) { done(true); return; }
+            const grace = setTimeout(() => done(false), closeGraceMs);
+            onClosed = () => { clearTimeout(grace); done(true); };
+        });
+        const settle = (status) => {
+            if (settling) return;
+            settling = true;
             clearTimeout(timer);
             Promise.resolve().then(() => drain(tag)).then((drained) => drained === true, () => false)
-                .then((drained) => resolve({ status: timedOut ? null : status, stdout, timedOut, drained }));
+                .then(async (drained) => {
+                    const eof = await endOfFile();
+                    if (!eof) { try { child.stdout.destroy(); } catch { /* already closed */ } }
+                    resolve({ status: timedOut ? null : status, stdout, timedOut, drained: drained && eof });
+                });
         };
         try { child = spawn(command, args, { env: { ...env, [PROC_TAG_ENV]: tag }, cwd, stdio: ['ignore', 'pipe', 'inherit'], detached: true }); }
-        catch { finish(null); return; }
-        // Only while the child is alive is its pid its group's id, so the group is killed only here; after it exits, the tag decides.
-        timer = setTimeout(() => { timedOut = true; try { process.kill(-child.pid, 'SIGKILL'); } catch { try { child.kill('SIGKILL'); } catch { /* gone */ } } }, timeout);
+        catch { closed = true; settle(null); return; }
+        // Only while the child is alive is its pid its group's id, so the group is killed only here; then the tag decides.
+        timer = setTimeout(() => {
+            timedOut = true;
+            try { process.kill(-child.pid, 'SIGKILL'); } catch { try { child.kill('SIGKILL'); } catch { /* gone */ } }
+            settle(null);
+        }, timeout);
         child.stdout.setEncoding('utf8');
         child.stdout.on('data', (d) => { if (stdout.length < 16 * 1024 * 1024) stdout += d; });
-        child.on('error', () => finish(null));
-        child.on('close', (code) => finish(typeof code === 'number' ? code : null));
+        child.stdout.on('close', pipeClosed);
+        child.on('error', () => { if (!child.pid) closed = true; settle(null); });
+        child.on('exit', (code) => settle(typeof code === 'number' ? code : null));
     });
 }
 
@@ -262,13 +325,13 @@ function j8LiveAdapters({ repoRoot = path.join(__dirname, '..', '..', '..'), bas
             if (typeof table !== 'string' || typeof column !== 'string' || !['owner', 'email'].includes(key)) return null;
             return countOf(await admin.from(table).select(column, { count: 'exact', head: true }).eq(column, key === 'email' ? String(email).toLowerCase() : uid));
         };
-        // `timeoutMs`: what is left of the parent's cleanup budget (Sam on 65365f36). The delete is killed early enough that the kill
-        // and the drain both end inside it, and it is told its deadline; with no room for both, it does not start.
+        // `timeoutMs`: what is left of the parent's cleanup budget (Sam on 65365f36). The delete is killed early enough that the kill,
+        // the drain and the close grace all end inside it, and it is told its deadline; with no room for them, it does not start.
         adapters.scopedDelete = async ({ uid, email, binding, timeoutMs }) => {
             if (typeof uid !== 'string' || !uid || typeof email !== 'string' || !email || !binding
                 || Object.keys(BINDING_ENV).some((k) => typeof binding[k] !== 'string' || !binding[k])) return { deleted: false, drained: true };
-            if (!Number.isFinite(timeoutMs) || timeoutMs <= DRAIN_TIMEOUT_MS) return { deleted: false, drained: true };
-            const processTimeout = Math.min(DELETE_TIMEOUT_MS, timeoutMs - DRAIN_TIMEOUT_MS);
+            if (!Number.isFinite(timeoutMs) || timeoutMs <= SETTLE_MS) return { deleted: false, drained: true };
+            const processTimeout = Math.min(DELETE_TIMEOUT_MS, timeoutMs - SETTLE_MS);
             const env = { ...baseEnv, RWT_J8_DELETE_UID: uid, RWT_J8_DELETE_EMAIL: email, RWT_J8_DELETE_DEADLINE_AT: String(clock() + processTimeout) };
             for (const [k, name] of Object.entries(BINDING_ENV)) env[name] = binding[k];
             let r;
@@ -283,6 +346,6 @@ function j8LiveAdapters({ repoRoot = path.join(__dirname, '..', '..', '..'), bas
 }
 
 module.exports = {
-    DELETE_SCRIPT, DELETE_TIMEOUT_MS, DRAIN_TIMEOUT_MS, PROC_TAG_ENV, drainTagged, taggedPids, J8_DESCRIBE, J8_TEST, SPEC_GREP, LIST_TIMEOUT_MS, listsOnlyJ8, SPEC, LIVE_CONFIG, LIVE_PROJECT, INGESTION_WAIT_MS, RETRY_WAIT_MS, ATTEMPTS, READBACK_TIMEOUT_MS, SPEC_TIMEOUT_MS, LOOKUP_TIMEOUT_MS, EVIDENCE_PREFIX,
+    CLOSE_GRACE_MS, DELETE_SCRIPT, DELETE_TIMEOUT_MS, DRAIN_TIMEOUT_MS, PROC_TAG_ENV, SETTLE_MS, drainTagged, taggedPids, J8_DESCRIBE, J8_TEST, SPEC_GREP, LIST_TIMEOUT_MS, listsOnlyJ8, SPEC, LIVE_CONFIG, LIVE_PROJECT, INGESTION_WAIT_MS, RETRY_WAIT_MS, ATTEMPTS, READBACK_TIMEOUT_MS, SPEC_TIMEOUT_MS, LOOKUP_TIMEOUT_MS, EVIDENCE_PREFIX,
     boundCoachingReceipt, j8LiveAdapters, readbackEvidence, spawnRunner,
 };

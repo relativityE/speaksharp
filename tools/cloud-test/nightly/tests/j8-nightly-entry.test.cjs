@@ -61,9 +61,9 @@ function accountStore({ residue = {}, listing = 'complete', deleteOk = true } = 
             },
             scopedDelete: async ({ uid, email, binding }) => {
                 calls.scopedDelete.push({ email, binding });
-                if (!deleteOk) return { deleted: false };
+                if (!deleteOk) return { deleted: false, drained: true };
                 users.delete(uid);
-                return { deleted: true };
+                return { deleted: true, drained: true };
             },
             readResidue: async ({ store, uid }) => {
                 calls.readResidue.push(store);
@@ -423,13 +423,13 @@ describe('J8 nightly entry', () => {
             st.deps.scopedDelete = async (q) => { await del(q); return answer; }; return st; };
         const cases = {
             'the scoped delete failed': [{ store: accountStore({ deleteOk: false }) }, 'did not prove the account deleted'],
-            'the delete removed the account but reported failure': [{ store: unproven({ deleted: false }) }, 'did not prove the account deleted'],
-            'the delete removed the account but returned nothing': [{ store: unproven(undefined) }, 'did not prove the account deleted'],
+            'the delete removed the account but reported failure': [{ store: unproven({ deleted: false, drained: true }) }, 'did not prove the account deleted'],
+            'the delete removed the account but returned nothing': [{ store: unproven(undefined) }, 'processes could not be confirmed stopped'],
             'a store still holds residue': [{ store: accountStore({ residue: { 'sessions:user_id': 1 } }) }, '1 store(s) still hold residue'],
             'a store read is not a count': [{ store: accountStore({ residue: { 'trial_entitlements:email': null } }) }, '1 residue read(s) were not observed'],
             'the save journal read threw': [{ store: accountStore({ residue: { 'account_save_obligations:user_id': () => { throw new Error('x'); } } }) }, '1 residue read(s) were not observed'],
             'the email is still listed after the delete': [{ store: (() => { const st = accountStore(); const del = st.deps.scopedDelete;
-                st.deps.scopedDelete = async (q) => { await del(q); st.signUp(emailOf(RUN_ID), { id: 'uid-again' }); return { deleted: true }; };
+                st.deps.scopedDelete = async (q) => { await del(q); st.signUp(emailOf(RUN_ID), { id: 'uid-again' }); return { deleted: true, drained: true }; };
                 st.deps.readResidue = async () => 0; return st; })() }, 'did not show the reserved email gone'],
         };
         for (const [name, [over, reason]] of Object.entries(cases)) {
@@ -512,6 +512,20 @@ describe('J8 nightly entry', () => {
         expect({ cleanup: uo.cleanup.result, exit: uo.exitCode, landed: files(f.evidenceDir, '.landed.').length, next: admitRun(f.evidenceDir).admitted })
             .toEqual({ cleanup: 'incomplete', exit: 78, landed: 1, next: false });
         expect(Object.values(uo.cleanup.reasons).flat()).toContain('the scoped delete\'s processes could not be confirmed stopped; the landed account is left for protected recovery');
+        // Sam on eb8165a0: recovery accepts the delete only on drained === true. A delete that proves the account deleted but does not
+        // report its processes stopped (drained missing, undefined, or anything but true) holds the same way, and the landed record stays.
+        for (const [name, answer] of Object.entries({ 'drained missing': { deleted: true }, 'drained undefined': { deleted: true, drained: undefined },
+            'drained null': { deleted: true, drained: null }, 'drained "true"': { deleted: true, drained: 'true' }, 'drained 1': { deleted: true, drained: 1 } })) {
+            const m = dirs();
+            const st = accountStore();
+            const inner = st.deps.scopedDelete;
+            st.deps.scopedDelete = async (q) => { await inner(q); return answer; };
+            const mo = await run(m, fixtures(m.runDir, { store: st }).deps);
+            expect({ name, cleanup: mo.cleanup.result, exit: mo.exitCode, landed: files(m.evidenceDir, '.landed.').length, recovered: files(m.evidenceDir, '.recovered.').length, next: admitRun(m.evidenceDir).admitted })
+                .toEqual({ name, cleanup: 'incomplete', exit: 78, landed: 1, recovered: 0, next: false });
+            expect({ name, held: Object.values(mo.cleanup.reasons).flat().includes('the scoped delete\'s processes could not be confirmed stopped; the landed account is left for protected recovery') })
+                .toEqual({ name, held: true });
+        }
         // A delete that throws holds too (nothing proven), never a crash.
         const g = dirs();
         const thr = accountStore();

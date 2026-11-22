@@ -44,7 +44,7 @@ function sameBinding(ctRun, expected) {
 /**
  * The parent's recovery of this run's one create attempt. `deps`: lookup({ email, runOwnedPrefix }) -> exactEmailLookup's result;
  * readAccount(uid) -> { email, createdAt, ctRun } | null; scopedDelete({ uid, email, binding }) -> { deleted: true } only when the scoped path
- * proved the delete, `drained: false` when its process tree could not be confirmed stopped; it must itself end within `timeoutMs`
+ * proved the delete, and `drained: true` only when its process tree was confirmed stopped (anything else holds, Sam on eb8165a0); it must itself end within `timeoutMs`
  * (the adapter kills and drains its process); readResidue({ store, table, column, key, uid, email }) -> an observed count, or null. `binding`: this run's
  * expected app_metadata.ct_run. Resolves { state: 'recovered' | 'hold', reason, landed, deleted, queries }; never throws.
  */
@@ -107,7 +107,7 @@ async function j8ParentRecovery({ evidenceDir, admission, binding, deps, budgetM
     // 5. DELETE through the scoped path, given what is left of the budget and awaited (never abandoned while it may still run).
     let del;
     try { del = await deps.scopedDelete({ uid, email, binding, timeoutMs: left() }); } catch { del = null; }
-    if (del?.drained === false) return hold('the scoped delete\'s processes could not be confirmed stopped; the landed account is left for protected recovery');
+    if (del?.drained !== true) return hold('the scoped delete\'s processes could not be confirmed stopped; the landed account is left for protected recovery');
     if (left() <= 0) return hold('the scoped delete did not finish within the cleanup budget; the landed account is left for protected recovery');
     if (del?.deleted !== true) return hold('the scoped delete did not prove the account deleted; the landed account is left for protected recovery');
     out.deleted = true;
