@@ -443,6 +443,34 @@ export function shownFailureVerdict(o: ShownFailure | null): Verdict {
     return { status: 'PASS', detail: 'the failed attempt stated that setup did not finish, with Retry enabled, and nothing on the page called it not supported' };
 }
 
+/**
+ * Elon on 90cf2eba (P2): whether a read of the failed attempt is final, so the poll can stop without a false FAIL from timing.
+ * The error toast can render a moment before the mic card re-renders with the setup-failed line, so "a toast exists" is not
+ * final. A read is final when it is bound to the attempt and readable, and either something visible already says "not
+ * supported" (FAIL whatever follows), or the card states the failure with Retry enabled and a toast is shown (its wording is
+ * then judged too). Anything else is read again until the bound; a page with no toast at all is read until the bound.
+ */
+export function shownFailureSettled(o: ShownFailure): boolean {
+    if (o.sameAttempt !== true || o.cardText === null || o.toastTexts === null) return false;
+    if ([o.cardText, ...o.toastTexts].some((text) => NOT_SUPPORTED_WORDING.test(text))) return true;
+    return o.cardText.includes(MODEL_SETUP_FAILED_COPY) && o.retryVisible === true && o.retryEnabled === true && o.toastTexts.length > 0;
+}
+
+/**
+ * Reads the failed attempt until a read is final (`shownFailureSettled`) or `budgetMs` has passed, and returns the last read.
+ * `read` takes one bound read of the page; the clock and the wait between reads are injected so the poll is tested offline.
+ */
+export async function pollShownFailure(read: () => Promise<ShownFailure>, { budgetMs, intervalMs = 250, now = () => Date.now(),
+    sleep = (ms: number) => new Promise<void>((r) => { setTimeout(r, ms); }) }: { budgetMs: number; intervalMs?: number; now?: () => number;
+    sleep?: (ms: number) => Promise<void> }): Promise<ShownFailure> {
+    const deadline = now() + budgetMs;
+    for (;;) {
+        const shown = await read();
+        if (shownFailureSettled(shown) || now() >= deadline) return shown;
+        await sleep(intervalMs);
+    }
+}
+
 /** One row from several verdicts on the same facts: FAIL over HOLD over PASS; the first verdict of the worst status speaks. */
 export function worstVerdict(...verdicts: readonly Verdict[]): Verdict {
     for (const status of ['FAIL', 'HOLD'] as const) {

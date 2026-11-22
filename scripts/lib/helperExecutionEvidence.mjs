@@ -161,7 +161,7 @@ export const HELPER_CONTRACTS = Object.freeze([{
   helperFile:'tests/live/helpers/rwtAdverseRecovery.ts',testFile:'tests/unit/rwtAdverseRecovery.test.ts',
   callables:["isRecoveryControl","retrySetupOutcome","recoverySavedVerdict","savedTranscriptDigest","reviewReopenVerdict","betweenFilesFailureVerdict",
     "bytesCounted","betweenFilesGate","attemptPhase","runBetweenFilesFault","offlineNotExercisedVerdict","coldTakeSettledVerdict","unprovenRestoreVerdict","faultUnprovenRecoveryVerdict",
-    "shownFailureVerdict","worstVerdict"],
+    "shownFailureVerdict","shownFailureSettled","pollShownFailure","worstVerdict"],
 }, {
   // AHT-14 (#1868; J7.c option B): the attempt's model files and the held next file behind the offline gate, through the same unit consumer.
   helperFile:'tests/live/helpers/rwtAdverse.ts',testFile:'tests/unit/rwtAdverseRecovery.test.ts',

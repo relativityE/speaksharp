@@ -37,7 +37,7 @@ import {
     type ModelBytesRead, type RecoveryAttempt, type RecoveryControl, type ReopenObservation, RECOVERY_CONTROLS, isRecoveryControl,
     type AttemptPhase, type BetweenFilesSnapshot, type ShownFailure, attemptPhase, coldTakeSettledVerdict, betweenFilesFailureVerdict,
     betweenFilesGate, faultUnprovenRecoveryVerdict, offlineNotExercisedVerdict, runBetweenFilesFault, shownFailureVerdict, unprovenRestoreVerdict,
-    worstVerdict, NOT_SUPPORTED_WORDING,
+    worstVerdict, NOT_SUPPORTED_WORDING, pollShownFailure,
     recoverySavedVerdict, retrySetupOutcome, reviewReopenVerdict, savedTranscriptDigest,
 } from './rwtAdverseRecovery';
 
@@ -134,25 +134,23 @@ const attemptPhaseOf = async (page: Page, fromIndex: number): Promise<AttemptPha
 
 /**
  * J7.c (Sam, 2026-11-22): what the person sees on the failed attempt, read on that attempt, offline, before anything is pressed.
- * Polled for up to SHOWN_FAILURE_MS so the error toast has time to appear; each read takes the mic card's text, every toast's
- * text and the Retry control's state, and is bound to the attempt by its own log (still this attempt's setup failure, in this
- * document). `shownFailureVerdict` judges it; the telemetry code is never read here.
+ * Read again until the read is final (`shownFailureSettled`: Elon on 90cf2eba, a toast can render before the card's
+ * setup-failed line) or SHOWN_FAILURE_MS has passed; each read takes the mic card's text, every toast's text and the Retry
+ * control's state, and is bound to the attempt by its own log (still this attempt's setup failure, in this document).
+ * `shownFailureVerdict` judges the last read; the telemetry code is never read here.
  */
 async function readShownFailure(page: Page, fromIndex: number): Promise<ShownFailure> {
-    const deadline = Date.now() + SHOWN_FAILURE_MS;
-    for (;;) {
+    return pollShownFailure(async () => {
         const sameAttempt = (await attemptPhaseOf(page, fromIndex)) === 'setup-failed';
         const cardText = await page.getByTestId('mic-card').innerText({ timeout: 2_000 }).catch(() => null);
         const toastTexts = await page.locator('[data-sonner-toast]').allInnerTexts().catch(() => null);
         const retry = page.getByTestId('mic-retry');
         const retryVisible = await retry.isVisible().catch(() => null);
         const retryEnabled = retryVisible ? await retry.isEnabled().catch(() => null) : false;
-        const shown = { sameAttempt, cardText, toastTexts, retryVisible, retryEnabled };
         // Re-bound after the reads: a log that moved on while they ran (a new setup, a recording) never binds them.
-        shown.sameAttempt = sameAttempt && (await attemptPhaseOf(page, fromIndex)) === 'setup-failed';
-        if ((toastTexts !== null && toastTexts.length > 0) || Date.now() >= deadline) return shown;
-        await page.waitForTimeout(250);
-    }
+        const bound = sameAttempt && (await attemptPhaseOf(page, fromIndex)) === 'setup-failed';
+        return { sameAttempt: bound, cardText, toastTexts, retryVisible, retryEnabled };
+    }, { budgetMs: SHOWN_FAILURE_MS, sleep: (ms) => page.waitForTimeout(ms) });
 }
 
 /**
@@ -330,16 +328,16 @@ async function reopenRow(receipt: RwtReceipt, page: Page, recovered: { savedId: 
  * the recovery (`pressRecovery`) then presses only its variant's designed control (`RECOVERY_CONTROLS`), never in a loop, and
  * presses nothing when the page offers anything else. Each press, by its line:
  *  AHT-12 mic denied (J7.a, PO and Sam 2026-11-19) — exactly 1:
- *   1. the denied press, `mic-download` or `mic-start` (whichever is offered): `pressCaptureControl` (rwtAdverseJourney.ts:453).
+ *   1. the denied press, `mic-download` or `mic-start` (whichever is offered): `pressCaptureControl` (rwtAdverseJourney.ts:451).
  *   No recovery press: J7.a covers the denial only, and the microphone is never allowed. So either control may take the one
  *   press; `mic-retry` none. The catalog's minimumStarts 3 assumes the harness's same-context Allow → Start route, which J7.a
  *   records as UNTESTED.
  *  AHT-13 download fails — exactly 3:
- *   1. `mic-download` with the model route aborted (rwtAdverseJourney.ts:502);
- *   2. `mic-retry` once the cause is removed (rwtAdverseJourney.ts:214);
- *   3. `mic-start` only after Retry's setup published `ready` (rwtAdverseJourney.ts:220).
- *  AHT-14 offline between model files — exactly 3: `mic-download` (rwtAdverseJourney.ts:524), then the same `mic-retry` and
- *   `mic-start` as AHT-13 (rwtAdverseJourney.ts:214, :220).
+ *   1. `mic-download` with the model route aborted (rwtAdverseJourney.ts:500);
+ *   2. `mic-retry` once the cause is removed (rwtAdverseJourney.ts:212);
+ *   3. `mic-start` only after Retry's setup published `ready` (rwtAdverseJourney.ts:218).
+ *  AHT-14 offline between model files — exactly 3: `mic-download` (rwtAdverseJourney.ts:522), then the same `mic-retry` and
+ *   `mic-start` as AHT-13 (rwtAdverseJourney.ts:212, :218).
  * #1835 (Sam, Nov 20; #1916): every press above runs `gate.confirm()` inside the press, immediately before its click
  * (`pressCaptureControl`), which reads this run's own saved privacy choice back from the server and stops the journey with
  * nothing pressed unless it is exactly the variant's fixed choice (`adverseConsentMode`: J7.a Save No; J7.b/c Save Yes, Coaching No).
