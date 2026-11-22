@@ -62,7 +62,7 @@ describe('#1258 P0 typed-expiry follow-up is wired into the exact allowlisted ap
 
     it('is allowlisted as staged, directly after 20261013120000, before the held commercial-activation entry', () => {
         expect.assertions(3);
-        assertStagedMigrationOrder(FILE, VERSION, PREVIOUS, ACTIVATION);
+        assertStagedMigrationOrder(FILE, VERSION, PREVIOUS, ACTIVATION, EXACT_MIGRATION_ALLOWLIST);
     });
 
     it('pins the FINAL byte hash of the file in the tree', () => {
@@ -79,7 +79,7 @@ describe('#1258 P0 typed-expiry follow-up is wired into the exact allowlisted ap
 
     it('a dry-run is accepted only when it would push this target alone', () => {
         expect.assertions(2);
-        assertTargetOnlyDryRunCases(FILE, ACTIVATION.file, config);
+        assertTargetOnlyDryRunCases(FILE, ACTIVATION.file, output => assertExactDryRun(output, config));
     });
 
     // The real Production ledger fixture (2026-09-23), advanced so every earlier queue entry is applied, with 20261013120000

@@ -6,6 +6,7 @@ import {
     EXACT_MIGRATION_ALLOWLIST,
     assertAfterApply,
     assertBeforeApply,
+    assertExactDryRun,
     expectedAuthorizationPhrase,
     ledgerAwareConfig,
     prepareExactMigrationWorkspace,
@@ -77,7 +78,7 @@ describe('#1476 migration is wired into the exact allowlisted apply path', () =>
 
     it('a dry-run is accepted only when it would push this target alone', () => {
         expect.assertions(2);
-        assertTargetOnlyDryRunCases(FILE, ACTIVATION.file, config);
+        assertTargetOnlyDryRunCases(FILE, ACTIVATION.file, output => assertExactDryRun(output, config));
     });
 
     // The REAL Production ledger: read-only Migrations Preflight run 35919387314 (main@1319e8b58, 2026-09-23). Pending:
