@@ -121,7 +121,7 @@ import { corpusRows, crossCheckCounts, fillerAnnotationsOf, hesitationTotals } f
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { feedbackDiagnosticChainRow } from './helpers/coachingFeedbackAdapter';
 import { capturedTakesDifferVerdict, coachingPromptBindingRow, coachingRequestBudgetRow, createCoachingTakeCapture, readSavedReviewPair } from './helpers/rwtCoachingCollector';
-import { answerOrder, deferredLateCoachingSink, latestAnsweredAt, lateCoachingSavedRow, ownerNewerCompletedCounter, ownerSessionReader } from './helpers/rwtLateCoaching';
+import { answerOrder, deferredLateCoachingSink, latestAnsweredAt, lateCoachingSavedRow, ownerNewerCompletedCounter, ownerSessionReader, reopenWithinCutoff } from './helpers/rwtLateCoaching';
 import { coachingContract } from './helpers/rwtCoachingEvidence';
 import { openProductsItem } from './helpers/productsMenu';
 import { OPEN_MIC_FIRST_SESSION_CONSENT_MODE, captureConsentGate, settleFixedConsentOnPractice, type CaptureConsentGate, type ChoiceClient } from './helpers/rwtPracticeConsent';
@@ -348,13 +348,13 @@ test.describe('RWT — Open Mic first session @live', () => {
                 expectedUid: capturedUid ?? '',
             }),
             expectedUid: capturedUid ?? '',
-            openSavedReview: async (budgetMs?: number) => {
-                const reviewPage = await page.context().newPage();
-                // In-window mode: at the budget the page is closed, so no wait outlives the window.
-                const cut = budgetMs === undefined ? undefined : setTimeout(() => { void reviewPage.close().catch(() => undefined); }, budgetMs);
-                const reopenRequests = new CoachingGenerationTap();
-                reopenRequests.attach(reviewPage);
-                try {
+            // Sam on 4b7c4d44: the window's ABSOLUTE close is checked right after the page exists; a late page never navigates.
+            openSavedReview: (cutoffAt?: number) => reopenWithinCutoff({
+                newPage: () => page.context().newPage(),
+                cutoffAt,
+                read: async (reviewPage) => {
+                    const reopenRequests = new CoachingGenerationTap();
+                    reopenRequests.attach(reviewPage);
                     const pair = await readSavedReviewPair(reviewPage, id, 'gemini_coaching_v1');
                     const renderedSessionId = await reviewPage.getByTestId('saved-review').getAttribute('data-session-id', { timeout: 5_000 }).catch(() => null);
                     const transcript = reviewPage.getByTestId('session-detail-transcript');
@@ -366,11 +366,8 @@ test.describe('RWT — Open Mic first session @live', () => {
                         pair,
                         coachingRequests: reopenRequests.sentCount,
                     };
-                } finally {
-                    if (cut !== undefined) clearTimeout(cut);
-                    await reviewPage.close().catch(() => undefined);
-                }
-            },
+                },
+            }),
             same: samePhrase,
         });
         /** The Practice-again save-take duration actually used (undefined until that step runs). */

@@ -36,7 +36,9 @@
  * expires A's text, so the ordinary reopen must happen BEFORE that save. With `closesAt` (the next take's Stop deadline) the
  * row runs inside the next take's existing recording window and never delays its Stop: polling ends at `closesAt`; no pair by
  * then is HOLD `not-saved-in-window` (no final read, never FAIL: the window, not the product, ran out); the reopen is bounded by
- * the time left (`openSavedReview(budgetMs)`) and a reopen that cannot finish in the window is HOLD `reopen-outside-window`;
+ * the time left and receives the window's absolute close (`openSavedReview(cutoffAt)`; Sam on 4b7c4d44: a relative budget started
+ * only after the page existed, so a slow page creation could navigate past the close, see `reopenWithinCutoff`); a reopen that
+ * cannot finish in the window is HOLD `reopen-outside-window`;
  * the reported-only newer-completed probes are not taken before the reopen, so they cannot spend the window. The post-reopen
  * re-read still binds the verdict to A while retained, and it too gets only the time left (Sam on cf07d0d9): none left, or not
  * settled by the close, is HOLD `reread-outside-window`; the after-reopen probe is capped the same way (none left = null). The ORDER (A's answer vs the next take's recording) stays recorded only:
@@ -77,8 +79,9 @@ export interface LateCoachingDeps {
     readSaved: () => Promise<SavedRead>;
     /** Reported only: completed rows of this owner with a transcript, ranked above A by (created_at, id); null = unread. */
     newerCompleted?: (anchor: { createdAt: string; id: string }) => Promise<number | null>;
-    /** Reopen that take's saved review (Analytics detail) in a separate page; `budgetMs` (in-window mode) bounds the reopen. */
-    openSavedReview: (budgetMs?: number) => Promise<ReopenedReview>;
+    /** Reopen that take's saved review (Analytics detail) in a separate page. In-window mode passes the window's ABSOLUTE close
+     *  (`cutoffAt`, epoch ms on the same clock); the page must not navigate at or after it (see `reopenWithinCutoff`). */
+    openSavedReview: (cutoffAt?: number) => Promise<ReopenedReview>;
     same: (a: string, b: string) => boolean;
     /** The signed-in account the row must belong to (identity-contradiction otherwise). */
     expectedUid: string;
@@ -263,13 +266,16 @@ export async function lateCoachingSavedRow(
         if (inWindow) {
             const left = (o.closesAt as number) - now();
             if (left <= 0) { outsideWindow(); return; }
-            const r = await bounded(() => deps.openSavedReview(left), left);
+            const r = await bounded(() => deps.openSavedReview(o.closesAt as number), left);
             if (!r.done) { outsideWindow(); return; }
             reopened = r.value;
         } else {
             reopened = await deps.openSavedReview();
         }
     } catch {
+        // A reopen that failed once the window had closed (e.g. its page opened too late and was refused) is the window, not
+        // the review: HOLD reopen-outside-window.
+        if (inWindow && now() >= (o.closesAt as number)) { outsideWindow(); return; }
         sink.row(LATE_COACHING_ROW, 'HOLD', 'the interrupted take\'s saved review could not be opened', { reason: 'review-unopened' });
         return;
     }
@@ -333,6 +339,37 @@ export async function lateCoachingSavedRow(
         equal ? 'the interrupted take\'s coaching is saved to its own session and its reopened saved review (its own route and session) shows exactly that pair'
             : 'the interrupted take\'s saved review shows coaching that differs from its saved pair',
         { reason: equal ? 'saved-and-shown' : 'shown-differs' });
+}
+
+/**
+ * The saved-review page, bounded by an ABSOLUTE cutoff (Sam on 4b7c4d44). The cutoff is checked right after `newPage()` resolves:
+ * at or past it, the page is closed WITHOUT navigating and the call rejects (the outer witness has already HOLDed). Otherwise
+ * `read` runs with the page closed at the time LEFT, so no wait outlives the window. The page is always closed afterwards. With
+ * no cutoff (ordinary mode) it simply reads and closes.
+ */
+export async function reopenWithinCutoff<P extends { close(): Promise<void> }>(o: {
+    newPage: () => Promise<P>;
+    read: (page: P) => Promise<ReopenedReview>;
+    cutoffAt?: number;
+    now?: () => number;
+    /** Schedules the page close; returns its cancel. Injectable for tests. */
+    setTimer?: (ms: number, fire: () => void) => () => void;
+}): Promise<ReopenedReview> {
+    const now = o.now ?? Date.now;
+    const setTimer = o.setTimer ?? ((ms: number, fire: () => void) => { const h = setTimeout(fire, ms); return () => clearTimeout(h); });
+    const page = await o.newPage();
+    let cancel: (() => void) | undefined;
+    try {
+        if (typeof o.cutoffAt === 'number') {
+            const left = o.cutoffAt - now();
+            if (!(left > 0)) throw new Error('the saved-review page opened after the window closed; it was not navigated');
+            cancel = setTimer(left, () => { void page.close().catch(() => undefined); });
+        }
+        return await o.read(page);
+    } finally {
+        cancel?.();
+        await page.close().catch(() => undefined);
+    }
 }
 
 type RowEvidence = Record<string, string | number | boolean | null>;
