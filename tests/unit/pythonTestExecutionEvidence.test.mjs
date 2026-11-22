@@ -69,6 +69,50 @@ test('Python receipts bind exact source/runtime and reject result tampering',()=
   } finally {process.env.PATH=f.oldPath;fs.rmSync(f.root,{recursive:true,force:true});}
 });
 
+test('coverage distinguishes exact Python method calls, input bytes and module execution',async()=>{
+  const {executionCoverage,pythonExecutionClaim}=await import('../../scripts/lib/testExecutionEvidence.mjs');
+  assert.equal(pythonExecutionClaim({runner:'python-unittest-input',testMethod:'Fixture.test_reads_bytes'},false),
+    'registered input bytes read by its Python test module; not a behavioral verdict',
+    'an exact method selection does not by itself witness a source callable');
+  const f=fixture();
+  const saved=Object.fromEntries(Object.keys(f.environment).map(key=>[key,process.env[key]]));
+  process.env.PATH=[path.dirname(f.executable),f.oldPath].join(path.delimiter);
+  Object.assign(process.env,f.environment);
+  try {
+    const source='tools/cloud-test/scripts/aggregate_receiver.py';
+    const {inputFile}=PYTHON_INPUT_CONTRACTS.find(item=>item.inputFile.endsWith('plan-facts.PLACEHOLDER.json'));
+    const files=[source,inputFile,f.testFile];
+    for(const file of [...files,...selectPythonContracts(files).map(item=>item.testFile)]) {
+      fs.mkdirSync(path.dirname(path.join(f.root,file)),{recursive:true});
+      fs.writeFileSync(path.join(f.root,file),'# synthetic receipt fixture\n');
+    }
+    const body=fs.readFileSync(f.executable,'utf8');
+    const old="collected:['_evidence.test_ok'],outcomes:[{id:'_evidence.test_ok',status:'passed'}],sourceReads:b.sourceFiles??[]";
+    assert.ok(body.includes(old));
+    const replacement=`collected:[id],outcomes:[{id,status:'passed'}],sourceCalls:calls,sourceReads:(b.sourceFiles??[]).filter(row=>!calls.some(c=>c.file===row.file))`;
+    fs.writeFileSync(f.executable,body.replace('fs.writeFileSync(b.receiptFile',`const id=b.testMethod?'_evidence_'+crypto.createHash('sha256').update(b.testFile).digest('hex')+'.'+b.testMethod:'_evidence.test_ok';
+const calls=(b.sourceCalls??[]).map(call=>({...call,sha256:b.sourceFiles.find(row=>row.file===call.file).sha256}));
+fs.writeFileSync(b.receiptFile`).replace(old,replacement));
+    execFileSync('git',['init','-q'],{cwd:f.root});
+    const options={root:f.root,base:null,provenance:f.provenance,files,batch:0,
+      environment:f.environment,drain:()=>({status:'drained'})};
+    const python=producePythonReceipt(options);
+    const report=executionCoverage(files,{root:f.root,base:null,expected:f.provenance,python});
+    assert.deepEqual(report.rows.map(({file,status,claim})=>[file,status,claim]),[
+      [source,'EXECUTED','exact registered Python method and source call observed; not browser/database/live acceptance'],
+      [inputFile,'EXECUTED','registered input bytes read by its Python test module; not a behavioral verdict'],
+      [f.testFile,'EXECUTED','actual Python unittest collection and execution only; not browser/database/live acceptance'],
+    ]);
+  } finally {
+    for(const [key,value] of Object.entries(saved)) {
+      if(value===undefined) delete process.env[key];
+      else process.env[key]=value;
+    }
+    process.env.PATH=f.oldPath;
+    fs.rmSync(f.root,{recursive:true,force:true});
+  }
+});
+
 test('real Python reporter credits only the exact input actually consumed by its selected test',()=>{
   const f=fixture(),contract=PYTHON_INPUT_CONTRACTS.find(item=>item.inputFile.endsWith('plan-facts.PLACEHOLDER.json'));
   try {
@@ -331,5 +375,8 @@ test('exact cloud request method must call the two bound sources, not just impor
     assert.throws(()=>producePythonReceipt({...options,files:[...files,testFile]}),/execution failed/);
     put(testFile,prefix+`  Path(${JSON.stringify(path.join(f.root,files[0]))}).read_bytes()\n`);
     assert.throws(()=>producePythonReceipt(options),/source call absent/);
+    put(testFile,prefix+"  self.assertTrue(True)\n def test_unrelated(self): self.assertEqual(receive_bundle(),5)\n");
+    assert.throws(()=>producePythonReceipt({...options,files:[...files,testFile]}),/source call absent/,
+      'a passing neighboring method cannot lend exact-call credit to the enrolled method');
   } finally {fs.rmSync(f.root,{recursive:true,force:true});}
 });
