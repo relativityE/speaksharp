@@ -184,18 +184,26 @@ function legJourneyIds(receipt) {
  * same way) plus its own binding: this run, attempt and create attempt, each journey's CLI evidence, and J8.b's final-submit
  * journey (only when the receipt's final submit row PASSes for that one journey).
  */
-async function j8ReadbackVerdicts(receipt, { qualify, coaching }, { binding, deadlines = DEADLINES } = {}) {
+async function j8ReadbackVerdicts(receipt, { qualify, coaching }, { binding, deadlines = DEADLINES, state = {} } = {}) {
     const journeys = [];
     const legs = legJourneyIds(receipt);
     // After a call passes its deadline, no later readback or coaching call is made in this run (Codex on 46fe2e02): its process may
     // still be running, and the budget it was given is spent. That journey and every later one is HOLD, and so is the coaching
     // diagnostic, as after an unconfirmed readback; a journey read back before it keeps its final answer.
+    // Sam on 586d50fb: a call whose process is not confirmed stopped (still running past the grace, an adapter's own unconfirmed
+    // answer, or a call that threw) is also written to `state.unconfirmed` before this returns, so teardown never looks the account
+    // up or deletes it while that process may still be running; the account is left for protected recovery.
     let cutOff = null;
+    const unconfirmed = (reason) => { cutOff = reason; if (typeof state.unconfirmed !== 'string') state.unconfirmed = reason; return null; };
     const bounded = async (ms, fn) => {
         let out;
-        try { out = await withinSettled(ms, deadlines.lateSettleMs, fn); } catch { return null; }
-        if (out.value !== TIMED_OUT) return out.value;
-        cutOff = out.settled ? 'a readback or coaching call passed its deadline' : 'a readback or coaching call passed its deadline and was still running';
+        try { out = await withinSettled(ms, deadlines.lateSettleMs, fn); } catch { return unconfirmed('a readback or coaching call threw, so its process is not confirmed stopped'); }
+        if (out.value !== TIMED_OUT) {
+            if (out.value?.unconfirmed === true) return unconfirmed('a readback or coaching process was not confirmed stopped');
+            return out.value;
+        }
+        if (!out.settled) return unconfirmed('a readback or coaching call passed its deadline and was still running');
+        cutOff = 'a readback or coaching call passed its deadline';
         return null;
     };
     for (const j of receipt.readback.journeys) {
@@ -275,7 +283,7 @@ function j8CaseResult(receipt, readback, evaluated) {
  * required store at zero. The recovery runs only once the spec has EXITED (a killed spec's pages may still write), within the real
  * cleanup budget. Anything else leaves the journey incomplete (named) and the attempt unresolved, so admission stays closed.
  */
-async function teardownJ8({ evidenceDir, admission, receipt, deps = {}, binding, specExited, budgetMs = DEADLINES.cleanupMs, now = () => Date.now() }) {
+async function teardownJ8({ evidenceDir, admission, receipt, deps = {}, binding, specExited, readbackUnconfirmed, budgetMs = DEADLINES.cleanupMs, now = () => Date.now() }) {
     const deadlineAt = now() + budgetMs;
     const timedOut = () => now() >= deadlineAt;
     const unproven = [];
@@ -289,6 +297,9 @@ async function teardownJ8({ evidenceDir, admission, receipt, deps = {}, binding,
     let recovery = null;
     if (!bound) { /* nothing is looked up or deleted for a record that is not this attempt's */ }
     else if (specExited !== true) unproven.push('the spec did not exit, so its pages may still write; the account is left for protected recovery');
+    // Sam on 586d50fb: fail closed. Only an explicit null (every readback and coaching process confirmed stopped, or none run) lets
+    // the recovery look the account up or delete it.
+    else if (readbackUnconfirmed !== null) unproven.push(`${typeof readbackUnconfirmed === 'string' ? readbackUnconfirmed : 'the readback state is unknown'}; nothing is looked up or deleted, and the account is left for protected recovery`);
     else if (RECOVERY_DEPS.some((k) => typeof deps[k] !== 'function')) unproven.push('no parent recovery, so the account is left for protected recovery');
     else {
         const left = deadlineAt - now();
@@ -361,6 +372,8 @@ async function runJ8Nightly({ evidenceDir, runDir, runId, runAttempt, configured
     let readback = null;
     let cleanup = null;
     let specExited = false;
+    // Sam on 586d50fb: set by the readback before it returns when any of its processes is not confirmed stopped; read by teardown.
+    const readbackState = { unconfirmed: null };
     try {
         // The file clock is the bound, so the spec's start is taken from it (floored to the second some filesystems keep).
         const specStart = Math.floor(Date.now() / 1000) * 1000;
@@ -379,13 +392,14 @@ async function runJ8Nightly({ evidenceDir, runDir, runId, runAttempt, configured
         else if (outcome.exitCode === 1 && !read.receipt.rows.some((r) => r?.verdict === 'FAIL')) caseResult = holdAll('the spec failed but its receipt shows no failing row');
         else {
             receipt = read.receipt;
-            readback = await j8ReadbackVerdicts(receipt, deps, { binding: { runId: String(runId), runAttempt: String(runAttempt), createAttempt: admission.attemptId }, deadlines });
+            readback = await j8ReadbackVerdicts(receipt, deps, { binding: { runId: String(runId), runAttempt: String(runAttempt), createAttempt: admission.attemptId }, deadlines, state: readbackState });
             let evaluated = null;
             try { evaluated = await within(deadlines.evaluateMs, () => deps.evaluate(receipt, readback)); } catch { evaluated = null; }
             caseResult = j8CaseResult(receipt, readback, evaluated === TIMED_OUT ? null : evaluated);
         }
     } finally {
-        cleanup = await teardownJ8({ evidenceDir, admission, receipt, deps, binding, specExited, budgetMs: deadlines.cleanupMs, now });
+        cleanup = await teardownJ8({ evidenceDir, admission, receipt, deps, binding, specExited, readbackUnconfirmed: readbackState.unconfirmed,
+            budgetMs: deadlines.cleanupMs, now });
     }
     const blocks = ownBlocks(evidenceDir, admission.recordRunId);
     const createJournal = blocks.length === 0 ? 'resolved' : 'unresolved';

@@ -58,7 +58,8 @@ describe('J8 live adapters', () => {
         expect(r.evidence).toBe(null);
         expect(h.calls.length).toBe(live.ATTEMPTS);
         const thrown = live.j8LiveAdapters({ run: () => { throw new Error('spawn'); }, sleep: async () => {} });
-        expect(await thrown.qualify(qualifyArgs())).toEqual({ status: 1, evidence: null });
+        // Sam on 586d50fb: a thrown run is also reported unconfirmed, so the entry leaves the account for protected recovery.
+        expect(await thrown.qualify(qualifyArgs())).toEqual({ status: 1, evidence: null, unconfirmed: true });
         // A run killed at its deadline is never final, even if it reported a code.
         const killed = harness([{ status: 0, stdout: evidenceLine({ verdict: 'QUALIFIED' }), timedOut: true }, { status: 2 }, { status: 2 }]);
         expect((await killed.adapters.qualify(qualifyArgs())).status).toBe(2);
@@ -71,26 +72,26 @@ describe('J8 live adapters', () => {
         for (const drained of [false, undefined, null, 'true', 1]) {
             // Otherwise-valid QUALIFIED readback, then a valid coaching receipt queued behind it: neither is used, nothing is retried.
             const h = harness([{ ...qualified, drained }, qualified, { status: 0, stdout: receiptLine(bound) }]);
-            expect({ drained, r: await h.adapters.qualify(qualifyArgs()) }).toEqual({ drained, r: { status: 1, evidence: null } });
+            expect({ drained, r: await h.adapters.qualify(qualifyArgs()) }).toEqual({ drained, r: { status: 1, evidence: null, unconfirmed: true } });
             expect({ drained, calls: h.calls.length }).toEqual({ drained, calls: 1 });
-            expect(await h.adapters.qualify(qualifyArgs({ journeyId: 'journey-a' }))).toEqual({ status: 1, evidence: null });
-            expect(await h.adapters.coaching({ journeyId: 'journey-final-b', expectation: EXPECTATION, release: RELEASE })).toBe(null);
+            expect(await h.adapters.qualify(qualifyArgs({ journeyId: 'journey-a' }))).toEqual({ status: 1, evidence: null, unconfirmed: true });
+            expect(await h.adapters.coaching({ journeyId: 'journey-final-b', expectation: EXPECTATION, release: RELEASE })).toEqual({ unconfirmed: true });
             expect({ drained, calls: h.calls.length, waits: h.waits }).toEqual({ drained, calls: 1, waits: [live.INGESTION_WAIT_MS] });
         }
         // The same for coaching first: an undrained FAIL receipt is not kept, and no readback runs after it.
         const c = harness([{ status: 3, stdout: receiptLine({ ...bound, verdict: 'FAIL' }), drained: false }, qualified]);
-        expect(await c.adapters.coaching({ journeyId: 'journey-final-b', expectation: EXPECTATION, release: RELEASE })).toBe(null);
-        expect(await c.adapters.qualify(qualifyArgs())).toEqual({ status: 1, evidence: null });
+        expect(await c.adapters.coaching({ journeyId: 'journey-final-b', expectation: EXPECTATION, release: RELEASE })).toEqual({ unconfirmed: true });
+        expect(await c.adapters.qualify(qualifyArgs())).toEqual({ status: 1, evidence: null, unconfirmed: true });
         expect(c.calls.length).toBe(1);
         // A runner that threw cannot show its process stopped: no retry, and no later call runs.
         let thrownCalls = 0;
         const thrower = live.j8LiveAdapters({ run: () => { thrownCalls += 1; if (thrownCalls === 1) throw new Error('spawn'); return { ...qualified, drained: true }; }, sleep: async () => {} });
-        expect(await thrower.qualify(qualifyArgs())).toEqual({ status: 1, evidence: null });
-        expect(await thrower.qualify(qualifyArgs())).toEqual({ status: 1, evidence: null });
+        expect(await thrower.qualify(qualifyArgs())).toEqual({ status: 1, evidence: null, unconfirmed: true });
+        expect(await thrower.qualify(qualifyArgs())).toEqual({ status: 1, evidence: null, unconfirmed: true });
         expect(thrownCalls).toBe(1);
         // An undrained non-final answer is not retried either; a drained one is.
         const n = harness([{ status: 2, stdout: '', drained: false }, qualified]);
-        expect((await n.adapters.qualify(qualifyArgs())).status).toBe(1);
+        expect(await n.adapters.qualify(qualifyArgs())).toEqual({ status: 1, evidence: null, unconfirmed: true });
         expect(n.calls.length).toBe(1);
         const d = harness([{ status: 2, stdout: '' }, qualified]);
         expect((await d.adapters.qualify(qualifyArgs())).evidence.verdict).toBe('QUALIFIED');
@@ -101,9 +102,15 @@ describe('J8 live adapters', () => {
         const ok = await entry.j8ReadbackVerdicts(receipt, harness([qualified, { status: 2 }, { status: 2 }, { status: 2 }]).adapters, { binding: null });
         expect(ok.journeys.map((j) => j.verdict)).toEqual(['QUALIFIED', 'HOLD']);
         const u = harness([{ ...qualified, drained: false }, qualified, qualified]);
-        const held = await entry.j8ReadbackVerdicts(receipt, u.adapters, { binding: null });
+        const state = { unconfirmed: null };
+        const held = await entry.j8ReadbackVerdicts(receipt, u.adapters, { binding: null, state });
         expect(held.journeys.map((j) => [j.verdict, j.received])).toEqual([['HOLD', null], ['HOLD', null]]);
         expect(u.calls.length).toBe(1);
+        // Sam on 586d50fb: the entry learns of it, for teardown, before the readback returns; a drained run leaves it null.
+        expect(state.unconfirmed).toBe('a readback or coaching process was not confirmed stopped');
+        const okState = { unconfirmed: null };
+        await entry.j8ReadbackVerdicts(receipt, harness([qualified, qualified]).adapters, { binding: null, state: okState });
+        expect(okState.unconfirmed).toBe(null);
     });
 
     it('a malformed release, journey, stage or attempt is refused before any process starts', async () => {

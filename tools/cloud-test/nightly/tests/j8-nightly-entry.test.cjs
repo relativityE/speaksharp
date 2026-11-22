@@ -726,6 +726,71 @@ describe('J8 nightly entry', () => {
         const fine = await run(n, fixtures(n.runDir).deps);
         expect('cutOff' in fine.readback).toBe(false);
     });
+    it('UNCONFIRMED READBACK (Sam on 586d50fb): while a readback or coaching process is not confirmed stopped, teardown neither looks the account up nor deletes it', async () => {
+        const chain = { step: 'J8.b: feedback diagnostic chain', verdict: 'HOLD', detail: '', evidence: { reasons: 'telemetry_not_received',
+            expectedRequestSha256: 'r'.repeat(64), expectedAttemptSha256: 'a'.repeat(64), expectedProduct: 'p', expectedConfiguredModel: 'm', expectedOutcome: 'o' } };
+        const short = { ...entry.DEADLINES, readbackMs: 40, coachingMs: 40, lateSettleMs: 40 };
+        const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        const reason = (r) => `${r}; nothing is looked up or deleted, and the account is left for protected recovery`;
+        // Each case runs through runJ8Nightly's own `finally` (the cleanup path), with the parent recovery present and a landed account.
+        const cases = {
+            'a readback that never settles': [{ qualify: () => new Promise(() => {}) }, 'a readback or coaching call passed its deadline and was still running'],
+            'a readback that ends only after the grace': [{ qualify: async () => { await sleep(300); return 0; } }, 'a readback or coaching call passed its deadline and was still running'],
+            'a coaching call that never settles': [{ coaching: () => new Promise(() => {}) }, 'a readback or coaching call passed its deadline and was still running'],
+            'the adapter\'s own unconfirmed readback': [{ answer: { status: 1, evidence: null, unconfirmed: true } }, 'a readback or coaching process was not confirmed stopped'],
+            'the adapter\'s own unconfirmed coaching call': [{ coachingAnswer: { unconfirmed: true } }, 'a readback or coaching process was not confirmed stopped'],
+            'a readback call that throws': [{ answer: 'throw' }, 'a readback or coaching call threw, so its process is not confirmed stopped'],
+        };
+        for (const [name, [c, why]] of Object.entries(cases)) {
+            const d = dirs();
+            const f = fixtures(d.runDir, { spec: (adm) => receiptFor(adm.createAttempt.attemptId, [chain]),
+                coaching: c.coaching ?? (() => c.coachingAnswer ?? { verdict: 'PASS', reasons: [], release: RELEASE, expected: {} }) });
+            let running = 0;
+            if (c.qualify || c.answer) {
+                f.deps.qualify = async (q) => {
+                    f.calls.qualify.push(q);
+                    if (c.answer === 'throw') throw new Error('spawn');
+                    if (c.answer) return c.answer;
+                    running += 1;
+                    const status = await c.qualify(q);
+                    running -= 1;
+                    return { status, evidence: evidenceFor(q, status) };
+                };
+            }
+            // Recorded when teardown would reach the account: a readback still running at that moment is the finding.
+            let runningAtLookup = null;
+            const lookup = f.deps.lookup;
+            f.deps.lookup = async (q) => { runningAtLookup = running; return lookup(q); };
+            const out = await run(d, f.deps, { deadlines: short });
+            const st = f.store.calls;
+            expect({ name, lookups: st.lookup.length, readAccount: st.readAccount, deletes: st.scopedDelete.length, residue: st.readResidue.length, runningAtLookup })
+                .toEqual({ name, lookups: 0, readAccount: 0, deletes: 0, residue: 0, runningAtLookup: null });
+            expect({ name, left: f.store.users.size, cleanup: out.cleanup.result, exit: out.exitCode, journal: out.createJournal, next: admitRun(d.evidenceDir).admitted })
+                .toEqual({ name, left: 1, cleanup: 'incomplete', exit: 78, journal: 'unresolved', next: false });
+            expect({ name, reasons: Object.values(out.cleanup.reasons).flat().filter((r) => r.includes('protected recovery')) }).toEqual({ name, reasons: [reason(why)] });
+            expect({ name, recorded: files(d.evidenceDir, '.landed.').length + files(d.evidenceDir, '.recovered.').length }).toEqual({ name, recorded: 0 });
+        }
+        // A late readback that ends inside the grace is confirmed stopped: HOLD, but the account is recovered as usual.
+        const g = dirs();
+        const late = fixtures(g.runDir);
+        const inner = late.deps.qualify;
+        late.deps.qualify = async (q) => { if (q.journeyId === 'journey-c') await sleep(60); return inner(q); };
+        const lout = await run(g, late.deps, { deadlines: { ...short, lateSettleMs: 400 } });
+        expect({ cutOff: lout.readback.cutOff, lookups: late.store.calls.lookup.length > 0, deletes: late.store.calls.scopedDelete.length, left: late.store.users.size,
+            cleanup: lout.cleanup.result, journal: lout.createJournal })
+            .toEqual({ cutOff: 'a readback or coaching call passed its deadline', lookups: true, deletes: 1, left: 0, cleanup: 'complete', journal: 'resolved' });
+        // Teardown fails closed on its own: a readback state it was not given (not an explicit null) looks nothing up.
+        for (const readbackUnconfirmed of [undefined, false, '']) {
+            const e = dirs();
+            const adm = entry.admitJ8({ evidenceDir: e.evidenceDir, runId: RUN_ID, runAttempt: '1', configuredDomain: DOMAIN, now: () => NOW });
+            const st = accountStore();
+            st.signUp(`${adm.local}@${adm.domain}`);
+            const doc = await entry.teardownJ8({ evidenceDir: e.evidenceDir, admission: adm, receipt: receiptFor(adm.attemptId), deps: st.deps,
+                binding: ctRunFor(RUN_ID, '1'), specExited: true, readbackUnconfirmed });
+            expect({ readbackUnconfirmed, cleanup: doc.cleanup, lookups: st.calls.lookup.length, deletes: st.calls.scopedDelete.length })
+                .toEqual({ readbackUnconfirmed, cleanup: 'incomplete', lookups: 0, deletes: 0 });
+        }
+    });
     it('DEADLINES (Sam on b1f8323f): a spec, readback, coaching, evaluation or lookup that never answers is cut off, and cleanup still runs on its own budget', async () => {
         const never = () => new Promise(() => {});
         const short = { specMs: 40, readbackMs: 40, coachingMs: 40, lateSettleMs: 40, evaluateMs: 40, cleanupMs: 60 };
@@ -849,10 +914,11 @@ describe('J8 nightly entry with the live adapters composed over a recording proc
      * One runner for the spec, the readback and the scoped delete: the spec signs the reserved account up (bound to its run) and writes
      * `spec(admission)`; each readback answers `readbackCode(args)`; the delete script removes the account and prints its verdict.
      */
-    function composed(d, { spec = (adm) => receiptFor(adm.createAttempt.attemptId), readbackCode = () => 0, users = new Map(), counts = {}, repoRoot = d.runDir } = {}) {
+    function composed(d, { spec = (adm) => receiptFor(adm.createAttempt.attemptId), readbackCode = () => 0, users = new Map(), counts = {}, repoRoot = d.runDir,
+        drainedFor = () => true } = {}) {
         const calls = [];
-        // Every process tree is drained, as the real runner reports once nothing carrying its tag is left.
-        const runner = (command, args, opts) => ({ drained: true, ...answer(command, args, opts) });
+        // Every process tree is drained, as the real runner reports once nothing carrying its tag is left (unless `drainedFor` says not).
+        const runner = (command, args, opts) => ({ ...answer(command, args, opts), drained: drainedFor(args) });
         const answer = (command, args, opts) => {
             calls.push({ command, args, env: opts.env, timeout: opts.timeout });
             if (args.includes('playwright') && args.includes('--list')) return { status: 0, stdout: LISTED_J8 };
@@ -913,6 +979,18 @@ describe('J8 nightly entry with the live adapters composed over a recording proc
         fs.symlinkSync(e.runDir, link);
         const linked = await run({ ...e, runDir: link }, composed(e).deps);
         expect(linked.exitCode).toBe(0);
+    });
+    it('UNCONFIRMED READBACK (Sam on 586d50fb): a readback the live runner cannot confirm stopped means no delete process is started', async () => {
+        for (const drained of [false, undefined]) {
+            const d = dirs();
+            // The runner reports the readback process tree not confirmed stopped; every other process is drained as usual.
+            const c = composed(d, { drainedFor: (args) => (args.includes('telemetry:readback-qualification') ? drained : true) });
+            const out = await run(d, c.deps);
+            const del = c.calls.filter((x) => String(x.args[0]).endsWith('rwt-j8-parent-delete.mts'));
+            expect({ drained, deletes: del.length, left: c.users.size, cleanup: out.cleanup.result, exit: out.exitCode, journal: out.createJournal })
+                .toEqual({ drained, deletes: 0, left: 1, cleanup: 'incomplete', exit: 78, journal: 'unresolved' });
+            expect(Object.values(out.cleanup.reasons).flat()).toContain('a readback or coaching process was not confirmed stopped; nothing is looked up or deleted, and the account is left for protected recovery');
+        }
     });
     it('an observed readback failure for J8.b\'s journey FAILs its received row; residue after the delete keeps cleanup incomplete', async () => {
         const d = dirs();

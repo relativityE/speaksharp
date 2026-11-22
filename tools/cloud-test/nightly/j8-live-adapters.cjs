@@ -310,12 +310,15 @@ function j8LiveAdapters({ repoRoot = path.join(__dirname, '..', '..', '..'), bas
                 || !stages.every((s) => STAGE.test(String(s))) || !Array.isArray(attemptIds) || !attemptIds.every((a) => ID.test(String(a)))) return { status: 1, evidence: null };
             const r = await readback(release, journeyId, { TELEMETRY_READBACK_ACQUISITION_RECEIPT: firstDownload === true ? '1' : '0',
                 QUALIFICATION_ATTEMPT_IDS: attemptIds.join(','), QUALIFICATION_STAGES: stages.join(',') });
+            // Sam on 586d50fb: the entry must know, so teardown leaves the account for protected recovery.
+            if (r?.unconfirmed === true) return { status: 1, evidence: null, unconfirmed: true };
             const status = typeof r?.status === 'number' ? r.status : 1;
             return { status, evidence: readbackEvidence(r?.stdout ?? '', status) };
         },
         async coaching({ journeyId, expectation, release }) {
             if (!SHA.test(String(release)) || !ID.test(String(journeyId)) || !expectation || typeof expectation !== 'object') return null;
             const r = await readback(release, journeyId, { TELEMETRY_READBACK_COACHING_DIAGNOSTIC: '1', COACHING_DIAGNOSTIC_EXPECTATION: JSON.stringify(expectation) });
+            if (r?.unconfirmed === true) return { unconfirmed: true };
             return boundCoachingReceipt(r?.stdout ?? '', r?.status);
         },
     };
