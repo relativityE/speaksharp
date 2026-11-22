@@ -32,6 +32,8 @@ const AHT1811_HELPERS=[
     "ModelTransferTracker#onRequest","ModelTransferTracker#onFinished","ModelTransferTracker#onFailed","ModelTransferTracker#stateOf",
     "ModelTransferTracker#snapshot","BetweenFilesHold#startAttempt","BetweenFilesHold#onRoute","BetweenFilesHold#held","BetweenFilesHold#release",
     "BetweenFilesHold#releaseAll"]],
+  // J7.c option B (#1941): the isolated build refuses while a repo-root dotenv file exists.
+  ['tests/e2e/helpers/isolatedBuildDotenv.ts','tests/unit/j7cIsolatedBuildDotenv.test.ts',["rootDotenvFiles","assertNoRootDotenv"]],
   ['tests/live/helpers/rwtFocusEditCancel.ts','tests/unit/rwtFocusEditCancel.test.ts',["editCancelVerdict"]],
   // #1882: the Focus switch take on the live clock and the rail settled on actual rows.
   ['tests/live/helpers/rwtLiveTimedTake.ts','tests/unit/rwtFocusSwitchLiveClock1882.test.ts',["readRailRowCount","railSettled"]],

@@ -170,6 +170,10 @@ export const HELPER_CONTRACTS = Object.freeze([{
     "ModelTransferTracker#snapshot","BetweenFilesHold#startAttempt","BetweenFilesHold#onRoute","BetweenFilesHold#held","BetweenFilesHold#release",
     "BetweenFilesHold#releaseAll"],
 }, {
+  // J7.c option B (#1941): the isolated build's refusal of repo-root dotenv files, through its own unit consumer.
+  helperFile:'tests/e2e/helpers/isolatedBuildDotenv.ts',testFile:'tests/unit/j7cIsolatedBuildDotenv.test.ts',
+  callables:["rootDotenvFiles","assertNoRootDotenv"],
+}, {
   // J8 (#1870): the same-account feedback journey's pure rules, through their own unit consumer.
   helperFile:'tests/live/helpers/rwtJ8Journey.ts',testFile:'tests/unit/rwtJ8Journey.test.ts',
   callables:["legSink","legReceipt","legReadback","mergeLegReadback","takeDigest","readTakeDigests","takesReadComplete","takesUnchangedVerdict","writerDrainedVerdict","j8RunnerAdmission",
