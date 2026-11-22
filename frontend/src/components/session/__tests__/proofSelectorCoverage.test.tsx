@@ -160,11 +160,9 @@ describe('#1306 proof selector coverage — the class-level guard', () => {
      * that: the harness pins the very thing the proof is supposed to vary.
      */
     const KNOWN_BROKEN_LIVE_SPECS: readonly string[] = [
-        'tests/live/analytics-live-native-probe.live.spec.ts',
         'tests/live/tester-b-private-native-stt.live.spec.ts',
         'tests/live/stt-accuracy-integration.live.spec.ts',
         'tests/live/benchmark-v4.live.spec.ts',
-        'tests/live/benchmark-native.live.spec.ts',
         'tests/live/benchmark-cpu.live.spec.ts',
         'tests/live/analytics-journey.live.spec.ts',
         'tests/live/filler-source-comparison.live.spec.ts',
