@@ -129,55 +129,41 @@ export function reviewReopenVerdict(o: ReopenObservation & { savedId: string | n
     return { status: 'PASS', detail: 'Analytics reopened the saved take with its saved transcript, before and after a reload (digest equal)' };
 }
 
-/**
- * AHT-14 "mid-download": the page had RECEIVED model bytes and the transfer was still running when the browser went offline.
- * `mic-progress` is the product's own byte count (transformers.js reports `loaded / total` while reading each response body in
- * the model worker; the store keeps it as a percent), so a rendered 1–99 % while `loading` is bytes seen, mid-transfer — and it
- * is read in the page, whether or not the worker's fetches reach Playwright's network events. 100 % is a finished transfer.
- */
+/** One immediate read of the page: the byte percent it renders, its model status and its published runtime state. */
 export type ModelBytesRead = { pct: number | null; status: string | null; runtimeState?: string | null };
-export function modelBytesSeen(read: ModelBytesRead | null): boolean {
-    return read !== null && read.status === 'loading' && typeof read.pct === 'number' && read.pct >= 1 && read.pct < 100;
-}
 
 /**
- * AHT-14 injection gate (Sam, 2026-11-15, after rc-gates run 43740031821; Codex P1 on df4db146). In that run the journey went
- * offline after its read had settled on model status `ready`, which TranscriptionService also publishes while RECORDING; the cold
- * `Download & start recording` press was already recording, its take could not be written, and the run-owned account kept an
- * admitted save that no timer, lease release or cleanup may settle (#1643), so it could not be deleted.
+ * J7.c option B (PO, 2026-11-22; Elon's options of 2026-11-21): THE NETWORK DROPS BETWEEN MODEL FILES. Chromium's offline switch
+ * blocks new requests but lets a response that is already streaming finish (Elon's Chromium 143 probe), so the fault is placed
+ * where a real drop meets a multi-file download: one file of this attempt has finished, and the next is held at the start of its
+ * request (`BetweenFilesHold`) until the browser is offline.
  *
  * WHAT THE PAGE ACTUALLY PUBLISHES (pinned by tests/unit/rwtAdverseRecovery.test.ts against the product's own mapper):
  * `data-runtime-state` is `mapToRuntimeState(fsm)` (forensicAnchors.ts), not the raw FSM. The cold download runs INSIDE the raw
- * ENGINE_INITIALIZING state (the service requests engine init from DOWNLOAD_REQUIRED; the raw DOWNLOADING state is mapped to
- * ENGINE_INITIALIZING too), so no published state says "downloading".
- *
- * Sam, 2026-11-15 (#1868 on 887a76f6): and the byte percent cannot prove the transfer either. The real aggregator
- * (progressAggregator.ts) holds 100 % while a later model file is still downloading, and a retained 1–99 % does not show bytes
- * still moving. So "downloading" is the conjunction of the published setup state (ENGINE_INITIALIZING), bytes the product has
- * counted (1 % or more, 100 % included), and a model-asset response of THIS attempt with its body still in flight
- * (`ModelTransferTracker`, from the network). Between sequential files, or once the transfer is over, no body is in flight:
- * not a download, whatever the percent shows.
+ * ENGINE_INITIALIZING state (the raw DOWNLOADING state is mapped to ENGINE_INITIALIZING too), so no published state says
+ * "downloading". The gate is therefore the published setup state, bytes the product has counted (1 % or more, 100 % included:
+ * the real aggregator, progressAggregator.ts, can hold 100 % while a later file downloads), at least one finished model file of
+ * this attempt, and the next model file of this attempt held unsent. All four, or the browser never goes offline.
  */
 export const SETUP_RUNTIME_STATE = 'ENGINE_INITIALIZING';
-export type TransferSnapshot = { openInBody: number; failedUnderFault: number };
+/**
+ * This attempt's model files, from the network (`ModelTransferTracker`), and how the held next file stands: `none` while nothing
+ * is held, `unseen` when the route holds a request the network events never showed as this attempt's (the gate refuses it).
+ */
+export type BetweenFilesSnapshot = { finished: number; failedUnderFault: number; held: 'none' | 'unseen' | 'pending' | 'finished' | 'failed' };
 export type OfflineInjectionGate = { inject: true } | { inject: false; reason: string };
-/** The product counted received bytes (any percent from 1, 100 included: the aggregator can hold 100 mid-transfer). */
+/** The product counted received bytes (any percent from 1, 100 included: the aggregator can hold 100 mid-download). */
 export function bytesCounted(read: ModelBytesRead | null): boolean {
     return read !== null && read.status === 'loading' && typeof read.pct === 'number' && read.pct >= 1;
 }
-/** A body of this attempt is in flight right now, in this attempt's published setup, after counted bytes. */
-export function downloadingNow(read: ModelBytesRead | null, transfer: TransferSnapshot | null): boolean {
-    return read !== null && read.runtimeState === SETUP_RUNTIME_STATE && bytesCounted(read) && transfer !== null && transfer.openInBody > 0;
-}
-export function offlineInjectionGate(read: ModelBytesRead | null, transfer: TransferSnapshot | null): OfflineInjectionGate {
+export function betweenFilesGate(read: ModelBytesRead | null, files: BetweenFilesSnapshot | null): OfflineInjectionGate {
     if (read === null) return { inject: false, reason: 'the page state was unreadable' };
     if (read.runtimeState !== SETUP_RUNTIME_STATE) {
         return { inject: false, reason: `the runtime state was ${read.runtimeState ?? 'unreadable'}, not ${SETUP_RUNTIME_STATE}` };
     }
     if (!bytesCounted(read)) return { inject: false, reason: 'no model bytes were counted yet' };
-    if (transfer === null || transfer.openInBody === 0) {
-        return { inject: false, reason: 'no model response of this attempt had its body in flight (between files, finished, or unobservable)' };
-    }
+    if (files === null || files.finished < 1) return { inject: false, reason: 'no model file of this attempt had finished' };
+    if (files.held !== 'pending') return { inject: false, reason: 'no next model file of this attempt was held at the start of its request' };
     return { inject: true };
 }
 
@@ -191,7 +177,7 @@ export function offlineInjectionGate(read: ModelBytesRead | null, transfer: Tran
  *    order binds a failure to the attempt's setup; a bare FAILED is never read as one;
  *  - `unattributed-failure`: FAILED / FAILED_VISIBLE without this attempt's ENGINE_INITIALIZING before it;
  *  - `left-setup`: the engine became READY, or the runtime left setup without failing (IDLE / TERMINATED after it): no download;
- *  - `in-setup`: the last state is ENGINE_INITIALIZING. Download OR engine init — only the transfer can tell (`downloadingNow`);
+ *  - `in-setup`: the last state is ENGINE_INITIALIZING. Download OR engine init — only the network can tell (`betweenFilesGate`);
  *  - `pre-setup`: nothing decisive yet; `unobserved`: no log in this document (replaced document), or an index beyond the log.
  */
 export const RECORDING_RUNTIME_STATES = ['RECORDING', 'STOPPING'] as const;
@@ -217,15 +203,18 @@ export function attemptPhase(log: RuntimeStateLog | null, fromIndex: number): At
 }
 
 /**
- * The page and context the offline fault drives, injected so every interleaving is unit-tested without a browser. `phase()` reads
- * the attempt's phase from the complete log; `transfer()` is this attempt's network transfer (`ModelTransferTracker`: bodies in
- * flight, and failures while the fault is armed); `isOnline()` is the page's own `navigator.onLine` (null: unreadable); `armFault`
- * and `disarmFault` open and close the watchdog's fault phase and the attempt's failure counters around the offline window.
+ * The page and context the between-files fault drives, injected so every interleaving is unit-tested without a browser. `phase()`
+ * reads the attempt's phase from the complete log; `files()` is this attempt's model files from the network and how the held next
+ * file stands; `read()` is one read of the page (`ModelBytesRead`); `release()` sends the held file's request on (false when it
+ * could not); `isOnline()` is the page's own `navigator.onLine` (null: unreadable); `armFault` and `disarmFault` open and close the
+ * watchdog's fault phase and the attempt's failure counters around the offline window.
  */
 export interface OfflineFaultIo {
     setOffline(offline: boolean): Promise<boolean>;
     phase(): Promise<AttemptPhase>;
-    transfer(): TransferSnapshot;
+    files(): BetweenFilesSnapshot;
+    read(): Promise<ModelBytesRead | null>;
+    release(): Promise<boolean>;
     isOnline(): Promise<boolean | null>;
     armFault(): void;
     disarmFault(): void;
@@ -234,87 +223,123 @@ export interface OfflineFaultIo {
 }
 
 /**
- * - `exercised`: the browser went offline while a body of this attempt was in flight, and the setup then failed from this
- *   attempt's ENGINE_INITIALIZING with no READY or recording (`settled: true`), or was still in setup offline at the bound
- *   (`settled: false`, judged by the failure verdict as before). The network is still offline: the caller states the failure,
- *   then removes the cause.
- * - `not-exercised`: no fault reached a download; the network was never taken offline, or its restoration was PROVEN (the page
+ * - `exercised`: the browser went offline with the next model file of this attempt held, that file was then sent into the dropped
+ *   network, and the setup failed from this attempt's ENGINE_INITIALIZING with no READY or recording (`settled: true`), or a
+ *   request of this attempt had failed under the fault and the setup was still running offline at the bound (`settled: false`,
+ *   judged by the failure verdict). The network is still offline: the caller states the failure, then removes the cause.
+ * - `not-exercised`: no fault reached the download; the network was never taken offline, or its restoration was PROVEN (the page
  *   reports `navigator.onLine`) before any recording was seen. Never PASS.
- * - `fail-closed`: a recording appeared under the fault, the attempt was unobserved, a failure could not be bound to this
- *   attempt, or restoration was not proven. Always FAIL; the network has been restored as far as the context allows.
+ * - `fail-closed`: a recording appeared, the attempt was unobserved, a failure could not be bound to this attempt, or restoration
+ *   was not proven. Always FAIL; the network has been restored as far as the context allows.
  */
 export type OfflineFaultOutcome =
     | { kind: 'exercised'; settled: boolean }
     | { kind: 'not-exercised'; reason: string; restored: boolean }
     | { kind: 'fail-closed'; reason: string; restored: boolean };
+/** The outcome, with the page read and the files the gate decided from (null when no next file was ever held). */
+export type BetweenFilesRun = { outcome: OfflineFaultOutcome; gateRead: ModelBytesRead | null; gateFiles: BetweenFilesSnapshot | null };
+
+const UNSAFE_PHASES: readonly AttemptPhase[] = ['recorded', 'unobserved', 'unattributed-failure'];
 
 /**
- * AHT-14's offline window, as one bounded controller (Sam, 2026-11-15, #1868 HOLDs; Codex P1 on df4db146). Offline only after the
- * gate (published setup + counted bytes + a body of this attempt in flight) AND the attempt's own log say so; then every poll
- * re-reads the log and the transfer: a transition during `setOffline(true)` is caught by the first read after it, and one just
- * after any read by the next. While the fault holds, the window stays open only as long as a body is still in flight or a request
- * of this attempt has already failed under the fault (the fault reached the transfer; the setup failure follows). The moment
- * neither holds (the transfer ended before the fault reached it) or the runtime leaves setup, the network is restored at once and
- * the page must report itself online; a recording, an unobserved attempt or a failure not bound to this attempt restores and fails
- * closed. Restoring early is always the safe side: it costs an exercised fault (HOLD), never a stranded save.
+ * J7.c's offline window, as one bounded controller (option B). It waits, within `holdBoundMs`, for the next model file of this
+ * attempt to be held; reads the page; goes offline only when `betweenFilesGate` and the attempt's own log both say so; then sends
+ * the held request into the dropped network and polls. Every poll re-reads the log and the files: the setup failing from this
+ * attempt is the fault exercised; a recording, an unobserved attempt or a failure not bound to this attempt restores and fails
+ * closed; the held file downloading anyway (offline did not reach it) or the setup leaving without failing restores at once and
+ * requires the page to report itself online. Whenever the browser does not go offline, the held request is sent on online, so a
+ * download is never left stalled. Restoring early is always the safe side: it costs an exercised fault (HOLD), never a stranded
+ * save.
  */
-export async function runOfflineFault(io: OfflineFaultIo, gateRead: ModelBytesRead | null,
-    opts: { boundMs: number; pollMs: number }): Promise<OfflineFaultOutcome> {
-    const gate = offlineInjectionGate(gateRead, io.transfer());
-    if (!gate.inject) return { kind: 'not-exercised', reason: gate.reason, restored: true };
+export async function runBetweenFilesFault(io: OfflineFaultIo,
+    opts: { holdBoundMs: number; boundMs: number; pollMs: number }): Promise<BetweenFilesRun> {
+    const run = (outcome: OfflineFaultOutcome, gateRead: ModelBytesRead | null = null, gateFiles: BetweenFilesSnapshot | null = null): BetweenFilesRun =>
+        ({ outcome, gateRead, gateFiles });
+    // Whenever the browser does not go offline, a held file goes on, online: a download is never left stalled.
+    const sendOnline = async (outcome: OfflineFaultOutcome, gateRead: ModelBytesRead | null = null, gateFiles: BetweenFilesSnapshot | null = null): Promise<BetweenFilesRun> => {
+        await io.release().catch(() => false);
+        return run(outcome, gateRead, gateFiles);
+    };
+    // 1. The next file of this attempt, held. Until then the download runs untouched; a recording or a lost log stops the wait.
+    const holdDeadline = io.now() + opts.holdBoundMs;
+    // A held file the network events have not reported yet ('unseen') is waited on too: the gate needs it seen and still pending.
+    const heldSeen = (): boolean => !['none', 'unseen'].includes(io.files().held);
+    for (;;) {
+        if (heldSeen()) break;
+        const phase = await io.phase();
+        if (heldSeen()) break;
+        if (UNSAFE_PHASES.includes(phase)) {
+            return sendOnline({ kind: 'fail-closed', reason: `the attempt was ${phase} before any next model file was held`, restored: true });
+        }
+        if (phase === 'setup-failed' || phase === 'left-setup') {
+            return sendOnline({ kind: 'not-exercised', reason: `the attempt was ${phase} before any next model file was held`, restored: true });
+        }
+        if (io.now() >= holdDeadline) {
+            return sendOnline({ kind: 'not-exercised', reason: 'no model file of this attempt was requested after one had finished, within the bound', restored: true });
+        }
+        await io.sleep(opts.pollMs);
+    }
+    // 2. The gate, from one page read and the files. Refused: the held file goes on, online.
+    const gateRead = await io.read();
+    const gateFiles = io.files();
+    const gate = betweenFilesGate(gateRead, gateFiles);
+    if (!gate.inject) return sendOnline({ kind: 'not-exercised', reason: gate.reason, restored: true }, gateRead, gateFiles);
     const before = await io.phase();
     if (before !== 'in-setup') {
-        return before === 'recorded' || before === 'unobserved' || before === 'unattributed-failure'
+        return sendOnline(UNSAFE_PHASES.includes(before)
             ? { kind: 'fail-closed', reason: `the attempt was ${before} before going offline`, restored: true }
-            : { kind: 'not-exercised', reason: `the attempt was ${before}, not in setup, at the gate`, restored: true };
+            : { kind: 'not-exercised', reason: `the attempt was ${before}, not in setup, at the gate`, restored: true }, gateRead, gateFiles);
     }
     const restore = async (): Promise<boolean> => {
         const ok = await io.setOffline(false).catch(() => false);
         io.disarmFault();
         return ok && (await io.isOnline().catch(() => null)) === true;
     };
-    const benignOrClosed = async (why: string): Promise<OfflineFaultOutcome> => {
+    const benignOrClosed = async (why: string): Promise<BetweenFilesRun> => {
         const restored = await restore();
         // A recording may have begun while the network came back: re-read; only a proven, still unrecorded restore is benign.
         const after = await io.phase();
-        if (restored && after !== 'recorded' && after !== 'unobserved' && after !== 'unattributed-failure') {
-            return { kind: 'not-exercised', reason: `${why}; the network was restored before any recording`, restored };
+        if (restored && !UNSAFE_PHASES.includes(after)) {
+            return run({ kind: 'not-exercised', reason: `${why}; the network was restored before any recording`, restored }, gateRead, gateFiles);
         }
-        return { kind: 'fail-closed', reason: restored ? `${why}, and the attempt was ${after} when the network came back` : `${why}, and the page did not report itself online again`, restored };
+        return run({ kind: 'fail-closed', reason: restored ? `${why}, and the attempt was ${after} when the network came back` : `${why}, and the page did not report itself online again`, restored }, gateRead, gateFiles);
     };
-    // Sam, 2026-11-15 on 481ae722: the phase read above is awaited, so a body can finish in that gap while the phase still says
-    // setup. Re-check the transfer synchronously, immediately before arming and going offline; nothing is awaited in between.
-    if (io.transfer().openInBody === 0) {
-        return { kind: 'not-exercised', reason: 'the transfer ended between the gate and going offline', restored: true };
-    }
+    // 3. Offline, armed first (a failure delivered while setOffline is awaited still counts), then the held file is sent.
     io.armFault();
     if (!(await io.setOffline(true).catch(() => false))) {
         const restored = await restore();
-        return restored
+        await io.release().catch(() => false);
+        return run(restored
             ? { kind: 'not-exercised', reason: 'going offline failed', restored }
-            : { kind: 'fail-closed', reason: 'going offline failed and the page did not report itself online again', restored };
+            : { kind: 'fail-closed', reason: 'going offline failed and the page did not report itself online again', restored }, gateRead, gateFiles);
     }
+    if (!(await io.release().catch(() => false))) return benignOrClosed('the held model file could not be sent');
+    // 4. The window: decided from the log and the files on every poll.
     const deadline = io.now() + opts.boundMs;
     for (;;) {
         const phase = await io.phase();
-        if (phase === 'setup-failed') return { kind: 'exercised', settled: true };
-        if (phase === 'recorded' || phase === 'unobserved' || phase === 'unattributed-failure') {
+        if (phase === 'setup-failed') return run({ kind: 'exercised', settled: true }, gateRead, gateFiles);
+        if (UNSAFE_PHASES.includes(phase)) {
             const restored = await restore();
-            return { kind: 'fail-closed', reason: `the attempt was ${phase} under the fault`, restored };
+            return run({ kind: 'fail-closed', reason: `the attempt was ${phase} under the fault`, restored }, gateRead, gateFiles);
         }
         if (phase !== 'in-setup') return benignOrClosed(`the attempt was ${phase} under the fault, not downloading`);
-        const transfer = io.transfer();
-        if (transfer.openInBody === 0 && transfer.failedUnderFault === 0) {
+        const files = io.files();
+        if (files.held === 'finished' && files.failedUnderFault === 0) {
             // The log may have moved on since the phase read: decide from it again before calling it a benign miss.
             const again = await io.phase();
-            if (again === 'setup-failed') return { kind: 'exercised', settled: true };
-            if (again === 'recorded' || again === 'unobserved' || again === 'unattributed-failure') {
+            if (again === 'setup-failed') return run({ kind: 'exercised', settled: true }, gateRead, gateFiles);
+            if (UNSAFE_PHASES.includes(again)) {
                 const restored = await restore();
-                return { kind: 'fail-closed', reason: `the attempt was ${again} under the fault`, restored };
+                return run({ kind: 'fail-closed', reason: `the attempt was ${again} under the fault`, restored }, gateRead, gateFiles);
             }
-            return benignOrClosed('the transfer ended before the fault reached it');
+            return benignOrClosed('the held model file downloaded although the browser was offline');
         }
-        if (io.now() >= deadline) return { kind: 'exercised', settled: false };
+        if (io.now() >= deadline) {
+            return files.failedUnderFault > 0
+                ? run({ kind: 'exercised', settled: false }, gateRead, gateFiles)
+                : benignOrClosed('no model request of this attempt failed under the fault within the bound');
+        }
         await io.sleep(opts.pollMs);
     }
 }
@@ -341,12 +366,12 @@ export function faultUnprovenRecoveryVerdict(o: { recorded: boolean | null; save
     return { status: 'HOLD', detail: `the download failure was not proven, so no recovery control was pressed${o.recorded ? '; the take that recorded was stopped and saved' : ''}` };
 }
 
-/** The failure row when no mid-download fault was exercised: HOLD for a proven, benign miss; FAIL when it failed closed. Never PASS. */
+/** The failure row when no between-files fault was exercised: HOLD for a proven, benign miss; FAIL when it failed closed. Never PASS. */
 export function offlineNotExercisedVerdict(outcome: Exclude<OfflineFaultOutcome, { kind: 'exercised' }>): Verdict {
     if (outcome.kind === 'fail-closed') {
         return { status: 'FAIL', detail: `the offline fault failed closed (${outcome.reason}; network restoration ${outcome.restored ? 'proven' : 'NOT proven'})` };
     }
-    return { status: 'HOLD', detail: `the browser was not kept offline mid-download (${outcome.reason}), so no download failure was exercised` };
+    return { status: 'HOLD', detail: `the network was not dropped between model files (${outcome.reason}), so no download failure was exercised` };
 }
 
 /**
@@ -370,18 +395,59 @@ export function coldTakeSettledVerdict(o: { recorded: boolean | null; savedId: s
 }
 
 /**
- * download-fault-exercised + download-failure-truthful for AHT-14. HOLD (never PASS) when no model bytes were seen before going
- * offline — that is offline-before-download, not mid-download — or when no failed model request of this attempt was observed
- * while the fault was armed (the download runs in a Web Worker; if Playwright does not surface that worker's fetches, or the
- * transfer finished before offline applied, the fault's reach is unproven). Otherwise the AHT-13 rule decides, unchanged.
+ * download-fault-exercised + download-failure-truthful for J7.c (AHT-14). HOLD (never PASS) when the gate never passed (no file of
+ * this attempt had finished with the next one held, so this was not a drop between files), or when no failed model request of
+ * this attempt was observed while the fault was armed (the fault's reach is unproven). Otherwise the AHT-13 rule decides, unchanged.
  */
-export function midDownloadFailureVerdict(o: Parameters<typeof downloadFailureVerdict>[0] & { bytesSeenBeforeOffline: boolean }): Verdict {
+export function betweenFilesFailureVerdict(o: Parameters<typeof downloadFailureVerdict>[0] & { droppedBetweenFiles: boolean }): Verdict {
     if (o.observed === false || o.statuses.length === 0) return downloadFailureVerdict(o);
-    if (!o.bytesSeenBeforeOffline) {
-        return { status: 'HOLD', detail: 'no model bytes were seen before going offline, so this was not offline mid-download' };
+    if (!o.droppedBetweenFiles) {
+        return { status: 'HOLD', detail: 'the network was not dropped between model files of this download, so the case was not exercised' };
     }
     if (!o.exercised) {
-        return { status: 'HOLD', detail: 'model bytes were seen, but no failed model request of this download was observed after going offline (worker fetches may not reach Playwright\'s network events), so the fault\'s reach is unproven' };
+        return { status: 'HOLD', detail: 'the network was dropped between model files, but no failed model request of this download was observed under the fault, so the fault\'s reach is unproven' };
     }
     return downloadFailureVerdict(o);
+}
+
+/** MicCard's own line for a failed Private setup (MicCard.tsx), the message every failed download must show beside Retry. */
+export const MODEL_SETUP_FAILED_COPY = 'Setup didn\u2019t finish \u2014 retry. Your audio stays on your machine.';
+/** Any wording that tells the person their setup or browser is not supported. After a network drop that is untrue: a product bug. */
+export const NOT_SUPPORTED_WORDING = /\bnot supported\b|\bunsupported\b|\bisn[\u2019']t supported\b/i;
+
+/**
+ * Sam, 2026-11-22 (J7.c option B): what the person SEES on the failed attempt, captured on that same attempt, offline, before
+ * anything is pressed: the mic card (its status line and the failure line), every toast on the page, and the Retry control.
+ * Judged apart from telemetry: the `unsupported` acquisition code is never read here. `sameAttempt` is true only when the
+ * page's runtime log, from this attempt's press, still ends in this attempt's setup failure (same document, nothing since).
+ *  - HOLD: nothing was read, the page could not be bound to the failed attempt, or it was unreadable.
+ *  - FAIL: anything visible says "not supported" (PO, 2026-11-22: a product bug, not a pass); Retry is missing or disabled; or
+ *    the card does not state the failure.
+ *  - PASS: the card states the failure, Retry is enabled, and nothing visible calls it not supported.
+ */
+export type ShownFailure = {
+    sameAttempt: boolean | null; cardText: string | null; toastTexts: readonly string[] | null;
+    retryVisible: boolean | null; retryEnabled: boolean | null;
+};
+export function shownFailureVerdict(o: ShownFailure | null): Verdict {
+    if (o === null) return { status: 'HOLD', detail: 'what the page showed on the failed attempt was not read' };
+    if (o.sameAttempt !== true) return { status: 'HOLD', detail: 'what the page showed could not be bound to the failed attempt' };
+    if (o.cardText === null || o.toastTexts === null) return { status: 'HOLD', detail: 'what the page showed on the failed attempt was unreadable' };
+    if ([o.cardText, ...o.toastTexts].some((text) => NOT_SUPPORTED_WORDING.test(text))) {
+        return { status: 'FAIL', detail: 'after the network dropped, the page told the person it is not supported: a product bug, not a pass' };
+    }
+    if (o.retryVisible !== true || o.retryEnabled !== true) {
+        return { status: 'FAIL', detail: `the failed attempt offered no enabled Retry (${o.retryVisible !== true ? 'not shown' : 'disabled'})` };
+    }
+    if (!o.cardText.includes(MODEL_SETUP_FAILED_COPY)) return { status: 'FAIL', detail: 'the failed attempt did not state that setup did not finish' };
+    return { status: 'PASS', detail: 'the failed attempt stated that setup did not finish, with Retry enabled, and nothing on the page called it not supported' };
+}
+
+/** One row from several verdicts on the same facts: FAIL over HOLD over PASS; the first verdict of the worst status speaks. */
+export function worstVerdict(...verdicts: readonly Verdict[]): Verdict {
+    for (const status of ['FAIL', 'HOLD'] as const) {
+        const found = verdicts.find((v) => v.status === status);
+        if (found) return found;
+    }
+    return verdicts[0];
 }

@@ -689,7 +689,7 @@ describe('#1662 Codex on f527a033 — each fault phase brackets exactly its inje
         const at = src.indexOf(route);
         expect(at).toBeGreaterThan(0);
         expect(src.lastIndexOf('watch.setFaultPhase(true);', at), `${route} — opened before`).toBeGreaterThan(src.lastIndexOf('watch.setFaultPhase(false);', at));
-        // Sam, 2026-11-15 (#1868): going offline runs inside `runOfflineFault`, which calls `armFault` (opening the phase) before
+        // Sam, 2026-11-15 (#1868): going offline runs inside `runBetweenFilesFault`, which calls `armFault` (opening the phase) before
         // `setOffline(true)` and `disarmFault` (closing it) on every restore; rwtAdverseRecovery.test.ts proves that order.
         expect(src).not.toContain('context.setOffline(true)');
         expect(src).toContain('armFault: () => { watch.setFaultPhase(true); fault.armFault(); transfer.armFault(); },');
