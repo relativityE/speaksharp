@@ -80,11 +80,16 @@ const realSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // Reading a process's environment fails with ENOENT once it has exited and ESRCH when it has no address space (a kernel thread, or
 // a process already exiting); neither can carry the tag or run code, so neither is a process to drain.
 const NO_ENVIRONMENT = new Set(['ENOENT', 'ESRCH']);
-/** Field 22 of /proc/<pid>/stat, the start time in clock ticks since boot: a number, 'gone', or null when it cannot be read. */
+/**
+ * Field 22 of /proc/<pid>/stat, the start time in clock ticks since boot: a number, 'gone', or null when it cannot be read.
+ * A zombie (Z) or dead (X) process is 'gone': it has already closed every file and runs nothing, it only waits to be reaped, and
+ * the kernel refuses a non-root reader its environment (EACCES) even when it was this run's (CI on 87fef151).
+ */
 function startTicksOf(pid, procFs) {
     let stat;
     try { stat = procFs.readFileSync(`/proc/${pid}/stat`, 'latin1'); } catch (e) { return NO_ENVIRONMENT.has(e?.code) ? 'gone' : null; }
     const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+    if (fields[0] === 'Z' || fields[0] === 'X') return 'gone';
     return /^\d+$/.test(fields[19] ?? '') ? Number(fields[19]) : null;
 }
 /** The real uid (the first Uid: field) of /proc/<pid>/status: a number, 'gone', or null when it cannot be read. */
@@ -205,19 +210,28 @@ function readbackArgs(release, journeyId) {
     return ['-s', 'telemetry:readback-qualification', '--release-sha', release, '--journey-id', journeyId, '--traffic-type', 'canary'];
 }
 
+/** A readback whose process tree was not confirmed stopped: never final, so the entry HOLDs it. */
+const UNCONFIRMED = Object.freeze({ status: null, stdout: '', unconfirmed: true });
+
 /**
  * One wait for ingestion before the run's first readback (rc-gates' `sleep 120`), shared by `qualify` and `coaching`, then up to
  * three tries with a wait between them. Returns the last { status, stdout }.
+ * A run whose process tree is not confirmed stopped (`drained !== true`, or a runner that threw) is never accepted, even with a
+ * final code and a valid line, and nothing runs after it in this session: no retry and no later journey or coaching call, since
+ * the earlier process may still be running (Sam on 87fef151).
  */
 function readbackSession({ run, sleep, repoRoot, baseEnv }) {
     let waited = false;
+    let unconfirmed = false;
     return async function readback(release, journeyId, extraEnv) {
+        if (unconfirmed) return UNCONFIRMED;
         if (!waited) { waited = true; await sleep(INGESTION_WAIT_MS); }
         let last = { status: null, stdout: '' };
         for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
             try { last = await run('pnpm', readbackArgs(release, journeyId), { env: { ...baseEnv, ...extraEnv }, cwd: repoRoot, timeout: READBACK_TIMEOUT_MS }); }
-            catch { last = { status: null, stdout: '' }; }
-            if (last?.timedOut === true) last = { status: null, stdout: '' };
+            catch { last = null; }
+            if (last?.drained !== true) { unconfirmed = true; return UNCONFIRMED; }
+            if (last.timedOut === true) last = { status: null, stdout: '' };
             if (finalCode(last?.status)) return last;
             if (attempt < ATTEMPTS) await sleep(RETRY_WAIT_MS);
         }

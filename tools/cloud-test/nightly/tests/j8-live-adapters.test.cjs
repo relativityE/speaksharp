@@ -65,6 +65,47 @@ describe('J8 live adapters', () => {
         expect(killed.calls.every((c) => c.timeout === live.READBACK_TIMEOUT_MS)).toBe(true);
     });
 
+    it('a readback not confirmed stopped is never accepted, even final and valid, and nothing runs after it (Sam on 87fef151)', async () => {
+        const qualified = { status: 0, stdout: evidenceLine({ verdict: 'QUALIFIED' }) };
+        const bound = { verdict: 'PASS', reasons: [], release: RELEASE, expected: EXPECTATION };
+        for (const drained of [false, undefined, null, 'true', 1]) {
+            // Otherwise-valid QUALIFIED readback, then a valid coaching receipt queued behind it: neither is used, nothing is retried.
+            const h = harness([{ ...qualified, drained }, qualified, { status: 0, stdout: receiptLine(bound) }]);
+            expect({ drained, r: await h.adapters.qualify(qualifyArgs()) }).toEqual({ drained, r: { status: 1, evidence: null } });
+            expect({ drained, calls: h.calls.length }).toEqual({ drained, calls: 1 });
+            expect(await h.adapters.qualify(qualifyArgs({ journeyId: 'journey-a' }))).toEqual({ status: 1, evidence: null });
+            expect(await h.adapters.coaching({ journeyId: 'journey-final-b', expectation: EXPECTATION, release: RELEASE })).toBe(null);
+            expect({ drained, calls: h.calls.length, waits: h.waits }).toEqual({ drained, calls: 1, waits: [live.INGESTION_WAIT_MS] });
+        }
+        // The same for coaching first: an undrained FAIL receipt is not kept, and no readback runs after it.
+        const c = harness([{ status: 3, stdout: receiptLine({ ...bound, verdict: 'FAIL' }), drained: false }, qualified]);
+        expect(await c.adapters.coaching({ journeyId: 'journey-final-b', expectation: EXPECTATION, release: RELEASE })).toBe(null);
+        expect(await c.adapters.qualify(qualifyArgs())).toEqual({ status: 1, evidence: null });
+        expect(c.calls.length).toBe(1);
+        // A runner that threw cannot show its process stopped: no retry, and no later call runs.
+        let thrownCalls = 0;
+        const thrower = live.j8LiveAdapters({ run: () => { thrownCalls += 1; if (thrownCalls === 1) throw new Error('spawn'); return { ...qualified, drained: true }; }, sleep: async () => {} });
+        expect(await thrower.qualify(qualifyArgs())).toEqual({ status: 1, evidence: null });
+        expect(await thrower.qualify(qualifyArgs())).toEqual({ status: 1, evidence: null });
+        expect(thrownCalls).toBe(1);
+        // An undrained non-final answer is not retried either; a drained one is.
+        const n = harness([{ status: 2, stdout: '', drained: false }, qualified]);
+        expect((await n.adapters.qualify(qualifyArgs())).status).toBe(1);
+        expect(n.calls.length).toBe(1);
+        const d = harness([{ status: 2, stdout: '' }, qualified]);
+        expect((await d.adapters.qualify(qualifyArgs())).evidence.verdict).toBe('QUALIFIED');
+        // Through the entry: the same answer is QUALIFIED when drained and HOLD (nothing received, later journeys not run) when not.
+        const entry = require('../j8-nightly-entry.cjs');
+        const receipt = { release: RELEASE, rows: [{ step: 'J8 leg readback bindings', evidence: { 'J8.a': 'journey-a', 'J8.b': 'journey-final-b', 'J8.c': 'journey-c' } }],
+            readback: { journeys: [{ journeyId: 'journey-final-b', stages: ['share_feedback'] }, { journeyId: 'journey-a', stages: ['share_feedback'] }], missingBindings: [] } };
+        const ok = await entry.j8ReadbackVerdicts(receipt, harness([qualified, { status: 2 }, { status: 2 }, { status: 2 }]).adapters, { binding: null });
+        expect(ok.journeys.map((j) => j.verdict)).toEqual(['QUALIFIED', 'HOLD']);
+        const u = harness([{ ...qualified, drained: false }, qualified, qualified]);
+        const held = await entry.j8ReadbackVerdicts(receipt, u.adapters, { binding: null });
+        expect(held.journeys.map((j) => [j.verdict, j.received])).toEqual([['HOLD', null], ['HOLD', null]]);
+        expect(u.calls.length).toBe(1);
+    });
+
     it('a malformed release, journey, stage or attempt is refused before any process starts', async () => {
         for (const bad of [{ release: 'abc' }, { release: RELEASE.toUpperCase() }, { journeyId: 'a b' }, { journeyId: '' }, { stages: [] },
             { stages: ['share feedback'] }, { stages: 'share_feedback' }, { attemptIds: ['x;y'] }, { attemptIds: null }]) {
@@ -336,7 +377,7 @@ describe('J8 live adapters', () => {
     const fail = (code) => { throw Object.assign(new Error(code), { code }); };
     const statusOf = (uid) => `Name:\tchrome\nUmask:\t0022\nState:\tS (sleeping)\nUid:\t${uid}\t${uid}\t${uid}\t${uid}\nGid:\t0\t0\t0\t0\n`;
     // /proc/<pid>/stat with the start time (field 22) given; the command name has spaces and a ')' to prove the parse.
-    const statOf = (ticks) => `6 (a) b) S 1 6 6 0 -1 4194560 100 0 0 0 1 1 0 0 20 0 1 0 ${ticks} 1000 100 18446744073709551615`;
+    const statOf = (ticks, state = 'S') => `6 (a) b) ${state} 1 6 6 0 -1 4194560 100 0 0 0 1 1 0 0 20 0 1 0 ${ticks} 1000 100 18446744073709551615`;
     const SELF = 99;
     const procWith = (environ, status, stat = () => statOf(5_000)) => ({ readdirSync: () => ['5', '6', String(SELF)], readFileSync: (f) => {
         if (f === '/proc/5/environ') return `${live.PROC_TAG_ENV}=tag\0`;
@@ -362,6 +403,11 @@ describe('J8 live adapters', () => {
             'environ denied, another user': [() => fail('EACCES'), () => statusOf(0), undefined, [5]],
             'environ denied, then exited before its stat': [() => fail('EACCES'), () => statusOf(1000), () => fail('ENOENT'), [5]],
             'environ denied, then exited before its status': [() => fail('EACCES'), () => fail('ESRCH'), undefined, [5]],
+            // A killed child of this run not yet reaped: non-root readers get EACCES on its environment, but it runs nothing.
+            'environ denied, our uid, a zombie waiting to be reaped': [() => fail('EACCES'), () => statusOf(1000), () => statOf(5_000, 'Z'), [5]],
+            'environ denied, our uid, dead': [() => fail('EACCES'), () => statusOf(1000), () => statOf(5_000, 'X'), [5]],
+            'environ denied, our uid, stopped (still alive)': [() => fail('EACCES'), () => statusOf(1000), () => statOf(5_000, 'T'), null],
+            'environ denied, our uid, a state field that only contains Z': [() => fail('EACCES'), () => statusOf(1000), () => statOf(5_000, 'Zz'), null],
             'exited (ENOENT)': [() => fail('ENOENT'), () => statusOf(1000), undefined, [5]],
             'no address space (ESRCH: a kernel thread or a process exiting)': [() => fail('ESRCH'), () => statusOf(1000), undefined, [5]],
         };
