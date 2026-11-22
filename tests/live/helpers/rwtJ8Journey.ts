@@ -161,6 +161,15 @@ export function j8RunnerAdmission(env: Readonly<Record<string, string | undefine
     return { admitted: true, lookupRef: attempt.lookupRef, attemptId: attempt.attemptId };
 }
 
+/**
+ * Sam on 27ee1856: under a J8 runner admission only the J8 journey may sign up. Any other test in the J8 spec file refuses before
+ * any page action or signup whenever the admission variable is present at all, even if the runner's title selector were dropped.
+ */
+export const J8_LEGACY_REFUSAL = 'a J8 runner admission is present: only the J8 journey may sign up, so this test sends nothing';
+export function j8AdmissionPresent(env: Readonly<Record<string, string | undefined>>): boolean {
+    return env[J8_ADMISSION_ENV] !== undefined;
+}
+
 /** One leg's evidence window for the readback: its own time window, its own action captures, and fault-leg journeys to drop. */
 export interface J8LegEvidence {
     fromMs: number;

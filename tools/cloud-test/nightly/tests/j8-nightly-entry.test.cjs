@@ -28,6 +28,7 @@ const RUN_BINDING = { repository: 'relativityE/speaksharp', workflow: 'relativit
 const ctRunFor = (runId, runAttempt) => ({ ...RUN_BINDING, runId: String(runId), runAttempt: String(runAttempt), role: 'rwt-journey' });
 const STORES = j4aRequiredStores();
 const DEADLINES_CLEANUP = entry.DEADLINES.cleanupMs;
+const LISTED_J8 = 'Listing tests:\n  [deployed-live-chromium] › live/rwt-feedback-association-boundaries.live.spec.ts:753:5 › RWT — Share Feedback association boundaries @live › J8: one account — No session before any take, older-take feedback, No session with both takes listed\nTotal: 1 test in 1 file\n';
 const emailOf = (runId) => `rwt-journey-feedback-boundary-${NOW}-${runId}@${DOMAIN}`;
 
 /**
@@ -114,7 +115,7 @@ function trustedAnswer(evidenceDir, admission, over = {}) {
  * records a trusted create answer (none by default: a UI signup has none); `recovery` false leaves out the parent recovery.
  */
 function fixtures(runDir, { spec = (adm) => receiptFor(adm.createAttempt.attemptId), qualify = () => 0, evidence = {}, evaluate, lookup, coaching,
-    outcome = (env) => ({ exitCode: 0, admissionFile: env.RWT_J8_RUNNER_ADMISSION, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT, timedOut: false }),
+    outcome = (env) => ({ exitCode: 0, admissionFile: env.RWT_J8_RUNNER_ADMISSION, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT, timedOut: false, drained: true }),
     answer = null, signup = true, owner = {}, recovery = true, store = accountStore() } = {}) {
     const calls = { runSpec: [], qualify: [], evaluate: 0, coaching: [], store: store.calls };
     calls.lookup = store.calls.lookup;
@@ -465,10 +466,57 @@ describe('J8 nightly entry', () => {
         expect(st.calls.lookup).toEqual([]);
         // A spec that did not exit (killed at its deadline) may still write: nothing is looked up or deleted.
         const k = dirs();
-        const killed = fixtures(k.runDir, { outcome: (env) => ({ exitCode: 0, timedOut: true, admissionFile: env.RWT_J8_RUNNER_ADMISSION, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT }) });
+        const killed = fixtures(k.runDir, { outcome: (env) => ({ exitCode: 0, timedOut: true, drained: true, admissionFile: env.RWT_J8_RUNNER_ADMISSION, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT }) });
         const kout = await run(k, killed.deps);
         expect({ lookups: killed.calls.lookup.length, left: killed.store.users.size, cleanup: kout.cleanup.result }).toEqual({ lookups: 0, left: 1, cleanup: 'incomplete' });
         expect(Object.values(kout.cleanup.reasons).flat()).toContain('the spec did not exit, so its pages may still write; the account is left for protected recovery');
+        // Sam on 65365f36: an exit 0 whose browser was not confirmed stopped is treated the same way: nothing looked up or deleted.
+        const u = dirs();
+        const undrained = fixtures(u.runDir, { outcome: (env) => ({ exitCode: 0, timedOut: false, drained: false, admissionFile: env.RWT_J8_RUNNER_ADMISSION, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT }) });
+        const uout = await run(u, undrained.deps);
+        expect({ lookups: undrained.calls.lookup.length, deleted: undrained.calls.store.scopedDelete.length, left: undrained.store.users.size, cleanup: uout.cleanup.result, exit: uout.exitCode, next: admitRun(u.evidenceDir).admitted })
+            .toEqual({ lookups: 0, deleted: 0, left: 1, cleanup: 'incomplete', exit: 78, next: false });
+        expect(Object.values(uout.cleanup.reasons).flat()).toContain('the spec did not exit, so its pages may still write; the account is left for protected recovery');
+    });
+
+    it('THE DELETE IS NEVER ABANDONED (Sam on 65365f36): it gets what is left of the budget, and no HOLD is reported while it runs', async () => {
+        // The remaining budget reaches the delete.
+        const d = dirs();
+        let clock = NOW;
+        const st = accountStore();
+        const inner = st.deps.scopedDelete;
+        const seen = [];
+        st.deps.lookup = ((l) => async (q) => { clock += 1_000; return l(q); })(st.deps.lookup);
+        st.deps.scopedDelete = async (q) => { seen.push(q.timeoutMs); return inner(q); };
+        const ok = await run(d, fixtures(d.runDir, { store: st }).deps, { now: () => clock });
+        expect(ok.exitCode).toBe(0);
+        expect(seen.length).toBe(1);
+        expect(seen[0] > 0 && seen[0] < DEADLINES_CLEANUP && seen[0] === DEADLINES_CLEANUP - 1_000).toBe(true);
+        // A delete still running past the budget (real time, a 300 ms budget, a 900 ms delete): the run waits for it to end and only
+        // then holds; it never settles while the delete may still be running.
+        const e = dirs();
+        let ended = false;
+        let endedBeforeSettle = null;
+        const slow = accountStore();
+        const slowInner = slow.deps.scopedDelete;
+        slow.deps.scopedDelete = async (q) => { await new Promise((r) => setTimeout(r, 900)); const out = await slowInner(q); ended = true; return out; };
+        const late = await run(e, fixtures(e.runDir, { store: slow }).deps, { now: Date.now, deadlines: { ...entry.DEADLINES, cleanupMs: 300 } }).then((r) => { endedBeforeSettle = ended; return r; });
+        expect({ endedBeforeSettle, cleanup: late.cleanup.result, exit: late.exitCode, next: admitRun(e.evidenceDir).admitted })
+            .toEqual({ endedBeforeSettle: true, cleanup: 'incomplete', exit: 78, next: false });
+        expect(Object.values(late.cleanup.reasons).flat()).toContain('the scoped delete did not finish within the cleanup budget; the landed account is left for protected recovery');
+        // A delete whose processes could not be confirmed stopped: HOLD, the landed record stays and blocks the next admission.
+        const f = dirs();
+        const und = accountStore();
+        und.deps.scopedDelete = async () => ({ deleted: false, drained: false });
+        const uo = await run(f, fixtures(f.runDir, { store: und }).deps);
+        expect({ cleanup: uo.cleanup.result, exit: uo.exitCode, landed: files(f.evidenceDir, '.landed.').length, next: admitRun(f.evidenceDir).admitted })
+            .toEqual({ cleanup: 'incomplete', exit: 78, landed: 1, next: false });
+        expect(Object.values(uo.cleanup.reasons).flat()).toContain('the scoped delete\'s processes could not be confirmed stopped; the landed account is left for protected recovery');
+        // A delete that throws holds too (nothing proven), never a crash.
+        const g = dirs();
+        const thr = accountStore();
+        thr.deps.scopedDelete = async () => { throw new Error('spawn'); };
+        expect((await run(g, fixtures(g.runDir, { store: thr }).deps)).exitCode).toBe(78);
     });
     it('BOUND RECEIPT (Sam on b1f8323f): another release, a stale receipt, or a receipt already at the location is never read', async () => {
         // A receipt for a release other than the parent's expected one: HOLD, never mapped or read back, and never trusted for cleanup.
@@ -506,13 +554,16 @@ describe('J8 nightly entry', () => {
     });
     it('SPEC OUTCOME (Sam on b1f8323f): only a terminal exit bound to this admission, run and attempt lets the receipt be read', async () => {
         const bad = {
-            'no exit code': (env) => ({ exitCode: null, admissionFile: env.RWT_J8_RUNNER_ADMISSION, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT }),
-            'exit 2': (env) => ({ exitCode: 2, admissionFile: env.RWT_J8_RUNNER_ADMISSION, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT }),
-            'killed at its deadline': (env) => ({ exitCode: 0, timedOut: true, admissionFile: env.RWT_J8_RUNNER_ADMISSION, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT }),
-            'another admission': (env) => ({ exitCode: 0, admissionFile: `${env.RWT_J8_RUNNER_ADMISSION}.old`, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT }),
-            'another run attempt': (env) => ({ exitCode: 0, admissionFile: env.RWT_J8_RUNNER_ADMISSION, runId: env.GITHUB_RUN_ID, runAttempt: '2' }),
-            'another run': (env) => ({ exitCode: 0, admissionFile: env.RWT_J8_RUNNER_ADMISSION, runId: '1', runAttempt: env.GITHUB_RUN_ATTEMPT }),
+            'no exit code': (env) => ({ exitCode: null, drained: true, admissionFile: env.RWT_J8_RUNNER_ADMISSION, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT }),
+            'exit 2': (env) => ({ exitCode: 2, drained: true, admissionFile: env.RWT_J8_RUNNER_ADMISSION, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT }),
+            'killed at its deadline': (env) => ({ exitCode: 0, timedOut: true, drained: true, admissionFile: env.RWT_J8_RUNNER_ADMISSION, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT }),
+            'another admission': (env) => ({ exitCode: 0, drained: true, admissionFile: `${env.RWT_J8_RUNNER_ADMISSION}.old`, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT }),
+            'another run attempt': (env) => ({ exitCode: 0, drained: true, admissionFile: env.RWT_J8_RUNNER_ADMISSION, runId: env.GITHUB_RUN_ID, runAttempt: '2' }),
+            'another run': (env) => ({ exitCode: 0, drained: true, admissionFile: env.RWT_J8_RUNNER_ADMISSION, runId: '1', runAttempt: env.GITHUB_RUN_ATTEMPT }),
             'a bare number': () => 0,
+            // Sam on 65365f36: an exit whose process tree (the browser included) was not confirmed stopped is not an exit.
+            'exit 0, but its processes were not confirmed stopped': (env) => ({ exitCode: 0, drained: false, admissionFile: env.RWT_J8_RUNNER_ADMISSION, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT }),
+            'exit 0, drain not reported': (env) => ({ exitCode: 0, admissionFile: env.RWT_J8_RUNNER_ADMISSION, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT }),
         };
         for (const [name, outcome] of Object.entries(bad)) {
             const d = dirs();
@@ -522,7 +573,7 @@ describe('J8 nightly entry', () => {
                 .toEqual({ name, hold: true, qualify: 0, cleanup: 'incomplete', exit: 78 });
         }
         // Exit 1 over an all-PASS receipt contradicts itself: HOLD.
-        const exit1 = (env) => ({ exitCode: 1, admissionFile: env.RWT_J8_RUNNER_ADMISSION, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT });
+        const exit1 = (env) => ({ exitCode: 1, drained: true, admissionFile: env.RWT_J8_RUNNER_ADMISSION, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT });
         const d = dirs();
         const contradiction = await run(d, fixtures(d.runDir, { outcome: exit1 }).deps);
         expect(contradiction.caseResult.assertions[0].sources).toEqual(['the spec failed but its receipt shows no failing row']);
@@ -703,8 +754,11 @@ describe('J8 nightly entry with the live adapters composed over a recording proc
      */
     function composed(d, { spec = (adm) => receiptFor(adm.createAttempt.attemptId), readbackCode = () => 0, users = new Map(), counts = {} } = {}) {
         const calls = [];
-        const runner = (command, args, opts) => {
-            calls.push({ command, args, env: opts.env });
+        // Every process tree is drained, as the real runner reports once nothing carrying its tag is left.
+        const runner = (command, args, opts) => ({ drained: true, ...answer(command, args, opts) });
+        const answer = (command, args, opts) => {
+            calls.push({ command, args, env: opts.env, timeout: opts.timeout });
+            if (args.includes('playwright') && args.includes('--list')) return { status: 0, stdout: LISTED_J8 };
             if (args.includes('playwright')) {
                 const admission = JSON.parse(fs.readFileSync(opts.env.RWT_J8_RUNNER_ADMISSION, 'utf8'));
                 const id = `uid-${opts.env.GITHUB_RUN_ID}`;
@@ -735,7 +789,8 @@ describe('J8 nightly entry with the live adapters composed over a recording proc
         const out = await run(d, c.deps);
         expect(out.exitCode).toBe(0);
         expect(out.cleanup.result).toBe('complete');
-        expect(c.calls.filter((x) => x.args.includes('playwright')).length).toBe(1);
+        // The selector is listed first, then the one selected test runs once.
+        expect(c.calls.filter((x) => x.args.includes('playwright')).map((x) => x.args.at(-1))).toEqual(['--list', '--reporter=line']);
         const journeys = c.calls.filter((x) => x.args.includes('telemetry:readback-qualification')).map((x) => x.args[x.args.indexOf('--journey-id') + 1]);
         expect(journeys).toEqual(LEGS.map((l) => JOURNEY_OF[l]));
         // The scoped delete ran once, as its own process, bound to the run the parent checked; the account is gone.

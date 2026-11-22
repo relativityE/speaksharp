@@ -17,7 +17,9 @@
 //      trial_entitlements by the reserved email, the save journal, the account itself), each an observed zero, then a second
 //      complete listing with no account under the reserved email;
 //   7. RECOVERED: recordAttemptRecovery('landed-and-cleaned') validates the proof against the landed record and clears the attempt.
-// Every call is cut off at what is left of the cleanup budget, and a step that ends after it never counts (late evidence is HOLD).
+// Every read is cut off at what is left of the cleanup budget, and a step that ends after it never counts (late evidence is HOLD).
+// The delete is the one step that is never abandoned (Sam on 65365f36): it is GIVEN what is left of the budget, must stop and drain
+// its own process tree inside it, and is awaited, so no HOLD is reported while it may still be running.
 // Reasons are content-free: never an email, an id or a row.
 const crypto = require('node:crypto');
 const { journeyCreateRecord, recordAttemptLanded, recordAttemptRecovery, RESOURCE_KINDS } = require('./cleanup-evidence.cjs');
@@ -42,7 +44,8 @@ function sameBinding(ctRun, expected) {
 /**
  * The parent's recovery of this run's one create attempt. `deps`: lookup({ email, runOwnedPrefix }) -> exactEmailLookup's result;
  * readAccount(uid) -> { email, createdAt, ctRun } | null; scopedDelete({ uid, email, binding }) -> { deleted: true } only when the scoped path
- * proved the delete; readResidue({ store, table, column, key, uid, email }) -> an observed count, or null. `binding`: this run's
+ * proved the delete, `drained: false` when its process tree could not be confirmed stopped; it must itself end within `timeoutMs`
+ * (the adapter kills and drains its process); readResidue({ store, table, column, key, uid, email }) -> an observed count, or null. `binding`: this run's
  * expected app_metadata.ct_run. Resolves { state: 'recovered' | 'hold', reason, landed, deleted, queries }; never throws.
  */
 async function j8ParentRecovery({ evidenceDir, admission, binding, deps, budgetMs, now = () => Date.now(), storesSource } = {}) {
@@ -101,9 +104,11 @@ async function j8ParentRecovery({ evidenceDir, admission, binding, deps, budgetM
     } catch { return hold('the found account could not be recorded as landed, so nothing is deleted'); }
     out.landed = true;
 
-    // 5. DELETE through the scoped path.
-    const del = await timely(() => deps.scopedDelete({ uid, email, binding }));
-    if (del === LATE) return hold('the scoped delete did not finish within the cleanup budget; the landed account is left for protected recovery');
+    // 5. DELETE through the scoped path, given what is left of the budget and awaited (never abandoned while it may still run).
+    let del;
+    try { del = await deps.scopedDelete({ uid, email, binding, timeoutMs: left() }); } catch { del = null; }
+    if (del?.drained === false) return hold('the scoped delete\'s processes could not be confirmed stopped; the landed account is left for protected recovery');
+    if (left() <= 0) return hold('the scoped delete did not finish within the cleanup budget; the landed account is left for protected recovery');
     if (del?.deleted !== true) return hold('the scoped delete did not prove the account deleted; the landed account is left for protected recovery');
     out.deleted = true;
 

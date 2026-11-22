@@ -125,6 +125,7 @@ function specOutcomeFault(outcome, { admission, runId, runAttempt }) {
     if (outcome === TIMED_OUT) return 'the spec did not finish within its deadline';
     if (!outcome || typeof outcome !== 'object') return 'the spec reported no outcome';
     if (outcome.timedOut === true) return 'the spec was killed at its deadline';
+    if (outcome.drained !== true) return 'the spec\'s process tree was not confirmed stopped, so its browser may still write';
     if (outcome.exitCode !== 0 && outcome.exitCode !== 1) return 'the spec has no terminal exit code';
     if (outcome.admissionFile !== admission.admissionFile || outcome.runId !== String(runId) || outcome.runAttempt !== String(runAttempt))
         return 'the spec outcome is not bound to this admission, run and attempt';
@@ -290,7 +291,7 @@ function ownBlocks(evidenceDir, recordRunId) {
 
 /**
  * One J8 run: admission, the spec, the readback, the mapping, and cleanup always. `deps` (offline fixtures, or the live adapters in
- * j8-live-adapters.cjs plus `finalizerEvaluate`): runSpec({ env }) -> { exitCode, admissionFile, runId, runAttempt, timedOut };
+ * j8-live-adapters.cjs plus `finalizerEvaluate`): runSpec({ env }) -> { exitCode, admissionFile, runId, runAttempt, timedOut, drained };
  * qualify(...) -> { status, evidence }; coaching(...) -> bound result; evaluate(receipt, readback) -> { suite, release, errors, rows };
  * and the parent recovery's lookup, readAccount, scopedDelete and readResidue (j8-parent-recovery.cjs). Each is bounded by `deadlines`;
  * `runBinding` ({ repository, workflow }) is this run's, the binding the account must carry.
@@ -323,7 +324,8 @@ async function runJ8Nightly({ evidenceDir, runDir, runId, runAttempt, configured
             outcome = await within(deadlines.specMs, () => deps.runSpec({ env: { RWT_J8_RUNNER_ADMISSION: admission.admissionFile, GITHUB_RUN_ID: String(runId),
                 GITHUB_RUN_ATTEMPT: String(runAttempt), LIVE_TEST_EMAIL_DOMAIN: admission.domain } }));
         } catch { outcome = null; }
-        specExited = !!outcome && outcome !== TIMED_OUT && outcome.timedOut !== true && Number.isInteger(outcome.exitCode);
+        // Sam on 65365f36: an exit counts only once the adapter confirmed the spec's whole process tree (browser included) stopped.
+        specExited = !!outcome && outcome !== TIMED_OUT && outcome.timedOut !== true && outcome.drained === true && Number.isInteger(outcome.exitCode);
         const specFault = specOutcomeFault(outcome, { admission, runId, runAttempt });
         const read = specFault ? { fault: specFault } : readBoundReceipt(receiptFile, { attemptId: admission.attemptId, expectedRelease, notBeforeMs: specStart });
         if (read.fault) caseResult = holdAll(read.fault);

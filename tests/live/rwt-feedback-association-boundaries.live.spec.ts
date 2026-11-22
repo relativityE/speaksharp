@@ -36,7 +36,7 @@ import { NO_SESSION_ATTEMPT_CAP, noSessionWriteDecision } from './helpers/feedba
 import { HarnessParityTap, START_CONTROLS } from './helpers/rwtHarnessParity';
 import { JourneyFeedbackFence } from './helpers/feedbackFence';
 import {
-    J8_FENCE_CASE, J8_FENCE_KEY_CAP, J8_LEGS, J8_SUITE, type J8Leg, J8WriteGate, type J8WriteOutcome, TAKE_PROJECTION_FIELDS, j8RunnerAdmission,
+    J8_FENCE_CASE, J8_FENCE_KEY_CAP, J8_LEGS, J8_LEGACY_REFUSAL, J8_SUITE, type J8Leg, J8WriteGate, type J8WriteOutcome, TAKE_PROJECTION_FIELDS, j8AdmissionPresent, j8RunnerAdmission,
     j8bFinalSentFeedbackVerdict, legReadback, legReceipt, legSink, mergeLegReadback, readTakeDigests, takesReadComplete, takesUnchangedVerdict, writerDrainedVerdict,
     type StartPressCounts, legStartPressVerdict, startPressSnapshot,
 } from './helpers/rwtJ8Journey';
@@ -73,6 +73,11 @@ const FEEDBACK_FENCE_STEP_MS = 10_000;
 type Owner = { email: string; uid: string };
 
 async function prepareDisposable(page: Page, receipt: RwtReceipt, owner: Owner, runnerEmail?: string): Promise<boolean> {
+    // Sam on 27ee1856: only the J8 journey (which passes the runner's reserved email) may sign up under a J8 admission.
+    if (runnerEmail === undefined && j8AdmissionPresent(process.env)) {
+        receipt.halt('preflight', `HOLD before Production writes: ${J8_LEGACY_REFUSAL}`);
+        return false;
+    }
     const missing = rwtPreconditionFailures();
     if (!canaryClaimAuthorized() || process.env.RWT_CANARY_CLAIM_ACK !== RWT_CANARY_CLAIM_ACK_VALUE) {
         missing.push('AUTHORIZATION GATE: the separate run-owned canary-claim acknowledgement is absent');
@@ -585,6 +590,9 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
     });
 
     test('feedback selected for an older take links only to that take', async ({ page }, testInfo) => {
+        // Sam on 27ee1856: decided first, before any page action or signup: under a J8 runner admission this test sends nothing.
+        test.skip(j8AdmissionPresent(process.env), J8_LEGACY_REFUSAL);
+        if (j8AdmissionPresent(process.env)) return;
         test.setTimeout(1_800_000);
         const owner: Owner = { email: '', uid: '' };
         const receipt = new RwtReceipt(`${SUITE}-older-take`);
@@ -992,6 +1000,9 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
     });
 
     test('No session feedback stores no take or coaching link', async ({ page }, testInfo) => {
+        // Sam on 27ee1856: decided first, before any page action or signup: under a J8 runner admission this test sends nothing.
+        test.skip(j8AdmissionPresent(process.env), J8_LEGACY_REFUSAL);
+        if (j8AdmissionPresent(process.env)) return;
         test.setTimeout(300_000);
         const owner: Owner = { email: '', uid: '' };
         const receipt = new RwtReceipt(`${SUITE}-no-session`);

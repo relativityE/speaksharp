@@ -17,6 +17,11 @@
 //                  its count function (service_role cannot read that table), the account itself by a not-found re-read.
 // Sam on b1f8323f (4): every process and the lookup is bounded. A process over its deadline is killed (SIGKILL) and is never a
 // terminal outcome; a lookup over its deadline is `unreadable`.
+// Sam on 65365f36: a HOLD must never be reported while a delete or a browser is still running. Every process starts in its own
+// process group with a per-run tag in its environment, which its whole tree inherits (pnpm, Playwright, the browser Playwright
+// starts in a group of its own, tsx's node). When it exits, or is killed at its deadline, the runner kills every process still
+// carrying that tag and resolves only once none is left (`drained`). A tree it cannot confirm gone (no /proc, or still there after
+// the drain window) is `drained: false`, and nothing that depends on it counts: the spec is not an exit, a delete is not deleted.
 // Nothing here opens the J8 live gate: `main` still refuses, and `no-j8-harness-adapter` stays NEVER_SATISFIED until Sam opens it.
 // The adapters read no credential themselves: the spec and the readback inherit the parent's environment, and the admin listing
 // comes from a client the caller builds. Every malformed input is refused before a process starts (HOLD), never guessed.
@@ -26,11 +31,29 @@ const { enumerateUsers, exactEmailLookup } = require('./account-lookup.cjs');
 const SPEC = 'tests/live/rwt-feedback-association-boundaries.live.spec.ts';
 const LIVE_CONFIG = 'playwright.deployed-live.config.ts';
 const LIVE_PROJECT = 'deployed-live-chromium';
+// Sam on 27ee1856: only the J8 test uses the journaled reservation, so the adapter selects exactly it, by its exact combined title
+// (describe, a space, the test; Playwright matches --grep against the title path), and proves the selection with --list first.
+const J8_DESCRIBE = 'RWT — Share Feedback association boundaries @live';
+const J8_TEST = 'J8: one account — No session before any take, older-take feedback, No session with both takes listed';
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const SPEC_GREP = `${escapeRe(J8_DESCRIBE)} ${escapeRe(J8_TEST)}$`;
+const LIST_TIMEOUT_MS = 2 * 60_000;
+const specArgs = (...extra) => ['exec', 'playwright', 'test', SPEC, `--config=${LIVE_CONFIG}`, `--project=${LIVE_PROJECT}`, `--grep=${SPEC_GREP}`, ...extra];
+/** The --list output selects exactly one test, and it is the J8 test of the J8 spec. */
+function listsOnlyJ8(stdout) {
+    const lines = String(stdout ?? '').split('\n').map((l) => l.trim());
+    const listed = lines.filter((l) => l.startsWith('[') && l.includes(' › '));
+    return listed.length === 1 && listed[0].endsWith(` › ${J8_DESCRIBE} › ${J8_TEST}`)
+        && listed[0].includes(` › ${SPEC.replace(/^tests\//, '')}:`) && lines.includes('Total: 1 test in 1 file');
+}
 const INGESTION_WAIT_MS = 120_000;
 const RETRY_WAIT_MS = 60_000;
 const ATTEMPTS = 3;
 const READBACK_TIMEOUT_MS = 5 * 60_000;
-const SPEC_TIMEOUT_MS = 30 * 60_000;
+// The list, the spec and both drains end inside the entry's 32-minute spec deadline, so the entry never moves on while they run.
+const SPEC_TIMEOUT_MS = 28 * 60_000;
+const DRAIN_TIMEOUT_MS = 30_000;
+const PROC_TAG_ENV = 'RWT_J8_PROC_TAG';
 const LOOKUP_TIMEOUT_MS = 2 * 60_000;
 const SHA = /^[a-f0-9]{40}$/;
 const ID = /^[A-Za-z0-9._:-]{1,120}$/;
@@ -46,26 +69,71 @@ const BINDING_ENV = Object.freeze({ repository: 'GITHUB_REPOSITORY', workflow: '
 const isNotFound = (e) => !!e && e.status === 404 && /user_not_found|not[_\s-]?found|does not exist|no user/i.test(`${e.code ?? ''} ${e.message ?? ''}`);
 const countOf = (r) => (!r?.error && Number.isSafeInteger(r?.count) && r.count >= 0 ? r.count : null);
 
+const realSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** The pids of every live process whose environment carries `PROC_TAG_ENV=tag`; null when /proc cannot be listed. */
+function taggedPids(tag, { procFs = require('node:fs'), selfPid = process.pid } = {}) {
+    let entries;
+    try { entries = procFs.readdirSync('/proc'); } catch { return null; }
+    const needle = `${PROC_TAG_ENV}=${tag}`;
+    const pids = [];
+    for (const e of entries) {
+        if (!/^\d+$/.test(e) || Number(e) === selfPid) continue;
+        let environ;
+        try { environ = procFs.readFileSync(`/proc/${e}/environ`, 'latin1'); } catch { continue; }
+        if (environ.split('\0').includes(needle)) pids.push(Number(e));
+    }
+    return pids;
+}
+
 /**
- * The process runner: (command, args, { env, cwd, timeout }) -> Promise<{ status, stdout, timedOut }>. A process still running at
- * its deadline is killed with SIGKILL and reported `timedOut` with no status. Proofs inject a runner instead.
+ * Kill every process carrying `tag` until none is left. true only once a scan finds none; false when /proc cannot be read or a
+ * process is still there when the window closes. A killed process that is not yet reaped has no environment, so it is gone.
  */
-function spawnRunner() {
+async function drainTagged(tag, { list = taggedPids, kill = (pid) => process.kill(pid, 'SIGKILL'), sleep = realSleep, timeoutMs = DRAIN_TIMEOUT_MS, now = Date.now } = {}) {
+    if (typeof tag !== 'string' || !tag) return false;
+    const until = now() + timeoutMs;
+    for (;;) {
+        const pids = list(tag);
+        if (!Array.isArray(pids)) return false;
+        if (pids.length === 0) return true;
+        for (const pid of pids) { try { kill(pid); } catch { /* already gone */ } }
+        if (now() >= until) return false;
+        await sleep(100);
+    }
+}
+
+/**
+ * The process runner: (command, args, { env, cwd, timeout }) -> Promise<{ status, stdout, timedOut, drained }>. The process starts in
+ * its own group, tagged; at its deadline the group is killed (SIGKILL) and it is reported `timedOut` with no status. It resolves
+ * only after the tagged tree is drained (above). Proofs inject a runner instead.
+ */
+function spawnRunner({ drain = drainTagged, newTag = () => require('node:crypto').randomUUID() } = {}) {
     const { spawn } = require('node:child_process');
     return (command, args, { env, cwd, timeout }) => new Promise((resolve) => {
+        const tag = newTag();
         let stdout = '';
         let timedOut = false;
+        let done = false;
         let child;
-        try { child = spawn(command, args, { env, cwd, stdio: ['ignore', 'pipe', 'inherit'] }); }
-        catch { resolve({ status: null, stdout: '', timedOut: false }); return; }
-        const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, timeout);
+        let timer;
+        const finish = (status) => {
+            if (done) return;
+            done = true;
+            clearTimeout(timer);
+            Promise.resolve().then(() => drain(tag)).then((drained) => drained === true, () => false)
+                .then((drained) => resolve({ status: timedOut ? null : status, stdout, timedOut, drained }));
+        };
+        try { child = spawn(command, args, { env: { ...env, [PROC_TAG_ENV]: tag }, cwd, stdio: ['ignore', 'pipe', 'inherit'], detached: true }); }
+        catch { finish(null); return; }
+        // Only while the child is alive is its pid its group's id, so the group is killed only here; after it exits, the tag decides.
+        timer = setTimeout(() => { timedOut = true; try { process.kill(-child.pid, 'SIGKILL'); } catch { try { child.kill('SIGKILL'); } catch { /* gone */ } } }, timeout);
         child.stdout.setEncoding('utf8');
         child.stdout.on('data', (d) => { if (stdout.length < 16 * 1024 * 1024) stdout += d; });
-        child.on('error', () => { clearTimeout(timer); resolve({ status: null, stdout, timedOut }); });
-        child.on('close', (code) => { clearTimeout(timer); resolve({ status: timedOut ? null : (typeof code === 'number' ? code : null), stdout, timedOut }); });
+        child.on('error', () => finish(null));
+        child.on('close', (code) => finish(typeof code === 'number' ? code : null));
     });
 }
-const realSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** 0 and 3 are final; anything else (including a spawn failure or a kill at the deadline) is retried, then HOLD. */
 function finalCode(status) { return status === 0 || status === 3; }
@@ -134,20 +202,24 @@ async function bounded(promise, ms, onTimeout) {
  * `lookup` is absent and the entry cannot prove zero residue, so the run cannot be admitted by `main`.
  */
 function j8LiveAdapters({ repoRoot = path.join(__dirname, '..', '..', '..'), baseEnv = process.env, run = spawnRunner(), sleep = realSleep,
-    listUsers = null, admin = null, lookupTimeoutMs = LOOKUP_TIMEOUT_MS } = {}) {
+    listUsers = null, admin = null, lookupTimeoutMs = LOOKUP_TIMEOUT_MS, clock = Date.now } = {}) {
     if (!listUsers && admin?.auth?.admin && typeof admin.auth.admin.listUsers === 'function') listUsers = (args) => admin.auth.admin.listUsers(args);
     const readback = readbackSession({ run, sleep, repoRoot, baseEnv });
     const adapters = {
-        /** -> { exitCode, admissionFile, runId, runAttempt, timedOut }: the spec's terminal outcome, naming what it ran with. */
+        /** -> { exitCode, admissionFile, runId, runAttempt, timedOut, drained }: the spec's terminal outcome, naming what it ran with. */
         async runSpec({ env }) {
             if (!env || typeof env !== 'object') return { exitCode: null, timedOut: false };
+            const specEnv = { ...baseEnv, VITE_USE_LIVE_DB: 'true', ...env };
+            let listed;
+            try { listed = await run('pnpm', specArgs('--list'), { env: specEnv, cwd: repoRoot, timeout: LIST_TIMEOUT_MS }); } catch { listed = null; }
+            if (listed?.timedOut === true || listed?.status !== 0 || listed?.drained !== true || !listsOnlyJ8(listed?.stdout))
+                return { exitCode: null, timedOut: false, drained: listed?.drained === true, notRun: 'the selector did not list exactly the J8 test', admissionFile: env.RWT_J8_RUNNER_ADMISSION, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT };
             let r;
             try {
-                r = await run('pnpm', ['exec', 'playwright', 'test', SPEC, `--config=${LIVE_CONFIG}`, `--project=${LIVE_PROJECT}`, '--reporter=line'],
-                    { env: { ...baseEnv, VITE_USE_LIVE_DB: 'true', ...env }, cwd: repoRoot, timeout: SPEC_TIMEOUT_MS });
+                r = await run('pnpm', specArgs('--reporter=line'), { env: specEnv, cwd: repoRoot, timeout: SPEC_TIMEOUT_MS });
             } catch { r = null; }
             const timedOut = r?.timedOut === true;
-            return { exitCode: !timedOut && typeof r?.status === 'number' ? r.status : null, timedOut,
+            return { exitCode: !timedOut && typeof r?.status === 'number' ? r.status : null, timedOut, drained: r?.drained === true,
                 admissionFile: env.RWT_J8_RUNNER_ADMISSION, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT };
         },
         /** -> { status, evidence }: the readback's exit code and its own evidence line (null unless final and agreeing). */
@@ -190,22 +262,27 @@ function j8LiveAdapters({ repoRoot = path.join(__dirname, '..', '..', '..'), bas
             if (typeof table !== 'string' || typeof column !== 'string' || !['owner', 'email'].includes(key)) return null;
             return countOf(await admin.from(table).select(column, { count: 'exact', head: true }).eq(column, key === 'email' ? String(email).toLowerCase() : uid));
         };
-        adapters.scopedDelete = async ({ uid, email, binding }) => {
+        // `timeoutMs`: what is left of the parent's cleanup budget (Sam on 65365f36). The delete is killed early enough that the kill
+        // and the drain both end inside it, and it is told its deadline; with no room for both, it does not start.
+        adapters.scopedDelete = async ({ uid, email, binding, timeoutMs }) => {
             if (typeof uid !== 'string' || !uid || typeof email !== 'string' || !email || !binding
-                || Object.keys(BINDING_ENV).some((k) => typeof binding[k] !== 'string' || !binding[k])) return { deleted: false };
-            const env = { ...baseEnv, RWT_J8_DELETE_UID: uid, RWT_J8_DELETE_EMAIL: email };
+                || Object.keys(BINDING_ENV).some((k) => typeof binding[k] !== 'string' || !binding[k])) return { deleted: false, drained: true };
+            if (!Number.isFinite(timeoutMs) || timeoutMs <= DRAIN_TIMEOUT_MS) return { deleted: false, drained: true };
+            const processTimeout = Math.min(DELETE_TIMEOUT_MS, timeoutMs - DRAIN_TIMEOUT_MS);
+            const env = { ...baseEnv, RWT_J8_DELETE_UID: uid, RWT_J8_DELETE_EMAIL: email, RWT_J8_DELETE_DEADLINE_AT: String(clock() + processTimeout) };
             for (const [k, name] of Object.entries(BINDING_ENV)) env[name] = binding[k];
             let r;
-            try { r = await run(path.join(repoRoot, 'node_modules', '.bin', 'tsx'), [path.join(repoRoot, DELETE_SCRIPT)], { env, cwd: repoRoot, timeout: DELETE_TIMEOUT_MS }); }
+            try { r = await run(path.join(repoRoot, 'node_modules', '.bin', 'tsx'), [path.join(repoRoot, DELETE_SCRIPT)], { env, cwd: repoRoot, timeout: processTimeout }); }
             catch { r = null; }
+            const drained = r?.drained === true;
             const verdicts = String(r?.stdout ?? '').split('\n').filter((l) => l.startsWith('RUN_OWNED_CLEANUP '));
-            return { deleted: r?.timedOut !== true && r?.status === 0 && verdicts.length === 1 && DELETE_VERDICT.test(verdicts[0]) };
+            return { deleted: drained && r?.timedOut !== true && r?.status === 0 && verdicts.length === 1 && DELETE_VERDICT.test(verdicts[0]), drained };
         };
     }
     return adapters;
 }
 
 module.exports = {
-    DELETE_SCRIPT, SPEC, LIVE_CONFIG, LIVE_PROJECT, INGESTION_WAIT_MS, RETRY_WAIT_MS, ATTEMPTS, READBACK_TIMEOUT_MS, SPEC_TIMEOUT_MS, LOOKUP_TIMEOUT_MS, EVIDENCE_PREFIX,
+    DELETE_SCRIPT, DELETE_TIMEOUT_MS, DRAIN_TIMEOUT_MS, PROC_TAG_ENV, drainTagged, taggedPids, J8_DESCRIBE, J8_TEST, SPEC_GREP, LIST_TIMEOUT_MS, listsOnlyJ8, SPEC, LIVE_CONFIG, LIVE_PROJECT, INGESTION_WAIT_MS, RETRY_WAIT_MS, ATTEMPTS, READBACK_TIMEOUT_MS, SPEC_TIMEOUT_MS, LOOKUP_TIMEOUT_MS, EVIDENCE_PREFIX,
     boundCoachingReceipt, j8LiveAdapters, readbackEvidence, spawnRunner,
 };

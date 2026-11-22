@@ -10,7 +10,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
-    J8_ADMISSION_ENV, J8_FENCE_CASE, J8_FENCE_KEY_CAP, J8_KEY_CAPS, J8_SUITE, J8WriteGate, TAKE_PROJECTION_FIELDS, j8RunnerAdmission, legReadback,
+    J8_ADMISSION_ENV, J8_LEGACY_REFUSAL, j8AdmissionPresent, J8_FENCE_CASE, J8_FENCE_KEY_CAP, J8_KEY_CAPS, J8_SUITE, J8WriteGate, TAKE_PROJECTION_FIELDS, j8RunnerAdmission, legReadback,
     legReceipt, legSink, mergeLegReadback, readTakeDigests, takeDigest, takesReadComplete, takesUnchangedVerdict, writerDrainedVerdict,
     j8bFinalSentFeedbackVerdict, legStartPressVerdict, startPressSnapshot, type J8Leg, type StartPressCounts,
 } from '../live/helpers/rwtJ8Journey';
@@ -175,6 +175,46 @@ describe('j8RunnerAdmission: no runner, no signup (Sam on 94fe88d7)', () => {
         // The receipt names the runner's own attempt, so the nightly entry maps only this run's receipt.
         expect(body).toContain('receipt.meta.runnerAttempt = admission.attemptId;');
         expect(body.indexOf('receipt.meta.runnerAttempt = admission.attemptId;')).toBeLessThan(body.indexOf('prepareDisposable('));
+    });
+});
+
+describe('only the J8 journey signs up under a J8 admission (Sam on 27ee1856)', () => {
+    const spec = () => readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../live/rwt-feedback-association-boundaries.live.spec.ts'), 'utf8');
+    it('any value of the admission variable counts as present; only its absence does not', () => {
+        expect(j8AdmissionPresent({})).toBe(false);
+        expect(j8AdmissionPresent({ [J8_ADMISSION_ENV]: '/adm.json' })).toBe(true);
+        expect(j8AdmissionPresent({ [J8_ADMISSION_ENV]: '' })).toBe(true);
+    });
+    it('both legacy tests skip FIRST under an admission, before any page action or signup', () => {
+        const src = spec();
+        const titles = ["test('feedback selected for an older take links only to that take'", "test('No session feedback stores no take or coaching link'"];
+        for (const title of titles) {
+            const start = src.indexOf(title);
+            expect(start).toBeGreaterThan(-1);
+            const next = src.indexOf("\n    test('", start + 1);
+            const body = src.slice(start, next === -1 ? undefined : next);
+            const skip = body.indexOf('test.skip(j8AdmissionPresent(process.env), J8_LEGACY_REFUSAL);');
+            const ret = body.indexOf('if (j8AdmissionPresent(process.env)) return;');
+            expect(skip).toBeGreaterThan(-1);
+            expect(ret).toBeGreaterThan(skip);
+            expect(body.indexOf('prepareDisposable(')).toBeGreaterThan(ret);
+            // Every page action the test takes comes after the refusal (a token the test never uses is not required).
+            for (const later of ['tap.attach(page)', 'armWatchdog(', 'page.goto(', 'page.route(']) {
+                const at = body.indexOf(later);
+                expect({ later, after: at === -1 || at > ret }).toEqual({ later, after: true });
+            }
+        }
+        // The J8 journey and the two legacy tests are the file's only tests.
+        expect(src.match(/\n {4}test\('/g)?.length).toBe(3);
+    });
+    it('prepareDisposable refuses before any page action or signup when called without the runner email under an admission', () => {
+        const src = spec();
+        const body = src.slice(src.indexOf('async function prepareDisposable('), src.indexOf('async function prepareDisposable(') + 2000);
+        const guard = body.indexOf('if (runnerEmail === undefined && j8AdmissionPresent(process.env)) {');
+        expect(guard).toBeGreaterThan(-1);
+        expect(body.indexOf('return false;', guard)).toBeLessThan(body.indexOf('page.goto('));
+        for (const later of ['installMicAcquisitionCounter(page)', "page.goto('/auth/signup')", 'signUpDisposableAccount(']) expect(body.indexOf(later)).toBeGreaterThan(guard);
+        expect(J8_LEGACY_REFUSAL).toMatch(/only the J8 journey may sign up/);
     });
 });
 
