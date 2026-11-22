@@ -77,7 +77,7 @@ async function reportAndCapture(expectedLabel: RegExp, _expectedAreas: string[])
 
 // #1042 PR3: the full-page overview + its `freeform_practice_overview` surface were removed. #1046 slice 5b
 // then ACTIVATED Focus Points, so /practice no longer has an "Objective-unavailable" surface: the Freeform
-// card navigates directly to /session, and the Focus Points card opens the capture dialog (no surface mark).
+// card navigates directly to /session, and the Focus Points card opens the capture dialog with its own objective_setup surface.
 describe('Report Issue — /practice surface attribution (chooser surface)', () => {
   beforeEach(() => submit.mockClear());
 
@@ -85,6 +85,26 @@ describe('Report Issue — /practice surface attribution (chooser surface)', () 
     renderApp();
     const meta = await reportAndCapture(/SpeakSharp Practice/, ['understanding_choices', 'navigation', 'visual_layout', 'other']);
     expect(meta).toMatchObject({ practiceSurface: 'practice_home', journeyStep: 'chooser', canonicalRoute: '/practice', pageKey: 'practice' });
+  });
+
+  it('attributes reports to Focus Points while setup is open and to the chooser after dismissal', async () => {
+    renderApp();
+    fireEvent.click(screen.getByTestId('practice-card-objective'));
+    expect(await screen.findByTestId('objective-setup-dialog')).toBeVisible();
+
+    const open = await reportAndCapture(/Focus Points/, []);
+    expect(open).toMatchObject({
+      practiceSurface: 'objective_setup', journeyStep: 'objective_setup', canonicalRoute: '/practice', pageKey: 'practice',
+    });
+    expect(screen.getByTestId('objective-setup-dialog')).toBeVisible();
+
+    fireEvent.keyDown(screen.getByTestId('objective-setup-dialog'), { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('objective-setup-dialog')).not.toBeInTheDocument());
+    const dismissed = await reportAndCapture(/SpeakSharp Practice/, []);
+    expect(dismissed).toMatchObject({
+      practiceSurface: 'practice_home', journeyStep: 'chooser', canonicalRoute: '/practice', pageKey: 'practice',
+    });
+    expect(submit).toHaveBeenCalledTimes(2);
   });
 
   it('#1042 PR3: the Freeform card navigates DIRECTLY to /session; a report there uses the Session · Speaking context', async () => {

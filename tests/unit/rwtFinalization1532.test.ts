@@ -396,7 +396,9 @@ describe('product-row inventory: a receipt missing any product outcome can never
             // AHT-02/03 (#1811): the Focus case rows are written by their own case-only helpers.
             'live/helpers/rwtFocusTakesDiffer.ts', 'live/helpers/rwtFocusEditCancel.ts', 'live/helpers/rwtFocusOpenMicIsolation.ts', 'live/helpers/rwtFocusSameTarget.ts', 'live/helpers/repeatMetricWording.ts',
             // J3.a/b (#1904): the privacy, saved-timing and repeat rows are named in their own case-only helper.
-            'live/helpers/rwtJ3Evidence.ts'].map(src).join('\n');
+            'live/helpers/rwtJ3Evidence.ts',
+            // J1.a (Sam on run 45014809858): the new account's 30-day trial row is named in its own helper.
+            'live/helpers/rwtTrialGrant.ts'].map(src).join('\n');
         for (const s of SUITES) for (const step of requiredAutomatedRows(s.suite)!.product) {
             expect({ step, written: writers.includes(`'${step}'`) }).toEqual({ step, written: true });
         }
