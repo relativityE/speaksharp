@@ -10,7 +10,7 @@ import {runInNewContext} from 'node:vm';
 import {NATIVE_REPORTER,NATIVE_HELPERS,SQL_INPUTS,SQL_CONSUMER,SQL_CONTRACTS,nativeTestRoute,selectNativeContracts,executionBatchIdentity,reconcileExecutionBatches,
   nativeCommand,nativeWarmupCommand,nativeRuntime,validateWarmup,nativeChildTracker,produceNativePhase,validateNativePhase,validateNativeReceipt,
   parseDenoJunit,validateNativeCallables,nativeDenoPolicy,nativeEnvironment,validateSyntheticSource,sqlSourceBinding,validateSqlWitness,
-  PROOF_CASES_TEST,REAL_BROWSER_TEST,nativeBrowserBinding,proofCasesBinding,phaseProofCasesBinding,validatePhaseProofCases,generatedProofCases} from '../../scripts/lib/nativeTestExecutionEvidence.mjs';
+  PROOF_CASES_TEST,REAL_BROWSER_TEST,MODEL_PRIVACY_BROWSER_TEST,nativeBrowserBinding,proofCasesBinding,phaseProofCasesBinding,validatePhaseProofCases,generatedProofCases} from '../../scripts/lib/nativeTestExecutionEvidence.mjs';
 import {drainOwnedPhase,dependencyPaths,initializeCopyRepository,cleanupOwnedCopy,selectExecutionContracts} from '../../scripts/run-test-efficacy.mjs';
 import {testEnvironment,executionContext,sourceIdentity,executionRoute,changedEvidencePaths} from '../../scripts/lib/testExecutionEvidence.mjs';
 import {execFileSync} from 'node:child_process';
@@ -257,16 +257,20 @@ test('INSTALLED Node reporter observes actual collection/assertion/drain and rej
   }finally{f.clean();}
 });
 
-test('real-browser native phase binds and forwards only the exact executable identity',()=>{
+for(const testFile of [REAL_BROWSER_TEST,MODEL_PRIVACY_BROWSER_TEST]) test(`${testFile}: native phase binds and forwards only the exact executable identity`,()=>{
   const f=fixture(),chrome=path.join(f.dir,'installed-chrome');
   fs.writeFileSync(chrome,'synthetic reviewed browser bytes');fs.chmodSync(chrome,0o700);
   const environment={...testEnvironment(f.dir,null,''),CT_CHROME:chrome};
-  f.contract.testFile=REAL_BROWSER_TEST;
-  f.write(REAL_BROWSER_TEST,`const test=require('node:test'),assert=require('node:assert/strict');
-    test('bound browser reaches the exact consumer',()=>assert.equal(process.env.CT_CHROME,${JSON.stringify(chrome)}));`);
+  f.contract.testFile=testFile;
+  f.write(testFile,testFile.endsWith('.cjs')
+    ? "const test=require('node:test'),assert=require('node:assert/strict');"
+      +`test('bound browser reaches the exact consumer',()=>assert.equal(process.env.CT_CHROME,${JSON.stringify(chrome)}));`
+    : "import test from 'node:test'; import assert from 'node:assert/strict';"
+      +`test('bound browser reaches the exact consumer',()=>assert.equal(process.env.CT_CHROME,${JSON.stringify(chrome)}));`);
   try {
     const expected={path:chrome,sha256:hash(fs.readFileSync(chrome))};
     assert.deepEqual(nativeBrowserBinding(f.contract,environment),expected);
+    assert.equal(nativeBrowserBinding({...f.contract,testFile:'tests/unit/unapproved.node.test.mjs'},environment),null);
     let phase;
     try {phase=produceNativePhase({root:f.dir,cwd:f.dir,contract:f.contract,provenance,inputSha256,runId,
       sourceCopyCommit:'e'.repeat(40),environment,drain:drainOwnedPhase});}

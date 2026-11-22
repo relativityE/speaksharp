@@ -143,7 +143,7 @@ const deployedCoachingFixture = Object.freeze({
   fixtureFile:'tests/live/helpers/deployedCoachingContract.json', testFile:'tests/unit/deployedCoachingContractExecution1812.test.ts', protocol:'deployed-coaching',
   assertion:'deployed coaching fixture drives both actual readers and rejects changed input',
   sha256:'70c3099769cf24ac4faf3b4c191e322e50a0f1b34228a3aa72199a8f06adbe1b', consumerSha256:'9ff70aa89df82c44ec1069c249d775c578a2a93b96859af336991bb1db143caa',
-  readers:[{file:'tests/live/helpers/rwtCoachingConsistency.ts',sha256:'9c496e6e90c4d88a4704c80fbfb84cf8f53378c1f6fe654a81d5aba6d3c89bee'},{file:'tests/live/helpers/rwtCoachingEvidence.ts',sha256:'308f6c26d0b1c5d612e44d64b764b623774e5183a62561b7c3209c6a6d85f946'}],
+  readers:[{file:'tests/live/helpers/rwtCoachingConsistency.ts',sha256:'dc3e426b99bfd41488c4463df309273946e44fb6c667244ef063ba6f86e574f7'},{file:'tests/live/helpers/rwtCoachingEvidence.ts',sha256:'308f6c26d0b1c5d612e44d64b764b623774e5183a62561b7c3209c6a6d85f946'}],
 });
 export const registeredFixture = file => file === workflowFixture.fixtureFile ? workflowFixture
   : file === retentionPinsFixture.fixtureFile ? retentionPinsFixture
@@ -537,8 +537,15 @@ function expectedPhaseInputs(root, expected, contract) {
 }
 
 export function validatePilotExecution(receipt, expected, root) {
-  return [...validateRequiredSemanticExecution(receipt,expected,root,[TEST_EFFICACY_CONTRACTS[0]])][0];
+  return validateRequiredSemanticExecution(receipt,expected,root,[TEST_EFFICACY_CONTRACTS[0]]).get(TEST_EFFICACY_CONTRACTS[0].id);
 }
+function requiredSemanticFileHash(root,file) {
+  const target=path.join(root,file);
+  if(!fs.lstatSync(target,{throwIfNoEntry:false})?.isFile() || fs.realpathSync(target)!==path.join(fs.realpathSync(root),file))
+    throw new Error(`NOT RUN: required semantic source or test is missing or aliased: ${file}`);
+  return hash(fs.readFileSync(target));
+}
+
 export function validateRequiredSemanticExecution(receipt, expected, root, contracts) {
   assertProvenance(receipt?.provenance,expected);
   for (const key of ['commit','tree','snapshotSha256']) {
@@ -547,12 +554,12 @@ export function validateRequiredSemanticExecution(receipt, expected, root, contr
   if (receipt.status!=='executed' || !contracts.length || !Array.isArray(receipt.contracts)
     || JSON.stringify(receipt.contracts.map(result=>result?.id))!==JSON.stringify(contracts.map(contract=>contract.id)))
     throw new Error('Wrong required semantic contract set: missing, extra, or out of order');
-  const proven=new Set(), phaseIds=new Set();
+  const proven=new Map(), phaseIds=new Set();
   for (let i=0;i<contracts.length;i++) {
     const contract=contracts[i],result=receipt.contracts[i];
-    if (result.id!==contract.id || result.testFile!==contract.testFile || result.sourceFile!==contract.sourceFile
-      || result.testSha256!==hash(fs.readFileSync(path.join(root,contract.testFile)))
-      || result.sourceSha256!==hash(fs.readFileSync(path.join(root,contract.sourceFile)))) throw new Error('Wrong pilot source/test identity');
+    if (proven.has(contract.id) || result.id!==contract.id || result.testFile!==contract.testFile || result.sourceFile!==contract.sourceFile
+      || result.testSha256!==requiredSemanticFileHash(root,contract.testFile)
+      || result.sourceSha256!==requiredSemanticFileHash(root,contract.sourceFile)) throw new Error('Wrong pilot source/test identity');
     const phases=[result.baseline,result.control,...(result.mutants || []),result.restored];
     const labels=['baseline','semantic-control',...contract.mutants.map(m=>m.id),'restored'];
     if (phases.length!==5 || phases.some((phase,index)=>phase?.binding?.phase!==labels[index])
@@ -582,7 +589,7 @@ export function validateRequiredSemanticExecution(receipt, expected, root, contr
         assertion:mutant?.assertion,assertionLocation,baselineNames:result.baseline.names});
     }
     if (result.baseline.inputSha256!==result.restored.inputSha256) throw new Error('Restoration identity mismatch');
-    proven.add(contract.testFile);
+    proven.set(contract.id,contract.testFile);
   }
   return proven;
 }
@@ -684,15 +691,22 @@ export function validateVitestBatches(receipts,expected,root,{base,kind}={}) {
   return files;
 }
 
+export function pythonExecutionClaim(route, sourceCallObserved) {
+  if (sourceCallObserved) return 'exact registered Python method and source call observed; not browser/database/live acceptance';
+  if (route.runner==='python-unittest-input') return 'registered input bytes read by its Python test module; not a behavioral verdict';
+  return 'actual Python unittest collection and execution only; not browser/database/live acceptance';
+}
+
 export function executionCoverage(files, {root,expected,pilot,execution,native,python,playwright,smoke,base}={}) {
   const changes=changedPaths(root,base);
   const semantic=requiredSemanticContracts(base && base!=='0'.repeat(40)?changes:null,root);
   const required=semantic.length>0;
-  let proven=new Set();
+  let proven=new Map();
   if (pilot?.status==='executed') {
     if(pilot.base!==(base && base!=='0'.repeat(40)?base:null))throw new Error('Wrong semantic execution comparison base');
     proven=validateRequiredSemanticExecution(pilot,expected,root,semantic);
   }
+  const semanticFiles=new Set(proven.values());
   const executions=Array.isArray(execution)?execution:execution?[execution]:[];
   if(executions.some(item=>item?.base!==(base||null)||item?.executionKind!=='changed-evidence'))throw new Error('Wrong Vitest execution comparison base/kind');
   const executed=executions.some(item=>['executed','incomplete'].includes(item?.status))
@@ -715,13 +729,17 @@ export function executionCoverage(files, {root,expected,pilot,execution,native,p
       inputSha256:hash(JSON.stringify(entries.filter(([,digest])=>digest!=='deleted').map(([file,digest])=>[file,digest])))});
   }
   const pythonFiles=python?validatePythonReceipt(python,{root,base:base||null,provenance:expected,files}):new Set();
+  // Only read call bindings after validatePythonReceipt independently revalidates each phase.
+  const pythonSourceCallFiles=new Set((Array.isArray(python)?python:python?[python]:[])
+    .flatMap(receipt=>receipt.tests.flatMap(test=>(test.phase.binding.sourceCalls??[]).map(call=>call.file))));
   if ([...executed].some(file=>!files.includes(file))) throw new Error('Unexpected execution outside changed test selection');
   const rows=files.map(file=> {
     const route=executionRoute(file,root);
     const browserSmoke=smokeFiles.has(file) || (smokeFiles.size>0 && SMOKE_HELPERS.includes(file));
-    return {file,route,status:executed.has(file) && registeredSourceContract(file)?'SOURCE QUALIFIED':proven.has(file) || executed.has(file) || browser.has(file)||browserSmoke||nativeFiles.has(file)||pythonFiles.has(file)?'EXECUTED':route?'NOT RUN':'UNCOVERED',
+    return {file,route,status:executed.has(file) && registeredSourceContract(file)?'SOURCE QUALIFIED':semanticFiles.has(file) || executed.has(file) || browser.has(file)||browserSmoke||nativeFiles.has(file)||pythonFiles.has(file)?'EXECUTED':route?'NOT RUN':'UNCOVERED',
       ...(registeredSourceContract(file)?{liveExecution:'NOT RUN'}:{}),
-      claim:browserSmoke?'disposable stack smoke execution only; no live acceptance':proven.has(file)?'registered semantic faults only':pythonFiles.has(file)?'actual Python unittest collection and execution only; not browser/database/live acceptance':nativeFiles.has(file)?route.claim??'actual native test collection and execution only; not database/live acceptance':browser.has(file)?
+      claim:browserSmoke?'disposable stack smoke execution only; no live acceptance':semanticFiles.has(file)?'registered semantic faults only':pythonFiles.has(file)?pythonExecutionClaim(route,pythonSourceCallFiles.has(file))
+        :nativeFiles.has(file)?route.claim??'actual native test collection and execution only; not database/live acceptance':browser.has(file)?
         file===INFRA_PROBE_FILE?'dedicated browser health collection and execution only; not live acceptance':'ordinary CI shard collection and execution only; not live acceptance':executed.has(file)
         ?registeredSourceContract(file)?'fault-sensitive wiring/fixture contract only; live test body not executed'
           :registeredHelper(file)?'registered source-mapped helper callables executed; not journey acceptance'

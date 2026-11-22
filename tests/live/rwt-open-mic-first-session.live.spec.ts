@@ -206,7 +206,9 @@ test.use({
  *   5. J1.c's short Stop (Sam, 21 Nov) — `mic-start`, stopped inside the 5 s minimum: a no-save probe.
  * So: 5 presses in all; `mic-start` at most 4 (3 when the first take downloads), `mic-download` at most 1, `verdict-practice-again`
  * at most 1, and no Retry press. One completed session per save take (takes 1–4), none for the probe. The journey captures the
- * session ids of takes 1 and 2 (the comparison pair); takes 3 and 4 are proven by their own lease and the recorder.
+ * session ids of takes 1 and 2 (the comparison pair); takes 3 and 4 are proven by their own lease and the recorder. Takes 3 and
+ * 4 are held past the product's 5 s save minimum before their Stop (`holdPastSaveMinimum`; live run 44955832135 stopped them
+ * at ~2 s and both were discarded); take 5 stays the deliberate short Stop.
  */
 const AHT01_START_PRESS_BUDGET = { total: 5, perControl: { 'mic-start': 4, 'mic-download': 1, 'verdict-practice-again': 1 } } as const;
 const AHT01_DESIGNED_TAKES = 5;
@@ -1035,7 +1037,8 @@ test.describe('RWT — Open Mic first session @live', () => {
                 // each read the owner's choice back inside the press, immediately before its click, as J3 does. A refusal
                 // clicks nothing and stops the journey with its HOLD.
                 const again = await practiceAgainEvidence(page, `${SUITE}-again`, persistedId, 'open_mic', [], () => { saveTakeEnd = tap.events.length; },
-                    { saveTakeMs, beforeCapture: () => captureGate().confirm() });
+                    // Option B (Sam, 21 Nov): take 3 is a SAVE take, so it records past the product's 5 s minimum before its Stop.
+                    { saveTakeMs, beforeCapture: () => captureGate().confirm(), holdRepeatPastSaveMinimum: true });
                 // The window closes at the SAVE take's Stop, so the review's repeat Start can never stand in for it.
                 repeatWindow = [repeatFrom, saveTakeEnd >= 0 ? saveTakeEnd : tap.events.length];
                 practiceAgainRows(receipt, 'open_mic', again);
@@ -1061,7 +1064,8 @@ test.describe('RWT — Open Mic first session @live', () => {
 
             await test.step('next Start without a hold', async () => {
                 // #1835: the next Start reads the choice back inside its press too.
-                const next = await nextStartEvidence(page, `${SUITE}-next`, () => captureGate().confirm());
+                // Option B: take 4 is a SAVE take too, held past the 5 s minimum (live run 44955832135 stopped it at ~2 s: discarded).
+                const next = await nextStartEvidence(page, `${SUITE}-next`, () => captureGate().confirm(), { holdPastSaveMinimum: true });
                 nextStartRows(receipt, next);
             });
 

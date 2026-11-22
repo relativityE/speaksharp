@@ -1,7 +1,7 @@
 **Status:** Authoritative for the bounded current work routing below; wider canonical reconciliation remains open under #1318.
 **Owner:** Product Owner (relativityE)
 **Last Reviewed:** 2026-10-28 — bounded source/component currency correction; independent review and qualification remain required.
-**Last Verified:** 2026-11-19 — source baseline `6c9d3115` (through #1904, source currency only); component observations, deployment identity and operational HOLDs are recorded only in `RELEASE_STATUS.md`.
+**Last Verified:** 2026-11-22 — source through main `02c77cf3` (#1932), read from GitHub (source currency only). The separate observed Production frontend identity is recorded in RELEASE_STATUS; this is not acceptance.
 **Applies To:** RWT/Alpha, MVP/Beta sequencing and explicitly deferred SpeakSharp work.
 **Class:** Open gap / risk.
 **Authority:** The source for Now / Next / Later / Declined work and implementation order.
@@ -14,7 +14,7 @@
 ## Receiving and acceptance ownership
 
 The [5 November source reconciliation](./RELEASE_STATUS.md#5-november-2026-source-reconciliation-and-r10-hold)
-is the dated source-currency receipt for the earlier baseline `8f9f9451` (current baseline `6c9d3115`). It preserves the open
+is the dated source-currency receipt for the earlier baseline `8f9f9451` (current source baseline `02c77cf3`; scope and history are in RELEASE_STATUS). It preserves the open
 acceptance obligations below. Historical queue assignments do not restart writers;
 current file handoffs remain in the owning issue/PR thread.
 
@@ -55,10 +55,10 @@ dated source/release receipt and does not independently verify GitHub or Product
 Routing here grants no deployment, activation or acceptance authority.
 
 <!-- CURRENCY-BLOCK
-# 2026-11-19: baseline re-read from GitHub (source only); deployed-release is the last direct observation (2026-11-16), not re-verified here.
-baseline: 6c9d3115dacc414a3c1d11344bac07523fd12e59
-deployed-release: 446e09fad7a664b0ff49805d6c13ee10e2e466f0
-verified-on: 2026-11-19
+# 2026-11-22: baseline re-read from GitHub (source only); deployed-release is the separate direct Production frontend observation (2026-11-22).
+baseline: 02c77cf3940b85445b3cf15d93ec10cbba31a7c7
+deployed-release: 7c9e472763e5f7f31fb2aadbaab0a54a36176e3a
+verified-on: 2026-11-22
 release-blocker: production-journey-recovery
 retention-campaign: off-critical-path
 task-1304-1: merged
