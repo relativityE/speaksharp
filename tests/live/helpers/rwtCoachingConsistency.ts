@@ -88,8 +88,10 @@ export function openPointReferenceVerdict(o: { well: string; next: string; label
  * knows what it detected, so advice must not assert an omission. Live run 44941790511 failed the old word match, which also flags
  * harmless advice ("skip the filler words"), and kept no phrase, so the receipt could not say which it was.
  *
- * Wording about omissions is often ambiguous, so this verdict FAILs only on high-precision forms, and answers HOLD (the human
- * worksheet decides) whenever the claim's target or polarity is uncertain; it never turns an uncertain case into PASS:
+ * Wording about omissions is often ambiguous, so this verdict FAILs only on high-precision forms, and answers an explicit HOLD
+ * whenever the claim's target or polarity is uncertain; it never turns an uncertain case into PASS. This is a required
+ * AUTOMATED row: nothing settles its HOLD today (no worksheet item binds to it; Sam on 0b6390a8), so an ambiguous phrase leaves
+ * the row HOLD. A human resolution path would need its own reviewed design.
  *  - `past_claim` → FAIL: a past-tense statement that something was omitted ("you missed…", "…was never covered", "you left it
  *    out"), with no negator in the clause;
  *  - `implied_point` → FAIL: an imperative whose object, within three words, is a chosen point ("don't skip the guarantee");
@@ -137,7 +139,7 @@ export function omissionClaimVerdict(o: { well: string; next: string; labels: re
         return { status: 'FAIL', form, detail: `the advice asserts an omission (${form}); the matcher cannot know a point was missed` };
     }
     if (form === 'unknown_point') return { status: 'HOLD', form, detail: 'omission wording, but no point labels to tell whether it concerns a chosen point' };
-    if (form === 'ambiguous') return { status: 'HOLD', form, detail: 'omission wording whose target or polarity is uncertain; the human check decides' };
+    if (form === 'ambiguous') return { status: 'HOLD', form, detail: 'omission wording whose target or polarity is uncertain; held, not judged' };
     return { status: 'PASS', form, detail: form === 'unrelated' ? 'omission wording, but not about any chosen point' : 'no omission wording' };
 }
 
