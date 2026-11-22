@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { describe, it } = require('node:test');
 const { expect } = require('./expect-lite.cjs');
-const { J8_DEFERRED_STEPS, J8_SUITE, J8_RECEIPT_MAP, mapJ8Receipt } = require('../j8-receipt-mapping.cjs');
+const { J8_DEFERRED_STEPS, J8_NON_GATING_STEPS, J8_SUITE, J8_RECEIPT_MAP, mapJ8Receipt } = require('../j8-receipt-mapping.cjs');
 const { splitCaseResult } = require('../case-results.cjs');
 const { rowsForLeg } = require('../journey-plan.cjs');
 
@@ -12,15 +12,21 @@ const LEGS = ['J8.a', 'J8.b', 'J8.c'];
 const RELEASE = 'b'.repeat(40);
 const ATTEMPT = 'j8-43000000123-1';
 const JOURNEY_OF = { 'J8.a': 'journey-a', 'J8.b': 'journey-final-b', 'J8.c': 'journey-c' };
-/** Every receipt step the mapping reads, each PASS, plus account and journey rows the mapping does not consume. `feedback retention`
- * is HOLD, as the J8 spec writes it (the parent deletes the account after the spec exits). Each leg is bound to its own journey
- * (`J8 leg readback bindings`), and the receipt declares those three journeys for the readback. */
+/**
+ * The rows a fully passing J8 run carries once the finalizer has settled them: every receipt step the mapping reads, PASS, plus the
+ * rows the mapping does not consume, as the spec and the finalizer leave them. `feedback retention` is HOLD (the parent deletes the
+ * account after the spec exits). The telemetry rows are telemetryClassRows' (claimed, qualifying): `signup-stage telemetry received`
+ * is always HOLD (report-only, non-gating), and `journey telemetry received` is PASS once the readback merge settles it. Each leg is
+ * bound to its own journey (`J8 leg readback bindings`), and the receipt declares those three journeys for the readback.
+ */
+const SETTLED_HOLDS = new Set(['feedback retention', 'signup-stage telemetry received']);
 function passingReceipt(extra = []) {
-    const steps = new Set(['receipt content-free', 'zero residue', 'feedback retention', 'feedback fence close', 'telemetry rows']);
+    const steps = new Set(['receipt content-free', 'zero residue', 'feedback retention', 'feedback fence close', 'telemetry decodable',
+        'signup-stage telemetry (user class)', 'signup-stage telemetry received', 'journey telemetry (canary class)', 'journey telemetry received']);
     for (const leg of LEGS) for (const sources of Object.values(J8_RECEIPT_MAP[leg]))
         for (const s of sources) if (s.scope !== 'readback') steps.add(s.scope === 'leg' ? `${leg}: ${s.step}` : s.step);
     const rows = [...steps].map((step) => (step === 'J8 leg readback bindings'
-        ? { step, verdict: 'PASS', detail: '', evidence: { ...JOURNEY_OF } } : { step, verdict: step === 'feedback retention' ? 'HOLD' : 'PASS', detail: '' }));
+        ? { step, verdict: 'PASS', detail: '', evidence: { ...JOURNEY_OF } } : { step, verdict: SETTLED_HOLDS.has(step) ? 'HOLD' : 'PASS', detail: '' }));
     return { suite: J8_SUITE, release: RELEASE, meta: { runnerAttempt: ATTEMPT }, rows: [...rows, ...extra],
         readback: { journeys: LEGS.map((l) => ({ journeyId: JOURNEY_OF[l], stages: ['share_feedback'] })), reportedJourneyIds: [], missingBindings: [] } };
 }
@@ -233,6 +239,51 @@ describe('J8 receipt mapping', () => {
         expect(other.assertions.every((a) => a.result === 'HOLD')).toBe(true);
         const legScoped = map(passingReceipt([{ step: 'J8.a: feedback retention', verdict: 'HOLD' }]));
         expect(legScoped.assertions.filter((a) => a.leg === 'J8.a').every((a) => a.result === 'HOLD')).toBe(true);
+    });
+    it('NON-GATING ROWS (Codex on 2e2e3bd2): the finalizer\'s report-only HOLD rows floor nothing; FAIL, HUMAN or EXTERNAL still floor', () => {
+        expect([...J8_NON_GATING_STEPS].sort()).toEqual(['base_q4 primary', 'signup-stage telemetry received']);
+        // The passing receipt already carries `signup-stage telemetry received` HOLD, as every J8 run does.
+        const held = map(passingReceipt([{ step: 'base_q4 primary', verdict: 'HOLD' }]));
+        expect(held.assertions.every((a) => a.result === 'PASS')).toBe(true);
+        expect(held.unmapped.filter((u) => J8_NON_GATING_STEPS.includes(u.step)).sort((a, b) => a.step.localeCompare(b.step))).toEqual([
+            { step: 'base_q4 primary', outcome: 'HOLD', nonGating: true }, { step: 'signup-stage telemetry received', outcome: 'HOLD', nonGating: true }]);
+        for (const step of J8_NON_GATING_STEPS) {
+            const base = passingReceipt(step === 'base_q4 primary' ? [{ step, verdict: 'HOLD' }] : []);
+            // FAIL fails every leg, written alone, first or second; HUMAN or EXTERNAL holds every leg.
+            const failed = map(withVerdict(base, step, 'FAIL'));
+            expect(failed.assertions.every((a) => a.result === 'FAIL')).toBe(true);
+            expect(failed.unmapped.filter((u) => u.step === step)).toEqual([{ step, outcome: 'FAIL' }]);
+            expect(map({ ...base, rows: [{ step, verdict: 'FAIL' }, ...base.rows] }).assertions.every((a) => a.result === 'FAIL')).toBe(true);
+            expect(map({ ...base, rows: [...base.rows, { step, verdict: 'FAIL' }] }).assertions.every((a) => a.result === 'FAIL')).toBe(true);
+            for (const v of ['HUMAN', 'EXTERNAL']) {
+                expect(map(withVerdict(base, step, v)).assertions.every((a) => a.result === 'HOLD')).toBe(true);
+                expect(map({ ...base, rows: [{ step, verdict: v }, ...base.rows] }).assertions.every((a) => a.result === 'HOLD')).toBe(true);
+            }
+            // A leg-scoped copy is not the finalizer's row: it holds its leg.
+            const legScoped = map(passingReceipt([{ step: `J8.b: ${step}`, verdict: 'HOLD' }]));
+            expect(legScoped.assertions.filter((a) => a.leg === 'J8.b').every((a) => a.result === 'HOLD')).toBe(true);
+            expect(legScoped.assertions.filter((a) => a.leg !== 'J8.b').every((a) => a.result === 'PASS')).toBe(true);
+        }
+        // By name only: the gating received row, the user-class sent row and a near-miss name still hold every leg.
+        for (const step of ['journey telemetry received', 'signup-stage telemetry (user class)']) {
+            expect(map(withVerdict(passingReceipt(), step, 'HOLD')).assertions.every((a) => a.result === 'HOLD')).toBe(true);
+        }
+        expect(map(passingReceipt([{ step: 'signup-stage telemetry received (late)', verdict: 'HOLD' }])).assertions.every((a) => a.result === 'HOLD')).toBe(true);
+        // No plan row rests on an exempt step: a HOLD on one is excused only because nothing reads it.
+        const exempt = new Set([...J8_DEFERRED_STEPS, ...J8_NON_GATING_STEPS]);
+        for (const leg of LEGS) for (const sources of Object.values(J8_RECEIPT_MAP[leg])) for (const s of sources) expect(exempt.has(s.step)).toBe(false);
+    });
+    it('the non-gating list is exactly the finalizer\'s NON_GATING_ROWS, and every J8 run writes its telemetry row HOLD (drift guard)', () => {
+        const root = path.join(__dirname, '..', '..', '..', '..');
+        const acceptance = fs.readFileSync(path.join(root, 'tests', 'live', 'helpers', 'rwtAcceptance.ts'), 'utf8');
+        const block = acceptance.slice(acceptance.indexOf('export const NON_GATING_ROWS'));
+        const keys = [...block.slice(0, block.indexOf('});')).matchAll(/^\s+'([^']+)':/gm)].map((m) => m[1]).sort();
+        expect(keys).toEqual([...J8_NON_GATING_STEPS].sort());
+        const journey = fs.readFileSync(path.join(root, 'tests', 'live', 'helpers', 'rwtJourney.ts'), 'utf8');
+        const writer = journey.slice(journey.indexOf('export function telemetryClassRows'));
+        expect(writer.slice(0, writer.indexOf('\n}\n'))).toContain("receipt.row('signup-stage telemetry received', 'HOLD'");
+        const spec = fs.readFileSync(path.join(root, 'tests', 'live', 'rwt-feedback-association-boundaries.live.spec.ts'), 'utf8');
+        expect(spec.includes('telemetryClassRows(receipt, tap, claimed, true)')).toBe(true);
     });
     it('the J8 spec writes feedback retention as HOLD, the one shape the mapping defers (drift guard)', () => {
         const src = fs.readFileSync(path.join(__dirname, '..', '..', '..', '..', 'tests', 'live', 'rwt-feedback-association-boundaries.live.spec.ts'), 'utf8');

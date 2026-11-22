@@ -84,12 +84,16 @@ function dirs() {
 }
 /** A receipt whose every mapped row PASSes, bound to `attemptId`, each leg bound to its own journey. */
 function receiptFor(attemptId, extra = []) {
-    // `feedback retention` HOLD, as the J8 spec writes it: deferred, so a full run still exits 0 (Codex on 4a5d718a).
-    const steps = new Set(['receipt content-free', 'zero residue', 'journey telemetry received', 'feedback retention']);
+    // `feedback retention` HOLD, as the J8 spec writes it: deferred, so a full run still exits 0 (Codex on 4a5d718a). The telemetry
+    // rows as telemetryClassRows writes them: `signup-stage telemetry received` is always HOLD, report-only and non-gating, so a full
+    // run still exits 0 (Codex on 2e2e3bd2); the readback settles `journey telemetry received` (the fakes here pass rows through).
+    const holds = new Set(['feedback retention', 'signup-stage telemetry received']);
+    const steps = new Set(['receipt content-free', 'zero residue', 'telemetry decodable', 'signup-stage telemetry (user class)',
+        'signup-stage telemetry received', 'journey telemetry (canary class)', 'journey telemetry received', 'feedback retention']);
     for (const leg of LEGS) for (const sources of Object.values(J8_RECEIPT_MAP[leg]))
         for (const s of sources) if (s.scope !== 'readback') steps.add(s.scope === 'leg' ? `${leg}: ${s.step}` : s.step);
     const rows = [...steps].map((step) => (step === 'J8 leg readback bindings'
-        ? { step, verdict: 'PASS', detail: '', evidence: { ...JOURNEY_OF } } : { step, verdict: step === 'feedback retention' ? 'HOLD' : 'PASS', detail: '' }));
+        ? { step, verdict: 'PASS', detail: '', evidence: { ...JOURNEY_OF } } : { step, verdict: holds.has(step) ? 'HOLD' : 'PASS', detail: '' }));
     return { suite: J8_SUITE, release: RELEASE, meta: { runnerAttempt: attemptId }, rows: [...rows, ...extra],
         readback: { journeys: LEGS.map((l) => ({ journeyId: JOURNEY_OF[l], stages: ['share_feedback'] })), reportedJourneyIds: [], missingBindings: [] } };
 }

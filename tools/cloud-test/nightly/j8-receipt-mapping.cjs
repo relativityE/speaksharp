@@ -26,6 +26,11 @@
 //   parent deletes the account after the spec exits, so retention after deletion is not observed in the run. Written HOLD it is
 //   listed in `unmapped` (marked deferred) and floors nothing; written FAIL it still floors every leg to FAIL, and any other verdict
 //   that is not PASS (HUMAN, EXTERNAL) still floors to HOLD.
+// - The reviewed finalizer's report-only rows (`NON_GATING_ROWS` in tests/live/helpers/rwtAcceptance.ts, PO 2026-09-28) keep their
+//   exemption here, by the same names and on the same terms: written exactly HOLD (every time) a row floors nothing and is listed in
+//   `unmapped` (marked nonGating); FAIL, HUMAN or EXTERNAL on it still floors. The J8 spec writes `signup-stage telemetry received`
+//   HOLD on every run (telemetryClassRows), so without this no J8 run could PASS. The list mirrors the finalizer's closed list exactly
+//   (a test reads that list from its source); no other row, and no leg-scoped copy of one, is exempt.
 const { rowsForLeg } = require('./journey-plan.cjs');
 
 const J8_SUITE = 'feedback-association-boundaries-j8';
@@ -43,6 +48,8 @@ const BINDINGS_ROW = 'J8 leg readback bindings';
 const READBACK_STAGES = Object.freeze(['share_feedback']);
 /** Receipt steps J8 defers: a HOLD written for one of these floors nothing (see the rules above). */
 const DEFERRED_STEPS = Object.freeze(['feedback retention']);
+/** The finalizer's report-only rows (rwtAcceptance.ts `NON_GATING_ROWS`), by name: a HOLD on one of these floors nothing. */
+const NON_GATING_STEPS = Object.freeze(['base_q4 primary', 'signup-stage telemetry received']);
 
 const ACCOUNT = [J('run-owned signup'), J('canary claim in fresh login')];
 const NO_CLOUD_STT = [J('no Cloud speech-to-text request')];
@@ -190,7 +197,7 @@ function mapJ8Receipt(receipt, readback) {
         throw new Error(`expected the ${J8_SUITE} receipt, got ${receipt?.suite ?? 'nothing'}`);
     if (!Array.isArray(receipt.rows) || receipt.rows.length === 0) throw new Error('the J8 receipt has no rows');
     const steps = new Map();
-    // Every verdict written for a step, as written: a deferred step is excused only when each of its rows says exactly HOLD.
+    // Every verdict written for a step, as written: an exempt step is excused only when each of its rows says exactly HOLD.
     const written = new Map();
     const received = readbackOutcomes(receipt, readback);
     for (const r of receipt.rows) {
@@ -199,7 +206,7 @@ function mapJ8Receipt(receipt, readback) {
         steps.set(r.step, steps.has(r.step) ? worse(steps.get(r.step), o) : o);
         written.set(r.step, [...(written.get(r.step) ?? []), r.verdict]);
     }
-    const deferredHold = (step) => DEFERRED_STEPS.includes(step) && written.get(step).every((v) => v === 'HOLD');
+    const exemptHold = (step) => (DEFERRED_STEPS.includes(step) || NON_GATING_STEPS.includes(step)) && written.get(step).every((v) => v === 'HOLD');
     const legOf = (step) => LEGS.find((l) => step.startsWith(`${l}: `)) ?? null;
     const stepName = (leg, s) => (s.scope === 'journey' ? s.step : `${leg}: ${s.step}`);
     // A receipt row can never stand in for the readback: the readback outcome is read from `received`, not from `steps`.
@@ -211,7 +218,7 @@ function mapJ8Receipt(receipt, readback) {
     const unmapped = [];
     for (const [step, o] of steps) {
         if (consumed.has(step)) continue;
-        if (deferredHold(step)) { unmapped.push({ step, outcome: o, deferred: true }); continue; }
+        if (exemptHold(step)) { unmapped.push({ step, outcome: o, ...(DEFERRED_STEPS.includes(step) ? { deferred: true } : { nonGating: true }) }); continue; }
         unmapped.push({ step, outcome: o });
         if (o === 'PASS') continue;
         const key = legOf(step) ?? 'journey';
@@ -238,4 +245,4 @@ function mapJ8Receipt(receipt, readback) {
     return { caseId: 'J8', assertions, unmapped };
 }
 
-module.exports = { J8_DEFERRED_STEPS: DEFERRED_STEPS, J8_SUITE, J8_RECEIPT_MAP: MAP, mapJ8Receipt };
+module.exports = { J8_DEFERRED_STEPS: DEFERRED_STEPS, J8_NON_GATING_STEPS: NON_GATING_STEPS, J8_SUITE, J8_RECEIPT_MAP: MAP, mapJ8Receipt };

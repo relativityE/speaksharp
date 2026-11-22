@@ -15,6 +15,7 @@ import {
     j8bFinalSentFeedbackVerdict, legStartPressVerdict, startPressSnapshot, type J8Leg, type StartPressCounts,
 } from '../live/helpers/rwtJ8Journey';
 import type { ReadbackActionBinding } from '../live/helpers/rwtAcceptance';
+import { RwtReceipt, telemetryClassRows } from '../live/helpers/rwtJourney';
 import type { ReadbackPlan } from '../live/helpers/rwtOracles';
 
 const RELEASE = 'a'.repeat(40);
@@ -520,7 +521,11 @@ describe('the J8 nightly entry\'s admission is the one the spec accepts, for thi
     const require = createRequire(import.meta.url);
     const entry = require('../../tools/cloud-test/nightly/j8-nightly-entry.cjs') as {
         admitJ8: (o: Record<string, unknown>) => { admissionFile: string; attemptId: string; email: string };
-        finalizerEvaluate: (r: unknown, rb: unknown, o: { workDir: string }) => { errors: string[] } | null;
+        finalizerEvaluate: (r: unknown, rb: unknown, o: { workDir: string }) => { errors: string[]; rows: { step: string; verdict: string }[] } | null;
+        j8CaseResult: (r: unknown, rb: unknown, ev: unknown) => { assertions: { leg: string; id: string; result: string }[]; unmapped: { step: string; outcome: string }[] };
+    };
+    const mapping = require('../../tools/cloud-test/nightly/j8-receipt-mapping.cjs') as {
+        J8_RECEIPT_MAP: Record<string, Record<string, { scope: string; step: string }[]>>;
     };
     const fresh = () => { const d = mkdtempSync(path.join(tmpdir(), 'j8-adm-')); return d; };
     it('j8RunnerAdmission admits the entry\'s record, with its reserved email, and refuses another run or attempt', () => {
@@ -538,4 +543,39 @@ describe('the J8 nightly entry\'s admission is the one the spec accepts, for thi
         expect(out).not.toBeNull();
         expect(out!.errors.length).toBeGreaterThan(0);
     }, 30_000);
+    it('A FULLY PASSING RUN PASSES (Codex on 2e2e3bd2): the real telemetry rows, settled by the reviewed finalizer, map every J8 row PASS', () => {
+        // The telemetry rows exactly as the J8 spec writes them (telemetryClassRows, claimed, qualifying), over a tap that saw one
+        // user-class signup journey and the three canary leg journeys. `signup-stage telemetry received` is HOLD on every run.
+        const legs = { 'J8.a': 'journey-a', 'J8.b': 'journey-final-b', 'J8.c': 'journey-c' } as const;
+        const tap = { undecodable: 0, blindBeacons: 0, events: [{ trafficType: 'user' }, ...Object.values(legs).map(() => ({ trafficType: 'canary' }))],
+            journeyIds: (c: string) => (c === 'canary' ? Object.values(legs) : ['journey-signup']), trafficTypes: () => ['user', 'canary'] };
+        const written = new RwtReceipt(J8_SUITE);
+        telemetryClassRows(written, tap as never, true, true);
+        expect(written.rows.find((r) => r.step === 'signup-stage telemetry received')?.verdict).toBe('HOLD');
+        // Every step the mapping reads PASS, the spec's deferred retention HOLD, and the journey's own content-free and residue rows.
+        const steps = new Set<string>(['receipt content-free', 'zero residue']);
+        for (const [leg, rows] of Object.entries(mapping.J8_RECEIPT_MAP)) for (const sources of Object.values(rows))
+            for (const s of sources) if (s.scope !== 'readback') steps.add(s.scope === 'leg' ? `${leg}: ${s.step}` : s.step);
+        const rows = [...written.rows,
+            ...[...steps].map((step) => (step === 'J8 leg readback bindings' ? { step, verdict: 'PASS', detail: 'bound', evidence: { ...legs } }
+                : { step, verdict: 'PASS', detail: 'observed' })),
+            { step: 'feedback retention', verdict: 'HOLD', detail: 'the parent deletes the account after the spec exits' }];
+        const attempt = 'j8-43000000000-1';
+        const receipt = { suite: J8_SUITE, release: RELEASE, meta: { runnerAttempt: attempt }, rows,
+            readback: { journeys: Object.values(legs).map((journeyId) => ({ journeyId, stages: ['share_feedback'] })), reportedJourneyIds: [], missingBindings: [] } };
+        const readback = { suite: J8_SUITE, release: RELEASE, missingBindings: [], binding: { runId: RUN_ID, runAttempt: RUN_ATTEMPT, createAttempt: attempt },
+            finalSubmit: { journeyId: legs['J8.b'] }, journeys: Object.values(legs).map((journeyId) => ({ journeyId, stages: ['share_feedback'], verdict: 'QUALIFIED',
+                received: { release_sha: RELEASE, journey_id: journeyId, boot_id: `boot-${journeyId}` } })) };
+        const evaluated = entry.finalizerEvaluate(receipt, readback, { workDir: fresh() });
+        expect(evaluated?.errors).toEqual([]);
+        // The finalizer settles the gating received row from the readback and leaves the report-only one HOLD.
+        expect(evaluated!.rows.filter((r) => r.verdict !== 'PASS').map((r) => r.step).sort()).toEqual(['feedback retention', 'signup-stage telemetry received']);
+        const out = entry.j8CaseResult(receipt, readback, evaluated);
+        expect(out.assertions.length).toBeGreaterThan(0);
+        expect(out.assertions.filter((a) => a.result !== 'PASS')).toEqual([]);
+        // CONTROL: the same run with one gating row left HOLD (the received row unsettled by a readback that did not qualify) is not PASS.
+        const unqualified = { ...readback, journeys: readback.journeys.map((j, i) => (i === 0 ? { ...j, verdict: 'HOLD' } : j)) };
+        const held = entry.j8CaseResult(receipt, unqualified, entry.finalizerEvaluate(receipt, unqualified, { workDir: fresh() }));
+        expect(held.assertions.some((a) => a.result === 'HOLD')).toBe(true);
+    }, 60_000);
 });
