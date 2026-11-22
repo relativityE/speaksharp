@@ -52,9 +52,13 @@ const SHA = /^[0-9a-f]{40}$/;
 const FINAL_SENT_ROW = 'J8.b: final feedback pair sent';
 /**
  * Sam on b1f8323f (4): each call's own deadline. The spec's covers its 30-minute process bound; a journey's readback covers the
- * ingestion wait and three five-minute tries; cleanup is the whole teardown, lookup included.
+ * ingestion wait, three five-minute tries, each try's settle (drain plus close grace) and the two waits between tries (Codex on
+ * 46fe2e02: 120 + 3 x (300 + 32) + 2 x 60 = 1,236 s, so 20 minutes was short); cleanup is the whole teardown, lookup included.
+ * `lateSettleMs` is how long a readback or coaching call that passed its deadline is still awaited (one try plus its settle), so
+ * nothing it started is running when the entry moves on. The adapter tests pin both against the adapters' own bounds.
  */
-const DEADLINES = Object.freeze({ specMs: 32 * 60_000, readbackMs: 20 * 60_000, coachingMs: 20 * 60_000, evaluateMs: 2 * 60_000, cleanupMs: 10 * 60_000 });
+const DEADLINES = Object.freeze({ specMs: 32 * 60_000, readbackMs: 22 * 60_000, coachingMs: 22 * 60_000, lateSettleMs: 6 * 60_000,
+    evaluateMs: 2 * 60_000, cleanupMs: 10 * 60_000 });
 /** The parent recovery's calls (j8-parent-recovery.cjs); with any missing the account is left and the run is HOLD. */
 const RECOVERY_DEPS = Object.freeze(['lookup', 'readAccount', 'scopedDelete', 'readResidue']);
 const TIMED_OUT = Symbol('timed out');
@@ -64,6 +68,18 @@ async function within(ms, fn) {
     let timer;
     try { return await Promise.race([Promise.resolve().then(fn), new Promise((resolve) => { timer = setTimeout(() => resolve(TIMED_OUT), ms); })]); }
     finally { clearTimeout(timer); }
+}
+/**
+ * A readback or coaching call bounded by `ms`. `within` only stops waiting, so a call past its deadline is still awaited, for up to
+ * `settleMs` more, before this returns (Codex on 46fe2e02): the entry never starts another readback while one may still be
+ * running. Past its deadline the call is TIMED_OUT, whatever it answers later; `settled` says whether it ended within the grace.
+ */
+async function withinSettled(ms, settleMs, fn) {
+    const call = Promise.resolve().then(fn);
+    const value = await within(ms, () => call);
+    if (value !== TIMED_OUT) return { value, settled: true };
+    const late = await within(Number.isFinite(settleMs) ? settleMs : DEADLINES.lateSettleMs, () => call.then(() => true, () => true));
+    return { value: TIMED_OUT, settled: late === true };
 }
 const sameList = (a, b) => Array.isArray(a) && Array.isArray(b) && a.length === b.length
     && JSON.stringify(a.map(String).sort()) === JSON.stringify(b.map(String).sort());
@@ -171,16 +187,29 @@ function legJourneyIds(receipt) {
 async function j8ReadbackVerdicts(receipt, { qualify, coaching }, { binding, deadlines = DEADLINES } = {}) {
     const journeys = [];
     const legs = legJourneyIds(receipt);
+    // After a call passes its deadline, no later readback or coaching call is made in this run (Codex on 46fe2e02): its process may
+    // still be running, and the budget it was given is spent. That journey and every later one is HOLD, and so is the coaching
+    // diagnostic, as after an unconfirmed readback; a journey read back before it keeps its final answer.
+    let cutOff = null;
+    const bounded = async (ms, fn) => {
+        let out;
+        try { out = await withinSettled(ms, deadlines.lateSettleMs, fn); } catch { return null; }
+        if (out.value !== TIMED_OUT) return out.value;
+        cutOff = out.settled ? 'a readback or coaching call passed its deadline' : 'a readback or coaching call passed its deadline and was still running';
+        return null;
+    };
     for (const j of receipt.readback.journeys) {
         const ask = { journeyId: String(j.journeyId), stages: stagesOf(j), attemptIds: attemptsOf(j), firstDownload: j.firstDownload === true, release: receipt.release };
         let r = null;
-        if (legs) { try { r = await within(deadlines.readbackMs, () => qualify(ask)); } catch { r = null; } }
-        const { verdict, received } = boundReadback(r === TIMED_OUT ? null : r, ask);
+        if (legs && !cutOff) r = await bounded(deadlines.readbackMs, () => qualify(ask));
+        const { verdict, received } = boundReadback(r, ask);
         journeys.push({ journeyId: ask.journeyId, stages: ask.stages, attemptIds: ask.attemptIds, verdict, received });
     }
     const out = { suite: J8_SUITE, release: receipt.release, binding: binding ?? null, journeys,
         missingBindings: Array.isArray(receipt.readback.missingBindings) ? receipt.readback.missingBindings : [] };
     if (!legs) out.missingBindings = [...out.missingBindings, 'J8:duplicate_leg_journey'];
+    // Recorded beside the journeys, not as a missing binding: a journey read back in time keeps its final answer.
+    if (cutOff) out.cutOff = cutOff;
     const finalSent = receipt.rows.filter((r) => r?.step === FINAL_SENT_ROW);
     const bIds = legs ? legs['J8.b'] : [];
     out.finalSubmit = bIds.length === 1 && finalSent.length === 1 && finalSent[0].verdict === 'PASS' ? { journeyId: bIds[0] } : null;
@@ -191,11 +220,12 @@ async function j8ReadbackVerdicts(receipt, { qualify, coaching }, { binding, dea
         configuredModel: e.expectedConfiguredModel, outcome: e.expectedOutcome };
     const anchor = bIds.length === 1 && journeys.filter((j) => j.journeyId === bIds[0]).length === 1 ? bIds[0] : null;
     let result = null;
-    if (anchor && typeof coaching === 'function') {
-        try { result = await within(deadlines.coachingMs, () => coaching({ journeyId: anchor, expectation, release: receipt.release })); } catch { result = null; }
+    if (anchor && typeof coaching === 'function' && !cutOff) {
+        result = await bounded(deadlines.coachingMs, () => coaching({ journeyId: anchor, expectation, release: receipt.release }));
+        if (cutOff) out.cutOff = cutOff;
     }
     // Only the readback's own bound result is kept; anything else is an UNBOUND HOLD the finalizer can never settle a row from.
-    const bound = result && result !== TIMED_OUT && ['PASS', 'FAIL', 'HOLD'].includes(result.verdict) && Array.isArray(result.reasons)
+    const bound = result && ['PASS', 'FAIL', 'HOLD'].includes(result.verdict) && Array.isArray(result.reasons)
         && typeof result.release === 'string' && result.expected && typeof result.expected === 'object';
     out.coachingDiagnostic = bound ? { verdict: result.verdict, reasons: result.reasons, release: result.release, expected: result.expected }
         : { verdict: 'HOLD', reasons: ['diagnostic_not_received'] };
@@ -389,6 +419,6 @@ async function main(argv, env = process.env, deps = {}) {
 
 if (require.main === module) main(process.argv.slice(2)).then((r) => { if (r.reason) console.error(r.reason); process.exitCode = r.exitCode; });
 module.exports = {
-    DEADLINES, LOCAL_PREFIX, RECOVERY_DEPS, READBACK_STAGES, RECEIPT_FILE, SIGNUP_DEADLINE_MS, SIGNUP_LEG, admitJ8, finalizerEvaluate, holdAll, j8CaseResult, j8ReadbackVerdicts, j8Reservation,
+    DEADLINES, LOCAL_PREFIX, TIMED_OUT, withinSettled, RECOVERY_DEPS, READBACK_STAGES, RECEIPT_FILE, SIGNUP_DEADLINE_MS, SIGNUP_LEG, admitJ8, finalizerEvaluate, holdAll, j8CaseResult, j8ReadbackVerdicts, j8Reservation,
     main, ownBlocks, readBoundReceipt, recordRunIdFor, runJ8Nightly, sameDirectory, specOutcomeFault, teardownJ8,
 };

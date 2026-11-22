@@ -682,9 +682,53 @@ describe('J8 nightly entry', () => {
         expect(resultOf(out, 'J8.a', 'AHT-08:received-feedback-proof')).toBe('HOLD');
         expect(out.exitCode).toBe(78);
     });
+    it('LATE READBACK (Codex on 46fe2e02): a call past its deadline is awaited before the entry moves on, and no readback or coaching call runs beside it or after it', async () => {
+        const chain = { step: 'J8.b: feedback diagnostic chain', verdict: 'HOLD', detail: '', evidence: { reasons: 'telemetry_not_received',
+            expectedRequestSha256: 'r'.repeat(64), expectedAttemptSha256: 'a'.repeat(64), expectedProduct: 'p', expectedConfiguredModel: 'm', expectedOutcome: 'o' } };
+        const slow = { readbackMs: 60, coachingMs: 60, lateSettleMs: 400 };
+        const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        for (const late of ['journey-a', 'journey-final-b', 'journey-c']) {
+            const d = dirs();
+            const f = fixtures(d.runDir, { spec: (adm) => receiptFor(adm.createAttempt.attemptId, [chain]), coaching: () => ({ verdict: 'PASS', reasons: [] }) });
+            const inner = f.deps.qualify;
+            let active = 0;
+            let overlap = false;
+            let lateEnded = false;
+            // The late call answers QUALIFIED, but only after its deadline (well inside the grace).
+            f.deps.qualify = async (q) => {
+                active += 1;
+                if (active > 1) overlap = true;
+                try { if (q.journeyId === late) { await sleep(150); lateEnded = true; } return await inner(q); } finally { active -= 1; }
+            };
+            const out = await run(d, f.deps, { deadlines: { ...entry.DEADLINES, ...slow } });
+            const asked = f.calls.qualify.map((q) => q.journeyId);
+            const order = out.readback.journeys.map((j) => j.journeyId);
+            const at = order.indexOf(late);
+            expect({ late, overlap, lateEnded, activeAtEnd: active, asked: asked.length, coaching: f.calls.coaching.length, cutOff: out.readback.cutOff })
+                .toEqual({ late, overlap: false, lateEnded: true, activeAtEnd: 0, asked: at + 1, coaching: 0, cutOff: 'a readback or coaching call passed its deadline' });
+            // Journeys read back before it keep their final answer; it and every later one is HOLD, whatever it answered late.
+            expect({ late, verdicts: out.readback.journeys.map((j) => j.verdict) })
+                .toEqual({ late, verdicts: order.map((_, i) => (i < at ? 'QUALIFIED' : 'HOLD')) });
+            expect(out.readback.missingBindings).toEqual([]);
+            expect(out.readback.coachingDiagnostic).toEqual({ verdict: 'HOLD', reasons: ['diagnostic_not_received'] });
+        }
+        // A coaching call past its deadline is awaited too, and its late answer is never kept.
+        const c = dirs();
+        let coachingEnded = false;
+        const g = fixtures(c.runDir, { spec: (adm) => receiptFor(adm.createAttempt.attemptId, [chain]),
+            coaching: async () => { await sleep(150); coachingEnded = true; return { verdict: 'PASS', reasons: [], release: RELEASE, expected: {} }; } });
+        const out = await run(c, g.deps, { deadlines: { ...entry.DEADLINES, ...slow } });
+        expect({ coachingEnded, verdicts: out.readback.journeys.map((j) => j.verdict), coaching: out.readback.coachingDiagnostic, cutOff: out.readback.cutOff })
+            .toEqual({ coachingEnded: true, verdicts: ['QUALIFIED', 'QUALIFIED', 'QUALIFIED'], coaching: { verdict: 'HOLD', reasons: ['diagnostic_not_received'] },
+                cutOff: 'a readback or coaching call passed its deadline' });
+        // In time: no cut-off is recorded.
+        const n = dirs();
+        const fine = await run(n, fixtures(n.runDir).deps);
+        expect('cutOff' in fine.readback).toBe(false);
+    });
     it('DEADLINES (Sam on b1f8323f): a spec, readback, coaching, evaluation or lookup that never answers is cut off, and cleanup still runs on its own budget', async () => {
         const never = () => new Promise(() => {});
-        const short = { specMs: 40, readbackMs: 40, coachingMs: 40, evaluateMs: 40, cleanupMs: 60 };
+        const short = { specMs: 40, readbackMs: 40, coachingMs: 40, lateSettleMs: 40, evaluateMs: 40, cleanupMs: 60 };
         // The spec hangs: HOLD, and teardown still writes its evidence (incomplete: no receipt to show zero residue).
         const d = dirs();
         const hang = fixtures(d.runDir);
@@ -695,9 +739,13 @@ describe('J8 nightly entry', () => {
         // The readback hangs: each journey HOLD.
         const e = dirs();
         const rb = fixtures(e.runDir);
-        rb.deps.qualify = never;
+        let hung = 0;
+        rb.deps.qualify = () => { hung += 1; return never(); };
         const readback = await run(e, rb.deps, { deadlines: short });
         expect(readback.readback.journeys.map((j) => j.verdict)).toEqual(['HOLD', 'HOLD', 'HOLD']);
+        // Codex on 46fe2e02: a call that never ends is the run's last readback; nothing starts beside it.
+        expect({ calls: hung, cutOff: readback.readback.cutOff })
+            .toEqual({ calls: 1, cutOff: 'a readback or coaching call passed its deadline and was still running' });
         // The evaluation hangs: every row HOLD.
         const g = dirs();
         const ev = fixtures(g.runDir);

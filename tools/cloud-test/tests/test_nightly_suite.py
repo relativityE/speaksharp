@@ -19,7 +19,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 NIGHTLY = ROOT / "nightly"
-EXPECTED_TESTS = 551
+EXPECTED_TESTS = 552
 REPO = ROOT.parents[1]
 OFFLINE_PATCH = ROOT / "tests" / "fixtures" / "j4a-offline-packet.patch.fixture"
 OFFLINE_PATCH_SHA256 = "632ea67bb88c10a2d380ac017db62960a0be974ed2846ca7205140036ebfb529"

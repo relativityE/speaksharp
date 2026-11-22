@@ -201,6 +201,13 @@ describe('J8 live adapters', () => {
         const entry = require('../j8-nightly-entry.cjs');
         expect(live.SETTLE_MS).toBe(live.DRAIN_TIMEOUT_MS + live.CLOSE_GRACE_MS);
         expect(live.LIST_TIMEOUT_MS + live.SPEC_TIMEOUT_MS + 2 * live.SETTLE_MS < entry.DEADLINES.specMs).toBe(true);
+        // Codex on 46fe2e02: a readback session's worst case (the ingestion wait, every try with its settle, the waits between tries)
+        // ends inside the entry's readback and coaching deadlines, and a call past them is awaited for at least one try plus its
+        // settle, so the entry never starts the next call while a readback process may still be running.
+        const worstReadback = live.INGESTION_WAIT_MS + live.ATTEMPTS * (live.READBACK_TIMEOUT_MS + live.SETTLE_MS) + (live.ATTEMPTS - 1) * live.RETRY_WAIT_MS;
+        expect(worstReadback).toBe(1_236_000);
+        expect(worstReadback < entry.DEADLINES.readbackMs && worstReadback < entry.DEADLINES.coachingMs).toBe(true);
+        expect(entry.DEADLINES.lateSettleMs >= live.READBACK_TIMEOUT_MS + live.SETTLE_MS).toBe(true);
     });
 
     it('a listing that is not exactly the J8 test runs nothing: two or three tests, another test, another file, a failed or killed list', async () => {
