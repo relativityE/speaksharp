@@ -584,6 +584,13 @@ describe('AHT-14 — attemptPhase: one attempt, from its complete PUBLISHED runt
     it('a recording anywhere in the attempt is `recorded`, whatever came after (the run 43740031821 shape)', () => {
         expect(attemptPhase(log('IDLE', 'ENGINE_INITIALIZING', 'READY', 'RECORDING', 'FAILED'), 0)).toBe('recorded');
         expect(attemptPhase(log('ENGINE_INITIALIZING', 'STOPPING'), 0)).toBe('recorded');
+        // Elon's isolated real-worker run (J7.c, 2026-11-22): after a visible setup failure the product tears down through
+        // STOPPING with no RECORDING ever. That teardown is not a take: the attempt is still this setup's failure.
+        expect(attemptPhase(log('INITIATING', 'INITIATING', 'IDLE', 'ENGINE_INITIALIZING', 'ENGINE_INITIALIZING', 'IDLE', 'ENGINE_INITIALIZING',
+            'FAILED', 'FAILED', 'FAILED_VISIBLE', 'FAILED_VISIBLE', 'FAILED_VISIBLE', 'IDLE', 'STOPPING', 'TERMINATED', 'IDLE'), 0)).toBe('setup-failed');
+        // A stop BEFORE the failure stays conservative (possibly a take), and any RECORDING is always recorded.
+        expect(attemptPhase(log('ENGINE_INITIALIZING', 'STOPPING', 'FAILED'), 0)).toBe('recorded');
+        expect(attemptPhase(log('ENGINE_INITIALIZING', 'FAILED', 'RECORDING', 'STOPPING'), 0)).toBe('recorded');
     });
     it('left setup without failing: READY, or IDLE / TERMINATED after it; nothing decisive is pre-setup', () => {
         expect(attemptPhase(log('ENGINE_INITIALIZING', 'READY'), 0)).toBe('left-setup');

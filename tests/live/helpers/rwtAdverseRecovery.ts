@@ -188,9 +188,13 @@ export type AttemptPhase = 'unobserved' | 'pre-setup' | 'in-setup' | 'left-setup
 export function attemptPhase(log: RuntimeStateLog | null, fromIndex: number): AttemptPhase {
     if (!log || !log.observed || !Number.isInteger(fromIndex) || fromIndex < 0 || fromIndex > log.states.length) return 'unobserved';
     const states = log.states.slice(fromIndex);
-    if (states.some((s) => (RECORDING_RUNTIME_STATES as readonly string[]).includes(s))) return 'recorded';
-    const setupAt = states.indexOf(SETUP_RUNTIME_STATE);
     const failedAt = states.findIndex((s) => FAILED_RUNTIME_STATES.includes(s));
+    // A take exists if RECORDING was ever published (the log keeps every transition, transients included). STOPPING stays
+    // conservative (possibly a take) only BEFORE this attempt's first failure: after FAILED / FAILED_VISIBLE the product tears
+    // the failed setup down through STOPPING with no RECORDING (Elon's isolated real-worker run, J7.c, 2026-11-22).
+    const stoppedBeforeFailure = states.some((s, i) => s === 'STOPPING' && (failedAt < 0 || i < failedAt));
+    if (states.includes('RECORDING') || stoppedBeforeFailure) return 'recorded';
+    const setupAt = states.indexOf(SETUP_RUNTIME_STATE);
     const readyAt = states.indexOf('READY');
     if (failedAt >= 0 && (readyAt < 0 || readyAt > failedAt)) {
         return setupAt >= 0 && setupAt < failedAt ? 'setup-failed' : 'unattributed-failure';
