@@ -207,6 +207,16 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 375, height: 812 
             expect(practiceAt, 'Practice again is reachable by sequential Tab').toBeGreaterThanOrEqual(0);
             const laterSlotStop = stops.slice(0, practiceAt).find((s) => s.slot === 'C' || s.slot === 'D');
             expect(laterSlotStop ?? null, 'no transcript / THIS RUN control is reached before Practice again').toBeNull();
+
+            if (viewport.width === 375) {
+                // Exercise the focused action through the existing keyboard path, not a locator click.
+                await expect(page.getByTestId('verdict-practice-again')).toBeFocused();
+                await page.keyboard.press('Enter');
+                await expect(page.locator('html')).toHaveAttribute('data-runtime-state', 'RECORDING', { timeout: 15_000 });
+                await expect(page.getByTestId('review-try-next')).toHaveCount(0);
+                await expect(page.getByTestId('recorder-stop')).toBeVisible();
+                await stopRecording(page);
+            }
             expectIsolated(isolation);
         });
     });
