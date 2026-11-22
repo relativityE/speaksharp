@@ -93,10 +93,11 @@ async function confirmJ4aOwner({ admin, transport, createRecord, runId, configur
  * TEARDOWN. `preservedOwner`: the owner confirmed at bind. `stopped`: a verified parent-only stopped-writer capability
  * for this binding, run and owner. Missing proof refuses all inline teardown, including when no takes need closing. `transport` (required): the admin client's bounded transport, whose
  * per-request deadline and teardown allowance are enforced where requests are sent. `timeLeftMs()` (required): teardown's remaining time;
- * unknown time is HOLD, never "unbounded". Resolves { hold, nightlyCleanup }.
+ * unknown time is HOLD, never "unbounded". `observeTakes(rows)` (optional): sees the owner's takes ({ id, status }) once they are read,
+ * before any delete; it changes nothing. Resolves { hold, nightlyCleanup }.
  */
 async function j4aParentTeardown({ nightly, admin, transport, createRecord, runId, configuredDomain, confirmedAccount, childClosed, preservedOwner,
-    stopped = null, binding = null, deadlineMs = transport?.deadlineMs ?? null, timeLeftMs = null, saveJournal = null, storesSource }) {
+    stopped = null, binding = null, deadlineMs = transport?.deadlineMs ?? null, timeLeftMs = null, saveJournal = null, storesSource, observeTakes = null }) {
     const steps = [];
     const ref = typeof createRecord?.sent?.lookupRef === 'string' ? createRecord.sent.lookupRef : null;
     const hold = (reason, left = ref ? [{ kind: 'account', ref }] : []) => ({ hold: reason, nightlyCleanup: { steps: [...steps], left } });
@@ -139,6 +140,8 @@ async function j4aParentTeardown({ nightly, admin, transport, createRecord, runI
         if (s?.error || l?.error || !Array.isArray(s?.data) || !Array.isArray(l?.data)) return hold('takes or leases could not be read, so settlement is unknown');
         takes = { rows: s.data, leases: l.data };
     } catch { return hold('takes or leases could not be read, so settlement is unknown'); }
+    // The J4.a save witness (j4a-save-witness.cjs) checks the saved takes against the parent's own read, before anything is deleted.
+    if (typeof observeTakes === 'function') try { observeTakes(takes.rows.map((r) => ({ id: r.id, status: r.status }))); } catch { /* observation only */ }
     const c = classifyTakes(takes.rows);
     if (c.unsettleable > 0) return hold(`${c.unsettleable} take(s) cannot be settled, so the unsettled-save guard would refuse deletion`);
     if (leaseOnlyTakes(takes.leases.map((x) => x.lease_id), takes.rows) > 0) return hold('a lease is held with no take under it, so the unsettled-save guard would refuse deletion');

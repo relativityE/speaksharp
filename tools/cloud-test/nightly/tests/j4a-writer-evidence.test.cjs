@@ -5,7 +5,7 @@ const { decideJ4aWriters, verifyJ4aStoppedWriters, readJ4aStoppedWriters } = req
 const [binding, droppedSave, sentSave, coaching] = ['a', 'b', 'c', 'd'].map(c => c.repeat(64));
 const completed = (attempt, kind) => ({ attempt, kind, decision: 'forwarded', upstreamStarted: true, terminal: { attempt, backendConfirmed: true } });
 function fixture() {
-    return [{ binding, droppedSave },
+    return [{ binding, droppedSave, fault: 'request-lost' },
         { binding, exited: true, ownedPagesClosed: true, descendantCount: 0, interrupted: false, guardTransportDrained: true },
         { binding, armedBeforeLaunch: true, closedAfterLastWriter: true, integrityVerified: true, attempts: [
             { attempt: droppedSave, kind: 'save', decision: 'planned-request-lost', upstreamStarted: false },
@@ -29,6 +29,7 @@ refusal('coaching upstream socket finish without terminal response stays unresol
 refusal('terminal receipt from another attempt cannot be borrowed', 'backend-write-unresolved', (_, s, j) => { j.attempts[2].terminal.attempt = sentSave; });
 refusal('duplicate attempt identity invalidates the journal', 'attempt-integrity', (_, s, j) => { j.attempts.push(completed(sentSave, 'save')); });
 refusal('cross-run journal is rejected', 'binding', (_, s, j) => { j.binding = 'e'.repeat(64); });
+refusal('J4.a: a missing fault is never assumed, even for a request-lost journal', 'fault', (e) => { delete e.fault; });
 
 
 test('parent cannot brand stopped writers with HTTP transport evidence alone', () => {
@@ -49,3 +50,35 @@ test('parent cannot brand stopped writers with HTTP transport evidence alone', (
         assert.equal(verifyJ4aStoppedWriters(expected, supervisor, journal), null);
     }
 });
+
+// J4.b (response lost): the dropped save reached the server, the reviewed endpoint oracle confirmed the backend finished it, and only
+// the page was not told. That is a stopped writer under the response-lost fault and under no other.
+function responseLostFixture() {
+    const [expected, supervisor, journal] = fixture();
+    expected.fault = 'response-lost';
+    journal.attempts[0] = { attempt: droppedSave, kind: 'save', decision: 'planned-response-lost', upstreamStarted: true,
+        terminal: { attempt: droppedSave, backendConfirmed: true, savedRowCount: 1, pageAnswered: false } };
+    return [expected, supervisor, journal];
+}
+test('J4.b: a response-lost drop with the backend\'s confirmed answer withheld from the page stops the writers', () => {
+    assert.deepEqual(decideJ4aWriters(...responseLostFixture()), { verdict: 'STOPPED', reason: null });
+});
+for (const [name, reason, mutate] of [
+    ['J4.b: the server still owed its answer', 'backend-write-unresolved', (_, s, j) => { j.attempts[0].terminal = null; }],
+    ['J4.b: the answer was not backend-confirmed', 'backend-write-unresolved', (_, s, j) => { j.attempts[0].terminal.backendConfirmed = false; }],
+    ['J4.b: the page was told after all', 'backend-write-unresolved', (_, s, j) => { j.attempts[0].terminal.pageAnswered = true; }],
+    ['J4.b: the answer is another attempt\'s', 'backend-write-unresolved', (_, s, j) => { j.attempts[0].terminal.attempt = sentSave; }],
+    ['J4.b: a request-lost drop under the response-lost fault', 'backend-write-unresolved', (_, s, j) => { j.attempts[0] = fixture()[2].attempts[0]; }],
+    ['J4.a: a response-lost drop under the request-lost fault', 'backend-write-unresolved', (e) => { e.fault = 'request-lost'; }],
+    ['J4.b: the server saved no row', 'backend-write-unresolved', (_, s, j) => { j.attempts[0].terminal.savedRowCount = 0; }],
+    ['J4.b: the server saved two rows', 'backend-write-unresolved', (_, s, j) => { j.attempts[0].terminal.savedRowCount = 2; }],
+    ['J4.b: the row count is unreported', 'backend-write-unresolved', (_, s, j) => { delete j.attempts[0].terminal.savedRowCount; }],
+    ['a missing fault is never assumed to be request-lost', 'fault', (e) => { delete e.fault; }],
+    ['an unknown fault stops nothing', 'fault', (e) => { e.fault = 'both'; }],
+]) {
+    test(name, () => {
+        const input = responseLostFixture();
+        mutate(...input);
+        assert.deepEqual(decideJ4aWriters(...input), { verdict: 'HOLD', reason });
+    });
+}

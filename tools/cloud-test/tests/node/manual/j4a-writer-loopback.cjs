@@ -50,7 +50,7 @@ test('a forwarded loopback POST with complete HTTP 200 but no backend terminal s
     // These flags do NOT attest Linux writer containment or real guard drain.
     const [binding, droppedSave, sentSave] = ['a', 'b', 'c'].map(c => c.repeat(64));
     const identity = { binding, runId: 'loopback-fixture', owner: '11111111-1111-4111-8111-111111111111' };
-    const expected = { ...identity, droppedSave };
+    const expected = { ...identity, droppedSave, fault: 'request-lost' };
     const supervisor = { ...identity, exited: true, ownedPagesClosed: true, descendantCount: 0, interrupted: false,
         guardTransportDrained: true, writersClosedAt: 1 };
     const journal = { ...identity, armedBeforeLaunch: true, closedAfterLastWriter: true, integrityVerified: true,

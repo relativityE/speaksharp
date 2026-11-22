@@ -2,6 +2,21 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
+if (process.argv[2] === '--changed-report') {
+  const [, , , baseFlag, base, headFlag, head, ...extra] = process.argv;
+  if (baseFlag !== '--base' || headFlag !== '--head' || extra.length)
+    throw new Error('Usage: node scripts/test-integrity-audit.mjs --changed-report --base <sha> --head <sha>');
+  const {changedTestIntegrityReport} = await import('./lib/changedTestIntegrityReport.mjs');
+  console.log(JSON.stringify(changedTestIntegrityReport(process.cwd(), {base,head}), null, 2));
+} else if (process.argv[2] === '--changed-ci-report') {
+  if (process.argv.length !== 3) throw new Error('Usage: node scripts/test-integrity-audit.mjs --changed-ci-report');
+  const {changedCiIntegrityReport} = await import('./lib/changedTestIntegrityReport.mjs');
+  console.log(JSON.stringify(changedCiIntegrityReport(process.cwd(),process.env), null, 2));
+} else {
+  runExistingAudit();
+}
+
+function runExistingAudit() {
 const ROOT = process.cwd();
 const TEST_EXTENSIONS = /\.(test|spec)\.(ts|tsx)$/;
 
@@ -116,6 +131,8 @@ if (failures.length > 0) {
     console.error(`- ${failure.file}: ${failure.name} - ${failure.rationale}`);
   }
   process.exit(1);
+}
+
 }
 
 function walk(dir, out) {
