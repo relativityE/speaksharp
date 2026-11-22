@@ -707,6 +707,23 @@ export function assertSubscriptionsAllowed(input: {
       && sub.id === allowed.id && allowed.statuses.includes(sub.status as string)), 'failed_checkout_subscribed');
 }
 
+/**
+ * J2 after the paid retry (Codex P2 on #1935): the customer's complete list holds exactly one subscription with the paid retry's
+ * id, and at most one other: the declined session's own verified subscription, still unpaid (`incomplete` or
+ * `incomplete_expired`). Any other subscription, a duplicate, or an incomplete list is `more_than_one_subscription`.
+ */
+export function assertOnePaidRetrySubscription(input: {
+  subscriptions: unknown; hasMore: unknown; paidId: string; declinedId: string | null;
+}): void {
+  const listed = Array.isArray(input.subscriptions) ? input.subscriptions as Array<{ id?: unknown; status?: unknown } | null> : null;
+  const rows = listed ?? [];
+  const paid = rows.filter((sub) => sub !== null && typeof sub === 'object' && sub.id === input.paidId);
+  const others = rows.filter((sub) => !(sub !== null && typeof sub === 'object' && sub.id === input.paidId));
+  requireFact(listed !== null && input.hasMore === false && paid.length === 1 && others.length <= (input.declinedId === null ? 0 : 1)
+    && others.every((sub) => sub !== null && typeof sub === 'object' && sub.id === input.declinedId
+      && (sub.status === 'incomplete' || sub.status === 'incomplete_expired')), 'more_than_one_subscription');
+}
+
 /** After a decline: only `incomplete` while Checkout is still open; `incomplete_expired` too, but only after expiry. */
 export function declinedSubscriptionStatuses(phase: 'open' | 'expired'): readonly string[] {
   return phase === 'open' ? ['incomplete'] : ['incomplete', 'incomplete_expired'];

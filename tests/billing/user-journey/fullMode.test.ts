@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { afterAll, beforeAll, test } from 'vitest';
 import { parse } from 'yaml';
-import { selectRunnerJourneys, receipt, isRefundCancellation, assertFullRefund, assertCheckoutGrantedNothing, assertDeclinedCheckoutGrantedNothing, assertNoAppAccess, assertSubscriptionsAllowed, declinedSubscriptionStatuses,
+import { selectRunnerJourneys, receipt, isRefundCancellation, assertFullRefund, assertCheckoutGrantedNothing, assertDeclinedCheckoutGrantedNothing, assertNoAppAccess, assertSubscriptionsAllowed, declinedSubscriptionStatuses, assertOnePaidRetrySubscription,
   checkoutSessionFromUrl, assertCheckoutIdentity, newlyAddedCard, assertNoSecondCharge,
   BILLING_JOURNEYS, FULL_MODE_JOURNEYS, RUNNER_JOURNEYS, LOCAL_STACK_JOURNEYS, REQUIRED_STEPS, POLICY_PENDING_STEPS, PENDING_POLICY } from './contract';
 import { finaliseLocalStackReceipt, journeyReceiptDefects } from './localStackReceipt.mjs';
@@ -149,7 +149,8 @@ test('failed checkout: a walk-away, a declining test card, an expired session, t
   assert.ok(branch.indexOf("steps.add('checkout_return_reused_session')") < branch.indexOf('payOnHostedPage('));
   // The declined Checkout is checked before the browser goes to it (Sam's fa7e7180 return).
   assert.match(branch, /const declined = await this\.openCheckout\(await invoke\(\)\);/);
-  assert.match(SPEC, /all\.data\.length === 1\s*\n?\s*&& all\.data\[0\]\.id === this\.subscription, 'more_than_one_subscription'/);
+  // Exactly one paid subscription after the retry; only the declined session's own unpaid one may sit beside it (Codex P2 on #1935).
+  assert.match(SPEC, /assertOnePaidRetrySubscription\(\{ subscriptions: all\.data, hasMore: all\.has_more, paidId: this\.subscription, declinedId: this\.declinedSubscription \}\)/);
 });
 
 test('refund: the whole charge, never an amount; the cancellation must be the webhook\'s own follow-up', () => {
@@ -879,4 +880,35 @@ test('no paid access (J2): app access is asserted first and on its own; only the
   assert.match(branch, /noPaidAccess\(expiredSubscription === null \? null : \{ id: expiredSubscription, statuses: declinedSubscriptionStatuses\('expired'\) \}\)/);
   const helper = between('  async noPaidAccess(', '\n  }\n');
   assert.ok(helper.indexOf('assertNoAppAccess(') >= 0 && helper.indexOf('assertNoAppAccess(') < helper.indexOf('subscriptions?'), 'access asserted before the Stripe list');
+});
+
+test('after the paid retry (J2, Codex P2 on #1935): exactly one paid subscription, plus at most the declined session\'s own unpaid one', () => {
+  const code = (input: Parameters<typeof assertOnePaidRetrySubscription>[0]) => {
+    try { assertOnePaidRetrySubscription(input); return null; } catch (e) { return (e as Error).message.replace('BILLING_JOURNEY:', ''); }
+  };
+  const paid = { id: 'sub_paid', status: 'active' };
+  const declined = { id: 'sub_declined', status: 'incomplete_expired' };
+  const base = { subscriptions: [paid] as unknown[], hasMore: false, paidId: 'sub_paid', declinedId: null as string | null };
+  // Passing: no decline attachment; the declined one beside the paid one, expired or still incomplete.
+  assert.equal(code(base), null);
+  assert.equal(code({ ...base, subscriptions: [declined, paid], declinedId: 'sub_declined' }), null);
+  assert.equal(code({ ...base, subscriptions: [paid, { ...declined, status: 'incomplete' }], declinedId: 'sub_declined' }), null);
+  // Refused: an unrelated or duplicate subscription, the declined one when none was verified, the declined one paid, no paid one,
+  // two paid ones, an incomplete or unread list.
+  for (const [input, why] of [
+    [{ ...base, subscriptions: [paid, { id: 'sub_other', status: 'incomplete_expired' }], declinedId: 'sub_declined' }, 'unrelated'],
+    [{ ...base, subscriptions: [paid, declined] }, 'declined listed but none verified'],
+    [{ ...base, subscriptions: [paid, { ...declined, status: 'active' }], declinedId: 'sub_declined' }, 'declined became active'],
+    [{ ...base, subscriptions: [paid, declined, declined], declinedId: 'sub_declined' }, 'declined twice'],
+    [{ ...base, subscriptions: [declined], declinedId: 'sub_declined' }, 'no paid'],
+    [{ ...base, subscriptions: [paid, paid] }, 'paid twice'],
+    [{ ...base, hasMore: true }, 'incomplete list'],
+    [{ ...base, subscriptions: null }, 'unread list'],
+  ] as const) {
+    assert.equal(code(input as Parameters<typeof assertOnePaidRetrySubscription>[0]), 'more_than_one_subscription', why);
+  }
+  // Wiring: the verified declined id is carried from the expiry read to the final check.
+  const spec = readRepoFile('tests/billing/user-journey/journey.billing.spec.ts');
+  assert.match(spec, /requireFact\(expiredSubscription === declinedSubscription, 'declined_checkout_subscription_changed'\);\n\s+this\.declinedSubscription = expiredSubscription;/);
+  assert.match(spec, /assertOnePaidRetrySubscription\(\{ subscriptions: all\.data, hasMore: all\.has_more, paidId: this\.subscription, declinedId: this\.declinedSubscription \}\)/);
 });
