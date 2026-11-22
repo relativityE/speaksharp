@@ -72,14 +72,17 @@ async function within(ms, fn) {
 /**
  * A readback or coaching call bounded by `ms`. `within` only stops waiting, so a call past its deadline is still awaited, for up to
  * `settleMs` more, before this returns (Codex on 46fe2e02): the entry never starts another readback while one may still be
- * running. Past its deadline the call is TIMED_OUT, whatever it answers later; `settled` says whether it ended within the grace.
+ * running. Past its deadline the call is TIMED_OUT, whatever it answers later; `settled` says whether it ended within the grace,
+ * and `late` how it ended there (Sam on f07fea31): { fulfilled: true, value } or { fulfilled: false }. A late answer is never used
+ * as a result, but whether it says its process stopped decides whether teardown may touch the account.
  */
 async function withinSettled(ms, settleMs, fn) {
     const call = Promise.resolve().then(fn);
     const value = await within(ms, () => call);
     if (value !== TIMED_OUT) return { value, settled: true };
-    const late = await within(Number.isFinite(settleMs) ? settleMs : DEADLINES.lateSettleMs, () => call.then(() => true, () => true));
-    return { value: TIMED_OUT, settled: late === true };
+    const late = await within(Number.isFinite(settleMs) ? settleMs : DEADLINES.lateSettleMs,
+        () => call.then((v) => ({ fulfilled: true, value: v }), () => ({ fulfilled: false })));
+    return late === TIMED_OUT ? { value: TIMED_OUT, settled: false } : { value: TIMED_OUT, settled: true, late };
 }
 const sameList = (a, b) => Array.isArray(a) && Array.isArray(b) && a.length === b.length
     && JSON.stringify(a.map(String).sort()) === JSON.stringify(b.map(String).sort());
@@ -203,6 +206,10 @@ async function j8ReadbackVerdicts(receipt, { qualify, coaching }, { binding, dea
             return out.value;
         }
         if (!out.settled) return unconfirmed('a readback or coaching call passed its deadline and was still running');
+        // Sam on f07fea31: a late end inside the grace counts as stopped only when it is a plain answer. A late throw, or a late
+        // answer that says its own process was not confirmed stopped, is unconfirmed exactly as it would be in time.
+        if (out.late?.fulfilled !== true) return unconfirmed('a readback or coaching call passed its deadline and then threw, so its process is not confirmed stopped');
+        if (out.late.value?.unconfirmed === true) return unconfirmed('a readback or coaching call passed its deadline and its process was not confirmed stopped');
         cutOff = 'a readback or coaching call passed its deadline';
         return null;
     };
@@ -244,14 +251,17 @@ async function j8ReadbackVerdicts(receipt, { qualify, coaching }, { binding, dea
  * The reviewed finalizer's automated half, run as its own process (scripts/rwt-automated-evaluation.mts): the receipt and readback
  * are written to `workDir` and read back by the same validation `pnpm rwt:finalize` applies. Anything unreadable is null (HOLD).
  */
-function finalizerEvaluate(receipt, readback, { workDir, repoRoot = path.join(__dirname, '..', '..', '..') }) {
+function finalizerEvaluate(receipt, readback, { workDir, repoRoot = path.join(__dirname, '..', '..', '..'), timeoutMs = 60_000 }) {
     const { spawnSync } = require('node:child_process');
     const receiptPath = path.join(workDir, 'j8-evaluation.receipt.json');
     const readbackPath = path.join(workDir, 'j8-evaluation.readback.json');
     fs.writeFileSync(receiptPath, JSON.stringify(receipt));
     fs.writeFileSync(readbackPath, JSON.stringify(readback));
     const r = spawnSync(path.join(repoRoot, 'node_modules', '.bin', 'tsx'), [path.join(repoRoot, 'scripts', 'rwt-automated-evaluation.mts'), receiptPath, readbackPath],
-        { cwd: repoRoot, encoding: 'utf8', timeout: 60_000 });
+        { cwd: repoRoot, encoding: 'utf8', timeout: timeoutMs });
+    // Sam on f07fea31: a run cut off by its timeout (or that could not be waited on) has no proof its process tree stopped; only a
+    // terminal exit status is a stop. The entry then leaves the account for protected recovery.
+    if (r.error || r.signal || !Number.isInteger(r.status)) return { unconfirmed: true };
     if (r.status !== 0) return null;
     try { return JSON.parse(String(r.stdout).trim().split('\n').pop()); } catch { return null; }
 }
@@ -372,7 +382,8 @@ async function runJ8Nightly({ evidenceDir, runDir, runId, runAttempt, configured
     let readback = null;
     let cleanup = null;
     let specExited = false;
-    // Sam on 586d50fb: set by the readback before it returns when any of its processes is not confirmed stopped; read by teardown.
+    // Sam on 586d50fb and f07fea31: set by the readback, or by the evaluation, when any process it started is not confirmed stopped;
+    // read by teardown, which then neither looks the account up nor deletes it.
     const readbackState = { unconfirmed: null };
     try {
         // The file clock is the bound, so the spec's start is taken from it (floored to the second some filesystems keep).
@@ -393,9 +404,18 @@ async function runJ8Nightly({ evidenceDir, runDir, runId, runAttempt, configured
         else {
             receipt = read.receipt;
             readback = await j8ReadbackVerdicts(receipt, deps, { binding: { runId: String(runId), runAttempt: String(runAttempt), createAttempt: admission.attemptId }, deadlines, state: readbackState });
-            let evaluated = null;
-            try { evaluated = await within(deadlines.evaluateMs, () => deps.evaluate(receipt, readback)); } catch { evaluated = null; }
-            caseResult = j8CaseResult(receipt, readback, evaluated === TIMED_OUT ? null : evaluated);
+            // Sam on f07fea31: the evaluation starts its own process, so it runs only once every readback and coaching process is
+            // confirmed stopped, and it sits behind the same cleanup gate: an evaluation past its deadline, one that throws, or one
+            // whose process was not confirmed stopped leaves the account for protected recovery. Every row is HOLD in all of these.
+            if (readbackState.unconfirmed !== null) caseResult = holdAll('a readback or coaching process was not confirmed stopped, so the receipt was not settled');
+            else {
+                let evaluated;
+                try { evaluated = await within(deadlines.evaluateMs, () => deps.evaluate(receipt, readback)); }
+                catch { evaluated = null; readbackState.unconfirmed = 'the evaluation threw, so its process is not confirmed stopped'; }
+                if (evaluated === TIMED_OUT) { evaluated = null; readbackState.unconfirmed = 'the evaluation passed its deadline and may still be running'; }
+                else if (evaluated?.unconfirmed === true) { evaluated = null; readbackState.unconfirmed = 'the evaluation process was not confirmed stopped'; }
+                caseResult = j8CaseResult(receipt, readback, evaluated);
+            }
         }
     } finally {
         cleanup = await teardownJ8({ evidenceDir, admission, receipt, deps, binding, specExited, readbackUnconfirmed: readbackState.unconfirmed,

@@ -733,7 +733,19 @@ describe('J8 nightly entry', () => {
         const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
         const reason = (r) => `${r}; nothing is looked up or deleted, and the account is left for protected recovery`;
         // Each case runs through runJ8Nightly's own `finally` (the cleanup path), with the parent recovery present and a landed account.
+        // Sam on f07fea31: a call that ends late but INSIDE the grace is stopped only when it ends with a plain answer. A late throw, or a
+        // late answer that says its process was not confirmed stopped, is unconfirmed exactly as in time (`grace` widens the grace so
+        // these end inside it).
+        const lateBy = (answer) => async () => { await sleep(60); if (answer === 'throw') throw new Error('spawn'); return answer; };
         const cases = {
+            'a readback that ends inside the grace with its own unconfirmed answer': [{ late: lateBy({ status: 1, evidence: null, unconfirmed: true }), grace: true },
+                'a readback or coaching call passed its deadline and its process was not confirmed stopped'],
+            'a readback that throws inside the grace': [{ late: lateBy('throw'), grace: true },
+                'a readback or coaching call passed its deadline and then threw, so its process is not confirmed stopped'],
+            'a coaching call that ends inside the grace with its own unconfirmed answer': [{ coaching: lateBy({ unconfirmed: true }), grace: true },
+                'a readback or coaching call passed its deadline and its process was not confirmed stopped'],
+            'a coaching call that throws inside the grace': [{ coaching: lateBy('throw'), grace: true },
+                'a readback or coaching call passed its deadline and then threw, so its process is not confirmed stopped'],
             'a readback that never settles': [{ qualify: () => new Promise(() => {}) }, 'a readback or coaching call passed its deadline and was still running'],
             'a readback that ends only after the grace': [{ qualify: async () => { await sleep(300); return 0; } }, 'a readback or coaching call passed its deadline and was still running'],
             'a coaching call that never settles': [{ coaching: () => new Promise(() => {}) }, 'a readback or coaching call passed its deadline and was still running'],
@@ -746,9 +758,10 @@ describe('J8 nightly entry', () => {
             const f = fixtures(d.runDir, { spec: (adm) => receiptFor(adm.createAttempt.attemptId, [chain]),
                 coaching: c.coaching ?? (() => c.coachingAnswer ?? { verdict: 'PASS', reasons: [], release: RELEASE, expected: {} }) });
             let running = 0;
-            if (c.qualify || c.answer) {
+            if (c.qualify || c.answer || c.late) {
                 f.deps.qualify = async (q) => {
                     f.calls.qualify.push(q);
+                    if (c.late) return c.late();
                     if (c.answer === 'throw') throw new Error('spawn');
                     if (c.answer) return c.answer;
                     running += 1;
@@ -761,15 +774,48 @@ describe('J8 nightly entry', () => {
             let runningAtLookup = null;
             const lookup = f.deps.lookup;
             f.deps.lookup = async (q) => { runningAtLookup = running; return lookup(q); };
-            const out = await run(d, f.deps, { deadlines: short });
+            const out = await run(d, f.deps, { deadlines: c.grace ? { ...short, lateSettleMs: 400 } : short });
             const st = f.store.calls;
             expect({ name, lookups: st.lookup.length, readAccount: st.readAccount, deletes: st.scopedDelete.length, residue: st.readResidue.length, runningAtLookup })
                 .toEqual({ name, lookups: 0, readAccount: 0, deletes: 0, residue: 0, runningAtLookup: null });
+            // Sam on f07fea31: the evaluation starts its own process, so it never runs after an unconfirmed readback; every row is HOLD.
+            expect({ name, evaluate: f.calls.evaluate, held: out.caseResult.assertions.every((a) => a.result === 'HOLD') }).toEqual({ name, evaluate: 0, held: true });
             expect({ name, left: f.store.users.size, cleanup: out.cleanup.result, exit: out.exitCode, journal: out.createJournal, next: admitRun(d.evidenceDir).admitted })
                 .toEqual({ name, left: 1, cleanup: 'incomplete', exit: 78, journal: 'unresolved', next: false });
             expect({ name, reasons: Object.values(out.cleanup.reasons).flat().filter((r) => r.includes('protected recovery')) }).toEqual({ name, reasons: [reason(why)] });
             expect({ name, recorded: files(d.evidenceDir, '.landed.').length + files(d.evidenceDir, '.recovered.').length }).toEqual({ name, recorded: 0 });
         }
+        // Sam on f07fea31: the evaluation is behind the same gate. One that never answers, throws, or says its process was not
+        // confirmed stopped leaves the account exactly as above (evaluateMs is short, so a hung one is cut off).
+        const evaluations = {
+            'an evaluation that never answers': [() => new Promise(() => {}), 'the evaluation passed its deadline and may still be running'],
+            'an evaluation that throws': [() => { throw new Error('spawn'); }, 'the evaluation threw, so its process is not confirmed stopped'],
+            'an evaluation whose process was not confirmed stopped': [() => ({ unconfirmed: true }), 'the evaluation process was not confirmed stopped'],
+        };
+        for (const [name, [evaluate, why]] of Object.entries(evaluations)) {
+            const d = dirs();
+            const f = fixtures(d.runDir, { evaluate });
+            const out = await run(d, f.deps, { deadlines: { ...short, evaluateMs: 40 } });
+            const st = f.store.calls;
+            expect({ name, evaluate: f.calls.evaluate, lookups: st.lookup.length, readAccount: st.readAccount, deletes: st.scopedDelete.length, residue: st.readResidue.length })
+                .toEqual({ name, evaluate: 1, lookups: 0, readAccount: 0, deletes: 0, residue: 0 });
+            expect({ name, left: f.store.users.size, cleanup: out.cleanup.result, exit: out.exitCode, journal: out.createJournal, next: admitRun(d.evidenceDir).admitted,
+                held: out.caseResult.assertions.every((a) => a.result === 'HOLD') })
+                .toEqual({ name, left: 1, cleanup: 'incomplete', exit: 78, journal: 'unresolved', next: false, held: true });
+            expect({ name, reasons: Object.values(out.cleanup.reasons).flat().filter((r) => r.includes('protected recovery')) }).toEqual({ name, reasons: [reason(why)] });
+        }
+        // The reviewed finalizer's own process: cut off by its timeout (or killed by a signal) it is unconfirmed; an exit with a status
+        // is a stop. A stand-in `tsx` in a scratch repo root plays each.
+        const fakeRoot = (script) => {
+            const root = fs.mkdtempSync(path.join(os.tmpdir(), 'j8-fin-'));
+            fs.mkdirSync(path.join(root, 'node_modules', '.bin'), { recursive: true });
+            fs.writeFileSync(path.join(root, 'node_modules', '.bin', 'tsx'), `#!/bin/sh\n${script}\n`, { mode: 0o755 });
+            return root;
+        };
+        const fin = (script, timeoutMs = 5_000) => entry.finalizerEvaluate({ suite: J8_SUITE, release: RELEASE, rows: [] }, { journeys: [] },
+            { workDir: fs.mkdtempSync(path.join(os.tmpdir(), 'j8-fin-w-')), repoRoot: fakeRoot(script), timeoutMs });
+        expect({ timedOut: fin('sleep 5', 200), signalled: fin('kill -TERM $$'), failed: fin('exit 2'), settled: fin(`echo '{"errors":[],"rows":[]}'`) })
+            .toEqual({ timedOut: { unconfirmed: true }, signalled: { unconfirmed: true }, failed: null, settled: { errors: [], rows: [] } });
         // A late readback that ends inside the grace is confirmed stopped: HOLD, but the account is recovered as usual.
         const g = dirs();
         const late = fixtures(g.runDir);
