@@ -179,6 +179,10 @@ describe('shards consume the bundle offline (#1311)', () => {
     expect(unitSetup.with['apt-bundle']).toBeUndefined();
     expect(unitSetup.with['apt-bundle-manifest']).toBeUndefined();
     expect(unitSetup.with['install-native-deps']).toBe('false');
+    // #8: with no apt headers, the shard proves canvas is the prebuilt binary before any test runs.
+    const unitSteps = ci.jobs['unit-shard'].steps.map((s) => s.name);
+    expect(unitSteps.indexOf('Verify Canvas Prebuilt Binary Loads')).toBe(unitSteps.indexOf('Setup Environment') + 1);
+    expect(unitSteps.indexOf('Verify Canvas Prebuilt Binary Loads')).toBeLessThan(unitSteps.indexOf('Run Unit Shard Execution'));
     expect(e2eSetup.with['apt-bundle']).toBe('true');
     expect(e2eSetup.with['apt-bundle-manifest']).toBe('playwright');
   });
