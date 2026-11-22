@@ -641,10 +641,22 @@ export function assertNoSecondCharge(listed: unknown, expected: { customer: stri
 }
 
 /** A declined or abandoned Checkout grants nothing: no subscription, no payment, the session not complete. */
+/** Stripe's documented Checkout Session `status` and `payment_status` values (API reference, Checkout Session object). */
+export const CHECKOUT_SESSION_STATUSES = Object.freeze(['open', 'complete', 'expired']);
+export const CHECKOUT_PAYMENT_STATUSES = Object.freeze(['paid', 'unpaid', 'no_payment_required']);
 export function assertCheckoutGrantedNothing(input: unknown, expectedStatus: 'open' | 'expired'): void {
   const session = (input ?? {}) as { livemode?: unknown; status?: unknown; payment_status?: unknown; subscription?: unknown };
-  requireFact(session.livemode === false && session.status === expectedStatus && session.payment_status === 'unpaid'
-    && (session.subscription === null || session.subscription === undefined), 'failed_checkout_granted_something');
+  // Run 44937743744: the same rule as before, but a refusal now names what Stripe reported (closed tokens only, no ids), so a
+  // declined Checkout that is not open+unpaid+subscription-free says which of those it was instead of one bare code.
+  // Only Stripe's documented values are named; anything else is `other`, so no unexpected upstream string enters the receipt.
+  const named = (v: unknown, allowed: readonly string[]) => (v === null || v === undefined ? 'none'
+    : typeof v === 'string' && allowed.includes(v) ? v : 'other');
+  const status = named(session.status, CHECKOUT_SESSION_STATUSES);
+  const payment = named(session.payment_status, CHECKOUT_PAYMENT_STATUSES);
+  const subscription = session.subscription === null || session.subscription === undefined ? 'none' : 'attached';
+  const livemode = session.livemode === false ? 'test' : session.livemode === true ? 'live' : 'unread';
+  requireFact(session.livemode === false && session.status === expectedStatus && session.payment_status === 'unpaid' && subscription === 'none',
+    `failed_checkout_granted_something_status_${status}_payment_${payment}_subscription_${subscription}_mode_${livemode}`);
 }
 
 /**

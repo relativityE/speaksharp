@@ -83,6 +83,66 @@ export function openPointReferenceVerdict(o: { well: string; next: string; label
         : { status: 'HOLD', detail: 'the advice names no open point by its words; the human check decides' };
 }
 
+/**
+ * J3 (Focus coaching) — "never say a point was missed, skipped or not mentioned" (the deployed prompt's own rule). The matcher only
+ * knows what it detected, so advice must not assert an omission. Live run 44941790511 failed the old word match, which also flags
+ * harmless advice ("skip the filler words"), and kept no phrase, so the receipt could not say which it was.
+ *
+ * Wording about omissions is often ambiguous, so this verdict FAILs only on high-precision forms, and answers an explicit HOLD
+ * whenever the claim's target or polarity is uncertain; it never turns an uncertain case into PASS. This is a required
+ * AUTOMATED row: nothing settles its HOLD today (no worksheet item binds to it; Sam on 0b6390a8), so an ambiguous phrase leaves
+ * the row HOLD. A human resolution path would need its own reviewed design.
+ *  - `past_claim` → FAIL: a past-tense statement that something was omitted ("you missed…", "…was never covered", "you left it
+ *    out"), with no negator in the clause;
+ *  - `implied_point` → FAIL: an imperative whose object, within three words, is a chosen point ("don't skip the guarantee");
+ *  - `present_point` → FAIL: a chosen point directly said to be missing ("the pricing tiers are still missing", "missing the
+ *    guarantee");
+ *  - `ambiguous` → HOLD: omission wording with a negator in the clause ("nothing was omitted", "no signposting meant you skipped…"),
+ *    a collective reference to the chosen points ("one of your points"), or a chosen point mentioned elsewhere in the clause
+ *    ("omit filler words when introducing the launch date");
+ *  - `unknown_point` → HOLD: omission wording, but the take's point labels are unknown;
+ *  - `unrelated` → PASS: omission wording about something that is plainly not a chosen point ("skip the filler words");
+ *  - `none` → PASS: no omission wording.
+ * Only these closed tokens are recorded, never the phrase.
+ */
+export type OmissionForm = 'none' | 'past_claim' | 'implied_point' | 'present_point' | 'ambiguous' | 'unrelated' | 'unknown_point';
+const PAST_CLAIM = /\b(missed|skipped|forgot|forgotten|omitted|overlooked)\b|\bleft\s+(?:(?:it|them|that|this)\s+)?out\b|\b(?:didn'?t|did\s+not|never)\s+(?:mention|cover|say|address|include|get\s+to)\b|\b(?:never|(?:was|were)(?:n'?t|\s+not|\s+never)|(?:has|have)(?:n'?t|\s+not|\s+never)(?:\s+been)?)\s+(?:mentioned|covered|said|addressed|included|got\s+to)\b|\bwent\s+unmentioned\b/i;
+// The verbs' own inflections only, so `mission` or `skipper` never match (Codex P2 on 01363817).
+const OMISSION_WORD = /\b(?:miss(?:es|ed|ing)?|skip(?:s|ped|ping)?|forg(?:et|ets|etting|ot|otten)|left\s+out|leav(?:e|es|ing)\s+out|omit(?:s|ted|ting)?|overlook(?:s|ed|ing)?|unmentioned)\b/i;
+const IMPERATIVE_OMIT = /\b(?:don'?t|do\s+not|never|avoid)\s+(?:skip(?:ping)?|miss(?:ing)?|forget(?:ting)?|leav(?:e|ing)\s+out|omit(?:ting)?)\b((?:\s+\S+){1,3})/i;
+const PRESENT_MISSING = /(\S+(?:\s+\S+){0,2})\s+(?:is|are|was|were|still)\s+(?:still\s+)?missing\b|\bmissing\s+((?:\S+\s+){0,2}\S+)/i;
+/** A negator anywhere in the clause makes an omission statement's polarity uncertain (denial, or a negated cause). */
+const NEGATOR = /\b(?:no|nothing|none|neither|nor|not\s+(?:a|one|any|a\s+single))\b/i;
+/** A collective reference to the take's chosen points, without naming one. */
+const COLLECTIVE_POINTS = /\b(?:your|chosen|selected|focus|each|every|any|all)\s+(?:\w+\s+)?points?\b|\bone\s+of\s+(?:your|the)\s+(?:\w+\s+)?points?\b/i;
+export function omissionClaimVerdict(o: { well: string; next: string; labels: readonly string[] | null }): Verdict & { form: OmissionForm } {
+    const labelWords = (o.labels ?? []).flatMap((label) => norm(label).split(/[^a-z0-9']+/).filter((w) => w.length >= 4 && !STOPWORDS.has(w)));
+    const names = (text: string) => labelWords.some((w) => new RegExp(`\\b${w}`).test(norm(text)));
+    const clauses = `${o.well}. ${o.next}`.split(/[.;!?]+/).map((c) => c.trim()).filter(Boolean);
+    let form = 'none' as OmissionForm;
+    const rank: Record<OmissionForm, number> = { none: 0, unrelated: 1, unknown_point: 2, ambiguous: 2, present_point: 3, implied_point: 3, past_claim: 4 };
+    const take = (f: OmissionForm) => { if (rank[f] > rank[form]) form = f; };
+    for (const clause of clauses) {
+        const omission = PAST_CLAIM.test(clause) || OMISSION_WORD.test(clause) || PRESENT_MISSING.test(clause);
+        if (!omission) continue;
+        const negated = NEGATOR.test(clause);
+        if (PAST_CLAIM.test(clause) && !negated) { take('past_claim'); continue; }
+        if (negated) { take('ambiguous'); continue; }
+        if (o.labels === null || labelWords.length === 0) { take('unknown_point'); continue; }
+        const imperative = IMPERATIVE_OMIT.exec(clause);
+        if (imperative && names(imperative[1])) { take('implied_point'); continue; }
+        const present = PRESENT_MISSING.exec(clause);
+        if (present && names(present[1] ?? present[2] ?? '')) { take('present_point'); continue; }
+        take(names(clause) || COLLECTIVE_POINTS.test(clause) ? 'ambiguous' : 'unrelated');
+    }
+    if (form === 'past_claim' || form === 'implied_point' || form === 'present_point') {
+        return { status: 'FAIL', form, detail: `the advice asserts an omission (${form}); the matcher cannot know a point was missed` };
+    }
+    if (form === 'unknown_point') return { status: 'HOLD', form, detail: 'omission wording, but no point labels to tell whether it concerns a chosen point' };
+    if (form === 'ambiguous') return { status: 'HOLD', form, detail: 'omission wording whose target or polarity is uncertain; held, not judged' };
+    return { status: 'PASS', form, detail: form === 'unrelated' ? 'omission wording, but not about any chosen point' : 'no omission wording' };
+}
+
 type SessionsClient = {
     from(table: 'sessions'): {
         select(cols: string): { eq(c: string, v: string): { in(c: string, v: string[]): PromiseLike<{ data: unknown[] | null; error: { code?: string } | null }> } };
