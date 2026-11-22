@@ -86,51 +86,58 @@ export function openPointReferenceVerdict(o: { well: string; next: string; label
 /**
  * J3 (Focus coaching) — "never say a point was missed, skipped or not mentioned" (the deployed prompt's own rule). The matcher only
  * knows what it detected, so advice must not assert an omission. Live run 44941790511 failed the old word match, which also flags
- * harmless advice ("skip the filler words"), and kept no phrase, so the receipt could not say which it was. This verdict separates:
- *  - `past_claim`: the advice states an omission ("you missed…", "…was not mentioned", "you left it out") → FAIL, any subject;
- *  - `implied_point`: an imperative presupposing the omission of a chosen point ("don't skip the guarantee next time") → FAIL;
- *  - `present_point`: a chosen point said to be missing now ("the guarantee is missing") → FAIL;
- *  - `unrelated`: an omission word not about any chosen point ("skip the filler words", "don't miss a breath") → PASS;
- *  - `none`: no omission wording → PASS.
- * Without the point labels an imperative or present form cannot be tied to a point, so it is HOLD (`unknown_point`), never PASS.
+ * harmless advice ("skip the filler words"), and kept no phrase, so the receipt could not say which it was.
+ *
+ * Wording about omissions is often ambiguous, so this verdict FAILs only on high-precision forms, and answers HOLD (the human
+ * worksheet decides) whenever the claim's target or polarity is uncertain; it never turns an uncertain case into PASS:
+ *  - `past_claim` → FAIL: a past-tense statement that something was omitted ("you missed…", "…was never covered", "you left it
+ *    out"), with no negator in the clause;
+ *  - `implied_point` → FAIL: an imperative whose object, within three words, is a chosen point ("don't skip the guarantee");
+ *  - `present_point` → FAIL: a chosen point directly said to be missing ("the pricing tiers are still missing", "missing the
+ *    guarantee");
+ *  - `ambiguous` → HOLD: omission wording with a negator in the clause ("nothing was omitted", "no signposting meant you skipped…"),
+ *    a collective reference to the chosen points ("one of your points"), or a chosen point mentioned elsewhere in the clause
+ *    ("omit filler words when introducing the launch date");
+ *  - `unknown_point` → HOLD: omission wording, but the take's point labels are unknown;
+ *  - `unrelated` → PASS: omission wording about something that is plainly not a chosen point ("skip the filler words");
+ *  - `none` → PASS: no omission wording.
  * Only these closed tokens are recorded, never the phrase.
  */
-export type OmissionForm = 'none' | 'past_claim' | 'implied_point' | 'present_point' | 'unrelated' | 'unknown_point';
+export type OmissionForm = 'none' | 'past_claim' | 'implied_point' | 'present_point' | 'ambiguous' | 'unrelated' | 'unknown_point';
 const PAST_CLAIM = /\b(missed|skipped|forgot|forgotten|omitted|overlooked)\b|\bleft\s+(?:(?:it|them|that|this)\s+)?out\b|\b(?:didn'?t|did\s+not|never)\s+(?:mention|cover|say|address|include|get\s+to)\b|\b(?:never|(?:was|were)(?:n'?t|\s+not|\s+never)|(?:has|have)(?:n'?t|\s+not|\s+never)(?:\s+been)?)\s+(?:mentioned|covered|said|addressed|included|got\s+to)\b|\bwent\s+unmentioned\b/i;
-const IMPERATIVE_OMIT = /\b(?:don'?t|do\s+not|never|avoid)\s+(?:skip(?:ping)?|miss(?:ing)?|forget(?:ting)?|leav(?:e|ing)\s+out|omit(?:ting)?)\b/i;
-const PRESENT_MISSING = /\b(?:is|are|was|were|still)\s+missing\b|\bmissing\s+(?:the|your)\b/i;
-// Codex P2 on 01363817: the verbs' own inflections only, so `mission`, `skipper` or `omittance`-like words never match.
-const OMISSION_WORD = /\b(?:miss(?:es|ed|ing)?|skip(?:s|ped|ping)?|forg(?:et|ets|etting|ot|otten)|left\s+out|leav(?:e|es|ing)\s+out|omit(?:s|ted|ting)?|unmentioned)\b/i;
-const NEGATED_OMISSION = /\b(?:no|nothing|none|not\s+(?:a|one|any)|neither|nor)\b[^,]*?\b(?:missed|skipped|omitted|overlooked|forgotten|left\s+out|unmentioned)\b/gi;
+// The verbs' own inflections only, so `mission` or `skipper` never match (Codex P2 on 01363817).
+const OMISSION_WORD = /\b(?:miss(?:es|ed|ing)?|skip(?:s|ped|ping)?|forg(?:et|ets|etting|ot|otten)|left\s+out|leav(?:e|es|ing)\s+out|omit(?:s|ted|ting)?|overlook(?:s|ed|ing)?|unmentioned)\b/i;
+const IMPERATIVE_OMIT = /\b(?:don'?t|do\s+not|never|avoid)\s+(?:skip(?:ping)?|miss(?:ing)?|forget(?:ting)?|leav(?:e|ing)\s+out|omit(?:ting)?)\b((?:\s+\S+){1,3})/i;
+const PRESENT_MISSING = /(\S+(?:\s+\S+){0,2})\s+(?:is|are|was|were|still)\s+(?:still\s+)?missing\b|\bmissing\s+((?:\S+\s+){0,2}\S+)/i;
+/** A negator anywhere in the clause makes an omission statement's polarity uncertain (denial, or a negated cause). */
+const NEGATOR = /\b(?:no|nothing|none|neither|nor|not\s+(?:a|one|any|a\s+single))\b/i;
+/** A collective reference to the take's chosen points, without naming one. */
+const COLLECTIVE_POINTS = /\b(?:your|chosen|selected|focus|each|every|any|all)\s+(?:\w+\s+)?points?\b|\bone\s+of\s+(?:your|the)\s+(?:\w+\s+)?points?\b/i;
 export function omissionClaimVerdict(o: { well: string; next: string; labels: readonly string[] | null }): Verdict & { form: OmissionForm } {
     const labelWords = (o.labels ?? []).flatMap((label) => norm(label).split(/[^a-z0-9']+/).filter((w) => w.length >= 4 && !STOPWORDS.has(w)));
-    const namesPoint = (clause: string) => labelWords.some((w) => new RegExp(`\\b${w}`).test(norm(clause)));
-    // Codex P2 on 4b4d5083: a phrase that DENIES an omission ("no chosen point was overlooked", "nothing was omitted") is not
-    // a claim. Only that comma-bounded phrase is removed, so a clause that also asserts an omission elsewhere is still judged.
-    const clauses = `${o.well}. ${o.next}`.split(/[.;!?]+/).map((c) => c.replace(NEGATED_OMISSION, ' ').trim()).filter(Boolean);
+    const names = (text: string) => labelWords.some((w) => new RegExp(`\\b${w}`).test(norm(text)));
+    const clauses = `${o.well}. ${o.next}`.split(/[.;!?]+/).map((c) => c.trim()).filter(Boolean);
     let form = 'none' as OmissionForm;
-    const rank: Record<OmissionForm, number> = { none: 0, unrelated: 1, unknown_point: 2, present_point: 3, implied_point: 3, past_claim: 4 };
+    const rank: Record<OmissionForm, number> = { none: 0, unrelated: 1, unknown_point: 2, ambiguous: 2, present_point: 3, implied_point: 3, past_claim: 4 };
     const take = (f: OmissionForm) => { if (rank[f] > rank[form]) form = f; };
     for (const clause of clauses) {
-        if (PAST_CLAIM.test(clause)) { take('past_claim'); continue; }
-        const imperative = IMPERATIVE_OMIT.test(clause), present = PRESENT_MISSING.test(clause);
-        if (imperative || present) {
-            if (o.labels === null || labelWords.length === 0) take('unknown_point');
-            else if (namesPoint(clause)) take(imperative ? 'implied_point' : 'present_point');
-            else take('unrelated');
-            continue;
-        }
-        // Codex P2 on 2b407b8f: an affirmative or attributive claim ("You skip the launch date", "The missing guarantee…")
-        // is judged like the forms above: naming a chosen point FAILs, unknown labels HOLD; only unrelated wording passes.
-        if (OMISSION_WORD.test(clause)) {
-            if (o.labels === null || labelWords.length === 0) take('unknown_point');
-            else take(namesPoint(clause) ? 'present_point' : 'unrelated');
-        }
+        const omission = PAST_CLAIM.test(clause) || OMISSION_WORD.test(clause) || PRESENT_MISSING.test(clause);
+        if (!omission) continue;
+        const negated = NEGATOR.test(clause);
+        if (PAST_CLAIM.test(clause) && !negated) { take('past_claim'); continue; }
+        if (negated) { take('ambiguous'); continue; }
+        if (o.labels === null || labelWords.length === 0) { take('unknown_point'); continue; }
+        const imperative = IMPERATIVE_OMIT.exec(clause);
+        if (imperative && names(imperative[1])) { take('implied_point'); continue; }
+        const present = PRESENT_MISSING.exec(clause);
+        if (present && names(present[1] ?? present[2] ?? '')) { take('present_point'); continue; }
+        take(names(clause) || COLLECTIVE_POINTS.test(clause) ? 'ambiguous' : 'unrelated');
     }
     if (form === 'past_claim' || form === 'implied_point' || form === 'present_point') {
         return { status: 'FAIL', form, detail: `the advice asserts an omission (${form}); the matcher cannot know a point was missed` };
     }
     if (form === 'unknown_point') return { status: 'HOLD', form, detail: 'omission wording, but no point labels to tell whether it concerns a chosen point' };
+    if (form === 'ambiguous') return { status: 'HOLD', form, detail: 'omission wording whose target or polarity is uncertain; the human check decides' };
     return { status: 'PASS', form, detail: form === 'unrelated' ? 'omission wording, but not about any chosen point' : 'no omission wording' };
 }
 

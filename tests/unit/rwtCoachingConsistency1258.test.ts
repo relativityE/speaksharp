@@ -133,68 +133,57 @@ describe('guards — the journeys write every R4 row, and a provider outage sett
     });
 });
 
-describe('omissionClaimVerdict — J3 advice that asserts a point was missed vs harmless omission wording (live run 44941790511)', () => {
+describe('omissionClaimVerdict — FAIL only on clear omission claims about chosen points; HOLD when uncertain; PASS otherwise', () => {
     const labels = ['Money-back guarantee', 'Launch date', 'Pricing tiers'];
     const verdict = (next: string, l: readonly string[] | null = labels) => omissionClaimVerdict({ well: 'Clear opening with a steady pace.', next, labels: l });
-    it('FAIL: the advice states an omission, whatever the subject', () => {
+    it('FAIL past_claim: a past-tense statement of an omission with no negator, any subject', () => {
         for (const next of ['You missed the money-back guarantee.', 'The launch date was not mentioned.', "You didn't cover the pricing tiers.",
-            'You left it out at the end.', 'You forgot the guarantee.', 'The guarantee went unmentioned.', 'You skipped your strongest point.']) {
-            expect(verdict(next)).toMatchObject({ status: 'FAIL', form: 'past_claim' });
+            'You left it out at the end.', 'You forgot the guarantee.', 'The guarantee went unmentioned.', 'You skipped your strongest point.',
+            // Codex P2 on 7a4fb486: past-tense "never" and perfect forms.
+            'You never mentioned the guarantee.', 'The launch date was never covered.', "You haven't mentioned the launch date.",
+            'The pricing tiers have not been covered.', 'The guarantee has never been addressed.', 'You skipped every point.']) {
+            expect({ next, v: verdict(next) }).toMatchObject({ next, v: { status: 'FAIL', form: 'past_claim' } });
         }
+        expect(verdict('You missed the guarantee.', null)).toMatchObject({ status: 'FAIL', form: 'past_claim' });
     });
-    it('FAIL: past-tense "never" and perfect forms still claim an omission (Codex P2 on 7a4fb486)', () => {
-        for (const next of ['You never mentioned the guarantee.', 'The launch date was never covered.', 'You never said the pricing tiers.',
-            'You never got to the guarantee.', "You haven't mentioned the launch date.", 'The pricing tiers have not been covered.',
-            'The guarantee has never been addressed.']) {
-            expect(verdict(next)).toMatchObject({ status: 'FAIL', form: 'past_claim' });
-        }
-    });
-    it('FAIL: an imperative or present form that presupposes a chosen point was omitted', () => {
+    it('FAIL implied_point / present_point: the omission verb is directly attached to a chosen point', () => {
         expect(verdict("Don't skip the guarantee next time.")).toMatchObject({ status: 'FAIL', form: 'implied_point' });
         expect(verdict('Never forget the launch date.')).toMatchObject({ status: 'FAIL', form: 'implied_point' });
         expect(verdict('The pricing tiers are still missing.')).toMatchObject({ status: 'FAIL', form: 'present_point' });
+        expect(verdict('The missing guarantee needs a mention.')).toMatchObject({ status: 'FAIL', form: 'present_point' });
+        expect(verdict('You keep missing the mission statement.', ['Mission statement'])).toMatchObject({ status: 'FAIL', form: 'present_point' });
     });
-    it('FAIL: affirmative and attributive omission wording that names a chosen point (Codex P2 on 2b407b8f)', () => {
-        for (const next of ['You skip the launch date.', 'The missing guarantee needs a mention.', 'You skip past the pricing tiers.',
+    it('HOLD ambiguous, never PASS: uncertain polarity, a collective point reference, or a point mentioned beside other omission wording', () => {
+        for (const next of [
+            // Codex P2 on 4b4d5083 (denials) and on bb664554 (a negated cause before a real claim): polarity uncertain.
+            'No chosen point was overlooked.', 'You covered every point; nothing was omitted.', 'Not one point was skipped.',
+            'No clear signposting meant you skipped the launch date.', 'Nothing was omitted, but you skipped the launch date.',
+            // Codex P2 on bb664554: the chosen points referred to collectively.
+            'You are missing one of your chosen points.', 'Do not skip any of your points next time.',
+            // Codex P2 on bb664554 and 2b407b8f: a chosen point in the clause that may or may not be the verb's object.
+            'Omit filler words when introducing the launch date.', 'You skip the launch date.',
             'Leaving out the launch date weakens the close.']) {
-            expect(verdict(next)).toMatchObject({ status: 'FAIL', form: 'present_point' });
-        }
-        // The same wording with no labels to judge it is HOLD, never PASS.
-        expect(verdict('You skip the launch date.', null)).toMatchObject({ status: 'HOLD', form: 'unknown_point' });
-    });
-    it('PASS: a phrase that denies an omission is not a claim; an assertion beside it still FAILs (Codex P2 on 4b4d5083)', () => {
-        for (const next of ['No chosen point was overlooked.', 'You covered every point; nothing was omitted.', 'Not one point was skipped.',
-            'None of the guarantee details were left out.']) {
-            expect(verdict(next)).toMatchObject({ status: 'PASS' });
-        }
-        expect(verdict('Nothing was omitted, but you skipped the launch date.')).toMatchObject({ status: 'FAIL', form: 'past_claim' });
-    });
-    it('PASS: words that only start like an omission verb are not omission wording (Codex P2 on 01363817)', () => {
-        const withMission = ['Mission statement', 'Launch date'];
-        for (const next of ['Your mission statement was clear and well paced.', 'Name the mission statement before the launch date.']) {
-            expect(verdict(next, withMission)).toMatchObject({ status: 'PASS', form: 'none' });
-        }
-        // The real inflections still count.
-        expect(verdict('You keep missing the mission statement.', withMission)).toMatchObject({ status: 'FAIL', form: 'present_point' });
-    });
-    it('PASS: omission words that are not about any chosen point, and advice with none', () => {
-        for (const next of ['Skip the filler words between points.', "Don't miss a breath before the close.", 'Avoid skipping transitions.']) {
-            expect(verdict(next)).toMatchObject({ status: 'PASS', form: 'unrelated' });
-        }
-        for (const next of ['Name the guarantee early so it is unmistakable.', 'Pause before the launch date so it lands.']) {
-            expect(verdict(next)).toMatchObject({ status: 'PASS', form: 'none' });
+            expect({ next, v: verdict(next) }).toMatchObject({ next, v: { status: 'HOLD', form: 'ambiguous' } });
         }
     });
-    it('HOLD, never PASS: an imperative omission form with no point labels to tie it to', () => {
+    it('HOLD unknown_point: omission wording with no point labels to tie it to', () => {
         expect(verdict("Don't skip the guarantee next time.", null)).toMatchObject({ status: 'HOLD', form: 'unknown_point' });
         expect(verdict("Don't skip the guarantee next time.", [])).toMatchObject({ status: 'HOLD', form: 'unknown_point' });
-        expect(verdict('You missed the guarantee.', null)).toMatchObject({ status: 'FAIL', form: 'past_claim' });
+        expect(verdict('Skip the filler words between points.', null)).toMatchObject({ status: 'HOLD', form: 'unknown_point' });
     });
-    it('the old word match flagged every harmless example above; the verdict records only a closed form token, never the phrase', () => {
-        const OLD = /\b(miss(ed|ing)?|skip(ped)?|forg(o|e)t|left out|didn'?t (mention|cover|say)|never (mentioned|covered|said))\b/i;
-        expect(['Skip the filler words between points.', "Don't miss a breath before the close."].every((p) => OLD.test(p))).toBe(true);
+    it('PASS: omission wording plainly not about a chosen point, and advice with none', () => {
+        for (const next of ['Skip the filler words between points.', "Don't miss a breath before the close.", 'Avoid skipping transitions.']) {
+            expect({ next, v: verdict(next) }).toMatchObject({ next, v: { status: 'PASS', form: 'unrelated' } });
+        }
+        // Codex P2 on 01363817: words that only start like an omission verb.
+        for (const [next, l] of [['Your mission statement was clear and well paced.', ['Mission statement', 'Launch date']],
+            ['Name the guarantee early so it is unmistakable.', labels], ['Pause before the launch date so it lands.', labels]] as const) {
+            expect({ next, v: verdict(next, l) }).toMatchObject({ next, v: { status: 'PASS', form: 'none' } });
+        }
+    });
+    it('the verdict records only a closed form token, never the phrase', () => {
         const v = verdict('You missed the money-back guarantee.');
         expect(JSON.stringify(v)).not.toContain('money-back');
-        expect(['none', 'past_claim', 'implied_point', 'present_point', 'unrelated', 'unknown_point']).toContain(v.form);
+        expect(['none', 'past_claim', 'implied_point', 'present_point', 'ambiguous', 'unrelated', 'unknown_point']).toContain(v.form);
     });
 });
