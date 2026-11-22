@@ -178,6 +178,17 @@ describe('J8 live adapters', () => {
         expect(h.calls.length).toBe(8);
     });
 
+    it('ARTIFACT ROOT (Codex on 4a5d718a): the adapters say where the spec writes its receipt, and run the list and the spec there', async () => {
+        const h = harness([LIST_OK, { status: 0, stdout: '' }]);
+        expect(h.adapters.artifactRoot).toBe('/repo');
+        await h.adapters.runSpec({ env: { RWT_J8_RUNNER_ADMISSION: '/evidence/a.json', GITHUB_RUN_ID: '1', GITHUB_RUN_ATTEMPT: '1' } });
+        expect(h.calls.map((c) => c.cwd)).toEqual(['/repo', '/repo']);
+        // By default, the checkout the adapters live in.
+        expect(live.j8LiveAdapters({ run: () => ({ status: 0 }), sleep: async () => {} }).artifactRoot).toBe(path.resolve(__dirname, '..', '..', '..', '..'));
+        // The receipt writer resolves its directory against the spec's working directory, which is what binds the two.
+        const src = fs.readFileSync(path.join(__dirname, '..', '..', '..', '..', 'tests', 'live', 'helpers', 'rwtJourney.ts'), 'utf8');
+        expect(src.includes("const dir = path.resolve('test-results', 'rwt');")).toBe(true);
+    });
     it('a spec whose process tree is not confirmed stopped says so, and an undrained list runs nothing (Sam on 65365f36)', async () => {
         const env = { RWT_J8_RUNNER_ADMISSION: '/evidence/j8-admission.json', GITHUB_RUN_ID: '1', GITHUB_RUN_ATTEMPT: '2' };
         const h = harness([LIST_OK, { status: 0, stdout: '', drained: false }]);

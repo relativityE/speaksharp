@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { describe, it } = require('node:test');
 const { expect } = require('./expect-lite.cjs');
-const { J8_SUITE, J8_RECEIPT_MAP, mapJ8Receipt } = require('../j8-receipt-mapping.cjs');
+const { J8_DEFERRED_STEPS, J8_SUITE, J8_RECEIPT_MAP, mapJ8Receipt } = require('../j8-receipt-mapping.cjs');
 const { splitCaseResult } = require('../case-results.cjs');
 const { rowsForLeg } = require('../journey-plan.cjs');
 
@@ -12,14 +12,15 @@ const LEGS = ['J8.a', 'J8.b', 'J8.c'];
 const RELEASE = 'b'.repeat(40);
 const ATTEMPT = 'j8-43000000123-1';
 const JOURNEY_OF = { 'J8.a': 'journey-a', 'J8.b': 'journey-final-b', 'J8.c': 'journey-c' };
-/** Every receipt step the mapping reads, each PASS, plus account and journey rows the mapping does not consume. Each leg is bound
- * to its own journey (`J8 leg readback bindings`), and the receipt declares those three journeys for the readback. */
+/** Every receipt step the mapping reads, each PASS, plus account and journey rows the mapping does not consume. `feedback retention`
+ * is HOLD, as the J8 spec writes it (the parent deletes the account after the spec exits). Each leg is bound to its own journey
+ * (`J8 leg readback bindings`), and the receipt declares those three journeys for the readback. */
 function passingReceipt(extra = []) {
     const steps = new Set(['receipt content-free', 'zero residue', 'feedback retention', 'feedback fence close', 'telemetry rows']);
     for (const leg of LEGS) for (const sources of Object.values(J8_RECEIPT_MAP[leg]))
         for (const s of sources) if (s.scope !== 'readback') steps.add(s.scope === 'leg' ? `${leg}: ${s.step}` : s.step);
     const rows = [...steps].map((step) => (step === 'J8 leg readback bindings'
-        ? { step, verdict: 'PASS', detail: '', evidence: { ...JOURNEY_OF } } : { step, verdict: 'PASS', detail: '' }));
+        ? { step, verdict: 'PASS', detail: '', evidence: { ...JOURNEY_OF } } : { step, verdict: step === 'feedback retention' ? 'HOLD' : 'PASS', detail: '' }));
     return { suite: J8_SUITE, release: RELEASE, meta: { runnerAttempt: ATTEMPT }, rows: [...rows, ...extra],
         readback: { journeys: LEGS.map((l) => ({ journeyId: JOURNEY_OF[l], stages: ['share_feedback'] })), reportedJourneyIds: [], missingBindings: [] } };
 }
@@ -204,6 +205,38 @@ describe('J8 receipt mapping', () => {
         expect(rowOf(legOnly, 'J8.a', 'AHT-08:fresh-acknowledgment').result).toBe('PASS');
         // An unconsumed PASS (e.g. the content-free row) floors nothing.
         expect(rowOf(map(passingReceipt()), 'J8.a', 'AHT-08:fresh-acknowledgment').result).toBe('PASS');
+    });
+    it('DEFERRED RETENTION (Codex on 4a5d718a): the spec\'s HOLD retention row floors nothing; a FAIL still fails every leg', () => {
+        expect(J8_DEFERRED_STEPS).toEqual(['feedback retention']);
+        const held = map(passingReceipt());
+        expect(held.assertions.every((a) => a.result === 'PASS')).toBe(true);
+        // Still reported, marked deferred, so it is never silently dropped.
+        expect(held.unmapped.filter((u) => u.step === 'feedback retention')).toEqual([{ step: 'feedback retention', outcome: 'HOLD', deferred: true }]);
+        const failed = map(withVerdict(passingReceipt(), 'feedback retention', 'FAIL'));
+        for (const leg of LEGS) expect(failed.assertions.filter((a) => a.leg === leg).every((a) => a.result === 'FAIL')).toBe(true);
+        expect(failed.unmapped.filter((u) => u.step === 'feedback retention')).toEqual([{ step: 'feedback retention', outcome: 'FAIL' }]);
+        // HOLD and FAIL written twice: the FAIL wins and floors.
+        const both = map(passingReceipt([{ step: 'feedback retention', verdict: 'FAIL' }]));
+        expect(both.assertions.every((a) => a.result === 'FAIL')).toBe(true);
+        const r = passingReceipt();
+        const failFirst = map({ ...r, rows: [{ step: 'feedback retention', verdict: 'FAIL' }, ...r.rows] });
+        expect(failFirst.assertions.every((a) => a.result === 'FAIL')).toBe(true);
+        const humanFirst = map({ ...r, rows: [{ step: 'feedback retention', verdict: 'HUMAN' }, ...r.rows] });
+        expect(humanFirst.assertions.every((a) => a.result === 'HOLD')).toBe(true);
+        // Only exactly HOLD is deferred: an open human check or an external verdict on it still holds every leg.
+        for (const v of ['HUMAN', 'EXTERNAL']) {
+            const out = map(withVerdict(passingReceipt(), 'feedback retention', v));
+            expect(out.assertions.every((a) => a.result === 'HOLD')).toBe(true);
+        }
+        // The exception is by name only: another unconsumed journey-wide HOLD still holds every leg.
+        const other = map(passingReceipt([{ step: 'feedback retention after deletion', verdict: 'HOLD' }]));
+        expect(other.assertions.every((a) => a.result === 'HOLD')).toBe(true);
+        const legScoped = map(passingReceipt([{ step: 'J8.a: feedback retention', verdict: 'HOLD' }]));
+        expect(legScoped.assertions.filter((a) => a.leg === 'J8.a').every((a) => a.result === 'HOLD')).toBe(true);
+    });
+    it('the J8 spec writes feedback retention as HOLD, the one shape the mapping defers (drift guard)', () => {
+        const src = fs.readFileSync(path.join(__dirname, '..', '..', '..', '..', 'tests', 'live', 'rwt-feedback-association-boundaries.live.spec.ts'), 'utf8');
+        expect((src.match(/receipt\.row\('feedback retention', '([A-Z]+)'/g) ?? []).map((m) => m.split("'")[3])).toEqual(['HOLD']);
     });
     it('a leg whose prerequisites HOLD was NOT RUN, but an earlier FAIL on it stays FAIL', () => {
         const r = passingReceipt([{ step: 'J8.c: prerequisites', verdict: 'HOLD' }]);

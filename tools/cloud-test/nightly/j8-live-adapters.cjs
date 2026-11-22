@@ -283,6 +283,11 @@ function j8LiveAdapters({ repoRoot = path.join(__dirname, '..', '..', '..'), bas
     if (!listUsers && admin?.auth?.admin && typeof admin.auth.admin.listUsers === 'function') listUsers = (args) => admin.auth.admin.listUsers(args);
     const readback = readbackSession({ run, sleep, repoRoot, baseEnv });
     const adapters = {
+        /**
+         * Where the spec writes its receipt: Playwright runs with `cwd: repoRoot` and the receipt writer resolves `test-results/rwt`
+         * against its working directory. The entry admits a run only when its run directory is this one (Codex on 4a5d718a).
+         */
+        artifactRoot: repoRoot,
         /** -> { exitCode, admissionFile, runId, runAttempt, timedOut, drained }: the spec's terminal outcome, naming what it ran with. */
         async runSpec({ env }) {
             if (!env || typeof env !== 'object') return { exitCode: null, timedOut: false };

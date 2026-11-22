@@ -289,12 +289,22 @@ function ownBlocks(evidenceDir, recordRunId) {
     return after.blocking.filter((b) => b.startsWith(`${recordRunId}.`) || b.startsWith(`${recordRunId}:`));
 }
 
+/** Two existing directories that resolve (symlinks followed) to the same place; anything unreadable or missing is not the same. */
+function sameDirectory(a, b) {
+    if (typeof a !== 'string' || !a || typeof b !== 'string' || !b) return false;
+    try {
+        const [ra, rb] = [fs.realpathSync(a), fs.realpathSync(b)];
+        return ra === rb && fs.statSync(ra).isDirectory();
+    } catch { return false; }
+}
+
 /**
  * One J8 run: admission, the spec, the readback, the mapping, and cleanup always. `deps` (offline fixtures, or the live adapters in
  * j8-live-adapters.cjs plus `finalizerEvaluate`): runSpec({ env }) -> { exitCode, admissionFile, runId, runAttempt, timedOut, drained };
  * qualify(...) -> { status, evidence }; coaching(...) -> bound result; evaluate(receipt, readback) -> { suite, release, errors, rows };
  * and the parent recovery's lookup, readAccount, scopedDelete and readResidue (j8-parent-recovery.cjs). Each is bounded by `deadlines`;
- * `runBinding` ({ repository, workflow }) is this run's, the binding the account must carry.
+ * `runBinding` ({ repository, workflow }) is this run's, the binding the account must carry. `deps.artifactRoot` is the directory the
+ * spec writes its receipt under, and must be `runDir`.
  * Exit: 0 every row PASS, cleanup complete AND the run's create attempt no longer blocks admission; 1 a row FAILed; 78 otherwise
  * (HOLD, refused or NOT RUN).
  */
@@ -305,6 +315,11 @@ async function runJ8Nightly({ evidenceDir, runDir, runId, runAttempt, configured
     if (typeof runBinding?.repository !== 'string' || !runBinding.repository || typeof runBinding?.workflow !== 'string' || !runBinding.workflow)
         return { exitCode: 78, reason: 'HOLD: J8 not admitted, nothing sent: the parent has no run binding (repository and workflow)' };
     const binding = { repository: runBinding.repository, workflow: runBinding.workflow, runId: String(runId), runAttempt: String(runAttempt), role: 'rwt-journey' };
+    // Codex on 4a5d718a: the spec writes its receipt under its own working directory (`deps.artifactRoot`), so the run directory
+    // read here must be that same directory. A runner that does not say where it writes, or writes elsewhere, is refused before
+    // admission: otherwise a good run would read as a missing receipt, and a stale receipt in another directory could be read.
+    if (!sameDirectory(deps?.artifactRoot, runDir))
+        return { exitCode: 78, reason: 'HOLD: J8 not admitted, nothing sent: the run directory is not where the spec writes its receipt' };
     // Sam on b1f8323f (2): a fresh artifact location. A receipt already there could stand in for this run's, so nothing is sent.
     const receiptFile = path.join(runDir, 'test-results', 'rwt', RECEIPT_FILE);
     if (fs.existsSync(receiptFile)) return { exitCode: 78, reason: 'HOLD: J8 not admitted, nothing sent: the receipt location is not fresh' };
@@ -329,7 +344,9 @@ async function runJ8Nightly({ evidenceDir, runDir, runId, runAttempt, configured
         const specFault = specOutcomeFault(outcome, { admission, runId, runAttempt });
         const read = specFault ? { fault: specFault } : readBoundReceipt(receiptFile, { attemptId: admission.attemptId, expectedRelease, notBeforeMs: specStart });
         if (read.fault) caseResult = holdAll(read.fault);
-        else if (outcome.exitCode === 1 && read.receipt.rows.every((r) => r?.verdict === 'PASS')) caseResult = holdAll('the spec failed but its receipt shows no failing row');
+        // A failed spec must show its failing row. Keyed on FAIL, not on every row PASS: the J8 receipt always carries the deferred
+        // HOLD retention row, which the mapping does not floor, so "every row PASS" would never catch this contradiction.
+        else if (outcome.exitCode === 1 && !read.receipt.rows.some((r) => r?.verdict === 'FAIL')) caseResult = holdAll('the spec failed but its receipt shows no failing row');
         else {
             receipt = read.receipt;
             readback = await j8ReadbackVerdicts(receipt, deps, { binding: { runId: String(runId), runAttempt: String(runAttempt), createAttempt: admission.attemptId }, deadlines });
@@ -373,5 +390,5 @@ async function main(argv, env = process.env, deps = {}) {
 if (require.main === module) main(process.argv.slice(2)).then((r) => { if (r.reason) console.error(r.reason); process.exitCode = r.exitCode; });
 module.exports = {
     DEADLINES, LOCAL_PREFIX, RECOVERY_DEPS, READBACK_STAGES, RECEIPT_FILE, SIGNUP_DEADLINE_MS, SIGNUP_LEG, admitJ8, finalizerEvaluate, holdAll, j8CaseResult, j8ReadbackVerdicts, j8Reservation,
-    main, ownBlocks, readBoundReceipt, recordRunIdFor, runJ8Nightly, specOutcomeFault, teardownJ8,
+    main, ownBlocks, readBoundReceipt, recordRunIdFor, runJ8Nightly, sameDirectory, specOutcomeFault, teardownJ8,
 };

@@ -84,11 +84,12 @@ function dirs() {
 }
 /** A receipt whose every mapped row PASSes, bound to `attemptId`, each leg bound to its own journey. */
 function receiptFor(attemptId, extra = []) {
-    const steps = new Set(['receipt content-free', 'zero residue', 'journey telemetry received']);
+    // `feedback retention` HOLD, as the J8 spec writes it: deferred, so a full run still exits 0 (Codex on 4a5d718a).
+    const steps = new Set(['receipt content-free', 'zero residue', 'journey telemetry received', 'feedback retention']);
     for (const leg of LEGS) for (const sources of Object.values(J8_RECEIPT_MAP[leg]))
         for (const s of sources) if (s.scope !== 'readback') steps.add(s.scope === 'leg' ? `${leg}: ${s.step}` : s.step);
     const rows = [...steps].map((step) => (step === 'J8 leg readback bindings'
-        ? { step, verdict: 'PASS', detail: '', evidence: { ...JOURNEY_OF } } : { step, verdict: 'PASS', detail: '' }));
+        ? { step, verdict: 'PASS', detail: '', evidence: { ...JOURNEY_OF } } : { step, verdict: step === 'feedback retention' ? 'HOLD' : 'PASS', detail: '' }));
     return { suite: J8_SUITE, release: RELEASE, meta: { runnerAttempt: attemptId }, rows: [...rows, ...extra],
         readback: { journeys: LEGS.map((l) => ({ journeyId: JOURNEY_OF[l], stages: ['share_feedback'] })), reportedJourneyIds: [], missingBindings: [] } };
 }
@@ -122,6 +123,7 @@ function fixtures(runDir, { spec = (adm) => receiptFor(adm.createAttempt.attempt
     return {
         calls, store,
         deps: {
+            artifactRoot: runDir,
             runSpec: async ({ env }) => {
                 const admission = JSON.parse(fs.readFileSync(env.RWT_J8_RUNNER_ADMISSION, 'utf8'));
                 const evidenceDir = path.dirname(env.RWT_J8_RUNNER_ADMISSION);
@@ -342,8 +344,13 @@ describe('J8 nightly entry', () => {
         };
         for (const [name, over] of Object.entries(cases)) {
             const e = dirs();
-            const o = await run(e, fixtures(e.runDir, over).deps);
+            const fx = fixtures(e.runDir, over);
+            const o = await run(e, fx.deps);
             expect({ name, cleanup: o.cleanup.result, exit: o.exitCode === 0 }).toEqual({ name, cleanup: 'incomplete', exit: false });
+            // The spec's own zero is not a gate on the parent recovery (Elon on 4a5d718a, P3): a spec that exited still has its
+            // account found, deleted on the scoped path and read at zero by the parent; only cleanup stays incomplete, named.
+            expect({ name, deletes: fx.store.calls.scopedDelete.length, why: JSON.stringify(o.cleanup.reasons).includes('the spec did not record its own zero residue') })
+                .toEqual({ name, deletes: 1, why: true });
         }
     });
     it('OWN BLOCKS: cleanup complete is not enough; any other unresolved create recorded under this run keeps the exit at HOLD', async () => {
@@ -566,6 +573,25 @@ describe('J8 nightly entry', () => {
         expect({ exit: none.exitCode, files: fs.readdirSync(k.evidenceDir) }).toEqual({ exit: 78, files: [] });
         expect(entry.readBoundReceipt('/nope', { attemptId: 'a', expectedRelease: 'A'.repeat(40), notBeforeMs: 0 }).fault).toBe('the parent named no expected release');
     });
+    it('RUN DIRECTORY (Codex on 4a5d718a): deps that do not name the run directory as where the spec writes are refused before admission', async () => {
+        const missing = path.join(os.tmpdir(), 'j8-entry-does-not-exist');
+        for (const [name, root] of [['absent', undefined], ['empty', ''], ['not a string', 7], ['another directory', 'evidence'], ['missing', missing], ['a file', 'file']]) {
+            const d = dirs();
+            fs.writeFileSync(path.join(d.root, 'file'), '');
+            const f = fixtures(d.runDir);
+            f.deps.artifactRoot = root === 'evidence' ? d.evidenceDir : root === 'file' ? path.join(d.root, 'file') : root;
+            const out = await run(d, f.deps);
+            expect({ name, exit: out.exitCode, reason: out.reason, ran: f.calls.runSpec.length, recorded: fs.readdirSync(d.evidenceDir) })
+                .toEqual({ name, exit: 78, reason: 'HOLD: J8 not admitted, nothing sent: the run directory is not where the spec writes its receipt', ran: 0, recorded: [] });
+        }
+        // The same directory named another way (a trailing separator, a relative segment) is the same directory.
+        const d = dirs();
+        const f = fixtures(d.runDir);
+        f.deps.artifactRoot = `${d.runDir}${path.sep}..${path.sep}run${path.sep}`;
+        expect((await run(d, f.deps)).exitCode).toBe(0);
+        expect(entry.sameDirectory(d.runDir, d.runDir)).toBe(true);
+        expect(entry.sameDirectory(d.runDir, path.join(d.runDir, 'test-results', 'rwt', entry.RECEIPT_FILE))).toBe(false);
+    });
     it('SPEC OUTCOME (Sam on b1f8323f): only a terminal exit bound to this admission, run and attempt lets the receipt be read', async () => {
         const bad = {
             'no exit code': (env) => ({ exitCode: null, drained: true, admissionFile: env.RWT_J8_RUNNER_ADMISSION, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT }),
@@ -586,12 +612,17 @@ describe('J8 nightly entry', () => {
             expect({ name, hold: out.caseResult.assertions.every((a) => a.result === 'HOLD'), qualify: f.calls.qualify.length, cleanup: out.cleanup.result, exit: out.exitCode })
                 .toEqual({ name, hold: true, qualify: 0, cleanup: 'incomplete', exit: 78 });
         }
-        // Exit 1 over an all-PASS receipt contradicts itself: HOLD.
+        // Exit 1 over a receipt with no FAIL row (every row PASS but the deferred HOLD retention row) contradicts itself: HOLD.
         const exit1 = (env) => ({ exitCode: 1, drained: true, admissionFile: env.RWT_J8_RUNNER_ADMISSION, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT });
         const d = dirs();
         const contradiction = await run(d, fixtures(d.runDir, { outcome: exit1 }).deps);
         expect(contradiction.caseResult.assertions[0].sources).toEqual(['the spec failed but its receipt shows no failing row']);
         expect(contradiction.exitCode).toBe(78);
+        // Also with another HOLD row and no FAIL: still the contradiction, never mapped.
+        const h = dirs();
+        const heldExit1 = await run(h, fixtures(h.runDir, { outcome: exit1, spec: (adm) => receiptFor(adm.createAttempt.attemptId, [{ step: 'scenario execution', verdict: 'HOLD', detail: '' }]) }).deps);
+        expect(heldExit1.caseResult.assertions.every((a) => a.result === 'HOLD' && a.sources[0] === 'the spec failed but its receipt shows no failing row')).toBe(true);
+        expect(heldExit1.exitCode).toBe(78);
         // Exit 1 with the failing row in the receipt: read and mapped as usual, and the run FAILs.
         const e = dirs();
         const failed = await run(e, fixtures(e.runDir, { outcome: exit1, spec: (adm) => ({ ...receiptFor(adm.createAttempt.attemptId),
@@ -766,7 +797,7 @@ describe('J8 nightly entry with the live adapters composed over a recording proc
      * One runner for the spec, the readback and the scoped delete: the spec signs the reserved account up (bound to its run) and writes
      * `spec(admission)`; each readback answers `readbackCode(args)`; the delete script removes the account and prints its verdict.
      */
-    function composed(d, { spec = (adm) => receiptFor(adm.createAttempt.attemptId), readbackCode = () => 0, users = new Map(), counts = {} } = {}) {
+    function composed(d, { spec = (adm) => receiptFor(adm.createAttempt.attemptId), readbackCode = () => 0, users = new Map(), counts = {}, repoRoot = d.runDir } = {}) {
         const calls = [];
         // Every process tree is drained, as the real runner reports once nothing carrying its tag is left.
         const runner = (command, args, opts) => ({ drained: true, ...answer(command, args, opts) });
@@ -778,8 +809,9 @@ describe('J8 nightly entry with the live adapters composed over a recording proc
                 const id = `uid-${opts.env.GITHUB_RUN_ID}`;
                 users.set(id, { id, email: admission.createAttempt.lookupRef, created_at: new Date().toISOString(),
                     app_metadata: { ct_run: ctRunFor(opts.env.GITHUB_RUN_ID, opts.env.GITHUB_RUN_ATTEMPT) } });
+                // Written where the real receipt writer writes: test-results/rwt under the spec's own working directory.
                 const receipt = spec(admission);
-                if (receipt) fs.writeFileSync(path.join(d.runDir, 'test-results', 'rwt', entry.RECEIPT_FILE), JSON.stringify(receipt));
+                if (receipt) fs.writeFileSync(path.join(opts.cwd, 'test-results', 'rwt', entry.RECEIPT_FILE), JSON.stringify(receipt));
                 return { status: 0, stdout: '' };
             }
             if (String(args[0]).endsWith('rwt-j8-parent-delete.mts')) {
@@ -793,7 +825,7 @@ describe('J8 nightly entry with the live adapters composed over a recording proc
             const ev = evidenceFor(q, status);
             return { status, stdout: ev ? `noise\nTELEMETRY_READBACK_QUALIFICATION_EVIDENCE ${JSON.stringify({ gate: 'TELEMETRY-READBACK-COMPLETENESS', ...ev })}\n` : '' };
         };
-        const deps = { ...j8LiveAdapters({ repoRoot: d.root, baseEnv: {}, run: runner, sleep: async () => {}, admin: fakeAdmin(users, { counts }) }),
+        const deps = { ...j8LiveAdapters({ repoRoot, baseEnv: {}, run: runner, sleep: async () => {}, admin: fakeAdmin(users, { counts }) }),
             evaluate: async (receipt) => ({ suite: receipt.suite, release: receipt.release, errors: [], rows: receipt.rows }) };
         return { deps, calls, users };
     }
@@ -813,6 +845,22 @@ describe('J8 nightly entry with the live adapters composed over a recording proc
             .toEqual([{ run: RUN_ID, attempt: '1', repo: RUN_BINDING.repository, wf: RUN_BINDING.workflow, email: emailOf(RUN_ID) }]);
         expect(c.users.size).toBe(0);
         expect(out.createJournal).toBe('resolved');
+    });
+    it('RUN DIRECTORY (Codex on 4a5d718a): a run directory that is not where the spec writes is refused before admission; nothing runs', async () => {
+        const d = dirs();
+        // The adapters run the spec in the checkout root; the entry was given another directory.
+        const c = composed(d, { repoRoot: d.root });
+        const out = await run(d, c.deps);
+        expect(out.exitCode).toBe(78);
+        expect(out.reason).toBe('HOLD: J8 not admitted, nothing sent: the run directory is not where the spec writes its receipt');
+        expect(c.calls.length).toBe(0);
+        expect(fs.readdirSync(d.evidenceDir)).toEqual([]);
+        // A symlink to the spec's directory is the same directory.
+        const e = dirs();
+        const link = path.join(e.root, 'run-link');
+        fs.symlinkSync(e.runDir, link);
+        const linked = await run({ ...e, runDir: link }, composed(e).deps);
+        expect(linked.exitCode).toBe(0);
     });
     it('an observed readback failure for J8.b\'s journey FAILs its received row; residue after the delete keeps cleanup incomplete', async () => {
         const d = dirs();
