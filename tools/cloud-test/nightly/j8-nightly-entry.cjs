@@ -9,12 +9,15 @@
 //   3. RECEIVED: each bound journey is read back independently (the PostHog readback, as rc-gates' readback step does), the
 //      receipt is settled by the reviewed finalizer's automated half (scripts/rwt-automated-evaluation.mts), and the J8 mapping
 //      (j8-receipt-mapping.cjs) takes each leg's received row from that readback only, never from the browser's sent events.
-//   4. CLEANUP, always: bound to the same run's one create record and the same attempt; complete only with the spec's own zero
-//      residue AND the parent's complete exact-email lookup finding no account.
+//   4. CLEANUP, always, by the PARENT (Sam on 27ee1856, route (b)): bound to the same run's one create record and the same attempt.
+//      The spec leaves the account; once the spec has exited, the parent finds it under the reservation, checks it is bound to this
+//      run and attempt, deletes it on the scoped path, reads every required store at zero and records the attempt
+//      `landed-and-cleaned` (j8-parent-recovery.cjs). Cleanup is complete only with that AND the spec's own fence zero residue.
 // Sam on b1f8323f, four fixes:
-//   (1) the run's ONE create attempt is checked after cleanup: while it still blocks the next admission (no trusted, timely answer
-//       for this reservation, or a created account whose cleanup is not complete), the run is HOLD (78), even when cleanup reads
-//       zero. The entry never writes an answer itself: a UI signup gives the parent no trusted, timely answer to record;
+//   (1) the run's ONE create attempt is checked after cleanup: while it still blocks the next admission (not recovered by the
+//       parent, no trusted, timely answer, or a created account whose cleanup is not complete), the run is HOLD (78), even when
+//       cleanup reads zero. The entry never writes an answer itself: a UI signup gives the parent no trusted answer to record, so
+//       the parent's landed-and-cleaned recovery is how the attempt is cleared;
 //   (2) the receipt must name the parent's expected release, sit at a location that was empty before admission and be written
 //       after the spec started, and the spec's own terminal outcome (exit 0 or 1, not killed) must name this admission, run and
 //       attempt; a spec that exits 1 over an all-PASS receipt is HOLD;
@@ -30,6 +33,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { AdmissionRefused, admitRun, beginRun, journeyCreateRecord, recordCreateAttempt, writeCleanupEvidence } = require('./cleanup-evidence.cjs');
 const { J8_RECEIPT_MAP, J8_SUITE, mapJ8Receipt } = require('./j8-receipt-mapping.cjs');
+const { j8ParentRecovery } = require('./j8-parent-recovery.cjs');
 
 const JOURNEY = 'J8';
 /** The leg that signs the account up (J8.a opens the journey); the attempt is the journey's one create. */
@@ -38,7 +42,6 @@ const SIGNUP_LEG = 'J8.a';
 const SIGNUP_DEADLINE_MS = 120_000;
 /** The local part the run-owned generators mint for this journey, so interrupted-run recovery recognizes it (rwtInterruptedRunRecovery.ts). */
 const LOCAL_PREFIX = 'rwt-journey-feedback-boundary-';
-const RUN_OWNED_PREFIX = 'rwt-journey-';
 const RECEIPT_FILE = `${J8_SUITE}.receipt.json`;
 const READBACK_STAGES = Object.freeze(['share_feedback']);
 const CHAIN_ROW = 'J8.b: feedback diagnostic chain';
@@ -51,7 +54,9 @@ const FINAL_SENT_ROW = 'J8.b: final feedback pair sent';
  * Sam on b1f8323f (4): each call's own deadline. The spec's covers its 30-minute process bound; a journey's readback covers the
  * ingestion wait and three five-minute tries; cleanup is the whole teardown, lookup included.
  */
-const DEADLINES = Object.freeze({ specMs: 32 * 60_000, readbackMs: 20 * 60_000, coachingMs: 20 * 60_000, evaluateMs: 2 * 60_000, cleanupMs: 5 * 60_000 });
+const DEADLINES = Object.freeze({ specMs: 32 * 60_000, readbackMs: 20 * 60_000, coachingMs: 20 * 60_000, evaluateMs: 2 * 60_000, cleanupMs: 10 * 60_000 });
+/** The parent recovery's calls (j8-parent-recovery.cjs); with any missing the account is left and the run is HOLD. */
+const RECOVERY_DEPS = Object.freeze(['lookup', 'readAccount', 'scopedDelete', 'readResidue']);
 const TIMED_OUT = Symbol('timed out');
 
 /** `fn()` bounded by `ms`; past it, TIMED_OUT. A throw is a throw. */
@@ -233,14 +238,13 @@ function j8CaseResult(receipt, readback, evaluated) {
 }
 
 /**
- * CLEANUP, bound to this run and attempt. The run's ONE create record must be this attempt, for this exact reserved local part and
- * domain; the spec's own `zero residue` row must PASS; and the parent's complete exact-email lookup must find no account. Anything
- * else leaves the journey incomplete (named), so admission stays closed. The create attempt itself is NOT cleared here: only a
- * validated answer or the protected recovery route clears it.
+ * CLEANUP, bound to this run and attempt, by the parent (Sam on 27ee1856, route (b)). The run's ONE create record must be this
+ * attempt, for this exact reserved local part and domain; the spec's own fence `zero residue` row must PASS; and the parent's
+ * landed-and-cleaned recovery must find the account bound to this run and attempt, delete it on the scoped path and read every
+ * required store at zero. The recovery runs only once the spec has EXITED (a killed spec's pages may still write), within the real
+ * cleanup budget. Anything else leaves the journey incomplete (named) and the attempt unresolved, so admission stays closed.
  */
-async function teardownJ8({ evidenceDir, admission, receipt, lookup, budgetMs = DEADLINES.cleanupMs, now = () => Date.now() }) {
-    // Sam on b1f8323f (4): the real cleanup budget. The lookup is cut off at what is left of it, and the evidence records the
-    // budget as exhausted once it has run out (so cleanup can never read complete past its own deadline).
+async function teardownJ8({ evidenceDir, admission, receipt, deps = {}, binding, specExited, budgetMs = DEADLINES.cleanupMs, now = () => Date.now() }) {
     const deadlineAt = now() + budgetMs;
     const timedOut = () => now() >= deadlineAt;
     const unproven = [];
@@ -251,19 +255,24 @@ async function teardownJ8({ evidenceDir, admission, receipt, lookup, budgetMs = 
     const specZero = !!receipt && receipt.rows.some((r) => r?.step === 'zero residue' && r.verdict === 'PASS')
         && !receipt.rows.some((r) => r?.step === 'zero residue' && r.verdict !== 'PASS');
     if (!specZero) unproven.push('the spec did not record its own zero residue');
-    let found = null;
-    if (bound && typeof lookup === 'function' && !timedOut()) {
-        try { found = await within(Math.max(0, deadlineAt - now()), () => lookup({ email: admission.email, runOwnedPrefix: RUN_OWNED_PREFIX })); } catch { found = null; }
-        if (found === TIMED_OUT) { found = null; unproven.push('the parent lookup did not finish within the cleanup budget'); }
+    let recovery = null;
+    if (!bound) { /* nothing is looked up or deleted for a record that is not this attempt's */ }
+    else if (specExited !== true) unproven.push('the spec did not exit, so its pages may still write; the account is left for protected recovery');
+    else if (RECOVERY_DEPS.some((k) => typeof deps[k] !== 'function')) unproven.push('no parent recovery, so the account is left for protected recovery');
+    else {
+        const left = deadlineAt - now();
+        recovery = left > 0 ? await j8ParentRecovery({ evidenceDir, admission, binding, deps, budgetMs: left, now }) : null;
+        if (!recovery) unproven.push('the cleanup budget ran out before the parent recovery started');
+        else if (recovery.state !== 'recovered') unproven.push(recovery.reason);
     }
-    const zero = found?.lookup === 'zero' && !timedOut();
-    if (!zero) unproven.push('the parent lookup did not show the reserved account gone within the cleanup budget');
+    const recovered = recovery?.state === 'recovered' && !timedOut();
+    if (recovery?.state === 'recovered' && !recovered) unproven.push('the parent recovery finished after the cleanup budget');
     const ref = admission.local;
     return writeCleanupEvidence(evidenceDir, admission.recordRunId, [{
         journey: JOURNEY, reserveExhausted: false, created: [{ kind: 'account', ref }],
-        steps: [{ kind: 'account', ref, action: 'run-owned delete by the J8 spec', outcome: specZero ? 'done' : 'failed' }],
-        left: zero ? [] : [{ kind: 'account', ref }],
-        ...(zero ? { verification: { kind: 'zero-residue', queries: [{ kind: 'account', scope: ref, count: 0 }] } } : {}),
+        steps: [{ kind: 'account', ref, action: 'parent scoped delete (landed-and-cleaned)', outcome: recovery?.deleted ? 'done' : recovery?.landed ? 'failed' : 'not attempted' }],
+        left: recovered ? [] : [{ kind: 'account', ref }],
+        ...(recovered ? { verification: { kind: 'zero-residue', queries: recovery.queries.map(({ kind, scope, count }) => ({ kind, scope, count })) } } : {}),
         unproven,
     }], { cleanupExhausted: () => timedOut() });
 }
@@ -283,13 +292,18 @@ function ownBlocks(evidenceDir, recordRunId) {
  * One J8 run: admission, the spec, the readback, the mapping, and cleanup always. `deps` (offline fixtures, or the live adapters in
  * j8-live-adapters.cjs plus `finalizerEvaluate`): runSpec({ env }) -> { exitCode, admissionFile, runId, runAttempt, timedOut };
  * qualify(...) -> { status, evidence }; coaching(...) -> bound result; evaluate(receipt, readback) -> { suite, release, errors, rows };
- * lookup({ email, runOwnedPrefix }) -> exactEmailLookup's result. Each is bounded by `deadlines`.
+ * and the parent recovery's lookup, readAccount, scopedDelete and readResidue (j8-parent-recovery.cjs). Each is bounded by `deadlines`;
+ * `runBinding` ({ repository, workflow }) is this run's, the binding the account must carry.
  * Exit: 0 every row PASS, cleanup complete AND the run's create attempt no longer blocks admission; 1 a row FAILed; 78 otherwise
  * (HOLD, refused or NOT RUN).
  */
-async function runJ8Nightly({ evidenceDir, runDir, runId, runAttempt, configuredDomain, expectedRelease, deps, deadlines = DEADLINES, now = () => Date.now() }) {
+async function runJ8Nightly({ evidenceDir, runDir, runId, runAttempt, configuredDomain, expectedRelease, runBinding, deps, deadlines = DEADLINES, now = () => Date.now() }) {
     if (typeof expectedRelease !== 'string' || !SHA.test(expectedRelease))
         return { exitCode: 78, reason: 'HOLD: J8 not admitted, nothing sent: the parent named no expected release' };
+    // The binding the spec's signup writes (app_metadata.ct_run, runBinding.ts) and the parent recovery checks the account against.
+    if (typeof runBinding?.repository !== 'string' || !runBinding.repository || typeof runBinding?.workflow !== 'string' || !runBinding.workflow)
+        return { exitCode: 78, reason: 'HOLD: J8 not admitted, nothing sent: the parent has no run binding (repository and workflow)' };
+    const binding = { repository: runBinding.repository, workflow: runBinding.workflow, runId: String(runId), runAttempt: String(runAttempt), role: 'rwt-journey' };
     // Sam on b1f8323f (2): a fresh artifact location. A receipt already there could stand in for this run's, so nothing is sent.
     const receiptFile = path.join(runDir, 'test-results', 'rwt', RECEIPT_FILE);
     if (fs.existsSync(receiptFile)) return { exitCode: 78, reason: 'HOLD: J8 not admitted, nothing sent: the receipt location is not fresh' };
@@ -300,6 +314,7 @@ async function runJ8Nightly({ evidenceDir, runDir, runId, runAttempt, configured
     let caseResult = holdAll('the spec did not run');
     let readback = null;
     let cleanup = null;
+    let specExited = false;
     try {
         // The file clock is the bound, so the spec's start is taken from it (floored to the second some filesystems keep).
         const specStart = Math.floor(Date.now() / 1000) * 1000;
@@ -308,6 +323,7 @@ async function runJ8Nightly({ evidenceDir, runDir, runId, runAttempt, configured
             outcome = await within(deadlines.specMs, () => deps.runSpec({ env: { RWT_J8_RUNNER_ADMISSION: admission.admissionFile, GITHUB_RUN_ID: String(runId),
                 GITHUB_RUN_ATTEMPT: String(runAttempt), LIVE_TEST_EMAIL_DOMAIN: admission.domain } }));
         } catch { outcome = null; }
+        specExited = !!outcome && outcome !== TIMED_OUT && outcome.timedOut !== true && Number.isInteger(outcome.exitCode);
         const specFault = specOutcomeFault(outcome, { admission, runId, runAttempt });
         const read = specFault ? { fault: specFault } : readBoundReceipt(receiptFile, { attemptId: admission.attemptId, expectedRelease, notBeforeMs: specStart });
         if (read.fault) caseResult = holdAll(read.fault);
@@ -320,7 +336,7 @@ async function runJ8Nightly({ evidenceDir, runDir, runId, runAttempt, configured
             caseResult = j8CaseResult(receipt, readback, evaluated === TIMED_OUT ? null : evaluated);
         }
     } finally {
-        cleanup = await teardownJ8({ evidenceDir, admission, receipt, lookup: deps.lookup, budgetMs: deadlines.cleanupMs, now });
+        cleanup = await teardownJ8({ evidenceDir, admission, receipt, deps, binding, specExited, budgetMs: deadlines.cleanupMs, now });
     }
     const blocks = ownBlocks(evidenceDir, admission.recordRunId);
     const createJournal = blocks.length === 0 ? 'resolved' : 'unresolved';
@@ -345,14 +361,15 @@ async function main(argv, env = process.env, deps = {}) {
     if (ALLOWED.some((k) => typeof a[k] !== 'string' || !a[k]) || a['--execute'] !== 'true')
         return { exitCode: 78, reason: 'BLOCKED_SETUP: --evidence-dir, --run-dir, --run-id, --run-attempt, --release-sha and --execute true are required' };
     if (!env.LIVE_TEST_EMAIL_DOMAIN) return { exitCode: 78, reason: 'BLOCKED_SETUP: LIVE_TEST_EMAIL_DOMAIN is not set in the parent' };
-    if (['runSpec', 'qualify', 'evaluate', 'lookup'].some((k) => typeof deps[k] !== 'function'))
-        return { exitCode: 78, reason: 'HOLD: no offline spec, readback, evaluation and lookup fixtures; the J8 live gate is closed (no-j8-harness-adapter)' };
+    if (!env.GITHUB_REPOSITORY || !env.GITHUB_WORKFLOW_REF) return { exitCode: 78, reason: 'BLOCKED_SETUP: the parent has no run binding (GITHUB_REPOSITORY, GITHUB_WORKFLOW_REF)' };
+    if (['runSpec', 'qualify', 'evaluate', ...RECOVERY_DEPS].some((k) => typeof deps[k] !== 'function'))
+        return { exitCode: 78, reason: 'HOLD: no offline spec, readback, evaluation and recovery fixtures; the J8 live gate is closed (no-j8-harness-adapter)' };
     return runJ8Nightly({ evidenceDir: a['--evidence-dir'], runDir: a['--run-dir'], runId: a['--run-id'], runAttempt: a['--run-attempt'],
-        configuredDomain: env.LIVE_TEST_EMAIL_DOMAIN, expectedRelease: a['--release-sha'], deps });
+        configuredDomain: env.LIVE_TEST_EMAIL_DOMAIN, expectedRelease: a['--release-sha'], runBinding: { repository: env.GITHUB_REPOSITORY, workflow: env.GITHUB_WORKFLOW_REF }, deps });
 }
 
 if (require.main === module) main(process.argv.slice(2)).then((r) => { if (r.reason) console.error(r.reason); process.exitCode = r.exitCode; });
 module.exports = {
-    DEADLINES, LOCAL_PREFIX, READBACK_STAGES, RECEIPT_FILE, SIGNUP_DEADLINE_MS, SIGNUP_LEG, admitJ8, finalizerEvaluate, holdAll, j8CaseResult, j8ReadbackVerdicts, j8Reservation,
+    DEADLINES, LOCAL_PREFIX, RECOVERY_DEPS, READBACK_STAGES, RECEIPT_FILE, SIGNUP_DEADLINE_MS, SIGNUP_LEG, admitJ8, finalizerEvaluate, holdAll, j8CaseResult, j8ReadbackVerdicts, j8Reservation,
     main, ownBlocks, readBoundReceipt, recordRunIdFor, runJ8Nightly, specOutcomeFault, teardownJ8,
 };

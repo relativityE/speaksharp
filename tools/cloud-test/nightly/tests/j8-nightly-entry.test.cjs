@@ -1,15 +1,19 @@
 "use strict";
 // J8's dedicated nightly entry (Sam, 21 Nov, option 1): the runner that owns the account lifecycle records the create attempt
 // before the signup, binds the receipt and cleanup to the same run and attempt, and maps J8's received rows only from the
-// independent readback. Offline only: the spec, readback, evaluation and lookup are fixtures; nothing here is live.
+// independent readback. Offline only: the spec, readback, evaluation and the parent recovery's account store are fixtures; nothing
+// here is live. Sam on 27ee1856, route (b): the run's create attempt is cleared by the PARENT's landed-and-cleaned recovery.
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { describe, it } = require('node:test');
 const { expect } = require('./expect-lite.cjs');
 const { J8_RECEIPT_MAP, J8_SUITE } = require('../j8-receipt-mapping.cjs');
-const { admitRun, answerCreateAttempt } = require('../cleanup-evidence.cjs');
+const { admitRun, answerCreateAttempt, recordCreateAttempt } = require('../cleanup-evidence.cjs');
+const { enumerateUsers, exactEmailLookup } = require('../account-lookup.cjs');
+const { j4aRequiredStores } = require('../residue-inventory.cjs');
 const entry = require('../j8-nightly-entry.cjs');
+const { j8ParentRecovery } = require('../j8-parent-recovery.cjs');
 
 const LEGS = ['J8.a', 'J8.b', 'J8.c'];
 const RELEASE = 'd'.repeat(40);
@@ -19,6 +23,55 @@ const NOW = 1795300000000;
 const JOURNEY_OF = { 'J8.a': 'journey-a', 'J8.b': 'journey-final-b', 'J8.c': 'journey-c' };
 /** The spec's admission check (rwtJ8Journey.ts LOOKUP_REF), so the entry's record is one the spec accepts. */
 const SPEC_LOOKUP_REF = /^rwt-journey-[a-z0-9-]{4,80}@[a-z0-9.-]+\.[a-z]{2,}$/;
+/** This run's binding (runBinding.ts): what the spec's signup writes to app_metadata.ct_run and the parent checks. */
+const RUN_BINDING = { repository: 'relativityE/speaksharp', workflow: 'relativityE/speaksharp/.github/workflows/nightly-aht.yml@refs/heads/main' };
+const ctRunFor = (runId, runAttempt) => ({ ...RUN_BINDING, runId: String(runId), runAttempt: String(runAttempt), role: 'rwt-journey' });
+const STORES = j4aRequiredStores();
+const DEADLINES_CLEANUP = entry.DEADLINES.cleanupMs;
+const emailOf = (runId) => `rwt-journey-feedback-boundary-${NOW}-${runId}@${DOMAIN}`;
+
+/**
+ * The project's accounts as the parent's admin client sees them: the spec's signup adds one, the scoped delete removes it, and every
+ * store reads zero unless `residue` names it. `listing` breaks the admin listing ('error', 'truncated', 'total') so only a complete
+ * enumeration can answer. Each call is recorded.
+ */
+function accountStore({ residue = {}, listing = 'complete', deleteOk = true } = {}) {
+    const users = new Map();
+    const calls = { lookup: [], readAccount: 0, scopedDelete: [], readResidue: [] };
+    const listUsers = async ({ page, perPage }) => {
+        if (listing === 'error') return { data: null, error: { message: 'boom' } };
+        const all = [...users.values()];
+        if (listing === 'truncated') return { data: { users: Array.from({ length: perPage }, (_, i) => all[i] ?? { id: `filler-${page}-${i}`, email: `x${page}-${i}@y.z` }) }, error: null };
+        const batch = all.slice((page - 1) * perPage, page * perPage);
+        return { data: { users: batch, ...(listing === 'total' ? { total: all.length + 1 } : {}) }, error: null };
+    };
+    return {
+        users, calls,
+        signUp(email, { runId = RUN_ID, runAttempt = '1', ctRun = ctRunFor(runId, runAttempt), createdAt = new Date(Date.now()).toISOString(), id = `uid-${users.size + 1}-${runId}` } = {}) {
+            users.set(id, { id, email, created_at: createdAt, app_metadata: ctRun === null ? {} : { ct_run: ctRun } });
+            return id;
+        },
+        deps: {
+            lookup: async (q) => { calls.lookup.push(q); return exactEmailLookup(await enumerateUsers(listUsers), q); },
+            readAccount: async (uid) => {
+                calls.readAccount += 1;
+                const u = users.get(uid);
+                return u ? { email: u.email, createdAt: u.created_at, ctRun: u.app_metadata.ct_run ?? null } : null;
+            },
+            scopedDelete: async ({ uid, email, binding }) => {
+                calls.scopedDelete.push({ email, binding });
+                if (!deleteOk) return { deleted: false };
+                users.delete(uid);
+                return { deleted: true };
+            },
+            readResidue: async ({ store, uid }) => {
+                calls.readResidue.push(store);
+                if (store in residue) return typeof residue[store] === 'function' ? residue[store]() : residue[store];
+                return store === 'auth:account' ? (users.has(uid) ? 1 : 0) : 0;
+            },
+        },
+    };
+}
 
 function dirs() {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'j8-entry-'));
@@ -57,19 +110,22 @@ function trustedAnswer(evidenceDir, admission, over = {}) {
 }
 /**
  * Fixtures that pass, each one recording how it was called. `spec(admission)` returns the receipt the spec writes; `outcome(env)`
- * the spec's terminal outcome; `answer` whether a trusted answer resolves the create attempt (null: none, the live default today).
+ * the spec's terminal outcome; `signup` whether the spec's signup lands an account (owner: its overrides); `answer` 'trusted'
+ * records a trusted create answer (none by default: a UI signup has none); `recovery` false leaves out the parent recovery.
  */
-function fixtures(runDir, { spec = (adm) => receiptFor(adm.createAttempt.attemptId), qualify = () => 0, evidence = {}, evaluate, lookup = () => ({ lookup: 'zero' }), coaching,
+function fixtures(runDir, { spec = (adm) => receiptFor(adm.createAttempt.attemptId), qualify = () => 0, evidence = {}, evaluate, lookup, coaching,
     outcome = (env) => ({ exitCode: 0, admissionFile: env.RWT_J8_RUNNER_ADMISSION, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT, timedOut: false }),
-    answer = 'trusted' } = {}) {
-    const calls = { runSpec: [], qualify: [], evaluate: 0, lookup: [], coaching: [] };
+    answer = null, signup = true, owner = {}, recovery = true, store = accountStore() } = {}) {
+    const calls = { runSpec: [], qualify: [], evaluate: 0, coaching: [], store: store.calls };
+    calls.lookup = store.calls.lookup;
     return {
-        calls,
+        calls, store,
         deps: {
             runSpec: async ({ env }) => {
                 const admission = JSON.parse(fs.readFileSync(env.RWT_J8_RUNNER_ADMISSION, 'utf8'));
                 const evidenceDir = path.dirname(env.RWT_J8_RUNNER_ADMISSION);
                 calls.runSpec.push({ env, admission, sentBefore: fs.readdirSync(evidenceDir).filter((n) => n.includes('.attempt.') && n.endsWith('.sent.json')) });
+                if (signup) store.signUp(admission.createAttempt.lookupRef, { runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT, ...owner });
                 if (answer === 'trusted') trustedAnswer(evidenceDir, admission);
                 const receipt = spec(admission);
                 if (receipt) fs.writeFileSync(path.join(runDir, 'test-results', 'rwt', entry.RECEIPT_FILE), JSON.stringify(receipt));
@@ -77,13 +133,14 @@ function fixtures(runDir, { spec = (adm) => receiptFor(adm.createAttempt.attempt
             },
             qualify: async (q) => { calls.qualify.push(q); const status = qualify(q); return { status, evidence: evidenceFor(q, status, evidence) }; },
             evaluate: async (receipt, readback) => { calls.evaluate += 1; return evaluate ? evaluate(receipt, readback) : { suite: receipt.suite, release: receipt.release, errors: [], rows: receipt.rows }; },
-            lookup: async (q) => { calls.lookup.push(q); return lookup(q); },
+            ...(recovery ? { ...store.deps, ...(lookup ? { lookup: async (q) => { store.calls.lookup.push(q); return lookup(q); } } : {}) } : {}),
             ...(coaching ? { coaching: async (q) => { calls.coaching.push(q); return coaching(q); } } : {}),
         },
     };
 }
 const run = (d, deps, over = {}) => entry.runJ8Nightly({ evidenceDir: d.evidenceDir, runDir: d.runDir, runId: RUN_ID, runAttempt: '1',
-    configuredDomain: DOMAIN, expectedRelease: RELEASE, deps, now: () => NOW, ...over });
+    configuredDomain: DOMAIN, expectedRelease: RELEASE, runBinding: RUN_BINDING, deps, now: () => NOW, ...over });
+const files = (dir, part) => fs.readdirSync(dir).filter((n) => n.includes(part));
 const resultOf = (out, leg, id) => out.caseResult.assertions.find((a) => a.leg === leg && a.id === id).result;
 
 describe('J8 nightly entry', () => {
@@ -133,11 +190,12 @@ describe('J8 nightly entry', () => {
             expect((await run(e, fixtures(e.runDir).deps, over)).exitCode).toBe(78);
         }
     });
-    it('UNRESOLVED CREATE (Sam on b1f8323f): with no trusted answer the run is HOLD, even with every row PASS and cleanup at zero', async () => {
+    it('UNRESOLVED CREATE (Sam on b1f8323f): with no answer and no parent recovery the run is HOLD, even with every row PASS', async () => {
         const d = dirs();
-        const out = await run(d, fixtures(d.runDir, { answer: null }).deps);
+        const out = await run(d, fixtures(d.runDir, { recovery: false }).deps);
         expect(out.caseResult.assertions.every((a) => a.result === 'PASS')).toBe(true);
-        expect(out.cleanup.result).toBe('complete');
+        expect(out.cleanup.result).toBe('incomplete');
+        expect(Object.values(out.cleanup.reasons).flat()).toContain('no parent recovery, so the account is left for protected recovery');
         expect(out.createJournal).toBe('unresolved');
         expect(out.exitCode).toBe(78);
         expect(out.blocks.some((b) => /account-create attempt has no terminal result/.test(b))).toBe(true);
@@ -150,16 +208,17 @@ describe('J8 nightly entry', () => {
         fs.writeFileSync(notADir, '');
         expect(entry.ownBlocks(notADir, `j8-${RUN_ID}-1`)).toEqual(['the evidence could not be read after the run']);
         expect(entry.ownBlocks(path.join(d.root, 'missing'), `j8-${RUN_ID}-1`).length).toBe(1);
-        // With a trusted, timely answer the same run exits 0 and the next run is admitted.
+        // With the parent's landed-and-cleaned recovery the same run exits 0 and the next run is admitted.
         const e = dirs();
         const ok = await run(e, fixtures(e.runDir).deps);
         expect({ exit: ok.exitCode, journal: ok.createJournal, next: admitRun(e.evidenceDir).admitted }).toEqual({ exit: 0, journal: 'resolved', next: true });
+        expect(files(e.evidenceDir, '.attempt.').map((n) => n.split('.').slice(-2, -1)[0]).sort()).toEqual(['landed', 'recovered', 'sent']);
     });
     it('UNRESOLVED CREATE: a late, unbound or after-abort answer is never recorded, and a created account with incomplete cleanup still holds', async () => {
         for (const over of [{ beforeAbort: false }, { receivedAt: new Date(NOW - 60_000).toISOString() }, { lookupRef: 'rwt-journey-other' },
             { outcome: 'created', accountRef: undefined }, { outcome: 'refused', status: 503 }]) {
             const d = dirs();
-            const f = fixtures(d.runDir, { answer: null });
+            const f = fixtures(d.runDir, { recovery: false });
             const inner = f.deps.runSpec;
             let refused = false;
             f.deps.runSpec = async (a) => {
@@ -170,9 +229,9 @@ describe('J8 nightly entry', () => {
             const out = await run(d, f.deps);
             expect({ over, refused, exit: out.exitCode, journal: out.createJournal }).toEqual({ over, refused: true, exit: 78, journal: 'unresolved' });
         }
-        // A trusted `created` answer, but the account is still there: cleanup incomplete, so the attempt still blocks.
+        // A trusted `created` answer, but the account is still there (no parent recovery): cleanup incomplete, so the attempt still blocks.
         const e = dirs();
-        const left = await run(e, fixtures(e.runDir, { lookup: () => ({ lookup: 'one' }) }).deps);
+        const left = await run(e, fixtures(e.runDir, { answer: 'trusted', recovery: false }).deps);
         expect({ exit: left.exitCode, cleanup: left.cleanup.result, journal: left.createJournal }).toEqual({ exit: 78, cleanup: 'incomplete', journal: 'unresolved' });
         expect(left.blocks.some((b) => /cleanup is not proven complete/.test(b))).toBe(true);
     });
@@ -254,26 +313,133 @@ describe('J8 nightly entry', () => {
             coaching: () => ({ verdict: 'PASS', reasons: [], release: RELEASE, expected }) }).deps);
         expect(bound.readback.coachingDiagnostic).toEqual({ verdict: 'PASS', reasons: [], release: RELEASE, expected });
     });
-    it('CLEANUP is bound to the same run and attempt: complete only with the spec\'s zero residue and the parent\'s lookup at zero', async () => {
+    it('CLEANUP is the parent\'s (route (b)): found, bound, deleted on the scoped path, every store read at zero, then cleared', async () => {
         const d = dirs();
         const f = fixtures(d.runDir);
-        await run(d, f.deps);
-        expect(f.calls.lookup).toEqual([{ email: `rwt-journey-feedback-boundary-${NOW}-${RUN_ID}@${DOMAIN}`, runOwnedPrefix: 'rwt-journey-' }]);
+        const out = await run(d, f.deps);
+        const email = emailOf(RUN_ID);
+        // Found by a complete listing, then a second complete listing after the delete; the delete is bound to the run it checked.
+        expect(f.calls.lookup).toEqual([{ email, runOwnedPrefix: 'rwt-journey-' }, { email, runOwnedPrefix: 'rwt-journey-' }]);
+        expect(f.calls.store.scopedDelete).toEqual([{ email, binding: ctRunFor(RUN_ID, '1') }]);
+        expect(f.calls.store.readResidue).toEqual(STORES.map((x) => x.id));
+        expect(f.store.users.size).toBe(0);
         const doc = JSON.parse(fs.readFileSync(path.join(d.evidenceDir, `j8-${RUN_ID}-1.cleanup.json`), 'utf8'));
         expect(doc.cleanup).toBe('complete');
-        expect(doc.journeys[0].verification).toEqual({ kind: 'zero-residue', queries: [{ kind: 'account', scope: `rwt-journey-feedback-boundary-${NOW}-${RUN_ID}`, count: 0 }] });
+        expect(doc.journeys[0].verification.queries.length).toBe(STORES.length);
+        expect(doc.journeys[0].verification.queries.every((q) => q.scope === `rwt-journey-feedback-boundary-${NOW}-${RUN_ID}` && q.count === 0)).toBe(true);
+        expect({ exit: out.exitCode, journal: out.createJournal }).toEqual({ exit: 0, journal: 'resolved' });
+        // The recorded proof is re-validated by admission: a tampered proof blocks again.
+        const recovered = path.join(d.evidenceDir, `j8-${RUN_ID}-1.attempt.j8-${RUN_ID}-1.recovered.json`);
+        const rec = JSON.parse(fs.readFileSync(recovered, 'utf8'));
+        expect(rec.proof.residue.residueChecks).toBe(23);
+        fs.writeFileSync(recovered, JSON.stringify({ ...rec, proof: { ...rec.proof, residue: { ...rec.proof.residue, residueChecks: 22 } } }));
+        expect(admitRun(d.evidenceDir).admitted).toBe(false);
         const cases = {
-            'the account is still there': { lookup: () => ({ lookup: 'one', uid: 'u' }) },
-            'the lookup could not read the listing': { lookup: () => ({ lookup: 'unreadable' }) },
-            'the lookup threw': { lookup: () => { throw new Error('x'); } },
-            'the spec recorded no zero residue': { spec: (adm) => receiptFor(adm.createAttempt.attemptId).rows && { ...receiptFor(adm.createAttempt.attemptId),
-                rows: receiptFor(adm.createAttempt.attemptId).rows.map((x) => (x.step === 'zero residue' ? { ...x, verdict: 'FAIL' } : x)) } },
+            'the spec recorded no zero residue': { spec: (adm) => ({ ...receiptFor(adm.createAttempt.attemptId),
+                rows: receiptFor(adm.createAttempt.attemptId).rows.map((x) => (x.step === 'zero residue' ? { ...x, verdict: 'FAIL' } : x)) }) },
             'the spec wrote no receipt': { spec: () => null },
         };
         for (const [name, over] of Object.entries(cases)) {
             const e = dirs();
-            const out = await run(e, fixtures(e.runDir, over).deps);
-            expect({ name, cleanup: out.cleanup.result, exit: out.exitCode === 0 }).toEqual({ name, cleanup: 'incomplete', exit: false });
+            const o = await run(e, fixtures(e.runDir, over).deps);
+            expect({ name, cleanup: o.cleanup.result, exit: o.exitCode === 0 }).toEqual({ name, cleanup: 'incomplete', exit: false });
+        }
+    });
+    it('OWN BLOCKS: cleanup complete is not enough; any other unresolved create recorded under this run keeps the exit at HOLD', async () => {
+        const d = dirs();
+        const f = fixtures(d.runDir);
+        const runSpec = f.deps.runSpec;
+        f.deps.runSpec = async (q) => {
+            const out = await runSpec(q);
+            recordCreateAttempt(d.evidenceDir, `j8-${RUN_ID}-1`, { attemptId: `j8-${RUN_ID}-1-other`, leg: 'J9.b', lookupRef: 'rwt-journey-other', transportDeadlineMs: 60_000, emailDomain: DOMAIN });
+            return out;
+        };
+        const out = await run(d, f.deps);
+        expect({ cleanup: out.cleanup.result, journal: out.createJournal, exit: out.exitCode }).toEqual({ cleanup: 'complete', journal: 'unresolved', exit: 78 });
+    });
+    it('SUCCESS THEN SUCCESS (Sam on 27ee1856): two runs in the same evidence directory each recover their own account and admit the next', async () => {
+        const d = dirs();
+        const store = accountStore();
+        const first = await run(d, fixtures(d.runDir, { store }).deps, { runId: '43000000201' });
+        expect({ exit: first.exitCode, journal: first.createJournal, cleanup: first.cleanup.result }).toEqual({ exit: 0, journal: 'resolved', cleanup: 'complete' });
+        expect(admitRun(d.evidenceDir).admitted).toBe(true);
+        // A second run, a fresh receipt location, the same evidence directory and the same project.
+        const runDir2 = path.join(d.root, 'run2');
+        fs.mkdirSync(path.join(runDir2, 'test-results', 'rwt'), { recursive: true });
+        // A rerun attempt of another run: the delete is bound to attempt 2, and attempt 2's account is the one found and deleted.
+        const second = await run({ ...d, runDir: runDir2 }, fixtures(runDir2, { store }).deps, { runId: '43000000202', runAttempt: '2', now: () => NOW + 60_000 });
+        expect({ exit: second.exitCode, journal: second.createJournal, cleanup: second.cleanup.result }).toEqual({ exit: 0, journal: 'resolved', cleanup: 'complete' });
+        expect(admitRun(d.evidenceDir)).toEqual({ admitted: true, reason: 'every earlier run cleaned up or was recovered', blocking: [] });
+        expect(store.calls.scopedDelete.map((x) => x.email)).toEqual([emailOf('43000000201'), `rwt-journey-feedback-boundary-${NOW + 60_000}-43000000202@${DOMAIN}`]);
+        expect(store.calls.scopedDelete.map((x) => x.binding)).toEqual([ctRunFor('43000000201', '1'), ctRunFor('43000000202', '2')]);
+        expect(store.users.size).toBe(0);
+        for (const id of ['43000000201-1', '43000000202-2'])
+            expect(files(d.evidenceDir, `j8-${id}.attempt.`).map((n) => n.split('.').slice(-2, -1)[0]).sort()).toEqual(['landed', 'recovered', 'sent']);
+    });
+    it('WRONG OWNER (Sam on 27ee1856): an account not bound to this run and attempt is never recorded or deleted, and the next admission stays blocked', async () => {
+        const email = emailOf(RUN_ID);
+        const cases = {
+            'bound to another run': { owner: { ctRun: ctRunFor('43000000999', '1') } },
+            'bound to another attempt of this run': { owner: { ctRun: ctRunFor(RUN_ID, '2') } },
+            'bound to another workflow': { owner: { ctRun: { ...ctRunFor(RUN_ID, '1'), workflow: 'relativityE/speaksharp/.github/workflows/rc-gates.yml@refs/heads/main' } } },
+            'a binding with an extra key': { owner: { ctRun: { ...ctRunFor(RUN_ID, '1'), extra: 'x' } } },
+            'no binding at all': { owner: { ctRun: null } },
+            'created before this attempt was recorded': { owner: { createdAt: new Date(NOW - 60_000).toISOString() } },
+            'the id re-read carries another email': { store: (() => { const st = accountStore(); const read = st.deps.readAccount;
+                st.deps.readAccount = async (uid) => ({ ...(await read(uid)), email: emailOf('1') }); return st; })() },
+            'the only match is not run-owned': { lookup: () => ({ lookup: 'not_run_owned' }) },
+            'an ambiguous listing that still names an id': { lookup: () => ({ lookup: 'ambiguous', uid: `uid-1-${RUN_ID}` }) },
+            'two accounts carry the email': { store: (() => { const st = accountStore(); st.signUp(email, { id: 'uid-twin' }); return st; })() },
+        };
+        for (const [name, over] of Object.entries(cases)) {
+            const d = dirs();
+            const f = fixtures(d.runDir, over);
+            const out = await run(d, f.deps);
+            expect({ name, exit: out.exitCode, journal: out.createJournal, deleted: f.calls.store.scopedDelete.length, left: f.store.users.size > 0,
+                landed: files(d.evidenceDir, '.landed.').length, next: admitRun(d.evidenceDir).admitted })
+                .toEqual({ name, exit: 78, journal: 'unresolved', deleted: 0, left: true, landed: 0, next: false });
+            expect(out.blocks.some((b) => /has no terminal result/.test(b))).toBe(true);
+        }
+    });
+    it('INCOMPLETE LOOKUP (Sam on 27ee1856): a listing that errors, is truncated or disagrees with its total finds nothing, deletes nothing, and blocks', async () => {
+        for (const listing of ['error', 'truncated', 'total']) {
+            const d = dirs();
+            const f = fixtures(d.runDir, { store: accountStore({ listing }) });
+            const out = await run(d, f.deps);
+            expect({ listing, exit: out.exitCode, deleted: f.calls.store.scopedDelete.length, landed: files(d.evidenceDir, '.landed.').length, next: admitRun(d.evidenceDir).admitted })
+                .toEqual({ listing, exit: 78, deleted: 0, landed: 0, next: false });
+            expect(Object.values(out.cleanup.reasons).flat().join(' ')).toContain('the reservation lookup is unreadable');
+        }
+        // No account under the reservation (the signup never landed): absence proves nothing, so the attempt stays unresolved.
+        const d = dirs();
+        const none = await run(d, fixtures(d.runDir, { signup: false }).deps);
+        expect({ exit: none.exitCode, journal: none.createJournal, next: admitRun(d.evidenceDir).admitted }).toEqual({ exit: 78, journal: 'unresolved', next: false });
+        expect(Object.values(none.cleanup.reasons).flat().join(' ')).toContain('the reservation lookup is zero');
+    });
+    it('LANDED, NOT CLEANED: a failed delete, any residue, an unobserved store or the email still listed keeps the found account blocking', async () => {
+        // The account gone but the delete unproven: the parent never counts a delete the scoped path did not prove.
+        const unproven = (answer) => { const st = accountStore(); const del = st.deps.scopedDelete;
+            st.deps.scopedDelete = async (q) => { await del(q); return answer; }; return st; };
+        const cases = {
+            'the scoped delete failed': [{ store: accountStore({ deleteOk: false }) }, 'did not prove the account deleted'],
+            'the delete removed the account but reported failure': [{ store: unproven({ deleted: false }) }, 'did not prove the account deleted'],
+            'the delete removed the account but returned nothing': [{ store: unproven(undefined) }, 'did not prove the account deleted'],
+            'a store still holds residue': [{ store: accountStore({ residue: { 'sessions:user_id': 1 } }) }, '1 store(s) still hold residue'],
+            'a store read is not a count': [{ store: accountStore({ residue: { 'trial_entitlements:email': null } }) }, '1 residue read(s) were not observed'],
+            'the save journal read threw': [{ store: accountStore({ residue: { 'account_save_obligations:user_id': () => { throw new Error('x'); } } }) }, '1 residue read(s) were not observed'],
+            'the email is still listed after the delete': [{ store: (() => { const st = accountStore(); const del = st.deps.scopedDelete;
+                st.deps.scopedDelete = async (q) => { await del(q); st.signUp(emailOf(RUN_ID), { id: 'uid-again' }); return { deleted: true }; };
+                st.deps.readResidue = async () => 0; return st; })() }, 'did not show the reserved email gone'],
+        };
+        for (const [name, [over, reason]] of Object.entries(cases)) {
+            const d = dirs();
+            const out = await run(d, fixtures(d.runDir, over).deps);
+            expect({ name, reason: Object.values(out.cleanup.reasons).flat().some((r) => r.includes(reason)) }).toEqual({ name, reason: true });
+            const doc = JSON.parse(fs.readFileSync(path.join(d.evidenceDir, `j8-${RUN_ID}-1.cleanup.json`), 'utf8'));
+            expect({ name, left: doc.journeys[0].left.map((x) => x.kind) }).toEqual({ name, left: ['account'] });
+            expect({ name, exit: out.exitCode, cleanup: out.cleanup.result, landed: files(d.evidenceDir, '.landed.').length, recovered: files(d.evidenceDir, '.recovered.').length })
+                .toEqual({ name, exit: 78, cleanup: 'incomplete', landed: 1, recovered: 0 });
+            expect(admitRun(d.evidenceDir).blocking.some((b) => /found under its reservation; scoped cleanup is permitted/.test(b))).toBe(true);
         }
     });
     it('cleanup still runs when the spec crashes, and a create record that is not this attempt\'s is never trusted', async () => {
@@ -285,11 +451,24 @@ describe('J8 nightly entry', () => {
         expect(out.caseResult.assertions.every((a) => a.result === 'HOLD')).toBe(true);
         const e = dirs();
         const adm = entry.admitJ8({ evidenceDir: e.evidenceDir, runId: RUN_ID, runAttempt: '1', configuredDomain: DOMAIN, now: () => NOW });
-        const lookups = [];
+        const st = accountStore();
         const doc = await entry.teardownJ8({ evidenceDir: e.evidenceDir, admission: { ...adm, local: `${adm.local}x` }, receipt: receiptFor(adm.attemptId),
-            lookup: async (q) => { lookups.push(q); return { lookup: 'zero' }; } });
+            deps: st.deps, binding: ctRunFor(RUN_ID, '1'), specExited: true });
         expect(doc.cleanup).toBe('incomplete');
-        expect(lookups).toEqual([]);
+        expect(doc.journeys[0].unproven).toEqual(['the run\'s create record is not this attempt\'s reservation']);
+        expect(st.calls.lookup).toEqual([]);
+        // The recovery checks the binding itself, not only through teardown: another reservation, attempt or domain looks nothing up.
+        for (const bad of [{ local: `${adm.local}x` }, { attemptId: `${adm.attemptId}x` }, { domain: 'other.example.com' }]) {
+            const rec = await j8ParentRecovery({ evidenceDir: e.evidenceDir, admission: { ...adm, ...bad }, binding: ctRunFor(RUN_ID, '1'), deps: st.deps, budgetMs: 60_000 });
+            expect({ bad, state: rec.state, reason: rec.reason }).toEqual({ bad, state: 'hold', reason: 'the run\'s create record is not this attempt\'s reservation, so nothing is looked up or deleted' });
+        }
+        expect(st.calls.lookup).toEqual([]);
+        // A spec that did not exit (killed at its deadline) may still write: nothing is looked up or deleted.
+        const k = dirs();
+        const killed = fixtures(k.runDir, { outcome: (env) => ({ exitCode: 0, timedOut: true, admissionFile: env.RWT_J8_RUNNER_ADMISSION, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT }) });
+        const kout = await run(k, killed.deps);
+        expect({ lookups: killed.calls.lookup.length, left: killed.store.users.size, cleanup: kout.cleanup.result }).toEqual({ lookups: 0, left: 1, cleanup: 'incomplete' });
+        expect(Object.values(kout.cleanup.reasons).flat()).toContain('the spec did not exit, so its pages may still write; the account is left for protected recovery');
     });
     it('BOUND RECEIPT (Sam on b1f8323f): another release, a stale receipt, or a receipt already at the location is never read', async () => {
         // A receipt for a release other than the parent's expected one: HOLD, never mapped or read back, and never trusted for cleanup.
@@ -427,55 +606,117 @@ describe('J8 nightly entry', () => {
         expect(evaluated.caseResult.assertions.every((a) => a.result === 'HOLD')).toBe(true);
         // The lookup hangs: cut off at the cleanup budget, so cleanup is incomplete and says why.
         const h = dirs();
-        const lk = fixtures(h.runDir);
-        lk.deps.lookup = never;
+        const lk = fixtures(h.runDir, { lookup: never });
         const lookup = await run(h, lk.deps, { deadlines: short });
         expect(lookup.cleanup.result).toBe('incomplete');
         expect(Object.values(lookup.cleanup.reasons).flat().join(' ')).toContain('did not finish within the cleanup budget');
         expect(lookup.exitCode).toBe(78);
-        // A lookup that answers zero only after the budget is spent never makes cleanup complete.
-        const k = dirs();
+        // Late evidence (Sam on 27ee1856): a residue zero, or the listing after the delete, that answers only after the budget is spent
+        // never counts; the found account stays landed and blocking.
+        for (const [name, step, reason] of [['delete', 'scopedDelete', 'the scoped delete did not finish within the cleanup budget; the landed account is left for protected recovery'],
+            ['residue', 'readResidue', `${STORES.length} residue read(s) were not observed within the cleanup budget`],
+            ['second listing', 'lookup', 'the listing after the delete did not finish within the cleanup budget']]) {
+            const k = dirs();
+            let clock = NOW;
+            const st = accountStore();
+            const inner = st.deps[step];
+            let n = 0;
+            st.deps[step] = async (q) => { n += 1; if (step !== 'lookup' || n === 2) clock += 11 * 60_000; return inner(q); };
+            const lateOut = await run(k, fixtures(k.runDir, { store: st }).deps, { now: () => clock });
+            expect({ name, cleanup: lateOut.cleanup.result, exit: lateOut.exitCode, recovered: files(k.evidenceDir, '.recovered.').length })
+                .toEqual({ name, cleanup: 'incomplete', exit: 78, recovered: 0 });
+            expect({ name, reasons: Object.values(lateOut.cleanup.reasons).flat().filter((r) => r.includes('budget')) }).toEqual({ name, reasons: [reason] });
+        }
+        // Every read in time, but the proof itself completes past the budget (the clock moves after the last listing): still late.
+        const q = dirs();
         let clock = NOW;
-        const late = fixtures(k.runDir, { lookup: () => { clock += 10 * 60_000; return { lookup: 'zero' }; } });
-        const lateOut = await run(k, late.deps, { now: () => clock });
-        expect(lateOut.cleanup.result).toBe('incomplete');
-        expect(Object.values(lateOut.cleanup.reasons).flat()).toContain('the parent lookup did not show the reserved account gone within the cleanup budget');
-        expect(lateOut.exitCode).toBe(78);
+        let armed = 0;
+        const st = accountStore();
+        const inner = st.deps.lookup;
+        let n = 0;
+        st.deps.lookup = async (x) => { n += 1; const r = await inner(x); if (n === 2) { clock = NOW + DEADLINES_CLEANUP; armed = 1; } return r; };
+        const lastOut = await run(q, fixtures(q.runDir, { store: st }).deps, { now: () => (armed ? clock + (armed++ > 1 ? 1 : 0) : clock) });
+        expect({ cleanup: lastOut.cleanup.result, recovered: files(q.evidenceDir, '.recovered.').length }).toEqual({ cleanup: 'incomplete', recovered: 0 });
+        expect(Object.values(lastOut.cleanup.reasons).flat()).toContain('the residue proof completed after the cleanup budget, so it is late');
+        // The recovery finishes on the budget's last millisecond, and teardown reads the clock after it: the budget is spent, so
+        // cleanup is incomplete even though the recovery itself returned in time.
+        const r = dirs();
+        let c = 0;
+        let armed2 = false;
+        const st2 = accountStore();
+        const inner2 = st2.deps.lookup;
+        let n2 = 0;
+        st2.deps.lookup = async (x) => { n2 += 1; const res = await inner2(x); if (n2 === 2) armed2 = true; return res; };
+        const edge = await run(r, fixtures(r.runDir, { store: st2 }).deps, { now: () => (armed2 ? NOW + DEADLINES_CLEANUP - 2 + c++ : NOW) });
+        expect({ cleanup: edge.cleanup.result, exit: edge.exitCode }).toEqual({ cleanup: 'incomplete', exit: 78 });
+        expect(Object.values(edge.cleanup.reasons).flat()).toContain('the parent recovery finished after the cleanup budget');
     });
     it('LIVE GATE UNCHANGED: main refuses before admission without offline fixtures, and records nothing', async () => {
         const d = dirs();
+        const LIVE_ENV = { LIVE_TEST_EMAIL_DOMAIN: DOMAIN, GITHUB_REPOSITORY: RUN_BINDING.repository, GITHUB_WORKFLOW_REF: RUN_BINDING.workflow };
         const argv = ['--evidence-dir', d.evidenceDir, '--run-dir', d.runDir, '--run-id', RUN_ID, '--run-attempt', '1', '--release-sha', RELEASE, '--execute', 'true'];
-        const out = await entry.main(argv, { LIVE_TEST_EMAIL_DOMAIN: DOMAIN }, {});
+        const out = await entry.main(argv, LIVE_ENV, {});
         expect(out.exitCode).toBe(78);
         expect(/live gate is closed/.test(out.reason)).toBe(true);
         expect(fs.readdirSync(d.evidenceDir)).toEqual([]);
-        expect((await entry.main(argv.slice(0, -2), { LIVE_TEST_EMAIL_DOMAIN: DOMAIN }, {})).exitCode).toBe(78);
+        expect((await entry.main(argv.slice(0, -2), LIVE_ENV, {})).exitCode).toBe(78);
         // The parent's expected release is required, and must be a release.
         const noRelease = argv.filter((_, i) => i !== argv.indexOf('--release-sha') && i !== argv.indexOf('--release-sha') + 1);
-        expect((await entry.main(noRelease, { LIVE_TEST_EMAIL_DOMAIN: DOMAIN }, fixtures(d.runDir).deps)).exitCode).toBe(78);
+        expect((await entry.main(noRelease, LIVE_ENV, fixtures(d.runDir).deps)).exitCode).toBe(78);
         const badRelease = argv.map((v) => (v === RELEASE ? 'not-a-sha' : v));
-        expect(/expected release/.test((await entry.main(badRelease, { LIVE_TEST_EMAIL_DOMAIN: DOMAIN }, fixtures(d.runDir).deps)).reason)).toBe(true);
+        expect(/expected release/.test((await entry.main(badRelease, LIVE_ENV, fixtures(d.runDir).deps)).reason)).toBe(true);
         expect(fs.readdirSync(d.evidenceDir)).toEqual([]);
         expect((await entry.main(argv, {}, fixtures(d.runDir).deps)).exitCode).toBe(78);
-        expect((await entry.main([...argv, '--plan', 'x'], { LIVE_TEST_EMAIL_DOMAIN: DOMAIN }, fixtures(d.runDir).deps)).exitCode).toBe(78);
+        // No run binding in the parent: refused before admission (the account could not be checked against this run).
+        for (const drop of ['GITHUB_REPOSITORY', 'GITHUB_WORKFLOW_REF']) {
+            const env = { ...LIVE_ENV }; delete env[drop];
+            expect(/no run binding/.test((await entry.main(argv, env, fixtures(d.runDir).deps)).reason)).toBe(true);
+        }
+        // Without the parent recovery's calls the gate stays closed too.
+        const noRecovery = fixtures(d.runDir, { recovery: false }).deps;
+        expect(/live gate is closed/.test((await entry.main(argv, LIVE_ENV, noRecovery)).reason)).toBe(true);
+        expect(fs.readdirSync(d.evidenceDir)).toEqual([]);
+        expect((await run(d, fixtures(d.runDir).deps, { runBinding: { repository: RUN_BINDING.repository } })).exitCode).toBe(78);
+        expect((await entry.main([...argv, '--plan', 'x'], LIVE_ENV, fixtures(d.runDir).deps)).exitCode).toBe(78);
         // With fixtures it runs the same composition.
-        expect((await entry.main(argv, { LIVE_TEST_EMAIL_DOMAIN: DOMAIN }, fixtures(d.runDir).deps)).exitCode).toBe(0);
+        expect((await entry.main(argv, LIVE_ENV, fixtures(d.runDir).deps)).exitCode).toBe(0);
     });
 });
 
 describe('J8 nightly entry with the live adapters composed over a recording process runner', () => {
     const { j8LiveAdapters } = require('../j8-live-adapters.cjs');
-    /** One runner for the spec and the readback: the spec writes `spec(admission)`; each readback answers `readbackCode(args)`. */
-    function composed(d, { spec = (adm) => receiptFor(adm.createAttempt.attemptId), readbackCode = () => 0, users = [], answer = true } = {}) {
+    /** A supabase-js-shaped admin client over `users`: listing, read by id (404 once gone), head counts and the save journal count. */
+    function fakeAdmin(users, { counts = {} } = {}) {
+        return {
+            auth: { admin: {
+                listUsers: async ({ page, perPage }) => ({ data: { users: [...users.values()].slice((page - 1) * perPage, page * perPage) }, error: null }),
+                getUserById: async (uid) => (users.has(uid) ? { data: { user: users.get(uid) }, error: null }
+                    : { data: { user: null }, error: { status: 404, code: 'user_not_found', message: 'User not found' } }),
+            } },
+            from: (table) => ({ select: () => ({ eq: async () => ({ count: counts[table] ?? 0, error: null }) }) }),
+            rpc: async () => ({ data: 0, error: null }),
+        };
+    }
+    /**
+     * One runner for the spec, the readback and the scoped delete: the spec signs the reserved account up (bound to its run) and writes
+     * `spec(admission)`; each readback answers `readbackCode(args)`; the delete script removes the account and prints its verdict.
+     */
+    function composed(d, { spec = (adm) => receiptFor(adm.createAttempt.attemptId), readbackCode = () => 0, users = new Map(), counts = {} } = {}) {
         const calls = [];
         const runner = (command, args, opts) => {
-            calls.push({ command, args });
+            calls.push({ command, args, env: opts.env });
             if (args.includes('playwright')) {
                 const admission = JSON.parse(fs.readFileSync(opts.env.RWT_J8_RUNNER_ADMISSION, 'utf8'));
+                const id = `uid-${opts.env.GITHUB_RUN_ID}`;
+                users.set(id, { id, email: admission.createAttempt.lookupRef, created_at: new Date().toISOString(),
+                    app_metadata: { ct_run: ctRunFor(opts.env.GITHUB_RUN_ID, opts.env.GITHUB_RUN_ATTEMPT) } });
                 const receipt = spec(admission);
-                if (answer) trustedAnswer(d.evidenceDir, admission);
                 if (receipt) fs.writeFileSync(path.join(d.runDir, 'test-results', 'rwt', entry.RECEIPT_FILE), JSON.stringify(receipt));
                 return { status: 0, stdout: '' };
+            }
+            if (String(args[0]).endsWith('rwt-j8-parent-delete.mts')) {
+                users.delete(opts.env.RWT_J8_DELETE_UID);
+                return { status: 0, stdout: 'RUN_OWNED_CLEANUP cleanup_verified residue=0 tables_verified=25\n' };
             }
             // The readback CLI prints its own evidence of what it checked, from the arguments and env it was given.
             const status = readbackCode(args);
@@ -484,10 +725,9 @@ describe('J8 nightly entry with the live adapters composed over a recording proc
             const ev = evidenceFor(q, status);
             return { status, stdout: ev ? `noise\nTELEMETRY_READBACK_QUALIFICATION_EVIDENCE ${JSON.stringify({ gate: 'TELEMETRY-READBACK-COMPLETENESS', ...ev })}\n` : '' };
         };
-        const deps = { ...j8LiveAdapters({ repoRoot: d.root, baseEnv: {}, run: runner, sleep: async () => {},
-            listUsers: async () => ({ data: { users }, error: null }) }),
-        evaluate: async (receipt) => ({ suite: receipt.suite, release: receipt.release, errors: [], rows: receipt.rows }) };
-        return { deps, calls };
+        const deps = { ...j8LiveAdapters({ repoRoot: d.root, baseEnv: {}, run: runner, sleep: async () => {}, admin: fakeAdmin(users, { counts }) }),
+            evaluate: async (receipt) => ({ suite: receipt.suite, release: receipt.release, errors: [], rows: receipt.rows }) };
+        return { deps, calls, users };
     }
     it('the live adapters plug into the entry unchanged: spec once, one readback per bound journey, zero residue, all PASS', async () => {
         const d = dirs();
@@ -498,17 +738,22 @@ describe('J8 nightly entry with the live adapters composed over a recording proc
         expect(c.calls.filter((x) => x.args.includes('playwright')).length).toBe(1);
         const journeys = c.calls.filter((x) => x.args.includes('telemetry:readback-qualification')).map((x) => x.args[x.args.indexOf('--journey-id') + 1]);
         expect(journeys).toEqual(LEGS.map((l) => JOURNEY_OF[l]));
+        // The scoped delete ran once, as its own process, bound to the run the parent checked; the account is gone.
+        const del = c.calls.filter((x) => String(x.args[0]).endsWith('rwt-j8-parent-delete.mts'));
+        expect(del.map((x) => ({ run: x.env.GITHUB_RUN_ID, attempt: x.env.GITHUB_RUN_ATTEMPT, repo: x.env.GITHUB_REPOSITORY, wf: x.env.GITHUB_WORKFLOW_REF, email: x.env.RWT_J8_DELETE_EMAIL })))
+            .toEqual([{ run: RUN_ID, attempt: '1', repo: RUN_BINDING.repository, wf: RUN_BINDING.workflow, email: emailOf(RUN_ID) }]);
+        expect(c.users.size).toBe(0);
+        expect(out.createJournal).toBe('resolved');
     });
-    it('an observed readback failure for J8.b\'s journey FAILs its received row; a residue account keeps cleanup incomplete', async () => {
+    it('an observed readback failure for J8.b\'s journey FAILs its received row; residue after the delete keeps cleanup incomplete', async () => {
         const d = dirs();
         const failB = composed(d, { readbackCode: (args) => (args.includes(JOURNEY_OF['J8.b']) ? 3 : 0) });
         const out = await run(d, failB.deps);
         expect(out.exitCode).toBe(1);
         expect(resultOf(out, 'J8.b', 'AHT-07:received-feedback-proof')).toBe('FAIL');
+        // A store that still counts a row after the delete: cleanup incomplete, the found account stays blocking.
         const e = dirs();
-        const email = `rwt-journey-feedback-boundary-${NOW}-${RUN_ID}@${DOMAIN}`;
-        const residue = await run(e, composed(e, { users: [{ id: 'u-left', email }] }).deps);
-        expect(residue.cleanup.result === 'complete').toBe(false);
-        expect(residue.exitCode).toBe(78);
+        const residue = await run(e, composed(e, { counts: { user_goals: 1 } }).deps);
+        expect({ cleanup: residue.cleanup.result, exit: residue.exitCode, journal: residue.createJournal }).toEqual({ cleanup: 'incomplete', exit: 78, journal: 'unresolved' });
     });
 });

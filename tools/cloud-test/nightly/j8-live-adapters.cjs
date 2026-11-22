@@ -8,7 +8,13 @@
 //               entry can check what the readback actually checked (release, journey, stages, attempts), never an exit code alone;
 //   coaching  — the same CLI in coaching-diagnostic mode, anchored by the entry to J8.b's one journey; only the CLI's own bound
 //               receipt whose verdict agrees with its exit code is returned;
-//   lookup    — the parent's complete exact-email lookup through the admin listing (`enumerateUsers` + `exactEmailLookup`), bounded.
+//   lookup    — the parent's complete exact-email lookup through the admin listing (`enumerateUsers` + `exactEmailLookup`), bounded;
+// and, for the parent's landed-and-cleaned recovery (Sam on 27ee1856, route (b); j8-parent-recovery.cjs), over the caller's admin client:
+//   readAccount  — the account re-read by id: its email, creation time and run binding (app_metadata.ct_run);
+//   scopedDelete — the established scoped path (scripts/rwt-j8-parent-delete.mts -> runOwnedCleanup.ts cleanupRunOwnedAccount) as its
+//                  own process, bound to the run the parent checked; deleted only on exit 0 with exactly one verified-cleanup line;
+//   readResidue  — the parent's own read of one required store: a head count by owner id or reserved email, the save journal through
+//                  its count function (service_role cannot read that table), the account itself by a not-found re-read.
 // Sam on b1f8323f (4): every process and the lookup is bounded. A process over its deadline is killed (SIGKILL) and is never a
 // terminal outcome; a lookup over its deadline is `unreadable`.
 // Nothing here opens the J8 live gate: `main` still refuses, and `no-j8-harness-adapter` stays NEVER_SATISFIED until Sam opens it.
@@ -31,6 +37,14 @@ const ID = /^[A-Za-z0-9._:-]{1,120}$/;
 const STAGE = /^[a-z_]{1,40}$/;
 const RECEIPT_PREFIX = 'COACHING_DIAGNOSTIC_RECEIPT ';
 const EVIDENCE_PREFIX = 'TELEMETRY_READBACK_QUALIFICATION_EVIDENCE ';
+const DELETE_SCRIPT = 'scripts/rwt-j8-parent-delete.mts';
+const DELETE_TIMEOUT_MS = 5 * 60_000;
+const DELETE_VERDICT = /^RUN_OWNED_CLEANUP cleanup_verified residue=0 tables_verified=\d+$/;
+const SAVE_JOURNAL_COUNT_FN = 'count_account_save_journal_v1';
+const BINDING_ENV = Object.freeze({ repository: 'GITHUB_REPOSITORY', workflow: 'GITHUB_WORKFLOW_REF', runId: 'GITHUB_RUN_ID', runAttempt: 'GITHUB_RUN_ATTEMPT' });
+/** runOwnedCleanup.ts isNotFoundError, the same rule: only the documented not-found answer proves the account is gone. */
+const isNotFound = (e) => !!e && e.status === 404 && /user_not_found|not[_\s-]?found|does not exist|no user/i.test(`${e.code ?? ''} ${e.message ?? ''}`);
+const countOf = (r) => (!r?.error && Number.isSafeInteger(r?.count) && r.count >= 0 ? r.count : null);
 
 /**
  * The process runner: (command, args, { env, cwd, timeout }) -> Promise<{ status, stdout, timedOut }>. A process still running at
@@ -120,7 +134,8 @@ async function bounded(promise, ms, onTimeout) {
  * `lookup` is absent and the entry cannot prove zero residue, so the run cannot be admitted by `main`.
  */
 function j8LiveAdapters({ repoRoot = path.join(__dirname, '..', '..', '..'), baseEnv = process.env, run = spawnRunner(), sleep = realSleep,
-    listUsers = null, lookupTimeoutMs = LOOKUP_TIMEOUT_MS } = {}) {
+    listUsers = null, admin = null, lookupTimeoutMs = LOOKUP_TIMEOUT_MS } = {}) {
+    if (!listUsers && admin?.auth?.admin && typeof admin.auth.admin.listUsers === 'function') listUsers = (args) => admin.auth.admin.listUsers(args);
     const readback = readbackSession({ run, sleep, repoRoot, baseEnv });
     const adapters = {
         /** -> { exitCode, admissionFile, runId, runAttempt, timedOut }: the spec's terminal outcome, naming what it ran with. */
@@ -157,10 +172,40 @@ function j8LiveAdapters({ repoRoot = path.join(__dirname, '..', '..', '..'), bas
             return exactEmailLookup(enumeration, { email, runOwnedPrefix });
         };
     }
+    if (admin && typeof admin.from === 'function' && typeof admin.rpc === 'function' && typeof admin.auth?.admin?.getUserById === 'function') {
+        adapters.readAccount = async (uid) => {
+            const r = await admin.auth.admin.getUserById(uid);
+            const user = r?.error ? null : r?.data?.user;
+            return user ? { email: user.email ?? null, createdAt: user.created_at ?? null, ctRun: user.app_metadata?.ct_run ?? null } : null;
+        };
+        adapters.readResidue = async ({ store, table, column, key, uid, email }) => {
+            if (store === 'auth:account') {
+                const r = await admin.auth.admin.getUserById(uid);
+                return isNotFound(r?.error) ? 0 : r?.data?.user ? 1 : null;
+            }
+            if (table === 'account_save_obligations') {
+                const r = await admin.rpc(SAVE_JOURNAL_COUNT_FN, { p_user_id: uid });
+                return !r?.error && Number.isSafeInteger(r?.data) && r.data >= 0 ? r.data : null;
+            }
+            if (typeof table !== 'string' || typeof column !== 'string' || !['owner', 'email'].includes(key)) return null;
+            return countOf(await admin.from(table).select(column, { count: 'exact', head: true }).eq(column, key === 'email' ? String(email).toLowerCase() : uid));
+        };
+        adapters.scopedDelete = async ({ uid, email, binding }) => {
+            if (typeof uid !== 'string' || !uid || typeof email !== 'string' || !email || !binding
+                || Object.keys(BINDING_ENV).some((k) => typeof binding[k] !== 'string' || !binding[k])) return { deleted: false };
+            const env = { ...baseEnv, RWT_J8_DELETE_UID: uid, RWT_J8_DELETE_EMAIL: email };
+            for (const [k, name] of Object.entries(BINDING_ENV)) env[name] = binding[k];
+            let r;
+            try { r = await run(path.join(repoRoot, 'node_modules', '.bin', 'tsx'), [path.join(repoRoot, DELETE_SCRIPT)], { env, cwd: repoRoot, timeout: DELETE_TIMEOUT_MS }); }
+            catch { r = null; }
+            const verdicts = String(r?.stdout ?? '').split('\n').filter((l) => l.startsWith('RUN_OWNED_CLEANUP '));
+            return { deleted: r?.timedOut !== true && r?.status === 0 && verdicts.length === 1 && DELETE_VERDICT.test(verdicts[0]) };
+        };
+    }
     return adapters;
 }
 
 module.exports = {
-    SPEC, LIVE_CONFIG, LIVE_PROJECT, INGESTION_WAIT_MS, RETRY_WAIT_MS, ATTEMPTS, READBACK_TIMEOUT_MS, SPEC_TIMEOUT_MS, LOOKUP_TIMEOUT_MS, EVIDENCE_PREFIX,
+    DELETE_SCRIPT, SPEC, LIVE_CONFIG, LIVE_PROJECT, INGESTION_WAIT_MS, RETRY_WAIT_MS, ATTEMPTS, READBACK_TIMEOUT_MS, SPEC_TIMEOUT_MS, LOOKUP_TIMEOUT_MS, EVIDENCE_PREFIX,
     boundCoachingReceipt, j8LiveAdapters, readbackEvidence, spawnRunner,
 };

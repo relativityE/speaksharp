@@ -768,9 +768,6 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
         const parity = new HarnessParityTap();
         const watch = armWatchdog({ page, tap, profile: watchProfileFor(J8_SUITE), label: J8_SUITE });
         let claimed = false;
-        let accountDeleted = false;
-        // The J8.b older-take report carries the retention proof (the richest one: a take link and a coaching diagnostic).
-        let retentionReportId: string | null = null;
         const takes: string[] = [];
         const ledger = new FeedbackAttemptLedger();
         const gate = new J8WriteGate();
@@ -847,13 +844,12 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             }
             const fence = feedbackFence;
             if (fence) await steps.step('feedback fence close', async (alive) => { await fence.close(aliveReceipt(receipt, alive)); });
-            if ((owner.uid || owner.email) && !accountDeleted) {
-                const cleanup = new OwnedCleanup(() => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
-                const report = owner.uid ? retentionReportId : null;
-                accountDeleted = (await finalizeOwnedCleanup(steps, receipt, cleanup, report
-                    ? (alive) => feedbackRetentionAfterDeletionRow(aliveReceipt(receipt, alive), admin as never, report, () => cleanup.run())
-                    : undefined)) === 'deleted';
-            }
+            // Sam on 27ee1856, route (b): the nightly runner (the parent) owns this account's deletion. Once this spec has exited it finds
+            // the account under the reservation, checks it is bound to this run and attempt, deletes it on the scoped path and reads every
+            // required store at zero, which is what clears the run's create attempt (j8-parent-recovery.cjs). The spec never deletes it,
+            // so retention after deletion is not observed in this run (not a J8 plan row). The fence still closes and cleans here: the
+            // fence deletes its recorded reports whether or not their owner exists.
+            receipt.row('feedback retention', 'HOLD', 'the nightly runner deletes the account after this spec exits, so retention after deletion is not observed in this run');
             if (fence) {
                 const written = await steps.step('feedback fence cleanup', async (alive) => { await fence.cleanRow(aliveReceipt(receipt, alive), ZERO_RESIDUE_ROW); return true; },
                     FINALIZE_CLEANUP_MS);
@@ -934,7 +930,6 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
                 });
                 ledger.endWindow();
                 observedLedger = feedbackLedgerVerdict(ledger.attempts);
-                retentionReportId = storedB.id;
                 storedProof['J8.b'] = { storedRows: storedB.storedRows, insertKeys: storedB.insertKeys };
                 writeOlderTakeReportRows(b, storedB, olderId);
                 await generations.settle();

@@ -43,6 +43,8 @@ describe('J8 live adapters', () => {
         const h = harness([{ status: 1, stdout: '' }, { status: 1, stdout: '' }, { status: 0, stdout: '' }, { status: 3, stdout: '' }]);
         expect((await h.adapters.qualify(qualifyArgs())).status).toBe(0);
         expect((await h.adapters.qualify(qualifyArgs({ journeyId: 'journey-a' }))).status).toBe(3);
+        // A journey that is not a first download asks for no acquisition receipt (J8's legs never download the model).
+        expect(h.calls.every((c) => c.env.TELEMETRY_READBACK_ACQUISITION_RECEIPT === '0')).toBe(true);
         expect(h.calls.length).toBe(4);
         expect(h.waits).toEqual([live.INGESTION_WAIT_MS, live.RETRY_WAIT_MS, live.RETRY_WAIT_MS]);
     });
@@ -112,6 +114,7 @@ describe('J8 live adapters', () => {
         expect(await h.adapters.runSpec({ env })).toEqual({ exitCode: 0, timedOut: false, admissionFile: '/evidence/j8-admission.json', runId: '1', runAttempt: '2' });
         const c = h.calls[0];
         expect(c.args).toEqual(['exec', 'playwright', 'test', live.SPEC, `--config=${live.LIVE_CONFIG}`, `--project=${live.LIVE_PROJECT}`, '--reporter=line']);
+        expect(live.SPEC).toBe('tests/live/rwt-feedback-association-boundaries.live.spec.ts');
         expect(c.env.RWT_J8_RUNNER_ADMISSION).toBe('/evidence/j8-admission.json');
         expect(c.env.GITHUB_RUN_ATTEMPT).toBe('2');
         expect(c.env.VITE_USE_LIVE_DB).toBe('true');
@@ -158,5 +161,68 @@ describe('J8 live adapters', () => {
         expect({ status: r.status, timedOut: r.timedOut }).toEqual({ status: null, timedOut: true });
         const ok = await run(process.execPath, ['-e', 'console.log("hi"); process.exit(3)'], { env: process.env, cwd: __dirname, timeout: 10_000 });
         expect({ status: ok.status, timedOut: ok.timedOut, out: ok.stdout.trim() }).toEqual({ status: 3, timedOut: false, out: 'hi' });
+    });
+    describe('the parent recovery\'s calls (Sam on 27ee1856, route (b))', () => {
+        const BINDING = { repository: 'o/r', workflow: 'o/r/.github/workflows/n.yml@refs/heads/main', runId: '7', runAttempt: '1', role: 'rwt-journey' };
+        const VERDICT = 'RUN_OWNED_CLEANUP cleanup_verified residue=0 tables_verified=25';
+        function admin({ user = { email: 'rwt-journey-a@t.example.com', created_at: '2026-11-22T00:00:00Z', app_metadata: { ct_run: BINDING } }, getError = null, count = 0, countError = null, journal = 0 } = {}) {
+            const asked = [];
+            return {
+                asked,
+                auth: { admin: { listUsers: async () => ({ data: { users: [] }, error: null }),
+                    getUserById: async () => (getError ? { data: { user: null }, error: getError } : { data: { user }, error: null }) } },
+                from: (table) => ({ select: (column, opts) => ({ eq: async (c, v) => { asked.push({ table, column, opts, c, v }); return { count, error: countError }; } }) }),
+                rpc: async (fn, a) => { asked.push({ fn, a }); return { data: journal, error: null }; },
+            };
+        }
+        it('are built only over an admin client; the account is read with its email, creation time and run binding', async () => {
+            expect(['readAccount', 'readResidue', 'scopedDelete'].map((k) => typeof harness([]).adapters[k])).toEqual(['undefined', 'undefined', 'undefined']);
+            const { adapters } = harness([], { admin: admin() });
+            expect(await adapters.readAccount('u1')).toEqual({ email: 'rwt-journey-a@t.example.com', createdAt: '2026-11-22T00:00:00Z', ctRun: BINDING });
+            expect(await harness([], { admin: admin({ getError: { status: 500, message: 'x' } }) }).adapters.readAccount('u1')).toBe(null);
+            expect(typeof harness([], { admin: admin() }).adapters.lookup).toBe('function');
+        });
+        it('reads each store as an observed count: the account by a not-found re-read, the save journal by its count function, the rest by head count', async () => {
+            const gone = harness([], { admin: admin({ getError: { status: 404, code: 'user_not_found', message: 'User not found' } }) }).adapters;
+            expect(await gone.readResidue({ store: 'auth:account', uid: 'u1' })).toBe(0);
+            expect(await harness([], { admin: admin() }).adapters.readResidue({ store: 'auth:account', uid: 'u1' })).toBe(1);
+            expect(await harness([], { admin: admin({ getError: { status: 500, message: 'down' } }) }).adapters.readResidue({ store: 'auth:account', uid: 'u1' })).toBe(null);
+            const a = admin({ count: 0, journal: 0 });
+            const r = harness([], { admin: a }).adapters;
+            expect(await r.readResidue({ store: 'sessions:user_id', table: 'sessions', column: 'user_id', key: 'owner', uid: 'u1', email: 'X@Y.Z' })).toBe(0);
+            expect(await r.readResidue({ store: 'trial_entitlements:email', table: 'trial_entitlements', column: 'email', key: 'email', uid: 'u1', email: 'X@Y.Z' })).toBe(0);
+            expect(await r.readResidue({ store: 'account_save_obligations:user_id', table: 'account_save_obligations', column: 'user_id', key: 'owner', uid: 'u1' })).toBe(0);
+            expect(a.asked).toEqual([{ table: 'sessions', column: 'user_id', opts: { count: 'exact', head: true }, c: 'user_id', v: 'u1' },
+                { table: 'trial_entitlements', column: 'email', opts: { count: 'exact', head: true }, c: 'email', v: 'x@y.z' },
+                { fn: 'count_account_save_journal_v1', a: { p_user_id: 'u1' } }]);
+            for (const bad of [admin({ countError: { message: 'x' } }), admin({ count: null }), admin({ count: -1 })])
+                expect(await harness([], { admin: bad }).adapters.readResidue({ store: 's:c', table: 's', column: 'c', key: 'owner', uid: 'u1' })).toBe(null);
+            expect(await harness([], { admin: admin({ journal: 'x' }) }).adapters.readResidue({ store: 'j', table: 'account_save_obligations', uid: 'u1' })).toBe(null);
+            expect(await r.readResidue({ store: 's:c', table: 's', column: 'c', key: 'neither', uid: 'u1' })).toBe(null);
+        });
+        it('the scoped delete runs the delete script bound to the checked run, and counts only on exit 0 with exactly one verified line', async () => {
+            const ok = harness([{ status: 0, stdout: `noise\n${VERDICT}\n` }], { admin: admin() });
+            expect(await ok.adapters.scopedDelete({ uid: 'u1', email: 'rwt-journey-a@t.example.com', binding: BINDING })).toEqual({ deleted: true });
+            expect(ok.calls.length).toBe(1);
+            expect({ cmd: ok.calls[0].command, script: ok.calls[0].args, timeout: ok.calls[0].timeout }).toEqual({ cmd: '/repo/node_modules/.bin/tsx', script: ['/repo/scripts/rwt-j8-parent-delete.mts'], timeout: 5 * 60_000 });
+            const env = ok.calls[0].env;
+            expect([env.RWT_J8_DELETE_UID, env.RWT_J8_DELETE_EMAIL, env.GITHUB_REPOSITORY, env.GITHUB_WORKFLOW_REF, env.GITHUB_RUN_ID, env.GITHUB_RUN_ATTEMPT, env.INHERITED])
+                .toEqual(['u1', 'rwt-journey-a@t.example.com', BINDING.repository, BINDING.workflow, '7', '1', 'x']);
+            const refused = {
+                'exit 1': { status: 1, stdout: `${VERDICT}\n` }, 'no verdict line': { status: 0, stdout: 'done\n' },
+                'two verdict lines': { status: 0, stdout: `${VERDICT}\n${VERDICT}\n` }, 'not-required verdict': { status: 0, stdout: 'RUN_OWNED_CLEANUP cleanup_not_required residue=0 tables_verified=0\n' },
+                'killed at its deadline': { status: null, stdout: `${VERDICT}\n`, timedOut: true },
+            };
+            for (const [name, answer] of Object.entries(refused)) {
+                const h = harness([answer], { admin: admin() });
+                expect({ name, r: await h.adapters.scopedDelete({ uid: 'u1', email: 'rwt-journey-a@t.example.com', binding: BINDING }) }).toEqual({ name, r: { deleted: false } });
+            }
+            // Missing identity or a partial binding never starts the process.
+            for (const q of [{ email: 'e', binding: BINDING }, { uid: 'u1', binding: BINDING }, { uid: 'u1', email: 'e' }, { uid: 'u1', email: 'e', binding: { ...BINDING, runAttempt: '' } }]) {
+                const h = harness([], { admin: admin() });
+                expect(await h.adapters.scopedDelete(q)).toEqual({ deleted: false });
+                expect(h.calls.length).toBe(0);
+            }
+        });
     });
 });
