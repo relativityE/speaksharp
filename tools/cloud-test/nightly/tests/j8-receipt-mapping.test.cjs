@@ -10,6 +10,7 @@ const { rowsForLeg } = require('../journey-plan.cjs');
 
 const LEGS = ['J8.a', 'J8.b', 'J8.c'];
 const RELEASE = 'b'.repeat(40);
+const ATTEMPT = 'j8-43000000123-1';
 const JOURNEY_OF = { 'J8.a': 'journey-a', 'J8.b': 'journey-final-b', 'J8.c': 'journey-c' };
 /** Every receipt step the mapping reads, each PASS, plus account and journey rows the mapping does not consume. Each leg is bound
  * to its own journey (`J8 leg readback bindings`), and the receipt declares those three journeys for the readback. */
@@ -19,12 +20,18 @@ function passingReceipt(extra = []) {
         for (const s of sources) if (s.scope !== 'readback') steps.add(s.scope === 'leg' ? `${leg}: ${s.step}` : s.step);
     const rows = [...steps].map((step) => (step === 'J8 leg readback bindings'
         ? { step, verdict: 'PASS', detail: '', evidence: { ...JOURNEY_OF } } : { step, verdict: 'PASS', detail: '' }));
-    return { suite: J8_SUITE, release: RELEASE, rows: [...rows, ...extra],
+    return { suite: J8_SUITE, release: RELEASE, meta: { runnerAttempt: ATTEMPT }, rows: [...rows, ...extra],
         readback: { journeys: LEGS.map((l) => ({ journeyId: JOURNEY_OF[l], stages: ['share_feedback'] })), reportedJourneyIds: [], missingBindings: [] } };
 }
-/** The independent readback for a receipt: every bound journey QUALIFIED unless `verdicts` says otherwise. */
+/**
+ * The independent readback for a receipt: every bound journey QUALIFIED unless `verdicts` says otherwise, each verdict carrying the
+ * readback CLI's own evidence of that journey on that release, the whole bound to this run and create attempt and to J8.b's
+ * final-submit journey.
+ */
 const readbackFor = (r, verdicts = {}) => ({ suite: J8_SUITE, release: r.release, missingBindings: [],
-    journeys: r.readback.journeys.map((j) => ({ journeyId: j.journeyId, stages: [...j.stages], verdict: verdicts[j.journeyId] ?? 'QUALIFIED' })) });
+    binding: { runId: '43000000123', runAttempt: '1', createAttempt: ATTEMPT }, finalSubmit: { journeyId: JOURNEY_OF['J8.b'] },
+    journeys: r.readback.journeys.map((j) => ({ journeyId: j.journeyId, stages: [...j.stages], verdict: verdicts[j.journeyId] ?? 'QUALIFIED',
+        received: { release_sha: r.release, journey_id: j.journeyId, boot_id: 'boot-1' } })) });
 /** The mapping with a passing independent readback unless one is given. */
 const map = (r, rb = readbackFor(r)) => mapJ8Receipt(r, rb);
 const without = (r, step) => ({ ...r, rows: r.rows.filter((x) => x.step !== step) });
@@ -109,6 +116,39 @@ describe('J8 receipt mapping', () => {
         expect(rowOf(map(elsewhere, readbackFor(r)), 'J8.b', id).result).toBe('HOLD');
         // The sources name why.
         expect(rowOf(mapJ8Receipt(r), 'J8.b', id).sources).toContain('J8.b: received feedback (independent readback): no independent readback');
+    });
+    it('UNBOUND READBACK (Sam on b1f8323f): no run/create-attempt binding, a verdict without the CLI\'s own evidence, or J8.b off its final submit is HOLD', () => {
+        const r = passingReceipt();
+        const id = 'AHT-07:received-feedback-proof';
+        const rb = readbackFor(r);
+        const evidenceOf = (journeyId, received) => ({ ...rb, journeys: rb.journeys.map((j) => (j.journeyId === journeyId ? { ...j, received } : j)) });
+        const cases = {
+            'no binding': { ...rb, binding: undefined },
+            'another create attempt': { ...rb, binding: { ...rb.binding, createAttempt: 'j8-43000000123-2' } },
+            'no run id': { ...rb, binding: { ...rb.binding, runId: '' } },
+            'a bare exit code': evidenceOf('journey-final-b', undefined),
+            'evidence for another journey': evidenceOf('journey-final-b', { release_sha: RELEASE, journey_id: 'journey-a', boot_id: 'b' }),
+            'evidence for another release': evidenceOf('journey-final-b', { release_sha: 'c'.repeat(40), journey_id: 'journey-final-b', boot_id: 'b' }),
+            'no final submit': { ...rb, finalSubmit: null },
+            'another final submit': { ...rb, finalSubmit: { journeyId: 'journey-fault-1' } },
+        };
+        for (const [name, b] of Object.entries(cases)) expect({ name, r: rowOf(map(r, b), 'J8.b', id).result }).toEqual({ name, r: 'HOLD' });
+        // A receipt with no runner attempt can never match a readback binding.
+        expect(rowOf(map({ ...r, meta: {} }, rb), 'J8.b', id).result).toBe('HOLD');
+        // Another leg's received row only needs its own evidence: J8.a stays PASS while J8.b's evidence is missing.
+        expect(rowOf(map(r, evidenceOf('journey-final-b', undefined)), 'J8.a', 'AHT-08:received-feedback-proof').result).toBe('PASS');
+        // A FAIL also needs the CLI's own evidence: an unevidenced FAIL is HOLD, never a FAIL row.
+        const failNoEvidence = { ...rb, journeys: rb.journeys.map((j) => (j.journeyId === 'journey-a' ? { ...j, verdict: 'FAIL', received: null } : j)) };
+        expect(rowOf(map(r, failNoEvidence), 'J8.a', 'AHT-08:received-feedback-proof').result).toBe('HOLD');
+    });
+    it('DUPLICATE JOURNEY (Sam on b1f8323f): one journey bound to two legs holds every leg\'s received row', () => {
+        const r = passingReceipt();
+        const dup = { ...r, rows: r.rows.map((x) => (x.step === 'J8 leg readback bindings' ? { ...x, evidence: { ...JOURNEY_OF, 'J8.c': 'journey-a' } } : x)),
+            readback: { ...r.readback, journeys: r.readback.journeys.filter((j) => j.journeyId !== 'journey-c') } };
+        const out = map(dup, readbackFor(dup));
+        for (const [leg, id] of [['J8.a', 'AHT-08:received-feedback-proof'], ['J8.b', 'AHT-07:received-feedback-proof']])
+            expect({ leg, r: rowOf(out, leg, id).result }).toEqual({ leg, r: 'HOLD' });
+        expect(rowOf(map(r), 'J8.a', 'AHT-08:received-feedback-proof').result).toBe('PASS');
     });
     it('lands every row on its own leg through the case-result splitter, with nothing unplaced', () => {
         const split = splitCaseResult('J8', map(passingReceipt()));

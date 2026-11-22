@@ -133,14 +133,22 @@ function readbackOutcomes(receipt, readback) {
         return hold('the readback is malformed');
     if (readback.suite !== J8_SUITE || typeof receipt.release !== 'string' || readback.release !== receipt.release)
         return hold('the readback is not for this receipt\'s suite and release');
+    // Sam on b1f8323f (3): the readback carries its own run, attempt and create-attempt binding, and it must be this receipt's.
+    const b = readback.binding;
+    if (!b || typeof b !== 'object' || typeof receipt.meta?.runnerAttempt !== 'string' || b.createAttempt !== receipt.meta.runnerAttempt
+        || typeof b.runId !== 'string' || !b.runId || typeof b.runAttempt !== 'string' || !b.runAttempt)
+        return hold('the readback is not bound to this receipt\'s run and create attempt');
     const bound = Array.isArray(receipt.readback?.journeys) ? receipt.readback.journeys : null;
     if (!bound) return hold('the receipt binds no readback journeys');
     const key = (j) => `${String(j?.journeyId)}=${(readbackStages(j) ?? ['?']).join(',')}`;
     if (!sameSet(bound.map(key), readback.journeys.map(key))) return hold('the readback does not cover exactly the receipt\'s bound journeys');
     const bindings = receipt.rows.find((r) => r && r.step === BINDINGS_ROW);
+    const legIds = Object.fromEntries(LEGS.map((leg) => [leg, String(bindings?.evidence?.[leg] ?? '').split(',').filter(Boolean)]));
+    const all = LEGS.flatMap((leg) => legIds[leg]);
+    if (new Set(all).size !== all.length) return hold('one journey is bound to more than one leg');
     const out = {};
     for (const leg of LEGS) {
-        const ids = String(bindings?.evidence?.[leg] ?? '').split(',').filter(Boolean);
+        const ids = legIds[leg];
         if (!bindings || bindings.verdict !== 'PASS' || ids.length !== 1) { out[leg] = { outcome: 'HOLD', why: 'the leg has no single bound journey' }; continue; }
         const mine = readback.journeys.filter((j) => j && j.journeyId === ids[0]);
         const declared = bound.filter((j) => j && j.journeyId === ids[0]);
@@ -149,7 +157,18 @@ function readbackOutcomes(receipt, readback) {
             out[leg] = { outcome: 'HOLD', why: 'the leg\'s journey is not bound once to its feedback stage' };
             continue;
         }
+        // A received verdict must carry what the readback CLI itself checked: this journey on this release.
         const v = mine[0].verdict;
+        const got = mine[0].received;
+        if ((v === 'QUALIFIED' || v === 'FAIL') && (!got || got.journey_id !== ids[0] || got.release_sha !== receipt.release)) {
+            out[leg] = { outcome: 'HOLD', why: 'the readback verdict carries no evidence of this journey on this release' };
+            continue;
+        }
+        // J8.b is received only for the final submit's own journey (its window starts at the final submit's click).
+        if (leg === 'J8.b' && v === 'QUALIFIED' && readback.finalSubmit?.journeyId !== ids[0]) {
+            out[leg] = { outcome: 'HOLD', why: 'the readback is not bound to the final submit\'s journey' };
+            continue;
+        }
         out[leg] = v === 'QUALIFIED' ? { outcome: 'PASS', why: 'received' } : v === 'FAIL' ? { outcome: 'FAIL', why: 'readback observed a received failure' }
             : { outcome: 'HOLD', why: 'the readback did not qualify the leg\'s journey' };
     }
