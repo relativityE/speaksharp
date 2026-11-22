@@ -123,7 +123,7 @@ export const HELPER_CONTRACTS = Object.freeze([{
   callables:['externalParentProofGaps','receiptAcceptance','requiredAutomatedRows','validateReceipt','finalizeReceipt'],
 }, {
   helperFile:'tests/live/helpers/rwtCoachingConsistency.ts',testFile:'tests/unit/rwtCoachingConsistency1258.test.ts',
-  callables:['characterCeilingVerdict','fillerAdviceVerdict','takesDifferVerdict','openPointReferenceVerdict','readTwoTakesCoaching'],
+  callables:['characterCeilingVerdict','fillerAdviceVerdict','takesDifferVerdict','openPointReferenceVerdict','readTwoTakesCoaching','omissionClaimVerdict'],
 }, {
   helperFile:'tests/live/helpers/rwtCoachingEvidence.ts',testFile:'tests/unit/rwtCoachingEvidence.test.ts',
   callables:['canonicalSuggestionSha256','coachingSessionBindingSha256','recomputeCoachingPromptSha256','buildRwtCoachingEvidenceArtifact','writeRwtCoachingEvidenceArtifact'],
