@@ -4,9 +4,11 @@
  * as the signed-in owner) and its reopened saved review — on its own route, rendering its own session — shows exactly that
  * pair. The row makes NO order claim (review RETURN on 4305f2b7); the after-B causal case is proved separately.
  */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
-    LATE_COACHING_ROW, accessTokenFromAuthStorage, answerOrder, classifyTarget, latestAnsweredAt, lateCoachingSavedRow, nonblankParity,
+    LATE_COACHING_ROW, accessTokenFromAuthStorage, answerOrder, classifyTarget, deferredLateCoachingSink, latestAnsweredAt, lateCoachingSavedRow, nonblankParity,
     ownerNewerCompletedCounter, ownerSessionReader, sha256Hex, tokenSubject,
     type AnswerOrder, type LateCoachingDeps, type ReopenedReview, type TargetRow,
 } from '../live/helpers/rwtLateCoaching';
@@ -307,5 +309,111 @@ describe('ownerSessionReader — the account\'s OWN read, never admin (RETURN: o
         expect(accessTokenFromAuthStorage([{ key: 'sb-x-auth-token', value: JSON.stringify({ currentSession: { access_token: jwt(UID) } }) }])).toBe(jwt(UID));
         expect(tokenSubject(jwt(UID))).toBe(UID);
         expect(tokenSubject('garbage')).toBeNull();
+    });
+});
+
+/**
+ * Sam (22 Nov, run 45014809858 `target-expired`): the next take now saves and retention then expires A's text, so the ordinary
+ * reopen runs INSIDE the next take's recording window (`closesAt` = its Stop deadline) and never delays that Stop.
+ */
+describe('in-window mode: inside the next take\'s recording window, never delaying its Stop', () => {
+    const CLOSES = 6_500;
+    const inWindow = async (d: LateCoachingDeps) => {
+        const s = sink();
+        await lateCoachingSavedRow(s, A, d, { waitMs: 75_000, pollMs: 250, closesAt: CLOSES });
+        expect(s.rows).toHaveLength(1);
+        return s.rows[0];
+    };
+    it('PASS when the pair is saved and the reopen finishes inside the window; the reopen gets the time left as its budget', async () => {
+        const d = deps({ savedAfter: 1_000, newer: () => 0 });
+        const budgets: Array<number | undefined> = [];
+        const open = d.openSavedReview;
+        d.openSavedReview = async (b) => { budgets.push(b); return open(b); };
+        const r = await inWindow(d);
+        expect(r.verdict).toBe('PASS');
+        expect(budgets).toHaveLength(1);
+        expect(budgets[0]).toBeGreaterThan(0);
+        expect(budgets[0]).toBeLessThanOrEqual(CLOSES - 1_000);
+        // The reported-only probe is taken only after the reopen, so it cannot spend the window.
+        expect(d.probes()).toBe(1);
+        expect(r.evidence).toEqual({ reason: 'saved-and-shown', newerCompletedAfterReopen: 0, answerOrder: 'unknown' });
+    });
+    it('no pair by the window\'s close is HOLD not-saved-in-window: no final read, never FAIL, never past the close', async () => {
+        const d = deps({ savedAfter: 60_000 });
+        const r = await inWindow(d);
+        expect(r).toMatchObject({ verdict: 'HOLD', evidence: { reason: 'not-saved-in-window' } });
+        expect(d.now!()).toBeLessThanOrEqual(CLOSES);
+        expect(d.reads()).toBe(Math.ceil(CLOSES / 250));   // polls only; the ordinary mode would add a final read
+    });
+    it('a reopen that cannot finish inside the window is HOLD reopen-outside-window, released at the close', async () => {
+        const d = deps({ savedAfter: 0 });
+        d.openSavedReview = () => never<ReopenedReview>();
+        const r = await inWindow(d);
+        expect(r).toMatchObject({ verdict: 'HOLD', evidence: { reason: 'reopen-outside-window' } });
+        expect(d.now!()).toBe(CLOSES);
+    });
+    it('a pair first seen exactly at the close opens nothing: no time is left for the reopen', async () => {
+        let t = 0, opened = 0;
+        const d: LateCoachingDeps = {
+            ...deps(), now: () => t, sleep: async (ms) => { t += ms; }, timer: fakeTimer(() => t, (v) => { t = v; }),
+            // The one in-window read lands exactly at the close (in time, boundary inclusive) and sees the pair.
+            readSaved: async () => { t = CLOSES; return { ok: true, row: rowOf() }; },
+            openSavedReview: async () => { opened += 1; return reopened(); },
+        };
+        const s = sink();
+        await lateCoachingSavedRow(s, A, d, { waitMs: 75_000, pollMs: 250, closesAt: CLOSES });
+        expect(s.rows[0]).toMatchObject({ verdict: 'HOLD', evidence: { reason: 'reopen-outside-window' } });
+        expect(opened).toBe(0);
+    });
+    it('the ordinary verdicts are unchanged in the window: wrong session FAIL, expired HOLD, unreadable HOLD', async () => {
+        expect(await inWindow(deps({ review: reopened({ renderedSessionId: 'session-B' }) }))).toMatchObject({ verdict: 'FAIL', evidence: { reason: 'wrong-session-rendered' } });
+        expect(await inWindow(deps({ rows: [{ transcript_state: 'expired', transcript: null, ai_suggestions: null }] }))).toMatchObject({ verdict: 'HOLD', evidence: { reason: 'target-expired' } });
+        expect(await inWindow(deps({ readFails: true }))).toMatchObject({ verdict: 'HOLD', evidence: { reason: 'owner-read-failed' } });
+        // The post-reopen binding read still decides: expired by the time of the re-read is HOLD window-changed.
+        expect(await inWindow(deps({ rows: [{}, { transcript_state: 'expired', transcript: null, ai_suggestions: null }] }))).toMatchObject({ verdict: 'HOLD', evidence: { reason: 'window-changed' } });
+    });
+});
+
+describe('deferredLateCoachingSink: the row waits for the recorded order', () => {
+    it('redaction passes through at once; the row is written only at flush, with the recorded order', () => {
+        const s = sink();
+        const d = deferredLateCoachingSink(s);
+        d.sink.forbid('secret pair');
+        d.sink.row(LATE_COACHING_ROW, 'PASS', 'ok', { reason: 'saved-and-shown', answerOrder: 'unknown' });
+        expect(s.forbidden).toEqual(['secret pair']);
+        expect(s.rows).toHaveLength(0);
+        d.flush('answer-after-successor-recording');
+        d.flush('unknown');
+        expect(s.rows).toEqual([{ step: LATE_COACHING_ROW, verdict: 'PASS', detail: 'ok', evidence: { reason: 'saved-and-shown', answerOrder: 'answer-after-successor-recording' } }]);
+    });
+    it('a window that never ran flushes one HOLD window-not-observed; a second row or another step is refused', () => {
+        const s = sink();
+        const d = deferredLateCoachingSink(s);
+        d.flush('unknown');
+        expect(s.rows).toEqual([expect.objectContaining({ step: LATE_COACHING_ROW, verdict: 'HOLD', evidence: { reason: 'window-not-observed', answerOrder: 'unknown' } })]);
+        const e = deferredLateCoachingSink(sink());
+        expect(() => e.sink.row('another row', 'PASS', 'x')).toThrow();
+        e.sink.row(LATE_COACHING_ROW, 'HOLD', 'x');
+        expect(() => e.sink.row(LATE_COACHING_ROW, 'PASS', 'y')).toThrow();
+    });
+});
+
+describe('wiring: J1 checks the save take inside the repeat\'s hold and writes the row after the next take', () => {
+    const src = (f: string) => readFileSync(resolve(__dirname, '../..', f), 'utf8');
+    it('practiceAgainEvidence starts the side check after recording, never awaits it before Stop, and awaits it on every path', () => {
+        const j = src('tests/live/helpers/rwtJourney.ts');
+        const start = j.indexOf('const side = opts.holdRepeatPastSaveMinimum && opts.duringRepeatHold && ev.repeatRecordingAt');
+        const hold = j.indexOf('await holdThenStop(page, ev.repeatRecordingAt)');
+        const fin = j.indexOf('} finally {\n        await side;\n    }');
+        expect([j.indexOf('ev.repeatRecordingAt = Date.now();') < start, start < hold, hold < fin]).toEqual([true, true, true]);
+        expect(j.slice(start, hold)).not.toMatch(/await side/);
+        expect(j).toContain('closesAt: ev.repeatRecordingAt! + SAVE_MINIMUM_MS + SAVE_HOLD_BUFFER_MS');
+    });
+    it('the spec runs the row in the window and flushes it with the recorded order; no second late-coaching call', () => {
+        const spec = src('tests/live/rwt-open-mic-first-session.live.spec.ts');
+        expect(spec.match(/lateCoachingSavedRow\(/g)).toHaveLength(1);
+        expect(spec).toContain('lateCoachingDeps(savedSessionId ?? \'\'), { closesAt }) });');
+        expect(spec).toContain('lateCoaching.flush(answerOrder(latestAnsweredAt(aExchanges), repeatRecordingAt));');
+        expect(spec.indexOf('duringRepeatHold:')).toBeLessThan(spec.indexOf('lateCoaching.flush('));
     });
 });

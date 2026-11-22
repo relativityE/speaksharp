@@ -45,6 +45,7 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './helpers/benchmark-utils';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
+import { trialGrantRow } from './helpers/rwtTrialGrant';
 import { HarnessParityTap, numericComparisonRow, probeSaveIsolationRow, readRepeatEligibility, type NumericResult, type RepeatEligibility, type TakeSaveExpectation } from './helpers/rwtHarnessParity';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -120,7 +121,7 @@ import { corpusRows, crossCheckCounts, fillerAnnotationsOf, hesitationTotals } f
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { feedbackDiagnosticChainRow } from './helpers/coachingFeedbackAdapter';
 import { capturedTakesDifferVerdict, coachingPromptBindingRow, coachingRequestBudgetRow, createCoachingTakeCapture, readSavedReviewPair } from './helpers/rwtCoachingCollector';
-import { answerOrder, latestAnsweredAt, lateCoachingSavedRow, ownerNewerCompletedCounter, ownerSessionReader } from './helpers/rwtLateCoaching';
+import { answerOrder, deferredLateCoachingSink, latestAnsweredAt, lateCoachingSavedRow, ownerNewerCompletedCounter, ownerSessionReader } from './helpers/rwtLateCoaching';
 import { coachingContract } from './helpers/rwtCoachingEvidence';
 import { openProductsItem } from './helpers/productsMenu';
 import { OPEN_MIC_FIRST_SESSION_CONSENT_MODE, captureConsentGate, settleFixedConsentOnPractice, type CaptureConsentGate, type ChoiceClient } from './helpers/rwtPracticeConsent';
@@ -333,6 +334,45 @@ test.describe('RWT — Open Mic first session @live', () => {
         // The Practice-again pass's saved take: the coaching evidence's repeat take.
         let repeatSessionId: string | null = null;
         let repeatRecordingAt: number | null = null;
+        // J1.b: the interrupted (save) take's coaching row, taken inside the repeat's recording window and written later.
+        const lateCoaching = deferredLateCoachingSink(receipt);
+        const lateCoachingDeps = (id: string) => ({
+            // Product evidence is read AS THE SIGNED-IN ACCOUNT (its own session token + the public anon key), never admin.
+            readSaved: ownerSessionReader(page, {
+                url: SUPABASE_URL, anonKey: process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY ?? '',
+                expectedUid: capturedUid ?? '', sessionId: id,
+            }),
+            // Reported only (never a verdict): newer completed sessions of this owner ranked above A.
+            newerCompleted: ownerNewerCompletedCounter(page, {
+                url: SUPABASE_URL, anonKey: process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY ?? '',
+                expectedUid: capturedUid ?? '',
+            }),
+            expectedUid: capturedUid ?? '',
+            openSavedReview: async (budgetMs?: number) => {
+                const reviewPage = await page.context().newPage();
+                // In-window mode: at the budget the page is closed, so no wait outlives the window.
+                const cut = budgetMs === undefined ? undefined : setTimeout(() => { void reviewPage.close().catch(() => undefined); }, budgetMs);
+                const reopenRequests = new CoachingGenerationTap();
+                reopenRequests.attach(reviewPage);
+                try {
+                    const pair = await readSavedReviewPair(reviewPage, id, 'gemini_coaching_v1');
+                    const renderedSessionId = await reviewPage.getByTestId('saved-review').getAttribute('data-session-id', { timeout: 5_000 }).catch(() => null);
+                    const transcript = reviewPage.getByTestId('session-detail-transcript');
+                    const rendered = await transcript.waitFor({ state: 'visible', timeout: 15_000 }).then(() => true).catch(() => false);
+                    return {
+                        pathname: new URL(reviewPage.url()).pathname,
+                        renderedSessionId: renderedSessionId || null,
+                        transcriptDigest: rendered ? sha256Hex(await transcript.innerText()) : null,
+                        pair,
+                        coachingRequests: reopenRequests.sentCount,
+                    };
+                } finally {
+                    if (cut !== undefined) clearTimeout(cut);
+                    await reviewPage.close().catch(() => undefined);
+                }
+            },
+            same: samePhrase,
+        });
         /** The Practice-again save-take duration actually used (undefined until that step runs). */
         let saveTakeMs: number | undefined;
         let coachingCapture: ReturnType<typeof createCoachingTakeCapture> | null = null;
@@ -511,12 +551,15 @@ test.describe('RWT — Open Mic first session @live', () => {
                 receipt.forbid(createdEmail);
                 // With a J1.d admission, the email is the lookup reference the named runner recorded for J1.a's create.
                 if (j1dAdmission.admitted) { createdEmail = j1dAdmission.lookupRef; receipt.forbid(createdEmail); }
+                const signupStartedAt = Date.now();
                 const account = await signUpDisposableAccount(page, createdEmail);
                 capturedUid = account.uid;
                 signInOnShownForm = account.signInOnShownForm;
                 const identity = await runOwnedIdentityFailures(admin as never, capturedUid, createdEmail);
                 if (identity.length > 0) throw new Error(`FAIL first-visit identity: ${identity.join('; ')}`);
                 receipt.row('signup', 'PASS', 'fresh account created through the real form; UID, email and profile verified', { signupMs: account.signupMs });
+                // J1.a (Sam on run 45014809858): the receipt establishes the 30-day trial itself, not only that Start was allowed.
+                await trialGrantRow(receipt, admin as never, capturedUid, signupStartedAt);
                 claimed = await markRunOwnedAccountCanary(admin as never, capturedUid, createdEmail);
                 receipt.meta.canaryClaim = claimed;
                 const { signinMs } = await account.signOutAndSignIn();
@@ -1038,7 +1081,11 @@ test.describe('RWT — Open Mic first session @live', () => {
                 // clicks nothing and stops the journey with its HOLD.
                 const again = await practiceAgainEvidence(page, `${SUITE}-again`, persistedId, 'open_mic', [], () => { saveTakeEnd = tap.events.length; },
                     // Option B (Sam, 21 Nov): take 3 is a SAVE take, so it records past the product's 5 s minimum before its Stop.
-                    { saveTakeMs, beforeCapture: () => captureGate().confirm(), holdRepeatPastSaveMinimum: true });
+                    { saveTakeMs, beforeCapture: () => captureGate().confirm(), holdRepeatPastSaveMinimum: true,
+                        // J1.b (Sam, 22 Nov): the save take's ordinary owner-bound reopen, inside the repeat's recording window.
+                        duringRepeatHold: ({ savedSessionId, closesAt }) => lateCoachingSavedRow(lateCoaching.sink,
+                            savedSessionId && savedSessionId !== persistedId && capturedUid ? savedSessionId : null,
+                            lateCoachingDeps(savedSessionId ?? ''), { closesAt }) });
                 // The window closes at the SAVE take's Stop, so the review's repeat Start can never stand in for it.
                 repeatWindow = [repeatFrom, saveTakeEnd >= 0 ? saveTakeEnd : tap.events.length];
                 practiceAgainRows(receipt, 'open_mic', again);
@@ -1070,52 +1117,16 @@ test.describe('RWT — Open Mic first session @live', () => {
             });
 
             // ── PO Option 1, item 2 (2026-11-10): the interrupted take's late coaching is never lost ─────────────────────
-            // The repeat take is interrupted by the next take, which has now recorded. Its coaching must be saved to its own
-            // session and shown by its own saved review (Analytics detail, separate page; the journey page is untouched).
+            // The save take is interrupted by the review's repeat. Its coaching must be saved to its own session and shown by its
+            // own saved review (Analytics detail, separate page; the journey page is untouched). Sam (22 Nov, run 45014809858
+            // `target-expired`): the repeat now SAVES and newest-one retention then expires the save take's text, so the row was
+            // taken INSIDE the repeat's recording window (see the Practice-again step) and is written here, with the order recorded.
             await test.step('interrupted take coaching saved and shown in its saved review', async () => {
                 const id = repeatSessionId && capturedUid ? repeatSessionId : null;
                 // Read through the bounded settle (#1474 contract): an in-flight answer is waited for, never missed.
                 const aExchanges = id ? await generations.settledForSession(id) : [];
-                await lateCoachingSavedRow(receipt, id, {
-                    // Product evidence is read AS THE SIGNED-IN ACCOUNT (its own session token + the public anon key), never admin.
-                    readSaved: ownerSessionReader(page, {
-                        url: SUPABASE_URL, anonKey: process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY ?? '',
-                        expectedUid: capturedUid ?? '', sessionId: id ?? '',
-                    }),
-                    // Reported only (never a verdict): newer completed sessions of this owner ranked above A.
-                    newerCompleted: ownerNewerCompletedCounter(page, {
-                        url: SUPABASE_URL, anonKey: process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY ?? '',
-                        expectedUid: capturedUid ?? '',
-                    }),
-                    expectedUid: capturedUid ?? '',
-                    openSavedReview: async () => {
-                        const reviewPage = await page.context().newPage();
-                        const reopenRequests = new CoachingGenerationTap();
-                        reopenRequests.attach(reviewPage);
-                        try {
-                            const pair = await readSavedReviewPair(reviewPage, id!, 'gemini_coaching_v1');
-                            const renderedSessionId = await reviewPage.getByTestId('saved-review').getAttribute('data-session-id', { timeout: 5_000 }).catch(() => null);
-                            const transcript = reviewPage.getByTestId('session-detail-transcript');
-                            const rendered = await transcript.waitFor({ state: 'visible', timeout: 15_000 }).then(() => true).catch(() => false);
-                            return {
-                                pathname: new URL(reviewPage.url()).pathname,
-                                renderedSessionId: renderedSessionId || null,
-                                transcriptDigest: rendered ? sha256Hex(await transcript.innerText()) : null,
-                                pair,
-                                coachingRequests: reopenRequests.sentCount,
-                            };
-                        } finally {
-                            await reviewPage.close().catch(() => undefined);
-                        }
-                    },
-                    same: samePhrase,
-                }, {
-                    // Recorded, not judged: browser-observed A answer time vs B observed RECORDING (PO 2026-11-11).
-                    order: answerOrder(
-                        latestAnsweredAt(aExchanges),
-                        repeatRecordingAt,
-                    ),
-                });
+                // Recorded, not judged: browser-observed A answer time vs B observed RECORDING (PO 2026-11-11).
+                lateCoaching.flush(answerOrder(latestAnsweredAt(aExchanges), repeatRecordingAt));
             });
 
             // ── Real coaching provenance: the restricted synthetic artifact (PM 6114451615 / 6114547673) ──────────────

@@ -28,11 +28,11 @@
     },
     {
       "path": "frontend/src/services/progress/recordProgress.ts",
-      "sourceSha": "d1003559242570023e0d9a8c335d05fe67c3d788",
-      "expectedGitBlob": "491acfca8352aabba4c912f6f1867b85f9380e49",
-      "gitBlobSha1": "491acfca8352aabba4c912f6f1867b85f9380e49",
-      "sha256": "cc07c705a298dd9c10e982ebef6083dba8017409443c2b7ddb7c85f75c351b65",
-      "sourceEvidence": "Authorized exact-ref GitHub connector read; ProgressPanel/loadSessionProgress hashes checked against current-source-delta; other paths unchanged in exact70e-to-d100 compare and match preserved main70e tree."
+      "sourceSha": "c921a3506da0008feb523f7059e775bf774944f8",
+      "expectedGitBlob": "52eec0141fa42e046a88f05d46af1bc3e5d21afd",
+      "gitBlobSha1": "52eec0141fa42e046a88f05d46af1bc3e5d21afd",
+      "sha256": "cc91f064a348e9e8205c1afb81fee3f04caa29628b7886d6482cec3b9233e1b5",
+      "sourceEvidence": "Revalidated at main c921a350 after #1827 (registered repeat, durable evaluation): snapshot is the exact blob 52eec014; the registered-repeat unit tests (recordProgress.unlockOnDurableEvaluation1258, #1827 D2 rev 4, 9/9) prove a later unrelated take never binds or replaces the registered repeat."
     },
     {
       "path": "backend/supabase/migrations/20260731120000_session_progress_evaluations.sql",

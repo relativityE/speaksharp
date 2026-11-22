@@ -35,7 +35,7 @@
     "expectedCodeManifestSha256": "d2926261e3c6253168c694b306f4d0bbe8a7fc2ea2295a3c39a25f3635b3319c",
     "note": "r15 candidate hash, pending Product Owner approval. Vendor the packet (README section 3); the execute job recomputes CODE.sha256 and refuses to run on any difference. Changing this value is a versioned config change.",
     "planBuilder": "tools/cloud-test/harness-adapter/build_plan.py",
-    "expectedPacketManifestSha256": "09b602a3d94731ae9358aa4e58501dfe24326d99ba58b514a1ccf43bd6ee263f"
+    "expectedPacketManifestSha256": "16f29c32f1969682246dd98bccf88a5476e1050d73dcd8f7edb2db0df4255072"
   },
   "credentials": {
     "note": "Names only. The GitHub control plane (preflight and report) uses NO credentials and its workflow references none. The credentials below exist only in the run environment (the Claude task environment where the harness admission accepts the runtime attestation), and each stage receives only what it needs. Values are never written to this package.",
