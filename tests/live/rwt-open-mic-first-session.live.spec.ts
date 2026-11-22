@@ -122,6 +122,7 @@ import { feedbackDiagnosticChainRow } from './helpers/coachingFeedbackAdapter';
 import { capturedTakesDifferVerdict, coachingPromptBindingRow, coachingRequestBudgetRow, createCoachingTakeCapture, readSavedReviewPair } from './helpers/rwtCoachingCollector';
 import { answerOrder, latestAnsweredAt, lateCoachingSavedRow, ownerNewerCompletedCounter, ownerSessionReader } from './helpers/rwtLateCoaching';
 import { coachingContract } from './helpers/rwtCoachingEvidence';
+import { observeActive } from './helpers/rwtNumericActive';
 import { openProductsItem } from './helpers/productsMenu';
 import { OPEN_MIC_FIRST_SESSION_CONSENT_MODE, captureConsentGate, settleFixedConsentOnPractice, type CaptureConsentGate, type ChoiceClient } from './helpers/rwtPracticeConsent';
 import {
@@ -1223,8 +1224,10 @@ test.describe('RWT — Open Mic first session @live', () => {
             });
 
             // ── same-target-numeric (catalog AHT-01): the harness's own numeric check, run on this journey's saved takes ──────────
-            // Reuses tools/cloud-test/harness/draft-adapters/progress-numeric.cjs (no copy). It is pinned to the served release it was
-            // revalidated against; any other served release makes it NOT RUN (HOLD here), never a pass. No navigation of its own: it reads
+            // G03 ACTIVE check (PO Option A, 2026-11-22): tests/live/helpers/rwtNumericActive.ts, parity-pinned to the sealed harness
+            // check. The served release's four consumer files must equal one complete sealed set (git bytes, no trusted SHA), both
+            // saved sessions must be this owner's open_mic sessions, and the attempt must be the single one bound to this repeat;
+            // otherwise NOT RUN (HOLD here), never a pass. No navigation of its own: it reads
             // the panel the repeat-result step opened (that step navigates only once its server bindings hold); otherwise NOT RUN.
             await test.step('saved and displayed comparison numbers match', async () => {
                 let result: NumericResult | null = null;
@@ -1242,11 +1245,13 @@ test.describe('RWT — Open Mic first session @live', () => {
                     }
                     if (persistedId && repeatSessionId && capturedUid && admin) {
                         const served = await page.evaluate(() => (window as unknown as { __APP_RELEASE__?: string }).__APP_RELEASE__ ?? null).catch(() => null);
-                        const numeric = createRequire(import.meta.url)(fileURLToPath(new URL('../../tools/cloud-test/harness/draft-adapters/progress-numeric.cjs', import.meta.url))) as {
-                            observe: (a: Record<string, unknown>) => Promise<NumericResult>;
-                        };
-                        result = await numeric.observe({
+                        // The attempt bound to THIS repeat: exactly one, owner-scoped; none or two leaves it unbound (HOLD).
+                        const bound = await admin.from('progress_recommendation_attempts').select('id')
+                            .eq('practice_session_id', repeatSessionId).eq('user_id', capturedUid).limit(2);
+                        const boundAttemptId = !bound.error && bound.data?.length === 1 ? (bound.data[0] as { id: string }).id : null;
+                        result = await observeActive({
                             page, db: admin, sourceSessionId: persistedId, repeatSessionId,
+                            expectedAttemptId: boundAttemptId, product: 'open_mic',
                             caseConfig: { sourceSha: expectedReleaseSha(), servedSha: served, account: { id: capturedUid } },
                         });
                     }
