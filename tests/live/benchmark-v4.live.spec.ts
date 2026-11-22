@@ -58,7 +58,10 @@ test.afterEach(async ({ page }, testInfo) => {
     await attachPrivateBenchmarkEvidence(page, testInfo, 'private-v4');
 });
 
-test('measure Transformers.js v4 worker', async ({ page }, testInfo) => {
+// NOT RUN: the retired model overrides cannot identify the actual benchmark arm. Declare the
+// skip before Playwright allocates a browser/page or reaches auth; a page init-script error cannot
+// stop the Node runner from continuing. No benchmark credit until reviewed config-plane rebinding.
+test.skip('measure Transformers.js v4 worker', async ({ page }, testInfo) => {
     test.setTimeout(180_000);
 
     const testEmail = process.env.PRO_TEST_EMAIL ?? process.env.E2E_PRO_EMAIL;
