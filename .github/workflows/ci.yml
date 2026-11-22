@@ -366,7 +366,10 @@ jobs:
 
   unit-shard:
     name: unit-shard-${{ matrix.shard }}
-    needs: [scope, deps-prep]
+    # #8: no deps-prep. The canvas-sharp apt packages are build headers for canvas's node-gyp fallback only; canvas 3
+    # installs its prebuilt binary (bundled cairo/pango, libc-only links), as the build and quality jobs already show
+    # by installing the same lockfile with no apt step. Waiting on the bundle cost every PR run ~35 s plus the install.
+    needs: [scope]
     if: (always() && (needs.scope.outputs.full_required == 'true' || needs.scope.outputs.docs_lane == 'true')) && needs.scope.outputs.base_only_proof == ''
     # Pinned with rc-gates (#1839): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build and
     # apt-prefetch gets no install-deps list (main CI 43413866919). Remove with the Playwright upgrade (#1840).
@@ -393,10 +396,8 @@ jobs:
       - name: Setup Environment
         uses: ./.github/actions/setup-environment
         with:
-          install-native-deps: 'true'
+          install-native-deps: 'false'
           install-playwright: 'false'
-          apt-bundle: 'true'
-          apt-bundle-manifest: 'canvas-sharp'
 
       - name: Run Unit Shard Execution
         env:
