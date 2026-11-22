@@ -28,10 +28,10 @@
     {
       "snapshot": "recordProgress.ts",
       "path": "frontend/src/services/progress/recordProgress.ts",
-      "actualSourceSha": "c921a3506da0008feb523f7059e775bf774944f8",
+      "actualSourceSha": "5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2",
       "sameExactBytes": true,
-      "snapshotSha256": "cc91f064a348e9e8205c1afb81fee3f04caa29628b7886d6482cec3b9233e1b5",
-      "actualSha256": "cc91f064a348e9e8205c1afb81fee3f04caa29628b7886d6482cec3b9233e1b5"
+      "snapshotSha256": "cc07c705a298dd9c10e982ebef6083dba8017409443c2b7ddb7c85f75c351b65",
+      "actualSha256": "cc07c705a298dd9c10e982ebef6083dba8017409443c2b7ddb7c85f75c351b65"
     }
   ]
 }
