@@ -17,7 +17,8 @@ import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, re
 import { fillHostedEmail } from './hostedEmail';
 import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { SESSION_FACT_COLUMNS, sessionFactsFromRows, type SessionRowFacts } from '../../live/helpers/rwtNavigationRows';
-import { assertTakeReadable, assertHistoryWalled, assertHistoryRestored, assertSingleCharge, portalShowsPlan } from './restoreAccess';
+import { assertTakeReadable, assertMemberIsRunAccount, assertHistoryWalled, assertHistoryRestored, assertSingleCharge, firstInvoiceCharge,
+  portalShowsPlan } from './restoreAccess';
 import { selectBenchmarkMode, preparePrivateModelIfPrompted, startBenchmarkRecording,
   expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput } from '../../live/helpers/benchmark-utils';
 
@@ -64,6 +65,8 @@ class SandboxJourney {
   uid = ''; customer = ''; subscription = ''; clock = ''; session = ''; savedSession = '';
   /** restore_access (J9.b): the take saved during the trial, and the member's own history as read then (content-free facts). */
   trialTake = ''; trialHistory: SessionRowFacts[] | null = null;
+  /** The first invoice hosted Checkout created, verified at `first_invoice`; J9.b binds its one charge to this id. */
+  firstInvoice = '';
   /** The Checkout session openCheckout positively bound to this run (assertCheckoutIdentity); null until then. */
   boundCheckout: string | null = null;
   /** Whether the bound Customer's email IS this run's fixture email: compared only, never kept or reported; null when unread. */
@@ -183,7 +186,12 @@ class SandboxJourney {
    * wall on Progress instead of the take (#1863: "No payment, no service or access to their past data").
    */
   async historyWalled(): Promise<void> {
-    assertHistoryWalled(await this.history(this.member), await this.history(this.admin), this.trialTake);
+    // A signed-out read is also empty, so the empty read counts only while the member is still this run's own account.
+    const runAccount = async () => assertMemberIsRunAccount(await this.member.auth.getUser(), { uid: this.uid, email: this.email });
+    await runAccount();
+    const member = await this.history(this.member);
+    await runAccount();
+    assertHistoryWalled(member, await this.history(this.admin), this.trialTake);
     await this.page.goto(`${this.targets.app}/progress`);
     await expect(this.page.getByTestId('trial-payment-wall')).toBeVisible({ timeout: 30_000 })
       .catch(() => { throw new Error('BILLING_JOURNEY:progress_not_walled'); });
@@ -199,8 +207,19 @@ class SandboxJourney {
     await manage.click();
     await this.page.waitForURL(url => url.origin === 'https://billing.stripe.com', { timeout: 60_000 })
       .catch(() => { throw new Error('BILLING_JOURNEY:portal_not_opened'); });
-    // The page text stays in memory: only whether it names the plan leaves.
-    await this.poll(async () => portalShowsPlan(await this.page.locator('body').innerText().catch(() => null)), Boolean, 'portal_plan_not_shown');
+    // For each element showing $10.00, its own text and its ancestors' (innermost first), in memory only: only whether one
+    // element holds the price with its cadence inside the current-plan block leaves.
+    await this.poll(async () => portalShowsPlan(await this.planAncestries().catch(() => null)), Boolean, 'portal_plan_not_shown');
+  }
+
+  async planAncestries(): Promise<string[][]> {
+    const prices = this.page.getByText(/\$\s?10\.00/);
+    const out: string[][] = [];
+    for (let i = 0; i < Math.min(await prices.count(), 10); i++) {
+      out.push(await prices.nth(i).locator('xpath=ancestor-or-self::*')
+        .evaluateAll(els => els.map(e => (e as HTMLElement).innerText ?? '').reverse()));
+    }
+    return out;
   }
 
   async account(label: RegExp): Promise<void> {
@@ -628,7 +647,8 @@ class SandboxJourney {
       && sub.trial_start == null && sub.trial_end == null, 'second_trial_or_wrong_subscription');
     requireFact(sub.items?.data?.length === 1 && sub.items.data[0].price.id === env.BILLING_SANDBOX_PRICE_ID, 'subscription_price_identity');
     assertTestPrice(sub.items.data[0].price);
-    assertInvoice(await this.stripe(`invoices/${id(sub.latest_invoice)}`), this.customer, this.subscription, 'subscription_create');
+    this.firstInvoice = id(sub.latest_invoice);
+    assertInvoice(await this.stripe(`invoices/${this.firstInvoice}`), this.customer, this.subscription, 'subscription_create');
     this.steps.add('first_invoice');
     this.stage = 'stripe_delivery';
     await this.delivery('checkout.session.completed', this.session);
@@ -766,11 +786,12 @@ class SandboxJourney {
     } else if (this.journey === 'restore_access') {
       requireFact(new URL(this.page.url()).origin === this.targets.app, 'return_missing');
       this.steps.add('returned_to_app');
-      // Exactly one successful $10.00 test-mode charge, and it is the first invoice's own.
-      const sub = await this.stripe(`subscriptions/${this.subscription}`);
-      const invoice = await this.stripe(`invoices/${id(sub.latest_invoice)}`);
+      // Exactly one successful $10.00 test-mode charge, and it is the charge of the first invoice already verified at
+      // first_invoice, read by that id (never the subscription's latest invoice, which a later invoice would replace).
+      const invoice = await this.stripe(`invoices/${encodeURIComponent(this.firstInvoice)}`);
       assertSingleCharge(await this.stripe(`charges?${new URLSearchParams({ customer: this.customer, limit: '10' })}`),
-        { customer: this.customer, invoiceCharge: id(invoice.charge) });
+        { customer: this.customer, invoiceCharge: firstInvoiceCharge(invoice, { firstInvoice: this.firstInvoice, customer: this.customer,
+          subscription: this.subscription }) });
       this.steps.add('single_charge');
       await this.account(/Pro · Active/); this.steps.add('paid_ui');
       // The same take, unchanged, back in the member's own read and on Progress (read before the next take adds a row).

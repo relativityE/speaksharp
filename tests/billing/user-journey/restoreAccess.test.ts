@@ -5,7 +5,8 @@
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { assertTakeReadable, assertHistoryWalled, assertHistoryRestored, assertSingleCharge, portalShowsPlan } from './restoreAccess';
+import { assertTakeReadable, assertMemberIsRunAccount, assertHistoryWalled, assertHistoryRestored, assertSingleCharge, firstInvoiceCharge,
+  portalShowsPlan, PLAN_LINE_MAX, PLAN_BLOCK_MAX } from './restoreAccess';
 import { REQUIRED_STEPS, FULL_MODE_JOURNEYS, fixtureCustomerFields, receipt, safeFailureReason, selectRunnerJourneys } from './contract';
 import { PHASES, STRIPE_WRITE_ALLOWLIST, workflowDispatch, readRepoFile } from './runnerPlan.mjs';
 import { sessionFactsFromRows, type SessionRowFacts } from '../../live/helpers/rwtNavigationRows';
@@ -75,6 +76,24 @@ describe('walled after the trial ends', () => {
   });
 });
 
+describe('the empty read counts as the wall only while the member is still this run\'s account', () => {
+  const f = { uid: '11111111-1111-4111-8111-111111111111', email: 'rwt-journey-billing-x@example.com' };
+  const who = (user: unknown, error: unknown = null) => ({ data: { user: user as never }, error });
+  it('passes only on this run\'s user id and email', () => {
+    expect(reason(() => assertMemberIsRunAccount(who({ id: f.uid, email: f.email }), f))).toBe('no_failure');
+    expect(reason(() => assertMemberIsRunAccount(who({ id: f.uid, email: f.email.toUpperCase() }), f))).toBe('no_failure');
+  });
+  it('refuses a lost sign-in, another account, a failed read or an unbound run', () => {
+    for (const [name, input] of [['signed out', who(null)], ['no data', { data: null, error: null }], ['nothing', null],
+      ['auth error', who({ id: f.uid, email: f.email }, { message: 'JWT expired' })], ['another user', who({ id: 'other', email: f.email })],
+      ['another email', who({ id: f.uid, email: 'someone@example.com' })], ['no email', who({ id: f.uid })]] as const) {
+      expect({ name, code: reason(() => assertMemberIsRunAccount(input as never, f)) }).toEqual({ name, code: 'walled_member_not_run_account' });
+    }
+    expect(reason(() => assertMemberIsRunAccount(who({ id: '', email: f.email }), { ...f, uid: '' }))).toBe('walled_member_unbound');
+    expect(reason(() => assertMemberIsRunAccount(who({ id: f.uid, email: '' }), { ...f, email: '' }))).toBe('walled_member_unbound');
+  });
+});
+
 describe('restored after one test-mode payment', () => {
   const before = facts(row(TAKE));
   it('passes only on the same rows with the same content-free facts', () => {
@@ -121,15 +140,70 @@ describe('exactly one successful test-mode charge', () => {
   });
 });
 
+describe('the one charge belongs to the first invoice already verified', () => {
+  const invoice = { id: 'in_first', object: 'invoice', livemode: false, status: 'paid', amount_paid: 1000, currency: 'usd',
+    billing_reason: 'subscription_create', customer: 'cus_1', subscription: 'sub_1', charge: 'ch_1' };
+  const f = { firstInvoice: 'in_first', customer: 'cus_1', subscription: 'sub_1' };
+  it('returns that invoice\'s own charge, as a string or an expanded object', () => {
+    expect(firstInvoiceCharge(invoice, f)).toBe('ch_1');
+    expect(firstInvoiceCharge({ ...invoice, charge: { id: 'ch_1' } }, f)).toBe('ch_1');
+  });
+  it('refuses a later or different invoice, even a paid $10 one for this subscription', () => {
+    expect(reason(() => firstInvoiceCharge({ ...invoice, id: 'in_later' }, f))).toBe('invoice_not_first_invoice');
+    expect(reason(() => firstInvoiceCharge({ ...invoice, billing_reason: 'subscription_cycle' }, f))).toBe('invoice_not_first_invoice');
+    expect(reason(() => firstInvoiceCharge({ ...invoice, subscription: 'sub_2' }, f))).toBe('invoice_not_first_invoice');
+    expect(reason(() => firstInvoiceCharge({ ...invoice, customer: 'cus_2' }, f))).toBe('invoice_not_first_invoice');
+    expect(reason(() => firstInvoiceCharge({ ...invoice, object: 'subscription' }, f))).toBe('invoice_not_first_invoice');
+    expect(reason(() => firstInvoiceCharge(null, f))).toBe('invoice_not_first_invoice');
+    expect(reason(() => firstInvoiceCharge(invoice, { ...f, firstInvoice: '' }))).toBe('first_invoice_unbound');
+  });
+  it('refuses a live, unpaid or wrong-amount first invoice, or one without a charge', () => {
+    for (const bad of [{ livemode: true }, { status: 'open' }, { amount_paid: 0 }, { amount_paid: 2000 }, { currency: 'eur' }]) {
+      expect({ bad, code: reason(() => firstInvoiceCharge({ ...invoice, ...bad }, f)) }).toEqual({ bad, code: 'first_invoice_not_paid_test' });
+    }
+    for (const charge of [null, '', 'pi_1', { id: 'py_1' }]) {
+      expect({ charge, code: reason(() => firstInvoiceCharge({ ...invoice, charge }, f)) }).toEqual({ charge, code: 'invoice_charge_missing' });
+    }
+  });
+});
+
 describe('Manage billing shows the plan', () => {
-  it('needs the $10.00 price and a monthly interval on the page', () => {
-    expect(portalShowsPlan('SpeakSharp Pro\nUS$10.00 per month\nRenews December 21')).toBe(true);
-    expect(portalShowsPlan('$10.00 / month')).toBe(true);
-    expect(portalShowsPlan('SpeakSharp Pro $10.00 per year')).toBe(false);
-    expect(portalShowsPlan('$100.00 per month')).toBe(false);
-    expect(portalShowsPlan('$1.00 per month')).toBe(false);
-    expect(portalShowsPlan('Current plan')).toBe(false);
-    expect(portalShowsPlan(null)).toBe(false);
+  // For each element showing $10.00: its own text, then each ancestor's, innermost first (as the spec reads them).
+  const page = 'Account\nSpeakSharp\nCurrent plan\nSpeakSharp Pro\nUS$10.00 per month\nYour plan renews on December 21, 2026.\nCancel plan';
+  const plan = 'Current plan\nSpeakSharp Pro\nUS$10.00 per month\nYour plan renews on December 21, 2026.\nCancel plan';
+  it('passes when one element holds the price with its cadence, inside the current-plan block', () => {
+    expect(portalShowsPlan([['US$10.00 per month', plan, page]])).toBe(true);
+    expect(portalShowsPlan([['US$10.00', 'US$10.00 per month', plan, page]])).toBe(true);
+    expect(portalShowsPlan([['$10.00 / month', 'Current plan\nPro\n$10.00 / month']])).toBe(true);
+    // Another $10.00 elsewhere that fails does not hide the one that passes.
+    expect(portalShowsPlan([['$10.00', 'Invoice history\n$10.00 Paid\n$10.00 Paid', page], ['US$10.00 per month', plan, page]])).toBe(true);
+  });
+  it('refuses a price and a cadence that only the page as a whole joins', () => {
+    // The price sits in one card and "per month" in an unrelated one: the first element holding both is the long page.
+    const split = `Current plan\nSpeakSharp Pro\n${'Your plan details. '.repeat(12)}\nPayment method\nVisa 4242\nBilling\nInvoices are sent per month`;
+    expect(portalShowsPlan([['US$10.00', 'SpeakSharp Pro\nUS$10.00', `Current plan\nSpeakSharp Pro\nUS$10.00\n${split}`]])).toBe(false);
+    // Short page, but the element adding the cadence also names another amount.
+    expect(portalShowsPlan([['$10.00', 'Current plan $10.00 · Add-on $5.00 per month']])).toBe(false);
+    // The cadence element is fine but the block naming the current plan also lists another price.
+    expect(portalShowsPlan([['$10.00 per month', 'Current plan\n$10.00 per month\nUpgrade to Team $25.00 per month']])).toBe(false);
+  });
+  it('refuses a line or block over its length limit', () => {
+    expect(portalShowsPlan([[`$10.00 per month ${'x'.repeat(PLAN_LINE_MAX)}`, plan]])).toBe(false);
+    expect(portalShowsPlan([['$10.00 per month', `Current plan\n$10.00 per month\n${'x'.repeat(PLAN_BLOCK_MAX)}`]])).toBe(false);
+  });
+  it('refuses no current-plan label, another price or interval, and anything but text chains', () => {
+    expect(portalShowsPlan([['US$10.00 per month', 'SpeakSharp Pro\nUS$10.00 per month']])).toBe(false);
+    expect(portalShowsPlan([['$10.00 per year', 'Current plan\n$10.00 per year']])).toBe(false);
+    expect(portalShowsPlan([['$100.00 per month', 'Current plan\n$100.00 per month']])).toBe(false);
+    expect(portalShowsPlan([['$1.00 per month', 'Current plan\n$1.00 per month']])).toBe(false);
+    expect(portalShowsPlan([['Current plan', 'Current plan per month']])).toBe(false);
+    // The element the page matched must itself show the price; an ancestor's price is not that element's.
+    expect(portalShowsPlan([['Pro', 'Pro $10.00 per month', 'Current plan\nPro $10.00 per month']])).toBe(false);
+    // A chain with any non-text entry is refused, even when its text entries alone would pass.
+    expect(portalShowsPlan([['$10.00 per month', null, 'Current plan\n$10.00 per month']])).toBe(false);
+    for (const bad of [null, 'Current plan $10.00 per month', [], [[]], [['$10.00 per month', 7]], [[null]]]) {
+      expect({ bad, shown: portalShowsPlan(bad) }).toEqual({ bad, shown: false });
+    }
   });
 });
 
@@ -154,7 +228,11 @@ describe('the spec runs the checks in the order that proves the story', () => {
     const at = order.map((s) => branch.indexOf(s));
     expect(at.filter((i) => i <= 0)).toEqual([]);
     expect([...at].sort((a, b) => a - b)).toEqual(at);
-    expect(branch).toMatch(/invoiceCharge: id\(invoice\.charge\)/);
+    // The charge is bound to the first invoice by its verified id, never re-read from the subscription.
+    expect(branch).toMatch(/const invoice = await this\.stripe\(`invoices\/\$\{encodeURIComponent\(this\.firstInvoice\)\}`\);/);
+    expect(branch).toMatch(/invoiceCharge: firstInvoiceCharge\(invoice, \{ firstInvoice: this\.firstInvoice/);
+    expect(branch).not.toMatch(/latest_invoice/);
+    expect(spec).toMatch(/this\.firstInvoice = id\(sub\.latest_invoice\);\n\s+assertInvoice\(await this\.stripe\(`invoices\/\$\{this\.firstInvoice\}`\), this\.customer, this\.subscription, 'subscription_create'\);\n\s+this\.steps\.add\('first_invoice'\);/);
   });
   it('reads the trial history after the take is saved, and shows the take on Progress before the trial ends', () => {
     const helper = spec.slice(spec.indexOf('  async trialTakeSaved(): Promise<void> {'), spec.indexOf('  async historyWalled(): Promise<void> {'));
@@ -168,12 +246,15 @@ describe('the spec runs the checks in the order that proves the story', () => {
   });
   it('after the trial, Progress shows the payment wall and not the take', () => {
     const helper = spec.slice(spec.indexOf('  async historyWalled(): Promise<void> {'), spec.indexOf('  async portalPlan(): Promise<void> {'));
-    const order = ['assertHistoryWalled(', 'goto(`${this.targets.app}/progress`)', "getByTestId('trial-payment-wall')).toBeVisible(",
+    const order = ['await runAccount();', 'const member = await this.history(this.member);', 'await runAccount();', 'assertHistoryWalled(member,',
+      'goto(`${this.targets.app}/progress`)', "getByTestId('trial-payment-wall')).toBeVisible(",
       "'BILLING_JOURNEY:progress_not_walled'", "getByTestId(`open-session-detail-${this.trialTake}`).count() === 0, 'progress_listed_walled_take'",
       "this.steps.add('history_walled');"];
-    const at = order.map((s) => helper.indexOf(s));
+    // Each step is looked for after the one before, so the repeated account check must appear both before and after the read.
+    let from = 0;
+    const at = order.map((s) => { const i = helper.indexOf(s, from); from = i < 0 ? from : i + s.length; return i; });
     expect(at.filter((i) => i < 0)).toEqual([]);
-    expect([...at].sort((a, b) => a - b)).toEqual(at);
+    expect(helper.match(/await runAccount\(\);/g)).toHaveLength(2);
   });
   it('restores the take on Progress too, takes the one next take only after the restore, and opens the real portal', () => {
     const restored = branch.indexOf('assertHistoryRestored(');
@@ -182,11 +263,17 @@ describe('the spec runs the checks in the order that proves the story', () => {
     expect(branch.indexOf("this.steps.add('history_restored')")).toBeGreaterThan(listed);
     expect(branch.match(/this\.record\(\)/g)).toHaveLength(1);
     expect(branch.indexOf('this.record()')).toBeGreaterThan(branch.indexOf("this.steps.add('portal_plan')"));
-    const portal = spec.slice(spec.indexOf('  async portalPlan(): Promise<void> {'), spec.indexOf('  async portalPlan(): Promise<void> {') + 1200);
+    const portal = spec.slice(spec.indexOf('  async portalPlan(): Promise<void> {'), spec.indexOf('  async planAncestries(): Promise<string[][]> {'));
+    expect(portal.length).toBeGreaterThan(0);
     expect(portal).toMatch(/waitForURL\(url => url\.origin === 'https:\/\/billing\.stripe\.com'/);
+    // The portal check reads per-element ancestries, never the whole page's text.
+    expect(portal).toMatch(/portalShowsPlan\(await this\.planAncestries\(\)/);
+    expect(spec).toMatch(/locator\('xpath=ancestor-or-self::\*'\)\s*\.evaluateAll\(els => els\.map\(e => \(e as HTMLElement\)\.innerText \?\? ''\)\.reverse\(\)\)/);
+    expect(spec).not.toMatch(/portalShowsPlan\(await this\.page\.locator\('body'\)/);
   });
   it('reads history as the member for the wall and the restore, and never posts to the webhook or writes a charge', () => {
-    expect(spec).toMatch(/assertHistoryWalled\(await this\.history\(this\.member\), await this\.history\(this\.admin\), this\.trialTake\)/);
+    expect(spec).toMatch(/const runAccount = async \(\) => assertMemberIsRunAccount\(await this\.member\.auth\.getUser\(\), \{ uid: this\.uid, email: this\.email \}\);/);
+    expect(spec).toMatch(/assertHistoryWalled\(member, await this\.history\(this\.admin\), this\.trialTake\)/);
     expect(spec).toMatch(/this\.trialHistory = await this\.history\(this\.member\);/);
     expect(spec).not.toMatch(/functions\/v1\/stripe-webhook|invoke\('stripe-webhook'/);
     expect(spec).not.toMatch(/stripe\('charges'?,\s*'POST'/);
