@@ -35,6 +35,10 @@ export const HELPER_CONTRACTS = Object.freeze([{
   helperFile:'tests/live/helpers/rwtJourney.ts', testFile:'tests/unit/progressReaderUrlPredicates.test.ts',
   callables:['analyticsThroughActions','backFromProgressRestoresSession'],
 }, {
+  // J1.a (Sam on run 45014809858): the new account's 30-day trial, through its own unit consumer.
+  helperFile:'tests/live/helpers/rwtTrialGrant.ts', testFile:'tests/unit/rwtTrialGrant.test.ts',
+  callables:['trialGrantVerdict','trialGrantRow'],
+}, {
   // J1 option B (Sam, 21 Nov): the save-minimum hold and its atomic Stop, through its own unit consumer.
   helperFile:'tests/live/helpers/rwtSaveHold.ts', testFile:'tests/unit/rwtSaveHold.test.ts',
   callables:['saveHoldVerdict','stopClickVerdict','holdThenStopWith','pageSaveHoldDeps','holdThenStop'],
@@ -138,7 +142,7 @@ export const HELPER_CONTRACTS = Object.freeze([{
   callables:['matchingNumericSet','preflightActive','readPersistedNumeric','readExpectedActive','observeActive'],
 }, {
   helperFile:'tests/live/helpers/rwtLateCoaching.ts',testFile:'tests/unit/rwtLateCoaching.test.ts',
-  callables:['sha256Hex','answerOrder','latestAnsweredAt','lateCoachingSavedRow','accessTokenFromAuthStorage','tokenSubject','ownerSessionReader','nonblankParity','classifyTarget','ownerNewerCompletedCounter'],
+  callables:['sha256Hex','answerOrder','latestAnsweredAt','lateCoachingSavedRow','accessTokenFromAuthStorage','tokenSubject','ownerSessionReader','nonblankParity','classifyTarget','ownerNewerCompletedCounter','deferredLateCoachingSink','reopenWithinCutoff'],
 }, {
   helperFile:'tests/live/helpers/rwtWatchdog.ts',testFile:'tests/unit/rwtCleanupExecution1812.test.ts',
   callables:['OwnedCleanup#run','OwnedCleanup#settle','finalizeOwnedCleanup'],
