@@ -67,18 +67,6 @@ async function confirmationOnScreen(page: Page): Promise<boolean> {
   return Boolean(box && box.y >= 0 && box.y + box.height <= VIEWPORT_HEIGHT);
 }
 
-/**
- * The guard's own target (SessionOverhaulView's momentum guard): the bar marked as the post-save confirmation, which
- * carries the saved review's action, fully inside the viewport. This is the app's contract once the page is at rest.
- * It is NOT "scrollY is 0": the guard leaves a fully visible confirmation alone, so a fling's last frame can leave the
- * page a pixel or so down (run 45040488161 rested at scrollY 1 with the confirmation fully on screen).
- */
-const POST_SAVE_CONFIRMATION_ON_SCREEN = () => {
-  const box = document.querySelector('[data-post-save-confirmation="true"]')?.getBoundingClientRect();
-  return Boolean(box && box.height > 0 && box.top >= 0 && box.bottom <= window.innerHeight);
-};
-const postSaveConfirmationOnScreen = (page: Page) => page.evaluate(POST_SAVE_CONFIRMATION_ON_SCREEN);
-
 // The metrics-only after layout can change height while a fling is still running. Record geometry
 // and existing settlement markers, never DOM text, paths, session IDs, or event targets.
 async function startFlingTrace(page: Page) {
@@ -184,7 +172,7 @@ test.describe('#1258 mobile — Stop during a fling still shows that the take sa
       await momentumDone(page);
       await waitForRest(page);
       expect(await confirmationOnScreen(page), 'the saved confirmation is on screen after the momentum ends').toBe(true);
-      expect(await postSaveConfirmationOnScreen(page), 'the post-save confirmation the guard reveals is fully on screen at rest').toBe(true);
+      expect(await page.evaluate(() => window.scrollY), 'the page is back at its top').toBe(0);
     } catch (error) {
       // Output survives a blob reporter size rejection and does not obscure the original assertion.
       const trace = await finishFlingTrace(page).catch(() => undefined);
