@@ -8,7 +8,7 @@ import localStackTarget from './sandbox-target.local.json' with { type: 'json' }
 import { runnerPreflight } from './runnerPreflight.mjs';
 import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, requireFact, assertSandboxConfiguration, PENDING_POLICY,
   assertTestPrice, assertInvoice, isCorrelatedDelivery, safeFailureReason, testClockCreateFields, localStackStatus,
-  assertFullRefund, isRefundCancellation, assertCheckoutGrantedNothing, assertDeclinedCheckoutGrantedNothing, assertNoAppAccess, assertSubscriptionsAllowed, declinedSubscriptionStatuses,
+  assertFullRefund, isRefundCancellation, assertCheckoutGrantedNothing, assertDeclinedCheckoutGrantedNothing, assertNoAppAccess, assertSubscriptionsAllowed, declinedSubscriptionStatuses, assertOnePaidRetrySubscription,
   checkoutSessionFromUrl, assertCheckoutIdentity, newlyAddedCard, assertNoSecondCharge,
   type RunnerJourney, type BillingEvent, hostedFieldUnavailable, hostedEmailDecision, type HostedField,
   HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl, cleanupFailureCode, proveStripeFixtureDeleted,
@@ -60,6 +60,8 @@ class SandboxJourney {
     { auth: { autoRefreshToken: false, persistSession: false } });
   readonly eventIds = new Set<string>();
   uid = ''; customer = ''; subscription = ''; clock = ''; session = ''; savedSession = '';
+  /** J2: the declined session's own verified subscription (unpaid), allowed beside the paid retry's; null when none was attached. */
+  declinedSubscription: string | null = null;
   /** The Checkout session openCheckout positively bound to this run (assertCheckoutIdentity); null until then. */
   boundCheckout: string | null = null;
   /** Whether the bound Customer's email IS this run's fixture email: compared only, never kept or reported; null when unread. */
@@ -562,6 +564,7 @@ class SandboxJourney {
       await this.stripe(`checkout/sessions/${declined}/expire`, 'POST');
       const expiredSubscription = await this.declinedGrantedNothing(declined, 'expired');
       requireFact(expiredSubscription === declinedSubscription, 'declined_checkout_subscription_changed');
+      this.declinedSubscription = expiredSubscription;
       this.steps.add('abandoned_checkout');
       await this.noPaidAccess(expiredSubscription === null ? null : { id: expiredSubscription, statuses: declinedSubscriptionStatuses('expired') });
       this.steps.add('no_access_after_abandon');
@@ -725,10 +728,10 @@ class SandboxJourney {
       // API recovery here; portal_recovery proves the member's own path through Manage billing.
       await this.recovered(await this.stripe(`invoices/${failedInvoice}/pay`, 'POST', { payment_method: good.id }), failedInvoice);
     } else if (this.journey === 'failed_checkout') {
-      // A declined then abandoned Checkout and a paid retry leave exactly one subscription.
+      // A declined then abandoned Checkout and a paid retry leave exactly one PAID subscription; the only other allowed is the
+      // declined session's own verified, unpaid subscription (Codex P2 on #1935: `status=all` lists it too).
       const all = await this.stripe(`subscriptions?${new URLSearchParams({ customer: this.customer, status: 'all', limit: '10' })}`);
-      requireFact(Array.isArray(all.data) && all.has_more === false && all.data.length === 1
-        && all.data[0].id === this.subscription, 'more_than_one_subscription');
+      assertOnePaidRetrySubscription({ subscriptions: all.data, hasMore: all.has_more, paidId: this.subscription, declinedId: this.declinedSubscription });
       this.steps.add('single_subscription');
     } else if (this.journey === 'portal_recovery') {
       const { failedInvoice, badCard } = await this.failRenewal();
