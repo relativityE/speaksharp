@@ -922,6 +922,39 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         vi.useRealTimers();
     });
 
+    it('J3.b: a capped live decode that yields no text still reports the gap during the take', async () => {
+        vi.useFakeTimers();
+        mocks.transcribe.mockResolvedValue(Result.ok(''));
+        await privateWhisper.init();
+
+        let frameCallback: ((frame: Float32Array) => void) | undefined;
+        const mockMic: MicStream = {
+            state: 'ready',
+            sampleRate: PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ,
+            onFrame: vi.fn((cb: (frame: Float32Array) => void) => { frameCallback = cb; return () => { }; }),
+            offFrame: vi.fn(),
+            stop: vi.fn(),
+            close: vi.fn(),
+            _mediaStream: new MediaStream(),
+        };
+        const updates = () => (mockCallbacks.onTranscriptUpdate as ReturnType<typeof vi.fn>).mock.calls
+            .map((c) => (c[0] as { transcript: { partial?: string; final?: string; liveTextIncomplete?: boolean } }).transcript);
+
+        await privateWhisper.start(mockMic);
+        (privateWhisper as unknown as { currentTranscript: string }).currentTranscript = 'existing committed words';
+        frameCallback?.(new Float32Array(PRIV_STT_DERIVED.LIVE_DECODE_CATCHUP_MAX_SAMPLES + PRIV_STT_DERIVED.MIN_TRANSCRIPTION_SAMPLES).fill(0.5));
+        await vi.advanceTimersByTimeAsync(PRIV_STT.PROCESSING_INTERVAL_MS);
+        expect((mocks.transcribe.mock.calls[0][0] as Float32Array).length).toBe(PRIV_STT_DERIVED.LIVE_DECODE_CATCHUP_MAX_SAMPLES);
+        // The capped decode produced no text and no further live text follows, yet the take must still be marked.
+        expect(updates().filter((t) => !t.final && !t.partial)).toEqual([{ liveTextIncomplete: true }]);
+        // One-shot: a second capped, empty decode does not repeat it.
+        frameCallback?.(new Float32Array(PRIV_STT_DERIVED.LIVE_DECODE_CATCHUP_MAX_SAMPLES + PRIV_STT_DERIVED.MIN_TRANSCRIPTION_SAMPLES).fill(0.5));
+        await vi.advanceTimersByTimeAsync(PRIV_STT.PROCESSING_INTERVAL_MS);
+        expect(updates().filter((t) => !t.final && !t.partial)).toHaveLength(1);
+        await privateWhisper.stop();
+        vi.useRealTimers();
+    });
+
     it('REGRESSION: emits filler-only opener and low-energy provisional tail as live text', async () => {
         vi.useFakeTimers();
         mocks.transcribe

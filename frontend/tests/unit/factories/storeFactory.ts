@@ -11,7 +11,6 @@ const initialState: SessionState = {
         transcript: '',
         partial: '',
     },
-    liveTextIncomplete: false,
     fillerData: {},
     elapsedTime: 0,
     startTime: null,
@@ -86,7 +85,6 @@ export function createTestSessionStore(
                 isReady: ready,
             })),
 
-        setLiveTextIncomplete: vi.fn((incomplete: boolean) => set({ liveTextIncomplete: incomplete })),
         updateTranscript: vi.fn((transcript, partial = '') =>
             set({
                 transcript: {

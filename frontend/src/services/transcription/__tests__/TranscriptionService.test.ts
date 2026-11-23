@@ -413,6 +413,13 @@ describe('TranscriptionService', () => {
         expect(mockOnTranscriptUpdate).toHaveBeenLastCalledWith({ transcript: { partial: 'tail words', liveTextIncomplete: true } });
         mockEngine.triggerTranscript({ transcript: { partial: 'clean tail' } });
         expect(mockOnTranscriptUpdate).toHaveBeenLastCalledWith({ transcript: { partial: 'clean tail' } });
+        // A capped decode that yielded no text: the flag travels alone instead of being dropped as empty.
+        mockEngine.triggerTranscript({ transcript: { liveTextIncomplete: true } });
+        expect(mockOnTranscriptUpdate).toHaveBeenLastCalledWith({ transcript: { liveTextIncomplete: true } });
+        // An update with neither text nor flag is still dropped.
+        const calls = mockOnTranscriptUpdate.mock.calls.length;
+        mockEngine.triggerTranscript({ transcript: { partial: '' } });
+        expect(mockOnTranscriptUpdate.mock.calls.length).toBe(calls);
     });
 
     it('#891 Phase 5.6 (SHADOW): app-mic transcript updates publish transcript telemetry; mock mode does not', async () => {

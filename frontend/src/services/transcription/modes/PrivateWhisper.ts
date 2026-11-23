@@ -2283,6 +2283,16 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     return true;
   }
 
+  /**
+   * Latch the take as live-incomplete. The first time, report it at once on its own (no text), so the notice appears
+   * even when the capped decode yields no text and the user stops before any further live text.
+   */
+  private markLiveTextIncomplete(): void {
+    if (this.liveTextIncomplete) return;
+    this.liveTextIncomplete = true;
+    this.onTranscriptUpdate?.({ transcript: { liveTextIncomplete: true } });
+  }
+
   /** Spread into live updates: present (true) only after this take dropped live audio. */
   private liveIncompleteMark(): { liveTextIncomplete?: true } {
     return this.liveTextIncomplete ? { liveTextIncomplete: true } : {};
@@ -2300,7 +2310,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       this.coldStartDecodes += 1;
       if (audio.length <= COLD_START_DECODE_MAX_SAMPLES) return audio;
       const oldest = inheritPcmSlice(audio, audio.slice(0, COLD_START_DECODE_MAX_SAMPLES), 0, 'live-cap');
-      this.liveTextIncomplete = true;
+      this.markLiveTextIncomplete();
       pushPrivateTimeline('live_decode_window_capped', {
         serviceId: this.serviceId,
         runId: this.instanceId,
@@ -2324,7 +2334,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     if (audio.length <= maxLiveSamples) return audio;
 
     const cappedAudio = inheritPcmSlice(audio, audio.slice(audio.length - maxLiveSamples), audio.length - maxLiveSamples, 'live-cap');
-    this.liveTextIncomplete = true;
+    this.markLiveTextIncomplete();
     pushPrivateTimeline('live_decode_window_capped', {
       serviceId: this.serviceId,
       runId: this.instanceId,

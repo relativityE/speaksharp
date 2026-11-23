@@ -3478,6 +3478,9 @@ export class SpeechRuntimeController {
         // temporarily detaches/remounts during long idle or recognition restart
         // windows. Callback delivery can wait; user-visible text should not.
         this.pushTranscriptToStore(data);
+        // J3.b: a flag-only update (the engine's live-text gap with no text) only latches the take's notice through
+        // the guarded store path above. It carries no transcript, so subscribers and the transcript pulse never see it.
+        if (!data.transcript.final && !data.transcript.partial && data.transcript.liveTextIncomplete === true) return;
 
         if (this.isSubscriberReady) {
             this.subscriberCallbacks.onTranscriptUpdate?.(data);
@@ -3830,7 +3833,7 @@ export class SpeechRuntimeController {
         this.resetTranscriptLifecycle();
         store.updateTranscript('', '');
         // J3.b: the live-text-incomplete notice belongs to one take; a new recording starts without it.
-        store.setLiveTextIncomplete(false);
+        useSessionStore.setState({ liveTextIncomplete: false });
         /**
          * #1431 P1 — THE THIRD WRITER. A NEW RECORDING MAY NOT REAP A LIVE OWNER'S STATE.
          *
@@ -4009,7 +4012,7 @@ export class SpeechRuntimeController {
         // J3.b: latch the live-text gap for the current take only. Updates outside RECORDING (a late update from a
         // stopped take, or one arriving before the next take's reset) never set it; only the reset clears it.
         if (data.transcript.liveTextIncomplete === true && this.state === 'RECORDING') {
-            store.setLiveTextIncomplete(true);
+            if (store.liveTextIncomplete !== true) useSessionStore.setState({ liveTextIncomplete: true });
         }
 
         if (data.transcript.final) {

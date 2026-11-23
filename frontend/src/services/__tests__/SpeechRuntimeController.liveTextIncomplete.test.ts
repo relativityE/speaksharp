@@ -78,6 +78,23 @@ describe('J3.b — live-text-incomplete latch (controller → store)', () => {
         expect(latched()).toBe(false);
     });
 
+    it('a flag-only update (capped decode, no text) latches the notice without reaching subscribers or the transcript', () => {
+        const onTranscriptUpdate = vi.fn();
+        c.subscriberCallbacks = { onTranscriptUpdate };
+        useSessionStore.getState().updateTranscript('Words so far.', '');
+        c.handleTranscriptUpdate({ transcript: { liveTextIncomplete: true } });
+        expect(latched()).toBe(true);
+        expect(onTranscriptUpdate).not.toHaveBeenCalled();
+        expect(c.emissionQueue).toHaveLength(0);
+        expect(useSessionStore.getState().transcript).toEqual({ transcript: 'Words so far.', partial: '' });
+    });
+
+    it('a flag-only update outside RECORDING never sets it', () => {
+        c.state = 'STOPPING';
+        c.handleTranscriptUpdate({ transcript: { liveTextIncomplete: true } });
+        expect(latched()).toBe(false);
+    });
+
     it('the next take starts without the notice', () => {
         c.handleTranscriptUpdate({ transcript: { final: 'gap take words', liveTextIncomplete: true } });
         expect(latched()).toBe(true);

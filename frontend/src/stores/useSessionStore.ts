@@ -85,8 +85,9 @@ export interface SessionState {
     isReady: boolean;
     transcript: TranscriptState;
     /** J3.b: this take's live text may miss words (Private live decoding dropped audio). Latched for the take; the
-     *  next take, a session reset and a new objective set clear it. The final transcript is unaffected. */
-    liveTextIncomplete: boolean;
+     *  next take, a session reset and a new objective set clear it. The final transcript is unaffected. Absent means
+     *  false. Written by the controller through setState, the same way as sessionSaved. */
+    liveTextIncomplete?: boolean;
     fillerData: FillerCounts;
     elapsedTime: number;
     startTime: number | null;
@@ -221,7 +222,6 @@ interface SessionActions {
     stopSession: () => void;
     setReady: (ready: boolean) => void;
     updateTranscript: (transcript: string, partial?: string) => void;
-    setLiveTextIncomplete: (incomplete: boolean) => void;
     updateFillerData: (data: FillerCounts) => void;
     updateElapsedTime: (time: number) => void;
     setSTTStatus: (status: SttStatus) => void;
@@ -446,8 +446,6 @@ export const useSessionStore = create<SessionStore>((set, get) => {
         noteTranscriptUpdate(committed, provisional);
         set({ transcript: { transcript: committed, partial: provisional } });
     },
-
-    setLiveTextIncomplete: (incomplete) => set((state) => (state.liveTextIncomplete === incomplete ? state : { liveTextIncomplete: incomplete })),
 
     updateFillerData: (data) =>
         set({

@@ -1970,6 +1970,12 @@ export default class TranscriptionService {
     }
 
     if (!transcript.final && !transcript.partial) {
+      if (transcript.liveTextIncomplete === true) {
+        // J3.b: the engine reports a live-text gap on its own when the capped decode yielded no text. Forward the
+        // flag alone (after the same terminated/queued/paused guards as text) so the take's notice still appears.
+        this.options.onTranscriptUpdate?.({ transcript: { liveTextIncomplete: true } });
+        return;
+      }
       logger.warn('[TranscriptionService] Transcript EMPTY after sanitization; dropping.');
     }
   }
