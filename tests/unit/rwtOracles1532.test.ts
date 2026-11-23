@@ -185,7 +185,7 @@ describe('r4127572206 — the expected-partial point must visibly change during 
         expect(src).toContain('const notLive = liveChangeFailures(expectedFinal, firstChange);');
         expect(src).toMatch(/receipt\.row\('live marker changes', notLive\.length === 0 && ordered \? 'PASS' : 'FAIL'/);
         // #1593 case 3: the timing verdict moved to the take-bound observer helper; the journey feeds it the shared predicate.
-        expect(src).toContain('expectsLive: points.map((_, i) => expectsLiveChange(expectedFinal[i])) });');
+        expect(src).toContain('expectsLive: points.map((_, i) => expectsLiveChange(expectedFinal[i])), pendingSeenAtMs: sealed.pendingSeenAtMs });');
         const observer = readFileSync(resolve(__dirname, '../live/helpers/rwtMarkerObserver.ts'), 'utf8');
         expect(observer).toContain("if (!change) return expectsLive ? 'no-live-change' : 'ok-no-change';");
         expect(src).not.toContain("expectedFinal.filter((e) => e === 'covered').length");
