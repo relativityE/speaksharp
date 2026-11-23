@@ -165,19 +165,22 @@ export function readRuntimeStateLog(): { token: string | null; states: string[] 
 }
 
 /**
- * Sam, 2026-11-15 (#1868 on 887a76f6): THE TRANSFER ITSELF, from the network. The product's byte percent cannot prove bytes are
- * moving: its aggregator holds 100 % while a later model file is still downloading, and a retained 1–99 % does not prove the
- * transfer is still running. This tracker sees this attempt's model-asset requests through the context's own network events
- * (the same events AttemptFaultCounter counts; AHT-13 run 43739078107 observed the worker's model requests failing through
- * them): a request whose response has STARTED and has neither finished nor failed is a body in flight. A failure while the fault
- * is armed is the fault reaching the transfer. If these events were ever not delivered, `openInBody` stays 0 and the gate never
- * injects: the unobservable case is no injection, never a stranded save.
+ * J7.c option B (PO, 2026-11-22 "Yes to all 4"; Elon's options of 2026-11-21): THE FILES OF THIS ATTEMPT, from the network.
+ * Chromium's offline switch blocks new requests but lets a response that is already streaming finish (Elon's Chromium 143
+ * probe), so J7.c drops the network BETWEEN model files: after one file of this attempt has finished, at the start of the next.
+ * This tracker sees this attempt's model-asset requests through the context's own network events (the same events
+ * AttemptFaultCounter counts; AHT-13 run 43739078107 observed the worker's model requests failing through them): how many have
+ * finished, how each one ended, and how many failed while the fault was armed (the fault reaching the download). If these events
+ * were ever not delivered, `finished` stays 0 and nothing is held, so the browser never goes offline: the unobservable case is no
+ * injection, never a stranded save.
  */
+export type ModelRequestState = 'none' | 'pending' | 'finished' | 'failed';
 export class ModelTransferTracker<R = unknown> {
     private attemptOpen = false;
     private faultArmed = false;
     private readonly requested = new Set<R>();
-    private readonly inBody = new Set<R>();
+    private readonly ended = new Map<R, 'finished' | 'failed'>();
+    private finished = 0;
     private failedUnderFault = 0;
     /** The person's download press: the requests it starts from now on are this attempt's. */
     startAttempt(): void { this.attemptOpen = true; }
@@ -186,16 +189,61 @@ export class ModelTransferTracker<R = unknown> {
     /** The cause is removed: later requests and failures are not this attempt's fault window. */
     disarm(): void { this.faultArmed = false; this.attemptOpen = false; }
     onRequest(request: R, url: string): void { if (this.attemptOpen && MODEL_ASSET.test(url)) this.requested.add(request); }
-    onResponse(request: R): void { if (this.requested.has(request)) this.inBody.add(request); }
-    onFinished(request: R): void { this.inBody.delete(request); this.requested.delete(request); }
+    onFinished(request: R): void {
+        if (!this.requested.delete(request)) return;
+        this.ended.set(request, 'finished');
+        this.finished += 1;
+    }
     onFailed(request: R): void {
-        if (!this.requested.has(request)) return;
-        this.inBody.delete(request); this.requested.delete(request);
+        if (!this.requested.delete(request)) return;
+        this.ended.set(request, 'failed');
         if (this.faultArmed) this.failedUnderFault += 1;
     }
-    snapshot(): { openInBody: number; failedUnderFault: number } {
-        return { openInBody: this.inBody.size, failedUnderFault: this.failedUnderFault };
+    /** How one request of this attempt stands: `none` for a request this attempt never started (or none at all). */
+    stateOf(request: R | null): ModelRequestState {
+        if (request === null) return 'none';
+        if (this.requested.has(request)) return 'pending';
+        return this.ended.get(request) ?? 'none';
     }
+    snapshot(): { finished: number; failedUnderFault: number } {
+        return { finished: this.finished, failedUnderFault: this.failedUnderFault };
+    }
+}
+
+/**
+ * J7.c option B: THE NEXT FILE, HELD AT ITS START. Installed as the context's route for model assets, it lets every request
+ * through except one: the first model request of this attempt that starts after one of the attempt's files has finished. That
+ * request waits, unsent, until `release()` continues it, so the journey can take the browser offline first and the request then
+ * meets the dropped network as the next file of a real download would. Nothing is ever fulfilled or aborted here: a held request
+ * is only ever continued, and `releaseAll()` (finalization) continues it at the latest, so a download is never left stalled.
+ */
+export class BetweenFilesHold<R = unknown> {
+    private attemptOpen = false;
+    private taken = false;
+    private request: R | null = null;
+    private continueHeld: (() => Promise<boolean>) | null = null;
+    /** The person's download press: from now on the next file of this attempt may be held. */
+    startAttempt(): void { this.attemptOpen = true; }
+    /** The route's handler. `finished` is how many of this attempt's model files have finished so far. */
+    async onRoute(request: R, url: string, finished: number, proceed: () => Promise<void>): Promise<void> {
+        if (!this.attemptOpen || this.taken || !MODEL_ASSET.test(url) || finished < 1) return proceed();
+        this.taken = true;
+        this.request = request;
+        await new Promise<void>((settle) => {
+            let released = false;
+            this.continueHeld = async () => {
+                if (released) return false;
+                released = true;
+                try { await proceed(); return true; } catch { return false; } finally { settle(); }
+            };
+        });
+    }
+    /** The held request, or null while none is held yet. */
+    held(): R | null { return this.continueHeld ? this.request : null; }
+    /** Sends the held request on (true), once; false when none is held or it was already released, or continuing failed. */
+    release(): Promise<boolean> { return this.continueHeld ? this.continueHeld() : Promise.resolve(false); }
+    /** Finalization: nothing more is held, and a request still held is sent on. */
+    async releaseAll(): Promise<void> { this.attemptOpen = false; await this.release(); }
 }
 
 /** A model asset request (weights, config or tokenizer): the download's own traffic. */
