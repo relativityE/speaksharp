@@ -190,3 +190,95 @@ test.describe('#1863 payment wall in the browser', () => {
     expect(consoleGuard.unexpected(), 'no console error beyond the refused save\'s own diagnostics and the shared allowances').toEqual([]);
   });
 });
+
+// J1.f / J7.d fail closed in a real browser: the real App route renders the deletion page with no completion readiness,
+// so even when the server reports the owner's pending deletion as settled and the secured status read succeeds, the page
+// offers no permanent-deletion confirmation and sends no completion effect. Both the closure status call and the
+// completion-status endpoint are answered here; nothing reaches a real project, and nothing is deleted.
+const PENDING_REQUEST_ID = '44444444-4444-4444-8444-444444444444';
+const PENDING_SETTLED = { outcome: 'pending', requestId: PENDING_REQUEST_ID, phase: 'pending', destructiveEnabled: false, checkoutPending: 0 };
+type CompletionCall = { path: string; action: unknown };
+type ClosureWindow = Window & { __CLOSURE_ACTIONS_J7D__?: unknown[]; __CLOSURE_ANSWER_J7D__?: boolean };
+
+/** Answers the owner's deletion as pending and settled; returns every completion-endpoint call the page made. */
+async function answerSettledPendingDeletion(page: Page): Promise<() => CompletionCall[]> {
+  await page.addInitScript((pending) => {
+    const win = window as ClosureWindow;
+    const supabase = (window as unknown as { supabase?: SupabaseDouble }).supabase;
+    if (!supabase || win.__CLOSURE_ANSWER_J7D__) return;
+    win.__CLOSURE_ANSWER_J7D__ = true;
+    win.__CLOSURE_ACTIONS_J7D__ = [];
+    const invoke = supabase.functions.invoke.bind(supabase.functions);
+    supabase.functions.invoke = async (name, options) => {
+      if (name !== 'account-closure') return invoke(name, options);
+      const action = (options as { body?: { action?: unknown } } | undefined)?.body?.action;
+      win.__CLOSURE_ACTIONS_J7D__?.push(action);
+      return action === 'status' ? { data: pending, error: null } : { data: null, error: { message: 'unexpected closure action' } };
+    };
+  }, PENDING_SETTLED);
+  const calls: CompletionCall[] = [];
+  const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
+  await page.route('**/functions/v1/account-closure/**', async (route) => {
+    const request = route.request();
+    if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+    let action: unknown = null;
+    try { action = (JSON.parse(request.postData() ?? '') as { action?: unknown }).action; } catch { /* recorded as null */ }
+    const path = new URL(request.url()).pathname;
+    calls.push({ path, action });
+    const reply = !path.endsWith('/completion-status') ? null
+      : action === 'completion_status_issue'
+        ? { outcome: 'status_capability', requestId: PENDING_REQUEST_ID, token: 'b'.repeat(64), expiresAt: Date.now() + 60_000 }
+        : action === 'completion_status_ack' ? { outcome: 'status_acknowledged', requestId: PENDING_REQUEST_ID }
+          : action === 'completion_status_read' ? { outcome: 'pending', requestId: PENDING_REQUEST_ID, reason: 'ready', canRetry: false }
+            : null;
+    return reply ? route.fulfill({ status: 200, headers: cors, json: reply })
+      : route.fulfill({ status: 503, headers: cors, json: { outcome: 'unavailable', canRetry: false } });
+  });
+  return () => [...calls];
+}
+
+async function expectSettledButNotCompletable(page: Page, completionCalls: () => CompletionCall[]) {
+  const deletion = page.getByTestId('account-deletion-page');
+  await expect(deletion).toBeVisible();
+  // The secured status path ran to the end: the page shows the settled read it obtained.
+  await expect(deletion.getByTestId('account-completion-status')).toContainText('Earlier work is settled. Deletion has not started.');
+  expect(completionCalls().map((c) => c.action)).toEqual(['completion_status_issue', 'completion_status_ack', 'completion_status_read']);
+  expect(completionCalls().every((c) => c.path.endsWith('/functions/v1/account-closure/completion-status'))).toBe(true);
+  // ...and still no way to complete: no confirmation, no button, no effect, no closure action beyond status reads.
+  await expect(deletion.getByRole('checkbox', { name: 'I confirm permanent account deletion now, with no refund.' })).toHaveCount(0);
+  await expect(deletion.getByRole('button', { name: 'Complete permanent account deletion' })).toHaveCount(0);
+  expect(completionCalls().filter((c) => c.path.endsWith('/completion-execute'))).toEqual([]);
+  const actions = await page.evaluate(() => (window as ClosureWindow).__CLOSURE_ACTIONS_J7D__ ?? []);
+  expect(actions.length).toBeGreaterThan(0);
+  expect(actions.every((a) => a === 'status')).toBe(true);
+}
+
+test.describe('J1.f / J7.d deletion fails closed from both entry routes', () => {
+  test('J1.f: from the wall, a settled pending deletion is shown but cannot be completed', async ({ page }) => {
+    await programmaticLoginWithRoutes(page, { userType: 'free', mockProfile: EXPIRED });
+    await setServerAnswers(page, EXPIRED);
+    const completionCalls = await answerSettledPendingDeletion(page);
+    await goToApp(page, '/practice');
+    const wall = page.getByTestId('trial-payment-wall');
+    await expect(wall).toBeVisible();
+    await wall.getByRole('link', { name: 'Delete account' }).click();
+    await expect(page).toHaveURL(/\/account\/delete$/);
+    await expectSettledButNotCompletable(page, completionCalls);
+  });
+
+  test('J7.d: during an active trial, Account → Delete account shows a settled pending deletion that cannot be completed', async ({ page }) => {
+    const ACTIVE = { can_start: true, trial_active: true, trial_seconds_remaining: 3600 };
+    await programmaticLoginWithRoutes(page, { userType: 'free', mockProfile: ACTIVE });
+    await setServerAnswers(page, ACTIVE);
+    const completionCalls = await answerSettledPendingDeletion(page);
+    await navigateToRoute(page, '/account');
+    const account = page.getByTestId('account-page');
+    await expect(account).toBeVisible();
+    await expect(page.getByTestId('trial-payment-wall')).toHaveCount(0);
+    await expect.poll(() => page.evaluate(() => ((window as E2EWindow).queryClient?.getQueryCache()
+      .findAll({ queryKey: ['usageLimit'] }) ?? []).some((q) => q.state.data?.can_start === true)), { timeout: 10_000 }).toBe(true);
+    await account.getByRole('link', { name: 'Delete account' }).click();
+    await expect(page).toHaveURL(/\/account\/delete$/);
+    await expectSettledButNotCompletable(page, completionCalls);
+  });
+});
