@@ -35,6 +35,10 @@ export const HELPER_CONTRACTS = Object.freeze([{
   helperFile:'tests/live/helpers/rwtJourney.ts', testFile:'tests/unit/progressReaderUrlPredicates.test.ts',
   callables:['analyticsThroughActions','backFromProgressRestoresSession'],
 }, {
+  // J1.a (Sam on run 45014809858): the new account's 30-day trial, through its own unit consumer.
+  helperFile:'tests/live/helpers/rwtTrialGrant.ts', testFile:'tests/unit/rwtTrialGrant.test.ts',
+  callables:['trialGrantVerdict','trialGrantRow'],
+}, {
   // J1 option B (Sam, 21 Nov): the save-minimum hold and its atomic Stop, through its own unit consumer.
   helperFile:'tests/live/helpers/rwtSaveHold.ts', testFile:'tests/unit/rwtSaveHold.test.ts',
   callables:['saveHoldVerdict','stopClickVerdict','holdThenStopWith','pageSaveHoldDeps','holdThenStop'],
@@ -63,6 +67,9 @@ export const HELPER_CONTRACTS = Object.freeze([{
 }, {
   helperFile:'tests/db/helpers/completionEnv.ts', testFile:'tests/db/atomic-completion-retention.integration.test.ts',
   callables:['MIG','sid','buildCompletionDb','db0','closeCompletionDbs','actingAs','newSession','complete','transcriptBearingCount','row'],
+}, {
+  helperFile:'tests/helpers/exactMigrationWiringCases.ts', testFile:'tests/unit/progressEvaluationMigrationWiring1471.test.js',
+  callables:['assertMigrationBytePin','assertStagedMigrationOrder','assertTargetOnlyDryRunCases'],
 }, {
   helperFile:'tests/db/c1CatalogStages.js', testFile:'tests/unit/exactMigrationGate.test.js',
   callables:['proveC1CatalogStages'],
@@ -127,7 +134,7 @@ export const HELPER_CONTRACTS = Object.freeze([{
   callables:['externalParentProofGaps','receiptAcceptance','requiredAutomatedRows','validateReceipt','finalizeReceipt'],
 }, {
   helperFile:'tests/live/helpers/rwtCoachingConsistency.ts',testFile:'tests/unit/rwtCoachingConsistency1258.test.ts',
-  callables:['characterCeilingVerdict','fillerAdviceVerdict','takesDifferVerdict','openPointReferenceVerdict','readTwoTakesCoaching'],
+  callables:['characterCeilingVerdict','fillerAdviceVerdict','takesDifferVerdict','openPointReferenceVerdict','readTwoTakesCoaching','omissionClaimVerdict'],
 }, {
   helperFile:'tests/live/helpers/rwtCoachingEvidence.ts',testFile:'tests/unit/rwtCoachingEvidence.test.ts',
   callables:['canonicalSuggestionSha256','coachingSessionBindingSha256','recomputeCoachingPromptSha256','buildRwtCoachingEvidenceArtifact','writeRwtCoachingEvidenceArtifact'],
@@ -135,8 +142,11 @@ export const HELPER_CONTRACTS = Object.freeze([{
   helperFile:'tests/live/helpers/rwtHarnessParity.ts',testFile:'tests/unit/rwtHarnessParityExecution1812.test.ts',
   callables:['HarnessParityTap#takeBindings','HarnessParityTap#attach','HarnessParityTap#noCloudSttRow','HarnessParityTap#startPressRow','HarnessParityTap#ownedPagesClosedRow','probeSaveIsolationRow','numericComparisonRow','readRepeatEligibility','repeatEligibilityEvidence'],
 }, {
+  helperFile:'tests/live/helpers/rwtNumericActive.ts',testFile:'tests/unit/rwtNumericActive.test.ts',
+  callables:['matchingNumericSet','preflightActive','readPersistedNumeric','readExpectedActive','observeActive'],
+}, {
   helperFile:'tests/live/helpers/rwtLateCoaching.ts',testFile:'tests/unit/rwtLateCoaching.test.ts',
-  callables:['sha256Hex','answerOrder','latestAnsweredAt','lateCoachingSavedRow','accessTokenFromAuthStorage','tokenSubject','ownerSessionReader','nonblankParity','classifyTarget','ownerNewerCompletedCounter'],
+  callables:['sha256Hex','answerOrder','latestAnsweredAt','lateCoachingSavedRow','accessTokenFromAuthStorage','tokenSubject','ownerSessionReader','nonblankParity','classifyTarget','ownerNewerCompletedCounter','deferredLateCoachingSink','reopenWithinCutoff'],
 }, {
   helperFile:'tests/live/helpers/rwtWatchdog.ts',testFile:'tests/unit/rwtCleanupExecution1812.test.ts',
   callables:['OwnedCleanup#run','OwnedCleanup#settle','finalizeOwnedCleanup'],
@@ -163,14 +173,20 @@ export const HELPER_CONTRACTS = Object.freeze([{
   callables:["mergeCapture","captureRunReports","writeUncertainty","zeroResidueVerdict","cleanupRunReports","zeroResidueNotRun"],
 }, {
   helperFile:'tests/live/helpers/rwtAdverseRecovery.ts',testFile:'tests/unit/rwtAdverseRecovery.test.ts',
-  callables:["isRecoveryControl","retrySetupOutcome","recoverySavedVerdict","savedTranscriptDigest","reviewReopenVerdict","modelBytesSeen","midDownloadFailureVerdict",
-    "bytesCounted","downloadingNow","offlineInjectionGate","attemptPhase","runOfflineFault","offlineNotExercisedVerdict","coldTakeSettledVerdict","unprovenRestoreVerdict","faultUnprovenRecoveryVerdict"],
+  callables:["isRecoveryControl","retrySetupOutcome","recoverySavedVerdict","savedTranscriptDigest","reviewReopenVerdict","betweenFilesFailureVerdict",
+    "bytesCounted","betweenFilesGate","attemptPhase","runBetweenFilesFault","offlineNotExercisedVerdict","coldTakeSettledVerdict","unprovenRestoreVerdict","faultUnprovenRecoveryVerdict",
+    "shownFailureVerdict","shownFailureSettled","pollShownFailure","worstVerdict"],
 }, {
-  // AHT-14 (#1868): the attempt's network transfer behind the offline gate, through the same unit consumer.
+  // AHT-14 (#1868; J7.c option B): the attempt's model files and the held next file behind the offline gate, through the same unit consumer.
   helperFile:'tests/live/helpers/rwtAdverse.ts',testFile:'tests/unit/rwtAdverseRecovery.test.ts',
   callables:["downloadFailureVerdict","ModelTransferTracker#startAttempt","ModelTransferTracker#armFault","ModelTransferTracker#disarm",
-    "ModelTransferTracker#onRequest","ModelTransferTracker#onResponse","ModelTransferTracker#onFinished","ModelTransferTracker#onFailed",
-    "ModelTransferTracker#snapshot"],
+    "ModelTransferTracker#onRequest","ModelTransferTracker#onFinished","ModelTransferTracker#onFailed","ModelTransferTracker#stateOf",
+    "ModelTransferTracker#snapshot","BetweenFilesHold#startAttempt","BetweenFilesHold#onRoute","BetweenFilesHold#held","BetweenFilesHold#release",
+    "BetweenFilesHold#releaseAll"],
+}, {
+  // J7.c option B (#1941): the isolated build's refusal of repo-root dotenv files, through its own unit consumer.
+  helperFile:'tests/e2e/helpers/isolatedBuildDotenv.ts',testFile:'tests/unit/j7cIsolatedBuildDotenv.test.ts',
+  callables:["rootDotenvFiles","assertNoRootDotenv"],
 }, {
   // J8 (#1870): the same-account feedback journey's pure rules, through their own unit consumer.
   helperFile:'tests/live/helpers/rwtJ8Journey.ts',testFile:'tests/unit/rwtJ8Journey.test.ts',

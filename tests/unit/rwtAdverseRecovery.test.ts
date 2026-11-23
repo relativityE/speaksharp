@@ -4,17 +4,17 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
-    AHT12_CATALOG_CASE_OPEN, AHT12_STAND_IN_LABEL,
-    RECOVERY_CONTROLS, type OfflineFaultIo, type OfflineFaultOutcome, type RecoveryAttempt, type ReopenObservation, attemptPhase,
-    coldTakeSettledVerdict, isRecoveryControl, midDownloadFailureVerdict, modelBytesSeen, offlineInjectionGate, offlineNotExercisedVerdict,
-    runOfflineFault, SETUP_RUNTIME_STATE, downloadingNow, unprovenRestoreVerdict, faultUnprovenRecoveryVerdict,
-    recoverySavedVerdict, retrySetupOutcome, reviewReopenVerdict, savedTranscriptDigest,
+    AHT12_CATALOG_CASE_OPEN, AHT12_STAND_IN_LABEL, MODEL_SETUP_FAILED_COPY, NOT_SUPPORTED_WORDING,
+    RECOVERY_CONTROLS, type BetweenFilesSnapshot, type ModelBytesRead, type OfflineFaultIo, type OfflineFaultOutcome, type RecoveryAttempt,
+    type ReopenObservation, type ShownFailure, attemptPhase, betweenFilesFailureVerdict, betweenFilesGate, coldTakeSettledVerdict,
+    isRecoveryControl, offlineNotExercisedVerdict, runBetweenFilesFault, SETUP_RUNTIME_STATE, shownFailureVerdict, unprovenRestoreVerdict,
+    faultUnprovenRecoveryVerdict, worstVerdict, pollShownFailure, shownFailureSettled, shownToastTexts, recoverySavedVerdict, retrySetupOutcome, reviewReopenVerdict, savedTranscriptDigest,
 } from '../live/helpers/rwtAdverseRecovery';
 import { mapToRuntimeState } from '../../frontend/src/lib/forensicAnchors';
 import { createProgressAggregator } from '../../frontend/src/services/transcription/engines/progressAggregator';
-import { ModelTransferTracker } from '../live/helpers/rwtAdverse';
+import { BetweenFilesHold, ModelTransferTracker } from '../live/helpers/rwtAdverse';
 import type { SessionRowFacts } from '../live/helpers/rwtSaveRetry';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -251,51 +251,252 @@ describe('rwtAdverseJourney.ts — review-reopen, in source order', () => {
     });
 });
 
-describe('AHT-14 — offline only after model bytes were received, mid-transfer', () => {
-    it('modelBytesSeen: 1–99 % while loading is bytes received mid-transfer; anything else is not', () => {
-        expect(modelBytesSeen({ pct: 1, status: 'loading' })).toBe(true);
-        expect(modelBytesSeen({ pct: 99, status: 'loading' })).toBe(true);
-        expect(modelBytesSeen({ pct: 0, status: 'loading' })).toBe(false); // request issued, no byte yet
-        expect(modelBytesSeen({ pct: 100, status: 'loading' })).toBe(false); // transfer finished: engine init, not mid-download
-        expect(modelBytesSeen({ pct: null, status: 'loading' })).toBe(false); // unreadable
-        expect(modelBytesSeen({ pct: 40, status: 'ready' })).toBe(false);
-        expect(modelBytesSeen(null)).toBe(false);
-    });
+describe('J7.c option B — the failure row: dropped between model files, the fault observed, then the AHT-13 rule', () => {
     const ok = { exercised: true, observed: true, statuses: ['download-required', 'loading', 'error'], finalStatus: 'error', retryOffered: true, mode: 'private' };
-    it('PASS only with bytes seen before offline, the fault observed, and the AHT-13 rule passing', () => {
-        expect(midDownloadFailureVerdict({ ...ok, bytesSeenBeforeOffline: true }).status).toBe('PASS');
+    it('PASS only when the network dropped between files, a failed model request was observed under the fault, and AHT-13 passes', () => {
+        expect(betweenFilesFailureVerdict({ ...ok, droppedBetweenFiles: true }).status).toBe('PASS');
     });
-    it('HOLD, never PASS: offline before any byte arrived (offline-before-download)', () => {
-        const v = midDownloadFailureVerdict({ ...ok, bytesSeenBeforeOffline: false });
-        expect(v).toEqual({ status: 'HOLD', detail: expect.stringMatching(/no model bytes were seen before going offline/) });
+    it('HOLD, never PASS: the network was not dropped between model files', () => {
+        expect(betweenFilesFailureVerdict({ ...ok, droppedBetweenFiles: false }))
+            .toEqual({ status: 'HOLD', detail: expect.stringMatching(/not dropped between model files/) });
     });
-    it('HOLD, never PASS: bytes seen but no failed model request observed (worker fetches unobservable, or finished first)', () => {
-        const v = midDownloadFailureVerdict({ ...ok, exercised: false, bytesSeenBeforeOffline: true });
-        expect(v.status).toBe('HOLD');
-        expect(v.detail).toMatch(/worker fetches may not reach Playwright/);
+    it('HOLD, never PASS: dropped between files, but no failed model request of this download was observed under the fault', () => {
+        expect(betweenFilesFailureVerdict({ ...ok, exercised: false, droppedBetweenFiles: true }))
+            .toEqual({ status: 'HOLD', detail: expect.stringMatching(/fault's reach is unproven/) });
     });
     it('an incomplete status history stays HOLD; a contradiction still FAILs once exercised', () => {
-        expect(midDownloadFailureVerdict({ ...ok, observed: false, bytesSeenBeforeOffline: true }).status).toBe('HOLD');
-        expect(midDownloadFailureVerdict({ ...ok, statuses: ['loading', 'ready', 'error'], bytesSeenBeforeOffline: true }).status).toBe('FAIL');
-        expect(midDownloadFailureVerdict({ ...ok, retryOffered: false, bytesSeenBeforeOffline: true }).status).toBe('FAIL');
+        expect(betweenFilesFailureVerdict({ ...ok, observed: false, droppedBetweenFiles: true }).status).toBe('HOLD');
+        expect(betweenFilesFailureVerdict({ ...ok, statuses: ['loading', 'ready', 'error'], droppedBetweenFiles: true }).status).toBe('FAIL');
+        expect(betweenFilesFailureVerdict({ ...ok, retryOffered: false, droppedBetweenFiles: true }).status).toBe('FAIL');
     });
-    it('the journey gates going offline on received bytes, after the press; the controller arms the fault before going offline', () => {
+    it('the journey: the hold route is installed before the press; offline only inside runBetweenFilesFault, armed first', () => {
         const src = aj();
-        const press = src.indexOf("await pressCaptureControl(page, ['mic-download'], { beforeClick: () => gate.confirm() });", src.indexOf('let modelResponses = 0;'));
-        const gate = src.indexOf('atOffline = await waitForTransfer(page, () => transfer.snapshot());', press);
-        const run = src.indexOf('await runOfflineFault({', gate);
-        expect(press).toBeGreaterThan(-1);
-        expect(gate).toBeGreaterThan(press);
-        expect(run).toBeGreaterThan(gate);
-        // Going offline happens only inside runOfflineFault (arm-before-offline is proven by its scripted cases).
+        const branch = src.slice(src.indexOf('// J7.c option B (PO, 2026-11-22'), src.indexOf('const history = await modelStatuses(page);'));
+        const route = branch.indexOf('await context.route(MODEL_ASSETS, (route) =>');
+        const index = branch.indexOf('pressIndex = (await page.evaluate(readRuntimeStateLog)');
+        const starts = branch.indexOf('hold.startAttempt();');
+        const press = branch.indexOf("await pressCaptureControl(page, ['mic-download'], { beforeClick: () => gate.confirm() });");
+        const run = branch.indexOf('const run = await runBetweenFilesFault({');
+        for (const [a, b] of [[route, index], [index, starts], [starts, press], [press, run]]) { expect(a).toBeGreaterThan(-1); expect(b).toBeGreaterThan(a); }
+        expect(branch).toContain('hold.onRoute(route.request(), route.request().url(), transfer.snapshot().finished, () => route.continue())');
+        // A held request is only ever continued: the drop is the browser's own offline switch, never a route abort.
+        expect(branch).not.toMatch(/route\.(abort|fulfill)\(/);
         expect(src).not.toContain('context.setOffline(true)');
-        expect(src).toContain("armFault: () => { watch.setFaultPhase(true); fault.armFault(); transfer.armFault(); },");
-        expect(src).toContain('setOffline: (offline) => context.setOffline(offline)');
-        // The old gate fired when a model request was merely ISSUED.
-        expect(src).not.toContain('modelRequests');
-        expect(src).toContain('midDownloadFailureVerdict({ ...failureFacts, bytesSeenBeforeOffline })');
-        // "Bytes seen before offline" is the gate itself (counted bytes AND a body in flight), never the percent alone.
-        expect(src).toContain('const bytesSeenBeforeOffline = offlineInjectionGate(atOffline, transferAtGate).inject;');
+        expect(branch).toContain("armFault: () => { watch.setFaultPhase(true); fault.armFault(); transfer.armFault(); },");
+        expect(branch).toContain('release: () => hold.release(),');
+        expect(branch).toContain('read: () => readModelBytes(page),');
+        expect(branch).toContain("context.on('requestfinished', (r) => transfer.onFinished(r));");
+        expect(branch).toContain("context.on('requestfailed', (r) => transfer.onFailed(r));");
+        expect(src).toContain('const droppedBetweenFiles = betweenFilesGate(gateRead, gateFiles).inject;');
+        expect(src).toContain('worstVerdict(betweenFilesFailureVerdict({ ...failureFacts, droppedBetweenFiles }), shownFailureVerdict(shown))');
+        // Finalization sends any still-held file on before the route is removed and the context is closed.
+        const release = src.indexOf("await steps.step('held model file release', () => hold.releaseAll());");
+        const unroute = src.indexOf("await steps.step('model route restore', () => context.unroute(MODEL_ASSETS));");
+        expect(release).toBeGreaterThan(src.indexOf("await steps.step('offline restore', () => context.setOffline(false));"));
+        expect(unroute).toBeGreaterThan(release);
+    });
+});
+
+describe('J7.c option B — what the person sees on the failed attempt (PO and Sam, 2026-11-22)', () => {
+    const shown = (over: Partial<ShownFailure> = {}): ShownFailure => ({
+        sameAttempt: true, cardText: `Retry Private setup\n${MODEL_SETUP_FAILED_COPY}`, toastTexts: ['file was not found locally at /models/x'],
+        retryVisible: true, retryEnabled: true, ...over,
+    });
+    it('PASS: the card states that setup did not finish, Retry is enabled, and nothing calls it not supported', () => {
+        expect(shownFailureVerdict(shown()).status).toBe('PASS');
+        expect(shownFailureVerdict(shown({ toastTexts: [] })).status).toBe('PASS'); // the card itself is the visible message
+    });
+    it('FAIL: any "not supported" wording, on the card or in a toast, is a product bug, not a pass', () => {
+        for (const text of ['no available backend found. ERR: [wasm] RuntimeError: not supported', 'This browser is unsupported',
+            'Private mode isn’t supported here', "Private mode isn't supported here", 'NOT SUPPORTED']) {
+            expect(shownFailureVerdict(shown({ toastTexts: ['first toast', text] })))
+                .toEqual({ status: 'FAIL', detail: expect.stringMatching(/not supported: a product bug, not a pass/) });
+        }
+        expect(shownFailureVerdict(shown({ cardText: `Not supported\n${MODEL_SETUP_FAILED_COPY}` })).status).toBe('FAIL');
+        // It is the finding reported first, even when Retry is missing too.
+        expect(shownFailureVerdict(shown({ toastTexts: ['unsupported'], retryVisible: false })).detail).toMatch(/not supported/);
+        // Words that merely contain the letters are not the wording.
+        expect(NOT_SUPPORTED_WORDING.test('supported formats: wav')).toBe(false);
+        expect(NOT_SUPPORTED_WORDING.test('notsupportedish')).toBe(false);
+    });
+    it('FAIL: Retry not shown or disabled; or the card does not state the failure', () => {
+        expect(shownFailureVerdict(shown({ retryVisible: false, retryEnabled: false })))
+            .toEqual({ status: 'FAIL', detail: expect.stringMatching(/no enabled Retry \(not shown\)/) });
+        expect(shownFailureVerdict(shown({ retryEnabled: false }))).toEqual({ status: 'FAIL', detail: expect.stringMatching(/\(disabled\)/) });
+        expect(shownFailureVerdict(shown({ retryEnabled: null })).status).toBe('FAIL');
+        expect(shownFailureVerdict(shown({ cardText: 'Download Private model' })))
+            .toEqual({ status: 'FAIL', detail: 'the failed attempt did not state that setup did not finish' });
+    });
+    it('HOLD: nothing read, not bound to the failed attempt, or unreadable', () => {
+        expect(shownFailureVerdict(null).status).toBe('HOLD');
+        for (const sameAttempt of [false, null]) expect(shownFailureVerdict(shown({ sameAttempt, toastTexts: ['not supported'] })).status).toBe('HOLD');
+        expect(shownFailureVerdict(shown({ cardText: null })).status).toBe('HOLD');
+        expect(shownFailureVerdict(shown({ toastTexts: null })).status).toBe('HOLD');
+    });
+    it('final early only when it can no longer pass (Sam, 2026-11-23): off the attempt, or "not supported" shown; never a correct card', () => {
+        // A correct card with Retry and a toast is NOT final: a "not supported" toast can still arrive on a later read.
+        expect(shownFailureSettled(shown())).toBe(false);
+        expect(shownFailureSettled(shown({ toastTexts: [] }))).toBe(false);
+        // The toast rendered before the card re-rendered (Elon on 90cf2eba): read on.
+        expect(shownFailureSettled(shown({ cardText: 'Download Private model' }))).toBe(false);
+        expect(shownFailureSettled(shown({ retryVisible: false, retryEnabled: false }))).toBe(false);
+        // "Not supported" shown anywhere is FAIL whatever follows, so it ends the window at once.
+        expect(shownFailureSettled(shown({ cardText: 'Download Private model', toastTexts: ['not supported'], retryVisible: false }))).toBe(true);
+        expect(shownFailureSettled(shown({ cardText: 'Unsupported', toastTexts: [] }))).toBe(true);
+        // Off the attempt: a pass needs the whole window on it, so it ends as HOLD.
+        for (const sameAttempt of [false, null]) {
+            expect(shownFailureSettled(shown({ sameAttempt }))).toBe(true);
+            expect(shownFailureVerdict(shown({ sameAttempt })).status).toBe('HOLD');
+        }
+        // Unreadable reads with nothing forbidden in what was read are read again.
+        expect(shownFailureSettled(shown({ cardText: null }))).toBe(false);
+        expect(shownFailureSettled(shown({ toastTexts: null }))).toBe(false);
+        // Codex P2 on ee8ffe4a: "not supported" in the part that WAS read is final and FAIL, whatever part was unreadable.
+        for (const partial of [shown({ cardText: null, toastTexts: ['Private mode is not supported in this browser'] }),
+            shown({ cardText: 'This browser is unsupported', toastTexts: null })]) {
+            expect(shownFailureSettled(partial)).toBe(true);
+            expect(shownFailureVerdict(partial).status).toBe('FAIL');
+        }
+    });
+    describe('pollShownFailure: reads the whole observation window unless a read can no longer pass', () => {
+        const run = async (reads: ShownFailure[], budgetMs = 5_000) => {
+            let t = 0; let n = 0; const slept: number[] = [];
+            const last = await pollShownFailure(async () => reads[Math.min(n++, reads.length - 1)], {
+                budgetMs, now: () => t, sleep: async (ms) => { slept.push(ms); t += ms; } });
+            return { last, reads: n, slept };
+        };
+        const notSupported = shown({ toastTexts: ['file was not found locally at /models/x', 'Private mode is not supported in this browser'] });
+        it('CONTROL (Sam, blocking): a visible "not supported" toast that arrives after a pass-shaped read is FAIL', async () => {
+            const r = await run([shown(), notSupported, shown()], 1_000);
+            expect(r.reads).toBe(2);
+            expect(r.last).toEqual(notSupported);
+            expect(shownFailureVerdict(r.last).status).toBe('FAIL');
+            // The old stop at "correct card + Retry + any toast" judged the first read: a false PASS.
+            expect(shownFailureVerdict(shown()).status).toBe('PASS');
+        });
+        it('CONTROL (Elon): the late toast lands well after the first settled-looking read and is still caught', async () => {
+            const reads = [...Array(12).fill(shown()), notSupported];
+            const r = await run(reads, 5_000);
+            expect(r.reads).toBe(13); // read 13 is at 3000 ms, inside the 5 s window
+            expect(shownFailureVerdict(r.last).status).toBe('FAIL');
+        });
+        it('CONTROL (Codex P2 on ee8ffe4a): "not supported" seen while the card was unreadable stays FAIL; a later clean read cannot pass it', async () => {
+            const partial = shown({ cardText: null, toastTexts: ['Private mode is not supported in this browser'] });
+            const r = await run([shown(), partial, shown(), shown()], 1_000);
+            expect(r.reads).toBe(2);
+            expect(r.last).toEqual(partial);
+            expect(shownFailureVerdict(r.last).status).toBe('FAIL');
+        });
+        it('CONTROL (Sam): the correct card with no toast, held for the whole window, is PASS', async () => {
+            const r = await run([shown({ toastTexts: [] })], 1_000);
+            expect(r.reads).toBe(5); // 0, 250, 500, 750, 1000 ms
+            expect(r.slept.every((ms) => ms === 250)).toBe(true);
+            expect(shownFailureVerdict(r.last).status).toBe('PASS');
+        });
+        it('a correct card with a benign toast is read for the whole window, then PASS', async () => {
+            const r = await run([shown()], 1_000);
+            expect(r.reads).toBe(5);
+            expect(shownFailureVerdict(r.last).status).toBe('PASS');
+        });
+        it('CONTROL (Elon on 90cf2eba): the toast lands one poll before the card\'s setup-failed line, and the row is PASS', async () => {
+            const early = shown({ cardText: 'Retry Private setup\nDownloading Private model', retryVisible: false, retryEnabled: false });
+            const r = await run([early, shown()], 1_000);
+            expect(r.reads).toBe(5);
+            expect(r.last).toEqual(shown());
+            expect(shownFailureVerdict(r.last).status).toBe('PASS');
+            expect(shownFailureVerdict(early).status).toBe('FAIL');
+        });
+        it('"not supported" on the first read ends it at once as FAIL', async () => {
+            const r = await run([shown({ toastTexts: ['This browser is unsupported'] }), shown()]);
+            expect(r.reads).toBe(1);
+            expect(shownFailureVerdict(r.last).status).toBe('FAIL');
+        });
+        it('a card that never states the failure is FAIL at the bound', async () => {
+            const r = await run([shown({ cardText: 'Download Private model' })], 1_000);
+            expect(r.reads).toBe(5);
+            expect(shownFailureVerdict(r.last).status).toBe('FAIL');
+        });
+        it('a read that moves off the attempt mid-window ends it as HOLD, never a pass, even if later reads would look right', async () => {
+            const r = await run([shown(), shown({ sameAttempt: false }), shown()], 1_000);
+            expect(r.reads).toBe(2);
+            expect(shownFailureVerdict(r.last).status).toBe('HOLD');
+        });
+    });
+    describe('shownToastTexts: only text a person can see (Sam, 2026-11-23: never a queued toast at opacity 0)', () => {
+        type Style = { display: string; visibility: string; opacity: string };
+        type Node = { innerText: string; parentElement: Node | null; style: Style };
+        const SHOWN: Style = { display: 'flex', visibility: 'visible', opacity: '1' };
+        const node = (style: Partial<Style> = {}, parentElement: Node | null = null, innerText = ''): Node =>
+            ({ innerText, parentElement, style: { ...SHOWN, ...style } });
+        const texts = (toasts: Node[]) => {
+            vi.stubGlobal('getComputedStyle', (el: Node) => el.style);
+            try { return shownToastTexts(toasts as unknown as Element[]); } finally { vi.unstubAllGlobals(); }
+        };
+        const body = node(); const list = node({}, body);
+        it('CONTROL: hidden stale "not supported" text is not read; the shown toast is', () => {
+            const stale = 'Private mode is not supported in this browser';
+            const read = texts([
+                node({ opacity: '0' }, list, stale), // sonner's queued toast (data-visible=false)
+                node({}, node({ opacity: '0' }, list), stale), // inside a faded-out container
+                node({ visibility: 'hidden' }, list, stale),
+                node({ display: 'none' }, list, stale),
+                node({}, node({ display: 'none' }, body), stale),
+                node({ opacity: '0.4' }, list, 'file was not found locally at /models/x'), // mid-fade is shown
+            ]);
+            expect(read).toEqual(['file was not found locally at /models/x']);
+            expect(shownFailureVerdict(shown({ toastTexts: read })).status).toBe('PASS');
+        });
+        it('CONTROL: a shown "not supported" toast is read, and is FAIL', () => {
+            const read = texts([node({}, list, 'Private mode is not supported in this browser')]);
+            expect(read).toEqual(['Private mode is not supported in this browser']);
+            expect(shownFailureVerdict(shown({ toastTexts: read })).status).toBe('FAIL');
+        });
+        it('no toasts is an empty read, not an unreadable one', () => {
+            expect(texts([])).toEqual([]);
+        });
+        it('runs in the page on its own: it names nothing outside itself', () => {
+            const fn = shownToastTexts.toString();
+            expect(fn).not.toMatch(/NOT_SUPPORTED_WORDING|MODEL_SETUP_FAILED_COPY|shownFailure|import|require\(/);
+        });
+    });
+    it('one row from both verdicts: FAIL over HOLD over PASS, the first of the worst speaking', () => {
+        const pass = { status: 'PASS' as const, detail: 'p' }; const hold = { status: 'HOLD' as const, detail: 'h' };
+        const fail = { status: 'FAIL' as const, detail: 'f' }; const fail2 = { status: 'FAIL' as const, detail: 'f2' };
+        expect(worstVerdict(pass, hold)).toBe(hold);
+        expect(worstVerdict(hold, fail, fail2)).toBe(fail);
+        expect(worstVerdict(pass, { status: 'PASS', detail: 'p2' })).toBe(pass);
+    });
+    it('the copy is MicCard’s own failed-setup line, character for character', () => {
+        const card = readFileSync(path.resolve(here, '../../frontend/src/components/session/MicCard.tsx'), 'utf8');
+        expect(card).toContain(`: modelError ? '${MODEL_SETUP_FAILED_COPY}'`);
+    });
+    it('the journey reads it on the same failed attempt, still offline, before any restore or press; never the telemetry code', () => {
+        const src = aj();
+        const exercised = src.indexOf("if (offlineOutcome.kind !== 'exercised') {");
+        const read = src.indexOf('shown = await readShownFailure(page, pressIndex);', exercised);
+        const restore = src.indexOf('else await context.setOffline(false);', read);
+        const press = src.indexOf('const recovered = await saveRecoveredTake(', restore);
+        for (const [a, b] of [[exercised, read], [read, restore], [restore, press]]) { expect(a).toBeGreaterThan(-1); expect(b).toBeGreaterThan(a); }
+        const fn = src.slice(src.indexOf('async function readShownFailure('), src.indexOf('\n}\n', src.indexOf('async function readShownFailure(')));
+        // Bound to the attempt before AND after the reads, so a log that moved on never binds them.
+        expect(fn.match(/\(await attemptPhaseOf\(page, fromIndex\)\) === 'setup-failed'/g)?.length).toBe(2);
+        expect(fn).toContain("page.getByTestId('mic-card').innerText(");
+        // Sam, 2026-11-23: only toasts actually shown, never queued text at opacity 0.
+        expect(fn).toContain("page.locator('[data-sonner-toast]').evaluateAll(shownToastTexts)");
+        expect(fn).not.toContain('allInnerTexts');
+        expect(fn).toContain("page.getByTestId('mic-retry')");
+        expect(fn).toContain('retry.isEnabled()');
+        expect(fn).not.toMatch(/\.click\(|\.press\(|setOffline|unsupported|acquisition/i);
+        // Sam, 2026-11-23: read for the whole window; only a read that can no longer pass ends it early.
+        expect(fn).toContain('return pollShownFailure(async () => {');
+        expect(fn).toContain('{ budgetMs: SHOWN_FAILURE_MS, sleep: (ms) => page.waitForTimeout(ms) }');
+        expect(fn).not.toMatch(/toastTexts\.length|toastTexts !== null/);
+    });
+    it('the isolated browser proof reads the same way: only shown toasts, through the same poll', () => {
+        const spec = readFileSync(path.resolve(here, '../e2e/j7c-real-worker-isolated.e2e.spec.ts'), 'utf8');
+        expect(spec).toContain("page.locator('[data-sonner-toast]').evaluateAll(shownToastTexts)");
+        expect(spec).not.toContain('allInnerTexts');
+        expect(spec).toContain('const shown = await pollShownFailure(async () => {');
     });
 });
 
@@ -318,57 +519,114 @@ describe('AHT-14 — the page publishes no downloading state: the gate reads wha
         expect(svc).toContain("this.fsm.transition({ type: 'ENGINE_INIT_REQUESTED' });");
     });
     const page = { pct: 40, status: 'loading', runtimeState: 'ENGINE_INITIALIZING' };
-    const inFlight = { openInBody: 1, failedUnderFault: 0 };
-    const idle = { openInBody: 0, failedUnderFault: 0 };
-    it('downloading = published ENGINE_INITIALIZING + counted bytes (any %, 100 included) + a body of this attempt in flight', () => {
-        expect(downloadingNow(page, inFlight)).toBe(true);
-        expect(downloadingNow({ ...page, pct: 100 }, inFlight)).toBe(true); // the aggregator holds 100 while a later file downloads
-        expect(offlineInjectionGate({ ...page, pct: 100 }, inFlight)).toEqual({ inject: true });
-        expect(downloadingNow(page, idle)).toBe(false); // a retained percent with nothing in flight is not a transfer
-        expect(offlineInjectionGate(page, idle)).toEqual({ inject: false, reason: expect.stringMatching(/no model response of this attempt had its body in flight/) });
-        expect(offlineInjectionGate(page, null).inject).toBe(false); // unobservable transfer: never injected
-        for (const pct of [0, null]) expect(offlineInjectionGate({ ...page, pct }, inFlight).inject).toBe(false);
-        expect(downloadingNow({ ...page, status: 'ready' }, inFlight)).toBe(false);
+    const between: BetweenFilesSnapshot = { finished: 1, failedUnderFault: 0, held: 'pending' };
+    it('the gate: published setup + counted bytes (any %, 100 included) + one finished file + the next held, unsent', () => {
+        expect(betweenFilesGate(page, between)).toEqual({ inject: true });
+        expect(betweenFilesGate({ ...page, pct: 100 }, between)).toEqual({ inject: true }); // the aggregator holds 100 between files
+        expect(betweenFilesGate(page, { ...between, finished: 4 })).toEqual({ inject: true });
+    });
+    it('each missing piece is refused, with its own reason, in order', () => {
+        expect(betweenFilesGate(null, between)).toEqual({ inject: false, reason: 'the page state was unreadable' });
+        expect(betweenFilesGate({ ...page, runtimeState: 'READY' }, between))
+            .toEqual({ inject: false, reason: 'the runtime state was READY, not ENGINE_INITIALIZING' });
+        for (const pct of [0, null]) expect(betweenFilesGate({ ...page, pct }, between)).toEqual({ inject: false, reason: 'no model bytes were counted yet' });
+        expect(betweenFilesGate({ ...page, status: 'ready' }, between).inject).toBe(false);
+        expect(betweenFilesGate(page, null)).toEqual({ inject: false, reason: 'no model file of this attempt had finished' });
+        expect(betweenFilesGate(page, { ...between, finished: 0 })).toEqual({ inject: false, reason: 'no model file of this attempt had finished' });
+        for (const held of ['none', 'unseen', 'finished', 'failed'] as const) {
+            expect(betweenFilesGate(page, { ...between, held }))
+                .toEqual({ inject: false, reason: 'no next model file of this attempt was held at the start of its request' });
+        }
     });
     it('the run 43740031821 shape is refused (model `ready` while RECORDING), and every other published state', () => {
-        expect(offlineInjectionGate({ pct: null, status: 'ready', runtimeState: 'RECORDING' }, inFlight))
+        expect(betweenFilesGate({ pct: null, status: 'ready', runtimeState: 'RECORDING' }, between))
             .toEqual({ inject: false, reason: expect.stringMatching(/runtime state was RECORDING, not ENGINE_INITIALIZING/) });
         for (const runtimeState of ['IDLE', 'INITIATING', 'DOWNLOAD_REQUIRED', 'READY', 'STOPPING', 'FAILED', 'FAILED_VISIBLE', 'TERMINATED', 'DOWNLOADING', null]) {
-            expect(offlineInjectionGate({ ...page, runtimeState }, inFlight).inject).toBe(false);
+            expect(betweenFilesGate({ ...page, runtimeState }, between).inject).toBe(false);
         }
-        expect(offlineInjectionGate({ pct: 40, status: 'loading' }, inFlight).inject).toBe(false); // no runtime read: never assumed
-        expect(offlineInjectionGate(null, inFlight)).toEqual({ inject: false, reason: 'the page state was unreadable' });
+        expect(betweenFilesGate({ pct: 40, status: 'loading' }, between).inject).toBe(false); // no runtime read: never assumed
     });
 });
 
-describe('AHT-14 — ModelTransferTracker: a body in flight is a started response that has not finished or failed', () => {
-    it('only this attempt\'s model-asset requests count; started → in flight; finished or failed → not; failures count only under the fault', () => {
+describe('J7.c option B — ModelTransferTracker: this attempt\'s model requests, from the network', () => {
+    it('only this attempt\'s model requests count; finished files are counted once; failures count only under the fault', () => {
         const t = new ModelTransferTracker<object>();
-        const before = {}; t.onRequest(before, 'https://x.test/models/whisper-base.en/a.onnx'); t.onResponse(before);
-        expect(t.snapshot()).toEqual({ openInBody: 0, failedUnderFault: 0 }); // before the press: not this attempt
+        const before = {}; t.onRequest(before, 'https://x.test/models/whisper-base.en/a.onnx'); t.onFinished(before);
+        expect(t.snapshot()).toEqual({ finished: 0, failedUnderFault: 0 }); // before the press: not this attempt
+        expect(t.stateOf(before)).toBe('none');
         t.startAttempt();
-        const a = {}; const b = {}; const other = {};
-        t.onRequest(a, 'https://x.test/models/whisper-base.en/encoder.onnx');
-        t.onRequest(other, 'https://x.test/api/thing'); t.onResponse(other);
-        expect(t.snapshot().openInBody).toBe(0); // requested, no response yet: no body in flight
-        t.onResponse(a);
-        expect(t.snapshot().openInBody).toBe(1);
+        const a = {}; const b = {}; const c = {}; const other = {};
+        t.onRequest(a, 'https://x.test/models/whisper-base.en/config.json');
+        t.onRequest(other, 'https://x.test/api/thing'); t.onFinished(other);
+        expect(t.stateOf(a)).toBe('pending');
+        expect(t.stateOf(other)).toBe('none');
+        expect(t.stateOf(null)).toBe('none');
+        expect(t.snapshot().finished).toBe(0);
         t.onFinished(a);
-        expect(t.snapshot().openInBody).toBe(0); // between sequential files
-        t.onRequest(b, 'https://x.test/models/whisper-base.en/decoder.onnx'); t.onResponse(b);
-        expect(t.snapshot().openInBody).toBe(1);
-        t.onFailed(b);
-        expect(t.snapshot()).toEqual({ openInBody: 0, failedUnderFault: 0 }); // failed before the fault: not the fault's
-        const c = {}; t.onRequest(c, 'https://x.test/models/whisper-base.en/c.onnx'); t.onResponse(c);
-        t.armFault(); t.onFailed(c);
-        expect(t.snapshot()).toEqual({ openInBody: 0, failedUnderFault: 1 });
+        expect(t.stateOf(a)).toBe('finished');
+        expect(t.snapshot()).toEqual({ finished: 1, failedUnderFault: 0 });
+        t.onFinished(a); // a repeated event never counts twice
+        expect(t.snapshot().finished).toBe(1);
+        t.onRequest(b, 'https://x.test/models/whisper-base.en/onnx/encoder_model.onnx'); t.onFailed(b);
+        expect(t.stateOf(b)).toBe('failed');
+        expect(t.snapshot()).toEqual({ finished: 1, failedUnderFault: 0 }); // failed before the fault: not the fault's
+        t.onRequest(c, 'https://x.test/models/whisper-base.en/onnx/decoder_model_merged.onnx');
+        t.armFault(); t.onFailed(c); t.onFailed(c);
+        expect(t.snapshot()).toEqual({ finished: 1, failedUnderFault: 1 });
         t.disarm();
-        const d = {}; t.onRequest(d, 'https://x.test/models/whisper-base.en/d.onnx'); t.onResponse(d);
-        expect(t.snapshot().openInBody).toBe(0); // after the cause is removed: not this attempt's window
+        const d = {}; t.onRequest(d, 'https://x.test/models/whisper-base.en/d.onnx');
+        expect(t.stateOf(d)).toBe('none'); // after the cause is removed: not this attempt's window
     });
 });
 
-describe('AHT-14 — with the REAL publisher: sequential assets and stale progress (Sam, #1868 on 887a76f6)', () => {
+describe('J7.c option B — BetweenFilesHold: the next model file, held at its start until released', () => {
+    const sentBy = (sent: string[]) => (name: string) => async () => { sent.push(name); };
+    it('lets everything through until one file of this attempt finished; then holds exactly one model request, unsent, until release', async () => {
+        const sent: string[] = []; const go = sentBy(sent);
+        const h = new BetweenFilesHold<object>();
+        await h.onRoute({}, 'https://x.test/models/a.onnx', 3, go('before-press')); // before the press: never held
+        h.startAttempt();
+        await h.onRoute({}, 'https://x.test/models/config.json', 0, go('first')); // nothing finished yet
+        await h.onRoute({}, 'https://x.test/api/thing', 1, go('api')); // not a model file
+        expect(h.held()).toBeNull();
+        const next = {};
+        const handler = h.onRoute(next, 'https://x.test/models/onnx/encoder_model.onnx', 1, go('next'));
+        expect(h.held()).toBe(next);
+        await h.onRoute({}, 'https://x.test/models/onnx/decoder_model_merged.onnx', 1, go('later')); // only one is ever held
+        expect(sent).toEqual(['before-press', 'first', 'api', 'later']);
+        expect(await h.release()).toBe(true);
+        await handler; // the route handler settles once the held request has been sent
+        expect(sent).toEqual(['before-press', 'first', 'api', 'later', 'next']);
+        expect(await h.release()).toBe(false); // sent once
+        expect(h.held()).toBe(next); // still the request the gate judged
+    });
+    it('release with nothing held is false; releaseAll sends a held request and holds nothing more', async () => {
+        const sent: string[] = []; const go = sentBy(sent);
+        const idle = new BetweenFilesHold<object>();
+        expect(await idle.release()).toBe(false);
+        await idle.releaseAll();
+        const h = new BetweenFilesHold<object>();
+        h.startAttempt();
+        const handler = h.onRoute({}, 'https://x.test/models/b.onnx', 1, go('held'));
+        await h.releaseAll();
+        await handler;
+        expect(sent).toEqual(['held']);
+        const late = new BetweenFilesHold<object>();
+        late.startAttempt(); await late.releaseAll();
+        await late.onRoute({}, 'https://x.test/models/c.onnx', 2, go('after-finalization')); // finalization closed the attempt
+        expect(late.held()).toBeNull();
+        expect(sent).toEqual(['held', 'after-finalization']);
+    });
+    it('a continue that throws (the page or route already gone) is reported as not sent, and the route handler still settles', async () => {
+        const h = new BetweenFilesHold<object>();
+        h.startAttempt();
+        const handler = h.onRoute({}, 'https://x.test/models/b.onnx', 1, async () => { throw new Error('Target page, context or browser has been closed'); });
+        expect(await h.release()).toBe(false);
+        await expect(handler).resolves.toBeUndefined();
+    });
+});
+
+describe('J7.c option B — with the REAL publisher: sequential files and stale progress (Sam, #1868 on 887a76f6)', () => {
     // The product's own aggregator, fed per-file events in the order transformers.js reports them.
     const pctAfter = (events: Parameters<ReturnType<typeof createProgressAggregator>>[0][]) => {
         const agg = createProgressAggregator(); let last: number | null = null;
@@ -376,26 +634,20 @@ describe('AHT-14 — with the REAL publisher: sequential assets and stale progre
         return last;
     };
     const encoderDone = [{ file: 'encoder_model.onnx', loaded: 0, total: 100, status: 'progress' }, { file: 'encoder_model.onnx', loaded: 100, total: 100, status: 'done' }];
-    const decoderHalf = [{ file: 'decoder_model_merged.onnx', loaded: 0, total: 300, status: 'progress' }, { file: 'decoder_model_merged.onnx', loaded: 150, total: 300, status: 'progress' }];
-    it('sequential assets: the publisher shows 100 % while the second file is half downloaded — the gate still injects, from the network', () => {
-        const pct = pctAfter([...encoderDone, ...decoderHalf]);
-        expect(pct).toBe(100); // the real aggregator holds 100 mid-transfer
-        const read = { pct, status: 'loading', runtimeState: 'ENGINE_INITIALIZING' };
-        expect(offlineInjectionGate(read, { openInBody: 1, failedUnderFault: 0 })).toEqual({ inject: true });
-    });
-    it('sequential assets: between files (first done, second not started) the publisher shows 100 % and nothing is in flight — refused', () => {
+    it('between files the publisher shows 100 % (first file done, next not started): the gate injects from the network, not the percent', () => {
         const pct = pctAfter(encoderDone);
         expect(pct).toBe(100);
-        expect(offlineInjectionGate({ pct, status: 'loading', runtimeState: 'ENGINE_INITIALIZING' }, { openInBody: 0, failedUnderFault: 0 }).inject).toBe(false);
+        const read = { pct, status: 'loading', runtimeState: 'ENGINE_INITIALIZING' };
+        expect(betweenFilesGate(read, { finished: 1, failedUnderFault: 0, held: 'pending' })).toEqual({ inject: true });
+        // The same 100 % with no file finished on the network, or nothing held, is refused.
+        expect(betweenFilesGate(read, { finished: 0, failedUnderFault: 0, held: 'pending' }).inject).toBe(false);
+        expect(betweenFilesGate(read, { finished: 1, failedUnderFault: 0, held: 'none' }).inject).toBe(false);
     });
-    it('stale progress: the publisher stops at a mid value with no body in flight (finished or stalled) — refused; under the fault it restores', async () => {
+    it('stale progress mid-file (40 %) with no file of this attempt finished: refused', () => {
         const pct = pctAfter([{ file: 'encoder_model.onnx', loaded: 0, total: 100, status: 'progress' }, { file: 'encoder_model.onnx', loaded: 40, total: 100, status: 'progress' }]);
         expect(pct).toBe(40);
-        expect(offlineInjectionGate({ pct, status: 'loading', runtimeState: 'ENGINE_INITIALIZING' }, { openInBody: 0, failedUnderFault: 0 }).inject).toBe(false);
-        // Offline while in flight, then the body completes during setOffline(true) with the percent left stale at 40: restored.
-        const t = scriptedIo({ pct, onOffline: { openInBody: 0 } });
-        expect(await runOfflineFault(t.io, { pct, status: 'loading', runtimeState: 'ENGINE_INITIALIZING' }, bound))
-            .toMatchObject({ kind: 'not-exercised', restored: true, reason: expect.stringMatching(/transfer ended before the fault reached it/) });
+        expect(betweenFilesGate({ pct, status: 'loading', runtimeState: 'ENGINE_INITIALIZING' }, { finished: 0, failedUnderFault: 0, held: 'none' }))
+            .toEqual({ inject: false, reason: 'no model file of this attempt had finished' });
     });
 });
 
@@ -413,6 +665,13 @@ describe('AHT-14 — attemptPhase: one attempt, from its complete PUBLISHED runt
     it('a recording anywhere in the attempt is `recorded`, whatever came after (the run 43740031821 shape)', () => {
         expect(attemptPhase(log('IDLE', 'ENGINE_INITIALIZING', 'READY', 'RECORDING', 'FAILED'), 0)).toBe('recorded');
         expect(attemptPhase(log('ENGINE_INITIALIZING', 'STOPPING'), 0)).toBe('recorded');
+        // Elon's isolated real-worker run (J7.c, 2026-11-22): after a visible setup failure the product tears down through
+        // STOPPING with no RECORDING ever. That teardown is not a take: the attempt is still this setup's failure.
+        expect(attemptPhase(log('INITIATING', 'INITIATING', 'IDLE', 'ENGINE_INITIALIZING', 'ENGINE_INITIALIZING', 'IDLE', 'ENGINE_INITIALIZING',
+            'FAILED', 'FAILED', 'FAILED_VISIBLE', 'FAILED_VISIBLE', 'FAILED_VISIBLE', 'IDLE', 'STOPPING', 'TERMINATED', 'IDLE'), 0)).toBe('setup-failed');
+        // A stop BEFORE the failure stays conservative (possibly a take), and any RECORDING is always recorded.
+        expect(attemptPhase(log('ENGINE_INITIALIZING', 'STOPPING', 'FAILED'), 0)).toBe('recorded');
+        expect(attemptPhase(log('ENGINE_INITIALIZING', 'FAILED', 'RECORDING', 'STOPPING'), 0)).toBe('recorded');
     });
     it('left setup without failing: READY, or IDLE / TERMINATED after it; nothing decisive is pre-setup', () => {
         expect(attemptPhase(log('ENGINE_INITIALIZING', 'READY'), 0)).toBe('left-setup');
@@ -429,23 +688,27 @@ describe('AHT-14 — attemptPhase: one attempt, from its complete PUBLISHED runt
 });
 
 /**
- * A scripted page: the published runtime log, this attempt's network transfer, the network, and hooks that change them at exact
- * points of the controller's sequence (during `setOffline(true)`, during `setOffline(false)`, or right after the n-th phase read).
+ * A scripted page: the published runtime log, this attempt's model files (finished, failed under the fault, the held next file),
+ * the network, and hooks that change them at exact points of the controller's sequence (during `setOffline(true)`, when the
+ * held file is sent, during `setOffline(false)`, or right after the n-th phase read).
  */
-type Step = { states?: string[]; openInBody?: number; failedUnderFault?: number };
+type Step = { states?: string[]; held?: BetweenFilesSnapshot['held']; finished?: number; failedUnderFault?: number };
+const gateOk: ModelBytesRead = { pct: 100, status: 'loading', runtimeState: 'ENGINE_INITIALIZING' };
 function scriptedIo(o: {
-    states?: string[]; pct?: number | null; openInBody?: number; onOffline?: Step; onRestore?: Step; afterRead?: Record<number, Step>;
-    offlineRejects?: boolean; restoreRejects?: boolean; onlineAfterRestore?: boolean | null; observed?: boolean;
+    states?: string[]; read?: ModelBytesRead | null; files?: Partial<BetweenFilesSnapshot>; onOffline?: Step; onRelease?: Step;
+    onRestore?: Step; afterRead?: Record<number, Step>; offlineRejects?: boolean; restoreRejects?: boolean; releaseFails?: boolean;
+    onlineAfterRestore?: boolean | null; observed?: boolean;
 }) {
     const states = [...(o.states ?? ['IDLE', 'ENGINE_INITIALIZING'])];
-    const transfer = { openInBody: o.openInBody ?? 1, failedUnderFault: 0 };
+    const files: BetweenFilesSnapshot = { finished: 1, failedUnderFault: 0, held: 'pending', ...o.files };
     const calls: string[] = [];
     let offline = false; let reads = 0; let clock = 0;
     const apply = (step?: Step) => {
         if (!step) return;
         states.push(...(step.states ?? []));
-        if (step.openInBody !== undefined) transfer.openInBody = step.openInBody;
-        if (step.failedUnderFault !== undefined) transfer.failedUnderFault = step.failedUnderFault;
+        if (step.held !== undefined) files.held = step.held;
+        if (step.finished !== undefined) files.finished = step.finished;
+        if (step.failedUnderFault !== undefined) files.failedUnderFault = step.failedUnderFault;
     };
     const io: OfflineFaultIo = {
         setOffline: async (on) => {
@@ -462,7 +725,14 @@ function scriptedIo(o: {
             apply(o.afterRead?.[reads]);
             return p;
         },
-        transfer: () => { calls.push('transfer'); return { ...transfer }; },
+        files: () => { calls.push('files'); return { ...files }; },
+        read: async () => { calls.push('read'); return o.read === undefined ? gateOk : o.read; },
+        release: async () => {
+            calls.push('release');
+            if (o.releaseFails || files.held === 'none') return false;
+            apply(o.onRelease);
+            return true;
+        },
         isOnline: async () => (offline ? false : (o.onlineAfterRestore === undefined ? true : o.onlineAfterRestore)),
         armFault: () => { calls.push('arm'); },
         disarmFault: () => { calls.push('disarm'); },
@@ -471,97 +741,140 @@ function scriptedIo(o: {
     };
     return { io, calls, isOffline: () => offline };
 }
-const bound = { boundMs: 1_000, pollMs: 50 };
-const gateOk = { pct: 40, status: 'loading', runtimeState: 'ENGINE_INITIALIZING' };
+const bound = { holdBoundMs: 1_000, boundMs: 1_000, pollMs: 50 };
 const notExercised = (o: OfflineFaultOutcome) => offlineNotExercisedVerdict(o as Exclude<OfflineFaultOutcome, { kind: 'exercised' }>);
+const neverOffline = (calls: string[]) => { expect(calls).not.toContain('setOffline(true)'); expect(calls).not.toContain('arm'); };
 
-describe('AHT-14 — runOfflineFault: deterministic interleavings (Sam, #1868 HOLDs; Codex P1 on df4db146)', () => {
-    it('gate refused: the browser is never taken offline; not exercised; HOLD', async () => {
-        const t = scriptedIo({});
-        const out = await runOfflineFault(t.io, { pct: null, status: 'ready', runtimeState: 'RECORDING' }, bound);
-        expect(out.kind).toBe('not-exercised');
-        expect(t.calls).not.toContain('setOffline(true)');
-        expect(notExercised(out).status).toBe('HOLD');
-        const idle = scriptedIo({ openInBody: 0 });
-        expect((await runOfflineFault(idle.io, gateOk, bound)).kind).toBe('not-exercised');
-        expect(idle.calls).not.toContain('setOffline(true)');
-    });
-    it('the attempt log contradicts the gate snapshot (already recorded): fail closed without going offline', async () => {
-        const t = scriptedIo({ states: ['ENGINE_INITIALIZING', 'READY', 'RECORDING'] });
-        expect(await runOfflineFault(t.io, gateOk, bound)).toMatchObject({ kind: 'fail-closed', reason: expect.stringMatching(/recorded before going offline/) });
-        expect(t.calls).not.toContain('setOffline(true)');
-    });
-    it('exercised: the in-flight body fails under the fault, then the setup fails from this attempt; armed before offline; left offline', async () => {
-        const t = scriptedIo({ onOffline: { openInBody: 0, failedUnderFault: 1 }, afterRead: { 3: { states: ['FAILED'] } } });
-        expect(await runOfflineFault(t.io, gateOk, bound)).toEqual({ kind: 'exercised', settled: true });
-        expect(t.calls.indexOf('arm')).toBeLessThan(t.calls.indexOf('setOffline(true)'));
+describe('J7.c option B — runBetweenFilesFault: deterministic interleavings', () => {
+    it('exercised: waits for the next file to be held, gates, arms, goes offline, and only THEN sends the held file; left offline', async () => {
+        const t = scriptedIo({ files: { held: 'none', finished: 0 }, afterRead: { 2: { held: 'pending', finished: 1 } },
+            onRelease: { held: 'failed', failedUnderFault: 1, states: ['FAILED'] } });
+        const run = await runBetweenFilesFault(t.io, bound);
+        expect(run).toEqual({ outcome: { kind: 'exercised', settled: true }, gateRead: gateOk, gateFiles: { finished: 1, failedUnderFault: 0, held: 'pending' } });
+        const arm = t.calls.indexOf('arm'); const off = t.calls.indexOf('setOffline(true)'); const send = t.calls.indexOf('release');
+        expect(t.calls.indexOf('read')).toBeLessThan(arm);
+        expect(arm).toBeLessThan(off);
+        expect(off).toBeLessThan(send);
+        expect(t.calls.filter((c) => c === 'release')).toHaveLength(1);
         expect(t.calls).not.toContain('setOffline(false)');
         expect(t.isOffline()).toBe(true);
     });
-    it('the body COMPLETES during setOffline(true) (no failure under the fault): restored at once, online proven → HOLD', async () => {
-        const t = scriptedIo({ onOffline: { openInBody: 0 } });
-        const out = await runOfflineFault(t.io, gateOk, bound);
-        expect(out).toMatchObject({ kind: 'not-exercised', restored: true });
-        const offlineAt = t.calls.indexOf('setOffline(true)');
-        // The very next read restores (after one log re-read that could only turn it into exercised or fail-closed).
-        expect(t.calls.slice(offlineAt + 1, offlineAt + 5)).toEqual(['phase', 'transfer', 'phase', 'setOffline(false)']);
+    it('no next file is held within the bound: never offline; not exercised; HOLD', async () => {
+        const t = scriptedIo({ files: { held: 'none' } });
+        const run = await runBetweenFilesFault(t.io, bound);
+        expect(run.outcome).toEqual({ kind: 'not-exercised', reason: 'no model file of this attempt was requested after one had finished, within the bound', restored: true });
+        expect(run.gateFiles).toBeNull();
+        neverOffline(t.calls);
+        expect(notExercised(run.outcome).status).toBe('HOLD');
+    });
+    it('a held request the network never showed as this attempt\'s (unseen) is waited on, never gated or taken offline', async () => {
+        const t = scriptedIo({ files: { held: 'unseen' } });
+        expect((await runBetweenFilesFault(t.io, bound)).outcome.kind).toBe('not-exercised');
+        expect(t.calls).not.toContain('read');
+        neverOffline(t.calls);
+    });
+    it('before any file is held: a recording, a lost log or an unattributed failure fails closed; a setup that ended is not exercised', async () => {
+        const rec = scriptedIo({ files: { held: 'none' }, states: ['ENGINE_INITIALIZING', 'READY', 'RECORDING'] });
+        expect((await runBetweenFilesFault(rec.io, bound)).outcome)
+            .toMatchObject({ kind: 'fail-closed', reason: expect.stringMatching(/recorded before any next model file was held/) });
+        neverOffline(rec.calls);
+        expect((await runBetweenFilesFault(scriptedIo({ files: { held: 'none' }, observed: false }).io, bound)).outcome.kind).toBe('fail-closed');
+        expect((await runBetweenFilesFault(scriptedIo({ files: { held: 'none' }, states: ['IDLE', 'FAILED'] }).io, bound)).outcome.kind).toBe('fail-closed');
+        expect((await runBetweenFilesFault(scriptedIo({ files: { held: 'none' }, states: ['ENGINE_INITIALIZING', 'FAILED'] }).io, bound)).outcome)
+            .toMatchObject({ kind: 'not-exercised', reason: expect.stringMatching(/setup-failed before any next model file was held/) });
+        expect((await runBetweenFilesFault(scriptedIo({ files: { held: 'none' }, states: ['ENGINE_INITIALIZING', 'READY'] }).io, bound)).outcome.kind).toBe('not-exercised');
+    });
+    it('gate refused, for each reason: the held file is sent on, online; never offline; the gate inputs are returned', async () => {
+        const cases: [Parameters<typeof scriptedIo>[0], string][] = [
+            [{ read: null }, 'the page state was unreadable'],
+            [{ read: { ...gateOk, runtimeState: 'RECORDING' } }, 'the runtime state was RECORDING, not ENGINE_INITIALIZING'],
+            [{ read: { ...gateOk, pct: 0 } }, 'no model bytes were counted yet'],
+            [{ files: { finished: 0 } }, 'no model file of this attempt had finished'],
+            [{ files: { held: 'finished' } }, 'no next model file of this attempt was held at the start of its request'],
+        ];
+        for (const [setup, reason] of cases) {
+            const t = scriptedIo(setup);
+            const run = await runBetweenFilesFault(t.io, bound);
+            expect(run.outcome).toEqual({ kind: 'not-exercised', reason, restored: true });
+            expect(run.gateFiles).not.toBeNull();
+            expect(t.calls).toContain('release');
+            neverOffline(t.calls);
+        }
+    });
+    it('the attempt log contradicts the gate (already recorded): fail closed, held file sent on, never offline', async () => {
+        const t = scriptedIo({ states: ['ENGINE_INITIALIZING', 'READY', 'RECORDING'] });
+        expect((await runBetweenFilesFault(t.io, bound)).outcome)
+            .toMatchObject({ kind: 'fail-closed', reason: expect.stringMatching(/recorded before going offline/) });
+        expect(t.calls).toContain('release');
+        neverOffline(t.calls);
+    });
+    it('the held file DOWNLOADS although offline (no failure under the fault): restored at once, online proven → HOLD', async () => {
+        const t = scriptedIo({ onRelease: { held: 'finished', finished: 2 } });
+        const { outcome } = await runBetweenFilesFault(t.io, bound);
+        expect(outcome).toMatchObject({ kind: 'not-exercised', restored: true, reason: expect.stringMatching(/downloaded although the browser was offline/) });
         expect(t.isOffline()).toBe(false);
-        expect(notExercised(out).status).toBe('HOLD');
+        expect(notExercised(outcome).status).toBe('HOLD');
     });
-    it('straight into a recording DURING setOffline(true): restored, and FAIL closed', async () => {
-        const t = scriptedIo({ onOffline: { states: ['READY', 'RECORDING'], openInBody: 0 } });
-        const out = await runOfflineFault(t.io, gateOk, bound);
-        expect(out).toMatchObject({ kind: 'fail-closed', restored: true, reason: expect.stringMatching(/recorded under the fault/) });
+    it('the log reaches the setup failure between the phase read and a finished held file: exercised, not a benign miss', async () => {
+        // Phase reads: 1 at the gate, 2 in the first poll (then FAILED lands), 3 the re-read for the finished held file.
+        const t = scriptedIo({ onRelease: { held: 'finished' }, afterRead: { 2: { states: ['FAILED'] } } });
+        expect((await runBetweenFilesFault(t.io, bound)).outcome).toEqual({ kind: 'exercised', settled: true });
+        expect(t.calls).not.toContain('setOffline(false)');
+    });
+    it('straight into a recording under the fault: restored, and FAIL closed', async () => {
+        const t = scriptedIo({ onOffline: { states: ['READY', 'RECORDING'] } });
+        const { outcome } = await runBetweenFilesFault(t.io, bound);
+        expect(outcome).toMatchObject({ kind: 'fail-closed', restored: true, reason: expect.stringMatching(/recorded under the fault/) });
         expect(t.isOffline()).toBe(false);
-        expect(notExercised(out).status).toBe('FAIL');
+        expect(notExercised(outcome).status).toBe('FAIL');
     });
-    it('JUST AFTER a landing read (read says in setup, then a recording starts): the next read restores and FAILs closed', async () => {
-        const t = scriptedIo({ afterRead: { 2: { states: ['READY', 'RECORDING'], openInBody: 0 } } });
-        expect(await runOfflineFault(t.io, gateOk, bound)).toMatchObject({ kind: 'fail-closed', restored: true });
-        const offlineAt = t.calls.indexOf('setOffline(true)');
-        expect(t.calls.slice(offlineAt + 1)).toEqual(['phase', 'transfer', 'phase', 'setOffline(false)', 'disarm']);
-    });
-    it('just after a landing read the body completes, and the recording starts while the network comes back: FAIL closed', async () => {
-        const t = scriptedIo({ afterRead: { 2: { openInBody: 0 } }, onRestore: { states: ['READY', 'RECORDING'] } });
-        expect(await runOfflineFault(t.io, gateOk, bound))
+    it('a benign miss whose recording starts while the network comes back: FAIL closed', async () => {
+        const t = scriptedIo({ onRelease: { held: 'finished' }, onRestore: { states: ['READY', 'RECORDING'] } });
+        expect((await runBetweenFilesFault(t.io, bound)).outcome)
             .toMatchObject({ kind: 'fail-closed', restored: true, reason: expect.stringMatching(/recorded when the network came back/) });
     });
     it('the engine became READY under the fault (no recording yet): restored with online proven → HOLD', async () => {
-        expect(await runOfflineFault(scriptedIo({ afterRead: { 2: { states: ['READY'] } } }).io, gateOk, bound))
+        expect((await runBetweenFilesFault(scriptedIo({ onOffline: { states: ['READY'] } }).io, bound)).outcome)
             .toMatchObject({ kind: 'not-exercised', restored: true });
     });
     it('restoration not proven (the page does not report itself online, or the restore rejects): FAIL closed', async () => {
-        expect(await runOfflineFault(scriptedIo({ onOffline: { openInBody: 0 }, onlineAfterRestore: false }).io, gateOk, bound)).toMatchObject({ kind: 'fail-closed', restored: false });
-        expect(await runOfflineFault(scriptedIo({ onOffline: { openInBody: 0 }, restoreRejects: true }).io, gateOk, bound)).toMatchObject({ kind: 'fail-closed', restored: false });
+        expect((await runBetweenFilesFault(scriptedIo({ onRelease: { held: 'finished' }, onlineAfterRestore: false }).io, bound)).outcome)
+            .toMatchObject({ kind: 'fail-closed', restored: false });
+        expect((await runBetweenFilesFault(scriptedIo({ onRelease: { held: 'finished' }, restoreRejects: true }).io, bound)).outcome)
+            .toMatchObject({ kind: 'fail-closed', restored: false });
     });
-    it('going offline fails: restored and not exercised when online is proven; FAIL closed otherwise', async () => {
-        expect(await runOfflineFault(scriptedIo({ offlineRejects: true }).io, gateOk, bound)).toMatchObject({ kind: 'not-exercised', restored: true });
-        expect(await runOfflineFault(scriptedIo({ offlineRejects: true, onlineAfterRestore: null }).io, gateOk, bound)).toMatchObject({ kind: 'fail-closed', restored: false });
+    it('going offline fails: restored, then the held file is sent; not exercised when online is proven, FAIL closed otherwise', async () => {
+        const t = scriptedIo({ offlineRejects: true });
+        expect((await runBetweenFilesFault(t.io, bound)).outcome).toMatchObject({ kind: 'not-exercised', restored: true });
+        expect(t.calls.indexOf('release')).toBeGreaterThan(t.calls.indexOf('setOffline(false)'));
+        expect((await runBetweenFilesFault(scriptedIo({ offlineRejects: true, onlineAfterRestore: null }).io, bound)).outcome)
+            .toMatchObject({ kind: 'fail-closed', restored: false });
+    });
+    it('the held file cannot be sent once offline: restored; not exercised with online proven', async () => {
+        const t = scriptedIo({ releaseFails: true });
+        expect((await runBetweenFilesFault(t.io, bound)).outcome)
+            .toMatchObject({ kind: 'not-exercised', restored: true, reason: expect.stringMatching(/could not be sent/) });
+        expect(t.isOffline()).toBe(false);
     });
     it('a failure not bound to this attempt, or a lost log, under the fault: restored and FAIL closed', async () => {
         const lost = scriptedIo({});
         lost.io.phase = (() => { let n = 0; return async () => (++n === 1 ? 'in-setup' : 'unobserved'); })();
-        expect(await runOfflineFault(lost.io, gateOk, bound)).toMatchObject({ kind: 'fail-closed', reason: expect.stringMatching(/unobserved under the fault/) });
+        expect((await runBetweenFilesFault(lost.io, bound)).outcome)
+            .toMatchObject({ kind: 'fail-closed', restored: true, reason: expect.stringMatching(/unobserved under the fault/) });
         const foreign = scriptedIo({});
         foreign.io.phase = (() => { let n = 0; return async () => (++n === 1 ? 'in-setup' : 'unattributed-failure'); })();
-        expect(await runOfflineFault(foreign.io, gateOk, bound)).toMatchObject({ kind: 'fail-closed', restored: true });
+        expect((await runBetweenFilesFault(foreign.io, bound)).outcome).toMatchObject({ kind: 'fail-closed', restored: true });
     });
-    it('GAP (Sam on 481ae722): the body finishes while the pre-offline phase read is awaited → re-checked, never taken offline', async () => {
-        const t = scriptedIo({ afterRead: { 1: { openInBody: 0 } } }); // the gate saw a body; it ends during the first (awaited) phase read
-        const out = await runOfflineFault(t.io, gateOk, bound);
-        expect(out).toEqual({ kind: 'not-exercised', reason: 'the transfer ended between the gate and going offline', restored: true });
-        expect(t.calls).not.toContain('setOffline(true)');
-        expect(t.calls).not.toContain('arm');
-        // The re-check is the last thing before arming: phase, transfer, then arm and offline (nothing awaited in between).
-        const ok = scriptedIo({});
-        await runOfflineFault(ok.io, gateOk, bound);
-        expect(ok.calls.slice(0, 5)).toEqual(['transfer', 'phase', 'transfer', 'arm', 'setOffline(true)']);
-    });
-    it('the fault reached the transfer but the setup has not failed by the bound: exercised, unsettled; the poll sleeps', async () => {
-        const t = scriptedIo({ onOffline: { openInBody: 0, failedUnderFault: 1 } });
-        expect(await runOfflineFault(t.io, gateOk, bound)).toEqual({ kind: 'exercised', settled: false });
+    it('the held file failed under the fault but the setup has not failed by the bound: exercised, unsettled; stays offline; polls', async () => {
+        const t = scriptedIo({ onRelease: { held: 'failed', failedUnderFault: 1 } });
+        expect((await runBetweenFilesFault(t.io, bound)).outcome).toEqual({ kind: 'exercised', settled: false });
         expect(t.calls.filter((c) => c === 'phase').length).toBe(1 + bound.boundMs / bound.pollMs + 1);
         expect(t.calls).not.toContain('setOffline(false)');
+    });
+    it('nothing failed under the fault by the bound (the held file still pending): restored → HOLD', async () => {
+        const t = scriptedIo({});
+        expect((await runBetweenFilesFault(t.io, bound)).outcome)
+            .toMatchObject({ kind: 'not-exercised', restored: true, reason: expect.stringMatching(/no model request of this attempt failed under the fault within the bound/) });
     });
 });
 
@@ -624,12 +937,11 @@ describe('AHT-14 — the cold take is judged from the attempt, never "nothing to
         const src = aj();
         const index = src.indexOf('pressIndex = (await page.evaluate(readRuntimeStateLog)');
         const press = src.indexOf("await pressCaptureControl(page, ['mic-download'], { beforeClick: () => gate.confirm() });", index);
-        const gate = src.indexOf('atOffline = await waitForTransfer(page, () => transfer.snapshot());', press);
-        const run = src.indexOf('const offlineOutcome = await runOfflineFault({', gate);
-        for (const [a, b] of [[index, press], [press, gate], [gate, run]]) { expect(a).toBeGreaterThan(-1); expect(b).toBeGreaterThan(a); }
+        const run = src.indexOf('const run = await runBetweenFilesFault({', press);
+        const outcome = src.indexOf('const offlineOutcome = run.outcome;', run);
+        for (const [a, b] of [[index, press], [press, run], [run, outcome]]) { expect(a).toBeGreaterThan(-1); expect(b).toBeGreaterThan(a); }
         expect(src).toContain('phase: () => attemptPhaseOf(page, pressIndex),');
-        expect(src).toContain('transfer: () => transfer.snapshot(),');
-        expect(src).toContain("context.on('response', (r) => transfer.onResponse(r.request()));");
+        expect(src).toContain("context.on('request', (r) => transfer.onRequest(r, r.url()));");
         expect(src).toContain("context.on('requestfinished', (r) => transfer.onFinished(r));");
         expect(src).toContain("context.on('requestfailed', (r) => transfer.onFailed(r));");
         expect(src.indexOf('transfer.startAttempt();')).toBeLessThan(src.indexOf("await pressCaptureControl(page, ['mic-download'], { beforeClick: () => gate.confirm() });", src.indexOf('transfer.startAttempt();')));
@@ -646,15 +958,15 @@ describe('AHT-14 — the cold take is judged from the attempt, never "nothing to
         expect(branch).not.toContain('saveRecoveredTake');
         expect(src).toContain('await page.evaluate(armRuntimeStateLog, runtimeStateToken);');
     });
-    it('the transfer wait decides from the page AND the network (downloadingNow), polls every 50 ms, and settles on ready, recording or failure', () => {
+    it('no separate transfer wait remains: the controller waits for the held file; the page read stays one immediate read', () => {
         const src = aj();
-        const wait = src.slice(src.indexOf('async function waitForTransfer('), src.indexOf('\n}\n', src.indexOf('async function waitForTransfer(')));
-        expect(wait).toContain('read = await readModelBytes(page);');
-        expect(wait).toContain('if (downloadingNow(read, transfer())) return read;');
-        expect(wait).toContain('setTimeout(resolve, 50)');
-        for (const st of ['READY', 'RECORDING', 'STOPPING', 'FAILED', 'TERMINATED']) expect(wait).toContain(`'${st}'`);
-        expect(wait).not.toContain("'DOWNLOADING'"); // never published
-        expect(src).toContain("getAttribute('data-runtime-state')");
+        expect(src).not.toContain('waitForTransfer');
+        expect(src).not.toContain("context.on('response'");
+        const read = src.slice(src.indexOf('const readModelBytes = (page: Page)'), src.indexOf('}).catch(() => null);', src.indexOf('const readModelBytes = (page: Page)')));
+        expect(read.length).toBeGreaterThan(0);
+        expect(read).toContain("getAttribute('data-runtime-state')");
+        expect(read).not.toMatch(/waitFor|setTimeout|while|for \(/);
+        expect(src).toContain('{ holdBoundMs: NEXT_FILE_MS, boundMs: 300_000, pollMs: 50 }');
     });
 });
 

@@ -95,7 +95,7 @@ describe('guards — the spec, the acceptance map and the product stay in step',
     it('only the model assets or the network are altered, and each fault is removed before recovery', () => {
         // Sam's ACCEPT of PM 731eb5c0: each injection's own outcome is retained (it is awaited as `injected`).
         expect(spec).toContain("injected = await context.route(MODEL_ASSETS, (route) => route.abort('failed')).then(() => true, () => false);");
-        // Sam, 2026-11-15 (#1868): going offline runs inside `runOfflineFault`, and its own outcome is retained there too.
+        // Sam, 2026-11-15 (#1868): going offline runs inside `runBetweenFilesFault`, and its own outcome is retained there too.
         expect(spec).toContain('setOffline: (offline) => context.setOffline(offline).then(() => true, () => false),');
         expect(spec).toContain("if (variant === 'download-fails') await context.unroute(MODEL_ASSETS);");
         expect(spec).toContain('else await context.setOffline(false);');

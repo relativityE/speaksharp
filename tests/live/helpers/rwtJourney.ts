@@ -27,7 +27,7 @@ import {
     coachingFailureReason, coachingParentVerdict, coachingRequestBindingRow, focusExternalDependentRows, providerStatusFrom, takeExchangeEvidence,
     isCoachingUnavailableHeadline,
 } from './coachingExternal';
-import { type SaveHold, holdThenStop } from './rwtSaveHold';
+import { type SaveHold, SAVE_HOLD_BUFFER_MS, SAVE_MINIMUM_MS, holdThenStop } from './rwtSaveHold';
 import type { CoachingGenerationTap } from './coachingGenerationTap';
 import type { ActionCaptureAttempt, ActionCaptureOutcome } from './rwtOracles';
 import {
@@ -68,7 +68,7 @@ export const RWT_WRITES_ACK_VALUE = 'RWT-DISPOSABLE-ACCOUNT-WRITES';
 export { humanWorksheet, receiptAcceptance, type ReceiptRow, type Verdict };
 // #1258 (PM 6174134686): the closed coaching failure vocabulary lives with the EXTERNAL classifier, which publishes it.
 export { COACHING_FAILURE_REASONS, coachingFailureReason } from './coachingExternal';
-import { characterCeilingVerdict, openPointReferenceVerdict } from './rwtCoachingConsistency';
+import { characterCeilingVerdict, omissionClaimVerdict, openPointReferenceVerdict } from './rwtCoachingConsistency';
 import { coachingFallbackRow } from './rwtCoachingFallback';
 
 /**
@@ -1792,7 +1792,10 @@ export async function practiceAgainEvidence(
      *  (#1835): the caller's consent readback, awaited immediately before the save take's Start and the repeat action's press. */
     opts: { saveTakeMs?: number; beforeCapture?: () => Promise<void>;
         /** J1 option B: hold the repeated take past the 5 s save minimum before its Stop (default: Stop at once). */
-        holdRepeatPastSaveMinimum?: boolean } = {},
+        holdRepeatPastSaveMinimum?: boolean;
+        /** J1.b (Sam, 22 Nov): a side check of the SAVE take, started once the repeat records and run inside its hold. It
+         *  never delays the Stop; `closesAt` is the hold's deadline. Awaited after the Stop, on every path. */
+        duringRepeatHold?: (w: { savedSessionId: string | null; closesAt: number }) => Promise<void> } = {},
 ): Promise<PracticeAgainEvidence> {
     const FINISHING_UP = /Finishing up your last session/;
     const ev: PracticeAgainEvidence = {
@@ -1921,22 +1924,31 @@ export async function practiceAgainEvidence(
         return ev;
     }
     clearInterval(watch);
-    // J1 option B: the hold clicks the validated recorder's own Stop itself; a failed hold still stops whatever is recording.
-    const held = opts.holdRepeatPastSaveMinimum && ev.repeatRecordingAt ? await holdThenStop(page, ev.repeatRecordingAt) : null;
-    ev.saveHold = held?.hold ?? null;
-    if (ev.saveHold && !ev.saveHold.ok) ev.reason = ev.saveHold.reason;
+    // J1.b: the side check starts with the hold and is bounded by its deadline; it is never awaited before the Stop.
+    const side = opts.holdRepeatPastSaveMinimum && opts.duringRepeatHold && ev.repeatRecordingAt
+        ? Promise.resolve().then(() => opts.duringRepeatHold!({ savedSessionId: ev.savedSessionId,
+            closesAt: ev.repeatRecordingAt! + SAVE_MINIMUM_MS + SAVE_HOLD_BUFFER_MS })).catch(() => undefined)
+        : Promise.resolve();
     try {
-        if (held?.clicked) await confirmBenchmarkStopped(page, `${label}-again`);
-        else await stopBenchmarkRecording(page, `${label}-again`);
-    } catch {
-        ev.liveTracksAfterStop = await boundedTeardown(page, `${label}-again`);
-        ev.reason = 'the repeated take could not be stopped';
+        // J1 option B: the hold clicks the validated recorder's own Stop itself; a failed hold still stops whatever is recording.
+        const held = opts.holdRepeatPastSaveMinimum && ev.repeatRecordingAt ? await holdThenStop(page, ev.repeatRecordingAt) : null;
+        ev.saveHold = held?.hold ?? null;
+        if (ev.saveHold && !ev.saveHold.ok) ev.reason = ev.saveHold.reason;
+        try {
+            if (held?.clicked) await confirmBenchmarkStopped(page, `${label}-again`);
+            else await stopBenchmarkRecording(page, `${label}-again`);
+        } catch {
+            ev.liveTracksAfterStop = await boundedTeardown(page, `${label}-again`);
+            ev.reason = 'the repeated take could not be stopped';
+            return ev;
+        }
+        ev.stopped = true;
+        ev.liveTracksAfterStop = await expect.poll(() => liveMicTracks(page), { timeout: 10_000 }).toBe(0).then(() => 0).catch(async () => liveMicTracks(page));
+        if (ev.liveTracksAfterStop !== 0) ev.reason = 'the microphone stayed live after Stop';
         return ev;
+    } finally {
+        await side;
     }
-    ev.stopped = true;
-    ev.liveTracksAfterStop = await expect.poll(() => liveMicTracks(page), { timeout: 10_000 }).toBe(0).then(() => 0).catch(async () => liveMicTracks(page));
-    if (ev.liveTracksAfterStop !== 0) ev.reason = 'the microphone stayed live after Stop';
-    return ev;
 }
 
 /**
@@ -2428,9 +2440,6 @@ export function modelIdentityRow(receipt: RwtReceipt, run: RunTarget, identity: 
     receipt.row('model identity', 'PASS', 'the deployed default ran and identified itself (diagnostic; not base_q4 evidence)', evidence);
 }
 
-/** Words the coaching must never use about a point the matcher did not detect (runbook v12: no certainty of omission). */
-const OMISSION_CLAIM = /\b(miss(ed|ing)?|skip(ped)?|forg(o|e)t|left out|didn'?t (mention|cover|say)|never (mentioned|covered|said))\b/i;
-
 /**
  * #1258 (runbook v12 Product 2 row 5) — the Focus Points coaching pair after Stop, as the person sees it. The same
  * contract as Open Mic (two distinct phrases (about 8–10 words: a soft target), visible = saved, server receipt) plus the Focus rules: the
@@ -2587,9 +2596,11 @@ export async function focusCoachingRows(
         { wellWords: countWords(well), nextWords: countWords(next), withinTarget });
     const distinct = normalisePhraseText(well) !== normalisePhraseText(next);
     receipt.row('Focus coaching distinct', distinct ? 'PASS' : 'FAIL', distinct ? 'two different suggestions' : 'both headings show the same phrase');
-    const claims = OMISSION_CLAIM.test(well) || OMISSION_CLAIM.test(next);
-    receipt.row('Focus coaching makes no omission claim', claims ? 'FAIL' : 'PASS',
-        claims ? 'a phrase claims a point was missed or skipped (the matcher cannot know that)' : 'neither phrase claims a point was missed or skipped');
+    // Live run 44941790511 failed the old word match and kept no phrase, so its cause is unknown; that match also failed harmless
+    // advice such as "skip the filler words" (an example of a false positive, not the observed phrase). The verdict tells a stated
+    // or implied omission of a chosen point from unrelated wording; the receipt keeps only its closed form token.
+    const omission = omissionClaimVerdict({ well, next, labels: request.openPoints?.labels ?? null });
+    receipt.row('Focus coaching makes no omission claim', omission.status, omission.detail, { form: omission.form });
     // #1258 R4: the provider schema's own ceiling, and an evident reference to a point that is still open (never a FAIL on
     // wording: the human check decides when no open point is named).
     const ceiling = characterCeilingVerdict(well, next);
