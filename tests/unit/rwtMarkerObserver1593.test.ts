@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     armMarkerObserverInPage, bindTakeAcquisition, classifyMarkerTiming, disposeMarkerObserver, disposeMarkerObserverInPage,
-    freezeMarkerObserver, freezeMarkerObserverInPage, markerTimingStatus, MARKER_RAIL_TEST_ID, MARKER_ROW_PREFIX,
+    freezeMarkerObserver, freezeMarkerObserverInPage, markerTimingStatus, MARKER_RAIL_TEST_ID, MARKER_ROW_PREFIX, MARKER_SAMPLE_MS,
 } from '../live/helpers/rwtMarkerObserver';
 
 const w = window as unknown as Record<string, unknown>;
@@ -473,5 +473,38 @@ describe('J3.b heartbeat: the last observed-pending time narrows the interval, n
         expect(src).toContain('const deadline = Math.min(window[1] + LIVE_MARKER_MAX_AFTER_SECONDS, next ?? Number.POSITIVE_INFINITY);');
         expect(src).toContain('export const LIVE_MARKER_MAX_AFTER_SECONDS = 5;');
         expect(src).toContain('export const MARKER_ALIGNMENT_SLACK_SECONDS = 1;');
+    });
+});
+
+/**
+ * Codex P2 on #1950 (Sam, 23 Nov): page.evaluate ships a function as SOURCE TEXT, so it runs with none of this module's bindings.
+ * Every in-page function must run on its own from its serialized text; calling the imported function hides a module reference.
+ */
+describe('in-page functions run from their serialized text alone (what page.evaluate actually sends)', () => {
+    const serialized = <F extends (...args: never[]) => unknown>(fn: F): F => new Function(`return (${fn.toString()});`)() as F;
+    beforeEach(() => { vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] }); });
+
+    it('arm, heartbeat, freeze and dispose all run from source text, with the caller\'s sample period and without one', async () => {
+        for (const sampleMs of [100, undefined]) {
+            rail(['pending', 'pending']);
+            const arm = serialized(armMarkerObserverInPage);
+            const result = arm({ token: 'mo-9', count: 2, railTestId: MARKER_RAIL_TEST_ID, rowPrefix: MARKER_ROW_PREFIX, ...(sampleMs ? { sampleMs } : {}) });
+            expect(result).toEqual({ ok: true });
+            now = INVOKED + 8_000;
+            vi.advanceTimersByTime(100);                          // one heartbeat tick, run inside the serialized function
+            const sealed = serialized(freezeMarkerObserverInPage)('mo-9');
+            expect(sealed?.pendingSeenAtMs[0]).toBe(INVOKED + 8_000);
+            expect(serialized(disposeMarkerObserverInPage)('mo-9')).toBe(true);
+            document.body.innerHTML = '';
+            delete w.__rwtMarkerObserver__;
+        }
+    });
+
+    it('the in-page fallback period equals MARKER_SAMPLE_MS', () => {
+        expect(armMarkerObserverInPage.toString()).toMatch(new RegExp(`: ${MARKER_SAMPLE_MS}\\)`));
+    });
+    it('the live arm call passes the sample period explicitly', () => {
+        const src = readFileSync(`${__dirname}/../live/helpers/rwtMarkerObserver.ts`, 'utf8');
+        expect(src).toMatch(/page\.evaluate\(armMarkerObserverInPage, \{[^}]*sampleMs: MARKER_SAMPLE_MS/);
     });
 });

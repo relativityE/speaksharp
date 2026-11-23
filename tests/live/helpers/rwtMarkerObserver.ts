@@ -174,7 +174,9 @@ export function armMarkerObserverInPage(args: { token: string; count: number; ra
             if (prev === null || t0 > prev) s.pendingSeenAtMs[i] = t0;
         });
     };
-    state.heartbeat = setInterval(sample, Number.isFinite(args.sampleMs) && (args.sampleMs as number) > 0 ? args.sampleMs as number : MARKER_SAMPLE_MS);
+    // page.evaluate sends this function as source text, so it may name nothing from this module (Codex P2 on #1950): the caller
+    // passes MARKER_SAMPLE_MS, and the fallback is the same value written out (a unit test pins the two equal).
+    state.heartbeat = setInterval(sample, Number.isFinite(args.sampleMs) && (args.sampleMs as number) > 0 ? args.sampleMs as number : 100);
     const observer = new MutationObserver((records) => handle(records, Date.now()));
     observer.observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-status'], attributeOldValue: true });
     state.observer = observer;
@@ -226,7 +228,7 @@ export const MARKER_ROW_PREFIX = 'focus-point-';
 /** Node: arm before anything can start the take. A failure is recorded by the caller as a HOLD, never retried silently. */
 export async function armMarkerObserver(page: Page, count: number): Promise<{ token: string; ok: boolean; reason?: string }> {
     const token = `mo-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-    const result = await page.evaluate(armMarkerObserverInPage, { token, count, railTestId: MARKER_RAIL_TEST_ID, rowPrefix: MARKER_ROW_PREFIX })
+    const result = await page.evaluate(armMarkerObserverInPage, { token, count, railTestId: MARKER_RAIL_TEST_ID, rowPrefix: MARKER_ROW_PREFIX, sampleMs: MARKER_SAMPLE_MS })
         .catch(() => ({ ok: false, reason: 'evaluate-failed' }));
     return { token, ...result };
 }
