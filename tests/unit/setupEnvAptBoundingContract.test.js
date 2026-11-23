@@ -48,10 +48,11 @@ describe.each(APT_STEPS)(
 // ── (B) prefetch experiment ──────────────────────────────────────────────────────────────────────────────
 describe('prefetch: deps-prep job downloads the bundle once (#1311)', () => {
   const job = ci.jobs['deps-prep'];
-  it('exists and both shard families depend on it', () => {
+  it('exists and the e2e shards depend on it; the unit shards do not wait for it (#8)', () => {
     expect(job).toBeTruthy();
-    expect(ci.jobs['unit-shard'].needs).toContain('deps-prep');
     expect(ci.jobs['e2e'].needs).toContain('deps-prep');
+    // #8: canvas 3 installs its prebuilt binary, so the unit shards need no apt headers and start without the bundle.
+    expect(ci.jobs['unit-shard'].needs).not.toContain('deps-prep');
   });
   it('cache key is EXACT with NO broad restore-key', () => {
     const cacheStep = job.steps.find(
@@ -172,11 +173,16 @@ describe('shards consume the bundle offline (#1311)', () => {
     expect(actionText).toContain('scripts/ci/apt-install.sh');
     expect(actionText, 'the shard must not bypass the image gate').not.toMatch(/run: bash scripts\/ci\/apt-install-offline\.sh/);
   });
-  it('unit shards request the canvas-sharp bundle; e2e shards request the playwright bundle', () => {
+  it('unit shards install no apt packages (#8); e2e shards request the playwright bundle', () => {
     const unitSetup = ci.jobs['unit-shard'].steps.find((s) => s.name === 'Setup Environment');
     const e2eSetup = ci.jobs['e2e'].steps.find((s) => s.name === 'Setup Environment');
-    expect(unitSetup.with['apt-bundle']).toBe('true');
-    expect(unitSetup.with['apt-bundle-manifest']).toBe('canvas-sharp');
+    expect(unitSetup.with['apt-bundle']).toBeUndefined();
+    expect(unitSetup.with['apt-bundle-manifest']).toBeUndefined();
+    expect(unitSetup.with['install-native-deps']).toBe('false');
+    // #8: with no apt headers, the shard proves canvas is the prebuilt binary before any test runs.
+    const unitSteps = ci.jobs['unit-shard'].steps.map((s) => s.name);
+    expect(unitSteps.indexOf('Verify Canvas Prebuilt Binary Loads')).toBe(unitSteps.indexOf('Setup Environment') + 1);
+    expect(unitSteps.indexOf('Verify Canvas Prebuilt Binary Loads')).toBeLessThan(unitSteps.indexOf('Run Unit Shard Execution'));
     expect(e2eSetup.with['apt-bundle']).toBe('true');
     expect(e2eSetup.with['apt-bundle-manifest']).toBe('playwright');
   });
