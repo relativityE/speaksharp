@@ -10,7 +10,8 @@ import {runInNewContext} from 'node:vm';
 import {NATIVE_REPORTER,NATIVE_HELPERS,SQL_INPUTS,SQL_CONSUMER,SQL_CONTRACTS,nativeTestRoute,selectNativeContracts,executionBatchIdentity,reconcileExecutionBatches,
   nativeCommand,nativeWarmupCommand,nativeRuntime,validateWarmup,nativeChildTracker,produceNativePhase,validateNativePhase,validateNativeReceipt,
   parseDenoJunit,validateNativeCallables,nativeDenoPolicy,nativeEnvironment,validateSyntheticSource,sqlSourceBinding,validateSqlWitness,
-  PROOF_CASES_TEST,REAL_BROWSER_TEST,MODEL_PRIVACY_BROWSER_TEST,nativeBrowserBinding,proofCasesBinding,phaseProofCasesBinding,validatePhaseProofCases,generatedProofCases} from '../../scripts/lib/nativeTestExecutionEvidence.mjs';
+  PROOF_CASES_TEST,REAL_BROWSER_TEST,MODEL_PRIVACY_BROWSER_TEST,nativeBrowserBinding,proofCasesBinding,phaseProofCasesBinding,validatePhaseProofCases,generatedProofCases,
+  BILLING_DENO_PROFILE,nativeDependencyPin} from '../../scripts/lib/nativeTestExecutionEvidence.mjs';
 import {drainOwnedPhase,dependencyPaths,initializeCopyRepository,cleanupOwnedCopy,selectExecutionContracts} from '../../scripts/run-test-efficacy.mjs';
 import {testEnvironment,executionContext,sourceIdentity,executionRoute,changedEvidencePaths} from '../../scripts/lib/testExecutionEvidence.mjs';
 import {execFileSync} from 'node:child_process';
@@ -330,6 +331,71 @@ test('native child drops inherited key/sentinels and never reinjects after the m
       {names:['GEMINI_API_KEY'],initial:'absent',inherit:false,syntheticValue:'test-key',reinject:false});
   }finally{fs.rmSync(dir,{recursive:true,force:true});}
 });
+const BILLING_RUNNER_TEST='scripts/billing-qualification/runner.test.ts';
+const billingReads=()=>[...BILLING_DENO_PROFILE.sqlReads,...BILLING_DENO_PROFILE.packageReads];
+test('#1937 billing qualification suite runs under its own pinned Deno profile: frozen lock, exact reads, no env/net/write/run',()=>{
+  assert.deepEqual(nativeTestRoute(BILLING_RUNNER_TEST,root),{runner:'deno',consumer:BILLING_RUNNER_TEST});
+  assert.equal(nativeTestRoute('scripts/billing-qualification/pglite_supabase.test.ts',root)?.runner,'deno');
+  for(const other of ['scripts/billing-qualification/runner.ts','scripts/billing-qualification/nested/x.test.ts','scripts/other/runner.test.ts'])
+    assert.equal(nativeTestRoute(other,root),null,other);
+  const binding={testFile:BILLING_RUNNER_TEST,runtime:{runner:'deno',execPath:'/installed/deno'}};
+  const command=nativeCommand(binding),reads=billingReads();
+  assert.deepEqual(nativeDenoPolicy(BILLING_RUNNER_TEST).read,{allow:reads});
+  assert.equal(command[command.indexOf('--config')+1],BILLING_DENO_PROFILE.config);
+  for(const flag of ['--frozen','--cached-only',`--lock=${BILLING_DENO_PROFILE.lock}`,'--node-modules-dir=none','--no-prompt',
+    '--deny-net','--deny-env','--deny-write','--deny-run'])assert.ok(command.includes(flag),flag);
+  assert.deepEqual(command.filter(arg=>arg.startsWith('--allow-')),[`--allow-read=${reads.join(',')}`]);
+  assert.equal(command.some(arg=>/filter|permit-no-files|no-check|^--allow-(?:all|net|env|write|run|ffi|sys)/.test(arg)),false);
+  // The allow-list is exactly the SQL the suite applies, in order, plus the locked PGlite package data.
+  const applied=[...fs.readFileSync(path.join(root,'scripts/billing-qualification/pglite_supabase.ts'),'utf8')
+    .matchAll(/"((?:tests\/db|backend\/supabase\/migrations)\/[^"]+\.sql)"/g)].map(match=>match[1]);
+  assert.deepEqual(applied,[...BILLING_DENO_PROFILE.sqlReads]);
+  const lock=JSON.parse(fs.readFileSync(path.join(root,BILLING_DENO_PROFILE.lock),'utf8'));
+  assert.deepEqual([...BILLING_DENO_PROFILE.packageReads],
+    [`.native-deno-cache/npm/registry.npmjs.org/@electric-sql/pglite/${lock.specifiers['npm:@electric-sql/pglite@*']}`]);
+  // The no-run warmup that prepares the locked cache gets no read, env or other effect permission.
+  const warmup=nativeWarmupCommand(binding);
+  assert.ok(warmup.includes('--no-run')&&warmup.includes('--deny-read')&&warmup.includes('--deny-env')&&!warmup.includes('--cached-only'));
+  assert.equal(warmup.some(arg=>arg.startsWith('--allow-')),false);
+  const pin=nativeDependencyPin(root,BILLING_RUNNER_TEST);
+  assert.equal(pin.configSha256,hash(fs.readFileSync(path.join(root,BILLING_DENO_PROFILE.config))));
+  assert.equal(pin.lockSha256,hash(fs.readFileSync(path.join(root,BILLING_DENO_PROFILE.lock))));
+  assert.deepEqual(pin.reads.map(item=>item.file),[...BILLING_DENO_PROFILE.sqlReads]);
+  assert.ok(pin.imports.includes('npm:stripe@16')&&pin.imports.every(item=>!item.startsWith('.')));
+  // Edge functions keep their own config and deny every read.
+  const edge='backend/supabase/functions/_shared/cors.test.ts';
+  const edgeCommand=nativeCommand({testFile:edge,runtime:{runner:'deno',execPath:'/installed/deno'}});
+  assert.ok(edgeCommand.includes('--deny-read')&&edgeCommand.includes('--lock=backend/supabase/functions/deno.lock'));
+  assert.equal(nativeDenoPolicy(edge).read,'denied');assert.equal(nativeDependencyPin(root,edge),null);
+});
+test('#1937 billing profile refuses a changed config or lock, an unlocked import and a computed import',()=>{
+  const files=[...new Set([...dependencyPaths(root,BILLING_RUNNER_TEST),'package.json',
+    BILLING_DENO_PROFILE.config,BILLING_DENO_PROFILE.lock,...BILLING_DENO_PROFILE.sqlReads])];
+  const dir=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'billing-deno-pin-')));
+  try {
+    for(const file of files) {
+      fs.mkdirSync(path.dirname(path.join(dir,file)),{recursive:true});fs.copyFileSync(path.join(root,file),path.join(dir,file));
+    }
+    fs.symlinkSync(path.join(root,'node_modules'),path.join(dir,'node_modules'),'dir');
+    assert.deepEqual(nativeDependencyPin(dir,BILLING_RUNNER_TEST),nativeDependencyPin(root,BILLING_RUNNER_TEST));
+    const helper='scripts/billing-qualification/runner.ts';
+    for(const [entry,change,pattern] of [
+      [BILLING_DENO_PROFILE.lock,text=>text.replace('"0.5.5"','"0.5.6"'),/not the pinned profile/],
+      [BILLING_DENO_PROFILE.config,text=>text.replace('"./deno.lock"','"./other.lock"'),/not the pinned profile/],
+      [BILLING_RUNNER_TEST,text=>`import leftPad from "npm:left-pad@1";\n${text}`,/Unpinned billing qualification import: npm:left-pad@1/],
+      [BILLING_RUNNER_TEST,text=>text.replaceAll('npm:stripe@16','npm:stripe@17'),/Unpinned billing qualification import: npm:stripe@17/],
+      [helper,text=>`export * from "https://deno.land/x/unlocked@1.0.0/mod.ts";\n${text}`,/Unpinned billing qualification import: https:\/\/deno\.land\/x\/unlocked/],
+      [helper,text=>`${text}\nconst name="npm:"+"left-pad";\nawait import(name);\n`,/Computed billing qualification import/],
+    ]) {
+      const original=fs.readFileSync(path.join(dir,entry),'utf8'),changed=change(original);
+      assert.notEqual(changed,original,`${entry} control did not change`);
+      fs.writeFileSync(path.join(dir,entry),changed);
+      assert.throws(()=>nativeDependencyPin(dir,BILLING_RUNNER_TEST),pattern);
+      fs.writeFileSync(path.join(dir,entry),original);
+    }
+    assert.deepEqual(nativeDependencyPin(dir,BILLING_RUNNER_TEST),nativeDependencyPin(root,BILLING_RUNNER_TEST));
+  }finally{fs.rmSync(dir,{recursive:true,force:true});}
+});
 test('frozen source refuses global, aliased and imported setters even while all expected literal calls remain',()=>{
   const f=fixture(),entry='backend/supabase/functions/get-ai-suggestions/index.test.ts';
   const files=[...new Set([...dependencyPaths(root,entry),'package.json','pnpm-lock.yaml',
@@ -633,6 +699,82 @@ if(process.env.TEST_EFFICACY_DENO_REAL_RUNTIME==='1') {
       result.phase=produceNativePhase({root:copy,cwd:copy,contract,provenance,inputSha256,sourceCopyCommit,runId,environment,children});
       result.observed=validateNativePhase(result.phase,{root,provenance,inputSha256,runId,contract}).counts;
       assert.ok(result.observed.assertions>0);
+      for(const item of sourceManifest) {
+        assert.equal(hash(fs.readFileSync(path.join(copy,item.file))),item.sha256);
+        assert.equal(hash(fs.readFileSync(path.join(root,item.file))),item.sha256);
+      }
+      assert.deepEqual(sourceIdentity(root),{commit:provenance.commit,tree:provenance.tree,snapshotSha256:provenance.snapshotSha256});
+    }catch(error){failure=error;result.error=error.message;result.diagnostics=error.diagnostics??null;}
+    try {
+      children.assertDrained(copy);cleanupOwnedCopy(copy,failure);result.copyCleanup='REMOVED_AFTER_VERIFIED_DRAINS';
+    }catch(error){failure=error;result.copyCleanup='RETAINED';result.retainedCopy=copy;result.error=error.message;}
+    result.status=failure?'FAIL':'PASS';result.finishedUtc=new Date().toISOString();
+    fs.mkdirSync(path.dirname(output),{recursive:true});fs.writeFileSync(output,JSON.stringify(result,null,2)+'\n');
+    if(failure)throw failure;
+  });
+  test('INSTALLED #1937 billing qualification suite executes natively under its pinned profile; widened permissions are refused',()=>{
+    const tests=['scripts/billing-qualification/pglite_supabase.test.ts',BILLING_RUNNER_TEST];
+    const probe='scripts/billing-qualification/permission-boundary.test.ts';
+    const files=[...new Set([...tests.flatMap(entry=>[...dependencyPaths(root,entry)]),NATIVE_REPORTER,'package.json','pnpm-lock.yaml',
+      'backend/supabase/functions/deno.json','backend/supabase/functions/deno.lock',
+      BILLING_DENO_PROFILE.config,BILLING_DENO_PROFILE.lock,...BILLING_DENO_PROFILE.sqlReads])].sort();
+    const output=path.join(root,'artifacts/metrics/native-billing-qualification-conformance.json');
+    fs.rmSync(output,{force:true});
+    const provenance=executionContext(root,{...process.env,SOFTWARE_QUALITY_INVOCATION:randomUUID()});
+    const sourceManifest=files.map(file=>({file,sha256:hash(fs.readFileSync(path.join(root,file)))}));
+    const copy=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'cold-billing-conformance-')));
+    const children=nativeChildTracker(drainOwnedPhase);
+    const result={schemaVersion:1,scope:'real billing qualification suite under the pinned native profile (hosted CI is its first native run); not Stripe, live or production proof',
+      provenance,tests,sourceManifest,startedUtc:new Date().toISOString(),phases:[]};
+    let failure;
+    try {
+      for(const item of sourceManifest) {
+        const target=path.join(copy,item.file);fs.mkdirSync(path.dirname(target),{recursive:true});
+        fs.copyFileSync(path.join(root,item.file),target);assert.equal(hash(fs.readFileSync(target)),item.sha256);
+      }
+      // Boundary probe, executed only in this owned copy: the allow-listed SQL is readable; anything else is not.
+      fs.writeFileSync(path.join(copy,probe),`Deno.test('billing profile boundaries',async()=>{
+        if(!Deno.readTextFileSync(${JSON.stringify(BILLING_DENO_PROFILE.sqlReads[0])}).length)throw Error('allowed SQL unreadable');
+        async function denied(effect:()=>unknown){let blocked=false;try{await effect();}catch(error){blocked=error instanceof Deno.errors.NotCapable;}if(!blocked)throw Error('permission broadened');}
+        await denied(()=>Deno.readTextFile('package.json'));
+        await denied(()=>Deno.readTextFile(${JSON.stringify(BILLING_DENO_PROFILE.config)}));
+        await denied(()=>Deno.env.toObject());
+        await denied(()=>fetch('https://example.invalid'));
+        await denied(()=>Deno.writeTextFile(${JSON.stringify(BILLING_DENO_PROFILE.sqlReads[0])},'x'));
+        await denied(()=>new Deno.Command(${JSON.stringify(process.execPath)}).output());
+      });\n`);
+      const environment=testEnvironment(copy,null,'');
+      const sourceCopyCommit=initializeCopyRepository(copy,environment);
+      fs.symlinkSync(path.join(root,'node_modules'),path.join(copy,'node_modules'),'dir');
+      const inputSha256=hash(JSON.stringify(sourceManifest.map(item=>[item.file,item.sha256])));
+      for(const testFile of [probe,...tests]) {
+        const contract={testFile,runner:'deno',helpers:[]},runId=randomUUID();
+        const phase=produceNativePhase({root:copy,cwd:copy,contract,provenance,inputSha256,sourceCopyCommit,runId,
+          environment:{...environment,STRIPE_SECRET_KEY:'inherited-sentinel'},children});
+        const validationRoot=testFile===probe?copy:root;
+        const observed=validateNativePhase(phase,{root:validationRoot,provenance,inputSha256,runId,contract}).counts;
+        assert.ok(observed.assertions>0);
+        result.phases.push({testFile,observed,command:phase.binding.command,dependencyPin:phase.binding.dependencyPin});
+        if(testFile!==BILLING_RUNNER_TEST)continue;
+        for(const change of [
+          p=>{p.binding.command=p.binding.command.map(arg=>arg.startsWith('--allow-read=')?'--allow-read':arg);},
+          p=>{p.binding.command=p.binding.command.map(arg=>arg.startsWith('--allow-read=')?`${arg},package.json`:arg);},
+          p=>{p.binding.command=p.binding.command.map(arg=>arg==='--deny-net'?'--allow-net':arg);},
+          p=>{p.binding.command=p.binding.command.map(arg=>arg==='--deny-env'?'--allow-env':arg);},
+          p=>{p.binding.command=p.binding.command.map(arg=>arg==='--deny-write'?'--allow-write':arg);},
+          p=>{p.binding.command=p.binding.command.filter(arg=>arg!=='--cached-only');},
+          p=>{p.binding.command=p.binding.command.filter(arg=>arg!=='--frozen');},
+          p=>{p.binding.permissionPolicy.read.allow.push('.');},
+          p=>{p.binding.permissionPolicy.network='allowed';},
+          p=>{p.binding.dependencyPin.lockSha256='0'.repeat(64);},
+          p=>{p.binding.dependencyPin.imports.push('npm:left-pad@1');},
+          p=>{delete p.binding.dependencyPin;},
+          p=>{p.warmup.command=p.warmup.command.map(arg=>arg==='--deny-read'?`--allow-read=${billingReads().join(',')}`:arg);},
+        ]) {
+          const changed=structuredClone(phase);change(changed);
+          assert.throws(()=>validateNativePhase(changed,{root,provenance,inputSha256,runId,contract}));
+        }
+      }
       for(const item of sourceManifest) {
         assert.equal(hash(fs.readFileSync(path.join(copy,item.file))),item.sha256);
         assert.equal(hash(fs.readFileSync(path.join(root,item.file))),item.sha256);
