@@ -40,6 +40,10 @@ async function runMonitor({ statuses = {}, rejects = [], environment = {} } = {}
     console: { log: () => {} },
     summarize, renderMarkdown, renderPublicSummary, exitCodeForRows,
     evaluateGithubRow: async () => { throw new Error('Unexpected GitHub evaluation'); },
+    evaluateCanaryActivity: async (_repo, token, generatedAt) => {
+      assert.equal(token, '');
+      return { dateUtc: generatedAt.slice(0, 10), coverage: 'unavailable' };
+    },
     evaluateVercelRow: async () => { throw new Error('Unexpected Vercel evaluation'); },
     fetch: async (url, init) => {
       requests.push({ url, method: init.method || 'GET', headers: { ...init.headers } });
