@@ -409,7 +409,9 @@ console.log(query.includes('objects AS')?rows.join('\\n'):rows[0]);});\n`);
     expect(t2KnownAbsentQuery(settled)).toContain("p.proname IN ('')");
     expect(t2ReleaseSnapshotQuery(settled)).toContain("p.proname='settle_account_completion_billing_v1'");
     expect(t2ReleaseSnapshotQuery(cleanup)).not.toContain("p.proname='settle_account_completion_billing_v1'");
-    expect(() => assertT2ReleaseSnapshot(settled, ['[]', '{}', '{}', 'true', '{}', 'true'])).toThrow(/incomplete T2 release evidence/);
+    // The right ledger with the pre-129 row count is incomplete; another stage's ledger is a ledger change first.
+    expect(() => assertT2ReleaseSnapshot(settled, [JSON.stringify(sixteen), '{}', '{}', 'true', '{}', 'true'])).toThrow(/incomplete T2 release evidence/);
+    expect(() => assertT2ReleaseSnapshot(cleanup, [JSON.stringify(sixteen), '{}', '{}', 'true', '{}', 'true', '{}'])).toThrow(/ledger changed/);
 
     for (const bad of [
       [...thirteen.slice(0, -1), '20261119120000'],                       // repeat tip without #1835

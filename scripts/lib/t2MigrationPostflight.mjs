@@ -584,17 +584,19 @@ export function t2EdgeReleaseContract(root, installed) {
 }
 
 export function assertT2ReleaseSnapshot(contract, rows) {
-  if (!Array.isArray(rows) || rows.length !== (contract.settlement ? 7 : 6)) throw new Error('incomplete T2 release evidence');
+  if (!Array.isArray(rows) || rows.length < 1) throw new Error('incomplete T2 release evidence');
+  // The ledger row is judged first, so another stage's rows (post-129 adds a settlement row) read as a ledger change.
   const ledger = JSON.parse(rows[0]);
   if (JSON.stringify(ledger) !== JSON.stringify(contract.ledger)) throw new Error('T2 release ledger changed');
+  if (rows.length !== (contract.settlement ? 7 : 6)) throw new Error('incomplete T2 release evidence');
   if (rows[5] !== 'true') throw new Error('T2 release known129 function family must be absent');
   if (contract.settlement) {
     const settlement = JSON.parse(rows[6]);
     if (JSON.stringify(settlement?.functions) !== JSON.stringify([contract.settlement])) {
-      throw new Error('T2 release post-129 settlement function differs');
+      throw new Error('T2 release post-129 settlement catalog mismatch');
     }
     if (JSON.stringify(settlement?.completion) !== JSON.stringify({ rows: 1, disabledUnbound: true })) {
-      throw new Error('T2 release post-129 completion is not OFF and unbound');
+      throw new Error('T2 release post-129 catalog mismatch: completion is not OFF and unbound');
     }
   }
   const catalog = assertT2Catalog(rows[1], contract.expected);
