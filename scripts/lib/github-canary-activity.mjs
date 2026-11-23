@@ -114,8 +114,17 @@ function compareAttempts(a, b) {
 function failureEvidence(attempt) {
   const failures = attempt.failures ?? [];
   const upstream = failures.filter(({ job }) => job !== 'canary-result');
-  return [...(upstream.length ? upstream : failures)]
-    .sort((a, b) => (a.endedAt ?? 'Z').localeCompare(b.endedAt ?? 'Z'))[0] ?? null;
+  return upstream.length ? upstream : [...failures]
+    .sort((a, b) => (a.endedAt ?? 'Z').localeCompare(b.endedAt ?? 'Z')).slice(0, 1);
+}
+
+function failureKey(evidence) {
+  // Match observable failure locations, not inferred root causes. Never use redacted labels.
+  if (!evidence || evidence.job === 'canary-result'
+      || !JOB_NAMES.has(evidence.job)) return null;
+  if (STEP_NAMES.has(evidence.step)) return JSON.stringify([evidence.job, evidence.step]);
+  if (evidence.step === null && evidence.reasonCode) return JSON.stringify([evidence.job, null]);
+  return null;
 }
 
 function summarizeDay(dateUtc, coverage, attempts) {
@@ -124,22 +133,34 @@ function summarizeDay(dateUtc, coverage, attempts) {
   const latest = ordered.at(-1);
   const latestGreen = ordered.filter(({ status }) => status === 'passed').at(-1);
   const failed = ordered.filter(({ status }) => status === 'failed')
-    .map((attempt) => ({ attempt: withoutFailureDetails(attempt), evidence: failureEvidence(attempt) }))
-    .sort((a, b) => (a.evidence?.endedAt ?? a.attempt.startedAt ?? a.attempt.createdAt)
-      .localeCompare(b.evidence?.endedAt ?? b.attempt.startedAt ?? b.attempt.createdAt));
+    .flatMap((attempt) => {
+      const evidence = failureEvidence(attempt);
+      const knownTimes = evidence.flatMap((row) => row.endedAt ? [row.endedAt] : []).sort();
+      return (evidence.length ? evidence : [null]).map((row) => ({
+        attempt: withoutFailureDetails(attempt), evidence: row,
+        sortTime: row?.endedAt ?? knownTimes.at(-1) ?? attempt.startedAt ?? attempt.createdAt,
+      }));
+    })
+    .sort((a, b) => a.sortTime.localeCompare(b.sortTime)
+      || Number(!a.evidence?.endedAt) - Number(!b.evidence?.endedAt))
+    .map(({ attempt, evidence }) => ({ attempt, evidence }));
   const [firstFailure = null, ...later] = failed;
   const distinct = [];
-  let unclassifiedFailures = 0;
-  const firstCode = firstFailure?.evidence?.reasonCode;
-  const known = new Set(firstCode ? [firstCode] : []);
+  const unclassified = new Set();
+  const firstKey = failureKey(firstFailure?.evidence);
+  const known = new Map(firstKey ? [[firstKey, new Set(firstFailure.evidence.reasonCode ? [firstFailure.evidence.reasonCode] : [])]] : []);
   for (const row of later) {
-    const code = row.evidence?.reasonCode;
-    if (!firstCode || !code) unclassifiedFailures += 1;
-    else if (!known.has(code)) {
-      distinct.push(row);
-      known.add(code);
+    const key = failureKey(row.evidence);
+    if (!key) unclassified.add(`${row.attempt.id}/${row.attempt.attempt}`);
+    else {
+      const code = row.evidence.reasonCode;
+      const codes = known.get(key);
+      if (!codes || (code && codes.size && !codes.has(code))) distinct.push(row);
+      if (!codes) known.set(key, new Set(code ? [code] : []));
+      else if (code) codes.add(code);
     }
   }
+  const unclassifiedFailures = unclassified.size;
   return {
     dateUtc, coverage, noRuns: coverage === 'complete' && !latest,
     latest: latest ? withoutFailureDetails(latest) : null,

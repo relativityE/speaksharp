@@ -60,7 +60,7 @@ describe('Canary UTC Ops Health rollup', () => {
     expect(result.latestGreen.attempt).toBe(2);
     expect(result.firstFailure.attempt.attempt).toBe(1);
     expect(result.distinct.length).toBe(0);
-    expect(result.unclassifiedFailures).toBe(1);
+    expect(result.unclassifiedFailures).toBe(0);
     expect(r.paths[0]).toContain('created=2026-11-22');
     expect(r.paths.some((p) => p.includes('/attempts/2/jobs'))).toBe(false);
     const md = renderMarkdown(payload(result));
@@ -70,6 +70,38 @@ describe('Canary UTC Ops Health rollup', () => {
     expect(md).not.toContain('must-not-publish-token');
     expect(JSON.stringify(renderPublicSummary(payload(result)))).not.toContain('must-not-publish-token');
     expect(exitCodeForRows([])).toBe(0);
+  });
+
+  it('keeps the first provision failure and later billing step after a pass, deduplicating only known locations', async () => {
+    const billingJob = { id: 703, name: 'canary-check (billing-qualification)', conclusion: 'failure',
+      steps: [{ number: 14, name: 'Stripe Test-Mode/Test-Clock Billing Qualification (billing-qualification)',
+        conclusion: 'failure', completed_at: '2026-11-22T16:37:25Z' }] };
+    const result = await mock(runs([
+      run(1, '2026-11-22T15:37:27Z', 'failure'),
+      run(2, '2026-11-22T16:35:23Z', 'failure'),
+      run(3, '2026-11-22T17:00:00Z', 'failure'),
+      run(4, '2026-11-22T18:00:00Z', 'success'),
+    ]), {
+      '1/attempts/1/jobs': jobs([provisionJob(701, '2026-11-22T15:39:12Z')]),
+      '2/attempts/1/jobs': jobs([
+        provisionJob(702, '2026-11-22T16:38:21Z'),
+        billingJob,
+        { id: 704, name: 'canary-result', conclusion: 'failure', completed_at: '2026-11-22T16:39:00Z' },
+      ]),
+      '3/attempts/1/jobs': jobs([
+        { ...billingJob, id: 705, steps: [{ ...billingJob.steps[0], completed_at: '2026-11-22T17:02:00Z' }] },
+        { id: 706, name: billingJob.name, conclusion: 'failure', completed_at: '2026-11-22T17:03:00Z' },
+      ]),
+    }).check();
+    expect(result.latest.id).toBe(4);
+    expect(result.latestGreen.id).toBe(4);
+    expect(result.firstFailure.evidence.logUrl).toContain('/1/job/701#step:6:1');
+    expect(result.distinct.map(({ evidence }) => [evidence.logUrl, evidence.reasonCode]))
+      .toEqual([['https://github.com/relativityE/speaksharp/actions/runs/2/job/703#step:14:1', null]]);
+    expect(result.unclassifiedFailures).toBe(1);
+    const md = renderMarkdown(payload(result));
+    expect(md).toContain('Distinct later failed step: 2026-11-22T16:37:25.000Z');
+    expect(md).not.toContain('canary-result');
   });
 
   it('only renders later failures with a different explicit GitHub reason code, and labels job-end fallback', async () => {
@@ -86,6 +118,23 @@ describe('Canary UTC Ops Health rollup', () => {
     const md = renderMarkdown(payload(result));
     expect(md).toContain('2026-11-22T18:00:00.000Z (job ended)');
     expect(md).toContain('Distinct later failure');
+  });
+
+  it('retains distinct explicit terminal codes at the same known step, but not redacted step identities', async () => {
+    const ended = '2026-11-22T18:00:00Z';
+    const failed = (id, conclusion, name) => {
+      const job = provisionJob(id, ended);
+      return { ...job, conclusion, steps: [{ ...job.steps[0], conclusion, ...(name ? { name } : {}) }] };
+    };
+    const result = await mock(runs([1, 2, 3, 4].map((n) => run(n, '2026-11-22T0' + n + ':00:00Z', 'failure'))), {
+      '1/attempts/1/jobs': jobs([failed(711, 'timed_out')]),
+      '2/attempts/1/jobs': jobs([failed(712, 'startup_failure')]),
+      '3/attempts/1/jobs': jobs([failed(713, 'failure')]),
+      '4/attempts/1/jobs': jobs([failed(714, 'action_required', 'unrecognized sensitive text')]),
+    }).check();
+    expect(result.distinct.map(({ evidence }) => evidence.reasonCode)).toEqual(['startup_failure']);
+    expect(result.unclassifiedFailures).toBe(1);
+    expect(JSON.stringify(result)).not.toContain('unrecognized sensitive text');
   });
 
   it('shows red no-run only for a complete UTC date with no runs', async () => {

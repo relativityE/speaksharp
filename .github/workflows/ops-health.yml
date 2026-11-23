@@ -3,8 +3,6 @@ name: Ops Health Dashboard
 on:
   schedule:
     - cron: '6 13 * * *'
-    # Temporary schedule probe for November 23, 2026; remove after observing it.
-    - cron: '43 16 23 11 *'
   workflow_dispatch:
 
 permissions:
