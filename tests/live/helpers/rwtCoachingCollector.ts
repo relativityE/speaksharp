@@ -435,6 +435,34 @@ export function createCoachingTakeCapture(input: {
     };
 }
 
+/**
+ * J1.b (run 45142628330): the interrupted take B is never on the live page while the repeat records, so the passive poll's live
+ * read finds no rendered pair for it, and the repeat's save then expires B's inputs (`saved_inputs_expired`, no witness). This
+ * witnesses B with the pair its OWN reopened saved review showed (the caller proves route, rendered session, transcript and
+ * pair), while its inputs are still retained. Bounded by `closesAt` (the repeat's Stop deadline): no sample starts at or after
+ * it. A sample skipped by an in-flight poll read, or a HOLD, is retried until the close; a witness or a FAIL ends it. It can
+ * only ADD a positive witness through the collector's ordinary checks; expiry, identity and changed-evidence verdicts are
+ * unchanged.
+ */
+export const SHOWN_WITNESS_RETRY_MS = 250;
+export async function witnessShownTake(
+    capture: { sample(sessionId: string, rendered?: CoachingSuggestionPair | null): Promise<void>; get(sessionId: string | null): CapturedCoachingTake },
+    sessionId: string,
+    shown: CoachingSuggestionPair,
+    closesAt: number,
+    clock: { now?: () => number; sleep?: (ms: number) => Promise<void> } = {},
+): Promise<void> {
+    const now = clock.now ?? Date.now;
+    const sleep = clock.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+    while (now() < closesAt) {
+        await capture.sample(sessionId, shown);
+        const got = capture.get(sessionId);
+        if ('take' in got || 'fail' in got) return;
+        const left = closesAt - now();
+        if (left > 0) await sleep(Math.min(SHOWN_WITNESS_RETRY_MS, left));
+    }
+}
+
 export interface CoachingEvidenceOutcome {
     verdict: Verdict;
     detail: string;
