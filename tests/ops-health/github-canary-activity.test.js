@@ -137,6 +137,31 @@ describe('Canary UTC Ops Health rollup', () => {
     expect(JSON.stringify(result)).not.toContain('unrecognized sensitive text');
   });
 
+  it('keeps the first generic failure, reports the first explicit timeout at that step, then preserves both after a pass', async () => {
+    const timeout = (id, at) => {
+      const job = provisionJob(id, at);
+      return { ...job, conclusion: 'timed_out', steps: [{ ...job.steps[0], conclusion: 'timed_out' }] };
+    };
+    const result = await mock(runs([
+      run(1, '2026-11-22T01:00:00Z', 'failure'),
+      run(2, '2026-11-22T02:00:00Z', 'failure'),
+      run(3, '2026-11-22T03:00:00Z', 'failure'),
+      run(4, '2026-11-22T04:00:00Z', 'success'),
+    ]), {
+      '1/attempts/1/jobs': jobs([provisionJob(721, '2026-11-22T01:01:00Z')]),
+      '2/attempts/1/jobs': jobs([timeout(722, '2026-11-22T02:01:00Z')]),
+      '3/attempts/1/jobs': jobs([timeout(723, '2026-11-22T03:01:00Z')]),
+    }).check();
+    expect(result.firstFailure.evidence.reasonCode).toBe(null);
+    expect(result.firstFailure.evidence.logUrl).toContain('/1/job/721#step:6:1');
+    expect(result.distinct.map(({ evidence }) => [evidence.reasonCode, evidence.endedAt, evidence.logUrl])).toEqual([
+      ['timed_out', '2026-11-22T02:01:00.000Z', 'https://github.com/relativityE/speaksharp/actions/runs/2/job/722#step:6:1'],
+    ]);
+    expect(result.latest.id).toBe(4);
+    expect(result.latestGreen.id).toBe(4);
+    expect(result.unclassifiedFailures).toBe(0);
+  });
+
   it('shows red no-run only for a complete UTC date with no runs', async () => {
     expect(renderMarkdown(payload(await mock(runs([])).check()))).toContain('🔴 No run today.');
     expect(renderMarkdown(payload(await mock(runs([], 2)).check()))).not.toContain('🔴 No run today.');

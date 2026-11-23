@@ -155,7 +155,7 @@ function summarizeDay(dateUtc, coverage, attempts) {
     else {
       const code = row.evidence.reasonCode;
       const codes = known.get(key);
-      if (!codes || (code && codes.size && !codes.has(code))) distinct.push(row);
+      if (!codes || (code && !codes.has(code))) distinct.push(row);
       if (!codes) known.set(key, new Set(code ? [code] : []));
       else if (code) codes.add(code);
     }
