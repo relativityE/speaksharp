@@ -190,11 +190,12 @@ describe('same-target-numeric (the harness\'s own check)', () => {
         numericComparisonRow(leak, { result: 'FAIL', facts: { reason: 'Customer Alice 12.5 wpm', text: 'Pace: 140 → 120 wpm', count: 2, ok: true } });
         expect(leak.rows[0].evidence).toEqual({ reason: 'unknown', ok: true });
     });
-    it('the Open Mic journey runs the harness module itself, after the repeat-result step, bound to its saved takes', () => {
+    it('the Open Mic journey runs the G03 active check (parity-pinned to the harness module), after the repeat-result step, bound to its saved takes', () => {
         const spec = readFileSync(resolve(__dirname, '../live/rwt-open-mic-first-session.live.spec.ts'), 'utf8');
         const step = spec.indexOf("await test.step('saved and displayed comparison numbers match'");
         expect(step).toBeGreaterThan(spec.indexOf("await test.step('the repeat result names the measured metric'"));
-        expect(spec).toContain("'../../tools/cloud-test/harness/draft-adapters/progress-numeric.cjs'");
+        expect(spec).toContain("import { observeActive } from './helpers/rwtNumericActive';");
+        expect(spec).toContain("expectedAttemptId: boundAttemptId, product: 'open_mic',");
         // run 42938644148: the live specs are ES modules, so __filename/__dirname throw (the numeric row was HOLD 'not-observed')
         expect(spec).toContain('createRequire(import.meta.url)');
         expect(spec).not.toMatch(/\b__filename\b|\b__dirname\b/);
