@@ -463,6 +463,9 @@ async function main(argv, env = process.env, deps = {}) {
         configuredDomain: env.LIVE_TEST_EMAIL_DOMAIN, expectedRelease: a['--release-sha'], runBinding: { repository: env.GITHUB_REPOSITORY, workflow: env.GITHUB_WORKFLOW_REF }, deps });
 }
 
+/** The rc-gates acknowledgements a J8 run needs (rwt_writes_ack, rwt_canary_claim_ack). */
+const J8_WRITES_ACK = 'RWT-DISPOSABLE-ACCOUNT-WRITES';
+const J8_CANARY_ACK = 'RWT-CANARY-CLAIM-RUN-OWNED';
 /** Account-lookup enumerateUsers' page cap: each of the parent recovery's two lookups (before and after the delete) may page this far. */
 const J8_LOOKUP_PAGES = 50;
 /**
@@ -492,6 +495,10 @@ function j8AdminTransport(fetchImpl = globalThis.fetch) {
 async function liveMain(argv, env = process.env, inject = {}) {
     const cli = cliArgs(argv, env);
     if (!cli.args) return cli;
+    // Explicit disposable canary scope (Sam, 23 Nov): the dispatch's own write and canary-claim acknowledgements, exactly, or nothing
+    // is built. The spec checks them again before its signup; the readback reads canary traffic only.
+    if (env.RWT_WRITES_ACK !== J8_WRITES_ACK || env.RWT_CANARY_CLAIM_ACK !== J8_CANARY_ACK)
+        return { exitCode: 78, reason: 'BLOCKED_SETUP: J8 needs the exact disposable-account write and canary-claim acknowledgements' };
     if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY)
         return { exitCode: 78, reason: 'BLOCKED_SETUP: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required in the parent' };
     let origin;
@@ -530,5 +537,5 @@ if (require.main === module) liveMain(process.argv.slice(2)).then((r) => {
 });
 module.exports = {
     DEADLINES, LOCAL_PREFIX, TIMED_OUT, withinSettled, RECOVERY_DEPS, READBACK_STAGES, RECEIPT_FILE, SIGNUP_DEADLINE_MS, SIGNUP_LEG, admitJ8, finalizerEvaluate, holdAll, j8CaseResult, j8ReadbackVerdicts, j8Reservation,
-    J8_LOOKUP_PAGES, cliArgs, j8AdminTransport, j8RunSummary, liveMain, main, ownBlocks, readBoundReceipt, recordRunIdFor, runJ8Nightly, sameDirectory, specOutcomeFault, teardownJ8,
+    J8_CANARY_ACK, J8_LOOKUP_PAGES, J8_WRITES_ACK, cliArgs, j8AdminTransport, j8RunSummary, liveMain, main, ownBlocks, readBoundReceipt, recordRunIdFor, runJ8Nightly, sameDirectory, specOutcomeFault, teardownJ8,
 };
