@@ -716,6 +716,34 @@ describe('J1.f/J7.d step 6: the server readiness decision (no injected readiness
     await waitFor(() => expect(button()).not.toBeInTheDocument());
     expect(calls('completion_execute')).toHaveLength(0);
   });
+  it('a refresh during a pending readiness request starts fresh readiness work once the stale flight settles', async () => {
+    const original = transport.getMockImplementation()!;
+    let release!: () => void;
+    let held = true;
+    transport.mockImplementation(async (url, options) => {
+      if (JSON.parse(String(options?.body)).action === 'completion_readiness' && held) {
+        held = false;
+        await new Promise<void>(resolve => { release = resolve; });
+      }
+      return original(url, options);
+    });
+    page();
+    await waitFor(() => expect(calls('completion_readiness')).toHaveLength(1));
+    // The user refreshes status while the first decision is still in flight: that decision becomes stale.
+    fireEvent.click(await screen.findByRole('button', { name: 'Check deletion status' }));
+    await act(async () => { release(); });
+    // The stale answer is discarded, and fresh readiness work runs for the current generation.
+    expect(await screen.findByRole('button', { name: 'Complete permanent account deletion' })).toBeInTheDocument();
+    expect(calls('completion_readiness').length).toBeGreaterThanOrEqual(2);
+  });
+  it('a genuine unavailable decision is not retried in a loop (only a stale flight re-runs)', async () => {
+    decision = { outcome: 'unavailable', canRetry: false };
+    page();
+    await waitFor(() => expect(calls('completion_readiness')).toHaveLength(1));
+    await new Promise(resolve => setTimeout(resolve, 600));
+    expect(calls('completion_readiness')).toHaveLength(1);
+    expect(button()).not.toBeInTheDocument();
+  });
   it('a session for a different user is never used to ask for readiness', async () => {
     const original = transport.getMockImplementation()!;
     transport.mockImplementation(async (url, options) => {

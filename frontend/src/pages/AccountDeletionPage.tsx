@@ -428,16 +428,24 @@ export default function AccountDeletionPage({ completionReadiness }:
     const ownerId = user.id, requestId = retained.requestId, generation = completionGeneration.current;
     const current = () => completionGeneration.current === generation && ownerAndRequest.current.ownerId === ownerId;
     void (async () => {
+      let stale = false;
       try {
         const auth = await getSupabaseClient()?.auth.getSession();
         const session = auth && !auth.error ? auth.data.session : null;
-        if (!session || session.user.id !== ownerId || !session.access_token || !current()) return;
+        if (!current()) { stale = true; return; }
+        if (!session || session.user.id !== ownerId || !session.access_token) return;
         const deadline = await requestExecutionReadiness(completionTransport, ownerId, requestId, session.access_token, Date.now);
-        if (deadline === null || !current()) return;
+        if (!current()) { stale = true; return; }
+        if (deadline === null) return;
         const next = { ownerId, requestId, expiresAt: deadline };
         serverReadyRef.current = next;
         setServerReady(next);
-      } catch { /* no decision: the effect stays unavailable */ } finally { readinessFlight.current = false; }
+      } catch { /* no decision: the effect stays unavailable */ } finally {
+        readinessFlight.current = false;
+        // A flight made stale by a refresh or owner change dropped its answer: run the effect again so the CURRENT
+        // generation gets its own decision. A genuine unavailable answer does not re-run (no polling loop).
+        if (stale) setReadyTick(n => n + 1);
+      }
     })();
     return undefined;
   }, [completionReadiness, readinessWanted, user, retained, completionTransport, serverReady, readyTick]);
