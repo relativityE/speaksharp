@@ -46,6 +46,12 @@ export interface MarkerObserverSnapshot {
     acquisitionMarks: number[];
     frozen: boolean;
     frozenAtMs: number | null;
+    /**
+     * J3.b (Sam, 22 Nov, option 1): per point, the latest page time at which a heartbeat READ the row still `pending`, taken
+     * only before that point's first observed change. The stamp is taken BEFORE the read, so the row was pending at some time
+     * at or after it: the change happened after it. Never backdated; null when never sampled.
+     */
+    pendingSeenAtMs: (number | null)[];
 }
 
 interface ObserverState {
@@ -54,10 +60,11 @@ interface ObserverState {
     rail: Element | null;
     last: (string | null)[];
     lastDeliveryAtMs: number;
+    heartbeat: ReturnType<typeof setInterval> | null;
 }
 
 /** In-page: arm the observer on the current rail. Refuses a second live observer and a missing rail. */
-export function armMarkerObserverInPage(args: { token: string; count: number; railTestId: string; rowPrefix: string }): { ok: boolean; reason?: string } {
+export function armMarkerObserverInPage(args: { token: string; count: number; railTestId: string; rowPrefix: string; sampleMs?: number }): { ok: boolean; reason?: string } {
     const w = window as unknown as Record<string, unknown>;
     const existing = w['__rwtMarkerObserver__'] as ObserverState | undefined;
     if (existing && !existing.snapshot.frozen) return { ok: false, reason: existing.snapshot.token === args.token ? 'already-armed' : 'another-observer-active' };
@@ -79,11 +86,13 @@ export function armMarkerObserverInPage(args: { token: string; count: number; ra
             token: args.token, armedAtMs, initialAllPending: initial.length > 0 && initial.every((s) => s === 'pending'),
             initialStatuses: initial, observations: [], rejected: [], railGenerations: 1, acquisitionsAtArm: log.length,
             acquisitionLog: [], acquisitionMarks: [], frozen: false, frozenAtMs: null,
+            pendingSeenAtMs: Array.from({ length: args.count }, () => null),
         },
         observer: null,
         rail,
         last: initial.slice(),
         lastDeliveryAtMs: armedAtMs,
+        heartbeat: null,
     };
     const s = state.snapshot;
     const record = (point: number, status: string | null, afterMs: number, at: number, railGeneration: number) => {
@@ -150,6 +159,24 @@ export function armMarkerObserverInPage(args: { token: string; count: number; ra
         }
         if (structural && rail) readStatuses(rail).forEach((status, i) => record(i, status, afterMs, at, s.railGenerations));
     };
+    // J3.b (Sam, 22 Nov, option 1): a page-side heartbeat. Each tick stamps the page clock FIRST, then reads the rail; a row
+    // still `pending` proves its change came after that stamp. Only until the point's first observed change, only while not
+    // frozen. A stalled page samples nothing, so the lower bound simply stays where it was (an inconclusive interval HOLDs).
+    const sample = () => {
+        if (s.frozen) return;
+        const t0 = Date.now();
+        const r = currentRail();
+        if (!r) return;
+        readStatuses(r).forEach((status, i) => {
+            if (status !== 'pending') return;
+            if (s.observations.some((o) => o.point === i && o.status !== 'pending')) return;
+            const prev = s.pendingSeenAtMs[i];
+            if (prev === null || t0 > prev) s.pendingSeenAtMs[i] = t0;
+        });
+    };
+    // page.evaluate sends this function as source text, so it may name nothing from this module (Codex P2 on #1950): the caller
+    // passes MARKER_SAMPLE_MS, and the fallback is the same value written out (a unit test pins the two equal).
+    state.heartbeat = setInterval(sample, Number.isFinite(args.sampleMs) && (args.sampleMs as number) > 0 ? args.sampleMs as number : 100);
     const observer = new MutationObserver((records) => handle(records, Date.now()));
     observer.observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-status'], attributeOldValue: true });
     state.observer = observer;
@@ -168,6 +195,7 @@ export function freezeMarkerObserverInPage(token: string): MarkerObserverSnapsho
     if (!state || state.snapshot.token !== token) return null;
     if (!state.snapshot.frozen) {
         state.drain?.();
+        if (state.heartbeat !== null) { clearInterval(state.heartbeat); state.heartbeat = null; }
         state.snapshot.frozen = true;
         state.snapshot.frozenAtMs = Date.now();
         state.observer?.disconnect();
@@ -184,6 +212,7 @@ export function disposeMarkerObserverInPage(token: string): boolean {
     const w = window as unknown as Record<string, unknown>;
     const state = w['__rwtMarkerObserver__'] as ObserverState | undefined;
     if (!state || state.snapshot.token !== token) return false;
+    if (state.heartbeat) { clearInterval(state.heartbeat); state.heartbeat = null; }
     state.observer?.disconnect();
     state.observer = null;
     state.snapshot.frozen = true;
@@ -192,12 +221,14 @@ export function disposeMarkerObserverInPage(token: string): boolean {
 }
 
 export const MARKER_RAIL_TEST_ID = 'focus-points-rail';
+/** The heartbeat period (page-side). A slower or stalled page only widens the interval toward HOLD, never toward PASS. */
+export const MARKER_SAMPLE_MS = 100;
 export const MARKER_ROW_PREFIX = 'focus-point-';
 
 /** Node: arm before anything can start the take. A failure is recorded by the caller as a HOLD, never retried silently. */
 export async function armMarkerObserver(page: Page, count: number): Promise<{ token: string; ok: boolean; reason?: string }> {
     const token = `mo-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-    const result = await page.evaluate(armMarkerObserverInPage, { token, count, railTestId: MARKER_RAIL_TEST_ID, rowPrefix: MARKER_ROW_PREFIX })
+    const result = await page.evaluate(armMarkerObserverInPage, { token, count, railTestId: MARKER_RAIL_TEST_ID, rowPrefix: MARKER_ROW_PREFIX, sampleMs: MARKER_SAMPLE_MS })
         .catch(() => ({ ok: false, reason: 'evaluate-failed' }));
     return { token, ...result };
 }
@@ -251,6 +282,8 @@ export function classifyMarkerTiming(input: {
     observations: readonly MarkerObservation[];
     invokedAtMs: number;
     expectsLive: readonly boolean[];
+    /** The heartbeat's last observed-pending time per point (snapshot.pendingSeenAtMs); absent = the delivery bound only. */
+    pendingSeenAtMs?: readonly (number | null)[];
 }): string[] {
     const first = (i: number) => input.observations.find((o) => o.point === i && o.status !== 'pending') ?? null;
     const nextStart = (i: number): number | null => {
@@ -260,13 +293,18 @@ export function classifyMarkerTiming(input: {
     return input.expectsLive.map((expectsLive, i) => {
         const window = input.windows[i] ?? null;
         const change = first(i);
-        const lo = change ? (change.afterMs - input.invokedAtMs) / 1000 : 0;
+        // The lower bound is the LATER of the previous delivery and the last heartbeat that read this row still pending.
+        const seen = input.pendingSeenAtMs?.[i] ?? null;
+        const loMs = change ? (seen !== null && Number.isFinite(seen) ? Math.max(change.afterMs, seen) : change.afterMs) : 0;
+        const lo = change ? (loMs - input.invokedAtMs) / 1000 : 0;
         const hi = change ? (change.observedAtMs - input.invokedAtMs) / 1000 : 0;
         const bounds = `${lo.toFixed(3)}..${hi.toFixed(3)}`;
         // A pre-removal change whose resulting value is not established is evidence of a write, not of a marker: non-PASS.
         if (window === null) return change ? (change.status === 'unknown' ? `uncertain-unspoken-change@${bounds}` : 'marked-though-never-spoken') : 'ok-unspoken';
         if (!change) return expectsLive ? 'no-live-change' : 'ok-no-change';
         if (change.status === 'unknown') return `uncertain-unknown@${bounds}`;
+        // A pending read at or after the change's own observation contradicts the record: sampling anomaly, never decided.
+        if (seen !== null && seen >= change.observedAtMs) return `uncertain-sampling@${bounds}`;
         const earliest = window[0] - MARKER_ALIGNMENT_SLACK_SECONDS;
         const next = nextStart(i);
         const deadline = Math.min(window[1] + LIVE_MARKER_MAX_AFTER_SECONDS, next ?? Number.POSITIVE_INFINITY);
