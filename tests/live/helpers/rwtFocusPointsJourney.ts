@@ -102,6 +102,7 @@ import { currentRunBinding } from './runBinding';
 import { FOCUS_TAKES_DIFFER_ROW, focusTakesDifferRow } from './rwtFocusTakesDiffer';
 import { FOCUS_EDIT_CANCEL_ROW, editCancelVerdict, type BriefSnapshot, type EditCancelObservation } from './rwtFocusEditCancel';
 import { OPEN_MIC_ISOLATION_ROW, openMicIsolationVerdict, type FocusEvidenceSnapshot } from './rwtFocusOpenMicIsolation';
+import { observeActive } from './rwtNumericActive';
 import { FOCUS_PRESENTATION_ROW, FOCUS_SIGN_IN_ROW, focusPresentationRow, focusSignInRow } from './rwtFocusPresentation';
 import { FOCUS_SAME_TARGET_ROW, focusSameTargetVerdict, readTargetInPage, type FocusSet, type SessionRow, type TargetRead } from './rwtFocusSameTarget';
 import {
@@ -1285,7 +1286,9 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         // Reuses tools/cloud-test/harness/draft-adapters/progress-numeric.cjs (no copy), as #1812's AHT-01 does. It reads the
         // persisted recommendation, the attempt bound to THIS repeat (the id the step above captured) and both evaluations, then the
         // panel the step above opened. It never navigates; with no panel open it reads the session page and returns NOT RUN (HOLD).
-        // Pinned to the served release it was revalidated against: any other release is NOT RUN (HOLD), never a pass.
+        // G03 ACTIVE check (PO Option A, 2026-11-22): tests/live/helpers/rwtNumericActive.ts, parity-pinned to the sealed harness
+        // check. The served release's four consumer files must equal one complete sealed set (git bytes, no trusted SHA), both saved
+        // sessions must be this owner's focus_points sessions, and the attempt must be the one bound above; otherwise NOT RUN (HOLD).
         await test.step('saved and displayed comparison numbers match', async () => {
             let result: NumericResult | null = null;
             let repeatEligibility: RepeatEligibility = { state: 'unread' };
@@ -1296,14 +1299,11 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                         PROGRESS_FORMULA_VERSION: string;
                     };
                     repeatEligibility = await readRepeatEligibility(admin as never, { sessionId: repeatSessionId, userId: owner.uid, formulaVersion: pure.PROGRESS_FORMULA_VERSION });
-                    const numeric = load(fileURLToPath(new URL('../../../tools/cloud-test/harness/draft-adapters/progress-numeric.cjs', import.meta.url))) as {
-                        observe: (a: Record<string, unknown>) => Promise<NumericResult>;
-                    };
                     const panelPage = progressPanelTab ?? page;
                     const served = await panelPage.evaluate(() => (window as unknown as { __APP_RELEASE__?: string }).__APP_RELEASE__ ?? null).catch(() => null);
-                    result = await numeric.observe({
+                    result = await observeActive({
                         page: panelPage, db: admin, sourceSessionId: persistedId, repeatSessionId,
-                        ...(boundAttemptId ? { expectedAttemptId: boundAttemptId } : {}),
+                        expectedAttemptId: boundAttemptId, product: 'focus_points',
                         caseConfig: { sourceSha: expectedReleaseSha(), servedSha: served, account: { id: owner.uid } },
                     });
                 }
