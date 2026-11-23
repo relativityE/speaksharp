@@ -2,6 +2,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
+import { evaluateCanaryActivity } from './lib/github-canary-activity.mjs';
 import { evaluateGithubRow } from './lib/github-ops-row.mjs';
 import { summarize, renderMarkdown, renderPublicSummary, exitCodeForRows } from './lib/ops-health-report.mjs';
 import { evaluateVercelRow } from './lib/vercel-ops-row.mjs';
@@ -89,8 +90,10 @@ await row('GitHub API', 'Can we query repository metadata and release workflows?
   return evaluateGithubRow(repo, token);
 });
 
+// Informational section: preserve existing vendor check counts, verdict and exit code.
+const canaryActivity = await evaluateCanaryActivity(repo, normalizeBearerToken(optionalEnv('GITHUB_TOKEN', ['GH_PAT']) ?? ''), generatedAt);
 const summary = summarize(rows);
-const payload = { generatedAt, baseUrl, repo, runContext, summary, checks: rows };
+const payload = { generatedAt, baseUrl, repo, runContext, summary, checks: rows, canaryActivity };
 const publicPayload = renderPublicSummary(payload);
 const markdown = renderMarkdown(payload);
 
