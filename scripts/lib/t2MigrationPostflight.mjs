@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync, lstatSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { EXACT_MIGRATION_ALLOWLIST } from './exactMigrationGate.mjs';
+import { completionSettlementContract, completionSettlementSnapshotQuery } from './completionSettlementMigrationPostflight.mjs';
 import { C1_VERSIONS, c1Contract, c1CatalogQuery, functionDefinitions } from './c1MigrationPostflight.mjs';
 import { RETIREMENT_CATALOG_DELTA } from './retirementCatalogPins.mjs';
 import { ABANDONMENT_CATALOG_DELTA } from './abandonmentCatalogPins.mjs';
@@ -472,7 +473,14 @@ export function t2ReleaseContract(root, installed, options = {}) {
   if (!['native-replay', 'retained-production'].includes(catalogContext)) {
     throw new Error('T2 release catalog context unknown');
   }
-  const ledger = typeof installed === 'string' ? JSON.parse(installed) : installed;
+  const observed = typeof installed === 'string' ? JSON.parse(installed) : installed;
+  // Migration 129 sorts INSIDE this window. Once installed (after every successor below), the ledger is the full
+  // 15-entry release ledger with 129 at its version-ordered position; nothing else is admitted alongside it.
+  const settled = Array.isArray(observed) && observed.length === 16 && observed.includes(NEXT_RELEASE_SOURCE.version);
+  const ledger = settled ? observed.filter(version => version !== NEXT_RELEASE_SOURCE.version) : observed;
+  if (settled && (ledger.length !== 15 || JSON.stringify(observed) !== JSON.stringify([...ledger, NEXT_RELEASE_SOURCE.version].sort()))) {
+    throw new Error('T2 release ledger unknown, mixed or incomplete');
+  }
   const versions = [...T2_VERSIONS, ...C1_VERSIONS, ...(ledger?.length >= 9 ? [RETIREMENT_VERSION] : []),
     ...(ledger?.length >= 10 ? [ABANDONMENT_VERSION] : []), ...(ledger?.length >= 11 ? [FEEDBACK_FENCE_VERSION] : []),
     ...(ledger?.length >= 12 ? [PAYMENT_WALL_VERSION] : []), ...(ledger?.length >= 13 ? [PRACTICE_PRIVACY_VERSION] : []),
@@ -534,11 +542,13 @@ export function t2ReleaseContract(root, installed, options = {}) {
     || futureFunctions[0].signature !== 'public.settle_account_completion_billing_v1(uuid,uuid,uuid,text,jsonb)') {
     throw new Error('T2 release future function shape unavailable');
   }
-  const absentFamilies = futureFunctions.map(fn => fn.signature.split('(')[0].slice(7));
-  const profile = stage === 9 ? 'post-1906-save-journal-cleanup' : stage === 8 ? 'post-1827-repeat-tip' : stage === 7 ? 'post-1835-practice-privacy' : stage === 6 ? 'post-1863-payment-wall'
+  const absentFamilies = settled ? [] : futureFunctions.map(fn => fn.signature.split('(')[0].slice(7));
+  const profile = settled ? 'post-129-completion-settlement' : stage === 9 ? 'post-1906-save-journal-cleanup' : stage === 8 ? 'post-1827-repeat-tip' : stage === 7 ? 'post-1835-practice-privacy' : stage === 6 ? 'post-1863-payment-wall'
     : stage === 5 ? 'post-1811-feedback-fence' : stage === 4 ? 'post-1643-abandonment'
     : stage === 3 ? 'post-128-retirement' : `post-${126 + stage}`;
-  return { profile, catalogContext, stage, ledger: [...ledger], pins, inventory, expected, c1,
+  // Post-129 the settle family is no longer known-absent: it must be present and exact, with completion OFF/unbound.
+  const settlement = settled ? completionSettlementContract(root, 'after', NEXT_RELEASE_SOURCE.version).expectedFunction : null;
+  return { profile, catalogContext, stage, ledger: [...observed], pins, inventory, expected, c1, settlement,
     knownAbsent: { ...NEXT_RELEASE_SOURCE, families: [...absentFamilies, ...(stage < 3 ? RETIREMENT_FUNCTIONS : []),
       ...(stage < 4 ? ABANDONMENT_FUNCTIONS : []), ...(stage < 5 ? FEEDBACK_FENCE_FUNCTIONS : [])],
       tables: [...(stage < 3 ? RETIREMENT_TABLES : []), ...(stage < 4 ? ABANDONMENT_TABLES : []),
@@ -547,7 +557,7 @@ export function t2ReleaseContract(root, installed, options = {}) {
 
 export function t2KnownAbsentQuery(contract) {
   return `SELECT (NOT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-    WHERE n.nspname='public' AND p.proname IN (${contract.knownAbsent.families.map(literal).join(',')}))
+    WHERE n.nspname='public' AND p.proname IN (${contract.knownAbsent.families.map(literal).join(',') || "''"}))
     AND NOT EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
       WHERE n.nspname='public' AND c.relname IN (${(contract.knownAbsent.tables || []).map(literal).join(',') || "''"})))::text;`;
 }
@@ -560,17 +570,27 @@ export function t2EdgeReleaseContract(root, installed) {
   // The retirement successor is required; the later #1643 start-abandonment (10), #1811 feedback-fence (11), #1863
   // payment-wall (12), #1835 practice-privacy (13) and #1827 repeat-tip (14) ledgers still include it.
   if (!['post-128-retirement', 'post-1643-abandonment', 'post-1811-feedback-fence', 'post-1863-payment-wall',
-    'post-1835-practice-privacy', 'post-1827-repeat-tip', 'post-1906-save-journal-cleanup'].includes(contract.profile)) {
+    'post-1835-practice-privacy', 'post-1827-repeat-tip', 'post-1906-save-journal-cleanup',
+    'post-129-completion-settlement'].includes(contract.profile)) {
     throw new Error('T2 Edge release requires installed coaching retirement successor');
   }
   return contract;
 }
 
 export function assertT2ReleaseSnapshot(contract, rows) {
-  if (!Array.isArray(rows) || rows.length !== 6) throw new Error('incomplete T2 release evidence');
+  if (!Array.isArray(rows) || rows.length !== (contract.settlement ? 7 : 6)) throw new Error('incomplete T2 release evidence');
   const ledger = JSON.parse(rows[0]);
   if (JSON.stringify(ledger) !== JSON.stringify(contract.ledger)) throw new Error('T2 release ledger changed');
   if (rows[5] !== 'true') throw new Error('T2 release known129 function family must be absent');
+  if (contract.settlement) {
+    const settlement = JSON.parse(rows[6]);
+    if (JSON.stringify(settlement?.functions) !== JSON.stringify([contract.settlement])) {
+      throw new Error('T2 release post-129 settlement function differs');
+    }
+    if (JSON.stringify(settlement?.completion) !== JSON.stringify({ rows: 1, disabledUnbound: true })) {
+      throw new Error('T2 release post-129 completion is not OFF and unbound');
+    }
+  }
   const catalog = assertT2Catalog(rows[1], contract.expected);
   const disabled = assertT2Disabled(rows[2], true);
   if (rows[3] !== 'true') throw new Error('T2 recording admission prerequisite failed');
@@ -601,5 +621,6 @@ ${t2DisabledQuery(true)}
 ${t2AdmissionQuery(true)}
 ${c1CatalogQuery(contract.c1).sql}
 ${t2KnownAbsentQuery(contract)}
+${contract.settlement ? completionSettlementSnapshotQuery() : ''}
 COMMIT;`;
 }

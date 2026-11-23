@@ -383,6 +383,30 @@ console.log(query.includes('objects AS')?rows.join('\\n'):rows[0]);});\n`);
     expect(() => t2ReleaseContract(process.cwd(), [...fourteen, '20261119200001'])).toThrow(/ledger/);
     expect(() => t2ReleaseContract(process.cwd(), [...fourteen, '20261119200000', '20261119200001'])).toThrow(/ledger/);
 
+    // Migration 129 sorts inside the window: post-129 is the full fifteen-entry ledger with 129 at its ordered position.
+    const settlementVersion = '20261027192550';
+    const sixteen = [...fifteen, settlementVersion].sort();
+    expect(sixteen.indexOf(settlementVersion)).toBe(sixteen.indexOf('20261025021046') + 1);
+    const settled = t2ReleaseContract(process.cwd(), sixteen);
+    expect([settled.profile, settled.stage, settled.ledger]).toEqual(['post-129-completion-settlement', 9, sixteen]);
+    expect([settled.inventory, settled.expected, settled.pins]).toEqual([cleanup.inventory, cleanup.expected, cleanup.pins]);
+    expect(settled.knownAbsent.families).toEqual([]);
+    expect(settled.settlement.slice(0, 3)).toEqual(['settle_account_completion_billing_v1',
+      'p_user_id uuid, p_request_id uuid, p_execution_id uuid, p_scope_digest text, p_subscriptions jsonb', 'boolean']);
+    expect(settled.settlement.slice(-2)).toEqual([['postgres:postgres:false', 'service_role:postgres:false'], [false, false, true]]);
+    expect(t2EdgeReleaseContract(process.cwd(), sixteen).profile).toBe('post-129-completion-settlement');
+    expect(cleanup.settlement).toBeNull();
+    expect(cleanup.knownAbsent.families).toEqual(['settle_account_completion_billing_v1']);
+    // Appended out of order, before #1906, with a gap, or beside any other extra entry: refused.
+    expect(() => t2ReleaseContract(process.cwd(), [...fifteen, settlementVersion])).toThrow(/ledger/);
+    expect(() => t2ReleaseContract(process.cwd(), [...fourteen, settlementVersion].sort())).toThrow(/ledger/);
+    expect(() => t2ReleaseContract(process.cwd(), sixteen.filter(version => version !== '20261110173548'))).toThrow(/ledger/);
+    expect(() => t2ReleaseContract(process.cwd(), [...sixteen, '20261119200001'])).toThrow(/ledger/);
+    expect(t2KnownAbsentQuery(settled)).toContain("p.proname IN ('')");
+    expect(t2ReleaseSnapshotQuery(settled)).toContain("p.proname='settle_account_completion_billing_v1'");
+    expect(t2ReleaseSnapshotQuery(cleanup)).not.toContain("p.proname='settle_account_completion_billing_v1'");
+    expect(() => assertT2ReleaseSnapshot(settled, ['[]', '{}', '{}', 'true', '{}', 'true'])).toThrow(/incomplete T2 release evidence/);
+
     for (const bad of [
       [...thirteen.slice(0, -1), '20261119120000'],                       // repeat tip without #1835
       [...thirteen.slice(0, -2), '20261117105700', '20261114170000', '20261119120000'], // reordered predecessors
