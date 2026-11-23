@@ -13,7 +13,7 @@ import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, re
   type RunnerJourney, type BillingEvent, hostedFieldUnavailable, hostedEmailDecision, type HostedField,
   HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl, cleanupFailureCode, proveStripeFixtureDeleted,
   observeCaptureLive, holdThenStop, APP_TOO_SHORT_STATUS, WATCH_INSTALL_SCRIPT, takeStatusScript, stopGateScript, pageScript, takeOutcome,
-  type StopGateResult, privacyBuildState, PRIVACY_PROMPT, optInThroughPrompt, type PrivacyTableRead, trustedCheckoutFrame } from './contract';
+  type StopGateResult, privacyBuildState, PRIVACY_PROMPT, optInThroughPrompt, type PrivacyTableRead, trustedCheckoutFrame, keptHistoryVerdict } from './contract';
 import { fillHostedEmail } from './hostedEmail';
 import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { selectBenchmarkMode, preparePrivateModelIfPrompted, startBenchmarkRecording,
@@ -42,6 +42,12 @@ const id = (value: unknown): string => typeof value === 'string' ? value
   : value && typeof value === 'object' && 'id' in value ? String(value.id) : '';
 
 /** No POST to stripe-webhook, no signing key, no local replay, and no entitlement writes after fixture setup. */
+/** J9.a: two earlier sessions, oldest first. Each transcript has its own phrase so the detail view is matched to its row. */
+const EARLIER_SESSIONS = [
+  { daysAgo: 3, phrase: 'earlier practice one about planning the quarterly review with the whole team' },
+  { daysAgo: 2, phrase: 'earlier practice two about presenting the launch timeline to new customers' },
+] as const;
+
 class SandboxJourney {
   readonly started = Date.now();
   /** Prints a content-free progress line as it happens, so a timeout still shows the last step reached. */
@@ -62,6 +68,8 @@ class SandboxJourney {
   uid = ''; customer = ''; subscription = ''; clock = ''; session = ''; savedSession = '';
   /** J2: the declined session's own verified subscription (unpaid), allowed beside the paid retry's; null when none was attached. */
   declinedSubscription: string | null = null;
+  /** J9.a: the earlier sessions this run seeded during the trial, oldest first. */
+  earlier: string[] = [];
   /** The Checkout session openCheckout positively bound to this run (assertCheckoutIdentity); null until then. */
   boundCheckout: string | null = null;
   /** Whether the bound Customer's email IS this run's fixture email: compared only, never kept or reported; null when unread. */
@@ -184,6 +192,8 @@ class SandboxJourney {
     const trial = await this.usage();
     requireFact(trial.trial_active === true && trial.can_start === true, 'trial_access_missing');
     if (this.journey === 'conversion') this.steps.add('trial_granted');
+    // J9.a: the earlier practice belongs to the trial, before the account ever paid.
+    if (this.journey === 'paid_account_kept') await this.seedHistory();
     // Controlled expiry of ONLY this disposable sandbox fixture. Never alter the immutable grant marker.
     const expired = await this.admin.from('user_profiles').update({ trial_expires_at: new Date(Date.now() - 60_000).toISOString() }).eq('id', this.uid);
     requireFact(!expired.error, 'fixture_expiry_failed');
@@ -191,7 +201,7 @@ class SandboxJourney {
     requireFact(after.commercial_trial_granted_at === initial.commercial_trial_granted_at, 'trial_grant_changed');
     const usage = await this.usage();
     requireFact(usage.trial_active === false && usage.can_start === false && usage.is_pro === false, 'expired_access_not_blocked');
-    if (this.journey === 'conversion' || this.journey === 'failed_checkout') this.steps.add('trial_expired');
+    if (this.journey === 'conversion' || this.journey === 'failed_checkout' || this.journey === 'paid_account_kept') this.steps.add('trial_expired');
 
     // Clock-backed customers keep each branch independent; unsupported sandbox capabilities fail closed.
     this.uncertainStripeCreate = true;
@@ -683,6 +693,114 @@ class SandboxJourney {
     await this.poll(() => this.stripe(`test_helpers/test_clocks/${this.clock}`), value => value.status === 'ready', 'clock_not_ready');
   }
 
+  /**
+   * J9.a: two completed, run-marked earlier sessions, seeded by service role during the live trial (no takes). The
+   * account first records its own choice through its own API, as the Practice prompt does: transcripts saved and coaching
+   * ON, so "no new coaching" later is a real check, not a consequence of coaching being off.
+   */
+  async seedHistory(): Promise<void> {
+    this.stage = 'history_seeded';
+    const choice = await this.member.rpc('set_practice_privacy_choices_v1',
+      { p_transcript_save: true, p_ai_coaching: true, p_expected_revision: null });
+    requireFact(!choice.error, 'history_privacy_choice_failed');
+    for (const [index, earlier] of EARLIER_SESSIONS.entries()) {
+      const words = earlier.phrase.split(' ').length;
+      const { data, error } = await this.admin.from('sessions').insert({
+        user_id: this.uid, title: `${this.marker} earlier session ${index + 1}`, status: 'completed',
+        transcript: earlier.phrase, duration: 60, total_words: words, wpm: words,
+        created_at: new Date(Date.now() - earlier.daysAgo * 86_400_000).toISOString(),
+      }).select('id').single();
+      requireFact(!error && /^[0-9a-f-]{36}$/i.test(data?.id ?? ''), 'history_seed_failed');
+      this.earlier.push(data.id);
+    }
+    const rows = await this.earlierRows();
+    requireFact(rows.length === EARLIER_SESSIONS.length
+      && rows.every(row => row.user_id === this.uid && row.status === 'completed' && row.ai_suggestions === null), 'history_seed_not_read_back');
+    this.steps.add('history_seeded');
+  }
+
+  async earlierRows(): Promise<{ id: string; user_id: string; status: string; ai_suggestions: unknown }[]> {
+    const { data, error } = await this.admin.from('sessions').select('id,user_id,status,ai_suggestions')
+      .eq('user_id', this.uid).in('id', this.earlier);
+    requireFact(!error && Array.isArray(data), 'history_read_failed');
+    return data;
+  }
+
+  /**
+   * J9.a: a fresh sign-in on the paid account keeps Pro, opens both earlier sessions and Progress, asks for no coaching for
+   * them, and Manage billing shows the $10.00 monthly plan as the current plan in one compact block of Stripe's portal.
+   */
+  async keptOnReturn(): Promise<void> {
+    // A fresh browser context proves a real new sign-in, not cleared storage.
+    const fresh = await this.page.context().browser()!.newContext({ baseURL: this.targets.app });
+    const coachingRequests: string[] = [];
+    fresh.on('request', request => {
+      if (new URL(request.url()).pathname.endsWith('/functions/v1/get-ai-suggestions')) coachingRequests.push(request.method());
+    });
+    try {
+      const other = await fresh.newPage();
+      await other.goto('/auth/signin');
+      await other.getByTestId('email-input').fill(this.email);
+      await other.getByTestId('password-input').fill(this.password);
+      await other.getByTestId('sign-in-submit').click();
+      await expect(other.getByTestId('nav-account-avatar')).toBeVisible();
+      this.steps.add('sign_in_again');
+
+      this.stage = 'entitlement_kept';
+      await other.goto('/account');
+      await expect(other.getByTestId('membership-status')).toContainText('Pro · Active');
+      await this.entitlement(true);
+      this.steps.add('entitlement_kept');
+
+      this.stage = 'history_opens';
+      // Each seeded session is opened by its own id and must show its own transcript (keptHistoryVerdict): a count of
+      // opens, or one session opened twice, can never pass.
+      const opened: { id: string; text: string | null }[] = [];
+      for (const [index, sessionId] of this.earlier.entries()) {
+        await other.goto(`/progress/${sessionId}`);
+        await expect(other.getByTestId('trial-payment-wall')).toHaveCount(0);
+        const transcript = other.getByTestId('session-detail-transcript');
+        await expect(transcript).toContainText(EARLIER_SESSIONS[index].phrase, { timeout: 60_000 });
+        opened.push({ id: new URL(other.url()).pathname.split('/').pop() ?? '', text: await transcript.textContent() });
+      }
+      requireFact(keptHistoryVerdict(this.earlier.map((sessionId, index) => ({ id: sessionId, phrase: EARLIER_SESSIONS[index].phrase })),
+        opened), 'history_not_kept_per_session');
+      this.steps.add('history_opens');
+
+      this.stage = 'progress_opens';
+      await other.goto('/progress');
+      await expect(other.getByTestId('analytics-dashboard')).toBeVisible({ timeout: 60_000 });
+      await expect(other.getByTestId('trial-payment-wall')).toHaveCount(0);
+      for (const sessionId of this.earlier) {
+        await expect(other.getByTestId(`session-history-item-${sessionId}`)).toBeVisible({ timeout: 60_000 });
+      }
+      this.steps.add('progress_opens');
+
+      this.stage = 'no_new_coaching';
+      // Coaching is ON for this account, yet opening its old sessions never asks for coaching or stores any.
+      requireFact(coachingRequests.length === 0, 'coaching_requested_for_old_sessions');
+      const rows = await this.earlierRows();
+      requireFact(rows.length === EARLIER_SESSIONS.length && rows.every(row => row.ai_suggestions === null), 'coaching_stored_for_old_sessions');
+      this.steps.add('no_new_coaching');
+
+      this.stage = 'portal_plan_shown';
+      await other.goto('/account');
+      const manage = other.getByRole('button', { name: 'Manage billing', exact: true });
+      await expect(manage).toBeVisible({ timeout: 30_000 }).catch(() => { throw new Error('BILLING_JOURNEY:manage_billing_unavailable'); });
+      await manage.click();
+      await other.waitForURL(url => url.origin === 'https://billing.stripe.com', { timeout: 60_000 });
+      // One compact block names the current plan with its price and cadence; the whole page matching is not enough.
+      await this.poll(() => other.evaluate(() => {
+        const wanted = [/current plan/i, /\$10\.00/, /per month|\/\s?month|monthly/i];
+        return Array.from(document.querySelectorAll('body *')).some((node) => {
+          const text = (node as HTMLElement).innerText ?? '';
+          return text.length > 0 && text.length <= 600 && wanted.every((pattern) => pattern.test(text));
+        });
+      }), Boolean, 'portal_plan_not_shown');
+      this.steps.add('portal_plan_shown');
+    } finally { await fresh.close(); }
+  }
+
   async run(): Promise<void> {
     // Before ANY Stripe call, and independently of the app's payment gate: test keys only, the same key and
     // price the local Edge functions were served with, and a loopback stack that answers (runnerPreflight.mjs).
@@ -711,6 +829,8 @@ class SandboxJourney {
       } finally { await fresh.close(); }
       this.steps.add('sign_in_again');
       await this.record(); this.steps.add('next_recording');
+    } else if (this.journey === 'paid_account_kept') {
+      await this.keptOnReturn();
     } else if (this.journey === 'renewal_recovery') {
       let sub = await this.stripe(`subscriptions/${this.subscription}`);
       const firstInvoice = id(sub.latest_invoice);

@@ -102,6 +102,12 @@ export const PHASES = [
     events: ['checkout.session.completed', 'charge.refunded', 'customer.subscription.updated', 'customer.subscription.deleted'],
     proves: 'full refund; the customer uses the balance of the month as Pro; then the membership ends with no second charge; access after the end pending policy',
   }),
+  // J9.a: a returning paid account. Seeded earlier sessions, no takes and no coaching; seeded test-mode proof only.
+  browser('paid_account_kept', ['full'], {
+    requires: ['payment_gate'],
+    events: ['checkout.session.completed'],
+    proves: 'a returning paid account keeps its earlier sessions and Progress, gets no new coaching for them, and sees its $10 monthly plan as current in Manage billing (seeded test-mode proof, not longevity)',
+  }),
   // Outcome 8 (#1822): its own spec, config and mode, but the same disposable local stack, receipt and combined
   // receipt as the branches above, so it is re-validated exactly like them (no separate outside contract).
   browser('paid_value_loop', ['paid_loop'], {
