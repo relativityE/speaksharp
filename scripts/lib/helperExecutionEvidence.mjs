@@ -191,6 +191,7 @@ export const HELPER_CONTRACTS = Object.freeze([{
   // J8 (#1870): the same-account feedback journey's pure rules, through their own unit consumer.
   helperFile:'tests/live/helpers/rwtJ8Journey.ts',testFile:'tests/unit/rwtJ8Journey.test.ts',
   callables:["legSink","legReceipt","legReadback","mergeLegReadback","takeDigest","readTakeDigests","takesReadComplete","takesUnchangedVerdict","writerDrainedVerdict","j8RunnerAdmission",
+    "startPressSnapshot","legStartPressVerdict","j8bFinalSentFeedbackVerdict",
     "J8WriteGate#open","J8WriteGate#close","J8WriteGate#enter","J8WriteGate#settle","J8WriteGate#keysOf"],
 }, {
   // J1.d (#1883): the returning sign-out leg's pure rules, its sign-out recorder, and the browser leg (driven offline, fail-closed).

@@ -10,9 +10,10 @@
  * Receipts stay content-free: verdicts, counts, booleans and non-reversible digests; never ids, transcripts or feedback text.
  */
 import { createHash } from 'node:crypto';
-import { type ReceiptRowSink, classifyInsertBody } from './feedbackDiagnosticRef';
+import { type FeedbackSubmitEvent, type ReceiptRowSink, classifyInsertBody, receivedFeedbackVerdict } from './feedbackDiagnosticRef';
 import { noSessionWriteDecision } from './feedbackNoSessionCleanup';
 import type { ReadbackActionBinding } from './rwtAcceptance';
+import { START_CONTROLS, type StartControl, type StartPressBudget } from './rwtHarnessParity';
 import { type ActionCaptureAttempt, type BindingMissReason, type ReadbackPlan, bindReadbackJourneys } from './rwtOracles';
 
 export const J8_SUITE = 'feedback-association-boundaries-j8';
@@ -158,6 +159,15 @@ export function j8RunnerAdmission(env: Readonly<Record<string, string | undefine
         return { admitted: false, reason: 'the runner admission carries no account-create attempt recorded before the signup' };
     }
     return { admitted: true, lookupRef: attempt.lookupRef, attemptId: attempt.attemptId };
+}
+
+/**
+ * Sam on 27ee1856: under a J8 runner admission only the J8 journey may sign up. Any other test in the J8 spec file refuses before
+ * any page action or signup whenever the admission variable is present at all, even if the runner's title selector were dropped.
+ */
+export const J8_LEGACY_REFUSAL = 'a J8 runner admission is present: only the J8 journey may sign up, so this test sends nothing';
+export function j8AdmissionPresent(env: Readonly<Record<string, string | undefined>>): boolean {
+    return env[J8_ADMISSION_ENV] !== undefined;
 }
 
 /** One leg's evidence window for the readback: its own time window, its own action captures, and fault-leg journeys to drop. */
@@ -320,4 +330,58 @@ export function writerDrainedVerdict(o: { inFlight: number; unresolved: number }
     if (o.inFlight === 0 && o.unresolved === 0) return { status: 'PASS', detail: 'no feedback write was in flight or unresolved when the writer stopped', evidence };
     const parts = [o.inFlight > 0 ? `${o.inFlight} write(s) still in flight` : null, o.unresolved > 0 ? `${o.unresolved} write(s) with an unknown server outcome` : null];
     return { status: 'HOLD', detail: `${parts.filter(Boolean).join(' and ')}; the fence close records any that commit`, evidence };
+}
+
+/** The parity tap's per-control Start presses at one instant (a copy: the tap keeps counting). */
+export type StartPressCounts = Readonly<Record<StartControl, number>>;
+export function startPressSnapshot(byControl: Readonly<Record<StartControl, number>>): StartPressCounts {
+    return Object.freeze(Object.fromEntries(START_CONTROLS.map((c) => [c, byControl[c]])) as Record<StartControl, number>);
+}
+
+/**
+ * One leg's OWN Start presses (Sam, #1926 merge tree: J8.a needs its own zero-Start observation, and J8.b's budget depends on it).
+ * The leg's count is the tap's presses between two snapshots, per control: `from` when the leg's interval begins, `to` when it ends.
+ * `budget: 'none'` (J8.a, No session before any take): PASS only for zero presses. A budget (J8.b's two takes): at least one press,
+ * no more than the total, no control above its own cap. A missing snapshot or an unreadable or negative count is HOLD, never PASS.
+ */
+export function legStartPressVerdict(from: StartPressCounts | null, to: StartPressCounts | null, budget: StartPressBudget | 'none'):
+    { status: 'PASS' | 'FAIL' | 'HOLD'; detail: string; evidence: Record<string, number | string | null> } {
+    if (!from || !to) return { status: 'HOLD', detail: 'the leg\'s Start presses were not counted at both ends of its interval', evidence: { counted: 'no' } };
+    const delta = START_CONTROLS.map((c) => [c, to[c] - from[c]] as const);
+    const cap = budget === 'none' ? 0 : budget.total;
+    const evidence: Record<string, number | string | null> = { ...Object.fromEntries(delta.map(([c, n]) => [`presses:${c}`, n])), cap };
+    if (delta.some(([, n]) => !Number.isSafeInteger(n) || n < 0)) {
+        return { status: 'HOLD', detail: 'the leg\'s Start presses could not be counted', evidence };
+    }
+    const total = delta.reduce((sum, [, n]) => sum + n, 0);
+    evidence.startPresses = total;
+    if (budget === 'none') {
+        return total === 0 ? { status: 'PASS', detail: 'no Start control was pressed in this leg, as it is designed', evidence }
+            : { status: 'FAIL', detail: 'a Start control was pressed in a leg designed to press none', evidence };
+    }
+    if (total === 0) return { status: 'FAIL', detail: 'no Start press was observed in this leg', evidence };
+    const over = delta.filter(([c, n]) => n > (budget.perControl[c] ?? 0)).map(([c]) => c);
+    evidence.overControls = over.join(',') || null;
+    if (total > budget.total) return { status: 'FAIL', detail: 'the leg pressed Start more often than designed', evidence };
+    if (over.length > 0) return { status: 'FAIL', detail: 'a Start control was pressed more often than the leg is designed to press it', evidence };
+    return { status: 'PASS', detail: 'every Start press in this leg fit its designed budget', evidence };
+}
+
+/** At this point a bound, decoded pair proves SENT only. Independent readback must prove RECEIVED. */
+export function j8bFinalSentFeedbackVerdict(
+    events: readonly (FeedbackSubmitEvent & { at: number })[],
+    journeys: readonly string[], submittedAt: number | undefined, through: number | undefined,
+    blindAt: readonly number[], expectedReleaseSha: string,
+) {
+    if (journeys.length !== 1 || !journeys[0] || submittedAt === undefined || through === undefined
+        || !Number.isFinite(submittedAt) || !Number.isFinite(through) || submittedAt > through)
+        return { verdict: 'HOLD' as const, detail: 'the final older-take submit has no unique bound observation window', evidence: {} };
+    const inWindow = (at: number) => at >= submittedAt && at <= through;
+    const windowEvents = events.filter((e) => e.event === 'feedback_submit' && inWindow(e.at));
+    const bound = windowEvents.filter((e) => e.journeyId === journeys[0]);
+    return receivedFeedbackVerdict(bound, {
+        // An unidentified event in this window cannot be dismissed as a known neighboring leg.
+        blindSinceSubmit: blindAt.filter(inWindow).length + windowEvents.filter((e) => !e.journeyId).length,
+        expectedReleaseSha,
+    });
 }
