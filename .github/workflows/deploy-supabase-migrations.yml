@@ -64,6 +64,7 @@ jobs:
     outputs:
       allowed: ${{ steps.policy.outputs.allowed }}
       deploy_edge_functions: ${{ steps.resolve.outputs.deploy_edge_functions }}
+      account_closure_only: ${{ steps.resolve.outputs.account_closure_only }}
     steps:
       - name: Checkout caller commit with comparison history
         uses: actions/checkout@v6
@@ -95,7 +96,7 @@ jobs:
         run: |
           set -euo pipefail
           case "$OPERATION" in
-            edge-functions) ;;
+            edge-functions|account-closure-only) ;;
             migrations|migrations-and-edge-functions|secrets|all)
               confirmation="$(printf '%s' "$CONFIRM_INPUT" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')"
               [ "$confirmation" = 'DEPLOY' ] || { echo '::error::backend mutation confirmation missing BEFORE invalidation'; exit 1; }
@@ -106,7 +107,8 @@ jobs:
           if [ "$EVENT_NAME" = 'workflow_dispatch' ]; then
             case "$OPERATION" in
               edge-functions|migrations-and-edge-functions|all) deploy_edge=true ;;
-              migrations|secrets) deploy_edge=false ;;
+              # account-closure-only never enables the ten-function path; its own job publishes exactly one function.
+              migrations|secrets|account-closure-only) deploy_edge=false ;;
               *) echo "::error::unsupported deployment operation: $OPERATION"; exit 1 ;;
             esac
           elif [ "$EVENT_NAME" = 'push' ]; then
@@ -123,6 +125,12 @@ jobs:
             exit 1
           fi
           echo "deploy_edge_functions=$deploy_edge" >> "$GITHUB_OUTPUT"
+          if [ "$OPERATION" = 'account-closure-only' ]; then
+            [ "$EVENT_NAME" = 'workflow_dispatch' ] && [ "$deploy_edge" = false ] || { echo '::error::account-closure-only must not enable the ten-function path'; exit 1; }
+            echo 'account_closure_only=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'account_closure_only=false' >> "$GITHUB_OUTPUT"
+          fi
 
   verify-t2-database-prerequisites:
     needs: validate-edge-configuration
@@ -141,6 +149,7 @@ jobs:
       - name: Verify reviewed T2 database before authority invalidation
         env:
           DEPLOY_EDGE: ${{ needs.validate-edge-configuration.outputs.deploy_edge_functions }}
+          ACCOUNT_CLOSURE_ONLY: ${{ needs.validate-edge-configuration.outputs.account_closure_only }}
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_ID: ${{ vars.SUPABASE_PROJECT_ID }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
@@ -152,15 +161,21 @@ jobs:
           export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
           unset DB_URL
           bash scripts/assert-db-connectivity-tls.sh
-          case "$DEPLOY_EDGE" in
-            true) node scripts/t2-migration-postflight.mjs verify edge-release ;;
-            false) node scripts/t2-migration-postflight.mjs verify release ;;
-            *) echo '::error::resolved Edge deployment intent unavailable'; exit 1 ;;
-          esac
+          if [ "$ACCOUNT_CLOSURE_ONLY" = true ]; then
+            # The narrow route requires the post-129 ledger with completion OFF and unbound; nothing else qualifies.
+            node scripts/t2-migration-postflight.mjs verify account-closure-release
+          else
+            case "$DEPLOY_EDGE" in
+              true) node scripts/t2-migration-postflight.mjs verify edge-release ;;
+              false) node scripts/t2-migration-postflight.mjs verify release ;;
+              *) echo '::error::resolved Edge deployment intent unavailable'; exit 1 ;;
+            esac
+          fi
 
+  # Authority invalidation is a separate production decision for account-closure-only and never runs on that route.
   invalidate-account-closure-authority:
     needs: [validate-edge-configuration, verify-t2-database-prerequisites]
-    if: ${{ inputs.deploy_production == true && needs.validate-edge-configuration.outputs.allowed == 'true' && needs.verify-t2-database-prerequisites.result == 'success' && (needs.validate-edge-configuration.outputs.deploy_edge_functions == 'true' || inputs.operation != 'edge-functions') }}
+    if: ${{ inputs.deploy_production == true && needs.validate-edge-configuration.outputs.allowed == 'true' && needs.verify-t2-database-prerequisites.result == 'success' && (needs.validate-edge-configuration.outputs.deploy_edge_functions == 'true' || inputs.operation != 'edge-functions') && inputs.operation != 'account-closure-only' }}
     environment: production-db
     runs-on: ubuntu-latest
     timeout-minutes: 2
@@ -223,7 +238,20 @@ jobs:
           bash scripts/assert-db-connectivity-tls.sh
           node scripts/t2-migration-postflight.mjs verify edge-release
 
+      # Release readback (cutover review): record every reviewed function's deployed version BEFORE publication, so the
+      # reconciliation below can show exactly which functions changed even when a later deploy in the list fails.
+      # Metadata only (slug, version, status, updated_at): never source, secrets or environment.
+      - name: Capture Edge function versions before publication
+        run: |
+          set -euo pipefail
+          supabase functions list --project-ref "$SUPABASE_PROJECT_ID" -o json \
+            | jq --arg names "stripe-webhook check-usage-limit create-user observability-smoke attest-session-engine objective-register-source get-ai-suggestions stripe-checkout stripe-billing-portal account-closure" '[($names | split(" "))[] as $n | (map(select(.slug == $n)) | first // null) as $f
+                | {slug: $n, version: ($f.version // null), status: ($f.status // null), updated_at: ($f.updated_at // null)}]' \
+            > "$RUNNER_TEMP/edge-versions-before.json"
+          jq -c '.[]' "$RUNNER_TEMP/edge-versions-before.json"
+
       - name: Deploy Edge Functions
+        id: deploy_edge
         working-directory: backend/supabase
         run: |
           supabase functions deploy stripe-webhook --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt --use-api
@@ -236,6 +264,172 @@ jobs:
           supabase functions deploy stripe-checkout --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt --use-api
           supabase functions deploy stripe-billing-portal --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt --use-api
           supabase functions deploy account-closure --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt --use-api
+
+      # Runs after success AND after a partial failure: the after-versions are reconciled against the before-versions,
+      # function by function, so a release that stopped midway reports exactly which functions are already live.
+      - name: Reconcile Edge function versions after publication
+        if: ${{ always() && steps.deploy_edge.outcome != 'skipped' }}
+        env:
+          DEPLOY_OUTCOME: ${{ steps.deploy_edge.outcome }}
+        run: |
+          set -euo pipefail
+          supabase functions list --project-ref "$SUPABASE_PROJECT_ID" -o json \
+            | jq --arg names "stripe-webhook check-usage-limit create-user observability-smoke attest-session-engine objective-register-source get-ai-suggestions stripe-checkout stripe-billing-portal account-closure" '[($names | split(" "))[] as $n | (map(select(.slug == $n)) | first // null) as $f
+                | {slug: $n, version: ($f.version // null), status: ($f.status // null), updated_at: ($f.updated_at // null)}]' \
+            > "$RUNNER_TEMP/edge-versions-after.json"
+          jq -n --arg outcome "$DEPLOY_OUTCOME" --slurpfile before "$RUNNER_TEMP/edge-versions-before.json" \
+            --slurpfile after "$RUNNER_TEMP/edge-versions-after.json" \
+            '{schemaVersion: 1, deployOutcome: $outcome, functions: [range(0; ($before[0] | length)) as $i
+              | ($before[0][$i]) as $b | ($after[0][$i]) as $a
+              | {slug: $b.slug, before: $b.version, after: $a.version, status: $a.status,
+                 advanced: (($a.version // 0) > ($b.version // 0))}]}
+             | .allAdvanced = ([.functions[].advanced] | all)
+             | .advanced = [.functions[] | select(.advanced) | .slug]
+             | .notAdvanced = [.functions[] | select(.advanced | not) | .slug]' > edge-version-reconciliation.json
+          cat edge-version-reconciliation.json
+          if [ "$DEPLOY_OUTCOME" = success ] && [ "$(jq -r .allAdvanced edge-version-reconciliation.json)" != true ]; then
+            echo "::error::Deploy reported success but these functions did not advance: $(jq -c .notAdvanced edge-version-reconciliation.json)"
+            exit 1
+          fi
+
+      - name: Keep the Edge version reconciliation
+        if: ${{ always() && steps.deploy_edge.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: edge-version-reconciliation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: edge-version-reconciliation.json
+          if-no-files-found: warn
+          retention-days: 1
+
+  # account-closure-only (deletion rollout step 5, plan #1952): publish EXACTLY the account-closure bundle at the exact
+  # SHA, on the post-129 ledger with completion OFF and unbound, and prove that only account-closure advanced. No other
+  # function, no migration, no secrets and no authority invalidation (that write is a separate decision). The
+  # ten-function path above is unchanged.
+  # Approval (PO, 2026-11-23, option 1): no second GitHub reviewer exists (every agent shares one login), so the
+  # approval is the PO's yes recorded in the coordinator's approval thread, and the coordinator dispatches this
+  # operation once at the exact SHA with the confirm phrase. Publication uses the EXISTING production-db environment,
+  # the same main-only gate every production migration apply uses. A job that names a missing environment would
+  # silently create an unprotected one, so this read-only job refuses unless production-db exists and allows main only.
+  require-account-closure-main-gate:
+    needs: [validate-edge-configuration]
+    if: ${{ inputs.deploy_production == true && inputs.operation == 'account-closure-only' && needs.validate-edge-configuration.outputs.account_closure_only == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require the existing production-db environment, restricted to main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          policy="$(gh api "repos/$REPOSITORY/environments/production-db" --jq '.deployment_branch_policy.custom_branch_policies' 2>/dev/null)" \
+            || { echo '::error::environment production-db does not exist; this route never creates an environment'; exit 1; }
+          [ "$policy" = true ] || { echo "::error::production-db is not restricted to selected branches ($policy)"; exit 1; }
+          branches="$(gh api "repos/$REPOSITORY/environments/production-db/deployment-branch-policies" --jq '[.branch_policies[].name]')"
+          jq -e '. == ["main"]' <<< "$branches" >/dev/null \
+            || { echo "::error::production-db must allow main only ($branches)"; exit 1; }
+
+  deploy-account-closure-only:
+    needs: [validate-edge-configuration, verify-t2-database-prerequisites, require-account-closure-main-gate]
+    if: ${{ inputs.deploy_production == true && inputs.operation == 'account-closure-only' && needs.validate-edge-configuration.outputs.allowed == 'true' && needs.validate-edge-configuration.outputs.account_closure_only == 'true' && needs.validate-edge-configuration.outputs.deploy_edge_functions == 'false' && needs.verify-t2-database-prerequisites.result == 'success' && needs.require-account-closure-main-gate.result == 'success' }}
+    environment: production-db
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_ID: ${{ vars.SUPABASE_PROJECT_ID }}
+      # The only function this route may change. Every other deployed function (the FULL roster, not a named list)
+      # must be identical before and after, including no additions or removals.
+      PUBLISHED_FUNCTION: account-closure
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - uses: supabase/setup-cli@v2
+        env:
+          SUPABASE_CLI_GITHUB_TOKEN: ${{ github.token }}
+        with:
+          version: 2.101.0
+
+      - name: Recheck exact green main before account-closure publication
+        env:
+          DEPLOY_PRODUCTION: ${{ inputs.deploy_production }}
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/production-release-policy.mjs authorize
+
+      - name: Recheck the post-129 ledger and completion OFF immediately before publication
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq postgresql-client
+          bash scripts/supabase-pooler-connection.sh "$RUNNER_TEMP/t2-pooler.env"
+          set -a; . "$RUNNER_TEMP/t2-pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          bash scripts/assert-db-connectivity-tls.sh
+          node scripts/t2-migration-postflight.mjs verify account-closure-release
+
+      - name: Capture every function's version before account-closure publication
+        run: |
+          set -euo pipefail
+          [ "$PUBLISHED_FUNCTION" = account-closure ] || { echo '::error::only account-closure may be published on this route'; exit 1; }
+          supabase functions list --project-ref "$SUPABASE_PROJECT_ID" -o json > "$RUNNER_TEMP/functions-before.raw.json"
+          jq -f scripts/edge-roster.jq "$RUNNER_TEMP/functions-before.raw.json" > "$RUNNER_TEMP/account-closure-versions-before.json"
+          # The target must already be deployed with a version: a missing prior target can never count as an advance.
+          jq -e --arg published "$PUBLISHED_FUNCTION" '[.[] | select(.slug == $published)] | length == 1' \
+            "$RUNNER_TEMP/account-closure-versions-before.json" >/dev/null \
+            || { echo '::error::account-closure is not deployed before publication; this route only updates it'; exit 1; }
+          jq -c '.[]' "$RUNNER_TEMP/account-closure-versions-before.json"
+
+      - name: Publish only account-closure
+        id: deploy_account_closure
+        working-directory: backend/supabase
+        run: supabase functions deploy account-closure --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt --use-api
+
+      # After success AND after a failure: account-closure must have advanced on success, and every OTHER function's
+      # version and updated_at must be unchanged either way. A partial or failed publication names what changed.
+      - name: Reconcile versions after account-closure publication
+        if: ${{ always() && steps.deploy_account_closure.outcome != 'skipped' }}
+        env:
+          DEPLOY_OUTCOME: ${{ steps.deploy_account_closure.outcome }}
+        run: |
+          set -euo pipefail
+          supabase functions list --project-ref "$SUPABASE_PROJECT_ID" -o json > "$RUNNER_TEMP/functions-after.raw.json"
+          jq -f scripts/edge-roster.jq "$RUNNER_TEMP/functions-after.raw.json" > "$RUNNER_TEMP/account-closure-versions-after.json"
+          jq -n --arg outcome "$DEPLOY_OUTCOME" --arg published "$PUBLISHED_FUNCTION" \
+            --slurpfile before "$RUNNER_TEMP/account-closure-versions-before.json" \
+            --slurpfile after "$RUNNER_TEMP/account-closure-versions-after.json" \
+            -f scripts/account-closure-reconcile.jq > account-closure-version-reconciliation.json
+          cat account-closure-version-reconciliation.json
+          if [ "$(jq -r .othersUnchanged account-closure-version-reconciliation.json)" != true ]; then
+            echo "::error::functions other than account-closure changed: $(jq -c .changedOthers account-closure-version-reconciliation.json)"
+            exit 1
+          fi
+          if [ "$DEPLOY_OUTCOME" = success ] && [ "$(jq -r .publishedAdvanced account-closure-version-reconciliation.json)" != true ]; then
+            echo '::error::deploy reported success but account-closure did not advance'
+            exit 1
+          fi
+
+      - name: Recheck completion OFF and unbound after publication
+        if: ${{ always() && steps.deploy_account_closure.outcome != 'skipped' }}
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          set -euo pipefail
+          set -a; . "$RUNNER_TEMP/t2-pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          node scripts/t2-migration-postflight.mjs verify account-closure-release
+
+      - name: Keep the account-closure version reconciliation
+        if: ${{ always() && steps.deploy_account_closure.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: account-closure-version-reconciliation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: account-closure-version-reconciliation.json
+          if-no-files-found: warn
+          retention-days: 1
 
   verify-edge-functions:
     needs: [validate-edge-configuration, deploy-edge-functions]
@@ -266,7 +460,7 @@ jobs:
 
   deploy-production-db:
     needs: [validate-edge-configuration, invalidate-account-closure-authority]
-    if: ${{ inputs.deploy_production == true && needs.validate-edge-configuration.outputs.allowed == 'true' && needs.invalidate-account-closure-authority.result == 'success' && inputs.operation != 'edge-functions' }}
+    if: ${{ inputs.deploy_production == true && needs.validate-edge-configuration.outputs.allowed == 'true' && needs.invalidate-account-closure-authority.result == 'success' && inputs.operation != 'edge-functions' && inputs.operation != 'account-closure-only' }}
     environment: production-db
     runs-on: ubuntu-latest
     timeout-minutes: 60
